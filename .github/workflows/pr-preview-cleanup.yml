@@ -1,0 +1,104 @@
+name: pr-preview-cleanup
+# Deletes the Vercel preview deployments for a closed PR's head branch (merged or not).
+#
+# Why: the Vercel-managed Neon integration deletes a preview DB branch when that branch's
+# last Vercel deployment is deleted (DECISION-LEDGER #42). So removing every deployment for
+# the head ref is what actually reclaims the preview Postgres branch.
+#
+# VERCEL_TOKEN is a firia1-team-scoped Vercel token stored as a repo secret. The job uses no
+# actions at all (bash + curl + jq, all preinstalled on ubuntu-latest); if an action is ever
+# added here, pin it by full commit SHA.
+on:
+  pull_request:
+    types: [closed]
+permissions:
+  contents: read
+concurrency:
+  group: pr-preview-cleanup-${{ github.event.pull_request.head.ref }}
+  cancel-in-progress: false
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_PROJECT_ID: prj_3QtPVsgQygpLYRmNq2viKfZKa2sI
+      VERCEL_TEAM_ID: team_A0893l13v6EpYX8nhC6SJVF1
+      BRANCH: ${{ github.event.pull_request.head.ref }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: delete preview deployments for head ref
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${VERCEL_TOKEN:-}" ]; then
+            echo '::notice::VERCEL_TOKEN secret not set; skipping preview cleanup'
+            exit 0
+          fi
+          echo "::add-mask::$VERCEL_TOKEN"
+
+          if [ "$BRANCH" = "main" ]; then
+            echo "::notice::head ref is main; skipping preview cleanup"
+            exit 0
+          fi
+
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          umask 077
+          hdr="$work/auth.hdr"
+          printf 'Authorization: Bearer %s\n' "$VERCEL_TOKEN" > "$hdr"
+
+          api="https://api.vercel.com"
+          list="$api/v6/deployments?projectId=$VERCEL_PROJECT_ID&teamId=$VERCEL_TEAM_ID&limit=100"
+
+          # Page through every deployment of the project, following .pagination.next as &until=.
+          : > "$work/all.ndjson"
+          url="$list"
+          pages=0
+          while [ -n "$url" ]; do
+            pages=$((pages + 1))
+            if [ "$pages" -gt 200 ]; then
+              echo "::error::pagination did not terminate after $((pages - 1)) pages"
+              exit 1
+            fi
+            curl -fsS -H @"$hdr" "$url" > "$work/page.json"
+            jq -c '.deployments[]?' "$work/page.json" >> "$work/all.ndjson"
+            next="$(jq -r '.pagination.next // empty' "$work/page.json")"
+            if [ -n "$next" ]; then url="$list&until=$next"; else url=""; fi
+          done
+
+          # Only this head ref, and never anything targeting production.
+          jq -r --arg branch "$BRANCH" '
+            select(.meta.githubCommitRef == $branch)
+            | select((.target // "preview") != "production")
+            | [.uid, (.url // "-"), (.state // "-")] | @tsv
+          ' "$work/all.ndjson" > "$work/targets.tsv"
+
+          deleted=0
+          failed=0
+          while IFS=$'\t' read -r uid dep_url dep_state; do
+            [ -n "$uid" ] || continue
+            echo "deleting uid=$uid url=$dep_url state=$dep_state"
+            if curl -fsS -X DELETE -H @"$hdr" \
+              "$api/v13/deployments/$uid?teamId=$VERCEL_TEAM_ID" > /dev/null; then
+              deleted=$((deleted + 1))
+            else
+              failed=$((failed + 1))
+              echo "::warning::failed to delete uid=$uid url=$dep_url state=$dep_state"
+            fi
+          done < "$work/targets.tsv"
+
+          {
+            echo "### PR preview cleanup"
+            echo
+            echo "- head ref: \`$BRANCH\`"
+            echo "- deployments scanned: $(wc -l < "$work/all.ndjson" | tr -d ' ') across $pages page(s)"
+            echo "- preview deployments deleted: $deleted"
+            if [ "$failed" -gt 0 ]; then
+              echo "- failed deletions: $failed"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$failed" -gt 0 ]; then
+            exit 1
+          fi
