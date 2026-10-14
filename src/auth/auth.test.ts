@@ -1,0 +1,67 @@
+import { beforeAll, describe, expect, it } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { getMemberships, requireSiteRole, verifyCredentials, Forbidden } from "./core";
+import { seedDemoUsers, SeedRefused, DEMO_SITE_A, DEMO_SITE_B, DEMO_USERS } from "./seed";
+import type { Exec } from "@/domain/transition";
+
+// Test-only passwords, generated per run (never committed values).
+const pw = () => `t-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+const env: Record<string, string> = {
+  APP_DATA_CLASS: "SYNTHETIC",
+  DEMO_DIRECTOR_PASSWORD: pw(), DEMO_COORDINATOR_PASSWORD: pw(), DEMO_FRONT_DESK_PASSWORD: pw(),
+};
+let db: Exec;
+
+beforeAll(async () => {
+  const pg = new PGlite();
+  const dir = join(__dirname, "..", "..", "drizzle");
+  const j = JSON.parse(readFileSync(join(dir, "meta", "_journal.json"), "utf8")) as { entries: { tag: string }[] };
+  for (const e of j.entries) for (const s of readFileSync(join(dir, `${e.tag}.sql`), "utf8").split("--> statement-breakpoint")) if (s.trim()) await pg.exec(s);
+  db = { query: async (sql, params) => ({ rows: (await pg.query(sql, params)).rows as never[] }) };
+  await seedDemoUsers(db, env, { dryRun: false });
+}, 60_000);
+
+describe("seed", () => {
+  it("refuses non-synthetic data class and missing passwords", async () => {
+    await expect(seedDemoUsers(db, { ...env, APP_DATA_CLASS: "REAL" }, { dryRun: true })).rejects.toBeInstanceOf(SeedRefused);
+    await expect(seedDemoUsers(db, { APP_DATA_CLASS: "SYNTHETIC" }, { dryRun: true })).rejects.toThrow(/DEMO_DIRECTOR_PASSWORD/);
+  });
+  it("is idempotent and stores only bcrypt hashes", async () => {
+    await seedDemoUsers(db, env, { dryRun: false });
+    const r = await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.app_user WHERE password_hash LIKE '$2%'", []);
+    expect(r.rows[0].n).toBe(3);
+    const leak = await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.app_user WHERE password_hash = $1", [env.DEMO_DIRECTOR_PASSWORD]);
+    expect(leak.rows[0].n).toBe(0);
+  });
+  it("uses only example.com identities", () => {
+    for (const u of DEMO_USERS) expect(u.email.endsWith("@example.com")).toBe(true);
+  });
+});
+
+describe("credentials + roles from DB", () => {
+  it("accepts the right password, rejects wrong / unknown", async () => {
+    expect(await verifyCredentials(db, "director@example.com", env.DEMO_DIRECTOR_PASSWORD)).toMatchObject({ id: DEMO_USERS[0].id });
+    expect(await verifyCredentials(db, "Director@Example.com", env.DEMO_DIRECTOR_PASSWORD)).not.toBeNull();
+    expect(await verifyCredentials(db, "director@example.com", env.DEMO_COORDINATOR_PASSWORD)).toBeNull();
+    expect(await verifyCredentials(db, "nobody@example.com", "whatever")).toBeNull();
+  });
+  it("roles are read from site_membership and change without re-login", async () => {
+    const coord = DEMO_USERS[1].id;
+    expect(await getMemberships(db, coord)).toEqual([{ siteId: DEMO_SITE_A, role: "COORDINATOR" }]);
+    await expect(requireSiteRole(db, coord, DEMO_SITE_A, ["DIRECTOR"])).rejects.toBeInstanceOf(Forbidden);
+    await db.query("UPDATE ops.site_membership SET role='DIRECTOR' WHERE user_id=$1", [coord]);
+    await expect(requireSiteRole(db, coord, DEMO_SITE_A, ["DIRECTOR"])).resolves.toMatchObject({ role: "DIRECTOR" });
+    await db.query("UPDATE ops.site_membership SET role='COORDINATOR' WHERE user_id=$1", [coord]);
+  });
+  it("other site and signed-out are forbidden; disabled user loses access", async () => {
+    const dir = DEMO_USERS[0].id;
+    await expect(requireSiteRole(db, dir, DEMO_SITE_B, ["DIRECTOR"])).rejects.toBeInstanceOf(Forbidden);
+    await expect(requireSiteRole(db, undefined, DEMO_SITE_A, ["DIRECTOR"])).rejects.toBeInstanceOf(Forbidden);
+    const fd = DEMO_USERS[2].id;
+    await db.query("UPDATE ops.app_user SET disabled_at=now() WHERE id=$1", [fd]);
+    expect(await verifyCredentials(db, "frontdesk@example.com", env.DEMO_FRONT_DESK_PASSWORD)).toBeNull();
+    expect(await getMemberships(db, fd)).toEqual([]);
+  });
+});

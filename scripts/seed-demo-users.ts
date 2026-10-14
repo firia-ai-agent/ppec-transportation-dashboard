@@ -1,0 +1,9 @@
+// Usage: APP_DATA_CLASS=SYNTHETIC pnpm seed:demo-users [--apply]
+// Default is a dry run. Reads DATABASE_URL and DEMO_*_PASSWORD from the environment; never prints them.
+import { getExec } from "../src/auth/exec";
+import { seedDemoUsers } from "../src/auth/seed";
+
+const apply = process.argv.includes("--apply");
+seedDemoUsers(apply ? getExec() : { query: async () => ({ rows: [] }) }, process.env, { dryRun: !apply })
+  .then((r) => { console.log(JSON.stringify(r, null, 2)); process.exit(0); })
+  .catch((e: Error) => { console.error(`seed refused: ${e.message}`); process.exit(1); });

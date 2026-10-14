@@ -35,6 +35,8 @@ See `DATABASES.md`. Rule: prod and preview never share a database branch; `DATAB
 |---|---|---|
 | APP_DATA_CLASS | build and server boot refuse anything but `SYNTHETIC` | `src/lib/env.ts:9-24`, `next.config.ts:5`, `src/instrumentation.ts:4-6` |
 | DEMO_MODE | (nothing yet) demo panel + APIs per ADR-014, from B-15 | — |
+| AUTH_SECRET (secret) | Auth.js JWT signing; `/login` and `/whoami` fail at request time without it (build does not need it) | `src/auth.ts` |
+| DEMO_*_PASSWORD (secret) | only read by `pnpm seed:demo-users` (dry run unless `--apply`); refuses <16 chars or non-SYNTHETIC | `src/auth/seed.ts` |
 
 ## Platform/account settings
 - GitHub: private repo, free plan, **no branch protection/rulesets** (HTTP 403, DECISION-LEDGER governance record). CI is advisory; Veri review is the gate.
