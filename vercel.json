@@ -1,4 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["iad1"]
+  "regions": ["iad1"],
+  "crons": [{ "path": "/api/cron/sweep", "schedule": "* * * * *" }],
+  "functions": {
+    "src/app/api/queues/timer/route.ts": {
+      "experimentalTriggers": [{ "type": "queue/v2beta", "topic": "ppec-timer" }]
+    }
+  }
 }

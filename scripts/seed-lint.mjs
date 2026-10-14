@@ -10,8 +10,11 @@ const EMAIL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})/g;
 const ALLOWED_EMAIL_DOMAINS = new Set(["example.com", "example.org", "example.net"]);
 const PHONE = /\+?1?[-. (]*(\d{3})[-. )]*(\d{3})[-. ]*(\d{4})\b/g;
 
-export function lintText(text, file = "<text>") {
+const UUID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
+export function lintText(raw, file = "<text>") {
   const hits = [];
+  const text = raw.replace(UUID, "<uuid>"); // UUIDs are not phone numbers
   for (const m of text.matchAll(EMAIL)) {
     const d = m[1].toLowerCase();
     if (!ALLOWED_EMAIL_DOMAINS.has(d) && !d.endsWith(".example") && d !== "users.noreply.github.com")

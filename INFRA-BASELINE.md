@@ -10,7 +10,12 @@ Status as of 2026-10-14 ~11:45 ET (PR B-01). Names only, never values. Update in
 | local | developer machine | — | `APP_DATA_CLASS=SYNTHETIC pnpm dev` |
 
 ## Schedules / jobs
-None yet. `vercel.json` has no `crons`. The per-minute `/api/cron/sweep` arrives in B-03 (PR-5) and must fail closed without `CRON_SECRET`. Vercel Cron runs on production only; previews call the sweep from the harness (DECISION-LEDGER #16).
+| What | Where | Schedule | Auth | Since |
+|---|---|---|---|---|
+| Vercel Cron → `GET /api/cron/sweep` | `vercel.json` `crons` | `* * * * *` (ARCHITECTURE §6; needs Pro) | `Authorization: Bearer $CRON_SECRET`, fails closed (401) if unset, <16 chars or wrong (`src/lib/cron-auth.ts`) | B-03 PR (a) |
+| Queue trigger `ppec-timer` → `POST /api/queues/timer` | `vercel.json` `functions.experimentalTriggers` (`queue/v2beta`, Vercel Queues Beta) | on message (delayed wake-ups) | not publicly invocable (Vercel Queues) | B-03 PR (a) |
+
+Vercel Cron runs on **production only**. Previews have no cron: the harness calls `/api/cron/sweep` with the same header (DECISION-LEDGER, previews call the sweep route themselves). Any change to these rows needs an INFRA-TEMP entry if temporary.
 
 ## Build-time DB step
 `pnpm vercel-build` = `node scripts/vercel-db-step.mjs && next build`. Previews migrate their own Neon branch on every build. Production is off unless `MIGRATE_PROD_ON_BUILD=1` and the ref is `main`. The step never prints a URL. See DATABASES.md.
