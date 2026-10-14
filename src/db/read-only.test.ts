@@ -43,6 +43,38 @@ const TX_END_FORMS = [
   "ROLLBACK PREPARED 'ppec-1'", "rollback prepared 'ppec-1'",
   "/* drizzle */ commit -- done\n", "commit /* and chain */", "COMMIT\n\n",
 ];
+/**
+ * Every spelling of `CALL`. A procedure body can `COMMIT` — ending the guard's transaction from the
+ * inside, where no rule in read-only.ts can see it — so the keyword is refused outright, like COMMIT.
+ * Case, padding, newlines, leading and interleaved comments, and the procedure name (bare,
+ * schema-qualified or quoted) are all free: only the first token decides.
+ */
+const CALL_FORMS = [
+  "CALL p()", "call p()", "Call p()", "cAlL p()", "CALL P()",
+  "  CALL p()  ", "CALL   p()", "CALL\tp()", "CALL\np()", "CALL\n p()", "CALL\r\np()",
+  "CALL p();", "call p() ;  ", "CALL p()\n",
+  "/* x */ CALL p()", "cAlL/**/p()", "CALL/**/p()", "CALL /* c */ p()",
+  "-- lead\nCALL p()", "-- lead\rCALL p()", "/* /* nested */ */ CALL p()", "CALL p() -- tail\n",
+  "CALL ops.p()", "call public.refresh_rollup()", "CALL ops.p(1, 'x')",
+  'CALL "p"()', 'CALL ops."my proc"()', 'CALL "ops"."p"()', 'call "P"(1)',
+  "CALL p('a;b--c/*d')", "CALL p($$;--$$)", "CALL p(E'\\';--')",
+  "CALL", "call", "CALL\n",
+];
+/**
+ * The word `call` where it is NOT that keyword: inside a literal, inside a quoted identifier, inside a
+ * comment, or as part of a longer name. `$` and every non-ASCII character continue an identifier in
+ * Postgres, so `call$a$` and `callé` are each ONE name — which is why the keyword's end is checked
+ * against `isIdentCont` and not against a regex `\b`.
+ */
+const CALL_NON_FORMS = [
+  "SELECT 'call'", "SELECT 'CALL p()'", "select 'call' AS c", "SELECT length('call')",
+  "SELECT 1 AS callback", "SELECT callback()", "SELECT ops.call_log()",
+  'SELECT "call" FROM t', 'SELECT "call" AS "CALL" FROM "calls"', 'SELECT 1 AS "CALL"',
+  "-- CALL p()\nSELECT 1", "/* CALL p() */ SELECT 1", "SELECT $$CALL p()$$", "SELECT $tag$CALL$tag$",
+  // Statement-initial, and still not the keyword: a longer identifier, or a quoted one.
+  "callback", "callback()", "calls", "CALLBACK p()", "call$a$", "call$a$()", "callé", "call1",
+  '"call"()', '"CALL" p()',
+];
 /** Savepoint work: it rolls back or forgets part of the transaction, but cannot end it. */
 const SAVEPOINT_FORMS = [
   "SAVEPOINT sp1", "savepoint sp1",
@@ -452,6 +484,34 @@ describe("preview read-only fail-safe (DECISION-LEDGER #43)", () => {
         expect(() => rewriteBeginReadOnly({ text: s }), s).toThrow(/DECISION-LEDGER #43/);
         // Refused whether or not a transaction is open: there is no context in which a caller may end one.
         expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), s).toThrow(ReadOnlyRefusedError);
+      }
+    });
+
+    it("refuses every CALL form: a procedure body can COMMIT where no rule here can see it", () => {
+      for (const s of CALL_FORMS) {
+        expect(() => rewriteBeginReadOnly(s), s).toThrow(ReadOnlyRefusedError);
+        expect(() => rewriteBeginReadOnly({ text: s }), s).toThrow(/DECISION-LEDGER #43/);
+        // Refused whether or not a transaction is open: there is no context in which a CALL is safe.
+        expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), s).toThrow(ReadOnlyRefusedError);
+        // And off previews it is passed through exactly as written: production behaviour is untouched.
+        expect(rewriteBeginReadOnlyForEnv({ VERCEL_ENV: "production" }, s), s).toBe(s);
+      }
+    });
+
+    it("leaves the word `call` alone in a literal, a quoted name, a comment or a longer identifier", () => {
+      for (const s of CALL_NON_FORMS) {
+        expect(rewriteBeginReadOnly(s), s).toBe(s); // untouched, object identity included
+        expect(rewriteBeginReadOnly(s, { inTransaction: true }), s).toBe(s);
+      }
+    });
+
+    it("refuses a CALL hidden among other statements, from either side of the `;`", () => {
+      for (const s of [
+        "SELECT 1; CALL p()", "select 1; call p()", "CALL p(); SELECT 1",
+        "SELECT 1;\nCALL ops.p()", "SELECT '--'; CALL p()", "CALL p(); CALL p()",
+        "SELECT 1 AS x$a$; CALL p(); SELECT 1 AS y$a$",
+      ]) {
+        expect(() => rewriteBeginReadOnly(s), s).toThrow(ReadOnlyRefusedError);
       }
     });
 
