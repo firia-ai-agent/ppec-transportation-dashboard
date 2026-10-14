@@ -2,7 +2,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getMemberships, requireSiteRole, verifyCredentials, Forbidden } from "./core";
+import { getActiveUser, getMemberships, requireSiteRole, requireUser, verifyCredentials, Forbidden } from "./core";
+import { jwtCallback, sessionCallback } from "./callbacks";
+import { encode, decode } from "next-auth/jwt";
 import { seedDemoUsers, SeedRefused, DEMO_SITE_A, DEMO_SITE_B, DEMO_USERS } from "./seed";
 import type { Exec } from "@/domain/transition";
 
@@ -28,6 +30,17 @@ describe("seed", () => {
     await expect(seedDemoUsers(db, { ...env, APP_DATA_CLASS: "REAL" }, { dryRun: true })).rejects.toBeInstanceOf(SeedRefused);
     await expect(seedDemoUsers(db, { APP_DATA_CLASS: "SYNTHETIC" }, { dryRun: true })).rejects.toThrow(/DEMO_DIRECTOR_PASSWORD/);
   });
+  it("re-running does not reset existing passwords unless resetPasswords is set", async () => {
+    const before = (await db.query<{ h: string }>("SELECT password_hash h FROM ops.app_user WHERE email='coordinator@example.com'", [])).rows[0].h;
+    const env2 = { ...env, DEMO_COORDINATOR_PASSWORD: pw() };
+    await seedDemoUsers(db, env2, { dryRun: false });
+    expect((await db.query<{ h: string }>("SELECT password_hash h FROM ops.app_user WHERE email='coordinator@example.com'", [])).rows[0].h).toBe(before);
+    expect(await verifyCredentials(db, "coordinator@example.com", env.DEMO_COORDINATOR_PASSWORD)).not.toBeNull();
+    await seedDemoUsers(db, env2, { dryRun: false, resetPasswords: true });
+    expect(await verifyCredentials(db, "coordinator@example.com", env2.DEMO_COORDINATOR_PASSWORD)).not.toBeNull();
+    expect(await verifyCredentials(db, "coordinator@example.com", env.DEMO_COORDINATOR_PASSWORD)).toBeNull();
+    await seedDemoUsers(db, env, { dryRun: false, resetPasswords: true });
+  });
   it("is idempotent and stores only bcrypt hashes", async () => {
     await seedDemoUsers(db, env, { dryRun: false });
     const r = await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.app_user WHERE password_hash LIKE '$2%'", []);
@@ -40,9 +53,25 @@ describe("seed", () => {
   });
 });
 
+describe("session token carries only uid (ADR-004)", () => {
+  it("jwt callback drops name/email/picture/sub on sign-in and on refresh", () => {
+    const dflt = { name: "SYN Dana Director", email: "director@example.com", picture: "x", sub: "abc" };
+    expect(jwtCallback({ token: dflt, user: { id: "u1" } })).toEqual({ uid: "u1" });
+    expect(jwtCallback({ token: { ...dflt, uid: "u1", iat: 1, exp: 2, jti: "j" } })).toEqual({ uid: "u1" });
+    expect(sessionCallback({ session: { user: { name: "n", email: "e" }, expires: "x" }, token: { uid: "u1" } })).toEqual({ user: { id: "u1" }, expires: "x" });
+  });
+  it("encoded token decodes to uid + standard claims only", async () => {
+    const secret = `test-${pw()}`;
+    const token = jwtCallback({ token: { name: "n", email: "e", picture: "p", sub: "s" }, user: { id: "u1" } });
+    const jwe = await encode({ token, secret, salt: "authjs.session-token", maxAge: 60 });
+    const payload = await decode({ token: jwe, secret, salt: "authjs.session-token" });
+    expect(Object.keys(payload ?? {}).sort()).toEqual(["exp", "iat", "jti", "uid"]);
+  });
+});
+
 describe("credentials + roles from DB", () => {
   it("accepts the right password, rejects wrong / unknown", async () => {
-    expect(await verifyCredentials(db, "director@example.com", env.DEMO_DIRECTOR_PASSWORD)).toMatchObject({ id: DEMO_USERS[0].id });
+    expect(await verifyCredentials(db, "director@example.com", env.DEMO_DIRECTOR_PASSWORD)).toEqual({ id: DEMO_USERS[0].id });
     expect(await verifyCredentials(db, "Director@Example.com", env.DEMO_DIRECTOR_PASSWORD)).not.toBeNull();
     expect(await verifyCredentials(db, "director@example.com", env.DEMO_COORDINATOR_PASSWORD)).toBeNull();
     expect(await verifyCredentials(db, "nobody@example.com", "whatever")).toBeNull();
@@ -63,5 +92,9 @@ describe("credentials + roles from DB", () => {
     await db.query("UPDATE ops.app_user SET disabled_at=now() WHERE id=$1", [fd]);
     expect(await verifyCredentials(db, "frontdesk@example.com", env.DEMO_FRONT_DESK_PASSWORD)).toBeNull();
     expect(await getMemberships(db, fd)).toEqual([]);
+    expect(await getActiveUser(db, fd)).toBeNull(); // /whoami redirects on null
+    await expect(requireUser(db, fd)).rejects.toBeInstanceOf(Forbidden);
+    expect(await getActiveUser(db, "01900000-0000-7000-8000-0000000000ee")).toBeNull(); // deleted / unknown uid
+    expect(await getActiveUser(db, dir)).toMatchObject({ id: dir, displayName: "SYN Dana Director" });
   });
 });

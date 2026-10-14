@@ -3,6 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import { z } from "zod";
 import { verifyCredentials } from "@/auth/core";
 import { getExec } from "@/auth/exec";
+import { jwtCallback, sessionCallback } from "@/auth/callbacks";
 
 const creds = z.object({ email: z.string().email().max(200), password: z.string().min(1).max(200) });
 
@@ -21,13 +22,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    jwt({ token, user }) {
-      if (user?.id) token.uid = user.id;
-      return token;
-    },
-    session({ session, token }) {
-      if (session.user && typeof token.uid === "string") session.user.id = token.uid;
-      return session;
-    },
+    jwt: jwtCallback,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    session: sessionCallback as any,
   },
 });
