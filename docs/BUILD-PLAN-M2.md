@@ -4,7 +4,7 @@
 
 ```
 READER: founder, Firia, Veri, Vera. DECISION IT SERVES: build order + ETAs for the rest of P1 (mock).
-SOURCES: docs/PRD-v1.0.txt §14 (l.1054–1064), §18 (l.1325–1334), §20 backlog (l.1725–1846); docs/BUILD-PLAN.md; docs/LINEAR.md;
+SOURCES: PRD v1.0 (Notion mirror https://app.notion.com/p/3f9ac450cdc181869b84e78d6868b6a7; repo copy docs/PRD-v1.0.txt, same § numbers; l.NNN = line in the repo copy) §14 (l.1054–1064), §18 (l.1325–1334), §20 backlog (l.1725–1846); docs/BUILD-PLAN.md; docs/LINEAR.md;
 Linear team PPE (project "PPEC Transport Dashboard — POC (mock)", 45 issues read 2026-10-14 ~14:00 ET); /workspace M1-PLAN.md; DECISION-LEDGER rows 1–40.
 ```
 
@@ -16,7 +16,11 @@ Linear team PPE (project "PPEC Transport Dashboard — POC (mock)", 45 issues re
 
 ## 1. Assumptions behind the ETAs
 1. All code via Claude Code CLI; Veri gates every PR (review ≈10–20 min, fix round ≈20–40 min); Vera gates every UI PR for taste.
-2. One PR ≈ 60–120 min wall clock end to end (build + checks + Vercel preview + Veri review + one fix round). **Two parallel Claude Code tracks** (A: domain/agent, B: UI/fleet), ≈5–7 merged PRs per working day combined.
+2. One PR ≈ 60–120 min wall clock end to end (build + checks + Vercel preview + Veri review + one fix round). **Three parallel Claude Code tracks** (≈7–9 merged PRs per working day combined), each in its own clone, no shared files without a hand-off:
+   - **Track A — screens:** PPE-21 shell/board/drawer/inbox/exceptions/SSE (#14 onward), then PPE-22 ramp iPad/setup screens (M4 UI), M7 demo-panel UI.
+   - **Track B — domain:** M2 seed slice (PPE-24 part), PPE-17 SIM messaging, PPE-14 identity; then M3 agent (PPE-19, PPE-18), M6 Teams (PPE-16), M8 B-16 (PPE-11), M7 ops backend (PPE-23, PPE-24).
+   - **Track C — fleet + map:** M4 solver (PPE-15) and M5 GPS simulator/routing/map pane (PPE-13, PPE-20, map in PPE-21), starting now in parallel with M2 (deps are B-02 only, LINEAR.md:52–54).
+   - Infra (#9/#10/#18) is a separate owner; Veri gates every PR, Vera gates every UI PR.
 3. Working window 08:00–22:00 ET, every day including the weekend (Oct 17–18) — weekends included (row 49).
 4. Founder directive 14:04 ET: one Neon DB (`ep-divine-brook`), no per-preview branch. Infra PR #18 (previews never migrate or seed; preview DB sessions read-only; cron/queue routes no-op on previews; ledger row 43) **merged to main at bdbba05**; per Firia's decision at 14:15 ET the one-DB switch counts only once Veri verifies #18 on screen (pending). INFRA-BASELINE.md, DATABASES.md and README.md:26 are corrected by the infra track against #18 (pending Veri verification).
 5. OpenRouter key is in Vercel env (ledger row 20) before M3 starts.
@@ -30,12 +34,12 @@ Order follows PRD l.1846 (B-04 → B-07/B-08/B-03 → B-12 → B-09/B-13 → B-1
 | M | Name | Tickets | ATs unlocked (to Veri) | Depends on | Track | ETA done (ET) |
 |---|---|---|---|---|---|---|
 | M2 | Live board + messaging simulation + seed slice (seed slice moved into M2, row 44) | PPE-21 (B-12: shell #14, board SURF-01, drawer SURF-02, inbox SURF-03, exceptions SURF-05, SSE), PPE-17 (B-04 SIM + persona phones + consent), PPE-24 *seed slice only* (§18.1 dataset), PPE-14 (B-07), PPE-43 run 1 | AT-08 (PPE-32), AT-17 (PPE-40), AT-07 board half; TEST-INF-01 run 1 | **Entry gate: infra #18 merged + Veri-verified** (single DB; no seed on previews); B-03 merged. Only TEST-INF-01 run 1 is gated on #10 | A+B | **Thu Oct 15, 18:00** |
-| M3 | Agent (live Claude Sonnet via OpenRouter, zdr:true) | PPE-19 (B-08: gateway, §11.2 tools, policy engine, injection evals), PPE-18 (B-05 mock fixture) | AT-01 (PPE-27), AT-02 (PPE-26), AT-06 (PPE-28), AT-07 (PPE-31), AT-09 (PPE-35), TEST-SEC-01 (PPE-45) | B-03, B-04, B-07, TEST-INF-01 (LINEAR.md:51) | A | **Fri Oct 16, 18:00** |
-| M4 | Vehicles + ramp iPad | PPE-15 (B-09 solver V1–V4), PPE-22 (B-13 ramp iPad SURF-04, dispatcher form, setup/vehicle config) | AT-04 (PPE-25), AT-05 (PPE-30), AT-12 (PPE-34), AT-13 (PPE-36) | B-02, B-12 shell | B | **Fri Oct 16, 20:00** |
-| M5 | Map, GPS simulator, routing/ETA | PPE-13 (B-10 simulator, LocationIngest, faults), PPE-20 (B-11 OSRM fixtures, traffic model, hysteresis), map pane in PPE-21 with MapLibre GL + OpenFreeMap vector tiles (row 50; ledger row 34; demo area 2216 Jog Rd, Greenacres FL, MOCKS-AND-DEMO §1) | AT-03 (PPE-29), AT-10 (PPE-33), AT-11 (PPE-38) | B-02; B-11 needs B-10 | A+B | **Sat Oct 17, 18:00** |
-| M6 | Teams mock + therapist notify | PPE-16 (B-06 Teams panel, cards, 409 race) | AT-14 (PPE-37), AT-18 (PPE-42) | B-02, B-03 (AT-14 does **not** need the agent: NTF-03 overlap detection + ack timer is deterministic, LINEAR.md:86 deps B-03/B-06) | A | **Sat Oct 17, 21:00** |
-| M7 | Ops + demo controls | PPE-23 (B-14 metrics, ROI SURF-07, health SURF-06, EOD), PPE-24 demo panel (reset & seed, replay, fault, restart drill; MOCKS-AND-DEMO §6), 12-step script §18.2 (l.1331) | AT-15 (PPE-39), AT-16 (PPE-41); demo script dry run | B-12; B-10 for replay/faults; B-03 for restart drill | B | **Sun Oct 18, 16:00** |
-| M8 | B-16 hardening | PPE-11 rest: MFA for Credentials, login rate limit/lockout, server-side sign-out, absolute session cap, **encryption** (PRD l.1806 B-16 "MFA, encryption, log scrubber, scanners": AES-GCM field encryption at rest for identity columns, TLS-only, Neon at-rest encryption recorded), secret scanning, log scrubber, dep audit | TEST-SEC-02 (PPE-44, with B-08) | B-01 (M1 login merged) | A (slots between M3–M6 PRs) | **Sun Oct 18, 18:00** |
+| M3 | Agent (live Claude Sonnet via OpenRouter, zdr:true) | PPE-19 (B-08: gateway, §11.2 tools, policy engine, injection evals), PPE-18 (B-05 mock fixture) | AT-01 (PPE-27), AT-02 (PPE-26), AT-06 (PPE-28), AT-07 (PPE-31), AT-09 (PPE-35), TEST-SEC-01 (PPE-45) | B-03, B-04, B-07, TEST-INF-01 (LINEAR.md:51) | B | **Fri Oct 16, 18:00** |
+| M4 | Vehicles + ramp iPad | PPE-15 (B-09 solver V1–V4), PPE-22 (B-13 ramp iPad SURF-04, dispatcher form, setup/vehicle config) | AT-04 (PPE-25), AT-05 (PPE-30), AT-12 (PPE-34), AT-13 (PPE-36) | B-02, B-12 shell | C (solver) + A (ramp/setup screens) | **Fri Oct 16, 20:00** |
+| M5 | Map, GPS simulator, routing/ETA | PPE-13 (B-10 simulator, LocationIngest, faults), PPE-20 (B-11 OSRM fixtures, traffic model, hysteresis), map pane in PPE-21 with MapLibre GL + OpenFreeMap vector tiles (row 50; ledger row 34; demo area 2216 Jog Rd, Greenacres FL, MOCKS-AND-DEMO §1) | AT-03 (PPE-29), AT-10 (PPE-33), AT-11 (PPE-38) | B-02; B-11 needs B-10 | C | **Sat Oct 17, 18:00** |
+| M6 | Teams mock + therapist notify | PPE-16 (B-06 Teams panel, cards, 409 race) | AT-14 (PPE-37), AT-18 (PPE-42) | B-02, B-03 (AT-14 does **not** need the agent: NTF-03 overlap detection + ack timer is deterministic, LINEAR.md:86 deps B-03/B-06) | B | **Sat Oct 17, 21:00** |
+| M7 | Ops + demo controls | PPE-23 (B-14 metrics, ROI SURF-07, health SURF-06, EOD), PPE-24 demo panel (reset & seed, replay, fault, restart drill; MOCKS-AND-DEMO §6), 12-step script §18.2 (l.1331) | AT-15 (PPE-39), AT-16 (PPE-41); demo script dry run | B-12; B-10 for replay/faults; B-03 for restart drill | B (backend) + A (panel UI) | **Sun Oct 18, 16:00** |
+| M8 | B-16 hardening | PPE-11 rest: MFA for Credentials, login rate limit/lockout, server-side sign-out, absolute session cap, **encryption** (PRD l.1806 B-16 "MFA, encryption, log scrubber, scanners": AES-GCM field encryption at rest for identity columns, TLS-only, Neon at-rest encryption recorded), secret scanning, log scrubber, dep audit | TEST-SEC-02 (PPE-44, with B-08) | B-01 (M1 login merged) | B (slots between M3–M6 PRs) | **Sun Oct 18, 18:00** |
 | M9 | Acceptance run | PPE-24 suite + evidence export + **runbook** (PRD l.1801 B-15 "acceptance suite, demo reset/replay, evidence export, runbook"); Veri runs AT-01…18 + TEST-INF-01 final run on release SHA, TEST-SEC-01/02 | all 18 ATs at **PASS (mock)** + TEST-INF-01 | M2–M8 | Veri (+ fixes) | **Mon Oct 19, 18:00** (incl. one fix round) |
 
 ### Per-milestone exit evidence (what Veri checks)
