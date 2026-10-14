@@ -1,7 +1,7 @@
 /**
  * PPEC transportation dashboard: DRAFT Drizzle schema (spec artifact, not yet a migration).
  * Source of truth: PRD v1.0 §6.1 (tables), §6.3 (state machines), §6.4 (authorization), §12 (contracts).
- * Status: PROPOSED (by Firia, 2026-10-14). Typechecked with drizzle-orm 0.45.4 + typescript 5 (see DATA-MODEL.md "Evidence").
+ * Status: SUPERSEDED by src/db/schema.ts (B-02, PPE-10). Kept as the spec artifact; do not edit. Typechecked with drizzle-orm 0.45.4 + typescript 5 (see DATA-MODEL.md "Evidence").
  *
  * Conventions (PRD §6.1, Tokos reuse notes in TOKOS-REUSE.md):
  *  - Two Postgres schemas: `identity` (restricted: legal names, phones, DOB) and `ops` (tokenized).
@@ -450,7 +450,8 @@ export const agentMemory = ops.table("agent_memory", {
 export const job = ops.table("job", {
   id: pk(), siteId: site(), key: text("key").notNull(), kind: text("kind").notNull(), payload: jsonb("payload").notNull(),
   dueAt: timestamp("due_at", { withTimezone: true }).notNull(), state: jobState("state").notNull().default("SCHEDULED"),
-  claimedAt: timestamp("claimed_at", { withTimezone: true }), claimedBy: text("claimed_by"),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }), claimedBy: text("claimed_by"), // audit only
+  claimedUntil: timestamp("claimed_until", { withTimezone: true }), // lease (ADR-001), added in B-02
   firedAt: timestamp("fired_at", { withTimezone: true }), attempts: smallint("attempts").notNull().default(0),
   lastError: text("last_error"), ...audit,
 }, (t) => [uniqueIndex("job_key_live_uq").on(t.key).where(sql`state IN ('SCHEDULED','CLAIMED')`),
