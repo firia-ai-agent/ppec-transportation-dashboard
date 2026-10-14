@@ -103,11 +103,11 @@ State labels are fixed in DESIGN-DIRECTION.md §3 and must be used verbatim.
 - Fault toast: "Stall added to V1 (simulated)." Active fault chip: "Stall · V1 · 3 min" [Clear].
 - Export: "Building evidence file…" → "Evidence ready (2.4 MB)." [Download]
 
-## 6. DEMO banner text (D-1, decided by founder)
-- Banner: **"DEMO · Synthetic data, no real children"**
-- Compact (<768 px): same text, wraps to two lines; never shortened.
-- Screen reader: role="status" once on load: "Demo environment. All data is synthetic."
-- Message suffix: "[DEMO]". Export header: "DEMO · Synthetic data, no real children".
+## 6. DEMO banner text (founder, 2026-10-14 13:18 ET; supersedes D-1 wording; ledger row 40)
+- Banner: **"DEMO"**
+- Compact (<768 px): same text, "DEMO".
+- Screen reader: aria-label "Demo environment" (role="status", announced once on load).
+- Message suffix: "[DEMO]". Export header: "DEMO".
 
 ### 6.1 Source-mode badge labels (D-10, Decided by founder, 2026-10-14 13:15 ET)
 Simulated · Replay · Manual entry · Sandbox · Live. Screen reader: "Source: {label}". Shown on every screen, record and outbound message (NFR-09); spec in DESIGN-DIRECTION §7.1.

@@ -64,7 +64,7 @@ A Teams-style side panel per staff role shows proactive messages and adaptive-ca
 ## 7. 12-step script on the mocks (PRD §18.2)
 | Step | PRD | On this stack |
 |---|---|---|
-| 1 | Reset/seed; banner | Reset button; "DEMO · Synthetic data, no real children" banner always on (D-1, ledger) |
+| 1 | Reset/seed; banner | Reset button; "DEMO" banner always on (ledger row 40, supersedes D-1 text) |
 | 2 | F1 AM self-drop | Type in F1 phone; board updates via SSE (<2 s target, measured) |
 | 3 | F4 sick, ambiguity | Agent asks which child; "both" → both absent |
 | 4 | F3 absence → T1 ≤10 min | Teams mock to T1; ack timer job |
