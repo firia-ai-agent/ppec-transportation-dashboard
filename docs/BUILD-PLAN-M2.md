@@ -1,6 +1,6 @@
 # PPEC Transport Dashboard — build plan M2–M9 (PRD build to AT-01…18 PASS (mock))
 
-**Status: Proposed (Rudy), for founder review.** Nothing here is decided until the founder (via Firia) approves it. Written 2026-10-14 ~14:40 ET at `main` after PR #12/#2.
+**Status: Accepted (Firia relay 2026-10-14 14:08 ET, answers to all 9 founder questions; ledger rows 44–52), except where a line is marked Proposed.** ETAs remain estimates (Unverified). Written 2026-10-14 ~14:40 ET at `main` after PR #12/#2.
 
 ```
 READER: founder, Firia, Veri, Vera. DECISION IT SERVES: build order + ETAs for the rest of P1 (mock).
@@ -17,7 +17,7 @@ Linear team PPE (project "PPEC Transport Dashboard — POC (mock)", 45 issues re
 ## 1. Assumptions behind the ETAs
 1. All code via Claude Code CLI; Veri gates every PR (review ≈10–20 min, fix round ≈20–40 min); Vera gates every UI PR for taste.
 2. One PR ≈ 60–120 min wall clock end to end (build + checks + Vercel preview + Veri review + one fix round). **Two parallel Claude Code tracks** (A: domain/agent, B: UI/fleet), ≈5–7 merged PRs per working day combined.
-3. Working window 08:00–22:00 ET, every day including the weekend (Oct 17–18). If the team only works weekdays, add 2 days to every ETA from M5 on.
+3. Working window 08:00–22:00 ET, every day including the weekend (Oct 17–18) — weekends included (row 49).
 4. Previews share the single Neon DB `ep-divine-brook` (founder 14:04 ET), so no more "Resource provisioning failed" blocks.
 5. OpenRouter key is in Vercel env (ledger row 20) before M3 starts.
 6. ETAs are **estimates, Unverified**; PRD ED figures (l.1725–1809, 109 ED) assume human engineers + live integrations and are not used.
@@ -28,10 +28,10 @@ Order follows PRD l.1846 (B-04 → B-07/B-08/B-03 → B-12 → B-09/B-13 → B-1
 
 | M | Name | Tickets | ATs unlocked (to Veri) | Depends on | Track | ETA done (ET) |
 |---|---|---|---|---|---|---|
-| M2 | Live board + messaging simulation + seed slice | PPE-21 (B-12: shell #14, board SURF-01, drawer SURF-02, inbox SURF-03, exceptions SURF-05, SSE), PPE-17 (B-04 SIM + persona phones + consent), PPE-24 *seed slice only* (§18.1 dataset), PPE-14 (B-07), #10 → PPE-43 run 1 | AT-08 (PPE-32), AT-17 (PPE-40), AT-07 board half; TEST-INF-01 run 1 | B-03 merged; #10 PASS | A+B | **Thu Oct 15, 18:00** |
+| M2 | Live board + messaging simulation + seed slice (seed slice moved into M2, row 44) | PPE-21 (B-12: shell #14, board SURF-01, drawer SURF-02, inbox SURF-03, exceptions SURF-05, SSE), PPE-17 (B-04 SIM + persona phones + consent), PPE-24 *seed slice only* (§18.1 dataset), PPE-14 (B-07), #10 → PPE-43 run 1 | AT-08 (PPE-32), AT-17 (PPE-40), AT-07 board half; TEST-INF-01 run 1 | B-03 merged; #10 PASS | A+B | **Thu Oct 15, 18:00** |
 | M3 | Agent (live Claude Sonnet via OpenRouter, zdr:true) | PPE-19 (B-08: gateway, §11.2 tools, policy engine, injection evals), PPE-18 (B-05 mock fixture) | AT-01 (PPE-27), AT-02 (PPE-26), AT-06 (PPE-28), AT-07 (PPE-31), AT-09 (PPE-35), TEST-SEC-01 (PPE-45) | B-03, B-04, B-07, TEST-INF-01 (LINEAR.md:51) | A | **Fri Oct 16, 18:00** |
 | M4 | Vehicles + ramp iPad | PPE-15 (B-09 solver V1–V4), PPE-22 (B-13 ramp iPad SURF-04, dispatcher form, setup/vehicle config) | AT-04 (PPE-25), AT-05 (PPE-30), AT-12 (PPE-34), AT-13 (PPE-36) | B-02, B-12 shell | B | **Fri Oct 16, 20:00** |
-| M5 | Map, GPS simulator, routing/ETA | PPE-13 (B-10 simulator, LocationIngest, faults), PPE-20 (B-11 OSRM fixtures, traffic model, hysteresis), map pane in PPE-21 (ledger row 34; demo area 2216 Jog Rd, Greenacres FL, MOCKS-AND-DEMO §1) | AT-03 (PPE-29), AT-10 (PPE-33), AT-11 (PPE-38) | B-02; B-11 needs B-10 | A+B | **Sat Oct 17, 18:00** |
+| M5 | Map, GPS simulator, routing/ETA | PPE-13 (B-10 simulator, LocationIngest, faults), PPE-20 (B-11 OSRM fixtures, traffic model, hysteresis), map pane in PPE-21 with MapLibre GL + OpenFreeMap tiles (row 50; ledger row 34; demo area 2216 Jog Rd, Greenacres FL, MOCKS-AND-DEMO §1) | AT-03 (PPE-29), AT-10 (PPE-33), AT-11 (PPE-38) | B-02; B-11 needs B-10 | A+B | **Sat Oct 17, 18:00** |
 | M6 | Teams mock + therapist notify | PPE-16 (B-06 Teams panel, cards, 409 race) | AT-14 (PPE-37), AT-18 (PPE-42) | B-02, B-03, B-08 (agent drafts) | A | **Sat Oct 17, 21:00** |
 | M7 | Ops + demo controls | PPE-23 (B-14 metrics, ROI SURF-07, health SURF-06, EOD), PPE-24 demo panel (reset & seed, replay, fault, restart drill; MOCKS-AND-DEMO §6), 12-step script §18.2 (l.1331) | AT-15 (PPE-39), AT-16 (PPE-41); demo script dry run | B-12; B-10 for replay/faults; B-03 for restart drill | B | **Sun Oct 18, 16:00** |
 | M8 | B-16 hardening | PPE-11 rest: MFA for Credentials, login rate limit/lockout, server-side sign-out, absolute session cap, secret scanning, log scrubber, dep audit | TEST-SEC-02 (PPE-44, with B-08) | B-01 (M1 login merged) | A (slots between M3–M6 PRs) | **Sun Oct 18, 18:00** |
@@ -73,23 +73,25 @@ Order follows PRD l.1846 (B-04 → B-07/B-08/B-03 → B-12 → B-09/B-13 → B-1
 
 ## 4. Risks
 1. **TEST-INF-01 margin** (Veri, #10): worst case 5.00 s vs ≤5 s bar leaves zero margin; a fail triggers ledger row 22 (QStash), which needs founder sign-off. Blocks M3 per LINEAR.md:51.
-2. **One shared DB** (founder 14:04 ET): previews and prod write the same data; a Reset on a preview wipes the prod demo; migrations on an unmerged PR hit prod's schema; concurrent Veri runs on two previews can collide.
+2. **One shared DB** (founder 14:04 ET): previews and prod write the same data; Reset/replay act on the one prod DB by design (row 45), so a Reset during a Veri run wipes it; seed never runs in preview builds; migrations on an unmerged PR hit prod's schema; concurrent Veri runs on two previews can collide.
 3. **Agent scope** (B-08, PRD's biggest item, 14 ED l.1766; overrun risk l.2148): live LLM non-determinism can make AT-06/AT-09 flaky; OpenRouter cost under $100 cap (row 21).
 4. **Review throughput:** ≈35–45 PRs remain; Veri/Vera are the single gate. FAIL rounds today ran ≈1 h each.
-5. **Map tiles/routing free tier:** `NEXT_PUBLIC_MAP_TILE_URL` source not chosen; OSRM fixtures must be pre-baked (no live routing, no *.googleapis.com, TEST-SEC-02).
+5. **Map tiles/routing:** OpenFreeMap public instance has no SLA and may be discontinued without notice (ToS); OSRM fixtures must be pre-baked (no live routing, no *.googleapis.com, TEST-SEC-02).
 6. **Claude Code auth** expired once today and stopped all coding; recurs → plan slips.
 7. **Linear statuses stale** (all Backlog) → founder dashboards misleading until updated.
 
-## 5. Founder decisions needed (nothing deferred silently)
-1. **Seed early:** OK to pull the §18.1 seed slice of B-15 (PPE-24) into M2 so the board isn't empty? (Full demo panel stays in M7.)
-2. **Shared DB safety:** OK to make Reset/Replay/Restart drill **production-only** (or DIRECTOR-only with a confirm on previews), and to forbid destructive migrations in unmerged PRs?
-3. **PASS (mock) bar:** confirm AT-03 "live" traffic delay, AT-18 Teams, and AT-01 SMS pass on mocks only (ADR-016), and that EXP-GRP-01 stays **open** (needs live Twilio, LINEAR.md:94).
-4. **AT-13 procedure:** CA-04 (l.1953) still open; OK to use its default (hold, call all contacts, staff task, no auto-return)?
-5. **Banner wording:** ledger row 40 records "DEMO" only (founder 13:18 ET) as an override of l.1332 "synthetic banner"; Vera's 2nd relay said it was still pending. Confirm row 40 is final.
-6. **Working days:** may agents run Sat–Sun (Oct 17–18)? If not, exit moves to ≈Wed Oct 21.
-7. **Map tiles:** which free tile source (OpenStreetMap-based) is acceptable for the demo?
-8. **B-05 / EXP-GRP-01 effort:** keep B-05 as a mock fixture only (PPE-18) in M3?
-9. **Linear:** may Rudy update PPE statuses (B-01/02/03 → Done-in-part) and add blocking relations matching §2?
+## 5. Founder answers (Firia relay 2026-10-14 14:08 ET)
+| # | Question | Answer | Ledger |
+|---|---|---|---|
+| 1 | Seed early | B-15 §18.1 seed slice moves into M2 (full demo panel stays M7) | 44, Accepted by default (Firia, within founder locks) |
+| 2 | Shared DB safety | Reset and replay act on the one prod DB (synthetic data; founder already decided reset buttons on prod). Seed runs only via the Reset/seed path or a prod build gate, never in preview builds | 45, Decided by founder |
+| 3 | PASS (mock) bar | ATs pass on mocks per the founder mock override (ADR-016); EXP-GRP-01 is **OPEN for the post-POC phase**, not deferred scope | 46, Decided by founder |
+| 4 | AT-13 procedure | CA-04 default (l.1953): hold, call all contacts, staff task, no auto-return (founder accepted the FQ defaults) | 47, Decided by founder |
+| 5 | Banner | Final: exactly "DEMO" everywhere, screen-reader label included (founder 13:18 and 13:30 ET; row 40) | 48, Decided by founder |
+| 6 | Weekends | Included | 49, Accepted by default (Firia, within founder locks) |
+| 7 | Map tiles | MapLibre GL + OpenFreeMap public tiles (OSM data, no key). Attribution required: "OpenFreeMap © OpenMapTiles Data from OpenStreetMap" (MapLibre adds it automatically; keep the attribution control visible). Commercial use allowed; no keys/cookies; offline downloads capped at 3,000 tiles/50 MB, ≤4 parallel requests, unique User-Agent; as-is, no SLA, may be discontinued without notice; Cloudflare CDN; Hungarian law. Sources: https://openfreemap.org/ and https://openfreemap.org/tos/ (ToS "Last Updated: October 14, 2026", read 2026-10-14 ~14:15 ET); OSM data licence ODbL: https://www.openstreetmap.org/copyright | 50, Accepted by default (Firia, within founder locks) |
+| 8 | B-05 | Mock-only (PPE-18) | 51, Accepted by default (Firia, within founder locks) |
+| 9 | Linear | Kept in sync with PRs (statuses + blocking relations per LINEAR.md Deps) | 52, Accepted by default (Firia, within founder locks) |
 
 ## 6. Not in this plan (by PRD, not deferral)
 P2 items B-19/B-20/B-21 (l.1819+, SEC-*, INT-* live connectors, BAA) are outside P1 per PRD §20 and founder locks; listed here so nothing is silent.
