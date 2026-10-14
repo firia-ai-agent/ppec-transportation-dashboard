@@ -1,16 +1,17 @@
 /**
  * /map-preview — the M5 map pane on its own route, so Vera and Veri can walk the
  * §10 map checklist lines (attribution always visible, no violet on the map, positron
- * with the §5.1 water override, reduced-motion camera) before SURF-01 exists.
+ * with the §5.1 water override, reduced-motion camera) before SURF-01 exists. With the
+ * M5 simulator wired in, the trucks now move: a client-side scenario clock replays the
+ * deterministic runs in src/fixtures/replays.ts (PRD §18.2 steps 7–8).
  *
- * Deliberately standalone: no auth, no database, no SSE, no server actions. It renders
- * the committed fixtures in src/fixtures/map.ts, which are Simulated by construction
- * (ADR-015 synthetic-only; NFR-09 source badge below).
+ * Deliberately standalone: no auth, no database, no SSE, no server actions, no sending.
+ * Everything on the page is Simulated by construction (ADR-015 synthetic-only; NFR-09
+ * source badge below), and the notification list is *decisions* only.
  */
 
 import { DemoBanner, SimulatedBadge } from "@/components/demo/DemoBanner";
-import FleetMap from "@/components/map/FleetMap";
-import { MAP_FIXTURE } from "@/fixtures/map";
+import LiveFleetMap from "@/components/map/LiveFleetMap";
 
 export const metadata = { title: "Map preview · PPEC transportation dashboard" };
 
@@ -26,11 +27,15 @@ export default function MapPreviewPage() {
           <SimulatedBadge />
         </div>
         <p style={{ margin: 0, maxWidth: "70ch", font: "400 14px/1.5 system-ui, sans-serif", color: "#475569" }}>
-          Fleet map pane (SURF-01) on committed fixtures: the center at 2216 Jog Rd, four public landmark
-          stops, and V1–V4 across the three GPS freshness tones. Nothing here is live — no database, no
-          GPS feed, no real children or families.
+          Fleet map pane (SURF-01) on committed fixtures: the center at 2216 Jog Rd, public
+          landmark stops, and the M5 GPS simulator driving V1–V3 along ADR-007 route fixtures with
+          injected faults — a stall, a GPS gap, duplicate and out-of-order points, ±40 m jitter, and
+          one unbound device. ETA windows come from the committed route durations and a simulated
+          traffic band; freshness follows the four decided bands (live / aging / stale at 180 s / no
+          signal at 600 s). Nothing here is live — no database, no GPS feed, no messages sent, no
+          real children or families.
         </p>
-        <FleetMap fixture={MAP_FIXTURE} label="Fleet map: simulated vehicles near the PPEC center" />
+        <LiveFleetMap />
       </main>
     </>
   );

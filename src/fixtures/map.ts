@@ -28,6 +28,19 @@ export interface MapStopFixture {
   sourceMode: MapSourceMode;
 }
 
+/**
+ * A stop as the vehicle list shows it: the *published* ETA window (damped by the
+ * notify gate), never a raw minute-precision ETA (PRD §8, COPY-GUIDE l.36).
+ */
+export interface MapVehicleStop {
+  stopId: string;
+  name: string;
+  /** Family code ("F2"); absent for the center drop, which notifies nobody. */
+  familyLabel?: string;
+  status: "arrived" | "passed" | "pending";
+  windowText?: string;
+}
+
 export interface MapVehicleFixture {
   /** Vehicle label used everywhere in the UI: "V1" … "V4" (MOCKS §2). */
   id: string;
@@ -44,6 +57,17 @@ export interface MapVehicleFixture {
   gpsAgeSeconds: number;
   routeId: string;
   sourceMode: MapSourceMode;
+  /**
+   * Live fields, set by the simulated runs on /map-preview and absent from the static
+   * fixture below. They are what turns the still-life into a moving fleet.
+   */
+  stops?: MapVehicleStop[];
+  /** Seconds the vehicle has been reporting speed 0 (§5.1 "Stopped 3 min"). */
+  stoppedSeconds?: number;
+  /** LOC-03: GPS ≥180 s old, so ETA texts are paused for this vehicle. */
+  etaTextSuppressed?: boolean;
+  /** LOC-03: GPS ≥600 s old — a location-loss exception is open. */
+  exceptionRaised?: boolean;
 }
 
 export interface MapRouteFixture {

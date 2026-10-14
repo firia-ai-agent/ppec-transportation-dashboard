@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  HEADING_ICON_ID,
+  headingChevronImage,
   ATTRIBUTION_HTML,
   ATTRIBUTION_TEXT,
   applyPositronOverrides,
@@ -112,7 +114,7 @@ describe("resolveMapStyleUrl (ONE env var, ADR-008)", () => {
     }
   });
 
-  it("uses NEXT_PUBLIC_MAP_STYLE_URL when set, trimmed", () => {
+  it("uses NEXT_PUBLIC_MAP_TILE_URL when set, trimmed", () => {
     expect(resolveMapStyleUrl("  https://tiles.example.test/styles/positron  ")).toBe(
       "https://tiles.example.test/styles/positron",
     );
@@ -234,6 +236,7 @@ describe("our layers (DESIGN-DIRECTION §5.1, §8)", () => {
       MAP_LAYER_IDS.centerPin,
       MAP_LAYER_IDS.centerLabel,
       MAP_LAYER_IDS.vehicleCircle,
+      MAP_LAYER_IDS.vehicleHeading,
       MAP_LAYER_IDS.vehicleLabel,
     ]);
   });
@@ -251,6 +254,38 @@ describe("our layers (DESIGN-DIRECTION §5.1, §8)", () => {
         expect(haystack.toLowerCase()).not.toContain(violet);
       }
     }
+  });
+});
+
+describe("heading marker (DESIGN-DIRECTION §5.1 'Markers')", () => {
+  it("rotates to the vehicle's heading, aligned to the map", () => {
+    const layer = fleetMapLayers().find((l) => l.id === MAP_LAYER_IDS.vehicleHeading);
+    expect(layer?.layout).toMatchObject({
+      "icon-image": HEADING_ICON_ID,
+      "icon-rotate": ["get", "headingDeg"],
+      "icon-rotation-alignment": "map",
+    });
+  });
+
+  it("builds a square RGBA chevron with a white body and an ink edge", () => {
+    const image = headingChevronImage(18);
+    expect(image.width).toBe(18);
+    expect(image.height).toBe(18);
+    expect(image.data).toHaveLength(18 * 18 * 4);
+
+    const pixel = (x: number, y: number) => {
+      const i = (y * 18 + x) * 4;
+      return [image.data[i], image.data[i + 1], image.data[i + 2], image.data[i + 3]];
+    };
+    // Tip at the top (icon-rotate 0 points north), body white, corners transparent.
+    expect(pixel(9, 0)[3]).toBe(255);
+    expect(pixel(8, 16)).toEqual([255, 255, 255, 255]);
+    expect(pixel(0, 0)[3]).toBe(0);
+    expect(pixel(17, 0)[3]).toBe(0);
+  });
+
+  it("is pure: the same size always gives the same bytes", () => {
+    expect(headingChevronImage(12).data).toEqual(headingChevronImage(12).data);
   });
 });
 
@@ -343,7 +378,7 @@ describe("GeoJSON builders", () => {
   it("tags each vehicle with its tone, label and selection", () => {
     const fc = vehiclesGeoJson(
       [
-        { id: "V1", coord: [-80.1, 26.6], gpsAgeSeconds: 12 },
+        { id: "V1", coord: [-80.1, 26.6], gpsAgeSeconds: 12, headingDeg: 2 },
         { id: "V4", coord: [-80.2, 26.7], gpsAgeSeconds: 720 },
       ],
       "V4",
@@ -353,7 +388,10 @@ describe("GeoJSON builders", () => {
       tone: "ok",
       label: "V1 · Live 12 s",
       selected: false,
+      headingDeg: 2,
     });
+    // A vehicle with no heading yet points north rather than breaking the layer.
+    expect(fc.features[1].properties.headingDeg).toBe(0);
     expect(fc.features[1].properties.tone).toBe("crit");
     expect(fc.features[1].properties.selected).toBe(true);
   });

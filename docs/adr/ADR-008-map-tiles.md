@@ -1,11 +1,20 @@
 # ADR-008 Map rendering
 
-**Status: Accepted (supersedes the Proposed OSM-raster version).** Decided 2026-10-14 for M5.
+**Status: Proposed — pending founder sign-off.** Written 2026-10-14 for M5; supersedes the
+earlier Proposed OSM-raster version of this ADR.
+
+> The founder signs off all architecture. DECISION-LEDGER has no row accepting this ADR: row 24
+> records the *env name* `NEXT_PUBLIC_MAP_TILE_URL` only — which this ADR keeps — and the
+> ledger's own rule is "All other decisions in docs/adr are Proposed unless labeled
+> otherwise." The stack described here is built and running behind /map-preview; what is pending
+> is the founder's sign-off, not the code. Two terms in particular need it: accepting the
+> OpenFreeMap ToS (free, as-is, no SLA, may be discontinued without notice) and the attribution
+> obligation that follows from it.
 
 ## Decision
 `maplibre-gl` 6.14.0 (pinned exact, no `react-map-gl` — one `useEffect` is enough), rendering
 **OpenFreeMap vector tiles** with the **`positron`** base style. One env var carries the whole map
-config: **`NEXT_PUBLIC_MAP_STYLE_URL`**, defaulting to `https://tiles.openfreemap.org/styles/positron`
+config: **`NEXT_PUBLIC_MAP_TILE_URL`**, defaulting to `https://tiles.openfreemap.org/styles/positron`
 (`DEFAULT_MAP_STYLE_URL` in `src/components/map/style.ts`; documented in `src/lib/env.ts` and the
 README). It is public, non-secret and browser-only — no app data rides along with a tile request.
 
@@ -17,9 +26,11 @@ Our own layers (planned route, driven route, stops, center pin, trucks) sit on t
 demo violet `#6D28D9` never appears on the map and a test asserts it.
 
 This replaces the earlier proposal (OSM **raster** tiles from `tile.openstreetmap.org` via
-`NEXT_PUBLIC_TILE_URL`, plus `react-map-gl` 8.1.3). The env name in DECISION-LEDGER row 24
-(`NEXT_PUBLIC_MAP_TILE_URL`) is superseded by `NEXT_PUBLIC_MAP_STYLE_URL`: it is a style URL now, not
-a tile template, and there is only one of them.
+`NEXT_PUBLIC_TILE_URL`, plus `react-map-gl` 8.1.3). The env **name** stays exactly the one
+DECISION-LEDGER row 24 records, `NEXT_PUBLIC_MAP_TILE_URL` — only its *value* changed meaning: it
+carries a MapLibre **style** URL, not a raster tile template, and there is only one of them. The
+code resolves it in `resolveMapStyleUrl()` and falls back to `DEFAULT_MAP_STYLE_URL`, the single
+place the positron URL is written.
 
 ## Why
 - **Positron is the quiet style.** Near-monochrome, so trucks, routes and state chips carry all the
@@ -74,7 +85,7 @@ a tile template, and there is only one of them.
   `connect-src`/`img-src`.
 - `maplibre-gl` is a ~900 KB-class dependency; it is only imported by the client `FleetMap` component,
   so it stays out of every other route's bundle.
-- If OpenFreeMap disappears mid-demo: set `NEXT_PUBLIC_MAP_STYLE_URL` to another MapLibre style and
+- If OpenFreeMap disappears mid-demo: set `NEXT_PUBLIC_MAP_TILE_URL` to another MapLibre style and
   redeploy. Nothing else changes.
 
 **Related:** ADR-007 (route geometry from committed OSRM fixtures, no live routing),

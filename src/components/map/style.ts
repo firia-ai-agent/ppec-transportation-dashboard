@@ -4,11 +4,21 @@
  * SOURCE: docs/design/DESIGN-DIRECTION.md §5 / §5.1 (positron overrides, our layer
  * stack, attribution, camera) and §8 (tokens); docs/adr/ADR-008-map-tiles.md.
  *
- * This module is deliberately dependency-free: no `maplibre-gl` import, no DOM, no
- * network, no database. Everything here is a pure function over plain JSON so it can
- * be unit-tested (see style.test.ts). `FleetMap.tsx` is the only place that talks to
- * MapLibre.
+ * This module is deliberately thin: no `maplibre-gl` import, no DOM, no network, no
+ * database. Everything here is a pure function over plain JSON so it can be
+ * unit-tested (see style.test.ts). `FleetMap.tsx` is the only place that talks to
+ * MapLibre. Its one import is the freshness band logic, which lives in
+ * src/domain/location/freshness.ts so the map and the ETA engine can never disagree
+ * about what "stale" means (DECISION-LEDGER row 30).
  */
+
+import {
+  gpsBand,
+  GPS_FRESH_SECONDS,
+  GPS_LOST_SECONDS,
+  GPS_STALE_SECONDS,
+  type GpsBand,
+} from "@/domain/location/freshness";
 
 // ---------------------------------------------------------------------------
 // Tokens (DESIGN-DIRECTION §8). Every value below is a token from that table.
@@ -48,7 +58,7 @@ export const DEMO_VIOLET = "#6D28D9";
 export const DEFAULT_MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
 
 /**
- * The single map config knob: `NEXT_PUBLIC_MAP_STYLE_URL` (ADR-008). Unset, blank or
+ * The single map config knob: `NEXT_PUBLIC_MAP_TILE_URL` (ADR-008). Unset, blank or
  * whitespace-only falls back to OpenFreeMap positron.
  */
 export function resolveMapStyleUrl(raw?: string | null): string {
@@ -166,28 +176,15 @@ export function applyPositronOverrides<T extends StyleLike>(style: T): T {
 }
 
 // ---------------------------------------------------------------------------
-// GPS freshness (DESIGN-DIRECTION §3; MOCKS-AND-DEMO §5)
+// GPS freshness (DESIGN-DIRECTION §3; DECISION-LEDGER row 30)
 // ---------------------------------------------------------------------------
 
-/** Stale band starts here (MOCKS §5, PRD l.456). */
-export const GPS_STALE_SECONDS = 180;
-/** "No signal" band starts here. */
-export const GPS_LOST_SECONDS = 600;
-/** Fresh ("Live") band ends here. */
-export const GPS_FRESH_SECONDS = 60;
-
-/** The four §3 freshness bands. */
-export type GpsBand = "fresh" | "aging" | "stale" | "lost";
+// The bands themselves are domain logic, re-exported here so existing map callers keep
+// one import. `src/domain/location/freshness.ts` is the source of truth.
+export { gpsBand, GPS_FRESH_SECONDS, GPS_LOST_SECONDS, GPS_STALE_SECONDS, type GpsBand };
 
 /** The three map truck tones (§5.1). Aging shares the ok tone; the label differs. */
 export type TruckTone = "ok" | "stale" | "crit";
-
-export function gpsBand(ageSeconds: number): GpsBand {
-  if (ageSeconds >= GPS_LOST_SECONDS) return "lost";
-  if (ageSeconds >= GPS_STALE_SECONDS) return "stale";
-  if (ageSeconds >= GPS_FRESH_SECONDS) return "aging";
-  return "fresh";
-}
 
 export function truckTone(ageSeconds: number): TruckTone {
   const band = gpsBand(ageSeconds);
@@ -272,8 +269,55 @@ export const MAP_LAYER_IDS = {
   centerPin: "ppec-center-pin",
   centerLabel: "ppec-center-label",
   vehicleCircle: "ppec-vehicle-circle",
+  vehicleHeading: "ppec-vehicle-heading",
   vehicleLabel: "ppec-vehicle-label",
 } as const;
+
+/** Image id of the heading chevron, registered with `map.addImage` by FleetMap. */
+export const HEADING_ICON_ID = "ppec-heading-chevron";
+
+/** Side of the heading-chevron image, in px (device pixels at `icon-size` 1). */
+export const HEADING_ICON_SIZE = 18;
+
+/**
+ * The §5.1 marker polish, minus the font problem: a white chevron with a thin ink edge,
+ * drawn as raw RGBA and rotated to the vehicle's heading. An `icon-image` needs no
+ * glyph coverage from the tile server, which a unicode arrow in a `text-field` would,
+ * and it sits on top of the tone disc so direction reads without adding a colour.
+ *
+ * Pure: returns the `{width, height, data}` shape `map.addImage` accepts. Row 0 is the
+ * top of the image, which is the direction `icon-rotate: 0` points (north).
+ */
+export function headingChevronImage(size = HEADING_ICON_SIZE): {
+  width: number;
+  height: number;
+  data: Uint8Array;
+} {
+  const data = new Uint8Array(size * size * 4);
+  const mid = (size - 1) / 2;
+  const put = (x: number, y: number, rgb: [number, number, number], alpha: number): void => {
+    const i = (y * size + x) * 4;
+    data[i] = rgb[0];
+    data[i + 1] = rgb[1];
+    data[i + 2] = rgb[2];
+    data[i + 3] = alpha;
+  };
+  const ink: [number, number, number] = [15, 23, 42]; // MAP_TOKENS.ink
+  const white: [number, number, number] = [255, 255, 255];
+
+  for (let y = 0; y < size; y += 1) {
+    // A triangle pointing up: its half-width grows with y.
+    const halfWidth = (y / (size - 1)) * mid;
+    for (let x = 0; x < size; x += 1) {
+      const dx = Math.abs(x - mid);
+      if (dx > halfWidth + 1) continue;
+      // The outer pixel of each row is the ink edge, the rest is the white body.
+      if (dx > halfWidth - 1) put(x, y, ink, 255);
+      else put(x, y, white, 255);
+    }
+  }
+  return { width: size, height: size, data };
+}
 
 /** The font stack OpenFreeMap serves from its glyphs endpoint. */
 const LABEL_FONT = ["Noto Sans Regular"];
@@ -390,6 +434,21 @@ export function fleetMapLayers(): StyleLayerLike[] {
       },
     },
     {
+      // DESIGN-DIRECTION §5.1 "Markers": rotated to heading, aligned to the map so it
+      // keeps pointing down the road when the map is rotated.
+      id: MAP_LAYER_IDS.vehicleHeading,
+      type: "symbol",
+      source: MAP_SOURCE_IDS.vehicles,
+      layout: {
+        "icon-image": HEADING_ICON_ID,
+        "icon-size": 0.8,
+        "icon-rotate": ["get", "headingDeg"],
+        "icon-rotation-alignment": "map",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+      },
+    },
+    {
       id: MAP_LAYER_IDS.vehicleLabel,
       type: "symbol",
       source: MAP_SOURCE_IDS.vehicles,
@@ -499,6 +558,8 @@ export interface VehicleLike {
   id: string;
   coord: Coord;
   gpsAgeSeconds: number;
+  /** Degrees clockwise from north; drives the §5.1 heading chevron. */
+  headingDeg?: number;
 }
 
 export interface StopLike {
@@ -520,7 +581,13 @@ export function vehiclesGeoJson(
   vehicles: readonly VehicleLike[],
   selectedId?: string | null,
 ): FeatureCollection<
-  PointFeature<{ id: string; tone: TruckTone; label: string; selected: boolean }>
+  PointFeature<{
+    id: string;
+    tone: TruckTone;
+    label: string;
+    selected: boolean;
+    headingDeg: number;
+  }>
 > {
   return {
     type: "FeatureCollection",
@@ -532,6 +599,7 @@ export function vehiclesGeoJson(
         tone: truckTone(v.gpsAgeSeconds),
         label: vehicleMapLabel(v.id, v.gpsAgeSeconds),
         selected: v.id === selectedId,
+        headingDeg: v.headingDeg ?? 0,
       },
     })),
   };
