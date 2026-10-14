@@ -1,0 +1,47 @@
+/* Three columns so "DEMO" stays optically centred in the bar while the §7.1 source chip sits
+   at the trailing end: the chip has a column of its own, so the two can never overlap, and on
+   a narrow screen the empty leading column yields before the text does. */
+.banner {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--layout-demo-banner-height);
+  padding: 0 var(--space-5);
+  background: var(--color-demo-bg);
+  color: var(--color-demo-fg);
+  /* Above everything, including the demo-controls dock (§6.1). */
+  position: relative;
+  z-index: 10;
+}
+
+.demo {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+}
+
+.text {
+  /* Text stays legible at 200% zoom: the bar grows rather than clipping. */
+  line-height: var(--leading-tight);
+}
+
+.source {
+  grid-column: 3;
+  display: flex;
+  justify-content: flex-end;
+  /* The 20 px chip keeps its own white fill on the violet (7.10:1), so the outline reads. */
+  padding: var(--space-1) 0;
+}
+
+@media (max-width: 767px) {
+  .banner {
+    padding: 0 var(--space-4);
+  }
+}
