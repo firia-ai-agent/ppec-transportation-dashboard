@@ -36,6 +36,9 @@ jobs:
           grep -q "APP_DATA_CLASS must be SYNTHETIC" /tmp/neg.log
   secrets:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
