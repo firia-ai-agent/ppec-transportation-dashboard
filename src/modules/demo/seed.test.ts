@@ -3,7 +3,8 @@ import type { Db } from "@/db/exec";
 import { freshDb, SITE } from "@/test/pglite";
 import { PRESERVED_TABLES, RESET_TABLES, SEEDED_TABLES, seedStandardScenario, type SeedResult } from "./seed";
 import {
-  ALLOWED_COORDS, BOARD_CENSUS, CHILDREN, DATE_EXCEPTION, FAMILIES, RUNS, STOPS, VEHICLES, WEEKDAY_RRULE,
+  ALLOWED_COORDS, BOARD_CENSUS, CHILDREN, DATE_EXCEPTION, EXTERNAL_PEOPLE, FAMILIES, RUNS, STOPS, VEHICLES,
+  WEEKDAY_RRULE,
 } from "./fixtures/standard";
 
 const env = { APP_DATA_CLASS: "SYNTHETIC", DEMO_MODE: "1", HMAC_PEPPER: "test-pepper", DATA_KEY: "test-data-key" };
@@ -70,6 +71,28 @@ describe("standard scenario seed (PRD §18.1)", () => {
     expect(n.n).toBe(BOARD_CENSUS);
     // Nine scenario children, the rest are the census pad.
     expect(CHILDREN.filter((c) => !c.censusPad).length).toBe(9);
+  });
+
+  it("carries no surname at all: labels are first name + initial, vault names add the SYN marker (row 31)", async () => {
+    for (const c of CHILDREN) {
+      expect({ key: c.key, label: c.label }).toEqual({ key: c.key, label: `${c.firstName} ${c.lastInitial}.` });
+      expect(c.lastInitial).toMatch(/^[A-Z]$/);
+    }
+    const labels = await rows<{ display_name: string }>("SELECT display_name FROM ops.child_profile");
+    expect(labels.length).toBe(BOARD_CENSUS);
+    for (const l of labels) expect(l.display_name).toMatch(/^[A-Z][a-z]+ [A-Z]\.$/);
+    // The identity vault is the one place a legal name could hide; it holds an initial too.
+    const kids = await rows<{ legal_first_name: string; legal_last_name: string }>(
+      "SELECT legal_first_name, legal_last_name FROM identity.child_identity");
+    for (const k of kids) {
+      expect(k.legal_first_name).toMatch(/^[A-Z][a-z]+$/);
+      expect(k.legal_last_name).toMatch(/^[A-Z]\. \(SYN\)$/);
+    }
+    const adults = await rows<{ legal_name: string }>(`
+      SELECT legal_name FROM identity.guardian_contact
+      UNION ALL SELECT legal_name FROM identity.external_person_identity`);
+    expect(adults.length).toBe(FAMILIES.length + EXTERNAL_PEOPLE.length);
+    for (const a of adults) expect(a.legal_name).toMatch(/^[A-Z][a-z]+ [A-Z]\. \(SYN\)$/);
   });
 
   it("gives every child an AM and a PM leg today; assigned legs are provisional, the pad is scheduled", async () => {

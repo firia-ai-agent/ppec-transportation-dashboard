@@ -3,8 +3,8 @@
  * Data only: no SQL, no clock, no I/O. src/modules/demo/seed.ts turns this into rows.
  *
  * Rules this file must keep (ADR-015, DECISION-LEDGER rows 4, 31):
- *  - Synthetic first names only; the staff-visible label is first name + last initial ("Mia R.").
- *  - Legal names live in the identity vault and carry the SYN marker there.
+ *  - Synthetic first names plus a single last initial. No surname exists in this file at all (row 31):
+ *    the staff-visible label is "Mia R.", and the identity-vault legal name is "Mia R. (SYN)".
  *  - Phones are +1-561-555-01xx; families use 0101–0108 (MOCKS §3), staff-facing externals 0109–0112,
  *    census-pad families 0121–0139.
  *  - Coordinates come only from the MOCKS §1 landmark table; scripts/seed-lint.mjs rejects any other pair.
@@ -49,14 +49,14 @@ export type Need = { category: NeedCategory; value: Record<string, unknown>; sta
 export type Family = {
   key: string;            // "F1" … "F27"
   label: string;          // masked family label on staff screens
-  guardian: { firstName: string; lastName: string; relationship: string; phone: string };
+  guardian: { firstName: string; lastInitial: string; relationship: string; phone: string };
 };
 
 export type Child = {
   key: string;            // "C1" … "C28"
   familyKey: string;
   firstName: string;      // synthetic
-  lastName: string;       // synthetic; only the initial is ever shown (row 31)
+  lastInitial: string;    // one letter; no surname is stored for a child anywhere (row 31)
   label: string;          // "Mia R." — what staff screens show
   dob: string;            // ISO date, synthetic
   /** Landmark pickup/drop stop; null for census-pad children, who arrive with their family. */
@@ -79,11 +79,23 @@ export type Position = {
 export type Layout = { code: string; liftRequired: boolean; positions: Position[] };
 export type Vehicle = { key: string; label: string; providerKey: string; liftEquipped: boolean; layouts: Layout[] };
 export type Provider = { key: string; name: string; dispatchOwnership: "CENTER_FLEET" | "THIRD_PARTY" | "BROKER_NEMT"; dispatcher?: string };
-export type ExternalPerson = { key: string; kind: "THERAPIST" | "PROVIDER_DISPATCHER"; legalName: string; phone: string };
+export type ExternalPerson = {
+  key: string; kind: "THERAPIST" | "PROVIDER_DISPATCHER"; firstName: string; lastInitial: string; phone: string;
+};
 export type Therapist = { key: string; personKey: string; label: string };
 export type TherapySession = { key: string; therapistKey: string; childKey: string; start: string; end: string };
 /** One vehicle run for the day: the children it carries, in stop order. PM reverses the order. */
 export type Run = { key: string; vehicleKey: string; layoutCode: string; childKeys: string[] };
+
+/**
+ * The vault's stand-in for a surname (row 31): a last initial and the SYN marker, never a family name.
+ * Synthetic people have no legal name to protect, so the fixtures hold none — not even behind the
+ * identity schema, where an export or a support query could otherwise surface one.
+ */
+export const synLegalLastName = (lastInitial: string): string => `${lastInitial}. (SYN)`;
+/** Single-column vault legal name: "Alma R. (SYN)". */
+export const synLegalName = (firstName: string, lastInitial: string): string =>
+  `${firstName} ${synLegalLastName(lastInitial)}`;
 
 /* ───────────────────────────── geography (MOCKS §1) ───────────────────────────── */
 
@@ -106,15 +118,15 @@ export const STOPS: Stop[] = [
 /* ───────────────────────────── families and children (PRD l.1327) ───────────────────────────── */
 
 const SCENARIO_FAMILIES: Family[] = [
-  { key: "F1", label: "F1 (Demo)", guardian: { firstName: "Alma", lastName: "Rivera", relationship: "parent", phone: "+1-561-555-0101" } },
-  { key: "F2", label: "F2 (Demo)", guardian: { firstName: "Dara", lastName: "Okafor", relationship: "parent", phone: "+1-561-555-0102" } },
-  { key: "F3", label: "F3 (Demo)", guardian: { firstName: "Rosa", lastName: "Delgado", relationship: "parent", phone: "+1-561-555-0103" } },
+  { key: "F1", label: "F1 (Demo)", guardian: { firstName: "Alma", lastInitial: "R", relationship: "parent", phone: "+1-561-555-0101" } },
+  { key: "F2", label: "F2 (Demo)", guardian: { firstName: "Dara", lastInitial: "O", relationship: "parent", phone: "+1-561-555-0102" } },
+  { key: "F3", label: "F3 (Demo)", guardian: { firstName: "Rosa", lastInitial: "D", relationship: "parent", phone: "+1-561-555-0103" } },
   // F4 is one phone for two children (PRD l.1327 "shared number", AT-06 sibling ambiguity).
-  { key: "F4", label: "F4 (Demo)", guardian: { firstName: "Thuy", lastName: "Nguyen", relationship: "parent", phone: "+1-561-555-0104" } },
-  { key: "F5", label: "F5 (Demo)", guardian: { firstName: "Greta", lastName: "Brandt", relationship: "parent", phone: "+1-561-555-0105" } },
-  { key: "F6", label: "F6 (Demo)", guardian: { firstName: "Marisol", lastName: "Castillo", relationship: "parent", phone: "+1-561-555-0106" } },
-  { key: "F7", label: "F7 (Demo)", guardian: { firstName: "Paula", lastName: "Hartley", relationship: "parent", phone: "+1-561-555-0107" } },
-  { key: "F8", label: "F8 (Demo)", guardian: { firstName: "Lena", lastName: "Varga", relationship: "grandparent", phone: "+1-561-555-0108" } },
+  { key: "F4", label: "F4 (Demo)", guardian: { firstName: "Thuy", lastInitial: "N", relationship: "parent", phone: "+1-561-555-0104" } },
+  { key: "F5", label: "F5 (Demo)", guardian: { firstName: "Greta", lastInitial: "B", relationship: "parent", phone: "+1-561-555-0105" } },
+  { key: "F6", label: "F6 (Demo)", guardian: { firstName: "Marisol", lastInitial: "C", relationship: "parent", phone: "+1-561-555-0106" } },
+  { key: "F7", label: "F7 (Demo)", guardian: { firstName: "Paula", lastInitial: "H", relationship: "parent", phone: "+1-561-555-0107" } },
+  { key: "F8", label: "F8 (Demo)", guardian: { firstName: "Lena", lastInitial: "V", relationship: "grandparent", phone: "+1-561-555-0108" } },
 ];
 
 const FULL_SCOPES: AuthScope[] = [
@@ -126,13 +138,13 @@ const PAD_SCOPES: AuthScope[] = ["RECEIVE_ATTENDANCE_UPDATES", "RECEIVE_CHILD"];
 
 const SCENARIO_CHILDREN: Child[] = [
   {
-    key: "C1", familyKey: "F1", firstName: "Mia", lastName: "Rivera", label: "Mia R.", dob: "2022-03-14",
+    key: "C1", familyKey: "F1", firstName: "Mia", lastInitial: "R", label: "Mia R.", dob: "2022-03-14",
     stopKey: "S1", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:10", pmWindow: "15:55",
     needs: [{ category: "CAR_SEAT_OR_BOOSTER", value: { type: "FORWARD_FACING_CAR_SEAT" }, state: "APPROVED", evidenceRef: "intake/C1" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
-    key: "C2", familyKey: "F2", firstName: "Noah", lastName: "Okafor", label: "Noah O.", dob: "2021-09-02",
+    key: "C2", familyKey: "F2", firstName: "Noah", lastInitial: "O", label: "Noah O.", dob: "2021-09-02",
     stopKey: "S2", mobility: "WC", wcLengthCm: 108, wcWidthCm: 64, securement: "L_TRACK", tether: false,
     amMode: "CENTER", pmMode: "CENTER", amWindow: "06:50", pmWindow: "16:20",
     needs: [
@@ -143,25 +155,25 @@ const SCENARIO_CHILDREN: Child[] = [
     scopes: NO_RECEIVER_SCOPES, censusPad: false,
   },
   {
-    key: "C3", familyKey: "F3", firstName: "Liam", lastName: "Delgado", label: "Liam D.", dob: "2022-01-27",
+    key: "C3", familyKey: "F3", firstName: "Liam", lastInitial: "D", label: "Liam D.", dob: "2022-01-27",
     stopKey: "S3", mobility: "AMB", maxRideMinutes: 45, amMode: "CENTER", pmMode: "CENTER", amWindow: "07:05", pmWindow: "16:05",
     needs: [{ category: "MAX_RIDE_TIME", value: { minutes: 45 }, state: "APPROVED", evidenceRef: "intake/C3" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
-    key: "C4", familyKey: "F4", firstName: "Ava", lastName: "Nguyen", label: "Ava N.", dob: "2020-11-19",
+    key: "C4", familyKey: "F4", firstName: "Ava", lastInitial: "N", label: "Ava N.", dob: "2020-11-19",
     stopKey: "S4", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:25", pmWindow: "15:40",
     needs: [{ category: "CAR_SEAT_OR_BOOSTER", value: { type: "BOOSTER" }, state: "APPROVED", evidenceRef: "intake/C4" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
-    key: "C5", familyKey: "F4", firstName: "Eli", lastName: "Nguyen", label: "Eli N.", dob: "2022-06-08",
+    key: "C5", familyKey: "F4", firstName: "Eli", lastInitial: "N", label: "Eli N.", dob: "2022-06-08",
     stopKey: "S4", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:25", pmWindow: "15:40",
     needs: [{ category: "CAR_SEAT_OR_BOOSTER", value: { type: "REAR_FACING_CAR_SEAT" }, state: "APPROVED", evidenceRef: "intake/C5" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
-    key: "C6", familyKey: "F5", firstName: "Zoe", lastName: "Brandt", label: "Zoe B.", dob: "2021-04-30",
+    key: "C6", familyKey: "F5", firstName: "Zoe", lastInitial: "B", label: "Zoe B.", dob: "2021-04-30",
     stopKey: "S5", mobility: "WC", wcLengthCm: 128, wcWidthCm: 70, securement: "FOUR_POINT_STRAP", tether: true,
     escortRequired: true, amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "06:45", pmWindow: "16:15",
     needs: [
@@ -176,18 +188,18 @@ const SCENARIO_CHILDREN: Child[] = [
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
-    key: "C7", familyKey: "F6", firstName: "Owen", lastName: "Castillo", label: "Owen C.", dob: "2021-12-05",
+    key: "C7", familyKey: "F6", firstName: "Owen", lastInitial: "C", label: "Owen C.", dob: "2021-12-05",
     stopKey: "S6", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:00", pmWindow: "16:00",
     needs: [{ category: "HARNESS_OR_VEST", value: { type: "VEST" }, state: "APPROVED", evidenceRef: "intake/C7" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
-    key: "C8", familyKey: "F7", firstName: "Ivy", lastName: "Hartley", label: "Ivy H.", dob: "2020-08-21",
+    key: "C8", familyKey: "F7", firstName: "Ivy", lastInitial: "H", label: "Ivy H.", dob: "2020-08-21",
     stopKey: "S7", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:15", pmWindow: "15:45",
     needs: [], scopes: FULL_SCOPES, censusPad: false,
   },
   {
-    key: "C9", familyKey: "F8", firstName: "Theo", lastName: "Varga", label: "Theo V.", dob: "2022-02-11",
+    key: "C9", familyKey: "F8", firstName: "Theo", lastInitial: "V", label: "Theo V.", dob: "2022-02-11",
     stopKey: "S8", mobility: "AMB", amMode: "CENTER", pmMode: "CENTER", amWindow: "07:20", pmWindow: "15:50",
     needs: [], scopes: FULL_SCOPES, censusPad: false,
   },
@@ -198,26 +210,26 @@ const SCENARIO_CHILDREN: Child[] = [
 /** Target board size: SURF-01 is one row per child, so the census is the board row count. */
 export const BOARD_CENSUS = 28;
 
-const PAD_PEOPLE: { first: string; last: string; guardianFirst: string; phone: string; dob: string }[] = [
-  { first: "Ana", last: "Solis", guardianFirst: "Dalia", phone: "+1-561-555-0121", dob: "2021-01-12" },
-  { first: "Beni", last: "Adeyemi", guardianFirst: "Femi", phone: "+1-561-555-0122", dob: "2021-02-23" },
-  { first: "Cleo", last: "Marchetti", guardianFirst: "Rina", phone: "+1-561-555-0123", dob: "2021-03-04" },
-  { first: "Dax", last: "Whitfield", guardianFirst: "Troy", phone: "+1-561-555-0124", dob: "2021-04-15" },
-  { first: "Esme", last: "Larkin", guardianFirst: "Noor", phone: "+1-561-555-0125", dob: "2021-05-26" },
-  { first: "Finn", last: "Okonjo", guardianFirst: "Kofi", phone: "+1-561-555-0126", dob: "2021-06-07" },
-  { first: "Gia", last: "Pereira", guardianFirst: "Celia", phone: "+1-561-555-0127", dob: "2021-07-18" },
-  { first: "Hugo", last: "Vance", guardianFirst: "Brett", phone: "+1-561-555-0128", dob: "2021-08-29" },
-  { first: "Iris", last: "Nakamura", guardianFirst: "Yuki", phone: "+1-561-555-0129", dob: "2021-09-09" },
-  { first: "Jonah", last: "Keller", guardianFirst: "Hanna", phone: "+1-561-555-0130", dob: "2021-10-20" },
-  { first: "Kira", last: "Abbott", guardianFirst: "Dion", phone: "+1-561-555-0131", dob: "2021-11-01" },
-  { first: "Luca", last: "Mendes", guardianFirst: "Paz", phone: "+1-561-555-0132", dob: "2021-12-12" },
-  { first: "Maya", last: "Ferris", guardianFirst: "Vita", phone: "+1-561-555-0133", dob: "2022-01-23" },
-  { first: "Nico", last: "Barrera", guardianFirst: "Rhea", phone: "+1-561-555-0134", dob: "2022-02-03" },
-  { first: "Opal", last: "Trent", guardianFirst: "Tove", phone: "+1-561-555-0135", dob: "2022-03-16" },
-  { first: "Pia", last: "Zuniga", guardianFirst: "Ines", phone: "+1-561-555-0136", dob: "2022-04-27" },
-  { first: "Quinn", last: "Dorsey", guardianFirst: "Mara", phone: "+1-561-555-0137", dob: "2022-05-08" },
-  { first: "Rafa", last: "Iglesias", guardianFirst: "Ravi", phone: "+1-561-555-0138", dob: "2022-06-19" },
-  { first: "Sana", last: "Virk", guardianFirst: "Anya", phone: "+1-561-555-0139", dob: "2022-07-30" },
+const PAD_PEOPLE: { first: string; lastInitial: string; guardianFirst: string; phone: string; dob: string }[] = [
+  { first: "Ana", lastInitial: "S", guardianFirst: "Dalia", phone: "+1-561-555-0121", dob: "2021-01-12" },
+  { first: "Beni", lastInitial: "A", guardianFirst: "Femi", phone: "+1-561-555-0122", dob: "2021-02-23" },
+  { first: "Cleo", lastInitial: "M", guardianFirst: "Rina", phone: "+1-561-555-0123", dob: "2021-03-04" },
+  { first: "Dax", lastInitial: "W", guardianFirst: "Troy", phone: "+1-561-555-0124", dob: "2021-04-15" },
+  { first: "Esme", lastInitial: "L", guardianFirst: "Noor", phone: "+1-561-555-0125", dob: "2021-05-26" },
+  { first: "Finn", lastInitial: "O", guardianFirst: "Kofi", phone: "+1-561-555-0126", dob: "2021-06-07" },
+  { first: "Gia", lastInitial: "P", guardianFirst: "Celia", phone: "+1-561-555-0127", dob: "2021-07-18" },
+  { first: "Hugo", lastInitial: "V", guardianFirst: "Brett", phone: "+1-561-555-0128", dob: "2021-08-29" },
+  { first: "Iris", lastInitial: "N", guardianFirst: "Yuki", phone: "+1-561-555-0129", dob: "2021-09-09" },
+  { first: "Jonah", lastInitial: "K", guardianFirst: "Hanna", phone: "+1-561-555-0130", dob: "2021-10-20" },
+  { first: "Kira", lastInitial: "A", guardianFirst: "Dion", phone: "+1-561-555-0131", dob: "2021-11-01" },
+  { first: "Luca", lastInitial: "M", guardianFirst: "Paz", phone: "+1-561-555-0132", dob: "2021-12-12" },
+  { first: "Maya", lastInitial: "F", guardianFirst: "Vita", phone: "+1-561-555-0133", dob: "2022-01-23" },
+  { first: "Nico", lastInitial: "B", guardianFirst: "Rhea", phone: "+1-561-555-0134", dob: "2022-02-03" },
+  { first: "Opal", lastInitial: "T", guardianFirst: "Tove", phone: "+1-561-555-0135", dob: "2022-03-16" },
+  { first: "Pia", lastInitial: "Z", guardianFirst: "Ines", phone: "+1-561-555-0136", dob: "2022-04-27" },
+  { first: "Quinn", lastInitial: "D", guardianFirst: "Mara", phone: "+1-561-555-0137", dob: "2022-05-08" },
+  { first: "Rafa", lastInitial: "I", guardianFirst: "Ravi", phone: "+1-561-555-0138", dob: "2022-06-19" },
+  { first: "Sana", lastInitial: "V", guardianFirst: "Anya", phone: "+1-561-555-0139", dob: "2022-07-30" },
 ];
 
 const PAD_COUNT = BOARD_CENSUS - SCENARIO_CHILDREN.length;
@@ -225,13 +237,13 @@ const PAD_COUNT = BOARD_CENSUS - SCENARIO_CHILDREN.length;
 const padFamilies: Family[] = PAD_PEOPLE.slice(0, PAD_COUNT).map((p, i) => ({
   key: `F${SCENARIO_FAMILIES.length + i + 1}`,
   label: `F${SCENARIO_FAMILIES.length + i + 1} (Demo)`,
-  guardian: { firstName: p.guardianFirst, lastName: p.last, relationship: "parent", phone: p.phone },
+  guardian: { firstName: p.guardianFirst, lastInitial: p.lastInitial, relationship: "parent", phone: p.phone },
 }));
 
 const padChildren: Child[] = PAD_PEOPLE.slice(0, PAD_COUNT).map((p, i) => ({
   key: `C${SCENARIO_CHILDREN.length + i + 1}`,
   familyKey: padFamilies[i].key,
-  firstName: p.first, lastName: p.last, label: `${p.first} ${p.last[0]}.`, dob: p.dob,
+  firstName: p.first, lastInitial: p.lastInitial, label: `${p.first} ${p.lastInitial}.`, dob: p.dob,
   stopKey: null, mobility: "AMB" as Mobility,
   needs: [], amMode: "FAMILY" as LegMode, pmMode: "FAMILY" as LegMode, amWindow: "08:00", pmWindow: "15:00",
   scopes: PAD_SCOPES, censusPad: true,
@@ -242,11 +254,12 @@ export const CHILDREN: Child[] = [...SCENARIO_CHILDREN, ...padChildren];
 
 /* ───────────────────────── providers, vehicles, layouts (PRD l.1328, MOCKS §2) ───────────────────────── */
 
+/** Staff-facing externals. Same rule as the children: first name + initial, SYN marker in the vault. */
 export const EXTERNAL_PEOPLE: ExternalPerson[] = [
-  { key: "T1", kind: "THERAPIST", legalName: "SYN Tasha Lind", phone: "+1-561-555-0109" },
-  { key: "T2", kind: "THERAPIST", legalName: "SYN Devon Park", phone: "+1-561-555-0110" },
-  { key: "D1", kind: "PROVIDER_DISPATCHER", legalName: "SYN Hal Burke", phone: "+1-561-555-0111" },
-  { key: "D2", kind: "PROVIDER_DISPATCHER", legalName: "SYN Rae Soto", phone: "+1-561-555-0112" },
+  { key: "T1", kind: "THERAPIST", firstName: "Tasha", lastInitial: "L", phone: "+1-561-555-0109" },
+  { key: "T2", kind: "THERAPIST", firstName: "Devon", lastInitial: "P", phone: "+1-561-555-0110" },
+  { key: "D1", kind: "PROVIDER_DISPATCHER", firstName: "Hal", lastInitial: "B", phone: "+1-561-555-0111" },
+  { key: "D2", kind: "PROVIDER_DISPATCHER", firstName: "Rae", lastInitial: "S", phone: "+1-561-555-0112" },
 ];
 
 export const PROVIDERS: Provider[] = [

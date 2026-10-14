@@ -18,7 +18,7 @@ import type { Db, Exec } from "@/db/exec";
 import {
   CHILDREN, DATE_EXCEPTION, EXTERNAL_PEOPLE, FAMILIES, KIND, PROVIDERS, RUNS, SCENARIO_NAME,
   SCENARIO_START_LOCAL, STOPS, THERAPISTS, THERAPY_SESSIONS, VEHICLES, WEEKDAY_RRULE,
-  demoId, type AuthScope, type Child,
+  demoId, synLegalLastName, synLegalName, type AuthScope, type Child,
 } from "./fixtures/standard";
 
 export class SeedRefused extends Error {}
@@ -230,8 +230,9 @@ export async function seedStandardScenario(db: Db, opts: SeedOptions): Promise<S
 
     await insert(tx, "identity.child_identity",
       ["child_token", "site_id", "external_ehr_id", "legal_first_name", "legal_last_name", "dob", "created_by", "updated_by", "source_mode"],
-      // The SYN marker lives in the vault (ADR-015); the staff-visible label is first name + last initial (row 31).
-      CHILDREN.map((c) => [childId(c.key), siteId, `SYN-EHR-${c.key}`, `SYN ${c.firstName}`, c.lastName, c.dob, ...audit]));
+      // No surname exists even here (row 31): the vault holds the last initial plus the SYN marker,
+      // so "Mia R. (SYN)" is the strongest name any identity read can return.
+      CHILDREN.map((c) => [childId(c.key), siteId, `SYN-EHR-${c.key}`, c.firstName, synLegalLastName(c.lastInitial), c.dob, ...audit]));
 
     const scopesOfFamily = (familyKey: string): AuthScope[] =>
       [...new Set(CHILDREN.filter((c) => c.familyKey === familyKey).flatMap((c) => c.scopes))];
@@ -241,7 +242,7 @@ export async function seedStandardScenario(db: Db, opts: SeedOptions): Promise<S
         "created_by", "updated_by", "source_mode"],
       FAMILIES.map((f) => {
         const s = scopesOfFamily(f.key);
-        return [contactId(f.key), siteId, familyId(f.key), `SYN ${f.guardian.firstName} ${f.guardian.lastName}`,
+        return [contactId(f.key), siteId, familyId(f.key), synLegalName(f.guardian.firstName, f.guardian.lastInitial),
           phoneHmac(pepper, f.guardian.phone), sealPhone(dataKey, f.guardian.phone), f.guardian.relationship,
           s.includes("RECEIVE_TRANSPORT_UPDATES") || s.includes("RECEIVE_ATTENDANCE_UPDATES"),
           s.includes("CANCEL_LEG") || s.includes("CHANGE_PICKUP_INSTRUCTIONS"),
@@ -287,7 +288,7 @@ export async function seedStandardScenario(db: Db, opts: SeedOptions): Promise<S
     // 5. Therapists and today's appointments (PRD l.1327: T1 09:30, T2 PM).
     await insert(tx, "identity.external_person_identity",
       ["person_token", "site_id", "kind", "legal_name", "phone_hmac", "phone_enc", "created_by", "updated_by", "source_mode"],
-      EXTERNAL_PEOPLE.map((p) => [personId(p.key), siteId, p.kind, p.legalName,
+      EXTERNAL_PEOPLE.map((p) => [personId(p.key), siteId, p.kind, synLegalName(p.firstName, p.lastInitial),
         phoneHmac(pepper, p.phone), sealPhone(dataKey, p.phone), ...audit]));
     await insert(tx, "ops.therapist", ["id", "site_id", "person_token", "display_name", "created_by", "updated_by", "source_mode"],
       THERAPISTS.map((t) => [therapistId(t.key), siteId, personId(t.personKey), t.label, ...audit]));
