@@ -261,11 +261,11 @@ AWS path: `PgBossScheduler` with pg-boss 12.38.0 (npm, 2026-10-14; supports `sta
 
 | Step | Action | Pass |
 |---|---|---|
-| 0 | Fresh Neon branch `test-inf-01-<date>`; preview deployment D1; scenario clock real-time | branch id + deployment id recorded |
+| 0 | The one database (Neon `main`, `ep-divine-brook`, DECISION-LEDGER row 43; no per-test or per-preview Neon branches); deployment D1; scenario clock real-time; drill rows tagged with a `test-inf-01-<date>` run id | run id + deployment id recorded |
 | 1 | Schedule 50 jobs: due times spread uniformly over now+60 s … now+240 s, 10 of them on the same second, 5 cancelled at random before due | 50 rows SCHEDULED, 5 CANCELED |
 | 2 | **Crash A (consumer crash mid-claim):** fault flag makes the consumer `process.exit(1)` after claiming 3 jobs, before commit | those 3 are re-delivered or swept; each ends DONE exactly once |
 | 3 | **Crash B (redeploy):** promote deployment D2 while ≥20 jobs pending | D1 consumers ack without claiming after D2's marker; D2 re-arm fires them |
-| 4 | **Crash C (database):** restart the Neon compute for the branch (Neon console/API) while ≥10 pending | consumers retry; no duplicates |
+| 4 | **Crash C (database):** restart the Neon compute for `main` (Neon console/API) while ≥10 pending | consumers retry; no duplicates |
 | 5 | **Crash D (lost wake-up):** for 5 jobs, skip `send()` deliberately | cron sweeper fires them; lateness for these is reported separately (expected ≤ 65 s; does not meet ≤5 s → counted against the sweeper path only) |
 | 6 | Collect: `select key, state, fired_at - due_at as late, attempts from ops.job` + an append-only `job_fire_log` (one row per handler execution) | 45 DONE, 5 CANCELED, 0 duplicates in job_fire_log; p100 lateness ≤5 s for steps 1–4 |
 | 7 | Repeat ×3 on different days/times; record Vercel and Neon region, Queues status page | 3/3 runs pass |
