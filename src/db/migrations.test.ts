@@ -13,12 +13,14 @@ const SITE = "00000000-0000-7000-8000-000000000001";
 const ORG = "00000000-0000-7000-8000-000000000002";
 const aud = `'test','test'`;
 
+const applyMigration = async (tag: string) => {
+  const sql = readFileSync(join(dir, `${tag}.sql`), "utf8");
+  for (const stmt of sql.split("--> statement-breakpoint")) if (stmt.trim()) await db.exec(stmt);
+};
+
 beforeAll(async () => {
   db = new PGlite();
-  for (const e of journal.entries) {
-    const sql = readFileSync(join(dir, `${e.tag}.sql`), "utf8");
-    for (const stmt of sql.split("--> statement-breakpoint")) if (stmt.trim()) await db.exec(stmt);
-  }
+  for (const e of journal.entries) await applyMigration(e.tag);
   await db.exec(`INSERT INTO ops.org (id,name,created_by,updated_by) VALUES ('${ORG}','SYN Org',${aud});
     INSERT INTO ops.site (id,org_id,name,depot_lat,depot_lng,created_by,updated_by) VALUES ('${SITE}','${ORG}','SYN Site',26.645352,-80.145541,${aud});`);
 }, 60_000);
@@ -113,5 +115,23 @@ describe("migrations 0000 + 0001 on PGlite", () => {
     expect(del.rows[0]).toEqual({ a: false, b: false });
     const ro = await db.query<{ ok: boolean }>(`SELECT has_table_privilege('readonly','ops.task','INSERT') ok`);
     expect(ro.rows[0].ok).toBe(false);
+  });
+});
+
+// 0004 uses CREATE UNIQUE INDEX IF NOT EXISTS so a retried deploy step (or a hand re-applied migration)
+// is a no-op rather than a duplicate-object error. beforeAll already applied it once in journal order, so
+// re-applying the same file here is the second run.
+describe("0004 thread_counterparty_live_uq re-applies cleanly", () => {
+  const liveUq = () => db.query<{ def: string }>(`SELECT indexdef def FROM pg_indexes
+    WHERE schemaname='ops' AND tablename='conversation_thread' AND indexname='thread_counterparty_live_uq'`);
+  it("runs twice without error and leaves exactly one unchanged index", async () => {
+    const before = await liveUq();
+    expect(before.rows.length).toBe(1);
+    await expect(applyMigration("0004_thread_counterparty_live_uq")).resolves.toBeUndefined();
+    const after = await liveUq();
+    expect(after.rows.map((x) => x.def)).toEqual([before.rows[0].def]);
+    expect(before.rows[0].def).toContain("CREATE UNIQUE INDEX");
+    expect(before.rows[0].def).toMatch(/\(site_id, counterparty_token, channel\)/);
+    expect(before.rows[0].def).toMatch(/WHERE \(state <> 'CLOSED'/);
   });
 });
