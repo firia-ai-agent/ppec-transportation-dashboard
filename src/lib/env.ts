@@ -24,3 +24,23 @@ export function assertBootEnv(env: Record<string, string | undefined>): BootEnv 
   }
   return parsed.data;
 }
+
+/**
+ * True while this deployment runs on synthetic data (ADR-015). Drives the DEMO banner
+ * (DESIGN-DIRECTION §7) and the header source-mode badge (§7.1) so the UI never has to be
+ * told twice which world it is in. Non-throwing on purpose: the hard guard is
+ * `assertBootEnv`, called from next.config.ts, and a render must not be the thing that fails.
+ */
+export function isSyntheticDemo(env: Record<string, string | undefined> = process.env): boolean {
+  return env.APP_DATA_CLASS === "SYNTHETIC";
+}
+
+/**
+ * The `source_mode` the UI stamps on this screen (NFR-09, §7.1). Synthetic deployments are
+ * SIMULATED; anything else is LIVE, which is where the P1 build stops.
+ */
+export function uiSourceMode(
+  env: Record<string, string | undefined> = process.env,
+): "SIMULATED" | "LIVE" {
+  return isSyntheticDemo(env) ? "SIMULATED" : "LIVE";
+}
