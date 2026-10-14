@@ -1,0 +1,20 @@
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  min-height: var(--layout-demo-banner-height);
+  background: var(--color-demo-bg);
+  color: var(--color-demo-fg);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  /* Above everything, including the demo-controls dock (§6.1). */
+  position: relative;
+  z-index: 10;
+}
+
+.text {
+  /* Text stays legible at 200% zoom: the bar grows rather than clipping. */
+  line-height: var(--leading-tight);
+}

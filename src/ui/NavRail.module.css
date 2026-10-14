@@ -1,0 +1,89 @@
+.rail {
+  flex: none;
+  width: var(--layout-rail-wide);
+  padding: var(--space-4) var(--space-3);
+  border-right: var(--border-hairline) solid var(--color-neutral-bg);
+  background: var(--color-surface);
+}
+
+.list {
+  /* §9: 8 px between targets. */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  /* §9: ≥44 px targets. */
+  min-height: var(--target-console);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  color: var(--color-ink);
+  text-decoration: none;
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+  transition: background-color 120ms ease;
+}
+
+.link:hover {
+  background: var(--color-neutral-bg);
+}
+
+.link[aria-current="page"] {
+  background: var(--color-info-bg);
+  color: var(--color-info-fg);
+  font-weight: var(--weight-semibold);
+}
+
+.label {
+  line-height: var(--leading-tight);
+}
+
+/* 768–1279: icon rail. The label stays in the a11y tree (opacity, not display/visibility)
+   and is revealed as a chip beside the icon on hover or keyboard focus. */
+@media (max-width: 1279px) {
+  .rail {
+    width: var(--layout-rail-icon);
+    padding: var(--space-4) var(--space-3);
+  }
+
+  .link {
+    justify-content: center;
+    padding: 0;
+    position: relative;
+  }
+
+  .label {
+    position: absolute;
+    left: calc(100% + var(--space-3));
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 5;
+    padding: var(--space-2) var(--space-3);
+    border: var(--border-hairline) solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-ink);
+    font-size: var(--text-12);
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+  }
+
+  .link:hover .label,
+  .link:focus-visible .label,
+  .link:focus .label {
+    opacity: 1;
+  }
+}
+
+/* <768: the hamburger drawer in MobileNav replaces the rail entirely (§2). */
+@media (max-width: 767px) {
+  .rail {
+    display: none;
+  }
+}
