@@ -2,7 +2,7 @@
 
 ```
 READER: Rudy (strings), Veri (copy check), founder (decisions D-1, D-3, D-8, D-9 in DESIGN-DIRECTION.md §11, decided 2026-10-14 11:39 ET).
-STATUS: Decided: D-1, D-3, D-8, D-9 (founder, 2026-10-14 11:39 ET), D-10 source-mode badge labels (founder, 2026-10-14 13:15 ET), and the banner text change to "DEMO" (founder, 2026-10-14 13:18 ET, ledger row 40; Veri has flagged it against PRD l.1332 "synthetic banner" and the founder is deciding). The rest is Vera's copy direction, not a founder decision.
+STATUS: Decided, nothing pending: D-1, D-3, D-8, D-9 (founder, 2026-10-14 11:39 ET); D-10 source-mode badge labels (founder, 13:15 ET); banner text "DEMO" incl. screen-reader label (founder, 13:18 ET; override of PRD l.1332 confirmed 13:30 ET, ledger row 40). The rest is Vera's copy direction, not a founder decision.
 ```
 
 ## 1. Voice
@@ -103,10 +103,11 @@ State labels are fixed in DESIGN-DIRECTION.md §3 and must be used verbatim.
 - Fault toast: "Stall added to V1 (simulated)." Active fault chip: "Stall · V1 · 3 min" [Clear].
 - Export: "Building evidence file…" → "Evidence ready (2.4 MB)." [Download]
 
-## 6. DEMO banner text (founder, 2026-10-14 13:18 ET; supersedes D-1 wording; ledger row 40)
+## 6. DEMO banner text (founder, 2026-10-14 13:18 ET, confirmed 13:30 ET; supersedes D-1 wording; ledger row 40)
+This is an explicit founder override of PRD §18.2 step 1 "synthetic banner" (l.1332); NFR-09 still met. Dropping "synthetic" is deliberate.
 - Banner: **"DEMO"**
 - Compact (<768 px): same text, "DEMO".
-- Screen reader: aria-label "Demo environment" (role="status", announced once on load).
+- Screen reader: aria-label "DEMO" (role="status", announced once on load).
 - Message suffix: "[DEMO]". Export header: "DEMO".
 
 ### 6.1 Source-mode badge labels (D-10, Decided by founder, 2026-10-14 13:15 ET)

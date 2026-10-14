@@ -2,7 +2,7 @@
 
 ```
 READER: Rudy (build), Veri (verify), founder (decisions D-1 to D-9, §11). DECISION IT SERVES: what the UI looks and behaves like before any UI code is written.
-STATUS: Decided: D-1 to D-9 (founder, 2026-10-14 11:39 ET; D-1 banner text superseded 13:18 ET, ledger row 40) and D-10 (founder, 2026-10-14 13:15 ET), see §11. No decision is still open. The rest of this doc (layouts, references, checklist) is Vera's design direction, not a founder decision.
+STATUS: Decided, nothing pending: D-1 to D-9 (founder, 2026-10-14 11:39 ET); banner text "DEMO" incl. screen-reader label (founder, 13:18 ET; override of PRD l.1332 confirmed 13:30 ET, ledger row 40); D-10 (founder, 13:15 ET). See §11. The rest of this doc (layouts, references, checklist) is Vera's design direction, not a founder decision.
 SOURCE: PRD v1.0 §14 (SURF-01..07), NFR-07 (WCAG 2.1 AA), NFR-09 (DEMO/LIVE banner), MOCKS-AND-DEMO.md, schema-draft.ts enums, ADR-008/014/015.
 COMPANION: COPY-GUIDE.md (words), contrast.py (token ratios; run it, don't trust this table).
 ```
@@ -163,7 +163,7 @@ iPhone-shaped panels (no Apple marks), F1–F8 tabs, family label "F4 · 555-010
 Teams-like (not Teams-branded) side panel with adaptive-card-style approval cards; two-session race shows the "Already decided" state identically to SURF-05.
 
 ## 7. DEMO banner (NFR-09)
-- 32 px full-width bar above everything, `demo-bg #6D28D9` / white text (7.10:1), icon `flask-conical`, text exactly "DEMO" (D-1 as superseded by ledger row 40; COPY-GUIDE §6). Screen reader: aria-label "Demo environment". Not dismissible. Violet is reserved for demo only, so it never reads as a status colour. Printed/exported files and every outbound simulated message carry the same marker. In LIVE (future) the bar becomes a slim neutral "LIVE" chip; the demo violet must never appear in LIVE.
+- 32 px full-width bar above everything, `demo-bg #6D28D9` / white text (7.10:1), icon `flask-conical`, text exactly "DEMO" (D-1 as superseded by ledger row 40; COPY-GUIDE §6). Screen reader: aria-label "DEMO". Not dismissible. Violet is reserved for demo only, so it never reads as a status colour. Printed/exported files and every outbound simulated message carry the same marker. In LIVE (future) the bar becomes a slim neutral "LIVE" chip; the demo violet must never appear in LIVE.
 
 ### 7.1 Source-mode badge (D-10, Decided by founder, 2026-10-14 13:15 ET)
 NFR-09 (PRD l.537–538) requires a source-mode badge on every screen, record and outbound message but leaves its form open. Decided form: an **outlined** chip (1 px `border-strong`, white fill, 12 px text + 14 px icon, height 20 px; 24 px on ramp iPad) so it never reads as a filled state chip. Screen reader: "Source: Simulated".
@@ -240,7 +240,7 @@ Walk each persona at **1280×800, 1024×768 iPad landscape, 820×1180 iPad portr
 All nine recommendations accepted by the founder as written in PR #2. Recorded in docs/DECISION-LEDGER.md rows 29–37; D-10 in row 39 (source: Founder widget answer "Approve as proposed", Vera chat, 2026-10-14 13:15 ET; relay message id not available; timestamp is the reference). Source: Founder widget answer "Accept all 9 of Vera's recommendations", Firia chat, 2026-10-14 11:39 ET; relay message id not available; timestamp is the reference.
 | # | Question | Options | Decision | Owner | Status |
 |---|---|---|---|---|---|
-| D-1 | Banner text: PRD step 1 says "SYNTHETIC DATA", NFR-09 says "DEMO/LIVE" | (A) "DEMO · Synthetic data, no real children" (B) "SYNTHETIC DATA" only | A (meets both) | founder | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia); banner text superseded 2026-10-14 13:18 ET by founder: exactly "DEMO" (ledger row 40) |
+| D-1 | Banner text: PRD step 1 says "SYNTHETIC DATA", NFR-09 says "DEMO/LIVE" | (A) "DEMO · Synthetic data, no real children" (B) "SYNTHETIC DATA" only | A (meets both) | founder | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia); banner text superseded 2026-10-14 13:18 ET by founder: exactly "DEMO" (ledger row 40); explicit founder override of PRD §18.2 step 1 "synthetic banner" (l.1332); NFR-09 still met (confirmed 13:30 ET) |
 | D-2 | GPS freshness bands: PRD 60/600 s vs STALE badge 180 s | (A) four bands as in §3 (B) PRD three bands only | A | founder | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia) |
 | D-3 | Child label on staff screens: first name + last initial (synthetic "SYN-" names) vs token only | (A) first + initial (B) child token | A, matches PRD Teams "first names" | founder | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia) |
 | D-4 | Font: Atkinson Hyperlegible Next vs system UI | A / B | A | founder | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia) |
