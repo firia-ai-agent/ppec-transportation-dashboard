@@ -14,7 +14,7 @@ const bootSchema = z.object({
    * OpenFreeMap positron (`DEFAULT_MAP_STYLE_URL` in src/components/map/style.ts).
    * Validated here only so a typo fails the build rather than the demo.
    */
-  NEXT_PUBLIC_MAP_STYLE_URL: z.url().optional(),
+  NEXT_PUBLIC_MAP_TILE_URL: z.url().optional(),
 });
 
 export type BootEnv = z.infer<typeof bootSchema>;

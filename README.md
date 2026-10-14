@@ -51,7 +51,7 @@ MapLibre GL + **OpenFreeMap vector tiles**, `positron` base style restyled per [
 
 | Env var | Kind | Default | What it does |
 |---|---|---|---|
-| `NEXT_PUBLIC_MAP_STYLE_URL` | public, non-secret | `https://tiles.openfreemap.org/styles/positron` | The only map config knob: the MapLibre style URL for the basemap. Any MapLibre-compatible style works. Validated at boot in `src/lib/env.ts`, resolved in `src/components/map/style.ts`. |
+| `NEXT_PUBLIC_MAP_TILE_URL` | public, non-secret | `https://tiles.openfreemap.org/styles/positron` | The only map config knob: the MapLibre style URL for the basemap. Any MapLibre-compatible style works. Validated at boot in `src/lib/env.ts`, resolved in `src/components/map/style.ts`. |
 
 Walk the pane at `/map-preview` — no sign-in, no database, synthetic fixtures only (`src/fixtures/map.ts`):
 ```
