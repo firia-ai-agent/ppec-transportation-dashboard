@@ -20,7 +20,7 @@ Status as of 2026-10-14 ~13:20 ET (updated in PR #9; first written in PR B-01). 
 Vercel Cron runs on **production only**. Previews have no cron: the harness calls `/api/cron/sweep` with the same header (DECISION-LEDGER, previews call the sweep route themselves). Any change to these rows needs an INFRA-TEMP entry if temporary.
 
 ## Build-time DB step
-**Single DB (DECISION-LEDGER #43):** after PR #18, previews skip migrate and seed and run read-only against Neon `main`; only production from `main` with `MIGRATE_PROD_ON_BUILD=1` migrates. Neon preview branching in integration `icfg_Zyt0C77LtG5UqJhPMeARUPNd`: to be turned off by Firia in the dashboard after #18 merges (the Vercel connector cannot change it). Until then the text below describes the old per-branch setup.
+**Single DB (DECISION-LEDGER #43):** after PR #18, previews skip migrate and seed and run read-only against Neon `main`; only production from `main` with `MIGRATE_PROD_ON_BUILD=1` migrates. Neon preview branching in integration `icfg_Zyt0C77LtG5UqJhPMeARUPNd` was **turned off by Firia** in the dashboard on 2026-10-14 (~2:25 PM ET) after #18 merged (bdbba05); `DATABASE_URL`/`DATABASE_URL_UNPOOLED` now cover Preview with main's values. Deleting the old Neon preview branches is pending (founder email verification in Neon). The per-branch text below is historical.
 
 `pnpm vercel-build` = `node scripts/vercel-db-step.mjs && tsx scripts/vercel-seed.ts && next build`. The demo-user seed runs on preview only and never resets passwords. Previews migrate their own Neon branch on every build. Production is off unless `MIGRATE_PROD_ON_BUILD=1` and the ref is `main`. The step never prints a URL. See DATABASES.md.
 

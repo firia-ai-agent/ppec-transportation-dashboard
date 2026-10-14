@@ -1,6 +1,6 @@
 # Databases (database-lifecycle) — owner: Rudy
 
-> **Single database (DECISION-LEDGER #43, founder 2026-10-14 2:04 PM ET):** PPEC has exactly one database, Neon `main` (`ep-divine-brook-b73452bw`). Neon preview branching is being turned off; previews then use main's `DATABASE_URL`. Safety (PR #18, lands first): only production builds from `main` with `MIGRATE_PROD_ON_BUILD=1` migrate; previews never migrate or seed; preview DB sessions are read-only (`default_transaction_read_only=on`), so a preview with an unmerged schema can only read; cron and queue routes no-op on previews. The preview-branch rows below are historical.
+> **Single database (DECISION-LEDGER #43, founder 2026-10-14 2:04 PM ET):** PPEC has exactly one database, Neon `main` (`ep-divine-brook-b73452bw`). Neon preview branching was turned off 2026-10-14 (~2:25 PM ET); previews use main's `DATABASE_URL`. Old preview branches are awaiting deletion (founder's Neon email verification). Safety (PR #18, lands first): only production builds from `main` with `MIGRATE_PROD_ON_BUILD=1` migrate; previews never migrate or seed; preview DB sessions are read-only (`default_transaction_read_only=on`), so a preview with an unmerged schema can only read; cron and queue routes no-op on previews. The preview-branch rows below are historical.
 
 | DB | Provider / plan | Branch | Used by | Roles | Backups / PITR | Last restore drill |
 |---|---|---|---|---|---|---|
