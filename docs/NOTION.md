@@ -1,7 +1,7 @@
 # Notion mirror
 
 Workspace **Firia**, teamspace **PPEC Transport Dashboard** (id 3f9ac450-cdc1-81b1-97ed-00422fcfa43d), approved by the founder 2026-10-14 as the PPEC Notion home.
-**GitHub is canonical for specs.** Notion mirrors them for reading and is the home for the decision ledger and runbooks. Loaded 2026-10-14 ~11:40 ET from commit f339baa. **Re-read 2026-10-14 ~13:00 ET via the Notion connector:** the root page says "Last synced 12:59 ET from main @ 0b8d4b6"; the Decision ledger page and its entries database hold rows 1–16 (16 rows, matching main). Decisions still in open PRs (rows 17–29 in #3) are listed on **Status: live work** as "Decided, pending merge".
+**GitHub is canonical for specs.** Notion mirrors them for reading and is the home for the decision ledger and runbooks. Loaded 2026-10-14 ~11:40 ET from commit f339baa. **Re-read 2026-10-14 ~13:00 ET via the Notion connector:** the root page says "Last synced 12:59 ET from main @ 0b8d4b6"; the Decision ledger page and its entries database hold rows 1–16 (16 rows, matching main). At that time rows 17–28 were still in PR #3 (merged since, b1df48c) and were listed on **Status: live work** as "Decided, pending merge"; rows 29–40 (#2, #9) and 41–42 (#9) were added later. The Notion mirror needs a re-sync from main.
 
 | Page | Mirrors | URL |
 |---|---|---|
