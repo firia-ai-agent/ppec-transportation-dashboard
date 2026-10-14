@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertBootEnv, BootEnvError, isSyntheticDemo, uiSourceMode } from "./env";
+import { assertBootEnv, BootEnvError, isDemoMode, isSyntheticDemo, showDemoLogins, uiSourceMode } from "./env";
 
 describe("assertBootEnv", () => {
   it("accepts SYNTHETIC", () => {
@@ -27,5 +27,29 @@ describe("isSyntheticDemo / uiSourceMode", () => {
   it.each([undefined, "", "synthetic", "LIVE"])("treats %s as not synthetic", (v) => {
     expect(isSyntheticDemo({ APP_DATA_CLASS: v })).toBe(false);
     expect(uiSourceMode({ APP_DATA_CLASS: v })).toBe("LIVE");
+  });
+});
+
+describe("isDemoMode / showDemoLogins", () => {
+  it("takes exactly \"1\" as on", () => {
+    expect(isDemoMode({ DEMO_MODE: "1" })).toBe(true);
+    for (const v of [undefined, "", "0", "true", "yes", " 1"]) {
+      expect(isDemoMode({ DEMO_MODE: v })).toBe(false);
+    }
+  });
+
+  it("offers the demo logins only with both switches on", () => {
+    expect(showDemoLogins({ DEMO_MODE: "1", APP_DATA_CLASS: "SYNTHETIC" })).toBe(true);
+  });
+
+  // Either half off hides them: a flag left on in a real-data build must show nothing.
+  it.each([
+    { DEMO_MODE: "0", APP_DATA_CLASS: "SYNTHETIC" },
+    { APP_DATA_CLASS: "SYNTHETIC" },
+    { DEMO_MODE: "1", APP_DATA_CLASS: "REAL" },
+    { DEMO_MODE: "1" },
+    {},
+  ])("hides them for %o", (env) => {
+    expect(showDemoLogins(env)).toBe(false);
   });
 });
