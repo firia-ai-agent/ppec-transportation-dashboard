@@ -162,6 +162,17 @@ export const login = {
   errorSummary: "We could not sign you in.",
 } as const;
 
+/**
+ * A URL that matches no page. One line, no apology and no blame (§1), and exactly one way
+ * back, so there is nothing to choose between. The two labels are the words their destinations
+ * already use — the nav item and the sign-in button — so a wording change there carries here.
+ */
+export const notFound = {
+  heading: "This page doesn't exist.",
+  today: nav.today,
+  signIn: login.submit,
+} as const;
+
 /** Developer surface: confirms the signed-in identity against the database. */
 export const whoami = {
   heading: "Signed in",

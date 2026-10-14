@@ -1,0 +1,27 @@
+/*
+ * A mistyped URL lands on the same shell as sign-in: one centred card on the app background,
+ * so a 404 reads as part of the product and not as a framework page. The shell classes are
+ * composed from the sign-in stylesheet rather than copied, so the two cards cannot drift.
+ */
+.page {
+  composes: page from "./login/login.module.css";
+}
+
+.card {
+  composes: card from "./login/login.module.css";
+}
+
+.heading {
+  composes: heading from "./login/login.module.css";
+}
+
+/* Underlined by default (never colour alone) and a full console-sized target (§9). */
+.link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-console);
+  color: var(--color-brand);
+  font-size: var(--text-16);
+  font-weight: var(--weight-medium);
+}
