@@ -1,0 +1,115 @@
+.rail {
+  flex: none;
+  width: var(--layout-rail-wide);
+  background: var(--color-surface);
+}
+
+.panel {
+  height: 100%;
+  padding: var(--space-4) var(--space-3);
+  border-right: var(--border-hairline) solid var(--color-neutral-bg);
+  background: var(--color-surface);
+}
+
+.list {
+  /* §9: 8 px between targets. */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  /* §9: ≥44 px targets. */
+  min-height: var(--target-console);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  color: var(--color-ink);
+  text-decoration: none;
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+  transition: background-color 120ms ease;
+}
+
+.link:hover {
+  background: var(--color-neutral-bg);
+}
+
+.link[aria-current="page"] {
+  background: var(--color-info-bg);
+  color: var(--color-info-fg);
+  font-weight: var(--weight-semibold);
+}
+
+.label {
+  line-height: var(--leading-tight);
+  white-space: nowrap;
+}
+
+/* 768–1279 (§2): the rail keeps a 64 px footprint — the board must not reflow — and the panel
+   inside it expands over the content to the full labelled width on hover or on keyboard focus
+   anywhere inside it. The labels stay in the DOM throughout; they are clipped, not removed. */
+@media (max-width: 1279px) {
+  .rail {
+    width: var(--layout-rail-icon);
+    position: relative;
+    z-index: 10;
+  }
+
+  .panel {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: var(--layout-rail-icon);
+    overflow: hidden;
+    transition: width 120ms ease;
+  }
+
+  .rail:hover .panel,
+  .rail:focus-within .panel {
+    width: var(--layout-rail-wide);
+    /* A hairline is enough separation; the panel is opaque surface over the content. */
+    border-inline-end: var(--border-hairline) solid var(--color-border-strong);
+  }
+
+  /* Collapsed, the icon sits on the rail's centre line; expanded, the row reads icon → label. */
+  .link {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .rail:hover .link,
+  .rail:focus-within .link {
+    justify-content: flex-start;
+    padding: 0 var(--space-4);
+  }
+
+  .label {
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+
+  .rail:hover .label,
+  .rail:focus-within .label {
+    opacity: 1;
+  }
+}
+
+/* §9 reduced motion: the expansion still happens, it just happens at once. globals.css also
+   clears transitions globally; this keeps the rule next to the animation it governs. */
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .label,
+  .link {
+    transition: none;
+  }
+}
+
+/* <768: the hamburger drawer in MobileNav replaces the rail entirely (§2). */
+@media (max-width: 767px) {
+  .rail {
+    display: none;
+  }
+}

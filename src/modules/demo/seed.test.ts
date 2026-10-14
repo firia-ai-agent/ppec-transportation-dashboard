@@ -1,0 +1,324 @@
+import { beforeAll, describe, expect, it } from "vitest";
+import type { Db } from "@/db/exec";
+import { freshDb, SITE } from "@/test/pglite";
+import { PRESERVED_TABLES, RESET_TABLES, SEEDED_TABLES, seedStandardScenario, type SeedResult } from "./seed";
+import {
+  ALLOWED_COORDS, BOARD_CENSUS, CHILDREN, DATE_EXCEPTION, EXTERNAL_PEOPLE, FAMILIES, RUNS, STOPS, VEHICLES,
+  WEEKDAY_RRULE,
+} from "./fixtures/standard";
+
+const env = { APP_DATA_CLASS: "SYNTHETIC", DEMO_MODE: "1", HMAC_PEPPER: "test-pepper", DATA_KEY: "test-data-key" };
+// A Tuesday 13:45 local, so "today" is a weekday and the 06:00 rewind is a real rewind.
+const NOW = new Date("2026-10-13T17:45:00.000Z");
+
+let db: Db;
+let r: SeedResult;
+const one = async <T>(sql: string, params: unknown[] = []) =>
+  (await db.query<T>(sql, params)).rows[0];
+const rows = async <T>(sql: string, params: unknown[] = []) => (await db.query<T>(sql, params)).rows;
+
+beforeAll(async () => {
+  ({ db } = await freshDb());
+  r = await seedStandardScenario(db, { now: NOW, siteId: SITE, env });
+}, 120_000);
+
+describe("standard scenario seed (PRD §18.1)", () => {
+  it("writes the expected number of rows in every table it touches", () => {
+    expect(r.counts).toEqual({
+      "ops.family_group": 27,
+      "ops.child_profile": 28,
+      "ops.contact_authorization": 82,
+      "ops.stop_location": 11,
+      "ops.transport_profile": 28,
+      "ops.transport_need_item": 13,
+      "ops.therapist": 2,
+      "ops.therapy_session": 2,
+      "ops.provider": 3,
+      "ops.vehicle": 4,
+      "ops.vehicle_layout": 6,
+      "ops.layout_position": 23,
+      "ops.vehicle_capability_day": 4,
+      "ops.attendance_plan": 28,
+      "ops.attendance_exception": 1,
+      "ops.attendance_day": 28,
+      "ops.manifest": 6,
+      "ops.trip_leg": 56,
+      "ops.manifest_reservation": 18,
+      "ops.scenario_clock": 1,
+      "ops.event_log": 1,
+      "ops.audit_event": 1,
+      "identity.child_identity": 28,
+      "identity.guardian_contact": 27,
+      "identity.external_person_identity": 4,
+      "identity.consent_event": 27,
+    });
+  });
+
+  it("running twice gives identical row counts and the same ids", async () => {
+    const ids = await rows<{ child_token: string }>("SELECT child_token FROM ops.child_profile ORDER BY child_token");
+    const again = await seedStandardScenario(db, { now: NOW, siteId: SITE, env });
+    expect(again.counts).toEqual(r.counts);
+    expect(await rows("SELECT child_token FROM ops.child_profile ORDER BY child_token")).toEqual(ids);
+    expect(again.serviceDate).toBe(r.serviceDate);
+  }, 120_000);
+
+  it("pads the board to 28 rows: one attendance row per child today", async () => {
+    expect(r.boardRows).toBe(BOARD_CENSUS);
+    expect(CHILDREN.length).toBe(BOARD_CENSUS);
+    const n = await one<{ n: number }>(
+      "SELECT count(*)::int n FROM ops.attendance_day WHERE site_id=$1 AND service_date=$2 AND state='SCHEDULED'",
+      [SITE, r.serviceDate]);
+    expect(n.n).toBe(BOARD_CENSUS);
+    // Nine scenario children, the rest are the census pad.
+    expect(CHILDREN.filter((c) => !c.censusPad).length).toBe(9);
+  });
+
+  it("carries no surname at all: labels are first name + initial, vault names add the SYN marker (row 31)", async () => {
+    for (const c of CHILDREN) {
+      expect({ key: c.key, label: c.label }).toEqual({ key: c.key, label: `${c.firstName} ${c.lastInitial}.` });
+      expect(c.lastInitial).toMatch(/^[A-Z]$/);
+    }
+    const labels = await rows<{ display_name: string }>("SELECT display_name FROM ops.child_profile");
+    expect(labels.length).toBe(BOARD_CENSUS);
+    for (const l of labels) expect(l.display_name).toMatch(/^[A-Z][a-z]+ [A-Z]\.$/);
+    // The identity vault is the one place a legal name could hide; it holds an initial too.
+    const kids = await rows<{ legal_first_name: string; legal_last_name: string }>(
+      "SELECT legal_first_name, legal_last_name FROM identity.child_identity");
+    for (const k of kids) {
+      expect(k.legal_first_name).toMatch(/^[A-Z][a-z]+$/);
+      expect(k.legal_last_name).toMatch(/^[A-Z]\. \(SYN\)$/);
+    }
+    const adults = await rows<{ legal_name: string }>(`
+      SELECT legal_name FROM identity.guardian_contact
+      UNION ALL SELECT legal_name FROM identity.external_person_identity`);
+    expect(adults.length).toBe(FAMILIES.length + EXTERNAL_PEOPLE.length);
+    for (const a of adults) expect(a.legal_name).toMatch(/^[A-Z][a-z]+ [A-Z]\. \(SYN\)$/);
+  });
+
+  it("gives every child an AM and a PM leg today; assigned legs are provisional, the pad is scheduled", async () => {
+    const byDir = await rows<{ direction: string; n: number }>(
+      "SELECT direction, count(*)::int n FROM ops.trip_leg WHERE service_date=$1 GROUP BY direction ORDER BY direction", [r.serviceDate]);
+    expect(byDir).toEqual([{ direction: "AM", n: 28 }, { direction: "PM", n: 28 }]);
+    const byState = await rows<{ state: string; n: number }>(
+      "SELECT state::text state, count(*)::int n FROM ops.trip_leg GROUP BY state ORDER BY 1");
+    expect(byState).toEqual([{ state: "PROVISIONAL_ASSIGNED", n: 18 }, { state: "SCHEDULED", n: 38 }]);
+    // Every assigned leg holds exactly one reservation, on a position of the right kind.
+    const mismatched = await one<{ n: number }>(`
+      SELECT count(*)::int n FROM ops.manifest_reservation mr
+      JOIN ops.trip_leg l ON l.id = mr.trip_leg_id
+      JOIN ops.transport_profile p ON p.child_token = l.child_token
+      JOIN ops.layout_position pos ON pos.id = mr.position_id
+      WHERE pos.kind <> (CASE WHEN p.mobility = 'WC' THEN 'WC' ELSE 'AMB' END)`);
+    expect(mismatched.n).toBe(0);
+  });
+
+  it("C2 needs a wheelchair position with L-track securement and a lift, and rides a lift-equipped vehicle", async () => {
+    const c2 = await one<{ child_token: string; display_name: string }>(
+      "SELECT child_token, display_name FROM ops.child_profile WHERE display_name = 'Noah O.'");
+    const p = await one<{ mobility: string; securement: string; wc_length_cm: number; wc_width_cm: number; status: string }>(
+      "SELECT mobility, securement, wc_length_cm, wc_width_cm, status FROM ops.transport_profile WHERE child_token=$1", [c2.child_token]);
+    expect(p).toMatchObject({ mobility: "WC", securement: "L_TRACK", status: "APPROVED" });
+    const needs = await rows<{ category: string; state: string }>(
+      "SELECT ni.category, ni.state FROM ops.transport_need_item ni JOIN ops.transport_profile tp ON tp.id = ni.profile_id WHERE tp.child_token=$1 ORDER BY ni.category",
+      [c2.child_token]);
+    expect(needs).toEqual([
+      { category: "EQUIPMENT_DIMENSIONS", state: "APPROVED" },
+      { category: "LIFT_OR_RAMP", state: "APPROVED" },
+      { category: "WHEELCHAIR_SECUREMENT", state: "APPROVED" },
+    ]);
+    const seat = await rows<{ lift_equipped: boolean; lift_required: boolean; securement: string; max_length_cm: number; max_width_cm: number }>(`
+      SELECT v.lift_equipped, vl.lift_required, pos.securement, pos.max_length_cm, pos.max_width_cm
+      FROM ops.manifest_reservation mr
+      JOIN ops.trip_leg l ON l.id = mr.trip_leg_id
+      JOIN ops.layout_position pos ON pos.id = mr.position_id
+      JOIN ops.vehicle_layout vl ON vl.id = pos.layout_id
+      JOIN ops.vehicle v ON v.id = vl.vehicle_id
+      WHERE l.child_token = $1`, [c2.child_token]);
+    expect(seat.length).toBe(2); // AM and PM
+    for (const s of seat) {
+      expect(s).toMatchObject({ lift_equipped: true, lift_required: true, securement: "L_TRACK" });
+      expect(s.max_length_cm).toBeGreaterThanOrEqual(p.wc_length_cm);
+      expect(s.max_width_cm).toBeGreaterThanOrEqual(p.wc_width_cm);
+    }
+  });
+
+  it("F4 is one phone for two children (AT-06)", async () => {
+    const f4 = FAMILIES.find((f) => f.key === "F4")!;
+    const contacts = await rows<{ contact_token: string; phone_hmac: string }>(`
+      SELECT gc.contact_token, gc.phone_hmac FROM identity.guardian_contact gc
+      JOIN ops.family_group fg ON fg.id = gc.family_group_id WHERE fg.display_label = $1`, [f4.label]);
+    expect(contacts.length).toBe(1);
+    const kids = await rows<{ display_name: string }>(`
+      SELECT cp.display_name FROM ops.child_profile cp JOIN ops.family_group fg ON fg.id = cp.family_group_id
+      WHERE fg.display_label = $1 ORDER BY cp.display_name`, [f4.label]);
+    expect(kids.map((k) => k.display_name)).toEqual(["Ava N.", "Eli N."]);
+    // Both children are reachable through that single number, so an inbound text is ambiguous by design.
+    const auth = await rows<{ child_token: string }>(
+      "SELECT DISTINCT child_token FROM ops.contact_authorization WHERE contact_token=$1 AND scope='RECEIVE_TRANSPORT_UPDATES'",
+      [contacts[0].contact_token]);
+    expect(auth.length).toBe(2);
+    // One shared phone across the fixture set: 27 families, 27 distinct blind indexes.
+    const distinct = await one<{ n: number }>("SELECT count(DISTINCT phone_hmac)::int n FROM identity.guardian_contact");
+    expect(distinct.n).toBe(FAMILIES.length);
+    expect(await one<{ n: number }>("SELECT count(*)::int n FROM identity.guardian_contact WHERE phone_enc LIKE 'v1:%'"))
+      .toEqual({ n: FAMILIES.length });
+  });
+
+  it("carries exactly one reported-but-unapproved need item", async () => {
+    const unapproved = await rows<{ display_name: string; category: string; state: string }>(`
+      SELECT cp.display_name, ni.category, ni.state FROM ops.transport_need_item ni
+      JOIN ops.transport_profile tp ON tp.id = ni.profile_id
+      JOIN ops.child_profile cp ON cp.child_token = tp.child_token
+      WHERE ni.state <> 'APPROVED'`);
+    expect(unapproved).toEqual([{ display_name: "Zoe B.", category: "MEDICAL_DEVICE_POWER", state: "REPORTED" }]);
+    // The unapproved item has no evidence reference yet, and nothing else is pending.
+    const pending = await one<{ n: number }>("SELECT count(*)::int n FROM ops.transport_need_item WHERE state IN ('UNKNOWN','VERIFIED')");
+    expect(pending.n).toBe(0);
+  });
+
+  it("F2 has no authorized receiving adult (AT-13) while still getting transport updates", async () => {
+    const c2 = await one<{ child_token: string }>("SELECT child_token FROM ops.child_profile WHERE display_name='Noah O.'");
+    const scopes = await rows<{ scope: string }>("SELECT scope::text scope FROM ops.contact_authorization WHERE child_token=$1 ORDER BY 1", [c2.child_token]);
+    expect(scopes.map((s) => s.scope)).toEqual(["CANCEL_LEG", "CHANGE_PICKUP_INSTRUCTIONS", "RECEIVE_ATTENDANCE_UPDATES", "RECEIVE_TRANSPORT_UPDATES"]);
+    const gc = await one<{ can_receive_child: boolean }>(`
+      SELECT gc.can_receive_child FROM identity.guardian_contact gc
+      JOIN ops.family_group fg ON fg.id = gc.family_group_id WHERE fg.display_label='F2 (Demo)'`);
+    expect(gc.can_receive_child).toBe(false);
+  });
+
+  it("uses only landmark stops from MOCKS §1, with the center flagged", async () => {
+    const stops = await rows<{ label: string; lat: number; lng: number; is_center: boolean }>("SELECT label, lat, lng, is_center FROM ops.stop_location");
+    const labels = new Set(STOPS.map((s) => s.label));
+    for (const s of stops) {
+      expect(labels.has(s.label)).toBe(true);
+      expect(ALLOWED_COORDS).toContain(s.lat);
+      expect(ALLOWED_COORDS).toContain(s.lng);
+    }
+    expect(stops.filter((s) => s.is_center).length).toBe(1);
+    // C4 and C5 share John Prince Park, one stop row each.
+    expect(stops.filter((s) => s.label === "John Prince Park").length).toBe(2);
+  });
+
+  it("schedules Mon–Fri plans with exactly one date exception", async () => {
+    const plans = await rows<{ rrule: string; n: number }>("SELECT rrule, count(*)::int n FROM ops.attendance_plan GROUP BY rrule");
+    expect(plans).toEqual([{ rrule: WEEKDAY_RRULE, n: 28 }]);
+    const exc = await one<{ display_name: string; service_date: string; scope: string }>(`
+      SELECT cp.display_name, ae.service_date::text, ae.scope FROM ops.attendance_exception ae
+      JOIN ops.child_profile cp ON cp.child_token = ae.child_token`);
+    expect(exc.scope).toBe(DATE_EXCEPTION.scope);
+    expect(exc.display_name).toBe("Ivy H.");
+    expect(exc.service_date > r.serviceDate).toBe(true); // a week out; today's board is untouched
+  });
+
+  it("books T1 at 09:30 and T2 in the afternoon, site-local", async () => {
+    const s = await rows<{ label: string; local_start: string; child: string }>(`
+      SELECT t.display_name label, to_char(ts.starts_at AT TIME ZONE $1, 'HH24:MI') local_start, cp.display_name child
+      FROM ops.therapy_session ts JOIN ops.therapist t ON t.id = ts.therapist_id
+      JOIN ops.child_profile cp ON cp.child_token = ts.child_token ORDER BY ts.starts_at`, [r.timezone]);
+    expect(s).toEqual([
+      { label: "Tasha L.", local_start: "09:30", child: "Liam D." },
+      { label: "Devon P.", local_start: "14:15", child: "Zoe B." },
+    ]);
+  });
+
+  it("rewinds the scenario clock to 06:00 site-local today, paused", async () => {
+    const c = await one<{ scenario: string; local: string; speed: number; paused: boolean; service_date: string }>(`
+      SELECT scenario, to_char(anchor_scenario AT TIME ZONE $1, 'YYYY-MM-DD HH24:MI') local, speed, paused,
+             (anchor_scenario AT TIME ZONE $1)::date::text service_date
+      FROM ops.scenario_clock WHERE site_id = $2`, [r.timezone, SITE]);
+    expect(c).toMatchObject({ scenario: "standard", speed: 1, paused: true, service_date: r.serviceDate });
+    expect(c.local).toBe(`${r.serviceDate} 06:00`);
+    expect(r.timezone).toBe("America/New_York");
+  });
+
+  it("emits SYSTEM_RESET on the change feed and in the audit log", async () => {
+    const ev = await rows<{ type: string; seq: string }>("SELECT type, seq::text FROM ops.event_log");
+    expect(ev.map((e) => e.type)).toEqual(["SYSTEM_RESET"]);
+    expect(ev[0].seq).toBe("1"); // the feed restarts, so SSE Last-Event-ID has a clean slate
+    const a = await one<{ actor: string; action: string }>("SELECT actor, action FROM ops.audit_event");
+    expect(a).toMatchObject({ actor: "demo:reset", action: "SYSTEM_RESET" });
+  });
+
+  it("every seeded row is marked SIMULATED and written by the demo seed (NFR-09)", async () => {
+    for (const t of SEEDED_TABLES) {
+      const cols = await rows<{ column_name: string }>(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2 AND column_name IN ('source_mode','created_by')",
+        t.split("."));
+      if (!cols.some((c) => c.column_name === "source_mode")) continue;
+      const bad = await one<{ n: number }>(`SELECT count(*)::int n FROM ${t} WHERE source_mode <> 'SIMULATED'`);
+      expect({ [t]: bad.n }).toEqual({ [t]: 0 });
+      if (cols.some((c) => c.column_name === "created_by")) {
+        const by = await one<{ n: number }>(`SELECT count(*)::int n FROM ${t} WHERE created_by <> 'demo'`);
+        expect({ [t]: by.n }).toEqual({ [t]: 0 });
+      }
+    }
+  });
+
+  it("vehicles and layouts match PRD l.1328 / MOCKS §2", async () => {
+    const v = await rows<{ label: string; code: string; wc: number; amb: number; lift_equipped: boolean }>(`
+      SELECT v.label, vl.code,
+             count(*) FILTER (WHERE pos.kind = 'WC')::int wc,
+             count(*) FILTER (WHERE pos.kind = 'AMB')::int amb,
+             v.lift_equipped
+      FROM ops.vehicle v JOIN ops.vehicle_layout vl ON vl.vehicle_id = v.id
+      JOIN ops.layout_position pos ON pos.layout_id = vl.id
+      GROUP BY v.label, vl.code, v.lift_equipped ORDER BY v.label, vl.code`);
+    expect(v).toEqual([
+      { label: "V1 convertible van", code: "0WC/6A", wc: 0, amb: 6, lift_equipped: true },
+      { label: "V1 convertible van", code: "1WC/3A", wc: 1, amb: 3, lift_equipped: true },
+      { label: "V1 convertible van", code: "2WC/1A", wc: 2, amb: 1, lift_equipped: true },
+      { label: "V2 center van", code: "1WC/4A", wc: 1, amb: 4, lift_equipped: true },
+      { label: "V3 substitute van", code: "1WC/1A", wc: 1, amb: 1, lift_equipped: true },
+      { label: "V4 sedan", code: "0WC/3A", wc: 0, amb: 3, lift_equipped: false },
+    ]);
+    // Capability is unknown until arrival, every day (MOCKS §2).
+    const cap = await rows<{ state: string; n: number }>("SELECT state, count(*)::int n FROM ops.vehicle_capability_day GROUP BY state");
+    expect(cap).toEqual([{ state: "UNKNOWN", n: VEHICLES.length }]);
+    // V3 is the reserve vehicle: no run of its own (AT-05 substitution).
+    expect(RUNS.some((run) => run.vehicleKey === "V3")).toBe(false);
+  });
+
+  it("keeps permanent test opt-outs and clears everything else a reset owns", async () => {
+    const contact = await one<{ contact_token: string; site_id: string }>("SELECT contact_token, site_id FROM identity.guardian_contact LIMIT 1");
+    await db.query(
+      `INSERT INTO identity.consent_event (id, site_id, contact_token, kind, channel, source_mode)
+       VALUES ('01900000-0000-7000-8000-00000000ff01', $1, $2, 'PERMANENT_TEST_OPT_OUT', 'SMS_1TO1', 'SIMULATED'),
+              ('01900000-0000-7000-8000-00000000ff02', $1, $2, 'STOP', 'SMS_1TO1', 'SIMULATED')`,
+      [contact.site_id, contact.contact_token]);
+    await db.query(
+      `INSERT INTO ops.suppression (id, site_id, contact_token, scope, permanent_test, consent_event_id, created_by, updated_by)
+       VALUES ('01900000-0000-7000-8000-00000000ff03', $1, $2, 'ALL', true, '01900000-0000-7000-8000-00000000ff01', 'test', 'test'),
+              ('01900000-0000-7000-8000-00000000ff04', $1, $2, 'ALL_NON_SAFETY', false, '01900000-0000-7000-8000-00000000ff02', 'test', 'test')`,
+      [contact.site_id, contact.contact_token]);
+    // A stale job and a stale message must not survive the reset.
+    await db.query(
+      `INSERT INTO ops.job (id, site_id, key, kind, payload, due_at, created_by, updated_by)
+       VALUES ('01900000-0000-7000-8000-00000000ff05', $1, 'stale', 'noop', '{}', now(), 'test', 'test')`, [contact.site_id]);
+
+    const after = await seedStandardScenario(db, { now: NOW, siteId: SITE, env });
+    // Identical everywhere except the consent ledger, which keeps the one permanent opt-out on top of the 27 OPT_INs.
+    expect(after.counts).toEqual({ ...r.counts, "identity.consent_event": 28 });
+    const supp = await rows<{ scope: string; permanent_test: boolean }>("SELECT scope, permanent_test FROM ops.suppression");
+    expect(supp).toEqual([{ scope: "ALL", permanent_test: true }]);
+    const consent = await rows<{ kind: string; n: number }>("SELECT kind, count(*)::int n FROM identity.consent_event GROUP BY kind ORDER BY kind");
+    expect(consent).toEqual([{ kind: "OPT_IN", n: 27 }, { kind: "PERMANENT_TEST_OPT_OUT", n: 1 }]);
+    expect(await one<{ n: number }>("SELECT count(*)::int n FROM ops.job")).toEqual({ n: 0 });
+  }, 120_000);
+
+  it("accounts for every identity/ops table: either reset or deliberately preserved", async () => {
+    const live = await rows<{ t: string }>(`
+      SELECT table_schema || '.' || table_name AS t FROM information_schema.tables
+      WHERE table_schema IN ('identity','ops') AND table_type = 'BASE TABLE' ORDER BY 1`);
+    const known = new Set<string>([...RESET_TABLES, ...PRESERVED_TABLES]);
+    expect(live.map((x) => x.t).filter((t) => !known.has(t))).toEqual([]);
+    // And nothing is in both lists.
+    expect([...RESET_TABLES].filter((t) => (PRESERVED_TABLES as readonly string[]).includes(t))).toEqual([]);
+    expect(known.size).toBe(live.length);
+  });
+
+  it("refuses an unknown site and leaves the data alone", async () => {
+    await expect(seedStandardScenario(db, { now: NOW, siteId: "01900000-0000-7000-8000-00000000dead", env }))
+      .rejects.toThrow(/unknown site/);
+    expect(await one<{ n: number }>("SELECT count(*)::int n FROM ops.child_profile")).toEqual({ n: 28 });
+  });
+});

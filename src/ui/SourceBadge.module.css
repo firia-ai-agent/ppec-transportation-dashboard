@@ -1,0 +1,33 @@
+/* §7.1: outlined, 1 px border-strong (4.76:1 on surface), white fill — never a filled chip. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--layout-source-badge-height);
+  padding: 0 var(--space-2);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  white-space: nowrap;
+}
+
+.badge[data-size="ramp"] {
+  min-height: var(--layout-source-badge-height-ramp);
+  padding: 0 var(--space-3);
+}
+
+/* Only these three tokens appear in the §7.1 table. Violet marks simulation and nothing else. */
+.badge[data-token="src-sim"] {
+  color: var(--color-src-sim);
+}
+
+.badge[data-token="ink-muted"] {
+  color: var(--color-ink-muted);
+}
+
+.badge[data-token="ink"] {
+  color: var(--color-ink);
+}
