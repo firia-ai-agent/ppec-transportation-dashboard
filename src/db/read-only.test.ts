@@ -194,6 +194,68 @@ describe("preview read-only fail-safe (DECISION-LEDGER #43)", () => {
       }
     });
 
+    it("refuses a `;` hidden in a literal or a comment: one pass, so neither can hide the other", () => {
+      // Each of these is a second (and third) statement behind a `;` that a splitter which strips
+      // comments before literals reads as part of a comment. The drivers send an unparameterised
+      // string through the simple query protocol, which runs every command in it, so the `COMMIT`
+      // would end the read-only transaction and the `INSERT` would write (hotfix PR #20 blocker 3).
+      for (const s of [
+        "SELECT '--'; COMMIT; INSERT INTO t VALUES (1)",
+        "SELECT '/*'; COMMIT; INSERT INTO t VALUES (1)",
+        "SELECT $$--$$; COMMIT; INSERT INTO t VALUES (1)",
+        "SELECT '/*'; COMMIT; INSERT INTO t VALUES (1) /* done */",
+        "SELECT E'\\'--'; COMMIT; INSERT INTO t VALUES (1)",
+        "select e'\\'--'; commit; insert into t values (1)",
+        "SELECT E'--''--'; COMMIT; INSERT INTO t VALUES (1)",
+        'SELECT 1 AS "--"; COMMIT; INSERT INTO t VALUES (1)',
+        'SELECT 1 AS "/*"; COMMIT; INSERT INTO t VALUES (1)',
+        'SELECT 1 AS "a""--"; COMMIT; INSERT INTO t VALUES (1)',
+        "SELECT $tag$--$tag$; COMMIT; INSERT INTO t VALUES (1)",
+        "SELECT $tag$/*$tag$; COMMIT; INSERT INTO t VALUES (1)",
+        "SELECT $a1_b$--$a1_b$; COMMIT; INSERT INTO t VALUES (1)",
+        "SELECT 1 /* /* nested */ */; COMMIT; INSERT INTO t VALUES (1)",
+        "-- lead\nSELECT '--'; COMMIT; INSERT INTO t VALUES (1)",
+        "/* lead */ SELECT $$--$$; COMMIT; INSERT INTO t VALUES (1)",
+        "select '--'\n; commit\n; insert into t values (1)",
+        "SELECT '--' -- tail\n; COMMIT; INSERT INTO t VALUES (1)",
+        "SELECT '--'; INSERT INTO t VALUES (1)",
+      ]) {
+        expect(() => rewriteBeginReadOnly(s), s).toThrow(ReadOnlyRefusedError);
+      }
+    });
+
+    it("allows one trailing `;` and nothing else: only one statement may ever run", () => {
+      for (const s of ["SELECT 1;", "SELECT 1 ; ", "SELECT 1; -- done\n", "SELECT 1; /* done */"]) {
+        expect(rewriteBeginReadOnly(s), s).toBe(s);
+      }
+      expect(rewriteBeginReadOnly("begin;")).toMatch(/\bREAD ONLY$/);
+      // An empty extra statement is still an extra `;`, and a leading one is a `;` with SQL after it.
+      for (const s of ["SELECT 1;;", "SELECT 1; ;", "; SELECT 1", "SELECT 1; SELECT 2;"]) {
+        expect(() => rewriteBeginReadOnly(s), s).toThrow(ReadOnlyRefusedError);
+      }
+    });
+
+    it("leaves a single statement alone however much quoting it carries", () => {
+      for (const s of [
+        "SELECT 'a;b--c/*d'", "SELECT $$;--/*$$", "SELECT $tag$;--/*$tag$", "SELECT E'\\';--'",
+        'SELECT 1 AS "a;b--c"', 'SELECT 1 AS "a""b;c"', "SELECT '--' -- tail\n",
+        "/* lead */ SELECT 1 /* mid */", "SELECT 1 /* /* nested */ */",
+        "SELECT $1::int, $2 FROM t", "SELECT $$x$$ || $1", "INSERT INTO t VALUES ($1) -- ;COMMIT\n",
+      ]) {
+        expect(rewriteBeginReadOnly(s), s).toBe(s);
+      }
+    });
+
+    it("refuses SQL whose quoting never closes: where it ends is what decides everything else", () => {
+      for (const s of [
+        "SELECT 'unterminated", 'SELECT "unterminated', "SELECT E'unterminated",
+        "SELECT $$unterminated", "SELECT $tag$unterminated$tag", "SELECT 1 /* unterminated",
+        "SELECT 1 /* /* unterminated */", "SELECT 'a' || 'b",
+      ]) {
+        expect(() => rewriteBeginReadOnly(s), s).toThrow(ReadOnlyRefusedError);
+      }
+    });
+
     it("refuses a transaction-start whose modes it cannot parse, rather than sending it as written", () => {
       for (const s of ["begin isolation level bogus", "BEGIN SOMETHING ELSE", "start transaction read"]) {
         expect(() => rewriteBeginReadOnly(s), s).toThrow(ReadOnlyRefusedError);

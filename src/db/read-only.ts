@@ -89,17 +89,129 @@ const READ_WRITE = /\bREAD\s+WRITE\b/i;
 const ISOLATION_LEVELS = [["SERIALIZABLE"], ["REPEATABLE", "READ"], ["READ", "COMMITTED"], ["READ", "UNCOMMITTED"]];
 
 /**
- * The statements of `sql`, for inspection only — comments and quoted text are blanked first so a `;`,
- * a `begin` or a `read write` inside either cannot be mistaken for SQL. Never sent anywhere.
+ * The characters Postgres allows in an identifier or a dollar-quote tag: a letter or `_` first, then
+ * letters, digits or `_`. A tag must start with a non-digit, which is what tells `$tag$` from a `$1`
+ * parameter placeholder.
+ */
+const isTagChar = (c: string | undefined) => c !== undefined && /[A-Za-z0-9_]/.test(c);
+const isTagStart = (c: string | undefined) => c !== undefined && /[A-Za-z_]/.test(c);
+
+/**
+ * The index just past the quoted run whose first *inner* character is `from`. `q` is the delimiter and
+ * doubles to escape itself (`''`, `""`); with `backslash` a `\x` pair is skipped as well, which is how
+ * an `E'...'` string quotes its own delimiter. -1 when the run is never closed.
+ */
+function endOfQuoted(sql: string, from: number, q: string, backslash: boolean): number {
+  for (let i = from; i < sql.length; ) {
+    if (backslash && sql[i] === "\\") { i += 2; continue; }
+    if (sql[i] !== q) { i += 1; continue; }
+    if (sql[i + 1] === q) { i += 2; continue; } // '' / "" : an escaped delimiter, not the end
+    return i + 1;
+  }
+  return -1;
+}
+
+/**
+ * The dollar-quote tag opening at `i` — `$$` or `$tag$` — or null when that `$` is something else: a
+ * `$1` parameter placeholder, or a lone `$` in an operator or identifier.
+ */
+function dollarTag(sql: string, i: number): string | null {
+  if (sql[i] !== "$") return null;
+  let j = i + 1;
+  if (sql[j] !== "$") {
+    if (!isTagStart(sql[j])) return null;
+    while (isTagChar(sql[j])) j += 1;
+    if (sql[j] !== "$") return null;
+  }
+  return sql.slice(i, j + 1);
+}
+
+/**
+ * `sql` cut at its top-level `;`, for inspection only — never sent anywhere. ONE left-to-right pass,
+ * because the lexical constructs below can hide each other and a pass that handled them in any fixed
+ * order would be fooled by whichever it handled second: `SELECT '--'; COMMIT; INSERT …` hides a `--`
+ * inside a string, `SELECT $$--$$; …` hides one inside a dollar quote, and `SELECT '/*'; … *` + `/`
+ * hides a block-comment opener. Stripping comments before literals (as this once did) blanked the rest
+ * of those strings and left a single harmless-looking statement, so the `COMMIT` that ends the
+ * read-only transaction and the write after it both went to the server as one multi-statement string.
+ *
+ * In one pass, in Postgres' own precedence — whichever construct starts first wins — this handles:
+ *   - `'...'` strings, where `''` is an escaped quote (a backslash is not an escape: modern Postgres
+ *     has standard_conforming_strings on, so `'\'` is a complete string holding a backslash);
+ *   - `E'...'`/`e'...'` strings, where both `''` and `\'` are escaped quotes;
+ *   - `"..."` quoted identifiers, where `""` is an escaped quote;
+ *   - `$$...$$` and `$tag$...$tag$` dollar quotes, which quote nothing at all inside themselves;
+ *   - `--` line comments, to the next newline;
+ *   - `/* ... *` + `/` block comments, which nest in Postgres and so nest here.
+ * Each comment and each quoted run is replaced by neutral filler, so a `;`, a `begin`, a `commit` or a
+ * `read write` written inside one cannot be read as SQL. An unterminated literal or comment means the
+ * scan cannot know where the quoting ends, so it refuses: fail closed, never pass it through.
+ *
+ * The result is one entry per run between top-level semicolons, empties included (`pieces.length` is
+ * therefore the semicolon count plus one), because where the semicolons are is itself part of the
+ * guard: see `rewriteBeginReadOnly`.
+ */
+function scanPieces(sql: string): string[] {
+  const refuse = (): never => { throw new ReadOnlyRefusedError(sql); };
+  const pieces: string[] = [];
+  let cur = "";
+  let i = 0;
+  while (i < sql.length) {
+    const c = sql[i];
+    if (c === "-" && sql[i + 1] === "-") {
+      const nl = sql.indexOf("\n", i + 2);
+      cur += " ";
+      i = nl === -1 ? sql.length : nl; // the newline itself stays: it is a separator, not comment text
+      continue;
+    }
+    if (c === "/" && sql[i + 1] === "*") {
+      let depth = 1;
+      i += 2;
+      while (i < sql.length && depth > 0) {
+        if (sql[i] === "/" && sql[i + 1] === "*") { depth += 1; i += 2; }
+        else if (sql[i] === "*" && sql[i + 1] === "/") { depth -= 1; i += 2; }
+        else i += 1;
+      }
+      if (depth > 0) refuse();
+      cur += " ";
+      continue;
+    }
+    if ((c === "E" || c === "e") && sql[i + 1] === "'" && !isTagChar(sql[i - 1])) {
+      const end = endOfQuoted(sql, i + 2, "'", true);
+      if (end === -1) refuse();
+      cur += "''";
+      i = end;
+      continue;
+    }
+    const tag = dollarTag(sql, i);
+    if (tag) {
+      const close = sql.indexOf(tag, i + tag.length);
+      if (close === -1) refuse();
+      cur += "''";
+      i = close + tag.length;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      const end = endOfQuoted(sql, i + 1, c, false);
+      if (end === -1) refuse();
+      cur += c === "'" ? "''" : '""';
+      i = end;
+      continue;
+    }
+    if (c === ";") { pieces.push(cur); cur = ""; i += 1; continue; }
+    cur += c;
+    i += 1;
+  }
+  pieces.push(cur);
+  return pieces;
+}
+
+/**
+ * The statements of `sql`, for inspection only: `scanPieces` with the blank runs dropped. Refuses
+ * (throws) the SQL it cannot scan, exactly as `scanPieces` does.
  */
 function statementsOf(sql: string): string[] {
-  const bare = sql
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/--[^\n]*/g, " ")
-    .replace(/\$([A-Za-z_]\w*)?\$[\s\S]*?\$\1\$/g, "''")
-    .replace(/'(?:[^']|'')*'/g, "''")
-    .replace(/"(?:[^"]|"")*"/g, '""');
-  return bare.split(";").map((s) => s.trim()).filter((s) => s.length > 0);
+  return scanPieces(sql).map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
 /** True for a mode change a preview must not send: it would drop READ ONLY, or outlive the transaction. */
@@ -150,7 +262,11 @@ function readOnlyTxStart(stmt: string): string {
   return `${head.join(" ")} ${[...modes, "READ ONLY"].join(", ")}`;
 }
 
-/** True when `sql` is a single statement that opens a transaction. Comments and literals are ignored. */
+/**
+ * True when `sql` is a single statement that opens a transaction. Comments and quoted text are ignored
+ * (`scanPieces`), and SQL that cannot be scanned at all is refused rather than answered — the same
+ * refusal `rewriteBeginReadOnly` raises for it a moment later on every path that asks this.
+ */
 export function isTransactionStart(sql: string): boolean {
   const stmts = statementsOf(sql);
   return stmts.length === 1 && TX_START.test(stmts[0]);
@@ -186,15 +302,28 @@ export interface GuardState {
  *   - a string holding more than one statement is refused outright. Rewriting cannot make it safe: an
  *     early `COMMIT` ends the read-only transaction and leaves the rest writing in autocommit, so
  *     `begin; insert ...` and `commit; insert ...` alike are errors. No app query is multi-statement.
+ *     Concretely: every `;` outside a literal or a comment is refused, except one trailing `;`
+ *     followed by nothing but whitespace and comments. Where the literals and comments are is decided
+ *     by `scanPieces`, one left-to-right pass, so a `;` hidden in `'--'`, `$$--$$`, `E'\'--'`, `"--"`
+ *     or `'/*'` is not a statement separator and a `;` after them still is.
+ *   - SQL that cannot be scanned at all — an unterminated string, identifier, dollar quote or block
+ *     comment — is refused: where the quoting ends is exactly what decides everything above.
  *   - everything else — reads, SAVEPOINT, and writes the server itself refuses inside the read-only
  *     transaction — is returned untouched, object identity included.
  */
 export function rewriteBeginReadOnly<Q extends SqlLike>(q: Q, state: GuardState = {}): Q {
   const sql = typeof q === "string" ? q : (q as { text: string }).text;
   if (typeof sql !== "string") return q;
-  const stmts = statementsOf(sql);
+  const pieces = scanPieces(sql);
+  // Exactly one statement may ever reach the server. Any `;` outside a literal or a comment, bar a
+  // single trailing one with nothing but whitespace and comments after it, introduces a second
+  // statement — and the first of two could be the `COMMIT` that ends the read-only transaction, which
+  // would leave the second writing in autocommit. No app query is multi-statement, so refuse.
+  if (pieces.length > 2 || (pieces.length === 2 && pieces[1].trim() !== "")) {
+    throw new ReadOnlyRefusedError(sql);
+  }
+  const stmts = pieces.map((s) => s.trim()).filter((s) => s.length > 0);
   if (stmts.length === 0) return q;
-  if (stmts.length > 1) throw new ReadOnlyRefusedError(sql);
   const [stmt] = stmts;
   if (isRefusedModeChange(stmt) || isRefusedTxEnd(stmt)) throw new ReadOnlyRefusedError(sql);
   if (!TX_START.test(stmt)) return q;

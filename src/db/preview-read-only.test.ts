@@ -533,3 +533,215 @@ describe("preview: a caller cannot end the guarded transaction (real Postgres)",
     await backend.query("DELETE FROM control");
   });
 });
+
+/**
+ * A `;` hidden inside a literal or a comment, proved against real Postgres on every preview path
+ * (hotfix PR #20 blocker 3). Before the fix the statement splitter stripped `--` and block comments
+ * BEFORE it handled quoted text, so a `--`, a `/*` or a `$$` written inside a string blanked the rest
+ * of the line and left one innocent-looking statement: `SELECT '--'; COMMIT; INSERT …`,
+ * `SELECT $$--$$; COMMIT; INSERT …` and `SELECT E'\'--'; COMMIT; INSERT …` all went to the server
+ * whole.
+ *
+ * That is a real write, not a theoretical one, because of how the drivers choose a protocol: pg and
+ * @neondatabase/serverless both send the SQL through the SIMPLE query protocol when there are no
+ * parameters OR the parameter array is empty (`requiresPreparation()` ends in `values.length > 0`),
+ * and a simple query runs EVERY command in the string. The app's own calls pass `[]`. So the smuggled
+ * `COMMIT` ends the guard's `BEGIN READ ONLY` and the `INSERT` after it runs in a fresh, writable
+ * implicit transaction — against the one production database. The fake wire below mirrors that
+ * protocol choice exactly (empty/absent params → PGlite's multi-command `exec`), so every test here
+ * really does write a row without the fix.
+ */
+describe("preview: a `;` hidden in a literal or comment cannot smuggle a second statement (real Postgres)", () => {
+  let backend: PGlite;
+  let outerPool: PoolLike | Pool | undefined;
+
+  /** The exact strings from the review, plus the variants that hide a `;` the same way. */
+  const SMUGGLED = [
+    // The three from the review, verbatim.
+    "SELECT '--'; COMMIT; INSERT INTO smuggle VALUES (1)",
+    "SELECT '/*'; COMMIT; INSERT INTO smuggle VALUES (1)",
+    "SELECT $$--$$; COMMIT; INSERT INTO smuggle VALUES (1)",
+    // `/*` in a string, with a `*/` later on so the old block-comment strip really did span the SQL.
+    "SELECT '/*'; COMMIT; INSERT INTO smuggle VALUES (1) /* done */",
+    // E'...' strings: `\'` is an escaped quote there, so the string runs on past the `--`.
+    "SELECT E'\\'--'; COMMIT; INSERT INTO smuggle VALUES (1)",
+    "select e'\\'--'; commit; insert into smuggle values (1)",
+    "SELECT E'--''--'; COMMIT; INSERT INTO smuggle VALUES (1)",
+    // Quoted identifiers.
+    'SELECT 1 AS "--"; COMMIT; INSERT INTO smuggle VALUES (1)',
+    'SELECT 1 AS "/*"; COMMIT; INSERT INTO smuggle VALUES (1)',
+    'SELECT 1 AS "a""--"; COMMIT; INSERT INTO smuggle VALUES (1)',
+    // Dollar quotes, tagged and untagged.
+    "SELECT $tag$--$tag$; COMMIT; INSERT INTO smuggle VALUES (1)",
+    "SELECT $tag$/*$tag$; COMMIT; INSERT INTO smuggle VALUES (1)",
+    "SELECT $$/*$$; COMMIT; INSERT INTO smuggle VALUES (1)",
+    "SELECT $a1_b$--$a1_b$; COMMIT; INSERT INTO smuggle VALUES (1)",
+    // Nested block comments: Postgres nests them, so the first `*/` does not end the comment.
+    "SELECT 1 /* /* nested */ */; COMMIT; INSERT INTO smuggle VALUES (1)",
+    "/* /* x */ */ SELECT 1; COMMIT; INSERT INTO smuggle VALUES (1)",
+    // Leading comments, lowercase, and newlines instead of spaces.
+    "-- lead\nSELECT '--'; COMMIT; INSERT INTO smuggle VALUES (1)",
+    "/* lead */ SELECT $$--$$; COMMIT; INSERT INTO smuggle VALUES (1)",
+    "select '--'\n; commit\n; insert into smuggle values (1)",
+    "SELECT '--' -- tail\n; COMMIT; INSERT INTO smuggle VALUES (1)",
+    // No COMMIT needed to be refused: a second statement is refused on its own.
+    "SELECT '--'; INSERT INTO smuggle VALUES (1)",
+    "SELECT '--'; begin read write; INSERT INTO smuggle VALUES (1)",
+    // An empty extra statement is still an extra `;`: only a single trailing one is allowed.
+    "SELECT 1;; COMMIT",
+    "; SELECT 1",
+    // Unterminated quoting: the scan cannot know where the literal ends, so it refuses (fail closed).
+    "SELECT 'unterminated",
+    'SELECT "unterminated',
+    "SELECT E'unterminated",
+    "SELECT $$unterminated",
+    "SELECT $tag$unterminated$tag",
+    "SELECT 1 /* unterminated",
+    "SELECT 1 /* /* unterminated */",
+  ];
+
+  beforeAll(async () => {
+    backend = new PGlite();
+    await backend.exec("CREATE TABLE smuggle (id int)");
+    const run = async (q: SqlLike, params?: unknown[]) => {
+      h.sent.push(text(q));
+      // The drivers' own protocol choice: parameters → extended protocol (one command); no parameters
+      // or an empty array → simple protocol, which executes every command in the string.
+      if (params && params.length > 0) {
+        return { rows: (await backend.query(text(q), params)).rows as unknown[] };
+      }
+      const results = await backend.exec(text(q));
+      return { rows: (results[results.length - 1]?.rows ?? []) as unknown[] };
+    };
+    const client: ClientLike = { query: run, release: () => {} };
+    const p = Object.create(Pool.prototype) as Pool;
+    Object.assign(p, { query: run, connect: async () => client });
+    outerPool = h.pool;
+    h.pool = p;
+  }, 60_000);
+
+  afterAll(() => { h.pool = outerPool; });
+  beforeEach(() => { process.env.VERCEL_ENV = "preview"; });
+  afterEach(async () => { await backend.exec("ROLLBACK").catch(() => {}); });
+
+  const rows = async () =>
+    (await backend.query<{ n: number }>("SELECT count(*)::int n FROM smuggle")).rows[0].n;
+  /** The app refused it — whether it threw synchronously (a checked-out client) or rejected (a pool path). */
+  const refusedByApp = async (call: () => unknown, what: string) => {
+    let sync: unknown;
+    let out: unknown;
+    try { out = call(); } catch (e) { sync = e ?? new Error("threw with no error"); }
+    if (sync !== undefined) {
+      expect(sync, what).toBeInstanceOf(Error);
+      expect((sync as Error).message, what).toMatch(/DECISION-LEDGER #43/);
+      return;
+    }
+    await expectRefusedByApp(out as PromiseLike<unknown>);
+  };
+
+  it.each(SMUGGLED)("%j is refused on the autocommit path, and writes nothing", async (stmt) => {
+    const from = h.sent.length;
+    await refusedByApp(() => getNeonDb().query(stmt, []), stmt);
+    expect(h.sent.slice(from), stmt).toEqual([]); // refused before a client was even checked out
+    expect(await rows(), stmt).toBe(0);
+  });
+
+  it.each(SMUGGLED)("%j is refused inside getNeonDb().tx, and writes nothing", async (stmt) => {
+    const from = h.sent.length;
+    await getNeonDb().tx(async (tx) => {
+      await refusedByApp(() => tx.query(stmt, []), stmt);
+      // The guard's READ ONLY transaction was never ended, so a write still cannot happen in it.
+      await expectRefusedReadOnly(tx.query("INSERT INTO smuggle VALUES (99)", []));
+    });
+    expect(h.sent.slice(from)[0], stmt).toBe(BEGIN_READ_ONLY);
+    expect(h.sent.slice(from).join(" | "), stmt).not.toMatch(/smuggle VALUES \(1\)/);
+    expect(await rows(), stmt).toBe(0);
+  });
+
+  it.each(SMUGGLED)("%j is refused through drizzle (getDb().execute), and writes nothing", async (stmt) => {
+    const from = h.sent.length;
+    await refusedByApp(() => getDb().execute(drizzleSql.raw(stmt)), stmt);
+    expect(h.sent.slice(from), stmt).toEqual([]);
+    expect(await rows(), stmt).toBe(0);
+  });
+
+  it.each(SMUGGLED)("%j is refused on the read-only pool's own query(), and writes nothing", async (stmt) => {
+    const from = h.sent.length;
+    await refusedByApp(() => readOnlyPool(h.pool as Pool).query(stmt as never), stmt);
+    expect(h.sent.slice(from), stmt).toEqual([]);
+    expect(await rows(), stmt).toBe(0);
+  });
+
+  it.each(SMUGGLED)("%j is refused on a checked-out client with no transaction open, and writes nothing", async (stmt) => {
+    const c = await readOnlyPool(h.pool as Pool).connect();
+    const from = h.sent.length;
+    await refusedByApp(() => c.query(stmt as never), stmt);
+    expect(h.sent.slice(from), stmt).toEqual([]); // not even the guard's own BEGIN was needed
+    c.release();
+    expect(await rows(), stmt).toBe(0);
+  });
+
+  it.each(SMUGGLED)("%j is refused on a checked-out client inside the guarded transaction, and writes nothing", async (stmt) => {
+    const c = await readOnlyPool(h.pool as Pool).connect();
+    await c.query("begin " as never); // drizzle's own opener: the guard's transaction is now open
+    const from = h.sent.length;
+    await refusedByApp(() => c.query(stmt as never), stmt);
+    expect(h.sent.slice(from), stmt).toEqual([]);
+    // Still inside the guard's READ ONLY transaction: the smuggled COMMIT never reached the server.
+    await expectRefusedReadOnly(c.query("INSERT INTO smuggle VALUES (99)" as never));
+    c.release();
+    expect(await rows(), stmt).toBe(0);
+    expect((await backend.query<Record<string, string>>("SHOW transaction_read_only")).rows[0]
+      .transaction_read_only, stmt).toBe("off"); // and nothing leaked onto the connection
+  });
+
+  it("the fake wire really would have written: the same smuggling lands when nothing guards it", async () => {
+    // The control for everything above. This is the pre-fix behaviour, reproduced directly on the
+    // backend: a simple-protocol multi-command string ends the read-only transaction and writes.
+    await backend.exec(BEGIN_READ_ONLY);
+    await backend.exec("SELECT '--'; COMMIT; INSERT INTO smuggle VALUES (1)");
+    expect(await rows()).toBe(1);
+    await backend.exec("DELETE FROM smuggle");
+  });
+
+  it("a legitimate single statement still runs, trailing semicolon and literals included", async () => {
+    for (const [stmt, want] of [
+      ["SELECT 1 AS n;", 1],
+      ["SELECT 1 AS n ;  ", 1],
+      ["SELECT 1 AS n; -- done\n", 1],
+      ["SELECT 1 AS n; /* done */", 1],
+      ["/* lead */ SELECT 1 AS n -- tail\n;", 1],
+      ["SELECT length('a;b--c/*d') AS n", 9],
+      ["SELECT length($$;--/*$$) AS n", 5],
+      ["SELECT length($tag$;--/*$tag$) AS n", 5],
+      ["SELECT length(E'\\';--') AS n", 4],
+      ['SELECT "a;b--c" AS n FROM (SELECT 1 AS "a;b--c") s', 1],
+      ["SELECT length('/* not a comment */') AS n", 19],
+      ["SELECT length('--') AS n;", 2],
+    ] as [string, number][]) {
+      const r = await getNeonDb().query<{ n: number }>(stmt, []);
+      expect(r.rows, stmt).toEqual([{ n: want }]);
+      // The same statement through the other preview paths.
+      expect((await getNeonDb().tx((tx) => tx.query<{ n: number }>(stmt, []))).rows, stmt).toEqual([{ n: want }]);
+      expect((await getDb().execute(drizzleSql.raw(stmt))).rows, stmt).toEqual([{ n: want }]);
+    }
+    // A `$1` placeholder is a parameter, not a dollar quote: it must not be read as one.
+    expect((await getNeonDb().query<{ n: number }>("SELECT $1::int AS n", [7])).rows).toEqual([{ n: 7 }]);
+    expect(await rows()).toBe(0);
+  });
+
+  it("the read-only wrapper still commits cleanly, and leaves the connection as it found it", async () => {
+    const from = h.sent.length;
+    const r = await getNeonDb().query<{ n: number }>("SELECT 1 AS n;", []);
+    expect(r.rows).toEqual([{ n: 1 }]);
+    // Opened READ ONLY by the guard, COMMITted by the guard, with the caller's statement in between.
+    expect(h.sent.slice(from)).toEqual([BEGIN_READ_ONLY, "SELECT 1 AS n;", "COMMIT"]);
+    expect((await backend.query<Record<string, string>>("SHOW transaction_read_only")).rows[0]
+      .transaction_read_only).toBe("off");
+    // A transaction the guard opened and closed, with a read in it, commits the same way.
+    const from2 = h.sent.length;
+    expect((await getNeonDb().tx((tx) => tx.query<{ n: number }>("SELECT 2 AS n", []))).rows).toEqual([{ n: 2 }]);
+    expect(h.sent.slice(from2)).toEqual([BEGIN_READ_ONLY, "SELECT 2 AS n", "COMMIT"]);
+    expect(await rows()).toBe(0);
+  });
+});
