@@ -23,9 +23,11 @@ No secrets here. Values live only in Vercel env vars.
 | GitHub repo | https://github.com/firia-ai-agent/ppec-transportation-dashboard |
 | Vercel project | https://vercel.com/firia1/ppec-transportation-dashboard |
 | Prod URL | https://ppec-transportation-dashboard.vercel.app (TBC: confirm after first prod deploy) |
-| Database | Neon store `ppec-transportation-dashboard` (iad1, Free plan, via the Vercel integration): prod on the `main` branch, one Neon branch per preview |
+| Database | Neon store `ppec-transportation-dashboard` (iad1, Free plan, via the Vercel integration): exactly **one** database, the Neon `main` branch (`ep-divine-brook`). Previews share it read-only; no per-preview branches (DECISION-LEDGER row 43) |
 | Linear | https://linear.app/tokos/project/ppec-transport-dashboard-poc-mock-c71244c967e7 |
 | Notion | https://app.notion.com/p/3f9ac450cdc181cda2becad4340b6833 |
+
+Previews are read-only against that one database: the app opens every preview transaction `READ ONLY` (PR #20, ledger row 55) and the preview login role `ppec_preview` is read-only server-side as well (ledger row 53, pending confirmation that the role and its grants are applied). Previews never run migrations and never seed; migrations and reset/seed act on production only.
 
 ## Docs
 - [PRD v1.0](docs/PRD-v1.0.txt)

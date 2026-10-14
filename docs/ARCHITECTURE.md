@@ -223,13 +223,12 @@ flowchart TB
     CRON["Vercel Cron<br/>/api/cron/sweep every minute"]
     VQ["Vercel Queues<br/>topics timer, outbox, agent"]
   end
-  subgraph NEON["Neon project ppec"]
-    MAIN[("branch main = demo-prod<br/>synthetic only")]
-    PB[("preview branches<br/>copy-on-write per preview")]
+  subgraph NEON["Neon project ppec - one database"]
+    MAIN[("branch main = demo-prod<br/>ep-divine-brook, synthetic only")]
   end
   CI["GitHub Actions<br/>lint, typecheck, unit, drizzle-kit check, PII scanner"]
-  PROD -->|pooled DATABASE_URL, HTTP + WS| MAIN
-  PREV -->|branch URL injected per deployment| PB
+  PROD -->|pooled DATABASE_URL, read-write| MAIN
+  PREV -->|same main DATABASE_URL, READ ONLY per transaction<br/>role ppec_preview, no migrate, no seed| MAIN
   CRON --> PROD
   VQ --> PROD
   PROD --> VQ
@@ -237,7 +236,9 @@ flowchart TB
 ```
 
 - Region: Vercel functions default to `iad1` (limits page); Neon project in `aws-us-east-1` to sit next to it (Neon region choice Proposed; latency not yet measured, Unverified).
-- Neon's Vercel-managed integration injects `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED`, and can create a branch per preview deployment (neon.com/docs/guides/vercel-managed-integration). Migrations run with the **unpooled** URL (`drizzle-kit migrate`), never `push` against `main` (Tokos lesson, database-lifecycle skill).
+- **One database (DECISION-LEDGER row 43).** PPEC has exactly one database, the Neon `main` branch (`ep-divine-brook`), holding synthetic data only. There are no per-preview Neon branches: preview deployments use main's `DATABASE_URL`.
+- **Previews are read-only.** Two layers: (1) app-level — preview connections start every transaction `READ ONLY`, refuse caller-sent transaction-control statements, refuse multi-statement strings (the statement scanner lexes `'…'`/`E'…'`/`"…"`/`$tag$…$tag$`, `--`/nested `/* */` and `$`-in-identifier exactly as Postgres does), and refuse every `SET`/`RESET`/`set_config()`/`DO` bar a `SET LOCAL` timeout allowlist, since changing a GUC can change how the SQL after it is lexed (PR #20, ledger row 55); session-level read-only is not used because it can leak onto prod backends through the pooler. (2) server-side — previews log in as `ppec_preview`, a SELECT-only role with `default_transaction_read_only=on` and column-level grants on the Auth.js login columns only, no `identity` access (ledger rows 53 and 55; **pending confirmation** that the role and grants are applied). Sessions are Auth.js JWT, so preview login needs no DB writes.
+- **Previews never migrate and never seed.** Migrations run against `main` with the **unpooled** URL (`drizzle-kit migrate`), never `push` (Tokos lesson, database-lifecycle skill); reset/seed runs only on production (ledger row 45). Neon's Vercel-managed integration injects `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED` (neon.com/docs/guides/vercel-managed-integration); its per-preview branch creation is deliberately not used.
 - Roles: `migrator` (owner, CI only), `app_rw` (ops DML, no identity SELECT), `identity_gateway` (identity DML only). Neon's default owner role is never the app role (Tokos EC K6).
 - Cron on Pro: 100 jobs/project, minimum interval 1 minute, per-minute precision (vercel.com/docs/cron-jobs/usage-and-pricing). Hobby would fail deployment for per-minute crons, so this needs Pro (the founder's team is on Pro per the 10/3 upgrade).
 - Secrets: one env file owner (Rudy); `AUTH_SECRET`, `OPENROUTER_API_KEY`, `SIM_WEBHOOK_SECRET`, `HMAC_PEPPER`, `DATA_KEY`, `CRON_SECRET` (cron/sweep routes fail closed when unset), `DEMO_DIRECTOR_PASSWORD`, `DEMO_COORDINATOR_PASSWORD`, `DEMO_FRONT_DESK_PASSWORD` (seeded synthetic users, ADR-004) per environment, never in chat or repo. Non-secret config: `APP_DATA_CLASS=SYNTHETIC` (boot guard), `DEMO_MODE`, `NEXT_PUBLIC_MAP_TILE_URL` (MapLibre style URL; unset ⇒ OpenFreeMap positron, ADR-008). Integration-injected: `DATABASE_URL`, `DATABASE_URL_UNPOOLED`.
