@@ -1,7 +1,7 @@
 /**
  * PPEC transportation dashboard: DRAFT Drizzle schema (spec artifact, not yet a migration).
  * Source of truth: PRD v1.0 §6.1 (tables), §6.3 (state machines), §6.4 (authorization), §12 (contracts).
- * Status: PROPOSED (by Firia, 2026-10-14). Typechecked with drizzle-orm 0.45.4 + typescript 5 (see DATA-MODEL.md "Evidence").
+ * Status: SUPERSEDED by src/db/schema.ts (B-02, PPE-10). Kept as the spec artifact; do not edit. Typechecked with drizzle-orm 0.45.4 + typescript 5 (see DATA-MODEL.md "Evidence").
  *
  * Conventions (PRD §6.1, Tokos reuse notes in TOKOS-REUSE.md):
  *  - Two Postgres schemas: `identity` (restricted: legal names, phones, DOB) and `ops` (tokenized).

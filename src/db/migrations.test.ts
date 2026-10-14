@@ -1,0 +1,93 @@
+import { beforeAll, describe, expect, it } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { transition, StaleOrConflict, IllegalTransition } from "@/domain/transition";
+import { TASK } from "@/domain/machines";
+
+// Applies drizzle/ migrations in journal order to an in-memory PGlite (no Neon yet; U8 still open for real Neon).
+const dir = join(__dirname, "..", "..", "drizzle");
+const journal = JSON.parse(readFileSync(join(dir, "meta", "_journal.json"), "utf8")) as { entries: { tag: string }[] };
+let db: PGlite;
+const SITE = "00000000-0000-7000-8000-000000000001";
+const ORG = "00000000-0000-7000-8000-000000000002";
+const aud = `'test','test'`;
+
+beforeAll(async () => {
+  db = new PGlite();
+  for (const e of journal.entries) {
+    const sql = readFileSync(join(dir, `${e.tag}.sql`), "utf8");
+    for (const stmt of sql.split("--> statement-breakpoint")) if (stmt.trim()) await db.exec(stmt);
+  }
+  await db.exec(`INSERT INTO ops.org (id,name,created_by,updated_by) VALUES ('${ORG}','SYN Org',${aud});
+    INSERT INTO ops.site (id,org_id,name,depot_lat,depot_lng,created_by,updated_by) VALUES ('${SITE}','${ORG}','SYN Site',26.645352,-80.145541,${aud});`);
+}, 60_000);
+
+describe("migrations 0000 + 0001 on PGlite", () => {
+  it("creates ops and identity schemas with job.claimed_until", async () => {
+    const r = await db.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema='ops' AND table_name='job'`);
+    const cols = r.rows.map((x) => x.column_name);
+    expect(cols).toEqual(expect.arrayContaining(["claimed_at", "claimed_by", "claimed_until", "due_at", "state"]));
+  });
+  it("has foreign keys (ON DELETE RESTRICT) and none from ops into identity", async () => {
+    const r = await db.query<{ n: number }>(`SELECT count(*)::int n FROM information_schema.table_constraints WHERE constraint_type='FOREIGN KEY' AND table_schema='ops'`);
+    expect(r.rows[0].n).toBe(88);
+    const x = await db.query<{ n: number }>(`SELECT count(*)::int n FROM information_schema.constraint_column_usage u
+      JOIN information_schema.table_constraints c USING (constraint_name) WHERE c.table_schema='ops' AND u.table_schema='identity'`);
+    expect(x.rows[0].n).toBe(0);
+    const d = await db.query<{ n: number }>(`SELECT count(*)::int n FROM information_schema.referential_constraints WHERE delete_rule <> 'RESTRICT' AND constraint_schema='ops'`);
+    expect(d.rows[0].n).toBe(0);
+  });
+  it("rejects a row pointing at a missing site", async () => {
+    await expect(db.exec(`INSERT INTO ops.family_group (id,site_id,display_label,created_by,updated_by)
+      VALUES ('00000000-0000-7000-8000-0000000000ff','00000000-0000-7000-8000-00000000dead','F9 (Demo)',${aud})`)).rejects.toThrow();
+  });
+  it("task CLOSED_VERIFIED requires completion_evidence (AGT-04)", async () => {
+    await expect(db.exec(`INSERT INTO ops.task (id,site_id,category,severity,state,summary,completion_predicate,created_by,updated_by)
+      VALUES ('00000000-0000-7000-8000-0000000000a1','${SITE}','x','RED','CLOSED_VERIFIED','s','p',${aud})`)).rejects.toThrow();
+  });
+  it("guarded transition: legal edge bumps version; stale version conflicts; illegal edge never hits the DB", async () => {
+    const id = "00000000-0000-7000-8000-0000000000a2";
+    await db.exec(`INSERT INTO ops.task (id,site_id,category,severity,summary,completion_predicate,created_by,updated_by)
+      VALUES ('${id}','${SITE}','x','AMBER','s','p',${aud})`);
+    const r = await transition(db, TASK, "ops.task", { id, version: 1, from: "OPEN", to: "IN_PROGRESS", actor: "S", by: "staff:test" });
+    expect(r.version).toBe(2);
+    await expect(transition(db, TASK, "ops.task", { id, version: 1, from: "OPEN", to: "IN_PROGRESS", actor: "S", by: "staff:test" }))
+      .rejects.toBeInstanceOf(StaleOrConflict);
+    await expect(transition(db, TASK, "ops.task", { id, version: 2, from: "IN_PROGRESS", to: "CLOSED_VERIFIED", actor: "S", by: "staff:test" }))
+      .rejects.toBeInstanceOf(IllegalTransition);
+  });
+  it("ADR-001 claim: second claim returns 0 rows; expired lease is reclaimable", async () => {
+    const id = "00000000-0000-7000-8000-0000000000b1";
+    await db.exec(`INSERT INTO ops.job (id,site_id,key,kind,payload,due_at,created_by,updated_by)
+      VALUES ('${id}','${SITE}','k1','TEST','{}',now(),${aud})`);
+    const claim = `UPDATE ops.job SET state='CLAIMED', claimed_at=now(), claimed_by='d1', claimed_until=now()+interval '60 seconds'
+      WHERE id=$1 AND state='SCHEDULED' AND due_at<=now()+interval '1 second' RETURNING id`;
+    expect((await db.query(claim, [id])).rows.length).toBe(1);
+    expect((await db.query(claim, [id])).rows.length).toBe(0);
+    const reclaim = `UPDATE ops.job SET state='SCHEDULED', attempts=attempts+1, claimed_until=NULL
+      WHERE state='CLAIMED' AND claimed_until < now() RETURNING id`;
+    expect((await db.query(reclaim, [])).rows.length).toBe(0);
+    await db.exec(`UPDATE ops.job SET claimed_until = now() - interval '1 second' WHERE id='${id}'`);
+    expect((await db.query(reclaim, [])).rows.length).toBe(1);
+  });
+  it("live job key is unique while SCHEDULED/CLAIMED", async () => {
+    await db.exec(`INSERT INTO ops.job (id,site_id,key,kind,payload,due_at,created_by,updated_by)
+      VALUES ('00000000-0000-7000-8000-0000000000b2','${SITE}','k2','TEST','{}',now(),${aud})`);
+    await expect(db.exec(`INSERT INTO ops.job (id,site_id,key,kind,payload,due_at,created_by,updated_by)
+      VALUES ('00000000-0000-7000-8000-0000000000b3','${SITE}','k2','TEST','{}',now(),${aud})`)).rejects.toThrow();
+  });
+  it("roles: app_rw cannot read identity or update append-only logs", async () => {
+    const g = await db.query<{ ok: boolean }>(`SELECT has_table_privilege('app_rw','identity.child_identity','SELECT') ok`);
+    expect(g.rows[0].ok).toBe(false);
+    const u = await db.query<{ ok: boolean }>(`SELECT has_table_privilege('app_rw','ops.audit_event','UPDATE') ok`);
+    expect(u.rows[0].ok).toBe(false);
+    const w = await db.query<{ ok: boolean }>(`SELECT has_table_privilege('app_rw','ops.task','UPDATE') ok`);
+    expect(w.rows[0].ok).toBe(true);
+    const ig = await db.query<{ ok: boolean }>(`SELECT has_table_privilege('identity_gateway','identity.consent_event','UPDATE') ok`);
+    expect(ig.rows[0].ok).toBe(false);
+    const ro = await db.query<{ ok: boolean }>(`SELECT has_table_privilege('readonly','ops.task','INSERT') ok`);
+    expect(ro.rows[0].ok).toBe(false);
+  });
+});

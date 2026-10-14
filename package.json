@@ -13,7 +13,9 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "seed:lint": "node scripts/seed-lint.mjs"
+    "seed:lint": "node scripts/seed-lint.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:check": "drizzle-kit check && drizzle-kit generate --name drift-probe && git diff --exit-code --stat -- drizzle && test -z \"$(git ls-files --others --exclude-standard drizzle)\""
   },
   "dependencies": {
     "drizzle-orm": "0.45.4",
