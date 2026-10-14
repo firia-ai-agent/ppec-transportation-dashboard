@@ -17,7 +17,7 @@
     "db:generate": "drizzle-kit generate",
     "db:check": "drizzle-kit check && drizzle-kit generate --name drift-probe && git diff --exit-code --stat -- drizzle && test -z \"$(git ls-files --others --exclude-standard drizzle)\"",
     "db:migrate:vercel": "node scripts/vercel-db-step.mjs",
-    "vercel-build": "node scripts/vercel-db-step.mjs && next build",
+    "vercel-build": "node scripts/vercel-db-step.mjs && tsx scripts/vercel-seed.ts && next build",
     "seed:demo-users": "tsx scripts/seed-demo-users.ts"
   },
   "dependencies": {
@@ -25,8 +25,8 @@
     "bcryptjs": "3.0.3",
     "drizzle-orm": "0.45.4",
     "next": "16.4.0",
-    "pg": "8.23.1",
     "next-auth": "5.0.0-beta.32",
+    "pg": "8.23.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "4.6.7"
@@ -34,6 +34,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "0.5.10",
     "@types/node": "26.6.5",
+    "@types/pg": "^8.23.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "drizzle-kit": "0.31.11",

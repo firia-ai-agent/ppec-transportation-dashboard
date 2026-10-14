@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { getActiveUser, getMemberships, requireSiteRole, requireUser, verifyCredentials, Forbidden } from "./core";
 import { jwtCallback, sessionCallback } from "./callbacks";
 import { encode, decode } from "next-auth/jwt";
+import { decideSeed } from "../../scripts/vercel-seed";
 import { seedDemoUsers, SeedRefused, DEMO_SITE_A, DEMO_SITE_B, DEMO_USERS } from "./seed";
 import type { Exec } from "@/domain/transition";
 
@@ -96,5 +97,17 @@ describe("credentials + roles from DB", () => {
     await expect(requireUser(db, fd)).rejects.toBeInstanceOf(Forbidden);
     expect(await getActiveUser(db, "01900000-0000-7000-8000-0000000000ee")).toBeNull(); // deleted / unknown uid
     expect(await getActiveUser(db, dir)).toMatchObject({ id: dir, displayName: "SYN Dana Director" });
+  });
+});
+
+describe("build-time seed gate", () => {
+  const ok = { VERCEL_ENV: "preview", APP_DATA_CLASS: "SYNTHETIC", DATABASE_URL_UNPOOLED: "x",
+    DEMO_DIRECTOR_PASSWORD: "a", DEMO_COORDINATOR_PASSWORD: "b", DEMO_FRONT_DESK_PASSWORD: "c" };
+  it("runs on preview only, with SYNTHETIC and all demo passwords present", () => {
+    expect(decideSeed(ok).run).toBe(true);
+    expect(decideSeed({ ...ok, VERCEL_ENV: "production" }).run).toBe(false);
+    expect(decideSeed({ ...ok, APP_DATA_CLASS: "REAL" }).run).toBe(false);
+    expect(decideSeed({ ...ok, DEMO_FRONT_DESK_PASSWORD: undefined }).reason).toMatch(/DEMO_FRONT_DESK_PASSWORD/);
+    expect(JSON.stringify(decideSeed({ ...ok, DATABASE_URL_UNPOOLED: undefined }))).not.toContain("://");
   });
 });

@@ -13,7 +13,7 @@ Status as of 2026-10-14 ~11:45 ET (PR B-01). Names only, never values. Update in
 None yet. `vercel.json` has no `crons`. The per-minute `/api/cron/sweep` arrives in B-03 (PR-5) and must fail closed without `CRON_SECRET`. Vercel Cron runs on production only; previews call the sweep from the harness (DECISION-LEDGER #16).
 
 ## Build-time DB step
-`pnpm vercel-build` = `node scripts/vercel-db-step.mjs && next build`. Previews migrate their own Neon branch on every build. Production is off unless `MIGRATE_PROD_ON_BUILD=1` and the ref is `main`. The step never prints a URL. See DATABASES.md.
+`pnpm vercel-build` = `node scripts/vercel-db-step.mjs && tsx scripts/vercel-seed.ts && next build`. The demo-user seed runs on preview only and never resets passwords. Previews migrate their own Neon branch on every build. Production is off unless `MIGRATE_PROD_ON_BUILD=1` and the ref is `main`. The step never prints a URL. See DATABASES.md.
 
 ## Env var names per environment (names only)
 | Name | Prod | Preview | Kind | Set by | Status |
