@@ -21,3 +21,6 @@ Source of truth for founder decisions. Times are ET (America/New_York). Labels: 
 | 15 | 2026-10-14 11:23 | Version control + docs are the source of truth, stood up now | Decided by founder | founder chat |
 
 All other decisions in docs/adr are Proposed unless labeled otherwise.
+
+## Repo governance record
+- 2026-10-14 ~11:30 ET: branch protection on `main` **not available**. GitHub returned HTTP 403 "Upgrade to GitHub Pro or make this repository public to enable this feature." for both branch protection and rulesets (free plan, private personal repo). Working rule until upgraded: no force-push to main, changes via PR reviewed by Veri.
