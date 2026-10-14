@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { uuidv7 } from "uuidv7";
+import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { freshDb, SITE } from "@/test/pglite";
 import { F1_NUMBER, PEPPER, seedPersona, type Persona } from "@/test/messaging";
@@ -12,7 +13,7 @@ import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { InMemorySimFaultStore } from "./faults";
 import { DbSimMessagingProvider, SIM_DELAY_MAX_MS, SIM_DELAY_MIN_MS, SIM_STATUS_JOB_KIND, simDeliveryDelayMs, simStatusHandler } from "./sim-provider";
 
-let db: Db; let now: Date; let f1: Persona;
+let pg: PGlite; let db: Db; let now: Date; let f1: Persona;
 let outboxTransport: FakeOutboxTransport; let wake: FakeTransport; let faults: InMemorySimFaultStore;
 let provider: DbSimMessagingProvider; let deps: DrainDeps;
 const handlers: Handlers = { [SIM_STATUS_JOB_KIND]: simStatusHandler };
@@ -31,7 +32,7 @@ const msg = (o: Partial<EnqueueInput> = {}): EnqueueInput => ({
 const put = (o: Partial<EnqueueInput> = {}) => db.tx((tx, ac) => enqueue(tx, ac, outboxTransport, msg(o)));
 
 beforeEach(async () => {
-  ({ db } = await freshDb());
+  ({ pg, db } = await freshDb());
   now = new Date();
   outboxTransport = new FakeOutboxTransport(); wake = new FakeTransport(); faults = new InMemorySimFaultStore();
   provider = new DbSimMessagingProvider(db, new VercelQueueScheduler(db, wake, () => now), { faults, clock: () => now, pepper: PEPPER, seed: "test-seed" });
@@ -39,6 +40,9 @@ beforeEach(async () => {
   f1 = await seedPersona(db, F1_NUMBER);
   now = new Date(Date.now() + 1000); // after the contact's valid_from
 }, 60_000);
+
+// One PGlite per test adds up: close it, or the worker is killed part-way through the file.
+afterEach(async () => { await pg.close(); });
 
 describe("MessagingProvider.SIM (ADR-006, MOCKS §3)", () => {
   it("QUEUED → SENT puts the rendered message in the persona mailbox and arms the delivery callback", async () => {

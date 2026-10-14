@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { freshDb, SITE } from "@/test/pglite";
 import { F1_NUMBER, PEPPER, UNKNOWN_NUMBER, seedPersona, type Persona } from "@/test/messaging";
@@ -16,7 +17,7 @@ import { DbSimMessagingProvider } from "./sim-provider";
 import { HELP_REPLY_BODY } from "./templates";
 
 const SECRET = "syn-webhook-secret-0123456789";
-let db: Db; let now: Date; let f1: Persona; let deps: InboundDeps; let drainDeps: DrainDeps;
+let pg: PGlite; let db: Db; let now: Date; let f1: Persona; let deps: InboundDeps; let drainDeps: DrainDeps;
 let outboxTransport: FakeOutboxTransport; let seen: InboundMessageEvent[];
 
 type Post = Record<string, string>;
@@ -36,7 +37,7 @@ const outbound = async () => (await db.query<{ id: string; template_id: string; 
 const threadActivity = async () => (await db.query<{ last_activity_at: Date }>("SELECT last_activity_at FROM ops.conversation_thread", [])).rows;
 
 beforeEach(async () => {
-  ({ db } = await freshDb());
+  ({ pg, db } = await freshDb());
   now = new Date(); seen = []; outboxTransport = new FakeOutboxTransport();
   deps = { pepper: PEPPER, transport: outboxTransport, clock: () => now, hook: async (_tx, e) => { seen.push(e); } };
   drainDeps = {
@@ -46,6 +47,9 @@ beforeEach(async () => {
   f1 = await seedPersona(db, F1_NUMBER);
   now = new Date(Date.now() + 1000);
 }, 60_000);
+
+// One PGlite per test adds up: close it, or the worker is killed part-way through the file.
+afterEach(async () => { await pg.close(); });
 
 describe("sim webhook signature (ADR-006)", () => {
   it("accepts its own signature and refuses everything else, failing closed", () => {

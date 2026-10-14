@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { uuidv7 } from "uuidv7";
+import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { freshDb, SITE } from "@/test/pglite";
 import { F1_NUMBER, PEPPER, seedPersona, type Persona } from "@/test/messaging";
@@ -11,7 +12,7 @@ import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { classifyConsentKeyword, recordConsent, type ConsentKind } from "./consent";
 import { DbSimMessagingProvider } from "./sim-provider";
 
-let db: Db; let now: Date; let f1: Persona; let outboxTransport: FakeOutboxTransport; let deps: DrainDeps;
+let pg: PGlite; let db: Db; let now: Date; let f1: Persona; let outboxTransport: FakeOutboxTransport; let deps: DrainDeps;
 
 const sent = async () => (await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.message WHERE direction='OUT'", [])).rows[0].n;
 const suppressions = async () => (await db.query<{ scope: string; lifted_at: Date | null; permanent_test: boolean }>(
@@ -30,7 +31,7 @@ const consent = (kind: ConsentKind, atMs: number) => db.tx((tx) => recordConsent
   siteId: SITE, contactToken: f1.contactToken, channel: "SMS_1TO1", kind, at: new Date(atMs), by: "test" }));
 
 beforeEach(async () => {
-  ({ db } = await freshDb());
+  ({ pg, db } = await freshDb());
   now = new Date();
   outboxTransport = new FakeOutboxTransport();
   const wake = new FakeTransport();
@@ -41,6 +42,9 @@ beforeEach(async () => {
   f1 = await seedPersona(db, F1_NUMBER);
   now = new Date(Date.now() + 1000);
 }, 60_000);
+
+// One PGlite per test adds up: close it, or the worker is killed part-way through the file.
+afterEach(async () => { await pg.close(); });
 
 describe("consent keywords (MSG-04)", () => {
   it("recognizes carrier keywords on the whole body only", () => {
