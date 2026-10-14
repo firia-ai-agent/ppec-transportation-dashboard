@@ -52,5 +52,11 @@ async function main(env = process.env) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  main().catch((e) => { console.error(`[db-step] migrate: FAILED: ${scrub(e?.message ?? e, process.env)}`); process.exit(1); });
+  main().catch((e) => {
+    // drizzle wraps the driver error: print the Postgres cause (code + message), scrubbed. Never the URL.
+    const c = e?.cause;
+    const cause = c ? ` | cause: ${c.code ?? ""} ${scrub(c.message ?? c, process.env)}` : "";
+    console.error(`[db-step] migrate: FAILED: ${scrub(String(e?.message ?? e).split("\n")[0], process.env)}${cause}`);
+    process.exit(1);
+  });
 }

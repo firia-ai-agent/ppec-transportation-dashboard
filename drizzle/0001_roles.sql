@@ -10,6 +10,12 @@ END $$;
 -- The role running migrations must be able to hand objects to migrator (Neon: the project owner role).
 GRANT migrator TO CURRENT_USER;
 --> statement-breakpoint
+-- A non-superuser can hand a schema to a role only if that role has CREATE on the database, and an enum in
+-- public only if it has CREATE on public (PG15+ no longer grants that to everyone). Found on the first Neon preview build.
+DO $$ BEGIN EXECUTE format('GRANT CREATE ON DATABASE %I TO migrator', current_database()); END $$;
+--> statement-breakpoint
+GRANT CREATE ON SCHEMA public TO migrator;
+--> statement-breakpoint
 -- migrator owns the schemas, tables, sequences and enum types (not the platform default owner; Tokos lesson).
 DO $$ DECLARE r record; BEGIN
   ALTER SCHEMA ops OWNER TO migrator;
