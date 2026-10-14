@@ -14,7 +14,7 @@ Migrations: `drizzle-kit generate` → reviewed SQL in a PR → applied **inside
 | preview | yes, every build | that preview's own Neon branch (`DATABASE_URL_UNPOOLED`) | a missing URL fails the build |
 | production | **off by default** | Neon `main` | only when `MIGRATE_PROD_ON_BUILD=1` **and** `VERCEL_GIT_COMMIT_REF=main` (prod-release-gate); take a Neon snapshot first |
 | local / CI | no | none (CI uses PGlite) | n/a |
-Migrations use drizzle's node-postgres migrator and are tracked in `drizzle.__drizzle_migrations`, so re-running is a no-op. Logs print only RUN/SKIP, the reason, the count and the `ep-…` endpoint id; errors are scrubbed of URLs and credentials. The demo-user seed runs right after, on preview only (added in the Auth.js PR #6).
+Migrations use drizzle's node-postgres migrator and are tracked in `drizzle.__drizzle_migrations`, so re-running is a no-op. Logs print only RUN/SKIP, the reason, the count and the `ep-…` endpoint id; errors are scrubbed of URLs and credentials. Then `scripts/vercel-seed.ts` seeds the synthetic demo users, **preview only**. It is idempotent and never resets an existing password (that needs `pnpm seed:demo-users --apply --reset-passwords`, run by hand). It skips with a logged reason if `DEMO_*_PASSWORD` or the URL is missing. Production is never seeded from the build; the demo reset/seed buttons are B-15 (row 17).
 
 ## Migrations in repo
 | # | File | What | Rollback |

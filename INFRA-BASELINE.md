@@ -18,7 +18,7 @@ Status as of 2026-10-14 ~11:45 ET (PR B-01). Names only, never values. Update in
 Vercel Cron runs on **production only**. Previews have no cron: the harness calls `/api/cron/sweep` with the same header (DECISION-LEDGER, previews call the sweep route themselves). Any change to these rows needs an INFRA-TEMP entry if temporary.
 
 ## Build-time DB step
-`pnpm vercel-build` = `node scripts/vercel-db-step.mjs && next build`. Previews migrate their own Neon branch on every build. Production is off unless `MIGRATE_PROD_ON_BUILD=1` and the ref is `main`. The step never prints a URL. See DATABASES.md.
+`pnpm vercel-build` = `node scripts/vercel-db-step.mjs && tsx scripts/vercel-seed.ts && next build`. The demo-user seed runs on preview only and never resets passwords. Previews migrate their own Neon branch on every build. Production is off unless `MIGRATE_PROD_ON_BUILD=1` and the ref is `main`. The step never prints a URL. See DATABASES.md.
 
 ## Env var names per environment (names only)
 | Name | Prod | Preview | Kind | Set by | Status |
@@ -40,6 +40,8 @@ See `DATABASES.md`. Rule: prod and preview never share a database branch; `DATAB
 |---|---|---|
 | APP_DATA_CLASS | build and server boot refuse anything but `SYNTHETIC` | `src/lib/env.ts:9-24`, `next.config.ts:5`, `src/instrumentation.ts:4-6` |
 | DEMO_MODE | (nothing yet) demo panel + APIs per ADR-014, from B-15 | — |
+| AUTH_SECRET (secret) | Auth.js JWT signing; `/login` and `/whoami` fail at request time without it (build does not need it) | `src/auth.ts` |
+| DEMO_*_PASSWORD (secret) | only read by `pnpm seed:demo-users` (dry run unless `--apply`); refuses <16 chars or non-SYNTHETIC | `src/auth/seed.ts` |
 
 ## Platform/account settings
 - GitHub: private repo, free plan, **no branch protection/rulesets** (HTTP 403, DECISION-LEDGER governance record). CI is advisory; Veri review is the gate.
@@ -52,3 +54,4 @@ None yet. Pending: Vercel GitHub integration, Neon (Vercel-managed, Free plan).
 
 ## Known side-effects
 - **Vercel import auto-deploy (2026-10-14):** right after the project was created, Vercel deployed automatically: `dpl_AwLye7jkbLsf1cTMeR9JpinF4SrN`, target **production**, from branch `team/ppe-10-b-02-schema` @ `f957e4e`, 13.6 s after creation. **It failed at build.** The project is still `live: false`, and nothing from this deployment serves traffic. This was Vercel's import behaviour, not a release; prod releases still go only from `main` under prod-release-gate.
+- **Production branch check (closed 2026-10-14):** Firia confirmed in the Vercel dashboard that Settings > Environments > Production > Branch Tracking = `main`. The production-branch incident above is closed. Only `main` produces production deployments.
