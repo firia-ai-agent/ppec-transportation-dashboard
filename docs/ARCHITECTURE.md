@@ -30,22 +30,28 @@ LOCKS IN FORCE: founder answers 2026-10-14 (t613u, t614u) restated in the brief;
 ```mermaid
 flowchart LR
   subgraph People
-    COORD[Coordinator / Director<br/>web console]
-    RAMP[Front desk / ramp<br/>iPad view]
-    DISP[Provider dispatcher<br/>signed no-login link]
-    FAM[Parents / guardians<br/>SMS: SIMULATED inbox]
-    THER[Therapists<br/>SMS: SIMULATED inbox]
+    COORD["Coordinator / Director<br/>web console"]
+    RAMP["Front desk / ramp<br/>iPad view"]
+    DISP["Provider dispatcher<br/>signed no-login link"]
+    FAM["Parents / guardians<br/>SMS - SIMULATED inbox"]
+    THER["Therapists<br/>SMS - SIMULATED inbox"]
   end
-  APP[PPEC transportation dashboard<br/>Next.js modular monolith on Vercel]
-  DB[(Neon Postgres<br/>identity + ops schemas)]
-  LLM[OpenRouter → Claude<br/>ZDR endpoints only]
-  Q[Vercel Queues + Cron<br/>timer wake-ups]
-  MAP[OSM raster tiles<br/>browser only]
-  COORD --> APP; RAMP --> APP; DISP --> APP
-  FAM -. mock MessagingProvider .-> APP
-  THER -. mock MessagingProvider .-> APP
-  APP -. mock Teams panel .-> COORD
-  APP --> DB; APP --> LLM; APP <--> Q; COORD --> MAP
+  APP["PPEC transportation dashboard<br/>Next.js modular monolith on Vercel"]
+  DB[("Neon Postgres<br/>identity + ops schemas")]
+  LLM["OpenRouter to Claude<br/>ZDR endpoints only"]
+  Q["Vercel Queues + Cron<br/>timer wake-ups"]
+  MAP["OSM raster tiles<br/>browser only"]
+  COORD --> APP
+  RAMP --> APP
+  DISP --> APP
+  FAM -.->|mock MessagingProvider| APP
+  THER -.->|mock MessagingProvider| APP
+  APP -.->|mock Teams panel| COORD
+  APP --> DB
+  APP --> LLM
+  APP --> Q
+  Q --> APP
+  COORD --> MAP
 ```
 
 Nothing leaves the system to a real phone, Teams tenant or routing vendor in P1. The only external data processors at runtime are Vercel, Neon and OpenRouter (plus the upstream Bedrock/Vertex endpoint OpenRouter routes to); tiles are fetched by the browser with no app data in the request.
@@ -90,42 +96,42 @@ Every write path goes: **authorize (role × site × object) → load with versio
 ```mermaid
 sequenceDiagram
   autonumber
-  participant Ph as Sim phone (F1)
-  participant WH as /api/webhooks/sms/sim
+  participant Ph as Sim phone F1
+  participant WH as SMS webhook (sim)
   participant IG as IdentityGateway
-  participant DB as Neon (ops)
+  participant DB as Neon ops
   participant Q as Vercel Queues
   participant AG as Agent runner
-  participant LLM as LLMGateway→OpenRouter
+  participant LLM as LLMGateway to OpenRouter
   participant OB as Outbox drainer
-  participant SSE as SSE stream / board
-  Ph->>WH: POST {from, body, externalId} (HMAC-signed by sim)
-  WH->>WH: verify signature (401 SIGNATURE_INVALID)
+  participant SSE as SSE stream and board
+  Ph->>WH: POST from, body, externalId (HMAC signed by sim)
+  WH->>WH: verify signature, else 401 SIGNATURE_INVALID
   WH->>IG: tokenizeBody(body), hmac(from)
   WH->>DB: INSERT message ON CONFLICT (provider, external_id) DO NOTHING
   alt duplicate
-    WH-->>Ph: 200 {duplicate:true}
-  else own echo (from = owned number)
-    WH->>DB: is_own_echo=true; no agent run
-  else new
-    WH->>DB: INSERT agent_run(trigger msg.inbound, id) UNIQUE
-    WH->>Q: send("agent", {runId}) idempotencyKey=runId
-    WH-->>Ph: 200 (<2 s)
+    WH-->>Ph: 200 duplicate=true
+  else own echo from an owned number
+    WH->>DB: is_own_echo=true, no agent run
+  else new message
+    WH->>DB: INSERT agent_run (trigger msg.inbound, id) UNIQUE
+    WH->>Q: send agent job, idempotencyKey=runId
+    WH-->>Ph: 200 in under 2 s
   end
-  Q->>AG: deliver {runId}
-  AG->>IG: resolveInbound(fromHmac) → candidates{child_token, legs, confidence}
-  AG->>DB: read T1 approved facts + authorization, T2 state+versions
-  AG->>LLM: tokens-only prompt (T3 wrapped <untrusted_user_message>)
+  Q->>AG: deliver runId
+  AG->>IG: resolveInbound(fromHmac) returns candidates
+  AG->>DB: read T1 approved facts + authorization, T2 state + versions
+  AG->>LLM: tokens-only prompt, T3 wrapped as untrusted_user_message
   LLM-->>AG: tool_call cancel_attendance_or_leg(C1, date, AM, expected_version)
-  AG->>DB: persist agent_tool_call (before execution)
-  AG->>DB: BEGIN; policy check; transition(leg AM → CANCELED_TRANSPORT, v)<br/>INSERT outbound_message(provider notice, confirmation; plan_version_basis)<br/>INSERT event_log, audit_event; COMMIT
-  DB-->>SSE: event_log seq N (tail ≤1 s)
-  SSE-->>SSE: board row updates (NFR-01 p95 <3 s)
-  AG->>Q: send("outbox", {ids})
+  AG->>DB: persist agent_tool_call before execution
+  AG->>DB: one transaction - policy check, leg AM to CANCELED_TRANSPORT, outbound_message rows, event_log + audit_event
+  DB-->>SSE: event_log seq N, tailed every 1 s
+  SSE-->>SSE: board row updates (NFR-01 p95 under 3 s)
+  AG->>Q: send outbox job with ids
   Q->>OB: deliver
-  OB->>DB: claim QUEUED rows (FOR UPDATE SKIP LOCKED)
-  OB->>IG: egressAddress(recipient_token) re-check consent, suppression, plan_version, not_after, quiet hours
-  OB->>Ph: SimMessagingProvider.send → sim inbox (SENT→DELIVERED callback)
+  OB->>DB: guarded claim of QUEUED rows
+  OB->>IG: egressAddress re-checks consent, suppression, plan_version, not_after, quiet hours
+  OB->>Ph: SimMessagingProvider.send to sim inbox (SENT then DELIVERED)
 ```
 
 Guarantees: duplicate SID → no-op (MSG-01); agent never sees phone numbers (TEST-SEC-01); staff takeover sets thread PAUSED_HUMAN and the runner aborts (`ABORTED_SUPERSEDED_BY_HUMAN`); a version bump by staff makes the agent's write return 412 and the run re-reads or yields (PRD §13).
@@ -135,28 +141,28 @@ Guarantees: duplicate SID → no-op (MSG-01); agent never sees phone numbers (TE
 ```mermaid
 sequenceDiagram
   autonumber
-  participant SIM as Truck simulator (sim_run)
-  participant IN as /api/ingest/sim
+  participant SIM as Truck simulator
+  participant IN as Ingest endpoint (sim)
   participant DB as Neon
   participant ETA as ETA engine (no LLM)
-  participant RP as RoutingProvider (SIM)
+  participant RP as RoutingProvider SIM
   participant NG as Notify gate
   participant OB as Outbox
-  SIM->>IN: point {deviceId, recordedAt, lat, lng, speed} + device secret
+  SIM->>IN: point deviceId, recordedAt, lat, lng, speed + device secret
   IN->>DB: INSERT telemetry_point ON CONFLICT (device_id, recorded_at) DO NOTHING
   IN->>DB: binding active? else bound=false (stored, shown nowhere)
-  IN->>IN: debounce: ≥60 s or ≥300 m since last recompute (ASM-11), 30 s debounce
+  IN->>IN: recompute only if 60 s or 300 m since last (ASM-11), 30 s debounce
   IN->>ETA: recompute(manifest)
-  ETA->>RP: eta(origin, remaining stops, departAt, {traffic:true}) coordinates only
-  RP-->>ETA: legs[{durationSec, distanceM}] (fixture geometry × traffic profile × injected delay)
-  ETA->>DB: INSERT eta_estimate per downstream leg (window = ETA ± max(5 min, 15% remaining))
+  ETA->>RP: eta(origin, remaining stops, departAt, traffic) coordinates only
+  RP-->>ETA: legs durationSec, distanceM (fixture geometry x traffic profile x injected delay)
+  ETA->>DB: INSERT eta_estimate per downstream leg, window = ETA +/- max(5 min, 15% remaining)
   ETA->>NG: shift vs last notified
-  alt shift ≥10 min, persisted 2 consecutive calcs, stop ≥10 min away, ≤1/stop/20 min
-    NG->>OB: outbound_message(eta_delay, downstream families only, 10-min window text)
+  alt shift at least 10 min for 2 consecutive calcs, stop 10+ min away, max 1 per stop per 20 min
+    NG->>OB: outbound_message eta_delay to downstream families only, 10-min window text
   else jitter
-    NG-->>NG: suppressed (logged)
+    NG-->>NG: suppressed and logged
   end
-  Note over IN,NG: Freshness sweeper (cron 1/min + per-vehicle timer): >180 s STALE badge + suppress ETA texts; >600 s RED exception + dispatcher ping
+  Note over IN,NG: Freshness sweeper (cron every minute + per-vehicle timer)<br/>over 180 s - STALE badge, ETA texts suppressed<br/>over 600 s - RED exception + dispatcher ping
 ```
 
 ### 3.3 Capability → solver → exception → approval (demo steps 5–6)
@@ -164,30 +170,30 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   autonumber
-  participant J as JobScheduler (T−90/T−60/T−45)
-  participant AG as Agent / rules
-  participant DP as Dispatcher link /p/verify/{token}
+  participant J as JobScheduler (T-90, T-60, T-45)
+  participant AG as Agent and rules
+  participant DP as Dispatcher link page
   participant RAMP as Ramp iPad
   participant SV as Solver (pure)
   participant DB as Neon
   participant TM as Mock Teams panel
   participant C1 as Coordinator A
   participant C2 as Coordinator B
-  J->>AG: fire T−90 capability_request(vehicle V1)
-  AG->>DB: capability UNKNOWN→REQUESTED; dispatcher_link (hash, single-use, expires route start or 4 h)
+  J->>AG: fire T-90 capability_request for vehicle V1
+  AG->>DB: capability UNKNOWN to REQUESTED, create dispatcher_link (hashed, single use, expires at route start or 4 h)
   AG->>DP: SMS (sim) with link
-  DP->>DB: POST report → capability REPORTED (provisionally feasible, reported)
-  J-->>J: cancel T−60/T−45 jobs (cancel(key))
-  RAMP->>DB: PUT /vehicles/V3/capability/{date} {1WC,1AMB} (substitution)
+  DP->>DB: POST report, capability REPORTED (provisionally feasible)
+  J-->>J: cancel T-60 and T-45 jobs by key
+  RAMP->>DB: PUT V3 capability for date = 1 WC + 1 AMB (substitution)
   DB->>SV: feasible(V3, layouts, stop sequence, children)
-  SV-->>DB: INFEASIBLE deficit {k:2, type:AMB, count:1} + ranked options
-  DB->>DB: task RED + approval_request(proposal: C8 → center van V2, +6 min)
-  DB->>TM: card {approval_id, version} (tokens + first names only)
-  C1->>TM: Approve (Action.Execute)
-  TM->>DB: UPDATE approval_request SET decided… WHERE decided_at IS NULL → 1 row
+  SV-->>DB: INFEASIBLE, deficit 1 AMB seat + ranked options
+  DB->>DB: task RED + approval_request (C8 to center van V2, +6 min)
+  DB->>TM: approval card with approval_id and version (tokens + first names only)
+  C1->>TM: Approve
+  TM->>DB: UPDATE approval_request WHERE decided_at IS NULL, 1 row
   C2->>TM: Approve
-  TM->>DB: same UPDATE → 0 rows → 409 ALREADY_DECIDED card
-  DB->>DB: reservation C8 → V2 COMMITTED; outbound to F7 (after staff chose; AT-12 rule)
+  TM->>DB: same UPDATE, 0 rows, 409 ALREADY_DECIDED card
+  DB->>DB: reservation C8 to V2 COMMITTED, outbound to F7 only after staff chose (AT-12)
 ```
 
 ## 4. Data flow for each of the 12 demo steps (PRD §18.2)
@@ -211,20 +217,23 @@ sequenceDiagram
 
 ```mermaid
 flowchart TB
-  subgraph Vercel team firia1 (Pro)
-    PROD[Production deployment<br/>ppec-dashboard, region iad1]
-    PREV[Preview deployments<br/>per PR]
-    CRON[Vercel Cron: /api/cron/sweep every minute]
-    VQ[Vercel Queues topics: timer, outbox, agent]
+  subgraph VERCEL["Vercel team firia1 - Pro"]
+    PROD["Production deployment<br/>ppec-dashboard, region iad1"]
+    PREV["Preview deployments<br/>per PR"]
+    CRON["Vercel Cron<br/>/api/cron/sweep every minute"]
+    VQ["Vercel Queues<br/>topics timer, outbox, agent"]
   end
-  subgraph Neon project ppec (Vercel-managed or Neon-managed)
-    MAIN[(branch main = demo-prod<br/>synthetic only)]
-    PB[(preview/* branches<br/>copy-on-write per preview)]
+  subgraph NEON["Neon project ppec"]
+    MAIN[("branch main = demo-prod<br/>synthetic only")]
+    PB[("preview branches<br/>copy-on-write per preview")]
   end
-  PROD -- pooled DATABASE_URL (HTTP + WS) --> MAIN
-  PREV -- branch URL injected per deployment --> PB
-  CRON --> PROD; VQ <--> PROD
-  CI[GitHub Actions: lint, typecheck, unit, drizzle-kit generate --check, PII scanner] --> PROD
+  CI["GitHub Actions<br/>lint, typecheck, unit, drizzle-kit check, PII scanner"]
+  PROD -->|pooled DATABASE_URL, HTTP + WS| MAIN
+  PREV -->|branch URL injected per deployment| PB
+  CRON --> PROD
+  VQ --> PROD
+  PROD --> VQ
+  CI --> PROD
 ```
 
 - Region: Vercel functions default to `iad1` (limits page); Neon project in `aws-us-east-1` to sit next to it (Neon region choice Proposed; latency not yet measured, Unverified).
