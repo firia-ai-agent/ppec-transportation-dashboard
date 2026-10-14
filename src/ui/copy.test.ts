@@ -389,6 +389,15 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
     expect(mapPreview.intro).toMatch(/Nothing here is live/);
   });
 
+  it("the motion line says what the markers do, not how they are animated", () => {
+    // "Tweened along route geometry" named the implementation; the line a reviewer reads now says
+    // what is happening on the screen (COPY-GUIDE §1).
+    expect(mapPreview.motionTweened).toBe("Vans follow their routes.");
+    expect(mapPreview.motionTweened).not.toMatch(/tween|geometry/i);
+    // The reduced-motion line still says what it is: the markers step instead of sliding.
+    expect(mapPreview.motionReduced).toBe("Reduced motion: markers step, no tween");
+  });
+
   it("the map pane's own wording, including the two tile notices", () => {
     expect(fleetMap.fitAll).toBe("Fit all vehicles");
     expect(fleetMap.retry).toBe("Retry");
