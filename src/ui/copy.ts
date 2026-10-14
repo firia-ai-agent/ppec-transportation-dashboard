@@ -192,6 +192,17 @@ export const login = {
  * lives in this file so the §1 voice rules apply to it too.
  */
 export const mapPreview = {
+  heading: "Map preview",
+  /** <title> for the route, so the tab says which preview is open. */
+  documentTitle: "Map preview · PPEC transportation dashboard",
+  /**
+   * What the surface is and, at the same length, what it is not. Written long on purpose:
+   * a reviewer who lands here must not have to guess which parts are real.
+   */
+  intro:
+    "Fleet map pane (SURF-01) on committed fixtures: the center at 2216 Jog Rd, public landmark stops, and the GPS simulator driving V1–V3 along committed route fixtures with injected faults — a stall, a GPS gap, duplicate and out-of-order points, ±40 m jitter, and one unbound device. ETA windows come from the committed route durations and a simulated traffic band; freshness follows the four decided bands (live / aging / stale at 180 s / no signal at 600 s). Nothing here is live — no database, no GPS feed, no messages sent, no real children or families.",
+  /** Said on the page itself: a preview surface is still behind staff sign-in. */
+  signedInOnly: "Staff sign-in only. The data below is simulated, and the roles still apply.",
   clock: "Scenario clock {time} ET",
   pause: "Pause",
   play: "Play",
@@ -412,3 +423,139 @@ export const countable = {
 export function pluralize(count: number, noun: { one: string; many: string }): string {
   return `${count} ${count === 1 ? noun.one : noun.many}`;
 }
+
+/**
+ * The fleet map pane (DESIGN-DIRECTION §5 / §5.1, PRD SURF-01). Words only: the layer
+ * paints and the camera rules live in src/components/map/style.ts.
+ *
+ * §9 is the reason this list is longer than the map looks: the pane is never the only way
+ * to read the fleet, so every marker has a row in the list beside it, and every row says
+ * its freshness in words next to the tone colour.
+ */
+export const fleetMap = {
+  /** Accessible name for the map region when the caller supplies none. */
+  label: "Fleet map",
+  fitAll: "Fit all vehicles",
+  retry: "Retry",
+  vehiclesHeading: "Vehicles",
+  /** "V1 · Convertible van" — the id, then the vehicle in plain words. */
+  vehicleRow: "{id} · {description}",
+  /** "Provider P1 · In transit" */
+  vehicleMeta: "{owner} · {state}",
+  gps: "GPS: {age}",
+  source: "Source: {label}",
+  /** §5.1: a stall is words and a clock, never a colour. */
+  stopped: "Stopped {minutes} min",
+  /** LOC-03: the 600 s band, said out loud rather than shown only in red. */
+  locationLost: "Location lost · dispatcher pinged",
+  /** A stop the vehicle reached. Never "Handed off": a geofence cannot complete a handoff. */
+  arrived: "Arrived (vehicle)",
+  passed: "Passed",
+  windowPending: "Window pending",
+  /** LOC-03: the last published window, with the pause spelled out. */
+  windowPaused: "{window} · ETA texts paused",
+  /** The style request was abandoned (navigation, unmount): nothing more to say. */
+  tilesFailed: "Map tiles did not load.",
+  /** The style request failed: say what still works, so nobody assumes the board is down. */
+  tilesFailedDetail: "Map tiles did not load. The board below is unaffected.",
+  /** "Okeeheelee Park · F4" — the stop, then the family it belongs to. */
+  stopFamily: "{stop} · {family}",
+} as const;
+
+/**
+ * Why a geofence arrival is not a handoff (PRD SURF-01 l.1058). Surfaced next to an
+ * arrival so the demo cannot be misread: the vehicle got there, a person still has to receive
+ * the child. src/domain/location/geofence.ts re-exports this as `ARRIVAL_IS_NOT_HANDOFF`.
+ */
+export const arrival = {
+  notHandoff: "Arrived (vehicle). Handoff needs a custody event naming the receiving adult.",
+} as const;
+
+/**
+ * ETA deltas (COPY-GUIDE l.36). U+2212 for the minus, so "−3 min" lines up with the digits
+ * instead of using a hyphen. `unknown` is what an unusable delta says: a missing or
+ * non-finite shift is not "On time", and it is never printed as "−NaN min".
+ */
+export const etaText = {
+  ahead: "+{n} min",
+  behind: "−{n} min",
+  onTime: "On time",
+  unknown: "Not known yet",
+} as const;
+
+/**
+ * The capacity solver's words (PRD §7 l.784-800, §9 l.880). A verdict is computed in
+ * src/domain/solver/feasible.ts; the sentence that says it belongs here, so the §1 voice
+ * rules (plain, honest about certainty, a need is never a diagnosis) apply to it.
+ */
+export const solver = {
+  /** Why the answer is unknown rather than infeasible. Never read as a yes. */
+  pending: {
+    unobserved: "What this vehicle can carry today is unknown until arrival.",
+    substituted:
+      "A different vehicle is coming. What it can carry is unknown until the provider reports.",
+    latchUnknown: "Car-seat anchors (LATCH) not reported yet.",
+    liftUnknown: "Lift not reported yet, and a wheelchair rider needs it.",
+    unsurePositions: "Some positions were answered “Not sure”.",
+    unsureCapability: "Part of this vehicle's capability was answered “Not sure”.",
+  },
+  /** Capability states that put the vehicle out of today's reach entirely. */
+  unusable: {
+    REJECTED: "Staff rejected this vehicle's report for today.",
+    UNAVAILABLE: rampPreview.vehicleOut,
+    /** Already checked and already found not to fit: re-solving it would say the same thing. */
+    VERIFIED_INFEASIBLE: "Staff checked this vehicle and the run does not fit it.",
+  },
+  /** Stands in for the rider names when the solver cannot name anyone (§3: no bare counts). */
+  unnamedRiders: "the riders who have not boarded",
+  /**
+   * The PRD §7 l.799 option set. Button-length labels, no ticket codes (§2), and one
+   * sentence of detail a coordinator can act on. Every one of them needs a human.
+   */
+  options: {
+    SPLIT_RUN: {
+      label: "Split the run",
+      detail:
+        "Run {who} separately on {vehicle}. Everyone already on the vehicle stays where they are.",
+    },
+    ALTERNATE_VEHICLE: {
+      label: "Move to {vehicle}",
+      detail: "{description} ({provider}) fits {who} as {layout}.",
+    },
+    ALTERNATE_PROVIDER: {
+      label: "Move to {vehicle}",
+      detail: "{description} ({provider}) fits {who} as {layout}.",
+    },
+    FAMILY_TRANSPORT: {
+      label: "Ask the family to drive",
+      detail:
+        "Ask the family of {who} to drive today. The family is told only after staff choose.",
+    },
+    DELAY: {
+      label: "Delay the run",
+      detail: "Hold the run until a vehicle that fits is free. {who} waits at the center.",
+    },
+    CANCEL: {
+      label: "Cancel the ride",
+      detail: "Cancel today's ride for {who}. Attendance and therapy sessions are updated.",
+    },
+  },
+  /** The delay sentence with nobody to name, so it never reads "{who} waits at the center". */
+  delayAnyone: "Hold the run until a vehicle that fits is free. Riders wait at the center.",
+} as const;
+
+/**
+ * The demo-reset endpoint's answers (ADR-014, DECISION-LEDGER row 17). An operator reads
+ * these, so they say what refused and why in plain words, and never name a flag, a ticket or
+ * a connection detail. src/modules/demo/reset.ts chooses between them.
+ */
+export const demoReset = {
+  previewRefusal:
+    "Refusing: preview deployments share the one production database, so the demo reset is disabled here.",
+  notEnabled: "Demo controls are not enabled here.",
+  notSynthetic: "Refusing: this deployment is not marked as synthetic data.",
+  enabled: "Demo controls are enabled.",
+  signIn: "Sign in to continue.",
+  directorOnly: "Only a director can reset the demo.",
+  nameTheSite: "Name the site to reset.",
+} as const;

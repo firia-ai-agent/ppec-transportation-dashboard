@@ -50,6 +50,69 @@ describe("window text (PRD §8: a 10-minute window, never minute precision)", ()
     ).toBe("11:50 AM–12:00 PM");
   });
 
+  /**
+   * 2026-11-01 is the autumn fall-back: at 2:00 AM EDT the local clock goes back to
+   * 1:00 AM EST, so 1:00–1:59 AM happens twice. Pinned by UTC instants, so these assertions
+   * hold whatever TZ the test runner is started with — ET is the project clock
+   * (PROJECT_TIME_ZONE), not the machine's.
+   */
+  describe("the DST fall-back hour (2026-11-01, America/New_York)", () => {
+    /** 1:50 AM EDT = 05:50 UTC; ten minutes later is 1:00 AM EST = 06:00 UTC. */
+    const fallBackStart = Date.UTC(2026, 10, 1, 5, 50, 0);
+    const fallBackEnd = Date.UTC(2026, 10, 1, 6, 0, 0);
+
+    it("names the offset on both ends instead of reading backwards", () => {
+      // It used to render "1:50–1:00 AM", which tells a family to expect the van an hour
+      // before it leaves.
+      expect(formatWindow(fallBackStart, fallBackEnd)).toBe("1:50 AM EDT–1:00 AM EST");
+      expect(formatWindow(fallBackStart, fallBackEnd)).not.toBe("1:50–1:00 AM");
+    });
+
+    it("reads forwards: the clock on the left is earlier than the clock on the right", () => {
+      const text = formatWindow(fallBackStart, fallBackEnd);
+      const [left, right] = text.split("–");
+      // Monotone in the only sense that survives a repeated hour: each end carries the
+      // offset that tells you which of the two 1 o'clocks it is.
+      expect(left).toContain("EDT");
+      expect(right).toContain("EST");
+      expect(fallBackStart).toBeLessThan(fallBackEnd);
+    });
+
+    it("disambiguates a window wholly inside the repeated hour, not just the fold", () => {
+      // 1:10–1:20 AM happens twice: once EDT (05:10 UTC) and once EST (06:10 UTC). Both
+      // ends share an offset in each case, so only naming the zone tells them apart.
+      const firstPass = formatWindow(Date.UTC(2026, 10, 1, 5, 10, 0), Date.UTC(2026, 10, 1, 5, 20, 0));
+      const secondPass = formatWindow(Date.UTC(2026, 10, 1, 6, 10, 0), Date.UTC(2026, 10, 1, 6, 20, 0));
+      expect(firstPass).toBe("1:10 AM EDT–1:20 AM EDT");
+      expect(secondPass).toBe("1:10 AM EST–1:20 AM EST");
+      expect(firstPass).not.toBe(secondPass);
+    });
+
+    it("walks the whole repeated hour without ever printing the same window twice", () => {
+      const bucket = WINDOW_MINUTES * 60 * 1000;
+      const texts: string[] = [];
+      // 12:30 AM EDT through 2:00 AM EST: every 10-minute window across the fold.
+      for (let t = Date.UTC(2026, 10, 1, 4, 30, 0); t < Date.UTC(2026, 10, 1, 7, 0, 0); t += bucket) {
+        texts.push(formatWindow(t, t + bucket));
+      }
+      expect(new Set(texts).size).toBe(texts.length);
+      expect(texts).toContain("1:50 AM EDT–1:00 AM EST");
+    });
+
+    it("leaves an ordinary window alone: no offset where there is nothing to disambiguate", () => {
+      const window = windowFor(Date.UTC(2026, 9, 14, 11, 52, 31));
+      expect(formatWindow(window.startMs, window.endMs)).toBe("7:50–8:00 AM");
+      expect(formatWindow(window.startMs, window.endMs)).not.toMatch(/EDT|EST/);
+    });
+
+    it("spring-forward needs nothing: that hour does not exist, so no reading repeats", () => {
+      // 2026-03-08: 1:50 AM EST (06:50 UTC) + 10 min is 3:00 AM EDT (07:00 UTC).
+      expect(
+        formatWindow(Date.UTC(2026, 2, 8, 6, 50, 0), Date.UTC(2026, 2, 8, 7, 0, 0)),
+      ).toBe("1:50 AM EST–3:00 AM EDT");
+    });
+  });
+
   it("never prints a minute-precision ETA", () => {
     const text = formatWindow(
       windowFor(Date.UTC(2026, 9, 14, 11, 52, 31)).startMs,
@@ -65,6 +128,22 @@ describe("delta text (COPY-GUIDE l.36)", () => {
     expect(formatDelta(-180)).toBe("−3 min");
     expect(formatDelta(0)).toBe("On time");
     expect(formatDelta(20)).toBe("On time");
+  });
+
+  it("says a shift is not known rather than printing '−NaN min'", () => {
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(formatDelta(bad)).toBe("Not known yet");
+      expect(formatDelta(bad)).not.toMatch(/NaN|Infinity/);
+      expect(formatDelta(bad)).not.toMatch(/min$/);
+    }
+    // And it is not quietly "On time" either: that would be a claim, not an answer.
+    expect(formatDelta(Number.NaN)).not.toBe("On time");
+  });
+
+  it("every delta it can print carries a sign or says it is on time", () => {
+    for (const seconds of [-3600, -61, -60, -31, 0, 31, 60, 3600, Number.NaN]) {
+      expect(formatDelta(seconds)).toMatch(/^(?:\+\d+ min|−\d+ min|On time|Not known yet)$/);
+    }
   });
 });
 

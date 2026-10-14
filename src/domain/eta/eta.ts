@@ -26,6 +26,7 @@ import {
   type MeasuredRoute,
   type RouteStop,
 } from "@/domain/location/route";
+import { etaText, fill } from "@/ui/copy";
 import { PROJECT_TIME_ZONE } from "./traffic";
 
 /** ASM-13: u is at least 5 minutes. */
@@ -108,28 +109,61 @@ export function windowFor(etaMs: number): { startMs: number; endMs: number } {
   return { startMs, endMs: startMs + bucket };
 }
 
+// `timeZoneName` is read only to tell the two halves of a repeated DST hour apart; the
+// abbreviation is appended to the window text, never to a plain clock.
 const TIME_FMT = new Intl.DateTimeFormat("en-US", {
   timeZone: PROJECT_TIME_ZONE,
   hour: "numeric",
   minute: "2-digit",
   hour12: true,
+  timeZoneName: "short",
 });
 
-function parts(ms: number): { clock: string; meridiem: string } {
+function parts(ms: number): { clock: string; meridiem: string; zone: string } {
   const p = TIME_FMT.formatToParts(new Date(ms));
   const hour = p.find((x) => x.type === "hour")?.value ?? "";
   const minute = p.find((x) => x.type === "minute")?.value ?? "";
   const meridiem = (p.find((x) => x.type === "dayPeriod")?.value ?? "").toUpperCase();
-  return { clock: `${hour}:${minute}`, meridiem };
+  const zone = p.find((x) => x.type === "timeZoneName")?.value ?? "";
+  return { clock: `${hour}:${minute}`, meridiem, zone };
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * Is this instant inside a local hour that happens twice?
+ *
+ * True exactly on the autumn fall-back: the hour before or the hour after reads the same on
+ * the clock but in the other offset. Spring-forward is false — the skipped hour makes
+ * readings rarer, not ambiguous — and a zone without DST is false all year.
+ */
+function inRepeatedLocalHour(ms: number): boolean {
+  const here = parts(ms);
+  return [parts(ms - HOUR_MS), parts(ms + HOUR_MS)].some(
+    (other) =>
+      other.clock === here.clock && other.meridiem === here.meridiem && other.zone !== here.zone,
+  );
 }
 
 /**
  * "8:20–8:30 AM" (COPY-GUIDE l.36 / l.83): en dash, meridiem once at the end, and on
  * both ends when the window straddles noon or midnight. ET, the project clock.
+ *
+ * On the autumn fall-back the local clock repeats an hour, and two things went wrong. A
+ * window across the fold read "1:50–1:00 AM" — backwards, telling a family to expect the van
+ * an hour before it leaves. And every window *inside* the repeated hour rendered twice,
+ * identically, an hour apart. So whenever either end is in a repeated hour, or the two ends
+ * sit in different offsets, the zone abbreviation goes on both ends
+ * ("1:50 AM EDT–1:00 AM EST"): the window reads forwards again and no two windows that day
+ * share a rendering. Outside that hour nothing changes — there is nothing to disambiguate,
+ * and a zone on every window would be noise.
  */
 export function formatWindow(startMs: number, endMs: number): string {
   const a = parts(startMs);
   const b = parts(endMs);
+  if (a.zone !== b.zone || inRepeatedLocalHour(startMs) || inRepeatedLocalHour(endMs)) {
+    return `${a.clock} ${a.meridiem} ${a.zone}–${b.clock} ${b.meridiem} ${b.zone}`;
+  }
   if (a.meridiem !== b.meridiem) return `${a.clock} ${a.meridiem}–${b.clock} ${b.meridiem}`;
   return `${a.clock}–${b.clock} ${b.meridiem}`;
 }
@@ -140,11 +174,20 @@ export function formatClock(ms: number): string {
   return `${clock} ${meridiem}`;
 }
 
-/** "+6 min" / "−3 min" / "On time" (COPY-GUIDE l.36; U+2212 for the minus). */
+/**
+ * "+6 min" / "−3 min" / "On time" (COPY-GUIDE l.36; U+2212 for the minus).
+ *
+ * A non-finite shift is not a shift. It used to print "−NaN min", which is both nonsense and
+ * a claim; "On time" would be a different, worse claim. It says the shift is not known, which
+ * is the honest answer and the §1 rule about certainty.
+ */
 export function formatDelta(seconds: number): string {
+  if (!Number.isFinite(seconds)) return etaText.unknown;
   const minutes = Math.round(seconds / 60);
-  if (minutes === 0) return "On time";
-  return minutes > 0 ? `+${minutes} min` : `−${Math.abs(minutes)} min`;
+  if (minutes === 0) return etaText.onTime;
+  return minutes > 0
+    ? fill(etaText.ahead, { n: minutes })
+    : fill(etaText.behind, { n: Math.abs(minutes) });
 }
 
 /** Dwell + service still owed at `stop`, given any observed arrival. */

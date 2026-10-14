@@ -12,9 +12,14 @@
  * a shape conversion, nothing else. No database, no SSE, no network of its own — the
  * only request on this page is MapLibre's style fetch. Nothing is sent anywhere: the
  * notification list below the map is *decisions*, which is all M5 produces.
+ *
+ * What it draws depends on the signed-in role: `viewer` arrives from the server guard and
+ * every section asks src/domain/access/map-view.ts whether this role sees that data, so the
+ * matrix in that file is the one place the answer is written down.
  */
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { canSeeMapData, type MapViewer } from "@/domain/access/map-view";
 import FleetMap from "./FleetMap";
 import { formatClock } from "@/domain/eta/eta";
 import type { NotificationDecision } from "@/domain/eta/notify-gate";
@@ -134,7 +139,10 @@ function routesOf(runs: RunView[]): MapRouteFixture[] {
   return out;
 }
 
-function vehiclesOf(runs: RunView[]): MapVehicleFixture[] {
+function vehiclesOf(
+  runs: RunView[],
+  show: { familyLabels: boolean; stopWindows: boolean },
+): MapVehicleFixture[] {
   return runs.map((run) => {
     const route = run.result.spec.route;
     const meta = VEHICLE_META.get(route.vehicleId);
@@ -151,9 +159,11 @@ function vehiclesOf(runs: RunView[]): MapVehicleFixture[] {
       stops: run.frame.stops.map((stop) => ({
         stopId: stop.stopId,
         name: stop.stopName,
-        familyLabel: stop.familyLabel,
+        // A role that may not see the family list never receives it, so there is nothing in
+        // the markup to hide: the label is absent, not styled away.
+        familyLabel: show.familyLabels ? stop.familyLabel : undefined,
         status: stop.status,
-        windowText: stop.windowText,
+        windowText: show.stopWindows ? stop.windowText : undefined,
       })),
       stoppedSeconds: run.frame.stoppedSeconds,
       etaTextSuppressed: run.frame.etaTextSuppressed,
@@ -201,7 +211,13 @@ const heading: React.CSSProperties = {
   color: "var(--color-ink)",
 };
 
-export default function LiveFleetMap() {
+export interface LiveFleetMapProps {
+  /** The signed-in role, from the route's own guard. */
+  viewer: MapViewer;
+}
+
+export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
+  const can = (key: Parameters<typeof canSeeMapData>[1]) => canSeeMapData(viewer, key);
   const reduced = useReducedMotion();
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState<number>(DEFAULT_SPEED);
@@ -231,9 +247,13 @@ export default function LiveFleetMap() {
     center: DEMO_CENTER,
     centerLabel: mapPreview.centerLabel,
     initialZoom: 11,
-    stops: stopsOf(displayed),
-    vehicles: vehiclesOf(displayed),
-    routes: routesOf(displayed),
+    stops: can("map") ? stopsOf(displayed) : [],
+    // Each line of the matrix is load-bearing: a role without `vehiclePositions` gets an
+    // empty vehicle list, so there is no marker and no row to hide.
+    vehicles: can("vehiclePositions")
+      ? vehiclesOf(displayed, { familyLabels: can("familyLabels"), stopWindows: can("stopWindows") })
+      : [],
+    routes: can("vehiclePositions") ? routesOf(displayed) : [],
     sourceMode: "SIMULATED",
     sourceLabel: sourceMode.SIMULATED,
   };
@@ -266,23 +286,29 @@ export default function LiveFleetMap() {
         }}
       >
         <span style={heading}>{fill(mapPreview.clock, { time: formatClock(nowMs) })}</span>
-        <button type="button" style={button} onClick={() => setPlaying((p) => !p)}>
-          {playing ? mapPreview.pause : mapPreview.play}
-        </button>
-        {SPEEDS.map((option) => (
-          <button
-            key={option}
-            type="button"
-            style={speed === option ? pressed : button}
-            aria-pressed={speed === option}
-            onClick={() => setSpeed(option)}
-          >
-            {fill(mapPreview.speed, { factor: option })}
-          </button>
-        ))}
-        <button type="button" style={button} onClick={restart}>
-          {mapPreview.restart}
-        </button>
+        {/* §6.2: the clock is a demo control, so only the role that holds them gets it. The
+            clock itself keeps running for everyone — the readout above is not a control. */}
+        {can("clockControls") ? (
+          <>
+            <button type="button" style={button} onClick={() => setPlaying((p) => !p)}>
+              {playing ? mapPreview.pause : mapPreview.play}
+            </button>
+            {SPEEDS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                style={speed === option ? pressed : button}
+                aria-pressed={speed === option}
+                onClick={() => setSpeed(option)}
+              >
+                {fill(mapPreview.speed, { factor: option })}
+              </button>
+            ))}
+            <button type="button" style={button} onClick={restart}>
+              {mapPreview.restart}
+            </button>
+          </>
+        ) : null}
         <span style={meta}>
           {reduced ? mapPreview.motionReduced : mapPreview.motionTweened}
         </span>
@@ -290,6 +316,7 @@ export default function LiveFleetMap() {
 
       <FleetMap fixture={fixture} label={mapPreview.mapLabel} />
 
+      {can("notificationDecisions") ? (
       <section style={{ display: "grid", gap: "var(--space-3)" }}>
         <h2 style={heading}>{mapPreview.decisionsHeading}</h2>
         <p style={{ ...meta, margin: 0, maxWidth: "70ch" }}>
@@ -315,7 +342,9 @@ export default function LiveFleetMap() {
           </ul>
         )}
       </section>
+      ) : null}
 
+      {can("injectedFaults") ? (
       <section style={{ display: "grid", gap: "var(--space-3)" }}>
         <h2 style={heading}>{mapPreview.faultsHeading}</h2>
         <ul style={{ ...meta, margin: 0, paddingLeft: "var(--space-6)" }}>
@@ -344,6 +373,7 @@ export default function LiveFleetMap() {
           );
         })}
       </section>
+      ) : null}
     </div>
   );
 }

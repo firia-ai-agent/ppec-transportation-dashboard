@@ -15,10 +15,17 @@
  * style URL, so the §5.1 overrides can be applied before the map is built.
  */
 
-import { AttributionControl, Map as MapLibreMap, NavigationControl, type LngLatLike } from "maplibre-gl";
+import {
+  AttributionControl,
+  config as maplibreConfig,
+  Map as MapLibreMap,
+  NavigationControl,
+  type LngLatLike,
+} from "maplibre-gl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { MapFixture } from "@/fixtures/map";
+import { fill, fleetMap as copy } from "@/ui/copy";
 import styles from "./fleet-map.module.css";
 import {
   ATTRIBUTION_HTML,
@@ -33,6 +40,7 @@ import {
   headingChevronImage,
   MAP_LAYER_IDS,
   MAP_SOURCE_IDS,
+  MAP_WORKER_URL,
   plannedRoutesGeoJson,
   pointGeoJson,
   resolveMapStyleUrl,
@@ -76,10 +84,10 @@ export function stopWindowText(
   windowText?: string,
   etaTextSuppressed?: boolean,
 ): string {
-  if (status === "arrived") return "Arrived (vehicle)";
-  if (status === "passed") return "Passed";
-  if (!windowText) return "Window pending";
-  return etaTextSuppressed ? `${windowText} · ETA texts paused` : windowText;
+  if (status === "arrived") return copy.arrived;
+  if (status === "passed") return copy.passed;
+  if (!windowText) return copy.windowPending;
+  return etaTextSuppressed ? fill(copy.windowPaused, { window: windowText }) : windowText;
 }
 
 const TONE_CLASS = {
@@ -94,7 +102,7 @@ export interface FleetMapProps {
   label?: string;
 }
 
-export default function FleetMap({ fixture, label = "Fleet map" }: FleetMapProps) {
+export default function FleetMap({ fixture, label = copy.label }: FleetMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const [ready, setReady] = useState(false);
@@ -136,14 +144,14 @@ export default function FleetMap({ fixture, label = "Fleet map" }: FleetMapProps
       } catch (e) {
         if (abort.signal.aborted || cancelled) return;
         setError(
-          e instanceof Error && e.name === "AbortError"
-            ? "Map tiles did not load."
-            : "Map tiles did not load. The board below is unaffected.",
+          e instanceof Error && e.name === "AbortError" ? copy.tilesFailed : copy.tilesFailedDetail,
         );
         return;
       }
       if (cancelled) return;
 
+      // Before the first map, and therefore before the first worker: see MAP_WORKER_URL.
+      maplibreConfig.WORKER_URL = MAP_WORKER_URL;
       map = new MapLibreMap({
         container,
         style: style as never,
@@ -263,14 +271,14 @@ export default function FleetMap({ fixture, label = "Fleet map" }: FleetMapProps
         <div ref={containerRef} className={styles.canvas} role="region" aria-label={label} />
         <div className={styles.overlay}>
           <button type="button" className={styles.fitButton} onClick={fitAllVehicles} disabled={!ready}>
-            Fit all vehicles
+            {copy.fitAll}
           </button>
           {error ? (
             <p className={styles.notice} role="alert">
               {error}
               <br />
               <button type="button" onClick={() => setAttempt((n) => n + 1)}>
-                Retry
+                {copy.retry}
               </button>
             </p>
           ) : null}
@@ -281,7 +289,7 @@ export default function FleetMap({ fixture, label = "Fleet map" }: FleetMapProps
           screen-reader users, and selecting a row drives the same camera move. */}
       <div>
         <h3 className={styles.listTitle} id="fleet-map-vehicles">
-          Vehicles
+          {copy.vehiclesHeading}
         </h3>
         <ul className={styles.list} aria-labelledby="fleet-map-vehicles">
           {fixture.vehicles.map((vehicle) => {
@@ -295,23 +303,23 @@ export default function FleetMap({ fixture, label = "Fleet map" }: FleetMapProps
                   onClick={() => selectVehicle(vehicle.id, vehicle.coord)}
                 >
                   <span className={styles.vehicleId}>
-                    {vehicle.id} · {vehicle.description}
+                    {fill(copy.vehicleRow, { id: vehicle.id, description: vehicle.description })}
                   </span>
                   <span className={styles.vehicleMeta}>
-                    {vehicle.owner} · {vehicle.stateLabel}
+                    {fill(copy.vehicleMeta, { owner: vehicle.owner, state: vehicle.stateLabel })}
                   </span>
                   <span className={`${styles.freshness} ${TONE_CLASS[tone]}`}>
-                    GPS: {gpsFreshnessLabel(vehicle.gpsAgeSeconds)}
+                    {fill(copy.gps, { age: gpsFreshnessLabel(vehicle.gpsAgeSeconds) })}
                   </span>
                   {vehicle.stoppedSeconds !== undefined && vehicle.stoppedSeconds >= 60 ? (
                     <span className={styles.vehicleMeta}>
                       {/* DESIGN-DIRECTION §5.1: a stall is words and a clock, not a colour. */}
-                      Stopped {Math.floor(vehicle.stoppedSeconds / 60)} min
+                      {fill(copy.stopped, { minutes: Math.floor(vehicle.stoppedSeconds / 60) })}
                     </span>
                   ) : null}
                   {vehicle.exceptionRaised ? (
                     <span className={`${styles.freshness} ${styles.toneCrit}`}>
-                      Location lost · dispatcher pinged
+                      {copy.locationLost}
                     </span>
                   ) : null}
                   {vehicle.stops && vehicle.stops.length > 0 ? (
@@ -319,8 +327,9 @@ export default function FleetMap({ fixture, label = "Fleet map" }: FleetMapProps
                       {vehicle.stops.map((stop) => (
                         <span key={stop.stopId} className={styles.stopRow}>
                           <span className={styles.stopName}>
-                            {stop.name}
-                            {stop.familyLabel ? ` · ${stop.familyLabel}` : ""}
+                            {stop.familyLabel
+                              ? fill(copy.stopFamily, { stop: stop.name, family: stop.familyLabel })
+                              : stop.name}
                           </span>
                           <span className={styles.vehicleMeta}>
                             {stopWindowText(stop.status, stop.windowText, vehicle.etaTextSuppressed)}
@@ -329,7 +338,9 @@ export default function FleetMap({ fixture, label = "Fleet map" }: FleetMapProps
                       ))}
                     </span>
                   ) : null}
-                  <span className={styles.vehicleMeta}>Source: {fixture.sourceLabel}</span>
+                  <span className={styles.vehicleMeta}>
+                    {fill(copy.source, { label: fixture.sourceLabel })}
+                  </span>
                 </button>
               </li>
             );

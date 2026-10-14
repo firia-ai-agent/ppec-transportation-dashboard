@@ -4,12 +4,18 @@
  */
 import { describe, expect, it } from "vitest";
 import { feasible, onboardByStop } from "./feasible";
-import type { Child, DailyCapability, Leg, Vehicle } from "./types";
+import { maxMatching } from "./matching";
+import type { Child, DailyCapability, Layout, Leg, Vehicle, WcPosition } from "./types";
 import {
   ARRIVING_VEHICLES, C1, C2, C3, C4, C5, C6, C6_AT_RAMP, C7, C8, CRISIS_CAPABILITY, FLEET, ROUTE2_AM,
   SEDAN_AM, SERVICE_DATE, STOPS, TWO_SEAT_CRISIS_AM, V1, V1_LAYOUT_1WC3A, V2, V3, V4,
   fullyAvailable, unknownCapability,
 } from "@/fixtures/fleet";
+
+/** A wheelchair position of a given footprint, for the matcher tests below. */
+function wcPosition(id: string, maxLengthCm: number, maxWidthCm: number): WcPosition {
+  return { id, kind: "WC", securement: "L_TRACK", maxLengthCm, maxWidthCm };
+}
 
 /** One pickup per stop in order, then the center. */
 function pickupLeg(children: Child[], extra: { staffEscorts?: number } = {}): Leg {
@@ -384,5 +390,175 @@ describe("capability states", () => {
         expect(result.status).not.toBe("FEASIBLE");
       }
     }
+  });
+});
+
+/* ─────────────────── fixes the FAIL review asked for ─────────────────── */
+
+describe("a verified-infeasible vehicle (reviewer: still came back FEASIBLE)", () => {
+  it("is never feasible, whatever its reported positions say", () => {
+    // The row records that this vehicle was already checked against this run and already
+    // found not to fit. Re-solving the reported positions used to answer FEASIBLE, which
+    // contradicts the observation it was handed.
+    const capability = fullyAvailable(V1, { state: "VERIFIED_INFEASIBLE" });
+    const result = feasible(V1, pickupLeg([C3]), capability);
+    expect(result.status).toBe("VEHICLE_UNAVAILABLE");
+    expect(result.status).not.toBe("FEASIBLE");
+    expect(result.layout).toBeNull();
+    expect(result.plan).toEqual([]);
+    expect(result.severity).toBe("RED");
+    expect(result.pendingReason).toMatch(/does not fit/);
+    expect(result.autoAssigned).toBe(false);
+  });
+
+  it("holds for every vehicle and even for an empty run", () => {
+    for (const vehicle of FLEET) {
+      const capability = fullyAvailable(vehicle, { state: "VERIFIED_INFEASIBLE" });
+      const empty: Leg = { id: "LEG-EMPTY", direction: "AM", children: [], stops: [] };
+      expect(feasible(vehicle, empty, capability).status).toBe("VEHICLE_UNAVAILABLE");
+      expect(feasible(vehicle, pickupLeg([C1, C3]), capability).status).toBe("VEHICLE_UNAVAILABLE");
+    }
+  });
+
+  it("still offers a coordinator somewhere to go", () => {
+    const result = feasible(V1, pickupLeg([C3]), fullyAvailable(V1, { state: "VERIFIED_INFEASIBLE" }), {
+      alternates: [{ vehicle: V2, capability: fullyAvailable(V2) }],
+    });
+    expect(result.options.length).toBeGreaterThan(0);
+    expect(result.options.every((o) => o.requiresApproval)).toBe(true);
+  });
+});
+
+describe("a vehicle with no layouts (reviewer: ranked[0] on an empty list)", () => {
+  const NO_LAYOUTS: Vehicle = { ...V1, id: "V0", label: "V0", layouts: [] };
+
+  it("is infeasible instead of throwing", () => {
+    const result = feasible(NO_LAYOUTS, pickupLeg([C3]), fullyAvailable(NO_LAYOUTS));
+    expect(result.status).toBe("INFEASIBLE");
+    expect(result.attempts).toEqual([]);
+    expect(result.deficit).toBeNull();
+    expect(result.deficits).toEqual([]);
+    expect(result.layout).toBeNull();
+    expect(result.severity).toBe("RED");
+  });
+
+  it("carries nobody at all: not even an empty run reads as feasible", () => {
+    const empty: Leg = { id: "LEG-EMPTY", direction: "AM", children: [], stops: [] };
+    expect(feasible(NO_LAYOUTS, empty, fullyAvailable(NO_LAYOUTS)).status).toBe("INFEASIBLE");
+  });
+
+  it("still ranks options for a human, and never assigns", () => {
+    const result = feasible(NO_LAYOUTS, pickupLeg([C3]), fullyAvailable(NO_LAYOUTS), {
+      alternates: [{ vehicle: V2, capability: fullyAvailable(V2) }],
+    });
+    expect(result.options.map((o) => o.kind)).toContain("ALTERNATE_PROVIDER");
+    expect(result.autoAssigned).toBe(false);
+  });
+});
+
+describe("negative staff escorts (reviewer: reject them)", () => {
+  it("refuses a negative staff_escort_k rather than freeing seats", () => {
+    // A negative count would subtract from the seats needed and could turn an infeasible
+    // run feasible, so it is a contradiction in the manifest, not an input to clamp.
+    expect(() => onboardByStop(pickupLeg([C3], { staffEscorts: -1 }))).toThrow(/staff escorts/);
+    expect(() => feasible(V1, pickupLeg([C3], { staffEscorts: -1 }), fullyAvailable(V1)))
+      .toThrow(/staff escorts/);
+  });
+
+  it("refuses a fractional count too, and still accepts zero", () => {
+    expect(() => onboardByStop(pickupLeg([C3], { staffEscorts: 1.5 }))).toThrow(/staff escorts/);
+    expect(onboardByStop(pickupLeg([C3], { staffEscorts: 0 }))[0].staffEscorts).toBe(0);
+  });
+
+  it("does not let a negative count sneak a run past constraint 2", () => {
+    // V4's 0WC/3A has three seats. Four walking riders do not fit, and "−2 staff" must not
+    // be a way to make them fit.
+    const leg = pickupLeg([C1, C3, C4, C5], { staffEscorts: -2 });
+    expect(() => feasible(V4, leg, fullyAvailable(V4))).toThrow(/staff escorts/);
+  });
+});
+
+describe("mutants the suite has to kill", () => {
+  it("an exact fit is FEASIBLE: a chair at the position's maximum, seats filled to the last", () => {
+    // Kills `<=` → `<` on the footprint and `>` → `>=` on the seat count, both of which
+    // would reject a run that fits exactly and is therefore the commonest real case.
+    const exactChair: Child = {
+      token: "CX", displayName: "Exact F.", mobility: "WC", securement: "L_TRACK",
+      // V1-L2-W1 is 122 × 76 cm.
+      wcLengthCm: 122, wcWidthCm: 76, tether: false, escort: false,
+    };
+    // 1WC/3A pinned: one chair plus exactly three walking riders, two of whom need an
+    // anchored seat — and the configuration has exactly two anchored seats.
+    const leg: Leg = {
+      id: "LEG-EXACT", direction: "AM", layoutId: V1_LAYOUT_1WC3A.id,
+      children: [exactChair, C1, C4, C3],
+      stops: [
+        { k: 1, label: "Stop 1", boarding: ["CX"] },
+        { k: 2, label: "Stop 2", boarding: ["C1", "C4", "C3"] },
+        { k: 3, label: STOPS.center, alighting: ["CX", "C1", "C4", "C3"] },
+      ],
+    };
+    const result = feasible(V1, leg, fullyAvailable(V1, { observedLayoutId: V1_LAYOUT_1WC3A.id }));
+    expect(result.status).toBe("FEASIBLE");
+    expect(result.layout?.code).toBe("1WC/3A");
+    const peak = result.plan.find((p) => p.k === 2);
+    expect(peak?.ambulatorySeatsUsed).toBe(peak?.ambulatorySeatsAvailable);
+    expect(peak?.tetherSeatsUsed).toBe(peak?.tetherSeatsAvailable);
+    expect(peak?.wcAssignments).toEqual([{ childToken: "CX", positionId: "V1-L2-W1" }]);
+    // One centimetre over in either direction, and the same run does not fit.
+    for (const over of [{ wcLengthCm: 123 }, { wcWidthCm: 77 }]) {
+      const tooBig = { ...exactChair, ...over };
+      const bigger = { ...leg, children: [tooBig, C1, C4, C3] };
+      expect(feasible(V1, bigger, fullyAvailable(V1, { observedLayoutId: V1_LAYOUT_1WC3A.id })).status)
+        .toBe("INFEASIBLE");
+    }
+  });
+
+  it("takes the optimal chair assignment where a greedy one fails", () => {
+    // Two chairs, two positions, offered in the order that defeats first-come matching:
+    // the roomy rider is offered the roomy position first, and the only position the big
+    // chair fits is the one just taken. Kuhn's augmenting path moves the first rider over;
+    // a greedy matcher leaves the big chair on the kerb and calls the run infeasible.
+    const roomy: Layout = {
+      id: "VX-L1", code: "2WC/0A", liftRequired: false,
+      positions: [
+        wcPosition("VX-L1-W-BIG", 150, 85),
+        wcPosition("VX-L1-W-SMALL", 115, 72),
+      ],
+    };
+    const vehicle: Vehicle = { ...V1, id: "VX", label: "VX", layouts: [roomy] };
+    const small: Child = {
+      token: "CS", displayName: "Small F.", mobility: "WC", securement: "L_TRACK",
+      wcLengthCm: 110, wcWidthCm: 70, tether: false, escort: false,
+    };
+    const big: Child = {
+      token: "CB", displayName: "Big F.", mobility: "WC", securement: "L_TRACK",
+      wcLengthCm: 148, wcWidthCm: 84, tether: false, escort: false,
+    };
+    const leg: Leg = {
+      id: "LEG-MATCH", direction: "AM", children: [small, big],
+      stops: [
+        { k: 1, label: "Stop 1", boarding: ["CS"] },
+        { k: 2, label: "Stop 2", boarding: ["CB"] },
+        { k: 3, label: STOPS.center, alighting: ["CS", "CB"] },
+      ],
+    };
+    const result = feasible(vehicle, leg, fullyAvailable(vehicle));
+    expect(result.status).toBe("FEASIBLE");
+    expect(result.plan.find((p) => p.k === 2)?.wcAssignments).toEqual([
+      { childToken: "CS", positionId: "VX-L1-W-SMALL" },
+      { childToken: "CB", positionId: "VX-L1-W-BIG" },
+    ]);
+  });
+
+  it("the matcher itself augments rather than taking the first free position", () => {
+    // Child 0 fits both positions, child 1 only fits position 0. Greedy gives position 0 to
+    // child 0 and strands child 1; the right answer matches both.
+    const allowed = (child: number, position: number) => child === 0 || position === 0;
+    const match = maxMatching(2, 2, allowed);
+    expect(match.size).toBe(2);
+    expect(match.unmatched).toEqual([]);
+    expect(match.pairs.get(1)).toBe(0);
+    expect(match.pairs.get(0)).toBe(1);
   });
 });

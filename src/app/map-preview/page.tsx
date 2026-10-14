@@ -5,18 +5,34 @@
  * M5 simulator wired in, the trucks now move: a client-side scenario clock replays the
  * deterministic runs in src/fixtures/replays.ts (PRD §18.2 steps 7–8).
  *
- * Deliberately standalone: no auth, no database, no SSE, no server actions, no sending.
- * Everything on the page is Simulated by construction (ADR-015 synthetic-only). The DEMO
- * banner and the one NFR-09 source-mode chip come from the root layout (src/app/layout.tsx),
- * which renders them on every route — this page must not mount a second pair. The
- * notification list is *decisions* only.
+ * No database, no SSE, no server actions, no sending: everything on the page is Simulated by
+ * construction (ADR-015 synthetic-only) and the notification list is *decisions* only.
+ *
+ * It is, however, behind staff sign-in. A deployed preview URL is guessable, and this page
+ * draws a whole fleet, every stop's family label and every notification decision — so the
+ * route is guarded exactly as the other protected pages are, and the role decides which of
+ * those the viewer actually gets (src/domain/access/map-view.ts holds the matrix).
+ *
+ * The DEMO banner and the one NFR-09 source-mode chip come from the root layout
+ * (src/app/layout.tsx), which renders them on every route — this page must not mount a
+ * second pair.
  */
 
+import { redirect } from "next/navigation";
 import LiveFleetMap from "@/components/map/LiveFleetMap";
+import { mapPreview } from "@/ui/copy";
+import { canOpenMapPreview } from "@/domain/access/map-view";
+import { mapPreviewViewer } from "./viewer";
 
-export const metadata = { title: "Map preview · PPEC transportation dashboard" };
+export const metadata = { title: mapPreview.documentTitle };
 
-export default function MapPreviewPage() {
+/** The guard reads a session, so this route is never statically rendered. */
+export const dynamic = "force-dynamic";
+
+export default async function MapPreviewPage() {
+  const viewer = await mapPreviewViewer();
+  if (!canOpenMapPreview(viewer)) redirect("/login");
+
   return (
     <main style={{ padding: "var(--space-5)", display: "grid", gap: "var(--space-4)" }}>
       <h1
@@ -28,7 +44,7 @@ export default function MapPreviewPage() {
           color: "var(--color-ink)",
         }}
       >
-        Map preview
+        {mapPreview.heading}
       </h1>
       <p
         style={{
@@ -39,15 +55,20 @@ export default function MapPreviewPage() {
           color: "var(--color-ink-muted)",
         }}
       >
-        Fleet map pane (SURF-01) on committed fixtures: the center at 2216 Jog Rd, public
-        landmark stops, and the M5 GPS simulator driving V1–V3 along ADR-007 route fixtures with
-        injected faults — a stall, a GPS gap, duplicate and out-of-order points, ±40 m jitter, and
-        one unbound device. ETA windows come from the committed route durations and a simulated
-        traffic band; freshness follows the four decided bands (live / aging / stale at 180 s / no
-        signal at 600 s). Nothing here is live — no database, no GPS feed, no messages sent, no
-        real children or families.
+        {mapPreview.intro}
       </p>
-      <LiveFleetMap />
+      <p
+        style={{
+          margin: 0,
+          maxWidth: "70ch",
+          fontSize: "var(--body-console)",
+          lineHeight: "var(--leading-normal)",
+          color: "var(--color-ink-muted)",
+        }}
+      >
+        {mapPreview.signedInOnly}
+      </p>
+      <LiveFleetMap viewer={viewer} />
     </main>
   );
 }

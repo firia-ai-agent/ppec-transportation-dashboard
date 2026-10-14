@@ -11,6 +11,7 @@
  * The output is a feasible layout, or a deficit {k, type, count} with ranked options that a human
  * approves. The solver assigns nothing, locks nothing, and never proposes removing a boarded child.
  */
+import { fill, solver as copy } from "@/ui/copy";
 import { maxMatching } from "./matching";
 import type {
   AmbSeat, Child, DailyCapability, Deficit, DeficitType, Layout, LayoutAttempt, Leg,
@@ -27,7 +28,20 @@ const OPTION_RANK: Record<OptionKind, number> = {
 };
 /** No observation exists yet for these capability states, so nothing can be solved. */
 const UNOBSERVED: DailyCapability["state"][] = ["UNKNOWN", "REQUESTED", "CHANGED"];
-const NOT_USABLE: DailyCapability["state"][] = ["REJECTED", "UNAVAILABLE"];
+/**
+ * States that put the vehicle out of today's reach before any layout is considered, each with
+ * the sentence that says why.
+ *
+ * VERIFIED_INFEASIBLE belongs here with the other two: it records that this vehicle was
+ * already checked against this run and already found not to fit. Leaving it out meant the
+ * solver re-ran the constraints against the *reported* positions and could answer FEASIBLE,
+ * contradicting a verified observation — the one answer a verified row must never produce.
+ */
+const NOT_USABLE: Partial<Record<DailyCapability["state"], string>> = {
+  REJECTED: copy.unusable.REJECTED,
+  UNAVAILABLE: copy.unusable.UNAVAILABLE,
+  VERIFIED_INFEASIBLE: copy.unusable.VERIFIED_INFEASIBLE,
+};
 
 export type AlternateCandidate = {
   vehicle: Vehicle;
@@ -65,7 +79,17 @@ export function onboardByStop(leg: Leg): StopOccupancy[] {
       if (at < 0) throw new Error(`leg ${leg.id}: stop ${stop.k} drops off ${token}, who is not onboard`);
       onboard.splice(at, 1);
     }
-    if (stop.staffEscorts !== undefined) staffEscorts = stop.staffEscorts;
+    if (stop.staffEscorts !== undefined) {
+      // staff_escort_k is a count of seats. A negative value would *free* seats the vehicle
+      // does not have and could turn an infeasible run feasible, so it is a contradiction in
+      // the manifest, not an input to clamp.
+      if (!Number.isInteger(stop.staffEscorts) || stop.staffEscorts < 0) {
+        throw new Error(
+          `leg ${leg.id}: stop ${stop.k} rides ${stop.staffEscorts} staff escorts, which is not a whole number of seats, zero or more`,
+        );
+      }
+      staffEscorts = stop.staffEscorts;
+    }
     return { k: stop.k, label: stop.label, onboard: [...onboard], staffEscorts };
   });
 }
@@ -141,7 +165,7 @@ function evaluateLayout(
     // 3. tether / LATCH capable seats
     const tetherNeed = stop.onboard.filter((c) => c.tether).length;
     if (tetherNeed > 0 && latchUnknown) {
-      pending.push("Car-seat anchors (LATCH) not reported yet.");
+      pending.push(copy.pending.latchUnknown);
     } else if (tetherNeed > tetherSeats) {
       const count = tetherNeed - tetherSeats;
       deficits.push({ k: stop.k, type: "TETHER_SEAT", count, relievableByUnknown: unknownTether >= count });
@@ -152,7 +176,7 @@ function evaluateLayout(
       if (!vehicle.liftEquipped || capability.liftOk === false) {
         deficits.push({ k: stop.k, type: "LIFT", count: 1, relievableByUnknown: false });
       } else if (capability.liftOk === null) {
-        pending.push("Lift not reported yet, and a wheelchair rider needs it.");
+        pending.push(copy.pending.liftUnknown);
       }
     }
 
@@ -160,7 +184,7 @@ function evaluateLayout(
       const ranked = [...deficits].sort((a, b) => DEFICIT_ORDER.indexOf(a.type) - DEFICIT_ORDER.indexOf(b.type));
       const hard = ranked.some((d) => !d.relievableByUnknown);
       const reasons = [...pending];
-      if (!hard && ranked.length > 0) reasons.push("Some positions were answered \u201cNot sure\u201d.");
+      if (!hard && ranked.length > 0) reasons.push(copy.pending.unsurePositions);
       failures.push({ k: stop.k, deficits: ranked.map(({ k, type, count }) => ({ k, type, count })), reasons, hard });
       continue; // keep scanning: a later stop may fail in a way no answer can relieve
     }
@@ -269,7 +293,7 @@ function buildOptions(
   // Riders another vehicle could take: the overflow if we know it, otherwise everyone not yet aboard.
   const riders = movable.length > 0 ? movable : notBoarded;
   const tokens = riders.map((c) => c.token);
-  const who = riders.length > 0 ? names(riders) : "the riders who have not boarded";
+  const who = riders.length > 0 ? names(riders) : copy.unnamedRiders;
   const options: ResolutionOption[] = [];
   const add = (
     kind: OptionKind, id: string, label: string, detail: string, extra: Partial<ResolutionOption> = {},
@@ -281,8 +305,8 @@ function buildOptions(
   };
 
   if (movable.length > 0) {
-    add("SPLIT_RUN", `split:${tokens.join("+")}`, "Split the run",
-      `Run ${who} separately on ${vehicle.label}. Everyone already on the vehicle stays where they are.`);
+    add("SPLIT_RUN", `split:${tokens.join("+")}`, copy.options.SPLIT_RUN.label,
+      fill(copy.options.SPLIT_RUN.detail, { who, vehicle: vehicle.label }));
   }
   if (riders.length > 0) {
     for (const candidate of alternates) {
@@ -293,21 +317,26 @@ function buildOptions(
       const verdict = solve(candidate.vehicle, candidateLeg, candidate.capability);
       if (verdict.status !== "FEASIBLE") continue;
       const sameProvider = candidate.vehicle.providerId === vehicle.providerId;
-      add(sameProvider ? "ALTERNATE_VEHICLE" : "ALTERNATE_PROVIDER",
-        `${sameProvider ? "vehicle" : "provider"}:${candidate.vehicle.id}`,
-        `Move to ${candidate.vehicle.label}`,
-        `${candidate.vehicle.description} (${candidate.vehicle.providerName}) fits ${who} as ${verdict.layout?.code}.`,
+      const kind: OptionKind = sameProvider ? "ALTERNATE_VEHICLE" : "ALTERNATE_PROVIDER";
+      add(kind, `${sameProvider ? "vehicle" : "provider"}:${candidate.vehicle.id}`,
+        fill(copy.options[kind].label, { vehicle: candidate.vehicle.label }),
+        fill(copy.options[kind].detail, {
+          description: candidate.vehicle.description,
+          provider: candidate.vehicle.providerName,
+          who,
+          layout: verdict.layout?.code ?? "",
+        }),
         { candidateVehicleId: candidate.vehicle.id, candidateLayoutCode: verdict.layout?.code });
     }
   }
   if (riders.length > 0) {
-    add("FAMILY_TRANSPORT", `family:${tokens.join("+")}`, "Ask the family to drive",
-      `Ask the family of ${who} to drive today. The family is told only after staff choose.`);
+    add("FAMILY_TRANSPORT", `family:${tokens.join("+")}`, copy.options.FAMILY_TRANSPORT.label,
+      fill(copy.options.FAMILY_TRANSPORT.detail, { who }));
   }
-  add("DELAY", "delay", "Delay the run",
-    `Hold the run until a vehicle that fits is free. ${riders.length > 0 ? `${who} waits at the center.` : "Riders wait at the center."}`);
-  add("CANCEL", `cancel:${tokens.join("+")}`, "Cancel the ride",
-    `Cancel today's ride for ${who}. Attendance and therapy sessions are updated.`);
+  add("DELAY", "delay", copy.options.DELAY.label,
+    riders.length > 0 ? fill(copy.options.DELAY.detail, { who }) : copy.delayAnyone);
+  add("CANCEL", `cancel:${tokens.join("+")}`, copy.options.CANCEL.label,
+    fill(copy.options.CANCEL.detail, { who }));
 
   return options
     .map((option, index) => ({ option, index }))
@@ -324,22 +353,22 @@ function solve(vehicle: Vehicle, leg: Leg, capability: DailyCapability): SolveRe
   };
 
   if (UNOBSERVED.includes(capability.state)) {
-    const reason = capability.state === "CHANGED"
-      ? "A different vehicle is coming. What it can carry is unknown until the provider reports."
-      : "What this vehicle can carry today is unknown until arrival.";
+    const reason = capability.state === "CHANGED" ? copy.pending.substituted : copy.pending.unobserved;
     return { ...base, status: "CAPABILITY_PENDING", pendingReason: reason, severity: "AMBER" };
   }
-  if (NOT_USABLE.includes(capability.state)) {
-    return {
-      ...base, status: "VEHICLE_UNAVAILABLE", severity: "RED",
-      pendingReason: capability.state === "REJECTED"
-        ? "Staff rejected this vehicle's report for today."
-        : "This vehicle is out of service today.",
-    };
+  const unusable = NOT_USABLE[capability.state];
+  if (unusable !== undefined) {
+    return { ...base, status: "VEHICLE_UNAVAILABLE", severity: "RED", pendingReason: unusable };
   }
 
   const occupancy = onboardByStop(leg);
   const attempts = layoutsFor(vehicle, leg, capability).map((layout) => evaluateLayout(vehicle, layout, occupancy, capability));
+
+  // A vehicle with no configuration at all can carry nobody. There is no attempt to report and
+  // nothing to rank, so say INFEASIBLE here rather than reach for `ranked[0]` of an empty list.
+  if (attempts.length === 0) {
+    return { ...base, status: "INFEASIBLE", attempts, severity: "RED" };
+  }
 
   const fit = attempts.find((a) => a.verdict === "FEASIBLE");
   if (fit) {
@@ -354,7 +383,7 @@ function solve(vehicle: Vehicle, leg: Leg, capability: DailyCapability): SolveRe
     return {
       ...base, status: "CAPABILITY_PENDING", attempts, severity: "AMBER",
       pendingReason: pendingAttempts.map((a) => a.pendingReason).filter(Boolean).join(" ")
-        || "Part of this vehicle's capability was answered “Not sure”.",
+        || copy.pending.unsureCapability,
     };
   }
 

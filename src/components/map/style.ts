@@ -73,6 +73,16 @@ export function resolveMapStyleUrl(raw?: string | null): string {
   return trimmed.length > 0 ? trimmed : DEFAULT_MAP_STYLE_URL;
 }
 
+/**
+ * Where the browser fetches MapLibre's tile worker from (same origin, served out of public/).
+ *
+ * Left to itself MapLibre derives the worker URL from `import.meta.url` of its own bundle,
+ * which under Next's bundler is a chunk path with no worker beside it: the worker 404s and
+ * the pane draws an empty canvas. scripts/copy-maplibre-worker.mjs puts the file here and
+ * `pnpm dev` / `pnpm build` run it first, so this path and that script are one contract.
+ */
+export const MAP_WORKER_URL = "/maplibre-gl-worker.mjs";
+
 // ---------------------------------------------------------------------------
 // Attribution (DESIGN-DIRECTION §5.1; OpenFreeMap + OSM ODbL)
 // ---------------------------------------------------------------------------

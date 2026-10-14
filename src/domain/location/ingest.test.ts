@@ -5,6 +5,7 @@ import {
   freshnessOf,
   ingestBatch,
   ingestPoint,
+  MAX_FUTURE_SKEW_MS,
 } from "./ingest";
 import type { TelemetryPoint } from "./simulator";
 
@@ -143,5 +144,83 @@ describe("state handling", () => {
     const { state } = ingestBatch(emptyIngestState(), [point(0), point(5), point(10)]);
     expect(state.sequence).toBe(3);
     expect(displayablePosition(state, DEVICE)?.sequence).toBe(3);
+  });
+});
+
+describe("a stamp that is not a usable instant (reviewer: NaN timestamps)", () => {
+  it("rejects it outright instead of letting it become the device's position", () => {
+    const { state, outcome } = ingestPoint(emptyIngestState(), point(0, { recordedAtMs: Number.NaN }));
+    expect(outcome).toEqual({ status: "rejected", reason: "invalid-timestamp" });
+    expect(displayablePosition(state, DEVICE)).toBeUndefined();
+    expect(state.devices[DEVICE].counts).toMatchObject({ accepted: 0, invalidTimestamp: 1 });
+    // Rejected before the dedupe key, so it took no sequence number either.
+    expect(state.sequence).toBe(0);
+  });
+
+  it("rejects an infinite stamp the same way", () => {
+    const { outcome } = ingestPoint(
+      emptyIngestState(),
+      point(0, { recordedAtMs: Number.POSITIVE_INFINITY }),
+    );
+    expect(outcome).toEqual({ status: "rejected", reason: "invalid-timestamp" });
+  });
+
+  it("does not block the real points that follow it", () => {
+    const { state, outcomes } = ingestBatch(emptyIngestState(), [
+      point(0, { recordedAtMs: Number.NaN }),
+      point(0),
+      point(5),
+    ]);
+    expect(outcomes.map((o) => o.status)).toEqual(["rejected", "accepted", "accepted"]);
+    expect(displayablePosition(state, DEVICE)?.recordedAtMs).toBe(T0 + 5000);
+    expect(freshnessOf(state, DEVICE, T0 + 5000).band).toBe("fresh");
+  });
+});
+
+describe("a stamp from the future (reviewer: a skewed point must not block real ones)", () => {
+  /** Our own clock while the batch arrives. */
+  const now = T0 + 10_000;
+
+  it("tolerates skew up to the named constant and refuses anything past it", () => {
+    expect(MAX_FUTURE_SKEW_MS).toBe(60_000);
+    const justInside = point(0, { recordedAtMs: now + MAX_FUTURE_SKEW_MS });
+    expect(ingestPoint(emptyIngestState(), justInside, { nowMs: now }).outcome.status).toBe("accepted");
+
+    const justOutside = point(0, { recordedAtMs: now + MAX_FUTURE_SKEW_MS + 1 });
+    const { state, outcome } = ingestPoint(emptyIngestState(), justOutside, { nowMs: now });
+    expect(outcome).toEqual({ status: "rejected", reason: "future-dated" });
+    expect(displayablePosition(state, DEVICE)).toBeUndefined();
+    expect(state.devices[DEVICE].counts).toMatchObject({ accepted: 0, futureDated: 1 });
+  });
+
+  it("a skewed point, then a real later point: the real one is accepted", () => {
+    // The whole point of the rule. With the skewed stamp stored as `latest`, every real
+    // point behind it looked out-of-order, so one broken device clock silently froze the
+    // vehicle on the map for the rest of the run.
+    const skewed = point(0, { recordedAtMs: now + 6 * 60 * 60 * 1000 }); // six hours ahead
+    const { state, outcomes } = ingestBatch(
+      emptyIngestState(),
+      [skewed, point(15), point(20)],
+      { nowMs: now + 20_000 },
+    );
+    expect(outcomes.map((o) => o.status)).toEqual(["rejected", "accepted", "accepted"]);
+    expect(displayablePosition(state, DEVICE)?.recordedAtMs).toBe(T0 + 20_000);
+    expect(state.devices[DEVICE].counts).toMatchObject({ accepted: 2, outOfOrder: 0, futureDated: 1 });
+    expect(freshnessOf(state, DEVICE, T0 + 20_000).band).toBe("fresh");
+  });
+
+  it("does not record the skewed stamp as seen, so a corrected re-send is still new", () => {
+    const skewed = point(0, { recordedAtMs: now + 10 * 60 * 1000 });
+    const { state } = ingestPoint(emptyIngestState(), skewed, { nowMs: now });
+    // The same stamp, once our clock has caught up with it, is a position and not a duplicate.
+    const later = ingestPoint(state, skewed, { nowMs: skewed.recordedAtMs });
+    expect(later.outcome.status).toBe("accepted");
+  });
+
+  it("without a clock there is nothing to call the future, so the check is skipped", () => {
+    // The replay engine has no arrival clock of its own — a simulated point's stamp *is* the
+    // scenario clock — so it passes no `nowMs`, and ingest behaves exactly as it always did.
+    const ahead = point(0, { recordedAtMs: now + 6 * 60 * 60 * 1000 });
+    expect(ingestPoint(emptyIngestState(), ahead).outcome.status).toBe("accepted");
   });
 });

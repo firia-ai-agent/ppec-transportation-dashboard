@@ -12,6 +12,7 @@
  * so there is no value this module can produce that means handoff. Pure, no clock.
  */
 
+import { arrival } from "@/ui/copy";
 import { distanceM } from "./geo";
 import type { RouteStop } from "./route";
 import type { StoredPoint } from "./ingest";
@@ -40,10 +41,10 @@ export interface GeofenceArrival {
 
 /**
  * Why this is never a handoff. Surfaced in the UI next to an arrival so the demo
- * cannot be misread (SURF-01 l.1058 wording).
+ * cannot be misread (SURF-01 l.1058 wording). The sentence itself lives in
+ * src/ui/copy.ts with the rest of the rendered words; the rule lives here.
  */
-export const ARRIVAL_IS_NOT_HANDOFF =
-  "Arrived (vehicle). Handoff needs a custody event naming the receiving adult.";
+export const ARRIVAL_IS_NOT_HANDOFF = arrival.notHandoff;
 
 /** Per-stop candidate progress, carried across points. */
 export interface GeofenceState {
