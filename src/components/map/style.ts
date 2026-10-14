@@ -19,28 +19,35 @@ import {
   GPS_STALE_SECONDS,
   type GpsBand,
 } from "@/domain/location/freshness";
+import { color } from "@/ui/tokens";
 
 // ---------------------------------------------------------------------------
-// Tokens (DESIGN-DIRECTION §8). Every value below is a token from that table.
+// Tokens (DESIGN-DIRECTION §8)
 // ---------------------------------------------------------------------------
 
+/**
+ * The §8 colours this module needs, under map-local names. The hexes themselves live in
+ * src/ui/tokens.ts — the single source of colour (no-hex.test.ts enforces that nothing else
+ * under src/ holds a literal). A MapLibre style is JSON, so it cannot resolve the
+ * `var(--color-*)` properties a component would use and has to read the literals directly.
+ */
 export const MAP_TOKENS = {
   /** `ink` — center pin, stop ring, stop/vehicle labels. */
-  ink: "#0F172A",
+  ink: color.ink,
   /** `ink-muted` — basemap label text after the §5.1 override. */
-  inkMuted: "#475569",
+  inkMuted: color["ink-muted"],
   /** `surface` — white halos and stop fills. */
-  surface: "#FFFFFF",
+  surface: color.surface,
   /** `route`/`brand` — planned and driven route lines. */
-  route: "#1D4ED8",
+  route: color.brand,
   /** `osm-water` — the §5.1 water override (positron's default fails 3:1 vs trucks). */
-  water: "#D9E2E7",
+  water: color["osm-water"],
   /** `map-truck-ok` — GPS fresh/aging. */
-  truckOk: "#15803D",
+  truckOk: color["map-truck-ok"],
   /** `map-truck-stale` — GPS stale. */
-  truckStale: "#A16207",
+  truckStale: color["map-truck-stale"],
   /** `map-truck-crit` — GPS lost. */
-  truckCrit: "#B91C1C",
+  truckCrit: color["map-truck-crit"],
 } as const;
 
 /**
@@ -48,7 +55,7 @@ export const MAP_TOKENS = {
  * source badge (DESIGN-DIRECTION §7, §7.1) and **must never appear on the map**, so
  * it never reads as a status colour. style.test.ts asserts this.
  */
-export const DEMO_VIOLET = "#6D28D9";
+export const DEMO_VIOLET = color["demo-bg"];
 
 // ---------------------------------------------------------------------------
 // Style URL (ONE env var, ADR-008)

@@ -26,6 +26,7 @@ import {
   type ReplayResult,
 } from "@/domain/eta/replay";
 import { measurePath, pathUpTo } from "@/domain/location/geo";
+import { fill, mapPreview, sourceMode } from "@/ui/copy";
 import { routeGeometry } from "@/domain/location/route";
 import { DEMO_RUNS, DEMO_RUN_SECONDS, SCENARIO_START_MS } from "@/fixtures/replays";
 import {
@@ -161,19 +162,44 @@ function vehiclesOf(runs: RunView[]): MapVehicleFixture[] {
   });
 }
 
+/*
+ * Inline styles read the design tokens as the CSS custom properties the root layout emits
+ * (src/ui/tokens.ts → `tokenCss()`), never as hexes: tokens.ts is the only file under src/
+ * allowed to hold a colour literal, and src/ui/no-hex.test.ts enforces it.
+ */
 const button: React.CSSProperties = {
-  minHeight: 44,
-  padding: "0 12px",
-  font: "600 14px/1.2 system-ui, sans-serif",
-  color: "#0F172A",
-  background: "#FFFFFF",
-  border: "1px solid #64748B",
-  borderRadius: 6,
+  minHeight: "var(--target-console)",
+  padding: "0 var(--space-4)",
+  fontSize: "var(--body-console)",
+  fontWeight: "var(--weight-semibold)",
+  lineHeight: "var(--leading-tight)",
+  color: "var(--color-ink)",
+  background: "var(--color-surface)",
+  border: "var(--border-hairline) solid var(--color-border-strong)",
+  borderRadius: "var(--radius-md)",
   cursor: "pointer",
 };
 
-const pressed: React.CSSProperties = { ...button, borderColor: "#1D4ED8", boxShadow: "inset 0 0 0 1px #1D4ED8" };
-const meta: React.CSSProperties = { font: "400 14px/1.5 system-ui, sans-serif", color: "#475569" };
+const pressed: React.CSSProperties = {
+  ...button,
+  borderColor: "var(--color-brand)",
+  boxShadow: "inset 0 0 0 var(--border-hairline) var(--color-brand)",
+};
+
+const meta: React.CSSProperties = {
+  fontSize: "var(--body-console)",
+  lineHeight: "var(--leading-normal)",
+  color: "var(--color-ink-muted)",
+};
+
+/** §2 section heading: 16 px semibold ink. */
+const heading: React.CSSProperties = {
+  margin: 0,
+  fontSize: "var(--text-16)",
+  fontWeight: "var(--weight-semibold)",
+  lineHeight: "var(--leading-tight)",
+  color: "var(--color-ink)",
+};
 
 export default function LiveFleetMap() {
   const reduced = useReducedMotion();
@@ -203,13 +229,13 @@ export default function LiveFleetMap() {
 
   const fixture: MapFixture = {
     center: DEMO_CENTER,
-    centerLabel: "PPEC center",
+    centerLabel: mapPreview.centerLabel,
     initialZoom: 11,
     stops: stopsOf(displayed),
     vehicles: vehiclesOf(displayed),
     routes: routesOf(displayed),
     sourceMode: "SIMULATED",
-    sourceLabel: "Simulated",
+    sourceLabel: sourceMode.SIMULATED,
   };
 
   const decisions: Array<{ vehicleId: string; decision: NotificationDecision }> = runs
@@ -224,15 +250,24 @@ export default function LiveFleetMap() {
     (n, run) => n + run.frame.decisions.filter((d) => d.outcome === "SUPPRESS").length,
     0,
   );
+  const suppressedText = fill(
+    suppressed === 1 ? mapPreview.suppression : mapPreview.suppressionPlural,
+    { count: suppressed },
+  );
 
   return (
-    <div style={{ display: "grid", gap: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ font: "600 16px/1.2 system-ui, sans-serif", color: "#0F172A" }}>
-          Scenario clock {formatClock(nowMs)} ET
-        </span>
+    <div style={{ display: "grid", gap: "var(--space-4)" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--space-3)",
+          flexWrap: "wrap",
+        }}
+      >
+        <span style={heading}>{fill(mapPreview.clock, { time: formatClock(nowMs) })}</span>
         <button type="button" style={button} onClick={() => setPlaying((p) => !p)}>
-          {playing ? "Pause" : "Play"}
+          {playing ? mapPreview.pause : mapPreview.play}
         </button>
         {SPEEDS.map((option) => (
           <button
@@ -242,63 +277,69 @@ export default function LiveFleetMap() {
             aria-pressed={speed === option}
             onClick={() => setSpeed(option)}
           >
-            ×{option}
+            {fill(mapPreview.speed, { factor: option })}
           </button>
         ))}
         <button type="button" style={button} onClick={restart}>
-          Restart
+          {mapPreview.restart}
         </button>
         <span style={meta}>
-          {reduced ? "Reduced motion: markers step, no tween" : "Tweened along route geometry"}
+          {reduced ? mapPreview.motionReduced : mapPreview.motionTweened}
         </span>
       </div>
 
-      <FleetMap fixture={fixture} label="Fleet map: simulated vehicles near the PPEC center" />
+      <FleetMap fixture={fixture} label={mapPreview.mapLabel} />
 
-      <section style={{ display: "grid", gap: 6 }}>
-        <h2 style={{ margin: 0, font: "600 16px/1.2 system-ui, sans-serif", color: "#0F172A" }}>
-          Notification decisions
-        </h2>
+      <section style={{ display: "grid", gap: "var(--space-3)" }}>
+        <h2 style={heading}>{mapPreview.decisionsHeading}</h2>
         <p style={{ ...meta, margin: 0, maxWidth: "70ch" }}>
-          Decisions only — M5 computes what <em>would</em> be sent and why. Nothing is queued,
-          nothing is sent, nothing is written to a database. {suppressed} suppression
-          {suppressed === 1 ? "" : "s"} so far this run (below threshold, not persisted, cooldown,
-          stale GPS, or a stop already passed).
+          {fill(mapPreview.decisionsIntro, { suppressed: suppressedText })}
         </p>
         {decisions.length === 0 ? (
-          <p style={{ ...meta, margin: 0 }}>No notification decision yet.</p>
+          <p style={{ ...meta, margin: 0 }}>{mapPreview.decisionsEmpty}</p>
         ) : (
-          <ul style={{ ...meta, margin: 0, paddingLeft: 18 }}>
+          <ul style={{ ...meta, margin: 0, paddingLeft: "var(--space-6)" }}>
             {decisions.map(({ vehicleId, decision }) => (
               <li key={`${vehicleId}-${decision.stopId}-${decision.atMs}`}>
-                {formatClock(decision.atMs)} ET · {vehicleId} · {decision.familyLabel} ·{" "}
-                {decision.shiftText} · new pickup window {decision.windowText}
+                {fill(mapPreview.decisionRow, {
+                  time: formatClock(decision.atMs),
+                  vehicle: vehicleId,
+                  // Both are optional on the decision; a NOTIFY row always carries them, and
+                  // an empty string keeps the old render behaviour if one is ever missing.
+                  family: decision.familyLabel ?? "",
+                  shift: decision.shiftText,
+                  window: decision.windowText ?? "",
+                })}
               </li>
             ))}
           </ul>
         )}
       </section>
 
-      <section style={{ display: "grid", gap: 6 }}>
-        <h2 style={{ margin: 0, font: "600 16px/1.2 system-ui, sans-serif", color: "#0F172A" }}>
-          Injected faults
-        </h2>
-        <ul style={{ ...meta, margin: 0, paddingLeft: 18 }}>
+      <section style={{ display: "grid", gap: "var(--space-3)" }}>
+        <h2 style={heading}>{mapPreview.faultsHeading}</h2>
+        <ul style={{ ...meta, margin: 0, paddingLeft: "var(--space-6)" }}>
           {runs.map((run) => (
             <li key={run.result.spec.route.id}>
-              {run.result.spec.route.vehicleId} · {run.result.spec.route.id} · {run.faultLabel} (
-              {run.provenance})
+              {fill(mapPreview.faultRow, {
+                vehicle: run.result.spec.route.vehicleId,
+                route: run.result.spec.route.id,
+                fault: run.faultLabel,
+                provenance: run.provenance,
+              })}
             </li>
           ))}
         </ul>
         {unbound.map((run) => {
           const device = run.result.ingest.devices[run.result.spec.route.deviceId];
           return (
+            // LOC-01 / ADR-013: unbound points are stored with `bound=false` and never displayed.
             <p key={run.result.spec.route.id} style={{ ...meta, margin: 0, maxWidth: "70ch" }}>
-              {run.result.spec.route.vehicleId}&apos;s device has no active binding:{" "}
-              {device?.counts.unbound ?? 0} points ingested and stored with{" "}
-              <code>bound=false</code>, {device?.counts.accepted ?? 0} displayable. It has no
-              marker, no row and no ETA (LOC-01, ADR-013).
+              {fill(mapPreview.unbound, {
+                vehicle: run.result.spec.route.vehicleId,
+                unbound: device?.counts.unbound ?? 0,
+                accepted: device?.counts.accepted ?? 0,
+              })}
             </p>
           );
         })}

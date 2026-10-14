@@ -1,15 +1,17 @@
 # ADR-008 Map rendering
 
-**Status: Proposed — pending founder sign-off.** Written 2026-10-14 for M5; supersedes the
-earlier Proposed OSM-raster version of this ADR.
+**Status: Proposed; the tile source itself is Accepted by default (DECISION-LEDGER row 50).**
+Written 2026-10-14 for M5; supersedes the earlier Proposed OSM-raster version of this ADR.
 
-> The founder signs off all architecture. DECISION-LEDGER has no row accepting this ADR: row 24
-> records the *env name* `NEXT_PUBLIC_MAP_TILE_URL` only — which this ADR keeps — and the
-> ledger's own rule is "All other decisions in docs/adr are Proposed unless labeled
-> otherwise." The stack described here is built and running behind /map-preview; what is pending
-> is the founder's sign-off, not the code. Two terms in particular need it: accepting the
-> OpenFreeMap ToS (free, as-is, no SLA, may be discontinued without notice) and the attribution
-> obligation that follows from it.
+> The founder signs off all architecture. Two ledger rows bear on this ADR: row 50 accepts
+> **MapLibre GL + OpenFreeMap public tiles** (no key), the visible attribution and the
+> https://openfreemap.org/tos/ terms including "no SLA" — so the ToS and attribution
+> obligations below are settled, not pending; row 24 records the *env name*
+> `NEXT_PUBLIC_MAP_TILE_URL`, which this ADR keeps. Everything else here is Proposed under the
+> ledger's own rule, "All other decisions in docs/adr are Proposed unless labeled otherwise":
+> the `positron` choice, the §5.1 style overrides and dropping the `react-map-gl` wrapper. The
+> stack described here is built and running behind /map-preview; what is pending is the
+> founder's sign-off on those details, not the code.
 
 ## Decision
 `maplibre-gl` 6.14.0 (pinned exact, no `react-map-gl` — one `useEffect` is enough), rendering

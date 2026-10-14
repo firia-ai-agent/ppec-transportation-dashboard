@@ -751,7 +751,7 @@ Data
 * Attendance plan: SCHEDULED → EXPECTED_LATE | AM_SELF_DROP → CHECKED_IN(S) → EARLY_DEPARTURE | CHECKED_OUT(S); ABSENT_FULL_DAY (A/S) cascades CANCELED_ATTENDANCE on both legs + therapy IMPACTED.
 * Vehicle capability (per date): UNKNOWN →Y REQUESTED →P REPORTED →S VERIFIED; CHANGED (substitution → UNKNOWN); REJECTED (S); UNAVAILABLE (present but malfunctioning); VERIFIED_INFEASIBLE (Y).
 * Manifest reservation: PROVISIONAL → FEASIBLE | INFEASIBLE (Y) → COMMITTED (S) → RELEASED (A/S); NEEDS_REVIEW on profile/contact change.
-* Outbound message: DRAFTED → POLICY_CHECKED → QUEUED → BLOCKED_EGRESS | SENDING → SENT → DELIVERED | UNDELIVERED | FAILED | UNKNOWN → REDACTED (P2); CANCELED_STALE any time before SENDING.
+* Outbound message: DRAFTED → POLICY_CHECKED → QUEUED → BLOCKED_EGRESS | SENDING → SENT → DELIVERED | UNDELIVERED | FAILED | UNKNOWN → REDACTED (P2); CANCELED_STALE any time before SENDING. Amended 2026-10-14 (DECISION-LEDGER #27, #28): SENDING → FAILED on a definite provider rejection (timeouts and ambiguous errors stay SENDING → UNKNOWN); UNKNOWN has a staff exit, UNKNOWN →S DELIVERED | FAILED, after a provider lookup; revoked authorization or consent found at send time → BLOCKED_EGRESS.
 * Acknowledgment: PENDING → ACKNOWLEDGED | DECLINED (→exception) | EXPIRED_ESCALATED | SUPERSEDED.
 * Exception/task: OPEN → IN_PROGRESS(S) → RESOLVED_APPROVED | RESOLVED_OVERRIDE → CLOSED_VERIFIED(Y, requires completion_evidence); reopens on failed verification; SNOOZED with reason.
 * Conversation thread: OPEN(agent ACTIVE) ↔ PAUSED_HUMAN → CLOSED (24 h idle). Any staff send pauses the agent; release requires next owner.
@@ -1027,7 +1027,7 @@ Situation
 	Agent vs staff
 	staff bumps version; agent expected_version → 412 → re-read/re-plan or yield (ABORTED_SUPERSEDED_BY_HUMAN)
 	Send accepted, response timed out
-	UNKNOWN; provider lookup by idempotency attribute before retry; never blind resend
+	UNKNOWN; provider lookup by idempotency attribute before retry; never blind resend; staff may resolve UNKNOWN → DELIVERED | FAILED (DECISION-LEDGER #28)
 	Stale notification
 	plan_version_basis + not_after at send → CANCELED_STALE
 	Late GPS

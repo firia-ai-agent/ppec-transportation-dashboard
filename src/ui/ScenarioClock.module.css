@@ -1,0 +1,67 @@
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.readout {
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+}
+
+.control {
+  position: relative;
+  display: inline-flex;
+}
+
+/* An inert control must look inert: outlined, muted, and it does not take the brand colour,
+   which §8 reserves for the one real primary action on a surface. */
+.start {
+  min-height: var(--target-console);
+  padding: 0 var(--space-4);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink-muted);
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+}
+
+.start[aria-disabled="true"] {
+  /* `cursor: not-allowed` without `disabled`: still focusable, visibly not usable. */
+  cursor: not-allowed;
+}
+
+.tooltip {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: calc(100% + var(--space-2));
+  z-index: 15;
+  width: max-content;
+  max-width: 28ch;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: var(--text-12);
+  font-weight: var(--weight-regular);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+/* Hover and focus both reveal it; `:focus` as well as `:focus-visible` so the note is there
+   however the button was reached. It stays in the DOM either way for `aria-describedby`. */
+.start:hover + .tooltip,
+.start:focus + .tooltip,
+.start:focus-visible + .tooltip,
+.control:hover .tooltip {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tooltip {
+    transition: none;
+  }
+}

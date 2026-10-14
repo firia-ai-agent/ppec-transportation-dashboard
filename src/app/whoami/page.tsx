@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
-import { auth, signOut } from "@/auth";
+import { auth } from "@/auth";
 import { getActiveUser, getMemberships } from "@/auth/core";
 import { getExec } from "@/auth/exec";
+import { SignOutButton } from "@/ui/SignOutButton";
+import { fill, whoami } from "@/ui/copy";
 
 export const dynamic = "force-dynamic";
 
@@ -14,12 +16,14 @@ export default async function WhoAmI() {
   const memberships = await getMemberships(db, user.id);
   return (
     <main style={{ padding: 24 }}>
-      <h1>Signed in</h1>
+      <h1>{whoami.heading}</h1>
       <p>{user.displayName}</p>
-      <ul>{memberships.map((m) => <li key={m.siteId}>{m.role} at site {m.siteId}</li>)}</ul>
-      <form action={async () => { "use server"; await signOut({ redirectTo: "/login" }); }}>
-        <button type="submit">Sign out</button>
-      </form>
+      <ul>
+        {memberships.map((m) => (
+          <li key={m.siteId}>{fill(whoami.membership, { role: m.role, siteId: m.siteId })}</li>
+        ))}
+      </ul>
+      <SignOutButton />
     </main>
   );
 }

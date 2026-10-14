@@ -18,13 +18,15 @@
     "db:check": "drizzle-kit check && drizzle-kit generate --name drift-probe && git diff --exit-code --stat -- drizzle && test -z \"$(git ls-files --others --exclude-standard drizzle)\"",
     "db:migrate:vercel": "node scripts/vercel-db-step.mjs",
     "vercel-build": "node scripts/vercel-db-step.mjs && tsx scripts/vercel-seed.ts && next build",
-    "seed:demo-users": "tsx scripts/seed-demo-users.ts"
+    "seed:demo-users": "tsx scripts/seed-demo-users.ts",
+    "demo:reset": "tsx scripts/demo-reset.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "1.2.0",
     "@vercel/queue": "0.8.0",
     "bcryptjs": "3.0.3",
     "drizzle-orm": "0.45.4",
+    "lucide-react": "1.57.0",
     "maplibre-gl": "6.14.0",
     "next": "16.4.0",
     "next-auth": "5.0.0-beta.32",

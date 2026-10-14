@@ -14,8 +14,8 @@
  *   fixture, not a typo.
  * - `DERIVED` — **Unverified.** Hand-authored geometry that follows public roads
  *   (mostly S Jog Rd), with `distanceM` measured by `measurePath` and `durationSec`
- *   = distance ÷ 12.0114 m/s, the mean speed of the one committed OSRM response
- *   (2739.8 / 228.1). No traffic is baked in: the traffic model multiplies these.
+ *   = distance ÷ `PROBE_SPEED_MPS` (≈12.01 m/s), the mean speed of the one committed OSRM
+ *   response (2739.8 / 228.1). No traffic is baked in: the traffic model multiplies these.
  *   Replace these legs with real OSRM responses when the fixtures are regenerated.
  *
  * Nothing here touches the database. src/fixtures/map.ts stays the *static* map
