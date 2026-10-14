@@ -17,8 +17,14 @@ export async function childAuthorized(db: Exec, a: { siteId: string; recipientTo
 }
 
 export type RecipientKind = "guardian" | "therapist";
-/** Recipient rules that address a therapist (ops.therapist.person_token) instead of a guardian contact. */
-export const recipientKind = (rule: string): RecipientKind => (rule.startsWith("therapist") ? "therapist" : "guardian");
+/**
+ * The recipient's actual type, from the data, never from the recipient_rule string (Veri #8 follow-up):
+ * a token that is a therapist's person_token at this site is a therapist; anything else is checked as a guardian contact.
+ */
+export async function recipientKind(db: Exec, a: { siteId: string; recipientToken: string }): Promise<RecipientKind> {
+  const r = await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.therapist WHERE site_id = $1 AND person_token = $2", [a.siteId, a.recipientToken]);
+  return r.rows[0].n > 0 ? "therapist" : "guardian";
+}
 
 /** Therapist ↔ child at send time: the therapist must still own a non-canceled session for this child (that session, if given). */
 export async function therapistAuthorized(db: Exec, a: { siteId: string; personToken: string; childToken: string; therapySessionId: string | null }) {

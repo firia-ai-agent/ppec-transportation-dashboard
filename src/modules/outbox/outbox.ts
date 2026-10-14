@@ -46,17 +46,40 @@ const COLS = "id, site_id, purpose, recipient_token, recipient_rule, channel, te
 
 /** Templates whose text names or describes a child. Any message using one must carry a child reference. */
 export const CHILD_TEMPLATES = new Set(["pickup.eta", "dropoff.eta", "leg.canceled", "leg.changed", "therapist.absence_alert", "therapist.late_alert", "child.not_received"]);
-/** Var names that carry child data, whatever the template. */
-const CHILD_VAR = /child|student|patient|dob|birth|diagnos|session/i;
+/**
+ * Per-template allowlist of permitted var names (Veri #8 follow-up). Any template not listed, or any var not on its
+ * list, is rejected at enqueue and blocked at send. Child-data vars appear only on CHILD_TEMPLATES.
+ */
+export const TEMPLATE_VARS: Readonly<Record<string, ReadonlySet<string>>> = {
+  "pickup.eta": new Set(["childFirstName", "eta", "stopLabel"]),
+  "dropoff.eta": new Set(["childFirstName", "eta", "stopLabel"]),
+  "leg.canceled": new Set(["childFirstName", "legDate", "reason"]),
+  "leg.changed": new Set(["childFirstName", "legDate", "eta", "stopLabel"]),
+  "therapist.absence_alert": new Set(["childFirstName", "sessionStart"]),
+  "therapist.late_alert": new Set(["childFirstName", "sessionStart", "eta"]),
+  "child.not_received": new Set(["childFirstName", "stopLabel", "eta"]),
+  "center.closure": new Set(["date", "reason"]),
+  "generic.notice": new Set(["text"]),
+};
+
+export class TemplateVarNotAllowed extends Error {}
+
+/** Names of vars the template does not permit (all of them if the template is unknown). */
+export function disallowedVars(templateId: string, vars: Record<string, unknown> | null | undefined): string[] {
+  const allow = TEMPLATE_VARS[templateId];
+  return Object.keys(vars ?? {}).filter((k) => !allow?.has(k));
+}
 
 export class ChildReferenceRequired extends Error {}
 
 /** Veri #8: child data never rides without a child reference, and the reference must agree with the leg/session. */
 export async function assertChildReference(tx: Exec, m: EnqueueInput) {
-  const childVars = Object.keys(m.vars).filter((k) => CHILD_VAR.test(k));
-  const needs = CHILD_TEMPLATES.has(m.templateId) || childVars.length > 0 || !!m.tripLegId || !!m.therapySessionId;
+  if (!TEMPLATE_VARS[m.templateId]) throw new TemplateVarNotAllowed(`unknown template ${m.templateId}`);
+  const bad = disallowedVars(m.templateId, m.vars);
+  if (bad.length) throw new TemplateVarNotAllowed(`vars not permitted for template ${m.templateId}: ${bad.join(",")}`);
+  const needs = CHILD_TEMPLATES.has(m.templateId) || !!m.tripLegId || !!m.therapySessionId;
   if (needs && !m.childToken) {
-    throw new ChildReferenceRequired(`child reference required (template ${m.templateId}${childVars.length ? `, vars ${childVars.join(",")}` : ""}${m.tripLegId ? ", trip leg" : ""}${m.therapySessionId ? ", therapy session" : ""})`);
+    throw new ChildReferenceRequired(`child reference required (template ${m.templateId}${m.tripLegId ? ", trip leg" : ""}${m.therapySessionId ? ", therapy session" : ""})`);
   }
   if (m.tripLegId) {
     const r = await tx.query<{ child_token: string }>("SELECT child_token FROM ops.trip_leg WHERE id = $1 AND site_id = $2", [m.tripLegId, m.siteId]);
@@ -119,7 +142,7 @@ export async function drain(db: Db, messageId: string, deps: DrainDeps, by = "sy
   if (!pre.rows[0]) return "noop";
   const p0 = pre.rows[0];
   const auth = p0.recipient_token
-    ? await deps.authorizer.authorize({ siteId: p0.site_id, recipientToken: p0.recipient_token, purpose: p0.purpose, channel: p0.channel, at: now, kind: recipientKind(p0.recipient_rule) })
+    ? await deps.authorizer.authorize({ siteId: p0.site_id, recipientToken: p0.recipient_token, purpose: p0.purpose, channel: p0.channel, at: now, kind: await recipientKind(db, { siteId: p0.site_id, recipientToken: p0.recipient_token }) })
     : ({ ok: false, reason: "no recipient token" } as const);
   const claimed = await db.tx(async (tx) => {
     const r = await tx.query<Row>(`SELECT ${COLS} FROM ops.outbound_message WHERE id = $1 AND state = 'QUEUED'
@@ -139,13 +162,17 @@ export async function drain(db: Db, messageId: string, deps: DrainDeps, by = "sy
     if (!row.recipient_token) { await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: "no recipient token" }); return "BLOCKED_EGRESS" as const; }
     const sup = await activeSuppression(tx, { siteId: row.site_id, recipientToken: row.recipient_token, purpose: row.purpose });
     if (sup) { await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: `suppressed (${sup})` }); return "BLOCKED_EGRESS" as const; }
+    if (!TEMPLATE_VARS[row.template_id] || disallowedVars(row.template_id, row.vars).length) {
+      // Defence in depth for rows written around the enqueue guard: only allowlisted vars ever go out.
+      await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: `vars not permitted for template ${row.template_id}` }); return "BLOCKED_EGRESS" as const;
+    }
     if (row.child_token) {
       // Guardianship / therapist assignment can change after queueing: re-check the recipient against the child now.
-      const ok = recipientKind(row.recipient_rule) === "therapist"
+      const ok = (await recipientKind(tx, { siteId: row.site_id, recipientToken: row.recipient_token })) === "therapist"
         ? await therapistAuthorized(tx, { siteId: row.site_id, personToken: row.recipient_token, childToken: row.child_token, therapySessionId: row.therapy_session_id })
         : await childAuthorized(tx, { siteId: row.site_id, recipientToken: row.recipient_token, childToken: row.child_token, channel: row.channel, purpose: row.purpose, at: now });
       if (!ok) { await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: "recipient not authorized for this child at send time" }); return "BLOCKED_EGRESS" as const; }
-    } else if (row.trip_leg_id || row.therapy_session_id || CHILD_TEMPLATES.has(row.template_id) || Object.keys(row.vars ?? {}).some((k) => CHILD_VAR.test(k))) {
+    } else if (row.trip_leg_id || row.therapy_session_id || CHILD_TEMPLATES.has(row.template_id)) {
       // Defence in depth for rows written before the enqueue guard: child data with no child reference never goes out.
       await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: "child data without a child reference" }); return "BLOCKED_EGRESS" as const;
     }
