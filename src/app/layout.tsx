@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { Atkinson_Hyperlegible_Next, JetBrains_Mono } from "next/font/google";
 import { DemoBanner } from "@/ui/DemoBanner";
-import { ScreenSource } from "@/ui/ScreenSource";
 import { app } from "@/ui/copy";
 import { tokenCss } from "@/ui/tokens";
 import "./globals.css";
@@ -33,10 +32,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <style>{tokenCss()}</style>
       </head>
       <body>
-        {/* §7 / NFR-09: above everything, on every route including /login. */}
+        {/* §7 / §7.1 / NFR-09: the DEMO bar, carrying the source-mode chip next to it, above
+            everything and on every route including /login. */}
         <DemoBanner />
-        {/* §7.1 / NFR-09: the source-mode badge is on every screen, /login included. */}
-        <ScreenSource />
         {children}
       </body>
     </html>

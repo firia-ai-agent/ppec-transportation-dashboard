@@ -24,6 +24,18 @@ describe("humanizeAge", () => {
     expect(humanizeAge(seconds)).toBe(expected);
   });
 
+  it("reads exactly '1 h' at 3600 s, never '1 h 0 min' (Vera's answer, 2026-10-14)", () => {
+    expect(humanizeAge(3600)).toBe("1 h");
+    expect(humanizeAge(7200)).toBe("2 h");
+    // Zero minutes are dropped on every whole hour, and only there.
+    for (let hours = 1; hours <= 6; hours += 1) {
+      expect(humanizeAge(hours * 3600)).toBe(`${hours} h`);
+      expect(humanizeAge(hours * 3600 + 60)).toBe(`${hours} h 1 min`);
+    }
+    expect(humanizeAge(3659)).toBe("1 h");
+    expect(humanizeAge(3660)).toBe("1 h 1 min");
+  });
+
   it("never prints raw seconds once the age passes a minute", () => {
     for (let seconds = 60; seconds <= 7200; seconds += 7) {
       const text = humanizeAge(seconds);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { LucideIcon } from "lucide-react";
+import { Flag, type LucideIcon } from "lucide-react";
 import { isCurrent, navItems } from "./nav-items";
 import { nav } from "./copy";
 import { sourceModes, vocabularies } from "./states";
@@ -33,12 +33,20 @@ describe("nav icons", () => {
     ]);
   });
 
+  it("gives Exceptions & Approvals the `flag` icon (Vera's answer, 2026-10-14)", () => {
+    const exceptions = navItems.find((item) => item.href === "/exceptions");
+    expect(exceptions?.icon).toBe(Flag);
+  });
+
   it("sees a non-empty state-icon set (so the guard below cannot pass vacuously)", () => {
     expect(stateIcons().size).toBeGreaterThan(30);
   });
 
   it("uses no icon that §3 or §7.1 gives a meaning to", () => {
     const used = stateIcons();
+    // Named explicitly because `flag` is the one Vera chose for the rail: if §3 ever adopts it
+    // for a state, this is the assertion that has to be answered before the state lands.
+    expect(used.has(Flag), "§3/§7.1 must not claim `flag`").toBe(false);
     const collisions = navItems
       .filter((item) => used.has(item.icon))
       .map((item) => `${item.label} → ${used.get(item.icon)}`);

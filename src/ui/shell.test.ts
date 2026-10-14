@@ -1,12 +1,13 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { adapters, login, nav, scenarioClock, unbuilt } from "./copy";
+import { adapters, demoBanner, login, nav, scenarioClock, unbuilt } from "./copy";
+import { DemoBanner } from "./DemoBanner";
 import { Placeholder } from "./Placeholder";
 import { ScenarioClock } from "./ScenarioClock";
 import { SourceBadge } from "./SourceBadge";
-import { color } from "./tokens";
+import { color, contrastRatio } from "./tokens";
 
 /**
  * Shell contracts from Vera's review.
@@ -29,12 +30,19 @@ function escapeApostrophes(text: string): string {
   return text.replace(/'/g, "&#x27;");
 }
 
-describe("NFR-09: the source-mode badge is on every screen", () => {
+describe("NFR-09 / §7.1: the source-mode chip sits next to the DEMO banner", () => {
   const rootLayout = read(APP, "layout.tsx");
+  const banner = read(UI, "DemoBanner.tsx");
 
-  it("the root layout renders it, so /login and the developer pages carry it too", () => {
-    expect(rootLayout).toMatch(/<ScreenSource \/>/);
+  it("the root layout renders the bar, so /login and the developer pages carry it too", () => {
     expect(rootLayout).toMatch(/<DemoBanner \/>/);
+  });
+
+  it("places the chip in the bar, not in a strip of its own (Vera's answer, 2026-10-14)", () => {
+    expect(banner).toMatch(/<ScreenSource \/>/);
+    // A second mount in the layout would be the full-width strip the answer removed.
+    expect(rootLayout).not.toMatch(/ScreenSource/);
+    expect(existsSync(path.join(UI, "ScreenSource.module.css"))).toBe(false);
   });
 
   it("ScreenSource reads the mode from the environment rather than taking a prop", () => {
@@ -48,12 +56,49 @@ describe("NFR-09: the source-mode badge is on every screen", () => {
       ...[read(UI, "AppShell.tsx"), read(APP, "layout.tsx"), read(APP, "login", "page.tsx")],
     ].flatMap((source) => [...source.matchAll(/<SourceBadge\b/g)].map((m) => m[0]));
     expect(mounts).toEqual([]);
+    // ...and only the bar mounts ScreenSource, so the chip cannot appear twice on a screen.
+    const files = readdirSync(UI).filter((f) => f.endsWith(".tsx") && f !== "ScreenSource.tsx");
+    const screenSourceMounts = files.filter((f) => /<ScreenSource\b/.test(read(UI, f)));
+    expect(screenSourceMounts).toEqual(["DemoBanner.tsx"]);
   });
 
   it("the badge announces its mode and shows the label (§7.1)", () => {
     const html = renderToStaticMarkup(SourceBadge({ mode: "SIMULATED" }));
     expect(html).toContain("Source: Simulated");
     expect(html).toContain("Simulated");
+  });
+
+  it("renders the 'DEMO' bar and the Simulated chip in one row", () => {
+    process.env.APP_DATA_CLASS = "SYNTHETIC";
+    const html = renderToStaticMarkup(DemoBanner());
+    expect(html).toContain(demoBanner.text);
+    expect(html).toContain('aria-label="DEMO"');
+    // role="status" wraps the banner text only: the chip is announced as its own thing.
+    expect(html).toMatch(/role="status"[^>]*>(?:(?!<\/p>).)*DEMO/);
+    expect(html).toContain("Source: Simulated");
+    // One chip, one banner, in a single bar element.
+    expect(html.match(/Source: Simulated/g)).toHaveLength(1);
+    expect(html.match(/role="status"/g)).toHaveLength(1);
+  });
+
+  it("keeps the bar 32 px, full-width and violet, with the chip in its trailing cell", () => {
+    const css = read(UI, "DemoBanner.module.css");
+    expect(css).toMatch(/min-height: var\(--layout-demo-banner-height\)/);
+    expect(css).toMatch(/background: var\(--color-demo-bg\)/);
+    expect(css).toMatch(/color: var\(--color-demo-fg\)/);
+    // Its own column, so the chip can neither overlap "DEMO" nor pull it off-centre.
+    expect(css).toMatch(/grid-template-columns: 1fr auto 1fr/);
+    expect(css).toMatch(/\.source \{[^}]*grid-column: 3/);
+  });
+
+  it("the outlined white chip still passes contrast on the violet bar", () => {
+    const chipCss = read(UI, "SourceBadge.module.css");
+    expect(chipCss).toMatch(/background: var\(--color-surface\)/);
+    expect(chipCss).toMatch(/border: var\(--border-hairline\) solid var\(--color-border-strong\)/);
+    // Chip text on its own white fill is the §8 row (7.10:1), unchanged by what sits behind it.
+    expect(contrastRatio(color["src-sim"], color.surface)).toBeGreaterThanOrEqual(4.5);
+    // The chip's edge against the bar is a UI part, so 3:1: white on demo violet is 7.10:1.
+    expect(contrastRatio(color.surface, color["demo-bg"])).toBeGreaterThanOrEqual(3);
   });
 });
 
