@@ -23,6 +23,14 @@ export const LEASE_SECONDS = 2;
 export const REWAKE_DELAY_SECONDS = LEASE_SECONDS; // reclaim uses claimed_until <= now, so the re-wake lands exactly at expiry
 /** Extra wait added when a wake has to re-publish itself, so the next one cannot land before the lease expires. */
 export const REWAKE_MARGIN_MS = 250;
+/**
+ * How far ahead of `due_at` a delivery may still claim. Queues' `delaySeconds` is a "not before" floor, so a
+ * wake should never be early — but the floor is measured on the queue's clock and `due_at` on ours, so small
+ * skew between the publishing and the consuming instance shows up as earliness. Anything beyond this is
+ * refused as `not-due` by `claimForWake` and re-published by `handleWake` (runner.ts `deferEarlyWake`) rather
+ * than dropped. The two have to agree, which is why the slack is one constant and not two literals.
+ */
+export const EARLY_SLACK_MS = 1_000;
 /** A handler renews its lease this often; two renewals fit in every lease, so one lost renewal is not fatal. */
 export const LEASE_RENEW_EVERY_MS = (LEASE_SECONDS * 1000) / 2;
 export const MAX_ATTEMPTS = 5;

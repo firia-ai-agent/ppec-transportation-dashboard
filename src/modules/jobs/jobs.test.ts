@@ -9,7 +9,7 @@ import { FakeTransport } from "./fake-transport";
 import { TIMER_TOPIC } from "./vercel-queue";
 import { VercelQueueScheduler, MAX_ATTEMPTS } from "./scheduler";
 import { claimForWake, fire, handleWake, renewLease, sweep, type FireOpts, type Handlers } from "./runner";
-import { LEASE_SECONDS, MAX_DELAY_SECONDS, MAX_DELIVERIES, QUEUE_RETRY_AFTER_SECONDS, QUEUE_VISIBILITY_TIMEOUT_SECONDS, REWAKE_DELAY_SECONDS, REWAKE_MARGIN_MS, RETRY_MAX_SECONDS, delayFor, queueRetryDirective, redeliveryDelaySeconds, rewakeDelaySeconds, staleWake } from "./scheduler";
+import { EARLY_SLACK_MS, LEASE_SECONDS, MAX_DELAY_SECONDS, MAX_DELIVERIES, QUEUE_RETRY_AFTER_SECONDS, QUEUE_VISIBILITY_TIMEOUT_SECONDS, REWAKE_DELAY_SECONDS, REWAKE_MARGIN_MS, RETRY_MAX_SECONDS, delayFor, queueRetryDirective, redeliveryDelaySeconds, rewakeDelaySeconds, staleWake } from "./scheduler";
 
 let db: Db; let t: FakeTransport; let now: Date; let s: VercelQueueScheduler;
 const clock = () => now;
@@ -66,6 +66,47 @@ describe("JobScheduler (ADR-001)", () => {
     expect(await handleWake(db, { jobId: id }, "d1", handlers, clock)).toBe("noop");
     expect(await fires(id)).toBe(1);
     expect((await state("x")).state).toBe("DONE");
+  });
+  it("a first wake delivered early re-publishes itself for the rest of the wait, and that wake fires the job", async () => {
+    // The job's only wake-up would otherwise be acked away as `not-due`: `arm` has already set
+    // wake_published_at, so the sweeper's re-arm pass skips the row and nothing fires it until the overdue
+    // pass, > 5 s past due on a 60 s cron. Same answer as an early re-wake: one hop of remaining + margin.
+    const { id } = await sched("early-first", 10);
+    t.sent.length = 0;
+    expect(await handleWake(db, { jobId: id }, "d1", handlers, clock, { transport: t })).toBe("early-deferred");
+    expect(calls).toEqual([]);
+    expect((await state("early-first")).state).toBe("SCHEDULED");
+    // The re-published wake carries the row's own generation, so it fences exactly like the original.
+    expect(t.sent).toEqual([{ jobId: id, dueAt: at(10).toISOString(), version: 1,
+      delaySeconds: rewakeDelaySeconds(10_000), idempotencyKey: `early:${id}:${now.toISOString()}` }]);
+
+    now = at(t.sent[0].delaySeconds);
+    expect(await handleWake(db, t.sent[0], "d1", handlers, clock, { transport: t })).toBe("fired");
+    expect(await fires(id)).toBe(1);
+  });
+  it("a delivery inside the claim slack still claims; one just outside it is deferred, not dropped", async () => {
+    const { id } = await sched("slack", EARLY_SLACK_MS / 1000);
+    expect(await handleWake(db, { jobId: id }, "d1", handlers, clock, { transport: t })).toBe("fired");
+
+    const { id: id2 } = await sched("slack2", EARLY_SLACK_MS / 1000 + 0.001);
+    expect(await handleWake(db, { jobId: id2 }, "d1", handlers, clock, { transport: t })).toBe("early-deferred");
+  });
+  it("an early wake with no transport clears the wake marker, so the next sweep re-arms the job", async () => {
+    const { id } = await sched("early-noarm", 120);
+    const armed = async () => (await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.job WHERE id=$1 AND wake_published_at IS NOT NULL", [id])).rows[0].n;
+    expect(await armed()).toBe(1);
+    expect(await handleWake(db, { jobId: id }, "d1", handlers, clock)).toBe("noop");
+    expect(await armed()).toBe(0); // without it, sweep step 4 (wake_published_at IS NULL) would skip the row
+    expect((await sweep(db, t, "d1", handlers, clock)).republished).toBe(1);
+    expect(t.sent.at(-1)).toMatchObject({ jobId: id, delaySeconds: 120 });
+  });
+  it("an early wake for a superseded generation is dropped, not re-published", async () => {
+    const { id } = await sched("early-stale", 10);
+    const stale = t.sent.at(-1)!;
+    await db.tx((tx, ac) => s.reschedule(tx, ac, "early-stale", at(30), "t"));
+    t.sent.length = 0;
+    expect(await handleWake(db, stale, "d1", handlers, clock, { transport: t })).toBe("noop");
+    expect(t.sent).toEqual([]); // the reschedule armed the live wake; this one must not circle on top of it
   });
   it("reschedule moves due_at; the old wake no-ops", async () => {
     const { id } = await sched("r", 5);

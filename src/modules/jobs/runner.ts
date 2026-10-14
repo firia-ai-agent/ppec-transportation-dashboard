@@ -4,12 +4,12 @@
  */
 import { uuidv7 } from "uuidv7";
 import type { Db, Exec } from "@/db/exec";
-import { arm, JOB_COLUMNS, LEASE_RENEW_EVERY_MS, LEASE_SECONDS, MAX_ATTEMPTS, MAX_DELAY_SECONDS, REWAKE_DELAY_SECONDS, rewakeDelaySeconds, staleWake, type Clock, type JobRow, type WakeFence, type WakeMessage, type WakeTransport, systemClock } from "./scheduler";
+import { arm, EARLY_SLACK_MS, JOB_COLUMNS, LEASE_RENEW_EVERY_MS, LEASE_SECONDS, MAX_ATTEMPTS, MAX_DELAY_SECONDS, REWAKE_DELAY_SECONDS, rewakeDelaySeconds, staleWake, type Clock, type JobRow, type WakeFence, type WakeMessage, type WakeTransport, systemClock } from "./scheduler";
 
 export type Handler = (tx: Exec, job: JobRow) => Promise<void>;
 export type Handlers = Record<string, Handler>;
 export type FirePath = "QUEUE" | "SWEEPER" | "LOCAL";
-export type WakeResult = "fired" | "noop" | "rewake-deferred" | "inactive-deployment" | "failed" | "dead";
+export type WakeResult = "fired" | "noop" | "rewake-deferred" | "early-deferred" | "inactive-deployment" | "failed" | "dead";
 export type FireOpts = {
   transport?: WakeTransport;
   /**
@@ -74,8 +74,9 @@ export async function claimForWake(db: Db, jobId: string, token: string, now: Da
     if (row.state !== "SCHEDULED") return { ok: false, reason: "claimed" };
     if (staleWake(row, fence)) return { ok: false, reason: "superseded" };
     // Early delivery: Queues' delaySeconds is a floor with no SLA, but it can still land ahead of the app
-    // clock through skew between instances, so allow 1 s of slack (unchanged from the original claim).
-    if (new Date(row.due_at).getTime() > now.getTime() + 1000) return { ok: false, reason: "not-due" };
+    // clock through skew between instances, so allow EARLY_SLACK_MS of slack (unchanged from the original
+    // claim). A delivery further ahead than that is re-published by handleWake, not dropped.
+    if (new Date(row.due_at).getTime() > now.getTime() + EARLY_SLACK_MS) return { ok: false, reason: "not-due" };
     const u = await tx.query<JobRow>(
       `UPDATE ops.job SET state = 'CLAIMED', claimed_at = $3, claimed_by = $2,
          claimed_until = $3::timestamptz + make_interval(secs => ${LEASE_SECONDS})
@@ -218,6 +219,32 @@ async function deferRewake(row: ClaimedRow, remainingMs: number, now: Date, opts
 }
 
 /**
+ * A *first* wake (the job is still SCHEDULED) delivered more than EARLY_SLACK_MS before `due_at`: re-publish
+ * it for the remaining wait plus the re-wake margin, the same answer an early re-wake gets in `deferRewake`.
+ *
+ * Dropping it instead — which is what `claimForWake`'s `not-due` refusal + ack amounts to — loses the job's
+ * only wake-up: `arm` set `wake_published_at` at schedule time, so the sweeper's re-arm pass (step 4, which
+ * takes `wake_published_at IS NULL`) skips the row, and nothing fires it until the overdue pass picks it up
+ * more than 5 s past due, on a 60 s cron — far outside NFR-03. The same skew that makes a delivery early
+ * makes this cheap: one extra hop of (remaining + 250 ms).
+ *
+ * Returns false when nothing could be published (no transport, or the publish threw). In that case the wake
+ * marker is cleared so the next sweep re-arms the job, which is slower than a re-publish but bounded.
+ */
+async function deferEarlyWake(db: Db, row: JobRow, remainingMs: number, now: Date, opts: FireOpts) {
+  if (opts.transport) {
+    try {
+      await opts.transport.publish({ jobId: row.id, dueAt: new Date(row.due_at).toISOString(), version: row.version },
+        { delaySeconds: Math.min(MAX_DELAY_SECONDS, rewakeDelaySeconds(remainingMs)), idempotencyKey: `early:${row.id}:${now.toISOString()}` });
+      return true;
+    } catch { /* fall through to the sweeper */ }
+  }
+  try { await db.query("UPDATE ops.job SET wake_published_at = NULL WHERE id = $1 AND state = 'SCHEDULED'", [row.id]); }
+  catch { /* the row keeps its stale marker; the overdue pass is the last backstop */ }
+  return false;
+}
+
+/**
  * Queue consumer entry point (/api/queues/timer). Idempotent by construction: every delivery is either a
  * single claim-and-fire or a no-op + ack, decided by `claimForWake`. `dueAt`/`version` are optional so a
  * message published by an older deployment, before the fence existed, is still judged on state and due time
@@ -226,11 +253,19 @@ async function deferRewake(row: ClaimedRow, remainingMs: number, now: Date, opts
 export async function handleWake(db: Db, msg: { jobId: string } & Partial<WakeMessage>, deploymentId: string, handlers: Handlers, clock: Clock = systemClock, opts: FireOpts = {}): Promise<WakeResult> {
   if (!(await isActiveDeployment(db, deploymentId))) return "inactive-deployment";
   const fence: WakeFence = { dueAt: msg.dueAt, version: msg.version };
-  // A re-wake (or redelivery) for a job whose lease expired reclaims it first, then fires through the same claim.
+  // A re-wake (or redelivery) for a job whose lease expired reclaims it first, then fires through the same
+  // claim; a first wake that is still SCHEDULED is only looked at here to catch an early delivery.
   const j = await db.query<ClaimedRow>(
-    `SELECT ${JOB_COLUMNS}, claimed_until, claimed_by FROM ops.job WHERE id = $1 AND state = 'CLAIMED'`, [msg.jobId]);
+    `SELECT ${JOB_COLUMNS}, claimed_until, claimed_by FROM ops.job WHERE id = $1 AND state IN ('CLAIMED', 'SCHEDULED')`, [msg.jobId]);
   const row = j.rows[0];
-  if (row) {
+  if (row && row.state === "SCHEDULED") {
+    const now = clock();
+    // Stale generations are dropped before anything is re-published, exactly as on the CLAIMED path.
+    if (staleWake(row, fence)) return "noop";
+    const remainingMs = new Date(row.due_at).getTime() - now.getTime();
+    if (remainingMs > EARLY_SLACK_MS) return (await deferEarlyWake(db, row, remainingMs, now, opts)) ? "early-deferred" : "noop";
+  }
+  if (row && row.state === "CLAIMED") {
     // A wake for a generation the row has moved past is dropped outright: re-publishing it (below) would keep
     // a stale message circling for the lifetime of the claim.
     if (staleWake(row, fence)) return "noop";
