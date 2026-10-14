@@ -33,7 +33,9 @@ Workspace **Firia**, teamspace **PPEC Transport Dashboard** (id 3f9ac450-cdc1-81
 | ADR-016 | docs/adr/ADR-016-poc-exit-and-spend.md | https://app.notion.com/p/3f9ac450cdc1816dbebcde34f67b7086 |
 | Mocks & demo script | docs/MOCKS-AND-DEMO.md | https://app.notion.com/p/3f9ac450cdc181e3afebe99a51c44c55 |
 | Build plan & AT tracker | docs/BUILD-PLAN.md | https://app.notion.com/p/3f9ac450cdc18171b62ef8a30053afc1 |
+| Build plan M2–M9 | docs/BUILD-PLAN-M2.md | not mirrored yet — Notion page to create on the next sync (PR #17) |
 | Risks & questions | docs/RISKS-AND-QUESTIONS.md | https://app.notion.com/p/3f9ac450cdc1816c9589e3f2444b39b5 |
+| Research: Vercel Queues delays + OpenRouter ZDR | docs/research/QUEUES-AND-OPENROUTER-ZDR.md | not mirrored yet — Notion page to create on the next sync (PR #21) |
 | Tokos reuse notes | docs/TOKOS-REUSE.md | https://app.notion.com/p/3f9ac450cdc181939f0cd8ca2378aecb |
 | Team briefs (index) | docs/BUILD-PLAN.md | https://app.notion.com/p/3f9ac450cdc181d1a5d0e628e0e750c6 |
 | ↳ Athena (research) | docs/RISKS-AND-QUESTIONS.md | https://app.notion.com/p/3f9ac450cdc1815c9d74d26ee50c763c |
