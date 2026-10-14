@@ -51,3 +51,21 @@ export function uiSourceMode(
 ): "SIMULATED" | "LIVE" {
   return isSyntheticDemo(env) ? "SIMULATED" : "LIVE";
 }
+
+/**
+ * True while the demo controls are switched on for this deployment (ADR-014:
+ * `DEMO_MODE=1`). On its own it grants nothing — every demo surface pairs it with
+ * `isSyntheticDemo`, so a flag left on in a real-data build still shows nothing.
+ */
+export function isDemoMode(env: Record<string, string | undefined> = process.env): boolean {
+  return env.DEMO_MODE === "1";
+}
+
+/**
+ * Whether /login may offer the demo accounts (founder decision, DECISION-LEDGER row 57).
+ * Both switches, every time: the demo controls are on AND this deployment holds synthetic
+ * data. With either off the sign-in page is the plain form and no account is listed.
+ */
+export function showDemoLogins(env: Record<string, string | undefined> = process.env): boolean {
+  return isDemoMode(env) && isSyntheticDemo(env);
+}
