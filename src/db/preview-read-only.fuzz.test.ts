@@ -73,6 +73,9 @@ function corpus(): string[][] {
     "; COMMIT; INSERT INTO smuggle VALUES (1)", "; commit;", "COMMIT", "a;b--c/*d", "x", "1",
     "; SET standard_conforming_strings = off", "e'", "E'\\'", "$tag$", "; ROLLBACK;", "*/ COMMIT; /*",
     "\r", "\r\n", "\rCOMMIT; INSERT INTO smuggle VALUES (1)", "\n-- ",
+    // `call` as data: inside a literal, a comment or a quoted name it must stay data, and the
+    // containing SELECT must still be allowed to run.
+    "call", "CALL p()", "; CALL p()", "callback",
   ];
   const inner = () => {
     let s = "";
@@ -106,6 +109,10 @@ function corpus(): string[][] {
   const HEADS = [
     "SELECT ", "select 1 as ", "SELECT 1 AS ", "SELECT length(", "select ", "WITH c AS (SELECT ",
     "", "-- lead\nSELECT ", "/* lead */ SELECT ", "SELECT * FROM (SELECT ",
+    // CALL heads: the keyword itself, in the spellings that have to be seen through — case, a comment
+    // glued between the keyword and the name, a newline instead of a space, a schema-qualified or
+    // quoted procedure name.
+    "CALL p(", "call ", "cAlL/**/p(", "CALL\n p(", "/* x */ CALL ops.p(", 'CALL "ops"."p"(',
   ];
   /** What is smuggled behind the chunks. Every one of these writes if the string is split wrong. */
   const TAILS = [
@@ -124,6 +131,11 @@ function corpus(): string[][] {
     "; COMMIT; INSERT INTO smuggle VALUES (1); SELECT $$x",
     "; COMMIT; INSERT INTO smuggle VALUES (1) /* done */",
     "; COMMIT; INSERT INTO smuggle VALUES (1) -- done\n",
+    // A procedure body is opaque to the guard and may run its own COMMIT, so a CALL is refused
+    // outright — behind a `;` like the rest, and (via HEADS' empty entry) as the whole statement.
+    "; CALL p()",
+    "; CALL ops.p(); INSERT INTO smuggle VALUES (1)",
+    "; COMMIT; CALL p()",
     "",
     "",
   ];
@@ -146,6 +158,10 @@ function corpus(): string[][] {
     "SELECT * FROM set_config('standard_conforming_strings','off',false)",
     "DO $$ BEGIN PERFORM set_config('standard_conforming_strings','off',false); END $$",
     "DISCARD ALL",
+    // A procedure can PERFORM set_config too, and its body is not in the text to be read.
+    "CALL ops.set_scs_off()",
+    "cAlL/**/p()",
+    "/* x */ CALL p()",
   ];
   /** The exploits that a lexing change arms: harmless while the lexing is the standard one. */
   const ARMED = [
@@ -169,6 +185,10 @@ function corpus(): string[][] {
     "\r", " -- c\r", " -- c\r\n", "\r\n"]);
   const sel = () => pick(["SELECT", "select", "SeLeCt", "/* q */ SELECT", "-- q\nSELECT"]);
   const write = () => `INSERT INTO smuggle VALUES (1)`;
+  /** The CALL keyword, in every case and with every comment/padding shape in front of it. */
+  const call = () => pick(["CALL", "call", "cAlL", "Call", "/* c */ CALL", "-- c\nCALL", " CALL"]);
+  /** Procedure names: bare, schema-qualified, quoted — all behind the same keyword. */
+  const PROCS = ["p", "ops.p", '"p"', '"ops"."p"', 'ops."my proc"', "commit_and_write", "callback"];
   const TEMPLATES: (() => string)[] = [
     // The `$` inside an identifier (reviewer bypass 1): `x$a$` is ONE name to the server, so the `;`
     // after it is top-level — and the matching `y$a$` at the end is what a scanner that reads the pair
@@ -198,6 +218,18 @@ function corpus(): string[][] {
     () => `${sel()} 1${pick([" -- c\r", "--\r"])}${pick(TX_ENDS)};${pad()}${write()}`,
     () => `BEGIN READ WRITE;${pad()}${write()}`,
     () => `${pick(TX_ENDS)};${pad()}${write()}`,
+    // CALL, which the guard refuses outright: a procedure body can COMMIT the guard's transaction
+    // from the inside. Every spelling that has to be seen through — case, padding, newlines, leading
+    // and interleaved comments, a schema-qualified or quoted name — with a write behind it.
+    () => `${call()}${pad()}${pick(PROCS)}()`,
+    () => `${call()}${pad()}${pick(PROCS)}();${pad()}${write()}`,
+    () => `${pick(TX_ENDS)};${pad()}${call()}${pad()}${pick(PROCS)}()`,
+    () => `${sel()} 1;${pad()}${call()}${pad()}${pick(PROCS)}();${pad()}${write()}`,
+    // …and the negatives, which must NOT be refused for the word `call`: it is data, a quoted name,
+    // or part of a longer identifier here. (A `;` tail still gets these refused as multi-statement.)
+    () => `${sel()} '${pick(["call", "CALL p()", "; CALL p()"])}'${pick(["", " AS n"])}`,
+    () => `${sel()} 1 AS ${pick(["callback", "call1", "call_log", "callé", "calls"])}`,
+    () => `${sel()} "${pick(["call", "CALL"])}" FROM t`,
   ];
 
   const cases: string[][] = [];

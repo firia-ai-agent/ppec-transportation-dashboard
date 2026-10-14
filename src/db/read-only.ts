@@ -116,6 +116,26 @@ const SET_CONFIG = /\bset_config"?\s*\(/i;
 const DO_BLOCK = /^DO\b/i;
 /** `DISCARD [ALL|...]`: throws away connection state wholesale, which a preview must never do. */
 const DISCARD = /^DISCARD\b/i;
+/**
+ * `CALL proc(...)`: invokes a procedure — the one callable thing in Postgres that may run transaction
+ * control of its own. A PL/pgSQL procedure body can `COMMIT` or `ROLLBACK`, which ends the READ ONLY
+ * transaction the guard is holding and leaves everything after it writable in autocommit, and it can
+ * `PERFORM set_config(...)` to change how the SQL after it is lexed. The body is not in the statement
+ * text at all, so nothing in this file can see what it does — the same blind spot as `DO_BLOCK`, with
+ * transaction control added. So a preview refuses `CALL` outright, exactly as it refuses `COMMIT`. No
+ * app query is a `CALL`.
+ *
+ * `CALL` is always the statement's first token, so the first token is all this looks at, and that
+ * covers every spelling of the rest: a schema-qualified or quoted procedure name, any arguments, any
+ * padding or newlines. Case is free, and `scanPieces` has already turned leading and interleaved
+ * comments into whitespace, so `CALL` prefixed by a block comment, `cAlL` with a comment glued between
+ * it and the name, and `CALL` split from its name by a newline all arrive here as `CALL <name>(...)`.
+ * The token has to END there too, by Postgres' `ident_cont` (`isIdentCont`): `callback` and `call$a$`
+ * are single identifiers that merely begin with those letters, so `SELECT 1 AS callback` still runs,
+ * as does a `"call"` column — a quoted identifier keeps its quotes through `scanPieces` and so can
+ * never be read as this keyword.
+ */
+const CALL = /^CALL/i;
 /** The isolation levels of `ISOLATION LEVEL ...`, as token runs. */
 const ISOLATION_LEVELS = [["SERIALIZABLE"], ["REPEATABLE", "READ"], ["READ", "COMMITTED"], ["READ", "UNCOMMITTED"]];
 
@@ -297,6 +317,17 @@ function isRefusedTxEnd(stmt: string): boolean {
 }
 
 /**
+ * True for a `CALL` statement, whose procedure body could end that transaction from the inside (see
+ * {@link CALL}). Where the keyword ends is checked against `isIdentCont` rather than with a regex
+ * `\b`, because the two disagree exactly where it matters: JS `\w` is `[A-Za-z0-9_]`, so `\b` would
+ * end the keyword at the `$` of `call$a$` and at the `é` of `callé`, while Postgres reads each of
+ * those as ONE identifier — a name that merely starts with those letters, not the keyword.
+ */
+function isRefusedCall(stmt: string): boolean {
+  return CALL.test(stmt) && !isIdentCont(stmt[4]);
+}
+
+/**
  * The transaction modes of a BEGIN/START TRANSACTION, minus any access mode (`READ WRITE`/`READ ONLY`,
  * which the caller re-adds as READ ONLY). Isolation level and [NOT] DEFERRABLE are preserved as written.
  * Anything this does not recognise throws: an unparsed mode list must never be sent as-is on a preview.
@@ -366,6 +397,12 @@ export interface GuardState {
  *     autocommit. `SAVEPOINT`, `RELEASE [SAVEPOINT]` and `ROLLBACK TO [SAVEPOINT]` stay allowed:
  *     they work inside the transaction and cannot end it. The COMMIT/ROLLBACK that really do close a
  *     preview transaction are the guard's own (`readOnlyGuard`), which never pass through here.
+ *   - every `CALL` is refused. A procedure is the one thing a caller can invoke that may run its own
+ *     transaction control: a PL/pgSQL body can `COMMIT` — ending the guard's transaction from the
+ *     inside — or `PERFORM set_config(...)`, and the body is not in the statement text for this file
+ *     to inspect. Any case, any padding or newlines, comments before or between the tokens, and any
+ *     procedure name (schema-qualified or quoted). The word `call` inside a literal, inside a quoted
+ *     identifier, or as part of a longer name (`callback`) is not this keyword and still runs.
  *   - every `SET` and every `RESET` is refused — `SET TRANSACTION ... READ WRITE`,
  *     `SET SESSION CHARACTERISTICS ...` and the read-only GUCs among them — bar `SET LOCAL <timeout>`
  *     for the three timeouts of `SET_LOCAL_ALLOWED`, and so is every `set_config(...)` call, every `DO`
@@ -398,7 +435,9 @@ export function rewriteBeginReadOnly<Q extends SqlLike>(q: Q, state: GuardState 
   const stmts = pieces.map((s) => s.trim()).filter((s) => s.length > 0);
   if (stmts.length === 0) return q;
   const [stmt] = stmts;
-  if (isRefusedModeChange(stmt) || isRefusedTxEnd(stmt)) throw new ReadOnlyRefusedError(sql);
+  if (isRefusedModeChange(stmt) || isRefusedTxEnd(stmt) || isRefusedCall(stmt)) {
+    throw new ReadOnlyRefusedError(sql);
+  }
   if (!TX_START.test(stmt)) return q;
   if (state.inTransaction) throw new ReadOnlyRefusedError(sql);
   const rewritten = readOnlyTxStart(stmt);

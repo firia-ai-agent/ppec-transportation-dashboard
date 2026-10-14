@@ -803,11 +803,22 @@ describe("preview: a `;` hidden in a literal or comment cannot smuggle a second 
  *
  * So previews refuse every SET and RESET bar a short `SET LOCAL <timeout>` allowlist, every
  * `set_config(…)` call however it is spelled, every `DO` block (its body is a literal this scanner
- * cannot see into, and a plpgsql body can PERFORM set_config) and every DISCARD. Below: each of those
- * refused on all six preview paths, the reviewer's two-call sequence on all six, the allowlisted
- * `SET LOCAL` still working, and the control that proves the sequence really does write without the fix.
+ * cannot see into, and a plpgsql body can PERFORM set_config) and every DISCARD.
+ *
+ * `CALL` is refused for that last reason and one worse. A procedure's body is not in the statement
+ * text at all, so it is the same blind spot as a DO block — it can `PERFORM set_config(…)` — and on
+ * top of that a procedure is the one callable thing in Postgres that may run transaction control: a
+ * plpgsql body can `COMMIT`, ending the guard's READ ONLY transaction from the inside, with whatever
+ * the caller sends next then running writable in autocommit against the one production database.
+ * Nothing in the statement text can rule that out, so the keyword is refused outright, exactly as
+ * COMMIT is — while the word `call` in a literal, a quoted identifier or a longer name still runs.
+ *
+ * Below: each of those refused on all six preview paths, the reviewer's two-call sequence on all six,
+ * every CALL spelling refused on all six (with the `call`-that-is-not-a-CALL negatives still running
+ * there), the allowlisted `SET LOCAL` still working, and the control that proves the SET sequence
+ * really does write without the fix.
  */
-describe("preview: a caller cannot change session state, so it cannot change the lexing (real Postgres)", () => {
+describe("preview: a caller cannot change session state or CALL a procedure (real Postgres)", () => {
   let backend: PGlite;
   let outerPool: PoolLike | Pool | undefined;
 
@@ -843,6 +854,43 @@ describe("preview: a caller cannot change session state, so it cannot change the
     "SELECT * FROM set_config('standard_conforming_strings','off',false)",
     "DO $$ BEGIN PERFORM set_config('standard_conforming_strings','off',false); END $$",
     "DISCARD ALL",
+  ];
+
+  /**
+   * Every spelling of `CALL`: case, padding, newlines, leading and interleaved comments, and the
+   * procedure name bare, schema-qualified or quoted. Nothing here is created on the backend — the
+   * point is that the app refuses the statement before it ever reaches a server, so the procedure's
+   * existence is beside it. The `;` forms are refused twice over (multi-statement, and a CALL).
+   */
+  const CALLS = [
+    "CALL p()",
+    "SELECT 1; CALL p()",
+    "call p()", "Call p()", "cAlL p()", "CALL P()",
+    "CALL   p()", "CALL\tp()", "CALL\np()", "CALL\n p()", "  CALL p()  ", "CALL p();",
+    "/* x */ CALL p()", "cAlL/**/p()", "CALL/**/p()", "CALL /* c */ p()",
+    "-- lead\nCALL p()", "-- lead\rCALL p()", "/* /* nested */ */ CALL p()", "CALL p() -- tail\n",
+    "CALL ops.p()", "call public.p(1, 'x')",
+    'CALL "p"()', 'CALL ops."my proc"()', 'CALL "ops"."p"()',
+    "CALL p('a;b--c/*d')", "CALL p($$;--$$)",
+    // The shape that matters most: a procedure that would end the guard's transaction and then write.
+    "CALL ops.commit_and_write()",
+    "SELECT 1; CALL ops.p(); INSERT INTO smuggle VALUES (1)",
+    "CALL",
+  ];
+  /**
+   * The word `call` where it is NOT that keyword. These must still RUN on a preview: refusing them
+   * would break ordinary reads. Each is a complete statement with a checkable answer.
+   */
+  const NOT_CALLS: [string, unknown][] = [
+    ["SELECT 'call' AS n", "call"],
+    ["SELECT 'CALL p()' AS n", "CALL p()"],
+    ["SELECT length('call') AS n", 4],
+    ["SELECT 1 AS callback", 1],
+    ['SELECT "call" AS n FROM (SELECT 1 AS "call") s', 1],
+    ['SELECT "CALL" AS n FROM (SELECT 1 AS "CALL") s', 1],
+    ["-- CALL p()\nSELECT 1 AS n", 1],
+    ["/* CALL p() */ SELECT 1 AS n", 1],
+    ["SELECT $$CALL p()$$ AS n", "CALL p()"],
   ];
 
   beforeAll(async () => {
@@ -954,6 +1002,33 @@ describe("preview: a caller cannot change session state, so it cannot change the
     expect(exploit).toBe("ran");
     expect(h.sent.slice(from).join(" | ")).not.toMatch(/^INSERT INTO smuggle/m);
     expect(await rows()).toBe(0);
+  });
+
+  it.each(PATHS)("every CALL is refused on $name, and writes nothing", async ({ run }) => {
+    for (const stmt of CALLS) {
+      const from = h.sent.length;
+      expect(await run([stmt]), stmt).toEqual(["refused"]);
+      expect(h.sent.slice(from), stmt).not.toContain(stmt); // nothing left the app
+      expect(h.sent.slice(from).join(" | "), stmt).not.toMatch(/\bCALL\b/i);
+      expect(await rows(), stmt).toBe(0);
+    }
+    // The guard's transaction was never ended from the inside, and nothing leaked onto the backend.
+    expect(await show("transaction_read_only")).toBe("off");
+    expect(await show("standard_conforming_strings")).toBe("on");
+  });
+
+  it.each(PATHS)("the word `call` in a literal, a name or a comment still runs on $name", async ({ run }) => {
+    expect(await run(NOT_CALLS.map(([stmt]) => stmt))).toEqual(NOT_CALLS.map(() => "ran"));
+    expect(await rows()).toBe(0);
+  });
+
+  it("and those non-CALLs really do return their values, not just avoid a refusal", async () => {
+    for (const [stmt, want] of NOT_CALLS) {
+      const r = await getNeonDb().query<Record<string, unknown>>(stmt, []);
+      // By value, not by column name: `SELECT 1 AS callback` names its column `callback`, which is
+      // the reviewer's own example and worth keeping spelled exactly that way.
+      expect(r.rows.map((row) => Object.values(row)), stmt).toEqual([[want]]);
+    }
   });
 
   it("the allowlisted SET LOCAL timeouts still work, on every path, and do not outlive the transaction", async () => {

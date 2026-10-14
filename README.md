@@ -27,7 +27,7 @@ No secrets here. Values live only in Vercel env vars.
 | Linear | https://linear.app/tokos/project/ppec-transport-dashboard-poc-mock-c71244c967e7 |
 | Notion | https://app.notion.com/p/3f9ac450cdc181cda2becad4340b6833 |
 
-Previews are read-only against that one database: the app opens every preview transaction `READ ONLY` (PR #20, ledger row 55) and the preview login role `ppec_preview` is read-only server-side as well (ledger row 53, pending confirmation that the role and its grants are applied). Previews never run migrations and never seed; migrations and reset/seed act on production only.
+Previews are read-only against that one database: the app opens every preview transaction `READ ONLY` (PR #20, ledger row 55) and the preview login role `ppec_preview` is read-only server-side (ledger row 53): the role and its grants are applied in Neon and tested on the pooled and unpooled hosts (SELECT works, UPDATE is refused, `identity` is refused); pointing the Vercel Preview `DATABASE_URL`/`DATABASE_URL_UNPOOLED` at the role is awaiting founder approval. Previews never run migrations and never seed; migrations and reset/seed act on production only.
 
 ## Docs
 - [PRD v1.0](docs/PRD-v1.0.txt)
