@@ -17,7 +17,7 @@ All three answered 2026-10-14 11:23 ET (see DECISION-LEDGER.md): Q1 exit bar = P
 | Live LLM on synthetic data still sees prompts | injection, cost | token-only gateway, ZDR routing, eval set, budget alert | Athena |
 | OSM tile and OSRM demo usage policies | blocked tiles in demo | fixtures for routes; tile URL env-configurable | Rudy |
 | Auth.js v5 is still `beta` on npm | API churn | pin exact version; IdentityGateway seam toward Entra | Rudy |
-| Credentials auth has no built-in MFA | NFR MFA not met in POC | demo users only; MFA in P2 via IdP | Veri |
+| Credentials auth has no built-in MFA | NFR MFA not met in POC | MFA, rate limiting/lockout, and server-side sign-out with an absolute session cap are built in B-16 (in scope for the POC exit, not deferred) | Veri |
 | Mocks mask real-vendor behavior (Twilio retries, Teams throttling) | false confidence | "PASS (mock)" label; live gates open (Q1) | Veri |
 
 ## 3. Unverified close-out
