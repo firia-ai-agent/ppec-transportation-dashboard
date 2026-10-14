@@ -7,6 +7,11 @@ node_modules/
 *.log
 !docs/research/*.log
 coverage/
+# Copied out of node_modules by scripts/copy-maplibre-worker.mjs, never committed
+/public/maplibre-gl-worker.mjs
+# Browser-check output: screenshots and traces (pnpm e2e)
+artifacts/
+/test-results/
 .DS_Store
 next-env.d.ts
 *.tsbuildinfo

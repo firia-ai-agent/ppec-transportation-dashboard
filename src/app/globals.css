@@ -1,0 +1,123 @@
+/*
+ * Global styles. Plain CSS, no Tailwind. Every colour, size and spacing value is a custom
+ * property emitted from src/ui/tokens.ts (see `tokenCss()` in the root layout) — this file
+ * must never contain a colour literal (enforced by src/ui/no-hex.test.ts).
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  /* No smooth scrolling: §9 reduced motion, and it buys nothing on a dense board. */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-ui), system-ui, sans-serif;
+  font-size: var(--body-console);
+  line-height: var(--leading-normal);
+  /* §9: text must resize to 200% without loss, so no fixed heights on text containers. */
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: var(--color-brand);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* §9: focus is 2 px focus token + 2 px offset, on every interactive element, never removed. */
+:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+/* Fallback for browsers without :focus-visible support. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Lucide icons: single set, 1.75 stroke (§2). */
+svg.lucide {
+  stroke-width: var(--icon-stroke);
+  flex: none;
+}
+
+/* §8/§9: visible to screen readers, not to the eye. Used for "State: …" and "Source: …". */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Times, ETAs, counts and countdowns line up column to column (§2). */
+.tabularNums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* Ids only (§2). */
+.mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.skipLink {
+  position: absolute;
+  left: var(--space-4);
+  top: calc(-1 * var(--space-8));
+  z-index: 20;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  color: var(--color-brand);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.skipLink:focus {
+  /* Clear of the sticky DEMO bar (§7), which owns the top 32 px of every screen. */
+  top: calc(var(--layout-demo-banner-height) + var(--space-3));
+}
+
+/* §9: reduced motion means no transition, no animation, anywhere. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

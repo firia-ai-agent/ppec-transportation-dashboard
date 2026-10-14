@@ -14,6 +14,7 @@
 import { uuidv7 } from "uuidv7";
 import type { Exec } from "@/db/exec";
 import { OPT_OUT_KINDS, OPT_OUT_SCOPES, type SuppressionScope } from "@/modules/outbox/policy";
+import { consentFollowUp } from "@/ui/copy";
 
 export type ConsentKind = "OPT_IN" | "START" | "STOP" | "NL_OPT_OUT" | "HELP" | "PERMANENT_TEST_OPT_OUT";
 
@@ -60,18 +61,12 @@ function suppressionScope(kind: ConsentKind): { scope: SuppressionScope; permane
   return scope ? { scope, permanentTest: kind === "PERMANENT_TEST_OPT_OUT" } : null;
 }
 
-const FOLLOW_UP: Partial<Record<ConsentKind, { summary: string; nextStep: string; predicate: string }>> = {
-  STOP: {
-    summary: "Family opted out of text messages",
-    nextStep: "Record another authorized contact for ride updates, or agree a phone call with the family.",
-    predicate: "another authorized contact recorded for this family, or a call logged",
-  },
-  NL_OPT_OUT: {
-    summary: "Family asked us in their own words to stop texting",
-    nextStep: "Call the family to confirm what they want and record it.",
-    predicate: "call logged confirming the family's choice",
-  },
-};
+/**
+ * The staff task a revocation opens. A coordinator reads it, so the words live with the rest of the
+ * app's copy in src/ui/copy.ts (`consentFollowUp`); which kind gets a task is the decision here.
+ * A kind absent from this table opens no task (START, HELP, PERMANENT_TEST_OPT_OUT).
+ */
+const FOLLOW_UP: Partial<Record<ConsentKind, { summary: string; nextStep: string; predicate: string }>> = consentFollowUp;
 
 export type ConsentResult = {
   consentEventId: string;

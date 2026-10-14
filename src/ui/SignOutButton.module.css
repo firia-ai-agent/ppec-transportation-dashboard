@@ -1,0 +1,18 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--target-console);
+  padding: 0 var(--space-4);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--color-neutral-bg);
+}

@@ -6,7 +6,8 @@ import { getActiveUser, getMemberships, requireSiteRole, requireUser, verifyCred
 import { jwtCallback, sessionCallback } from "./callbacks";
 import { encode, decode } from "next-auth/jwt";
 import { decideSeed } from "../../scripts/vercel-seed";
-import { seedDemoUsers, SeedRefused, DEMO_SITE_A, DEMO_SITE_B, DEMO_USERS } from "./seed";
+import { seedDemoUsers, SeedRefused, DEMO_SITE_A, DEMO_SITE_B } from "./seed";
+import { DEMO_ACCOUNTS as DEMO_USERS } from "./demo-accounts";
 import type { Exec } from "@/domain/transition";
 
 // Test-only passwords, generated per run (never committed values).

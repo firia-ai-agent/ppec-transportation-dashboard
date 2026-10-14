@@ -47,29 +47,67 @@ const COLS = "id, site_id, purpose, recipient_token, recipient_rule, channel, te
 /** Templates whose text names or describes a child. Any message using one must carry a child reference. */
 export const CHILD_TEMPLATES = new Set(["pickup.eta", "dropoff.eta", "leg.canceled", "leg.changed", "therapist.absence_alert", "therapist.late_alert", "child.not_received"]);
 /**
- * Per-template allowlist of permitted var names (Veri #8 follow-up). Any template not listed, or any var not on its
- * list, is rejected at enqueue and blocked at send. Child-data vars appear only on CHILD_TEMPLATES.
+ * Veri #12 review: free text is banned from outbound vars. A staff-typed "reason" or "text" can carry a child's
+ * name, and matching values against a name list misses nicknames and typos, so outbound vars carry only fixed
+ * codes (reasonCode) and constrained formats (clock times, dates, short stop tokens, one given-name token).
+ * generic.notice is fixed copy with no vars at all.
  */
-export const TEMPLATE_VARS: Readonly<Record<string, ReadonlySet<string>>> = {
-  "pickup.eta": new Set(["childFirstName", "eta", "stopLabel"]),
-  "dropoff.eta": new Set(["childFirstName", "eta", "stopLabel"]),
-  "leg.canceled": new Set(["childFirstName", "legDate", "reason"]),
-  "leg.changed": new Set(["childFirstName", "legDate", "eta", "stopLabel"]),
-  "therapist.absence_alert": new Set(["childFirstName", "sessionStart"]),
-  "therapist.late_alert": new Set(["childFirstName", "sessionStart", "eta"]),
-  "child.not_received": new Set(["childFirstName", "stopLabel", "eta"]),
-  "center.closure": new Set(["date", "reason"]),
-  "generic.notice": new Set(["text"]),
+export const CLOSURE_REASON_CODES: ReadonlySet<string> = new Set(["WEATHER", "FACILITY", "HOLIDAY", "EMERGENCY"]);
+export const LEG_CANCEL_REASON_CODES: ReadonlySet<string> = new Set(["VEHICLE_UNAVAILABLE", "WEATHER", "CENTER_CLOSED", "FAMILY_REQUEST", "SCHEDULE_CHANGE"]);
+
+/** HH:MM (24h), YYYY-MM-DD, and an ISO timestamp — the only shapes a time- or date-valued var may take. */
+const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d{1,3})?)?(Z|[+-]([01]\d|2[0-3]):[0-5]\d)$/;
+
+/** A var's value rule: true means this value may go out under this name. */
+type VarRule = (value: unknown) => boolean;
+const oneOf = (codes: ReadonlySet<string>): VarRule => (v) => typeof v === "string" && codes.has(v);
+const clockTime: VarRule = (v) => typeof v === "string" && (CLOCK.test(v) || TIMESTAMP.test(v));
+const calendarDay: VarRule = (v) => typeof v === "string" && (DAY.test(v) || TIMESTAMP.test(v));
+/**
+ * One given-name token: letters only, with at most one internal hyphen or apostrophe ("Anne-Marie", "D'Andre"),
+ * 1-20 characters. Veri FAILed the earlier "any non-blank string <= 40" rule because it let a whole name out:
+ * a full name ("Mia Rivera") or a name plus a surname initial ("Mia R.", "Mia R") identifies a child far more
+ * narrowly than a given name does, so spaces, digits and all other punctuation are refused.
+ */
+const GIVEN_NAME = /^\p{L}+(?:['’-]\p{L}+)?$/u;
+const firstName: VarRule = (v) => typeof v === "string" && [...v].length <= 20 && GIVEN_NAME.test(v);
+const stopToken: VarRule = (v) => typeof v === "string" && /^[A-Z0-9-]{1,12}$/.test(v);
+
+/**
+ * Per-template allowlist of permitted var names, each with the rule its value must satisfy (Veri #8 follow-up,
+ * value rules from Veri #12). Any template not listed, any var not on its list, and any value breaking its rule
+ * is rejected at enqueue and blocked at send. Child-data vars appear only on CHILD_TEMPLATES.
+ */
+export const TEMPLATE_VARS: Readonly<Record<string, Readonly<Record<string, VarRule>>>> = {
+  "pickup.eta": { childFirstName: firstName, eta: clockTime, stopLabel: stopToken },
+  "dropoff.eta": { childFirstName: firstName, eta: clockTime, stopLabel: stopToken },
+  "leg.canceled": { childFirstName: firstName, legDate: calendarDay, reasonCode: oneOf(LEG_CANCEL_REASON_CODES) },
+  "leg.changed": { childFirstName: firstName, legDate: calendarDay, eta: clockTime, stopLabel: stopToken },
+  "therapist.absence_alert": { childFirstName: firstName, sessionStart: clockTime },
+  "therapist.late_alert": { childFirstName: firstName, sessionStart: clockTime, eta: clockTime },
+  "child.not_received": { childFirstName: firstName, stopLabel: stopToken, eta: clockTime },
+  "center.closure": { date: calendarDay, reasonCode: oneOf(CLOSURE_REASON_CODES) },
+  "generic.notice": {}, // fixed copy, no vars
   // Fixed-copy answer to an inbound HELP (MSG-04). No vars: the words never change (messaging/templates.ts).
-  "consent.help": new Set<string>(),
+  "consent.help": {},
 };
 
 export class TemplateVarNotAllowed extends Error {}
 
-/** Names of vars the template does not permit (all of them if the template is unknown). */
+/**
+ * Names of vars that must not go out under this template: the template is unknown, the name is off its list, or
+ * the value breaks the name's rule. Names only — a rejected value is never echoed back, since the reason it was
+ * rejected is that it may carry a child's name.
+ */
 export function disallowedVars(templateId: string, vars: Record<string, unknown> | null | undefined): string[] {
   const allow = TEMPLATE_VARS[templateId];
-  return Object.keys(vars ?? {}).filter((k) => !allow?.has(k));
+  if (!allow) return Object.keys(vars ?? {});
+  return Object.entries(vars ?? {})
+    // childFirstName is checked against CHILD_TEMPLATES here too, so the invariant survives an edit to the table above.
+    .filter(([k, v]) => !Object.hasOwn(allow, k) || (k === "childFirstName" && !CHILD_TEMPLATES.has(templateId)) || !allow[k](v))
+    .map(([k]) => k);
 }
 
 export class ChildReferenceRequired extends Error {}
@@ -165,7 +203,8 @@ export async function drain(db: Db, messageId: string, deps: DrainDeps, by = "sy
     const sup = await activeSuppression(tx, { siteId: row.site_id, recipientToken: row.recipient_token, purpose: row.purpose });
     if (sup) { await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: `suppressed (${sup})` }); return "BLOCKED_EGRESS" as const; }
     if (!TEMPLATE_VARS[row.template_id] || disallowedVars(row.template_id, row.vars).length) {
-      // Defence in depth for rows written around the enqueue guard: only allowlisted vars ever go out.
+      // Defence in depth for rows written around the enqueue guard: only allowlisted names with rule-abiding
+      // values ever go out, so free text cannot reach the provider (Veri #12).
       await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: `vars not permitted for template ${row.template_id}` }); return "BLOCKED_EGRESS" as const;
     }
     if (row.child_token) {

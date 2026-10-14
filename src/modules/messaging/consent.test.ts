@@ -24,12 +24,12 @@ const state = async (id: string) => (await db.query<{ state: string; block_reaso
 
 const msg = (o: Partial<EnqueueInput> = {}): EnqueueInput => ({
   siteId: SITE, purpose: "PICKUP_UPDATE", recipientRule: "guardian", recipientToken: f1.contactToken, channel: "SMS_1TO1",
-  templateId: "pickup.eta", vars: { childFirstName: "Syn", eta: "8:12-8:22 AM", stopLabel: "Okeeheelee Park" },
+  templateId: "pickup.eta", vars: { childFirstName: "Syn", eta: "08:12", stopLabel: "OKEE-PARK" },
   childToken: f1.childToken, planVersionBasis: 1, notAfter: new Date(now.getTime() + 3_600_000), idempotencyKey: uuidv7(), by: "test", ...o });
 const put = (o: Partial<EnqueueInput> = {}) => db.tx((tx, ac) => enqueue(tx, ac, outboxTransport, msg(o)));
 /** A safety-purpose send (SAFETY_PURPOSES in outbox/policy), the one kind an NL opt-out must not stop. */
 const putSafety = () => put({ purpose: "SAFETY_ALERT", templateId: "child.not_received",
-  vars: { childFirstName: "Syn", stopLabel: "Okeeheelee Park", eta: "8:20 AM" } });
+  vars: { childFirstName: "Syn", stopLabel: "OKEE-PARK", eta: "08:20" } });
 const consent = (kind: ConsentKind, atMs: number) => db.tx((tx) => recordConsent(tx, {
   siteId: SITE, contactToken: f1.contactToken, channel: "SMS_1TO1", kind, at: new Date(atMs), by: "test" }));
 
