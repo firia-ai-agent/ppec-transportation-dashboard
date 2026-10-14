@@ -26,10 +26,14 @@ export const app = {
   skipToContent: "Skip to content",
 } as const;
 
-/** COPY-GUIDE §6 (founder, 2026-10-14 13:18 ET, ledger row 40): the banner reads exactly "DEMO". */
+/**
+ * COPY-GUIDE §6 (founder, 2026-10-14 13:18 ET, ledger row 40): the banner reads exactly
+ * "DEMO", and that decision covers the screen-reader label too — COPY-GUIDE §6 and
+ * DESIGN-DIRECTION §7 both fix it as aria-label "DEMO", announced once on load.
+ */
 export const demoBanner = {
   text: "DEMO",
-  ariaLabel: "Demo environment",
+  ariaLabel: "DEMO",
 } as const;
 
 /** DESIGN-DIRECTION §2 nav labels. Exceptions carries a count badge once the live board lands. */

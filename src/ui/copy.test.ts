@@ -22,9 +22,11 @@ import {
  * fixes verbatim, so a well-meaning rewrite in a component cannot quietly change them.
  */
 describe("COPY-GUIDE strings, verbatim", () => {
-  it("§6: the banner reads exactly DEMO, with the documented screen-reader name", () => {
+  it("§6: the banner reads exactly DEMO, and so does its screen-reader label", () => {
+    // Founder decision, 2026-10-14 13:18 ET (ledger row 40), "incl. screen-reader label":
+    // COPY-GUIDE §6 and DESIGN-DIRECTION §7 both write aria-label "DEMO", not a paraphrase.
     expect(demoBanner.text).toBe("DEMO");
-    expect(demoBanner.ariaLabel).toBe("Demo environment");
+    expect(demoBanner.ariaLabel).toBe("DEMO");
   });
 
   it("§2 of DESIGN-DIRECTION: the four nav labels", () => {
