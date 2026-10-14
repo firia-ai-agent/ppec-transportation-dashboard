@@ -40,3 +40,6 @@ See `DATABASES.md`. Rule: prod and preview never share a database branch; `DATAB
 
 ## Webhooks/integrations
 None yet. Pending: Vercel GitHub integration, Neon (Vercel-managed, Free plan).
+
+## Known side-effects
+- **Vercel import auto-deploy (2026-10-14):** right after the project was created, Vercel deployed automatically: `dpl_AwLye7jkbLsf1cTMeR9JpinF4SrN`, target **production**, from branch `team/ppe-10-b-02-schema` @ `f957e4e`, 13.6 s after creation. **It failed at build.** The project is still `live: false`, and nothing from this deployment serves traffic. This was Vercel's import behaviour, not a release; prod releases still go only from `main` under prod-release-gate.
