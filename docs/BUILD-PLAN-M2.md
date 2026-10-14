@@ -18,7 +18,7 @@ Linear team PPE (project "PPEC Transport Dashboard — POC (mock)", 45 issues re
 1. All code via Claude Code CLI; Veri gates every PR (review ≈10–20 min, fix round ≈20–40 min); Vera gates every UI PR for taste.
 2. One PR ≈ 60–120 min wall clock end to end (build + checks + Vercel preview + Veri review + one fix round). **Two parallel Claude Code tracks** (A: domain/agent, B: UI/fleet), ≈5–7 merged PRs per working day combined.
 3. Working window 08:00–22:00 ET, every day including the weekend (Oct 17–18) — weekends included (row 49).
-4. Founder directive 14:04 ET: one Neon DB (`ep-divine-brook`), no per-preview branch. **Not in effect yet:** `main` still creates a Neon branch per preview and migrates + seeds demo users on preview builds (`package.json` vercel-build, `scripts/vercel-seed.ts`). Per Firia's decision at 14:15 ET the switch is held until infra PR #18 merges and Veri verifies it; INFRA-BASELINE.md, DATABASES.md and README.md:26 still describe per-preview branches and are **pending #18** (the infra track corrects them in/after #18).
+4. Founder directive 14:04 ET: one Neon DB (`ep-divine-brook`), no per-preview branch. Infra PR #18 (previews never migrate or seed; preview DB sessions read-only; cron/queue routes no-op on previews; ledger row 43) **merged to main at bdbba05**; per Firia's decision at 14:15 ET the one-DB switch counts only once Veri verifies #18 on screen (pending). INFRA-BASELINE.md, DATABASES.md and README.md:26 are corrected by the infra track against #18 (pending Veri verification).
 5. OpenRouter key is in Vercel env (ledger row 20) before M3 starts.
 6. ETAs are **estimates, Unverified**; PRD ED figures (l.1725–1809, 109 ED) assume human engineers + live integrations and are not used.
 7. TEST-INF-01 needs 3 runs on separate days (ARCHITECTURE.md §7 / M1-PLAN §1). Schedule: #10 merges Thu Oct 15 AM → run 1 Thu Oct 15, run 2 Fri Oct 16, run 3 Sat Oct 17; Veri re-runs once in M9 (Mon Oct 19) on the release SHA. A FAIL on any run restarts the count and moves the exit.
@@ -74,7 +74,7 @@ Order follows PRD l.1846 (B-04 → B-07/B-08/B-03 → B-12 → B-09/B-13 → B-1
 
 ## 4. Risks
 1. **TEST-INF-01 margin** (Veri, #10): worst case 5.00 s vs ≤5 s bar leaves zero margin; a fail triggers ledger row 22 (QStash), which needs founder sign-off. Blocks M3 per LINEAR.md:51.
-2. **One shared DB** (founder 14:04 ET, held until #18 per Firia 14:15 ET): after #18, previews and prod write the same data; Reset/replay act on the one prod DB by design (row 45), so a Reset during a Veri run wipes it; today `main` still seeds demo users on preview builds until #18 lands; migrations on an unmerged PR hit prod's schema; concurrent Veri runs on two previews can collide.
+2. **One shared DB** (founder 14:04 ET, held until #18 per Firia 14:15 ET): after #18, previews and prod write the same data; Reset/replay act on the one prod DB by design (row 45), so a Reset during a Veri run wipes it; #18 (merged bdbba05) stops preview migrate/seed, pending Veri verification; migrations on an unmerged PR hit prod's schema; concurrent Veri runs on two previews can collide.
 3. **Agent scope** (B-08, PRD's biggest item, 14 ED l.1766; overrun risk l.2148): live LLM non-determinism can make AT-06/AT-09 flaky; OpenRouter cost under $100 cap (row 21).
 4. **Review throughput:** ≈35–45 PRs remain; Veri/Vera are the single gate. FAIL rounds today ran ≈1 h each.
 5. **Map tiles/routing:** OpenFreeMap public instance has no SLA and may be discontinued without notice (ToS); OSRM fixtures must be pre-baked (no live routing, no *.googleapis.com, TEST-SEC-02).
@@ -85,7 +85,7 @@ Order follows PRD l.1846 (B-04 → B-07/B-08/B-03 → B-12 → B-09/B-13 → B-1
 | # | Question | Answer | Ledger |
 |---|---|---|---|
 | 1 | Seed early | B-15 §18.1 seed slice moves into M2 (full demo panel stays M7) | 44, Accepted by default (Firia, within founder locks) |
-| 2 | Shared DB safety | Reset and replay act on the one prod DB (synthetic data; founder already decided reset buttons on prod). Target rule: scenario seed runs only via the Reset/seed path, never in preview builds; enforced once #18 merges (pending) | 45, Decided by founder |
+| 2 | Shared DB safety | Reset and replay act on the one prod DB (synthetic data; founder already decided reset buttons on prod). Target rule: scenario seed runs only via the Reset/seed path, never in preview builds; enforced by #18 (merged bdbba05; Veri verification pending) | 45, Decided by founder |
 | 3 | PASS (mock) bar | ATs pass on mocks per the founder mock override (ADR-016); EXP-GRP-01 is **OPEN for the post-POC phase**, not deferred scope | 46, Decided by founder |
 | 4 | AT-13 procedure | CA-04 default (l.1953): hold, call all contacts, staff task, no auto-return (founder accepted the FQ defaults) | 47, Decided by founder |
 | 5 | Banner | Final: exactly "DEMO" everywhere, screen-reader label included (founder 13:18 and 13:30 ET; row 40) | 48, Decided by founder |
