@@ -1,0 +1,229 @@
+/*
+ * Fleet map pane layout (DESIGN-DIRECTION §5.1, §9).
+ *
+ * The one hard rule here: the MapLibre attribution control, bottom-right, is never
+ * covered. We honour it structurally — the vehicle list sits *beside* the canvas, not
+ * over it, and every overlay lives inside `.overlay`, which reserves the bottom strip
+ * via `--map-attribution-reserve`. Drawers and the demo panel must inset `.pane`
+ * (shrink the map), never float above it.
+ */
+
+.pane {
+  --map-attribution-reserve: 32px;
+  --map-gutter: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: var(--map-gutter);
+  align-items: stretch;
+}
+
+@media (max-width: 1023px) {
+  .pane {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.canvasWrap {
+  position: relative;
+  min-height: 420px;
+  height: clamp(420px, 68vh, 760px);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  /* positron land, so the pane never flashes white */
+  background: var(--color-osm-bg);
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+}
+
+/*
+ * MapLibre's own chrome.
+ *
+ * The attribution is pinned to the bottom-right *of the pane* and sits above everything else
+ * in it (ADR-008 / §5.1: always visible, never removed, never covered). It is anchored with
+ * `position: absolute` against `.canvasWrap` rather than left to flow inside MapLibre's
+ * control column, so a narrow pane — 1024 px, where the map gives 260 px to the vehicle list —
+ * cannot push it past the pane's edge and under `overflow: hidden`.
+ */
+.canvasWrap :global(.maplibregl-ctrl-bottom-right) {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  max-width: 100%;
+  margin: 0;
+  padding: 0 var(--space-2) var(--space-2) 0;
+  pointer-events: auto;
+}
+
+.canvasWrap :global(.maplibregl-ctrl-attrib) {
+  max-width: 100%;
+  /* The licence text wraps rather than running out of the pane. */
+  white-space: normal;
+}
+
+/*
+ * §9: ≥44 px console targets. MapLibre ships 29 px zoom buttons, which fail the target rule and
+ * are a genuinely hard tap on a tablet. The icons are background SVGs sized by the button, so
+ * growing the button grows the target and leaves the glyph where it is.
+ */
+.canvasWrap :global(.maplibregl-ctrl-group button) {
+  width: var(--target-console);
+  height: var(--target-console);
+}
+
+/* The group is 29 px wide by default, which would crop the wider buttons. */
+.canvasWrap :global(.maplibregl-ctrl-group) {
+  width: var(--target-console);
+}
+
+.overlay {
+  position: absolute;
+  inset: var(--map-gutter) var(--map-gutter)
+    calc(var(--map-gutter) + var(--map-attribution-reserve)) var(--map-gutter);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  pointer-events: none;
+}
+
+.overlay > * {
+  pointer-events: auto;
+}
+
+.fitButton {
+  min-height: var(--target-console); /* §9: ≥44 px console targets */
+  padding: 0 var(--space-4);
+  font-size: var(--body-console);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.notice {
+  max-width: 40ch;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--body-console);
+  line-height: var(--leading-normal);
+  color: var(--color-crit-fg);
+  background: var(--color-crit-bg);
+  border-radius: var(--radius-md);
+}
+
+.notice button {
+  min-height: var(--target-console);
+  margin-top: var(--space-3);
+  padding: 0 var(--space-4);
+  font-size: var(--body-console);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+/* Accessible mirror of the map (§9: the map is never the only way). */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--body-console);
+  line-height: var(--leading-normal);
+}
+
+.listTitle {
+  margin: 0;
+  font-size: var(--body-console);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--color-ink);
+}
+
+.vehicleButton {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
+  min-height: var(--target-console);
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.vehicleButton[aria-pressed="true"] {
+  border-color: var(--color-brand);
+  box-shadow: inset 0 0 0 var(--border-hairline) var(--color-brand);
+}
+
+.vehicleId {
+  font-size: var(--body-console);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--color-ink);
+}
+
+.vehicleMeta {
+  color: var(--color-ink-muted);
+}
+
+/* Freshness is icon/label + colour, never colour alone (§5.1). */
+.freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-semibold);
+}
+
+.toneOk {
+  color: var(--color-ok-fg);
+}
+
+.toneStale {
+  color: var(--color-warn-fg);
+}
+
+.toneCrit {
+  color: var(--color-crit-fg);
+}
+
+/* Per-stop ETA windows inside a vehicle row. */
+.stopList {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: var(--border-hairline) solid var(--color-border-strong);
+}
+
+.stopRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.stopName {
+  color: var(--color-ink);
+}
+
+/* §9: 2 px focus ring, 2 px offset, never removed. */
+.fitButton:focus-visible,
+.vehicleButton:focus-visible,
+.notice button:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}

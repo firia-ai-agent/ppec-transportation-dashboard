@@ -11,6 +11,7 @@
  *     DIRECTOR at site A cannot reset site B by naming it.
  */
 import { Forbidden, getMemberships, requireSiteRole } from "@/auth/core";
+import { demoReset as copy } from "@/ui/copy";
 import type { Db } from "@/db/exec";
 import { isReadOnlyDbEnv } from "@/db/read-only";
 import { seedStandardScenario, type SeedResult } from "./seed";
@@ -19,8 +20,7 @@ import { seedStandardScenario, type SeedResult } from "./seed";
 export const RESET_ROLES = ["DIRECTOR"] as const;
 
 /** Shown to the caller on a preview deployment. No ticket, flag or connection detail in it. */
-export const PREVIEW_REFUSAL =
-  "Refusing: preview deployments share the one production database, so the demo reset is disabled here.";
+export const PREVIEW_REFUSAL = copy.previewRefusal;
 
 export type Gate =
   | { allowed: true; status: 200; reason: string }
@@ -30,11 +30,11 @@ export function demoControlsGate(env: Record<string, string | undefined>): Gate 
   // Loud rather than invisible, and ahead of the DEMO_MODE 404: an operator on a preview (where the
   // demo flags are normally on) needs to read why the reset refused, and the shared DB is what is at stake.
   if (isReadOnlyDbEnv(env)) return { allowed: false, status: 403, reason: PREVIEW_REFUSAL };
-  if (env.DEMO_MODE !== "1") return { allowed: false, status: 404, reason: "Demo controls are not enabled here." };
+  if (env.DEMO_MODE !== "1") return { allowed: false, status: 404, reason: copy.notEnabled };
   if (env.APP_DATA_CLASS !== "SYNTHETIC") {
-    return { allowed: false, status: 403, reason: "Refusing: this deployment is not marked as synthetic data." };
+    return { allowed: false, status: 403, reason: copy.notSynthetic };
   }
-  return { allowed: true, status: 200, reason: "Demo controls are enabled." };
+  return { allowed: true, status: 200, reason: copy.enabled };
 }
 
 export type ResetRequest = { userId?: string; siteId?: string; now: Date };
@@ -49,15 +49,15 @@ export type ResetResponse =
 export async function handleDemoReset(db: Db, env: Record<string, string | undefined>, req: ResetRequest): Promise<ResetResponse> {
   const gate = demoControlsGate(env);
   if (!gate.allowed) return { status: gate.status, body: { ok: false, error: gate.reason } };
-  if (!req.userId) return { status: 401, body: { ok: false, error: "Sign in to continue." } };
+  if (!req.userId) return { status: 401, body: { ok: false, error: copy.signIn } };
 
   let siteId = req.siteId;
   if (!siteId) {
     const directorAt = (await getMemberships(db, req.userId)).filter((m) => m.role === "DIRECTOR");
     if (directorAt.length !== 1) {
       return directorAt.length === 0
-        ? { status: 403, body: { ok: false, error: "Only a director can reset the demo." } }
-        : { status: 400, body: { ok: false, error: "Name the site to reset." } };
+        ? { status: 403, body: { ok: false, error: copy.directorOnly } }
+        : { status: 400, body: { ok: false, error: copy.nameTheSite } };
     }
     siteId = directorAt[0].siteId;
   }
@@ -65,7 +65,7 @@ export async function handleDemoReset(db: Db, env: Record<string, string | undef
   try {
     await requireSiteRole(db, req.userId, siteId, [...RESET_ROLES]);
   } catch (e) {
-    if (e instanceof Forbidden) return { status: 403, body: { ok: false, error: "Only a director can reset the demo." } };
+    if (e instanceof Forbidden) return { status: 403, body: { ok: false, error: copy.directorOnly } };
     throw e;
   }
 

@@ -10,9 +10,17 @@
   padding: 0 var(--space-5);
   background: var(--color-demo-bg);
   color: var(--color-demo-fg);
-  /* Above everything, including the demo-controls dock (§6.1). */
-  position: relative;
-  z-index: 10;
+  /*
+   * NFR-09 / §7: "on every screen". Rendering it in the root layout puts it on every route,
+   * but on the signed-in console the board is taller than the window, and a bar that only sits
+   * at the top of the *document* is gone the moment a coordinator scrolls — which is most of
+   * the time they are looking at it. Sticky is what makes "every screen" true rather than
+   * "every page load": the bar stays put, above everything, including the §6.1 demo dock and
+   * the §2 icon rail, which also raises itself when it expands.
+   */
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
 .demo {

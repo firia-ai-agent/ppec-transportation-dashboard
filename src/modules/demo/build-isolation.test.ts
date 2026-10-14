@@ -99,8 +99,12 @@ describe("the scenario seed never runs from a build step", () => {
       if (name === "demo:reset") continue;
       expect({ name, hit: /demo-reset|demo:reset|seedStandardScenario/.test(cmd) }).toEqual({ name, hit: false });
     }
-    // The build chain itself: db migration step, user seed, next build. Nothing else.
-    expect(pkg.scripts["vercel-build"]).toBe("node scripts/vercel-db-step.mjs && tsx scripts/vercel-seed.ts && next build");
+    // The build chain itself, pinned exactly so that adding a step to it has to be a
+    // deliberate edit here: db migration step, user seed, the MapLibre worker copy (a file
+    // copy out of node_modules, no database and no network), next build. Nothing else.
+    expect(pkg.scripts["vercel-build"]).toBe(
+      "node scripts/vercel-db-step.mjs && tsx scripts/vercel-seed.ts && node scripts/copy-maplibre-worker.mjs && next build",
+    );
   });
 
   it("the build-time user seed and the migration step carry no demo-module text at all", () => {

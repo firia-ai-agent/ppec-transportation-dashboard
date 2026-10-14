@@ -45,5 +45,26 @@ Previews are read-only against that one database: the app opens every preview tr
 pnpm install
 APP_DATA_CLASS=SYNTHETIC pnpm dev     # boot refuses any other data class (ADR-015)
 pnpm typecheck && pnpm lint && pnpm test && pnpm seed:lint
+pnpm e2e                              # browser check: see "Map" below
 ```
 Health: `GET /api/health` returns the deployed commit, environment and data class. Infra state: `INFRA-BASELINE.md`, `DATABASES.md`, `INFRA-TEMP.md`.
+
+## Map (M5, ADR-008)
+MapLibre GL + **OpenFreeMap vector tiles**, `positron` base style restyled per [design direction §5.1](docs/design/DESIGN-DIRECTION.md). Attribution "© OpenFreeMap © OpenStreetMap contributors" is always on screen, bottom-right, and is never removed ([OpenFreeMap terms](https://openfreemap.org/tos/) — free, as-is, no SLA; [OSM ODbL](https://www.openstreetmap.org/copyright)).
+
+| Env var | Kind | Default | What it does |
+|---|---|---|---|
+| `NEXT_PUBLIC_MAP_TILE_URL` | public, non-secret | `https://tiles.openfreemap.org/styles/positron` | The only map config knob: the MapLibre style URL for the basemap. Any MapLibre-compatible style works. Validated at boot in `src/lib/env.ts`, resolved in `src/components/map/style.ts`. |
+
+The tile worker MapLibre decodes vector tiles in is copied out of `node_modules` into `public/` by `scripts/copy-maplibre-worker.mjs`, which `pnpm dev` and `pnpm build` run first. Without it the bundler's guess at the worker URL 404s and the pane draws an empty canvas.
+
+Walk the pane at `/map-preview` — no database, synthetic fixtures only (`src/fixtures/map.ts`). It is **behind staff sign-in**, and the signed-in role decides what it draws: the role × data matrix is `src/domain/access/map-view.ts`, which also holds the test-only synthetic session the browser check uses (a role and nothing else; refused outright whenever `VERCEL_ENV` is set, so no deployment can be opened with it).
+```
+APP_DATA_CLASS=SYNTHETIC DEMO_MODE=1 pnpm dev   # then sign in and open http://localhost:3000/map-preview
+```
+
+### Browser check
+`pnpm e2e` builds the app, starts it, loads `/map-preview` in Chromium and writes `artifacts/map-preview.png` (gitignored) for a design review. It needs no database and no credentials. Playwright specs live in `e2e/`, away from `src/`, so vitest never picks them up.
+```
+pnpm e2e
+```

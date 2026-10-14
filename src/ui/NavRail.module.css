@@ -78,6 +78,8 @@
   .link {
     justify-content: center;
     padding: 0;
+    /* The label is positioned against this while the rail is collapsed. */
+    position: relative;
   }
 
   .rail:hover .link,
@@ -86,14 +88,31 @@
     padding: 0 var(--space-4);
   }
 
+  /*
+   * Collapsed, the label is taken out of the row entirely rather than merely faded.
+   *
+   * Left in flow it still measures its full width — "Exceptions & Approvals" plus the 12 px
+   * gap is far wider than the 48 px of usable rail — and `justify-content: center` then centres
+   * a row wider than its box, which pushes the icon out past the panel's left edge and
+   * `overflow: hidden` cuts it in half. That is the clipped rail: the icons were not missing,
+   * they were hanging off the side. Absolute takes the label's width out of the sum, so the
+   * icon centres on 48 px of rail and nothing is cut. It stays in the DOM and keeps its own
+   * `aria-hidden`, because the accessible name is the link's `aria-label` and the pointer
+   * tooltip is its `title` — both present at every width.
+   */
   .label {
+    position: absolute;
+    inset-inline-start: calc(var(--space-6) + var(--space-5));
     opacity: 0;
+    pointer-events: none;
     transition: opacity 120ms ease;
   }
 
   .rail:hover .label,
   .rail:focus-within .label {
+    position: static;
     opacity: 1;
+    pointer-events: auto;
   }
 }
 

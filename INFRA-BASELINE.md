@@ -34,7 +34,7 @@ Vercel Cron runs on **production only**. Previews have no cron: the harness call
 | DEMO_DIRECTOR_PASSWORD, DEMO_COORDINATOR_PASSWORD, DEMO_FRONT_DESK_PASSWORD | ✓ | ✓ (distinct) | sensitive | Rudy | set |
 | OPENROUTER_API_KEY | ✓ | ✓ | sensitive | founder via Firia only (DECISION-LEDGER #20) | set (sensitive; never read, set or echoed by Rudy) |
 | MIGRATE_PROD_ON_BUILD (unset ⇒ off; `1` enables prod migrations on builds from `main` only) | `1` (production target only) | – | plain | Rudy, per prod-release-gate | **set 2026-10-14 12:45 ET** |
-| NEXT_PUBLIC_MAP_TILE_URL | ✓ | ✓ | plain | Rudy | **not set** (the only app var still missing; not needed until the map UI) |
+| NEXT_PUBLIC_MAP_TILE_URL (unset ⇒ OpenFreeMap positron, ADR-008) | ✓ | ✓ | plain | Rudy | **not set** — optional: the map UI falls back to the ADR-008 default style URL |
 
 **Neon-integration names (18, names only, managed by the Vercel Neon integration, never edited by hand):** `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `PGHOST`, `PGHOST_UNPOOLED`, `PGUSER`, `PGDATABASE`, `PGPASSWORD`, `POSTGRES_URL`, `POSTGRES_URL_NON_POOLING`, `POSTGRES_URL_NO_SSL`, `POSTGRES_PRISMA_URL`, `POSTGRES_USER`, `POSTGRES_HOST`, `POSTGRES_PASSWORD`, `POSTGRES_DATABASE`, `NEON_PROJECT_ID`, `NEON_AUTH_BASE_URL`, `VITE_NEON_AUTH_URL`. The app reads only `DATABASE_URL` and `DATABASE_URL_UNPOOLED`. Source: Vercel project env listing (names only), 2026-10-14 ~13:15 ET.
 

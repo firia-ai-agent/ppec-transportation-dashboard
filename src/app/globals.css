@@ -107,7 +107,8 @@ svg.lucide {
 }
 
 .skipLink:focus {
-  top: var(--space-3);
+  /* Clear of the sticky DEMO bar (§7), which owns the top 32 px of every screen. */
+  top: calc(var(--layout-demo-banner-height) + var(--space-3));
 }
 
 /* §9: reduced motion means no transition, no animation, anywhere. */

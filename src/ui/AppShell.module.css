@@ -1,7 +1,11 @@
 .shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  /*
+   * The window, less the DEMO bar above it (§7). A flat 100vh here makes every signed-in page
+   * exactly 32 px too tall, so the console scrolls on a screen with nothing to scroll to.
+   */
+  min-height: calc(100vh - var(--layout-demo-banner-height));
 }
 
 .header {

@@ -8,7 +8,9 @@
  *  - no-hex.test.ts fails if any other file under src/ contains a hex colour literal.
  *
  * Consumers must read colours through the CSS custom properties emitted by `tokenCss()`
- * (see src/app/layout.tsx), never by importing `color` into a component.
+ * (see src/app/layout.tsx), never by importing `color` into a component. The one exception is
+ * src/components/map/style.ts: a MapLibre style is JSON, not CSS, so it cannot resolve
+ * `var(--color-*)` and must import the literals from here.
  */
 
 /* ───────────────────────────── colour (§8) ───────────────────────────── */
@@ -42,6 +44,16 @@ export const color = {
   "map-truck-ok": "#15803D",
   "map-truck-stale": "#A16207",
   "map-truck-crit": "#B91C1C",
+
+  /**
+   * The two positron basemap fills we name (§5.1, §8): `osm-bg` is positron's land, kept as-is
+   * and reused as the map pane's placeholder so it never flashes white; `osm-water` is our
+   * override (positron's default `#C2C8CA` fails 3:1 against the ok/stale truck tones).
+   * They live here because tokens.ts is the only file allowed to hold a hex, and
+   * src/components/map/style.ts reads them from here rather than repeating them.
+   */
+  "osm-bg": "#F2F3F0",
+  "osm-water": "#D9E2E7",
 } as const;
 
 export type ColorToken = keyof typeof color;
