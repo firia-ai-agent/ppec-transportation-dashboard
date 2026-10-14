@@ -14,7 +14,8 @@
       "experimentalTriggers": [
         {
           "type": "queue/v2beta",
-          "topic": "ppec-timer"
+          "topic": "ppec-timer",
+          "retryAfterSeconds": 2
         }
       ]
     },
@@ -23,6 +24,15 @@
         {
           "type": "queue/v2beta",
           "topic": "ppec-outbox"
+        }
+      ]
+    },
+    "src/app/api/queues/delay-probe/route.ts": {
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "ppec-delay-probe",
+          "retryAfterSeconds": 2
         }
       ]
     }
