@@ -589,6 +589,31 @@ describe("preview: a `;` hidden in a literal or comment cannot smuggle a second 
     "SELECT $tag$/*$tag$; COMMIT; INSERT INTO smuggle VALUES (1)",
     "SELECT $$/*$$; COMMIT; INSERT INTO smuggle VALUES (1)",
     "SELECT $a1_b$--$a1_b$; COMMIT; INSERT INTO smuggle VALUES (1)",
+    // A bare `\r` ends a `--` comment on the server (`non_newline [^\n\r]` in scan.l), so a scan that
+    // ran the comment on to the next `\n` read the smuggled statements as comment text: the guard saw
+    // `SELECT 1` plus a trailing comment, and the server ran all three.
+    "SELECT 1; -- x\rCOMMIT; INSERT INTO smuggle VALUES (1)",
+    "SELECT 1; --\rCOMMIT; INSERT INTO smuggle VALUES (1)",
+    "SELECT 1 -- x\rCOMMIT; INSERT INTO smuggle VALUES (1)",
+    "SELECT '--' -- tail\r; COMMIT; INSERT INTO smuggle VALUES (1)",
+    // A `$` INSIDE AN IDENTIFIER is not a dollar-quote opener (reviewer bypass 1 on head 9ffe8d1).
+    // `$` is an identifier character and Postgres' lexer takes the longest match, so `x$a$` here is
+    // one identifier — the column alias — and the `;` after it is a top-level statement separator.
+    // Reading that `$a$` as an opener swallowed everything up to the next `$a$`, so the guard saw a
+    // single statement with a quoted middle while the server ran all four: the COMMIT ended the
+    // guard's READ ONLY transaction and the INSERT wrote a row to the shared production database.
+    "SELECT 1 AS x$a$; COMMIT; INSERT INTO smuggle VALUES (1); SELECT 1 AS y$a$",
+    "SELECT 1 AS x$$; COMMIT; INSERT INTO smuggle VALUES (1); SELECT 1 AS y$$",
+    "select 1 as x$a$; commit; insert into smuggle values (1); select 1 as y$a$",
+    "SELECT 1 AS x$a$; ROLLBACK; INSERT INTO smuggle VALUES (1); SELECT 1 AS y$a$",
+    "SELECT 1 AS x$tag$; COMMIT; INSERT INTO smuggle VALUES (1); SELECT 1 AS y$tag$",
+    // A digit, a `_` and a non-ASCII letter continue an identifier just as a letter does.
+    "SELECT 1 AS x1$$; COMMIT; INSERT INTO smuggle VALUES (1); SELECT 1 AS y1$$",
+    "SELECT 1 AS _x$a$; COMMIT; INSERT INTO smuggle VALUES (1); SELECT 1 AS _y$a$",
+    "SELECT 1 AS é$a$; COMMIT; INSERT INTO smuggle VALUES (1); SELECT 1 AS ü$a$",
+    // The same trick against the E-string rule: in `x$E'…'` the `E` is the tail of the identifier
+    // `x$E`, so `'\'` is a complete plain string (a backslash) and the `;` after it is top-level.
+    "SELECT 1 AS x$E'\\'; COMMIT; INSERT INTO smuggle VALUES (1); -- '",
     // Nested block comments: Postgres nests them, so the first `*/` does not end the comment.
     "SELECT 1 /* /* nested */ */; COMMIT; INSERT INTO smuggle VALUES (1)",
     "/* /* x */ */ SELECT 1; COMMIT; INSERT INTO smuggle VALUES (1)",
@@ -756,5 +781,217 @@ describe("preview: a `;` hidden in a literal or comment cannot smuggle a second 
     expect((await getNeonDb().tx((tx) => tx.query<{ n: number }>("SELECT 2 AS n", []))).rows).toEqual([{ n: 2 }]);
     expect(h.sent.slice(from2)).toEqual([BEGIN_READ_ONLY, "SELECT 2 AS n", "COMMIT"]);
     expect(await rows()).toBe(0);
+  });
+});
+
+/**
+ * Session state a preview must never change, proved against real Postgres on every preview path
+ * (hotfix PR #20, reviewer bypass 2).
+ *
+ * Everything in read-only.ts rests on lexing one statement the way the server lexes it — and the
+ * server's lexing is itself configurable. `SET standard_conforming_strings = off` makes `\'` an
+ * escaped quote again, so after it
+ *
+ *     SELECT '\''; COMMIT; INSERT INTO smuggle VALUES (1); -- '
+ *
+ * is THREE statements on the server (`'\''` is one string holding a quote, then the `;` is top-level)
+ * while the scanner here still reads one long literal and passes the whole thing through. The COMMIT
+ * then ends the guard's READ ONLY transaction and the INSERT writes, exactly as the reviewer showed.
+ * The SET and the exploit are two separate calls, which is why the session-level SET matters: it
+ * outlives the statement that sent it — on this very connection, and (DECISION-LEDGER #43) on a
+ * PgBouncer backend production later borrows.
+ *
+ * So previews refuse every SET and RESET bar a short `SET LOCAL <timeout>` allowlist, every
+ * `set_config(…)` call however it is spelled, every `DO` block (its body is a literal this scanner
+ * cannot see into, and a plpgsql body can PERFORM set_config) and every DISCARD. Below: each of those
+ * refused on all six preview paths, the reviewer's two-call sequence on all six, the allowlisted
+ * `SET LOCAL` still working, and the control that proves the sequence really does write without the fix.
+ */
+describe("preview: a caller cannot change session state, so it cannot change the lexing (real Postgres)", () => {
+  let backend: PGlite;
+  let outerPool: PoolLike | Pool | undefined;
+
+  /** `SET standard_conforming_strings = off`, the one that re-arms the escape below. */
+  const SCS_OFF = "SET standard_conforming_strings = off";
+  /** The reviewer's exploit: three statements once `\'` is an escaped quote again, one before that. */
+  const AFTER_SCS_OFF = "SELECT '\\''; COMMIT; INSERT INTO smuggle VALUES (1); -- '";
+
+  /** Every way a caller could ask for session (or lexing) state, in the spellings that matter. */
+  const SESSION_STATE = [
+    SCS_OFF,
+    "set standard_conforming_strings to off",
+    "SET SESSION standard_conforming_strings = off",
+    "SET LOCAL standard_conforming_strings = off",
+    "RESET standard_conforming_strings",
+    "SET backslash_quote = on",
+    "SET escape_string_warning = off",
+    "SET search_path TO ops",
+    "RESET search_path",
+    "RESET ALL",
+    "SET ROLE migrator",
+    "SET TIME ZONE 'UTC'",
+    "SET TRANSACTION READ ONLY",
+    "set local transaction isolation level serializable",
+    "SET LOCAL transaction_read_only = off",
+    "SET LOCAL default_transaction_read_only = off",
+    "SET LOCAL statement_timeout = '5s', lock_timeout = '1s'", // not the allowlisted single-GUC form
+    "SET statement_timeout = '5s'", // session-scoped, so refused even though the GUC is allowlisted
+    "SELECT set_config('standard_conforming_strings', 'off', false)",
+    "select SET_CONFIG('standard_conforming_strings','off',false)",
+    "SELECT pg_catalog.set_config('standard_conforming_strings','off',false)",
+    'SELECT pg_catalog."set_config"(\'standard_conforming_strings\',\'off\',false)',
+    "SELECT * FROM set_config('standard_conforming_strings','off',false)",
+    "DO $$ BEGIN PERFORM set_config('standard_conforming_strings','off',false); END $$",
+    "DISCARD ALL",
+  ];
+
+  beforeAll(async () => {
+    backend = new PGlite();
+    await backend.exec("CREATE TABLE smuggle (id int)");
+    const run = async (q: SqlLike, params?: unknown[]) => {
+      h.sent.push(text(q));
+      // The drivers' own protocol choice, as in the smuggling suite above: no parameters (or an empty
+      // array) means the simple query protocol, which runs every command in the string.
+      if (params && params.length > 0) {
+        return { rows: (await backend.query(text(q), params)).rows as unknown[] };
+      }
+      const results = await backend.exec(text(q));
+      return { rows: (results[results.length - 1]?.rows ?? []) as unknown[] };
+    };
+    const client: ClientLike = { query: run, release: () => {} };
+    const p = Object.create(Pool.prototype) as Pool;
+    Object.assign(p, { query: run, connect: async () => client });
+    outerPool = h.pool;
+    h.pool = p;
+  }, 60_000);
+
+  afterAll(() => { h.pool = outerPool; });
+  beforeEach(() => { process.env.VERCEL_ENV = "preview"; });
+  afterEach(async () => { await backend.exec("ROLLBACK").catch(() => {}); });
+
+  const rows = async () =>
+    (await backend.query<{ n: number }>("SELECT count(*)::int n FROM smuggle")).rows[0].n;
+  /** A GUC read off the backend itself, out of band — not through the pool. */
+  const show = async (name: string) =>
+    (await backend.query<Record<string, string>>(`SHOW ${name}`)).rows[0][name];
+
+  type Verdict = "refused" | "ran";
+  /** Did the app refuse this before sending it? Drizzle wraps errors, so walk the cause chain. */
+  const verdict = async (call: () => unknown): Promise<Verdict> => {
+    try {
+      const out = call();
+      if (typeof (out as PromiseLike<unknown> | undefined)?.then === "function") await out;
+      return "ran";
+    } catch (e) {
+      for (let c: unknown = e; c instanceof Error; c = c.cause) {
+        if (/DECISION-LEDGER #43/.test(c.message)) return "refused";
+      }
+      return "ran"; // an error from the server is not a refusal by the app
+    }
+  };
+  /** Feed `stmts` through one path, in order, on one connection, and report what happened to each. */
+  const feed = async (send: (s: string) => unknown, stmts: string[]) => {
+    const out: Verdict[] = [];
+    for (const s of stmts) out.push(await verdict(() => send(s)));
+    return out;
+  };
+
+  /** Every preview path that puts SQL on the wire, as a runner for a SEQUENCE of statements. */
+  const PATHS: { name: string; run: (stmts: string[]) => Promise<Verdict[]> }[] = [
+    {
+      name: "the autocommit path (getNeonDb().query)",
+      run: (stmts) => feed((s) => getNeonDb().query(s, []), stmts),
+    },
+    {
+      name: "getNeonDb().tx",
+      run: async (stmts) => getNeonDb().tx((tx) => feed((s) => tx.query(s, []), stmts)),
+    },
+    {
+      name: "drizzle (getDb().execute)",
+      run: (stmts) => feed((s) => getDb().execute(drizzleSql.raw(s)), stmts),
+    },
+    {
+      name: "the read-only pool's own query()",
+      run: (stmts) => feed((s) => readOnlyPool(h.pool as Pool).query(s as never), stmts),
+    },
+    {
+      name: "a checked-out client with no transaction open",
+      run: async (stmts) => {
+        const c = await readOnlyPool(h.pool as Pool).connect();
+        try { return await feed((s) => c.query(s as never), stmts); } finally { c.release(); }
+      },
+    },
+    {
+      name: "a checked-out client inside the guarded transaction",
+      run: async (stmts) => {
+        const c = await readOnlyPool(h.pool as Pool).connect();
+        await c.query("begin " as never); // drizzle's own opener: the guard's transaction is now open
+        try { return await feed((s) => c.query(s as never), stmts); } finally { c.release(); }
+      },
+    },
+  ];
+
+  it.each(PATHS)("every SET, RESET, set_config and DO is refused on $name", async ({ run }) => {
+    for (const stmt of SESSION_STATE) {
+      const from = h.sent.length;
+      expect(await run([stmt]), stmt).toEqual(["refused"]);
+      expect(h.sent.slice(from), stmt).not.toContain(stmt); // nothing left the app
+      expect(await rows(), stmt).toBe(0);
+    }
+    // The lexing the scanner assumes is still the lexing the server uses.
+    expect(await show("standard_conforming_strings")).toBe("on");
+    expect(await show("transaction_read_only")).toBe("off");
+  });
+
+  it.each(PATHS)("the reviewer's SET-then-smuggle sequence writes nothing on $name", async ({ run }) => {
+    const from = h.sent.length;
+    const [set, exploit] = await run([SCS_OFF, AFTER_SCS_OFF]);
+    expect(set).toBe("refused"); // the SET never reached the server…
+    expect(h.sent.slice(from)).not.toContain(SCS_OFF);
+    expect(await show("standard_conforming_strings")).toBe("on");
+    // …so `\'` is still not an escape, the exploit is still one harmless string literal, and the
+    // COMMIT and INSERT written inside it are data. (It runs; it just cannot do anything.)
+    expect(exploit).toBe("ran");
+    expect(h.sent.slice(from).join(" | ")).not.toMatch(/^INSERT INTO smuggle/m);
+    expect(await rows()).toBe(0);
+  });
+
+  it("the allowlisted SET LOCAL timeouts still work, on every path, and do not outlive the transaction", async () => {
+    for (const { name, run } of PATHS) {
+      const stmt = "SET LOCAL statement_timeout = '5s'";
+      const from = h.sent.length;
+      expect(await run([stmt]), name).toEqual(["ran"]);
+      expect(h.sent.slice(from), name).toContain(stmt); // it really was sent
+      // SET LOCAL is transaction-scoped, and the guard's transaction is over by now (or rolled back
+      // on release), so nothing is left on the backend PgBouncer hands on.
+      expect(await show("statement_timeout"), name).toBe("0");
+      expect(await rows(), name).toBe(0);
+    }
+  });
+
+  it("the app's own read-only wrapper is untouched: reads still work on every path", async () => {
+    expect((await getNeonDb().query<{ n: number }>("SELECT 1 AS n", [])).rows).toEqual([{ n: 1 }]);
+    expect((await getNeonDb().tx((tx) => tx.query<{ n: number }>("SELECT 2 AS n", []))).rows).toEqual([{ n: 2 }]);
+    expect((await getDb().execute(drizzleSql`SELECT 3 AS n`)).rows).toEqual([{ n: 3 }]);
+    const viaPool = await (readOnlyPool(h.pool as Pool).query("SELECT 4 AS n" as never) as Promise<{ rows: unknown[] }>);
+    expect(viaPool.rows).toEqual([{ n: 4 }]);
+    // A query that merely mentions a GUC, or reads one, is not a SET.
+    expect((await getNeonDb().query<{ n: string }>("SELECT current_setting('standard_conforming_strings') AS n", []))
+      .rows).toEqual([{ n: "on" }]);
+    expect((await getNeonDb().query<{ n: number }>("SELECT length('set_config(') AS n", [])).rows)
+      .toEqual([{ n: 11 }]);
+    expect(await rows()).toBe(0);
+  });
+
+  it("the control: with standard_conforming_strings off, that very sequence does write", async () => {
+    // The pre-fix behaviour, reproduced directly on the backend — the proof that refusing the SET is
+    // what stops the exploit, not some accident of the fake wire.
+    await backend.exec(SCS_OFF);
+    await backend.exec(BEGIN_READ_ONLY);
+    await backend.exec(AFTER_SCS_OFF);
+    expect(await rows()).toBe(1);
+    await backend.exec("DELETE FROM smuggle");
+    await backend.exec("RESET standard_conforming_strings");
+    expect(await show("standard_conforming_strings")).toBe("on");
   });
 });

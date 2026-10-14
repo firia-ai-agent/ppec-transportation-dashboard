@@ -70,31 +70,74 @@ const TX_END = /^(?:COMMIT|END|ROLLBACK|ABORT|PREPARE\s+TRANSACTION)\b/i;
  * `ROLLBACK [WORK|TRANSACTION] TO [SAVEPOINT] name`: it undoes work *inside* the transaction and
  * cannot end it, so a preview may send it (as may `SAVEPOINT name` and `RELEASE [SAVEPOINT] name`,
  * which do not start with a transaction-ending keyword at all). The match is anchored at both ends:
- * anything after the savepoint name falls back to the refusal above.
+ * anything after the savepoint name falls back to the refusal above. A quoted savepoint name arrives
+ * here as the word characters `scanPieces` kept of it, still inside its quotes.
  */
 const ROLLBACK_TO_SAVEPOINT =
-  /^ROLLBACK(?:\s+(?:WORK|TRANSACTION))?\s+TO(?:\s+SAVEPOINT)?\s+(?:[A-Za-z_][\w$]*|"")$/i;
-/** `SET TRANSACTION ...` / `SET LOCAL TRANSACTION ...`: transaction-scoped, but can ask for READ WRITE. */
-const SET_TX = /^SET\s+(?:LOCAL\s+|SESSION\s+)?TRANSACTION\b/i;
-/** `SET SESSION CHARACTERISTICS AS TRANSACTION ...`: session state, which previews must never set at all. */
-const SET_TX_CHARACTERISTICS = /^SET\s+SESSION\s+CHARACTERISTICS\b/i;
-/** A `SET` of the read-only GUCs themselves (plain or `default_`-prefixed): the same escape, respelled. */
-const SET_READ_ONLY_GUC = /^SET\b[\s\S]*transaction_read_only\b/i;
-/** And the same escape once more, as a `RESET`: back to the session default, which is read-write. */
-const RESET_READ_ONLY_GUC = /^RESET\s+(?:ALL\b|(?:default_)?transaction_read_only\b)/i;
+  /^ROLLBACK(?:\s+(?:WORK|TRANSACTION))?\s+TO(?:\s+SAVEPOINT)?\s+(?:[A-Za-z_][\w$]*|"[A-Za-z0-9_]*")$/i;
+/**
+ * Any `SET` or `RESET`, in any of its spellings: `SET x = y`, `SET SESSION x TO y`, `SET LOCAL x`,
+ * `SET TRANSACTION …`, `SET SESSION CHARACTERISTICS AS TRANSACTION …`, `SET ROLE`, `RESET x`,
+ * `RESET ALL`. Previews refuse all of them bar the narrow `SET LOCAL` allowlist below, because
+ * changing GUCs is not only a way to drop READ ONLY (`transaction_read_only`,
+ * `default_transaction_read_only`, `SET TRANSACTION READ WRITE`) — it is also a way to change how
+ * the SQL that follows is *lexed*, and the lexing is what every other rule in this file rests on.
+ * `SET standard_conforming_strings = off` makes `'\''` one string where this scanner reads two, so
+ * `SELECT '\''; COMMIT; INSERT …; -- '` then reaches the server as three statements while the guard
+ * sees one. A session `SET` would also outlive the statement on a PgBouncer backend production later
+ * borrows, which DECISION-LEDGER #43 forbids on its own.
+ */
+const SET_OR_RESET = /^(?:SET|RESET)\b/i;
+/**
+ * The only GUC changes a preview may make: `SET LOCAL <name> = <value>` for one of these timeouts.
+ * They are transaction-scoped (so nothing can leak onto a shared backend), they cannot affect lexing
+ * or the access mode, and they are the ones an operator would reach for on a slow preview query.
+ * `search_path` is deliberately NOT here: every query in this app names its schema (`ops.`,
+ * `identity.`), so nothing needs it. The whole statement is matched, value included: an unrecognised
+ * tail — another GUC, a function call, anything — falls through to the refusal.
+ */
+const SET_LOCAL_ALLOWED =
+  /^SET\s+LOCAL\s+(?:statement_timeout|lock_timeout|idle_in_transaction_session_timeout)(?:\s*=\s*|\s+TO\s+)(?:DEFAULT|''|[A-Za-z0-9_.+-]+)\s*$/i;
+/**
+ * `set_config(name, value, is_local)` — the function spelling of `SET`, which can appear anywhere an
+ * expression can: `SELECT set_config('standard_conforming_strings','off',false)`,
+ * `SELECT pg_catalog.set_config(…)`, `… FROM set_config(…)`. Matched anywhere in the statement, but
+ * only outside literals and comments (`scanPieces` has already blanked those). The quoted spelling
+ * `pg_catalog."set_config"(…)` calls the same function, which is why `scanPieces` keeps the *word*
+ * characters of a quoted identifier instead of blanking it, and why this allows for a closing `"`
+ * between the name and its `(`.
+ */
+const SET_CONFIG = /\bset_config"?\s*\(/i;
+/**
+ * `DO $$ … $$`: an anonymous code block. Its body is a literal to the lexer, so nothing in this file
+ * can see what it does — and a plpgsql body can `PERFORM set_config(…)`, i.e. reach exactly the
+ * escape above from inside a string this scanner must treat as opaque. No app query is a DO block.
+ */
+const DO_BLOCK = /^DO\b/i;
 /** `DISCARD [ALL|...]`: throws away connection state wholesale, which a preview must never do. */
 const DISCARD = /^DISCARD\b/i;
-const READ_WRITE = /\bREAD\s+WRITE\b/i;
 /** The isolation levels of `ISOLATION LEVEL ...`, as token runs. */
 const ISOLATION_LEVELS = [["SERIALIZABLE"], ["REPEATABLE", "READ"], ["READ", "COMMITTED"], ["READ", "UNCOMMITTED"]];
 
 /**
- * The characters Postgres allows in an identifier or a dollar-quote tag: a letter or `_` first, then
- * letters, digits or `_`. A tag must start with a non-digit, which is what tells `$tag$` from a `$1`
- * parameter placeholder.
+ * The character classes of Postgres' own lexer (src/backend/parser/scan.l), which this scanner has to
+ * agree with exactly — where it is more generous than the lexer, text the server reads as SQL gets
+ * read here as quoted data, and a `;` hides in the gap.
+ *
+ * `ident_start [A-Za-z\200-\377_]`, `ident_cont [A-Za-z\200-\377_0-9\$]`: an identifier may *contain*
+ * `$`, which is why `x$a$` is one identifier to the server and not `x` followed by a dollar quote
+ * (see `dollarTag`). `\200-\377` is every non-ASCII byte, so in a UTF-8 source every non-ASCII
+ * character — accented letters, non-Latin scripts — is an identifier character too.
+ *
+ * `dolq_start [A-Za-z\200-\377_]`, `dolq_cont [A-Za-z\200-\377_0-9]`: a dollar-quote tag is the same
+ * minus `$` (the `$` is the delimiter). A tag must start with a non-digit, which is what tells
+ * `$tag$` from a `$1` parameter placeholder.
  */
-const isTagChar = (c: string | undefined) => c !== undefined && /[A-Za-z0-9_]/.test(c);
-const isTagStart = (c: string | undefined) => c !== undefined && /[A-Za-z_]/.test(c);
+const isNonAscii = (c: string) => c.charCodeAt(0) >= 0x80;
+const isTagChar = (c: string | undefined) => c !== undefined && (/[A-Za-z0-9_]/.test(c) || isNonAscii(c));
+const isTagStart = (c: string | undefined) => c !== undefined && (/[A-Za-z_]/.test(c) || isNonAscii(c));
+/** `ident_cont`: a character that continues an identifier, so a token cannot start at it. */
+const isIdentCont = (c: string | undefined) => c !== undefined && (isTagChar(c) || c === "$");
 
 /**
  * The index just past the quoted run whose first *inner* character is `from`. `q` is the delimiter and
@@ -113,10 +156,21 @@ function endOfQuoted(sql: string, from: number, q: string, backslash: boolean): 
 
 /**
  * The dollar-quote tag opening at `i` — `$$` or `$tag$` — or null when that `$` is something else: a
- * `$1` parameter placeholder, or a lone `$` in an operator or identifier.
+ * `$1` parameter placeholder, a lone `$` in an operator, or a `$` *inside an identifier*.
+ *
+ * That last case is the one worth spelling out. `$` is an identifier character in Postgres
+ * (`ident_cont`, above), and the lexer takes the longest match, so in `SELECT 1 AS x$a$` the whole
+ * `x$a$` is ONE identifier — the column alias — and no dollar quote is opened at all. Reading that
+ * `$a$` as a dollar-quote opener (as this once did) made
+ * `SELECT 1 AS x$a$; COMMIT; INSERT INTO smuggle VALUES (1); SELECT 1 AS y$a$` look like a single
+ * statement whose middle was quoted data, while the server ran all four — the `COMMIT` ending the
+ * guard's READ ONLY transaction and the `INSERT` writing to the one production database. So a dollar
+ * quote can only open where a token can start: when the character before the `$` does not continue an
+ * identifier. Erring the other way is safe: text the server quotes but this scanner reads as SQL can
+ * only ever make it see MORE statements, and more statements means a refusal.
  */
 function dollarTag(sql: string, i: number): string | null {
-  if (sql[i] !== "$") return null;
+  if (sql[i] !== "$" || isIdentCont(sql[i - 1])) return null;
   let j = i + 1;
   if (sql[j] !== "$") {
     if (!isTagStart(sql[j])) return null;
@@ -141,7 +195,7 @@ function dollarTag(sql: string, i: number): string | null {
  *   - `E'...'`/`e'...'` strings, where both `''` and `\'` are escaped quotes;
  *   - `"..."` quoted identifiers, where `""` is an escaped quote;
  *   - `$$...$$` and `$tag$...$tag$` dollar quotes, which quote nothing at all inside themselves;
- *   - `--` line comments, to the next newline;
+ *   - `--` line comments, to the end of the line — which Postgres ends at `\r` as well as at `\n`;
  *   - `/* ... *` + `/` block comments, which nest in Postgres and so nest here.
  * Each comment and each quoted run is replaced by neutral filler, so a `;`, a `begin`, a `commit` or a
  * `read write` written inside one cannot be read as SQL. An unterminated literal or comment means the
@@ -159,9 +213,15 @@ function scanPieces(sql: string): string[] {
   while (i < sql.length) {
     const c = sql[i];
     if (c === "-" && sql[i + 1] === "-") {
-      const nl = sql.indexOf("\n", i + 2);
+      // To the end of the LINE, and Postgres ends a line at `\r` as well as at `\n`
+      // (`non_newline [^\n\r]` in scan.l). Scanning only to the next `\n` read a bare-CR line ending
+      // as part of the comment, so `SELECT 1; -- x\rCOMMIT; INSERT …` looked like one statement with a
+      // trailing comment while the server ran all three — the COMMIT ending the guard's READ ONLY
+      // transaction and the INSERT writing.
+      let nl = i + 2;
+      while (nl < sql.length && sql[nl] !== "\n" && sql[nl] !== "\r") nl += 1;
       cur += " ";
-      i = nl === -1 ? sql.length : nl; // the newline itself stays: it is a separator, not comment text
+      i = nl; // the line ending itself stays: it is a separator, not comment text
       continue;
     }
     if (c === "/" && sql[i + 1] === "*") {
@@ -176,7 +236,9 @@ function scanPieces(sql: string): string[] {
       cur += " ";
       continue;
     }
-    if ((c === "E" || c === "e") && sql[i + 1] === "'" && !isTagChar(sql[i - 1])) {
+    // `E'…'`, but only where a token can start: in `x$E'…'` the `E` is the tail of the identifier
+    // `x$E` and the `'…'` after it is a plain string, where `\'` is NOT an escaped quote.
+    if ((c === "E" || c === "e") && sql[i + 1] === "'" && !isIdentCont(sql[i - 1])) {
       const end = endOfQuoted(sql, i + 2, "'", true);
       if (end === -1) refuse();
       cur += "''";
@@ -194,7 +256,11 @@ function scanPieces(sql: string): string[] {
     if (c === "'" || c === '"') {
       const end = endOfQuoted(sql, i + 1, c, false);
       if (end === -1) refuse();
-      cur += c === "'" ? "''" : '""';
+      // A string becomes empty filler; a quoted IDENTIFIER keeps its word characters, because a
+      // quoted identifier still names something — `pg_catalog."set_config"(…)` calls set_config just
+      // as the bare spelling does, and `SET_CONFIG` below has to be able to see it. Everything that
+      // could be read as SQL (`;`, `--`, `/*`, quotes, operators) is dropped, so the name cannot act.
+      cur += c === "'" ? "''" : `"${sql.slice(i + 1, end - 1).replace(/[^A-Za-z0-9_]/g, "")}"`;
       i = end;
       continue;
     }
@@ -214,11 +280,15 @@ function statementsOf(sql: string): string[] {
   return scanPieces(sql).map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
-/** True for a mode change a preview must not send: it would drop READ ONLY, or outlive the transaction. */
+/**
+ * True for a state change a preview must not send: it would drop READ ONLY, change how the SQL after
+ * it is lexed, or outlive the transaction on a backend production later borrows. That is every `SET`
+ * and every `RESET` bar the `SET LOCAL` timeouts of `SET_LOCAL_ALLOWED`, every `set_config(…)` call,
+ * every `DO` block (whose body this scanner cannot see into) and every `DISCARD`.
+ */
 function isRefusedModeChange(stmt: string): boolean {
-  if (SET_TX_CHARACTERISTICS.test(stmt) || SET_READ_ONLY_GUC.test(stmt)) return true;
-  if (RESET_READ_ONLY_GUC.test(stmt) || DISCARD.test(stmt)) return true;
-  return SET_TX.test(stmt) && READ_WRITE.test(stmt);
+  if (SET_CONFIG.test(stmt) || DO_BLOCK.test(stmt) || DISCARD.test(stmt)) return true;
+  return SET_OR_RESET.test(stmt) && !SET_LOCAL_ALLOWED.test(stmt);
 }
 
 /** True for a statement that could end the transaction the guard is holding open. */
@@ -296,9 +366,12 @@ export interface GuardState {
  *     autocommit. `SAVEPOINT`, `RELEASE [SAVEPOINT]` and `ROLLBACK TO [SAVEPOINT]` stay allowed:
  *     they work inside the transaction and cannot end it. The COMMIT/ROLLBACK that really do close a
  *     preview transaction are the guard's own (`readOnlyGuard`), which never pass through here.
- *   - `SET TRANSACTION ... READ WRITE`, any `SET SESSION CHARACTERISTICS ...`, any `SET`/`RESET` of the
- *     read-only GUCs and any `DISCARD` are refused: they either undo READ ONLY or leave connection state
- *     that would leak onto a PgBouncer backend production later borrows.
+ *   - every `SET` and every `RESET` is refused — `SET TRANSACTION ... READ WRITE`,
+ *     `SET SESSION CHARACTERISTICS ...` and the read-only GUCs among them — bar `SET LOCAL <timeout>`
+ *     for the three timeouts of `SET_LOCAL_ALLOWED`, and so is every `set_config(...)` call, every `DO`
+ *     block and every `DISCARD`. They either undo READ ONLY, or leave connection state that would leak
+ *     onto a PgBouncer backend production later borrows, or — `standard_conforming_strings` is the
+ *     example — change how the SQL after them is lexed, and the lexing is what every rule here rests on.
  *   - a string holding more than one statement is refused outright. Rewriting cannot make it safe: an
  *     early `COMMIT` ends the read-only transaction and leaves the rest writing in autocommit, so
  *     `begin; insert ...` and `commit; insert ...` alike are errors. No app query is multi-statement.

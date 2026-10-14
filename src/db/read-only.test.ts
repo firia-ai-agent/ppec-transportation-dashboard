@@ -175,9 +175,81 @@ describe("preview read-only fail-safe (DECISION-LEDGER #43)", () => {
       }
     });
 
-    it("leaves a harmless SET alone, including SET TRANSACTION READ ONLY", () => {
-      for (const s of ["SET TRANSACTION READ ONLY", "set local transaction isolation level serializable", "SET search_path TO ops"]) {
-        expect(rewriteBeginReadOnly(s)).toBe(s);
+    /**
+     * Every other SET and RESET too (hotfix PR #20, reviewer bypass 2). A GUC change is not only a way
+     * to drop READ ONLY: `SET standard_conforming_strings = off` changes how the SQL *after* it is
+     * lexed, so `SELECT '\''; COMMIT; INSERT …; -- '` becomes three statements on the server while the
+     * scanner here — which assumes the modern, standard-conforming lexing — still reads one. The
+     * lexing is what every rule in read-only.ts rests on, so previews may not touch it at all. And a
+     * session-level SET would outlive the statement on a PgBouncer backend production later borrows.
+     */
+    it("refuses every other SET and RESET, including the ones that change how SQL is lexed", () => {
+      for (const s of [
+        "SET standard_conforming_strings = off",
+        "set standard_conforming_strings to off",
+        "SET LOCAL standard_conforming_strings = off",
+        "SET SESSION standard_conforming_strings = off",
+        "RESET standard_conforming_strings",
+        "SET backslash_quote = on",
+        "SET escape_string_warning = off",
+        "SET search_path TO ops",
+        "set local search_path to ops",
+        "RESET search_path",
+        "SET ROLE migrator",
+        "RESET ROLE",
+        "SET TIME ZONE 'UTC'",
+        "SET TRANSACTION READ ONLY",
+        "set local transaction isolation level serializable",
+        "SET LOCAL transaction_read_only = off",
+        "SET LOCAL default_transaction_read_only = off",
+        "SET LOCAL statement_timeout = '5s', lock_timeout = '1s'",
+        "SET LOCAL statement_timeout = (SELECT 1)",
+        "SET LOCAL statement_timeoutx = 1",
+        "SET statement_timeout = '5s'",
+        "set local statement_timeout = '5s' ; -- trailing is fine, but this is not a SET LOCAL\nSET x = 1",
+      ]) {
+        expect(() => rewriteBeginReadOnly(s), s).toThrow(ReadOnlyRefusedError);
+        expect(() => rewriteBeginReadOnly({ text: s }), s).toThrow(/DECISION-LEDGER #43/);
+      }
+    });
+
+    /**
+     * `set_config(name, value, is_local)` is `SET` spelled as a function, so it can hide anywhere an
+     * expression can — and inside a `DO` block it hides inside a literal this scanner cannot see into.
+     * Both are refused; no app query uses either.
+     */
+    it("refuses set_config() anywhere in the statement, and any DO block", () => {
+      for (const s of [
+        "SELECT set_config('standard_conforming_strings', 'off', false)",
+        "select SET_CONFIG('standard_conforming_strings','off',false)",
+        "SELECT pg_catalog.set_config('standard_conforming_strings','off',false)",
+        'SELECT pg_catalog."set_config"(\'standard_conforming_strings\',\'off\',false)',
+        "SELECT set_config ( 'x', 'y', false )",
+        "SELECT 1 FROM set_config('x','y',false)",
+        "WITH c AS (SELECT set_config('x','y',false)) SELECT * FROM c",
+        "SELECT CASE WHEN true THEN set_config('x','y',false) END",
+        "DO $$ BEGIN PERFORM set_config('standard_conforming_strings','off',false); END $$",
+        "do $do$ begin perform 1; end $do$",
+      ]) {
+        expect(() => rewriteBeginReadOnly(s), s).toThrow(ReadOnlyRefusedError);
+      }
+      // A literal that merely mentions it is data, not a call, and a column of that name is not one either.
+      expect(rewriteBeginReadOnly("SELECT 'set_config('")).toBe("SELECT 'set_config('");
+      expect(rewriteBeginReadOnly("SELECT setting FROM pg_settings WHERE name = 'statement_timeout'"))
+        .toBe("SELECT setting FROM pg_settings WHERE name = 'statement_timeout'");
+    });
+
+    it("leaves the allowlisted SET LOCAL timeouts alone, and nothing else", () => {
+      for (const s of [
+        "SET LOCAL statement_timeout = '5s'",
+        "set local statement_timeout = '5s'",
+        "SET LOCAL statement_timeout TO 5000",
+        "SET LOCAL statement_timeout = DEFAULT",
+        "SET LOCAL lock_timeout = '1s'",
+        "SET LOCAL idle_in_transaction_session_timeout = 0",
+        "SET LOCAL statement_timeout = '5s' ;",
+      ]) {
+        expect(rewriteBeginReadOnly(s), s).toBe(s);
       }
     });
 
@@ -221,6 +293,77 @@ describe("preview read-only fail-safe (DECISION-LEDGER #43)", () => {
         "SELECT '--'; INSERT INTO t VALUES (1)",
       ]) {
         expect(() => rewriteBeginReadOnly(s), s).toThrow(ReadOnlyRefusedError);
+      }
+    });
+
+    /**
+     * A bare `\r` ends a `--` comment in Postgres (`non_newline [^\n\r]` in scan.l), so a comment that
+     * this scanner ran to the next `\n` had already ended on the server — and everything between the
+     * `\r` and the `\n` was SQL there and comment here. `SELECT 1; -- x\rCOMMIT; INSERT …` looked like
+     * one statement with a trailing comment while the server ran all three.
+     */
+    it("ends a `--` comment at a bare CR, as Postgres does", () => {
+      for (const s of [
+        "SELECT 1; -- x\rCOMMIT; INSERT INTO t VALUES (1)",
+        "SELECT 1; --\rCOMMIT; INSERT INTO t VALUES (1)",
+        "SELECT 1 -- x\rCOMMIT; INSERT INTO t VALUES (1)",
+        "-- lead\rSELECT 1; COMMIT; INSERT INTO t VALUES (1)",
+        "SELECT 1 -- x\r; COMMIT; INSERT INTO t VALUES (1)",
+        "-- x\rCOMMIT",
+        "-- x\rcommit work",
+        "-- x\rSET standard_conforming_strings = off",
+      ]) {
+        expect(() => rewriteBeginReadOnly(s), JSON.stringify(s)).toThrow(ReadOnlyRefusedError);
+      }
+      // A comment really is still a comment: CR or LF, the statement before it passes through.
+      expect(rewriteBeginReadOnly("SELECT 1 -- x\r")).toBe("SELECT 1 -- x\r");
+      expect(rewriteBeginReadOnly("SELECT 1; -- x\r")).toBe("SELECT 1; -- x\r");
+      expect(rewriteBeginReadOnly("-- x\rSELECT 1")).toBe("-- x\rSELECT 1");
+      expect(rewriteBeginReadOnly("begin -- go\r")).toBe(BEGIN_READ_ONLY);
+    });
+
+    /**
+     * A `$` inside an identifier is NOT a dollar-quote opener (hotfix PR #20, reviewer bypass 1).
+     * `$` is an identifier character in Postgres and its lexer takes the longest match, so in
+     * `SELECT 1 AS x$a$` the whole `x$a$` is one identifier — the column alias — and no quoting starts
+     * there. Reading it as a `$a$` opener made the scanner swallow everything up to the next `$a$`,
+     * which is why `… x$a$; COMMIT; INSERT …; … y$a$` looked like one statement with a quoted middle
+     * while the server ran all four and the INSERT wrote.
+     */
+    it("refuses a `;` hidden by a `$` inside an identifier: that is not a dollar quote", () => {
+      for (const s of [
+        "SELECT 1 AS x$a$; COMMIT; INSERT INTO t VALUES (1); SELECT 1 AS y$a$",
+        "SELECT 1 AS x$$; COMMIT; INSERT INTO t VALUES (1); SELECT 1 AS y$$",
+        "select 1 as x$a$; commit; insert into t values (1); select 1 as y$a$",
+        "SELECT 1 AS a1$tag$; COMMIT; INSERT INTO t VALUES (1); SELECT 1 AS b1$tag$",
+        "SELECT 1 AS _x$a$; COMMIT; INSERT INTO t VALUES (1); SELECT 1 AS _y$a$",
+        // A digit, a `_` and a non-ASCII letter all continue an identifier, so none of them can be
+        // followed by a dollar-quote opener either.
+        "SELECT 1 AS x1$$; COMMIT; INSERT INTO t VALUES (1); SELECT 1 AS y1$$",
+        "SELECT 1 AS é$a$; COMMIT; INSERT INTO t VALUES (1); SELECT 1 AS ü$a$",
+        // The same `$`-in-identifier trick with the E-string rule: in `x$E'…'` the `E` is the tail of
+        // the identifier `x$E`, so the `'…'` after it is a plain string where `\'` is a backslash
+        // followed by the closing quote — not an escaped quote that runs on past the `;`.
+        "SELECT 1 AS x$E'\\'; COMMIT; INSERT INTO t VALUES (1); -- '",
+      ]) {
+        expect(() => rewriteBeginReadOnly(s), s).toThrow(ReadOnlyRefusedError);
+      }
+    });
+
+    it("still reads a real dollar quote, and a `$` in an identifier, as Postgres does", () => {
+      for (const s of [
+        // Real dollar quotes: a token can start where these do, so the `;` in them is data.
+        "SELECT $$a;b$$",
+        "SELECT $tag$a;b$tag$",
+        "SELECT ($$a;b$$)",
+        "SELECT 'x'||$$a;b$$",
+        "SELECT $é$a;b$é$",
+        // An identifier containing `$`, on its own: one statement, passed through untouched.
+        "SELECT 1 AS x$a$",
+        "SELECT x$a$ FROM t",
+        "SELECT $1::int AS n",
+      ]) {
+        expect(rewriteBeginReadOnly(s), s).toBe(s);
       }
     });
 
@@ -341,7 +484,8 @@ describe("preview read-only fail-safe (DECISION-LEDGER #43)", () => {
       ]) {
         expect(() => rewriteBeginReadOnly(s), s).toThrow(ReadOnlyRefusedError);
       }
-      expect(rewriteBeginReadOnly("RESET search_path")).toBe("RESET search_path");
+      // Any other RESET is refused too: see the SET/RESET tests above.
+      expect(() => rewriteBeginReadOnly("RESET search_path")).toThrow(ReadOnlyRefusedError);
     });
 
     it("the refusal names the directive and carries the SQL, never any parameter", () => {
