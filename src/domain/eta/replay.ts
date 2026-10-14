@@ -20,7 +20,7 @@ import {
   GPS_LOST_SECONDS,
   type GpsBand,
 } from "@/domain/location/freshness";
-import { pointAtDistance, projectToPath, type Coord } from "@/domain/location/geo";
+import { offsetByMeters, pointAtDistance, projectToPath, type Coord } from "@/domain/location/geo";
 import {
   emptyGeofenceState,
   type GeofenceArrival,
@@ -410,7 +410,7 @@ export function frameAt(result: ReplayResult, nowMs: number, tween = true): Repl
       const base = pointAtDistance(result.run.measured.path, drivenM);
       const jx = simPrev.jitterOffsetM[0] + (simNext.jitterOffsetM[0] - simPrev.jitterOffsetM[0]) * t;
       const jy = simPrev.jitterOffsetM[1] + (simNext.jitterOffsetM[1] - simPrev.jitterOffsetM[1]) * t;
-      coord = offsetCoord(base, jx, jy);
+      coord = offsetByMeters(base, jx, jy);
     } else {
       coord = [prev.lon + (next.lon - prev.lon) * t, prev.lat + (next.lat - prev.lat) * t];
     }
@@ -460,14 +460,6 @@ export function legStateLabel(frame: Pick<ReplayFrame, "stops" | "hidden">): str
 /** Degrees to turn from `a` to `b`, in (−180, 180]; keeps the §5.1 heading smooth. */
 export function shortestTurn(a: number, b: number): number {
   return ((((b - a) % 360) + 540) % 360) - 180;
-}
-
-function offsetCoord(coord: Coord, eastM: number, northM: number): Coord {
-  // Local metre→degree conversion, same as geo.offsetByMeters but inlined to keep the
-  // tween allocation-free on the hot path.
-  const metersPerDegLat = 111_194.93;
-  const metersPerDegLng = metersPerDegLat * Math.cos((coord[1] * Math.PI) / 180);
-  return [coord[0] + eastM / metersPerDegLng, coord[1] + northM / metersPerDegLat];
 }
 
 function simPointFor(result: ReplayResult, stored: StoredPoint): SimPoint | undefined {
