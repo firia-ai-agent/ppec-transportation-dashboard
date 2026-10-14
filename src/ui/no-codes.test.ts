@@ -25,7 +25,12 @@ import { FIXTURE_ROUTES } from "@/fixtures/routes";
  *     `note:` annotations on the state machines are engineering margin notes that no screen
  *     reads. So the rendered fields are named here instead, and e2e/screens.spec.ts runs the
  *     same patterns over the real rendered text of all three screens, which is the net that
- *     needs no judgement about which literal is which.
+ *     needs no judgement about which literal is which;
+ *  4. the one *interpolated* leak the three nets above cannot see: a card that prints a
+ *     fixture's code because the markup asks it to. The stop codes on the map preview's
+ *     vehicle cards were exactly that — "Okeeheelee Park · F5" built at render time out of a
+ *     field no literal and no copy string mentions — so the markup that builds a stop row is
+ *     read here too (last suite below).
  *
  * Comments are stripped first: a code in a comment is a note to the next engineer, which is
  * exactly where these belong.
@@ -37,6 +42,12 @@ const PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   { name: "a reference into a spec document", re: /\b(?:PRD|COPY-GUIDE|DESIGN-DIRECTION|MOCKS)\b\s*(?:§|l\.)?/g },
   // Fixture route ids. The screen says "Okeeheelee Park run" (mapPreview.routeName).
   { name: "a fixture route id", re: /\broute\d+(?:-[a-z]+)*\b/g },
+  // Family / stop codes: the label a fixture hangs on a stop so the notification gate can say which
+  // family it would text ("F1", "F8", "F27"). A vehicle card used to print them next to the stop
+  // name; they are a key between engineers, so the card says the place and the code rides in a
+  // `title` tooltip instead (see the vehicle-card suite at the bottom of this file). Bounded at both
+  // ends on purpose: a hex token like "#F8FAFC" is not a code.
+  { name: "a family / stop code", re: /\bF\d{1,2}\b/g },
 ];
 
 const SRC = path.resolve(__dirname, "..");
@@ -90,12 +101,20 @@ describe("the scan itself works", () => {
       "ADR-013",
       "PRD §",
     ]);
+    // The stop codes a vehicle card used to print after the place name.
+    expect(codesIn("Okeeheelee Park · F5")).toEqual(["F5"]);
+    expect(codesIn("John Prince Park · F8 · 8:20–8:30 AM")).toEqual(["F8"]);
+    expect(codesIn("F27")).toEqual(["F27"]);
   });
 
   it("passes words that merely look like one", () => {
     // No digits, so no code: a route a human can say out loud is the point of the fix.
     expect(codesIn("Okeeheelee Park run")).toEqual([]);
     expect(codesIn("Simulated vans on demo routes. Nothing here is live.")).toEqual([]);
+    // A letter-and-digits run that is not a code: a colour token, a van label, ordinary words.
+    expect(codesIn("#F8FAFC")).toEqual([]);
+    expect(codesIn("F8FAFC")).toEqual([]);
+    expect(codesIn("Fleet map: simulated vehicles near the PPEC center")).toEqual([]);
   });
 
   it("finds the files and the strings it claims to scan", () => {
@@ -140,6 +159,57 @@ describe("the fixture words that are rendered as words", () => {
       "Greenacres City Hall run",
     ]);
     for (const label of named) expect(codesIn(label)).toEqual([]);
+  });
+});
+
+/**
+ * The map preview's vehicle cards (src/components/map/FleetMap.tsx).
+ *
+ * Each card lists the run's stops, and each stop in the fixtures carries a family code — the label
+ * the notification gate uses to say which family it would text ("F1", "F5", "F8"). The card used to
+ * print it after the place name, so a reviewer standing at the board read "Okeeheelee Park · F5"
+ * and could do nothing with the second half. None of the three nets above could see it: the code is
+ * neither a literal in the component nor a string in copy.ts — it is interpolated out of the
+ * fixture at render time. So this suite reads the markup instead, and pins the shape: the words on
+ * the card are the place, and the code, if it is anywhere, is in the `title` tooltip.
+ */
+describe("a vehicle card names the stop, never the code behind it", () => {
+  const CARD = readFileSync(path.join(SRC, "components", "map", "FleetMap.tsx"), "utf8");
+  /** The stop-name element of a card's stop row: opening-tag attributes, then its children. */
+  const stopName = /className=\{styles\.stopName\}([\s\S]*?)>([\s\S]*?)<\/span>/.exec(CARD);
+
+  it("the fixtures really do hang a code on their stops, so this suite is about something", () => {
+    const labels = FIXTURE_ROUTES.flatMap((r) => r.stops.map((stop) => stop.familyLabel)).filter(
+      (label): label is string => label !== undefined,
+    );
+    expect(labels.length).toBeGreaterThan(2);
+    // Every one of them is a code by this file's own scan — F1..F99, the shape the card must not say.
+    for (const label of labels) expect(codesIn(label), label).toEqual([label]);
+  });
+
+  it("prints the stop's name, and nothing but the stop's name", () => {
+    expect(stopName).not.toBeNull();
+    const [, , children] = stopName!;
+    expect(children.trim()).toBe("{stop.name}");
+    // Not the fill that pairs the place with its family code, and not the field either.
+    expect(children).not.toMatch(/familyLabel|stopFamily/);
+  });
+
+  it("carries the code in a title tooltip instead, where it is nobody's first reading", () => {
+    const [, attrs] = stopName!;
+    expect(attrs).toMatch(/title=/);
+    expect(attrs).toMatch(/copy\.stopFamily/);
+    expect(attrs).toMatch(/stop\.familyLabel/);
+  });
+
+  it("and the copy string it uses is still the one copy.ts documents as the tooltip", () => {
+    expect(copy.fleetMap.stopFamily).toBe("{stop} · {family}");
+    expect(copy.fill(copy.fleetMap.stopFamily, { stop: "Okeeheelee Park", family: "F5" })).toBe(
+      "Okeeheelee Park · F5",
+    );
+    // Which is a code — the point of keeping it out of the card's words.
+    expect(codesIn(copy.fill(copy.fleetMap.stopFamily, { stop: "Okeeheelee Park", family: "F5" })))
+      .toEqual(["F5"]);
   });
 });
 

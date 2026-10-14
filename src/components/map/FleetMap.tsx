@@ -350,10 +350,19 @@ export default function FleetMap({ fixture, label = copy.label }: FleetMapProps)
                     <span className={styles.stopList}>
                       {vehicle.stops.map((stop) => (
                         <span key={stop.stopId} className={styles.stopRow}>
-                          <span className={styles.stopName}>
-                            {stop.familyLabel
-                              ? fill(copy.stopFamily, { stop: stop.name, family: stop.familyLabel })
-                              : stop.name}
+                          {/* COPY-GUIDE §1–§2: the family code ("F4") is a build-internal label,
+                              so the card's words are the place alone. The code rides along in
+                              `title` only, for the reviewer who needs it; the span has text of its
+                              own, so the tooltip never becomes the accessible name either. */}
+                          <span
+                            className={styles.stopName}
+                            title={
+                              stop.familyLabel
+                                ? fill(copy.stopFamily, { stop: stop.name, family: stop.familyLabel })
+                                : undefined
+                            }
+                          >
+                            {stop.name}
                           </span>
                           <span className={styles.vehicleMeta}>
                             {stopWindowText(stop.status, stop.windowText, vehicle.etaTextSuppressed)}
