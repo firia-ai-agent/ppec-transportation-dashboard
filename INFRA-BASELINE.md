@@ -12,6 +12,9 @@ Status as of 2026-10-14 ~11:45 ET (PR B-01). Names only, never values. Update in
 ## Schedules / jobs
 None yet. `vercel.json` has no `crons`. The per-minute `/api/cron/sweep` arrives in B-03 (PR-5) and must fail closed without `CRON_SECRET`. Vercel Cron runs on production only; previews call the sweep from the harness (DECISION-LEDGER #16).
 
+## Build-time DB step
+`pnpm vercel-build` = `node scripts/vercel-db-step.mjs && next build`. Previews migrate their own Neon branch on every build. Production is off unless `MIGRATE_PROD_ON_BUILD=1` and the ref is `main`. The step never prints a URL. See DATABASES.md.
+
 ## Env var names per environment (names only)
 | Name | Prod | Preview | Kind | Set by | Status |
 |---|---|---|---|---|---|
@@ -21,6 +24,7 @@ None yet. `vercel.json` has no `crons`. The per-minute `/api/cron/sweep` arrives
 | AUTH_SECRET, CRON_SECRET, SIM_WEBHOOK_SECRET, HMAC_PEPPER, DATA_KEY | ✓ | ✓ (distinct values) | sensitive | Rudy (generated, never printed) | not set |
 | DEMO_DIRECTOR_PASSWORD, DEMO_COORDINATOR_PASSWORD, DEMO_FRONT_DESK_PASSWORD | ✓ | ✓ (distinct) | sensitive | Rudy | not set |
 | OPENROUTER_API_KEY | ✓ | ✓ | sensitive | founder via Firia only (DECISION-LEDGER #19) | not set |
+| MIGRATE_PROD_ON_BUILD (unset ⇒ off; `1` enables prod migrations on builds from `main` only) | only when releasing | – | plain | Rudy, per prod-release-gate | not set (off) |
 | NEXT_PUBLIC_MAP_TILE_URL | ✓ | ✓ | plain | Rudy | not set |
 
 ## Database

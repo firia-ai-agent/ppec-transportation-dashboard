@@ -15,11 +15,14 @@
     "test": "vitest run",
     "seed:lint": "node scripts/seed-lint.mjs",
     "db:generate": "drizzle-kit generate",
-    "db:check": "drizzle-kit check && drizzle-kit generate --name drift-probe && git diff --exit-code --stat -- drizzle && test -z \"$(git ls-files --others --exclude-standard drizzle)\""
+    "db:check": "drizzle-kit check && drizzle-kit generate --name drift-probe && git diff --exit-code --stat -- drizzle && test -z \"$(git ls-files --others --exclude-standard drizzle)\"",
+    "db:migrate:vercel": "node scripts/vercel-db-step.mjs",
+    "vercel-build": "node scripts/vercel-db-step.mjs && next build"
   },
   "dependencies": {
     "drizzle-orm": "0.45.4",
     "next": "16.4.0",
+    "pg": "8.23.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "4.6.7"

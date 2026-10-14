@@ -6,7 +6,15 @@
 | ppec preview | same Neon project | `preview/<git-branch>` per deployment | Vercel preview only | same | n/a (ephemeral) | n/a |
 
 Status 2026-10-14: **not created** (BLOCKED on Vercel project git link + marketplace consent). No orphan DBs known; none may be created outside this table.
-Migrations: `drizzle-kit generate` → reviewed SQL → `drizzle-kit migrate` with the unpooled URL. `push` only against disposable local DBs.
+Migrations: `drizzle-kit generate` → reviewed SQL in a PR → applied **inside the Vercel build** by `scripts/vercel-db-step.mjs` (`pnpm vercel-build`), so no connection string leaves Vercel. `push` only against disposable local DBs.
+
+### Where migrations run (decided: build step, not a route)
+| Vercel env | Migrates? | Against | Gate |
+|---|---|---|---|
+| preview | yes, every build | that preview's own Neon branch (`DATABASE_URL_UNPOOLED`) | a missing URL fails the build |
+| production | **off by default** | Neon `main` | only when `MIGRATE_PROD_ON_BUILD=1` **and** `VERCEL_GIT_COMMIT_REF=main` (prod-release-gate); take a Neon snapshot first |
+| local / CI | no | none (CI uses PGlite) | n/a |
+Migrations use drizzle's node-postgres migrator and are tracked in `drizzle.__drizzle_migrations`, so re-running is a no-op. Logs print only RUN/SKIP, the reason, the count and the `ep-…` endpoint id; errors are scrubbed of URLs and credentials. The demo-user seed runs right after, on preview only (added in the Auth.js PR #6).
 
 ## Migrations in repo
 | # | File | What | Rollback |
