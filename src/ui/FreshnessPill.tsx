@@ -20,7 +20,7 @@ export function FreshnessPill({
 }: {
   /** "SMS", "Teams", "GPS", "Agent". */
   adapter: string;
-  /** "Simulated" today; "Live 12 s" / "Stale 4 min" once B-12 wires real ages. */
+  /** "Simulated" today; "Live · 12 s" / "Stale · 4 min" once the live board wires real ages. */
   value: string;
   icon: LucideIcon;
   tone?: PillTone;
@@ -42,7 +42,7 @@ export function FreshnessPill({
 /**
  * The interim pill approved for build in §2: "<adapter> · Simulated", `flask-conical` in the
  * src-sim tone, matching the D-10 source badge. §10 requires this to be replaced by real ages
- * when B-12 lands.
+ * (humanized through src/ui/age.ts) when the live board lands.
  */
 export function SimulatedAdapterPill({ adapter }: { adapter: string }) {
   return (

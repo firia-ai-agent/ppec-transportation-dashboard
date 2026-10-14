@@ -22,13 +22,6 @@
   flex-wrap: wrap;
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-
 .siteName {
   font-size: var(--text-20);
   font-weight: var(--weight-semibold);

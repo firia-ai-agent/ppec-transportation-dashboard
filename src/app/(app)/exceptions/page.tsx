@@ -1,6 +1,6 @@
-import { placeholders } from "@/ui/copy";
+import { nav, unbuilt } from "@/ui/copy";
 import { Placeholder } from "@/ui/Placeholder";
 
 export default function Page() {
-  return <Placeholder copy={placeholders.exceptions} />;
+  return <Placeholder page={nav.exceptions} body={unbuilt.exceptions} />;
 }

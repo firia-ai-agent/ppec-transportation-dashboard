@@ -96,6 +96,8 @@ import {
   UserX,
   TriangleAlert,
 } from "lucide-react";
+import { fill } from "./copy";
+import { humanizeAge } from "./age";
 import type { LucideIcon } from "lucide-react";
 import type { ColorToken, Tone } from "./tokens";
 
@@ -303,6 +305,17 @@ export const gpsFreshnessStates: Vocabulary<GpsFreshness> = {
 /** Maps an age in seconds to its band (§3, D-2). */
 export function gpsFreshnessFor(ageSeconds: number): GpsFreshness {
   return (gpsFreshnessBands.find((b) => ageSeconds < b.maxAgeSeconds) ?? gpsFreshnessBands[3]).key;
+}
+
+/**
+ * The §3 chip label for a GPS age, with `{age}` humanized: "Live · 12 s", "Stale · 4 min · ETA
+ * texts paused", "No signal · 1 h 5 min". Raw seconds never reach the screen above a minute
+ * (src/ui/age.ts), so a caller should always render a label through here.
+ */
+export function gpsFreshnessLabel(ageSeconds: number): string {
+  return fill(gpsFreshnessStates[gpsFreshnessFor(ageSeconds)].label, {
+    age: humanizeAge(ageSeconds),
+  });
 }
 
 /* ───────────────────── source-mode badge (§7.1, D-10) ───────────────────── */

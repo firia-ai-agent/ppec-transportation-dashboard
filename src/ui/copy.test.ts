@@ -9,10 +9,11 @@ import {
   liveUpdates,
   login,
   nav,
-  placeholders,
+  scenarioClock,
   screenReader,
   search,
   sourceMode,
+  unbuilt,
   whoami,
 } from "./copy";
 
@@ -119,14 +120,26 @@ describe("COPY-GUIDE strings, verbatim", () => {
     }
   });
 
-  it("names the build step on each not-yet-built surface", () => {
-    expect(placeholders.exceptions.body).toContain("B-12");
-    expect(placeholders.setup.body).toContain("B-13");
-    expect(placeholders.health.body).toContain("B-14");
+  it("says in plain words what each not-yet-built surface will do", () => {
+    // What it must NOT say is covered by no-internals.test.ts: no build-step codes.
+    for (const body of [unbuilt.today, unbuilt.exceptions, unbuilt.setup, unbuilt.health]) {
+      expect(body).toMatch(/^[A-Z].*\.$/);
+    }
+    expect(unbuilt.tag).toBe("Not built yet");
+  });
+
+  it("the sign-in intro is the one sentence the review fixed", () => {
+    expect(login.intro).toBe("Demo accounts only.");
   });
 
   it("never claims the sign-in error was the email or the password", () => {
     expect(login.error).toBe("Email or password is incorrect.");
+  });
+
+  it("§1: the scenario clock says the demo has not started, and why Start is inert", () => {
+    expect(scenarioClock.notStarted).toBe("Demo not started");
+    expect(scenarioClock.start).toBe("Start");
+    expect(scenarioClock.startUnavailable).toBe("Demo controls aren't connected yet.");
   });
 });
 
@@ -201,9 +214,10 @@ function allStrings(): Array<[string, string]> {
     liveUpdates,
     login,
     nav,
-    placeholders,
+    scenarioClock,
     search,
     sourceMode,
+    unbuilt,
     whoami,
   };
   const out: Array<[string, string]> = [];

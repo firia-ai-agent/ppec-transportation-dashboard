@@ -1,0 +1,15 @@
+/* A hairline strip directly under the DEMO banner, holding the one screen-level source badge
+   (§7.1 "screen = header next to the DEMO banner"). It is only as tall as the 20 px chip. */
+.strip {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-2) var(--space-5);
+  background: var(--color-bg);
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+@media (max-width: 767px) {
+  .strip {
+    padding: var(--space-2) var(--space-4);
+  }
+}

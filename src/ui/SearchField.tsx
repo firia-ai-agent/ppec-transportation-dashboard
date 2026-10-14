@@ -6,7 +6,7 @@ import styles from "./SearchField.module.css";
 /**
  * §2 global search (child first name/initial, route, vehicle) with the visible label §9
  * requires — the placeholder is a hint, never the label. The query is carried as `?q=` on
- * /today; the board reads it once the data layer lands in B-12.
+ * /today; the board reads it once the data layer lands.
  */
 export function SearchField() {
   return (
