@@ -561,6 +561,19 @@ describe("preview: a `;` hidden in a literal or comment cannot smuggle a second 
     "SELECT '--'; COMMIT; INSERT INTO smuggle VALUES (1)",
     "SELECT '/*'; COMMIT; INSERT INTO smuggle VALUES (1)",
     "SELECT $$--$$; COMMIT; INSERT INTO smuggle VALUES (1)",
+    // The reviewer's four, verbatim. A nested block comment whose first `*/` only drops a level, so
+    // `still comment` is still inside the comment and the `;` after the real close is top-level: a
+    // scan that stopped at the first `*/` would read `still comment */` as SQL and mis-split here.
+    "SELECT 1 /* /* */ still comment */; COMMIT; INSERT INTO smuggle VALUES (1)",
+    "/* /* */ still comment */ COMMIT; INSERT INTO smuggle VALUES (1)",
+    // `\'` inside an E'...' string is an escaped quote, so the COMMIT and the `--` are both *inside*
+    // the literal (its contents are `'; COMMIT; --`); it ends at the quote after `--`, and the `;`
+    // after that one starts the INSERT. Here the escape is the second statement, not a lost READ ONLY:
+    // a splitter that stripped `--` before literals blanked the rest of the line and saw one innocent
+    // statement, and the INSERT then rode along in the same string — in autocommit (off a preview, or
+    // had the guard's framing moved) that writes, and the boundary is the only thing standing in front.
+    "SELECT E'\\'; COMMIT; --'; INSERT INTO smuggle VALUES (1)",
+    "SELECT E'\\'; COMMIT; --';\nINSERT INTO smuggle VALUES (1)",
     // `/*` in a string, with a `*/` later on so the old block-comment strip really did span the SQL.
     "SELECT '/*'; COMMIT; INSERT INTO smuggle VALUES (1) /* done */",
     // E'...' strings: `\'` is an escaped quote there, so the string runs on past the `--`.

@@ -224,6 +224,36 @@ describe("preview read-only fail-safe (DECISION-LEDGER #43)", () => {
       }
     });
 
+    it("refuses the reviewer's cases: a re-opened nested comment, and `\\'` inside an E-string", () => {
+      // Verbatim as the preview suite runs them against real Postgres. Two ways to make the scan
+      // disagree with the server about where a construct ends:
+      //   - `/* /* */ still comment */` — Postgres nests, so the first `*/` only drops to depth 1 and
+      //     `still comment` is still comment; a scan that ended the comment there would read the rest
+      //     as SQL and could take the `;` that follows for part of it.
+      //   - `E'\'; COMMIT; --'` — `\'` is an escaped quote in an E-string, so the COMMIT and the `--`
+      //     sit *inside* the literal (its contents are `'; COMMIT; --`) and it ends at the quote after
+      //     `--`; the `;` after that one is top-level and starts the INSERT, which the server runs as
+      //     a second command in the same simple query. Stripping `--` first blanked the rest of the
+      //     line and left one innocent-looking statement with the INSERT still in it.
+      for (const s of [
+        "SELECT 1 /* /* */ still comment */; COMMIT; INSERT INTO smuggle VALUES (1)",
+        "/* /* */ still comment */ COMMIT; INSERT INTO smuggle VALUES (1)",
+        "SELECT E'\\'; COMMIT; --'; INSERT INTO smuggle VALUES (1)",
+        "SELECT E'\\'; COMMIT; --';\nINSERT INTO smuggle VALUES (1)",
+      ]) {
+        expect(() => rewriteBeginReadOnly(s), s).toThrow(ReadOnlyRefusedError);
+      }
+      // The same quoting without the smuggled `;` is one harmless statement, and stays untouched:
+      // the refusals above are about the second statement, not about the comment or the literal.
+      for (const s of [
+        "SELECT 1 /* /* */ still comment */",
+        "/* /* */ still comment */ SELECT 1",
+        "SELECT E'\\'; COMMIT; --'",
+      ]) {
+        expect(rewriteBeginReadOnly(s), s).toBe(s);
+      }
+    });
+
     it("allows one trailing `;` and nothing else: only one statement may ever run", () => {
       for (const s of ["SELECT 1;", "SELECT 1 ; ", "SELECT 1; -- done\n", "SELECT 1; /* done */"]) {
         expect(rewriteBeginReadOnly(s), s).toBe(s);
