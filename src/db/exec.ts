@@ -1,4 +1,5 @@
-import { getPool } from "./pool";
+import { autocommitQuery, getPool } from "./pool";
+import { beginSql } from "./read-only";
 import type { Exec } from "@/domain/transition";
 
 export type { Exec };
@@ -13,16 +14,20 @@ export async function runAfterCommit(hooks: (() => Promise<void>)[]) {
   }
 }
 
-/** Db over the one shared Neon WebSocket Pool (src/db/pool.ts; ADR-009: Pool for transactions). */
+/**
+ * Db over the one shared Neon WebSocket Pool (src/db/pool.ts; ADR-009: Pool for transactions).
+ * On previews every transaction opens READ ONLY and every autocommit query becomes its own read-only
+ * transaction (DECISION-LEDGER #43); off previews this is a plain BEGIN and a plain pool.query.
+ */
 export function getNeonDb(): Db {
   const p = getPool();
   return {
-    query: async (sql, params) => ({ rows: (await p.query(sql, params)).rows }),
+    query: <R,>(sql: string, params: unknown[]) => autocommitQuery<R>(p, sql, params),
     async tx(fn) {
       const c = await p.connect();
       const hooks: (() => Promise<void>)[] = [];
       try {
-        await c.query("BEGIN");
+        await c.query(beginSql(process.env));
         const r = await fn({ query: async (sql, params) => ({ rows: (await c.query(sql, params)).rows }) }, (h) => hooks.push(h));
         await c.query("COMMIT");
         await runAfterCommit(hooks);

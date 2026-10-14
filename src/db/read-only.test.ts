@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  BEGIN_READ_ONLY,
   READ_ONLY_REASON,
-  READ_ONLY_SESSION_SQL,
-  READ_ONLY_STARTUP_OPTIONS,
-  dbSessionOptions,
+  beginSql,
   isReadOnlyDbEnv,
   previewSkip,
+  rewriteBeginReadOnly,
 } from "./read-only";
 
 describe("preview read-only fail-safe (DECISION-LEDGER #43)", () => {
@@ -17,17 +17,38 @@ describe("preview read-only fail-safe (DECISION-LEDGER #43)", () => {
     expect(isReadOnlyDbEnv({})).toBe(false);
   });
 
-  it("adds the Postgres startup option on previews only", () => {
-    expect(dbSessionOptions({ VERCEL_ENV: "preview" })).toEqual({ options: "-c default_transaction_read_only=on" });
-    expect(dbSessionOptions({ VERCEL_ENV: "preview" }).options).toBe(READ_ONLY_STARTUP_OPTIONS);
-    expect(dbSessionOptions({ VERCEL_ENV: "production" })).toEqual({});
-    expect(dbSessionOptions({})).toEqual({});
-    // spreading off-preview must not set `options` at all (undefined would clear nothing but is still noise)
-    expect("options" in dbSessionOptions({ VERCEL_ENV: "production" })).toBe(false);
+  it("opens transactions READ ONLY on previews and plain BEGIN everywhere else", () => {
+    expect(BEGIN_READ_ONLY).toBe("BEGIN READ ONLY");
+    expect(beginSql({ VERCEL_ENV: "preview" })).toBe(BEGIN_READ_ONLY);
+    for (const v of ["production", "development", undefined]) expect(beginSql({ VERCEL_ENV: v })).toBe("BEGIN");
+    expect(beginSql({})).toBe("BEGIN");
   });
 
-  it("the fallback statement makes the whole session read-only", () => {
-    expect(READ_ONLY_SESSION_SQL).toBe("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY");
+  it("sets no session-level state: the module exports only transaction-scoped SQL", () => {
+    const sql = [BEGIN_READ_ONLY, beginSql({ VERCEL_ENV: "preview" }), rewriteBeginReadOnly("begin ")].join(" ");
+    expect(sql).not.toMatch(/SET SESSION/i);
+    expect(sql).not.toMatch(/default_transaction_read_only/i);
+  });
+
+  describe("rewriteBeginReadOnly", () => {
+    it("rewrites a bare BEGIN, however it is spelled or padded", () => {
+      for (const s of ["BEGIN", "begin", "  begin  ", "\nBegin\t", "begin "]) {
+        expect(rewriteBeginReadOnly(s)).toBe(BEGIN_READ_ONLY);
+      }
+    });
+    it("rewrites the SQL inside a query config object, keeping its other fields", () => {
+      expect(rewriteBeginReadOnly({ text: "begin ", rowMode: "array" })).toEqual({ text: BEGIN_READ_ONLY, rowMode: "array" });
+    });
+    it("leaves every other statement alone, including a BEGIN that already has modes", () => {
+      for (const s of [
+        "COMMIT", "ROLLBACK", "SELECT 1", "BEGIN READ ONLY", "begin isolation level serializable",
+        "BEGINNING", "begin; select 1", "savepoint sp1", "",
+      ]) {
+        expect(rewriteBeginReadOnly(s)).toBe(s);
+      }
+      const cfg = { text: "SELECT 1" };
+      expect(rewriteBeginReadOnly(cfg)).toBe(cfg);
+    });
   });
 
   it("gives routes a skip body on previews and null elsewhere", () => {
