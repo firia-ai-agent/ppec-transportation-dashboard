@@ -30,14 +30,19 @@ export interface ClientLike {
 /**
  * Run one statement inside its own read-only transaction, on its own checked-out client, and release it.
  * The client goes back to the pool with no state on it: READ ONLY ended with the COMMIT.
+ *
+ * The caller's statement goes through `rewriteBeginReadOnly` first, before any client is checked out: a
+ * statement that could escape the transaction we are about to open (its own BEGIN, a `SET … READ WRITE`,
+ * a multi-statement string with a COMMIT in it) is refused here rather than sent.
  */
 export async function readOnlyQuery<R = Record<string, unknown>>(
   p: PoolLike, sql: SqlLike, params?: unknown[],
 ): Promise<{ rows: R[] }> {
+  const q = rewriteBeginReadOnly(sql);
   const c = await p.connect();
   try {
     await c.query(BEGIN_READ_ONLY);
-    const r = await c.query(sql, params);
+    const r = await c.query(q, params);
     await c.query("COMMIT");
     return { rows: r.rows as R[] };
   } catch (e) {
@@ -62,7 +67,8 @@ export async function autocommitQuery<R = Record<string, unknown>>(
 /**
  * Preview-only view of the pool for the drizzle client: autocommit queries each get their own
  * `BEGIN READ ONLY … COMMIT`, and a drizzle transaction — which checks a client out and sends a bare
- * `begin` — opens READ ONLY instead. Nothing is set on the connection, so a released client is clean.
+ * `begin`, or `begin <modes>` when a caller asked for one — opens READ ONLY whichever it sends
+ * (`rewriteBeginReadOnly`). Nothing is set on the connection, so a released client is clean.
  *
  * It is `Object.create(p)` and not an object literal on purpose: drizzle's neon-serverless session only
  * checks a client out when `client instanceof Pool`, and would otherwise push BEGIN/COMMIT through

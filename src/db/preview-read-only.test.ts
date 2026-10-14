@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { PGlite } from "@electric-sql/pglite";
 import { Pool } from "@neondatabase/serverless";
 import { sql as drizzleSql } from "drizzle-orm";
-import type { ClientLike, PoolLike } from "./pool";
+import { readOnlyPool, type ClientLike, type PoolLike } from "./pool";
 import { BEGIN_READ_ONLY, type SqlLike } from "./read-only";
 
 /**
@@ -24,6 +24,21 @@ import { withClientExec } from "@/auth/client-exec";
 
 const text = (q: SqlLike) => (typeof q === "string" ? q : q.text);
 let pg: PGlite;
+
+/** `p` rejected, with `why` somewhere in the error chain. Drizzle wraps errors, so walk the causes. */
+const expectRejected = async (p: PromiseLike<unknown>, why: RegExp, what: string) => {
+  const err: unknown = await p.then(() => undefined, (e: unknown) => e ?? new Error("rejected with no error"));
+  expect(err, `expected ${what}`).toBeInstanceOf(Error);
+  const chain: string[] = [];
+  for (let e: unknown = err; e instanceof Error; e = e.cause) chain.push(e.message);
+  expect(chain.join(" <- "), what).toMatch(why);
+};
+/** Postgres itself refused the write, because the transaction it ran in is READ ONLY. */
+const expectRefusedReadOnly = (p: PromiseLike<unknown>) =>
+  expectRejected(p, /read-only transaction/, "the write to be refused by the server");
+/** The app refused the statement before sending it, because it could not be made read-only. */
+const expectRefusedByApp = (p: PromiseLike<unknown>) =>
+  expectRejected(p, /DECISION-LEDGER #43/, "the statement to be refused by the app");
 
 beforeAll(async () => {
   pg = new PGlite();
@@ -99,7 +114,7 @@ describe("VERCEL_ENV=production: behaviour is exactly unchanged", () => {
 });
 
 /**
- * PgBouncer transaction mode, simulated explicitly (DECISION-LEDGER #43/#44).
+ * PgBouncer transaction mode, simulated explicitly (DECISION-LEDGER #43/#55).
  *
  * The pooled DATABASE_URL goes through PgBouncer in transaction mode: unrelated clients take turns on
  * the SAME server backend, one transaction at a time, and previews and production share one role,
@@ -149,15 +164,6 @@ describe("PgBouncer transaction mode: previews and production take turns on one 
     (await backend.query<Record<string, string>>(`SHOW ${name}`)).rows[0][name];
   const ids = async () =>
     (await backend.query<{ id: number }>("SELECT id FROM shared ORDER BY id")).rows.map((r) => r.id);
-  /** Postgres refused the write. Drizzle wraps driver errors, so the server's words may be in a cause. */
-  const expectRefusedReadOnly = async (p: PromiseLike<unknown>) => {
-    const err: unknown = await p.then(() => undefined, (e: unknown) => e ?? new Error("rejected with no error"));
-    expect(err, "expected the write to be refused").toBeInstanceOf(Error);
-    const chain: string[] = [];
-    for (let e: unknown = err; e instanceof Error; e = e.cause) chain.push(e.message);
-    expect(chain.join(" <- ")).toMatch(/read-only transaction/);
-  };
-
   it("(a) a preview write is refused on every pooled path: tx, autocommit, drizzle query and drizzle tx", async () => {
     const statements = await asEnv("preview", async () => {
       await expectRefusedReadOnly(getNeonDb().tx((tx) => tx.query("INSERT INTO shared VALUES (1)", [])));
@@ -230,5 +236,154 @@ describe("PgBouncer transaction mode: previews and production take turns on one 
     }
     // Two full preview→production turns on one backend: every production write landed, no preview one did.
     expect(await ids()).toEqual([6, 8, 9, 11, 12, 13, 14, 21, 22, 23, 24]);
+  });
+});
+
+/**
+ * Every spelling of a transaction start, proved against real Postgres on the preview path
+ * (hotfix PR #20 blocker 1). Before the fix only a bare `BEGIN` was rewritten, so
+ * `BEGIN ISOLATION LEVEL …`, `BEGIN READ WRITE`, `BEGIN TRANSACTION`/`WORK` and `START TRANSACTION`
+ * opened a writable transaction on the shared production database. Each case below opens a transaction
+ * in one of those forms through the real preview plumbing and proves the server refuses the write
+ * inside it — and that the forms which cannot be rewritten never reach the server at all.
+ */
+describe("preview: every transaction-start form ends up READ ONLY (real Postgres)", () => {
+  let backend: PGlite;
+  let outerPool: PoolLike | Pool | undefined;
+
+  beforeAll(async () => {
+    backend = new PGlite();
+    await backend.exec("CREATE TABLE forms (id int primary key)");
+    const run = async (q: SqlLike, params?: unknown[]) => {
+      h.sent.push(text(q));
+      return { rows: (await backend.query(text(q), params as unknown[] | undefined)).rows as unknown[] };
+    };
+    const client: ClientLike = { query: run, release: () => {} };
+    // Object.create(Pool.prototype): drizzle only checks a client out for a transaction when what it
+    // was handed is `instanceof Pool` (see readOnlyPool).
+    const p = Object.create(Pool.prototype) as Pool;
+    Object.assign(p, { query: run, connect: async () => client });
+    outerPool = h.pool;
+    h.pool = p;
+  }, 60_000);
+
+  afterAll(() => { h.pool = outerPool; });
+  beforeEach(() => { process.env.VERCEL_ENV = "preview"; });
+  afterEach(async () => { await backend.query("ROLLBACK").catch(() => {}); });
+
+  const rows = async () => (await backend.query<{ n: number }>("SELECT count(*)::int n FROM forms")).rows[0].n;
+
+  it.each([
+    "begin ",
+    "BEGIN",
+    "begin read write",
+    "BEGIN TRANSACTION",
+    "begin transaction read write",
+    "BEGIN WORK",
+    "begin work read write",
+    "START TRANSACTION",
+    "start transaction read write",
+    "begin isolation level serializable",
+    "BEGIN ISOLATION LEVEL SERIALIZABLE READ WRITE",
+    "begin isolation level repeatable read, read write",
+    "BEGIN TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE, NOT DEFERRABLE",
+    "  Start   Transaction   Read   Write  ",
+    "begin /* drizzle */ read write",
+  ])("%j: the write inside it is refused by Postgres", async (form) => {
+    const ro = readOnlyPool(h.pool as Pool);
+    const c = await ro.connect();
+    const from = h.sent.length;
+    await c.query(form as never);
+    // What actually reached the server is a READ ONLY transaction start, never a READ WRITE one.
+    expect(h.sent.slice(from)).toHaveLength(1);
+    expect(h.sent[from]).toMatch(/\bREAD ONLY$/);
+    expect(h.sent[from]).not.toMatch(/READ\s+WRITE/i);
+    await expect(c.query("INSERT INTO forms VALUES (1)" as never)).rejects.toThrow(/read-only transaction/);
+    await c.query("ROLLBACK" as never);
+    c.release();
+    expect(await rows()).toBe(0);
+  });
+
+  it.each([
+    "SET TRANSACTION READ WRITE",
+    "set transaction isolation level serializable, read write",
+    "SET LOCAL TRANSACTION READ WRITE",
+    "set session characteristics as transaction read write",
+    "SET transaction_read_only = off",
+    "begin; insert into forms values (2)",
+    "BEGIN READ ONLY; COMMIT; INSERT INTO forms VALUES (2)",
+    "commit; insert into forms values (2)",
+    "begin isolation level bogus",
+  ])("%j is refused before any SQL leaves the app", async (stmt) => {
+    const ro = readOnlyPool(h.pool as Pool);
+    const c = await ro.connect();
+    const from = h.sent.length;
+    expect(() => c.query(stmt as never)).toThrow(/DECISION-LEDGER #43/);
+    c.release();
+    expect(h.sent.slice(from)).toEqual([]);
+    expect(await rows()).toBe(0);
+  });
+
+  it("drizzle's own configured transaction opens READ ONLY, so its write is refused", async () => {
+    // drizzle builds `begin isolation level serializable read write not deferrable` for this config.
+    for (const config of [
+      { accessMode: "read write" } as const,
+      { isolationLevel: "serializable", accessMode: "read write", deferrable: false } as const,
+      { isolationLevel: "repeatable read" } as const,
+    ]) {
+      const from = h.sent.length;
+      await expectRefusedReadOnly(
+        getDb().transaction((tx) => tx.execute(drizzleSql`INSERT INTO forms VALUES (3)`), config),
+      );
+      const opened = h.sent.slice(from).find((s) => /^(?:BEGIN|START)/i.test(s));
+      expect(opened, JSON.stringify(config)).toMatch(/\bREAD ONLY$/);
+      expect(h.sent.slice(from).join(" | "), JSON.stringify(config)).not.toMatch(/READ\s+WRITE/i);
+      expect(await rows()).toBe(0);
+    }
+  });
+
+  it("drizzle's setTransaction('read write') inside a transaction is refused by the app", async () => {
+    // drizzle turns this config into `set transaction read write`, which would undo the READ ONLY.
+    await expectRefusedByApp(getDb().transaction(async (tx) => {
+      await tx.setTransaction({ accessMode: "read write" });
+      await tx.execute(drizzleSql`INSERT INTO forms VALUES (4)`);
+    }));
+    expect(h.sent.join(" | ")).not.toMatch(/READ\s+WRITE/i);
+    expect(await rows()).toBe(0);
+  });
+
+  it("getNeonDb().tx refuses a nested escape and still rolls back", async () => {
+    const from = h.sent.length;
+    await expectRefusedByApp(getNeonDb().tx((tx) => tx.query("COMMIT; INSERT INTO forms VALUES (5)", [])));
+    expect(h.sent.slice(from)[0]).toBe(BEGIN_READ_ONLY);
+    expect(h.sent.slice(from)).toContain("ROLLBACK");
+    expect(h.sent.slice(from).join(" | ")).not.toMatch(/INSERT/i);
+    expect(await rows()).toBe(0);
+  });
+
+  it("a nested transaction start inside getNeonDb().tx is opened READ ONLY too", async () => {
+    const from = h.sent.length;
+    await getNeonDb().tx((tx) => tx.query("BEGIN ISOLATION LEVEL SERIALIZABLE READ WRITE", []));
+    const nested = h.sent.slice(from)[1];
+    expect(nested).toBe("BEGIN ISOLATION LEVEL SERIALIZABLE, READ ONLY");
+    expect(await rows()).toBe(0);
+  });
+
+  it("off previews every one of those forms is sent exactly as written", async () => {
+    process.env.VERCEL_ENV = "production";
+    const forms = [
+      "BEGIN READ WRITE", "begin isolation level serializable read write", "START TRANSACTION READ WRITE",
+      "SET TRANSACTION READ WRITE", "begin work",
+    ];
+    const from = h.sent.length;
+    for (const form of forms) {
+      await getNeonDb().tx(async (tx) => { await tx.query(form, []); await tx.query("ROLLBACK", []); });
+    }
+    expect(h.sent.slice(from).filter((s) => forms.includes(s))).toEqual(forms);
+    expect(h.sent.slice(from).join(" | ")).not.toMatch(/READ ONLY/i);
+    // The writable transaction production asked for really is writable.
+    await getNeonDb().tx((tx) => tx.query("INSERT INTO forms VALUES (6)", []));
+    expect(await rows()).toBe(1);
+    await backend.query("DELETE FROM forms");
   });
 });

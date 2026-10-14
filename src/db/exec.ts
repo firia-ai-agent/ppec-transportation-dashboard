@@ -1,5 +1,5 @@
 import { autocommitQuery, getPool } from "./pool";
-import { beginSql } from "./read-only";
+import { beginSql, rewriteBeginReadOnlyForEnv } from "./read-only";
 import type { Exec } from "@/domain/transition";
 
 export type { Exec };
@@ -18,6 +18,11 @@ export async function runAfterCommit(hooks: (() => Promise<void>)[]) {
  * Db over the one shared Neon WebSocket Pool (src/db/pool.ts; ADR-009: Pool for transactions).
  * On previews every transaction opens READ ONLY and every autocommit query becomes its own read-only
  * transaction (DECISION-LEDGER #43); off previews this is a plain BEGIN and a plain pool.query.
+ *
+ * Inside a preview transaction each statement the callback sends also goes through
+ * `rewriteBeginReadOnlyForEnv`, so a nested transaction start opens READ ONLY too and anything that
+ * would escape the open one (a `SET … READ WRITE`, a multi-statement string) is refused. Off previews
+ * that call is the identity: the statement is sent exactly as the callback wrote it.
  */
 export function getNeonDb(): Db {
   const p = getPool();
@@ -28,7 +33,11 @@ export function getNeonDb(): Db {
       const hooks: (() => Promise<void>)[] = [];
       try {
         await c.query(beginSql(process.env));
-        const r = await fn({ query: async (sql, params) => ({ rows: (await c.query(sql, params)).rows }) }, (h) => hooks.push(h));
+        const tx: Exec = {
+          query: async (sql, params) =>
+            ({ rows: (await c.query(rewriteBeginReadOnlyForEnv(process.env, sql), params)).rows }),
+        };
+        const r = await fn(tx, (h) => hooks.push(h));
         await c.query("COMMIT");
         await runAfterCommit(hooks);
         return r;
