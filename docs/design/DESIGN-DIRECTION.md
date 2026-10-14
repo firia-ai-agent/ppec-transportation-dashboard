@@ -137,7 +137,7 @@ See §6.
 ### 6.2 Timing
 SMS delivery 1–3 s (seeded), SSE board update target <2 s with a subtle 1 s row highlight (no flash under reduced motion), clock jumps re-arm jobs then toast "Clock moved to 07:30. 4 timers re-armed."
 ### 6.3 Persona phones
-iPhone-shaped panels (no Apple marks), F1–F8 tabs, family label "F4 · 555-0104", status ticks Queued → Sent → Delivered under bubbles, typing posts through the real webhook path. Banner inside each phone: "Simulated phone".
+iPhone-shaped panels (no Apple marks), F1–F8 tabs, family label "F4 · 555-0104", status ticks Queued → Sent → Delivered under bubbles, typing posts through the real webhook path. Each phone shows both banners: the DEMO banner on top ("DEMO · Synthetic data, no real children", D-1; it goes everywhere) and the "Simulated phone" banner directly under it.
 ### 6.4 Teams panel
 Teams-like (not Teams-branded) side panel with adaptive-card-style approval cards; two-session race shows the "Already decided" state identically to SURF-05.
 
@@ -199,7 +199,7 @@ Map truck colours are checked against white because every marker has a white hal
 
 ## 10. Acceptance checklist (Rudy builds to it, Veri and Vera walk it; per taste-clear-walk)
 Walk each persona at **1280×800, 1024×768 iPad landscape, 820×1180 iPad portrait, 390×844** (dispatcher link and drawer).
-- [ ] DEMO banner visible on every route, every width, inside persona phones, Teams panel, exports.
+- [ ] DEMO banner visible on every route, every width, inside persona phones (on top, with "Simulated phone" under it, §6.3), Teams panel, exports.
 - [ ] Every state on screen shows icon + label; grayscale screenshot test: all states still distinguishable.
 - [ ] `python3 docs/design/contrast.py` passes; token-drift grep (design-taste-frontend §5) clean.
 - [ ] Keyboard-only: board → drawer → approve exception → back, with visible focus throughout.
@@ -214,7 +214,7 @@ Walk each persona at **1280×800, 1024×768 iPad landscape, 820×1180 iPad portr
 - [ ] Screenshots attached for every persona × width, opened by the walker; NOT WALKED list written.
 
 ## 11. Decisions (product calls)
-All nine recommendations accepted by the founder as written in PR #2. Recorded in docs/DECISION-LEDGER.md rows 29–37; D-10 in row 39 (source: Founder widget answer "Approve as proposed", Vera chat, 2026-10-14 13:15 ET). Source: Founder widget answer "Accept all 9 of Vera's recommendations", Firia chat, 2026-10-14 11:39 ET.
+All nine recommendations accepted by the founder as written in PR #2. Recorded in docs/DECISION-LEDGER.md rows 29–37; D-10 in row 39 (source: Founder widget answer "Approve as proposed", Vera chat, 2026-10-14 13:15 ET; relay message id not available; timestamp is the reference). Source: Founder widget answer "Accept all 9 of Vera's recommendations", Firia chat, 2026-10-14 11:39 ET; relay message id not available; timestamp is the reference.
 | # | Question | Options | Decision | Owner | Status |
 |---|---|---|---|---|---|
 | D-1 | Banner text: PRD step 1 says "SYNTHETIC DATA", NFR-09 says "DEMO/LIVE" | (A) "DEMO · Synthetic data, no real children" (B) "SYNTHETIC DATA" only | A (meets both) | founder | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia) |
@@ -223,7 +223,7 @@ All nine recommendations accepted by the founder as written in PR #2. Recorded i
 | D-4 | Font: Atkinson Hyperlegible Next vs system UI | A / B | A | founder | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia) |
 | D-5 | Demo violet `#6D28D9` reserved for demo | yes / pick another | yes | founder | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia) |
 | D-6 | Map in board by default (split) vs board-only with map tab | split / tab | split ≥1280 | founder | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia) |
-| D-7 | Ramp iPad orientation priority (iPad model unknown, CA-08) | landscape-first / portrait-first | landscape-first | founder; acceptance resolves CA-08 for the POC (landscape-first holds until the center answers CA-08) | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia) |
+| D-7 | Ramp iPad orientation priority (iPad model unknown, CA-08) | landscape-first / portrait-first | landscape-first | founder (landscape-first is the POC layout default; CA-08 stays open.) | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia) |
 | D-8 | "Person-first" default vs any center preference (CA-15 languages, identity-first requests) | person-first default / ask center | person-first, ask center | founder | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia) |
 | D-9 | Spanish/Haitian Creole copy for outbound family SMS in POC | English only / add languages | English only in POC, design for 40% expansion | founder | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia) |
 | D-10 | Form of the NFR-09 source-mode badge (PRD mandates it, leaves form open) | (A) outlined icon + label chip as in §7.1 (B) text-only suffix | A | founder | Decided by founder, 2026-10-14 13:15 ET |
