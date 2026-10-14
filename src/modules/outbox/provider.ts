@@ -15,7 +15,11 @@ export interface MessagingProvider {
   send(msg: OutboundPayload, opts: { signal: AbortSignal }): Promise<{ providerMessageId: string }>;
 }
 
-/** In-memory SIM provider for tests and the synthetic demo. Idempotent on idempotencyKey. */
+/**
+ * In-memory stand-in for a provider, used by the outbox's own tests to drive timeout/reject/fail paths.
+ * The SIM provider the app and the demo actually run is messaging/sim-provider.ts (it writes to the persona
+ * mailbox and schedules a delivery callback). Idempotent on idempotencyKey.
+ */
 export class SimMessagingProvider implements MessagingProvider {
   readonly name = "SIM";
   sent: OutboundPayload[] = [];

@@ -1,3 +1,4 @@
+import { SIM_STATUS_JOB_KIND, simStatusHandler } from "@/modules/messaging/sim-provider";
 import type { Handlers } from "./runner";
 
 /**
@@ -6,4 +7,6 @@ import type { Handlers } from "./runner";
  */
 export const handlers: Handlers = {
   "noop.test": async () => {},
+  // B-04: the SIM provider's delivery status callback (SENT → DELIVERED / FAILED).
+  [SIM_STATUS_JOB_KIND]: simStatusHandler,
 };

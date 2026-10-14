@@ -60,6 +60,8 @@ export const TEMPLATE_VARS: Readonly<Record<string, ReadonlySet<string>>> = {
   "child.not_received": new Set(["childFirstName", "stopLabel", "eta"]),
   "center.closure": new Set(["date", "reason"]),
   "generic.notice": new Set(["text"]),
+  // Fixed-copy answer to an inbound HELP (MSG-04). No vars: the words never change (messaging/templates.ts).
+  "consent.help": new Set<string>(),
 };
 
 export class TemplateVarNotAllowed extends Error {}
@@ -213,6 +215,25 @@ export async function drain(db: Db, messageId: string, deps: DrainDeps, by = "sy
     if (!(e instanceof StaleOrConflict)) throw e; // the sweeper already moved it to UNKNOWN; leave it
   }
   return outcome.to;
+}
+
+export type ProviderStatus = Extract<OutboxState, "DELIVERED" | "UNDELIVERED" | "FAILED">;
+
+/**
+ * A provider status callback: SENT → DELIVERED / UNDELIVERED / FAILED (PRD l.754). The SIM provider delivers
+ * these through a durable timer job; the Twilio adapter would deliver them from its status webhook.
+ * Still SENDING ⇒ StaleOrConflict, so the caller (a timer job) retries rather than losing the callback.
+ * Any other state ⇒ no-op: a sweep to UNKNOWN, a staff exit or a redaction already resolved the row.
+ */
+export async function applyProviderStatus(tx: Exec, a: { id: string; to: ProviderStatus; reason?: string | null; by?: string }): Promise<"applied" | "noop"> {
+  const r = await tx.query<Pick<Row, "state" | "version">>("SELECT state, version FROM ops.outbound_message WHERE id = $1", [a.id]);
+  const row = r.rows[0];
+  if (!row) return "noop";
+  if (row.state === "SENDING") throw new StaleOrConflict(`outbound_message ${a.id}: status callback arrived before the send finished`);
+  if (row.state !== "SENT") return "noop";
+  const extra = a.to === "DELIVERED" || !a.reason ? {} : { block_reason: a.reason.slice(0, 280) };
+  await move(tx, { id: a.id, version: row.version, state: "SENT" }, a.to, a.by ?? "system:provider-status", extra);
+  return "applied";
 }
 
 export type OutboxSweepReport = { drained: number; stuckToUnknown: number; silentToUnknown: number };
