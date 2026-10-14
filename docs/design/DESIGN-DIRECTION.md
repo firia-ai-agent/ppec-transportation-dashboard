@@ -257,7 +257,7 @@ Computed by `python3 docs/design/contrast.py` (WCAG 2.1 relative luminance; exit
 | center-pin `#0F172A` | osm-road `#D5D5D5` | 12.16:1 | 3:1 | PASS |
 | center-pin `#0F172A` | osm-water `#D9E2E7` | 13.59:1 | 3:1 | PASS |
 
-Map truck colours are checked against white because every marker has a white halo; tile backgrounds are not relied on.
+Map truck colours are checked against white (the halo) and against every positron basemap fill (§5.1); both must pass 3:1.
 
 ## 9. Accessibility rules (WCAG 2.1 AA)
 - Focus: 2 px `focus #1D4ED8` outline + 2 px offset, never removed; visible on every interactive element incl. map markers (markers are buttons in a list mirror, see below).
