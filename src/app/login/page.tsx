@@ -2,6 +2,8 @@ import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
 import { signIn } from "@/auth";
 import { login as copy } from "@/ui/copy";
+import { DemoLogins } from "./DemoLogins";
+import { visibleDemoLogins } from "./demo-logins";
 import styles from "./login.module.css";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +28,11 @@ async function doLogin(formData: FormData) {
 /**
  * Staff sign in. §9: visible labels (never placeholder-only), and the error is text next to
  * the fields, wired with aria-describedby. The message never says which half was wrong.
+ *
+ * Under the button, on a demo deployment, the three synthetic accounts as cards (founder
+ * decision, DECISION-LEDGER row 57). The passwords are read here, server-side, per request —
+ * `visibleDemoLogins` reads only the three env vars the shared demo-accounts config names, and
+ * returns an empty list wherever the demo flags are off, which is what makes the cards vanish.
  */
 export default async function LoginPage({
   searchParams,
@@ -78,6 +85,8 @@ export default async function LoginPage({
           <button type="submit" className={styles.submit}>
             {copy.submit}
           </button>
+          {/* Inside the form, so a card can reach the fields through its own button.form. */}
+          <DemoLogins accounts={visibleDemoLogins()} />
         </form>
       </div>
     </main>

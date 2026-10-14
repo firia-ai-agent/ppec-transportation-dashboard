@@ -77,3 +77,103 @@
   font-weight: var(--weight-semibold);
   cursor: pointer;
 }
+
+/* ───────────── demo accounts under the form (founder decision, ledger row 57) ─────────────
+   The cards live in the same 380 px card column as the form — they are inside .card, so they
+   are the same width at 1024 and at 1440, and the column never widens for them. No violet
+   anywhere below: that colour belongs to the DEMO bar alone (D-5). */
+.demo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* A quiet rule with the label sitting in it: hairline each side, muted text, no weight. */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: var(--text-14);
+  font-weight: var(--weight-regular);
+  color: var(--color-ink-muted);
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: var(--border-hairline);
+  background: var(--color-border-strong);
+}
+
+.dividerText {
+  line-height: var(--leading-normal);
+}
+
+/* Stacked, one per row, at every width. */
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.cardItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-ink);
+}
+
+.cardTitle {
+  font-size: var(--text-16);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.cardDescription {
+  font-size: var(--text-14);
+  color: var(--color-ink-muted);
+}
+
+/* Copy-style credentials: label column, value column, values in the mono face (§2) so an
+   email and a password can be read character by character and typed back without doubt. */
+.creds {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  font-size: var(--text-14);
+}
+
+.credLabel {
+  color: var(--color-ink-muted);
+}
+
+.credValue {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Secondary: outlined, surface fill. The blue Sign in button above stays the only primary. */
+.use {
+  align-self: flex-start;
+  min-height: var(--target-console);
+  padding: 0 var(--space-5);
+  border: var(--border-hairline) solid var(--color-brand);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-brand);
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}

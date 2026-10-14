@@ -87,6 +87,21 @@ export const age = {
   minutes: "{n} min",
   hours: "{h} h",
   hoursMinutes: "{h} h {m} min",
+  /**
+   * The same ages in full words, for the ear only (§9). A screen reader reads "12 s" as
+   * "twelve ess" and "4 min" as "four min", so the eye keeps the short form and the
+   * screen-reader text says "12 seconds". Singular at exactly one, never "1 minutes".
+   */
+  spoken: {
+    second: "{n} second",
+    seconds: "{n} seconds",
+    minute: "{n} minute",
+    minutes: "{n} minutes",
+    hour: "{h} hour",
+    hours: "{h} hours",
+    /** Joins the two halves of "1 hour 5 minutes". */
+    separator: " ",
+  },
 } as const;
 
 /** COPY-GUIDE §5: SSE down >15 s. "SSE" is jargon and never reaches the screen. */
@@ -160,6 +175,51 @@ export const login = {
   submit: "Sign in",
   error: "Email or password is incorrect.",
   errorSummary: "We could not sign you in.",
+} as const;
+
+/**
+ * Demo accounts offered under the sign-in form (founder decision, ledger row 57). Shown only
+ * where the demo flags are on and the data is synthetic, which is why the words can be this
+ * plain: there is no real account to confuse these with. Each line says what that person sees,
+ * not what the role is called in the database.
+ *
+ * `use` is what the eye reads on every card; `useRole` is the same button's accessible name,
+ * which keeps the visible words and adds the role, so three identical buttons are three
+ * distinct things to a screen reader. `filled` is announced in a live region after a fill.
+ */
+export const demoLogins = {
+  divider: "Or use a demo account",
+  use: "Use this account",
+  useRole: "Use this account, {role}",
+  filled: "{role} account filled",
+  /** The field names the form above already uses, so the card labels match it. */
+  emailLabel: login.emailLabel,
+  passwordLabel: login.passwordLabel,
+  roles: {
+    DIRECTOR: {
+      title: "Director",
+      description: "Sees the whole site, the demo controls, and the health and savings view.",
+    },
+    COORDINATOR: {
+      title: "Coordinator",
+      description: "Runs the day: the board, what needs action, and approvals.",
+    },
+    FRONT_DESK: {
+      title: "Front desk",
+      description: "Handles arrivals and handoffs at the door.",
+    },
+  },
+} as const;
+
+/**
+ * A URL that matches no page. One line, no apology and no blame (§1), and exactly one way
+ * back, so there is nothing to choose between. The two labels are the words their destinations
+ * already use — the nav item and the sign-in button — so a wording change there carries here.
+ */
+export const notFound = {
+  heading: "This page doesn't exist.",
+  today: nav.today,
+  signIn: login.submit,
 } as const;
 
 /** Developer surface: confirms the signed-in identity against the database. */
