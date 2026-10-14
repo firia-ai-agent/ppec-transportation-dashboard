@@ -1,0 +1,4 @@
+[{"table_schema":"identity","n":4},{"table_schema":"ops","n":52}]
+check blocks CLOSED_VERIFIED without evidence: new row for relation "task" violates check constraint "task_closed_needs_evidenc
+live job key unique: duplicate key value violates unique constraint "job_key_live
+claim1 rows 1 claim2 rows 0

@@ -1,0 +1,11 @@
+CENTER| 2216 JOG RD, GREEN ACRES, FL, 33415 {'x': -80.14554109129, 'y': 26.645351629805}
+Okeeheelee Park|[-80.1647674, 26.6521649]|Okeeheelee Park,  service
+John Prince Park|[-80.0805317, 26.6024816]|John Prince Park, Lake Worth Beach park
+Greenacres Branch Library|[-80.1459534, 26.622639]|Greenacres Branch Library, Greenacres library
+Palm Beach State College Lake Worth|[-80.0858653, 26.6137719]|Palm Beach State College at Lake Worth, Lake Worth college
+Greenacres City Hall|[-80.1355112, 26.607061]|Greenacres City Hall, Greenacres townhall
+Lake Worth Beach Casino|[-80.0569927, 26.6159698]|Lake Worth Beach,  suburb
+Lantana Public Library|[-80.0528708, 26.5846989]|Lantana Public Library, Lantana library
+Mall at Wellington Green|[-80.208099, 26.6466834]|Mall at Wellington Green, Wellington food_court
+Boynton Beach Mall|[-80.0956747, 26.5354178]|Boynton Beach Mall, Boynton Beach retail
+Palm Beach Zoo|[-80.0695425, 26.6677387]|Palm Beach Zoo & Conservation Society, West Palm Beach zoo

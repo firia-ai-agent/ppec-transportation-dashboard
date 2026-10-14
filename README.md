@@ -1,0 +1,26 @@
+# PPEC transportation dashboard
+
+Transport fulfillment, attendance, family communication and scheduling for a pediatric prescribed extended care (PPEC) center serving children with disabilities. "Fulfillment" = fulfilling each child's approved transport needs.
+
+**Status (2026-10-14):** spec approved by founder; no application code yet. Synthetic data only — no real child, family or staff data may enter this repo or its environments.
+
+## Founder locks (full list: [docs/DECISION-LEDGER.md](docs/DECISION-LEDGER.md))
+- Vercel (team firia1) + Neon now; AWS later behind seams
+- Live agent: Claude Sonnet (current) via OpenRouter, `zdr:true`, token-only gateway
+- Mocked SMS/Twilio, Teams, truck GPS/navigation, vehicle configs; demo reset/replay/fault controls
+- Simulation centered on 2216 Jog Rd, Greenacres FL 33415 (public landmarks only)
+- Auth.js with real RBAC and site scoping
+- POC exit: AT-01–AT-18 + TEST-INF-01 all PASS (mock)
+- $100/month spend alert
+- Team: Athena (research), Rudy (build), Veri (verify), Vera (UI/copy)
+
+## Docs
+- [PRD v1.0](docs/PRD-v1.0.txt)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Data model](docs/DATA-MODEL.md) · [schema draft](docs/schema-draft.ts)
+- [ADRs](docs/adr/)
+- [Mocks & demo](docs/MOCKS-AND-DEMO.md)
+- [Build plan](docs/BUILD-PLAN.md)
+- [Risks & questions](docs/RISKS-AND-QUESTIONS.md)
+- [Tokos reuse](docs/TOKOS-REUSE.md)
+- [Research evidence](docs/research/)

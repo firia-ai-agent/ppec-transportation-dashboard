@@ -1,0 +1,2 @@
+# ADR-015 Synthetic only; no PHI on Vercel/Neon/OpenRouter in P1
+**Status: Proposed** (follows ADR-000 lock 4). Vercel HIPAA BAA requires a paid add-on on Pro; Neon offers a BAA only on its Scale plan; neither is in place, so no PHI. Enforced: `APP_DATA_CLASS=SYNTHETIC` hard-checked at boot, `SYN-` name prefix, 555-01xx phones, example.com emails, landmark-only coordinates, seed linter in CI. Evidence: https://vercel.com/docs/security/compliance ; https://neon.com/docs/security/hipaa (prices/plan terms as read 2026-10-14; re-verify before any PHI).

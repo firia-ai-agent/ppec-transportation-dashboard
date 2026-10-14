@@ -1,0 +1,2 @@
+# ADR-007 Routing: precomputed OSRM fixtures + simulated traffic
+**Status: Proposed.** `RoutingProvider.SIM` reads route geometries/durations precomputed once (dev time) from the public OSRM demo server and committed as fixtures; runtime never calls OSRM. Traffic = deterministic multiplier per time band + fault injection. AWS later: Amazon Location behind the same seam. Evidence: OSRM demo policy (non-commercial, ≤1 req/s); probe research/osrm-probe.txt (Okeeheelee Park→center 2740 m, 228 s).

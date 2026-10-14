@@ -1,0 +1,2 @@
+# ADR-009 Neon branches, migrations, roles
+**Status: Proposed.** Vercel-managed Neon integration (pooled DATABASE_URL + DATABASE_URL_UNPOOLED, branch per preview). drizzle-kit generate+migrate only; no push to main. Roles: `migrator` (DDL), `app_rw` (ops DML), `identity_gateway` (identity DML), `readonly`. Driver: neon HTTP for one-shot queries, WebSocket Pool for transactions. See DATA-MODEL.md §7. Evidence: https://neon.com/docs/guides/vercel-managed-integration ; https://neon.com/docs/serverless/serverless-driver .

@@ -1,0 +1,2 @@
+# ADR-003 Transactional outbox for every external send
+**Status: Proposed.** All SMS/Teams/email sends are rows in `ops.outbound_message` written with the domain change; a job drains with guarded claim, re-checks authorization/suppression/quiet hours at send time (PRD §10), then calls `MessagingProvider`. Unique `idempotency_key`. Alternatives: direct send in request (loses on crash), Tokos outbox (no claim; see TOKOS-REUSE.md). Evidence: PRD §6.3 outbound machine; PGlite claim test.
