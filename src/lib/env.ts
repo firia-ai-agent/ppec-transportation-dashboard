@@ -8,6 +8,13 @@ import { z } from "zod";
 const bootSchema = z.object({
   APP_DATA_CLASS: z.literal("SYNTHETIC"),
   DEMO_MODE: z.enum(["0", "1"]).optional(),
+  /**
+   * The single map config knob (ADR-008): the MapLibre style URL for the basemap.
+   * Public and non-secret — it is inlined into the browser bundle. Unset falls back to
+   * OpenFreeMap positron (`DEFAULT_MAP_STYLE_URL` in src/components/map/style.ts).
+   * Validated here only so a typo fails the build rather than the demo.
+   */
+  NEXT_PUBLIC_MAP_STYLE_URL: z.url().optional(),
 });
 
 export type BootEnv = z.infer<typeof bootSchema>;

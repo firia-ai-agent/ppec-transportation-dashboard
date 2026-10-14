@@ -45,3 +45,15 @@ APP_DATA_CLASS=SYNTHETIC pnpm dev     # boot refuses any other data class (ADR-0
 pnpm typecheck && pnpm lint && pnpm test && pnpm seed:lint
 ```
 Health: `GET /api/health` returns the deployed commit, environment and data class. Infra state: `INFRA-BASELINE.md`, `DATABASES.md`, `INFRA-TEMP.md`.
+
+## Map (M5, ADR-008)
+MapLibre GL + **OpenFreeMap vector tiles**, `positron` base style restyled per [design direction §5.1](docs/design/DESIGN-DIRECTION.md). Attribution "© OpenFreeMap © OpenStreetMap contributors" is always on screen, bottom-right, and is never removed ([OpenFreeMap terms](https://openfreemap.org/tos/) — free, as-is, no SLA; [OSM ODbL](https://www.openstreetmap.org/copyright)).
+
+| Env var | Kind | Default | What it does |
+|---|---|---|---|
+| `NEXT_PUBLIC_MAP_STYLE_URL` | public, non-secret | `https://tiles.openfreemap.org/styles/positron` | The only map config knob: the MapLibre style URL for the basemap. Any MapLibre-compatible style works. Validated at boot in `src/lib/env.ts`, resolved in `src/components/map/style.ts`. |
+
+Walk the pane at `/map-preview` — no sign-in, no database, synthetic fixtures only (`src/fixtures/map.ts`):
+```
+APP_DATA_CLASS=SYNTHETIC pnpm dev     # then open http://localhost:3000/map-preview
+```

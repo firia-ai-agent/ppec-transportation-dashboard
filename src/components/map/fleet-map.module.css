@@ -1,0 +1,164 @@
+/*
+ * Fleet map pane layout (DESIGN-DIRECTION §5.1, §9).
+ *
+ * The one hard rule here: the MapLibre attribution control, bottom-right, is never
+ * covered. We honour it structurally — the vehicle list sits *beside* the canvas, not
+ * over it, and every overlay lives inside `.overlay`, which reserves the bottom strip
+ * via `--map-attribution-reserve`. Drawers and the demo panel must inset `.pane`
+ * (shrink the map), never float above it.
+ */
+
+.pane {
+  --map-attribution-reserve: 32px;
+  --map-gutter: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: var(--map-gutter);
+  align-items: stretch;
+}
+
+@media (max-width: 1023px) {
+  .pane {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.canvasWrap {
+  position: relative;
+  min-height: 420px;
+  height: clamp(420px, 68vh, 760px);
+  border: 1px solid #64748b; /* border-strong */
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f2f3f0; /* positron land, so the pane never flashes white */
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+}
+
+/* Keep MapLibre's own chrome above our overlay, and the attribution above all of it. */
+.canvasWrap :global(.maplibregl-ctrl-bottom-right) {
+  z-index: 4;
+}
+
+.overlay {
+  position: absolute;
+  inset: var(--map-gutter) var(--map-gutter)
+    calc(var(--map-gutter) + var(--map-attribution-reserve)) var(--map-gutter);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.overlay > * {
+  pointer-events: auto;
+}
+
+.fitButton {
+  min-height: 44px; /* §9: ≥44 px console targets */
+  padding: 0 14px;
+  font: 600 14px/1.2 system-ui, sans-serif;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #64748b;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.notice {
+  max-width: 40ch;
+  padding: 8px 10px;
+  font: 400 14px/1.4 system-ui, sans-serif;
+  color: #991b1b; /* crit-fg */
+  background: #fee2e2; /* crit-bg */
+  border-radius: 6px;
+}
+
+.notice button {
+  min-height: 44px;
+  margin-top: 6px;
+  padding: 0 12px;
+  font: 600 14px/1.2 system-ui, sans-serif;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #64748b;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* Accessible mirror of the map (§9: the map is never the only way). */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font: 400 14px/1.4 system-ui, sans-serif;
+}
+
+.listTitle {
+  margin: 0;
+  font: 600 14px/1.2 system-ui, sans-serif;
+  color: #0f172a;
+}
+
+.vehicleButton {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  text-align: left;
+  background: #ffffff;
+  border: 1px solid #64748b;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.vehicleButton[aria-pressed="true"] {
+  border-color: #1d4ed8;
+  box-shadow: inset 0 0 0 1px #1d4ed8;
+}
+
+.vehicleId {
+  font: 600 14px/1.2 system-ui, sans-serif;
+  color: #0f172a;
+}
+
+.vehicleMeta {
+  color: #475569; /* ink-muted */
+}
+
+/* Freshness is icon/label + colour, never colour alone (§5.1). */
+.freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.toneOk {
+  color: #166534; /* ok-fg */
+}
+
+.toneStale {
+  color: #854d0e; /* warn-fg */
+}
+
+.toneCrit {
+  color: #991b1b; /* crit-fg */
+}
+
+/* §9: 2 px focus ring, 2 px offset, never removed. */
+.fitButton:focus-visible,
+.vehicleButton:focus-visible,
+.notice button:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+}

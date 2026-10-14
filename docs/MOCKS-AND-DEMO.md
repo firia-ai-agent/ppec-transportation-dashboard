@@ -47,7 +47,7 @@ A Teams-style side panel per staff role shows proactive messages and adaptive-ca
 ## 5. Trucks, routes, GPS
 - Route geometry: fixtures precomputed from public OSRM once and committed (`fixtures/routes/*.json`); example probe Okeeheelee Park → center: 2,740 m, 228 s (research/osrm-probe.txt).
 - Simulator emits a point every 5 simulated seconds per bound device through `LocationIngest`.
-- Map: MapLibre + OSM tiles (ADR-008); truck icons colored by staleness (fresh / STALE at 180 s / exception at 600 s).
+- Map: MapLibre + OpenFreeMap vector tiles, `positron` style (ADR-008; style URL in `NEXT_PUBLIC_MAP_STYLE_URL`); truck icons colored by staleness (fresh / STALE at 180 s / exception at 600 s), always with a freshness label so colour is never the only cue.
 - **Fault buttons:** Stall (vehicle stops N min at current point), Traffic band (×1.5 travel time), GPS gap (stop emitting), Jitter (±40 m noise; must not trigger ETA text), Duplicate/out-of-order points, Unbound device.
 - **Replay:** pick a recorded `sim_run`, speed ×1/×5/×20; replay is deterministic (same seed ⇒ same ETA events, AT-03).
 

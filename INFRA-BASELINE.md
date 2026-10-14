@@ -31,7 +31,7 @@ Vercel Cron runs on **production only**. Previews have no cron: the harness call
 | DEMO_DIRECTOR_PASSWORD, DEMO_COORDINATOR_PASSWORD, DEMO_FRONT_DESK_PASSWORD | ✓ | ✓ (distinct) | sensitive | Rudy | not set |
 | OPENROUTER_API_KEY | ✓ | ✓ | sensitive | founder via Firia only (DECISION-LEDGER #19) | not set |
 | MIGRATE_PROD_ON_BUILD (unset ⇒ off; `1` enables prod migrations on builds from `main` only) | only when releasing | – | plain | Rudy, per prod-release-gate | not set (off) |
-| NEXT_PUBLIC_MAP_TILE_URL | ✓ | ✓ | plain | Rudy | not set |
+| NEXT_PUBLIC_MAP_STYLE_URL (unset ⇒ OpenFreeMap positron, ADR-008) | ✓ | ✓ | plain | Rudy | not set |
 
 ## Database
 See `DATABASES.md`. Rule: prod and preview never share a database branch; `DATABASE_URL` must never target [production, preview] on one value.
