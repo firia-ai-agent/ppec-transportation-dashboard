@@ -14,12 +14,14 @@ Status as of 2026-10-14 ~13:20 ET (updated in PR #9; first written in PR B-01). 
 |---|---|---|---|---|
 | Vercel Cron → `GET /api/cron/sweep` | `vercel.json` `crons` | `* * * * *` (ARCHITECTURE §6; needs Pro) | `Authorization: Bearer $CRON_SECRET`, fails closed (401) if unset, <16 chars or wrong (`src/lib/cron-auth.ts`) | B-03 PR (a) |
 | Queue trigger `ppec-timer` → `POST /api/queues/timer` | `vercel.json` `functions.experimentalTriggers` (`queue/v2beta`, Vercel Queues Beta) | on message (delayed wake-ups) | not publicly invocable (Vercel Queues) | B-03 PR (a) |
-| GitHub Action `pr-preview-cleanup` → Vercel API (list + `DELETE /v13/deployments/{id}`) | `.github/workflows/pr-preview-cleanup.yml` (PR #13) | on `pull_request` closed | repo secret `VERCEL_TOKEN` (firia1 team only); no-op if unset; never production | DECISION-LEDGER #42 |
+| ~~GitHub Action `pr-preview-cleanup`~~ (superseded by #43, PR #13 closed) → Vercel API (list + `DELETE /v13/deployments/{id}`) | `.github/workflows/pr-preview-cleanup.yml` (PR #13) | on `pull_request` closed | repo secret `VERCEL_TOKEN` (firia1 team only); no-op if unset; never production | DECISION-LEDGER #42 |
 | Queue trigger `ppec-outbox` → `POST /api/queues/outbox` | `vercel.json` `functions.experimentalTriggers` (`queue/v2beta`) | on enqueue commit (drain one message) | not publicly invocable; drain is idempotent | B-03 PR (b) |
 
 Vercel Cron runs on **production only**. Previews have no cron: the harness calls `/api/cron/sweep` with the same header (DECISION-LEDGER, previews call the sweep route themselves). Any change to these rows needs an INFRA-TEMP entry if temporary.
 
 ## Build-time DB step
+**Single DB (DECISION-LEDGER #43):** after PR #18, previews skip migrate and seed and run read-only against Neon `main`; only production from `main` with `MIGRATE_PROD_ON_BUILD=1` migrates. Neon preview branching in integration `icfg_Zyt0C77LtG5UqJhPMeARUPNd`: to be turned off by Firia in the dashboard after #18 merges (the Vercel connector cannot change it). Until then the text below describes the old per-branch setup.
+
 `pnpm vercel-build` = `node scripts/vercel-db-step.mjs && tsx scripts/vercel-seed.ts && next build`. The demo-user seed runs on preview only and never resets passwords. Previews migrate their own Neon branch on every build. Production is off unless `MIGRATE_PROD_ON_BUILD=1` and the ref is `main`. The step never prints a URL. See DATABASES.md.
 
 ## Env var names per environment (names only)

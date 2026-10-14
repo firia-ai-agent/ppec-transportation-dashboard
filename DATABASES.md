@@ -1,5 +1,7 @@
 # Databases (database-lifecycle) — owner: Rudy
 
+> **Single database (DECISION-LEDGER #43, founder 2026-10-14 2:04 PM ET):** PPEC has exactly one database, Neon `main` (`ep-divine-brook-b73452bw`). Neon preview branching is being turned off; previews then use main's `DATABASE_URL`. Safety (PR #18, lands first): only production builds from `main` with `MIGRATE_PROD_ON_BUILD=1` migrate; previews never migrate or seed; preview DB sessions are read-only (`default_transaction_read_only=on`), so a preview with an unmerged schema can only read; cron and queue routes no-op on previews. The preview-branch rows below are historical.
+
 | DB | Provider / plan | Branch | Used by | Roles | Backups / PITR | Last restore drill |
 |---|---|---|---|---|---|---|
 | ppec prod (demo-prod, synthetic) | Neon Free via Vercel-managed integration | `main` | Vercel production only | migrator, app_rw, identity_gateway, readonly (B-02) | Free-plan restore window: to record from Neon docs at setup | none yet (first before M2 sign-off) |
