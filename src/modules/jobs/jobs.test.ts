@@ -4,7 +4,8 @@ import { freshDb, SITE } from "@/test/pglite";
 import { cronAuthorized } from "@/lib/cron-auth";
 import { FakeTransport } from "./fake-transport";
 import { VercelQueueScheduler, MAX_ATTEMPTS } from "./scheduler";
-import { fire, handleWake, sweep, type Handlers } from "./runner";
+import { fire, handleWake, sweep, SimulatedCrash, type Handlers } from "./runner";
+import { LEASE_SECONDS, REWAKE_DELAY_SECONDS } from "./scheduler";
 
 let db: Db; let t: FakeTransport; let now: Date; let s: VercelQueueScheduler;
 const clock = () => now;
@@ -121,4 +122,58 @@ describe("cron auth fails closed", () => {
     [null, secret, false], [`Bearer ${secret}`, undefined, false], [`Bearer ${secret}`, "short", false],
     ["Bearer wrong", secret, false], [`Bearer ${secret}`, secret, true],
   ])("header %s secret-set %s → %s", (h, s2, ok) => expect(cronAuthorized(h as string | null, s2 as string | undefined)).toBe(ok));
+});
+
+describe("Option A: short lease + re-wake at lease expiry (kill-after-claim)", () => {
+  const due = 10; // job due 10 s after `now`
+  /** Deliver the first wake at due+j1, kill the consumer after the claim, deliver the re-wake j2 after its delay. */
+  async function killAfterClaim(j1: number, j2: number) {
+    const base = now; const { id } = await sched(`kac-${j1}-${j2}`, due);
+    let crashed = false; let firedAt: Date | null = null;
+    const hs: Handlers = { "noop.test": async () => {
+      if (!crashed) { crashed = true; throw new SimulatedCrash("process killed after claim"); }
+      firedAt = new Date(now);
+    } };
+    now = new Date(base.getTime() + (due + j1) * 1000);
+    await expect(handleWake(db, { jobId: id }, "d1", hs, clock, { transport: t })).rejects.toBeInstanceOf(SimulatedCrash);
+    expect((await state(`kac-${j1}-${j2}`)).state).toBe("CLAIMED");
+    const rewake = t.sent.filter((m) => m.jobId === id && m.idempotencyKey.startsWith("rewake:"));
+    expect(rewake.length).toBe(1); expect(rewake[0].delaySeconds).toBe(REWAKE_DELAY_SECONDS);
+    // Redelivery of the ORIGINAL message before the lease expires must not double-claim.
+    now = new Date(now.getTime() + (LEASE_SECONDS - 1) * 1000);
+    expect(await handleWake(db, { jobId: id }, "d1", hs, clock, { transport: t })).toBe("noop");
+    now = new Date(base.getTime() + (due + j1 + REWAKE_DELAY_SECONDS + j2) * 1000);
+    expect(await handleWake(db, { jobId: id }, "d1", hs, clock, { transport: t })).toBe("fired");
+    expect(await fires(id)).toBe(1);
+    return ((firedAt as unknown as Date).getTime() - (base.getTime() + due * 1000)) / 1000;
+  }
+  it("recovers a killed consumer within the 5 s bar for queue jitter up to 1 s per delivery; one fire only", async () => {
+    const rows: string[] = [];
+    for (const [j1, j2] of [[0, 0], [0.25, 0.25], [0.5, 0.5], [0.75, 0.75], [1, 1]]) {
+      ({ db } = await freshDb()); t = new FakeTransport(); now = new Date(); s = new VercelQueueScheduler(db, t, clock);
+      const late = await killAfterClaim(j1, j2);
+      rows.push(`| ${j1} s | ${j2} s | ${late.toFixed(2)} s |`);
+      expect(late).toBeLessThanOrEqual(5);
+    }
+    console.log(["| first-delivery jitter | re-wake jitter | lateness |", ...rows].join("\n"));
+  }, 120_000);
+  it("claim tokens differ per claim, so a reclaimed consumer's DONE (WHERE claimed_by = its token) matches 0 rows", async () => {
+    const { id } = await sched("fence", 0);
+    const crash: Handlers = { "noop.test": async () => { throw new SimulatedCrash("killed"); } };
+    await expect(fire(db, id, "d1", crash, "QUEUE", clock, { transport: t })).rejects.toBeInstanceOf(SimulatedCrash);
+    const a = (await db.query<{ claimed_by: string }>("SELECT claimed_by FROM ops.job WHERE id=$1", [id])).rows[0].claimed_by;
+    now = at(REWAKE_DELAY_SECONDS);
+    await expect(handleWake(db, { jobId: id }, "d1", crash, clock, { transport: t })).rejects.toBeInstanceOf(SimulatedCrash);
+    const b = (await db.query<{ claimed_by: string }>("SELECT claimed_by FROM ops.job WHERE id=$1", [id])).rows[0].claimed_by;
+    expect(a).not.toBe(b); expect(a.startsWith("d1:")).toBe(true);
+    const stale = await db.query("UPDATE ops.job SET state='DONE' WHERE id=$1 AND state='CLAIMED' AND claimed_by=$2 RETURNING id", [id, a]);
+    expect(stale.rows.length).toBe(0);
+  });
+  it("handler failure: job back to SCHEDULED, and a redelivered message fires it", async () => {
+    const { id } = await sched("redeliver", 0);
+    let n = 0; const flaky: Handlers = { "noop.test": async () => { if (n++ === 0) throw new Error("transient"); } };
+    expect(await handleWake(db, { jobId: id }, "d1", flaky, clock, { transport: t })).toBe("failed");
+    expect((await state("redeliver")).state).toBe("SCHEDULED");
+    expect(await handleWake(db, { jobId: id }, "d1", flaky, clock, { transport: t })).toBe("fired");
+  });
 });

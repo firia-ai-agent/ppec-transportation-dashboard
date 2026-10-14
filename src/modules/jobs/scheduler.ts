@@ -7,7 +7,13 @@ import { uuidv7 } from "uuidv7";
 import type { Db, Exec } from "@/db/exec";
 
 export const MAX_DELAY_SECONDS = 7 * 24 * 3600; // Vercel Queues limit
-export const LEASE_SECONDS = 60;
+/**
+ * Claim lease (ADR-001, Option A, DECISION-LEDGER): short, so a consumer that dies after claiming is recovered within
+ * the 5 s bar. Handlers are DB-only and short; a handler that outlives the lease is fenced by the claim token.
+ */
+export const LEASE_SECONDS = 3;
+/** The re-wake published at claim time arrives this long after the claim. Both sides use the app clock (claim and reclaim). */
+export const REWAKE_DELAY_SECONDS = LEASE_SECONDS; // reclaim uses claimed_until <= now, so the re-wake lands exactly at expiry
 export const MAX_ATTEMPTS = 5;
 
 export interface WakeTransport {
