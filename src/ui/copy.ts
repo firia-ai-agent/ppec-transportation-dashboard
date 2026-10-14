@@ -87,6 +87,21 @@ export const age = {
   minutes: "{n} min",
   hours: "{h} h",
   hoursMinutes: "{h} h {m} min",
+  /**
+   * The same ages in full words, for the ear only (§9). A screen reader reads "12 s" as
+   * "twelve ess" and "4 min" as "four min", so the eye keeps the short form and the
+   * screen-reader text says "12 seconds". Singular at exactly one, never "1 minutes".
+   */
+  spoken: {
+    second: "{n} second",
+    seconds: "{n} seconds",
+    minute: "{n} minute",
+    minutes: "{n} minutes",
+    hour: "{h} hour",
+    hours: "{h} hours",
+    /** Joins the two halves of "1 hour 5 minutes". */
+    separator: " ",
+  },
 } as const;
 
 /** COPY-GUIDE §5: SSE down >15 s. "SSE" is jargon and never reaches the screen. */
