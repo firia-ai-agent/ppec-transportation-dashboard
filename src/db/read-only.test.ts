@@ -4,11 +4,53 @@ import {
   READ_ONLY_REASON,
   beginSql,
   isReadOnlyDbEnv,
+  isTransactionStart,
+  passThroughGuard,
   previewSkip,
   ReadOnlyRefusedError,
+  readOnlyGuard,
   rewriteBeginReadOnly,
   rewriteBeginReadOnlyForEnv,
+  sqlText,
+  txGuardForEnv,
+  type SqlLike,
 } from "./read-only";
+
+/** A fake wire: records what the guard sent, in order. The guard's own framing shows up here too. */
+function fakeWire(failOn?: RegExp) {
+  const sent: string[] = [];
+  return {
+    sent,
+    send: async (q: SqlLike, params?: unknown[]) => {
+      sent.push(sqlText(q));
+      if (failOn?.test(sqlText(q))) throw new Error(`boom: ${sqlText(q)}`);
+      return { rows: [{ q: sqlText(q), params }] };
+    },
+  };
+}
+
+/** Every spelling of a statement that ends, or can end, the transaction the guard is holding open. */
+const TX_END_FORMS = [
+  "COMMIT", "commit", "  Commit  ", "COMMIT;", "commit ;", "\tcommit\n",
+  "COMMIT WORK", "commit transaction", "COMMIT AND CHAIN", "commit and no chain",
+  "COMMIT WORK AND CHAIN", "commit transaction and no chain",
+  "ROLLBACK", "rollback", "ROLLBACK WORK", "rollback transaction",
+  "ROLLBACK AND CHAIN", "rollback work and no chain",
+  "END", "end", "END WORK", "end transaction", "END AND CHAIN", "end work and no chain",
+  "ABORT", "abort", "ABORT WORK", "abort transaction", "ABORT AND CHAIN",
+  "PREPARE TRANSACTION 'ppec-1'", "prepare transaction 'ppec-1'",
+  "COMMIT PREPARED 'ppec-1'", "commit prepared 'ppec-1'",
+  "ROLLBACK PREPARED 'ppec-1'", "rollback prepared 'ppec-1'",
+  "/* drizzle */ commit -- done\n", "commit /* and chain */", "COMMIT\n\n",
+];
+/** Savepoint work: it rolls back or forgets part of the transaction, but cannot end it. */
+const SAVEPOINT_FORMS = [
+  "SAVEPOINT sp1", "savepoint sp1",
+  "RELEASE SAVEPOINT sp1", "release savepoint sp1", "release sp1",
+  "ROLLBACK TO SAVEPOINT sp1", "rollback to savepoint sp1", "rollback to sp1",
+  "ROLLBACK TRANSACTION TO SAVEPOINT sp1", "rollback work to savepoint sp1",
+  'rollback to savepoint "my sp"',
+];
 
 describe("preview read-only fail-safe (DECISION-LEDGER #43)", () => {
   it("treats only VERCEL_ENV=preview as read-only", () => {
@@ -160,13 +202,54 @@ describe("preview read-only fail-safe (DECISION-LEDGER #43)", () => {
 
     it("leaves every other statement alone, object identity included", () => {
       for (const s of [
-        "COMMIT", "ROLLBACK", "END", "SELECT 1", "BEGINNING", "savepoint sp1",
-        "release savepoint sp1", "rollback to savepoint sp1", "INSERT INTO t VALUES (1)", "",
+        "SELECT 1", "BEGINNING", "PREPARE p AS SELECT 1", "EXECUTE p",
+        ...SAVEPOINT_FORMS, "INSERT INTO t VALUES (1)", "",
       ]) {
         expect(rewriteBeginReadOnly(s), s).toBe(s);
       }
       const cfg = { text: "SELECT 1" };
       expect(rewriteBeginReadOnly(cfg)).toBe(cfg);
+    });
+
+    it("refuses every transaction-ending form: ending the transaction is ending the guard", () => {
+      for (const s of TX_END_FORMS) {
+        expect(() => rewriteBeginReadOnly(s), s).toThrow(ReadOnlyRefusedError);
+        expect(() => rewriteBeginReadOnly({ text: s }), s).toThrow(/DECISION-LEDGER #43/);
+        // Refused whether or not a transaction is open: there is no context in which a caller may end one.
+        expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), s).toThrow(ReadOnlyRefusedError);
+      }
+    });
+
+    it("allows savepoint work, which cannot end the transaction", () => {
+      for (const s of SAVEPOINT_FORMS) {
+        expect(rewriteBeginReadOnly(s), s).toBe(s);
+        expect(rewriteBeginReadOnly(s, { inTransaction: true }), s).toBe(s);
+      }
+    });
+
+    it("refuses a ROLLBACK TO that is not purely a savepoint rollback", () => {
+      for (const s of ["rollback to savepoint sp1 and chain", "ROLLBACK TO", "rollback and chain to sp1"]) {
+        expect(() => rewriteBeginReadOnly(s), s).toThrow(ReadOnlyRefusedError);
+      }
+    });
+
+    it("refuses a transaction start inside an already-open guarded transaction", () => {
+      for (const s of ["begin", "BEGIN READ ONLY", "begin work", "START TRANSACTION",
+        "begin isolation level serializable", "BEGIN TRANSACTION READ WRITE"]) {
+        expect(rewriteBeginReadOnly(s), s).toMatch(/\bREAD ONLY$/); // fine with none open
+        expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), s).toThrow(ReadOnlyRefusedError);
+      }
+    });
+
+    it("refuses a RESET of the read-only mode, and any DISCARD", () => {
+      for (const s of [
+        "RESET ALL", "reset all",
+        "RESET transaction_read_only", "reset default_transaction_read_only",
+        "DISCARD ALL", "discard all", "DISCARD SEQUENCES",
+      ]) {
+        expect(() => rewriteBeginReadOnly(s), s).toThrow(ReadOnlyRefusedError);
+      }
+      expect(rewriteBeginReadOnly("RESET search_path")).toBe("RESET search_path");
     });
 
     it("the refusal names the directive and carries the SQL, never any parameter", () => {
@@ -191,6 +274,127 @@ describe("preview read-only fail-safe (DECISION-LEDGER #43)", () => {
           "SET TRANSACTION READ WRITE", "begin; insert into t values (1)"]) {
           expect(rewriteBeginReadOnlyForEnv({ VERCEL_ENV: env }, s), s).toBe(s);
         }
+      }
+    });
+  });
+
+  describe("isTransactionStart", () => {
+    it("sees a transaction start through case, padding and comments only", () => {
+      for (const s of ["begin", "BEGIN ", "  begin transaction ", "/* drizzle */ begin -- go\n",
+        "START TRANSACTION", "begin isolation level serializable"]) {
+        expect(isTransactionStart(s), s).toBe(true);
+      }
+      for (const s of ["COMMIT", "SELECT 1", "BEGINNING", "SELECT 'begin'", "begin; select 1", ""]) {
+        expect(isTransactionStart(s), s).toBe(false);
+      }
+    });
+  });
+
+  describe("readOnlyGuard", () => {
+    it("opens and closes the transaction through its own path, not the caller's", async () => {
+      const { sent, send } = fakeWire();
+      const g = readOnlyGuard(send);
+      expect(g.open).toBe(false);
+      await g.begin();
+      expect(g.open).toBe(true);
+      await g.query("SELECT 1");
+      await g.commit();
+      expect(g.open).toBe(false);
+      expect(sent).toEqual([BEGIN_READ_ONLY, "SELECT 1", "COMMIT"]);
+    });
+
+    it("refuses every transaction-ending form a caller sends, with nothing reaching the wire", async () => {
+      for (const stmt of TX_END_FORMS) {
+        const { sent, send } = fakeWire();
+        const g = readOnlyGuard(send);
+        await g.begin();
+        expect(() => g.query(stmt), stmt).toThrow(/DECISION-LEDGER #43/);
+        expect(sent, stmt).toEqual([BEGIN_READ_ONLY]); // the refusal is synchronous: nothing was sent
+        expect(g.open, stmt).toBe(true); // ... and the read-only transaction is still open
+        await g.commit();
+        expect(sent, stmt).toEqual([BEGIN_READ_ONLY, "COMMIT"]);
+      }
+    });
+
+    it("refuses a second transaction start while its own transaction is open", async () => {
+      const { sent, send } = fakeWire();
+      const g = readOnlyGuard(send);
+      await g.begin();
+      for (const stmt of ["begin", "START TRANSACTION", "begin isolation level serializable read write"]) {
+        expect(() => g.query(stmt), stmt).toThrow(/DECISION-LEDGER #43/);
+      }
+      expect(sent).toEqual([BEGIN_READ_ONLY]);
+    });
+
+    it("opens READ ONLY for the caller's own transaction start when none is open yet", async () => {
+      const { sent, send } = fakeWire();
+      const g = readOnlyGuard(send);
+      await g.query("begin isolation level serializable read write");
+      expect(g.open).toBe(true);
+      expect(sent).toEqual(["BEGIN ISOLATION LEVEL SERIALIZABLE, READ ONLY"]);
+    });
+
+    it("gives a statement its own read-only transaction when none is open, so none runs in autocommit", async () => {
+      const { sent, send } = fakeWire();
+      const g = readOnlyGuard(send);
+      await g.query("INSERT INTO t VALUES (1)");
+      expect(sent).toEqual([BEGIN_READ_ONLY, "INSERT INTO t VALUES (1)", "COMMIT"]);
+      expect(g.open).toBe(false);
+    });
+
+    it("rolls that one back when it fails", async () => {
+      const { sent, send } = fakeWire(/INSERT/);
+      const g = readOnlyGuard(send);
+      await expect(g.query("INSERT INTO t VALUES (1)")).rejects.toThrow("boom");
+      expect(sent).toEqual([BEGIN_READ_ONLY, "INSERT INTO t VALUES (1)", "ROLLBACK"]);
+      expect(g.open).toBe(false);
+    });
+
+    it("closes at most once, so a double close sends no stray COMMIT", async () => {
+      const { sent, send } = fakeWire();
+      const g = readOnlyGuard(send);
+      await g.begin();
+      await g.commit();
+      await g.commit();
+      await g.rollback();
+      expect(sent).toEqual([BEGIN_READ_ONLY, "COMMIT"]);
+    });
+  });
+
+  describe("passThroughGuard (everywhere but previews)", () => {
+    it("sends the plain framing and every caller statement exactly as written", async () => {
+      const { sent, send } = fakeWire();
+      const g = passThroughGuard(send);
+      await g.begin();
+      await g.query("BEGIN READ WRITE");
+      await g.query("SET TRANSACTION READ WRITE");
+      await g.query("INSERT INTO t VALUES (1)");
+      await g.query("COMMIT");
+      await g.commit();
+      await g.rollback();
+      expect(sent).toEqual([
+        "BEGIN", "BEGIN READ WRITE", "SET TRANSACTION READ WRITE", "INSERT INTO t VALUES (1)",
+        "COMMIT", "COMMIT", "ROLLBACK",
+      ]);
+      expect(sent.join(" | ")).not.toMatch(/READ ONLY/i);
+    });
+  });
+
+  describe("txGuardForEnv", () => {
+    it("guards on previews and passes through everywhere else", async () => {
+      const preview = fakeWire();
+      const gp = txGuardForEnv({ VERCEL_ENV: "preview" }, preview.send);
+      await gp.begin();
+      expect(() => gp.query("COMMIT")).toThrow(/DECISION-LEDGER #43/);
+      expect(preview.sent).toEqual([BEGIN_READ_ONLY]);
+
+      for (const env of ["production", "development", undefined]) {
+        const other = fakeWire();
+        const g = txGuardForEnv({ VERCEL_ENV: env }, other.send);
+        await g.begin();
+        await g.query("COMMIT");
+        await g.query("begin read write");
+        expect(other.sent, String(env)).toEqual(["BEGIN", "COMMIT", "begin read write"]);
       }
     });
   });

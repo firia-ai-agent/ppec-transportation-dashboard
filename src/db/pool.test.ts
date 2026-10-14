@@ -39,7 +39,14 @@ describe("readOnlyQuery", () => {
   });
 
   it("refuses a statement that would escape the transaction, before checking a client out", async () => {
-    for (const stmt of ["begin; insert into t values (1)", "SET TRANSACTION READ WRITE", "commit; select 1"]) {
+    for (const stmt of [
+      "begin; insert into t values (1)", "SET TRANSACTION READ WRITE", "commit; select 1",
+      // The guard's transaction is open by the time the caller's statement runs, so a caller's own
+      // transaction start or COMMIT/ROLLBACK is refused — and costs no connection either.
+      "COMMIT", "commit work", "ROLLBACK", "rollback and chain", "END", "abort transaction",
+      "PREPARE TRANSACTION 'x'", "commit prepared 'x'", "rollback prepared 'x'",
+      "begin", "BEGIN TRANSACTION", "start transaction", "begin isolation level serializable read write",
+    ]) {
       const { pool, sent, checkedOut } = fakePool();
       await expect(readOnlyQuery(pool, stmt)).rejects.toThrow(/DECISION-LEDGER #43/);
       expect(sent, stmt).toEqual([]);
@@ -47,10 +54,10 @@ describe("readOnlyQuery", () => {
     }
   });
 
-  it("opens READ ONLY even when the caller's own statement is a transaction start", async () => {
+  it("still allows savepoint work inside its transaction: it cannot end one", async () => {
     const { pool, sent } = fakePool();
-    await readOnlyQuery(pool, "begin isolation level serializable read write");
-    expect(sent).toEqual([BEGIN_READ_ONLY, "BEGIN ISOLATION LEVEL SERIALIZABLE, READ ONLY", "COMMIT"]);
+    await readOnlyQuery(pool, "rollback to savepoint sp1");
+    expect(sent).toEqual([BEGIN_READ_ONLY, "rollback to savepoint sp1", "COMMIT"]);
   });
 
   it("rolls back and releases when the statement fails", async () => {
@@ -101,12 +108,44 @@ describe("readOnlyPool (the drizzle view)", () => {
     const ro = readOnlyPool(pool as unknown as Pool);
     const c = await ro.connect();
     await c.query("begin " as never);
-    await c.query({ text: "begin " } as never);
     await c.query("INSERT INTO t VALUES (1)" as never);
-    await c.query("commit" as never);
+    await c.query("savepoint sp1" as never);
     c.release();
-    expect(sent).toEqual([BEGIN_READ_ONLY, BEGIN_READ_ONLY, "INSERT INTO t VALUES (1)", "commit"]);
+    expect(sent).toEqual([BEGIN_READ_ONLY, "INSERT INTO t VALUES (1)", "savepoint sp1", "ROLLBACK"]);
     expect(checkedOut()).toBe(0);
+  });
+
+  it("refuses the COMMIT the caller sends, and closes its own transaction on release instead", async () => {
+    const { pool, sent, checkedOut } = fakePool();
+    const ro = readOnlyPool(pool as unknown as Pool);
+    const c = await ro.connect();
+    await c.query("begin " as never);
+    expect(() => c.query("commit" as never)).toThrow(/DECISION-LEDGER #43/);
+    // Nothing was sent, so the READ ONLY transaction is still open: the next write stays inside it.
+    expect(sent).toEqual([BEGIN_READ_ONLY]);
+    await c.query("INSERT INTO t VALUES (1)" as never);
+    expect(sent).toEqual([BEGIN_READ_ONLY, "INSERT INTO t VALUES (1)"]);
+    // The guard closes it, queued on this client before it goes back to the pool.
+    c.release();
+    expect(sent).toEqual([BEGIN_READ_ONLY, "INSERT INTO t VALUES (1)", "ROLLBACK"]);
+    expect(checkedOut()).toBe(0);
+  });
+
+  it("wraps a statement sent with no transaction open, so it cannot run in autocommit", async () => {
+    const { pool, sent } = fakePool();
+    const ro = readOnlyPool(pool as unknown as Pool);
+    const c = await ro.connect();
+    await c.query("INSERT INTO t VALUES (1)" as never);
+    c.release();
+    expect(sent).toEqual([BEGIN_READ_ONLY, "INSERT INTO t VALUES (1)", "COMMIT"]);
+  });
+
+  it("sends no stray ROLLBACK on release when it has no transaction open", async () => {
+    const { pool, sent } = fakePool();
+    const ro = readOnlyPool(pool as unknown as Pool);
+    const c = await ro.connect();
+    c.release();
+    expect(sent).toEqual([]);
   });
 
   it.each([
@@ -122,20 +161,26 @@ describe("readOnlyPool (the drizzle view)", () => {
     ["BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ WRITE, NOT DEFERRABLE",
       "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ, NOT DEFERRABLE, READ ONLY"],
   ])("sends %j as %j, whatever form the transaction was opened in", async (opened, expected) => {
-    const { pool, sent } = fakePool();
-    const ro = readOnlyPool(pool as unknown as Pool);
-    const c = await ro.connect();
-    await c.query(opened as never);
-    await c.query({ text: opened, rowMode: "array" } as never);
-    c.release();
-    expect(sent).toEqual([expected, expected]);
-    expect(sent.join(" | ")).not.toMatch(/READ\s+WRITE/i);
+    for (const form of [opened, { text: opened, rowMode: "array" }]) {
+      const { pool, sent } = fakePool();
+      const ro = readOnlyPool(pool as unknown as Pool);
+      const c = await ro.connect();
+      await c.query(form as never);
+      // A second start, inside the transaction the first one opened, is refused rather than sent.
+      expect(() => c.query(form as never)).toThrow(/DECISION-LEDGER #43/);
+      c.release();
+      expect(sent).toEqual([expected, "ROLLBACK"]);
+      expect(sent.join(" | ")).not.toMatch(/READ\s+WRITE/i);
+    }
   });
 
   it.each([
     "SET TRANSACTION READ WRITE",
     "set session characteristics as transaction read write",
     "SET transaction_read_only = off",
+    "RESET ALL",
+    "reset default_transaction_read_only",
+    "DISCARD ALL",
     "begin; insert into t values (1)",
     "commit; insert into t values (1)",
     "begin isolation level bogus",
@@ -147,6 +192,43 @@ describe("readOnlyPool (the drizzle view)", () => {
     c.release();
     expect(sent).toEqual([]);
   });
+
+  /**
+   * The gap this hotfix closes: a caller-sent transaction-control statement ended the guarded READ ONLY
+   * transaction, and everything after it ran in autocommit — writable, against the one production DB.
+   * Every form is refused now, with nothing sent, whether or not a transaction is open.
+   */
+  it.each([
+    "COMMIT", "commit", "  Commit  ", "commit ;", "COMMIT WORK", "commit transaction",
+    "COMMIT AND CHAIN", "commit work and no chain", "/* drizzle */ commit -- done\n",
+    "ROLLBACK", "rollback", "ROLLBACK WORK", "rollback transaction", "rollback and chain",
+    "END", "end work", "end transaction", "END AND CHAIN",
+    "ABORT", "abort work", "ABORT AND CHAIN",
+    "PREPARE TRANSACTION 'ppec-1'", "prepare transaction 'ppec-1'",
+    "COMMIT PREPARED 'ppec-1'", "ROLLBACK PREPARED 'ppec-1'",
+  ])("refuses the transaction-ending %j, open transaction or not", async (stmt) => {
+    for (const opener of [undefined, "begin "]) {
+      const { pool, sent } = fakePool();
+      const ro = readOnlyPool(pool as unknown as Pool);
+      const c = await ro.connect();
+      if (opener) await c.query(opener as never);
+      const before = [...sent];
+      expect(() => c.query(stmt as never), stmt).toThrow(/DECISION-LEDGER #43/);
+      expect(sent, stmt).toEqual(before);
+      c.release();
+    }
+  });
+
+  it.each(["savepoint sp1", "release savepoint sp1", "rollback to savepoint sp1", "release sp1"])(
+    "still sends %j: savepoint work cannot end the transaction", async (stmt) => {
+      const { pool, sent } = fakePool();
+      const ro = readOnlyPool(pool as unknown as Pool);
+      const c = await ro.connect();
+      await c.query("begin " as never);
+      await c.query(stmt as never);
+      c.release();
+      expect(sent).toEqual([BEGIN_READ_ONLY, stmt, "ROLLBACK"]);
+    });
 });
 
 describe("getDb (drizzle) wiring", () => {

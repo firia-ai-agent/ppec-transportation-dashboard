@@ -35,7 +35,9 @@ const expectRejected = async (p: PromiseLike<unknown>, why: RegExp, what: string
 };
 /** Postgres itself refused the write, because the transaction it ran in is READ ONLY. */
 const expectRefusedReadOnly = (p: PromiseLike<unknown>) =>
-  expectRejected(p, /read-only transaction/, "the write to be refused by the server");
+  // `in a read-only transaction` is Postgres' own wording; the app's refusal says "escape the
+  // read-only transaction", so this cannot be satisfied by an app-side refusal by accident.
+  expectRejected(p, /in a read-only transaction/, "the write to be refused by the server");
 /** The app refused the statement before sending it, because it could not be made read-only. */
 const expectRefusedByApp = (p: PromiseLike<unknown>) =>
   expectRejected(p, /DECISION-LEDGER #43/, "the statement to be refused by the app");
@@ -169,7 +171,9 @@ describe("PgBouncer transaction mode: previews and production take turns on one 
       await expectRefusedReadOnly(getNeonDb().tx((tx) => tx.query("INSERT INTO shared VALUES (1)", [])));
       await expectRefusedReadOnly(getNeonDb().query("INSERT INTO shared VALUES (2)", []));
       await expectRefusedReadOnly(getDb().execute(drizzleSql`INSERT INTO shared VALUES (3)`));
-      await expectRefusedReadOnly(getDb().transaction((tx) => tx.execute(drizzleSql`INSERT INTO shared VALUES (4)`)));
+      // A drizzle transaction opens READ ONLY, the server refuses the write inside it, and then
+      // drizzle's own `rollback` — a caller-sent transaction end — is refused by the app as well.
+      await expectRefusedByApp(getDb().transaction((tx) => tx.execute(drizzleSql`INSERT INTO shared VALUES (4)`)));
     });
     // Four writes, four transactions, each one opened READ ONLY on the shared backend.
     expect(statements.filter((s) => s === BEGIN_READ_ONLY)).toHaveLength(4);
@@ -299,7 +303,8 @@ describe("preview: every transaction-start form ends up READ ONLY (real Postgres
     expect(h.sent[from]).toMatch(/\bREAD ONLY$/);
     expect(h.sent[from]).not.toMatch(/READ\s+WRITE/i);
     await expect(c.query("INSERT INTO forms VALUES (1)" as never)).rejects.toThrow(/read-only transaction/);
-    await c.query("ROLLBACK" as never);
+    // The caller cannot end it; releasing the client is what closes the guard's transaction.
+    expect(() => c.query("ROLLBACK" as never)).toThrow(/DECISION-LEDGER #43/);
     c.release();
     expect(await rows()).toBe(0);
   });
@@ -332,7 +337,9 @@ describe("preview: every transaction-start form ends up READ ONLY (real Postgres
       { isolationLevel: "repeatable read" } as const,
     ]) {
       const from = h.sent.length;
-      await expectRefusedReadOnly(
+      // The server refuses the write inside it; drizzle then sends its own `rollback`, which the app
+      // refuses like any other caller-sent transaction end — so that is the error that comes back.
+      await expectRefusedByApp(
         getDb().transaction((tx) => tx.execute(drizzleSql`INSERT INTO forms VALUES (3)`), config),
       );
       const opened = h.sent.slice(from).find((s) => /^(?:BEGIN|START)/i.test(s));
@@ -361,12 +368,17 @@ describe("preview: every transaction-start form ends up READ ONLY (real Postgres
     expect(await rows()).toBe(0);
   });
 
-  it("a nested transaction start inside getNeonDb().tx is opened READ ONLY too", async () => {
-    const from = h.sent.length;
-    await getNeonDb().tx((tx) => tx.query("BEGIN ISOLATION LEVEL SERIALIZABLE READ WRITE", []));
-    const nested = h.sent.slice(from)[1];
-    expect(nested).toBe("BEGIN ISOLATION LEVEL SERIALIZABLE, READ ONLY");
-    expect(await rows()).toBe(0);
+  it("a nested transaction start inside getNeonDb().tx is refused, not re-negotiated", async () => {
+    for (const nested of [
+      "BEGIN", "begin ", "BEGIN ISOLATION LEVEL SERIALIZABLE READ WRITE", "START TRANSACTION",
+      "begin read only",
+    ]) {
+      const from = h.sent.length;
+      await expectRefusedByApp(getNeonDb().tx((tx) => tx.query(nested, [])));
+      // Only the guard's own BEGIN and its ROLLBACK reached the server.
+      expect(h.sent.slice(from), nested).toEqual([BEGIN_READ_ONLY, "ROLLBACK"]);
+      expect(await rows()).toBe(0);
+    }
   });
 
   it("off previews every one of those forms is sent exactly as written", async () => {
@@ -385,5 +397,139 @@ describe("preview: every transaction-start form ends up READ ONLY (real Postgres
     await getNeonDb().tx((tx) => tx.query("INSERT INTO forms VALUES (6)", []));
     expect(await rows()).toBe(1);
     await backend.query("DELETE FROM forms");
+  });
+});
+
+/**
+ * Every spelling of a transaction-ending statement, proved against real Postgres on the preview path
+ * (hotfix PR #20 blocker 2). Before the fix a caller-sent `COMMIT` went straight through: it ended the
+ * guarded READ ONLY transaction, and the next statement ran in autocommit — writable, against the one
+ * production database. Each case below sends one such statement through a preview path that has the
+ * guard's transaction open, and proves
+ *   (a) the app refuses it and nothing reaches the server, and
+ *   (b) the guarded transaction is therefore still open and still READ ONLY, so the write that follows
+ *       in that same flow is refused by Postgres itself.
+ * The last test is the control: off previews that very sequence is passed through and the write lands.
+ */
+describe("preview: a caller cannot end the guarded transaction (real Postgres)", () => {
+  let backend: PGlite;
+  let outerPool: PoolLike | Pool | undefined;
+
+  /** The statements that end a transaction, or hand it to two-phase commit, in every spelling. */
+  const TX_END_FORMS = [
+    "COMMIT", "commit", "  Commit  ", "commit ;", "\tcommit\n",
+    "COMMIT WORK", "commit transaction", "COMMIT AND CHAIN", "commit work and no chain",
+    "/* drizzle */ commit -- done\n",
+    "ROLLBACK", "rollback", "ROLLBACK WORK", "rollback transaction", "rollback and chain",
+    "END", "end", "END WORK", "end transaction", "END AND CHAIN",
+    "ABORT", "abort", "ABORT WORK", "abort transaction", "ABORT AND CHAIN",
+    "PREPARE TRANSACTION 'ppec-1'", "prepare transaction 'ppec-1'",
+    "COMMIT PREPARED 'ppec-1'", "commit prepared 'ppec-1'",
+    "ROLLBACK PREPARED 'ppec-1'", "rollback prepared 'ppec-1'",
+  ];
+
+  beforeAll(async () => {
+    backend = new PGlite();
+    await backend.exec("CREATE TABLE control (id int primary key)");
+    const run = async (q: SqlLike, params?: unknown[]) => {
+      h.sent.push(text(q));
+      return { rows: (await backend.query(text(q), params as unknown[] | undefined)).rows as unknown[] };
+    };
+    const client: ClientLike = { query: run, release: () => {} };
+    const p = Object.create(Pool.prototype) as Pool;
+    Object.assign(p, { query: run, connect: async () => client });
+    outerPool = h.pool;
+    h.pool = p;
+  }, 60_000);
+
+  afterAll(() => { h.pool = outerPool; });
+  beforeEach(() => { process.env.VERCEL_ENV = "preview"; });
+  afterEach(async () => { await backend.query("ROLLBACK").catch(() => {}); });
+
+  const rows = async () => (await backend.query<{ n: number }>("SELECT count(*)::int n FROM control")).rows[0].n;
+
+  it.each(TX_END_FORMS)("%j on a checked-out client: refused, and the next write is still refused", async (stmt) => {
+    const ro = readOnlyPool(h.pool as Pool);
+    const c = await ro.connect();
+    await c.query("begin " as never); // drizzle's own opener: the guard opens READ ONLY
+    const from = h.sent.length;
+    expect(() => c.query(stmt as never), stmt).toThrow(/DECISION-LEDGER #43/);
+    expect(h.sent.slice(from), stmt).toEqual([]); // (a) nothing left the app
+    // (b) the transaction was never ended, so the write is still inside it and the server refuses it.
+    await expectRefusedReadOnly(c.query("INSERT INTO control VALUES (1)" as never));
+    c.release();
+    expect(await rows(), stmt).toBe(0);
+  });
+
+  it.each(TX_END_FORMS)("%j inside getNeonDb().tx: refused, and the next write is still refused", async (stmt) => {
+    const from = h.sent.length;
+    await getNeonDb().tx(async (tx) => {
+      await expectRefusedByApp(tx.query(stmt, [])); // (a)
+      await expectRefusedReadOnly(tx.query("INSERT INTO control VALUES (2)", [])); // (b)
+    });
+    // The guard opened the transaction and the guard closed it: no caller statement in between.
+    expect(h.sent.slice(from)[0], stmt).toBe(BEGIN_READ_ONLY);
+    expect(h.sent.slice(from).slice(1), stmt).toEqual(["INSERT INTO control VALUES (2)", "COMMIT"]);
+    expect(await rows(), stmt).toBe(0);
+  });
+
+  it.each(TX_END_FORMS)("%j through the autocommit path: refused before a client is checked out", async (stmt) => {
+    const from = h.sent.length;
+    await expectRefusedByApp(getNeonDb().query(stmt, []));
+    expect(h.sent.slice(from), stmt).toEqual([]);
+    expect(await rows(), stmt).toBe(0);
+  });
+
+  it("savepoint work still runs inside the guarded transaction, and still cannot write", async () => {
+    const ro = readOnlyPool(h.pool as Pool);
+    const c = await ro.connect();
+    await c.query("begin " as never);
+    await c.query("savepoint sp1" as never);
+    await expectRefusedReadOnly(c.query("INSERT INTO control VALUES (3)" as never));
+    await c.query("rollback to savepoint sp1" as never); // recovers the aborted transaction
+    await c.query("release savepoint sp1" as never);
+    const read = await (c.query("SELECT 1 n" as never) as Promise<{ rows: unknown[] }>);
+    expect(read.rows).toEqual([{ n: 1 }]);
+    c.release();
+    expect(await rows()).toBe(0);
+  });
+
+  it("a statement sent with no transaction open gets its own, so it is never writable", async () => {
+    const ro = readOnlyPool(h.pool as Pool);
+    const c = await ro.connect();
+    const from = h.sent.length;
+    await expectRefusedReadOnly(c.query("INSERT INTO control VALUES (4)" as never));
+    expect(h.sent.slice(from)).toEqual([BEGIN_READ_ONLY, "INSERT INTO control VALUES (4)", "ROLLBACK"]);
+    c.release();
+    expect(await rows()).toBe(0);
+  });
+
+  it("a drizzle transaction cannot complete on a preview: its own `commit` is a caller-sent one", async () => {
+    // Deliberate, and the price of refusing rather than guessing: drizzle frames its transactions with
+    // `begin`/`commit` through the very client wrapper a caller's raw COMMIT goes through, so its close
+    // is refused too. Previews read through getDb().execute (its own read-only transaction) or
+    // getNeonDb().tx, where the guard — not the caller — owns the framing. Nothing is left open on the
+    // backend either: releasing the client rolls the guard's transaction back.
+    const from = h.sent.length;
+    await expectRefusedByApp(getDb().transaction((tx) => tx.execute(drizzleSql`SELECT 1`)));
+    expect(h.sent.slice(from)).toEqual([BEGIN_READ_ONLY, "SELECT 1", "ROLLBACK"]);
+    expect((await backend.query<Record<string, string>>("SHOW transaction_read_only")).rows[0]
+      .transaction_read_only).toBe("off");
+    // The preview-safe paths still read.
+    expect((await getNeonDb().tx((tx) => tx.query<{ n: number }>("SELECT 2 n", []))).rows).toEqual([{ n: 2 }]);
+    expect((await getDb().execute(drizzleSql`SELECT 3 n`)).rows).toEqual([{ n: 3 }]);
+  });
+
+  it("off previews the same sequence is passed through, COMMIT included, and the write lands", async () => {
+    process.env.VERCEL_ENV = "production";
+    const from = h.sent.length;
+    await getNeonDb().tx(async (tx) => {
+      await tx.query("COMMIT", []); // exactly the escape previews now refuse
+      await tx.query("INSERT INTO control VALUES (5)", []);
+    });
+    expect(h.sent.slice(from, from + 3)).toEqual(["BEGIN", "COMMIT", "INSERT INTO control VALUES (5)"]);
+    expect(h.sent.slice(from).join(" | ")).not.toMatch(/READ ONLY/i);
+    expect(await rows()).toBe(1);
+    await backend.query("DELETE FROM control");
   });
 });
