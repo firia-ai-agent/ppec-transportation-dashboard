@@ -1,14 +1,14 @@
 # PPEC Transport Dashboard — build plan M2–M9 (PRD build to AT-01…18 PASS (mock))
 
-**Status: Accepted (Firia relay 2026-10-14 14:08 ET, answers to all 9 founder questions; ledger rows 44–52), except where a line is marked Proposed.** ETAs remain estimates (Unverified). Written 2026-10-14 ~14:40 ET at `main` after PR #12/#2.
+**Status: Proposed (Rudy), for founder review.** Only the §5 founder answers are accepted (Firia relay 2026-10-14 14:08 ET; ledger rows 44–52); everything else, including milestones and ETAs, stays Proposed. ETAs are estimates (Unverified). First written 2026-10-14 14:07 ET (commit 65fcff0); revised 14:20 ET for Veri's FAIL on #17 and Firia's decision at 14:15 ET.
 
 ```
 READER: founder, Firia, Veri, Vera. DECISION IT SERVES: build order + ETAs for the rest of P1 (mock).
 SOURCES: docs/PRD-v1.0.txt §14 (l.1054–1064), §18 (l.1325–1334), §20 backlog (l.1725–1846); docs/BUILD-PLAN.md; docs/LINEAR.md;
-Linear team PPE (project "PPEC Transport Dashboard — POC (mock)", 45 issues read 2026-10-14 14:30 ET); /workspace M1-PLAN.md; DECISION-LEDGER rows 1–40.
+Linear team PPE (project "PPEC Transport Dashboard — POC (mock)", 45 issues read 2026-10-14 ~14:00 ET); /workspace M1-PLAN.md; DECISION-LEDGER rows 1–40.
 ```
 
-## 0. Where we are (2026-10-14 14:30 ET)
+## 0. Where we are (2026-10-14 14:05 ET)
 - **Merged:** B-01 (PPE-9, #4), B-02 schema + 10 machines (PPE-10, #5), M1 Auth.js login (PPE-11 part, #6), B-03 scheduler/Queues/sweep + outbox + follow-ups (PPE-12, #7/#8/#12), docs #1/#3, design guide #2.
 - **Open:** #9 infra docs (Veri FAIL, fix in progress), #10 Option A timer lease (Veri FAIL, fix in progress), #14 UI shell/tokens/DEMO banner (PPE-21 part), #15 Vera docs, #16 outbound free-text guard; #13 to be closed (founder 14:04 ET: one Neon DB, no preview branches).
 - **Not yet PASS:** every AT/TEST issue (PPE-25…45). TEST-INF-01 (PPE-43) is unproven until #10 merges and a live run passes (Veri, #10 review).
@@ -18,34 +18,35 @@ Linear team PPE (project "PPEC Transport Dashboard — POC (mock)", 45 issues re
 1. All code via Claude Code CLI; Veri gates every PR (review ≈10–20 min, fix round ≈20–40 min); Vera gates every UI PR for taste.
 2. One PR ≈ 60–120 min wall clock end to end (build + checks + Vercel preview + Veri review + one fix round). **Two parallel Claude Code tracks** (A: domain/agent, B: UI/fleet), ≈5–7 merged PRs per working day combined.
 3. Working window 08:00–22:00 ET, every day including the weekend (Oct 17–18) — weekends included (row 49).
-4. Previews share the single Neon DB `ep-divine-brook` (founder 14:04 ET), so no more "Resource provisioning failed" blocks.
+4. Founder directive 14:04 ET: one Neon DB (`ep-divine-brook`), no per-preview branch. **Not in effect yet:** `main` still creates a Neon branch per preview and migrates + seeds demo users on preview builds (`package.json` vercel-build, `scripts/vercel-seed.ts`). Per Firia's decision at 14:15 ET the switch is held until infra PR #18 merges and Veri verifies it; INFRA-BASELINE.md, DATABASES.md and README.md:26 still describe per-preview branches and are **pending #18** (the infra track corrects them in/after #18).
 5. OpenRouter key is in Vercel env (ledger row 20) before M3 starts.
 6. ETAs are **estimates, Unverified**; PRD ED figures (l.1725–1809, 109 ED) assume human engineers + live integrations and are not used.
-7. TEST-INF-01 needs 3 runs on separate days (ARCHITECTURE.md §7 / M1-PLAN §1), so the exit cannot be earlier than the 3rd day after #10 merges.
+7. TEST-INF-01 needs 3 runs on separate days (ARCHITECTURE.md §7 / M1-PLAN §1). Schedule: #10 merges Thu Oct 15 AM → run 1 Thu Oct 15, run 2 Fri Oct 16, run 3 Sat Oct 17; Veri re-runs once in M9 (Mon Oct 19) on the release SHA. A FAIL on any run restarts the count and moves the exit.
+8. **Nothing is deferred** (Firia decision 2026-10-14 14:15 ET): B-16 encryption (PRD l.1806) is in M8 and the B-15 runbook (l.1801) is in M9, both inside the Mon Oct 19 date.
 
 ## 2. Milestones (critical-path order)
 Order follows PRD l.1846 (B-04 → B-07/B-08/B-03 → B-12 → B-09/B-13 → B-10/B-11 → B-06 → B-14/B-15), with B-12 (screens) pulled forward because the founder asked for screens first and it runs in parallel from B-03 (BUILD-PLAN.md summary).
 
 | M | Name | Tickets | ATs unlocked (to Veri) | Depends on | Track | ETA done (ET) |
 |---|---|---|---|---|---|---|
-| M2 | Live board + messaging simulation + seed slice (seed slice moved into M2, row 44) | PPE-21 (B-12: shell #14, board SURF-01, drawer SURF-02, inbox SURF-03, exceptions SURF-05, SSE), PPE-17 (B-04 SIM + persona phones + consent), PPE-24 *seed slice only* (§18.1 dataset), PPE-14 (B-07), #10 → PPE-43 run 1 | AT-08 (PPE-32), AT-17 (PPE-40), AT-07 board half; TEST-INF-01 run 1 | B-03 merged; #10 PASS | A+B | **Thu Oct 15, 18:00** |
+| M2 | Live board + messaging simulation + seed slice (seed slice moved into M2, row 44) | PPE-21 (B-12: shell #14, board SURF-01, drawer SURF-02, inbox SURF-03, exceptions SURF-05, SSE), PPE-17 (B-04 SIM + persona phones + consent), PPE-24 *seed slice only* (§18.1 dataset), PPE-14 (B-07), PPE-43 run 1 | AT-08 (PPE-32), AT-17 (PPE-40), AT-07 board half; TEST-INF-01 run 1 | **Entry gate: infra #18 merged + Veri-verified** (single DB; no seed on previews); B-03 merged. Only TEST-INF-01 run 1 is gated on #10 | A+B | **Thu Oct 15, 18:00** |
 | M3 | Agent (live Claude Sonnet via OpenRouter, zdr:true) | PPE-19 (B-08: gateway, §11.2 tools, policy engine, injection evals), PPE-18 (B-05 mock fixture) | AT-01 (PPE-27), AT-02 (PPE-26), AT-06 (PPE-28), AT-07 (PPE-31), AT-09 (PPE-35), TEST-SEC-01 (PPE-45) | B-03, B-04, B-07, TEST-INF-01 (LINEAR.md:51) | A | **Fri Oct 16, 18:00** |
 | M4 | Vehicles + ramp iPad | PPE-15 (B-09 solver V1–V4), PPE-22 (B-13 ramp iPad SURF-04, dispatcher form, setup/vehicle config) | AT-04 (PPE-25), AT-05 (PPE-30), AT-12 (PPE-34), AT-13 (PPE-36) | B-02, B-12 shell | B | **Fri Oct 16, 20:00** |
-| M5 | Map, GPS simulator, routing/ETA | PPE-13 (B-10 simulator, LocationIngest, faults), PPE-20 (B-11 OSRM fixtures, traffic model, hysteresis), map pane in PPE-21 with MapLibre GL + OpenFreeMap tiles (row 50; ledger row 34; demo area 2216 Jog Rd, Greenacres FL, MOCKS-AND-DEMO §1) | AT-03 (PPE-29), AT-10 (PPE-33), AT-11 (PPE-38) | B-02; B-11 needs B-10 | A+B | **Sat Oct 17, 18:00** |
-| M6 | Teams mock + therapist notify | PPE-16 (B-06 Teams panel, cards, 409 race) | AT-14 (PPE-37), AT-18 (PPE-42) | B-02, B-03, B-08 (agent drafts) | A | **Sat Oct 17, 21:00** |
+| M5 | Map, GPS simulator, routing/ETA | PPE-13 (B-10 simulator, LocationIngest, faults), PPE-20 (B-11 OSRM fixtures, traffic model, hysteresis), map pane in PPE-21 with MapLibre GL + OpenFreeMap vector tiles (row 50; ledger row 34; demo area 2216 Jog Rd, Greenacres FL, MOCKS-AND-DEMO §1) | AT-03 (PPE-29), AT-10 (PPE-33), AT-11 (PPE-38) | B-02; B-11 needs B-10 | A+B | **Sat Oct 17, 18:00** |
+| M6 | Teams mock + therapist notify | PPE-16 (B-06 Teams panel, cards, 409 race) | AT-14 (PPE-37), AT-18 (PPE-42) | B-02, B-03 (AT-14 does **not** need the agent: NTF-03 overlap detection + ack timer is deterministic, LINEAR.md:86 deps B-03/B-06) | A | **Sat Oct 17, 21:00** |
 | M7 | Ops + demo controls | PPE-23 (B-14 metrics, ROI SURF-07, health SURF-06, EOD), PPE-24 demo panel (reset & seed, replay, fault, restart drill; MOCKS-AND-DEMO §6), 12-step script §18.2 (l.1331) | AT-15 (PPE-39), AT-16 (PPE-41); demo script dry run | B-12; B-10 for replay/faults; B-03 for restart drill | B | **Sun Oct 18, 16:00** |
-| M8 | B-16 hardening | PPE-11 rest: MFA for Credentials, login rate limit/lockout, server-side sign-out, absolute session cap, secret scanning, log scrubber, dep audit | TEST-SEC-02 (PPE-44, with B-08) | B-01 (M1 login merged) | A (slots between M3–M6 PRs) | **Sun Oct 18, 18:00** |
-| M9 | Acceptance run | PPE-24 suite + evidence export; Veri runs AT-01…18 + TEST-INF-01 runs 2–3, TEST-SEC-01/02 | all 18 ATs at **PASS (mock)** + TEST-INF-01 | M2–M8 | Veri (+ fixes) | **Mon Oct 19, 18:00** (incl. one fix round) |
+| M8 | B-16 hardening | PPE-11 rest: MFA for Credentials, login rate limit/lockout, server-side sign-out, absolute session cap, **encryption** (PRD l.1806 B-16 "MFA, encryption, log scrubber, scanners": AES-GCM field encryption at rest for identity columns, TLS-only, Neon at-rest encryption recorded), secret scanning, log scrubber, dep audit | TEST-SEC-02 (PPE-44, with B-08) | B-01 (M1 login merged) | A (slots between M3–M6 PRs) | **Sun Oct 18, 18:00** |
+| M9 | Acceptance run | PPE-24 suite + evidence export + **runbook** (PRD l.1801 B-15 "acceptance suite, demo reset/replay, evidence export, runbook"); Veri runs AT-01…18 + TEST-INF-01 final run on release SHA, TEST-SEC-01/02 | all 18 ATs at **PASS (mock)** + TEST-INF-01 | M2–M8 | Veri (+ fixes) | **Mon Oct 19, 18:00** (incl. one fix round) |
 
 ### Per-milestone exit evidence (what Veri checks)
-- **M2:** preview URL + SHA; board shows the 28-row census (l.1327) from the §18.1 seed; drawer/inbox/exceptions per §14 (l.1058–1062) at iPad 768 px and desktop 1280 px against DESIGN-DIRECTION §10; WCAG AA contrast script green; SSE update visible without reload; persona phone sends/receives SIM SMS with STOP/HELP; Vera taste PASS; TEST-INF-01 run 1 log (50 timers, exactly-once, ≤5 s late).
+- **M2:** preview URL + SHA; board shows the 28-row census (l.1327) from the §18.1 seed; drawer/inbox/exceptions per §14 (l.1058–1062) at iPad 768 px and desktop 1280 px against DESIGN-DIRECTION §10; WCAG AA contrast script green; SSE update visible without reload; persona phone sends/receives SIM SMS with STOP/HELP; Vera taste PASS; **role + ID-swap checks** (BUILD-PLAN.md §4 matrix: same-site role 403, other site 404, SSE scoped to session site, F1 asking about C2 → zero sends) green for every new route; #18 verification note from Veri; TEST-INF-01 run 1 log (50 timers, exactly-once, ≤5 s late).
 - **M3:** agent run log per §18.3 AT list (l.1334): ≥1 autonomous state update + ≥1 autonomous follow-up (AGT-03); out-of-policy tool call rejected + logged (AGT-02); injection fixtures → zero sends (AT-09); prompt payload shows tokens only (TEST-SEC-01); OpenRouter request shows `zdr:true`; LLM-down degraded mode (l.1200) keyword parser works.
 - **M4:** solver unit tests over V1–V4 layouts; AT-04 shows infeasible-before-boarding + approval request; AT-12 family not messaged until staff choose; AT-13 leg ends HELD_NO_RECEIVER with no auto-return.
 - **M5:** map shows vans on Jog Rd route with four freshness bands (ledger row 30); duplicate/out-of-order positions ignored; 180 s stale badge + ETA texts suppressed, 600 s exception (LOC-03); replay of a delay is deterministic (AT-03); geofence → ARRIVED_*, never COMPLETED_HANDOFF (AT-10).
 - **M6:** therapist card within 10 min of absence/delay overlap, ack tracked (NTF-03); card race returns 409 for the loser (AT-18).
 - **M7:** ROI with drill-down and synthetic watermark (l.1064); EOD close blocked while custody states open (OPS-01); Reset → clean seed at 06:00 clock; Restart drill fire log.
-- **M8:** checklist in PPE-11; lockout after N failures, MFA prompt, sign-out invalidates server session, session ends at cap.
-- **M9:** Veri's evidence export per AT (PPE-24) with SHA + preview URL; Linear AT issues moved to Done **by Veri only** (LINEAR.md:11).
+- **M8:** checklist in PPE-11; encryption evidence (ciphertext in DB for identity columns, key only in env); lockout after N failures, MFA prompt, sign-out invalidates server session, session ends at cap.
+- **M9:** runbook in docs/ (reset, replay, faults, restart drill, recovery) dry-run by Veri; Veri's evidence export per AT (PPE-24) with SHA + preview URL; Linear AT issues moved to Done **by Veri only** (LINEAR.md:11).
 
 ## 3. AT → milestone map
 | AT | Linear | Builds in (PRD §20 / LINEAR.md) | Milestone |
@@ -68,12 +69,12 @@ Order follows PRD l.1846 (B-04 → B-07/B-08/B-03 → B-12 → B-09/B-13 → B-1
 | AT-16 EOD blocks close | PPE-41 | B-14 | M7 |
 | AT-17 import, no name/DOB merge | PPE-40 | B-07 | M2 |
 | AT-18 Teams proactive + card + race | PPE-42 | B-06 | M6 |
-| TEST-INF-01 restart drill | PPE-43 | B-03 (#10) | run 1 M2, runs 2–3 M3/M5, final M9 |
+| TEST-INF-01 restart drill | PPE-43 | B-03 (#10) | run 1 Thu Oct 15 (M2), run 2 Fri Oct 16 (M3), run 3 Sat Oct 17 (M5/M6), final re-run Mon Oct 19 (M9) |
 | TEST-SEC-01 / 02 | PPE-45 / PPE-44 | B-07/B-08 / B-08/B-16 | M3 / M8 |
 
 ## 4. Risks
 1. **TEST-INF-01 margin** (Veri, #10): worst case 5.00 s vs ≤5 s bar leaves zero margin; a fail triggers ledger row 22 (QStash), which needs founder sign-off. Blocks M3 per LINEAR.md:51.
-2. **One shared DB** (founder 14:04 ET): previews and prod write the same data; Reset/replay act on the one prod DB by design (row 45), so a Reset during a Veri run wipes it; seed never runs in preview builds; migrations on an unmerged PR hit prod's schema; concurrent Veri runs on two previews can collide.
+2. **One shared DB** (founder 14:04 ET, held until #18 per Firia 14:15 ET): after #18, previews and prod write the same data; Reset/replay act on the one prod DB by design (row 45), so a Reset during a Veri run wipes it; today `main` still seeds demo users on preview builds until #18 lands; migrations on an unmerged PR hit prod's schema; concurrent Veri runs on two previews can collide.
 3. **Agent scope** (B-08, PRD's biggest item, 14 ED l.1766; overrun risk l.2148): live LLM non-determinism can make AT-06/AT-09 flaky; OpenRouter cost under $100 cap (row 21).
 4. **Review throughput:** ≈35–45 PRs remain; Veri/Vera are the single gate. FAIL rounds today ran ≈1 h each.
 5. **Map tiles/routing:** OpenFreeMap public instance has no SLA and may be discontinued without notice (ToS); OSRM fixtures must be pre-baked (no live routing, no *.googleapis.com, TEST-SEC-02).
@@ -84,12 +85,12 @@ Order follows PRD l.1846 (B-04 → B-07/B-08/B-03 → B-12 → B-09/B-13 → B-1
 | # | Question | Answer | Ledger |
 |---|---|---|---|
 | 1 | Seed early | B-15 §18.1 seed slice moves into M2 (full demo panel stays M7) | 44, Accepted by default (Firia, within founder locks) |
-| 2 | Shared DB safety | Reset and replay act on the one prod DB (synthetic data; founder already decided reset buttons on prod). Seed runs only via the Reset/seed path or a prod build gate, never in preview builds | 45, Decided by founder |
+| 2 | Shared DB safety | Reset and replay act on the one prod DB (synthetic data; founder already decided reset buttons on prod). Target rule: scenario seed runs only via the Reset/seed path, never in preview builds; enforced once #18 merges (pending) | 45, Decided by founder |
 | 3 | PASS (mock) bar | ATs pass on mocks per the founder mock override (ADR-016); EXP-GRP-01 is **OPEN for the post-POC phase**, not deferred scope | 46, Decided by founder |
 | 4 | AT-13 procedure | CA-04 default (l.1953): hold, call all contacts, staff task, no auto-return (founder accepted the FQ defaults) | 47, Decided by founder |
 | 5 | Banner | Final: exactly "DEMO" everywhere, screen-reader label included (founder 13:18 and 13:30 ET; row 40) | 48, Decided by founder |
 | 6 | Weekends | Included | 49, Accepted by default (Firia, within founder locks) |
-| 7 | Map tiles | MapLibre GL + OpenFreeMap public tiles (OSM data, no key). Attribution required: "OpenFreeMap © OpenMapTiles Data from OpenStreetMap" (MapLibre adds it automatically; keep the attribution control visible). Commercial use allowed; no keys/cookies; offline downloads capped at 3,000 tiles/50 MB, ≤4 parallel requests, unique User-Agent; as-is, no SLA, may be discontinued without notice; Cloudflare CDN; Hungarian law. Sources: https://openfreemap.org/ and https://openfreemap.org/tos/ (ToS "Last Updated: October 14, 2026", read 2026-10-14 ~14:15 ET); OSM data licence ODbL: https://www.openstreetmap.org/copyright | 50, Accepted by default (Firia, within founder locks) |
+| 7 | Map tiles | MapLibre GL + OpenFreeMap public vector tiles, style `positron` (DESIGN-DIRECTION §5.1, PR #15), style URL in one env var `NEXT_PUBLIC_MAP_TILE_URL` = `https://tiles.openfreemap.org/styles/positron` (OSM data, no key). Attribution required: "OpenFreeMap © OpenMapTiles Data from OpenStreetMap" (MapLibre adds it automatically; keep the attribution control visible). Commercial use allowed; no keys/cookies; offline downloads capped at 3,000 tiles/50 MB, ≤4 parallel requests, unique User-Agent; as-is, no SLA, may be discontinued without notice; Cloudflare CDN; Hungarian law. Sources: https://openfreemap.org/ and https://openfreemap.org/tos/ (ToS "Last Updated: October 14, 2026", read 2026-10-14 ~14:10 ET); OSM data licence ODbL: https://www.openstreetmap.org/copyright | 50, Accepted by default (Firia, within founder locks) |
 | 8 | B-05 | Mock-only (PPE-18) | 51, Accepted by default (Firia, within founder locks) |
 | 9 | Linear | Kept in sync with PRs (statuses + blocking relations per LINEAR.md Deps) | 52, Accepted by default (Firia, within founder locks) |
 
