@@ -1,0 +1,1 @@
+ALTER TABLE "ops"."job" ADD COLUMN "wake_published_at" timestamp with time zone;

@@ -398,6 +398,8 @@ export const job = ops.table("job", {
   claimedAt: timestamp("claimed_at", { withTimezone: true }), claimedBy: text("claimed_by"),
   // Lease (ADR-001): set to now()+60s on claim; the sweeper reclaims CLAIMED rows whose lease has passed.
   claimedUntil: timestamp("claimed_until", { withTimezone: true }),
+  // Set after the wake-up message is published (ADR-001); NULL ⇒ sweeper re-publishes (lost wake-up, TEST-INF-01 crash D).
+  wakePublishedAt: timestamp("wake_published_at", { withTimezone: true }),
   firedAt: timestamp("fired_at", { withTimezone: true }), attempts: smallint("attempts").notNull().default(0),
   lastError: text("last_error"), ...audit,
 }, (t) => [uniqueIndex("job_key_live_uq").on(t.key).where(sql`state IN ('SCHEDULED','CLAIMED')`),

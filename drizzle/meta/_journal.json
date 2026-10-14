@@ -15,6 +15,13 @@
       "when": 1791993886741,
       "tag": "0001_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791994082915,
+      "tag": "0002_job_wake_published",
+      "breakpoints": true
     }
   ]
 }
