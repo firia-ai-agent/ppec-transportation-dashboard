@@ -1,5 +1,5 @@
 {
-  "id": "904dce1d-7ac3-42c4-a460-dc399462b406",
+  "id": "b78cc8b8-9b45-4ffb-92d9-effbd746db47",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1696,7 +1696,22 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "child_identity_site_id_site_id_fk": {
+          "name": "child_identity_site_id_site_id_fk",
+          "tableFrom": "child_identity",
+          "tableTo": "site",
+          "schemaTo": "ops",
+          "columnsFrom": [
+            "site_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -3063,7 +3078,22 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "external_person_identity_site_id_site_id_fk": {
+          "name": "external_person_identity_site_id_site_id_fk",
+          "tableFrom": "external_person_identity",
+          "tableTo": "site",
+          "schemaTo": "ops",
+          "columnsFrom": [
+            "site_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -3331,7 +3361,36 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "guardian_contact_site_id_site_id_fk": {
+          "name": "guardian_contact_site_id_site_id_fk",
+          "tableFrom": "guardian_contact",
+          "tableTo": "site",
+          "schemaTo": "ops",
+          "columnsFrom": [
+            "site_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "guardian_contact_family_group_id_family_group_id_fk": {
+          "name": "guardian_contact_family_group_id_family_group_id_fk",
+          "tableFrom": "guardian_contact",
+          "tableTo": "family_group",
+          "schemaTo": "ops",
+          "columnsFrom": [
+            "family_group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -5074,7 +5133,22 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
+      "foreignKeys": {
+        "scenario_clock_site_id_site_id_fk": {
+          "name": "scenario_clock_site_id_site_id_fk",
+          "tableFrom": "scenario_clock",
+          "tableTo": "site",
+          "schemaTo": "ops",
+          "columnsFrom": [
+            "site_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

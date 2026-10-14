@@ -24,6 +24,28 @@ beforeAll(async () => {
 }, 60_000);
 
 describe("migrations 0000 + 0001 on PGlite", () => {
+  it("migrator owns every ops/identity table and both schemas", async () => {
+    const r = await db.query<{ n: number }>(`SELECT count(*)::int n FROM pg_tables WHERE schemaname IN ('ops','identity') AND tableowner <> 'migrator'`);
+    expect(r.rows[0].n).toBe(0);
+    const sc = await db.query<{ o: string }>(`SELECT pg_get_userbyid(nspowner) o FROM pg_namespace WHERE nspname IN ('ops','identity')`);
+    expect(sc.rows.map((x) => x.o)).toEqual(["migrator", "migrator"]);
+  });
+  it("default privileges: a table migrator creates later gets app_rw/readonly grants", async () => {
+    await db.exec(`SET ROLE migrator; CREATE TABLE ops.zz_probe (id int); RESET ROLE;`);
+    const r = await db.query<{ a: boolean; b: boolean }>(`SELECT has_table_privilege('app_rw','ops.zz_probe','INSERT') a, has_table_privilege('readonly','ops.zz_probe','SELECT') b`);
+    expect(r.rows[0]).toEqual({ a: true, b: true });
+    await db.exec(`DROP TABLE ops.zz_probe`);
+  });
+  it("identity tables reference ops.site; guardian_contact references family_group; scenario_clock references site", async () => {
+    const r = await db.query<{ t: string; c: string }>(`SELECT tc.table_schema||'.'||tc.table_name t, kcu.column_name c FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu USING (constraint_name, table_schema) WHERE tc.constraint_type='FOREIGN KEY'
+      AND (tc.table_schema='identity' OR tc.table_name='scenario_clock') ORDER BY 1,2`);
+    expect(r.rows).toEqual([
+      { t: "identity.child_identity", c: "site_id" }, { t: "identity.external_person_identity", c: "site_id" },
+      { t: "identity.guardian_contact", c: "family_group_id" }, { t: "identity.guardian_contact", c: "site_id" },
+      { t: "ops.scenario_clock", c: "site_id" },
+    ]);
+  });
   it("creates ops and identity schemas with job.claimed_until", async () => {
     const r = await db.query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns WHERE table_schema='ops' AND table_name='job'`);
@@ -32,7 +54,7 @@ describe("migrations 0000 + 0001 on PGlite", () => {
   });
   it("has foreign keys (ON DELETE RESTRICT) and none from ops into identity", async () => {
     const r = await db.query<{ n: number }>(`SELECT count(*)::int n FROM information_schema.table_constraints WHERE constraint_type='FOREIGN KEY' AND table_schema='ops'`);
-    expect(r.rows[0].n).toBe(88);
+    expect(r.rows[0].n).toBe(89);
     const x = await db.query<{ n: number }>(`SELECT count(*)::int n FROM information_schema.constraint_column_usage u
       JOIN information_schema.table_constraints c USING (constraint_name) WHERE c.table_schema='ops' AND u.table_schema='identity'`);
     expect(x.rows[0].n).toBe(0);
@@ -87,6 +109,8 @@ describe("migrations 0000 + 0001 on PGlite", () => {
     expect(w.rows[0].ok).toBe(true);
     const ig = await db.query<{ ok: boolean }>(`SELECT has_table_privilege('identity_gateway','identity.consent_event','UPDATE') ok`);
     expect(ig.rows[0].ok).toBe(false);
+    const del = await db.query<{ a: boolean; b: boolean }>(`SELECT has_table_privilege('app_rw','ops.outbound_message','DELETE') a, has_table_privilege('app_rw','ops.message','DELETE') b`);
+    expect(del.rows[0]).toEqual({ a: false, b: false });
     const ro = await db.query<{ ok: boolean }>(`SELECT has_table_privilege('readonly','ops.task','INSERT') ok`);
     expect(ro.rows[0].ok).toBe(false);
   });

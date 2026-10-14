@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { ACTORS, canTransition, MACHINES, LEG, TASK, CAPABILITY, ATTENDANCE, OUTBOUND, type Machine } from "./machines";
+import { ACTORS, canTransition, wildcardApplies, MACHINES, LEG, TASK, CAPABILITY, ATTENDANCE, OUTBOUND, ACK, RESERVATION, type Machine } from "./machines";
 
 // DATA-MODEL.md §4 rule: every listed edge succeeds for its actor; every unlisted pair and wrong actor is rejected.
 describe.each(Object.entries(MACHINES))("%s", (_name, m) => {
   const mm = m as Machine<string>;
   const listed = (f: string, t: string, a: string) =>
-    mm.edges.some((e) => (e.from === f || (e.from === "*" && f !== e.to)) && e.to === t && (e.by as string[]).includes(a));
+    !mm.terminal.includes(f) &&
+    mm.edges.some((e) => (e.from === f || (e.from === "*" && wildcardApplies(mm, f, e.to))) && e.to === t && (e.by as string[]).includes(a) &&
+      !(a === "A" && e.agentRequiresVerifiedGuardian));
   it("edges reference only real states", () => {
     for (const e of mm.edges) {
       if (e.from !== "*") expect(mm.states).toContain(e.from);
@@ -23,12 +25,53 @@ describe.each(Object.entries(MACHINES))("%s", (_name, m) => {
     }
     expect(legal).toBeGreaterThan(0);
   });
+  it("terminal states never reopen, for any target, actor or context", () => {
+    for (const f of mm.terminal) for (const t of mm.states) for (const a of ACTORS) {
+      expect(canTransition(mm, f, t, a, { priorState: t, verifiedUnambiguousGuardian: true }), `${f}->${t} by ${a}`).toBe(false);
+    }
+  });
   it("self-loops are never allowed", () => {
     for (const s of mm.states) for (const a of ACTORS) expect(canTransition(mm, s, s, a)).toBe(false);
   });
 });
 
 describe("golden cases (PRD §6.3)", () => {
+  it("EXCEPTION cannot be entered from terminal or staff-exit-only leg states, even by Y/A", () => {
+    for (const f of ["COMPLETED_HANDOFF", "CANCELED_TRANSPORT", "CANCELED_ATTENDANCE", "NO_SHOW", "HELD_NO_RECEIVER", "LEFT_BEHIND_CAPACITY"] as const)
+      for (const a of ACTORS) expect(canTransition(LEG, f, "EXCEPTION", a), `${f} by ${a}`).toBe(false);
+    expect(canTransition(LEG, "IN_TRANSIT", "EXCEPTION", "A")).toBe(true);
+    expect(canTransition(LEG, "EXCEPTION", "COMPLETED_HANDOFF", "S", { priorState: "COMPLETED_HANDOFF" })).toBe(false);
+  });
+  it("NEEDS_REVIEW and CHANGED are not reachable from terminal states", () => {
+    for (const f of ["RELEASED", "INFEASIBLE"] as const) expect(canTransition(RESERVATION, f, "NEEDS_REVIEW", "Y")).toBe(false);
+    expect(canTransition(RESERVATION, "COMMITTED", "NEEDS_REVIEW", "Y")).toBe(true);
+    for (const f of ["REJECTED", "UNAVAILABLE", "VERIFIED_INFEASIBLE"] as const) for (const a of ACTORS) expect(canTransition(CAPABILITY, f, "CHANGED", a)).toBe(false);
+    expect(canTransition(CAPABILITY, "VERIFIED", "CHANGED", "P")).toBe(true);
+  });
+  it("LEFT_BEHIND_CAPACITY has staff-only exits (PRD l.750)", () => {
+    expect(canTransition(LEG, "LEFT_BEHIND_CAPACITY", "PROVISIONAL_ASSIGNED", "S")).toBe(true);
+    expect(canTransition(LEG, "LEFT_BEHIND_CAPACITY", "CANCELED_TRANSPORT", "S")).toBe(true);
+    for (const a of ["Y", "A", "P", "G", "T"] as const) {
+      expect(canTransition(LEG, "LEFT_BEHIND_CAPACITY", "PROVISIONAL_ASSIGNED", a)).toBe(false);
+      expect(canTransition(LEG, "LEFT_BEHIND_CAPACITY", "CANCELED_TRANSPORT", a)).toBe(false);
+    }
+  });
+  it("agent cancel needs a verified unambiguous guardian, pre-boarding only", () => {
+    expect(canTransition(LEG, "MANIFEST_LOCKED", "CANCELED_TRANSPORT", "A")).toBe(false);
+    expect(canTransition(LEG, "MANIFEST_LOCKED", "CANCELED_TRANSPORT", "A", { verifiedUnambiguousGuardian: true })).toBe(true);
+    expect(canTransition(LEG, "MANIFEST_LOCKED", "CANCELED_TRANSPORT", "S")).toBe(true);
+    expect(canTransition(LEG, "BOARDED_REPORTED", "CANCELED_TRANSPORT", "A", { verifiedUnambiguousGuardian: true })).toBe(false);
+  });
+  it("outbound UNKNOWN follows SENT or SENDING and resolves only by lookup (Y), never back to SENDING", () => {
+    expect(canTransition(OUTBOUND, "SENT", "UNKNOWN", "Y")).toBe(true);
+    for (const t of ["SENT", "DELIVERED", "UNDELIVERED", "FAILED"] as const) expect(canTransition(OUTBOUND, "UNKNOWN", t, "Y")).toBe(true);
+    for (const t of ["SENDING", "QUEUED"] as const) for (const a of ACTORS) expect(canTransition(OUTBOUND, "UNKNOWN", t, a)).toBe(false);
+  });
+  it("therapist acknowledges or declines (AT-14); provider/guardian/agent cannot", () => {
+    expect(canTransition(ACK, "PENDING", "ACKNOWLEDGED", "T")).toBe(true);
+    expect(canTransition(ACK, "PENDING", "DECLINED", "T")).toBe(true);
+    for (const a of ["P", "G", "A"] as const) expect(canTransition(ACK, "PENDING", "ACKNOWLEDGED", a)).toBe(false);
+  });
   it("agent can never verify capability or boarding", () => {
     expect(canTransition(LEG, "CAPABILITY_REPORTED", "CAPABILITY_VERIFIED", "A")).toBe(false);
     expect(canTransition(LEG, "BOARDED_REPORTED", "BOARDED_VERIFIED", "A")).toBe(false);
@@ -56,10 +99,9 @@ describe("golden cases (PRD §6.3)", () => {
     expect(canTransition(ATTENDANCE, "SCHEDULED", "ABSENT_FULL_DAY", "A")).toBe(true);
     expect(canTransition(ATTENDANCE, "CHECKED_IN", "ABSENT_FULL_DAY", "S")).toBe(false);
   });
-  it("task close is system-only; outbound never resends from UNKNOWN", () => {
+  it("task close is system-only", () => {
     expect(canTransition(TASK, "RESOLVED_APPROVED", "CLOSED_VERIFIED", "S")).toBe(false);
     expect(canTransition(TASK, "RESOLVED_APPROVED", "CLOSED_VERIFIED", "Y")).toBe(true);
-    for (const t of OUTBOUND.states) for (const a of ACTORS) expect(canTransition(OUTBOUND, "UNKNOWN", t, a)).toBe(false);
   });
   it("golden legal-edge counts (catches accidental table edits)", () => {
     const count = (m: Machine<string>) => {
@@ -73,8 +115,8 @@ describe("golden cases (PRD §6.3)", () => {
     expect(count(MACHINES.THREAD as unknown as Machine<string>)).toBe(4);
     expect(count(MACHINES.PROFILE as unknown as Machine<string>)).toBe(2);
     expect(count(MACHINES.NEED_ITEM as unknown as Machine<string>)).toBe(3);
-    expect(count(MACHINES.OUTBOUND as unknown as Machine<string>)).toBe(13);
-    expect(count(MACHINES.RESERVATION as unknown as Machine<string>)).toBe(9);
-    expect(count(MACHINES.CAPABILITY as unknown as Machine<string>)).toBe(14);
+    expect(count(MACHINES.OUTBOUND as unknown as Machine<string>)).toBe(18);
+    expect(count(MACHINES.RESERVATION as unknown as Machine<string>)).toBe(7);
+    expect(count(MACHINES.CAPABILITY as unknown as Machine<string>)).toBe(11);
   });
 });

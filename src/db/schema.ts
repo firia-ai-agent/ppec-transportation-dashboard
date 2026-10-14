@@ -89,7 +89,7 @@ const siteRef = () => uuid("site_id").notNull().references(() => siteT.id, { onD
  * does. In P2/AWS: KMS CMK per data class + RLS (B-19). In P1: pgcrypto/app-level AES-GCM with key from env. */
 export const childIdentity = identity.table("child_identity", {
   childToken: uuid("child_token").primaryKey(),
-  siteId: site(),
+  siteId: siteRef(),
   externalEhrId: text("external_ehr_id").notNull(),
   legalFirstName: text("legal_first_name").notNull(),
   legalLastName: text("legal_last_name").notNull(),
@@ -101,8 +101,8 @@ export const childIdentity = identity.table("child_identity", {
 
 export const guardianContact = identity.table("guardian_contact", {
   contactToken: uuid("contact_token").primaryKey(),
-  siteId: site(),
-  familyGroupId: uuid("family_group_id").notNull(),
+  siteId: siteRef(),
+  familyGroupId: uuid("family_group_id").notNull().references(() => familyGroup.id, { onDelete: "restrict" }), // identity→ops is allowed; ops→identity is not
   legalName: text("legal_name").notNull(),
   phoneHmac: text("phone_hmac").notNull(),    // HMAC-SHA256(E.164, pepper) blind index for inbound resolution
   phoneEnc: text("phone_enc").notNull(),
@@ -131,7 +131,7 @@ export const consentEvent = identity.table("consent_event", {
 
 /** Therapists and provider dispatchers are people too: same vault pattern. */
 export const externalPersonIdentity = identity.table("external_person_identity", {
-  personToken: uuid("person_token").primaryKey(), siteId: site(),
+  personToken: uuid("person_token").primaryKey(), siteId: siteRef(),
   kind: text("kind").notNull(),               // THERAPIST | PROVIDER_DISPATCHER | DRIVER_DEVICE_HOLDER
   legalName: text("legal_name").notNull(),
   phoneHmac: text("phone_hmac"), phoneEnc: text("phone_enc"),
@@ -438,7 +438,7 @@ export const auditEvent = ops.table("audit_event", {
 
 /* ───────────────────────────── demo + simulation (hidden in production) ───────────────────────────── */
 export const scenarioClock = ops.table("scenario_clock", {
-  siteId: uuid("site_id").primaryKey(), scenario: text("scenario").notNull(), anchorReal: timestamp("anchor_real", { withTimezone: true }).notNull(),
+  siteId: uuid("site_id").primaryKey().references(() => siteT.id, { onDelete: "restrict" }), scenario: text("scenario").notNull(), anchorReal: timestamp("anchor_real", { withTimezone: true }).notNull(),
   anchorScenario: timestamp("anchor_scenario", { withTimezone: true }).notNull(), speed: doublePrecision("speed").notNull().default(1),
   paused: boolean("paused").notNull().default(false),
 }); // scenario_now = anchor_scenario + (now - anchor_real) * speed; never applied to carrier timestamps (§8)

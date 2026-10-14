@@ -77,7 +77,7 @@ Hot paths and the index that serves each:
 | Therapy overlap (NTF-03) | `therapy_child_time_idx (child_token, starts_at)` |
 
 ## 4. State machines (PRD §6.3, frozen) and enforcement
-Actors: S staff, P provider, G guardian, A agent-tool, Y system. Full edge lists for leg, capability, reservation and outbound are code in schema-draft.ts; the remaining four:
+Actors: S staff, P provider, G guardian, A agent-tool, Y system. T therapist (acks via the Teams adapter) is added for acknowledgments. B-02 implements **10 machines** in `src/domain/machines.ts` (leg, attendance, capability, reservation, outbound, acknowledgment, task, thread, profile, need item); the table below lists the five not spelled out in code comments. **Terminal states never reopen:** wildcard edges (EXCEPTION, CHANGED, NEEDS_REVIEW) apply only from non-terminal states, and HELD_NO_RECEIVER / LEFT_BEHIND_CAPACITY / EXCEPTION exit by staff only. Added per PRD l.750/754: LEFT_BEHIND_CAPACITY →S PROVISIONAL_ASSIGNED or CANCELED_TRANSPORT; outbound SENT→UNKNOWN and UNKNOWN →Y SENT/DELIVERED/UNDELIVERED/FAILED (provider lookup, never resend). Agent cancel requires the policy engine's verified-unambiguous-guardian result (B-08). Need-item REPORTED by P/G/S (PRD silent; Rudy's choice, B-02).
 
 | Machine | Edges (from → to, actor) |
 |---|---|
@@ -98,7 +98,7 @@ Unit tests: one table-driven test per machine asserting every listed edge succee
 - ID-swap matrix: in BUILD-PLAN.md §4 (from the access-control skill).
 
 ## 6. Open design items (Proposed, decide during B-02)
-1. Foreign keys inside `ops` are not in the draft; add them in B-02 (ON DELETE RESTRICT) except on append-only logs. Reason they're not in the draft: kept the first pass readable.
+1. **Done in B-02 (PR #5):** 93 FKs, all ON DELETE RESTRICT: 89 inside `ops` plus identity→ops (`site_id` on child_identity, guardian_contact, external_person_identity; `guardian_contact.family_group_id`). None on append-only logs (incl. identity.consent_event) and none from ops into identity.
 2. `version` on append-only tables (consent_event, telemetry_point, audit_event, event_log) is omitted on purpose.
 3. Retention jobs (PRD §15.4: 90-day raw location, 90-day plaintext bodies) are scheduled but **purge disabled** in P1 (CQ-05 default "Keep all; purge disabled").
 
