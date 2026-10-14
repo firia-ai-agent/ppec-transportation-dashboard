@@ -1,6 +1,6 @@
 # PPEC Transport Dashboard — build plan M2–M9 (PRD build to AT-01…18 PASS (mock))
 
-**Status: Proposed (Rudy), for founder review.** Only the §5 founder answers are accepted (Firia relay 2026-10-14 14:08 ET; ledger rows 44–52); everything else, including milestones and ETAs, stays Proposed. ETAs are estimates (Unverified). First written 2026-10-14 14:07 ET (commit 65fcff0); revised 14:20 ET for Veri's FAIL on #17 and Firia's decision at 14:15 ET.
+**Status: Proposed (Rudy), for founder review.** Only the §5 founder answers are accepted (Firia relay 2026-10-14 14:08 ET; ledger rows 44–52); everything else, including milestones and ETAs, stays Proposed. ETAs are estimates (Unverified). First written 2026-10-14 14:07 ET (commit 65fcff0); revised 14:17 ET for Veri's FAIL on #17 and Firia's decision at 14:15 ET.
 
 ```
 READER: founder, Firia, Veri, Vera. DECISION IT SERVES: build order + ETAs for the rest of P1 (mock).
