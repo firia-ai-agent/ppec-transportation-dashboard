@@ -1,26 +1,23 @@
-// Vercel build step 2 (after vercel-db-step.mjs): seed the synthetic demo users on PREVIEW builds only.
-// Idempotent; never resets an existing password (no --reset-passwords here). Never prints a URL or password.
-// Production: never seeded from the build (demo reset/seed buttons are B-15, DECISION-LEDGER row 17).
-import { withClientExec } from "../src/auth/client-exec";
-import { seedDemoUsers, DEMO_USERS } from "../src/auth/seed";
+// Vercel build step 2 (after vercel-db-step.mjs): it no longer seeds anything.
+// PPEC has exactly ONE database (Neon `main`) and previews get production's DATABASE_URL
+// (single-DB directive, DECISION-LEDGER #43), so no build — preview or production — writes to it.
+// Demo users are seeded manually instead: `pnpm seed:demo-users --apply` (refuses when VERCEL_ENV=preview).
+// Kept in `pnpm vercel-build` so the build log records the decision; it never prints a URL or password.
 
+/** Pure decision, unit-tested. Always false: the build never seeds the one shared DB. */
 export function decideSeed(env: Record<string, string | undefined>): { run: boolean; reason: string } {
-  if (env.VERCEL_ENV !== "preview") return { run: false, reason: `not a preview build (VERCEL_ENV=${env.VERCEL_ENV ?? "unset"})` };
-  if (env.APP_DATA_CLASS !== "SYNTHETIC") return { run: false, reason: "APP_DATA_CLASS is not SYNTHETIC" };
-  const missing = DEMO_USERS.filter((u) => !env[u.env]).map((u) => u.env);
-  if (missing.length) return { run: false, reason: `missing env: ${missing.join(", ")}` };
-  if (!env.DATABASE_URL_UNPOOLED) return { run: false, reason: "DATABASE_URL_UNPOOLED is not set" };
-  return { run: true, reason: "preview build" };
+  if (env.VERCEL_ENV === "preview") {
+    return { run: false, reason: "preview: never writes to the shared DB (single-DB directive, DECISION-LEDGER #43)" };
+  }
+  return {
+    run: false,
+    reason: `build never seeds the shared DB; seeding is manual only via pnpm seed:demo-users (single-DB directive, DECISION-LEDGER #43) (VERCEL_ENV=${env.VERCEL_ENV ?? "unset"})`,
+  };
 }
 
-async function main() {
+function main() {
   const d = decideSeed(process.env);
   console.log(`[db-step] seed demo users: ${d.run ? "RUN" : "SKIP"} (${d.reason})`);
-  if (!d.run) return;
-  const r = await withClientExec(process.env.DATABASE_URL_UNPOOLED!, (db) => seedDemoUsers(db, process.env, { dryRun: false, resetPasswords: false }));
-  console.log(`[db-step] seed demo users: OK (${"plan" in r ? r.plan.users.length : DEMO_USERS.length} users, passwords unchanged for existing users)`);
 }
 
-if (process.argv[1]?.endsWith("vercel-seed.ts")) {
-  main().catch((e: Error) => { console.error(`[db-step] seed demo users: FAILED: ${String(e?.message).replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, "[redacted-url]")}`); process.exit(1); });
-}
+if (process.argv[1]?.endsWith("vercel-seed.ts")) main();

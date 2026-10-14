@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import type { Exec } from "@/domain/transition";
+import { READ_ONLY_REASON, isReadOnlyDbEnv } from "@/db/read-only";
 
 /**
  * Synthetic demo staff (synthetic-seed-data-rules, ADR-004). Passwords come ONLY from env vars,
@@ -8,6 +9,7 @@ import type { Exec } from "@/domain/transition";
  * 3 users director@ / coordinator@ / frontdesk@example.com.
  * Re-running is idempotent: existing users keep their password unless `resetPasswords` (CLI --reset-passwords) is set.
  * It never re-enables a disabled user. Gate: APP_DATA_CLASS=SYNTHETIC (production is a synthetic demo, DECISION-LEDGER row 17).
+ * Second gate: it refuses to write when VERCEL_ENV=preview — previews share the one production DB (DECISION-LEDGER #43).
  */
 export const DEMO_ORG = "01900000-0000-7000-8000-000000000001";
 export const DEMO_SITE_A = "01900000-0000-7000-8000-00000000000a";
@@ -22,6 +24,7 @@ export class SeedRefused extends Error {}
 
 export async function seedDemoUsers(db: Exec, env: Record<string, string | undefined>, opts: { dryRun: boolean; resetPasswords?: boolean }) {
   if (env.APP_DATA_CLASS !== "SYNTHETIC") throw new SeedRefused("APP_DATA_CLASS must be SYNTHETIC");
+  if (!opts.dryRun && isReadOnlyDbEnv(env)) throw new SeedRefused(READ_ONLY_REASON);
   const missing = DEMO_USERS.filter((u) => !env[u.env] || (env[u.env] as string).length < 16).map((u) => u.env);
   if (missing.length) throw new SeedRefused(`missing or too short (<16 chars): ${missing.join(", ")}`);
   const plan = { org: 1, sites: 2, resetPasswords: opts.resetPasswords === true, users: DEMO_USERS.map((u) => `${u.email} (${u.role}, site A)`) };
