@@ -1,8 +1,11 @@
 import type { Exec } from "@/domain/transition";
-import { getPool } from "@/db/pool";
+import { autocommitQuery, getPool } from "@/db/pool";
 
-/** Raw-SQL executor over the shared pool, for auth lookups. */
+/**
+ * Raw-SQL executor over the shared pool, for auth lookups. On previews each query runs inside its own
+ * read-only transaction (DECISION-LEDGER #43); elsewhere it is a plain pool.query.
+ */
 export function getExec(): Exec {
   const p = getPool();
-  return { query: async (sql, params) => { const r = await p.query(sql, params); return { rows: r.rows }; } };
+  return { query: <R,>(sql: string, params: unknown[]) => autocommitQuery<R>(p, sql, params) };
 }

@@ -24,7 +24,7 @@ export function healthPayload(env: Record<string, string | undefined>) {
     environment: env.VERCEL_ENV ?? "development",
     dataClass: env.APP_DATA_CLASS ?? null,
     dbEndpoint: neonEndpointId(env),
-    // Previews share the one production DB and open every session read-only (DECISION-LEDGER #43).
+    // Previews share the one production DB and open every transaction READ ONLY (DECISION-LEDGER #43).
     dbReadOnly: isReadOnlyDbEnv(env),
   };
 }
