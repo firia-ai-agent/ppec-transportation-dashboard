@@ -1,6 +1,6 @@
 {
-  "id": "2d3df103-9177-40c9-b338-6c219ac9ca3c",
-  "prevId": "b78cc8b8-9b45-4ffb-92d9-effbd746db47",
+  "id": "9c44790b-c9a9-4928-a04c-eb7e6e288492",
+  "prevId": "b16297fb-3622-40c9-a099-71aba5512e3c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -7893,8 +7893,7 @@
       "values": [
         "DIRECTOR",
         "COORDINATOR",
-        "FRONT_DESK",
-        "PLATFORM_ADMIN"
+        "FRONT_DESK"
       ]
     },
     "public.task_state": {

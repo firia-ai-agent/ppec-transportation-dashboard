@@ -22,7 +22,7 @@ export const ops = pgSchema("ops");
 
 /* ───────────────────────────── shared enums ───────────────────────────── */
 export const sourceMode = pgEnum("source_mode", ["LIVE", "SANDBOX", "REPLAY", "SIMULATED", "MANUAL"]);
-export const staffRole = pgEnum("staff_role", ["DIRECTOR", "COORDINATOR", "FRONT_DESK", "PLATFORM_ADMIN"]);
+export const staffRole = pgEnum("staff_role", ["DIRECTOR", "COORDINATOR", "FRONT_DESK"]); // ADR-004 roles only (PLATFORM_ADMIN removed, B-02 review)
 export const actorKind = pgEnum("actor_kind", ["STAFF", "PROVIDER", "GUARDIAN", "THERAPIST", "AGENT", "SYSTEM", "DEMO"]);
 
 /* §6.3 state machines (frozen) */

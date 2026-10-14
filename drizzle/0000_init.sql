@@ -23,7 +23,7 @@ CREATE TYPE "public"."roi_cohort" AS ENUM('SYNTHETIC', 'BASELINE', 'LIVE');--> s
 CREATE TYPE "public"."securement" AS ENUM('L_TRACK', 'SLIDE_N_CLICK', 'FOUR_POINT_STRAP', 'OTHER');--> statement-breakpoint
 CREATE TYPE "public"."severity" AS ENUM('GREEN', 'AMBER', 'RED');--> statement-breakpoint
 CREATE TYPE "public"."source_mode" AS ENUM('LIVE', 'SANDBOX', 'REPLAY', 'SIMULATED', 'MANUAL');--> statement-breakpoint
-CREATE TYPE "public"."staff_role" AS ENUM('DIRECTOR', 'COORDINATOR', 'FRONT_DESK', 'PLATFORM_ADMIN');--> statement-breakpoint
+CREATE TYPE "public"."staff_role" AS ENUM('DIRECTOR', 'COORDINATOR', 'FRONT_DESK');--> statement-breakpoint
 CREATE TYPE "public"."task_state" AS ENUM('OPEN', 'IN_PROGRESS', 'RESOLVED_APPROVED', 'RESOLVED_OVERRIDE', 'CLOSED_VERIFIED', 'SNOOZED');--> statement-breakpoint
 CREATE TYPE "public"."thread_state" AS ENUM('OPEN', 'PAUSED_HUMAN', 'CLOSED');--> statement-breakpoint
 CREATE TABLE "ops"."acknowledgment" (
