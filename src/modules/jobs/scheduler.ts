@@ -8,12 +8,14 @@ import type { Db, Exec } from "@/db/exec";
 
 export const MAX_DELAY_SECONDS = 7 * 24 * 3600; // Vercel Queues limit
 /**
- * Claim lease (ADR-001, Option A, DECISION-LEDGER row 38 "Accepted by default (Firia, within founder locks)",
- * Firia → Rudy relay 2026-10-14): short, so a consumer that dies after claiming is recovered within the 5 s bar.
- * Handlers are DB-only and short; one that outlives the lease renews it (runner.ts `startLeaseRenewal`) and is
- * fenced by the claim token either way.
+ * Claim lease (ADR-001, Option A, DECISION-LEDGER row 44 "Accepted by default (Firia, within founder locks)",
+ * Firia → Rudy relay 2026-10-14 14:22 ET — the Option A retune, which supersedes the 3 s lease in row 38):
+ * short, so a consumer that dies after claiming is recovered within the 5 s bar. Handlers are DB-only and
+ * short; one that outlives the lease renews it (runner.ts `startLeaseRenewal`) and is fenced by the claim
+ * token either way. Row 44 is conditional on TEST-INF-01 showing Vercel Queues honours sub-second
+ * `delaySeconds` (probe: GET /api/probe/delay → topic ppec-delay-probe); if it does not, revert to row 38.
  */
-export const LEASE_SECONDS = 3;
+export const LEASE_SECONDS = 2;
 /** The re-wake published at claim time arrives this long after the claim. Both sides use the app clock (claim and reclaim). */
 export const REWAKE_DELAY_SECONDS = LEASE_SECONDS; // reclaim uses claimed_until <= now, so the re-wake lands exactly at expiry
 /** Extra wait added when a wake has to re-publish itself, so the next one cannot land before the lease expires. */
@@ -29,12 +31,12 @@ export const RETRY_MAX_SECONDS = 60;
  * Delay for a re-wake that arrived while the lease was still live (queue jitter, or clock skew between the
  * claiming and the waking instance): the rest of the lease plus REWAKE_MARGIN_MS, because a reclaim needs
  * `claimed_until <= now` and would otherwise no-op and leave recovery to the 1-minute sweep (Veri #10, blocker 1).
- * Whole seconds, rounded up: `delaySeconds` reaches Vercel Queues as the `Vqs-Delay-Seconds` header and
- * sub-second precision is Unverified (ADR-001 Evidence), so a fractional value the server floors could arrive
- * early again. The 1 s floor also bounds how fast a run of early arrivals can re-publish.
+ * Fractional seconds with millisecond precision (ledger row 44): rounding up to whole seconds added up to
+ * ~1 s per hop and put the early-arrival path over the NFR-03 bar. Conditional on TEST-INF-01 confirming
+ * Vercel Queues honours sub-second `delaySeconds`; if it floors them, revert to row 38 (whole seconds, 3 s lease).
  */
 export function rewakeDelaySeconds(remainingLeaseMs: number) {
-  return Math.max(1, Math.ceil((Math.max(0, remainingLeaseMs) + REWAKE_MARGIN_MS) / 1000));
+  return Math.ceil(Math.max(0, remainingLeaseMs) + REWAKE_MARGIN_MS) / 1000;
 }
 
 /**
@@ -63,8 +65,12 @@ export interface JobScheduler {
   reschedule(tx: Exec, afterCommit: (h: () => Promise<void>) => void, key: string, dueAt: Date, by: string): Promise<{ id: string } | null>;
 }
 
+/**
+ * Delay for the wake published at schedule time. Millisecond precision, not whole seconds (ledger row 44):
+ * rounding up cost up to 1 s of lateness on every job, not just the recovery paths.
+ */
 export function delayFor(dueAt: Date, now: Date) {
-  return Math.min(MAX_DELAY_SECONDS, Math.max(0, Math.ceil((dueAt.getTime() - now.getTime()) / 1000)));
+  return Math.min(MAX_DELAY_SECONDS, Math.max(0, Math.ceil(dueAt.getTime() - now.getTime())) / 1000);
 }
 
 /** Publish a wake-up and record it; failures leave wake_published_at NULL for the sweeper. */

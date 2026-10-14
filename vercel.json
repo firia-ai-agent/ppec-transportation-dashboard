@@ -25,6 +25,14 @@
           "topic": "ppec-outbox"
         }
       ]
+    },
+    "src/app/api/queues/delay-probe/route.ts": {
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "ppec-delay-probe"
+        }
+      ]
     }
   }
 }

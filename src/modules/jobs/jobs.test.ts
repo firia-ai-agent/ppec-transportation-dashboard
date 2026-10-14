@@ -5,7 +5,7 @@ import { cronAuthorized } from "@/lib/cron-auth";
 import { FakeTransport } from "./fake-transport";
 import { VercelQueueScheduler, MAX_ATTEMPTS } from "./scheduler";
 import { fire, handleWake, renewLease, sweep, type FireOpts, type Handlers } from "./runner";
-import { LEASE_SECONDS, REWAKE_DELAY_SECONDS, REWAKE_MARGIN_MS, RETRY_MAX_SECONDS, redeliveryDelaySeconds, rewakeDelaySeconds } from "./scheduler";
+import { LEASE_SECONDS, MAX_DELAY_SECONDS, REWAKE_DELAY_SECONDS, REWAKE_MARGIN_MS, RETRY_MAX_SECONDS, delayFor, redeliveryDelaySeconds, rewakeDelaySeconds } from "./scheduler";
 
 let db: Db; let t: FakeTransport; let now: Date; let s: VercelQueueScheduler;
 const clock = () => now;
@@ -185,13 +185,15 @@ describe("Option A: short lease + re-wake at lease expiry (kill-after-claim)", (
     // Re-wake at or after lease expiry: the published delay is the whole lease, so recovery is j1 + lease + j2.
     const onTime: Row[] = [];
     for (const [j1, j2] of [[0, 0], [0.25, 0.25], [0.5, 0.5], [0.75, 0.75], [1, 1]]) onTime.push(await killAfterClaim(j1, j2));
-    for (const r of onTime) expect(r.late).toBeLessThanOrEqual(NFR03_SECONDS);
+    for (const r of onTime) expect(r.late).toBeLessThan(NFR03_SECONDS);
 
     // Re-wake early (Veri #10, blocker 1): it re-publishes for the rest of the lease + margin, so recovery costs
-    // one more hop (whole-second queue delay + jitter) instead of falling back to the 1-minute sweep.
+    // one more hop instead of falling back to the 1-minute sweep. With sub-second delays (ledger row 44) that
+    // hop is exactly the margin + jitter, not the margin rounded up to the next whole second.
     const early: Row[] = [];
-    for (const [j1, j2, e] of [[0, 0, 0.001], [0.25, 0.25, 0.8], [0.5, 0.5, 0.8], [1, 1, 0.001], [1, 1, 0.25], [1, 1, 0.75], [1, 1, 0.8], [1, 1, 1]]) early.push(await killAfterClaim(j1, j2, e));
+    for (const [j1, j2, e] of [[0, 0, 0.001], [0.25, 0.25, 0.5], [0.5, 0.5, 0.75], [1, 1, 0.001], [1, 1, 0.25], [1, 1, 0.5], [1, 1, 0.75], [1, 1, 1]]) early.push(await killAfterClaim(j1, j2, e));
     for (const r of early) expect(r.late).toBeCloseTo(r.j1 + LEASE_SECONDS - r.earlyBy + rewakeDelaySeconds(r.earlyBy * 1000) + r.j2, 3);
+    for (const r of early) expect(r.late).toBeLessThan(NFR03_SECONDS);
 
     const all = [...onTime, ...early];
     const worst = Math.max(...all.map((r) => r.late));
@@ -199,12 +201,13 @@ describe("Option A: short lease + re-wake at lease expiry (kill-after-claim)", (
       "| first delivery jitter | re-wake arrives early by | re-wake jitter | lateness |",
       "|---|---|---|---|",
       ...all.map((r) => `| ${r.j1} s | ${r.earlyBy ? `${r.earlyBy} s` : "–"} | ${r.j2} s | ${r.late.toFixed(3)} s |`),
-      `lease ${LEASE_SECONDS} s, re-wake margin ${REWAKE_MARGIN_MS} ms, whole-second queue delays, jitter ≤ ${MAX_JITTER} s per delivery`,
+      `lease ${LEASE_SECONDS} s, re-wake margin ${REWAKE_MARGIN_MS} ms, sub-second (ms-precision) queue delays, jitter ≤ ${MAX_JITTER} s per delivery, early arrival ≤ ${MAX_JITTER} s`,
       `worst-case lateness ${worst.toFixed(3)} s → margin ${(NFR03_SECONDS - worst).toFixed(3)} s under the ${NFR03_SECONDS} s NFR-03 bar`,
-      `(the re-wake-at-expiry path is ${Math.max(...onTime.map((r) => r.late)).toFixed(3)} s at ${MAX_JITTER} s jitter; the early path costs one more whole-second hop)`,
+      `(the re-wake-at-expiry path is ${Math.max(...onTime.map((r) => r.late)).toFixed(3)} s at ${MAX_JITTER} s jitter; the early path costs exactly one re-wake margin more)`,
+      `sub-second delaySeconds is Unverified until a live TEST-INF-01 run (GET /api/probe/delay → topic ppec-delay-probe); if Queues floors it, revert to ledger row 38`,
     ].join("\n"));
-    // Analytic bound for the early path: j1 + lease − ε + ceil(ε + margin) + j2, worst just above ε = 1 s − margin.
-    expect(worst).toBeLessThanOrEqual(LEASE_SECONDS + 2 * MAX_JITTER + 1 + REWAKE_MARGIN_MS / 1000);
+    // Analytic bound for the early path: j1 + lease − ε + (ε + margin) + j2 = j1 + j2 + lease + margin, for any ε.
+    expect(worst).toBeLessThanOrEqual(LEASE_SECONDS + 2 * MAX_JITTER + REWAKE_MARGIN_MS / 1000);
   }, 180_000);
 
   it("a re-wake 1 ms early re-publishes itself for the remaining lease + margin, and that wake reclaims and runs the job", async () => {
@@ -308,11 +311,19 @@ describe("queue redelivery backoff (route.ts; Veri #10, point 3)", () => {
   it.each([[1, 2], [2, 4], [3, 8], [4, 16], [5, 32], [6, RETRY_MAX_SECONDS], [50, RETRY_MAX_SECONDS]])(
     "delivery %i → redelivery after %i s", (n, secs) => expect(redeliveryDelaySeconds(n)).toBe(secs));
 
-  it("a deferred re-wake waits the remaining lease plus the margin, in whole seconds, at least 1 s", () => {
-    expect(rewakeDelaySeconds(-5)).toBe(1);
-    expect(rewakeDelaySeconds(1)).toBe(1);
+  it("a deferred re-wake waits the remaining lease plus the margin, to the millisecond (ledger row 44)", () => {
+    expect(rewakeDelaySeconds(-5)).toBe(REWAKE_MARGIN_MS / 1000); // expired lease: just the margin
+    expect(rewakeDelaySeconds(1)).toBe(0.251);
     expect(rewakeDelaySeconds(750)).toBe(1);
-    expect(rewakeDelaySeconds(800)).toBe(2); // 0.8 s + 250 ms margin, rounded up
-    expect(rewakeDelaySeconds(LEASE_SECONDS * 1000)).toBe(LEASE_SECONDS + 1);
+    expect(rewakeDelaySeconds(800)).toBe(1.05); // 0.8 s + 250 ms margin, no rounding up to 2 s
+    expect(rewakeDelaySeconds(1.2)).toBe(0.252); // sub-millisecond remainder still rounds up to a whole ms
+    expect(rewakeDelaySeconds(LEASE_SECONDS * 1000)).toBe(LEASE_SECONDS + REWAKE_MARGIN_MS / 1000);
+  });
+
+  it("the wake published at schedule time keeps millisecond precision", () => {
+    expect(delayFor(new Date(1_000), new Date(0))).toBe(1);
+    expect(delayFor(new Date(1_250), new Date(0))).toBe(1.25);
+    expect(delayFor(new Date(0), new Date(1_250))).toBe(0); // already due
+    expect(delayFor(new Date(MAX_DELAY_SECONDS * 2000), new Date(0))).toBe(MAX_DELAY_SECONDS);
   });
 });
