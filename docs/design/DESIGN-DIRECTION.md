@@ -32,10 +32,11 @@ Success = a coordinator spots the one child at risk in under 5 s without reading
 | Provider dispatcher (link, no login) | needs to report vehicle seats/lift so the center knows the vehicle fits | /p/verify/{token} | 390×844, 1280 |
 
 ## 2. Global shell
-- **Header (persistent, every surface):** DEMO banner (§7) → site, date, scenario clock, per-adapter freshness pills (SMS, Teams, GPS, Agent: icon + label + age). **Interim (approved for build): until B-12 wires real ages, each pill reads "<adapter> · Simulated" with `flask-conical` in src-sim tone (7.10:1), matching the D-10 source badge. It must switch to real ages when B-12 lands (§10).**, global search (child first name/initial, route, vehicle). One identity location: avatar menu top-right only.
-- **Nav (PRD §14):** Today (board + drawer + inbox) · Exceptions & Approvals (count badge) · Setup · Health & ROI. Ramp iPad is its own full-screen route. ≥1280: left rail 232 px; 768-1279: icon rail with labels on hover/focus; <768: hamburger drawer holding nav + identity + Sign out.
+- **Header (persistent, every surface):** DEMO banner (§7) → site, date, scenario clock, per-adapter freshness pills (SMS, Teams, GPS, Agent: icon + label + age). **Interim, approved by Vera (design lead) 2026-10-14 13:25 ET as an interim build default; not a founder decision: until B-12 wires real ages, each pill reads "<adapter> · Simulated" with `flask-conical` in src-sim tone (7.10:1), matching the D-10 source badge. It must switch to real ages when B-12 lands (§10).**, global search (child first name/initial, route, vehicle). One identity location: avatar menu top-right only.
+- **Nav (PRD §14):** Today (board + drawer + inbox) · Exceptions & Approvals (count badge) · Setup · Health & ROI. Ramp iPad is its own full-screen route. ≥1280: left rail 232 px; 768-1279: 64 px icon rail; each item has a tooltip and an aria-label with its name, and the rail expands to show labels on hover or keyboard focus; <768: hamburger drawer holding nav + identity + Sign out.
+- **Nav icons:** Claude Code picks them when building, with two rules: no nav icon may reuse any §3 state icon, and `flask-conical` is reserved for the Simulated source badge.
 - **SSE down >15 s:** amber bar under the header, icon `wifi-off` + "Live updates paused. Reconnecting… Board may be up to 40 s old." Never hide data; dim the "updated" timestamps.
-- **Source-mode badge** on every row, record and outbound message (NFR-09): spec in §7.1 (D-10, decided by founder).
+- **Source-mode badge** on every row, record and outbound message (NFR-09): spec in §7.1 (D-10, decided by founder). The screen-level Simulated badge sits in the app header only, never on the sign-in page.
 - Icons: Lucide (single set, 1.75 stroke). No emoji anywhere, including freshness (the PRD's 🟢🟡🔴 become icon + label chips, §3).
 - Type: **Atkinson Hyperlegible Next** for UI and numerals (designed for low-vision legibility; fits the center's mission), tabular figures for times/ETAs; **JetBrains Mono** only for ids. Scale 12/14/16/20/24/32; body 14 console, 18 ramp iPad. Min 12 px only for chips with icon.
 
@@ -86,14 +87,15 @@ Tone tokens map to the hexes in §8. Icons are Lucide names.
 | therapy session SCHEDULED / IMPACTED / THERAPIST_NOTIFIED / CANCELED | `calendar-clock` / `triangle-alert` / `send` / `calendar-x` | Therapy scheduled / Therapy affected / Therapist told / Therapy canceled | neutral / warn / info / neutral | as above |
 | agent run QUEUED / RUNNING / WAITING_TOOL / SUCCEEDED / FAILED / ABORTED_SUPERSEDED_BY_HUMAN | `clock` / `bot` / `hourglass` / `circle-check` / `circle-x` / `user-round` | Agent queued / Agent working / Agent waiting / Agent done / Agent failed / Staff took over | neutral / info / neutral / ok / crit / neutral | as above (Inbox + Health only) |
 | job (timer) SCHEDULED / CLAIMED / DONE / CANCELED / FAILED / DEAD | `clock` / `loader` / `check` / `circle-slash` / `circle-x` / `octagon-x` | Scheduled / Running / Done / Canceled / Failed, retrying / Failed, needs a person | neutral / info / ok / neutral / warn / crit | as above (Health / demo fire log only) |
-| GPS fresh (<60 s) | `locate-fixed` | Live · 12 s | ok | 6.49 |
-| GPS aging (60–179 s) | `locate` | Last seen 2 min | neutral | 8.40 |
-| GPS STALE (180–599 s) | `clock-alert` | Stale · 4 min · ETA texts paused | warn | 6.38 |
-| GPS lost (≥600 s) | `locate-off` | No signal · 11 min | crit | 6.80 |
+| GPS fresh (<60 s) | `locate-fixed` | Live · {age} (e.g. Live · 12 s) | ok | 6.49 |
+| GPS aging (60–179 s) | `locate` | Last seen {age} | neutral | 8.40 |
+| GPS STALE (180–599 s) | `clock-alert` | Stale · {age} · ETA texts paused | warn | 6.38 |
+| GPS lost (≥600 s) | `locate-off` | No signal · {age} | crit | 6.80 |
 | outbound QUEUED / SENT / DELIVERED / UNDELIVERED / FAILED / BLOCKED_EGRESS | `clock` / `send` / `check-check` / `circle-alert` / `circle-x` / `shield-ban` | Queued / Sent / Delivered / Not delivered / Failed / Blocked (opted out or policy) | neutral / info / ok / warn / crit / crit | as above |
 | severity GREEN / AMBER / RED | `circle-check` / `triangle-alert` / `octagon-alert` | Low / Medium / Urgent | ok / warn / crit | as above |
 | thread OPEN / PAUSED_HUMAN | `bot` / `user-round` | Agent handling / Staff: {first name} | info / neutral | as above |
 Icons: every name above is a canonical (non-alias) icon verified in lucide-static 1.57.0 (`icons/<name>.svg` returns HTTP 200, checked 2026-10-14). "No signal" uses the single icon `locate-off` (GPS crosshair struck through). It reads as lost location, and it doesn't collide with `wifi-off` (live-updates bar) or `cloud-off` (iPad offline). Rejected: `satellite-dish` plus a custom slash (overlay), `signal-zero` (reads as phone signal), `wifi-off` (collides), `map-pin-off` (reads as "no stop"). All tones reuse the §8 pairs, so there are no new colour pairs.
+GPS `{age}` is human-formatted: under 60 s as "12 s", then minutes "4 min", then hours and minutes "1 h 5 min". Never show raw seconds over 60 (no "245 s").
 Note: PRD freshness bands (<60 / 60–600 / >600 s) and the STALE badge at 180 s (MOCKS §5, PRD l.456) disagree; this table uses four bands to honour both. Decided: D-2 (four bands).
 
 ## 4. Surfaces
