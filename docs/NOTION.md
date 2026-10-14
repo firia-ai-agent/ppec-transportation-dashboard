@@ -1,14 +1,15 @@
 # Notion mirror
 
 Workspace **Firia**, teamspace **PPEC Transport Dashboard** (id 3f9ac450-cdc1-81b1-97ed-00422fcfa43d), approved by the founder 2026-10-14 as the PPEC Notion home.
-**GitHub is canonical for specs.** Notion mirrors them for reading and is the home for the decision ledger and runbooks. Loaded 2026-10-14 ~11:40 ET from commit f339baa; every page was read back after creation.
+**GitHub is canonical for specs.** Notion mirrors them for reading and is the home for the decision ledger and runbooks. Loaded 2026-10-14 ~11:40 ET from commit f339baa. **Re-read 2026-10-14 ~13:00 ET via the Notion connector:** the root page says "Last synced 12:59 ET from main @ 0b8d4b6"; the Decision ledger page and its entries database hold rows 1–16 (16 rows, matching main). Decisions still in open PRs (rows 17–29 in #3) are listed on **Status: live work** as "Decided, pending merge".
 
 | Page | Mirrors | URL |
 |---|---|---|
 | PPEC transportation dashboard (root) | README.md | https://app.notion.com/p/3f9ac450cdc181cda2becad4340b6833 |
+| Status: live work (Notion-native: open PRs, pending decisions, live environments) | — | https://app.notion.com/p/3f9ac450cdc181f1b13bdd57080dce4e |
 | Overview | README.md | https://app.notion.com/p/3f9ac450cdc181718e4bd1c21215d730 |
 | Decision ledger | docs/DECISION-LEDGER.md | https://app.notion.com/p/3f9ac450cdc181a48d74e670433c901a |
-| ↳ Decision ledger entries (database, 15 rows) | docs/DECISION-LEDGER.md | https://app.notion.com/p/793dcf2d775744fe90ed913ebc3c9be8 |
+| ↳ Decision ledger entries (database, 16 rows, synced to main @ 0b8d4b6) | docs/DECISION-LEDGER.md | https://app.notion.com/p/793dcf2d775744fe90ed913ebc3c9be8 |
 | PRD v1.0 (pointer only) | docs/PRD-v1.0.txt | https://app.notion.com/p/3f9ac450cdc181869b84e78d6868b6a7 |
 | Architecture | docs/ARCHITECTURE.md | https://app.notion.com/p/3f9ac450cdc1816ca2c5eae06ea71441 |
 | Data model | docs/DATA-MODEL.md | https://app.notion.com/p/3f9ac450cdc181d1bd8ad1c3dd1bc114 |
@@ -39,6 +40,7 @@ Workspace **Firia**, teamspace **PPEC Transport Dashboard** (id 3f9ac450-cdc1-81
 | ↳ Rudy (build) | docs/BUILD-PLAN.md | https://app.notion.com/p/3f9ac450cdc1811588f6dd4bdbcd55d0 |
 | ↳ Veri (verify) | docs/BUILD-PLAN.md | https://app.notion.com/p/3f9ac450cdc18140a64ec7a8d520e5b4 |
 | ↳ Vera (UI/copy) | docs/MOCKS-AND-DEMO.md | https://app.notion.com/p/3f9ac450cdc18164b63ddb628a8b8686 |
+| Linear map | docs/LINEAR.md | https://app.notion.com/p/3f9ac450cdc1811ea576dadd251dddc3 |
 | Runbooks (Notion-native; placeholders) | — | https://app.notion.com/p/3f9ac450cdc1814f9f65ed2a478207e8 |
 
 Re-sync rule: when a mirrored file changes on main, update the Notion page in the same PR's follow-up and bump the commit noted above.
