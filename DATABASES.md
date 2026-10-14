@@ -3,7 +3,7 @@
 | DB | Provider / plan | Branch | Used by | Roles | Backups / PITR | Last restore drill |
 |---|---|---|---|---|---|---|
 | ppec prod (demo-prod, synthetic) | Neon Free via Vercel-managed integration | `main` | Vercel production only | migrator, app_rw, identity_gateway, readonly (B-02) | Free-plan restore window: to record from Neon docs at setup | none yet (first before M2 sign-off) |
-| ppec preview | same Neon project | `preview/<git-branch>` per deployment | Vercel preview only | same | n/a (ephemeral) | n/a |
+| ppec preview | same Neon project | `preview/<git-branch>` per git branch (**Free plan cap: 10 branches incl. `main`**; at the cap, new git branches fail Vercel provisioning; see INFRA-BASELINE) | Vercel preview only | same | n/a (ephemeral) | n/a |
 
 Status 2026-10-14: **created** (Neon Free via the Vercel integration; prod endpoint `ep-divine-brook-b73452bw`, per-preview branches). No orphan DBs known; none may be created outside this table.
 Migrations: `drizzle-kit generate` → reviewed SQL in a PR → applied **inside the Vercel build** by `scripts/vercel-db-step.mjs` (`pnpm vercel-build`), so no connection string leaves Vercel. `push` only against disposable local DBs.
