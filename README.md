@@ -24,3 +24,11 @@ Transport fulfillment, attendance, family communication and scheduling for a ped
 - [Risks & questions](docs/RISKS-AND-QUESTIONS.md)
 - [Tokos reuse](docs/TOKOS-REUSE.md)
 - [Research evidence](docs/research/)
+
+## Development (B-01 scaffold)
+```
+pnpm install
+APP_DATA_CLASS=SYNTHETIC pnpm dev     # boot refuses any other data class (ADR-015)
+pnpm typecheck && pnpm lint && pnpm test && pnpm seed:lint
+```
+Health: `GET /api/health` returns the deployed commit, environment and data class. Infra state: `INFRA-BASELINE.md`, `DATABASES.md`, `INFRA-TEMP.md`.

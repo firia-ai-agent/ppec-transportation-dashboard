@@ -1,0 +1,45 @@
+name: ci
+# Advisory checks (no branch protection on the free plan; Veri review is the gate, DECISION-LEDGER #24).
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: ["UTC", "America/New_York"]
+    env:
+      TZ: ${{ matrix.tz }}
+      APP_DATA_CLASS: SYNTHETIC
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm seed:lint
+      - run: pnpm build
+      - name: build refuses non-synthetic data class
+        run: |
+          if APP_DATA_CLASS=REAL pnpm build > /tmp/neg.log 2>&1; then echo "build should have failed"; exit 1; fi
+          grep -q "APP_DATA_CLASS must be SYNTHETIC" /tmp/neg.log
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
