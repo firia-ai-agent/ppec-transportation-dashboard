@@ -13,7 +13,7 @@
  */
 import { uuidv7 } from "uuidv7";
 import type { Exec } from "@/db/exec";
-import { OPT_OUT_KINDS } from "@/modules/outbox/policy";
+import { OPT_OUT_KINDS, OPT_OUT_SCOPES, type SuppressionScope } from "@/modules/outbox/policy";
 
 export type ConsentKind = "OPT_IN" | "START" | "STOP" | "NL_OPT_OUT" | "HELP" | "PERMANENT_TEST_OPT_OUT";
 
@@ -50,12 +50,14 @@ export function classifyConsentKeyword(body: string): ConsentKind | null {
   return null;
 }
 
-/** A carrier STOP stops everything (safety falls back to a staff voice task, PRD l.218); plain English stops the rest. */
-function suppressionScope(kind: ConsentKind): { scope: "ALL" | "ALL_NON_SAFETY"; permanentTest: boolean } | null {
-  if (kind === "STOP") return { scope: "ALL", permanentTest: false };
-  if (kind === "NL_OPT_OUT") return { scope: "ALL_NON_SAFETY", permanentTest: false };
-  if (kind === "PERMANENT_TEST_OPT_OUT") return { scope: "ALL", permanentTest: true };
-  return null;
+/**
+ * The scope this revocation projects into ops.suppression, taken from outbox/policy.OPT_OUT_SCOPES so the
+ * ledger and the send-time check can never disagree: a carrier STOP stops everything and a safety message
+ * falls back to a staff voice task, while a plain-English opt-out "suppresses non-safety" (PRD l.218 §2.6).
+ */
+function suppressionScope(kind: ConsentKind): { scope: SuppressionScope; permanentTest: boolean } | null {
+  const scope = OPT_OUT_SCOPES[kind];
+  return scope ? { scope, permanentTest: kind === "PERMANENT_TEST_OPT_OUT" } : null;
 }
 
 const FOLLOW_UP: Partial<Record<ConsentKind, { summary: string; nextStep: string; predicate: string }>> = {

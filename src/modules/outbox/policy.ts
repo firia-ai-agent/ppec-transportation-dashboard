@@ -3,8 +3,31 @@ import type { Exec } from "@/db/exec";
 /** Purposes that bypass ALL_NON_SAFETY suppression (PRD §10). Scope ALL still blocks them. */
 export const SAFETY_PURPOSES = new Set(["SAFETY_ALERT", "CHILD_NOT_RECEIVED"]);
 
-/** Consent kinds that stop all sends on that channel until a later START / OPT_IN. */
-export const OPT_OUT_KINDS = new Set(["STOP", "NL_OPT_OUT", "PERMANENT_TEST_OPT_OUT"]);
+export type SuppressionScope = "ALL" | "ALL_NON_SAFETY";
+
+/**
+ * What each opt-out kind suppresses on that channel until a later START / OPT_IN. The PRD distinguishes the
+ * two revocations (PRD l.218 §2.6: "NL opt-out classifier (honored immediately; suppresses non-safety;
+ * AMBER confirm-by-phone task); safety messages fall back to staff voice task"), so:
+ *  - plain-English opt-out ⇒ ALL_NON_SAFETY: ride updates stop, a safety purpose still goes out by text
+ *    while staff confirm by phone (the AMBER task raised by the consent ledger);
+ *  - carrier STOP ⇒ ALL: the keyword is a channel-level revocation the carrier itself enforces, so nothing
+ *    more is texted and a safety message falls back to the staff voice task instead.
+ * This object is the single source of that mapping; messaging/consent projects ops.suppression from it.
+ */
+export const OPT_OUT_SCOPES: Readonly<Record<string, SuppressionScope>> = {
+  STOP: "ALL",
+  NL_OPT_OUT: "ALL_NON_SAFETY",
+  PERMANENT_TEST_OPT_OUT: "ALL",
+};
+
+/** Consent kinds that withdraw consent. Derived from OPT_OUT_SCOPES so the two can never drift apart. */
+export const OPT_OUT_KINDS: ReadonlySet<string> = new Set(Object.keys(OPT_OUT_SCOPES));
+
+/** Does a suppression of this scope block this purpose? ALL_NON_SAFETY lets the safety purposes through. */
+export function suppressesPurpose(scope: SuppressionScope, purpose: string): boolean {
+  return scope === "ALL" || !SAFETY_PURPOSES.has(purpose);
+}
 
 /** Per-child authorization (PRD §6.4) at send time: contact × child × scope × channel × validity window. */
 export async function childAuthorized(db: Exec, a: { siteId: string; recipientToken: string; childToken: string; channel: string; purpose: string; at: Date }) {
@@ -58,7 +81,11 @@ export function dbRecipientAuthorizer(identityDb: Exec): RecipientAuthorizer {
         `SELECT kind FROM identity.consent_event WHERE contact_token = $1 AND site_id = $2 AND channel = $3 AND at <= $4
          ORDER BY at DESC, id DESC LIMIT 1`, [recipientToken, siteId, channel, at.toISOString()]);
       const k = ev.rows[0]?.kind;
-      if (k && OPT_OUT_KINDS.has(k)) return { ok: false, reason: `consent withdrawn (${k})` };
+      // PRD l.218 §2.6: an opt-out "suppresses non-safety", so this check is scoped by purpose and never
+      // stricter than the ledger projection the drainer reads (activeSuppression). A safety purpose is
+      // blocked only by a carrier STOP (scope ALL), where it "falls back to staff voice task" instead.
+      const withdrawn = k ? OPT_OUT_SCOPES[k] : undefined;
+      if (withdrawn && suppressesPurpose(withdrawn, purpose)) return { ok: false, reason: `consent withdrawn (${k})` };
       return { ok: true };
     },
   };
@@ -68,5 +95,5 @@ export function dbRecipientAuthorizer(identityDb: Exec): RecipientAuthorizer {
 export async function activeSuppression(db: Exec, a: { siteId: string; recipientToken: string; purpose: string }) {
   const r = await db.query<{ scope: string }>(
     `SELECT scope FROM ops.suppression WHERE site_id = $1 AND contact_token = $2 AND lifted_at IS NULL`, [a.siteId, a.recipientToken]);
-  return r.rows.find((s) => s.scope === "ALL" || (s.scope === "ALL_NON_SAFETY" && !SAFETY_PURPOSES.has(a.purpose)))?.scope ?? null;
+  return r.rows.find((s) => (s.scope === "ALL" || s.scope === "ALL_NON_SAFETY") && suppressesPurpose(s.scope, a.purpose))?.scope ?? null;
 }

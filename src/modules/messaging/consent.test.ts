@@ -27,6 +27,9 @@ const msg = (o: Partial<EnqueueInput> = {}): EnqueueInput => ({
   templateId: "pickup.eta", vars: { childFirstName: "Syn", eta: "8:12-8:22 AM", stopLabel: "Okeeheelee Park" },
   childToken: f1.childToken, planVersionBasis: 1, notAfter: new Date(now.getTime() + 3_600_000), idempotencyKey: uuidv7(), by: "test", ...o });
 const put = (o: Partial<EnqueueInput> = {}) => db.tx((tx, ac) => enqueue(tx, ac, outboxTransport, msg(o)));
+/** A safety-purpose send (SAFETY_PURPOSES in outbox/policy), the one kind an NL opt-out must not stop. */
+const putSafety = () => put({ purpose: "SAFETY_ALERT", templateId: "child.not_received",
+  vars: { childFirstName: "Syn", stopLabel: "Okeeheelee Park", eta: "8:20 AM" } });
 const consent = (kind: ConsentKind, atMs: number) => db.tx((tx) => recordConsent(tx, {
   siteId: SITE, contactToken: f1.contactToken, channel: "SMS_1TO1", kind, at: new Date(atMs), by: "test" }));
 
@@ -114,21 +117,38 @@ describe("consent ledger and the send-time block (MSG-04, PRD §10)", () => {
     expect(await drain(db, id, deps)).toBe("SENT");
   });
 
-  it("plain-English opt-out suppresses non-safety traffic and asks staff to confirm by phone", async () => {
+  it("plain-English opt-out suppresses non-safety traffic and asks staff to confirm by phone (PRD l.218 §2.6)", async () => {
     const r = await consent("NL_OPT_OUT", now.getTime() - 1000);
     expect(r.suppression).toBe("added");
     expect(await suppressions()).toEqual([{ scope: "ALL_NON_SAFETY", lifted_at: null, permanent_test: false }]);
     expect((await tasks())[0].summary).toMatch(/their own words/);
 
+    // Non-safety: blocked at egress, nothing reaches the phone.
     const update = await put();
     expect(await drain(db, update.id, deps)).toBe("BLOCKED_EGRESS");
-    // The suppression scope lets a safety purpose through, but the send-time consent check in
-    // outbox/policy.dbRecipientAuthorizer blocks every opt-out kind, so safety still falls back to a
-    // staff voice task (PRD l.218). Asserted here so the stricter-than-scope behavior stays visible.
-    const safety = await put({ purpose: "SAFETY_ALERT", templateId: "child.not_received", vars: { childFirstName: "Syn", stopLabel: "Okeeheelee Park", eta: "8:20 AM" } });
-    expect(await drain(db, safety.id, deps)).toBe("BLOCKED_EGRESS");
-    expect((await state(safety.id)).block_reason).toMatch(/consent withdrawn \(NL_OPT_OUT\)/);
+    expect((await state(update.id)).block_reason).toMatch(/suppressed \(ALL_NON_SAFETY\)/);
     expect(await sent()).toBe(0);
+  });
+
+  it("plain-English opt-out still lets a safety message go out by text (PRD l.218 §2.6)", async () => {
+    await consent("NL_OPT_OUT", now.getTime() - 1000);
+    // "suppresses non-safety" is the whole scope of an NL opt-out, so neither the ledger projection
+    // (activeSuppression) nor the send-time consent check (dbRecipientAuthorizer) may stop this one.
+    const safety = await putSafety();
+    expect(await drain(db, safety.id, deps)).toBe("SENT");
+    expect(await state(safety.id)).toMatchObject({ state: "SENT", block_reason: null });
+    expect(await sent()).toBe(1);
+  });
+
+  it("a carrier STOP stops safety too: it falls back to the staff task, not to a text (PRD l.218 §2.6)", async () => {
+    await consent("STOP", now.getTime() - 1000);
+    // The PRD treats the keyword as a channel-level revocation ("Twilio STOP/HELP", l.400 "send blocked
+    // RECIPIENT_SUPPRESSED"): the carrier drops anything we hand it, so safety becomes a staff voice task.
+    const safety = await putSafety();
+    expect(await drain(db, safety.id, deps)).toBe("BLOCKED_EGRESS");
+    expect((await state(safety.id)).block_reason).toMatch(/suppressed \(ALL\)/);
+    expect(await sent()).toBe(0);
+    expect(await tasks()).toEqual([{ category: "CONSENT_OPT_OUT", severity: "AMBER", summary: "Family opted out of text messages" }]);
   });
 
   it("a permanent test opt-out survives a START", async () => {
