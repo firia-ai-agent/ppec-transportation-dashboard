@@ -44,6 +44,52 @@ const TX_END_FORMS = [
   "/* drizzle */ commit -- done\n", "commit /* and chain */", "COMMIT\n\n",
 ];
 /**
+ * Every space that is a space to Unicode, to a human and to the drivers, but not to Postgres' own
+ * lexer, which treats only ASCII whitespace as a gap and every non-ASCII byte as identifier text
+ * (`scan.l`: `space [ \t\n\r\f]`, `ident_cont [A-Za-z\200-\377_0-9$]`). Named, because the point of
+ * the list is that each one is a space SOMEWHERE — in a paste, in an editor, in a client library
+ * that normalises them — and the guard cannot know which reading reaches the server.
+ */
+const UNICODE_SPACES: ReadonlyArray<[string, string]> = [
+  ["\v", "LINE TABULATION (U+000B)"],
+  ["\f", "FORM FEED (U+000C)"],
+  ["\u0085", "NEXT LINE (U+0085)"],
+  ["\u00a0", "NO-BREAK SPACE (U+00A0)"],
+  ["\u1680", "OGHAM SPACE MARK (U+1680)"],
+  ["\u2000", "EN QUAD (U+2000)"],
+  ["\u2001", "EM QUAD (U+2001)"],
+  ["\u2002", "EN SPACE (U+2002)"],
+  ["\u2003", "EM SPACE (U+2003)"],
+  ["\u2004", "THREE-PER-EM SPACE (U+2004)"],
+  ["\u2005", "FOUR-PER-EM SPACE (U+2005)"],
+  ["\u2006", "SIX-PER-EM SPACE (U+2006)"],
+  ["\u2007", "FIGURE SPACE (U+2007)"],
+  ["\u2008", "PUNCTUATION SPACE (U+2008)"],
+  ["\u2009", "THIN SPACE (U+2009)"],
+  ["\u200a", "HAIR SPACE (U+200A)"],
+  ["\u2028", "LINE SEPARATOR (U+2028)"],
+  ["\u2029", "PARAGRAPH SEPARATOR (U+2029)"],
+  ["\u202f", "NARROW NO-BREAK SPACE (U+202F)"],
+  ["\u205f", "MEDIUM MATHEMATICAL SPACE (U+205F)"],
+  ["\u3000", "IDEOGRAPHIC SPACE (U+3000)"],
+  ["\ufeff", "ZERO WIDTH NO-BREAK SPACE / BOM (U+FEFF)"],
+];
+/**
+ * `CALL` separated from its procedure name by one of those, in the shapes a caller would reach for.
+ * Postgres reads `CALL\u00A0p()` as the single identifier `call p` — a syntax error, not a CALL — but
+ * anything that normalises the space on the way (a driver, a pooler, a paste into a console) hands
+ * the server a real `CALL`, so the guard refuses on either reading rather than betting on one.
+ */
+const CALL_UNICODE_SPACE_FORMS = UNICODE_SPACES.flatMap(([c]) => [
+  `CALL${c}p()`,
+  `call${c}ops.p()`,
+  `cAlL${c}${c}p()`,
+  `CALL${c}"ops"."p"()`,
+  `CALL${c}p(); SELECT 1`,
+  `/* x */ CALL${c}ops.commit_and_write()`,
+  `CALL${c}`,
+]);
+/**
  * Every spelling of `CALL`. A procedure body can `COMMIT` — ending the guard's transaction from the
  * inside, where no rule in read-only.ts can see it — so the keyword is refused outright, like COMMIT.
  * Case, padding, newlines, leading and interleaved comments, and the procedure name (bare,
@@ -59,12 +105,15 @@ const CALL_FORMS = [
   'CALL "p"()', 'CALL ops."my proc"()', 'CALL "ops"."p"()', 'call "P"(1)',
   "CALL p('a;b--c/*d')", "CALL p($$;--$$)", "CALL p(E'\\';--')",
   "CALL", "call", "CALL\n",
+  // The keyword cut off from its name by a space the server does not read as one.
+  ...CALL_UNICODE_SPACE_FORMS,
 ];
 /**
  * The word `call` where it is NOT that keyword: inside a literal, inside a quoted identifier, inside a
  * comment, or as part of a longer name. `$` and every non-ASCII character continue an identifier in
  * Postgres, so `call$a$` and `callé` are each ONE name — which is why the keyword's end is checked
- * against `isIdentCont` and not against a regex `\b`.
+ * against Postgres' `ident_cont` and not against a regex `\b`. (The one non-ASCII class that DOES end
+ * it is the Unicode spaces above: see the fail-closed test below.)
  */
 const CALL_NON_FORMS = [
   "SELECT 'call'", "SELECT 'CALL p()'", "select 'call' AS c", "SELECT length('call')",
@@ -74,6 +123,10 @@ const CALL_NON_FORMS = [
   // Statement-initial, and still not the keyword: a longer identifier, or a quoted one.
   "callback", "callback()", "calls", "CALLBACK p()", "call$a$", "call$a$()", "callé", "call1",
   '"call"()', '"CALL" p()',
+  // A Unicode space ends the CALL keyword; it does not make every statement that contains one a
+  // CALL. These still run, exactly as they did before the keyword boundary learned about NBSP.
+  "SELECT\u00a01 AS callback", "SELECT 1 AS callback\u00a0x", "SELECT 'CALL\u00a0p()'",
+  'SELECT "CALL\u00a0p" FROM t', "SELECT $$CALL\u00a0p()$$", "-- CALL\u00a0p()\nSELECT 1",
 ];
 /** Savepoint work: it rolls back or forgets part of the transaction, but cannot end it. */
 const SAVEPOINT_FORMS = [
@@ -498,11 +551,67 @@ describe("preview read-only fail-safe (DECISION-LEDGER #43)", () => {
       }
     });
 
+    it("refuses CALL separated from its procedure by a non-ASCII space, whichever way it lexes", () => {
+      // Postgres reads `CALL\u00A0p()` as the one identifier `call p` (a syntax error), because every
+      // non-ASCII byte continues an identifier there; a driver, a pooler or a paste that normalises
+      // the space hands it a real CALL. The guard cannot know which, so it refuses either way.
+      for (const [c, name] of UNICODE_SPACES) {
+        for (const s of [`CALL${c}p()`, `call${c}ops.p()`, `CALL${c}${c}p()`]) {
+          expect(() => rewriteBeginReadOnly(s), name).toThrow(ReadOnlyRefusedError);
+          expect(() => rewriteBeginReadOnly({ text: s }), name).toThrow(/DECISION-LEDGER #43/);
+          expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), name).toThrow(ReadOnlyRefusedError);
+          // Off previews nothing changes: production still sends exactly what it was given.
+          expect(rewriteBeginReadOnlyForEnv({ VERCEL_ENV: "production" }, s), name).toBe(s);
+        }
+      }
+      // Fail closed includes the cases Postgres would read as a plain identifier: `call\u00A0back` is
+      // one name to the server and refused here, while `callback` — the name an app really does use —
+      // keeps running (CALL_NON_FORMS).
+      expect(() => rewriteBeginReadOnly("call\u00a0back")).toThrow(ReadOnlyRefusedError);
+      expect(rewriteBeginReadOnly("callback")).toBe("callback");
+    });
+
+    it("spells out the whole Unicode space list, so none of them is forgotten", () => {
+      // Derived from JS' own `\s`, minus the plain ASCII run Postgres agrees is whitespace: that is
+      // every space a driver, an editor or a paste can produce which the server reads as identifier
+      // text instead. A new one cannot appear in the language without this list — and the guard's —
+      // being updated to match. U+0085 is in the list and not in `\s`: Unicode calls it whitespace,
+      // JS does not, and the guard follows Unicode because the drivers and the humans do.
+      const jsSpaces = [...Array(0x10000).keys()]
+        .map((c) => String.fromCharCode(c))
+        .filter((c) => /\s/.test(c) && !/^[ \t\n\r]$/.test(c));
+      expect(jsSpaces).toHaveLength(21);
+      expect(new Set(UNICODE_SPACES.map(([c]) => c))).toEqual(new Set([...jsSpaces, "\u0085"]));
+    });
+
     it("leaves the word `call` alone in a literal, a quoted name, a comment or a longer identifier", () => {
       for (const s of CALL_NON_FORMS) {
         expect(rewriteBeginReadOnly(s), s).toBe(s); // untouched, object identity included
         expect(rewriteBeginReadOnly(s, { inTransaction: true }), s).toBe(s);
       }
+    });
+
+    it("never lets a non-ASCII space carry a statement past an allowlist", () => {
+      // The savepoint and `SET LOCAL <timeout>` allowlists are exceptions to a refusal, and they
+      // spell their gaps `\s` — which in JS matches NBSP too. A statement whose gaps are not the
+      // server's own whitespace is not the statement the allowlist describes, so it stays refused.
+      for (const [c, name] of UNICODE_SPACES) {
+        for (const s of [
+          `ROLLBACK${c}TO SAVEPOINT sp1`,
+          `ROLLBACK TO${c}SAVEPOINT sp1`,
+          `rollback${c}to${c}sp1`,
+          `SET${c}LOCAL statement_timeout = '5s'`,
+          `SET LOCAL${c}statement_timeout = '5s'`,
+          `set local statement_timeout${c}= '5s'`,
+        ]) {
+          expect(() => rewriteBeginReadOnly(s), `${name}: ${s}`).toThrow(ReadOnlyRefusedError);
+        }
+      }
+      // …and the ASCII spellings of both are still allowed, unchanged.
+      expect(rewriteBeginReadOnly("ROLLBACK TO SAVEPOINT sp1")).toBe("ROLLBACK TO SAVEPOINT sp1");
+      expect(rewriteBeginReadOnly("SET LOCAL statement_timeout = '5s'")).toBe(
+        "SET LOCAL statement_timeout = '5s'",
+      );
     });
 
     it("refuses a CALL hidden among other statements, from either side of the `;`", () => {

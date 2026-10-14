@@ -130,10 +130,12 @@ const DISCARD = /^DISCARD\b/i;
  * padding or newlines. Case is free, and `scanPieces` has already turned leading and interleaved
  * comments into whitespace, so `CALL` prefixed by a block comment, `cAlL` with a comment glued between
  * it and the name, and `CALL` split from its name by a newline all arrive here as `CALL <name>(...)`.
- * The token has to END there too, by Postgres' `ident_cont` (`isIdentCont`): `callback` and `call$a$`
- * are single identifiers that merely begin with those letters, so `SELECT 1 AS callback` still runs,
- * as does a `"call"` column — a quoted identifier keeps its quotes through `scanPieces` and so can
- * never be read as this keyword.
+ * The token has to END there too, by {@link endsKeyword}: `callback` and `call$a$` are single
+ * identifiers that merely begin with those letters, so `SELECT 1 AS callback` still runs, as does a
+ * `"call"` column — a quoted identifier keeps its quotes through `scanPieces` and so can never be
+ * read as this keyword. A {@link UNICODE_SPACE} character ends it as well, even though Postgres
+ * reads that one as identifier text: `CALL\u00A0p()`, `CALL\u2003p()` and `call\u3000ops.p()` are a
+ * `CALL` to every eye but the server's lexer, and the guard refuses on either reading.
  */
 const CALL = /^CALL/i;
 /** The isolation levels of `ISOLATION LEVEL ...`, as token runs. */
@@ -158,6 +160,56 @@ const isTagChar = (c: string | undefined) => c !== undefined && (/[A-Za-z0-9_]/.
 const isTagStart = (c: string | undefined) => c !== undefined && (/[A-Za-z_]/.test(c) || isNonAscii(c));
 /** `ident_cont`: a character that continues an identifier, so a token cannot start at it. */
 const isIdentCont = (c: string | undefined) => c !== undefined && (isTagChar(c) || c === "$");
+
+/**
+ * Every character that is a space to Unicode, to a human and to the drivers, but NOT to Postgres'
+ * lexer: NBSP (U+00A0), OGHAM SPACE MARK (U+1680), the U+2000–U+200A family (en space, em space,
+ * thin space, hair space …), LINE and PARAGRAPH SEPARATOR (U+2028, U+2029), NARROW NO-BREAK SPACE
+ * (U+202F), MEDIUM MATHEMATICAL SPACE (U+205F), IDEOGRAPHIC SPACE (U+3000) and the BOM / ZERO WIDTH
+ * NO-BREAK SPACE (U+FEFF) — i.e. all of JS' own `\s` but the plain ASCII space, tab, newline and
+ * carriage return — plus NEXT LINE (U+0085), whitespace to Unicode though not to JS, and `\v` and
+ * `\f`, which are ASCII but which not every Postgres `space` class has included.
+ *
+ * The server's `space` is `[ \t\n\r\f]` while its `ident_cont` is `[A-Za-z\200-\377_0-9\$]`, so
+ * every non-ASCII character here *continues an identifier* there instead of separating two tokens:
+ * `CALL\u00A0p()` is ONE identifier (`call p`) to Postgres and a `CALL` with odd padding to a human,
+ * a client library or anything on the way that normalises spaces. Which of those two readings a
+ * given driver, pooler or paste produces is not knowable from this file, so the guard fails closed
+ * and refuses on either — see {@link endsKeyword} and {@link onlyPgSpace}.
+ */
+const UNICODE_SPACE = new Set([
+  "\v", "\f", "\u0085", "\u00a0", "\u1680",
+  "\u2000", "\u2001", "\u2002", "\u2003", "\u2004", "\u2005",
+  "\u2006", "\u2007", "\u2008", "\u2009", "\u200a",
+  "\u2028", "\u2029", "\u202f", "\u205f", "\u3000", "\ufeff",
+]);
+const isUnicodeSpace = (c: string | undefined) => c !== undefined && UNICODE_SPACE.has(c);
+
+/**
+ * True when a refused keyword really ends at `c`: the character neither continues an identifier
+ * (Postgres' `ident_cont`, so `callback` and `call$a$` are names that merely start with the letters)
+ * nor is one of the {@link UNICODE_SPACE} characters that continue one on the server while reading
+ * as a gap everywhere else. The end of the statement ends a keyword too (`c === undefined`).
+ *
+ * The other refused keywords are matched with a regex `\b`, which ends them at every one of these
+ * characters already (JS `\w` is ASCII, so NBSP is a word boundary to it): `COMMIT\u00A0x` and
+ * `SET\u00A0LOCAL …` are refused with no help from here. `CALL` is the one whose boundary is checked
+ * by hand, because it is the one that must ALSO not fire at the `$` of `call$a$` or the `é` of
+ * `callé` — see {@link isRefusedCall} — and `onlyPgSpace` keeps the two allowlists honest about the
+ * same characters from the other side.
+ */
+const endsKeyword = (c: string | undefined) => !isIdentCont(c) || isUnicodeSpace(c);
+
+/**
+ * True when every space in `stmt` is one the server itself reads as a gap between two tokens.
+ *
+ * The allowlists below (`ROLLBACK_TO_SAVEPOINT`, `SET_LOCAL_ALLOWED`) spell their gaps `\s`, which in
+ * JS matches NBSP and the rest of {@link UNICODE_SPACE} as well — characters that are identifier text
+ * to Postgres. `SET\u00A0LOCAL\u00A0statement_timeout = '5s'` would satisfy the allowlist regex while
+ * being something else entirely on the wire, so an allowlist is only ever consulted for a statement
+ * whose gaps are ASCII: anything else falls through to the refusal it was an exception to.
+ */
+const onlyPgSpace = (stmt: string) => ![...stmt].some(isUnicodeSpace);
 
 /**
  * The index just past the quoted run whose first *inner* character is `from`. `q` is the delimiter and
@@ -308,23 +360,29 @@ function statementsOf(sql: string): string[] {
  */
 function isRefusedModeChange(stmt: string): boolean {
   if (SET_CONFIG.test(stmt) || DO_BLOCK.test(stmt) || DISCARD.test(stmt)) return true;
-  return SET_OR_RESET.test(stmt) && !SET_LOCAL_ALLOWED.test(stmt);
+  return SET_OR_RESET.test(stmt) && !(onlyPgSpace(stmt) && SET_LOCAL_ALLOWED.test(stmt));
 }
 
 /** True for a statement that could end the transaction the guard is holding open. */
 function isRefusedTxEnd(stmt: string): boolean {
-  return TX_END.test(stmt) && !ROLLBACK_TO_SAVEPOINT.test(stmt);
+  return TX_END.test(stmt) && !(onlyPgSpace(stmt) && ROLLBACK_TO_SAVEPOINT.test(stmt));
 }
 
 /**
  * True for a `CALL` statement, whose procedure body could end that transaction from the inside (see
- * {@link CALL}). Where the keyword ends is checked against `isIdentCont` rather than with a regex
- * `\b`, because the two disagree exactly where it matters: JS `\w` is `[A-Za-z0-9_]`, so `\b` would
- * end the keyword at the `$` of `call$a$` and at the `é` of `callé`, while Postgres reads each of
- * those as ONE identifier — a name that merely starts with those letters, not the keyword.
+ * {@link CALL}). Where the keyword ends is {@link endsKeyword} rather than a regex `\b`, because the
+ * two disagree in both directions, exactly where it matters:
+ *   - JS `\w` is `[A-Za-z0-9_]`, so `\b` would end the keyword at the `$` of `call$a$` and at the `é`
+ *     of `callé`, while Postgres reads each of those as ONE identifier — a name that merely starts
+ *     with those letters, not the keyword — so those must keep running;
+ *   - `isIdentCont` alone would NOT end it at the NBSP of `CALL\u00A0p()`, because every non-ASCII
+ *     character continues an identifier on the server. That is the fail-open half: a space a human,
+ *     a driver or a paste reads as a gap would have hidden the keyword. Every
+ *     {@link UNICODE_SPACE} character therefore ends it, and the statement is refused whichever way
+ *     the server would have lexed it.
  */
 function isRefusedCall(stmt: string): boolean {
-  return CALL.test(stmt) && !isIdentCont(stmt[4]);
+  return CALL.test(stmt) && endsKeyword(stmt[4]);
 }
 
 /**
@@ -401,8 +459,10 @@ export interface GuardState {
  *     transaction control: a PL/pgSQL body can `COMMIT` — ending the guard's transaction from the
  *     inside — or `PERFORM set_config(...)`, and the body is not in the statement text for this file
  *     to inspect. Any case, any padding or newlines, comments before or between the tokens, and any
- *     procedure name (schema-qualified or quoted). The word `call` inside a literal, inside a quoted
- *     identifier, or as part of a longer name (`callback`) is not this keyword and still runs.
+ *     procedure name (schema-qualified or quoted) — and the padding may be any Unicode space, NBSP
+ *     and U+2003 included, which the server would read as part of a name rather than as a gap. The
+ *     word `call` inside a literal, inside a quoted identifier, or as part of a longer name
+ *     (`callback`, `callé`) is not this keyword and still runs.
  *   - every `SET` and every `RESET` is refused — `SET TRANSACTION ... READ WRITE`,
  *     `SET SESSION CHARACTERISTICS ...` and the read-only GUCs among them — bar `SET LOCAL <timeout>`
  *     for the three timeouts of `SET_LOCAL_ALLOWED`, and so is every `set_config(...)` call, every `DO`
