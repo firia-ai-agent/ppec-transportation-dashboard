@@ -2,7 +2,7 @@
 
 ```
 READER: Rudy (strings), Veri (copy check), founder (decisions D-1, D-3, D-8, D-9 in DESIGN-DIRECTION.md §11, decided 2026-10-14 11:39 ET).
-STATUS: Decided: D-1, D-3, D-8, D-9 (founder, 2026-10-14 11:39 ET) and D-10 source-mode badge labels (founder, 2026-10-14 13:15 ET). No decision is still open. The rest is Vera's copy direction, not a founder decision.
+STATUS: Decided: D-1, D-3, D-8, D-9 (founder, 2026-10-14 11:39 ET), D-10 source-mode badge labels (founder, 2026-10-14 13:15 ET), and the banner text change to "DEMO" (founder, 2026-10-14 13:18 ET, ledger row 40; Veri has flagged it against PRD l.1332 "synthetic banner" and the founder is deciding). The rest is Vera's copy direction, not a founder decision.
 ```
 
 ## 1. Voice
@@ -41,7 +41,7 @@ State labels are fixed in DESIGN-DIRECTION.md §3 and must be used verbatim.
 
 ## 5. Microcopy per surface
 ### Header / shell
-- Freshness pill: "SMS · Live" / "GPS · Stale 4 min" / "Teams · Down, use Exceptions page".
+- Freshness pill (interim until B-12): "SMS · Simulated", "GPS · Simulated", "Teams · Simulated", "Agent · Simulated". After B-12: "SMS · Live" / "GPS · Stale 4 min" / "Teams · Down, use Exceptions page".
 - SSE down: "Live updates paused. Reconnecting… Board may be up to 40 s old."
 - Search placeholder (with visible label "Search"): "Child, route or vehicle".
 

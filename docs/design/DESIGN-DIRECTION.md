@@ -32,7 +32,7 @@ Success = a coordinator spots the one child at risk in under 5 s without reading
 | Provider dispatcher (link, no login) | needs to report vehicle seats/lift so the center knows the vehicle fits | /p/verify/{token} | 390×844, 1280 |
 
 ## 2. Global shell
-- **Header (persistent, every surface):** DEMO banner (§7) → site, date, scenario clock, per-adapter freshness pills (SMS, Teams, GPS, Agent: icon + label + age), global search (child first name/initial, route, vehicle). One identity location: avatar menu top-right only.
+- **Header (persistent, every surface):** DEMO banner (§7) → site, date, scenario clock, per-adapter freshness pills (SMS, Teams, GPS, Agent: icon + label + age). **Interim (approved for build): until B-12 wires real ages, each pill reads "<adapter> · Simulated" with `flask-conical` in src-sim tone (7.10:1), matching the D-10 source badge. It must switch to real ages when B-12 lands (§10).**, global search (child first name/initial, route, vehicle). One identity location: avatar menu top-right only.
 - **Nav (PRD §14):** Today (board + drawer + inbox) · Exceptions & Approvals (count badge) · Setup · Health & ROI. Ramp iPad is its own full-screen route. ≥1280: left rail 232 px; 768-1279: icon rail with labels on hover/focus; <768: hamburger drawer holding nav + identity + Sign out.
 - **SSE down >15 s:** amber bar under the header, icon `wifi-off` + "Live updates paused. Reconnecting… Board may be up to 40 s old." Never hide data; dim the "updated" timestamps.
 - **Source-mode badge** on every row, record and outbound message (NFR-09): spec in §7.1 (D-10, decided by founder).
@@ -45,7 +45,7 @@ Tone tokens map to the hexes in §8. Icons are Lucide names.
 |---|---|---|---|---|
 | leg SCHEDULED | `calendar-clock` | Scheduled | neutral | #334155 / #E2E8F0 (8.40) |
 | PROVISIONAL_ASSIGNED | `circle-dashed` | Provisional | neutral | 8.40 |
-| CAPABILITY_PENDING | `help-circle` | Vehicle check pending | warn | #854D0E / #FEF9C3 (6.38) |
+| CAPABILITY_PENDING | `circle-question-mark` | Vehicle check pending | warn | #854D0E / #FEF9C3 (6.38) |
 | CAPABILITY_REPORTED | `message-square-check` | Reported by provider | info | #1E40AF / #DBEAFE (7.15) |
 | CAPABILITY_VERIFIED | `shield-check` | Vehicle verified | ok | #166534 / #DCFCE7 (6.49) |
 | MANIFEST_LOCKED | `lock` | Manifest locked | info | 7.15 |
@@ -64,15 +64,36 @@ Tone tokens map to the hexes in §8. Icons are Lucide names.
 | EXCEPTION | `octagon-alert` | Needs action | crit | 6.80 |
 | attendance AM_SELF_DROP | `car` | Family drop-off | neutral | 8.40 |
 | EXPECTED_LATE / CHECKED_IN / EARLY_DEPARTURE / CHECKED_OUT / ABSENT_FULL_DAY | `clock-alert` / `log-in` / `log-out` / `door-open` / `calendar-x` | Running late / Checked in / Left early / Checked out / Absent today | warn / ok / warn / neutral / neutral | as above |
-| capability UNKNOWN / REQUESTED / CHANGED / REJECTED / UNAVAILABLE / VERIFIED_INFEASIBLE | `help-circle` / `send` / `refresh-cw` / `x-circle` / `ban` / `shield-x` | Unknown until arrival / Asked provider / Changed / Rejected / Vehicle unavailable / Verified: won't fit | warn / info / warn / crit / crit / crit | as above |
-| reservation FEASIBLE / INFEASIBLE / NEEDS_REVIEW | `check` / `x-octagon` / `eye` | Fits / Doesn't fit / Needs review | ok / crit / warn | as above |
-| GPS fresh (<60 s) | `radio` | Live · 12 s | ok | 6.49 |
-| GPS aging (60–179 s) | `radio` | Last seen 2 min | neutral | 8.40 |
-| GPS STALE (180–599 s) | `wifi-off` | Stale · 4 min · ETA texts paused | warn | 6.38 |
-| GPS lost (≥600 s) | `satellite-dish` + slash | No signal · 11 min | crit | 6.80 |
-| outbound QUEUED / SENT / DELIVERED / UNDELIVERED / FAILED / BLOCKED_EGRESS | `clock` / `send` / `check-check` / `alert-circle` / `x-circle` / `shield-ban` | Queued / Sent / Delivered / Not delivered / Failed / Blocked (opted out or policy) | neutral / info / ok / warn / crit / crit | as above |
+| capability UNKNOWN / REQUESTED / CHANGED / REJECTED / UNAVAILABLE / VERIFIED_INFEASIBLE | `circle-question-mark` / `send` / `refresh-cw` / `circle-x` / `ban` / `shield-x` | Unknown until arrival / Asked provider / Changed / Rejected / Vehicle unavailable / Verified: won't fit | warn / info / warn / crit / crit / crit | as above |
+| reservation FEASIBLE / INFEASIBLE / NEEDS_REVIEW | `check` / `octagon-x` / `eye` | Fits / Doesn't fit / Needs review | ok / crit / warn | as above |
+| attendance SCHEDULED | `calendar-clock` | Expected today | neutral | #334155 / #E2E8F0 (8.40) |
+| capability REPORTED | `message-square-check` | Reported by provider | info | #1E40AF / #DBEAFE (7.15) |
+| capability VERIFIED | `shield-check` | Checked at the ramp | ok | #166534 / #DCFCE7 (6.49) |
+| reservation PROVISIONAL | `circle-dashed` | Seat held (not checked) | neutral | #334155 / #E2E8F0 (8.40) |
+| reservation COMMITTED | `lock` | Seat confirmed | ok | #166534 / #DCFCE7 (6.49) |
+| reservation RELEASED | `lock-open` | Seat released | neutral | #334155 / #E2E8F0 (8.40) |
+| outbound DRAFTED | `file-pen` | Draft | neutral | #334155 / #E2E8F0 (8.40) |
+| outbound POLICY_CHECKED | `list-checks` | Checked, ready to queue | neutral | #334155 / #E2E8F0 (8.40) |
+| outbound SENDING | `send-horizontal` | Sending | info | #1E40AF / #DBEAFE (7.15) |
+| outbound UNKNOWN | `circle-question-mark` | Delivery unknown | warn | #854D0E / #FEF9C3 (6.38) |
+| outbound REDACTED | `eye-off` | Text removed (privacy) | neutral | #334155 / #E2E8F0 (8.40) |
+| outbound CANCELED_STALE | `calendar-off` | Not sent (out of date) | neutral | #334155 / #E2E8F0 (8.40) |
+| thread CLOSED | `archive` | Closed (quiet 24 h) | neutral | #334155 / #E2E8F0 (8.40) |
+| ack PENDING / ACKNOWLEDGED / DECLINED / EXPIRED_ESCALATED / SUPERSEDED | `hourglass` / `check-check` / `circle-x` / `shield-alert` / `rotate-ccw-clock` | Waiting for reply / Acknowledged / Declined / No reply, escalated / Replaced by newer request | warn / ok / crit / crit / neutral | as above |
+| task (exception) OPEN / IN_PROGRESS / RESOLVED_APPROVED / RESOLVED_OVERRIDE / CLOSED_VERIFIED / SNOOZED | `octagon-alert` / `loader` / `circle-check` / `hand` / `badge-check` / `circle-pause` | Open / Being handled by {name} / Resolved: approved / Resolved: staff override / Closed, checked / Snoozed until {time} | crit / info / ok / warn / ok / neutral | as above (`loader` never spins under reduced motion) |
+| transport profile DRAFT / APPROVED / SUPERSEDED | `file-pen` / `badge-check` / `rotate-ccw-clock` | Draft, not used for rides / Approved v{n} / Older version | neutral / ok / neutral | as above |
+| need item UNKNOWN / REPORTED / VERIFIED / APPROVED | `circle-question-mark` / `message-square-check` / `shield-check` / `badge-check` | Not known yet / Reported / Checked / Approved (used for seating) | warn / info / ok / ok | as above; unapproved items greyed "not used for allocation" (PRD VEH-01) |
+| therapy session SCHEDULED / IMPACTED / THERAPIST_NOTIFIED / CANCELED | `calendar-clock` / `triangle-alert` / `send` / `calendar-x` | Therapy scheduled / Therapy affected / Therapist told / Therapy canceled | neutral / warn / info / neutral | as above |
+| agent run QUEUED / RUNNING / WAITING_TOOL / SUCCEEDED / FAILED / ABORTED_SUPERSEDED_BY_HUMAN | `clock` / `bot` / `hourglass` / `circle-check` / `circle-x` / `user-round` | Agent queued / Agent working / Agent waiting / Agent done / Agent failed / Staff took over | neutral / info / neutral / ok / crit / neutral | as above (Inbox + Health only) |
+| job (timer) SCHEDULED / CLAIMED / DONE / CANCELED / FAILED / DEAD | `clock` / `loader` / `check` / `circle-slash` / `circle-x` / `octagon-x` | Scheduled / Running / Done / Canceled / Failed, retrying / Failed, needs a person | neutral / info / ok / neutral / warn / crit | as above (Health / demo fire log only) |
+| GPS fresh (<60 s) | `locate-fixed` | Live · 12 s | ok | 6.49 |
+| GPS aging (60–179 s) | `locate` | Last seen 2 min | neutral | 8.40 |
+| GPS STALE (180–599 s) | `clock-alert` | Stale · 4 min · ETA texts paused | warn | 6.38 |
+| GPS lost (≥600 s) | `locate-off` | No signal · 11 min | crit | 6.80 |
+| outbound QUEUED / SENT / DELIVERED / UNDELIVERED / FAILED / BLOCKED_EGRESS | `clock` / `send` / `check-check` / `circle-alert` / `circle-x` / `shield-ban` | Queued / Sent / Delivered / Not delivered / Failed / Blocked (opted out or policy) | neutral / info / ok / warn / crit / crit | as above |
 | severity GREEN / AMBER / RED | `circle-check` / `triangle-alert` / `octagon-alert` | Low / Medium / Urgent | ok / warn / crit | as above |
 | thread OPEN / PAUSED_HUMAN | `bot` / `user-round` | Agent handling / Staff: {first name} | info / neutral | as above |
+Icons: every name above is a canonical (non-alias) icon verified in lucide-static 1.57.0 (`icons/<name>.svg` returns HTTP 200, checked 2026-10-14). "No signal" uses the single icon `locate-off` (GPS crosshair struck through). It reads as lost location, and it doesn't collide with `wifi-off` (live-updates bar) or `cloud-off` (iPad offline). Rejected: `satellite-dish` plus a custom slash (overlay), `signal-zero` (reads as phone signal), `wifi-off` (collides), `map-pin-off` (reads as "no stop"). All tones reuse the §8 pairs, so there are no new colour pairs.
 Note: PRD freshness bands (<60 / 60–600 / >600 s) and the STALE badge at 180 s (MOCKS §5, PRD l.456) disagree; this table uses four bands to honour both. Decided: D-2 (four bands).
 
 ## 4. Surfaces
@@ -149,7 +170,7 @@ NFR-09 (PRD l.537–538) requires a source-mode badge on every screen, record an
 | source_mode | Icon (Lucide) | Label | Text token | Contrast (contrast.py) |
 |---|---|---|---|---|
 | SIMULATED | `flask-conical` | Simulated | src-sim `#6D28D9` on surface | 7.10:1 |
-| REPLAY | `history` | Replay | ink-muted `#475569` on surface | 7.58:1 |
+| REPLAY | `rotate-ccw-clock` | Replay | ink-muted `#475569` on surface | 7.58:1 |
 | MANUAL | `hand` | Manual entry | ink-muted | 7.58:1 |
 | SANDBOX | `box` | Sandbox | ink-muted | 7.58:1 |
 | LIVE | `radio-tower` | Live | ink `#0F172A` on surface | 17.85:1 (never violet) |
@@ -207,6 +228,8 @@ Walk each persona at **1280×800, 1024×768 iPad landscape, 820×1180 iPad portr
 - [ ] Reduced motion on: no tween, pulse or fly-to.
 - [ ] VoiceOver (iPad) reads a board row and an exception in a sensible order.
 - [ ] Whole demo job: Reset → F1 self-drop → ramp infeasible → approve C8 → second approver sees "Already decided" → GPS gap STALE then No signal → EOD close blocked → Export. Non-seeded state, reload persists.
+- [ ] Header adapter pills show real ages ("SMS · Live 12 s", "GPS · Stale 4 min") once B-12 lands; the interim "<adapter> · Simulated" text is gone.
+- [ ] Every icon in §3 renders from lucide (no missing-icon fallbacks).
 - [ ] "Arrived (vehicle)" never shows as "Handed off".
 - [ ] Empty, loading, error, SSE-down, 412 conflict, expired dispatcher link states all seen.
 - [ ] No horizontal scroll; no "+N more" truncation hiding children; one primary CTA per region; one identity location.
