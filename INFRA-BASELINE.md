@@ -30,7 +30,7 @@ Vercel Cron runs on **production only**. Previews have no cron: the harness call
 | AUTH_SECRET, CRON_SECRET, SIM_WEBHOOK_SECRET, HMAC_PEPPER, DATA_KEY | ✓ | ✓ (distinct values) | sensitive | Rudy (generated, never printed) | not set |
 | DEMO_DIRECTOR_PASSWORD, DEMO_COORDINATOR_PASSWORD, DEMO_FRONT_DESK_PASSWORD | ✓ | ✓ (distinct) | sensitive | Rudy | not set |
 | OPENROUTER_API_KEY | ✓ | ✓ | sensitive | founder via Firia only (DECISION-LEDGER #19) | not set |
-| MIGRATE_PROD_ON_BUILD (unset ⇒ off; `1` enables prod migrations on builds from `main` only) | only when releasing | – | plain | Rudy, per prod-release-gate | not set (off) |
+| MIGRATE_PROD_ON_BUILD (unset ⇒ off; `1` enables prod migrations on builds from `main` only) | `1` (production target only) | – | plain | Rudy, per prod-release-gate | **set 2026-10-14 12:45 ET** |
 | NEXT_PUBLIC_MAP_TILE_URL | ✓ | ✓ | plain | Rudy | not set |
 
 ## Database
@@ -56,3 +56,12 @@ None yet. Pending: Vercel GitHub integration, Neon (Vercel-managed, Free plan).
 ## Known side-effects
 - **Vercel import auto-deploy (2026-10-14):** right after the project was created, Vercel deployed automatically: `dpl_AwLye7jkbLsf1cTMeR9JpinF4SrN`, target **production**, from branch `team/ppe-10-b-02-schema` @ `f957e4e`, 13.6 s after creation. **It failed at build.** The project is still `live: false`, and nothing from this deployment serves traffic. This was Vercel's import behaviour, not a release; prod releases still go only from `main` under prod-release-gate.
 - **Production branch check (closed 2026-10-14):** Firia confirmed in the Vercel dashboard that Settings > Environments > Production > Branch Tracking = `main`. The production-branch incident above is closed. Only `main` produces production deployments.
+
+## Decisions (infra)
+- **MIGRATE_PROD_ON_BUILD**, Accepted by default (Rudy, within founder locks), 2026-10-14:
+  - The flag stayed off for the first main deploy (the #4 merge, b47a8c6, which had no migrations).
+  - Once #5 was on main (7b03dda), the prod-release-gate check passed: main head = #5's merge; prod `/api/health` showed `dataClass: SYNTHETIC`; 0000/0001 frozen (DATABASES.md).
+  - The flag was then set to `1` on the **production target only** (plain, not sensitive) via the Vercel connector.
+  - The next main deploy (the #6 merge, 0b8d4b6, `dpl_BqjBt2YZr9zUg4aG98H6dKiyA3Wd`) logged `migrate: RUN (production from main with MIGRATE_PROD_ON_BUILD=1)` and `migrate: OK, 2 migrations recorded, endpoint ep-divine-brook-b73452bw`.
+  - **Prod seeding stays off**: `seed demo users: SKIP (not a preview build)`. It waits for the founder-approved reset/seed buttons (B-15, ledger row 17).
+- Known side-effect: the #1 merge (e9486b6) built a production deployment before the app existed on main (docs-only tree), and it ended in ERROR (`dpl_FRLxumUDEU8mJB1uPLSx8BnmMAxq`). The #4 merge deployed READY right after. Nothing served from the failed build.
