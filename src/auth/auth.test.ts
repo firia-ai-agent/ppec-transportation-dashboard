@@ -101,13 +101,24 @@ describe("credentials + roles from DB", () => {
 });
 
 describe("build-time seed gate", () => {
-  const ok = { VERCEL_ENV: "preview", APP_DATA_CLASS: "SYNTHETIC", DATABASE_URL_UNPOOLED: "x",
+  const ok = { VERCEL_ENV: "preview", APP_DATA_CLASS: "SYNTHETIC", DATABASE_URL_UNPOOLED: "postgresql://u:p@ep-x.neon.tech/db",
     DEMO_DIRECTOR_PASSWORD: "a", DEMO_COORDINATOR_PASSWORD: "b", DEMO_FRONT_DESK_PASSWORD: "c" };
-  it("runs on preview only, with SYNTHETIC and all demo passwords present", () => {
-    expect(decideSeed(ok).run).toBe(true);
-    expect(decideSeed({ ...ok, VERCEL_ENV: "production" }).run).toBe(false);
-    expect(decideSeed({ ...ok, APP_DATA_CLASS: "REAL" }).run).toBe(false);
-    expect(decideSeed({ ...ok, DEMO_FRONT_DESK_PASSWORD: undefined }).reason).toMatch(/DEMO_FRONT_DESK_PASSWORD/);
-    expect(JSON.stringify(decideSeed({ ...ok, DATABASE_URL_UNPOOLED: undefined }))).not.toContain("://");
+  it("never seeds from a build: one shared DB (DECISION-LEDGER #43)", () => {
+    for (const env of [ok, { ...ok, VERCEL_ENV: "production" }, { ...ok, VERCEL_ENV: undefined }, {}]) {
+      expect(decideSeed(env).run).toBe(false);
+      expect(decideSeed(env).reason).toContain("DECISION-LEDGER #43");
+    }
+    expect(decideSeed(ok).reason).toMatch(/^preview: never writes to the shared DB/);
+    expect(decideSeed({ ...ok, VERCEL_ENV: "production" }).reason).toMatch(/manual only/);
+    expect(JSON.stringify(decideSeed(ok))).not.toContain("://");
+  });
+});
+
+describe("manual seed on a preview", () => {
+  it("refuses to write when VERCEL_ENV=preview, but a dry run is still allowed", async () => {
+    await expect(seedDemoUsers(db, { ...env, VERCEL_ENV: "preview" }, { dryRun: false })).rejects.toBeInstanceOf(SeedRefused);
+    await expect(seedDemoUsers(db, { ...env, VERCEL_ENV: "preview" }, { dryRun: false, resetPasswords: true })).rejects.toThrow(/DECISION-LEDGER #43/);
+    expect(await seedDemoUsers(db, { ...env, VERCEL_ENV: "preview" }, { dryRun: true })).toMatchObject({ dryRun: true });
+    expect(await seedDemoUsers(db, { ...env, VERCEL_ENV: "production" }, { dryRun: false })).toMatchObject({ dryRun: false });
   });
 });

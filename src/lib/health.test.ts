@@ -8,6 +8,12 @@ it("reports commit and data class, no secrets", () => {
   expect(JSON.stringify(p)).not.toContain("AUTH_SECRET");
 });
 
+it("flags the preview read-only DB session (DECISION-LEDGER #43)", () => {
+  expect(healthPayload({ VERCEL_ENV: "preview" }).dbReadOnly).toBe(true);
+  expect(healthPayload({ VERCEL_ENV: "production" }).dbReadOnly).toBe(false);
+  expect(healthPayload({}).dbReadOnly).toBe(false);
+});
+
 it("dbEndpoint exposes only the ep- id, never credentials, host or query", async () => {
   const user = "synuser_q7"; const password = "SynPassw0rdNotReal9x";
   const env = {

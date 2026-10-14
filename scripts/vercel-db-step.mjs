@@ -1,15 +1,19 @@
 // Vercel build step: apply drizzle migrations from inside the Vercel build, so no connection string leaves Vercel.
 // Runs as part of `pnpm vercel-build` (package.json). It never prints a URL, host or credential.
-//   VERCEL_ENV=preview     → migrate the preview's own Neon branch (DATABASE_URL_UNPOOLED). Missing URL fails the build.
+// PPEC has exactly ONE database (Neon `main`) and previews get production's DATABASE_URL
+// (single-DB directive, DECISION-LEDGER #43), so a preview build must never touch the schema.
+//   VERCEL_ENV=preview     → SKIP, always. A preview shares the production DB; it never migrates it.
 //   VERCEL_ENV=production  → OFF by default. Runs only if MIGRATE_PROD_ON_BUILD=1 AND the commit ref is `main`
 //                            (prod-release-gate: prod migrates only from main, with an explicit flag).
 //   anything else          → skip (local `next build`, CI).
 import { pathToFileURL } from "node:url";
 
-/** Pure decision, unit-tested. */
+/** Pure decision, unit-tested. Migrates ONLY on production + MIGRATE_PROD_ON_BUILD=1 + ref `main`. */
 export function decideMigrate(env) {
   const target = env.VERCEL_ENV;
-  if (target === "preview") return { run: true, reason: "preview build" };
+  if (target === "preview") {
+    return { run: false, reason: "preview: never migrates the shared DB (single-DB directive, DECISION-LEDGER #43)" };
+  }
   if (target === "production") {
     if (env.MIGRATE_PROD_ON_BUILD !== "1") return { run: false, reason: "production: MIGRATE_PROD_ON_BUILD is not 1 (off by default)" };
     if (env.VERCEL_GIT_COMMIT_REF !== "main") return { run: false, reason: "production: refusing, commit ref is not main" };

@@ -1,13 +1,27 @@
 import { expect, it } from "vitest";
 import { decideMigrate, scrub } from "./vercel-db-step.mjs";
 
-it("migrates on preview only by default; prod needs the flag AND main", () => {
-  expect(decideMigrate({ VERCEL_ENV: "preview" }).run).toBe(true);
+it("migrates only on production + MIGRATE_PROD_ON_BUILD=1 + ref main (single DB, DECISION-LEDGER #43)", () => {
+  expect(decideMigrate({ VERCEL_ENV: "production", MIGRATE_PROD_ON_BUILD: "1", VERCEL_GIT_COMMIT_REF: "main" }).run).toBe(true);
+  // every other combination skips
   expect(decideMigrate({ VERCEL_ENV: "production", VERCEL_GIT_COMMIT_REF: "main" }).run).toBe(false);
   expect(decideMigrate({ VERCEL_ENV: "production", MIGRATE_PROD_ON_BUILD: "1", VERCEL_GIT_COMMIT_REF: "team/x" }).run).toBe(false);
-  expect(decideMigrate({ VERCEL_ENV: "production", MIGRATE_PROD_ON_BUILD: "1", VERCEL_GIT_COMMIT_REF: "main" }).run).toBe(true);
+  expect(decideMigrate({ VERCEL_ENV: "production", MIGRATE_PROD_ON_BUILD: "0", VERCEL_GIT_COMMIT_REF: "main" }).run).toBe(false);
+  expect(decideMigrate({ VERCEL_ENV: "production", MIGRATE_PROD_ON_BUILD: "1" }).run).toBe(false);
   expect(decideMigrate({}).run).toBe(false);
   expect(decideMigrate({ VERCEL_ENV: "development" }).run).toBe(false);
+});
+
+it("never migrates on a preview, whatever else is set, and says why", () => {
+  const reason = "preview: never migrates the shared DB (single-DB directive, DECISION-LEDGER #43)";
+  for (const env of [
+    { VERCEL_ENV: "preview" },
+    { VERCEL_ENV: "preview", MIGRATE_PROD_ON_BUILD: "1" },
+    { VERCEL_ENV: "preview", MIGRATE_PROD_ON_BUILD: "1", VERCEL_GIT_COMMIT_REF: "main" },
+    { VERCEL_ENV: "preview", DATABASE_URL_UNPOOLED: "postgresql://u:p@ep-x.neon.tech/db" },
+  ]) {
+    expect(decideMigrate(env)).toEqual({ run: false, reason });
+  }
 });
 
 it("scrub removes URLs and credentials from error text", () => {

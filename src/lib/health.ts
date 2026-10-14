@@ -1,3 +1,5 @@
+import { isReadOnlyDbEnv } from "@/db/read-only";
+
 /**
  * Non-secret Neon endpoint id (e.g. "ep-abc-123") from DATABASE_URL_UNPOOLED, falling back to DATABASE_URL.
  * Returns only the first host label with any "-pooler" suffix removed, and only if it looks like a Neon endpoint.
@@ -22,5 +24,7 @@ export function healthPayload(env: Record<string, string | undefined>) {
     environment: env.VERCEL_ENV ?? "development",
     dataClass: env.APP_DATA_CLASS ?? null,
     dbEndpoint: neonEndpointId(env),
+    // Previews share the one production DB and open every session read-only (DECISION-LEDGER #43).
+    dbReadOnly: isReadOnlyDbEnv(env),
   };
 }
