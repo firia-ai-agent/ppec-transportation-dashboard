@@ -6,40 +6,63 @@
  * to an API, and sends no messages — the capability checklist feeds the deterministic capacity
  * solver (PRD §7) in the browser and the solver's verdict drives the banner. Approvals belong to a
  * coordinator (SURF-05), so this page proposes and records, and never assigns or approves.
+ *
+ * Words come from src/ui/copy.ts and colours and metrics from the CSS custom properties
+ * src/ui/tokens.ts emits in the root layout — this route holds neither its own copy nor its own
+ * token table. The DEMO banner and the single NFR-09 source chip also come from the root layout,
+ * so this page must not mount a second pair.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { feasible } from "@/domain/solver";
 import type { AlternateCandidate, Child, LayoutPosition, SolveResult } from "@/domain/solver";
 import { chairFitsPosition } from "@/domain/solver";
 import { ARRIVING_VEHICLES, SERVICE_DATE, fullyAvailable } from "@/fixtures/fleet";
+import { fill, rampPreview, sentence } from "@/ui/copy";
+import { serviceDateLabel } from "@/ui/service-date";
+import { toneVars } from "@/ui/tokens";
+import type { Tone } from "@/ui/tokens";
 import {
   ANSWER_LABEL, POSITION_ANSWER_LABEL, availableSummary, bannerCopy, defaultChecklist, isAmb, isWc,
-  layoutOf, needChips, needSummary, positionLabel, toCapability,
+  layoutOf, needChips, needSummary, positionDetail, positionName, toCapability,
 } from "./capability";
 import type { Answer, Checklist, PositionAnswer } from "./capability";
 import { Icon } from "./icons";
-import { color, focusRing, size, tone } from "./tokens";
-import type { Tone } from "./tokens";
 
 type RiderActionKind = "BOARDED" | "NOT_ON_VEHICLE" | "LEFT_EARLY";
 type RiderAction = { kind: RiderActionKind; pickedUpBy?: string; at: string; queueId: string; recordedLate: boolean };
 type QueueEntry = { id: string; idempotencyKey: string; label: string; at: string; offline: boolean };
 type Snack = { id: string; text: string; riderKey: string };
 
-/** Who collected a child who left early. Roles only: no free-text names in the demo. */
-const PICKUP_ROLES = ["Parent or guardian", "Approved adult on the pickup list", "PPEC staff"];
+/**
+ * The service date the fixtures describe, as "Tue, Oct 14" (COPY-GUIDE §3). Read at noon UTC so
+ * the site timezone (America/New_York) lands on the same calendar day the fixture names.
+ */
+const SERVICE_DATE_LABEL = serviceDateLabel(new Date(`${SERVICE_DATE}T12:00:00Z`));
+
+/** §4.4: the checklist is 64 px toggle rows, and the vehicle tiles are big segmented tiles. */
+const CHECKLIST_ROW_HEIGHT = 64;
+const TILE_MIN_WIDTH = 260;
+const TILE_MIN_HEIGHT = 84;
 
 const CARD: React.CSSProperties = {
-  background: color.surface, border: `1px solid ${color.border}`, borderRadius: size.radius, padding: size.gap,
+  background: "var(--color-surface)",
+  border: "var(--border-hairline) solid var(--color-border-strong)",
+  borderRadius: "var(--radius-md)",
+  padding: "var(--space-5)",
 };
 
+const MUTED: React.CSSProperties = { color: "var(--color-ink-muted)", fontSize: "var(--text-16)" };
+
 function Chip({ toneName, icon, children }: { toneName: Tone; icon: Parameters<typeof Icon>[0]["name"]; children: React.ReactNode }) {
+  const vars = toneVars(toneName);
   return (
     <span style={{
-      display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999,
-      background: tone[toneName].bg, color: tone[toneName].fg, fontSize: 15, fontWeight: 600,
+      display: "inline-flex", alignItems: "center", gap: "var(--space-3)",
+      padding: "var(--space-2) var(--space-4)", borderRadius: "var(--radius-pill)",
+      background: vars.bg, color: vars.fg, fontSize: "var(--text-16)",
+      fontWeight: "var(--weight-semibold)",
     }}>
-      <Icon name={icon} size={18} />{children}
+      <Icon name={icon} />{children}
     </span>
   );
 }
@@ -51,14 +74,23 @@ function BigButton({
   disabled?: boolean; pressed?: boolean;
 }) {
   const palette = variant === "primary"
-    ? { background: color.brand, color: color.surface, border: `1px solid ${color.brand}` }
-    : { background: color.surface, color: color.ink, border: `1px solid ${pressed ? color.brand : color.borderStrong}` };
+    ? {
+        background: "var(--color-brand)",
+        color: "var(--color-surface)",
+        border: "var(--border-hairline) solid var(--color-brand)",
+      }
+    : {
+        background: "var(--color-surface)",
+        color: "var(--color-ink)",
+        border: `var(--border-hairline) solid ${pressed ? "var(--color-brand)" : "var(--color-border-strong)"}`,
+      };
   return (
     <button
       type="button" onClick={onClick} disabled={disabled} aria-pressed={pressed}
       style={{
-        ...palette, minHeight: size.target, padding: "0 18px", borderRadius: size.radius,
-        fontSize: size.body, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer",
+        ...palette, minHeight: "var(--target-ramp)", padding: "0 var(--space-5)",
+        borderRadius: "var(--radius-md)", fontSize: "var(--body-ramp)",
+        fontWeight: "var(--weight-semibold)", cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.45 : 1, fontFamily: "inherit",
       }}
     >
@@ -76,14 +108,16 @@ function AnswerRow<T extends string>({
 }) {
   return (
     <div style={{
-      display: "flex", alignItems: "center", justifyContent: "space-between", gap: size.gap,
-      minHeight: 64, borderTop: `1px solid ${color.border}`, padding: "8px 0", flexWrap: "wrap",
+      display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-5)",
+      minHeight: CHECKLIST_ROW_HEIGHT,
+      borderTop: "var(--border-hairline) solid var(--color-border-strong)",
+      padding: "var(--space-3) 0", flexWrap: "wrap",
     }}>
-      <span style={{ fontSize: size.body }}>
+      <span style={{ fontSize: "var(--body-ramp)" }}>
         {label}
-        {hint ? <span style={{ display: "block", color: color.inkMuted, fontSize: 15 }}>{hint}</span> : null}
+        {hint ? <span style={{ display: "block", ...MUTED }}>{hint}</span> : null}
       </span>
-      <span role="group" aria-label={label} style={{ display: "flex", gap: 8 }}>
+      <span role="group" aria-label={label} style={{ display: "flex", gap: "var(--space-3)" }}>
         {options.map((option) => (
           <BigButton
             key={option} label={labels[option]} pressed={value === option}
@@ -131,6 +165,7 @@ export default function RampPreviewPage() {
   const need = useMemo(() => needSummary(leg), [leg]);
   const available = availableSummary(vehicle, checklist);
   const banner = bannerCopy(result, need, available);
+  const bannerVars = toneVars(banner.tone);
 
   /** Seats the solver proposed for the busiest stop; ramp staff can change them. */
   const suggested = useMemo(() => {
@@ -166,22 +201,23 @@ export default function RampPreviewPage() {
     const riderKey = `${vehicle.id}:${child.token}`;
     const queueId = crypto.randomUUID();
     const at = stamp();
+    const action = kind === "BOARDED" ? rampPreview.boardingConfirmed
+      : kind === "NOT_ON_VEHICLE" ? rampPreview.notOnVehicle
+      : rampPreview.leftEarly;
     setQueue((prev) => [...prev, {
       id: queueId,
       // Saved once, even if this iPad retries later (PRD §12 mutations carry an idempotency key).
       idempotencyKey: crypto.randomUUID(),
-      label: `${kind === "BOARDED" ? "Boarding confirmed" : kind === "NOT_ON_VEHICLE" ? "Not on vehicle" : "Left early"} · ${child.displayName}`,
+      label: fill(rampPreview.queueLabel, { action, child: child.displayName }),
       at, offline,
     }]);
     setRiderActions((prev) => ({ ...prev, [riderKey]: { kind, pickedUpBy, at, queueId, recordedLate: false } }));
     setArmed(null);
     setAskingEarly(null);
-    setSnack({
-      id: queueId, riderKey,
-      text: kind === "BOARDED" ? `Boarding confirmed for ${child.displayName}.`
-        : kind === "NOT_ON_VEHICLE" ? `${child.displayName} marked not on vehicle.`
-        : `${child.displayName} marked left early.`,
-    });
+    const template = kind === "BOARDED" ? rampPreview.snackBoarded
+      : kind === "NOT_ON_VEHICLE" ? rampPreview.snackNotOnVehicle
+      : rampPreview.snackLeftEarly;
+    setSnack({ id: queueId, riderKey, text: sentence(fill(template, { child: child.displayName })) });
   }, [offline, vehicle.id]);
 
   const undo = (target: Snack) => {
@@ -208,70 +244,79 @@ export default function RampPreviewPage() {
   const riders = [...leg.children];
   // Nobody boards until the check says the run fits: the solver blocks the manifest lock (PRD §9).
   const blockedReason = result.status === "FEASIBLE" ? null
-    : result.status === "CAPABILITY_PENDING" ? "Finish the vehicle check first. Every row needs Yes or No."
-    : "The run doesn’t fit yet. A coordinator decides before anyone boards.";
+    : result.status === "CAPABILITY_PENDING" ? rampPreview.blockedPending
+    : rampPreview.blockedInfeasible;
 
   return (
-    <main style={{ background: color.bg, color: color.ink, minHeight: "100vh", fontSize: size.body, padding: size.gap }}>
-      {/* DEMO banner + source chip: every screen says where its data comes from (NFR-09). */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: size.gap }}>
-        <span role="status" aria-label="DEMO" style={{
-          background: color.demoBg, color: color.demoFg, padding: "8px 16px", borderRadius: size.radius,
-          fontWeight: 700, letterSpacing: 1,
-        }}>DEMO</span>
-        <span style={{
-          border: `1px solid ${color.srcSim}`, color: color.srcSim, padding: "6px 12px", borderRadius: 999, fontWeight: 600,
-        }}>Simulated</span>
-        <h1 style={{ fontSize: 24, margin: 0 }}>Ramp check</h1>
-        <span style={{ color: color.inkMuted }}>Tue, Oct 14 · afternoon rides</span>
+    <main style={{
+      background: "var(--color-bg)", color: "var(--color-ink)", minHeight: "100vh",
+      fontSize: "var(--body-ramp)", padding: "var(--space-5)",
+    }}>
+      {/* The DEMO bar and the one source chip ride in the root layout, on every route. */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: "var(--space-4)", flexWrap: "wrap",
+        marginBottom: "var(--space-5)",
+      }}>
+        <h1 style={{ fontSize: "var(--text-24)", margin: 0 }}>{rampPreview.heading}</h1>
+        <span style={{ color: "var(--color-ink-muted)" }}>
+          {fill(rampPreview.subtitle, { date: SERVICE_DATE_LABEL })}
+        </span>
         {savedOffline > 0 ? (
-          <span style={{
-            display: "inline-flex", alignItems: "center", gap: 8, marginLeft: "auto",
-            background: tone.warn.bg, color: tone.warn.fg, padding: "8px 14px", borderRadius: 999, fontWeight: 600,
-          }}>
-            <Icon name="offline" />{`Offline · ${savedOffline} saved on this iPad. They'll send when Wi-Fi is back.`}
+          <span style={{ marginLeft: "auto" }}>
+            <Chip toneName="warn" icon="offline">
+              {fill(rampPreview.offlinePill, { count: savedOffline })}
+            </Chip>
           </span>
         ) : null}
       </div>
-      <p style={{ color: color.inkMuted, marginTop: 0 }}>
-        Nothing on this page is sent anywhere. Answers stay in this browser so the vehicle check can be walked through.
-      </p>
+      <p style={{ color: "var(--color-ink-muted)", marginTop: 0 }}>{rampPreview.localOnly}</p>
 
       {/* Arriving-vehicle selector */}
-      <h2 style={{ fontSize: 20 }}>Which vehicle is at the ramp?</h2>
-      <div style={{ display: "flex", gap: size.gap, flexWrap: "wrap", marginBottom: size.gap }}>
+      <h2 style={{ fontSize: "var(--text-20)" }}>{rampPreview.arrivalsHeading}</h2>
+      <div style={{
+        display: "flex", gap: "var(--space-5)", flexWrap: "wrap", marginBottom: "var(--space-5)",
+      }}>
         {ARRIVING_VEHICLES.map((candidate, index) => (
           <button
             key={candidate.vehicle.id} type="button" onClick={() => { setArrivalIndex(index); setOpenPosition(null); }}
             aria-pressed={index === arrivalIndex}
             style={{
-              ...CARD, textAlign: "left", minWidth: 260, minHeight: 84, cursor: "pointer", fontFamily: "inherit",
-              fontSize: size.body, color: color.ink,
-              borderColor: index === arrivalIndex ? color.brand : color.border,
-              borderWidth: index === arrivalIndex ? 2 : 1,
+              ...CARD, textAlign: "left", minWidth: TILE_MIN_WIDTH, minHeight: TILE_MIN_HEIGHT,
+              cursor: "pointer", fontFamily: "inherit",
+              fontSize: "var(--body-ramp)", color: "var(--color-ink)",
+              borderColor: index === arrivalIndex ? "var(--color-brand)" : "var(--color-border-strong)",
+              borderWidth: index === arrivalIndex ? "calc(var(--border-hairline) * 2)" : "var(--border-hairline)",
             }}
           >
-            <strong>{candidate.vehicle.label}</strong> · {candidate.vehicle.providerName}
-            <span style={{ display: "block", color: color.inkMuted }}>
-              {`arriving ${candidate.arrivingAt} · ${candidate.leg.children.length} riders`}
+            <strong>
+              {fill(rampPreview.vehicleTile, {
+                vehicle: candidate.vehicle.label, provider: candidate.vehicle.providerName,
+              })}
+            </strong>
+            <span style={{ display: "block", color: "var(--color-ink-muted)" }}>
+              {fill(rampPreview.vehicleTileDetail, {
+                time: candidate.arrivingAt, riders: candidate.leg.children.length,
+              })}
             </span>
           </button>
         ))}
       </div>
 
-      <div style={{ display: "flex", gap: size.gap, alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: "var(--space-5)", alignItems: "flex-start", flexWrap: "wrap" }}>
         {/* Capability checklist */}
         <section style={{ ...CARD, flex: "1 1 420px" }} aria-labelledby="checklist-heading">
-          <h2 id="checklist-heading" style={{ fontSize: 20, marginTop: 0 }}>
-            {`What can ${vehicle.label} carry today?`}
+          <h2 id="checklist-heading" style={{ fontSize: "var(--text-20)", marginTop: 0 }}>
+            {fill(rampPreview.checklistHeading, { vehicle: vehicle.label })}
           </h2>
-          <p style={{ color: color.inkMuted, marginTop: 0 }}>
-            Unknown until arrival is normal. Anything left on “Not sure” keeps the run unchecked.
-          </p>
+          <p style={{ color: "var(--color-ink-muted)", marginTop: 0 }}>{rampPreview.checklistIntro}</p>
 
-          <fieldset style={{ border: 0, padding: 0, margin: `0 0 ${size.gap}px` }}>
-            <legend style={{ fontWeight: 600, padding: 0 }}>How is the vehicle set up?</legend>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+          <fieldset style={{ border: 0, padding: 0, margin: "0 0 var(--space-5)" }}>
+            <legend style={{ fontWeight: "var(--weight-semibold)", padding: 0 }}>
+              {rampPreview.layoutLegend}
+            </legend>
+            <div style={{
+              display: "flex", gap: "var(--space-3)", flexWrap: "wrap", marginTop: "var(--space-3)",
+            }}>
               {vehicle.layouts.map((candidate) => (
                 <BigButton
                   key={candidate.id} label={candidate.code} pressed={candidate.id === layout.id}
@@ -282,7 +327,7 @@ export default function RampPreviewPage() {
           </fieldset>
 
           <AnswerRow
-            label="Lift works?" value={checklist.lift} options={["YES", "NO", "UNSURE"] as const}
+            label={rampPreview.liftRow} value={checklist.lift} options={["YES", "NO", "UNSURE"] as const}
             labels={ANSWER_LABEL} onChange={(lift: Answer) => setChecklist({ ...checklist, lift })}
           />
           {layout.positions.map((position, index) => {
@@ -290,8 +335,8 @@ export default function RampPreviewPage() {
             return (
               <AnswerRow
                 key={position.id}
-                label={isWc(position) ? `Wheelchair position ${ordinal}` : `Walking seat ${ordinal}`}
-                hint={positionLabel(position, ordinal).split(" · ").slice(1).join(" · ") || undefined}
+                label={positionName(position, ordinal)}
+                hint={positionDetail(position) || undefined}
                 value={checklist.positions[position.id] ?? "UNSURE"}
                 options={["FREE", "OUT", "UNSURE"] as const} labels={POSITION_ANSWER_LABEL}
                 onChange={(answer: PositionAnswer) => setChecklist({
@@ -301,28 +346,43 @@ export default function RampPreviewPage() {
             );
           })}
           <AnswerRow
-            label="Car-seat anchors (LATCH)" value={checklist.latch} options={["YES", "NO", "UNSURE"] as const}
+            label={rampPreview.latchRow} value={checklist.latch} options={["YES", "NO", "UNSURE"] as const}
             labels={ANSWER_LABEL} onChange={(latch: Answer) => setChecklist({ ...checklist, latch })}
           />
 
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: size.gap }}>
-            <Chip toneName="neutral" icon="wheelchair">{`Wheelchair places free: ${available.wc} of ${need.wc} needed`}</Chip>
-            <Chip toneName="neutral" icon="seat">{`Walking seats free: ${available.amb} of ${need.amb} needed`}</Chip>
-            <Chip toneName="neutral" icon="seat">{`Anchored seats free: ${available.tether} of ${need.tether} needed`}</Chip>
+          <div style={{
+            display: "flex", gap: "var(--space-3)", flexWrap: "wrap", marginTop: "var(--space-5)",
+          }}>
+            <Chip toneName="neutral" icon="wheelchair">
+              {fill(rampPreview.wcFree, { available: available.wc, needed: need.wc })}
+            </Chip>
+            <Chip toneName="neutral" icon="seat">
+              {fill(rampPreview.ambFree, { available: available.amb, needed: need.amb })}
+            </Chip>
+            <Chip toneName="neutral" icon="seat">
+              {fill(rampPreview.tetherFree, { available: available.tether, needed: need.tether })}
+            </Chip>
           </div>
           <p style={{ marginBottom: 0 }}>
             <BigButton
-              label={offline ? "Wi-Fi is back" : "Simulate losing Wi-Fi"}
+              label={offline ? rampPreview.wifiBack : rampPreview.loseWifi}
               onClick={() => (offline ? goOnline() : setOffline(true))}
             />
           </p>
         </section>
 
         {/* Slot allocation matrix + riders */}
-        <section style={{ flex: "1 1 460px", display: "flex", flexDirection: "column", gap: size.gap }}>
+        <section style={{
+          flex: "1 1 460px", display: "flex", flexDirection: "column", gap: "var(--space-5)",
+        }}>
           <div style={CARD} aria-labelledby="slots-heading">
-            <h2 id="slots-heading" style={{ fontSize: 20, marginTop: 0 }}>Who sits where</h2>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 8 }}>
+            <h2 id="slots-heading" style={{ fontSize: "var(--text-20)", marginTop: 0 }}>
+              {rampPreview.slotsHeading}
+            </h2>
+            <div style={{
+              display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))",
+              gap: "var(--space-3)",
+            }}>
               {layout.positions.map((position, index) => {
                 const ordinal = layout.positions.filter((p, i) => i < index && p.kind === position.kind).length + 1;
                 const answer = checklist.positions[position.id] ?? "UNSURE";
@@ -331,35 +391,36 @@ export default function RampPreviewPage() {
                 const eligible = riders.filter((child) => eligibleFor(child, position) && !assignedTokens.has(child.token));
                 return (
                   <div key={position.id} style={{
-                    border: `1px solid ${answer === "FREE" ? color.border : color.borderStrong}`,
-                    borderRadius: size.radius, padding: 10,
-                    background: answer === "FREE" ? color.surface : color.neutralBg,
+                    border: "var(--border-hairline) solid var(--color-border-strong)",
+                    borderRadius: "var(--radius-md)", padding: "var(--space-4)",
+                    background: answer === "FREE" ? "var(--color-surface)" : "var(--color-neutral-bg)",
                   }}>
-                    <span style={{ fontWeight: 600, display: "block" }}>
-                      {isWc(position) ? `Wheelchair position ${ordinal}` : `Walking seat ${ordinal}`}
+                    <span style={{ fontWeight: "var(--weight-semibold)", display: "block" }}>
+                      {positionName(position, ordinal)}
                     </span>
-                    <span style={{ color: color.inkMuted, fontSize: 15, display: "block" }}>
-                      {positionLabel(position, ordinal).split(" · ").slice(1).join(" · ")}
-                    </span>
-                    <span style={{ display: "block", margin: "6px 0" }}>
+                    <span style={{ ...MUTED, display: "block" }}>{positionDetail(position)}</span>
+                    <span style={{ display: "block", margin: "var(--space-3) 0" }}>
                       {answer !== "FREE"
                         ? <Chip toneName={answer === "OUT" ? "crit" : "warn"} icon={answer === "OUT" ? "ban" : "question"}>
                             {POSITION_ANSWER_LABEL[answer]}
                           </Chip>
                         : occupant
                           ? <Chip toneName="info" icon="check">{occupant.displayName}</Chip>
-                          : <Chip toneName="neutral" icon="seat">Free</Chip>}
+                          : <Chip toneName="neutral" icon="seat">{rampPreview.free}</Chip>}
                     </span>
                     {answer === "FREE" ? (
                       <BigButton
-                        label={open ? "Close" : occupant ? "Change" : "Assign"}
+                        label={open ? rampPreview.close : occupant ? rampPreview.change : rampPreview.assign}
                         onClick={() => setOpenPosition(open ? null : position.id)} pressed={open}
                       />
                     ) : null}
                     {open ? (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                      <div style={{
+                        display: "flex", flexDirection: "column", gap: "var(--space-3)",
+                        marginTop: "var(--space-3)",
+                      }}>
                         {occupant ? (
-                          <BigButton label="Clear seat" onClick={() => {
+                          <BigButton label={rampPreview.clearSeat} onClick={() => {
                             setSeatChoices((prev) => ({ ...prev, [`${vehicle.id}:${position.id}`]: null }));
                             setOpenPosition(null);
                           }} />
@@ -371,9 +432,7 @@ export default function RampPreviewPage() {
                           }} />
                         ))}
                         {eligible.length === 0 && !occupant ? (
-                          <span style={{ color: color.inkMuted, fontSize: 15 }}>
-                            No rider on this run fits this place.
-                          </span>
+                          <span style={MUTED}>{rampPreview.noEligibleRider}</span>
                         ) : null}
                       </div>
                     ) : null}
@@ -384,56 +443,80 @@ export default function RampPreviewPage() {
           </div>
 
           <div style={CARD}>
-            <h2 style={{ fontSize: 20, marginTop: 0 }}>Riders</h2>
+            <h2 style={{ fontSize: "var(--text-20)", marginTop: 0 }}>{rampPreview.ridersHeading}</h2>
             {riders.map((child) => {
               const riderKey = `${vehicle.id}:${child.token}`;
               const action = riderActions[riderKey];
               const isArmed = armed === riderKey;
               return (
-                <div key={child.token} style={{ borderTop: `1px solid ${color.border}`, padding: `${size.gap}px 0` }}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-                    <strong style={{ fontSize: 20 }}>{child.displayName}</strong>
-                    {child.boarded ? <Chip toneName="info" icon="check">Boarded (reported)</Chip> : null}
-                    {action?.kind === "BOARDED" ? <Chip toneName="ok" icon="check">{`Boarded, verified · ${action.at}`}</Chip> : null}
-                    {action?.kind === "NOT_ON_VEHICLE" ? <Chip toneName="neutral" icon="ban">{`Not on vehicle · ${action.at}`}</Chip> : null}
-                    {action?.kind === "LEFT_EARLY" ? <Chip toneName="warn" icon="alert">{`Left early · ${action.pickedUpBy} · ${action.at}`}</Chip> : null}
-                    {action?.recordedLate ? <Chip toneName="neutral" icon="offline">Recorded late</Chip> : null}
+                <div key={child.token} style={{
+                  borderTop: "var(--border-hairline) solid var(--color-border-strong)",
+                  padding: "var(--space-5) 0",
+                }}>
+                  <div style={{
+                    display: "flex", gap: "var(--space-3)", alignItems: "baseline", flexWrap: "wrap",
+                  }}>
+                    <strong style={{ fontSize: "var(--text-20)" }}>{child.displayName}</strong>
+                    {child.boarded ? <Chip toneName="info" icon="check">{rampPreview.boardedReported}</Chip> : null}
+                    {action?.kind === "BOARDED" ? (
+                      <Chip toneName="ok" icon="check">{fill(rampPreview.boardedVerified, { time: action.at })}</Chip>
+                    ) : null}
+                    {action?.kind === "NOT_ON_VEHICLE" ? (
+                      <Chip toneName="neutral" icon="ban">{fill(rampPreview.notOnVehicleChip, { time: action.at })}</Chip>
+                    ) : null}
+                    {action?.kind === "LEFT_EARLY" ? (
+                      <Chip toneName="warn" icon="alert">
+                        {fill(rampPreview.leftEarlyChip, { by: action.pickedUpBy ?? "", time: action.at })}
+                      </Chip>
+                    ) : null}
+                    {action?.recordedLate ? (
+                      <Chip toneName="neutral" icon="offline">{rampPreview.recordedLate}</Chip>
+                    ) : null}
                   </div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "6px 0" }}>
+                  <div style={{
+                    display: "flex", gap: "var(--space-3)", flexWrap: "wrap", margin: "var(--space-3) 0",
+                  }}>
                     {needChips(child).map((chip) => (
                       <span key={chip} style={{
-                        border: `1px solid ${color.border}`, borderRadius: 999, padding: "4px 10px",
-                        fontSize: 15, color: color.inkMuted,
+                        border: "var(--border-hairline) solid var(--color-border-strong)",
+                        borderRadius: "var(--radius-pill)", padding: "var(--space-2) var(--space-4)",
+                        ...MUTED,
                       }}>{chip}</span>
                     ))}
                   </div>
-                  <p style={{ color: color.inkMuted, fontSize: 15, margin: "0 0 8px" }}>
-                    Derived from intake, not a diagnosis.
-                  </p>
+                  <p style={{ ...MUTED, margin: "0 0 var(--space-3)" }}>{rampPreview.needsCaption}</p>
                   {action ? null : (
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
                       <BigButton
                         variant="primary" disabled={blockedReason !== null}
-                        label={isArmed ? "Tap again to confirm" : "Confirm boarding & securement"}
+                        label={isArmed ? rampPreview.confirmAgain : rampPreview.confirmBoarding}
                         onClick={() => (isArmed ? record(child, "BOARDED") : setArmed(riderKey))}
                       />
-                      <BigButton label="Not on vehicle" onClick={() => record(child, "NOT_ON_VEHICLE")} />
+                      <BigButton label={rampPreview.notOnVehicle} onClick={() => record(child, "NOT_ON_VEHICLE")} />
                       <BigButton
-                        label="Left early" pressed={askingEarly === riderKey}
+                        label={rampPreview.leftEarly} pressed={askingEarly === riderKey}
                         onClick={() => setAskingEarly(askingEarly === riderKey ? null : riderKey)}
                       />
                     </div>
                   )}
                   {blockedReason !== null && !action ? (
-                    <p style={{ color: result.status === "CAPABILITY_PENDING" ? tone.warn.fg : tone.crit.fg, margin: "8px 0 0" }}>
+                    <p style={{
+                      color: result.status === "CAPABILITY_PENDING"
+                        ? "var(--color-warn-fg)" : "var(--color-crit-fg)",
+                      margin: "var(--space-3) 0 0",
+                    }}>
                       {blockedReason}
                     </p>
                   ) : null}
                   {askingEarly === riderKey ? (
-                    <div role="group" aria-label={`Who picked up ${child.displayName}?`} style={{ marginTop: 8 }}>
-                      <p style={{ margin: "0 0 8px" }}>Who picked up?</p>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        {PICKUP_ROLES.map((role) => (
+                    <div
+                      role="group"
+                      aria-label={fill(rampPreview.whoPickedUpFor, { child: child.displayName })}
+                      style={{ marginTop: "var(--space-3)" }}
+                    >
+                      <p style={{ margin: "0 0 var(--space-3)" }}>{rampPreview.whoPickedUp}</p>
+                      <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
+                        {rampPreview.pickupRoles.map((role) => (
                           <BigButton key={role} label={role} onClick={() => record(child, "LEFT_EARLY", role)} />
                         ))}
                       </div>
@@ -446,14 +529,14 @@ export default function RampPreviewPage() {
 
           {queue.length > 0 ? (
             <div style={CARD}>
-              <h2 style={{ fontSize: 20, marginTop: 0 }}>Saved on this iPad</h2>
-              <ul style={{ margin: 0, paddingLeft: 20 }}>
+              <h2 style={{ fontSize: "var(--text-20)", marginTop: 0 }}>{rampPreview.queueHeading}</h2>
+              <ul style={{ margin: 0, paddingLeft: "var(--space-6)" }}>
                 {queue.map((entry) => (
-                  <li key={entry.id} style={{ marginBottom: 6 }}>
-                    {`${entry.label} · ${entry.at}`}{" "}
+                  <li key={entry.id} style={{ marginBottom: "var(--space-3)" }}>
+                    {fill(rampPreview.queueRow, { label: entry.label, time: entry.at })}{" "}
                     {entry.offline
-                      ? <Chip toneName="warn" icon="offline">Waiting for Wi-Fi</Chip>
-                      : <Chip toneName="neutral" icon="check">Saved here only</Chip>}
+                      ? <Chip toneName="warn" icon="offline">{rampPreview.queueWaiting}</Chip>
+                      : <Chip toneName="neutral" icon="check">{rampPreview.queueSaved}</Chip>}
                   </li>
                 ))}
               </ul>
@@ -464,50 +547,59 @@ export default function RampPreviewPage() {
 
       {/* Sticky feasibility banner, driven by the solver */}
       <div style={{
-        position: "sticky", bottom: 0, marginTop: size.gap, background: tone[banner.tone].bg,
-        color: tone[banner.tone].fg, border: `1px solid ${tone[banner.tone].fg}`, borderRadius: size.radius,
-        padding: size.gap,
+        position: "sticky", bottom: 0, marginTop: "var(--space-5)", background: bannerVars.bg,
+        color: bannerVars.fg, border: `var(--border-hairline) solid ${bannerVars.fg}`,
+        borderRadius: "var(--radius-md)", padding: "var(--space-5)",
       }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 20, fontWeight: 700 }}>
-          <Icon name={banner.tone === "ok" ? "check" : banner.tone === "warn" ? "question" : "alert"} size={26} />
+        <div style={{
+          display: "flex", gap: "var(--space-4)", alignItems: "center",
+          fontSize: "var(--text-20)", fontWeight: "var(--weight-semibold)",
+        }}>
+          <Icon name={banner.tone === "ok" ? "check" : banner.tone === "warn" ? "question" : "alert"} />
           {banner.title}
         </div>
-        {banner.detail ? <p style={{ margin: "6px 0 0" }}>{banner.detail}</p> : null}
+        {banner.detail ? <p style={{ margin: "var(--space-3) 0 0" }}>{banner.detail}</p> : null}
         {result.options.length > 0 ? (
-          <div style={{ marginTop: size.gap, color: color.ink }}>
-            <h3 style={{ fontSize: 18, margin: "0 0 8px" }}>What a coordinator can choose</h3>
-            <ol style={{ margin: 0, paddingLeft: 20 }}>
+          <div style={{ marginTop: "var(--space-5)", color: "var(--color-ink)" }}>
+            <h3 style={{ fontSize: "var(--body-ramp)", margin: "0 0 var(--space-3)" }}>
+              {rampPreview.optionsHeading}
+            </h3>
+            <ol style={{ margin: 0, paddingLeft: "var(--space-6)" }}>
               {result.options.map((option) => (
-                <li key={option.id} style={{ marginBottom: 6 }}>
-                  <strong>{option.label}</strong> — {option.detail}{" "}
-                  <Chip toneName="neutral" icon="question">Needs a coordinator’s approval</Chip>
+                <li key={option.id} style={{ marginBottom: "var(--space-3)" }}>
+                  {fill(rampPreview.optionRow, { label: option.label, detail: option.detail })}{" "}
+                  <Chip toneName="neutral" icon="question">{rampPreview.needsApproval}</Chip>
                 </li>
               ))}
             </ol>
-            <p style={{ color: color.inkMuted, marginBottom: 0 }}>
-              Reported by provider, not checked at the ramp, unless that vehicle was checked here too.
-              Ramp staff don’t choose; the coordinator does.
-            </p>
+            <p style={{ color: "var(--color-ink-muted)", marginBottom: 0 }}>{rampPreview.optionsNote}</p>
           </div>
         ) : null}
       </div>
 
-      <div aria-live="polite" style={{ position: "fixed", bottom: 96, left: size.gap }}>
+      <div aria-live="polite" style={{
+        position: "fixed", bottom: "calc(var(--space-8) * 2)", left: "var(--space-5)",
+      }}>
         {snack ? (
           <span style={{
-            display: "inline-flex", alignItems: "center", gap: 12, background: color.ink, color: color.surface,
-            padding: "12px 16px", borderRadius: size.radius,
+            display: "inline-flex", alignItems: "center", gap: "var(--space-4)",
+            background: "var(--color-ink)", color: "var(--color-surface)",
+            padding: "var(--space-4) var(--space-5)", borderRadius: "var(--radius-md)",
           }}>
             {snack.text}
             <button
               type="button" onClick={() => undo(snack)}
               style={{
-                background: "transparent", color: color.surface, border: `1px solid ${color.surface}`,
-                borderRadius: size.radius, minHeight: 44, padding: "0 14px", fontSize: 16, fontWeight: 600,
-                cursor: "pointer", fontFamily: "inherit", ...focusRing,
+                background: "transparent", color: "var(--color-surface)",
+                border: "var(--border-hairline) solid var(--color-surface)",
+                borderRadius: "var(--radius-md)", minHeight: "var(--target-console)",
+                padding: "0 var(--space-5)", fontSize: "var(--text-16)",
+                fontWeight: "var(--weight-semibold)", cursor: "pointer", fontFamily: "inherit",
+                outline: "var(--focus-width) solid var(--color-focus)",
+                outlineOffset: "var(--focus-offset)",
               }}
             >
-              Undo
+              {rampPreview.undo}
             </button>
           </span>
         ) : null}

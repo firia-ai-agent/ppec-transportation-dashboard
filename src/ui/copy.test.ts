@@ -4,15 +4,20 @@ import { describe, expect, it } from "vitest";
 import {
   adapters,
   board,
+  countable,
   demoBanner,
   fill,
   liveUpdates,
   login,
   mapPreview,
   nav,
+  pluralize,
+  rampPreview,
+  sentence,
   scenarioClock,
   screenReader,
   search,
+  securement,
   sourceMode,
   unbuilt,
   whoami,
@@ -132,6 +137,37 @@ describe("COPY-GUIDE strings, verbatim", () => {
     expect(unbuilt.tag).toBe("Not built yet");
   });
 
+  it("§5 SURF-04: the ramp strings the guide fixes verbatim", () => {
+    expect(rampPreview.offlinePill).toBe(
+      "Offline · {count} saved on this iPad. They'll send when Wi-Fi is back.",
+    );
+    expect(fill(rampPreview.offlinePill, { count: 3 })).toBe(
+      "Offline · 3 saved on this iPad. They'll send when Wi-Fi is back.",
+    );
+    // §5: "Boarding confirmed for Leo B." — one period, not two, after the last initial.
+    expect(sentence(fill(rampPreview.snackBoarded, { child: "Leo B." }))).toBe(
+      "Boarding confirmed for Leo B.",
+    );
+    expect(sentence(fill(rampPreview.snackLeftEarly, { child: "Mia R." }))).toBe(
+      "Mia R. marked left early.",
+    );
+    expect(rampPreview.recordedLate).toBe("Recorded late");
+    expect(rampPreview.whoPickedUp).toBe("Who picked up?");
+    expect(rampPreview.liftRow).toBe("Lift works?");
+    expect(rampPreview.latchRow).toBe("Car-seat anchors (LATCH)");
+    expect(Object.values(rampPreview.answer)).toEqual(["Yes", "No", "Not sure"]);
+    // §5 SURF-02, reused on the rider card: a transport need is never a diagnosis.
+    expect(rampPreview.needsCaption).toBe("Derived from intake, not a diagnosis.");
+  });
+
+  it("§5 SURF-04: no free-text names in the pickup role list", () => {
+    expect(rampPreview.pickupRoles).toEqual([
+      "Parent or guardian",
+      "Approved adult on the pickup list",
+      "PPEC staff",
+    ]);
+  });
+
   it("the sign-in intro is the one sentence the review fixed", () => {
     expect(login.intro).toBe("Demo accounts only.");
   });
@@ -144,6 +180,23 @@ describe("COPY-GUIDE strings, verbatim", () => {
     expect(scenarioClock.notStarted).toBe("Demo not started");
     expect(scenarioClock.start).toBe("Start");
     expect(scenarioClock.startUnavailable).toBe("Demo controls aren't connected yet.");
+  });
+});
+
+describe("pluralize", () => {
+  it("never prints a bare count", () => {
+    expect(pluralize(1, countable.wheelchair)).toBe("1 wheelchair");
+    expect(pluralize(2, countable.wheelchair)).toBe("2 wheelchairs");
+    expect(pluralize(0, countable.walkingSeat)).toBe("0 walking seats");
+    expect(pluralize(1, countable.wcPosition)).toBe("1 wheelchair position");
+  });
+});
+
+describe("sentence", () => {
+  it("adds the full stop a name's initial already supplied, and only then", () => {
+    expect(sentence("Boarding confirmed for Leo B.")).toBe("Boarding confirmed for Leo B.");
+    expect(sentence("Boarding confirmed for Leo")).toBe("Boarding confirmed for Leo.");
+    expect(sentence("Who picked up?")).toBe("Who picked up?");
   });
 });
 
@@ -214,13 +267,16 @@ function allStrings(): Array<[string, string]> {
   const copy: Record<string, unknown> = {
     adapters,
     board,
+    countable,
     demoBanner,
     liveUpdates,
     login,
     mapPreview,
     nav,
+    rampPreview,
     scenarioClock,
     search,
+    securement,
     sourceMode,
     unbuilt,
     whoami,

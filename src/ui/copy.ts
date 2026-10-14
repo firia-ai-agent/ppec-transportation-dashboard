@@ -18,6 +18,14 @@ export function fill(template: string, values: Record<string, string | number>):
   );
 }
 
+/**
+ * Closes a sentence with exactly one full stop. Needed because §3 writes a child as first name
+ * plus last initial ("Leo B."), so a template that supplied its own period would print "Leo B..".
+ */
+export function sentence(text: string): string {
+  return /[.?\u2026]$/.test(text) ? text : `${text}.`;
+}
+
 export const app = {
   /** Site name in the header. */
   siteName: "PPEC transportation",
@@ -203,3 +211,144 @@ export const whoami = {
   /** Internal role enum names are allowed on developer surfaces only (COPY-GUIDE §2). */
   membership: "{role} at site {siteId}",
 } as const;
+
+/**
+ * SURF-04 Ramp iPad (COPY-GUIDE §5 "SURF-04", §3 formats, DESIGN-DIRECTION §4.4).
+ *
+ * Every word the ramp check renders, including the strings the pure helpers in
+ * src/app/ramp-preview/capability.ts build up — a verdict is computed there, but the sentence
+ * that says it belongs here. Voice rules from §1 apply: plain, honest about certainty, a need
+ * is never a diagnosis.
+ */
+export const rampPreview = {
+  heading: "Ramp check",
+  /** `{date}` is the site-timezone service date, "Tue, Oct 14" (§3). */
+  subtitle: "{date} · afternoon rides",
+  /** Says plainly that this surface records nothing, so nobody waits for a send that never happens. */
+  localOnly:
+    "Nothing on this page is sent anywhere. Answers stay in this browser so the vehicle check can be walked through.",
+
+  arrivalsHeading: "Which vehicle is at the ramp?",
+  /** §5: the vehicle tile reads "V1 · Provider P1 · arriving 8:52 · 3 riders", over two lines. */
+  vehicleTile: "{vehicle} · {provider}",
+  vehicleTileDetail: "arriving {time} · {riders} riders",
+
+  checklistHeading: "What can {vehicle} carry today?",
+  checklistIntro:
+    "Unknown until arrival is normal. Anything left on “Not sure” keeps the run unchecked.",
+  layoutLegend: "How is the vehicle set up?",
+  liftRow: "Lift works?",
+  latchRow: "Car-seat anchors (LATCH)",
+  /** §5: every checklist row answers Yes / No / Not sure. "Not sure" is never read as a yes. */
+  answer: { YES: "Yes", NO: "No", UNSURE: "Not sure" },
+  positionAnswer: { FREE: "Free", OUT: "Out of service", UNSURE: "Not sure" },
+  wcFree: "Wheelchair places free: {available} of {needed} needed",
+  ambFree: "Walking seats free: {available} of {needed} needed",
+  tetherFree: "Anchored seats free: {available} of {needed} needed",
+  loseWifi: "Simulate losing Wi-Fi",
+  wifiBack: "Wi-Fi is back",
+  /** §5 offline pill, verbatim: "Offline · 3 saved on this iPad. They'll send when Wi-Fi is back." */
+  offlinePill: "Offline · {count} saved on this iPad. They'll send when Wi-Fi is back.",
+
+  slotsHeading: "Who sits where",
+  wcPosition: "Wheelchair position {n}",
+  ambPosition: "Walking seat {n}",
+  wcPositionDetail: "{securement} · fits {length} × {width} cm",
+  ambPositionDetail: "has an anchor",
+  free: "Free",
+  assign: "Assign",
+  change: "Change",
+  close: "Close",
+  clearSeat: "Clear seat",
+  noEligibleRider: "No rider on this run fits this place.",
+
+  ridersHeading: "Riders",
+  boardedReported: "Boarded (reported)",
+  boardedVerified: "Boarded, verified · {time}",
+  notOnVehicleChip: "Not on vehicle · {time}",
+  leftEarlyChip: "Left early · {by} · {time}",
+  /** §4.4: queued while offline, then stamped once it syncs. */
+  recordedLate: "Recorded late",
+  /** §5 SURF-02, reused here: a transport need is never a diagnosis. */
+  needsCaption: "Derived from intake, not a diagnosis.",
+  confirmBoarding: "Confirm boarding & securement",
+  confirmAgain: "Tap again to confirm",
+  notOnVehicle: "Not on vehicle",
+  leftEarly: "Left early",
+  whoPickedUp: "Who picked up?",
+  whoPickedUpFor: "Who picked up {child}?",
+  /** Roles only — no free-text names in the demo (§5 SURF-04). */
+  pickupRoles: ["Parent or guardian", "Approved adult on the pickup list", "PPEC staff"],
+  blockedPending: "Finish the vehicle check first. Every row needs Yes or No.",
+  blockedInfeasible: "The run doesn’t fit yet. A coordinator decides before anyone boards.",
+
+  queueHeading: "Saved on this iPad",
+  queueRow: "{label} · {time}",
+  queueLabel: "{action} · {child}",
+  queueWaiting: "Waiting for Wi-Fi",
+  queueSaved: "Saved here only",
+  boardingConfirmed: "Boarding confirmed",
+  /** §5: "Boarding confirmed for Leo B." with a 3 s Undo. */
+  undo: "Undo",
+  /** Closed with `sentence()`, since "{child}" already ends in the last initial's period. */
+  snackBoarded: "Boarding confirmed for {child}",
+  snackNotOnVehicle: "{child} marked not on vehicle",
+  snackLeftEarly: "{child} marked left early",
+
+  optionsHeading: "What a coordinator can choose",
+  optionRow: "{label} — {detail}",
+  needsApproval: "Needs a coordinator’s approval",
+  optionsNote:
+    "Reported by provider, not checked at the ramp, unless that vehicle was checked here too. Ramp staff don’t choose; the coordinator does.",
+
+  /* ── the feasibility banner (§5 SURF-04) ── */
+  /** §5: "Fits: 1 wheelchair, 1 walking seat." */
+  fits: "Fits: {parts}.",
+  fitsNobody: "Fits: nobody is riding this run.",
+  checkedAs: "Checked as {layout}.",
+  notChecked: "Not checked yet.",
+  notCheckedDetail: "Answer every row to see whether the run fits.",
+  vehicleOut: "This vehicle is out of service today.",
+  /** §5: "Doesn't fit: needs 2 wheelchair positions, has 1. Coordinator alerted." */
+  doesntFit: "Doesn't fit: {phrase}. Coordinator alerted.",
+  foundAtStop: "Found at stop {k}.",
+  withAnchors: "{parts} ({count} with an anchor)",
+  deficitCount: "needs {needed}, has {available}",
+  deficitFallback: "the run does not fit this vehicle",
+  deficitSecurement: "the securement in this vehicle does not match a rider's chair",
+  deficitFootprint: "a rider's chair is larger than the position allows",
+  deficitLift: "the lift is not working and a rider boards by lift",
+
+  /* ── rider need chips (§1: needs, never a diagnosis) ── */
+  usesWheelchair: "Uses a wheelchair · {securement}",
+  chairSize: "Chair {length} × {width} cm",
+  needsAnchoredSeat: "Needs an anchored seat",
+  escortRides: "Attendant rides along",
+
+  /** Who the observation is attributed to when ramp staff answer the checklist themselves. */
+  observedBy: "Ramp staff",
+} as const;
+
+/** Securement hardware in plain words, keyed by the ops.securement enum. */
+export const securement = {
+  L_TRACK: "L-track",
+  SLIDE_N_CLICK: "slide-and-click",
+  FOUR_POINT_STRAP: "four-point straps",
+  OTHER: "other securement",
+} as const;
+
+/**
+ * Singular / plural nouns the ramp banner counts. Kept as pairs rather than an "+s" rule so a
+ * translator, or a noun that does not pluralise with an s, has somewhere to put the right word.
+ */
+export const countable = {
+  wheelchair: { one: "wheelchair", many: "wheelchairs" },
+  walkingSeat: { one: "walking seat", many: "walking seats" },
+  wcPosition: { one: "wheelchair position", many: "wheelchair positions" },
+  anchoredSeat: { one: "anchored seat", many: "anchored seats" },
+} as const;
+
+/** "1 wheelchair" / "2 wheelchairs" — a count never reaches the screen without its noun. */
+export function pluralize(count: number, noun: { one: string; many: string }): string {
+  return `${count} ${count === 1 ? noun.one : noun.many}`;
+}

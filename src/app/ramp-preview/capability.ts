@@ -1,13 +1,16 @@
 /**
  * Pure helpers behind the ramp check (SURF-04): the capability checklist maps to a
  * vehicle_capability_day observation, and the solver's verdict maps to the banner copy.
- * Copy is fixed by docs/design/COPY-GUIDE.md §5 "SURF-04"; no ticket codes, no jargon.
+ * Copy is fixed by docs/design/COPY-GUIDE.md §5 "SURF-04"; no ticket codes, no jargon. Every
+ * word these helpers assemble comes from src/ui/copy.ts — the verdict is computed here, the
+ * sentence that says it is not written here.
  */
 import type {
   AmbSeat, Child, DailyCapability, Layout, LayoutPosition, Leg, SolveResult, Vehicle, WcPosition,
 } from "@/domain/solver";
 import { onboardByStop } from "@/domain/solver";
-import type { Tone } from "./tokens";
+import { countable, fill, pluralize, rampPreview, securement } from "@/ui/copy";
+import type { Tone } from "@/ui/tokens";
 
 export type Answer = "YES" | "NO" | "UNSURE";
 export type PositionAnswer = "FREE" | "OUT" | "UNSURE";
@@ -21,10 +24,8 @@ export type Checklist = {
   positions: Record<string, PositionAnswer>;
 };
 
-export const ANSWER_LABEL: Record<Answer, string> = { YES: "Yes", NO: "No", UNSURE: "Not sure" };
-export const POSITION_ANSWER_LABEL: Record<PositionAnswer, string> = {
-  FREE: "Free", OUT: "Out of service", UNSURE: "Not sure",
-};
+export const ANSWER_LABEL: Record<Answer, string> = rampPreview.answer;
+export const POSITION_ANSWER_LABEL: Record<PositionAnswer, string> = rampPreview.positionAnswer;
 
 export function layoutOf(vehicle: Vehicle, layoutId: string): Layout {
   const layout = vehicle.layouts.find((l) => l.id === layoutId);
@@ -58,7 +59,7 @@ export function toCapability(vehicle: Vehicle, checklist: Checklist, serviceDate
     latchOk: checklist.latch === "UNSURE" ? null : checklist.latch === "YES",
     unavailablePositionIds: ids.filter((id) => checklist.positions[id] === "OUT"),
     unknownPositionIds: ids.filter((id) => (checklist.positions[id] ?? "UNSURE") === "UNSURE"),
-    observedBy: "Ramp staff",
+    observedBy: rampPreview.observedBy,
   };
 }
 
@@ -87,50 +88,51 @@ export function availableSummary(vehicle: Vehicle, checklist: Checklist): Counts
   };
 }
 
-function plural(count: number, one: string): string {
-  return `${count} ${count === 1 ? one : `${one}s`}`;
-}
-
 export type Banner = { tone: Tone; title: string; detail: string | null };
 
 /** The sticky feasibility banner (COPY-GUIDE §5 SURF-04). */
 export function bannerCopy(result: SolveResult, need: Counts, available: Counts): Banner {
   if (result.status === "FEASIBLE") {
     const parts: string[] = [];
-    if (need.wc > 0) parts.push(plural(need.wc, "wheelchair"));
+    if (need.wc > 0) parts.push(pluralize(need.wc, countable.wheelchair));
     if (need.amb > 0) {
+      const seats = pluralize(need.amb, countable.walkingSeat);
       parts.push(need.tether > 0
-        ? `${plural(need.amb, "walking seat")} (${need.tether} with an anchor)`
-        : plural(need.amb, "walking seat"));
+        ? fill(rampPreview.withAnchors, { parts: seats, count: need.tether })
+        : seats);
     }
     return {
       tone: "ok",
-      title: parts.length > 0 ? `Fits: ${parts.join(", ")}.` : "Fits: nobody is riding this run.",
-      detail: `Checked as ${result.layout?.code ?? ""}.`.trim(),
+      title: parts.length > 0
+        ? fill(rampPreview.fits, { parts: parts.join(", ") })
+        : rampPreview.fitsNobody,
+      detail: fill(rampPreview.checkedAs, { layout: result.layout?.code ?? "" }).trim(),
     };
   }
   if (result.status === "CAPABILITY_PENDING") {
     return {
       tone: "warn",
-      title: "Not checked yet.",
-      detail: result.pendingReason ?? "Answer every row to see whether the run fits.",
+      title: rampPreview.notChecked,
+      detail: result.pendingReason ?? rampPreview.notCheckedDetail,
     };
   }
   if (result.status === "VEHICLE_UNAVAILABLE") {
-    return { tone: "crit", title: "This vehicle is out of service today.", detail: result.pendingReason };
+    return { tone: "crit", title: rampPreview.vehicleOut, detail: result.pendingReason };
   }
   const deficit = result.deficit;
-  const phrase = !deficit ? "the run does not fit this vehicle"
-    : deficit.type === "WC_POSITION" ? `needs ${plural(need.wc, "wheelchair position")}, has ${available.wc}`
-    : deficit.type === "AMBULATORY_SEAT" ? `needs ${plural(need.amb, "walking seat")}, has ${available.amb}`
-    : deficit.type === "TETHER_SEAT" ? `needs ${plural(need.tether, "anchored seat")}, has ${available.tether}`
-    : deficit.type === "WC_SECUREMENT" ? "the securement in this vehicle does not match a rider's chair"
-    : deficit.type === "WC_FOOTPRINT" ? "a rider's chair is larger than the position allows"
-    : "the lift is not working and a rider boards by lift";
+  const shortfall = (needed: string, have: number) =>
+    fill(rampPreview.deficitCount, { needed, available: have });
+  const phrase = !deficit ? rampPreview.deficitFallback
+    : deficit.type === "WC_POSITION" ? shortfall(pluralize(need.wc, countable.wcPosition), available.wc)
+    : deficit.type === "AMBULATORY_SEAT" ? shortfall(pluralize(need.amb, countable.walkingSeat), available.amb)
+    : deficit.type === "TETHER_SEAT" ? shortfall(pluralize(need.tether, countable.anchoredSeat), available.tether)
+    : deficit.type === "WC_SECUREMENT" ? rampPreview.deficitSecurement
+    : deficit.type === "WC_FOOTPRINT" ? rampPreview.deficitFootprint
+    : rampPreview.deficitLift;
   return {
     tone: "crit",
-    title: `Doesn't fit: ${phrase}. Coordinator alerted.`,
-    detail: deficit ? `Found at stop ${deficit.k}.` : null,
+    title: fill(rampPreview.doesntFit, { phrase }),
+    detail: deficit ? fill(rampPreview.foundAtStop, { k: deficit.k }) : null,
   };
 }
 
@@ -138,23 +140,39 @@ export function bannerCopy(result: SolveResult, need: Counts, available: Counts)
 export function needChips(child: Child): string[] {
   const chips: string[] = [];
   if (child.mobility === "WC") {
-    const securement = child.securement === "L_TRACK" ? "L-track"
-      : child.securement === "SLIDE_N_CLICK" ? "slide-and-click"
-      : child.securement === "FOUR_POINT_STRAP" ? "four-point straps" : "other securement";
-    chips.push(`Uses a wheelchair · ${securement}`);
-    if (child.wcLengthCm && child.wcWidthCm) chips.push(`Chair ${child.wcLengthCm} × ${child.wcWidthCm} cm`);
+    chips.push(fill(rampPreview.usesWheelchair, { securement: securement[child.securement ?? "OTHER"] }));
+    if (child.wcLengthCm && child.wcWidthCm) {
+      chips.push(fill(rampPreview.chairSize, { length: child.wcLengthCm, width: child.wcWidthCm }));
+    }
   }
-  if (child.tether) chips.push("Needs an anchored seat");
-  if (child.escort) chips.push("Attendant rides along");
+  if (child.tether) chips.push(rampPreview.needsAnchoredSeat);
+  if (child.escort) chips.push(rampPreview.escortRides);
   return chips;
 }
 
-export function positionLabel(position: LayoutPosition, index: number): string {
+/** A position's own name: "Wheelchair position 1" / "Walking seat 3". */
+export function positionName(position: LayoutPosition, index: number): string {
+  const template = isWc(position) ? rampPreview.wcPosition : rampPreview.ambPosition;
+  return fill(template, { n: index });
+}
+
+/**
+ * What the ramp needs to know about a position beyond its name — securement and footprint for a
+ * chair, whether a seat has an anchor. Empty when there is nothing extra to say.
+ */
+export function positionDetail(position: LayoutPosition): string {
   if (isWc(position)) {
-    const securement = position.securement === "L_TRACK" ? "L-track"
-      : position.securement === "SLIDE_N_CLICK" ? "slide-and-click"
-      : position.securement === "FOUR_POINT_STRAP" ? "four-point straps" : "other securement";
-    return `Wheelchair position ${index} · ${securement} · fits ${position.maxLengthCm} × ${position.maxWidthCm} cm`;
+    return fill(rampPreview.wcPositionDetail, {
+      securement: securement[position.securement],
+      length: position.maxLengthCm,
+      width: position.maxWidthCm,
+    });
   }
-  return `Walking seat ${index}${position.tetherCapable ? " · has an anchor" : ""}`;
+  return position.tetherCapable ? rampPreview.ambPositionDetail : "";
+}
+
+/** Name plus detail, as the checklist and the slot matrix read it out together. */
+export function positionLabel(position: LayoutPosition, index: number): string {
+  const detail = positionDetail(position);
+  return detail ? [positionName(position, index), detail].join(" · ") : positionName(position, index);
 }

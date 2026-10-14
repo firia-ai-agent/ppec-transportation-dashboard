@@ -1,7 +1,10 @@
+import { icon as iconMetrics } from "@/ui/tokens";
+
 /**
  * Minimal inline icons for the ramp preview. Every state is icon + label, never colour alone
  * (DESIGN-DIRECTION §3). These are plain stand-ins drawn here so this page adds no dependency;
- * the shared shell (B-12) replaces them with the Lucide names listed in §3.
+ * the shared shell replaces them with the Lucide names listed in §3. Their metrics come from
+ * src/ui/tokens.ts so they match the §2 icon scale and stroke weight.
  */
 type IconName = "check" | "alert" | "question" | "ban" | "offline" | "seat" | "wheelchair";
 
@@ -37,11 +40,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
   </>,
 };
 
-export function Icon({ name, size = 22 }: { name: IconName; size?: number }) {
+export function Icon({ name, size = iconMetrics.nav }: { name: IconName; size?: number }) {
   return (
     <svg
       aria-hidden="true" focusable="false" width={size} height={size} viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      fill="none" stroke="currentColor" strokeWidth={iconMetrics.strokeWidth}
+      strokeLinecap="round" strokeLinejoin="round"
       style={{ flex: "0 0 auto" }}
     >
       {PATHS[name]}
