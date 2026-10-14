@@ -1,0 +1,66 @@
+import type { Exec } from "@/db/exec";
+
+/** Purposes that bypass ALL_NON_SAFETY suppression (PRD §10). Scope ALL still blocks them. */
+export const SAFETY_PURPOSES = new Set(["SAFETY_ALERT", "CHILD_NOT_RECEIVED"]);
+
+/** Consent kinds that stop all sends on that channel until a later START / OPT_IN. */
+export const OPT_OUT_KINDS = new Set(["STOP", "NL_OPT_OUT", "PERMANENT_TEST_OPT_OUT"]);
+
+/** Per-child authorization (PRD §6.4) at send time: contact × child × scope × channel × validity window. */
+export async function childAuthorized(db: Exec, a: { siteId: string; recipientToken: string; childToken: string; channel: string; purpose: string; at: Date }) {
+  const scopes = SAFETY_PURPOSES.has(a.purpose) ? ["RECEIVE_TRANSPORT_UPDATES", "RECEIVE_CHILD"] : ["RECEIVE_TRANSPORT_UPDATES"];
+  const r = await db.query<{ n: number }>(
+    `SELECT count(*)::int n FROM ops.contact_authorization WHERE site_id = $1 AND contact_token = $2 AND child_token = $3
+       AND channel = $4 AND scope::text = ANY($5::text[]) AND valid_from <= $6 AND (valid_to IS NULL OR valid_to > $6)`,
+    [a.siteId, a.recipientToken, a.childToken, a.channel, scopes, a.at.toISOString()]);
+  return r.rows[0].n > 0;
+}
+
+export type RecipientKind = "guardian" | "therapist";
+/** Recipient rules that address a therapist (ops.therapist.person_token) instead of a guardian contact. */
+export const recipientKind = (rule: string): RecipientKind => (rule.startsWith("therapist") ? "therapist" : "guardian");
+
+/** Therapist ↔ child at send time: the therapist must still own a non-canceled session for this child (that session, if given). */
+export async function therapistAuthorized(db: Exec, a: { siteId: string; personToken: string; childToken: string; therapySessionId: string | null }) {
+  const r = await db.query<{ n: number }>(
+    `SELECT count(*)::int n FROM ops.therapy_session s JOIN ops.therapist t ON t.id = s.therapist_id
+     WHERE s.site_id = $1 AND t.person_token = $2 AND s.child_token = $3 AND s.status <> 'CANCELED'
+       AND ($4::uuid IS NULL OR s.id = $4::uuid)`, [a.siteId, a.personToken, a.childToken, a.therapySessionId]);
+  return r.rows[0].n > 0;
+}
+
+/** IdentityGateway seam: is this recipient token currently allowed to get this purpose? ops never reads identity directly. */
+export interface RecipientAuthorizer {
+  authorize(a: { siteId: string; recipientToken: string; purpose: string; channel: string; at: Date; kind: RecipientKind }): Promise<{ ok: true } | { ok: false; reason: string }>;
+}
+
+/** Reads identity.guardian_contact. In deployed envs it runs on the identity_gateway connection (0001_roles). */
+export function dbRecipientAuthorizer(identityDb: Exec): RecipientAuthorizer {
+  return {
+    async authorize({ siteId, recipientToken, purpose, channel, at, kind }) {
+      if (kind === "guardian") {
+      const r = await identityDb.query<{ ok_updates: boolean; ok_emergency: boolean }>(
+        `SELECT can_receive_updates ok_updates, is_emergency ok_emergency FROM identity.guardian_contact
+         WHERE contact_token = $1 AND site_id = $2 AND revoked_at IS NULL
+           AND valid_from <= $3 AND (valid_to IS NULL OR valid_to > $3)`, [recipientToken, siteId, at.toISOString()]);
+      const c = r.rows[0];
+      if (!c) return { ok: false, reason: "recipient not found, revoked, expired or other site" };
+      if (!(c.ok_updates || (SAFETY_PURPOSES.has(purpose) && c.ok_emergency))) return { ok: false, reason: "recipient not authorized for this purpose" };
+      }
+      // Consent at send time: the latest consent event for this contact on this channel wins (append-only log).
+      const ev = await identityDb.query<{ kind: string }>(
+        `SELECT kind FROM identity.consent_event WHERE contact_token = $1 AND site_id = $2 AND channel = $3 AND at <= $4
+         ORDER BY at DESC, id DESC LIMIT 1`, [recipientToken, siteId, channel, at.toISOString()]);
+      const k = ev.rows[0]?.kind;
+      if (k && OPT_OUT_KINDS.has(k)) return { ok: false, reason: `consent withdrawn (${k})` };
+      return { ok: true };
+    },
+  };
+}
+
+/** Active suppression for this contact and purpose (ops.suppression, written from consent events). */
+export async function activeSuppression(db: Exec, a: { siteId: string; recipientToken: string; purpose: string }) {
+  const r = await db.query<{ scope: string }>(
+    `SELECT scope FROM ops.suppression WHERE site_id = $1 AND contact_token = $2 AND lifted_at IS NULL`, [a.siteId, a.recipientToken]);
+  return r.rows.find((s) => s.scope === "ALL" || (s.scope === "ALL_NON_SAFETY" && !SAFETY_PURPOSES.has(a.purpose)))?.scope ?? null;
+}

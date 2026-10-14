@@ -54,7 +54,7 @@ describe("migrations 0000 + 0001 on PGlite", () => {
   });
   it("has foreign keys (ON DELETE RESTRICT) and none from ops into identity", async () => {
     const r = await db.query<{ n: number }>(`SELECT count(*)::int n FROM information_schema.table_constraints WHERE constraint_type='FOREIGN KEY' AND table_schema='ops'`);
-    expect(r.rows[0].n).toBe(89);
+    expect(r.rows[0].n).toBe(90);
     const x = await db.query<{ n: number }>(`SELECT count(*)::int n FROM information_schema.constraint_column_usage u
       JOIN information_schema.table_constraints c USING (constraint_name) WHERE c.table_schema='ops' AND u.table_schema='identity'`);
     expect(x.rows[0].n).toBe(0);

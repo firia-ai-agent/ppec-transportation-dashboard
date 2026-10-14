@@ -1,0 +1,2 @@
+ALTER TABLE "ops"."outbound_message" ADD COLUMN "child_token" uuid;--> statement-breakpoint
+ALTER TABLE "ops"."outbound_message" ADD CONSTRAINT "outbound_message_child_token_child_profile_child_token_fk" FOREIGN KEY ("child_token") REFERENCES "ops"."child_profile"("child_token") ON DELETE restrict ON UPDATE no action;

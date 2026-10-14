@@ -115,7 +115,7 @@ describe("golden cases (PRD §6.3)", () => {
     expect(count(MACHINES.THREAD as unknown as Machine<string>)).toBe(4);
     expect(count(MACHINES.PROFILE as unknown as Machine<string>)).toBe(2);
     expect(count(MACHINES.NEED_ITEM as unknown as Machine<string>)).toBe(3);
-    expect(count(MACHINES.OUTBOUND as unknown as Machine<string>)).toBe(18);
+    expect(count(MACHINES.OUTBOUND as unknown as Machine<string>)).toBe(19);
     expect(count(MACHINES.RESERVATION as unknown as Machine<string>)).toBe(7);
     expect(count(MACHINES.CAPABILITY as unknown as Machine<string>)).toBe(11);
   });
