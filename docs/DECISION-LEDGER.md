@@ -19,6 +19,7 @@ Source of truth for founder decisions. Times are ET (America/New_York). Labels: 
 | 13 | 2026-10-14 11:23 | $100/month spend alert across Vercel, Neon, OpenRouter (only OpenRouter expected to cost) | Decided by founder | founder chat (ADR-016) |
 | 14 | 2026-10-14 11:23 | Model: Claude Sonnet (current) via OpenRouter, zdr:true | Decided by founder | founder chat (ADR-005) |
 | 15 | 2026-10-14 11:23 | Version control + docs are the source of truth, stood up now | Decided by founder | founder chat |
+| 16 | 2026-10-14 11:40 | TEST-SEC-01 (token-only prompts) and TEST-SEC-02 (egress) are required for the POC exit, in addition to the ADR-016 bar; awaiting founder confirmation | Accepted by default | PR #1 review (Veri) item 6; docs/LINEAR.md |
 
 All other decisions in docs/adr are Proposed unless labeled otherwise.
 
