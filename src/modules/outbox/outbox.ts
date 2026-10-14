@@ -79,12 +79,16 @@ const stopToken: VarRule = (v) => typeof v === "string" && /^[A-Z0-9-]{1,12}$/.t
  * Per-template allowlist of permitted var names, each with the rule its value must satisfy (Veri #8 follow-up,
  * value rules from Veri #12). Any template not listed, any var not on its list, and any value breaking its rule
  * is rejected at enqueue and blocked at send. Child-data vars appear only on CHILD_TEMPLATES.
+ *
+ * `etaEnd` is the far end of an arrival window ("Pickup 8:12-8:22 AM", COPY-GUIDE: windows), under the same
+ * clockTime rule as `eta` and so under the same no-free-text rule: it is a second constrained value, not prose.
+ * It is optional on each template that takes it; messaging/templates.ts renders the one time when it is absent.
  */
 export const TEMPLATE_VARS: Readonly<Record<string, Readonly<Record<string, VarRule>>>> = {
-  "pickup.eta": { childFirstName: firstName, eta: clockTime, stopLabel: stopToken },
-  "dropoff.eta": { childFirstName: firstName, eta: clockTime, stopLabel: stopToken },
+  "pickup.eta": { childFirstName: firstName, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
+  "dropoff.eta": { childFirstName: firstName, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
   "leg.canceled": { childFirstName: firstName, legDate: calendarDay, reasonCode: oneOf(LEG_CANCEL_REASON_CODES) },
-  "leg.changed": { childFirstName: firstName, legDate: calendarDay, eta: clockTime, stopLabel: stopToken },
+  "leg.changed": { childFirstName: firstName, legDate: calendarDay, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
   "therapist.absence_alert": { childFirstName: firstName, sessionStart: clockTime },
   "therapist.late_alert": { childFirstName: firstName, sessionStart: clockTime, eta: clockTime },
   "child.not_received": { childFirstName: firstName, stopLabel: stopToken, eta: clockTime },

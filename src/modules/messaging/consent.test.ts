@@ -24,7 +24,7 @@ const state = async (id: string) => (await db.query<{ state: string; block_reaso
 
 const msg = (o: Partial<EnqueueInput> = {}): EnqueueInput => ({
   siteId: SITE, purpose: "PICKUP_UPDATE", recipientRule: "guardian", recipientToken: f1.contactToken, channel: "SMS_1TO1",
-  templateId: "pickup.eta", vars: { childFirstName: "Syn", eta: "08:12", stopLabel: "OKEE-PARK" },
+  templateId: "pickup.eta", vars: { childFirstName: "Syn", eta: "08:12", etaEnd: "08:22", stopLabel: "OKEE-PARK" },
   childToken: f1.childToken, planVersionBasis: 1, notAfter: new Date(now.getTime() + 3_600_000), idempotencyKey: uuidv7(), by: "test", ...o });
 const put = (o: Partial<EnqueueInput> = {}) => db.tx((tx, ac) => enqueue(tx, ac, outboxTransport, msg(o)));
 /** A safety-purpose send (SAFETY_PURPOSES in outbox/policy), the one kind an NL opt-out must not stop. */

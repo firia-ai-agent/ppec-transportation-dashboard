@@ -5,6 +5,8 @@ import * as copy from "./copy";
 import { renderedStrings } from "./no-internals.test";
 import { DEMO_RUNS } from "@/fixtures/replays";
 import { FIXTURE_ROUTES } from "@/fixtures/routes";
+import { knownTemplates, renderTemplate, templatePlaceholders, UNKNOWN_STOP } from "@/modules/messaging/templates";
+import { TEMPLATE_VARS } from "@/modules/outbox/outbox";
 
 /**
  * No build-internal codes on screen (Vera's review; COPY-GUIDE §1–§2).
@@ -80,6 +82,17 @@ function codesIn(text: string): string[] {
   return PATTERNS.flatMap(({ re }) => [...text.matchAll(re)].map((m) => m[0].trim()));
 }
 
+/**
+ * A raw token, the shape the outbox carries a stop in: upper-case letters or digits in hyphenated
+ * parts, at least one of them a letter ("OKEE-PARK", "STOP-4"). The letter is what keeps the phone
+ * number out ("555-0100" is digits), and the en dash in a window is not a hyphen ("8:12\u20138:22 AM").
+ */
+const STOP_TOKEN = /\b[A-Z0-9]*[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+/g;
+
+function tokensIn(text: string): string[] {
+  return [...text.matchAll(STOP_TOKEN)].map((m) => m[0]);
+}
+
 describe("the scan itself works", () => {
   it("catches each kind of code it claims to catch", () => {
     expect(codesIn("Fleet map pane (SURF-01) on committed fixtures")).toEqual(["SURF-01"]);
@@ -90,6 +103,13 @@ describe("the scan itself works", () => {
       "ADR-013",
       "PRD §",
     ]);
+  });
+
+  it("catches a raw stop token, and passes the things that merely look like one", () => {
+    expect(tokensIn("PPEC: Mia's ride is on the way to OKEE-PARK.")).toEqual(["OKEE-PARK"]);
+    expect(tokensIn("Pickup STOP-4")).toEqual(["STOP-4"]);
+    // A phone number, a window and the fixed parts of every body are not tokens.
+    expect(tokensIn("Call us at (561) 555-0100. Pickup 8:12\u20138:22 AM. Reply HELP for help, STOP to opt out. [DEMO]")).toEqual([]);
   });
 
   it("passes words that merely look like one", () => {
@@ -157,5 +177,59 @@ describe("the strings the review fixed, verbatim", () => {
     expect(copy.fill(copy.mapPreview.routeName, { stop: "Okeeheelee Park" })).toBe(
       "Okeeheelee Park run",
     );
+  });
+});
+
+/**
+ * The same rule on the one surface that is not a screen: a family's SMS. `stopLabel` is a short
+ * token in the outbox vars (the no-free-text rule, outbox.ts), so the place name can only come from
+ * the fixed copy table at render time — and if that resolution is ever dropped, the token itself
+ * lands in a family's text message. These are the nets for that.
+ */
+describe("no internal codes in an outbound family SMS", () => {
+  const SAMPLE: Record<string, string> = {
+    childFirstName: "Mia", stopLabel: "OKEE-PARK", eta: "08:12", etaEnd: "08:22",
+    sessionStart: "13:30", legDate: "2026-10-14", date: "2026-10-14", reasonCode: "WEATHER",
+  };
+  const vars = (t: string, over: Record<string, string> = {}): Record<string, string> => ({
+    ...Object.fromEntries(Object.keys(TEMPLATE_VARS[t]).map((v) => [v, SAMPLE[v]])),
+    ...over,
+  });
+  /** The same vars with no window end, which is how a message reads when only one time is known. */
+  const noWindow = (v: Record<string, string>): Record<string, string> => {
+    const { etaEnd: _dropped, ...rest } = v;
+    return rest;
+  };
+  const stopTemplates = knownTemplates().filter((t) => templatePlaceholders(t).includes("stopLabel"));
+  const tokens = Object.keys(copy.outboundSms.stops);
+
+  it("every template renders with no code and no raw token in it", () => {
+    for (const t of knownTemplates()) {
+      const body = renderTemplate(t, vars(t));
+      expect(codesIn(body), `${t}: ${body}`).toEqual([]);
+      expect(tokensIn(body), `${t}: ${body}`).toEqual([]);
+    }
+    expect(stopTemplates.length).toBeGreaterThan(0);
+  });
+
+  it("every stop token becomes its place, with a window and with a single time", () => {
+    for (const t of stopTemplates) {
+      for (const token of tokens) {
+        const withWindow = vars(t, { stopLabel: token });
+        for (const v of [withWindow, noWindow(withWindow)]) {
+          const body = renderTemplate(t, v);
+          expect(body, `${t}/${token}`).toContain(copy.outboundSms.stops[token as keyof typeof copy.outboundSms.stops]);
+          expect(tokensIn(body), `${t}/${token}`).toEqual([]);
+        }
+      }
+    }
+  });
+
+  it("a token with no place name is replaced, never printed", () => {
+    for (const t of stopTemplates) {
+      const body = renderTemplate(t, vars(t, { stopLabel: "NEW-STOP" }));
+      expect(body, t).toContain(UNKNOWN_STOP);
+      expect(tokensIn(body), t).toEqual([]);
+    }
   });
 });

@@ -253,13 +253,32 @@ describe("outbox (ADR-003)", () => {
         { eta: "SYN" }, { eta: "later today" }, { eta: "25:00" }, { eta: "7:45" }, { eta: 745 },
         { eta: "07:45", stopLabel: "the Henderson house" }, { eta: "07:45", stopLabel: "stop-1" },
         { eta: "07:45", childFirstName: "S".repeat(41) }, { eta: "07:45", childFirstName: " " },
+        // etaEnd is the far end of a window, under the same clock rule as eta: no prose, no loose shapes.
+        { eta: "07:45", etaEnd: "a bit after nap" }, { eta: "07:45", etaEnd: "7:55" }, { eta: "07:45", etaEnd: "24:00" },
+        { eta: "07:45", etaEnd: 755 }, { eta: "07:45", etaEnd: "07:45-07:55" },
       ]) await expect(put({ vars })).rejects.toBeInstanceOf(TemplateVarNotAllowed);
       await expect(put({ tripLegId: null, childToken: null, templateId: "center.closure", vars: { date: "14/10/2026" } })).rejects.toBeInstanceOf(TemplateVarNotAllowed);
       expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.outbound_message", [])).rows[0].n).toBe(0);
-      // valid shapes: HH:MM, ISO timestamp, YYYY-MM-DD, short stop token
+      // valid shapes: HH:MM, ISO timestamp, YYYY-MM-DD, short stop token, a second clock time for the window
       await put({ vars: { eta: "07:45", stopLabel: "STOP-12", childFirstName: "Sam" } });
+      await put({ vars: { eta: "07:45", etaEnd: "07:55", stopLabel: "OKEE-PARK", childFirstName: "Sam" } });
       await put({ vars: { eta: "2026-10-14T07:45:00Z" } });
       await put(closure({ date: "2026-10-14" }));
+    });
+
+    /*
+     * The place name a family reads is rendered from the token by messaging/templates.ts, out of a fixed
+     * copy table. It is never a var value, and this rule is what makes that the only way in: a coordinator
+     * who types a landmark (or anything that looks like one) into stopLabel is refused here, at enqueue.
+     */
+    it("a place name is not a var value, however public the place is", async () => {
+      for (const stopLabel of [
+        "Okeeheelee Park", "OKEEHEELEE PARK", "Okeeheelee", "John Prince Park",
+        "the PPEC center", "2216 Jog Rd", "Park (by the gate)", "OKEE PARK",
+      ]) await expect(put({ vars: { eta: "07:45", stopLabel } })).rejects.toBeInstanceOf(TemplateVarNotAllowed);
+      expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.outbound_message", [])).rows[0].n).toBe(0);
+      // The token for that same park is fine: it carries no words at all.
+      await put({ vars: { eta: "07:45", stopLabel: "OKEE-PARK" } });
     });
     // Veri FAILed the earlier "any non-blank string <= 40" rule: a full name must never ride out as a first name.
     it("childFirstName is one given-name token: a full name, a surname initial or a digit is rejected", async () => {

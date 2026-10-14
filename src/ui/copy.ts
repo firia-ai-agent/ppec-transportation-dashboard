@@ -631,15 +631,41 @@ export const outboundSms = {
   /** The fixed answer to an inbound HELP: same words every time, no child or ride detail. */
   helpReply:
     "PPEC: This number sends ride updates for your child. Call us at {centerPhone} if you need help. Reply STOP to opt out. {demoTag}",
+  /**
+   * The pickup places a family knows by name (MOCKS §1: public landmarks, never a home), keyed by the
+   * short stop token the outbox carries. The token is a developer-facing shape and a family must never
+   * read one, so this fixed table is the only way a stop becomes words: messaging/templates.ts resolves
+   * `stopLabel` through it, and a token with no entry falls back to `unknownStop`. The table is code-owned
+   * — nothing a coordinator types reaches it, which is what keeps the outbox's no-free-text rule intact.
+   */
+  stops: {
+    "GA-LIBRARY": "Greenacres Branch Library",
+    "OKEE-PARK": "Okeeheelee Park",
+    "GA-CITYHALL": "Greenacres City Hall",
+    "PRINCE-PARK": "John Prince Park",
+    "PBSC-LW": "Palm Beach State College, Lake Worth",
+    "LANTANA-LIB": "Lantana Public Library",
+    "BOYNTON-MALL": "Boynton Beach Mall",
+    "WELLINGTON": "Mall at Wellington Green",
+    "PB-ZOO": "Palm Beach Zoo",
+    /** The center names itself, never its street address (§5 "never … addresses"). */
+    "CENTER": "the PPEC center",
+  },
+  /** A stop token with no copy. Vague on purpose: better than a code, and it names no wrong place. */
+  unknownStop: "your usual stop",
+  /** A window, §3 "windows \"8:12–8:22 AM\"". The en dash is the guide's, not a hyphen. */
+  etaWindow: "{start}–{end}",
+  /** One time with no window end: still an estimate, so it does not promise the minute. */
+  etaApprox: "around {time}",
   bodies: {
     "pickup.eta":
-      "PPEC: {childFirstName}'s ride is on the way to {stopLabel}. Pickup window {eta}. {optOut} {demoTag}",
+      "PPEC: {childFirstName}'s ride is on the way to {stopLabel}. Pickup {eta}. {optOut} {demoTag}",
     "dropoff.eta":
-      "PPEC: {childFirstName}'s ride home is on the way to {stopLabel}. Arrival window {eta}. {optOut} {demoTag}",
+      "PPEC: {childFirstName}'s ride home is on the way to {stopLabel}. Arrival {eta}. {optOut} {demoTag}",
     "leg.canceled":
       "PPEC: Got it. {childFirstName}'s ride on {legDate} is canceled. {reasonCode} {optOut} {demoTag}",
     "leg.changed":
-      "PPEC: {childFirstName}'s ride on {legDate} changed. New pickup window {eta} at {stopLabel}. {optOut} {demoTag}",
+      "PPEC: {childFirstName}'s ride on {legDate} changed. New pickup {eta} at {stopLabel}. {optOut} {demoTag}",
     "therapist.absence_alert":
       "PPEC: {childFirstName} is not coming in today. The {sessionStart} session is affected. {optOut} {demoTag}",
     "therapist.late_alert":
