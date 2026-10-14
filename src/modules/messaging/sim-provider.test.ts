@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { uuidv7 } from "uuidv7";
 import type { PGlite } from "@electric-sql/pglite";
-import type { Db } from "@/db/exec";
+import type { Db, Exec } from "@/db/exec";
 import { freshDb, SITE } from "@/test/pglite";
 import { F1_NUMBER, PEPPER, seedPersona, type Persona } from "@/test/messaging";
 import { FakeTransport } from "@/modules/jobs/fake-transport";
@@ -11,7 +11,7 @@ import { drain, enqueue, type DrainDeps, type EnqueueInput } from "@/modules/out
 import { dbRecipientAuthorizer } from "@/modules/outbox/policy";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { InMemorySimFaultStore } from "./faults";
-import { DbSimMessagingProvider, SIM_DELAY_MAX_MS, SIM_DELAY_MIN_MS, SIM_STATUS_JOB_KIND, simDeliveryDelayMs, simStatusHandler } from "./sim-provider";
+import { DbSimMessagingProvider, SIM_DELAY_MAX_MS, SIM_DELAY_MIN_MS, SIM_STATUS_JOB_KIND, getOrCreateThread, simDeliveryDelayMs, simStatusHandler } from "./sim-provider";
 
 let pg: PGlite; let db: Db; let now: Date; let f1: Persona;
 let outboxTransport: FakeOutboxTransport; let wake: FakeTransport; let faults: InMemorySimFaultStore;
@@ -132,5 +132,55 @@ describe("MessagingProvider.SIM (ADR-006, MOCKS §3)", () => {
     await db.query("UPDATE ops.outbound_message SET state='SENT' WHERE id=$1", [id]);
     expect(await fire(db, job.id, "test", handlers, "LOCAL", () => now)).toBe("fired");
     expect((await state(id)).state).toBe("DELIVERED");
+  });
+});
+
+describe("one live thread per counterparty (thread_counterparty_live_uq)", () => {
+  const threads = async () => (await db.query<{ id: string; state: string }>(
+    "SELECT id, state FROM ops.conversation_thread ORDER BY created_at, id", [])).rows;
+  const args = () => ({ siteId: SITE, channel: "SMS_1TO1", counterpartyToken: f1.contactToken,
+    familyGroupId: f1.familyGroupId, by: "test", at: now });
+
+  /**
+   * PGlite has a single connection, so a real pair of concurrent transactions is not available: the loser's
+   * FIRST thread lookup is blinded instead, which is exactly what it would read on a snapshot taken before
+   * the winner's insert. Everything after that is the production path — the insert takes the conflict and
+   * the recovery read (not blinded, as in READ COMMITTED) has to find the winner.
+   */
+  const blindFirstThreadLookup = (tx: Exec): Exec => {
+    let blinded = false;
+    return {
+      query: ((sql: string, params: unknown[]) => {
+        if (!blinded && /^\s*SELECT[\s\S]*ops\.conversation_thread/i.test(sql)) { blinded = true; return Promise.resolve({ rows: [] }); }
+        return tx.query(sql, params);
+      }) as Exec["query"],
+    };
+  };
+
+  it("two concurrent first sends end up in one thread, not two", async () => {
+    const winner = await db.tx((tx) => getOrCreateThread(tx, args()));
+    const loser = await db.tx((tx) => getOrCreateThread(blindFirstThreadLookup(tx), args()));
+    expect(loser).toBe(winner);
+    expect(await threads()).toEqual([{ id: winner, state: "OPEN" }]);
+  });
+
+  it("the index itself rejects a second live thread, and a closed one can still be reopened", async () => {
+    const first = await db.tx((tx) => getOrCreateThread(tx, args()));
+    await expect(db.query(
+      `INSERT INTO ops.conversation_thread (id, site_id, family_group_id, counterparty_token, channel, created_by, updated_by, source_mode)
+       VALUES ($1,$2,$3,$4,'SMS_1TO1','test','test','SIMULATED')`,
+      [uuidv7(), SITE, f1.familyGroupId, f1.contactToken])).rejects.toThrow();
+
+    await db.query("UPDATE ops.conversation_thread SET state='CLOSED' WHERE id=$1", [first]);
+    const reopened = await db.tx((tx) => getOrCreateThread(tx, args()));
+    expect(reopened).not.toBe(first);
+    expect((await threads()).map((t) => t.state)).toEqual(["CLOSED", "OPEN"]);
+  });
+
+  it("the unknown-sender path still opens a thread of its own: a NULL counterparty never collides", async () => {
+    const a = await db.tx((tx) => getOrCreateThread(tx, { ...args(), counterpartyToken: null, familyGroupId: null, fromHmac: "hmac-a" }));
+    const b = await db.tx((tx) => getOrCreateThread(tx, { ...args(), counterpartyToken: null, familyGroupId: null, fromHmac: "hmac-b" }));
+    expect(b).not.toBe(a);
+    expect((await threads()).length).toBe(2);
   });
 });

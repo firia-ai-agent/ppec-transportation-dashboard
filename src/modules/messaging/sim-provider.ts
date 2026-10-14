@@ -10,6 +10,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { Db, Exec } from "@/db/exec";
+import { StaleOrConflict } from "@/domain/transition";
 import type { Handler } from "@/modules/jobs/runner";
 import { systemClock, type Clock, type JobScheduler } from "@/modules/jobs/scheduler";
 import { applyProviderStatus } from "@/modules/outbox/outbox";
@@ -130,30 +131,47 @@ export class DbSimMessagingProvider implements MessagingProvider {
 }
 
 /**
- * One OPEN/PAUSED thread per counterparty and channel. There is no unique index to lean on (threads can be
- * closed and reopened), so two concurrent first sends could race into two threads; sends for one message are
- * serialized by the outbox claim, and the read API reads every thread of the counterparty either way.
+ * One OPEN/PAUSED thread per counterparty and channel, enforced by thread_counterparty_live_uq (0004), a
+ * unique index on exactly the key this lookup uses, partial on state <> 'CLOSED' so a closed conversation
+ * can still be reopened in a new thread.
+ *
+ * Race: two first messages for the same counterparty can both read "no thread", so the insert takes the
+ * conflict instead of a second row (ON CONFLICT DO NOTHING, then re-read the winner). The loser's own
+ * statement waits on the winner's uncommitted insert, so by the time DO NOTHING reports nothing inserted
+ * the winning row is committed and visible to the next statement.
+ *
+ * An unknown sender has no token to key on: those rows are NULL in the index, never conflict, and are
+ * found through the from_hmac of the messages already in the thread. Two simultaneous first messages from
+ * one unknown number can therefore still open two threads; the read API reads every thread of the
+ * counterparty, and the thread is re-keyed as soon as the number is matched to a contact.
  */
 export async function getOrCreateThread(tx: Exec, a: {
   siteId: string; channel: string; counterpartyToken: string | null; familyGroupId: string | null;
   by: string; at: Date; fromHmac?: string;
 }): Promise<string> {
-  const found = a.counterpartyToken
-    ? await tx.query<{ id: string }>(
+  const find = () => a.counterpartyToken
+    ? tx.query<{ id: string }>(
       `SELECT id FROM ops.conversation_thread WHERE site_id = $1 AND counterparty_token = $2 AND channel = $3 AND state <> 'CLOSED'
        ORDER BY created_at LIMIT 1`, [a.siteId, a.counterpartyToken, a.channel])
     // Unknown sender: no token to key on, so the thread is found through the messages already in it.
-    : await tx.query<{ id: string }>(
+    : tx.query<{ id: string }>(
       `SELECT t.id FROM ops.conversation_thread t JOIN ops.message m ON m.thread_id = t.id
        WHERE t.site_id = $1 AND t.counterparty_token IS NULL AND t.channel = $2 AND t.state <> 'CLOSED' AND m.from_hmac = $3
        ORDER BY t.created_at LIMIT 1`, [a.siteId, a.channel, a.fromHmac ?? ""]);
+  const found = await find();
   if (found.rows[0]) return found.rows[0].id;
   const id = uuidv7();
-  await tx.query(
+  const ins = await tx.query<{ id: string }>(
     `INSERT INTO ops.conversation_thread (id, site_id, family_group_id, counterparty_token, channel, last_activity_at, created_by, updated_by, source_mode)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$7,'SIMULATED')`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$7,'SIMULATED')
+     ON CONFLICT (site_id, counterparty_token, channel) WHERE state <> 'CLOSED' DO NOTHING RETURNING id`,
     [id, a.siteId, a.familyGroupId, a.counterpartyToken, a.channel, a.at.toISOString(), a.by]);
-  return id;
+  if (ins.rows[0]) return ins.rows[0].id;
+  const other = await find();
+  if (other.rows[0]) return other.rows[0].id;
+  // Only reachable if the conflicting row is invisible to this transaction (a snapshot taken before it
+  // committed, i.e. an isolation level above READ COMMITTED). Fail loudly rather than write a second thread.
+  throw new StaleOrConflict(`conversation_thread ${a.siteId}/${a.counterpartyToken}/${a.channel}: concurrent thread not visible`);
 }
 
 /** Activity never goes backwards, so an out-of-order webhook cannot pull a thread back up the list. */
