@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PROBE_DELAYS_SECONDS } from "./route";
 
-// TEST-INF-01 delay probe (DECISION-LEDGER row 56), both halves: the GET starter here and its paired
+// TEST-INF-01 delay probe (DECISION-LEDGER row 58), both halves: the GET starter here and its paired
 // consumer src/app/api/queues/delay-probe/route.ts. Neither touches the DB, which is what lets the probe
 // run on a preview, where the shared production DB is read-only and the timer/outbox routes no-op (#43).
 // `send`/`handleCallback` are mocked: the live measurement is the point of the probe, not of this test.

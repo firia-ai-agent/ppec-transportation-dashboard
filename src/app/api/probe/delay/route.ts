@@ -11,7 +11,7 @@ export const PROBE_DELAYS_SECONDS = [0.25, 0.5, 0.75, 1.25, 1.5, 1.75];
 const PASSES = 2;
 
 /**
- * TEST-INF-01 sub-second delay probe (DECISION-LEDGER row 56). Sends 12 delayed messages to
+ * TEST-INF-01 sub-second delay probe (DECISION-LEDGER row 58). Sends 12 delayed messages to
  * ppec-delay-probe; the consumer logs `[delay-probe] id=… requested=… actual=… ms`, so the live
  * answer is read off the Vercel function logs. Touches no DB, so it works on previews, which share
  * the one production DB read-only (DECISION-LEDGER #43).

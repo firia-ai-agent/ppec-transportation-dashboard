@@ -398,7 +398,7 @@ export const job = ops.table("job", {
   id: pk(), siteId: siteRef(), key: text("key").notNull(), kind: text("kind").notNull(), payload: jsonb("payload").notNull(),
   dueAt: timestamp("due_at", { withTimezone: true }).notNull(), state: jobState("state").notNull().default("SCHEDULED"),
   claimedAt: timestamp("claimed_at", { withTimezone: true }), claimedBy: text("claimed_by"),
-  // Lease (ADR-001 Option A): set to now()+3s on claim, with a re-wake at expiry, and renewed (claimed_by-fenced) while the
+  // Lease (ADR-001 Option A): set to now()+LEASE_SECONDS (2 s, scheduler.ts) on claim, with a re-wake at expiry, and renewed (claimed_by-fenced) while the
   // handler runs; a wake that arrives while it is still live re-publishes itself; the sweeper reclaims CLAIMED rows past it.
   claimedUntil: timestamp("claimed_until", { withTimezone: true }),
   // Set after the wake-up message is published (ADR-001); NULL ⇒ sweeper re-publishes (lost wake-up, TEST-INF-01 crash D).

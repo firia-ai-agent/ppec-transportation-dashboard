@@ -3,7 +3,7 @@ import { MAX_DELAY_SECONDS, type WakeTransport } from "./scheduler";
 
 export const TIMER_TOPIC = "ppec-timer";
 /**
- * TEST-INF-01 sub-second delay probe (DECISION-LEDGER row 56 is conditional on it): GET /api/probe/delay
+ * TEST-INF-01 sub-second delay probe (DECISION-LEDGER row 58 is conditional on it): GET /api/probe/delay
  * publishes here with fractional `delaySeconds` and the consumer logs the measured delivery delay.
  */
 export const DELAY_PROBE_TOPIC = "ppec-delay-probe";
@@ -25,6 +25,13 @@ export const DELAY_PROBE_TOPIC = "ppec-delay-probe";
  *
  * `retentionSeconds` is the 7-day maximum, matching MAX_DELAY_SECONDS: a message must outlive its own delay
  * or Queues rejects it (`delaySeconds` cannot exceed `retentionSeconds`).
+ *
+ * On the sub-second delays row 58 rests on, the **client half is settled**: @vercel/queue 0.8.0 neither
+ * validates `delaySeconds` as an integer nor rounds it — it sends `options.delaySeconds.toString()` as the
+ * `Vqs-Delay-Seconds` header (index.mjs `buildHeaders`), and its type documents only `@minimum 0`,
+ * `@maximum 604800`. Every delay we publish is ≥ 1 ms, so none of them can reach the header in exponential
+ * notation. What the **server** does with a fractional value is the Unverified half, and the only half
+ * TEST-INF-01's delay probe can answer.
  */
 export const vercelQueueTransport: WakeTransport = {
   async publish(msg, opts) {

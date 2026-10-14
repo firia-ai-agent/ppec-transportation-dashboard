@@ -8,12 +8,13 @@ import type { Db, Exec } from "@/db/exec";
 
 export const MAX_DELAY_SECONDS = 7 * 24 * 3600; // Vercel Queues limit
 /**
- * Claim lease (ADR-001, Option A, DECISION-LEDGER row 56 "Accepted by default (Firia, within founder locks)",
+ * Claim lease (ADR-001, Option A, DECISION-LEDGER row 58 "Accepted by default (Firia, within founder locks)",
  * Firia → Rudy relay 2026-10-14 14:22 ET — the Option A retune, which supersedes the 3 s lease proposed for
- * row 38 (PR #10, closed, so row 38 is not in this tree; row 56 cites it)):
+ * row 38 (whose PR #10 was closed unmerged; row 38 itself reached the ledger via main, so row 58 supersedes
+ * its parameters rather than editing it)):
  * short, so a consumer that dies after claiming is recovered within the 5 s bar. Handlers are DB-only and
  * short; one that outlives the lease renews it (runner.ts `startLeaseRenewal`) and is fenced by the claim
- * token either way. Row 56 is conditional on TEST-INF-01 showing Vercel Queues honours sub-second
+ * token either way. Row 58 is conditional on TEST-INF-01 showing Vercel Queues honours sub-second
  * `delaySeconds` (probe: GET /api/probe/delay → topic ppec-delay-probe); if it does not, revert to the row 38
  * parameters (3 s lease, whole-second re-wakes).
  */
@@ -48,7 +49,7 @@ export const RETRY_MAX_SECONDS = 60;
 /**
  * vercel.json `retryAfterSeconds` for the timer trigger: the interval Queues waits before redelivering a
  * message whose handler threw and returned no `retry` directive. Set to the claim lease so the floor matches
- * the recovery window we designed around (ledger row 56) instead of the 60 s default, which would park a
+ * the recovery window we designed around (ledger row 58) instead of the 60 s default, which would park a
  * failed timer 12× past the NFR-03 bar. Our `retry` callback normally supplies an explicit `afterSeconds`
  * (redeliveryDelaySeconds), so this is the fallback for paths that bypass it.
  *
@@ -87,7 +88,7 @@ export const MAX_DELIVERIES = 8;
  * Delay for a re-wake that arrived while the lease was still live (queue jitter, or clock skew between the
  * claiming and the waking instance): the rest of the lease plus REWAKE_MARGIN_MS, because a reclaim needs
  * `claimed_until <= now` and would otherwise no-op and leave recovery to the 1-minute sweep (Veri #10, blocker 1).
- * Fractional seconds with millisecond precision (ledger row 56): rounding up to whole seconds added up to
+ * Fractional seconds with millisecond precision (ledger row 58): rounding up to whole seconds added up to
  * ~1 s per hop and put the early-arrival path over the NFR-03 bar. Conditional on TEST-INF-01 confirming
  * Vercel Queues honours sub-second `delaySeconds`; if it floors them, revert to the row 38 parameters
  * (whole seconds, 3 s lease).
@@ -165,7 +166,7 @@ export interface JobScheduler {
 }
 
 /**
- * Delay for the wake published at schedule time. Millisecond precision, not whole seconds (ledger row 56):
+ * Delay for the wake published at schedule time. Millisecond precision, not whole seconds (ledger row 58):
  * rounding up cost up to 1 s of lateness on every job, not just the recovery paths.
  */
 export function delayFor(dueAt: Date, now: Date) {

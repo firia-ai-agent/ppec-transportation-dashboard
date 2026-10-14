@@ -204,7 +204,7 @@ describe("Option A: short lease + re-wake at lease expiry (kill-after-claim)", (
     for (const r of onTime) expect(r.late).toBeLessThan(NFR03_SECONDS);
 
     // Re-wake early (Veri #10, blocker 1): it re-publishes for the rest of the lease + margin, so recovery costs
-    // one more hop instead of falling back to the 1-minute sweep. With sub-second delays (ledger row 56) that
+    // one more hop instead of falling back to the 1-minute sweep. With sub-second delays (ledger row 58) that
     // hop is exactly the margin + jitter, not the margin rounded up to the next whole second.
     const early: Row[] = [];
     for (const [j1, j2, e] of [[0, 0, 0.001], [0.25, 0.25, 0.5], [0.5, 0.5, 0.75], [1, 1, 0.001], [1, 1, 0.25], [1, 1, 0.5], [1, 1, 0.75], [1, 1, 1]]) early.push(await killAfterClaim(j1, j2, e));
@@ -330,7 +330,7 @@ describe("queue redelivery backoff (route.ts; Veri #10, point 3)", () => {
   it.each([[1, 2], [2, 4], [3, 8], [4, 16], [5, 32], [6, RETRY_MAX_SECONDS], [50, RETRY_MAX_SECONDS]])(
     "delivery %i → redelivery after %i s", (n, secs) => expect(redeliveryDelaySeconds(n)).toBe(secs));
 
-  it("a deferred re-wake waits the remaining lease plus the margin, to the millisecond (ledger row 56)", () => {
+  it("a deferred re-wake waits the remaining lease plus the margin, to the millisecond (ledger row 58)", () => {
     expect(rewakeDelaySeconds(-5)).toBe(REWAKE_MARGIN_MS / 1000); // expired lease: just the margin
     expect(rewakeDelaySeconds(1)).toBe(0.251);
     expect(rewakeDelaySeconds(750)).toBe(1);
@@ -347,7 +347,7 @@ describe("queue redelivery backoff (route.ts; Veri #10, point 3)", () => {
   });
 });
 
-describe("handler idempotency at fire time (DECISION-LEDGER row 56; at-least-once, unordered, no delay SLA)", () => {
+describe("handler idempotency at fire time (DECISION-LEDGER row 58; at-least-once, unordered, no delay SLA)", () => {
   /** The message Queues would actually deliver for the last wake published: {jobId, dueAt, version}. */
   const lastWake = () => t.sent.at(-1)!;
   const row = async (id: string) => (await db.query<{ state: string; version: number; due_at: Date }>("SELECT state, version, due_at FROM ops.job WHERE id=$1", [id])).rows[0];
