@@ -3,7 +3,7 @@
 | DB | Provider / plan | Branch | Used by | Roles | Backups / PITR | Last restore drill |
 |---|---|---|---|---|---|---|
 | ppec prod (demo-prod, synthetic) | Neon Free via Vercel-managed integration | `main` | Vercel production only | migrator, app_rw, identity_gateway, readonly (B-02) | Free-plan restore window: to record from Neon docs at setup | none yet (first before M2 sign-off) |
-| ppec preview | same Neon project | `preview/<git-branch>` per git branch (**Free plan cap: 10 branches incl. `main`**; at the cap, new git branches fail Vercel provisioning; see INFRA-BASELINE) | Vercel preview only | same | n/a (ephemeral) | n/a |
+| ppec preview | same Neon project | `preview/<git-branch>` per git branch (**Free plan cap: 10 branches incl. `main`**; at the cap, new git branches fail Vercel provisioning). **Cleanup mechanism (Vercel-managed integration):** a preview DB branch is deleted when the **last Vercel deployment** of its git branch is deleted, not when the git branch or PR is deleted or closed. Without that, Vercel retention keeps preview deployments, and therefore the DB branches, for months. Cleanup is the `pr-preview-cleanup` Action on PR close (DECISION-LEDGER #42) plus the one-time cleanup (#41) | Vercel preview only | same | n/a (ephemeral) | n/a |
 
 Status 2026-10-14: **created** (Neon Free via the Vercel integration; prod endpoint `ep-divine-brook-b73452bw`, per-preview branches). No orphan DBs known; none may be created outside this table.
 Migrations: `drizzle-kit generate` → reviewed SQL in a PR → applied **inside the Vercel build** by `scripts/vercel-db-step.mjs` (`pnpm vercel-build`), so no connection string leaves Vercel. `push` only against disposable local DBs.
