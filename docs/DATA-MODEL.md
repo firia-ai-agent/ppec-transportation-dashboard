@@ -19,7 +19,7 @@ STATUS: PROPOSED (by Firia, 2026-10-14). Table set and state machines are the PR
 | `drizzle-kit generate` (0.31.11) | 1 migration, 56 `CREATE TABLE` | research/drizzle-0000_init.generated.sql |
 | Applied that SQL to PGlite (in-process Postgres) | identity 4 tables, ops 52 tables; `task` check blocks CLOSED_VERIFIED without `completion_evidence`; live `job.key` unique; second guarded claim returns 0 rows | research/pglite-apply.log |
 
-Not yet done (Unverified): applying to a real Neon branch; FK constraints (see §6); RLS.
+Done since: FK constraints (B-02, see §6); applied to real Neon branches inside the Vercel build (previews and production, 2026-10-14; build logs show `migrate: OK`). Not yet done: RLS.
 
 ## 1. Identity / ops split
 | Schema | Tables | Who can read | P1 protection | P2/AWS protection |
@@ -77,7 +77,7 @@ Hot paths and the index that serves each:
 | Therapy overlap (NTF-03) | `therapy_child_time_idx (child_token, starts_at)` |
 
 ## 4. State machines (PRD §6.3, frozen) and enforcement
-Actors: S staff, P provider, G guardian, A agent-tool, Y system. T therapist (acks via the Teams adapter) is added for acknowledgments. B-02 implements **10 machines** in `src/domain/machines.ts` (leg, attendance, capability, reservation, outbound, acknowledgment, task, thread, profile, need item); the table below lists the five not spelled out in code comments. **Terminal states never reopen:** wildcard edges (EXCEPTION, CHANGED, NEEDS_REVIEW) apply only from non-terminal states, and HELD_NO_RECEIVER / LEFT_BEHIND_CAPACITY / EXCEPTION exit by staff only. Added per PRD l.750/754: LEFT_BEHIND_CAPACITY →S PROVISIONAL_ASSIGNED or CANCELED_TRANSPORT; outbound SENT→UNKNOWN and UNKNOWN →Y SENT/DELIVERED/UNDELIVERED/FAILED (provider lookup, never resend). Agent cancel requires the policy engine's verified-unambiguous-guardian result (B-08). Need-item REPORTED by P/G/S (PRD silent; Rudy's choice, B-02).
+Actors: S staff, P provider, G guardian, A agent-tool, Y system. T therapist (acks via the Teams adapter) is added for acknowledgments. B-02 implements **10 machines** in `src/domain/machines.ts` (leg, attendance, capability, reservation, outbound, acknowledgment, task, thread, profile, need item); the table below lists the five not spelled out in code comments. **Terminal states never reopen:** wildcard edges (EXCEPTION, CHANGED, NEEDS_REVIEW) apply only from non-terminal states, and HELD_NO_RECEIVER / LEFT_BEHIND_CAPACITY / EXCEPTION exit by staff only. Added per PRD l.750/754: LEFT_BEHIND_CAPACITY →S PROVISIONAL_ASSIGNED or CANCELED_TRANSPORT; outbound SENT→UNKNOWN and UNKNOWN →Y SENT/DELIVERED/UNDELIVERED/FAILED (provider lookup, never resend). **Spec change (B-03 PR #8, DECISION-LEDGER, Firia 2026-10-14):** SENDING →Y FAILED for a definite provider rejection; timeouts and ambiguous errors stay SENDING→UNKNOWN; UNKNOWN gains a staff exit →S DELIVERED or FAILED. Revoked authorization or consent at send time ends in BLOCKED_EGRESS (PRD §18.2 step 10). `outbound_message.child_token` (migration 0003) is required whenever a message carries child data and is re-checked at send time. Agent cancel requires the policy engine's verified-unambiguous-guardian result (B-08). Need-item REPORTED by P/G/S (PRD silent; Rudy's choice, B-02).
 
 | Machine | Edges (from → to, actor) |
 |---|---|
@@ -98,7 +98,7 @@ Unit tests: one table-driven test per machine asserting every listed edge succee
 - ID-swap matrix: in BUILD-PLAN.md §4 (from the access-control skill).
 
 ## 6. Open design items (Proposed, decide during B-02)
-1. **Done in B-02 (PR #5):** 93 FKs, all ON DELETE RESTRICT: 89 inside `ops` plus identity→ops (`site_id` on child_identity, guardian_contact, external_person_identity; `guardian_contact.family_group_id`). None on append-only logs (incl. identity.consent_event) and none from ops into identity.
+1. **Done in B-02 (PR #5):** 93 FKs in 0000, all ON DELETE RESTRICT: 89 inside `ops` plus identity→ops (`site_id` on child_identity, guardian_contact, external_person_identity; `guardian_contact.family_group_id`). None on append-only logs (incl. identity.consent_event) and none from ops into identity. Migration 0003 adds `outbound_message.child_token → child_profile` (90 inside ops, 94 total).
 2. `version` on append-only tables (consent_event, telemetry_point, audit_event, event_log) is omitted on purpose.
 3. Retention jobs (PRD §15.4: 90-day raw location, 90-day plaintext bodies) are scheduled but **purge disabled** in P1 (CQ-05 default "Keep all; purge disabled").
 

@@ -1,4 +1,4 @@
-import { Pool } from "@neondatabase/serverless";
+import { getPool } from "./pool";
 import type { Exec } from "@/domain/transition";
 
 export type { Exec };
@@ -13,13 +13,9 @@ export async function runAfterCommit(hooks: (() => Promise<void>)[]) {
   }
 }
 
-let pool: Pool | undefined;
-/** Neon WebSocket Pool (ADR-009: Pool for transactions). Never logs the URL. */
+/** Db over the one shared Neon WebSocket Pool (src/db/pool.ts; ADR-009: Pool for transactions). */
 export function getNeonDb(): Db {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL is not set");
-  pool ??= new Pool({ connectionString: url });
-  const p = pool;
+  const p = getPool();
   return {
     query: async (sql, params) => ({ rows: (await p.query(sql, params)).rows }),
     async tx(fn) {

@@ -341,6 +341,8 @@ export const outboundMessage = ops.table("outbound_message", {
   id: pk(), siteId: siteRef(), purpose: text("purpose").notNull(), recipientRule: text("recipient_rule").notNull(),
   recipientToken: uuid("recipient_token"), // resolved at send time by IdentityGateway, never by agent
   channel: channel("channel").notNull(), templateId: text("template_id").notNull(), vars: jsonb("vars").notNull(),
+  // Child reference (Veri #8): required whenever the message carries child data; re-checked at send time.
+  childToken: uuid("child_token").references(() => childProfile.childToken, { onDelete: "restrict" }),
   tripLegId: uuid("trip_leg_id").references(() => tripLeg.id, { onDelete: "restrict" }), therapySessionId: uuid("therapy_session_id").references(() => therapySession.id, { onDelete: "restrict" }),
   planVersionBasis: integer("plan_version_basis").notNull(), notAfter: timestamp("not_after", { withTimezone: true }).notNull(),
   state: outboundState("state").notNull().default("DRAFTED"), blockReason: text("block_reason"),

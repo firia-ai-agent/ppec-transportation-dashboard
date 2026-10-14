@@ -16,15 +16,29 @@ export async function childAuthorized(db: Exec, a: { siteId: string; recipientTo
   return r.rows[0].n > 0;
 }
 
+export type RecipientKind = "guardian" | "therapist";
+/** Recipient rules that address a therapist (ops.therapist.person_token) instead of a guardian contact. */
+export const recipientKind = (rule: string): RecipientKind => (rule.startsWith("therapist") ? "therapist" : "guardian");
+
+/** Therapist ↔ child at send time: the therapist must still own a non-canceled session for this child (that session, if given). */
+export async function therapistAuthorized(db: Exec, a: { siteId: string; personToken: string; childToken: string; therapySessionId: string | null }) {
+  const r = await db.query<{ n: number }>(
+    `SELECT count(*)::int n FROM ops.therapy_session s JOIN ops.therapist t ON t.id = s.therapist_id
+     WHERE s.site_id = $1 AND t.person_token = $2 AND s.child_token = $3 AND s.status <> 'CANCELED'
+       AND ($4::uuid IS NULL OR s.id = $4::uuid)`, [a.siteId, a.personToken, a.childToken, a.therapySessionId]);
+  return r.rows[0].n > 0;
+}
+
 /** IdentityGateway seam: is this recipient token currently allowed to get this purpose? ops never reads identity directly. */
 export interface RecipientAuthorizer {
-  authorize(a: { siteId: string; recipientToken: string; purpose: string; channel: string; at: Date }): Promise<{ ok: true } | { ok: false; reason: string }>;
+  authorize(a: { siteId: string; recipientToken: string; purpose: string; channel: string; at: Date; kind: RecipientKind }): Promise<{ ok: true } | { ok: false; reason: string }>;
 }
 
 /** Reads identity.guardian_contact. In deployed envs it runs on the identity_gateway connection (0001_roles). */
 export function dbRecipientAuthorizer(identityDb: Exec): RecipientAuthorizer {
   return {
-    async authorize({ siteId, recipientToken, purpose, channel, at }) {
+    async authorize({ siteId, recipientToken, purpose, channel, at, kind }) {
+      if (kind === "guardian") {
       const r = await identityDb.query<{ ok_updates: boolean; ok_emergency: boolean }>(
         `SELECT can_receive_updates ok_updates, is_emergency ok_emergency FROM identity.guardian_contact
          WHERE contact_token = $1 AND site_id = $2 AND revoked_at IS NULL
@@ -32,6 +46,7 @@ export function dbRecipientAuthorizer(identityDb: Exec): RecipientAuthorizer {
       const c = r.rows[0];
       if (!c) return { ok: false, reason: "recipient not found, revoked, expired or other site" };
       if (!(c.ok_updates || (SAFETY_PURPOSES.has(purpose) && c.ok_emergency))) return { ok: false, reason: "recipient not authorized for this purpose" };
+      }
       // Consent at send time: the latest consent event for this contact on this channel wins (append-only log).
       const ev = await identityDb.query<{ kind: string }>(
         `SELECT kind FROM identity.consent_event WHERE contact_token = $1 AND site_id = $2 AND channel = $3 AND at <= $4

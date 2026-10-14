@@ -118,13 +118,17 @@ export const OUTBOUND: Machine<OutS> = {
     { from: "QUEUED", to: "BLOCKED_EGRESS", by: ["Y"] },
     { from: "QUEUED", to: "SENDING", by: ["Y"] },
     { from: "SENDING", to: "SENT", by: ["Y"] },
-    { from: "SENDING", to: "UNKNOWN", by: ["Y"], note: "provider timeout; never blind resend" },
+    { from: "SENDING", to: "FAILED", by: ["Y"], note: "definite provider rejection (DECISION-LEDGER, Firia 2026-10-14)" },
+    { from: "SENDING", to: "UNKNOWN", by: ["Y"], note: "timeout or ambiguous provider error; never blind resend" },
     { from: "SENT", to: "UNKNOWN", by: ["Y"], note: "no status callback in time (PRD l.754)" },
     // UNKNOWN resolves only via provider lookup by idempotency attribute (never a resend).
     { from: "UNKNOWN", to: "SENT", by: ["Y"] },
     { from: "UNKNOWN", to: "DELIVERED", by: ["Y"] },
     { from: "UNKNOWN", to: "UNDELIVERED", by: ["Y"] },
     { from: "UNKNOWN", to: "FAILED", by: ["Y"] },
+    // Staff exit (DECISION-LEDGER, Firia 2026-10-14): after checking with the family/provider, staff close an UNKNOWN.
+    { from: "UNKNOWN", to: "DELIVERED", by: ["S"], note: "staff confirmed receipt" },
+    { from: "UNKNOWN", to: "FAILED", by: ["S"], note: "staff confirmed not received" },
     { from: "SENT", to: "DELIVERED", by: ["Y"] },
     { from: "SENT", to: "UNDELIVERED", by: ["Y"] },
     { from: "SENT", to: "FAILED", by: ["Y"] },

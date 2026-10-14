@@ -10,8 +10,8 @@ import { uuidv7 } from "uuidv7";
 import type { Db, Exec } from "@/db/exec";
 import { canTransition, OUTBOUND } from "@/domain/machines";
 import { IllegalTransition, StaleOrConflict } from "@/domain/transition";
-import { activeSuppression, childAuthorized, type RecipientAuthorizer } from "./policy";
-import { ProviderTimeout, type MessagingProvider } from "./provider";
+import { activeSuppression, childAuthorized, recipientKind, therapistAuthorized, type RecipientAuthorizer } from "./policy";
+import { ProviderRejected, ProviderTimeout, type MessagingProvider } from "./provider";
 
 export const OUTBOX_TOPIC = "ppec-outbox";
 export const SEND_TIMEOUT_MS = 10_000;
@@ -31,15 +31,42 @@ export interface OutboxTransport { publish(msg: { messageId: string }, opts: { i
 export type EnqueueInput = {
   siteId: string; purpose: string; recipientRule: string; recipientToken: string; channel: "SMS_1TO1" | "MMS_GROUP" | "TEAMS" | "VOICE_TASK" | "DISPATCHER_LINK";
   templateId: string; vars: Record<string, unknown>; tripLegId?: string | null; therapySessionId?: string | null;
+  /** Required when the message carries child data (child template, child-ish vars, a trip leg or a therapy session). */
+  childToken?: string | null;
   planVersionBasis: number; notAfter: Date; idempotencyKey: string; by: string;
 };
 
 type Row = {
   id: string; site_id: string; purpose: string; recipient_token: string | null; channel: string; template_id: string;
-  vars: Record<string, unknown>; trip_leg_id: string | null; plan_version_basis: number; not_after: Date | string;
+  vars: Record<string, unknown>; trip_leg_id: string | null; therapy_session_id: string | null; child_token: string | null;
+  recipient_rule: string; plan_version_basis: number; not_after: Date | string;
   state: OutboxState; version: number; idempotency_key: string;
 };
-const COLS = "id, site_id, purpose, recipient_token, channel, template_id, vars, trip_leg_id, plan_version_basis, not_after, state, version, idempotency_key";
+const COLS = "id, site_id, purpose, recipient_token, recipient_rule, channel, template_id, vars, trip_leg_id, therapy_session_id, child_token, plan_version_basis, not_after, state, version, idempotency_key";
+
+/** Templates whose text names or describes a child. Any message using one must carry a child reference. */
+export const CHILD_TEMPLATES = new Set(["pickup.eta", "dropoff.eta", "leg.canceled", "leg.changed", "therapist.absence_alert", "therapist.late_alert", "child.not_received"]);
+/** Var names that carry child data, whatever the template. */
+const CHILD_VAR = /child|student|patient|dob|birth|diagnos|session/i;
+
+export class ChildReferenceRequired extends Error {}
+
+/** Veri #8: child data never rides without a child reference, and the reference must agree with the leg/session. */
+export async function assertChildReference(tx: Exec, m: EnqueueInput) {
+  const childVars = Object.keys(m.vars).filter((k) => CHILD_VAR.test(k));
+  const needs = CHILD_TEMPLATES.has(m.templateId) || childVars.length > 0 || !!m.tripLegId || !!m.therapySessionId;
+  if (needs && !m.childToken) {
+    throw new ChildReferenceRequired(`child reference required (template ${m.templateId}${childVars.length ? `, vars ${childVars.join(",")}` : ""}${m.tripLegId ? ", trip leg" : ""}${m.therapySessionId ? ", therapy session" : ""})`);
+  }
+  if (m.tripLegId) {
+    const r = await tx.query<{ child_token: string }>("SELECT child_token FROM ops.trip_leg WHERE id = $1 AND site_id = $2", [m.tripLegId, m.siteId]);
+    if (r.rows[0]?.child_token !== m.childToken) throw new ChildReferenceRequired("trip leg belongs to a different child or site");
+  }
+  if (m.therapySessionId) {
+    const r = await tx.query<{ child_token: string }>("SELECT child_token FROM ops.therapy_session WHERE id = $1 AND site_id = $2", [m.therapySessionId, m.siteId]);
+    if (r.rows[0]?.child_token !== m.childToken) throw new ChildReferenceRequired("therapy session belongs to a different child or site");
+  }
+}
 
 /** Guarded move along the outbound machine (actor Y = system). Extra columns are set in the same UPDATE. */
 async function move(tx: Exec, row: Pick<Row, "id" | "version" | "state">, to: OutboxState, by: string, extra: Record<string, unknown> = {}) {
@@ -59,14 +86,15 @@ async function move(tx: Exec, row: Pick<Row, "id" | "version" | "state">, to: Ou
  * runs before this call). Same idempotency key twice returns the existing row and publishes nothing new.
  */
 export async function enqueue(tx: Exec, afterCommit: (h: () => Promise<void>) => void, transport: OutboxTransport, m: EnqueueInput) {
+  await assertChildReference(tx, m);
   const id = uuidv7();
   const ins = await tx.query<{ id: string; version: number }>(
     `INSERT INTO ops.outbound_message (id, site_id, purpose, recipient_rule, recipient_token, channel, template_id, vars,
-       trip_leg_id, therapy_session_id, plan_version_basis, not_after, idempotency_key, created_by, updated_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$14)
+       trip_leg_id, therapy_session_id, plan_version_basis, not_after, idempotency_key, created_by, updated_by, child_token)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$14,$15)
      ON CONFLICT (idempotency_key) DO NOTHING RETURNING id, version`,
     [id, m.siteId, m.purpose, m.recipientRule, m.recipientToken, m.channel, m.templateId, JSON.stringify(m.vars),
-      m.tripLegId ?? null, m.therapySessionId ?? null, m.planVersionBasis, m.notAfter.toISOString(), m.idempotencyKey, m.by]);
+      m.tripLegId ?? null, m.therapySessionId ?? null, m.planVersionBasis, m.notAfter.toISOString(), m.idempotencyKey, m.by, m.childToken ?? null]);
   if (!ins.rows.length) {
     const ex = await tx.query<{ id: string }>("SELECT id FROM ops.outbound_message WHERE idempotency_key = $1", [m.idempotencyKey]);
     return { id: ex.rows[0].id, duplicate: true };
@@ -86,12 +114,12 @@ export async function drain(db: Db, messageId: string, deps: DrainDeps, by = "sy
   const now = (deps.clock ?? (() => new Date()))();
   // Recipient authorization goes through the IdentityGateway (a separate connection in deployed envs), so it runs
   // before the ops tx. The result is applied only if the row is unchanged when the claim runs.
-  const pre = await db.query<{ site_id: string; recipient_token: string | null; purpose: string; channel: string; version: number }>(
-    "SELECT site_id, recipient_token, purpose, channel, version FROM ops.outbound_message WHERE id = $1 AND state = 'QUEUED'", [messageId]);
+  const pre = await db.query<{ site_id: string; recipient_token: string | null; purpose: string; channel: string; recipient_rule: string; version: number }>(
+    "SELECT site_id, recipient_token, purpose, channel, recipient_rule, version FROM ops.outbound_message WHERE id = $1 AND state = 'QUEUED'", [messageId]);
   if (!pre.rows[0]) return "noop";
   const p0 = pre.rows[0];
   const auth = p0.recipient_token
-    ? await deps.authorizer.authorize({ siteId: p0.site_id, recipientToken: p0.recipient_token, purpose: p0.purpose, channel: p0.channel, at: now })
+    ? await deps.authorizer.authorize({ siteId: p0.site_id, recipientToken: p0.recipient_token, purpose: p0.purpose, channel: p0.channel, at: now, kind: recipientKind(p0.recipient_rule) })
     : ({ ok: false, reason: "no recipient token" } as const);
   const claimed = await db.tx(async (tx) => {
     const r = await tx.query<Row>(`SELECT ${COLS} FROM ops.outbound_message WHERE id = $1 AND state = 'QUEUED'
@@ -111,11 +139,15 @@ export async function drain(db: Db, messageId: string, deps: DrainDeps, by = "sy
     if (!row.recipient_token) { await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: "no recipient token" }); return "BLOCKED_EGRESS" as const; }
     const sup = await activeSuppression(tx, { siteId: row.site_id, recipientToken: row.recipient_token, purpose: row.purpose });
     if (sup) { await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: `suppressed (${sup})` }); return "BLOCKED_EGRESS" as const; }
-    if (row.trip_leg_id) {
-      // Guardianship can change after queueing: re-check this contact's authorization for the leg's child.
-      const leg = await tx.query<{ child_token: string }>("SELECT child_token FROM ops.trip_leg WHERE id = $1", [row.trip_leg_id]);
-      const ok = leg.rows[0] && await childAuthorized(tx, { siteId: row.site_id, recipientToken: row.recipient_token, childToken: leg.rows[0].child_token, channel: row.channel, purpose: row.purpose, at: now });
-      if (!ok) { await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: "contact not authorized for this child (scope/channel/validity) at send time" }); return "BLOCKED_EGRESS" as const; }
+    if (row.child_token) {
+      // Guardianship / therapist assignment can change after queueing: re-check the recipient against the child now.
+      const ok = recipientKind(row.recipient_rule) === "therapist"
+        ? await therapistAuthorized(tx, { siteId: row.site_id, personToken: row.recipient_token, childToken: row.child_token, therapySessionId: row.therapy_session_id })
+        : await childAuthorized(tx, { siteId: row.site_id, recipientToken: row.recipient_token, childToken: row.child_token, channel: row.channel, purpose: row.purpose, at: now });
+      if (!ok) { await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: "recipient not authorized for this child at send time" }); return "BLOCKED_EGRESS" as const; }
+    } else if (row.trip_leg_id || row.therapy_session_id || CHILD_TEMPLATES.has(row.template_id) || Object.keys(row.vars ?? {}).some((k) => CHILD_VAR.test(k))) {
+      // Defence in depth for rows written before the enqueue guard: child data with no child reference never goes out.
+      await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: "child data without a child reference" }); return "BLOCKED_EGRESS" as const;
     }
     if (!auth.ok) { await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: auth.reason }); return "BLOCKED_EGRESS" as const; }
 
@@ -128,7 +160,7 @@ export async function drain(db: Db, messageId: string, deps: DrainDeps, by = "sy
   // Outside any tx: one provider call, bounded by a timeout.
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), deps.timeoutMs ?? SEND_TIMEOUT_MS);
-  let outcome: { to: "SENT"; providerMessageId: string } | { to: "UNKNOWN"; reason: string };
+  let outcome: { to: "SENT"; providerMessageId: string } | { to: "UNKNOWN" | "FAILED"; reason: string };
   try {
     const res = await deps.provider.send({
       messageId: claimed.id, siteId: claimed.site_id, idempotencyKey: claimed.idempotency_key, channel: claimed.channel,
@@ -136,10 +168,14 @@ export async function drain(db: Db, messageId: string, deps: DrainDeps, by = "sy
     }, { signal: ctl.signal });
     outcome = { to: "SENT", providerMessageId: res.providerMessageId };
   } catch (e) {
-    outcome = e instanceof ProviderTimeout || ctl.signal.aborted
-      ? { to: "UNKNOWN", reason: "provider timeout" }
-      : { to: "UNKNOWN", reason: `provider error: ${(e instanceof Error ? e.message : String(e)).slice(0, 280)}` };
-    // PRD §6.3 has no SENDING→FAILED edge: any error during the send is UNKNOWN (resolved by provider lookup, never resent).
+    const msg = (e instanceof Error ? e.message : String(e)).slice(0, 280);
+    // DECISION-LEDGER (Firia 2026-10-14): a definite rejection is FAILED; a timeout or ambiguous error is UNKNOWN
+    // (resolved by provider lookup or a staff exit, never resent).
+    outcome = e instanceof ProviderRejected && !ctl.signal.aborted
+      ? { to: "FAILED", reason: `provider rejected: ${msg}` }
+      : e instanceof ProviderTimeout || ctl.signal.aborted
+        ? { to: "UNKNOWN", reason: "provider timeout" }
+        : { to: "UNKNOWN", reason: `ambiguous provider error: ${msg}` };
   } finally {
     clearTimeout(timer);
   }
@@ -176,4 +212,16 @@ export async function sweepOutbox(db: Db, deps: DrainDeps, by = "system:sweeper"
        AND (next_attempt_at IS NULL OR next_attempt_at <= $1) ORDER BY created_at LIMIT 200`, [now.toISOString(), SWEEP_GRACE_SECONDS]);
   for (const q of queued.rows) if ((await drain(db, q.id, deps, by)) !== "noop") rep.drained++;
   return rep;
+}
+
+/** Staff exit from UNKNOWN (DECISION-LEDGER, Firia 2026-10-14): staff record what they confirmed out of band. */
+export async function resolveUnknownByStaff(db: Exec, a: { id: string; to: "DELIVERED" | "FAILED"; staffUserId: string; note: string }) {
+  const r = await db.query<{ version: number }>("SELECT version FROM ops.outbound_message WHERE id = $1 AND state = 'UNKNOWN'", [a.id]);
+  if (!r.rows[0]) throw new StaleOrConflict(`outbound_message ${a.id}: not UNKNOWN`);
+  if (!canTransition(OUTBOUND, "UNKNOWN", a.to, "S")) throw new IllegalTransition(`outbound_message: UNKNOWN -> ${a.to} for S`);
+  const u = await db.query<{ version: number }>(
+    `UPDATE ops.outbound_message SET state = $1, version = version + 1, updated_at = now(), updated_by = $2, block_reason = $3
+     WHERE id = $4 AND version = $5 AND state = 'UNKNOWN' RETURNING version`,
+    [a.to, `staff:${a.staffUserId}`, `staff resolved: ${a.note.slice(0, 200)}`, a.id, r.rows[0].version]);
+  if (!u.rows.length) throw new StaleOrConflict(`outbound_message ${a.id}: stale`);
 }

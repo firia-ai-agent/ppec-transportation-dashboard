@@ -7,6 +7,9 @@ export type OutboundPayload = {
 /** The provider did not answer in time: the message may or may not have gone out. Never resend. */
 export class ProviderTimeout extends Error {}
 
+/** The provider definitely refused the message (e.g. invalid number, blocked): it was not sent. → FAILED. */
+export class ProviderRejected extends Error {}
+
 export interface MessagingProvider {
   readonly name: string;
   send(msg: OutboundPayload, opts: { signal: AbortSignal }): Promise<{ providerMessageId: string }>;
@@ -20,13 +23,15 @@ export class SimMessagingProvider implements MessagingProvider {
   /** Test hooks: hang until aborted, or throw a definitive error, for the next N sends. */
   hangNext = 0;
   failNext = 0;
+  rejectNext = 0;
   async send(msg: OutboundPayload, opts: { signal: AbortSignal }) {
     if (this.hangNext > 0) {
       this.hangNext--;
       this.sent.push(msg); // the provider got it; we just never heard back
       await new Promise((_, rej) => opts.signal.addEventListener("abort", () => rej(new ProviderTimeout("sim timeout")), { once: true }));
     }
-    if (this.failNext > 0) { this.failNext--; throw new Error("sim rejected"); }
+    if (this.rejectNext > 0) { this.rejectNext--; throw new ProviderRejected("sim: recipient rejected"); }
+    if (this.failNext > 0) { this.failNext--; throw new Error("sim: ambiguous provider error"); }
     const existing = this.byKey.get(msg.idempotencyKey);
     if (existing) return { providerMessageId: existing };
     const id = `SIM-${msg.messageId}`;
