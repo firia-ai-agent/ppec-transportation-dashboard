@@ -4,7 +4,7 @@
  */
 import { uuidv7 } from "uuidv7";
 import type { Db, Exec } from "@/db/exec";
-import { arm, LEASE_RENEW_EVERY_MS, LEASE_SECONDS, MAX_ATTEMPTS, MAX_DELAY_SECONDS, REWAKE_DELAY_SECONDS, rewakeDelaySeconds, type Clock, type JobRow, type WakeTransport, systemClock } from "./scheduler";
+import { arm, JOB_COLUMNS, LEASE_RENEW_EVERY_MS, LEASE_SECONDS, MAX_ATTEMPTS, MAX_DELAY_SECONDS, REWAKE_DELAY_SECONDS, rewakeDelaySeconds, staleWake, type Clock, type JobRow, type WakeFence, type WakeMessage, type WakeTransport, systemClock } from "./scheduler";
 
 export type Handler = (tx: Exec, job: JobRow) => Promise<void>;
 export type Handlers = Record<string, Handler>;
@@ -12,6 +12,11 @@ export type FirePath = "QUEUE" | "SWEEPER" | "LOCAL";
 export type WakeResult = "fired" | "noop" | "rewake-deferred" | "inactive-deployment" | "failed" | "dead";
 export type FireOpts = {
   transport?: WakeTransport;
+  /**
+   * The (dueAt, version) generation the delivered message was published for. Supplied by the queue consumer;
+   * the sweeper fires from the row itself and passes none.
+   */
+  fence?: WakeFence;
   /**
    * Errors for which this consumer is considered gone: they propagate instead of being recorded as a handler
    * failure, so the claim is left to its lease (the re-wake reclaims it). The harness uses it to model a
@@ -28,13 +33,55 @@ export async function isActiveDeployment(db: Exec, deploymentId: string) {
   return r.rows.length === 0 || r.rows[0].active_deployment_id === deploymentId;
 }
 
-async function claim(db: Exec, jobId: string, token: string, now: Date) {
-  const r = await db.query<JobRow>(
-    `UPDATE ops.job SET state = 'CLAIMED', claimed_at = $3, claimed_by = $2,
-       claimed_until = $3::timestamptz + make_interval(secs => ${LEASE_SECONDS})
-     WHERE id = $1 AND state = 'SCHEDULED' AND due_at <= $3::timestamptz + interval '1 second'
-     RETURNING id, key, kind, payload, due_at, state, attempts, site_id`, [jobId, token, now.toISOString()]);
-  return r.rows[0];
+/**
+ * Why a delivery was refused. Every one of these is a **no-op + ack**, never a throw: Queues is at-least-once
+ * and unordered, so all of them are expected traffic, not errors, and redelivering them would not help.
+ */
+export type ClaimRefusal =
+  | "missing"        // no such row (manually deleted, or a message from another environment)
+  | "cancelled"      // state CANCELED — cancel() ran after this wake was published
+  | "already-done"   // state DONE — already fired and committed; this is the duplicate-delivery case
+  | "dead"           // state DEAD/FAILED — out of attempts, a RED task already exists
+  | "claimed"        // state CLAIMED — another consumer holds a live lease (handleWake handles this first)
+  | "superseded"     // the wake is for a generation the row has moved past (rescheduled, or version ahead)
+  | "not-due";       // due more than 1 s from now — delivered early
+export type ClaimOutcome = { ok: true; job: JobRow } | { ok: false; reason: ClaimRefusal };
+
+/**
+ * The fire-time idempotency check, in **one transaction**: take the row under `FOR UPDATE`, re-verify that it
+ * is still a live scheduled firing of the generation this message was published for, and only then claim it.
+ *
+ * Both halves have to be in the same transaction. A duplicate delivery that read "SCHEDULED" and then claimed
+ * in a second statement could interleave with a concurrent duplicate between the two and both could believe
+ * they won; holding the row lock across the check and the claim makes exactly one of them win, and the loser
+ * gets `claimed` and acks.
+ *
+ * The checks are ordered so the reason reported is the most specific one, and they are the four the handler
+ * contract requires: not cancelled, not already fired, not superseded by a newer generation, not early.
+ * Note the handler itself still runs in a *later* transaction — it must, because the claim has to be visible
+ * to other consumers before the (possibly slow) handler starts, which is what makes the lease work. That
+ * second transaction re-asserts the same ownership through `claimed_by = token`, which is strictly stronger
+ * than the fence (a claim token is unique per claim), so nothing is unguarded in between.
+ */
+export async function claimForWake(db: Db, jobId: string, token: string, now: Date, fence: WakeFence = {}): Promise<ClaimOutcome> {
+  return db.tx(async (tx) => {
+    const r = await tx.query<JobRow>(`SELECT ${JOB_COLUMNS} FROM ops.job WHERE id = $1 FOR UPDATE`, [jobId]);
+    const row = r.rows[0];
+    if (!row) return { ok: false, reason: "missing" };
+    if (row.state === "CANCELED") return { ok: false, reason: "cancelled" };
+    if (row.state === "DONE") return { ok: false, reason: "already-done" };
+    if (row.state === "DEAD" || row.state === "FAILED") return { ok: false, reason: "dead" };
+    if (row.state !== "SCHEDULED") return { ok: false, reason: "claimed" };
+    if (staleWake(row, fence)) return { ok: false, reason: "superseded" };
+    // Early delivery: Queues' delaySeconds is a floor with no SLA, but it can still land ahead of the app
+    // clock through skew between instances, so allow 1 s of slack (unchanged from the original claim).
+    if (new Date(row.due_at).getTime() > now.getTime() + 1000) return { ok: false, reason: "not-due" };
+    const u = await tx.query<JobRow>(
+      `UPDATE ops.job SET state = 'CLAIMED', claimed_at = $3, claimed_by = $2,
+         claimed_until = $3::timestamptz + make_interval(secs => ${LEASE_SECONDS})
+       WHERE id = $1 AND state = 'SCHEDULED' RETURNING ${JOB_COLUMNS}`, [jobId, token, now.toISOString()]);
+    return u.rows[0] ? { ok: true, job: u.rows[0] } : { ok: false, reason: "claimed" };
+  });
 }
 
 /**
@@ -113,13 +160,15 @@ export async function fire(db: Db, jobId: string, deploymentId: string, handlers
   const now = clock();
   // Claim token fences the finish: a consumer whose lease was reclaimed cannot mark the job DONE.
   const token = `${deploymentId}:${uuidv7()}`;
-  const job = await claim(db, jobId, token, now);
-  if (!job) return "noop"; // already fired, canceled, rescheduled later, early, or claimed by someone else
+  const claimed = await claimForWake(db, jobId, token, now, opts.fence);
+  // Cancelled, already fired, superseded, early, or claimed by someone else: no-op and ack (ClaimRefusal).
+  if (!claimed.ok) return "noop";
+  const job = claimed.job;
   const by = `system:job:${path.toLowerCase()}`;
   // Option A: arm a re-wake for when the lease expires. If this consumer dies, the re-wake reclaims and fires.
   if (opts.transport) {
     try {
-      await opts.transport.publish({ jobId: job.id, dueAt: new Date(job.due_at).toISOString() },
+      await opts.transport.publish({ jobId: job.id, dueAt: new Date(job.due_at).toISOString(), version: job.version },
         { delaySeconds: REWAKE_DELAY_SECONDS, idempotencyKey: `rewake:${token}` });
     } catch { /* the sweeper still reclaims expired leases */ }
   }
@@ -162,20 +211,29 @@ type ClaimedRow = JobRow & { claimed_until: Date | string | null; claimed_by: st
 async function deferRewake(row: ClaimedRow, remainingMs: number, now: Date, opts: FireOpts) {
   if (!opts.transport) return false;
   try {
-    await opts.transport.publish({ jobId: row.id, dueAt: new Date(row.due_at).toISOString() },
+    await opts.transport.publish({ jobId: row.id, dueAt: new Date(row.due_at).toISOString(), version: row.version },
       { delaySeconds: rewakeDelaySeconds(remainingMs), idempotencyKey: `rewake:${row.claimed_by}:${now.toISOString()}` });
     return true;
   } catch { return false; } // the sweeper still reclaims expired leases
 }
 
-/** Queue consumer entry point (/api/queues/timer). */
-export async function handleWake(db: Db, msg: { jobId: string }, deploymentId: string, handlers: Handlers, clock: Clock = systemClock, opts: FireOpts = {}): Promise<WakeResult> {
+/**
+ * Queue consumer entry point (/api/queues/timer). Idempotent by construction: every delivery is either a
+ * single claim-and-fire or a no-op + ack, decided by `claimForWake`. `dueAt`/`version` are optional so a
+ * message published by an older deployment, before the fence existed, is still judged on state and due time
+ * rather than dropped.
+ */
+export async function handleWake(db: Db, msg: { jobId: string } & Partial<WakeMessage>, deploymentId: string, handlers: Handlers, clock: Clock = systemClock, opts: FireOpts = {}): Promise<WakeResult> {
   if (!(await isActiveDeployment(db, deploymentId))) return "inactive-deployment";
+  const fence: WakeFence = { dueAt: msg.dueAt, version: msg.version };
   // A re-wake (or redelivery) for a job whose lease expired reclaims it first, then fires through the same claim.
   const j = await db.query<ClaimedRow>(
-    `SELECT id, key, kind, payload, due_at, state, attempts, site_id, claimed_until, claimed_by FROM ops.job WHERE id = $1 AND state = 'CLAIMED'`, [msg.jobId]);
+    `SELECT ${JOB_COLUMNS}, claimed_until, claimed_by FROM ops.job WHERE id = $1 AND state = 'CLAIMED'`, [msg.jobId]);
   const row = j.rows[0];
   if (row) {
+    // A wake for a generation the row has moved past is dropped outright: re-publishing it (below) would keep
+    // a stale message circling for the lifetime of the claim.
+    if (staleWake(row, fence)) return "noop";
     const now = clock();
     const remainingMs = (row.claimed_until ? new Date(row.claimed_until).getTime() : 0) - now.getTime();
     // Lease still live: either this wake arrived early (queue jitter, or skew between the claiming and the
@@ -185,7 +243,7 @@ export async function handleWake(db: Db, msg: { jobId: string }, deploymentId: s
     const r = await reclaimIfExpired(db, row, now, "system:job:rewake");
     if (r === "dead") return "dead";
   }
-  return fire(db, msg.jobId, deploymentId, handlers, "QUEUE", clock, opts);
+  return fire(db, msg.jobId, deploymentId, handlers, "QUEUE", clock, { ...opts, fence });
 }
 
 export type SweepReport = { rearmed: number; reclaimed: number; dead: number; fired: number; republished: number; activated: boolean };
@@ -212,7 +270,7 @@ export async function sweep(db: Db, transport: WakeTransport, deploymentId: stri
 
   // 2. Expired leases (crashed consumer) go back to SCHEDULED; DEAD after MAX_ATTEMPTS with a RED task.
   const expired = await db.query<JobRow>(
-    `SELECT id, key, kind, payload, due_at, state, attempts, site_id FROM ops.job WHERE state = 'CLAIMED' AND claimed_until < $1`, [now.toISOString()]);
+    `SELECT ${JOB_COLUMNS} FROM ops.job WHERE state = 'CLAIMED' AND claimed_until < $1`, [now.toISOString()]);
   for (const j of expired.rows) {
     const res = await reclaimIfExpired(db, j, now, "system:sweeper");
     if (res === "dead") rep.dead++; else if (res === "reclaimed") rep.reclaimed++;
@@ -224,11 +282,11 @@ export async function sweep(db: Db, transport: WakeTransport, deploymentId: stri
   for (const j of overdue.rows) if ((await fire(db, j.id, deploymentId, handlers, "SWEEPER", clock, { transport })) === "fired") rep.fired++;
 
   // 4. Pending jobs within the 7-day window that have no live wake-up get one.
-  const unarmed = await db.query<{ id: string; due_at: Date }>(
-    `SELECT id, due_at FROM ops.job WHERE state = 'SCHEDULED' AND wake_published_at IS NULL
+  const unarmed = await db.query<{ id: string; due_at: Date; version: number }>(
+    `SELECT id, due_at, version FROM ops.job WHERE state = 'SCHEDULED' AND wake_published_at IS NULL
        AND due_at <= $1::timestamptz + make_interval(secs => ${MAX_DELAY_SECONDS}) ORDER BY due_at LIMIT 500`, [now.toISOString()]);
   for (const j of unarmed.rows) {
-    try { if (await arm(db, transport, { id: j.id, dueAt: new Date(j.due_at) }, now)) rep.republished++; } catch { /* next sweep retries */ }
+    try { if (await arm(db, transport, { id: j.id, dueAt: new Date(j.due_at), version: j.version }, now)) rep.republished++; } catch { /* next sweep retries */ }
   }
   return rep;
 }

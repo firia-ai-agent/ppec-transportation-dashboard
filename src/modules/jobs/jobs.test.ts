@@ -1,11 +1,15 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { PGlite } from "@electric-sql/pglite";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { runAfterCommit, type Db } from "@/db/exec";
 import { freshDb, SITE } from "@/test/pglite";
 import { cronAuthorized } from "@/lib/cron-auth";
 import { FakeTransport } from "./fake-transport";
+import { TIMER_TOPIC } from "./vercel-queue";
 import { VercelQueueScheduler, MAX_ATTEMPTS } from "./scheduler";
-import { fire, handleWake, renewLease, sweep, type FireOpts, type Handlers } from "./runner";
-import { LEASE_SECONDS, MAX_DELAY_SECONDS, REWAKE_DELAY_SECONDS, REWAKE_MARGIN_MS, RETRY_MAX_SECONDS, delayFor, redeliveryDelaySeconds, rewakeDelaySeconds } from "./scheduler";
+import { claimForWake, fire, handleWake, renewLease, sweep, type FireOpts, type Handlers } from "./runner";
+import { LEASE_SECONDS, MAX_DELAY_SECONDS, MAX_DELIVERIES, QUEUE_RETRY_AFTER_SECONDS, QUEUE_VISIBILITY_TIMEOUT_SECONDS, REWAKE_DELAY_SECONDS, REWAKE_MARGIN_MS, RETRY_MAX_SECONDS, delayFor, queueRetryDirective, redeliveryDelaySeconds, rewakeDelaySeconds, staleWake } from "./scheduler";
 
 let db: Db; let t: FakeTransport; let now: Date; let s: VercelQueueScheduler;
 const clock = () => now;
@@ -22,12 +26,22 @@ const sched = (key: string, inSecs: number, kind = "noop.test") =>
 /** The process dying after the claim: nothing after the claim runs in that invocation (test seam, FireOpts.isFatal). */
 class SimulatedCrash extends Error {}
 const kill: Pick<FireOpts, "isFatal"> = { isFatal: (e) => e instanceof SimulatedCrash };
+/** Report lines that must be visible in a plain `pnpm test` run (see the call site for why not console.log). */
+const print = (lines: string[]) => process.stdout.write(`${lines.join("\n")}\n`);
 const leaseUntil = async (id: string) =>
   new Date((await db.query<{ claimed_until: Date }>("SELECT claimed_until FROM ops.job WHERE id=$1", [id])).rows[0].claimed_until).getTime();
 
+/** Every PGlite opened by a test, closed after it: each instance holds its own WASM heap, so leaking ~30 of them into one vitest worker gets the worker OOM-killed. */
+const open: PGlite[] = [];
+const openDb = async () => { const h = await freshDb(); open.push(h.pg); return h; };
+
 beforeEach(async () => {
-  ({ db } = await freshDb()); t = new FakeTransport(); now = new Date(); s = new VercelQueueScheduler(db, t, clock); calls.length = 0;
+  ({ db } = await openDb()); t = new FakeTransport(); now = new Date(); s = new VercelQueueScheduler(db, t, clock); calls.length = 0;
 }, 60_000);
+
+afterEach(async () => {
+  await Promise.all(open.splice(0).map((pg) => pg.close().catch(() => {})));
+});
 
 describe("JobScheduler (ADR-001)", () => {
   it("writes the row in the caller's tx and publishes only after commit", async () => {
@@ -112,8 +126,10 @@ describe("local TEST-INF-01 shape (not the recorded runs)", () => {
     for (let i = 0; i < 50; i++) ids.push((await sched(`t${i}`, i < 10 ? 60 : 60 + ((i * 7) % 180))).id);
     for (const i of [3, 14, 22, 37, 49]) await db.tx((tx) => s.cancel(tx, `t${i}`, "t"));
     now = at(241);
+    // Deliver the real messages (fence included), twice each and in reverse order: the at-least-once +
+    // unordered contract, end to end.
     const wakes = [...t.sent, ...t.sent].reverse();
-    await Promise.all(wakes.map((w) => handleWake(db, { jobId: w.jobId }, "d1", handlers, clock)));
+    await Promise.all(wakes.map((w) => handleWake(db, w, "d1", handlers, clock)));
     const r = await db.query<{ state: string; n: number }>("SELECT state, count(*)::int n FROM ops.job GROUP BY state ORDER BY state::text", []);
     expect(r.rows).toEqual([{ state: "CANCELED", n: 5 }, { state: "DONE", n: 45 }]);
     const dup = await db.query<{ n: number }>("SELECT count(*)::int n FROM (SELECT job_id FROM ops.job_fire_log GROUP BY job_id HAVING count(*) > 1) d", []);
@@ -188,7 +204,7 @@ describe("Option A: short lease + re-wake at lease expiry (kill-after-claim)", (
     for (const r of onTime) expect(r.late).toBeLessThan(NFR03_SECONDS);
 
     // Re-wake early (Veri #10, blocker 1): it re-publishes for the rest of the lease + margin, so recovery costs
-    // one more hop instead of falling back to the 1-minute sweep. With sub-second delays (ledger row 44) that
+    // one more hop instead of falling back to the 1-minute sweep. With sub-second delays (ledger row 56) that
     // hop is exactly the margin + jitter, not the margin rounded up to the next whole second.
     const early: Row[] = [];
     for (const [j1, j2, e] of [[0, 0, 0.001], [0.25, 0.25, 0.5], [0.5, 0.5, 0.75], [1, 1, 0.001], [1, 1, 0.25], [1, 1, 0.5], [1, 1, 0.75], [1, 1, 1]]) early.push(await killAfterClaim(j1, j2, e));
@@ -197,15 +213,17 @@ describe("Option A: short lease + re-wake at lease expiry (kill-after-claim)", (
 
     const all = [...onTime, ...early];
     const worst = Math.max(...all.map((r) => r.late));
-    console.log([
+    // Straight to stdout, not console.log: vitest's default reporter drops intercepted console output from
+    // *passing* tests when stdout is not a TTY (i.e. in CI), and this table is the deliverable of the test.
+    print([
       "| first delivery jitter | re-wake arrives early by | re-wake jitter | lateness |",
       "|---|---|---|---|",
       ...all.map((r) => `| ${r.j1} s | ${r.earlyBy ? `${r.earlyBy} s` : "–"} | ${r.j2} s | ${r.late.toFixed(3)} s |`),
       `lease ${LEASE_SECONDS} s, re-wake margin ${REWAKE_MARGIN_MS} ms, sub-second (ms-precision) queue delays, jitter ≤ ${MAX_JITTER} s per delivery, early arrival ≤ ${MAX_JITTER} s`,
       `worst-case lateness ${worst.toFixed(3)} s → margin ${(NFR03_SECONDS - worst).toFixed(3)} s under the ${NFR03_SECONDS} s NFR-03 bar`,
       `(the re-wake-at-expiry path is ${Math.max(...onTime.map((r) => r.late)).toFixed(3)} s at ${MAX_JITTER} s jitter; the early path costs exactly one re-wake margin more)`,
-      `sub-second delaySeconds is Unverified until a live TEST-INF-01 run (GET /api/probe/delay → topic ppec-delay-probe); if Queues floors it, revert to ledger row 38`,
-    ].join("\n"));
+      `sub-second delaySeconds is Unverified until a live TEST-INF-01 run (GET /api/probe/delay → topic ppec-delay-probe); if Queues floors it, revert to the 3 s lease proposed for ledger row 38 (PR #10, closed)`,
+    ]);
     // Analytic bound for the early path: j1 + lease − ε + (ε + margin) + j2 = j1 + j2 + lease + margin, for any ε.
     expect(worst).toBeLessThanOrEqual(LEASE_SECONDS + 2 * MAX_JITTER + REWAKE_MARGIN_MS / 1000);
   }, 180_000);
@@ -222,7 +240,8 @@ describe("Option A: short lease + re-wake at lease expiry (kill-after-claim)", (
     expect(await handleWake(db, { jobId: id }, "d1", handlers, clock, opts)).toBe("rewake-deferred");
     expect((await state("early")).state).toBe("CLAIMED");
     expect(calls).toEqual([]);
-    expect(t.sent).toEqual([{ jobId: id, dueAt: expect.any(String), delaySeconds: rewakeDelaySeconds(1), idempotencyKey: `rewake:${token}:${now.toISOString()}` }]);
+    // The re-published wake carries the claimed row's own generation, so it fences exactly like the original.
+    expect(t.sent).toEqual([{ jobId: id, dueAt: expect.any(String), version: 1, delaySeconds: rewakeDelaySeconds(1), idempotencyKey: `rewake:${token}:${now.toISOString()}` }]);
 
     now = at(REWAKE_DELAY_SECONDS - 0.001 + t.sent[0].delaySeconds);
     expect(await handleWake(db, { jobId: id }, "d1", handlers, clock, opts)).toBe("fired");
@@ -267,7 +286,7 @@ describe("lease renewal for slow handlers (Veri #10, point 2)", () => {
     // PGlite is a single connection, so the renewal — which in production runs on its own pooled connection
     // (ADR-009) — cannot query while a real transaction is open. This Db runs the handler's statements directly
     // instead of inside BEGIN/COMMIT: this test is about the lease, atomicity is covered by the tests above.
-    const { pg } = await freshDb();
+    const { pg } = await openDb();
     const q: Db["query"] = async (sql, params) => ({ rows: (await pg.query(sql, params)).rows as never[] });
     db = { query: q, tx: async (fn) => { const hooks: (() => Promise<void>)[] = []; const r = await fn({ query: q }, (h) => hooks.push(h)); await runAfterCommit(hooks); return r; } };
     s = new VercelQueueScheduler(db, t, clock);
@@ -311,7 +330,7 @@ describe("queue redelivery backoff (route.ts; Veri #10, point 3)", () => {
   it.each([[1, 2], [2, 4], [3, 8], [4, 16], [5, 32], [6, RETRY_MAX_SECONDS], [50, RETRY_MAX_SECONDS]])(
     "delivery %i → redelivery after %i s", (n, secs) => expect(redeliveryDelaySeconds(n)).toBe(secs));
 
-  it("a deferred re-wake waits the remaining lease plus the margin, to the millisecond (ledger row 44)", () => {
+  it("a deferred re-wake waits the remaining lease plus the margin, to the millisecond (ledger row 56)", () => {
     expect(rewakeDelaySeconds(-5)).toBe(REWAKE_MARGIN_MS / 1000); // expired lease: just the margin
     expect(rewakeDelaySeconds(1)).toBe(0.251);
     expect(rewakeDelaySeconds(750)).toBe(1);
@@ -325,5 +344,163 @@ describe("queue redelivery backoff (route.ts; Veri #10, point 3)", () => {
     expect(delayFor(new Date(1_250), new Date(0))).toBe(1.25);
     expect(delayFor(new Date(0), new Date(1_250))).toBe(0); // already due
     expect(delayFor(new Date(MAX_DELAY_SECONDS * 2000), new Date(0))).toBe(MAX_DELAY_SECONDS);
+  });
+});
+
+describe("handler idempotency at fire time (DECISION-LEDGER row 56; at-least-once, unordered, no delay SLA)", () => {
+  /** The message Queues would actually deliver for the last wake published: {jobId, dueAt, version}. */
+  const lastWake = () => t.sent.at(-1)!;
+  const row = async (id: string) => (await db.query<{ state: string; version: number; due_at: Date }>("SELECT state, version, due_at FROM ops.job WHERE id=$1", [id])).rows[0];
+
+  it("duplicate delivery of one message fires exactly once, concurrently or in sequence", async () => {
+    const { id } = await sched("dup", 0);
+    const m = lastWake();
+    const rs = await Promise.all([handleWake(db, m, "d1", handlers, clock), handleWake(db, m, "d1", handlers, clock), handleWake(db, m, "d1", handlers, clock)]);
+    expect(rs.filter((r) => r === "fired").length).toBe(1);
+    // Everything else acks: a duplicate is expected traffic on an at-least-once queue, not an error.
+    expect(rs.filter((r) => r === "failed" || r === "dead").length).toBe(0);
+    expect(await handleWake(db, m, "d1", handlers, clock)).toBe("noop"); // and once more, after it is DONE
+    expect(calls).toEqual(["dup"]);
+    expect(await fires(id)).toBe(1);
+  });
+
+  it("an out-of-order older version is dropped: the pre-reschedule wake cannot fire the rescheduled job", async () => {
+    const { id } = await sched("ooo", 5);
+    const stale = lastWake(); // version 1, due at +5 s
+    await db.tx((tx, ac) => s.reschedule(tx, ac, "ooo", at(60), "t"));
+    const current = lastWake(); // version 2, due at +60 s
+    expect([stale.version, current.version]).toEqual([1, 2]);
+
+    // Delivered *after* the new due time, so without the fence the old message would fire the job here.
+    now = at(61);
+    expect(await handleWake(db, stale, "d1", handlers, clock)).toBe("noop");
+    expect(calls).toEqual([]);
+    expect(await fires(id)).toBe(0);
+    expect((await row(id)).state).toBe("SCHEDULED");
+
+    // The current generation fires, and the stale message stays dropped afterwards.
+    expect(await handleWake(db, current, "d1", handlers, clock)).toBe("fired");
+    expect(await handleWake(db, stale, "d1", handlers, clock)).toBe("noop");
+    expect(calls).toEqual(["ooo"]);
+    expect(await fires(id)).toBe(1);
+  });
+
+  it("a wake whose version is ahead of the row is dropped (replay or forged message), not fired", async () => {
+    const { id } = await sched("ahead", 0);
+    const m = lastWake();
+    expect(await handleWake(db, { ...m, version: m.version + 7 }, "d1", handlers, clock)).toBe("noop");
+    expect(calls).toEqual([]);
+    expect((await row(id)).state).toBe("SCHEDULED"); // still live: the real wake can still fire it
+    expect(await handleWake(db, m, "d1", handlers, clock)).toBe("fired");
+  });
+
+  it("a cancelled job is dropped, even though cancel bumped the version past the in-flight wake", async () => {
+    const { id } = await sched("canc", 0);
+    const m = lastWake();
+    expect(await db.tx((tx) => s.cancel(tx, "canc", "t"))).toBe(1);
+    expect((await row(id)).version).toBe(m.version + 1); // the wake is behind, which is not what drops it
+    expect(await handleWake(db, m, "d1", handlers, clock)).toBe("noop");
+    expect(calls).toEqual([]);
+    expect(await fires(id)).toBe(0);
+    expect((await row(id)).state).toBe("CANCELED");
+  });
+
+  it("an already-sent job is dropped: the second delivery never reaches the handler", async () => {
+    const { id } = await sched("sent", 0);
+    const m = lastWake();
+    expect(await handleWake(db, m, "d1", handlers, clock)).toBe("fired");
+    expect((await row(id)).state).toBe("DONE");
+    for (let i = 0; i < 3; i++) expect(await handleWake(db, m, "d1", handlers, clock)).toBe("noop");
+    expect(calls).toEqual(["sent"]); // exactly one handler run
+    expect(await fires(id)).toBe(1);
+  });
+
+  it("redelivery after a crash mid-lease still fires exactly once (the reclaim's version bump must not fence it out)", async () => {
+    const { id } = await sched("crash", 0);
+    const m = lastWake();
+    const opts: FireOpts = { transport: t, ...kill };
+    const crash: Handlers = { "noop.test": async () => { throw new SimulatedCrash("process killed after claim"); } };
+    await expect(handleWake(db, m, "d1", crash, clock, opts)).rejects.toBeInstanceOf(SimulatedCrash);
+    expect((await row(id)).state).toBe("CLAIMED");
+
+    // Redelivery while the lease is still live: no second claim, no handler run.
+    now = at(LEASE_SECONDS / 2);
+    expect(await handleWake(db, m, "d1", handlers, clock, opts)).toBe("rewake-deferred");
+    expect(calls).toEqual([]);
+
+    // Redelivery of that same message once the lease has lapsed: reclaim (version 1 → 2) and fire. The message
+    // still carries version 1, so this is the case a `version !== row.version` fence would have broken.
+    now = at(LEASE_SECONDS);
+    expect(await handleWake(db, m, "d1", handlers, clock, opts)).toBe("fired");
+    expect((await row(id)).version).toBeGreaterThan(m.version);
+    for (let i = 0; i < 3; i++) expect(await handleWake(db, m, "d1", handlers, clock, opts)).toBe("noop");
+    expect(calls).toEqual(["crash"]);
+    expect(await fires(id)).toBe(1);
+  });
+
+  it("claimForWake reports the specific refusal, and only a live due generation is claimed", async () => {
+    const { id } = await sched("why", 0);
+    const m = lastWake();
+    const tok = (n: string) => `d1:${n}`;
+    const fence = { dueAt: m.dueAt, version: m.version };
+
+    expect(await claimForWake(db, "00000000-0000-7000-8000-00000000dead", tok("a"), now, fence)).toEqual({ ok: false, reason: "missing" });
+    expect(await claimForWake(db, id, tok("b"), now, { dueAt: at(999).toISOString() })).toEqual({ ok: false, reason: "superseded" });
+    expect(await claimForWake(db, id, tok("c"), now, { version: m.version + 1 })).toEqual({ ok: false, reason: "superseded" });
+    expect(await claimForWake(db, id, tok("d"), at(-10), fence)).toEqual({ ok: false, reason: "not-due" }); // >1 s early
+
+    const won = await claimForWake(db, id, tok("e"), now, fence);
+    expect(won).toMatchObject({ ok: true, job: { id, key: "why", version: m.version } });
+    expect(await claimForWake(db, id, tok("f"), now, fence)).toEqual({ ok: false, reason: "claimed" });
+
+    await db.query("UPDATE ops.job SET state='DONE' WHERE id=$1", [id]);
+    expect(await claimForWake(db, id, tok("g"), now, fence)).toEqual({ ok: false, reason: "already-done" });
+    await db.query("UPDATE ops.job SET state='CANCELED' WHERE id=$1", [id]);
+    expect(await claimForWake(db, id, tok("h"), now, fence)).toEqual({ ok: false, reason: "cancelled" });
+    await db.query("UPDATE ops.job SET state='DEAD' WHERE id=$1", [id]);
+    expect(await claimForWake(db, id, tok("i"), now, fence)).toEqual({ ok: false, reason: "dead" });
+  });
+
+  it("a wake with no fence (published before the fence existed) is still honoured", async () => {
+    const { id } = await sched("legacy", 0);
+    expect(await handleWake(db, { jobId: id }, "d1", handlers, clock)).toBe("fired");
+    expect(await fires(id)).toBe(1);
+  });
+});
+
+describe("staleWake / queue bounds (pure)", () => {
+  const due = "2026-10-14T18:00:00.000Z";
+  const r = { due_at: new Date(due), version: 4 };
+
+  it.each([
+    ["no fence at all", {}, false],
+    ["same generation", { dueAt: due, version: 4 }, false],
+    ["version behind the row (a retry of the same firing: reclaim or post-failure redelivery)", { dueAt: due, version: 1 }, false],
+    ["version ahead of the row (replay or forged)", { dueAt: due, version: 5 }, true],
+    ["due_at moved (rescheduled)", { dueAt: "2026-10-14T19:00:00.000Z", version: 4 }, true],
+    ["due_at moved earlier, version behind", { dueAt: "2026-10-14T17:00:00.000Z", version: 1 }, true],
+    ["dueAt only, matching", { dueAt: due }, false],
+    ["version only, behind", { version: 2 }, false],
+  ])("%s → stale %s", (_why, fence, stale) => expect(staleWake(r, fence)).toBe(stale));
+
+  it("the retry directive backs off, then acknowledges at MAX_DELIVERIES (no maxDeliveries option exists)", () => {
+    expect(queueRetryDirective(1)).toEqual({ afterSeconds: 2 });
+    expect(queueRetryDirective(MAX_DELIVERIES - 1)).toEqual({ afterSeconds: RETRY_MAX_SECONDS });
+    expect(queueRetryDirective(MAX_DELIVERIES)).toEqual({ acknowledge: true });
+    expect(queueRetryDirective(MAX_DELIVERIES + 50)).toEqual({ acknowledge: true });
+  });
+
+  it("the timer trigger in vercel.json carries the lease as its retryAfterSeconds", () => {
+    expect(QUEUE_RETRY_AFTER_SECONDS).toBe(LEASE_SECONDS);
+    // vercel.json cannot import the constant, so pin the two together here instead of letting them drift.
+    const vercelJson = JSON.parse(readFileSync(join(__dirname, "..", "..", "..", "vercel.json"), "utf8")) as
+      { functions: Record<string, { experimentalTriggers?: { topic: string; retryAfterSeconds?: number }[] }> };
+    const trigger = vercelJson.functions["src/app/api/queues/timer/route.ts"].experimentalTriggers?.[0];
+    expect(trigger).toMatchObject({ topic: TIMER_TOPIC, retryAfterSeconds: QUEUE_RETRY_AFTER_SECONDS });
+
+    // The visibility timeout, by contrast, *cannot* match the lease: 30 s is @vercel/queue 0.8.0's documented
+    // floor (`@minimum 30`), so the 5 s recovery rests on our own re-wake, not on queue redelivery.
+    expect(QUEUE_VISIBILITY_TIMEOUT_SECONDS).toBe(30);
+    expect(QUEUE_VISIBILITY_TIMEOUT_SECONDS).toBeGreaterThan(LEASE_SECONDS);
   });
 });

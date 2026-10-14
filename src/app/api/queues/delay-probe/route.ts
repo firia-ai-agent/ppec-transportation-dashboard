@@ -5,8 +5,9 @@ export const maxDuration = 60;
 
 /**
  * Queue trigger (topic ppec-delay-probe, vercel.json) for TEST-INF-01: does Vercel Queues honour
- * sub-second `delaySeconds`? DECISION-LEDGER row 44 (2 s lease + millisecond re-wake delays) is
- * conditional on this; if the measured delay is the request rounded up to a whole second, revert to row 38.
+ * sub-second `delaySeconds`? DECISION-LEDGER row 56 (2 s lease + millisecond re-wake delays) is
+ * conditional on this; if the measured delay is the request rounded up to a whole second, revert to the
+ * row 38 parameters (3 s lease, whole-second re-wakes; row 38 itself is on the closed PR #10).
  *
  * No DB, no secrets, no work: it logs one line per delivery, so it runs on previews too, where every DB
  * session is read-only (DECISION-LEDGER #43). Started by GET /api/probe/delay.

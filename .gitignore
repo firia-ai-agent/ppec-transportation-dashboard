@@ -10,3 +10,6 @@ coverage/
 .DS_Store
 next-env.d.ts
 *.tsbuildinfo
+
+# TEST-INF-01 harness output (scripts/test-inf-01/delay-accuracy.ts): run artifacts, not source.
+scripts/test-inf-01/out/
