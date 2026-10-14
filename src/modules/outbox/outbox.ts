@@ -49,7 +49,7 @@ export const CHILD_TEMPLATES = new Set(["pickup.eta", "dropoff.eta", "leg.cancel
 /**
  * Veri #12 review: free text is banned from outbound vars. A staff-typed "reason" or "text" can carry a child's
  * name, and matching values against a name list misses nicknames and typos, so outbound vars carry only fixed
- * codes (reasonCode) and constrained formats (clock times, dates, short stop tokens, a first name <= 40 chars).
+ * codes (reasonCode) and constrained formats (clock times, dates, short stop tokens, one given-name token).
  * generic.notice is fixed copy with no vars at all.
  */
 export const CLOSURE_REASON_CODES: ReadonlySet<string> = new Set(["WEATHER", "FACILITY", "HOLIDAY", "EMERGENCY"]);
@@ -65,7 +65,14 @@ type VarRule = (value: unknown) => boolean;
 const oneOf = (codes: ReadonlySet<string>): VarRule => (v) => typeof v === "string" && codes.has(v);
 const clockTime: VarRule = (v) => typeof v === "string" && (CLOCK.test(v) || TIMESTAMP.test(v));
 const calendarDay: VarRule = (v) => typeof v === "string" && (DAY.test(v) || TIMESTAMP.test(v));
-const firstName: VarRule = (v) => typeof v === "string" && v.trim().length > 0 && v.length <= 40;
+/**
+ * One given-name token: letters only, with at most one internal hyphen or apostrophe ("Anne-Marie", "D'Andre"),
+ * 1-20 characters. Veri FAILed the earlier "any non-blank string <= 40" rule because it let a whole name out:
+ * a full name ("Mia Rivera") or a name plus a surname initial ("Mia R.", "Mia R") identifies a child far more
+ * narrowly than a given name does, so spaces, digits and all other punctuation are refused.
+ */
+const GIVEN_NAME = /^\p{L}+(?:['’-]\p{L}+)?$/u;
+const firstName: VarRule = (v) => typeof v === "string" && [...v].length <= 20 && GIVEN_NAME.test(v);
 const stopToken: VarRule = (v) => typeof v === "string" && /^[A-Z0-9-]{1,12}$/.test(v);
 
 /**

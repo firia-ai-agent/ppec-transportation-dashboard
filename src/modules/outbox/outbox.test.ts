@@ -257,6 +257,32 @@ describe("outbox (ADR-003)", () => {
       await put({ vars: { eta: "2026-10-14T07:45:00Z" } });
       await put(closure({ date: "2026-10-14" }));
     });
+    // Veri FAILed the earlier "any non-blank string <= 40" rule: a full name must never ride out as a first name.
+    it("childFirstName is one given-name token: a full name, a surname initial or a digit is rejected", async () => {
+      const NBSP = String.fromCharCode(0xa0);
+      for (const childFirstName of [
+        "Mia Rivera", "Mia R.", "Mia R", "Mia  Rivera", "Mia\tRivera", `Mia${NBSP}Rivera`, // a surname or an initial, however spaced
+        "", " ", "mia2", "M.", "Mia,", "Mia!", "Mia\n", "Mia_Rivera", "Mia.Rivera", // blank, digits, other punctuation
+        "-Mia", "Mia-", "'Mia", "Mia'", "O''Hara", "Anne-Marie-Claire", "Anne--Marie", // one internal hyphen/apostrophe only
+        "A".repeat(21), "S".repeat(41), // over-length
+      ]) await expect(put({ vars: { eta: "07:45", childFirstName } })).rejects.toBeInstanceOf(TemplateVarNotAllowed);
+      for (const childFirstName of [7, null, ["Mia"], { first: "Mia" }]) {
+        await expect(put({ vars: { eta: "07:45", childFirstName } })).rejects.toBeInstanceOf(TemplateVarNotAllowed);
+      }
+      expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.outbound_message", [])).rows[0].n).toBe(0);
+      // accepted: a plain given name, one internal hyphen or apostrophe, non-ASCII letters, 1 and 20 chars
+      const ok = ["Mia", "A", "Ng", "Anne-Marie", "D'Andre", "D’Andre", "José", "Łukasz", "Мария", "A".repeat(20)];
+      for (const childFirstName of ok) await put({ vars: { eta: "07:45", childFirstName } });
+      expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.outbound_message", [])).rows[0].n).toBe(ok.length);
+    });
+    it("a row edited around the guard to carry a full name is blocked at send time", async () => {
+      const { id } = await put();
+      await db.query(`UPDATE ops.outbound_message SET vars = '{"eta":"07:45","childFirstName":"Mia Rivera"}'::jsonb WHERE id = $1`, [id]);
+      expect(await drain(db, id, deps)).toBe("BLOCKED_EGRESS");
+      expect((await st(id)).block_reason).toMatch(/vars not permitted for template pickup.eta/);
+      expect((await st(id)).block_reason).not.toMatch(/Rivera/); // the rejected value is never echoed
+      expect(p.sent.length).toBe(0);
+    });
     it("childFirstName is listed only on child templates, and refused on any other template", () => {
       for (const [template, rules] of Object.entries(TEMPLATE_VARS)) {
         if (Object.hasOwn(rules, "childFirstName")) expect(CHILD_TEMPLATES.has(template)).toBe(true);
