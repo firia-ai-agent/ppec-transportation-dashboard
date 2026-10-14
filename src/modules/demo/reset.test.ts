@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db/exec";
 import { freshDb, ORG, SITE } from "@/test/pglite";
 import { BOARD_CENSUS } from "./fixtures/standard";
-import { demoControlsGate, handleDemoReset } from "./reset";
+import { PREVIEW_REFUSAL, demoControlsGate, handleDemoReset } from "./reset";
 
 const SITE_B = "00000000-0000-7000-8000-0000000000b1";
 const USERS = {
@@ -43,6 +43,29 @@ describe("POST /api/demo/reset gating (ADR-014, ADR-015)", () => {
     expect(r.status).toBe(404);
     expect(await childCount()).toBe(0);
   });
+
+  it("refuses on a preview deployment, even for a DIRECTOR, before touching the DB", async () => {
+    // A preview is served production's DATABASE_URL (DECISION-LEDGER #43): a reset there would wipe
+    // the real demo data, so this gate is checked ahead of the flags and the role.
+    expect(demoControlsGate({ ...env, VERCEL_ENV: "preview" })).toEqual({ allowed: false, status: 403, reason: PREVIEW_REFUSAL });
+    expect(demoControlsGate({ VERCEL_ENV: "preview" }).status).toBe(403);
+    for (const siteId of [SITE, SITE_B, undefined]) {
+      const r = await handleDemoReset(db, { ...env, VERCEL_ENV: "preview" }, { userId: USERS.DIRECTOR, siteId, now: NOW });
+      expect({ siteId, status: r.status, body: r.body }).toEqual({ siteId, status: 403, body: { ok: false, error: PREVIEW_REFUSAL } });
+    }
+    expect(await childCount()).toBe(0);
+  });
+
+  it("runs as before on production and off Vercel entirely", async () => {
+    for (const vercelEnv of ["production", "development", undefined]) {
+      expect({ vercelEnv, allowed: demoControlsGate({ ...env, VERCEL_ENV: vercelEnv }).allowed }).toEqual({ vercelEnv, allowed: true });
+    }
+    for (const vercelEnv of ["production", undefined]) { // the seed is idempotent, so twice is safe
+      const r = await handleDemoReset(db, { ...env, VERCEL_ENV: vercelEnv }, { userId: USERS.DIRECTOR, siteId: SITE, now: NOW });
+      expect({ vercelEnv, status: r.status }).toEqual({ vercelEnv, status: 200 });
+    }
+    expect(await childCount()).toBe(BOARD_CENSUS);
+  }, 120_000);
 
   it("refuses unless the data class is SYNTHETIC", async () => {
     expect(demoControlsGate({ DEMO_MODE: "1", APP_DATA_CLASS: "REAL" }).status).toBe(403);

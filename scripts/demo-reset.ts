@@ -1,9 +1,12 @@
 // Usage: APP_DATA_CLASS=SYNTHETIC pnpm demo:reset --confirm [--site <uuid>]
 // Truncates the demo/ops data and reloads the §18.1 standard scenario. Destructive, so --confirm is
 // required and the data class must be SYNTHETIC (ADR-015). Reads DATABASE_URL_UNPOOLED (or
-// DATABASE_URL); never prints the URL or any secret. Never run from a build step.
+// DATABASE_URL); never prints the URL or any secret. Operator shells only: it refuses outright if
+// VERCEL_ENV is set to anything, so it can never run from a build, function or deploy hook
+// (demoResetCliGate; DECISION-LEDGER #43 — one shared DB).
 import pg from "pg";
 import { runAfterCommit, type Db } from "../src/db/exec";
+import { demoResetCliGate } from "../src/modules/demo/reset";
 import { seedStandardScenario } from "../src/modules/demo/seed";
 
 /** One dedicated connection, so the seed's single transaction is a real transaction. */
@@ -32,8 +35,8 @@ async function withClientDb<T>(url: string, fn: (db: Db) => Promise<T>): Promise
 
 async function main() {
   const argv = process.argv.slice(2);
-  if (!argv.includes("--confirm")) throw new Error("refusing: this truncates the demo data; pass --confirm");
-  if (process.env.APP_DATA_CLASS !== "SYNTHETIC") throw new Error("refusing: APP_DATA_CLASS must be SYNTHETIC");
+  const gate = demoResetCliGate(process.env, argv);
+  if (!gate.allowed) throw new Error(gate.reason);
   const siteArg = argv.indexOf("--site");
   const siteId = siteArg >= 0 ? argv[siteArg + 1] : undefined;
   const url = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
