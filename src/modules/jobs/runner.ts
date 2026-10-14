@@ -4,16 +4,23 @@
  */
 import { uuidv7 } from "uuidv7";
 import type { Db, Exec } from "@/db/exec";
-import { arm, LEASE_SECONDS, MAX_ATTEMPTS, MAX_DELAY_SECONDS, REWAKE_DELAY_SECONDS, type Clock, type JobRow, type WakeTransport, systemClock } from "./scheduler";
+import { arm, LEASE_RENEW_EVERY_MS, LEASE_SECONDS, MAX_ATTEMPTS, MAX_DELAY_SECONDS, REWAKE_DELAY_SECONDS, rewakeDelaySeconds, type Clock, type JobRow, type WakeTransport, systemClock } from "./scheduler";
 
 export type Handler = (tx: Exec, job: JobRow) => Promise<void>;
 export type Handlers = Record<string, Handler>;
 export type FirePath = "QUEUE" | "SWEEPER" | "LOCAL";
-export type WakeResult = "fired" | "noop" | "inactive-deployment" | "failed" | "dead";
-export type FireOpts = { transport?: WakeTransport };
-
-/** Test-only: a handler throws this to model the process dying after the claim (nothing after the claim runs). */
-export class SimulatedCrash extends Error {}
+export type WakeResult = "fired" | "noop" | "rewake-deferred" | "inactive-deployment" | "failed" | "dead";
+export type FireOpts = {
+  transport?: WakeTransport;
+  /**
+   * Errors for which this consumer is considered gone: they propagate instead of being recorded as a handler
+   * failure, so the claim is left to its lease (the re-wake reclaims it). The harness uses it to model a
+   * process killed after the claim; production passes nothing, so every handler error is a handler failure.
+   */
+  isFatal?: (err: unknown) => boolean;
+  /** Lease renewal period; defaults to LEASE_RENEW_EVERY_MS. */
+  renewEveryMs?: number;
+};
 
 /** Deployment pinning: a consumer on a non-active deployment acks without claiming. */
 export async function isActiveDeployment(db: Exec, deploymentId: string) {
@@ -28,6 +35,39 @@ async function claim(db: Exec, jobId: string, token: string, now: Date) {
      WHERE id = $1 AND state = 'SCHEDULED' AND due_at <= $3::timestamptz + interval '1 second'
      RETURNING id, key, kind, payload, due_at, state, attempts, site_id`, [jobId, token, now.toISOString()]);
   return r.rows[0];
+}
+
+/**
+ * Push `claimed_until` out by another lease, fenced by the claim token. False ⇒ this claim is gone (reclaimed,
+ * or the job was finished elsewhere) and this consumer must not commit.
+ */
+export async function renewLease(db: Exec, jobId: string, token: string, now: Date) {
+  const r = await db.query(
+    `UPDATE ops.job SET claimed_until = $3::timestamptz + make_interval(secs => ${LEASE_SECONDS})
+     WHERE id = $1 AND state = 'CLAIMED' AND claimed_by = $2 RETURNING id`, [jobId, token, now.toISOString()]);
+  return r.rows.length === 1;
+}
+
+export type LeaseRenewal = { stop: () => void; lost: () => boolean };
+
+/**
+ * Heartbeat for a handler that outlives the lease (Neon latency counts against it): renew every `everyMs`
+ * until the handler finishes. Publishes nothing — the re-wake armed at claim time keeps itself alive through
+ * handleWake's deferred re-publish. Must run on `db` (its own pooled connection), never on the handler's tx,
+ * or the renewal would not be visible to a reclaiming consumer before the handler commits.
+ */
+export function startLeaseRenewal(db: Exec, jobId: string, token: string, clock: Clock, everyMs: number): LeaseRenewal {
+  let lost = false, stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const schedule = () => { timer = setTimeout(() => void tick(), everyMs); };
+  const tick = async () => {
+    if (stopped) return;
+    try { lost = !(await renewLease(db, jobId, token, clock())); }
+    catch { /* a lost renewal is retried next tick; if the lease lapses, the re-wake reclaims the job */ }
+    if (!stopped && !lost) schedule();
+  };
+  schedule();
+  return { stop: () => { stopped = true; if (timer) clearTimeout(timer); }, lost: () => lost };
 }
 
 /** An expired lease (dead consumer) goes back to SCHEDULED with attempts+1, or DEAD + RED task after MAX_ATTEMPTS. */
@@ -83,11 +123,16 @@ export async function fire(db: Db, jobId: string, deploymentId: string, handlers
         { delaySeconds: REWAKE_DELAY_SECONDS, idempotencyKey: `rewake:${token}` });
     } catch { /* the sweeper still reclaims expired leases */ }
   }
+  // Keep the lease alive while the handler runs; renewal is fenced by the same token.
+  const lease = startLeaseRenewal(db, job.id, token, clock, opts.renewEveryMs ?? LEASE_RENEW_EVERY_MS);
   try {
     await db.tx(async (tx) => {
       const h = handlers[job.kind];
       if (!h) throw new Error(`no handler for kind ${job.kind}`);
       await h(tx, job);
+      // A renewal that matched 0 rows means another consumer owns the job now: give up before the DONE update
+      // (which is fenced the same way) so the handler's writes roll back.
+      if (lease.lost()) throw new Error("lease lost (claim taken over during the handler)");
       const done = await tx.query(
         `UPDATE ops.job SET state = 'DONE', fired_at = now(), claimed_until = NULL, version = version + 1, updated_at = now(), updated_by = $2
          WHERE id = $1 AND state = 'CLAIMED' AND claimed_by = $3 RETURNING id`, [job.id, by, token]);
@@ -98,18 +143,46 @@ export async function fire(db: Db, jobId: string, deploymentId: string, handlers
     });
     return "fired";
   } catch (e) {
-    if (e instanceof SimulatedCrash) throw e;
+    if (opts.isFatal?.(e)) throw e;
     return markFailed(db, job, e, by, token);
+  } finally {
+    lease.stop();
   }
+}
+
+type ClaimedRow = JobRow & { claimed_until: Date | string | null; claimed_by: string | null };
+
+/**
+ * Re-publish a wake for the rest of a live lease plus a margin. Keyed by the claim token and this arrival's
+ * instant: two wakes that arrive in the same millisecond for the same claim dedupe (they are the same
+ * re-wake), while a later arrival always gets through Queues' idempotency window. A handler that keeps
+ * renewing its lease therefore keeps one re-wake circling at about one message per lease — that is the
+ * message that recovers the job if the handler's process dies.
+ */
+async function deferRewake(row: ClaimedRow, remainingMs: number, now: Date, opts: FireOpts) {
+  if (!opts.transport) return false;
+  try {
+    await opts.transport.publish({ jobId: row.id, dueAt: new Date(row.due_at).toISOString() },
+      { delaySeconds: rewakeDelaySeconds(remainingMs), idempotencyKey: `rewake:${row.claimed_by}:${now.toISOString()}` });
+    return true;
+  } catch { return false; } // the sweeper still reclaims expired leases
 }
 
 /** Queue consumer entry point (/api/queues/timer). */
 export async function handleWake(db: Db, msg: { jobId: string }, deploymentId: string, handlers: Handlers, clock: Clock = systemClock, opts: FireOpts = {}): Promise<WakeResult> {
   if (!(await isActiveDeployment(db, deploymentId))) return "inactive-deployment";
   // A re-wake (or redelivery) for a job whose lease expired reclaims it first, then fires through the same claim.
-  const j = await db.query<JobRow>(`SELECT id, key, kind, payload, due_at, state, attempts, site_id FROM ops.job WHERE id = $1 AND state = 'CLAIMED'`, [msg.jobId]);
-  if (j.rows[0]) {
-    const r = await reclaimIfExpired(db, j.rows[0], clock(), "system:job:rewake");
+  const j = await db.query<ClaimedRow>(
+    `SELECT id, key, kind, payload, due_at, state, attempts, site_id, claimed_until, claimed_by FROM ops.job WHERE id = $1 AND state = 'CLAIMED'`, [msg.jobId]);
+  const row = j.rows[0];
+  if (row) {
+    const now = clock();
+    const remainingMs = (row.claimed_until ? new Date(row.claimed_until).getTime() : 0) - now.getTime();
+    // Lease still live: either this wake arrived early (queue jitter, or skew between the claiming and the
+    // waking instance) or the handler renewed the lease. A reclaim needs `claimed_until <= now`, so returning
+    // noop here would leave recovery to the 1-minute sweep (Veri #10, blocker 1). Re-publish instead.
+    if (remainingMs > 0) return (await deferRewake(row, remainingMs, now, opts)) ? "rewake-deferred" : "noop";
+    const r = await reclaimIfExpired(db, row, now, "system:job:rewake");
     if (r === "dead") return "dead";
   }
   return fire(db, msg.jobId, deploymentId, handlers, "QUEUE", clock, opts);
