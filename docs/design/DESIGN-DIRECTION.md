@@ -2,7 +2,7 @@
 
 ```
 READER: Rudy (build), Veri (verify), founder (decisions D-1 to D-9, §11). DECISION IT SERVES: what the UI looks and behaves like before any UI code is written.
-STATUS: Decided (D-1 to D-9 in §11, by founder 2026-10-14 11:39 ET). Everything else in this doc, including the source-mode badge (§7.1, D-10), remains Proposed by Vera.
+STATUS: Decided: D-1 to D-9 (founder, 2026-10-14 11:39 ET) and D-10 (founder, 2026-10-14 13:15 ET), see §11. No decision is still open. The rest of this doc (layouts, references, checklist) is Vera's design direction, not a founder decision.
 SOURCE: PRD v1.0 §14 (SURF-01..07), NFR-07 (WCAG 2.1 AA), NFR-09 (DEMO/LIVE banner), MOCKS-AND-DEMO.md, schema-draft.ts enums, ADR-008/014/015.
 COMPANION: COPY-GUIDE.md (words), contrast.py (token ratios; run it, don't trust this table).
 ```
@@ -35,7 +35,7 @@ Success = a coordinator spots the one child at risk in under 5 s without reading
 - **Header (persistent, every surface):** DEMO banner (§7) → site, date, scenario clock, per-adapter freshness pills (SMS, Teams, GPS, Agent: icon + label + age), global search (child first name/initial, route, vehicle). One identity location: avatar menu top-right only.
 - **Nav (PRD §14):** Today (board + drawer + inbox) · Exceptions & Approvals (count badge) · Setup · Health & ROI. Ramp iPad is its own full-screen route. ≥1280: left rail 232 px; 768-1279: icon rail with labels on hover/focus; <768: hamburger drawer holding nav + identity + Sign out.
 - **SSE down >15 s:** amber bar under the header, icon `wifi-off` + "Live updates paused. Reconnecting… Board may be up to 40 s old." Never hide data; dim the "updated" timestamps.
-- **Source-mode badge** on every row, record and outbound message (NFR-09): spec in §7.1 (PROPOSED, D-10).
+- **Source-mode badge** on every row, record and outbound message (NFR-09): spec in §7.1 (D-10, decided by founder).
 - Icons: Lucide (single set, 1.75 stroke). No emoji anywhere, including freshness (the PRD's 🟢🟡🔴 become icon + label chips, §3).
 - Type: **Atkinson Hyperlegible Next** for UI and numerals (designed for low-vision legibility; fits the center's mission), tabular figures for times/ETAs; **JetBrains Mono** only for ids. Scale 12/14/16/20/24/32; body 14 console, 18 ramp iPad. Min 12 px only for chips with icon.
 
@@ -144,8 +144,8 @@ Teams-like (not Teams-branded) side panel with adaptive-card-style approval card
 ## 7. DEMO banner (NFR-09)
 - 32 px full-width bar above everything, `demo-bg #6D28D9` / white text (7.10:1), icon `flask-conical`, text exactly "DEMO · Synthetic data, no real children" (D-1; COPY-GUIDE §6). Not dismissible. Violet is reserved for demo only, so it never reads as a status colour. Printed/exported files and every outbound simulated message carry the same marker. In LIVE (future) the bar becomes a slim neutral "LIVE" chip; the demo violet must never appear in LIVE.
 
-### 7.1 Source-mode badge (PROPOSED, not decided; needs founder Accept, D-10)
-NFR-09 (PRD l.537–538) requires a source-mode badge on every screen, record and outbound message but leaves its form open. Proposed form: an **outlined** chip (1 px `border-strong`, white fill, 12 px text + 14 px icon, height 20 px; 24 px on ramp iPad) so it never reads as a filled state chip. Screen reader: "Source: Simulated".
+### 7.1 Source-mode badge (D-10, Decided by founder, 2026-10-14 13:15 ET)
+NFR-09 (PRD l.537–538) requires a source-mode badge on every screen, record and outbound message but leaves its form open. Decided form: an **outlined** chip (1 px `border-strong`, white fill, 12 px text + 14 px icon, height 20 px; 24 px on ramp iPad) so it never reads as a filled state chip. Screen reader: "Source: Simulated".
 | source_mode | Icon (Lucide) | Label | Text token | Contrast (contrast.py) |
 |---|---|---|---|---|
 | SIMULATED | `flask-conical` | Simulated | src-sim `#6D28D9` on surface | 7.10:1 |
@@ -214,7 +214,7 @@ Walk each persona at **1280×800, 1024×768 iPad landscape, 820×1180 iPad portr
 - [ ] Screenshots attached for every persona × width, opened by the walker; NOT WALKED list written.
 
 ## 11. Decisions (product calls)
-All nine recommendations accepted by the founder as written in PR #2. Recorded in docs/DECISION-LEDGER.md rows 29–37. Source: Founder widget answer "Accept all 9 of Vera's recommendations", Firia chat, 2026-10-14 11:39 ET.
+All nine recommendations accepted by the founder as written in PR #2. Recorded in docs/DECISION-LEDGER.md rows 29–37; D-10 in row 39 (source: Founder widget answer "Approve as proposed", Vera chat, 2026-10-14 13:15 ET). Source: Founder widget answer "Accept all 9 of Vera's recommendations", Firia chat, 2026-10-14 11:39 ET.
 | # | Question | Options | Decision | Owner | Status |
 |---|---|---|---|---|---|
 | D-1 | Banner text: PRD step 1 says "SYNTHETIC DATA", NFR-09 says "DEMO/LIVE" | (A) "DEMO · Synthetic data, no real children" (B) "SYNTHETIC DATA" only | A (meets both) | founder | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia) |
@@ -226,8 +226,4 @@ All nine recommendations accepted by the founder as written in PR #2. Recorded i
 | D-7 | Ramp iPad orientation priority (iPad model unknown, CA-08) | landscape-first / portrait-first | landscape-first | founder; acceptance resolves CA-08 for the POC (landscape-first holds until the center answers CA-08) | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia) |
 | D-8 | "Person-first" default vs any center preference (CA-15 languages, identity-first requests) | person-first default / ask center | person-first, ask center | founder | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia) |
 | D-9 | Spanish/Haitian Creole copy for outbound family SMS in POC | English only / add languages | English only in POC, design for 40% expansion | founder | Decided by founder, 2026-10-14 11:39 ET (relayed by Firia) |
-
-### Proposed, needs founder Accept (not decided)
-| # | Question | Options | Vera recommends | Owner | Status |
-|---|---|---|---|---|---|
-| D-10 | Form of the NFR-09 source-mode badge (PRD mandates it, leaves form open) | (A) outlined icon + label chip as in §7.1 (B) text-only suffix | A | founder | PROPOSED |
+| D-10 | Form of the NFR-09 source-mode badge (PRD mandates it, leaves form open) | (A) outlined icon + label chip as in §7.1 (B) text-only suffix | A | founder | Decided by founder, 2026-10-14 13:15 ET |

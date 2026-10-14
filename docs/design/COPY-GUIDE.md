@@ -2,7 +2,7 @@
 
 ```
 READER: Rudy (strings), Veri (copy check), founder (decisions D-1, D-3, D-8, D-9 in DESIGN-DIRECTION.md §11, decided 2026-10-14 11:39 ET).
-STATUS: Decided (D-1, D-3, D-8, D-9 wording, by founder 2026-10-14 11:39 ET). Everything else remains Proposed by Vera; source-mode badge labels (§6.1) are PROPOSED (D-10).
+STATUS: Decided: D-1, D-3, D-8, D-9 (founder, 2026-10-14 11:39 ET) and D-10 source-mode badge labels (founder, 2026-10-14 13:15 ET). No decision is still open. The rest is Vera's copy direction, not a founder decision.
 ```
 
 ## 1. Voice
@@ -109,7 +109,7 @@ State labels are fixed in DESIGN-DIRECTION.md §3 and must be used verbatim.
 - Screen reader: role="status" once on load: "Demo environment. All data is synthetic."
 - Message suffix: "[DEMO]". Export header: "DEMO · Synthetic data, no real children".
 
-### 6.1 Source-mode badge labels (PROPOSED, D-10)
+### 6.1 Source-mode badge labels (D-10, Decided by founder, 2026-10-14 13:15 ET)
 Simulated · Replay · Manual entry · Sandbox · Live. Screen reader: "Source: {label}". Shown on every screen, record and outbound message (NFR-09); spec in DESIGN-DIRECTION §7.1.
 
 ## 7. What demo copy may contain (ADR-015)

@@ -41,6 +41,7 @@ Source of truth for founder decisions. Times are ET (America/New_York). Labels: 
 | 35 | 2026-10-14 11:39 | Ramp iPad: landscape-first (D-7); founder acceptance resolves CA-08 for the POC until the center answers | Decided by founder | Founder widget answer "Accept all 9 of Vera's recommendations", Firia chat, 2026-10-14 11:39 ET |
 | 36 | 2026-10-14 11:39 | Language: person-first by default; ask the center about preferences (D-8) | Decided by founder | Founder widget answer "Accept all 9 of Vera's recommendations", Firia chat, 2026-10-14 11:39 ET |
 | 37 | 2026-10-14 11:39 | Outbound family SMS English only in POC; layouts allow 40% text expansion (D-9) | Decided by founder | Founder widget answer "Accept all 9 of Vera's recommendations", Firia chat, 2026-10-14 11:39 ET |
+| 39 | 2026-10-14 13:15 | NFR-09 source-mode badge: outlined icon + label chip (Simulated / Replay / Manual entry / Sandbox / Live) on every screen, record and outbound message, per DESIGN-DIRECTION §7.1 (D-10). Row 38 reserved for Rudy | Decided by founder | Founder widget answer "Approve as proposed", Vera chat, 2026-10-14 13:15 ET |
 
 All other decisions in docs/adr are Proposed unless labeled otherwise.
 
