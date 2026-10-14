@@ -34,9 +34,9 @@ Success = a coordinator spots the one child at risk in under 5 s without reading
 ## 2. Global shell
 - **Header (persistent, every surface):** DEMO banner (§7) → site, date, scenario clock, per-adapter freshness pills (SMS, Teams, GPS, Agent: icon + label + age). **Interim, approved by Vera (design lead) 2026-10-14 13:25 ET as an interim build default; not a founder decision: until B-12 wires real ages, each pill reads "<adapter> · Simulated" with `flask-conical` in src-sim tone (7.10:1), matching the D-10 source badge. It must switch to real ages when B-12 lands (§10).**, global search (child first name/initial, route, vehicle). One identity location: avatar menu top-right only.
 - **Nav (PRD §14):** Today (board + drawer + inbox) · Exceptions & Approvals (count badge) · Setup · Health & ROI. Ramp iPad is its own full-screen route. ≥1280: left rail 232 px; 768-1279: 64 px icon rail; each item has a tooltip and an aria-label with its name, and the rail expands to show labels on hover or keyboard focus; <768: hamburger drawer holding nav + identity + Sign out.
-- **Nav icons:** Claude Code picks them when building, with two rules: no nav icon may reuse any §3 state icon, and `flask-conical` is reserved for the Simulated source badge.
+- **Nav icons:** Claude Code picks them when building, with two rules: no nav icon may reuse any §3 state icon, and `flask-conical` is reserved for the Simulated source badge. The chosen icons come back to Vera for a design check before merge.
 - **SSE down >15 s:** amber bar under the header, icon `wifi-off` + "Live updates paused. Reconnecting… Board may be up to 40 s old." Never hide data; dim the "updated" timestamps.
-- **Source-mode badge** on every row, record and outbound message (NFR-09): spec in §7.1 (D-10, decided by founder). The screen-level Simulated badge sits in the app header only, never on the sign-in page.
+- **Source-mode badge** on every row, record and outbound message (NFR-09): spec in §7.1 (D-10, decided by founder). The screen-level Simulated badge appears on every screen, including sign-in: in the app header once signed in, and on the sign-in page directly under the DEMO banner, next to the card title (NFR-09, PRD l.537–538).
 - Icons: Lucide (single set, 1.75 stroke). No emoji anywhere, including freshness (the PRD's 🟢🟡🔴 become icon + label chips, §3).
 - Type: **Atkinson Hyperlegible Next** for UI and numerals (designed for low-vision legibility; fits the center's mission), tabular figures for times/ETAs; **JetBrains Mono** only for ids. Scale 12/14/16/20/24/32; body 14 console, 18 ramp iPad. Min 12 px only for chips with icon.
 
@@ -176,7 +176,7 @@ NFR-09 (PRD l.537–538) requires a source-mode badge on every screen, record an
 | MANUAL | `hand` | Manual entry | ink-muted | 7.58:1 |
 | SANDBOX | `box` | Sandbox | ink-muted | 7.58:1 |
 | LIVE | `radio-tower` | Live | ink `#0F172A` on surface | 17.85:1 (never violet) |
-Placement: screen = header next to the DEMO banner; record = board row end, drawer header, exception row, inbox message card, history entries; outbound message = under each bubble in inbox and persona phones, plus the "[DEMO]" text suffix (COPY-GUIDE §5) in the message body.
+Placement: screen = header next to the DEMO banner (sign-in: next to the card title, under the banner); record = board row end, drawer header, exception row, inbox message card, history entries; outbound message = under each bubble in inbox and persona phones, plus the "[DEMO]" text suffix (COPY-GUIDE §5) in the message body.
 
 ## 8. Tokens and computed contrast
 Computed by `python3 docs/design/contrast.py` (WCAG 2.1 relative luminance; exits non-zero on any FAIL). Text needs 4.5:1, UI parts/focus 3:1.

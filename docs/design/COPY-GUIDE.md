@@ -42,7 +42,8 @@ State labels are fixed in DESIGN-DIRECTION.md §3 and must be used verbatim.
 
 ## 5. Microcopy per surface
 ### Sign-in
-- Intro: "Demo accounts only. No real families or children are in here." No Simulated badge on this page (header only).
+- Intro: "Demo accounts only."
+- The Simulated source badge shows here too, next to the card title (NFR-09: every screen).
 
 ### Unbuilt pages
 - Heading: "{Page} isn't built yet" plus one sentence on what it will do, e.g. "Exceptions isn't built yet" / "This page will list anything that needs a decision, with who owns it and when it's due." No ticket codes.
