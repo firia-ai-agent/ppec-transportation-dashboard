@@ -10,7 +10,7 @@ import { uuidv7 } from "uuidv7";
 import type { Db, Exec } from "@/db/exec";
 import { canTransition, OUTBOUND } from "@/domain/machines";
 import { IllegalTransition, StaleOrConflict } from "@/domain/transition";
-import { activeSuppression, type RecipientAuthorizer } from "./policy";
+import { activeSuppression, childAuthorized, type RecipientAuthorizer } from "./policy";
 import { ProviderTimeout, type MessagingProvider } from "./provider";
 
 export const OUTBOX_TOPIC = "ppec-outbox";
@@ -86,12 +86,12 @@ export async function drain(db: Db, messageId: string, deps: DrainDeps, by = "sy
   const now = (deps.clock ?? (() => new Date()))();
   // Recipient authorization goes through the IdentityGateway (a separate connection in deployed envs), so it runs
   // before the ops tx. The result is applied only if the row is unchanged when the claim runs.
-  const pre = await db.query<{ site_id: string; recipient_token: string | null; purpose: string; version: number }>(
-    "SELECT site_id, recipient_token, purpose, version FROM ops.outbound_message WHERE id = $1 AND state = 'QUEUED'", [messageId]);
+  const pre = await db.query<{ site_id: string; recipient_token: string | null; purpose: string; channel: string; version: number }>(
+    "SELECT site_id, recipient_token, purpose, channel, version FROM ops.outbound_message WHERE id = $1 AND state = 'QUEUED'", [messageId]);
   if (!pre.rows[0]) return "noop";
   const p0 = pre.rows[0];
   const auth = p0.recipient_token
-    ? await deps.authorizer.authorize({ siteId: p0.site_id, recipientToken: p0.recipient_token, purpose: p0.purpose, at: now })
+    ? await deps.authorizer.authorize({ siteId: p0.site_id, recipientToken: p0.recipient_token, purpose: p0.purpose, channel: p0.channel, at: now })
     : ({ ok: false, reason: "no recipient token" } as const);
   const claimed = await db.tx(async (tx) => {
     const r = await tx.query<Row>(`SELECT ${COLS} FROM ops.outbound_message WHERE id = $1 AND state = 'QUEUED'
@@ -111,6 +111,12 @@ export async function drain(db: Db, messageId: string, deps: DrainDeps, by = "sy
     if (!row.recipient_token) { await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: "no recipient token" }); return "BLOCKED_EGRESS" as const; }
     const sup = await activeSuppression(tx, { siteId: row.site_id, recipientToken: row.recipient_token, purpose: row.purpose });
     if (sup) { await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: `suppressed (${sup})` }); return "BLOCKED_EGRESS" as const; }
+    if (row.trip_leg_id) {
+      // Guardianship can change after queueing: re-check this contact's authorization for the leg's child.
+      const leg = await tx.query<{ child_token: string }>("SELECT child_token FROM ops.trip_leg WHERE id = $1", [row.trip_leg_id]);
+      const ok = leg.rows[0] && await childAuthorized(tx, { siteId: row.site_id, recipientToken: row.recipient_token, childToken: leg.rows[0].child_token, channel: row.channel, purpose: row.purpose, at: now });
+      if (!ok) { await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: "contact not authorized for this child (scope/channel/validity) at send time" }); return "BLOCKED_EGRESS" as const; }
+    }
     if (!auth.ok) { await move(tx, row, "BLOCKED_EGRESS", by, { block_reason: auth.reason }); return "BLOCKED_EGRESS" as const; }
 
     const sending = await move(tx, row, "SENDING", by, { attempts: 1 });

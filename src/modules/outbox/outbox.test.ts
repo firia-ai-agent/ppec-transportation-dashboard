@@ -24,6 +24,8 @@ beforeEach(async () => {
     VALUES ($1,$2,$3,'SYN Guardian','h','e','parent',true,'t','t')`, [CONTACT, SITE, FAM]);
   await db.query(`INSERT INTO ops.child_profile (child_token,site_id,family_group_id,display_name,created_by,updated_by) VALUES ($1,$2,$3,'Sam S.','t','t')`, [CHILD, SITE, FAM]);
   await db.query(`INSERT INTO ops.trip_leg (id,site_id,child_token,service_date,direction,mode,created_by,updated_by) VALUES ($1,$2,$3,current_date,'AM','CENTER','t','t')`, [LEG, SITE, CHILD]);
+  await db.query(`INSERT INTO ops.contact_authorization (id,site_id,contact_token,child_token,scope,channel,valid_from,created_by,updated_by)
+    VALUES ($1,$2,$3,$4,'RECEIVE_TRANSPORT_UPDATES','SMS_1TO1',now() - interval '1 day','t','t')`, [uuidv7(), SITE, CONTACT, CHILD]);
   now = new Date(Date.now() + 1000); // after the contact's valid_from
 }, 60_000);
 
@@ -95,5 +97,38 @@ describe("outbox (ADR-003)", () => {
     expect(rep).toMatchObject({ drained: 1, stuckToUnknown: 1 });
     expect((await st(id)).state).toBe("SENT"); expect((await st(stuck.id)).state).toBe("UNKNOWN");
     expect(p.sent.map((m) => m.messageId)).toEqual([id]);
+  });
+
+  describe("send-time authorization and consent (Veri #8 b)", () => {
+    const consent = (kind: string, atMs: number) => db.query(
+      `INSERT INTO identity.consent_event (id,site_id,contact_token,kind,channel,at,source_mode) VALUES ($1,$2,$3,$4,'SMS_1TO1',$5,'SIMULATED')`,
+      [uuidv7(), SITE, CONTACT, kind, new Date(atMs).toISOString()]);
+    it("happy path: authorized contact with OPT_IN consent is sent", async () => {
+      await consent("OPT_IN", now.getTime() - 60_000);
+      const { id } = await put();
+      expect(await drain(db, id, deps)).toBe("SENT"); expect(p.sent.length).toBe(1);
+    });
+    it("consent revoked (STOP) after enqueue → BLOCKED_EGRESS, not sent; a later START re-allows", async () => {
+      await consent("OPT_IN", now.getTime() - 60_000);
+      const { id } = await put();
+      await consent("STOP", now.getTime() - 1000);
+      expect(await drain(db, id, deps)).toBe("BLOCKED_EGRESS");
+      expect((await st(id)).block_reason).toMatch(/consent withdrawn \(STOP\)/);
+      expect(p.sent.length).toBe(0);
+      await consent("START", now.getTime() - 500);
+      const again = await put();
+      expect(await drain(db, again.id, deps)).toBe("SENT");
+    });
+    it("guardianship removed after enqueue (authorization window closed) → BLOCKED_EGRESS, not sent", async () => {
+      const { id } = await put();
+      await db.query("UPDATE ops.contact_authorization SET valid_to = now() - interval '1 second' WHERE contact_token = $1", [CONTACT]);
+      expect(await drain(db, id, deps)).toBe("BLOCKED_EGRESS");
+      expect((await st(id)).block_reason).toMatch(/not authorized for this child/);
+      expect(p.sent.length).toBe(0);
+    });
+    it("authorization for a different channel does not count", async () => {
+      const { id } = await put({ channel: "TEAMS" });
+      expect(await drain(db, id, deps)).toBe("BLOCKED_EGRESS");
+    });
   });
 });
