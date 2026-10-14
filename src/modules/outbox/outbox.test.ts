@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { uuidv7 } from "uuidv7";
 import type { Db } from "@/db/exec";
 import { freshDb, SITE } from "@/test/pglite";
-import { ChildReferenceRequired, drain, enqueue, resolveUnknownByStaff, sweepOutbox, STUCK_SENDING_SECONDS, type DrainDeps, type EnqueueInput } from "./outbox";
+import { ChildReferenceRequired, TemplateVarNotAllowed, drain, enqueue, resolveUnknownByStaff, sweepOutbox, STUCK_SENDING_SECONDS, type DrainDeps, type EnqueueInput } from "./outbox";
 import { dbRecipientAuthorizer } from "./policy";
 import { SimMessagingProvider } from "./provider";
 import { FakeOutboxTransport } from "./transport";
@@ -160,7 +160,6 @@ describe("outbox (ADR-003)", () => {
     });
     it("enqueue rejects child data, a therapySessionId or a trip leg without a child reference", async () => {
       for (const o of [
-        { tripLegId: null, childToken: null, templateId: "generic.notice", vars: { childFirstName: "Sam" } },
         { tripLegId: null, childToken: null, templateId: "generic.notice", vars: {}, therapySessionId: SESS },
         { childToken: null },
         { tripLegId: null, childToken: null, templateId: "therapist.absence_alert", vars: {} },
@@ -195,7 +194,28 @@ describe("outbox (ADR-003)", () => {
       const { id } = await put({ tripLegId: null, childToken: null, templateId: "center.closure", vars: {} });
       await db.query(`UPDATE ops.outbound_message SET vars = '{"childFirstName":"Sam"}'::jsonb WHERE id = $1`, [id]);
       expect(await drain(db, id, deps)).toBe("BLOCKED_EGRESS");
-      expect((await st(id)).block_reason).toMatch(/without a child reference/);
+      expect((await st(id)).block_reason).toMatch(/vars not permitted for template center.closure/);
+    });
+    it("per-template allowlist: unknown template or any var off the template's list is rejected at enqueue", async () => {
+      for (const o of [
+        { tripLegId: null, childToken: null, templateId: "generic.notice", vars: { childFirstName: "Sam" } },
+        { tripLegId: null, childToken: null, templateId: "center.closure", vars: { kidName: "Sam" } },
+        { vars: { eta: "SYN", notes: "x" } },
+        { tripLegId: null, childToken: null, templateId: "no.such.template", vars: {} },
+      ] as Partial<EnqueueInput>[]) await expect(put(o)).rejects.toBeInstanceOf(TemplateVarNotAllowed);
+      expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.outbound_message", [])).rows[0].n).toBe(0);
+    });
+    it("therapist path follows the recipient's actual type, not the recipient_rule string", async () => {
+      // rule says guardian, token is a therapist → therapist check (owns the session) → sends
+      const a = await db.tx((tx, ac) => enqueue(tx, ac, t, therapistAlert({ recipientRule: "guardian" })));
+      expect(await drain(db, a.id, deps)).toBe("SENT");
+      // rule says therapist, token is a guardian contact → guardian per-child check, not the therapist check
+      const b = await put({ recipientRule: "therapist-on-duty", idempotencyKey: uuidv7() });
+      expect(await drain(db, b.id, deps)).toBe("SENT");
+      // and a therapist token on a rule that looks like a guardian cannot borrow guardian authorization once the session moves
+      await db.query("UPDATE ops.therapy_session SET status = 'CANCELED' WHERE id = $1", [SESS]);
+      const c = await db.tx((tx, ac) => enqueue(tx, ac, t, therapistAlert({ recipientRule: "guardian", idempotencyKey: uuidv7() })));
+      expect(await drain(db, c.id, deps)).toBe("BLOCKED_EGRESS");
     });
   });
 });
