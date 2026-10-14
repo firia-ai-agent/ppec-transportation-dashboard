@@ -1,4 +1,5 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { freshDb, SITE } from "@/test/pglite";
 import { PRESERVED_TABLES, RESET_TABLES, SEEDED_TABLES, seedStandardScenario, type SeedResult } from "./seed";
@@ -11,16 +12,19 @@ const env = { APP_DATA_CLASS: "SYNTHETIC", DEMO_MODE: "1", HMAC_PEPPER: "test-pe
 // A Tuesday 13:45 local, so "today" is a weekday and the 06:00 rewind is a real rewind.
 const NOW = new Date("2026-10-13T17:45:00.000Z");
 
-let db: Db;
+let pg: PGlite; let db: Db;
 let r: SeedResult;
 const one = async <T>(sql: string, params: unknown[] = []) =>
   (await db.query<T>(sql, params)).rows[0];
 const rows = async <T>(sql: string, params: unknown[] = []) => (await db.query<T>(sql, params)).rows;
 
 beforeAll(async () => {
-  ({ db } = await freshDb());
+  ({ pg, db } = await freshDb());
   r = await seedStandardScenario(db, { now: NOW, siteId: SITE, env });
 }, 120_000);
+
+// One PGlite for the file: close it, so the instance is not held for the whole run.
+afterAll(async () => { await pg.close(); });
 
 describe("standard scenario seed (PRD §18.1)", () => {
   it("writes the expected number of rows in every table it touches", () => {

@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { uuidv7 } from "uuidv7";
+import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { freshDb, SITE } from "@/test/pglite";
 import { CHILD_TEMPLATES, ChildReferenceRequired, TEMPLATE_VARS, TemplateVarNotAllowed, disallowedVars, drain, enqueue, resolveUnknownByStaff, sweepOutbox, STUCK_SENDING_SECONDS, type DrainDeps, type EnqueueInput } from "./outbox";
@@ -7,7 +8,7 @@ import { dbRecipientAuthorizer } from "./policy";
 import { SimMessagingProvider } from "./provider";
 import { FakeOutboxTransport } from "./transport";
 
-let db: Db; let t: FakeOutboxTransport; let p: SimMessagingProvider; let deps: DrainDeps; let now: Date;
+let pg: PGlite; let db: Db; let t: FakeOutboxTransport; let p: SimMessagingProvider; let deps: DrainDeps; let now: Date;
 const FAM = uuidv7(); const CONTACT = uuidv7(); const CHILD = uuidv7(); const LEG = uuidv7();
 const st = async (id: string) => (await db.query<{ state: string; block_reason: string | null }>("SELECT state, block_reason FROM ops.outbound_message WHERE id=$1", [id])).rows[0];
 const msg = (o: Partial<EnqueueInput> = {}): EnqueueInput => ({
@@ -17,7 +18,7 @@ const msg = (o: Partial<EnqueueInput> = {}): EnqueueInput => ({
 const put = (o: Partial<EnqueueInput> = {}) => db.tx((tx, ac) => enqueue(tx, ac, t, msg(o)));
 
 beforeEach(async () => {
-  ({ db } = await freshDb()); t = new FakeOutboxTransport(); p = new SimMessagingProvider(); now = new Date();
+  ({ pg, db } = await freshDb()); t = new FakeOutboxTransport(); p = new SimMessagingProvider(); now = new Date();
   deps = { provider: p, authorizer: dbRecipientAuthorizer(db), clock: () => now, timeoutMs: 50 };
   await db.query(`INSERT INTO ops.family_group (id,site_id,display_label,created_by,updated_by) VALUES ($1,$2,'F1 (Demo)','t','t')`, [FAM, SITE]);
   await db.query(`INSERT INTO identity.guardian_contact (contact_token,site_id,family_group_id,legal_name,phone_hmac,phone_enc,relationship,can_receive_updates,created_by,updated_by)
@@ -28,6 +29,9 @@ beforeEach(async () => {
     VALUES ($1,$2,$3,$4,'RECEIVE_TRANSPORT_UPDATES','SMS_1TO1',now() - interval '1 day','t','t')`, [uuidv7(), SITE, CONTACT, CHILD]);
   now = new Date(Date.now() + 1000); // after the contact's valid_from
 }, 60_000);
+
+// One PGlite per test adds up: close it, or the worker is killed part-way through the file.
+afterEach(async () => { await pg.close(); });
 
 describe("outbox (ADR-003)", () => {
   it("enqueue writes QUEUED in the caller's tx and publishes only after commit; rollback leaves nothing", async () => {

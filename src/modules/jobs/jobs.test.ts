@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { freshDb, SITE } from "@/test/pglite";
 import { cronAuthorized } from "@/lib/cron-auth";
@@ -6,7 +7,7 @@ import { FakeTransport } from "./fake-transport";
 import { VercelQueueScheduler, MAX_ATTEMPTS } from "./scheduler";
 import { fire, handleWake, sweep, type Handlers } from "./runner";
 
-let db: Db; let t: FakeTransport; let now: Date; let s: VercelQueueScheduler;
+let pg: PGlite; let db: Db; let t: FakeTransport; let now: Date; let s: VercelQueueScheduler;
 const clock = () => now;
 const at = (secs: number) => new Date(now.getTime() + secs * 1000);
 const calls: string[] = [];
@@ -20,8 +21,11 @@ const sched = (key: string, inSecs: number, kind = "noop.test") =>
   db.tx((tx, ac) => s.schedule(tx, ac, { siteId: SITE, key, kind, payload: {}, dueAt: at(inSecs), by: "test" }));
 
 beforeEach(async () => {
-  ({ db } = await freshDb()); t = new FakeTransport(); now = new Date(); s = new VercelQueueScheduler(db, t, clock); calls.length = 0;
+  ({ pg, db } = await freshDb()); t = new FakeTransport(); now = new Date(); s = new VercelQueueScheduler(db, t, clock); calls.length = 0;
 }, 60_000);
+
+// One PGlite per test adds up: close it, or the worker is killed part-way through the file.
+afterEach(async () => { await pg.close(); });
 
 describe("JobScheduler (ADR-001)", () => {
   it("writes the row in the caller's tx and publishes only after commit", async () => {
