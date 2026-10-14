@@ -8,3 +8,5 @@ node_modules/
 !docs/research/*.log
 coverage/
 .DS_Store
+next-env.d.ts
+*.tsbuildinfo
