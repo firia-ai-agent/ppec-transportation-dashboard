@@ -200,7 +200,7 @@ sequenceDiagram
 
 | # | Step | Trigger | Modules touched | Writes (tables) | Outbound (sim) | Proof / AT |
 |---|---|---|---|---|---|---|
-| 1 | Reset/seed; synthetic banner | Demo panel "Reset scenario" | demo, platform | truncate ops (demo tables), reload fixtures, scenario_clock, keep PERMANENT_TEST suppressions; event_log SYSTEM_RESET | none | NFR-09 banner on every screen |
+| 1 | Reset/seed; "DEMO" banner (ledger row 40 overrides PRD l.1332 "synthetic banner") | Demo panel "Reset scenario" | demo, platform | truncate ops (demo tables), reload fixtures, scenario_clock, keep PERMANENT_TEST suppressions; event_log SYSTEM_RESET | none | NFR-09 banner on every screen |
 | 2 | F1 "won't need the AM van, dropping at 9:30" | sim SMS from F1 persona | messaging → agent → scheduling → messaging | message, agent_run/tool_call, trip_leg AM→CANCELED_TRANSPORT, attendance_day→AM_SELF_DROP, outbound ×2, event_log | provider notice + F1 confirmation | AT-01, AT-07; board <2 s (NFR-01) |
 | 3 | F4 "staying home sick" → clarify; "both" | sim SMS from F4 shared number | agent (request_clarification), then cancel ×2 | message, change_request NEEDS_HUMAN→APPLIED, attendance ABSENT_FULL_DAY ×2 → legs CANCELED_ATTENDANCE | clarification, then confirmation | AT-06 (no mutation before "both") |
 | 4 | F3 absence → T1 alerted ≤10 min, ack tracked | sim SMS from F3 | agent → notify_affected_therapist; JobScheduler ack timer | therapy_session IMPACTED→THERAPIST_NOTIFIED, outbound, acknowledgment PENDING, job(ack) | therapist SMS (sim) | AT-14, AT-02 |

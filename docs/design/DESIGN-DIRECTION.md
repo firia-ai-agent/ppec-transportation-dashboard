@@ -32,10 +32,11 @@ Success = a coordinator spots the one child at risk in under 5 s without reading
 | Provider dispatcher (link, no login) | needs to report vehicle seats/lift so the center knows the vehicle fits | /p/verify/{token} | 390×844, 1280 |
 
 ## 2. Global shell
-- **Header (persistent, every surface):** DEMO banner (§7) → site, date, scenario clock, per-adapter freshness pills (SMS, Teams, GPS, Agent: icon + label + age). **Interim (approved for build): until B-12 wires real ages, each pill reads "<adapter> · Simulated" with `flask-conical` in src-sim tone (7.10:1), matching the D-10 source badge. It must switch to real ages when B-12 lands (§10).**, global search (child first name/initial, route, vehicle). One identity location: avatar menu top-right only.
-- **Nav (PRD §14):** Today (board + drawer + inbox) · Exceptions & Approvals (count badge) · Setup · Health & ROI. Ramp iPad is its own full-screen route. ≥1280: left rail 232 px; 768-1279: icon rail with labels on hover/focus; <768: hamburger drawer holding nav + identity + Sign out.
+- **Header (persistent, every surface):** DEMO banner (§7) → site, date, scenario clock, per-adapter freshness pills (SMS, Teams, GPS, Agent: icon + label + age). **Interim, approved by Vera (design lead) 2026-10-14 13:25 ET as an interim build default; not a founder decision: until B-12 wires real ages, each pill reads "<adapter> · Simulated" with `flask-conical` in src-sim tone (7.10:1), matching the D-10 source badge. It must switch to real ages when B-12 lands (§10).**, global search (child first name/initial, route, vehicle). One identity location: avatar menu top-right only.
+- **Nav (PRD §14):** Today (board + drawer + inbox) · Exceptions & Approvals (count badge) · Setup · Health & ROI. Ramp iPad is its own full-screen route. ≥1280: left rail 232 px; 768-1279: 64 px icon rail; each item has a tooltip and an aria-label with its name, and the rail expands to show labels on hover or keyboard focus; <768: hamburger drawer holding nav + identity + Sign out.
+- **Nav icons:** Claude Code picks them when building, with two rules: no nav icon may reuse any §3 state icon, and `flask-conical` is reserved for the Simulated source badge. The chosen icons come back to Vera for a design check before merge.
 - **SSE down >15 s:** amber bar under the header, icon `wifi-off` + "Live updates paused. Reconnecting… Board may be up to 40 s old." Never hide data; dim the "updated" timestamps.
-- **Source-mode badge** on every row, record and outbound message (NFR-09): spec in §7.1 (D-10, decided by founder).
+- **Source-mode badge** on every row, record and outbound message (NFR-09): spec in §7.1 (D-10, decided by founder). The screen-level Simulated badge appears on every screen, including sign-in: in the app header once signed in, and on the sign-in page directly under the DEMO banner, next to the card title (NFR-09, PRD l.537–538).
 - Icons: Lucide (single set, 1.75 stroke). No emoji anywhere, including freshness (the PRD's 🟢🟡🔴 become icon + label chips, §3).
 - Type: **Atkinson Hyperlegible Next** for UI and numerals (designed for low-vision legibility; fits the center's mission), tabular figures for times/ETAs; **JetBrains Mono** only for ids. Scale 12/14/16/20/24/32; body 14 console, 18 ramp iPad. Min 12 px only for chips with icon.
 
@@ -86,14 +87,15 @@ Tone tokens map to the hexes in §8. Icons are Lucide names.
 | therapy session SCHEDULED / IMPACTED / THERAPIST_NOTIFIED / CANCELED | `calendar-clock` / `triangle-alert` / `send` / `calendar-x` | Therapy scheduled / Therapy affected / Therapist told / Therapy canceled | neutral / warn / info / neutral | as above |
 | agent run QUEUED / RUNNING / WAITING_TOOL / SUCCEEDED / FAILED / ABORTED_SUPERSEDED_BY_HUMAN | `clock` / `bot` / `hourglass` / `circle-check` / `circle-x` / `user-round` | Agent queued / Agent working / Agent waiting / Agent done / Agent failed / Staff took over | neutral / info / neutral / ok / crit / neutral | as above (Inbox + Health only) |
 | job (timer) SCHEDULED / CLAIMED / DONE / CANCELED / FAILED / DEAD | `clock` / `loader` / `check` / `circle-slash` / `circle-x` / `octagon-x` | Scheduled / Running / Done / Canceled / Failed, retrying / Failed, needs a person | neutral / info / ok / neutral / warn / crit | as above (Health / demo fire log only) |
-| GPS fresh (<60 s) | `locate-fixed` | Live · 12 s | ok | 6.49 |
-| GPS aging (60–179 s) | `locate` | Last seen 2 min | neutral | 8.40 |
-| GPS STALE (180–599 s) | `clock-alert` | Stale · 4 min · ETA texts paused | warn | 6.38 |
-| GPS lost (≥600 s) | `locate-off` | No signal · 11 min | crit | 6.80 |
+| GPS fresh (<60 s) | `locate-fixed` | Live · {age} (e.g. Live · 12 s) | ok | 6.49 |
+| GPS aging (60–179 s) | `locate` | Last seen {age} | neutral | 8.40 |
+| GPS STALE (180–599 s) | `clock-alert` | Stale · {age} · ETA texts paused | warn | 6.38 |
+| GPS lost (≥600 s) | `locate-off` | No signal · {age} | crit | 6.80 |
 | outbound QUEUED / SENT / DELIVERED / UNDELIVERED / FAILED / BLOCKED_EGRESS | `clock` / `send` / `check-check` / `circle-alert` / `circle-x` / `shield-ban` | Queued / Sent / Delivered / Not delivered / Failed / Blocked (opted out or policy) | neutral / info / ok / warn / crit / crit | as above |
 | severity GREEN / AMBER / RED | `circle-check` / `triangle-alert` / `octagon-alert` | Low / Medium / Urgent | ok / warn / crit | as above |
 | thread OPEN / PAUSED_HUMAN | `bot` / `user-round` | Agent handling / Staff: {first name} | info / neutral | as above |
 Icons: every name above is a canonical (non-alias) icon verified in lucide-static 1.57.0 (`icons/<name>.svg` returns HTTP 200, checked 2026-10-14). "No signal" uses the single icon `locate-off` (GPS crosshair struck through). It reads as lost location, and it doesn't collide with `wifi-off` (live-updates bar) or `cloud-off` (iPad offline). Rejected: `satellite-dish` plus a custom slash (overlay), `signal-zero` (reads as phone signal), `wifi-off` (collides), `map-pin-off` (reads as "no stop"). All tones reuse the §8 pairs, so there are no new colour pairs.
+GPS `{age}` is human-formatted: under 60 s as "12 s", then minutes "4 min", then hours and minutes "1 h 5 min". Never show raw seconds over 60 (no "245 s").
 Note: PRD freshness bands (<60 / 60–600 / >600 s) and the STALE badge at 180 s (MOCKS §5, PRD l.456) disagree; this table uses four bands to honour both. Decided: D-2 (four bands).
 
 ## 4. Surfaces
@@ -143,7 +145,25 @@ See §6.
 - Vehicle config: layout cards ({1WC/3A}) with a seat diagram, edit in sheet; "Unknown until arrival" is the default chip each day.
 
 ## 5. Map and trucks (must feel real)
-- **Style:** MapLibre with OSM raster (ADR-008) desaturated via a 35% light overlay so markers carry the colour; attribution visible bottom-right. Center pin = building icon "PPEC center". Stops = landmark name labels (public places only, MOCKS §1).
+- **Style:** see §5.1. Center pin = building icon "PPEC center". Stops = landmark name labels (public places only, MOCKS §1).
+
+### 5.1 Map styling (MapLibre GL + OpenFreeMap)
+- **Styles checked** at `https://tiles.openfreemap.org/styles/<name>` on 2026-10-14: `positron`, `liberty`, `bright`, `dark`, `fiord` all exist (HTTP 200). Note: ADR-008 (Proposed) still says OSM raster tiles; the build stack is OpenFreeMap vector tiles, so ADR-008 should be updated by its owner.
+- **Base style: `positron`.** It is the quiet, near-monochrome style, so trucks, routes and state chips carry all the colour. `liberty`/`bright` are full-colour (green parks, yellow roads) and would compete with state tones; `dark`/`fiord` hurt daytime ramp/iPad legibility.
+- **Overrides** (apply with `map.setPaintProperty` after `style.load`, or patch the fetched style JSON; keep layer ids):
+  | Layer | Positron default | Override | Why |
+  |---|---|---|---|
+  | `background` | `#F2F3F0` | keep | muted land |
+  | `park`, `landcover_wood`, `landuse_residential` | `#E6E9E5`, `#DCE0DC`, `#EAEAE6` | keep | already muted |
+  | `water` | `#C2C8CA` | **`#D9E2E7`** | the default fails 3:1 for ok/stale trucks (2.96:1, 2.91:1); lighter water passes |
+  | `highway_*` casings/inner | greys | keep; motorway inner opacity 0.8 | roads stay below route lines |
+  | `label_*`, `highway-name-*` | dark grey text | `text-color #475569` (ink-muted), halo `#FFFFFF` 1.5 px | AA-tone labels, calmer than black |
+  | `building` | grey | hide below zoom 15 | reduces noise at fleet zoom |
+  | POI / `airport` | icons | hide, except our own landmark stop layer | no competing pins |
+- **Our layers (on top, in order):** route planned (line 4 px `route #1D4ED8` at 0.6 opacity), route driven (solid `#1D4ED8`), stops (white circle, 2 px `ink #0F172A` ring, landmark label), center pin (`ink #0F172A`), trucks (36 px glyph in the state tone `map-truck-ok #15803D` / `map-truck-stale #A16207` / `map-truck-crit #B91C1C`, 2 px white halo, state icon badge). **Violet `#6D28D9` never appears on the map**; it stays reserved for the DEMO banner and the Simulated badge.
+- **Contrast (non-text, 3:1):** every truck tone, the route line and the center pin are checked against every positron fill (background, park, residential, wood, road casing, overridden water) and against the white halo. All pass; the lowest is stale truck on road casing at 3.35:1. Run `python3 docs/design/contrast.py`.
+- **Attribution:** "© OpenFreeMap © OpenStreetMap contributors" stays visible at all times, bottom-right, using MapLibre's compact attribution control (collapsible "i" that can be expanded, never removed). Drawers, the demo panel and sheets must inset the map (map container shrinks) or offset the control, never cover it. Checklist line in §10.
+- **Camera:** "Fit all vehicles" and row selection use `flyTo` with ≤600 ms; under `prefers-reduced-motion` use `jumpTo` (no animated camera at all).
 - **Markers:** 36 px top-down van glyph rotated to heading, white 2 px halo (keeps ≥3:1 against any tile), state badge (icon) on the corner, vehicle label "V1" beside. Freshness via icon badge + label on hover/focus, plus ring style: solid (live), dashed (stale), hollow with slash (no signal). Never colour alone.
 - **Motion:** interpolate between 5 s sim points with linear tween along route geometry (not straight lines), ease on stop/start; heading smooths over 300 ms. Stall = marker stops, a pulsing ring (disabled under reduced motion) and a clock label "Stopped 3 min". Jitter fault: marker wobbles ±40 m but ETA text does not change (visible proof of suppression).
 - **Route lines:** planned route 4 px brand at 60%, driven portion solid; selected vehicle raises z-order, others dim to 40%.
@@ -174,7 +194,7 @@ NFR-09 (PRD l.537–538) requires a source-mode badge on every screen, record an
 | MANUAL | `hand` | Manual entry | ink-muted | 7.58:1 |
 | SANDBOX | `box` | Sandbox | ink-muted | 7.58:1 |
 | LIVE | `radio-tower` | Live | ink `#0F172A` on surface | 17.85:1 (never violet) |
-Placement: screen = header next to the DEMO banner; record = board row end, drawer header, exception row, inbox message card, history entries; outbound message = under each bubble in inbox and persona phones, plus the "[DEMO]" text suffix (COPY-GUIDE §5) in the message body.
+Placement: screen = header next to the DEMO banner (sign-in: next to the card title, under the banner); record = board row end, drawer header, exception row, inbox message card, history entries; outbound message = under each bubble in inbox and persona phones, plus the "[DEMO]" text suffix (COPY-GUIDE §5) in the message body.
 
 ## 8. Tokens and computed contrast
 Computed by `python3 docs/design/contrast.py` (WCAG 2.1 relative luminance; exits non-zero on any FAIL). Text needs 4.5:1, UI parts/focus 3:1.
@@ -206,8 +226,38 @@ Computed by `python3 docs/design/contrast.py` (WCAG 2.1 relative luminance; exit
 | map-truck-ok `#15803D` | surface `#FFFFFF` | 5.02:1 | 3:1 | PASS |
 | map-truck-stale `#A16207` | surface `#FFFFFF` | 4.92:1 | 3:1 | PASS |
 | map-truck-crit `#B91C1C` | surface `#FFFFFF` | 6.47:1 | 3:1 | PASS |
+| map-truck-ok `#15803D` | osm-bg `#F2F3F0` | 4.50:1 | 3:1 | PASS |
+| map-truck-ok `#15803D` | osm-park `#E6E9E5` | 4.10:1 | 3:1 | PASS |
+| map-truck-ok `#15803D` | osm-resid `#EAEAE6` | 4.16:1 | 3:1 | PASS |
+| map-truck-ok `#15803D` | osm-wood `#DCE0DC` | 3.76:1 | 3:1 | PASS |
+| map-truck-ok `#15803D` | osm-road `#D5D5D5` | 3.42:1 | 3:1 | PASS |
+| map-truck-ok `#15803D` | osm-water `#D9E2E7` | 3.82:1 | 3:1 | PASS |
+| map-truck-stale `#A16207` | osm-bg `#F2F3F0` | 4.42:1 | 3:1 | PASS |
+| map-truck-stale `#A16207` | osm-park `#E6E9E5` | 4.02:1 | 3:1 | PASS |
+| map-truck-stale `#A16207` | osm-resid `#EAEAE6` | 4.08:1 | 3:1 | PASS |
+| map-truck-stale `#A16207` | osm-wood `#DCE0DC` | 3.69:1 | 3:1 | PASS |
+| map-truck-stale `#A16207` | osm-road `#D5D5D5` | 3.35:1 | 3:1 | PASS |
+| map-truck-stale `#A16207` | osm-water `#D9E2E7` | 3.75:1 | 3:1 | PASS |
+| map-truck-crit `#B91C1C` | osm-bg `#F2F3F0` | 5.81:1 | 3:1 | PASS |
+| map-truck-crit `#B91C1C` | osm-park `#E6E9E5` | 5.28:1 | 3:1 | PASS |
+| map-truck-crit `#B91C1C` | osm-resid `#EAEAE6` | 5.36:1 | 3:1 | PASS |
+| map-truck-crit `#B91C1C` | osm-wood `#DCE0DC` | 4.85:1 | 3:1 | PASS |
+| map-truck-crit `#B91C1C` | osm-road `#D5D5D5` | 4.41:1 | 3:1 | PASS |
+| map-truck-crit `#B91C1C` | osm-water `#D9E2E7` | 4.92:1 | 3:1 | PASS |
+| route `#1D4ED8` | osm-bg `#F2F3F0` | 6.02:1 | 3:1 | PASS |
+| route `#1D4ED8` | osm-park `#E6E9E5` | 5.47:1 | 3:1 | PASS |
+| route `#1D4ED8` | osm-resid `#EAEAE6` | 5.56:1 | 3:1 | PASS |
+| route `#1D4ED8` | osm-wood `#DCE0DC` | 5.02:1 | 3:1 | PASS |
+| route `#1D4ED8` | osm-road `#D5D5D5` | 4.57:1 | 3:1 | PASS |
+| route `#1D4ED8` | osm-water `#D9E2E7` | 5.10:1 | 3:1 | PASS |
+| center-pin `#0F172A` | osm-bg `#F2F3F0` | 16.03:1 | 3:1 | PASS |
+| center-pin `#0F172A` | osm-park `#E6E9E5` | 14.58:1 | 3:1 | PASS |
+| center-pin `#0F172A` | osm-resid `#EAEAE6` | 14.80:1 | 3:1 | PASS |
+| center-pin `#0F172A` | osm-wood `#DCE0DC` | 13.38:1 | 3:1 | PASS |
+| center-pin `#0F172A` | osm-road `#D5D5D5` | 12.16:1 | 3:1 | PASS |
+| center-pin `#0F172A` | osm-water `#D9E2E7` | 13.59:1 | 3:1 | PASS |
 
-Map truck colours are checked against white because every marker has a white halo; tile backgrounds are not relied on.
+Map truck colours are checked against white (the halo) and against every positron basemap fill (§5.1); both must pass 3:1.
 
 ## 9. Accessibility rules (WCAG 2.1 AA)
 - Focus: 2 px `focus #1D4ED8` outline + 2 px offset, never removed; visible on every interactive element incl. map markers (markers are buttons in a list mirror, see below).
@@ -225,7 +275,8 @@ Walk each persona at **1280×800, 1024×768 iPad landscape, 820×1180 iPad portr
 - [ ] `python3 docs/design/contrast.py` passes; token-drift grep (design-taste-frontend §5) clean.
 - [ ] Keyboard-only: board → drawer → approve exception → back, with visible focus throughout.
 - [ ] Ramp iPad: all targets ≥56 px; confirm boarding in ≤2 taps; offline queue shows count and "Recorded late" after sync.
-- [ ] Reduced motion on: no tween, pulse or fly-to.
+- [ ] Reduced motion on: no tween, pulse or fly-to (camera uses `jumpTo`).
+- [ ] Map attribution visible with drawer open, demo panel open and on iPad portrait; no violet on the map; positron style with the §5.1 water override.
 - [ ] VoiceOver (iPad) reads a board row and an exception in a sensible order.
 - [ ] Whole demo job: Reset → F1 self-drop → ramp infeasible → approve C8 → second approver sees "Already decided" → GPS gap STALE then No signal → EOD close blocked → Export. Non-seeded state, reload persists.
 - [ ] Header adapter pills show real ages ("SMS · Live 12 s", "GPS · Stale 4 min") once B-12 lands; the interim "<adapter> · Simulated" text is gone.
