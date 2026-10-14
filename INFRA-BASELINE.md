@@ -36,6 +36,7 @@ See `DATABASES.md`. Rule: prod and preview never share a database branch; `DATAB
 - GitHub: private repo, free plan, **no branch protection/rulesets** (HTTP 403, DECISION-LEDGER governance record). CI is advisory; Veri review is the gate.
 - Vercel team firia1: Pro since 2026-10-01 (per Firia, DECISION-LEDGER #18; not readable via API). Other projects on the team: `tokos`, `temporary-*` ×3 (not ours, not touched).
 - Spend: see DECISION-LEDGER #20; status tracked in the B-01 PR description.
+- OpenRouter: $100 credit limit on the key, set by the founder (2026-10-14, relayed by Firia). The key lives only in Vercel env (Production/Preview, sensitive); it is not set anywhere until the Vercel project exists.
 
 ## Webhooks/integrations
 None yet. Pending: Vercel GitHub integration, Neon (Vercel-managed, Free plan).
