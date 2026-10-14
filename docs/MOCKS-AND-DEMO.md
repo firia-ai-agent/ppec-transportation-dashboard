@@ -23,7 +23,7 @@ Center: **2216 Jog Rd, Greenacres FL 33415** → (26.645352, -80.145541), US Cen
 | C8 (F7) | Boynton Beach Mall | 26.535418, -80.095675 | ambulatory; shares C6 route (AT-04) |
 | C9 (F8) | Mall at Wellington Green | 26.646683, -80.208099 | center van baseline |
 | spare | Palm Beach Zoo | 26.667739, -80.069543 | fault-scenario detour target |
-Stop labels show the landmark name. A seed linter rejects any coordinate not in this table.
+Stop labels show the landmark name. A seed linter (`scripts/seed-lint.mjs`) rejects any coordinate not in this table — **one narrow exception:** a `: Coord[] = [...]` literal is committed *road* geometry (ADR-007 OSRM fixtures), whose interior vertices are points on public roads rather than places. Those are linted instead by two rules of their own: both endpoints must sit on a landmark above (within 50 m, which covers OSRM's 7.4 m snap of the center onto Jog Rd), and every vertex must fall inside the landmark bounding box plus ~5.5 km. A coordinate anywhere else — a `coord:` field, a seed row, a config — must still be in this table verbatim.
 
 ## 2. Vehicles (PRD §18.1)
 | Vehicle | Owner | Layouts (WC / ambulatory) |
@@ -47,7 +47,7 @@ A Teams-style side panel per staff role shows proactive messages and adaptive-ca
 ## 5. Trucks, routes, GPS
 - Route geometry: fixtures precomputed from public OSRM once and committed (`fixtures/routes/*.json`); example probe Okeeheelee Park → center: 2,740 m, 228 s (research/osrm-probe.txt).
 - Simulator emits a point every 5 simulated seconds per bound device through `LocationIngest`.
-- Map: MapLibre + OSM tiles (ADR-008); truck icons colored by staleness (fresh / STALE at 180 s / exception at 600 s).
+- Map: MapLibre + OpenFreeMap vector tiles, style `positron` (ADR-008, DESIGN-DIRECTION §5.1), style URL in `NEXT_PUBLIC_MAP_TILE_URL`; truck icons colored by staleness (fresh / STALE at 180 s / exception at 600 s), always with a freshness label so colour is never the only cue.
 - **Fault buttons:** Stall (vehicle stops N min at current point), Traffic band (×1.5 travel time), GPS gap (stop emitting), Jitter (±40 m noise; must not trigger ETA text), Duplicate/out-of-order points, Unbound device.
 - **Replay:** pick a recorded `sim_run`, speed ×1/×5/×20; replay is deterministic (same seed ⇒ same ETA events, AT-03).
 

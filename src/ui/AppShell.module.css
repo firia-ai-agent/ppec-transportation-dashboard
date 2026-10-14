@@ -1,0 +1,110 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  /*
+   * The window, less the DEMO bar above it (§7). A flat 100vh here makes every signed-in page
+   * exactly 32 px too tall, so the console scrolls on a screen with nothing to scroll to.
+   */
+  min-height: calc(100vh - var(--layout-demo-banner-height));
+}
+
+.header {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-surface);
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.topRow,
+.bottomRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+
+.siteName {
+  font-size: var(--text-20);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.facts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  margin: 0;
+}
+
+.fact {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.factLabel {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.factValue {
+  margin: 0;
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+.bottomRow {
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.adapters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.adaptersNote {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.body {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.main {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--space-6) var(--space-5);
+}
+
+@media (max-width: 767px) {
+  .header {
+    padding: var(--space-4);
+  }
+
+  .facts {
+    gap: var(--space-4);
+  }
+
+  .bottomRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .main {
+    padding: var(--space-5) var(--space-4);
+  }
+}

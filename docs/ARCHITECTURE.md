@@ -15,7 +15,7 @@ LOCKS IN FORCE: founder answers 2026-10-14 (t613u, t614u) restated in the brief;
 1. **Timers/workers (ADR-001; outbox ADR-003):** the DB `ops.job` table is the single source of truth for every timer; Vercel Queues delayed messages are the wake-up (exactly-once *effect* from a guarded `UPDATE … WHERE state='SCHEDULED' RETURNING`), a per-minute Vercel Cron sweeper is the safety net, and the whole thing sits behind the PRD's `JobScheduler` seam so AWS swaps in pg-boss 12.38.0 on a Fargate worker. Rejected for P1: pg-boss on a second always-on host (new vendor + ops), Cron-only (60 s granularity breaks NFR-03 ≤5 s), Inngest (new third-party data processor), Vercel Workflow as the timer store (state lives outside our DB, harder to cancel/audit). **Contingency (Proposed, DECISION-LEDGER #22):** only if Vercel Queues misses the 5 s bar in TEST-INF-01, Upstash QStash can replace it behind the same `JobScheduler` seam; Upstash is a new third-party processor, so using it needs founder sign-off, as does any NFR-03 deviation.
 2. **Realtime (ADR-004):** SSE route handler that tails `ops.event_log` by sequence number every 1 s over Neon's HTTP driver, `Last-Event-ID` replay, auto-reconnect; no LISTEN/NOTIFY on Vercel because Neon's pooler (PgBouncer transaction mode) does not support it. On AWS the same `RealtimeBus` seam switches to LISTEN/NOTIFY (PRD ADR 1.5).
 3. **LLM (ADR-005):** OpenRouter with `provider.zdr: true` (Claude served only by Amazon Bedrock / Google Vertex endpoints, which OpenRouter lists as zero-retention; first-party Anthropic via OpenRouter is listed "Retained for 30 days"), behind the token-only LLM gateway.
-4. **Map + routes (ADR-008 map tiles, ADR-007 routing fixtures):** MapLibre GL 6.14.0 with OSM raster tiles (policy-compliant, URL in env), route geometry precomputed once from the OSRM demo server (≤1 req/s, non-commercial) and committed as fixtures; a deterministic simulated `RoutingProvider` adds a traffic model. No live routing calls at demo time.
+4. **Map + routes (ADR-008 map tiles, ADR-007 routing fixtures):** MapLibre GL 6.14.0 with OpenFreeMap vector tiles, `positron` base style restyled per DESIGN-DIRECTION §5.1 (one env var, `NEXT_PUBLIC_MAP_TILE_URL`); attribution "© OpenFreeMap © OpenStreetMap contributors" always visible. Route geometry precomputed once from the OSRM demo server (≤1 req/s, non-commercial) and committed as fixtures; a deterministic simulated `RoutingProvider` adds a traffic model. No live routing calls at demo time.
 
 **Top 3 risks:** (1) P1 exit criteria in PRD §2 require *live* Twilio/Teams/location; the founder's mock lock makes those gates unreachable in this POC, so they stay **open** and are labelled, not claimed (cost if ignored: a false "P1 done"). (2) Vercel Queues is **Beta** and its delay precision is unmeasured; TEST-INF-01 is the gate (cost: timers late > 5 s; fallback = cron sweeper at 60 s or an always-on worker). (3) Neon/Vercel/OpenRouter tiers used here carry **no BAA**; synthetic data only, enforced in code (see §9) (cost if ignored: PHI on non-BAA vendors, the Tokos failure).
 
@@ -40,7 +40,7 @@ flowchart LR
   DB[("Neon Postgres<br/>identity + ops schemas")]
   LLM["OpenRouter to Claude<br/>ZDR endpoints only"]
   Q["Vercel Queues + Cron<br/>timer wake-ups"]
-  MAP["OSM raster tiles<br/>browser only"]
+  MAP["OpenFreeMap vector tiles<br/>OSM data, browser only"]
   COORD --> APP
   RAMP --> APP
   DISP --> APP
@@ -200,7 +200,7 @@ sequenceDiagram
 
 | # | Step | Trigger | Modules touched | Writes (tables) | Outbound (sim) | Proof / AT |
 |---|---|---|---|---|---|---|
-| 1 | Reset/seed; synthetic banner | Demo panel "Reset scenario" | demo, platform | truncate ops (demo tables), reload fixtures, scenario_clock, keep PERMANENT_TEST suppressions; event_log SYSTEM_RESET | none | NFR-09 banner on every screen |
+| 1 | Reset/seed; "DEMO" banner (ledger row 40 overrides PRD l.1332 "synthetic banner") | Demo panel "Reset scenario" | demo, platform | truncate ops (demo tables), reload fixtures, scenario_clock, keep PERMANENT_TEST suppressions; event_log SYSTEM_RESET | none | NFR-09 banner on every screen |
 | 2 | F1 "won't need the AM van, dropping at 9:30" | sim SMS from F1 persona | messaging → agent → scheduling → messaging | message, agent_run/tool_call, trip_leg AM→CANCELED_TRANSPORT, attendance_day→AM_SELF_DROP, outbound ×2, event_log | provider notice + F1 confirmation | AT-01, AT-07; board <2 s (NFR-01) |
 | 3 | F4 "staying home sick" → clarify; "both" | sim SMS from F4 shared number | agent (request_clarification), then cancel ×2 | message, change_request NEEDS_HUMAN→APPLIED, attendance ABSENT_FULL_DAY ×2 → legs CANCELED_ATTENDANCE | clarification, then confirmation | AT-06 (no mutation before "both") |
 | 4 | F3 absence → T1 alerted ≤10 min, ack tracked | sim SMS from F3 | agent → notify_affected_therapist; JobScheduler ack timer | therapy_session IMPACTED→THERAPIST_NOTIFIED, outbound, acknowledgment PENDING, job(ack) | therapist SMS (sim) | AT-14, AT-02 |
@@ -223,13 +223,12 @@ flowchart TB
     CRON["Vercel Cron<br/>/api/cron/sweep every minute"]
     VQ["Vercel Queues<br/>topics timer, outbox, agent"]
   end
-  subgraph NEON["Neon project ppec"]
-    MAIN[("branch main = demo-prod<br/>synthetic only")]
-    PB[("preview branches<br/>copy-on-write per preview")]
+  subgraph NEON["Neon project ppec - one database"]
+    MAIN[("branch main = demo-prod<br/>ep-divine-brook, synthetic only")]
   end
   CI["GitHub Actions<br/>lint, typecheck, unit, drizzle-kit check, PII scanner"]
-  PROD -->|pooled DATABASE_URL, HTTP + WS| MAIN
-  PREV -->|branch URL injected per deployment| PB
+  PROD -->|pooled DATABASE_URL, read-write| MAIN
+  PREV -->|same main DATABASE_URL, READ ONLY per transaction<br/>role ppec_preview once founder approves env switch, no migrate, no seed| MAIN
   CRON --> PROD
   VQ --> PROD
   PROD --> VQ
@@ -237,10 +236,12 @@ flowchart TB
 ```
 
 - Region: Vercel functions default to `iad1` (limits page); Neon project in `aws-us-east-1` to sit next to it (Neon region choice Proposed; latency not yet measured, Unverified).
-- Neon's Vercel-managed integration injects `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED`, and can create a branch per preview deployment (neon.com/docs/guides/vercel-managed-integration). Migrations run with the **unpooled** URL (`drizzle-kit migrate`), never `push` against `main` (Tokos lesson, database-lifecycle skill).
+- **One database (DECISION-LEDGER row 43).** PPEC has exactly one database, the Neon `main` branch (`ep-divine-brook`), holding synthetic data only. There are no per-preview Neon branches: preview deployments use main's `DATABASE_URL`.
+- **Previews are read-only.** Two layers: (1) app-level — preview connections start every transaction `READ ONLY`, refuse caller-sent transaction-control statements, refuse multi-statement strings (the statement scanner lexes `'…'`/`E'…'`/`"…"`/`$tag$…$tag$`, `--`/nested `/* */` and `$`-in-identifier exactly as Postgres does), and refuse every `SET`/`RESET`/`set_config()`/`DO` bar a `SET LOCAL` timeout allowlist, since changing a GUC can change how the SQL after it is lexed (PR #20, ledger row 55); session-level read-only is not used because it can leak onto prod backends through the pooler. (2) server-side — previews are to log in as `ppec_preview`, a SELECT-only role with `default_transaction_read_only=on` and column-level grants on the Auth.js login columns only, no `identity` access (ledger rows 53 and 55); the role and its grants are applied in Neon and tested on the pooled and unpooled hosts (SELECT works, UPDATE is refused, `identity` is refused); pointing the Vercel Preview `DATABASE_URL`/`DATABASE_URL_UNPOOLED` at the role is awaiting founder approval. Sessions are Auth.js JWT, so preview login needs no DB writes.
+- **Previews never migrate and never seed.** Migrations run against `main` with the **unpooled** URL (`drizzle-kit migrate`), never `push` (Tokos lesson, database-lifecycle skill); reset/seed runs only on production (ledger row 45). Neon's Vercel-managed integration injects `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED` (neon.com/docs/guides/vercel-managed-integration); its per-preview branch creation is deliberately not used.
 - Roles: `migrator` (owner, CI only), `app_rw` (ops DML, no identity SELECT), `identity_gateway` (identity DML only). Neon's default owner role is never the app role (Tokos EC K6).
 - Cron on Pro: 100 jobs/project, minimum interval 1 minute, per-minute precision (vercel.com/docs/cron-jobs/usage-and-pricing). Hobby would fail deployment for per-minute crons, so this needs Pro (the founder's team is on Pro per the 10/3 upgrade).
-- Secrets: one env file owner (Rudy); `AUTH_SECRET`, `OPENROUTER_API_KEY`, `SIM_WEBHOOK_SECRET`, `HMAC_PEPPER`, `DATA_KEY`, `CRON_SECRET` (cron/sweep routes fail closed when unset), `DEMO_DIRECTOR_PASSWORD`, `DEMO_COORDINATOR_PASSWORD`, `DEMO_FRONT_DESK_PASSWORD` (seeded synthetic users, ADR-004) per environment, never in chat or repo. Non-secret config: `APP_DATA_CLASS=SYNTHETIC` (boot guard), `DEMO_MODE`, `NEXT_PUBLIC_MAP_TILE_URL` (OSM-policy-compliant tile template). Integration-injected: `DATABASE_URL`, `DATABASE_URL_UNPOOLED`.
+- Secrets: one env file owner (Rudy); `AUTH_SECRET`, `OPENROUTER_API_KEY`, `SIM_WEBHOOK_SECRET`, `HMAC_PEPPER`, `DATA_KEY`, `CRON_SECRET` (cron/sweep routes fail closed when unset), `DEMO_DIRECTOR_PASSWORD`, `DEMO_COORDINATOR_PASSWORD`, `DEMO_FRONT_DESK_PASSWORD` (seeded synthetic users, ADR-004) per environment, never in chat or repo. Non-secret config: `APP_DATA_CLASS=SYNTHETIC` (boot guard), `DEMO_MODE`, `NEXT_PUBLIC_MAP_TILE_URL` (MapLibre style URL; unset ⇒ OpenFreeMap positron, ADR-008). Integration-injected: `DATABASE_URL`, `DATABASE_URL_UNPOOLED`.
 
 ## 6. Durable timers on Vercel (ADR-001, summary)
 
@@ -263,11 +264,11 @@ AWS path: `PgBossScheduler` with pg-boss 12.38.0 (npm, 2026-10-14; supports `sta
 
 | Step | Action | Pass |
 |---|---|---|
-| 0 | Fresh Neon branch `test-inf-01-<date>`; preview deployment D1; scenario clock real-time | branch id + deployment id recorded |
+| 0 | The one database (Neon `main`, `ep-divine-brook`, DECISION-LEDGER row 43; no per-test or per-preview Neon branches); deployment D1; scenario clock real-time; drill rows tagged with a `test-inf-01-<date>` run id | run id + deployment id recorded |
 | 1 | Schedule 50 jobs: due times spread uniformly over now+60 s … now+240 s, 10 of them on the same second, 5 cancelled at random before due | 50 rows SCHEDULED, 5 CANCELED |
 | 2 | **Crash A (consumer crash mid-claim):** fault flag makes the consumer `process.exit(1)` after claiming 3 jobs, before commit | those 3 are re-delivered or swept; each ends DONE exactly once |
 | 3 | **Crash B (redeploy):** promote deployment D2 while ≥20 jobs pending | D1 consumers ack without claiming after D2's marker; D2 re-arm fires them |
-| 4 | **Crash C (database):** restart the Neon compute for the branch (Neon console/API) while ≥10 pending | consumers retry; no duplicates |
+| 4 | **Crash C (database):** restart the Neon compute for `main` (Neon console/API) while ≥10 pending | consumers retry; no duplicates |
 | 5 | **Crash D (lost wake-up):** for 5 jobs, skip `send()` deliberately | cron sweeper fires them; lateness for these is reported separately (expected ≤ 65 s; does not meet ≤5 s → counted against the sweeper path only) |
 | 6 | Collect: `select key, state, fired_at - due_at as late, attempts from ops.job` + an append-only `job_fire_log` (one row per handler execution) | 45 DONE, 5 CANCELED, 0 duplicates in job_fire_log; p100 lateness ≤5 s for steps 1–4 |
 | 7 | Repeat ×3 on different days/times; record Vercel and Neon region, Queues status page | 3/3 runs pass |

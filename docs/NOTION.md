@@ -1,14 +1,15 @@
 # Notion mirror
 
 Workspace **Firia**, teamspace **PPEC Transport Dashboard** (id 3f9ac450-cdc1-81b1-97ed-00422fcfa43d), approved by the founder 2026-10-14 as the PPEC Notion home.
-**GitHub is canonical for specs.** Notion mirrors them for reading and is the home for the decision ledger and runbooks. Loaded 2026-10-14 ~11:40 ET from commit f339baa; every page was read back after creation.
+**GitHub is canonical for specs.** Notion mirrors them for reading and is the home for the decision ledger and runbooks. Loaded 2026-10-14 ~11:40 ET from commit f339baa. **Re-read 2026-10-14 ~13:00 ET via the Notion connector:** the root page says "Last synced 12:59 ET from main @ 0b8d4b6"; the Decision ledger page and its entries database hold rows 1–16 (16 rows, matching main). At that time rows 17–28 were still in PR #3 (merged since, b1df48c) and were listed on **Status: live work** as "Decided, pending merge"; rows 29–40 (#2, #9) and 41–42 (#9) were added later. The Notion mirror needs a re-sync from main.
 
 | Page | Mirrors | URL |
 |---|---|---|
 | PPEC transportation dashboard (root) | README.md | https://app.notion.com/p/3f9ac450cdc181cda2becad4340b6833 |
+| Status: live work (Notion-native: open PRs, pending decisions, live environments) | — | https://app.notion.com/p/3f9ac450cdc181f1b13bdd57080dce4e |
 | Overview | README.md | https://app.notion.com/p/3f9ac450cdc181718e4bd1c21215d730 |
 | Decision ledger | docs/DECISION-LEDGER.md | https://app.notion.com/p/3f9ac450cdc181a48d74e670433c901a |
-| ↳ Decision ledger entries (database, 15 rows) | docs/DECISION-LEDGER.md | https://app.notion.com/p/793dcf2d775744fe90ed913ebc3c9be8 |
+| ↳ Decision ledger entries (database, 16 rows, synced to main @ 0b8d4b6) | docs/DECISION-LEDGER.md | https://app.notion.com/p/793dcf2d775744fe90ed913ebc3c9be8 |
 | PRD v1.0 (pointer only) | docs/PRD-v1.0.txt | https://app.notion.com/p/3f9ac450cdc181869b84e78d6868b6a7 |
 | Architecture | docs/ARCHITECTURE.md | https://app.notion.com/p/3f9ac450cdc1816ca2c5eae06ea71441 |
 | Data model | docs/DATA-MODEL.md | https://app.notion.com/p/3f9ac450cdc181d1bd8ad1c3dd1bc114 |
@@ -32,13 +33,16 @@ Workspace **Firia**, teamspace **PPEC Transport Dashboard** (id 3f9ac450-cdc1-81
 | ADR-016 | docs/adr/ADR-016-poc-exit-and-spend.md | https://app.notion.com/p/3f9ac450cdc1816dbebcde34f67b7086 |
 | Mocks & demo script | docs/MOCKS-AND-DEMO.md | https://app.notion.com/p/3f9ac450cdc181e3afebe99a51c44c55 |
 | Build plan & AT tracker | docs/BUILD-PLAN.md | https://app.notion.com/p/3f9ac450cdc18171b62ef8a30053afc1 |
+| Build plan M2–M9 | docs/BUILD-PLAN-M2.md | not mirrored yet — Notion page to create on the next sync (PR #17) |
 | Risks & questions | docs/RISKS-AND-QUESTIONS.md | https://app.notion.com/p/3f9ac450cdc1816c9589e3f2444b39b5 |
+| Research: Vercel Queues delays + OpenRouter ZDR | docs/research/QUEUES-AND-OPENROUTER-ZDR.md | not mirrored yet — Notion page to create on the next sync (PR #21) |
 | Tokos reuse notes | docs/TOKOS-REUSE.md | https://app.notion.com/p/3f9ac450cdc181939f0cd8ca2378aecb |
 | Team briefs (index) | docs/BUILD-PLAN.md | https://app.notion.com/p/3f9ac450cdc181d1a5d0e628e0e750c6 |
 | ↳ Athena (research) | docs/RISKS-AND-QUESTIONS.md | https://app.notion.com/p/3f9ac450cdc1815c9d74d26ee50c763c |
 | ↳ Rudy (build) | docs/BUILD-PLAN.md | https://app.notion.com/p/3f9ac450cdc1811588f6dd4bdbcd55d0 |
 | ↳ Veri (verify) | docs/BUILD-PLAN.md | https://app.notion.com/p/3f9ac450cdc18140a64ec7a8d520e5b4 |
 | ↳ Vera (UI/copy) | docs/MOCKS-AND-DEMO.md | https://app.notion.com/p/3f9ac450cdc18164b63ddb628a8b8686 |
+| Linear map | docs/LINEAR.md | https://app.notion.com/p/3f9ac450cdc1811ea576dadd251dddc3 |
 | Runbooks (Notion-native; placeholders) | — | https://app.notion.com/p/3f9ac450cdc1814f9f65ed2a478207e8 |
 
 Re-sync rule: when a mirrored file changes on main, update the Notion page in the same PR's follow-up and bump the commit noted above.

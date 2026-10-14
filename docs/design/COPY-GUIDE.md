@@ -26,6 +26,7 @@ STATUS: Decided, nothing pending: D-1, D-3, D-8, D-9 (founder, 2026-10-14 11:39 
 | Oops, Uh-oh, Whoops, 🎉 any emoji | plain sentence | tone |
 | leg, outbox, SSE, idempotency, webhook, token, 412, enum names | ride (AM/PM), message, live updates, saved once, —, —, "Someone else changed this" | jargon (founder-facing rule) |
 | Handed off (on geofence) | Arrived (vehicle) | PRD SURF-01 acceptance |
+| B-12, PPE-21, AT-08, TOK-, SURF-04, ADR-, CA-08 (any ticket, spec or test code) | describe what the page or feature does | users don't know our codes |
 | guaranteed, safe (as a claim) | — | no promises the system can't keep |
 
 Internal enum names may appear in Health/developer surfaces only.
@@ -40,7 +41,16 @@ Internal enum names may appear in Health/developer surfaces only.
 State labels are fixed in DESIGN-DIRECTION.md §3 and must be used verbatim.
 
 ## 5. Microcopy per surface
+### Sign-in
+- Intro: "Demo accounts only."
+- The Simulated source badge shows here too, next to the card title (NFR-09: every screen).
+
+### Unbuilt pages
+- Heading: "{Page} isn't built yet" plus one sentence on what it will do, e.g. "Exceptions isn't built yet" / "This page will list anything that needs a decision, with who owns it and when it's due." No ticket codes.
+
 ### Header / shell
+- Scenario clock before the demo starts: "Demo not started" with a [Start] button.
+- Header note: "Times are simulated until the live board is connected."
 - Freshness pill (interim until B-12): "SMS · Simulated", "GPS · Simulated", "Teams · Simulated", "Agent · Simulated". After B-12: "SMS · Live" / "GPS · Stale 4 min" / "Teams · Down, use Exceptions page".
 - SSE down: "Live updates paused. Reconnecting… Board may be up to 40 s old."
 - Search placeholder (with visible label "Search"): "Child, route or vehicle".
