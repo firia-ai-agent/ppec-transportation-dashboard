@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   color,
@@ -12,6 +14,17 @@ import {
   tones,
   space,
 } from "./tokens";
+
+const SRC_ROOT = path.resolve(__dirname, "..");
+
+/** Every source file under src/, for the "one copy of the violet" check. */
+function walkSrc(dir: string = SRC_ROOT): string[] {
+  return readdirSync(dir).flatMap((entry) => {
+    const full = path.join(dir, entry);
+    if (statSync(full).isDirectory()) return walkSrc(full);
+    return /\.(?:ts|tsx|css)$/.test(full) && !/\.test\.tsx?$/.test(full) ? [full] : [];
+  });
+}
 
 /**
  * DESIGN-DIRECTION §8 is a *claim* about contrast ("run it, don't trust this table").
@@ -120,6 +133,34 @@ describe("token shape", () => {
     expect(target.console).toBe("44px");
     expect(target.ramp).toBe("56px");
     expect(focusRing).toEqual({ width: "2px", offset: "2px" });
+  });
+
+  it("is the only file that holds the demo violet, and every screen reads it from here", () => {
+    /*
+     * D-10 / §3: #6D28D9 is reserved for the DEMO bar and the Simulated badge, and it is
+     * on-spec on both. What must not happen is a second copy of it: a hex pasted into a
+     * component drifts the moment this table is corrected, and then the bar and the chip are
+     * two different violets. no-hex.test.ts bars every hex outside this file; this names the
+     * one that matters and checks the two surfaces that use it take it from the token.
+     */
+    const VIOLET = "#6D28D9";
+    expect(color["demo-bg"]).toBe(VIOLET);
+    expect(color["src-sim"]).toBe(VIOLET);
+    expect(tokenCss()).toContain(`--color-demo-bg:${VIOLET}`);
+    expect(tokenCss()).toContain(`--color-src-sim:${VIOLET}`);
+
+    const UI = __dirname;
+    const read = (f: string) => readFileSync(path.join(UI, f), "utf8");
+    // The bar's fill and the chip's text, both as custom properties.
+    expect(read("DemoBanner.module.css")).toMatch(/background: var\(--color-demo-bg\)/);
+    expect(read("SourceBadge.module.css")).toMatch(
+      /\.badge\[data-token="src-sim"\] \{[^}]*color: var\(--color-src-sim\)/,
+    );
+    // Neither carries the literal, nor does anything else under src/ but this file.
+    const offenders = walkSrc().filter(
+      (f) => f !== path.join(SRC_ROOT, "ui", "tokens.ts") && readFileSync(f, "utf8").includes(VIOLET),
+    );
+    expect(offenders.map((f) => path.relative(SRC_ROOT, f))).toEqual([]);
   });
 
   it("reserves the demo violet for demo and simulation only", () => {

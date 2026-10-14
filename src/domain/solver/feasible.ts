@@ -11,7 +11,7 @@
  * The output is a feasible layout, or a deficit {k, type, count} with ranked options that a human
  * approves. The solver assigns nothing, locks nothing, and never proposes removing a boarded child.
  */
-import { fill, solver as copy } from "@/ui/copy";
+import { fill, layoutName, solver as copy } from "@/ui/copy";
 import { maxMatching } from "./matching";
 import type {
   AmbSeat, Child, DailyCapability, Deficit, DeficitType, Layout, LayoutAttempt, Leg,
@@ -324,7 +324,9 @@ function buildOptions(
           description: candidate.vehicle.description,
           provider: candidate.vehicle.providerName,
           who,
-          layout: verdict.layout?.code ?? "",
+          // Words, not the provider's shorthand: a coordinator reads this option
+          // on a board, and "1WC/3A" is not a thing anyone says out loud.
+          layout: verdict.layout ? layoutName(verdict.layout.code) : "",
         }),
         { candidateVehicleId: candidate.vehicle.id, candidateLayoutCode: verdict.layout?.code });
     }

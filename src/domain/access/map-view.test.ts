@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import type { StaffRole } from "@/auth/core";
 import {
   canOpenMapPreview,
+  canOpenRampPreview,
   canSeeMapData,
   demoSessionRole,
   MAP_DATA_BY_ROLE,
@@ -147,6 +148,29 @@ describe("the browser-test session grants a role and nothing else", () => {
     }
     for (const role of ["ADMIN", "director", "ANONYMOUS", "", "1"]) {
       expect(demoSessionRole({ ...on, E2E_DEMO_ROLE: role })).toBeNull();
+    }
+  });
+});
+
+describe("who may open the ramp check", () => {
+  it("lets every staff role in: the front desk's own surface, walked by all three", () => {
+    for (const role of ["DIRECTOR", "COORDINATOR", "FRONT_DESK"] satisfies StaffRole[]) {
+      expect(canOpenRampPreview(role)).toBe(true);
+    }
+  });
+
+  it("keeps anonymous out, for the reason the map preview keeps them out", () => {
+    // The deployed URL is guessable and the page lists children by name, the transport needs
+    // derived from their intake, and which seat each of them is in.
+    expect(canOpenRampPreview("ANONYMOUS")).toBe(false);
+  });
+
+  it("is the same door as the map preview, so neither can be reached around the other", () => {
+    for (const viewer of ["DIRECTOR", "COORDINATOR", "FRONT_DESK", "ANONYMOUS"] as const) {
+      expect({ viewer, ramp: canOpenRampPreview(viewer) }).toEqual({
+        viewer,
+        ramp: canOpenMapPreview(viewer),
+      });
     }
   });
 });

@@ -379,10 +379,14 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
   it("the map preview's heading, intro and document title", () => {
     expect(mapPreview.heading).toBe("Map preview");
     expect(mapPreview.documentTitle).toContain(mapPreview.heading);
-    // The intro's whole job is to say what is and is not real, in one place.
-    expect(mapPreview.intro).toMatch(/^Fleet map pane/);
+    /*
+     * The intro's whole job is to say what is and is not real. It used to do that in a
+     * paragraph of fixture provenance, which named the build's own surface code and left the
+     * one sentence that matters at the end of six lines nobody read. Two sentences now, and
+     * src/ui/no-codes.test.ts holds the exact wording (Vera's review).
+     */
+    expect(mapPreview.intro).toBe("Simulated vans on demo routes. Nothing here is live.");
     expect(mapPreview.intro).toMatch(/Nothing here is live/);
-    expect(mapPreview.intro).toMatch(/no real children or families\.$/);
   });
 
   it("the map pane's own wording, including the two tile notices", () => {

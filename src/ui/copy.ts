@@ -196,11 +196,11 @@ export const mapPreview = {
   /** <title> for the route, so the tab says which preview is open. */
   documentTitle: "Map preview · PPEC transportation dashboard",
   /**
-   * What the surface is and, at the same length, what it is not. Written long on purpose:
-   * a reviewer who lands here must not have to guess which parts are real.
+   * What the surface is, in two sentences a reviewer reads once. It used to carry the build's
+   * own surface code and a paragraph of fixture provenance; neither means anything to the
+   * people who stand in front of this screen, so both are gone (COPY-GUIDE §1–§2).
    */
-  intro:
-    "Fleet map pane (SURF-01) on committed fixtures: the center at 2216 Jog Rd, public landmark stops, and the GPS simulator driving V1–V3 along committed route fixtures with injected faults — a stall, a GPS gap, duplicate and out-of-order points, ±40 m jitter, and one unbound device. ETA windows come from the committed route durations and a simulated traffic band; freshness follows the four decided bands (live / aging / stale at 180 s / no signal at 600 s). Nothing here is live — no database, no GPS feed, no messages sent, no real children or families.",
+  intro: "Simulated vans on demo routes. Nothing here is live.",
   /** Said on the page itself: a preview surface is still behind staff sign-in. */
   signedInOnly: "Staff sign-in only. The data below is simulated, and the roles still apply.",
   clock: "Scenario clock {time} ET",
@@ -225,7 +225,16 @@ export const mapPreview = {
   decisionsEmpty: "No notification decision yet.",
   decisionRow: "{time} ET · {vehicle} · {family} · {shift} · new pickup window {window}",
   faultsHeading: "Injected faults",
-  faultRow: "{vehicle} · {route} · {fault} ({provenance})",
+  /**
+   * A fault row names the van, the run in words and what was injected. The run's fixture id
+   * ("route1", "route1-unbound") and the ticket it was written for never reach the screen —
+   * a reviewer standing at the board reads a place name, not a file name.
+   */
+  faultRow: "{vehicle} · {route} · {fault}",
+  /** A demo run, named by where it starts: "Okeeheelee Park run". */
+  routeName: "{stop} run",
+  /** Where the ramp iPad preview is, said from the map preview so it can be found at all. */
+  openRampCheck: "Open the ramp check",
   /** A device with no active binding has no position to show, so it is absent, not faint. */
   unbound:
     "{vehicle}'s device has no active binding: {unbound} points ingested and stored as unbound, {accepted} displayable. It has no marker, no row and no ETA.",
@@ -296,8 +305,7 @@ export const rampPreview = {
   /** `{date}` is the site-timezone service date, "Tue, Oct 14" (§3). */
   subtitle: "{date} · afternoon rides",
   /** Says plainly that this surface records nothing, so nobody waits for a send that never happens. */
-  localOnly:
-    "Nothing on this page is sent anywhere. Answers stay in this browser so the vehicle check can be walked through.",
+  localOnly: "Nothing here is sent. Answers stay on this iPad.",
 
   arrivalsHeading: "Which vehicle is at the ramp?",
   /** §5: the vehicle tile reads "V1 · Provider P1 · arriving 8:52 · 3 riders", over two lines. */
@@ -308,6 +316,19 @@ export const rampPreview = {
   checklistIntro:
     "Unknown until arrival is normal. Anything left on “Not sure” keeps the run unchecked.",
   layoutLegend: "How is the vehicle set up?",
+  /**
+   * A seat layout in words. The fixtures carry the trade's shorthand ("1WC/3A"), which is
+   * fine on a manifest and wrong on a 56 px button a ramp attendant taps in the rain, so the
+   * button says what the shorthand means. `layoutName` in src/app/ramp-preview/capability.ts
+   * reads the two counts out of the code; these are the words it puts round them.
+   */
+  layout: {
+    /** "No wheelchairs · 6 seats" — zero is said, never printed as "0 wheelchairs". */
+    noWheelchairs: "No wheelchairs",
+    separator: " · ",
+  },
+  /** Announced on any button that is the current choice, after its own label (§9). */
+  selected: "selected",
   liftRow: "Lift works?",
   latchRow: "Car-seat anchors (LATCH)",
   /** §5: every checklist row answers Yes / No / Not sure. "Not sure" is never read as a yes. */
@@ -373,6 +394,13 @@ export const rampPreview = {
     "Reported by provider, not checked at the ramp, unless that vehicle was checked here too. Ramp staff don’t choose; the coordinator does.",
 
   /* ── the feasibility banner (§5 SURF-04) ── */
+  /**
+   * The banner is pinned to the bottom of the iPad, so it is over the checklist for as long as
+   * the page is scrolled. Collapsed it is one line — the verdict, which is the part that has to
+   * be true at a glance — and the reason and the coordinator's options are one tap away.
+   */
+  showDetails: "Show details",
+  hideDetails: "Hide details",
   /** §5: "Fits: 1 wheelchair, 1 walking seat." */
   fits: "Fits: {parts}.",
   fitsNobody: "Fits: nobody is riding this run.",
@@ -417,11 +445,33 @@ export const countable = {
   walkingSeat: { one: "walking seat", many: "walking seats" },
   wcPosition: { one: "wheelchair position", many: "wheelchair positions" },
   anchoredSeat: { one: "anchored seat", many: "anchored seats" },
+  /** The plain seat count on a layout button: "6 seats", "1 seat". */
+  seat: { one: "seat", many: "seats" },
 } as const;
 
 /** "1 wheelchair" / "2 wheelchairs" — a count never reaches the screen without its noun. */
 export function pluralize(count: number, noun: { one: string; many: string }): string {
   return `${count} ${count === 1 ? noun.one : noun.many}`;
+}
+
+/**
+ * A seat layout in words: "1 wheelchair · 3 seats" for the fixtures' `1WC/3A`.
+ *
+ * The shorthand is how a provider writes a configuration down. It is fine on a manifest and
+ * wrong on a 56 px button a ramp attendant taps in the rain, so every screen that shows a
+ * layout — the ramp buttons, the "Checked as …" banner, the coordinator's alternate-vehicle
+ * option — says what the shorthand means instead. Zero wheelchairs is *said* rather than
+ * counted, because "0 wheelchairs" reads like a fault. A code this does not recognise comes
+ * back unchanged, so a new fixture shows its own shorthand rather than an empty button.
+ */
+export function layoutName(code: string): string {
+  const match = /^(\d+)WC\/(\d+)A$/.exec(code.trim());
+  if (!match) return code;
+  const chairs =
+    Number(match[1]) === 0
+      ? rampPreview.layout.noWheelchairs
+      : pluralize(Number(match[1]), countable.wheelchair);
+  return `${chairs}${rampPreview.layout.separator}${pluralize(Number(match[2]), countable.seat)}`;
 }
 
 /**

@@ -18,6 +18,7 @@
  * matrix in that file is the one place the answer is written down.
  */
 
+import { Check } from "lucide-react";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { canSeeMapData, type MapViewer } from "@/domain/access/map-view";
 import FleetMap from "./FleetMap";
@@ -32,7 +33,8 @@ import {
 } from "@/domain/eta/replay";
 import { measurePath, pathUpTo } from "@/domain/location/geo";
 import { fill, mapPreview, sourceMode } from "@/ui/copy";
-import { routeGeometry } from "@/domain/location/route";
+import { routeGeometry, type Route } from "@/domain/location/route";
+import { icon } from "@/ui/tokens";
 import { DEMO_RUNS, DEMO_RUN_SECONDS, SCENARIO_START_MS } from "@/fixtures/replays";
 import {
   DEMO_CENTER,
@@ -86,10 +88,20 @@ function useSimClock(playing: boolean, speed: number, reduced: boolean) {
   return { simSeconds, restart: () => setSimSeconds(0) };
 }
 
+/**
+ * A run's name, in words: the place it starts, then "run". Built from the fixture's own first
+ * stop rather than from a table of ids, so a new route is named the moment it is added and the
+ * id ("route1", "route1-unbound") stays where it belongs — in the fixture file.
+ */
+function routeLabelOf(route: Route): string {
+  return fill(mapPreview.routeName, { stop: route.stops[0]?.name ?? "" });
+}
+
 interface RunView {
   label: string;
   faultLabel: string;
-  provenance: string;
+  /** The run in words — "Okeeheelee Park run" — never its fixture id. */
+  routeLabel: string;
   result: ReplayResult;
   frame: ReplayFrame;
 }
@@ -190,10 +202,22 @@ const button: React.CSSProperties = {
   cursor: "pointer",
 };
 
+/**
+ * The chosen speed, filled rather than outlined.
+ *
+ * An outline in the brand tone is the same shape as the §9 focus ring, so "which speed is
+ * running" and "where is my keyboard" read as the same signal. A filled button is a different
+ * shape of answer: brand ink carrying surface-white text, the §8 pair that passes AA at 6.70:1,
+ * with a check mark beside the label so the state is never colour alone (§3).
+ */
 const pressed: React.CSSProperties = {
   ...button,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "var(--space-2)",
+  color: "var(--color-surface)",
+  background: "var(--color-brand)",
   borderColor: "var(--color-brand)",
-  boxShadow: "inset 0 0 0 var(--border-hairline) var(--color-brand)",
 };
 
 const meta: React.CSSProperties = {
@@ -233,7 +257,7 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
   const runs: RunView[] = results.map((run) => ({
     label: run.spec.route.vehicleId,
     faultLabel: run.faultLabel,
-    provenance: run.provenance,
+    routeLabel: routeLabelOf(run.spec.route),
     result: run.result,
     frame: frameAt(run.result, nowMs, !reduced),
   }));
@@ -301,6 +325,7 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
                 aria-pressed={speed === option}
                 onClick={() => setSpeed(option)}
               >
+                {speed === option ? <Check size={icon.inline} aria-hidden="true" /> : null}
                 {fill(mapPreview.speed, { factor: option })}
               </button>
             ))}
@@ -352,9 +377,8 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
             <li key={run.result.spec.route.id}>
               {fill(mapPreview.faultRow, {
                 vehicle: run.result.spec.route.vehicleId,
-                route: run.result.spec.route.id,
+                route: run.routeLabel,
                 fault: run.faultLabel,
-                provenance: run.provenance,
               })}
             </li>
           ))}

@@ -18,11 +18,12 @@
  * second pair.
  */
 
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import LiveFleetMap from "@/components/map/LiveFleetMap";
 import { mapPreview } from "@/ui/copy";
 import { canOpenMapPreview } from "@/domain/access/map-view";
-import { mapPreviewViewer } from "./viewer";
+import { previewViewer } from "@/auth/preview-viewer";
 
 export const metadata = { title: mapPreview.documentTitle };
 
@@ -30,7 +31,7 @@ export const metadata = { title: mapPreview.documentTitle };
 export const dynamic = "force-dynamic";
 
 export default async function MapPreviewPage() {
-  const viewer = await mapPreviewViewer();
+  const viewer = await previewViewer();
   if (!canOpenMapPreview(viewer)) redirect("/login");
 
   return (
@@ -67,6 +68,14 @@ export default async function MapPreviewPage() {
         }}
       >
         {mapPreview.signedInOnly}
+      </p>
+      {/*
+        The ramp iPad preview is a sibling developer surface behind the same guard, and until
+        now the only way to reach it was to know the URL. The two previews are walked in one
+        sitting, so each one says where the other is.
+      */}
+      <p style={{ margin: 0, fontSize: "var(--body-console)" }}>
+        <Link href="/ramp-preview">{mapPreview.openRampCheck}</Link>
       </p>
       <LiveFleetMap viewer={viewer} />
     </main>

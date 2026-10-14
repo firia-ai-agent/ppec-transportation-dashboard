@@ -2,9 +2,10 @@
 import { describe, expect, it } from "vitest";
 import { feasible } from "@/domain/solver";
 import {
-  C1, C2, C6_AT_RAMP, C7, C8, ROUTE2_PM, SERVICE_DATE, TWO_SEAT_CRISIS_AM, V1, V1_LAYOUT_1WC3A, V4,
-  V4_LAYOUT_0WC3A, fullyAvailable,
+  ARRIVING_VEHICLES, C1, C2, C6_AT_RAMP, C7, C8, ROUTE2_PM, SERVICE_DATE, TWO_SEAT_CRISIS_AM, V1,
+  V1_LAYOUT_1WC3A, V4, V4_LAYOUT_0WC3A, fullyAvailable,
 } from "@/fixtures/fleet";
+import { layoutName } from "@/ui/copy";
 import type { Checklist } from "./capability";
 import {
   availableSummary, bannerCopy, defaultChecklist, needChips, needSummary, positionLabel, toCapability,
@@ -106,5 +107,41 @@ describe("rider and position labels", () => {
       .toBe("Wheelchair position 1 · L-track · fits 122 × 76 cm");
     expect(positionLabel(V4_LAYOUT_0WC3A.positions[0], 1)).toBe("Walking seat 1 · has an anchor");
     expect(positionLabel(V4_LAYOUT_0WC3A.positions[2], 3)).toBe("Walking seat 3");
+  });
+});
+
+describe("seat layouts in words (Vera's review)", () => {
+  it("names the three V1 configurations exactly as the review asked", () => {
+    expect(layoutName("0WC/6A")).toBe("No wheelchairs · 6 seats");
+    expect(layoutName("1WC/3A")).toBe("1 wheelchair · 3 seats");
+    expect(layoutName("2WC/1A")).toBe("2 wheelchairs · 1 seat");
+  });
+
+  it("says zero rather than counting it, and singulars at exactly one", () => {
+    expect(layoutName("0WC/1A")).toBe("No wheelchairs · 1 seat");
+    expect(layoutName("1WC/1A")).toBe("1 wheelchair · 1 seat");
+  });
+
+  it("names every layout the fixtures ship, so no button is left showing shorthand", () => {
+    const codes = ARRIVING_VEHICLES.flatMap((a) => a.vehicle.layouts.map((l) => l.code));
+    expect(codes.length).toBeGreaterThan(0);
+    for (const code of codes) {
+      expect(layoutName(code), code).not.toBe(code);
+      expect(layoutName(code), code).not.toMatch(/WC\//);
+    }
+  });
+
+  it("hands back a shorthand it does not recognise, rather than an empty button", () => {
+    expect(layoutName("FLATBED")).toBe("FLATBED");
+  });
+
+  it("the banner reads the words the button reads, not the shorthand", () => {
+    const capability = toCapability(V1, crisisChecklist, SERVICE_DATE);
+    const result = feasible(V1, TWO_SEAT_CRISIS_AM, capability);
+    const banner = bannerCopy(result, needSummary(TWO_SEAT_CRISIS_AM), availableSummary(V1, crisisChecklist));
+    if (result.status === "FEASIBLE") {
+      expect(banner.detail).toBe(`Checked as ${layoutName(V1_LAYOUT_1WC3A.code)}.`);
+      expect(banner.detail).not.toMatch(/WC\//);
+    }
   });
 });

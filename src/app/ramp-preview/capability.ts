@@ -9,7 +9,7 @@ import type {
   AmbSeat, Child, DailyCapability, Layout, LayoutPosition, Leg, SolveResult, Vehicle, WcPosition,
 } from "@/domain/solver";
 import { onboardByStop } from "@/domain/solver";
-import { countable, fill, pluralize, rampPreview, securement } from "@/ui/copy";
+import { countable, fill, layoutName, pluralize, rampPreview, securement } from "@/ui/copy";
 import type { Tone } from "@/ui/tokens";
 
 export type Answer = "YES" | "NO" | "UNSURE";
@@ -106,7 +106,11 @@ export function bannerCopy(result: SolveResult, need: Counts, available: Counts)
       title: parts.length > 0
         ? fill(rampPreview.fits, { parts: parts.join(", ") })
         : rampPreview.fitsNobody,
-      detail: fill(rampPreview.checkedAs, { layout: result.layout?.code ?? "" }).trim(),
+      // "Checked as 1 wheelchair · 3 seats." — the banner reads the same words as the button
+      // that was tapped, never the provider's shorthand.
+      detail: fill(rampPreview.checkedAs, {
+        layout: result.layout ? layoutName(result.layout.code) : "",
+      }).trim(),
     };
   }
   if (result.status === "CAPABILITY_PENDING") {

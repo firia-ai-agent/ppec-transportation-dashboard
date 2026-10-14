@@ -218,6 +218,30 @@ export default function FleetMap({ fixture, label = copy.label }: FleetMapProps)
         setError(null);
         setReady(true);
       });
+
+      /*
+       * What actually got painted, published on the container.
+       *
+       * MapLibre draws into a WebGL canvas, so "the basemap is there" and "V1, V2 and V3 have
+       * markers" are invisible to the DOM: a pane that drew nothing at all looks exactly like
+       * a pane that drew a whole city, which is how a blank map survived a browser check once
+       * already. `queryRenderedFeatures` is MapLibre's own answer to "what is on screen right
+       * now", and `idle` is the event that means it has stopped arriving — so on idle the pane
+       * writes down the count of basemap features it is showing and the ids of the vehicles it
+       * has markers for, and e2e/screens.spec.ts reads them before it takes the screenshot.
+       */
+      map.on("idle", () => {
+        if (!map) return;
+        const ours = new Set<string>(Object.values(MAP_LAYER_IDS));
+        const rendered = map.queryRenderedFeatures();
+        const basemap = rendered.filter((f) => !ours.has(String(f.layer?.id ?? "")));
+        const vehicles = map
+          .queryRenderedFeatures({ layers: [MAP_LAYER_IDS.vehicleCircle] })
+          .map((f) => String(f.properties?.id ?? ""))
+          .filter((id) => id.length > 0);
+        container.dataset.basemapFeatures = String(basemap.length);
+        container.dataset.vehiclesDrawn = [...new Set(vehicles)].sort().join(",");
+      });
     })();
 
     return () => {

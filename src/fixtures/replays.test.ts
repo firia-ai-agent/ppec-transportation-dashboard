@@ -34,11 +34,13 @@ describe("the demo run set", () => {
     expect(new Set(DEMO_RUNS.map((r) => r.spec.route.deviceId)).size).toBe(DEMO_RUNS.length);
   });
 
-  it("gives every run a fault label and the reference it exists for", () => {
+  it("gives every run a fault label, in words a reviewer can read", () => {
     for (const run of DEMO_RUNS) {
       expect(run.faultLabel.length).toBeGreaterThan(0);
-      expect(run.provenance.length).toBeGreaterThan(0);
       expect(run.spec.faults ?? []).not.toHaveLength(0);
+      // The label is rendered, so it carries no ticket code and no PRD section (COPY-GUIDE §2).
+      expect(run.faultLabel).not.toMatch(/\b(?:AT|ADR|LOC|SURF)-\d+/);
+      expect(run.faultLabel).not.toMatch(/PRD\s*§/);
     }
     expect(new Set(DEMO_RUNS.map((r) => r.faultLabel)).size).toBe(DEMO_RUNS.length);
   });

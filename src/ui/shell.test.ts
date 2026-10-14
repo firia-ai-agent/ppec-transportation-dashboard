@@ -91,6 +91,42 @@ describe("NFR-09 / §7.1: the source-mode chip sits next to the DEMO banner", ()
     expect(css).toMatch(/\.source \{[^}]*grid-column: 3/);
   });
 
+  it("stays on screen while the page scrolls, which is what 'every screen' means", () => {
+    const css = read(UI, "DemoBanner.module.css");
+    // Rendered in the root layout the bar is on every *route*; sticky is what keeps it on
+    // every *screen*, including a signed-in board taller than the window (NFR-09, §7).
+    expect(css).toMatch(/\.banner \{[^}]*position: sticky/);
+    expect(css).toMatch(/\.banner \{[^}]*top: 0/);
+    // Above the §2 icon rail, which raises itself to z-index 10 when it expands over content.
+    const z = /\.banner \{[^}]*z-index: (\d+)/.exec(css)?.[1];
+    const railZ = /\.rail \{[^}]*z-index: (\d+)/.exec(read(UI, "NavRail.module.css"))?.[1];
+    expect(Number(z)).toBeGreaterThan(Number(railZ));
+  });
+
+  it("the console reserves the bar's height instead of overflowing by it", () => {
+    // A flat 100vh under a 32 px bar makes every signed-in page scroll by exactly the height
+    // of the bar — which, before the bar was sticky, scrolled the bar itself out of sight.
+    expect(read(UI, "AppShell.module.css")).toMatch(
+      /\.shell \{[^}]*min-height: calc\(100vh - var\(--layout-demo-banner-height\)\)/,
+    );
+    // The skip link clears the bar rather than landing under it.
+    expect(read(APP, "globals.css")).toMatch(
+      /\.skipLink:focus \{[^}]*top: calc\(var\(--layout-demo-banner-height\)/,
+    );
+  });
+
+  it("every signed-in route is inside the layout that sits under that one bar", () => {
+    // The (app) layout must not mount a bar of its own — one per screen, from the root.
+    const appLayout = read(APP, "(app)", "layout.tsx");
+    expect(appLayout).toMatch(/<AppShell /);
+    expect(appLayout).not.toMatch(/DemoBanner|ScreenSource|SourceBadge/);
+    // ...and it must actually wrap the signed-in pages, or they would render bare.
+    const routes = readdirSync(path.join(APP, "(app)"), { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+    expect(routes).toEqual(expect.arrayContaining(["today", "exceptions", "setup", "health"]));
+  });
+
   it("the outlined white chip still passes contrast on the violet bar", () => {
     const chipCss = read(UI, "SourceBadge.module.css");
     expect(chipCss).toMatch(/background: var\(--color-surface\)/);
@@ -125,6 +161,21 @@ describe("§2 icon rail, 768–1279", () => {
   it("gives every link both an aria-label and a tooltip carrying the page name", () => {
     expect(component).toMatch(/aria-label=\{item\.label\}/);
     expect(component).toMatch(/title=\{item\.label\}/);
+  });
+
+  it("takes the collapsed label out of flow, so the icon is not pushed off the rail", () => {
+    /*
+     * The clipped rail. Faded but still in flow, "Exceptions & Approvals" plus the 12 px gap
+     * measures far wider than the 48 px of usable rail; `justify-content: center` then centres
+     * a row wider than its box and `overflow: hidden` cuts the icon in half at its left edge.
+     * Absolute positioning takes the label's width out of the sum. The browser check in
+     * e2e/screens.spec.ts measures the real thing at 1024.
+     */
+    const collapsed = rail.slice(rail.indexOf("@media (max-width: 1279px)"));
+    expect(collapsed).toMatch(/\.label \{[^}]*position: absolute/);
+    expect(collapsed).toMatch(/\.rail:hover \.label,\s*\.rail:focus-within \.label \{[^}]*position: static/);
+    // The label is clipped, never removed: the name stays in the DOM at every width.
+    expect(collapsed).not.toMatch(/\.label \{[^}]*display: none/);
   });
 });
 

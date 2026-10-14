@@ -41,6 +41,7 @@ test("the map preview renders the fleet map and saves a screenshot", async ({ pa
   expect(size?.width ?? 0).toBeGreaterThan(400);
   expect(size?.height ?? 0).toBeGreaterThan(200);
 
+
   // ADR-008 / §5.1: attribution is always visible and never removed.
   await expect(map.locator(".maplibregl-ctrl-attrib")).toBeAttached();
 
@@ -60,7 +61,19 @@ test("the map preview renders the fleet map and saves a screenshot", async ({ pa
   await page.getByRole("button", { name: mapPreview.pause, exact: true }).click();
   // Then let the basemap finish: tiles, glyphs and sprites are all separate requests.
   await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(3_000);
+
+  /*
+   * A canvas of the right size is not a map. When the tile worker fails to load, MapLibre keeps
+   * the canvas and draws nothing into it — no basemap, no routes, no trucks — and the DOM looks
+   * identical from the outside. So before the screenshot is taken, this reads what MapLibre
+   * itself says is on screen: the pane publishes it on the map's own `idle` event, which is
+   * also the event that means the tiles have stopped arriving (src/components/map/FleetMap.tsx).
+   */
+  await expect(map).toHaveAttribute("data-vehicles-drawn", "V1,V2,V3", { timeout: 60_000 });
+  expect(
+    Number(await map.getAttribute("data-basemap-features")),
+    "no basemap features rendered: the tiles did not draw",
+  ).toBeGreaterThan(200);
 
   mkdirSync(ARTIFACTS, { recursive: true });
   await page.screenshot({ path: SCREENSHOT, fullPage: false });

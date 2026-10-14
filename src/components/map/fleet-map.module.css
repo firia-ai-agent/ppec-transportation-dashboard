@@ -39,9 +39,45 @@
   inset: 0;
 }
 
-/* Keep MapLibre's own chrome above our overlay, and the attribution above all of it. */
+/*
+ * MapLibre's own chrome.
+ *
+ * The attribution is pinned to the bottom-right *of the pane* and sits above everything else
+ * in it (ADR-008 / §5.1: always visible, never removed, never covered). It is anchored with
+ * `position: absolute` against `.canvasWrap` rather than left to flow inside MapLibre's
+ * control column, so a narrow pane — 1024 px, where the map gives 260 px to the vehicle list —
+ * cannot push it past the pane's edge and under `overflow: hidden`.
+ */
 .canvasWrap :global(.maplibregl-ctrl-bottom-right) {
+  position: absolute;
+  right: 0;
+  bottom: 0;
   z-index: 4;
+  max-width: 100%;
+  margin: 0;
+  padding: 0 var(--space-2) var(--space-2) 0;
+  pointer-events: auto;
+}
+
+.canvasWrap :global(.maplibregl-ctrl-attrib) {
+  max-width: 100%;
+  /* The licence text wraps rather than running out of the pane. */
+  white-space: normal;
+}
+
+/*
+ * §9: ≥44 px console targets. MapLibre ships 29 px zoom buttons, which fail the target rule and
+ * are a genuinely hard tap on a tablet. The icons are background SVGs sized by the button, so
+ * growing the button grows the target and leaves the glyph where it is.
+ */
+.canvasWrap :global(.maplibregl-ctrl-group button) {
+  width: var(--target-console);
+  height: var(--target-console);
+}
+
+/* The group is 29 px wide by default, which would crop the wider buttons. */
+.canvasWrap :global(.maplibregl-ctrl-group) {
+  width: var(--target-console);
 }
 
 .overlay {

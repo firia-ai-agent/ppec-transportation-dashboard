@@ -16,7 +16,8 @@ import {
   MAP_WORKER_SOURCE,
 } from "./copy-maplibre-worker.mjs";
 
-const STYLE_TS = path.resolve(import.meta.dirname, "..", "src", "components", "map", "style.ts");
+const ROOT = path.resolve(import.meta.dirname, "..");
+const STYLE_TS = path.resolve(ROOT, "src", "components", "map", "style.ts");
 
 describe("copyMapWorker", () => {
   it("copies the installed worker into public/, byte for byte", () => {
@@ -43,6 +44,24 @@ describe("copyMapWorker", () => {
     // One contract, two files: the name here and `MAP_WORKER_URL` there.
     expect(readFileSync(STYLE_TS, "utf8")).toContain(`export const MAP_WORKER_URL = "/${MAP_WORKER_FILE}"`);
     expect(MAP_WORKER_DEST.endsWith(path.join("public", MAP_WORKER_FILE))).toBe(true);
+  });
+
+  it("is run by the build itself, not by the npm script that happens to start it", () => {
+    /*
+     * The blank map. The copy used to live only in the `build` and `dev` npm scripts, so the
+     * worker landed in public/ only when the build was started through one of those two —
+     * and the hosting platform's Next.js preset calls `next build` directly, as did our own
+     * Playwright config. The file is gitignored, so there was no copy in the checkout to fall
+     * back on: the worker 404'd, MapLibre reported "Worker failed to load", and the pane drew
+     * an empty canvas with no error on it, because the style fetch had succeeded.
+     *
+     * next.config.ts is evaluated by every entry point there is, so that is where the copy
+     * belongs. This asserts it is still called from there, and that it is called at module
+     * scope rather than inside a config hook that a given command might not reach.
+     */
+    const config = readFileSync(path.resolve(ROOT, "next.config.ts"), "utf8");
+    expect(config).toMatch(/from "\.\/scripts\/copy-maplibre-worker\.mjs"/);
+    expect(config).toMatch(/^copyMapWorker\(\);$/m);
   });
 
   it("refuses a worker bundle that has imports one file cannot satisfy", () => {

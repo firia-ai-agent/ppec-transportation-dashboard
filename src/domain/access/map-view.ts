@@ -1,5 +1,6 @@
 /**
- * Who may open /map-preview, and what they see once they are in.
+ * Who may open the developer preview routes — /map-preview and /ramp-preview — and what the
+ * map preview shows them once they are in.
  *
  * SOURCE: ADR-004 (Credentials provider, roles re-read from the DB per request, the session
  * carries only a user id), ADR-014/ADR-015 (the demo flags), DECISION-LEDGER row 57 (the three
@@ -14,7 +15,7 @@
  * Pure module: no `next/*`, no Auth.js, no database, no `process.env` read of its own, so the
  * whole matrix is unit-testable, and `StaffRole` arrives as a *type-only* import so none of
  * src/auth (bcrypt, node:crypto) is pulled into the browser bundle by the map component.
- * src/app/map-preview/viewer.ts does the session work and calls in here for the answers.
+ * src/auth/preview-viewer.ts does the session work and calls in here for the answers.
  */
 import type { StaffRole } from "@/auth/core";
 
@@ -82,6 +83,16 @@ export function canSeeMapData(viewer: MapViewer, key: MapDataKey): boolean {
 /** A viewer may open the page at all iff there is some map data for them to see. */
 export function canOpenMapPreview(viewer: MapViewer): boolean {
   return MAP_DATA_BY_ROLE[viewer].length > 0;
+}
+
+/**
+ * Who may open /ramp-preview. The ramp iPad is the front desk's own surface and a coordinator
+ * and a director both walk it, so every staff role is in — and anonymous is not, for the same
+ * reason the map preview keeps its guard: the deployed URL is guessable, and the page lists
+ * children by name, their transport needs and which seat each of them is in.
+ */
+export function canOpenRampPreview(viewer: MapViewer): boolean {
+  return viewer !== "ANONYMOUS";
 }
 
 /**
