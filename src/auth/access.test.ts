@@ -38,7 +38,7 @@ import { noAccess } from "@/ui/copy";
  *    `forbidden.tsx` beside it so the refusal is a 403 with words on it;
  *  - `layout.tsx` — a row (the console shell guards sign-in for everything inside it);
  *  - `route.ts` — a row, and the guard its row names: the shared session guard, the cron secret,
- *    or the queue callback;
+ *    the queue callback, or the webhook signature;
  *  - `"use server"` — a row, because a server action is a POST endpoint with no URL of its own.
  */
 const SRC = path.resolve(__dirname, "..");
@@ -199,8 +199,40 @@ describe("every route enforces the auth its row names", () => {
     } else if (row.auth.kind === "queue-callback") {
       expect(source).toMatch(/handleCallback\(/);
       expect(source).not.toMatch(/requireApiSession|getCaller|auth\(\)/);
+    } else if (row.auth.kind === "signature-webhook") {
+      /*
+       * The HMAC over the raw body, keyed by the environment variable the row names — built from
+       * the row, so renaming either the header or the secret in the table and not in the handler
+       * fails here rather than shipping a webhook nobody verifies.
+       */
+      expect(source).toMatch(
+        new RegExp(`verifySimWebhook\\(raw, req\\.headers\\.get\\(SIM_SIGNATURE_HEADER\\), process\\.env\\.${row.auth.secretEnv}\\)`),
+      );
+      // A session must not be a second way in, exactly as on the cron and queue rows.
+      expect(source).not.toMatch(/requireApiSession|getCaller|auth\(\)/);
     }
   });
+
+  /**
+   * The signature is checked before anything else the handler does. Not a style point: everything
+   * below this line reads or writes something — the preview refusal, the form parse, the pepper,
+   * the database handle, the ingest that inserts a message, a consent event and a staff task — so
+   * a check that moved down would turn an unsigned post into a side effect.
+   */
+  it.each(ENDPOINTS.filter((e) => e.kind === "route" && e.auth.kind === "signature-webhook"))(
+    "$path verifies the signature before it parses, reads or writes anything",
+    (row) => {
+      const source = readFileSync(path.join(REPO, row.file), "utf8");
+      const body = source.slice(source.indexOf("export async function POST"));
+      const verifyAt = body.indexOf("verifySimWebhook");
+      expect(verifyAt).toBeGreaterThan(-1);
+      for (const later of ["previewSkip", "parseInboundForm", "HMAC_PEPPER", "getNeonDb", "ingestInbound", "Transport"]) {
+        expect({ later, before: body.indexOf(later) > verifyAt }, later).toEqual({ later, before: true });
+      }
+      // And the raw body is read exactly once, so the bytes that were signed are the bytes used.
+      expect(body.match(/req\.text\(\)/g)).toHaveLength(1);
+    },
+  );
 
   it("no route writes an /api/ path of its own: they name their row through API", () => {
     for (const row of ENDPOINTS.filter((e) => e.kind === "route")) {
@@ -250,6 +282,8 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/api/queues/timer": "queue-callback",
       "/api/queues/outbox": "queue-callback",
       "/api/queues/delay-probe": "queue-callback",
+      "/api/webhooks/sms": "signature-webhook",
+      "/api/sim/phones/[number]/messages": "session:DIRECTOR+COORDINATOR",
       "action:sign-in": "auth-endpoint",
       "action:sign-out": "public",
     });
@@ -257,7 +291,7 @@ describe("the policy itself, written out so a silent widening fails", () => {
 
   it("the site-scoped endpoints are the ones that take an id", () => {
     const scoped = ENDPOINTS.filter((e) => e.auth.kind === "session" && e.auth.siteScoped).map((e) => e.path);
-    expect(scoped).toEqual(["/api/demo/reset"]);
+    expect(scoped).toEqual(["/api/demo/reset", "/api/sim/phones/[number]/messages"]);
   });
 
   it("every row whose default is a guess is flagged for the founder, with the question in the file", () => {
@@ -299,7 +333,7 @@ describe("the decision, cell by cell", () => {
     expect(allowed).toEqual(["/", "/login", "/_not-found", "/whoami", "/map-preview", "/ramp-preview"]);
   });
 
-  it("a session is never a way into a cron, queue or Auth.js route", () => {
+  it("a session is never a way into a cron, queue, webhook or Auth.js route", () => {
     for (const row of ENDPOINTS.filter((e) => e.auth.kind !== "session" && e.auth.kind !== "public")) {
       for (const caller of Object.values(callers)) {
         expect({ path: row.path, outcome: apiOutcome(caller, row.path) }).toEqual({
@@ -308,6 +342,56 @@ describe("the decision, cell by cell", () => {
         });
       }
     }
+  });
+
+  /**
+   * The signature webhook, named rather than covered by the loop above, because it is the one kind
+   * that is **reachable from the public internet** and so the one where "a session grants nothing"
+   * is easy to get wrong. A director is not a provider: the only thing that may run this handler is
+   * an HMAC of the request's own raw body, so every caller — signed out, no role, front desk,
+   * coordinator, director — gets the same answer from the table, and the route answers 401 to all
+   * of them without a valid signature (src/app/api/webhooks/sms/route.test.ts measures that over
+   * HTTP, including for a staff session).
+   */
+  it("the signature webhook takes no session at all, from any role, and names its header and secret", () => {
+    const rows = ENDPOINTS.filter((e) => e.auth.kind === "signature-webhook");
+    expect(rows.map((r) => r.path)).toEqual([API.smsWebhook]);
+    for (const row of rows) {
+      for (const caller of Object.values(callers)) {
+        expect({ path: row.path, outcome: apiOutcome(caller, row.path) }).toEqual({
+          path: row.path,
+          outcome: "NOT_A_SESSION_ROUTE",
+        });
+      }
+      // Not "public": the row carries where the proof of authorization is read from.
+      const auth = row.auth;
+      if (auth.kind !== "signature-webhook") throw new Error("filtered above");
+      expect(auth.header).toBe("x-sim-signature");
+      expect(auth.secretEnv).toBe("SIM_WEBHOOK_SECRET");
+      /*
+       * The secret's *name* is in the table, never its value: the table stays a pure module that
+       * reads no environment (see its header), and a key cannot be committed by being documented.
+       */
+      expect(auth.secretEnv).toMatch(/^[A-Z][A-Z0-9_]*$/);
+      const code = readFileSync(path.join(__dirname, "access.ts"), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "");
+      expect(code).not.toContain("process.env");
+    }
+  });
+
+  /**
+   * The persona phone is the second site-scoped row, and the first one that is a read. The table
+   * answers the role half (PRD §1.1: the console is the coordinator's and director's surface, the
+   * front desk's is the ramp iPad); the site half is `requireSiteAccess` where the phone is loaded,
+   * and src/modules/messaging/mailbox.test.ts holds the own-site-403 / other-site-404 matrix.
+   */
+  it("the persona phone is the console roles', and the front desk is refused", () => {
+    expect(apiOutcome(callers.director, API.simPhoneMessages)).toBe("ALLOW");
+    expect(apiOutcome(callers.coordinator, API.simPhoneMessages)).toBe("ALLOW");
+    expect(apiOutcome(callers.frontDesk, API.simPhoneMessages)).toBe("FORBIDDEN");
+    expect(apiOutcome(callers.noRole, API.simPhoneMessages)).toBe("FORBIDDEN");
+    expect(apiOutcome(callers.signedOut, API.simPhoneMessages)).toBe("UNAUTHENTICATED");
   });
 
   it("the demo reset is the director's alone", () => {
