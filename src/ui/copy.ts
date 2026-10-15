@@ -882,9 +882,41 @@ export const agentNextSteps = {
   NONE: "No further step; this is here so it is on the record.",
 } as const;
 
-/** What the agent is waiting for, on the task that stands in for the wait (§11.1). */
+/**
+ * How a task raised by one agent step says which step it came from. Shared by every agent task
+ * that needs to: a coordinator has to be able to find the step behind the work, and nothing else
+ * about the machinery is theirs to read, so the run id and the tool name are not in here.
+ *
+ * Used by `run/tasks.ts` (a refused step) and `run/timers.ts` (a step waiting for an answer).
+ */
+export const agentTaskLocator = "{summary} ({trigger}, step {step})";
+
+/**
+ * The task that stands in for a run waiting on an answer (§11.1: "delayed external responses are
+ * tasks with timers, never waiting sessions"). The agent is not sitting in a function — it has
+ * ended, and this task plus its timer are the whole of the wait, so these are the words a
+ * coordinator reads while it is open. `run/timers.ts` writes them.
+ */
 export const agentWaits = {
+  locator: agentTaskLocator,
+  nextStep: "Wait for the reply, or answer it yourself; the agent carries on when the timer is up.",
+  /** What is being waited for, per await reason. */
   clarification: "Waiting for the family to say which child or which ride they mean",
+} as const;
+
+/**
+ * The RED task a background timer opens when it has run out of attempts: a timer that cannot
+ * complete becomes work for a person rather than a silent gap. `modules/jobs/runner.ts` writes it,
+ * and it is on the Exceptions board next to the agent's own tasks, so it is written the same way —
+ * summary, one next step, and the condition that closes it.
+ *
+ * The timer's kind and key ride in the summary because they are the only way to find the thing that
+ * failed; they are the one code on this board that is addressed to whoever is on call.
+ */
+export const timerDeadTask = {
+  summary: "A background timer failed {attempts} times and has stopped retrying ({kind}, {key})",
+  nextStep: "Check the timer, then run it or cancel it by hand.",
+  predicate: "the timer has been run or canceled",
 } as const;
 
 /**
@@ -896,7 +928,7 @@ export const agentWaits = {
  * find the step the task came from, and nothing else about the machinery is theirs to read.
  */
 export const agentPolicyTask = {
-  locator: "{summary} ({trigger}, step {step})",
+  locator: agentTaskLocator,
   staffReview: {
     summary: "The assistant tried something it is not allowed to do",
     nextStep: "Read the refused step, then do the work by hand if it still needs doing.",

@@ -24,6 +24,7 @@ import { z } from "zod";
 import type { Exec } from "@/db/exec";
 import type { Handler } from "@/modules/jobs/runner";
 import type { JobScheduler } from "@/modules/jobs/scheduler";
+import { agentWaits, fill } from "@/ui/copy";
 import { uuidv7 } from "uuidv7";
 import type { AwaitExternal } from "./executors";
 import { type RunRow, type ToolCallRow, commitCall, runActor, setRunState } from "./store";
@@ -84,8 +85,14 @@ export async function parkRunOnTimer(
      VALUES ($1, $2, $3, 'GREEN', 'OPEN', $4, $5, $6, $7, $8, $8, 'SIMULATED')`,
     [
       taskId, args.run.siteId, AGENT_AWAIT_TASK_CATEGORY,
-      `${args.await.summary} (${triggerLabel(args.run.trigger)}, step ${args.call.seq})`,
-      `Wait for the reply, or answer it; the agent resumes when the timer fires`,
+      // The staff-visible words are `src/ui/copy.ts`; what this module decides is which await
+      // reason the summary names and which step it points at (PR #35 review, F10).
+      fill(agentWaits.locator, {
+        summary: args.await.summary,
+        trigger: triggerLabel(args.run.trigger),
+        step: args.call.seq,
+      }),
+      agentWaits.nextStep,
       args.await.completionPredicate,
       dueAt.toISOString(), by,
     ],

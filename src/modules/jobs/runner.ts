@@ -4,6 +4,7 @@
  */
 import { uuidv7 } from "uuidv7";
 import type { Db, Exec } from "@/db/exec";
+import { fill, timerDeadTask } from "@/ui/copy";
 import { arm, EARLY_SLACK_MS, INLINE_RECHECK_MAX_ITERATIONS, INLINE_RECHECK_MAX_MS, JOB_COLUMNS, LEASE_RENEW_EVERY_MS, LEASE_SECONDS, MAX_ATTEMPTS, MAX_DELAY_SECONDS, REWAKE_DELAY_SECONDS, REWAKE_MARGIN_MS, rewakeDelaySeconds, staleWake, type Clock, type JobRow, type Sleep, type WakeFence, type WakeMessage, type WakeTransport, systemClock, systemSleep } from "./scheduler";
 
 export type Handler = (tx: Exec, job: JobRow) => Promise<void>;
@@ -154,11 +155,22 @@ async function markFailed(db: Db, job: JobRow, err: unknown, by: string, token: 
   });
 }
 
+/**
+ * The RED task a timer out of attempts leaves behind. A coordinator reads it, so the words live
+ * with the rest of the app's copy (`src/ui/copy.ts` `timerDeadTask`, PR #35 review F10); what this
+ * function decides is when one is raised and which timer it names.
+ */
 export async function raiseDeadTask(tx: Exec, job: Pick<JobRow, "id" | "key" | "kind" | "site_id">, by: string) {
   await tx.query(
     `INSERT INTO ops.task (id, site_id, category, severity, summary, next_step, completion_predicate, created_by, updated_by, source_mode)
-     VALUES ($1, $2, 'TIMER_DEAD', 'RED', $3, 'Check the job and fire or cancel it by hand', $4, $5, $5, 'SIMULATED')`,
-    [uuidv7(), job.site_id, `Timer ${job.kind} (${job.key}) failed ${MAX_ATTEMPTS} times`, `job ${job.id} DONE or CANCELED`, by]);
+     VALUES ($1, $2, 'TIMER_DEAD', 'RED', $3, $4, $5, $6, $6, 'SIMULATED')`,
+    [
+      uuidv7(), job.site_id,
+      fill(timerDeadTask.summary, { attempts: MAX_ATTEMPTS, kind: job.kind, key: job.key }),
+      timerDeadTask.nextStep,
+      timerDeadTask.predicate,
+      by,
+    ]);
 }
 
 /** Claim and run one job. Handler + DONE + fire log commit together, so a crash leaves it CLAIMED (lease reclaims it). */

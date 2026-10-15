@@ -16,6 +16,7 @@ import type { Db } from "@/db/exec";
 import { SITE, freshDb } from "@/test/pglite";
 import { handlers } from "@/modules/jobs/handlers";
 import { handleWake } from "@/modules/jobs/runner";
+import { agentWaits, fill } from "@/ui/copy";
 import { toolCall } from "../providers/fake";
 import { tierPrompt } from "./context";
 import { AT01_EXECUTORS, AT01_FACTS, AT01_NOTE, at01Policy, runHarness } from "./harness";
@@ -84,8 +85,8 @@ const job = async (key: string) =>
   (await db.query<{ id: string; kind: string; state: string; due_at: Date; payload: { runId: string; seq: number; taskId: string } }>(
     "SELECT id, kind, state, due_at, payload FROM ops.job WHERE key = $1", [key])).rows[0];
 const tasks = async () =>
-  (await db.query<{ category: string; severity: string; state: string; summary: string; completion_predicate: string; sla_due_at: Date }>(
-    "SELECT category, severity, state, summary, completion_predicate, sla_due_at FROM ops.task ORDER BY created_at", [])).rows;
+  (await db.query<{ category: string; severity: string; state: string; summary: string; next_step: string; completion_predicate: string; sla_due_at: Date }>(
+    "SELECT category, severity, state, summary, next_step, completion_predicate, sla_due_at FROM ops.task ORDER BY created_at", [])).rows;
 
 describe("§11.1 an awaited response is a task plus a timer", () => {
   it("parks the run: the call commits, the task and the timer exist, and the run is WAITING_TOOL", async () => {
@@ -109,13 +110,20 @@ describe("§11.1 an awaited response is a task plus a timer", () => {
     // …and its wake-up was published after the transaction committed, at a whole-second delay.
     expect(h.transport.sent).toEqual([expect.objectContaining({ jobId: timer.id, delaySeconds: CLARIFY_SECONDS })]);
 
-    // The staff-visible wait (§11.1: a task, not a session).
+    // The staff-visible wait (§11.1: a task, not a session), in the words of src/ui/copy.ts —
+    // this module chooses which await reason and which step, never the sentence (F10).
     expect(await tasks()).toEqual([
       expect.objectContaining({
         category: AGENT_AWAIT_TASK_CATEGORY,
         severity: "GREEN",
         state: "OPEN",
         completion_predicate: "guardian reply resolves WHICH_CHILD",
+        next_step: agentWaits.nextStep,
+        summary: fill(agentWaits.locator, {
+          summary: "Waiting for the guardian to say which child",
+          trigger: "msg.inbound:MSG-1",
+          step: 0,
+        }),
       }),
     ]);
     expect((await tasks())[0].summary).toContain("msg.inbound:MSG-1");
