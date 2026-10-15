@@ -917,6 +917,8 @@ export const agentWaits = {
   nextStep: "Wait for the reply, or answer it yourself; the agent carries on when the timer is up.",
   /** What is being waited for, per await reason. */
   clarification: "Waiting for the family to say which child or which ride they mean",
+  /** §11.2 notify_affected_therapist / AT-14: the ten-minute acknowledgment. */
+  therapistAck: "Waiting for the therapist to acknowledge a change to a child's session",
 } as const;
 
 /**

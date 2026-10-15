@@ -21,10 +21,11 @@ import { sendFollowupExecutor } from "./followup";
 import { type ProposalWriter, proposalWriter } from "./proposals";
 import { getLegStateExecutor, resolveSenderExecutor } from "./reads";
 import { closeTaskExecutor, escalateExceptionExecutor } from "./staff";
+import { notifyAffectedTherapistExecutor } from "./therapist";
 
 export type { ExecutorDeps } from "./effects";
 
-/** The §11.2 tools slice 3 implements, in catalog order. */
+/** The §11.2 tools with a live executor, in catalog order. */
 export function liveExecutors(deps: ExecutorDeps): ToolExecutors {
   return {
     resolve_sender: resolveSenderExecutor(deps),
@@ -33,6 +34,7 @@ export function liveExecutors(deps: ExecutorDeps): ToolExecutors {
     request_clarification: requestClarificationExecutor(deps),
     record_acknowledgment: recordAcknowledgmentExecutor(deps),
     send_followup: sendFollowupExecutor(deps),
+    notify_affected_therapist: notifyAffectedTherapistExecutor(deps),
     escalate_exception: escalateExceptionExecutor(deps),
     close_task: closeTaskExecutor(deps),
   };
@@ -52,7 +54,6 @@ export function liveProposalWriter(deps: ExecutorDeps): ProposalWriter {
  * and each is a row in B08-SLICE1-DEFERRED.md.
  */
 export const SEQUENCED_EXECUTORS: readonly string[] = [
-  "notify_affected_therapist",
   "request_provider_capability",
   "record_capability_report",
   "report_boarding",
