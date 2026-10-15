@@ -22,6 +22,7 @@ import {
   type Caller,
 } from "./access";
 import { canOpenMapPreview, canOpenRampPreview } from "@/domain/access/map-view";
+import { MAILBOX_ROLES } from "@/modules/messaging/mailbox";
 import { navItemsFor } from "@/ui/nav-items";
 import { noAccess } from "@/ui/copy";
 
@@ -191,7 +192,27 @@ describe("every route enforces the auth its row names", () => {
   it.each(ENDPOINTS.filter((e) => e.kind === "route"))("$path", (row) => {
     const source = readFileSync(path.join(REPO, row.file), "utf8");
     if (row.auth.kind === "session") {
-      expect(source).toMatch(/requireApiSession\(API\.\w+\)/);
+      /*
+       * The shared guard, or — for the persona-phone read, whose authorization is written in a
+       * module so it can be tested without the Auth.js runtime — that module's own pair from
+       * src/auth/core.ts: the session's user must still be an active user, and must hold a role
+       * at the site the data resolved to. Both re-read the role per request (ADR-004); the
+       * second is the site-scoped half as well, which is why it is not the shared guard.
+       */
+      if (row.path === API.simPhoneMessages) {
+        expect(source).toMatch(/personaMailboxResponse\(/);
+        expect(source).toMatch(/session\?\.user\?\.id/);
+        const guard = readFileSync(path.join(SRC, "modules", "messaging", "mailbox.ts"), "utf8");
+        expect(guard).toMatch(/getActiveUser\(db, a\.userId\)/);
+        expect(guard).toMatch(/requireSiteRole\(db, user\.id, persona\.siteId, MAILBOX_ROLES\)/);
+      } else {
+        expect(source).toMatch(/requireApiSession\(API\.\w+\)/);
+      }
+    } else if (row.auth.kind === "sim-signature") {
+      // The provider's HMAC, checked on the raw body before anything is parsed or written, and
+      // no session: a staff session is not a second way into a provider callback.
+      expect(source).toMatch(/verifySimWebhook\(raw, req\.headers\.get\(SIM_SIGNATURE_HEADER\), process\.env\.SIM_WEBHOOK_SECRET\)/);
+      expect(source).not.toMatch(/requireApiSession|getCaller|auth\(\)/);
     } else if (row.auth.kind === "cron-secret") {
       expect(source).toMatch(/cronAuthorized\(req\.headers\.get\("authorization"\), process\.env\.CRON_SECRET\)/);
       // A session must not be a second way in.
@@ -250,6 +271,8 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/api/queues/timer": "queue-callback",
       "/api/queues/outbox": "queue-callback",
       "/api/queues/delay-probe": "queue-callback",
+      "/api/webhooks/sms": "sim-signature",
+      "/api/sim/phones/[number]/messages": "session:DIRECTOR+COORDINATOR+FRONT_DESK",
       "action:sign-in": "auth-endpoint",
       "action:sign-out": "public",
     });
@@ -257,13 +280,34 @@ describe("the policy itself, written out so a silent widening fails", () => {
 
   it("the site-scoped endpoints are the ones that take an id", () => {
     const scoped = ENDPOINTS.filter((e) => e.auth.kind === "session" && e.auth.siteScoped).map((e) => e.path);
-    expect(scoped).toEqual(["/api/demo/reset"]);
+    expect(scoped).toEqual(["/api/demo/reset", "/api/sim/phones/[number]/messages"]);
+  });
+
+  it("the persona-phone row names the roles its own module enforces, so the two cannot drift", () => {
+    const row = ENDPOINTS.find((e) => e.path === API.simPhoneMessages);
+    expect(row?.auth.kind === "session" && [...row.auth.roles]).toEqual([...MAILBOX_ROLES]);
   });
 
   it("every row whose default is a guess is flagged for the founder, with the question in the file", () => {
-    expect(foundersQuestions()).toEqual(["/today", "/setup", "/health", "/whoami", "/api/health"]);
+    expect(foundersQuestions()).toEqual(["/today", "/setup", "/health", "/whoami", "/ramp-preview", "/api/health"]);
     const source = readFileSync(path.join(__dirname, "access.ts"), "utf8");
     expect(source.match(/OPEN QUESTION for the founder/g)).toHaveLength(foundersQuestions().length);
+  });
+
+  it("all seven open questions are flagged in the source, in the one marker style", () => {
+    /*
+     * Six of the seven are rows in this table (above). The seventh is not about access at all —
+     * the brand palette the brief named, which no token in this repo defines — so it is marked
+     * where someone would act on it, in src/ui/tokens.ts, in the same words. Counted across the
+     * whole of src/ so a question cannot be answered by deleting its marker, and written out per
+     * file so a marker that lands somewhere unexpected fails here rather than passing a total.
+     */
+    const flagged = walk(SRC)
+      .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
+      .map((f) => [rel(f), (readFileSync(f, "utf8").match(/OPEN QUESTION for the founder/g) ?? []).length] as const)
+      .filter(([, count]) => count > 0);
+    expect(Object.fromEntries(flagged)).toEqual({ "src/auth/access.ts": 6, "src/ui/tokens.ts": 1 });
+    expect(flagged.reduce((n, [, count]) => n + count, 0)).toBe(7);
   });
 });
 

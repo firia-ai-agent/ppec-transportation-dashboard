@@ -109,6 +109,10 @@ export type PageRow = {
  *    does not expose these routes to the public internet. A session grants nothing here either.
  *  - `auth-endpoint` — Auth.js's own sign-in/sign-out/session handlers, which must be reachable
  *    before anyone has a session.
+ *  - `sim-signature` — the simulated SMS provider's own HMAC header (ADR-006), verified against
+ *    `SIM_WEBHOOK_SECRET` before the body is parsed or anything is written; an unsigned post is a
+ *    401. A provider callback, not a staff surface, so a session grants nothing here either — and
+ *    the Twilio adapter would change the one verification line and keep the row.
  *  - `public` — deliberately open, with the reason in `why`.
  */
 export type EndpointAuth =
@@ -116,6 +120,7 @@ export type EndpointAuth =
   | { kind: "cron-secret" }
   | { kind: "queue-callback" }
   | { kind: "auth-endpoint" }
+  | { kind: "sim-signature" }
   | { kind: "public" };
 
 export type EndpointRow = {
@@ -148,6 +153,8 @@ export const API = {
   queueTimer: "/api/queues/timer",
   queueOutbox: "/api/queues/outbox",
   queueDelayProbe: "/api/queues/delay-probe",
+  smsWebhook: "/api/webhooks/sms",
+  simPhoneMessages: "/api/sim/phones/[number]/messages",
 } as const;
 
 export const PAGES: readonly PageRow[] = [
@@ -293,6 +300,10 @@ export const PAGES: readonly PageRow[] = [
   /**
    * SURF-04, the ramp iPad: the front desk's own surface (PRD §6.2, ARCHITECTURE §1), and a
    * coordinator and a director both walk it.
+   *
+   * OPEN QUESTION for the founder: This is also the front desk's *home* — they can open no
+   * console page, so `HOME_ORDER` below resolves their landing page to this one, which is where
+   * sign-in now puts them. It is a developer preview route. Correct until SURF-04 is real?
    */
   {
     kind: "page",
@@ -300,6 +311,7 @@ export const PAGES: readonly PageRow[] = [
     path: "/ramp-preview",
     access: { roles: ALL_STAFF },
     label: rampPreview.heading,
+    founderQuestion: true,
   },
 ];
 
@@ -401,6 +413,39 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     path: API.queueDelayProbe,
     methods: ["POST"],
     auth: { kind: "queue-callback" },
+  },
+  /**
+   * Inbound SMS from the simulated provider (ADR-006, MOCKS §2; PR #28). The sim HMAC header is
+   * checked against `SIM_WEBHOOK_SECRET` before the body is parsed and before anything is
+   * written, and an unsigned post is a 401 — on previews too, where the write is then refused
+   * with a 503 (ledger #43) *after* verification, so the read-only skip is never a way past the
+   * signature. No session is read: a staff session is not a way into a provider callback.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/webhooks/sms/route.ts",
+    path: API.smsWebhook,
+    methods: ["POST"],
+    auth: { kind: "sim-signature" },
+  },
+  /**
+   * The persona-phone read behind the demo panel (MOCKS §3, PR #28). A session and any role **at
+   * the site that phone belongs to** — and the site comes from the data the phone resolves to,
+   * never from the request (DATA-MODEL §5), so an unknown phone is a uniform not-found, a phone
+   * at another site is a 403 and no session at all is a 401.
+   *
+   * Its guard is `personaMailboxResponse` in src/modules/messaging/mailbox.ts (`getActiveUser`
+   * then `requireSiteRole`, the same `src/auth/core.ts` pair the site-scoped write uses) rather
+   * than `requireApiSession`, because the authorization is written where it can be tested
+   * without the Auth.js runtime. The roles are the three in `MAILBOX_ROLES`, which access.test.ts
+   * holds against this row so the two cannot drift.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/sim/phones/[number]/messages/route.ts",
+    path: API.simPhoneMessages,
+    methods: ["GET"],
+    auth: { kind: "session", roles: ALL_STAFF, siteScoped: true },
   },
   /**
    * The sign-in form's own action (ADR-004). It hands email and password to the credentials
@@ -509,6 +554,7 @@ export function apiOutcome(caller: Caller, path: string): ApiOutcome {
  * The order a role's own pages are offered in: the nav order first (DESIGN-DIRECTION §2), then
  * the two surfaces that are not in the rail. The first entry a role may open is their home — so
  * the front desk, who has no console page, lands on the ramp check rather than on a refusal.
+ * That landing page is the `/ramp-preview` row's open question above.
  */
 const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/ramp-preview", "/map-preview", "/whoami"] as const;
 
