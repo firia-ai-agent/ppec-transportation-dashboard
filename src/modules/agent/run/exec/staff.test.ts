@@ -3,6 +3,10 @@
  * completion predicate; else stays open") and the two `human`-tier `propose_*` rows ("no
  * mutation").
  *
+ * The `close_task` suite also pins the founder's 2026-10-15 decision: an OPEN task is refused with
+ * its own reason code and a staff-readable sentence, and the row it named is unchanged — a refusal,
+ * not a new §6.3 edge.
+ *
  * The propose suites are the ones with teeth: a `human`-tier call never reaches an executor at all,
  * so what is asserted is that the rows a human decides from exist, that they carry the approval key
  * the call row carries, and that **nothing else in the database moved**.
@@ -11,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { uuidv7 } from "uuidv7";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
+import { agentRefusals } from "@/ui/copy";
 import { freshDb } from "@/test/pglite";
 import { type AgentScenario, seedAgentScenario } from "@/test/agent-state";
 import { approvalKey } from "../../policy";
@@ -23,6 +28,7 @@ import type { Trigger } from "../triggers";
 import { effectId } from "./effects";
 import { PREDICATE_INBOUND_REPLY, checkPredicate, parsePredicate } from "./predicate";
 import { CHANGE_REQUEST_TASK_CATEGORY, REALLOCATION_TASK_CATEGORY } from "./proposals";
+import { CLOSE_REFUSED_OPEN } from "./staff";
 import { type LiveHarness, liveHarness } from "./live-harness";
 
 let pg: PGlite;
@@ -215,23 +221,64 @@ describe("§11.2 close_task: evidence satisfies the predicate, else stays open",
     expect((await tasks()).find((t) => t.id === taskId)!.state).toBe("RESOLVED_APPROVED");
   });
 
-  it("a task staff have not resolved stays open, whatever the evidence says (§6.3)", async () => {
-    sc = await seedAgentScenario(db);
+  /** A task nobody has resolved yet, in whichever unresolved state §6.3 allows. */
+  const unresolvedTask = async (state: "OPEN" | "IN_PROGRESS" | "SNOOZED"): Promise<string> => {
     const id = uuidv7();
     await db.query(
       `INSERT INTO ops.task (id, site_id, category, severity, state, summary, next_step, completion_predicate,
          created_by, updated_by, source_mode)
-       VALUES ($1,$2,'AGENT_AWAIT_EXTERNAL','GREEN','OPEN','Waiting for a reply','Answer it',$3,'test','test','SIMULATED')`,
-      [id, sc.siteId, PREDICATE_INBOUND_REPLY],
+       VALUES ($1,$2,'AGENT_AWAIT_EXTERNAL','GREEN',$4,'Waiting for a reply','Answer it',$3,'test','test','SIMULATED')`,
+      [id, sc.siteId, PREDICATE_INBOUND_REPLY, state],
     );
-    const h = closeHarness(id, sc.messageId);
-    const r = await h.start(trigger());
-    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
+    return id;
+  };
+
+  const taskRow = async (id: string) =>
+    (await db.query<Record<string, unknown>>("SELECT * FROM ops.task WHERE id = $1", [id])).rows[0];
+
+  it("refuses an OPEN task with an explicit reason, and leaves the row exactly as it was", async () => {
+    sc = await seedAgentScenario(db);
+    // The predicate *is* satisfied by this evidence — the inbound message is really there — so what
+    // refuses the close is the task's state and nothing else (founder decision, 2026-10-15).
+    const id = await unresolvedTask("OPEN");
+    expect(await checkPredicate(db, {
+      siteId: sc.siteId, predicate: PREDICATE_INBOUND_REPLY, evidenceRef: sc.messageId,
+    })).toMatchObject({ satisfied: true });
+    const before = await taskRow(id);
+
+    const r = await closeHarness(id, sc.messageId).start(trigger());
+
+    // Refused, by name, on the record: an executed call that says why, not a silent no-op.
+    const [call] = await toolCalls(db, r.runId);
+    expect(call.status).toBe("EXECUTED");
+    expect(call.result).toMatchObject({
       closed: false,
-      reason_code: "TASK_NOT_RESOLVED",
+      task_id: id,
+      reason_code: CLOSE_REFUSED_OPEN,
       state: "OPEN",
+      staff_message: agentRefusals.closeTaskOpen,
     });
-    expect((await tasks()).find((t) => t.id === id)!.state).toBe("OPEN");
+    expect(CLOSE_REFUSED_OPEN).toBe("TASK_NOT_CLOSABLE_OPEN");
+    // The model is told the same thing, as codes, so its next turn knows closing is not available.
+    expect(call.result?.prompt_facts).toEqual({ task_closed: false, reason_code: CLOSE_REFUSED_OPEN });
+
+    // And the row did not move: not its state, not its version, not its evidence, not a column.
+    expect(await taskRow(id)).toEqual(before);
+    expect([before.state, before.completion_evidence, before.version]).toEqual(["OPEN", null, 1]);
+  });
+
+  it("a task someone is already on stays open too, whatever the evidence says (§6.3)", async () => {
+    sc = await seedAgentScenario(db);
+    for (const state of ["IN_PROGRESS", "SNOOZED"] as const) {
+      const id = await unresolvedTask(state);
+      const r = await closeHarness(id, sc.messageId).start({ ...trigger(), id: `MSG-${state}` });
+      expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
+        closed: false,
+        reason_code: "TASK_NOT_RESOLVED",
+        state,
+      });
+      expect((await taskRow(id)).state).toBe(state);
+    }
   });
 
   it("closing a task twice is one close", async () => {
