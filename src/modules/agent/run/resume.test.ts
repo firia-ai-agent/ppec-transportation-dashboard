@@ -29,7 +29,7 @@ import {
   AT01_EXECUTORS, AT01_FACTS, AT01_SCRIPT, AT01_TOOLS, at01Policy, runHarness,
 } from "./harness";
 import { driveRun } from "./loop";
-import { callIdempotencyKey, loadRun, persistCall, startRun, toolCalls } from "./store";
+import { callIdempotencyKey, commitCall, loadRun, persistCall, startRun, toolCalls } from "./store";
 import type { Trigger } from "./triggers";
 
 class SimulatedCrash extends Error {}
@@ -204,6 +204,51 @@ describe("§11.1 resume: the persisted decision is what a resume obeys", () => {
     expect(h.recorder.intents).toEqual([]);
     // No model turn was taken: the resume settled the row it found.
     expect(h.gateways.at(-1)!.auditLog).toEqual([]);
+  });
+
+  /**
+   * The fence (PR #35 review, R2). `commitCall` updates `WHERE id = $1 AND status = 'PENDING'`,
+   * and that single clause is what bounds two drivers on one run: the loop is explicitly not
+   * claimed to be safe to call twice concurrently (loop.ts), so the worst case has to be a wasted
+   * model turn and never a second settlement of the same step. Remove `AND status = 'PENDING'`
+   * from store.ts and this test fails — the loop overwrites the other driver's committed result
+   * and carries on taking turns on a run it does not own.
+   */
+  it("the second driver to settle a PENDING call is fenced out and changes nothing", async () => {
+    const { runId } = await startRun(db, TRIGGER, ROUTING);
+    const row = await persistCall(db, {
+      runId, siteId: SITE, seq: 0, tool: "get_leg_state",
+      args: { leg_id: "L-C1-AM" }, storeArgs: { leg_id: "L-C1-AM" },
+      policyDecision: "ALLOW:read",
+    });
+
+    // The other driver settles the row while this one is inside the executor — exactly the window
+    // the fence is for. The effect itself is idempotent on the shared key, so nothing happened
+    // twice; what must not happen is this driver committing over the settlement.
+    const other = "agent:other-driver";
+    const h = runHarness({
+      db, script: AT01_SCRIPT, facts: AT01_FACTS, policy: at01Policy(), now: () => now, isFatal,
+      overrides: {
+        ...AT01_EXECUTORS,
+        get_leg_state: async (call) => {
+          expect(await commitCall(db, call.callId, "EXECUTED", { settled_by: "other-driver" }, other)).toBe(true);
+          return AT01_EXECUTORS.get_leg_state!(call);
+        },
+      },
+    });
+    const r = await driveRun(h.deps(0), runId);
+
+    expect(r.reason).toBe("tool call 0 (get_leg_state) was committed by another driver");
+    // The run's state is left to the driver that owns it, and no further turn was taken here.
+    expect([r.state, r.steps]).toEqual(["RUNNING", 1]);
+    expect(h.gateways.at(-1)!.auditLog).toEqual([]);
+
+    // The row is the other driver's, down to its audit stamp.
+    const after = (await db.query<{ status: string; result: Record<string, unknown>; updated_by: string }>(
+      "SELECT status, result, updated_by FROM ops.agent_tool_call WHERE id = $1", [row.id])).rows[0];
+    expect([after.status, after.result, after.updated_by]).toEqual([
+      "EXECUTED", { settled_by: "other-driver" }, other,
+    ]);
   });
 
   it("a finished run is left alone by a late resume", async () => {
