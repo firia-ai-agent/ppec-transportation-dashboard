@@ -44,6 +44,7 @@ import {
   committedCalls,
   loadRun,
   pendingCall,
+  pendingPolicyTasks,
   persistCall,
   recordPromptHash,
   resumableRuns,
@@ -53,6 +54,7 @@ import {
   storableArgs,
   toolCalls,
 } from "./store";
+import { policyTaskIds, writePolicyTasks } from "./tasks";
 import { type ParkedAwait, parkRunOnTimer } from "./timers";
 import type { Trigger } from "./triggers";
 
@@ -254,6 +256,9 @@ async function persistCallFor(
     args: turn.call.args,
     storeArgs: storableArgs(turn.call.tool, blocked ? turn.call.args : decision.args, blocked),
     policyDecision: decisionLabel(decision),
+    // The decision's tasks ride on the row, because the decision itself does not survive a
+    // restart: whichever driver commits this block is the one that raises them (store.ts).
+    tasks: blocked ? decision.tasks : undefined,
   });
 }
 
@@ -272,10 +277,28 @@ async function settleCall(
   const by = runActor(run.id);
   const { verdict, detail } = persistedVerdict(row.policyDecision);
 
-  // A blocked call never executes. The row and its exception task (policy.evaluate raises the
-  // task payload) are the AGT-02 evidence: "out-of-policy tool call rejected + logged".
+  // A blocked call never executes, and the AGT-02 evidence — "out-of-policy tool call rejected +
+  // logged" — is two writes, not one: the row goes BLOCKED with its rule, and every task the
+  // decision raised (a staff_review for the refused step, an identity_change_request when the
+  // thread claims a new number) becomes an `ops.task` row a coordinator can act on.
+  //
+  // One transaction, because the fence is what makes the tasks exactly-once: the commit matches a
+  // row only while it is PENDING, so a second driver — or this one, resuming after a crash — gets
+  // zero rows, writes no tasks, and reports the step as someone else's. The task payload is read
+  // off the row rather than from a re-evaluation (store.ts), and the task ids are derived from the
+  // call's idempotency key, so a replay that got past the fence would still write nothing
+  // (tasks.ts).
   if (verdict === "BLOCK") {
-    if (!(await commitCall(deps.db, row.id, "BLOCKED", { blocked_rule: detail }, by))) return lost(row);
+    const tasks = pendingPolicyTasks(row);
+    // Derived, not read back, so the committed row can name the tasks it opened in the same write.
+    const taskIds = policyTaskIds(row, tasks);
+    const result = taskIds.length === 0 ? { blocked_rule: detail } : { blocked_rule: detail, task_ids: taskIds };
+    const committed = await deps.db.tx(async (tx) => {
+      if (!(await commitCall(tx, row.id, "BLOCKED", result, by))) return false;
+      await writePolicyTasks(tx, { run, call: row, tasks, by });
+      return true;
+    });
+    if (!committed) return lost(row);
     return { kind: "blocked", reason: `policy blocked ${row.tool} (${detail})` };
   }
   // A proposal mutates nothing and sends nothing; it waits for a human. The run is finished —

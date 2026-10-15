@@ -886,3 +886,30 @@ export const agentNextSteps = {
 export const agentWaits = {
   clarification: "Waiting for the family to say which child or which ride they mean",
 } as const;
+
+/**
+ * The staff tasks a refused agent step opens (PRD §11.2 exceptions). The agent stops when a step
+ * is out of policy, and these are what a coordinator reads on the Exceptions board afterwards:
+ * one task per thing a human now has to decide, in the same summary / next step / predicate shape
+ * as `consentFollowUp`. `src/modules/agent/run/tasks.ts` chooses between them and fills `locator`,
+ * which is the only place the run and the step number appear — a coordinator needs to be able to
+ * find the step the task came from, and nothing else about the machinery is theirs to read.
+ */
+export const agentPolicyTask = {
+  locator: "{summary} ({trigger}, step {step})",
+  staffReview: {
+    summary: "The assistant tried something it is not allowed to do",
+    nextStep: "Read the refused step, then do the work by hand if it still needs doing.",
+    predicate: "a coordinator has read the refused step and recorded what happens next",
+  },
+  identityChangeRequest: {
+    summary: "A family message asks us to use a new contact or number",
+    nextStep: "Call a contact already on file to confirm before anything is changed.",
+    predicate: "the change confirmed with a contact already on file, or the request declined and recorded",
+  },
+  unknownSender: {
+    summary: "A text arrived from a number we do not recognize",
+    nextStep: "Identify who is texting before replying, and share nothing about a child until you have.",
+    predicate: "the sender identified and recorded, or the thread closed as unknown",
+  },
+} as const;

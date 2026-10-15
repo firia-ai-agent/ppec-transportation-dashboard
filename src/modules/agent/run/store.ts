@@ -17,8 +17,9 @@
  * order, this module owns what a step looks like once it is written down.
  */
 import { uuidv7 } from "uuidv7";
+import { z } from "zod";
 import type { Db, Exec } from "@/db/exec";
-import { approvalKey, sanitizeStaffText } from "../policy";
+import { type PolicyTask, approvalKey, sanitizeStaffText } from "../policy";
 import { redact } from "../redact";
 import { type Trigger, type TriggerType, assertTrigger } from "./triggers";
 
@@ -279,7 +280,43 @@ export type PersistCallInput = {
   readonly storeArgs: Record<string, unknown>;
   /** The policy verdict (and rule, when it blocked): "ALLOW", "BLOCK:cross_family_disclosure", … */
   readonly policyDecision: string;
+  /**
+   * The decision's tasks (`PolicyDecision.tasks`, a BLOCK only), parked on the row so the driver
+   * that commits the block can raise them — see `PENDING_TASKS_KEY`.
+   */
+  readonly tasks?: readonly PolicyTask[];
 };
+
+/**
+ * Where a persisted-but-uncommitted blocked call keeps the tasks its decision raised, inside the
+ * row's own `result` jsonb.
+ *
+ * It has to be *on the row*, because a BLOCK decision does not survive a restart: `policy_decision`
+ * records the verdict and the rule, and re-evaluating the call against a context that has moved is
+ * not a resume. So the tasks are written with the row, before anything is committed, and the
+ * driver that wins the BLOCKED commit reads them back and writes the `ops.task` rows in that same
+ * transaction (run/tasks.ts). `result` is free until then: nothing reads a PENDING row's result
+ * (`committedCalls` skips PENDING), and the commit overwrites it with the committed outcome.
+ */
+const PENDING_TASKS_KEY = "policy_tasks";
+
+const policyTaskSchema = z.object({
+  type: z.enum(["identity_change_request", "unknown_sender", "staff_review"]),
+  familyToken: z.string().nullable(),
+  sourceMessageId: z.string().nullable(),
+  evidenceHash: z.string(),
+  rule: z.string().nullable(),
+});
+
+/**
+ * The tasks a PENDING blocked row is carrying. Parsed rather than trusted: the row is the input to
+ * a resume, and a payload that is not the shape this slice wrote raises nothing rather than
+ * throwing a run away — the block itself is still recorded either way.
+ */
+export function pendingPolicyTasks(row: ToolCallRow): PolicyTask[] {
+  const parsed = z.array(policyTaskSchema).safeParse(row.result?.[PENDING_TASKS_KEY]);
+  return parsed.success ? (parsed.data as PolicyTask[]) : [];
+}
 
 /**
  * Write the call before it runs, and hand back the row that is now the authority on it.
@@ -293,16 +330,18 @@ export type PersistCallInput = {
  */
 export async function persistCall(db: Exec, input: PersistCallInput): Promise<ToolCallRow> {
   const id = uuidv7();
+  const tasks = input.tasks ?? [];
   const ins = await db.query<CallDbRow>(
     `INSERT INTO ops.agent_tool_call
-       (id, site_id, run_id, seq, tool, args_hash, args, policy_decision, status, idempotency_key, created_by, updated_by, source_mode)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING', $9, $10, $10, 'SIMULATED')
+       (id, site_id, run_id, seq, tool, args_hash, args, policy_decision, status, idempotency_key, result, created_by, updated_by, source_mode)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING', $9, $11, $10, $10, 'SIMULATED')
      ON CONFLICT (run_id, seq) DO NOTHING
      RETURNING ${CALL_COLUMNS}`,
     [
       id, input.siteId, input.runId, input.seq, input.tool,
       callArgsHash(input.tool, input.args), JSON.stringify(input.storeArgs), input.policyDecision,
       callIdempotencyKey(input.runId, input.seq), runActor(input.runId),
+      tasks.length === 0 ? null : JSON.stringify({ [PENDING_TASKS_KEY]: tasks }),
     ],
   );
   if (ins.rows[0]) return toCall(ins.rows[0]);

@@ -26,6 +26,7 @@ import {
 import { type ToolExecutor, intentRecorder } from "./executors";
 import { startAndDriveRun } from "./loop";
 import { callIdempotencyKey, setRunState, startRun } from "./store";
+import { policyTaskId } from "./tasks";
 import { TRIGGER_TYPES, TriggerError, type Trigger } from "./triggers";
 
 const TRIGGER: Trigger = { type: "msg.inbound", id: "MSG-1", siteId: SITE };
@@ -212,7 +213,11 @@ describe("§11.1 blocked and proposed calls are recorded, and execute nothing", 
     expect(rows.map((c) => [c.tool, c.status, c.policy_decision])).toEqual([
       ["get_leg_state", "BLOCKED", "BLOCK:cross_family_disclosure"],
     ]);
-    expect(rows[0].result).toEqual({ blocked_rule: "cross_family_disclosure" });
+    // The rule, and the staff task the refusal opened (policy-tasks.test.ts owns the task rows).
+    expect(rows[0].result).toEqual({
+      blocked_rule: "cross_family_disclosure",
+      task_ids: [policyTaskId(rows[0].idempotency_key, 0)],
+    });
     expect(rows[0].committed_at).not.toBeNull();
     // Fail-shut: the second scripted turn never happens, and nothing executed.
     expect(h.recorder.intents).toEqual([]);
@@ -282,7 +287,10 @@ describe("§11.1 blocked and proposed calls are recorded, and execute nothing", 
     const r = await h.start(TRIGGER);
     const [row] = await calls(r.runId);
     expect([r.state, row.status, row.policy_decision]).toEqual(["FAILED", "BLOCKED", "BLOCK:free_text_to_parents"]);
-    expect(row.result).toEqual({ blocked_rule: "free_text_to_parents" });
+    expect(row.result).toEqual({
+      blocked_rule: "free_text_to_parents",
+      task_ids: [policyTaskId(row.idempotency_key, 0)],
+    });
     expect(h.recorder.intents).toEqual([]);
   });
 });
