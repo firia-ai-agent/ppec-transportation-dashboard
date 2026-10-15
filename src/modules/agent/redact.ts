@@ -78,6 +78,46 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * A uuid is a token, not a number, and this system passes them around by the dozen: every id in
+ * `ops.*` is one, so every tool argument, every prompt line and every staff note is full of them.
+ *
+ * They have to be excluded from the scan explicitly, because a hex id can *look* like a local
+ * phone number by accident: in `…-b741-7402edfbcabb` the seven-digit pattern finds "741-7402"
+ * with a letter on each side, and about one uuid in 170 contains such a run. Fail-closed is right
+ * for an unrecognized digit run and wrong here — it would refuse a legitimate prompt, or block a
+ * tool call naming a real leg, at random, which is the one failure mode a security guard must not
+ * have. `scripts/seed-lint.mjs` masks uuids before its own phone scan for exactly this reason.
+ *
+ * The masking is positional, not a filter: `redact()` keeps every uuid it finds *verbatim* and
+ * redacts only the text between them, so nothing about a staff note's ids changes.
+ */
+const UUID_IN_TEXT = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
+/** The text either side of every uuid, in order. The uuids themselves are not returned. */
+function outsideUuids(text: string): string[] {
+  const chunks: string[] = [];
+  let last = 0;
+  for (const m of text.matchAll(UUID_IN_TEXT)) {
+    chunks.push(text.slice(last, m.index));
+    last = m.index + m[0].length;
+  }
+  chunks.push(text.slice(last));
+  return chunks;
+}
+
+/** `f` applied to the text between the uuids; each uuid is passed through unchanged. */
+function mapOutsideUuids(text: string, f: (chunk: string) => string): string {
+  const parts: string[] = [];
+  let last = 0;
+  for (const m of text.matchAll(UUID_IN_TEXT)) {
+    parts.push(f(text.slice(last, m.index)), m[0]);
+    last = m.index + m[0].length;
+  }
+  parts.push(f(text.slice(last)));
+  return parts.join("");
+}
+
 const PLACEHOLDER: Readonly<Record<LeakKind, string>> = {
   PHONE: "[REDACTED:PHONE]",
   ADDRESS: "[REDACTED:ADDRESS]",
@@ -94,22 +134,25 @@ const DETECTORS: readonly { kind: LeakKind; patterns: readonly RegExp[] }[] = [
 /** One class of leak found in a piece of text. Carries a count, never the matched text. */
 export type Finding = { kind: LeakKind; count: number };
 
-/** What `text` leaks, by class, with no sample of the offending value. */
+/** What `text` leaks, by class, with no sample of the offending value. Uuids are tokens, not leaks. */
 export function findLeaks(text: string): Finding[] {
-  const out: Finding[] = [];
-  let scanned = text;
-  for (const { kind, patterns } of DETECTORS) {
-    let count = 0;
-    for (const re of patterns) {
-      // Replace as we go so a later class cannot re-count text an earlier one already claimed.
-      scanned = scanned.replace(new RegExp(re.source, re.flags), () => {
-        count += 1;
-        return PLACEHOLDER[kind];
-      });
+  const counts = new Map<LeakKind, number>();
+  for (const chunk of outsideUuids(text)) {
+    let scanned = chunk;
+    for (const { kind, patterns } of DETECTORS) {
+      let count = 0;
+      for (const re of patterns) {
+        // Replace as we go so a later class cannot re-count text an earlier one already claimed.
+        scanned = scanned.replace(new RegExp(re.source, re.flags), () => {
+          count += 1;
+          return PLACEHOLDER[kind];
+        });
+      }
+      if (count > 0) counts.set(kind, (counts.get(kind) ?? 0) + count);
     }
-    if (count > 0) out.push({ kind, count });
   }
-  return out;
+  // In detector order, so the classes read the same way whatever order they were found in.
+  return DETECTORS.filter((d) => counts.has(d.kind)).map((d) => ({ kind: d.kind, count: counts.get(d.kind)! }));
 }
 
 /**
@@ -120,13 +163,15 @@ export function findLeaks(text: string): Finding[] {
  * why `complete()` validates instead of redacting.
  */
 export function redact(text: string): string {
-  let out = text;
-  for (const { kind, patterns } of DETECTORS) {
-    for (const re of patterns) {
-      out = out.replace(new RegExp(re.source, re.flags), PLACEHOLDER[kind]);
+  return mapOutsideUuids(text, (chunk) => {
+    let out = chunk;
+    for (const { kind, patterns } of DETECTORS) {
+      for (const re of patterns) {
+        out = out.replace(new RegExp(re.source, re.flags), PLACEHOLDER[kind]);
+      }
     }
-  }
-  return out;
+    return out;
+  });
 }
 
 /**
