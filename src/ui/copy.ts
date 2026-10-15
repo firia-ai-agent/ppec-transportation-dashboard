@@ -945,6 +945,19 @@ export const agentWaits = {
  * agent can never close its own note (`exec/predicate.ts`: a predicate a machine cannot read is a
  * predicate the agent may not close).
  */
+/**
+ * §11.2 `send_followup` with the `STAFF` audience. Staff are reached on Teams (§10.4) and that
+ * adapter is B-12, so what the agent can do today is put the follow-up on their board: these are
+ * the words of that row, and the whole of it — unlike a note or an exception, nothing here comes
+ * from the model, because a follow-up's copy is a template and there is no card to render one on.
+ */
+export const agentStaffNotice = {
+  locator: agentTaskLocator,
+  summary: "The assistant has an update about a child's transport for you",
+  nextStep: "Read the update beside this task, then close it.",
+  predicate: "a coordinator has read the update and recorded anything that follows from it",
+} as const;
+
 export const agentNotes = {
   locator: agentTaskLocator,
   nextStep: "Read the thread, then close this once you have what you need from it.",
