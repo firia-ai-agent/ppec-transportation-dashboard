@@ -135,3 +135,60 @@ describe("0006 thread_counterparty_live_uq re-applies cleanly", () => {
     expect(before.rows[0].def).toMatch(/WHERE \(state <> 'CLOSED'/);
   });
 });
+
+/**
+ * 0007 (B-08 slice 2): what the run loop needs from `ops.agent_tool_call` and could not express
+ * before — the persist-before-execute status, and one effect key per call. Written with the same
+ * IF NOT EXISTS / EXCEPTION-swallowing shape as 0006, so re-applying it is a no-op.
+ */
+describe("0007 agent run loop columns (PRD §11.1)", () => {
+  const RUN = "00000000-0000-7000-8000-0000000000d1";
+  const CALL = "00000000-0000-7000-8000-0000000000d2";
+
+  it("agent_tool_call has status (default PENDING) and idempotency_key", async () => {
+    const cols = await db.query<{ column_name: string; column_default: string | null; is_nullable: string }>(
+      `SELECT column_name, column_default, is_nullable FROM information_schema.columns
+       WHERE table_schema='ops' AND table_name='agent_tool_call' AND column_name IN ('status','idempotency_key')
+       ORDER BY column_name`);
+    expect(cols.rows).toEqual([
+      { column_name: "idempotency_key", column_default: null, is_nullable: "NO" },
+      { column_name: "status", column_default: "'PENDING'::agent_tool_call_status", is_nullable: "NO" },
+    ]);
+    const labels = await db.query<{ enumlabel: string }>(
+      `SELECT enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+       WHERE t.typname='agent_tool_call_status' ORDER BY e.enumsortorder`);
+    expect(labels.rows.map((r) => r.enumlabel)).toEqual(["PENDING", "EXECUTED", "BLOCKED", "PROPOSED", "FAILED"]);
+  });
+
+  it("one run per (trigger_type, trigger_id); one row per (run, seq); one effect key per call", async () => {
+    await db.exec(`INSERT INTO ops.agent_run (id,site_id,trigger_type,trigger_id,created_by,updated_by)
+      VALUES ('${RUN}','${SITE}','msg.inbound','MSG-D1',${aud})`);
+    // §11.1 idempotency: a redelivered trigger cannot make a second run.
+    await expect(db.exec(`INSERT INTO ops.agent_run (id,site_id,trigger_type,trigger_id,created_by,updated_by)
+      VALUES ('00000000-0000-7000-8000-0000000000d3','${SITE}','msg.inbound','MSG-D1',${aud})`)).rejects.toThrow();
+
+    const call = (id: string, seq: number, key: string) =>
+      db.exec(`INSERT INTO ops.agent_tool_call (id,site_id,run_id,seq,tool,args_hash,args,policy_decision,idempotency_key,created_by,updated_by)
+        VALUES ('${id}','${SITE}','${RUN}',${seq},'get_leg_state','h','{}','ALLOW:read','${key}',${aud})`);
+    await call(CALL, 0, `agent:${RUN}:0`);
+    const row = await db.query<{ status: string; committed_at: Date | null }>(
+      `SELECT status, committed_at FROM ops.agent_tool_call WHERE id='${CALL}'`);
+    expect(row.rows[0]).toEqual({ status: "PENDING", committed_at: null });
+
+    await expect(call("00000000-0000-7000-8000-0000000000d4", 0, `agent:${RUN}:9`)).rejects.toThrow();
+    await expect(call("00000000-0000-7000-8000-0000000000d5", 1, `agent:${RUN}:0`)).rejects.toThrow();
+    // A distinct seq with a distinct key is the ordinary next step, and is accepted.
+    await expect(call("00000000-0000-7000-8000-0000000000d6", 1, `agent:${RUN}:1`)).resolves.toBeDefined();
+  });
+
+  it("the resume sweep has its index, and the file re-applies cleanly", async () => {
+    const idx = await db.query<{ indexdef: string }>(
+      `SELECT indexdef FROM pg_indexes WHERE schemaname='ops' AND indexname='agent_run_resume_idx'`);
+    expect(idx.rows[0].indexdef).toMatch(/\(site_id, state\)/);
+    await expect(applyMigration("0007_agent_tool_call_status")).resolves.toBeUndefined();
+    const again = await db.query<{ n: number }>(
+      `SELECT count(*)::int n FROM pg_indexes WHERE schemaname='ops'
+       AND indexname IN ('agent_run_resume_idx','agent_tool_call_idem_uq')`);
+    expect(again.rows[0].n).toBe(2);
+  });
+});

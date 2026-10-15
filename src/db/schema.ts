@@ -64,6 +64,16 @@ export const jobState = pgEnum("job_state", ["SCHEDULED", "CLAIMED", "DONE", "CA
 export const agentRunState = pgEnum("agent_run_state", [
   "QUEUED", "RUNNING", "WAITING_TOOL", "SUCCEEDED", "FAILED", "ABORTED_SUPERSEDED_BY_HUMAN",
 ]);
+/**
+ * Lifecycle of one persisted tool call (PRD §11.1 "tool calls persisted before execution").
+ * PENDING is written before the call runs; the three verdicts the policy engine can return
+ * (ALLOW → EXECUTED, BLOCK → BLOCKED, PROPOSAL → PROPOSED) and a failed execution are the only
+ * ways out of it. A PENDING row found on resume is a call whose effect may or may not have
+ * happened, which is what the per-call idempotency key is for.
+ */
+export const agentToolCallStatus = pgEnum("agent_tool_call_status", [
+  "PENDING", "EXECUTED", "BLOCKED", "PROPOSED", "FAILED",
+]);
 export const roiCohort = pgEnum("roi_cohort", ["SYNTHETIC", "BASELINE", "LIVE"]);
 export const authScope = pgEnum("auth_scope", [
   "RECEIVE_TRANSPORT_UPDATES", "CANCEL_LEG", "CHANGE_PICKUP_INSTRUCTIONS", "CONFIRM_AVAILABILITY_TO_RECEIVE",
@@ -389,12 +399,24 @@ export const agentRun = ops.table("agent_run", {
   id: pk(), siteId: siteRef(), triggerType: text("trigger_type").notNull(), triggerId: text("trigger_id").notNull(),
   state: agentRunState("state").notNull().default("QUEUED"), model: text("model"), providerRouted: text("provider_routed"),
   promptHash: text("prompt_hash"), tokensIn: integer("tokens_in"), tokensOut: integer("tokens_out"), ...audit,
-}, (t) => [uniqueIndex("agent_run_trigger_uq").on(t.triggerType, t.triggerId)]);
+}, (t) => [uniqueIndex("agent_run_trigger_uq").on(t.triggerType, t.triggerId),
+  // The resume sweep reads one site's unfinished runs (QUEUED after a timer fired, RUNNING after a crash).
+  index("agent_run_resume_idx").on(t.siteId, t.state)]);
+/**
+ * One row per tool call, written BEFORE the call is executed (PRD §11.1: "tool calls persisted
+ * before execution; resumes from last committed result"). `status` is the lifecycle of that
+ * promise — PENDING at persist time, then EXECUTED / BLOCKED / PROPOSED / FAILED — and
+ * `idempotency_key` is what every external effect of the call must be keyed on, so a crash
+ * between the persist and the effect cannot double-execute on resume (B-08 slice 2, 0007).
+ */
 export const agentToolCall = ops.table("agent_tool_call", {
   id: pk(), siteId: siteRef(), runId: uuid("run_id").references(() => agentRun.id, { onDelete: "restrict" }).notNull(), seq: smallint("seq").notNull(), tool: text("tool").notNull(),
   argsHash: text("args_hash").notNull(), args: jsonb("args").notNull(), policyDecision: text("policy_decision").notNull(),
+  status: agentToolCallStatus("status").notNull().default("PENDING"),
+  idempotencyKey: text("idempotency_key").notNull(),
   result: jsonb("result"), committedAt: timestamp("committed_at", { withTimezone: true }), ...audit,
-}, (t) => [uniqueIndex("agent_tool_call_seq_uq").on(t.runId, t.seq)]);
+}, (t) => [uniqueIndex("agent_tool_call_seq_uq").on(t.runId, t.seq),
+  uniqueIndex("agent_tool_call_idem_uq").on(t.idempotencyKey)]);
 export const agentMemory = ops.table("agent_memory", {
   id: pk(), siteId: siteRef(), contactToken: uuid("contact_token").notNull(), key: text("key").notNull(), value: text("value").notNull(),
   approvedBy: uuid("approved_by").notNull(), expiresAt: timestamp("expires_at", { withTimezone: true }), ...audit,

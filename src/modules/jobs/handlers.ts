@@ -1,3 +1,4 @@
+import { AGENT_RESUME_JOB_KIND, agentResumeHandler } from "@/modules/agent/run/timers";
 import { SIM_STATUS_JOB_KIND, simStatusHandler } from "@/modules/messaging/sim-provider";
 import type { Handlers } from "./runner";
 
@@ -9,4 +10,6 @@ export const handlers: Handlers = {
   "noop.test": async () => {},
   // B-04: the SIM provider's delivery status callback (SENT → DELIVERED / FAILED).
   [SIM_STATUS_JOB_KIND]: simStatusHandler,
+  // B-08 slice 2 (§11.1): an awaited external response came due — re-trigger the parked run.
+  [AGENT_RESUME_JOB_KIND]: agentResumeHandler,
 };

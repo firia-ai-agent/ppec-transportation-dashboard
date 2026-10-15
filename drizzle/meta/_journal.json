@@ -43,6 +43,13 @@
       "when": 1792030000000,
       "tag": "0006_thread_counterparty_live_uq",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792062192038,
+      "tag": "0007_agent_tool_call_status",
+      "breakpoints": true
     }
   ]
 }

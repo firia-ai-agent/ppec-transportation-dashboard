@@ -81,7 +81,7 @@ Modules (folders under `src/modules/*`; each owns its tables, exports a service 
 | `eta` | eta_estimate | **RoutingProvider** {eta, matrix} (SIM now; Amazon Location later) |
 | `messaging` | conversation_thread, message, outbound_message, acknowledgment, suppression | **MessagingProvider** {send, status, inbound, optOut, redact} (SIM now) |
 | `teams` | teams_conversation_ref, teams_activity | **StaffAlertProvider** {proactive, card, onInvoke} (MOCK now; Agents SDK later) |
-| `agent` | agent_run, agent_tool_call, agent_memory | **LLMGateway** {complete(tools, tier-assembled context)} (OpenRouter now; Bedrock later) |
+| `agent` | agent_run, agent_tool_call, agent_memory | **LLMGateway** {complete(tools, tier-assembled context)} (OpenRouter now; Bedrock later); **AgentRunLoop** {startAndDriveRun(trigger), driveRun, resumeQueuedRuns} over `JobScheduler` |
 | `tasks` | task, approval_request | — |
 | `platform` | job, event_log, audit_event, idempotency_record, integration_health, roi_event | **JobScheduler**, **RealtimeBus**, `Outbox`, `transition()` |
 | `demo` | scenario_clock, sim_run | `/api/demo/*` (404 unless `DEMO_MODE=1` **and** `APP_DATA_CLASS=SYNTHETIC` **and** the user is DIRECTOR, per ADR-014; the earlier `APP_ENV`/`DEMO_CONTROLS` scheme is withdrawn, DECISION-LEDGER #25) |
@@ -89,9 +89,9 @@ Modules (folders under `src/modules/*`; each owns its tables, exports a service 
 
 Every write path goes: **authorize (role × site × object) → load with version → `transition()` guarded update → outbox/event_log/audit rows → commit**, in one interactive transaction (Neon WebSocket `Pool` per request, closed with `after()`, per Neon serverless driver docs).
 
-### 2.1 The agent seam (`src/modules/agent`, B-08 slice 1)
+### 2.1 The agent seam (`src/modules/agent`, B-08 slices 1–2)
 
-Four files, in the order a run passes through them. Nothing else in the app may reach a model.
+Slice 1 is the **seam** (`src/modules/agent/*.ts`): four files, in the order a run passes through them. Nothing else in the app may reach a model.
 
 | File | What it is | The PRD line it implements |
 |---|---|---|
@@ -102,7 +102,18 @@ Four files, in the order a run passes through them. Nothing else in the app may 
 
 Providers are transports only — they do not redact, validate, audit or interpret, so a new vendor adapter cannot forget any of it. Slice 1 ships `FakeProvider` (scripted, deterministic) and `RecordedProvider` (replays a cassette keyed by prompt hash; a miss throws rather than falling back), plus `remote.ts` as a typed placeholder: the live OpenRouter call is a body for one `invoke()` and a key the founder supplies, and no test or build needs either. `fixtures/attacks.ts` holds the AT-09 / TEST-SEC-01 red-team set, driven through the real gateway and the real policy engine with a send sink that must stay empty.
 
-What this slice does **not** include: the run loop, tier assembly from the database, `agent_run`/`agent_tool_call` persistence, and any live vendor call. Those are the later B-08 slices and plug in above the gateway, not through it. Every deferred part of B-08's PRD scope (§11.1, §11.2, §18.3) is listed in [docs/agent/B08-SLICE1-DEFERRED.md](agent/B08-SLICE1-DEFERRED.md), including the two places slice 1 is deliberately *stricter* than the PRD.
+Slice 2 is the **run loop** (`src/modules/agent/run/`): §11.1 "Invocation and context", built on top of that seam and on B-03's `JobScheduler`. It adds no path around the gateway or the policy engine — the only thing it may execute is a call the gateway accepted and the policy engine allowed.
+
+| File | What it is | The PRD line it implements |
+|---|---|---|
+| `run/triggers.ts` | the five trigger types that start a run (`msg.inbound`, `operational.event`, `timer.deadline`, `sweeper.overdue`, `reconciliation`) and the rule that a trigger id is *the id of the thing that happened*, because the pair is the run's identity. ETA threshold is deliberately absent: §11.1 marks it "deterministic → template", so it renders copy without a model turn and starts no run. | §11.1 trigger list |
+| `run/store.ts` | the two database guarantees. `startRun` inserts `ON CONFLICT (trigger_type, trigger_id) DO NOTHING` and returns the existing run, so concurrent duplicate deliveries collapse onto one row (`agent_run_trigger_uq`). `persistCall` writes the call — canonical args fingerprint (`approvalKey`, so a proposal and the approval that releases it match on one column), redaction-safe args, the policy decision, status `PENDING`, and the call's idempotency key — and commits it; `commitCall` is the only way out of `PENDING`. Run-state moves are guarded `UPDATE … WHERE id = $1 AND state = $from`, the same shape as `transition()`. | §11.1 "job with idempotency"; "tool calls persisted before execution" |
+| `run/context.ts` | tier assembly: `tierPrompt` writes T1, T2, T3 (each body in `<untrusted_user_message>`), then T4, plus the site's service date and a results block built from the committed calls. Rebuilt on **every** turn — nothing but those rows crosses a process restart, which is why a resumed run needs no conversation. Only an executor's declared `promptFacts` may enter it, so a resumed prompt is as token-only as a first one. | §11.1 "tiers assembled fresh each run" |
+| `run/executors.ts` | the `ToolExecutor` contract and the P1 registry: every catalog tool records **intent** — no state change, no send — because the §11.2 per-tool write paths belong to B-02/B-04/B-12. Two contracts a real executor must keep: idempotent on the call's idempotency key (the sink is what makes a resumed attempt a no-op), and `promptFacts` is the only part of a result a model may see. | §11.2 "Precondition → effect" (executors still deferred) |
+| `run/timers.ts` | an awaited external response: commit the call, raise the `ops.task` row, schedule the B-03 timer (`agent.run.resume`) and park the run `WAITING_TOOL` — **one transaction**, so a run never waits on a timer that does not exist. The handler is DB-only (ADR-001/ADR-003): it moves the run back to `QUEUED` and the agent runner drives it. | §11.1 "delayed external responses are tasks with timers, never waiting sessions" |
+| `run/loop.ts` | the loop itself: claim, settle any call interrupted between its persist and its commit (with the decision and key it was persisted with — a resume obeys the row, not a re-evaluation), then turn → policy → persist → execute → commit until a call is terminal. Fail-shut at every edge: a gateway refusal, a policy block, a missing executor, a failed execution and an exhausted step budget all end the run rather than taking another turn. A proposal ends it too — a human decides next. | §11.1 "resumes from last committed result" |
+
+What slices 1–2 still do **not** include: the per-tool executors (nothing mutates state or sends — every send is still a proposal), tier *sources* in the database, the `/api/queues/agent` route and its per-run claim, the staff approval surface, and any live vendor call. Every deferred part of B-08's PRD scope (§11.1, §11.2, §18.3) is listed in [docs/agent/B08-SLICE1-DEFERRED.md](agent/B08-SLICE1-DEFERRED.md), which marks what slice 2 now covers, including the two places the agent is deliberately *stricter* than the PRD.
 
 ## 3. Core flows (sequence diagrams)
 
