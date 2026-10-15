@@ -9,7 +9,7 @@
  * A tool **absent** from here has no live executor, and the loop's answer to that is
  * `NO_EXECUTOR`: the call is recorded FAILED and the run stops (loop.ts). That is deliberate —
  * a stub that answered "done" would be a tool reporting an effect it did not have, and the one
- * thing worse than a missing executor is a lying one. `DEFERRED_EXECUTORS` names them, and
+ * thing worse than a missing executor is a lying one. `SEQUENCED_EXECUTORS` names them, and
  * `docs/agent/B08-SLICE1-DEFERRED.md` says what each still owes.
  */
 import type { ToolExecutors } from "../executors";
@@ -51,7 +51,7 @@ export function liveProposalWriter(deps: ExecutorDeps): ProposalWriter {
  * Catalog tools with no live executor yet. Each one fails its step shut rather than pretending,
  * and each is a row in B08-SLICE1-DEFERRED.md.
  */
-export const DEFERRED_EXECUTORS: readonly string[] = [
+export const SEQUENCED_EXECUTORS: readonly string[] = [
   "notify_affected_therapist",
   "request_provider_capability",
   "record_capability_report",
@@ -70,6 +70,6 @@ export const PROPOSAL_ONLY_TOOLS: readonly string[] = [
  * Asserted against `TOOL_NAMES` in the suite, so the sixteenth tool has to be placed.
  */
 export function unaccountedTools(deps: ExecutorDeps): string[] {
-  const placed = new Set([...Object.keys(liveExecutors(deps)), ...PROPOSAL_ONLY_TOOLS, ...DEFERRED_EXECUTORS]);
+  const placed = new Set([...Object.keys(liveExecutors(deps)), ...PROPOSAL_ONLY_TOOLS, ...SEQUENCED_EXECUTORS]);
   return TOOL_NAMES.filter((t) => !placed.has(t));
 }

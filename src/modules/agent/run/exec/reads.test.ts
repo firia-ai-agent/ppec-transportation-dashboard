@@ -19,7 +19,7 @@ import type { ExecutorCall, ToolExecution } from "../executors";
 import type { ExecutorDeps } from "./effects";
 import { effectId, isUuid } from "./effects";
 import { UNKNOWN_SENDER_TASK_CATEGORY } from "./reads";
-import { DEFERRED_EXECUTORS, PROPOSAL_ONLY_TOOLS, liveExecutors, unaccountedTools } from "./registry";
+import { PROPOSAL_ONLY_TOOLS, SEQUENCED_EXECUTORS, liveExecutors, unaccountedTools } from "./registry";
 import { liveHarness } from "./live-harness";
 
 let pg: PGlite;
@@ -234,9 +234,9 @@ describe("the live registry accounts for every catalog tool", () => {
     }).execDeps;
     const live = Object.keys(liveExecutors(deps));
     expect(unaccountedTools(deps)).toEqual([]);
-    expect([...live, ...PROPOSAL_ONLY_TOOLS, ...DEFERRED_EXECUTORS].sort()).toEqual([...TOOL_NAMES].sort());
+    expect([...live, ...PROPOSAL_ONLY_TOOLS, ...SEQUENCED_EXECUTORS].sort()).toEqual([...TOOL_NAMES].sort());
     // A deferred tool has no executor at all: the loop fails its step shut (NO_EXECUTOR).
-    for (const tool of DEFERRED_EXECUTORS) expect(live).not.toContain(tool);
+    for (const tool of SEQUENCED_EXECUTORS) expect(live).not.toContain(tool);
   });
 });
 

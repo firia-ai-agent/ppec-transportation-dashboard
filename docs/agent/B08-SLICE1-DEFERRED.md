@@ -87,7 +87,7 @@ All 15 tools exist as zod schemas with their tier and effect (`tools.ts`), and e
 a policy row (`POLICY_ROWS`, VERI-1). Slice 2 gave every one of them an intent-recording entry.
 Slice 3 gives **eight** of them a live executor in `run/exec/` (`registry.liveExecutors`) and the
 two `human`-tier tools a proposal writer; the other **five have no executor at all**
-(`registry.DEFERRED_EXECUTORS`, sequenced to slice 4), and the loop records `NO_EXECUTOR` and stops
+(`registry.SEQUENCED_EXECUTORS`, sequenced to slice 4), and the loop records `NO_EXECUTOR` and stops
 the run rather than letting a stub answer "done".
 `registry.unaccountedTools` is asserted empty against `TOOL_NAMES`, so the sixteenth tool has to be
 placed in one of the three groups deliberately.
