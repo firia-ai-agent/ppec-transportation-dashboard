@@ -17,6 +17,7 @@ import { TOOL_NAMES } from "../../tools";
 import { cancelAttendanceOrLegExecutor } from "./cancel";
 import { recordAcknowledgmentExecutor, requestClarificationExecutor } from "./clarify";
 import type { ExecutorDeps } from "./effects";
+import { sendFollowupExecutor } from "./followup";
 import { getLegStateExecutor, resolveSenderExecutor } from "./reads";
 
 export type { ExecutorDeps } from "./effects";
@@ -29,6 +30,7 @@ export function liveExecutors(deps: ExecutorDeps): ToolExecutors {
     cancel_attendance_or_leg: cancelAttendanceOrLegExecutor(deps),
     request_clarification: requestClarificationExecutor(deps),
     record_acknowledgment: recordAcknowledgmentExecutor(deps),
+    send_followup: sendFollowupExecutor(deps),
   };
 }
 
@@ -37,7 +39,6 @@ export function liveExecutors(deps: ExecutorDeps): ToolExecutors {
  * and each is a row in B08-SLICE1-DEFERRED.md.
  */
 export const DEFERRED_EXECUTORS: readonly string[] = [
-  "send_followup",
   "notify_affected_therapist",
   "request_provider_capability",
   "record_capability_report",

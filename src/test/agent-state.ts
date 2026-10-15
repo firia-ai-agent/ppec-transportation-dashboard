@@ -126,6 +126,48 @@ export async function seedAgentScenario(db: Db, opts: ScenarioOptions = {}): Pro
   };
 }
 
+/** A therapist and one session for a child on a service date — the `THERAPIST_OF_SESSION` audience. */
+export async function seedTherapySession(
+  db: Db,
+  a: { siteId: string; childToken: string; startsAt: Date; endsAt?: Date },
+): Promise<{ therapistId: string; personToken: string; sessionId: string }> {
+  const therapistId = uuidv7();
+  const personToken = uuidv7();
+  await db.query(
+    `INSERT INTO ops.therapist (id, site_id, person_token, display_name, created_by, updated_by)
+     VALUES ($1,$2,$3,'Syn T.','test','test')`,
+    [therapistId, a.siteId, personToken],
+  );
+  const sessionId = uuidv7();
+  await db.query(
+    `INSERT INTO ops.therapy_session (id, site_id, therapist_id, child_token, starts_at, ends_at, status, created_by, updated_by)
+     VALUES ($1,$2,$3,$4,$5,$6,'SCHEDULED','test','test')`,
+    [sessionId, a.siteId, therapistId, a.childToken, a.startsAt.toISOString(),
+      (a.endsAt ?? new Date(a.startsAt.getTime() + 45 * 60_000)).toISOString()],
+  );
+  return { therapistId, personToken, sessionId };
+}
+
+/** A second contact authorized for the same child: PRD §10.3's two-guardian case. */
+export async function seedSecondGuardian(
+  db: Db,
+  a: { siteId: string; familyGroupId: string; childToken: string; number: string; pepper?: string },
+): Promise<string> {
+  const contactToken = uuidv7();
+  await db.query(
+    `INSERT INTO identity.guardian_contact (contact_token,site_id,family_group_id,legal_name,phone_hmac,phone_enc,relationship,
+       can_receive_updates,valid_from,created_by,updated_by)
+     VALUES ($1,$2,$3,'SYN Guardian Two',$4,'enc','parent',true, now() - interval '1 day','test','test')`,
+    [contactToken, a.siteId, a.familyGroupId, phoneHmac(a.number, a.pepper ?? PEPPER)],
+  );
+  await db.query(
+    `INSERT INTO ops.contact_authorization (id,site_id,contact_token,child_token,scope,channel,valid_from,created_by,updated_by)
+     VALUES ($1,$2,$3,$4,'RECEIVE_TRANSPORT_UPDATES','SMS_1TO1', now() - interval '1 day','test','test')`,
+    [uuidv7(), a.siteId, contactToken, a.childToken],
+  );
+  return contactToken;
+}
+
 /**
  * A PENDING acknowledgment with the outbound message it is for and, optionally, the deadline timer
  * that would escalate it — the state §11.2 `record_acknowledgment` acts on (B-05 raises these for

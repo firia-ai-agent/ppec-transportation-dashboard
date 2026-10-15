@@ -1,0 +1,338 @@
+/**
+ * B-08 slice 3, §11.2 `send_followup` — **AT-01** (message → state → notify) end to end, and the
+ * §11.2 failure column "canceled_stale → recompute".
+ *
+ * The first suite is AT-01 in one run: a guardian's text starts it, the agent resolves the sender,
+ * reads the leg with its version, cancels it guarded on that version, and notifies — and the notify
+ * is a real `ops.outbound_message` that the real outbox drains to the real (simulated) provider,
+ * after re-checking consent and the plan version at send time. What reaches the provider is a
+ * template id and two codes: no name, no number, no prose.
+ */
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { PGlite } from "@electric-sql/pglite";
+import type { Db } from "@/db/exec";
+import { freshDb } from "@/test/pglite";
+import { F2_NUMBER } from "@/test/messaging";
+import {
+  type AgentScenario,
+  seedAgentScenario,
+  seedSecondGuardian,
+  seedTherapySession,
+} from "@/test/agent-state";
+import type { PolicyContext } from "../../policy";
+import { toolCall } from "../../providers/fake";
+import type { ProviderResponseBody } from "../../providers/provider";
+import type { TierFacts } from "../context";
+import { toolCalls } from "../store";
+import type { Trigger } from "../triggers";
+import { TWO_GUARDIAN_TASK_CATEGORY } from "./followup";
+import { type LiveHarness, liveHarness } from "./live-harness";
+
+let pg: PGlite;
+let db: Db;
+let now: Date;
+let sc: AgentScenario;
+const open: PGlite[] = [];
+
+beforeEach(async () => {
+  ({ pg, db } = await freshDb());
+  open.push(pg);
+  now = new Date("2026-10-15T12:00:00.000Z");
+}, 60_000);
+
+afterEach(async () => {
+  await Promise.all(open.splice(0).map((h) => h.close().catch(() => {})));
+});
+
+const trigger = (): Trigger => ({ type: "msg.inbound", id: sc.messageId, siteId: sc.siteId });
+
+const facts = (): TierFacts => ({
+  t1: `site=${sc.siteId} family=${sc.familyGroupId} scopes=RECEIVE_TRANSPORT_UPDATES`,
+  t2: `service_date=${sc.serviceDate}`,
+  t3: ["wont need the AM van, dropping at 9:30"],
+  t4: "channel=SMS locale=en-US",
+});
+
+const policy = (over: Partial<PolicyContext> = {}): PolicyContext => ({
+  scope: sc.scope,
+  sendableSubjects: new Set([sc.threadId, ...sc.children]),
+  sourceMessageId: sc.messageId,
+  ...over,
+});
+
+/** The run ends with a staff note, which has no live executor in slice 3 (see cancel.test.ts). */
+const NOTE_TURN = () => toolCall("summarize_thread_for_staff", { thread_id: sc.threadId, summary: "Guardian canceled a ride" });
+const NOTE_EXECUTOR = { summarize_thread_for_staff: async () => ({ data: { note: "stored" }, done: true }) };
+
+const harness = (script: readonly ProviderResponseBody[], over: Partial<PolicyContext> = {}): LiveHarness =>
+  liveHarness({
+    db, script: [...script, NOTE_TURN()], facts: facts(), policy: policy(over),
+    overrides: NOTE_EXECUTOR, now: () => now,
+  });
+
+const followupCall = (over: Record<string, unknown> = {}) =>
+  toolCall("send_followup", {
+    audience: "GUARDIAN_OF_CHILD",
+    subject_token: sc.children[0],
+    template_id: "leg.canceled",
+    vars: { legDate: sc.serviceDate, reasonCode: "FAMILY_REQUEST" },
+    ...over,
+  });
+
+/** The §18.2 step-2 run: resolve, read, cancel, notify. */
+const at01Script = (): ProviderResponseBody[] => [
+  toolCall("resolve_sender", { message_id: sc.messageId }),
+  toolCall("get_leg_state", { leg_id: sc.legs[sc.children[0]].AM }),
+  toolCall("cancel_attendance_or_leg", {
+    child_token: sc.children[0], date: sc.serviceDate, day_part: "AM",
+    reason_code: "FAMILY_REQUEST", expected_self_arrival: "09:30", expected_version: 1,
+  }),
+  followupCall(),
+];
+
+const outbound = async () =>
+  (await db.query<{
+    id: string; purpose: string; recipient_rule: string; recipient_token: string; channel: string;
+    template_id: string; vars: Record<string, unknown>; child_token: string | null; trip_leg_id: string | null;
+    plan_version_basis: number; state: string; idempotency_key: string; therapy_session_id: string | null;
+  }>(
+    `SELECT id, purpose, recipient_rule, recipient_token, channel, template_id, vars, child_token, trip_leg_id,
+       plan_version_basis, state, idempotency_key, therapy_session_id
+     FROM ops.outbound_message ORDER BY created_at`, [])).rows;
+const tasks = async () =>
+  (await db.query<{ category: string; severity: string }>(
+    "SELECT category, severity FROM ops.task ORDER BY created_at", [])).rows;
+
+describe("AT-01 message → state → notify, through the real outbox", () => {
+  it("cancels the ride and notifies the guardian who asked, in codes only", async () => {
+    sc = await seedAgentScenario(db);
+    const child = sc.children[0];
+    const h = harness(at01Script());
+    const r = await h.start(trigger());
+
+    expect([r.state, r.steps]).toEqual(["SUCCEEDED", 5]);
+
+    // The state half.
+    const legRow = (await db.query<{ state: string; plan_version: number }>(
+      "SELECT state, plan_version FROM ops.trip_leg WHERE id = $1", [sc.legs[child].AM])).rows[0];
+    expect(legRow).toEqual({ state: "CANCELED_TRANSPORT", plan_version: 2 });
+
+    // The notify half: one message, to the guardian this run resolved, about this leg, against the
+    // plan version the cancel left behind.
+    const [msg] = await outbound();
+    expect(await outbound()).toHaveLength(1);
+    expect(msg).toMatchObject({
+      purpose: "TRANSPORT_UPDATE",
+      recipient_rule: "guardian_of_child",
+      recipient_token: sc.contactToken,
+      channel: "SMS_1TO1",
+      template_id: "leg.canceled",
+      child_token: child,
+      trip_leg_id: sc.legs[child].AM,
+      plan_version_basis: 2,
+      state: "QUEUED",
+      idempotency_key: `agent:${r.runId}:3`,
+    });
+    expect(msg.vars).toEqual({ legDate: sc.serviceDate, reasonCode: "FAMILY_REQUEST" });
+
+    // The send-time half: the outbox re-checks and hands the provider a template id and two codes.
+    expect(await h.drainOutbox()).toEqual(["SENT"]);
+    expect(h.provider.sent).toHaveLength(1);
+    expect(h.provider.sent[0]).toMatchObject({
+      templateId: "leg.canceled",
+      recipientToken: sc.contactToken,
+      vars: { legDate: sc.serviceDate, reasonCode: "FAMILY_REQUEST" },
+    });
+    // Nothing the model wrote, and nothing about a person, left the building.
+    const wire = JSON.stringify(h.provider.sent);
+    expect(wire).not.toContain(sc.number);
+    expect(wire).not.toContain("09:30");
+    expect(wire).not.toContain("dropping");
+
+    const calls = await toolCalls(db, r.runId);
+    expect(calls.map((c) => [c.tool, c.status])).toEqual([
+      ["resolve_sender", "EXECUTED"],
+      ["get_leg_state", "EXECUTED"],
+      ["cancel_attendance_or_leg", "EXECUTED"],
+      ["send_followup", "EXECUTED"],
+      ["summarize_thread_for_staff", "EXECUTED"],
+    ]);
+    expect(calls[3].result).toMatchObject({ audience: "GUARDIAN_OF_CHILD", plan_version_basis: 2 });
+  });
+
+  it("the confirmation goes back to the guardian who texted, not to the other authorized contact", async () => {
+    sc = await seedAgentScenario(db);
+    const child = sc.children[0];
+    const second = await seedSecondGuardian(db, {
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+    });
+    const h = harness(at01Script());
+    await h.start(trigger());
+
+    const [msg] = await outbound();
+    expect(msg.recipient_token).toBe(sc.contactToken);
+    expect(msg.recipient_token).not.toBe(second);
+    expect(await tasks()).toEqual([]);
+  });
+
+  it("two authorized contacts and nobody asked: an exception, not a guess (§10.3)", async () => {
+    sc = await seedAgentScenario(db);
+    const child = sc.children[0];
+    await seedSecondGuardian(db, {
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+    });
+    // A run with no resolve_sender step: a timer or a sweeper, not a reply to anybody.
+    const h = harness([followupCall()]);
+    const r = await h.start({ type: "sweeper.overdue", id: "SWEEP-1", siteId: sc.siteId });
+
+    expect(r.state).toBe("FAILED");
+    const [call] = await toolCalls(db, r.runId);
+    expect(call.result).toMatchObject({ error_code: "TWO_GUARDIAN_CONFLICT", authorized_contacts: 2 });
+    expect(await outbound()).toEqual([]);
+    expect(await tasks()).toEqual([{ category: TWO_GUARDIAN_TASK_CATEGORY, severity: "AMBER" }]);
+  });
+
+  it("a family with no authorized contact is not messaged at all", async () => {
+    sc = await seedAgentScenario(db);
+    await db.query("DELETE FROM ops.contact_authorization WHERE child_token = $1", [sc.children[0]]);
+    const h = harness([followupCall()]);
+    const r = await h.start({ type: "sweeper.overdue", id: "SWEEP-2", siteId: sc.siteId });
+    expect(r.state).toBe("FAILED");
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({ error_code: "NO_AUTHORIZED_CONTACT" });
+    expect(await outbound()).toEqual([]);
+  });
+
+  it("a family that opted out gets nothing: queued, then blocked at egress (demo step 10)", async () => {
+    sc = await seedAgentScenario(db);
+    const h = harness(at01Script());
+    await h.start(trigger());
+    await db.query(
+      `INSERT INTO identity.consent_event (id, site_id, contact_token, kind, channel, at, source_mode)
+       VALUES ($1,$2,$3,'STOP','SMS_1TO1',$4,'SIMULATED')`,
+      ["0199e5f0-0000-7000-8000-00000000b001", sc.siteId, sc.contactToken, now.toISOString()],
+    );
+    expect(await h.drainOutbox()).toEqual(["BLOCKED_EGRESS"]);
+    expect(h.provider.sent).toEqual([]);
+  });
+});
+
+describe("§11.2 the template allow-list is read per audience", () => {
+  it("a therapist's template may not be sent to a family, or the other way round", async () => {
+    sc = await seedAgentScenario(db);
+    const toFamily = harness([followupCall({ template_id: "therapist.absence_alert", vars: { sessionStart: "09:00" } })]);
+    const r = await toFamily.start({ type: "sweeper.overdue", id: "SWEEP-3", siteId: sc.siteId });
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
+      error_code: "TEMPLATE_NOT_FOR_AUDIENCE",
+      audience: "GUARDIAN_OF_CHILD",
+      template_id: "therapist.absence_alert",
+    });
+    expect(await outbound()).toEqual([]);
+  });
+
+  it("the therapist of a session is reached with the minimized alert", async () => {
+    sc = await seedAgentScenario(db);
+    const child = sc.children[0];
+    const session = await seedTherapySession(db, {
+      siteId: sc.siteId, childToken: child, startsAt: new Date("2026-10-15T13:00:00.000Z"),
+    });
+    const h = liveHarness({
+      db,
+      script: [toolCall("send_followup", {
+        audience: "THERAPIST_OF_SESSION", subject_token: session.sessionId,
+        template_id: "therapist.absence_alert", vars: { sessionStart: "09:00" },
+      }), NOTE_TURN()],
+      facts: facts(),
+      policy: policy({
+        scope: { ...sc.scope, tokens: new Set([...sc.scope.tokens, session.sessionId]) },
+        sendableSubjects: new Set([session.sessionId]),
+      }),
+      overrides: NOTE_EXECUTOR,
+      now: () => now,
+    });
+    const r = await h.start({ type: "operational.event", id: "EV-1", siteId: sc.siteId });
+
+    expect(r.state).toBe("SUCCEEDED");
+    const [msg] = await outbound();
+    expect(msg).toMatchObject({
+      purpose: "THERAPIST_ALERT",
+      recipient_rule: "therapist_of_session",
+      recipient_token: session.personToken,
+      template_id: "therapist.absence_alert",
+      child_token: child,
+      therapy_session_id: session.sessionId,
+      // No leg: this run read none, so there is no plan to be stale against.
+      trip_leg_id: null,
+      plan_version_basis: 0,
+    });
+    // The therapist's authorization is re-checked at send time against that session.
+    expect(await h.drainOutbox()).toEqual(["SENT"]);
+    expect(h.provider.sent[0]).toMatchObject({ recipientToken: session.personToken });
+  });
+
+  it("staff and dispatchers are refused rather than half-sent", async () => {
+    sc = await seedAgentScenario(db);
+    for (const audience of ["STAFF", "PROVIDER_DISPATCHER"]) {
+      const h = harness([followupCall({ audience, template_id: "generic.notice", vars: {} })]);
+      const r = await h.start({ type: "sweeper.overdue", id: `SWEEP-${audience}`, siteId: sc.siteId });
+      expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
+        error_code: "UNSUPPORTED_AUDIENCE",
+        audience,
+      });
+    }
+    expect(await outbound()).toEqual([]);
+  });
+});
+
+describe("§11.2 canceled_stale → recompute", () => {
+  it("a plan change after queueing cancels that message; the next call recomputes the basis", async () => {
+    sc = await seedAgentScenario(db);
+    const child = sc.children[0];
+    const first = harness(at01Script());
+    await first.start(trigger());
+    const [queued] = await outbound();
+    expect(queued.plan_version_basis).toBe(2);
+
+    // Staff re-plan the leg between the queueing and the send.
+    await db.query(
+      "UPDATE ops.trip_leg SET plan_version = plan_version + 1, version = version + 1 WHERE id = $1",
+      [sc.legs[child].AM],
+    );
+    expect(await first.drainOutbox()).toEqual(["CANCELED_STALE"]);
+    expect(first.provider.sent).toEqual([]);
+
+    // The recompute is a fresh call: it reads the leg again and queues against the new plan.
+    const again = harness([
+      toolCall("resolve_sender", { message_id: sc.messageId }),
+      toolCall("get_leg_state", { leg_id: sc.legs[child].AM }),
+      followupCall(),
+    ]);
+    const r = await again.start({ ...trigger(), id: "MSG-RECOMPUTE" });
+    expect(r.state).toBe("SUCCEEDED");
+
+    const rows = await outbound();
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({ plan_version_basis: 3, state: "QUEUED" });
+    expect((await toolCalls(db, r.runId))[2].result).toMatchObject({
+      plan_version_basis: 3,
+      recomputed_after_stale: 1,
+    });
+    expect(await again.drainOutbox()).toEqual(["SENT"]);
+    expect(again.provider.sent).toHaveLength(1);
+  });
+
+  it("the same follow-up call driven twice queues one message", async () => {
+    sc = await seedAgentScenario(db);
+    const h = harness(at01Script());
+    const r = await h.start(trigger());
+    expect(await outbound()).toHaveLength(1);
+
+    // The row the outbox keyed on this call: a second attempt finds it instead of queueing again.
+    const key = `agent:${r.runId}:3`;
+    const dup = await db.query<{ n: number }>(
+      "SELECT count(*)::int n FROM ops.outbound_message WHERE idempotency_key = $1", [key]);
+    expect(dup.rows[0].n).toBe(1);
+    expect(await h.drainOutbox()).toEqual(["SENT"]);
+    expect(await h.drainOutbox()).toEqual([]);
+    expect(h.provider.sent).toHaveLength(1);
+  });
+});
