@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { uuidv7 } from "uuidv7";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
-import { agentRefusals } from "@/ui/copy";
+import { agentNotes, agentRefusals, fill } from "@/ui/copy";
 import { freshDb } from "@/test/pglite";
 import { type AgentScenario, seedAgentScenario } from "@/test/agent-state";
 import { approvalKey } from "../../policy";
@@ -28,7 +28,7 @@ import type { Trigger } from "../triggers";
 import { effectId } from "./effects";
 import { PREDICATE_INBOUND_REPLY, checkPredicate, parsePredicate } from "./predicate";
 import { CHANGE_REQUEST_TASK_CATEGORY, REALLOCATION_TASK_CATEGORY } from "./proposals";
-import { CLOSE_REFUSED_OPEN } from "./staff";
+import { CLOSE_REFUSED_OPEN, THREAD_NOTE_TASK_CATEGORY } from "./staff";
 import { type LiveHarness, liveHarness } from "./live-harness";
 
 let pg: PGlite;
@@ -403,5 +403,82 @@ describe("§11.2 propose_*: a row for a human, and no mutation", () => {
     const ids = (await db.query<{ id: string }>("SELECT id FROM ops.change_request", [])).rows;
     expect(ids.map((x) => x.id)).toEqual([effectId(key, "change-request")]);
     expect((await tasks()).map((t) => t.id)).toEqual([effectId(key, "exception")]);
+  });
+});
+
+describe("§11.2 summarize_thread_for_staff: a staff-only note, and nothing else", () => {
+  it("writes one GREEN note on the thread's own step, and sends nothing", async () => {
+    sc = await seedAgentScenario(db);
+    const h = harness([toolCall("summarize_thread_for_staff", {
+      thread_id: sc.threadId, summary: "Guardian asked about the van and was told the ETA",
+    })]);
+    const r = await h.start(trigger());
+
+    expect([r.state, r.steps]).toEqual(["SUCCEEDED", 1]);
+    const [note] = await tasks();
+    expect([note.category, note.severity, note.state]).toEqual([THREAD_NOTE_TASK_CATEGORY, "GREEN", "OPEN"]);
+    expect(note.summary).toBe(fill(agentNotes.locator, {
+      summary: "Guardian asked about the van and was told the ETA",
+      trigger: `msg.inbound:${sc.messageId}`,
+      step: 0,
+    }));
+    expect([note.next_step, note.completion_predicate]).toEqual([agentNotes.nextStep, agentNotes.predicate]);
+    expect(note.id).toBe(effectId(`agent:${r.runId}:0`, "thread-note"));
+    // A note is for staff: nothing is queued and nothing leaves.
+    expect((await db.query("SELECT 1 FROM ops.outbound_message", [])).rows).toEqual([]);
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
+      thread_id: sc.threadId, prompt_facts: { note_written: true },
+    });
+  });
+
+  it("the note holds tokens and a redacted sentence, never a number", async () => {
+    sc = await seedAgentScenario(db);
+    const h = harness([toolCall("summarize_thread_for_staff", {
+      thread_id: sc.threadId, summary: "Guardian on (561) 555-0101 wants the PM ride canceled",
+    })]);
+    await h.start(trigger());
+
+    const [note] = await tasks();
+    expect(note.summary).toContain("[REDACTED:PHONE]");
+    expect(JSON.stringify(await tasks())).not.toContain("555-0101");
+    expect(JSON.stringify(await tasks())).not.toContain(sc.number);
+  });
+
+  it("a thread of another site is NOT_FOUND, and nothing is written", async () => {
+    sc = await seedAgentScenario(db);
+    const other = uuidv7();
+    const h = harness([toolCall("summarize_thread_for_staff", { thread_id: other, summary: "Nothing to see" })], {
+      scope: { ...sc.scope, tokens: new Set([...sc.scope.tokens, other]) },
+    });
+    const r = await h.start(trigger());
+
+    expect(r.state).toBe("FAILED");
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
+      error_code: "NOT_FOUND", object: "conversation_thread",
+    });
+    expect(await tasks()).toEqual([]);
+  });
+
+  it("the same note driven twice is one row, and the agent cannot close it", async () => {
+    sc = await seedAgentScenario(db);
+    const h = harness([toolCall("summarize_thread_for_staff", {
+      thread_id: sc.threadId, summary: "Guardian canceled the AM ride",
+    })]);
+    const r = await h.start(trigger());
+    const [note] = await tasks();
+
+    // Its predicate is prose, so `close_task` has nothing it can read — and the row is OPEN, which
+    // that tool refuses by name whatever the evidence says.
+    expect(parsePredicate(note.completion_predicate)).toBeNull();
+    const closing = harness([toolCall("close_task", { task_id: note.id, evidence_ref: sc.messageId })], {
+      scope: { ...sc.scope, tokens: new Set([...sc.scope.tokens, note.id]) },
+    });
+    const r2 = await closing.start({ ...trigger(), id: "MSG-CLOSE-NOTE" });
+    expect((await toolCalls(db, r2.runId))[0].result).toMatchObject({
+      closed: false, reason_code: CLOSE_REFUSED_OPEN, staff_message: agentRefusals.closeTaskOpen,
+    });
+    expect(await tasks()).toHaveLength(1);
+    expect((await tasks())[0].state).toBe("OPEN");
+    expect(r.runId).not.toBe(r2.runId);
   });
 });

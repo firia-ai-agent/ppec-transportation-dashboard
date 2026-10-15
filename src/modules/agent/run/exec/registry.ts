@@ -22,7 +22,7 @@ import type { ExecutorDeps } from "./effects";
 import { sendFollowupExecutor } from "./followup";
 import { type ProposalWriter, proposalWriter } from "./proposals";
 import { getLegStateExecutor, resolveSenderExecutor } from "./reads";
-import { closeTaskExecutor, escalateExceptionExecutor } from "./staff";
+import { closeTaskExecutor, escalateExceptionExecutor, summarizeThreadForStaffExecutor } from "./staff";
 import { notifyAffectedTherapistExecutor } from "./therapist";
 
 export type { ExecutorDeps } from "./effects";
@@ -42,6 +42,7 @@ export function liveExecutors(deps: ExecutorDeps): ToolExecutors {
     report_boarding: reportBoardingExecutor(deps),
     escalate_exception: escalateExceptionExecutor(deps),
     close_task: closeTaskExecutor(deps),
+    summarize_thread_for_staff: summarizeThreadForStaffExecutor(deps),
   };
 }
 
@@ -55,12 +56,14 @@ export function liveProposalWriter(deps: ExecutorDeps): ProposalWriter {
 }
 
 /**
- * Catalog tools with no live executor yet. Each one fails its step shut rather than pretending,
- * and each is a row in B08-SLICE1-DEFERRED.md.
+ * Catalog tools with no live executor. **Empty as of slice 4**: all thirteen `auto`-tier tools act
+ * on real state, and the two `human`-tier ones write proposals instead, which is what §11.2 gives
+ * them. The constant stays because the *rule* it stands for does — a tool absent from
+ * `liveExecutors` fails its step shut with `NO_EXECUTOR` rather than letting a stub answer "done",
+ * and the sixteenth tool has to be placed in one of these three groups deliberately
+ * (`unaccountedTools`).
  */
-export const SEQUENCED_EXECUTORS: readonly string[] = [
-  "summarize_thread_for_staff",
-];
+export const SEQUENCED_EXECUTORS: readonly string[] = [];
 
 /** The two `human`-tier tools: §11.2 gives them a proposal, never an effect (policy.ts step 11). */
 export const PROPOSAL_ONLY_TOOLS: readonly string[] = [

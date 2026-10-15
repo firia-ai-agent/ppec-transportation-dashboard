@@ -1,11 +1,12 @@
 /**
- * §11.2 `escalate_exception` and `close_task` — the two tools whose whole job is handing work to a
- * human, or taking it back off them when the evidence says it is done.
+ * The §11.2 tools whose whole job is handing work to a human, taking it back off them when the
+ * evidence says it is done, or telling them what happened in a thread.
  *
  * | Tool | Precondition → effect | Failure |
  * |---|---|---|
  * | `escalate_exception(severity, category, leg, summary, next_step)` | always allowed | — |
  * | `close_task(task_id, evidence_ref)` | evidence satisfies completion predicate | stays open |
+ * | `summarize_thread_for_staff(thread)` | staff-only note | — |
  *
  * "Always allowed" is literal and is why `escalate_exception` is the one non-read tool the policy
  * engine lets through while the agent is paused (policy.ts step 2): a stopped agent must still be
@@ -26,12 +27,28 @@
  * "Stays open" without a named reason remains the answer for the two cases that really are about
  * evidence rather than about permission — a predicate a machine cannot read, and evidence that
  * does not satisfy one it can.
+ *
+ * `summarize_thread_for_staff` is the third, and the quietest: §11.2 calls it a "staff-only note",
+ * and that is all it is. It writes **one** `ops.task` row — GREEN, open, carrying the model's own
+ * sentence after the policy engine has redacted it (`sanitizeStaffText`, so a number somebody
+ * smuggled into the summary is gone before it is stored) and the thread it is about. Three things
+ * it deliberately is not:
+ *
+ *  - **not a message.** Nothing is queued, nothing leaves the building: the audience is staff, and
+ *    the note is a row on their board.
+ *  - **not the thread panel.** A note would rather live beside the conversation it summarizes, and
+ *    that surface is B-12's; `ops.task` is the staff-visible queue that exists today, so the note
+ *    goes there rather than into a table opened for it.
+ *  - **not closable by the agent.** Its completion predicate is prose (`ui/copy.ts agentNotes`), so
+ *    `close_task` cannot read it — and the row is OPEN, which that tool refuses by name anyway.
  */
 import { TASK, canTransition } from "@/domain/machines";
 import { IllegalTransition, StaleOrConflict, transition } from "@/domain/transition";
-import { agentNextSteps, agentRefusals, agentTasks } from "@/ui/copy";
+import { agentNextSteps, agentNotes, agentRefusals, agentTasks, fill } from "@/ui/copy";
 import type { ToolExecution, ToolExecutor } from "../executors";
-import { type ExecutorDeps, actor, effectId, failed, isUuid, legRow, notFound } from "./effects";
+import { triggerLabel } from "../triggers";
+import { raiseTask } from "./clarify";
+import { type ExecutorDeps, actor, effectId, failed, isUuid, legRow, notFound, threadRow } from "./effects";
 import { checkPredicate } from "./predicate";
 
 /** §11.2 severity → `ops.task.severity` (there is no INFO on a task; the board's lowest is GREEN). */
@@ -52,6 +69,9 @@ type TaskState = (typeof TASK)["states"][number];
  * staff-readable half is `ui/copy.ts` `agentRefusals.closeTaskOpen`.
  */
 export const CLOSE_REFUSED_OPEN = "TASK_NOT_CLOSABLE_OPEN";
+
+/** `ops.task.category` for §11.2's "staff-only note" (`summarize_thread_for_staff`). */
+export const THREAD_NOTE_TASK_CATEGORY = "AGENT_THREAD_NOTE";
 
 export function escalateExceptionExecutor(deps: ExecutorDeps): ToolExecutor {
   return async (call) => {
@@ -189,6 +209,49 @@ export function closeTaskExecutor(deps: ExecutorDeps): ToolExecutor {
       if (e instanceof IllegalTransition) return failed("ILLEGAL_TRANSITION", { reason: e.message.slice(0, 200) });
       throw e;
     }
+  };
+}
+
+export function summarizeThreadForStaffExecutor(deps: ExecutorDeps): ToolExecutor {
+  return async (call) => {
+    const threadId = String(call.args.thread_id ?? "");
+    // Already redacted by the policy engine, which is where staff prose is sanitized (policy.ts
+    // step 5 / `sanitizeStaffText`); this is the same value the call row stored.
+    const summary = String(call.args.summary ?? "");
+    const by = actor(call.runId);
+
+    const thread = await threadRow(deps.db, { siteId: call.siteId, threadId });
+    if (!thread) return notFound("conversation_thread");
+
+    const taskId = effectId(call.idempotencyKey, "thread-note");
+    await raiseTask(deps.db, {
+      id: taskId,
+      siteId: call.siteId,
+      category: THREAD_NOTE_TASK_CATEGORY,
+      // A note is not an exception: nothing is wrong, somebody should just read it.
+      severity: "GREEN",
+      words: {
+        // The locator is how a coordinator finds the step behind the note (F10); the sentence
+        // inside it is the model's, and the only part of this row it wrote.
+        summary: fill(agentNotes.locator, {
+          summary,
+          trigger: triggerLabel(call.trigger),
+          step: call.seq,
+        }),
+        nextStep: agentNotes.nextStep,
+        predicate: agentNotes.predicate,
+      },
+      by,
+    });
+
+    return {
+      status: "executed",
+      data: { note_task_id: taskId, thread_id: thread.id, summary_length: summary.length },
+      // Tokens and a count. The note's text is staff-facing and stays in the row.
+      promptFacts: { note_written: true, thread_id: thread.id },
+      // A run that has written its note has said everything it has to say.
+      done: true,
+    };
   };
 }
 

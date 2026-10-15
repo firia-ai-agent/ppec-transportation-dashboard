@@ -936,6 +936,22 @@ export const agentWaits = {
 } as const;
 
 /**
+ * §11.2 `summarize_thread_for_staff` ("staff-only note"). The *note itself* is the model's
+ * sentence, redacted — these are the words around it: how a coordinator finds the step it came
+ * from, what to do with it, and what closing it means.
+ *
+ * It lands as an `ops.task` row because that is the staff-visible queue this system has today; the
+ * thread panel a note would otherwise sit in is B-12's. The predicate is prose on purpose, so the
+ * agent can never close its own note (`exec/predicate.ts`: a predicate a machine cannot read is a
+ * predicate the agent may not close).
+ */
+export const agentNotes = {
+  locator: agentTaskLocator,
+  nextStep: "Read the thread, then close this once you have what you need from it.",
+  predicate: "a coordinator has read the note and recorded anything that follows from it",
+} as const;
+
+/**
  * The RED task a background timer opens when it has run out of attempts: a timer that cannot
  * complete becomes work for a person rather than a silent gap. `modules/jobs/runner.ts` writes it,
  * and it is on the Exceptions board next to the agent's own tasks, so it is written the same way —
