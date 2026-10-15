@@ -871,6 +871,21 @@ export const agentTasks = {
 } as const;
 
 /**
+ * The refusals a tool reports in words as well as in a code, because a person is the one who has to
+ * act on them.
+ *
+ * `closeTaskOpen` is §11.2 `close_task` meeting a task that is still OPEN (founder decision,
+ * 2026-10-15): §6.3's machine gains no new edge, so the tool refuses — by name, never silently —
+ * and the task stays a human's to resolve. The code (`TASK_NOT_CLOSABLE_OPEN`) is for the run's
+ * record; this sentence is what a coordinator reads next to the step, so it lives here with the
+ * rest of the staff-facing copy rather than inline in an executor (PR #35 review F10).
+ */
+export const agentRefusals = {
+  closeTaskOpen:
+    "The assistant may only close a task staff have already resolved; this one is still open, so closing it is yours.",
+} as const;
+
+/**
  * The next step on a task the model escalated, chosen by `escalate_exception`'s `next_step_code`.
  * The model picks the code; these words are ours.
  */

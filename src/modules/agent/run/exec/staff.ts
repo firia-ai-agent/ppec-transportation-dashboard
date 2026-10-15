@@ -16,15 +16,20 @@
  * `close_task` is the opposite direction and is deliberately the weaker of the two. §6.3 freezes
  * the task machine, and the only edges into `CLOSED_VERIFIED` are from `RESOLVED_APPROVED` /
  * `RESOLVED_OVERRIDE` by the system — so what the agent can close is a task **staff have already
- * resolved**, by verifying the evidence against the completion predicate. A task that is still
- * OPEN (including the agent's own await tasks) "stays open", which is also the PRD's own answer for
- * evidence that does not satisfy the predicate: not a failure, just not closed. Widening that is a
- * change to the §6.3 machine and therefore not this slice's to make; it is named in
- * `docs/agent/B08-SLICE1-DEFERRED.md`.
+ * resolved**, by verifying the evidence against the completion predicate.
+ *
+ * A task that is still OPEN — including every await task the agent raises for itself — is
+ * **refused by name**: `CLOSE_REFUSED_OPEN` plus `agentRefusals.closeTaskOpen` for whoever reads
+ * the step, rather than the bare "stays open" the PRD's failure column allows. That is the
+ * founder's decision of 2026-10-15, and it is a refusal and not a new edge: the §6.3 machine is
+ * unchanged, nothing is written, and the row the model named is left exactly as it was found.
+ * "Stays open" without a named reason remains the answer for the two cases that really are about
+ * evidence rather than about permission — a predicate a machine cannot read, and evidence that
+ * does not satisfy one it can.
  */
 import { TASK, canTransition } from "@/domain/machines";
 import { IllegalTransition, StaleOrConflict, transition } from "@/domain/transition";
-import { agentNextSteps, agentTasks } from "@/ui/copy";
+import { agentNextSteps, agentRefusals, agentTasks } from "@/ui/copy";
 import type { ToolExecution, ToolExecutor } from "../executors";
 import { type ExecutorDeps, actor, effectId, failed, isUuid, legRow, notFound } from "./effects";
 import { checkPredicate } from "./predicate";
@@ -37,6 +42,16 @@ const TASK_SEVERITY: Readonly<Record<string, "GREEN" | "AMBER" | "RED">> = {
 };
 
 type TaskState = (typeof TASK)["states"][number];
+
+/**
+ * `close_task`'s refusal on a task that is still OPEN, as a code (founder decision, 2026-10-15).
+ *
+ * It is its own name rather than the generic `TASK_NOT_RESOLVED` because it is the only one of the
+ * three unresolved states the agent reaches on its own account — every await task it raises is
+ * OPEN — so the run's record should say *that*, and not merely that some precondition failed. The
+ * staff-readable half is `ui/copy.ts` `agentRefusals.closeTaskOpen`.
+ */
+export const CLOSE_REFUSED_OPEN = "TASK_NOT_CLOSABLE_OPEN";
 
 export function escalateExceptionExecutor(deps: ExecutorDeps): ToolExecutor {
   return async (call) => {
@@ -106,8 +121,22 @@ export function closeTaskExecutor(deps: ExecutorDeps): ToolExecutor {
     if (task.state === "CLOSED_VERIFIED") {
       return staysOpenOrClosed(true, { taskId, reasonCode: "ALREADY_CLOSED", idempotent: true });
     }
+    // An OPEN task is refused **by name**, before any evidence is read and whatever the machine
+    // would say. It is the case the model will actually reach — its own 15-minute await tasks are
+    // OPEN — and the founder's decision (2026-10-15) is that it gets an explicit reason and a
+    // sentence a coordinator can read, not a silent "stays open". Checked ahead of
+    // `canTransition` on purpose: if §6.3 ever grew an OPEN edge, this executor still would not
+    // take it, because closing a task nobody has resolved is not the agent's call to make.
+    if (task.state === "OPEN") {
+      return staysOpenOrClosed(false, {
+        taskId,
+        reasonCode: CLOSE_REFUSED_OPEN,
+        state: task.state,
+        staff_message: agentRefusals.closeTaskOpen,
+      });
+    }
     // §6.3: only a task staff have resolved has an edge into CLOSED_VERIFIED, and only for the
-    // system. Anything else stays open — including the agent's own await tasks.
+    // system. IN_PROGRESS and SNOOZED land here — somebody is already on them.
     if (!canTransition(TASK, task.state, "CLOSED_VERIFIED", "Y")) {
       return staysOpenOrClosed(false, { taskId, reasonCode: "TASK_NOT_RESOLVED", state: task.state });
     }

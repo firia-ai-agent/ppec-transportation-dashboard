@@ -1,4 +1,25 @@
-# B-08 — what is deferred
+# B-08 — every open item, and the slice it lands in
+
+**Founder decision, 2026-10-15 — nothing in B-08 is "deferred".** This page used to use that word,
+and it was the wrong one: it reads as "maybe, later, by somebody", and on a milestone that is going
+to carry family messages that is not a status. Every open item below is **sequenced** — it has a
+named slice, and it has to land **before B-08 closes**. The word "deferred" is gone from the status
+key, and an item whose slice nobody can name does not get to stay on the page as a shrug.
+
+| Open item | Sequenced to | Why there, and not here |
+|---|---|---|
+| **F2** — no per-run lease | the **queue slice** (`/api/queues/agent`) | a lease is a property of the thing that *delivers* work, exactly as B-03's claim belongs to its consumer and not to its handlers. The agent runner has no queue yet; the route that gives it one brings the claim with it |
+| **F4, F6** — two schema observations on migration 0007 | **migration `0008`**, after the founder swaps the Neon snapshot | 0007 is frozen (DATABASES.md: a frozen migration is fixed forward, never edited), so either change is a new file. It is sequenced *behind the snapshot swap* because that is when a 0008 can be applied and verified against real rows rather than against PGlite alone |
+| **F9** — no approval *decision* surface — and the approval screen itself | **B-12** | the rows a human decides from (`ops.change_request`, `ops.approval_request`, both carrying `approval_key`) are built here; the screen that signs one is the staff UI's, and so is the Teams card beside it |
+| the **five missing executors** (`notify_affected_therapist`, `request_provider_capability`, `record_capability_report`, `report_boarding`, `summarize_thread_for_staff`), **two-guardian send** fan-out, and **`STAFF` / `PROVIDER_DISPATCHER`** sends | **slice 4** | all five are §11.2 tools with a policy row and no executor, and both send gaps are `send_followup`'s remaining audiences. One slice, on the same tables and the same outbox as slice 3 |
+| `close_task` on a task that is still **OPEN** | **resolved — nothing left to sequence** | founder decision, 2026-10-15: **no new state transition.** §6.3 is unchanged; the tool *refuses*, with the named reason code `TASK_NOT_CLOSABLE_OPEN` and the staff-readable sentence `ui/copy.ts agentRefusals.closeTaskOpen`, and leaves the row exactly as it found it. Built and tested on this branch (`exec/staff.ts`, `exec/staff.test.ts`) |
+
+Everything else on this page carries its slice in its own row, in the "Status" or "Lands with"
+column. The two items that are genuinely nobody's until later are marked as such and say why: the
+**live vendor call** (B-08's own last slice — the provider choice is ADR-000 #4/#12) and the
+**≥100 red-team cases**, which the PRD itself dates to P2.
+
+---
 
 Slice 1 (`src/modules/agent/*.ts`, commit "B-08 slice 1 — LLM gateway seam…") builds the **seam**:
 the LLM gateway contract, the §11.2 tool catalog as schemas, the policy engine, two offline
@@ -14,19 +35,23 @@ engine.
 Slice 3 (`src/modules/agent/run/exec/`, commits "B-08 slice 3 — …") builds the **§11.2
 "Precondition → effect" and "Failure" columns for eight of the fifteen tools**, on the real
 operational tables and through the existing domain modules (`domain/transition`, `modules/outbox`,
-B-03's `JobScheduler`) — plus the `human`-tier proposal rows. Eight tools now do something; seven
-still do not, and a tool with no live executor fails its step shut (`NO_EXECUTOR`) rather than
-reporting an effect it did not have.
+B-03's `JobScheduler`) — plus the `human`-tier proposal rows. Ten tools now do something — eight an effect, two a
+proposal row — and the remaining **five** do not: a tool with no live executor fails its step shut
+(`NO_EXECUTOR`) rather than reporting an effect it did not have. All five are sequenced to **slice
+4**.
 
 This file is the honest other half of all three: every part of B-08's PRD scope — **§11.1
 Invocation and context** (PRD l.924), **§11.2 Tool catalog** (l.926–993) and **§18.3 acceptance
 tests** (l.1333) — that is still to come, so nothing in any of the diffs can be mistaken for a
 claim about it. Rows marked **Done (slice 2)** or **Done (slice 3)** below were promises on an
-earlier version of this page and are now built and tested; everything else is still outstanding.
+earlier version of this page and are now built and tested; everything else is still outstanding —
+and outstanding here means **sequenced**, per the table above.
 
-Status key: **Deferred** = not built, named here. **Partial** = the mechanism exists, the wiring
-does not. **Done (slice 2)** = built and tested in `src/modules/agent/run/`. **Done (slice 3)** =
-built and tested in `src/modules/agent/run/exec/`.
+Status key: **Sequenced (slice 4 / queue slice / 0008 / B-12)** = not built, owned by that slice,
+and a condition of B-08 closing. **Partial** = the mechanism exists, the wiring does not; the
+column beside it names who finishes it. **Done (slice 2)** = built and tested in
+`src/modules/agent/run/`. **Done (slice 3)** = built and tested in
+`src/modules/agent/run/exec/`.
 
 **Founder decision, 2026-10-15:** the approval policy is narrowed back to the **PRD §11.2 tiers**.
 Slice 1 held *every* send behind a human approval, which was tighter than §11.2 and is no longer
@@ -37,7 +62,7 @@ there is no call it can make that puts prose in front of a family. The two halve
 `policy.ts` steps 6 and 10, the declaration that decides which applies is `tools.ts` `sendCopy`, and
 the bar is held by `attacks.test.ts` (VERI-2) and `free-text-approval.test.ts`. Nothing else about
 the gate moved: pause, consent, scope, injection and the `human`-tier `propose_*` rows are
-unchanged, and the staff approval surface is still the deferred row below.
+unchanged, and the staff approval surface is the B-12 row below (F9).
 
 ---
 
@@ -61,8 +86,9 @@ unchanged, and the staff approval surface is still the deferred row below.
 All 15 tools exist as zod schemas with their tier and effect (`tools.ts`), and every one of them has
 a policy row (`POLICY_ROWS`, VERI-1). Slice 2 gave every one of them an intent-recording entry.
 Slice 3 gives **eight** of them a live executor in `run/exec/` (`registry.liveExecutors`) and the
-two `human`-tier tools a proposal writer; the other **seven have no executor at all**, and the loop
-records `NO_EXECUTOR` and stops the run rather than letting a stub answer "done".
+two `human`-tier tools a proposal writer; the other **five have no executor at all**
+(`registry.SEQUENCED_EXECUTORS`, sequenced to slice 4), and the loop records `NO_EXECUTOR` and stops
+the run rather than letting a stub answer "done".
 `registry.unaccountedTools` is asserted empty against `TOOL_NAMES`, so the sixteenth tool has to be
 placed in one of the three groups deliberately.
 
@@ -73,24 +99,25 @@ placed in one of the three groups deliberately.
 | `cancel_attendance_or_leg` | AM/PM → that leg `CANCELED_TRANSPORT` as `A` (+ `AM_SELF_DROP` when a morning drop-off was named); FULL_DAY → the day `ABSENT_FULL_DAY` as `A`, both legs `CANCELED_ATTENDANCE` as `Y`. Guarded on the model's `expected_version` (leg's or day's), stale → `VERSION_CONFLICT` / 412 / `canceled_stale`; `expected_self_arrival` on the `ops.attendance_exception` row; the leg's `plan_version` bumped so queued messages about the old plan go CANCELED_STALE | **Done (slice 3)** |
 | `request_clarification` | thread must be OPEN; **≤2/thread/hour** counted from `ops.agent_tool_call`; the question is an outbox message with fixed copy to the thread's counterparty; 15-minute await as a task + B-03 timer; send fail or no counterparty → exception task | **Done (slice 3)** |
 | `record_acknowledgment` | matching PENDING ack → `ACKNOWLEDGED`/`DECLINED` as `T`, the deadline job canceled through B-03's scheduler, `DECLINED` → AMBER exception; already-in-state → idempotent | **Done (slice 3)** |
-| `send_followup` | recipient computed from the audience and subject (authorized contact for the child, or the session's therapist); template/audience agreement enforced; plan-version basis read from the leg this run touched; the outbox re-checks suppression, consent, authorization and the plan at send time | **Done (slice 3)** — but see the three deferred rows below |
+| `send_followup` | recipient computed from the audience and subject (authorized contact for the child, or the session's therapist); template/audience agreement enforced; plan-version basis read from the leg this run touched; the outbox re-checks suppression, consent, authorization and the plan at send time | **Done (slice 3)** — but see the three rows below, two of them slice 4's |
 | `escalate_exception` | the `ops.task` row: the redacted summary, our next step by code, the leg and its child, INFO → GREEN. Works while paused | **Done (slice 3)** — severity *routing* beyond the row (Teams card, voice task) is B-12 |
-| `close_task` | coded completion predicates checked by reading the evidence row back (`exec/predicate.ts`); evidence stamped before the state so the DB check holds; "else stays open" for unsatisfied evidence, a prose predicate, or a task staff have not resolved | **Done (slice 3)** — see the §6.3 row below |
+| `close_task` | coded completion predicates checked by reading the evidence row back (`exec/predicate.ts`); evidence stamped before the state so the DB check holds; "else stays open" for unsatisfied evidence or a prose predicate; and an **OPEN** task refused by name — `TASK_NOT_CLOSABLE_OPEN` plus `agentRefusals.closeTaskOpen`, with the row left exactly as it was found | **Done (slice 3)**, including the §6.3 question, which the founder answered: refuse, do not widen the machine |
 | `propose_manifest_reallocation` | RED exception + `ops.approval_request` holding the options, written in the transaction that commits the PROPOSED call, carrying `approval_key`. No mutation, asserted against a before/after snapshot | **Done (slice 3)** — the Teams card is B-12 |
 | `propose_contact_or_profile_change` | `ops.change_request` (NEEDS_HUMAN, the family's children as subjects, the message as basis) + AMBER exception, same transaction, same `approval_key` | **Done (slice 3)** — the approval *surface* that applies it is B-12 |
-| `notify_affected_therapist` | overlapping-session lookup, minimized SMS, `THERAPIST_NOTIFIED`, the 10-minute ack timer | Deferred — no executor |
-| `request_provider_capability` | capability UNKNOWN at T−90 / on substitution, signed dispatcher link, state REQUESTED, no reply → escalate | Deferred — no executor |
-| `record_capability_report` | provider-contact-point check, observation row, low confidence → staff review | Deferred — no executor |
-| `report_boarding` | guardian-reply / stationary-tap evidence, the `BOARDED_REPORTED` transition | Deferred — no executor |
-| `summarize_thread_for_staff` | the staff note row (there is no table for one yet; the thread panel is B-12) | Deferred — no executor |
+| `notify_affected_therapist` | overlapping-session lookup, minimized SMS, `THERAPIST_NOTIFIED`, the 10-minute ack timer | **Sequenced — slice 4** (no executor) |
+| `request_provider_capability` | capability UNKNOWN at T−90 / on substitution, signed dispatcher link, state REQUESTED, no reply → escalate | **Sequenced — slice 4** (no executor); it brings the dispatcher egress path the `PROVIDER_DISPATCHER` send needs |
+| `record_capability_report` | provider-contact-point check, observation row, low confidence → staff review | **Sequenced — slice 4** (no executor) |
+| `report_boarding` | guardian-reply / stationary-tap evidence, the `BOARDED_REPORTED` transition | **Sequenced — slice 4** (no executor) |
+| `summarize_thread_for_staff` | the staff note row (there is no table for one yet; the thread panel is B-12) | **Sequenced — slice 4** (no executor) — the note's table is the one thing it may need from `0008`, and the panel that shows it is B-12 |
 
-Three things the live executors deliberately do **not** do, each a decision rather than an omission:
+Three things the live executors deliberately do **not** do. Each was a decision rather than an
+omission, and each now carries the slice that finishes it — the third is finished:
 
-| Not built | Why, and what it would take |
+| Not built here | Why, and where it lands |
 |---|---|
-| `send_followup` fan-out to every authorized contact | §10.1 allows "1:1 broadcast" and a family often has two authorized guardians. Today a reply goes to whoever asked (read from the thread this run resolved), one authorized contact is unambiguous, and **several with nobody having asked is §10.3's two-guardian conflict**: an AMBER exception, not a guess. Fan-out is one message per contact, each keyed on the call's key plus the contact token |
-| `send_followup` to `STAFF` or `PROVIDER_DISPATCHER` | both refused `UNSUPPORTED_AUDIENCE`. Staff are reached on Teams (B-12); a dispatcher needs an egress authorization path for `identity.external_person_identity`, which `dbRecipientAuthorizer` does not have — such a message would queue and then be blocked at send time, so it is refused up front. Dispatchers land with `request_provider_capability` |
-| `close_task` on a task that is still OPEN | §6.3's task machine has no edge from OPEN to CLOSED_VERIFIED for any actor but a staff-resolved path, so the agent cannot close **its own** await tasks — including the 15-minute clarification one, which a person closes. Changing that is a change to the frozen §6.3 machine and a PRD question, not an executor's |
+| `send_followup` fan-out to every authorized contact — **slice 4** | §10.1 allows "1:1 broadcast" and a family often has two authorized guardians. Today a reply goes to whoever asked (read from the thread this run resolved), one authorized contact is unambiguous, and **several with nobody having asked is §10.3's two-guardian conflict**: an AMBER exception, not a guess. Fan-out is one message per contact, each keyed on the call's key plus the contact token |
+| `send_followup` to `STAFF` or `PROVIDER_DISPATCHER` — **slice 4** | both refused `UNSUPPORTED_AUDIENCE`. Staff are reached on Teams (B-12); a dispatcher needs an egress authorization path for `identity.external_person_identity`, which `dbRecipientAuthorizer` does not have — such a message would queue and then be blocked at send time, so it is refused up front. Dispatchers land with `request_provider_capability` |
+| `close_task` on a task that is still OPEN — **resolved, founder decision 2026-10-15** | §6.3's task machine has no edge from OPEN to CLOSED_VERIFIED for any actor but a staff-resolved path, so the agent cannot close **its own** await tasks — including the 15-minute clarification one, which a person closes. The founder's answer is **no new transition**: the tool refuses, explicitly and never silently, with the reason code `TASK_NOT_CLOSABLE_OPEN`, the staff-readable sentence in `ui/copy.ts` (`agentRefusals.closeTaskOpen`) and the task row untouched — asserted in `exec/staff.test.ts` ("refuses an OPEN task with an explicit reason, and leaves the row exactly as it was"). The three unresolved states are told apart on purpose: OPEN is the one the agent reaches on its own account, so it gets its own name, while IN_PROGRESS and SNOOZED keep `TASK_NOT_RESOLVED` |
 
 One honest exception to a rule, named because it is one: `resolve_sender` is a `read`-effect tool
 (allowed while the agent is paused) and it writes **one** row — the `unknown_sender` task that is
@@ -107,13 +134,13 @@ Other §11.2 clauses:
 | "messaging non-consented numbers" | two checks now, as designed: the policy engine's early one against `ctx.sendableSubjects` (a set the caller passes), and the **real** one at send time — every message the agent queues goes through `outbox.drain`, which re-checks suppression (`ops.suppression`), consent (`identity.consent_event`), the recipient's authorization for that child and the template's vars before the provider is called. Tested end to end: a family that has opted out gets a QUEUED row and then BLOCKED_EGRESS, with zero sends | **Done (slice 3)** | `ctx.sendableSubjects` is still built by the caller (the session → scope builder, B-04/B-12) |
 | Injection defenses: delimiters; schema-only tools; family-scope post-validator; identity_change_request | all four built and tested (VERI-1, VERI-3, VERI-4) | — | — |
 | "red-team fixtures in CI (**≥100 adversarial cases by P2**)" | 45 fixtures + the VERI suites | Partial | P2; the gap is case count, not harness |
-| Pause / kill switch ("sending while paused") | `ctx.paused` is a flag the caller sets; slice 3 adds the two halves that make it useful — `escalate_exception` really does write its task while paused, so a stopped agent can still say why it stopped, and a pause that lands *during* a crash is not outrun by the resume (Veri F1: a resumed PENDING ALLOW re-decides tighten-only, so the send is refused and nothing is queued) | Partial | the ops surface that sets the flag, in a later slice |
+| Pause / kill switch ("sending while paused") | `ctx.paused` is a flag the caller sets; slice 3 adds the two halves that make it useful — `escalate_exception` really does write its task while paused, so a stopped agent can still say why it stopped, and a pause that lands *during* a crash is not outrun by the resume (Veri F1: a resumed PENDING ALLOW re-decides tighten-only, so the send is refused and nothing is queued) | Partial | the ops surface that sets the flag: **B-12**, beside F9's approval screen — a kill switch is a thing a person reaches for, so it lands with the staff UI and not with a runtime slice |
 | LLM gateway: `redact()`, `validatePromptTokensOnly()`, JSON-schema-only, endpoint allow-list, per-call audit | all built and tested | — | — |
 | …`validatePromptTokensOnly` name list | the synthetic fixture roster, not a name index | Partial | identity vault (B-07) swaps the list behind the same function |
 | …per-call audit "of hashes only" | in memory, plus an optional sink. Slice 2 persists the run's hashes in the operational tables — `ops.agent_run.prompt_hash` per turn, `ops.agent_tool_call.args_hash` per call, with results holding codes rather than text — but nothing writes `ops.audit_event` yet | Partial | the audit-event writer (B-12/B-16) |
 | `vendorAttestation` required in PHI mode | enforced; **no deployment may select PHI** (no BAA — ARCHITECTURE risk 3, ADR-000 #4) | Partial | AWS/Bedrock step |
 | Rate limits | per gateway instance, in memory. Slice 2 adds the loop's step budget, counted from the **persisted** calls (`maxCallsPerRun`), so a resumed run does not get a fresh allowance the way the in-memory counter would | Partial | per-site/day budget + ADR-000 #11 spend alert |
-| Live vendor call | `providers/remote.ts` is a typed placeholder that fails closed with no key (VERI-5); no HTTP body, no retries, no timeouts, no token/cost accounting. `ops.agent_run.tokens_in/out` stay NULL for the same reason | Deferred | a later slice (ADR-000 #4/#12: Claude Sonnet via OpenRouter, `zdr:true`) |
+| Live vendor call | `providers/remote.ts` is a typed placeholder that fails closed with no key (VERI-5); no HTTP body, no retries, no timeouts, no token/cost accounting. `ops.agent_run.tokens_in/out` stay NULL for the same reason | **Sequenced — the live-provider slice**, which is B-08's last | ADR-000 #4/#12 (Claude Sonnet via OpenRouter, `zdr:true`). It is sequenced after slice 4 for a plain reason: a live call is the only item here that spends money and leaves the building, and it should be the last thing switched on, not the first |
 
 ## §18.3 acceptance tests
 
@@ -127,7 +154,7 @@ Other §11.2 clauses:
 | AT-07 leg vs full-day absence | **built and tested** (`exec/cancel.test.ts`): AM/PM cancels transport and leaves attendance (plus `AM_SELF_DROP` when a drop-off was named), FULL_DAY cancels attendance and cascades both legs, each on its own machine with its own actor and its own version check. A leg past boarding is refused by the machine | **Done (slice 3)** |
 | AT-08 version check / `canceled_stale` | **built and tested** (`exec/cancel.test.ts`): a version that moved under the agent writes nothing and answers `VERSION_CONFLICT` / 412 / `canceled_stale`, with the staff edit standing; and because a cancel bumps the leg's `plan_version`, a message already queued about that ride goes CANCELED_STALE at send time while a recomputed one goes out | **Done (slice 3)** |
 | AT-04/05/12 approval-gated infeasibility and substitution | the proposal rows are now real — a RED exception plus an `ops.approval_request` holding the options, carrying the approval key, with a before/after snapshot asserting no mutation. The Teams card and the approval decision surface are B-12, and the solver side (what makes a manifest INFEASIBLE in the first place) is B-06 | Partial (slice 3) |
-| AT-14 therapist notified ≤10 min, ack tracked | no executor; the 10-minute await is expressible (`awaitExternal`) but nothing sends | Deferred |
+| AT-14 therapist notified ≤10 min, ack tracked | no executor; the 10-minute await is expressible (`awaitExternal`) but nothing sends | **Sequenced — slice 4**, with `notify_affected_therapist` |
 | AT-09 wrong-recipient / injection, with an outbox behind it | the slice-1 evidence is at the seam (above); slice 3 adds the half that was missing — a real `ops.outbound_message` behind every send, so "zero sends" is now also measured at the provider: an opted-out family, an unknown sender and a stale plan each produce zero provider calls with the message visibly BLOCKED_EGRESS or CANCELED_STALE | Partial — still no live inbound traffic (slice 4) |
 | TEST-SEC-02 egress (zero `*.googleapis.com`, zero tokens in routing payloads) | VERI-5 proves the agent module makes no network call at all; the egress allow-list itself is B-16's | Partial |
 | TEST-INF-01 restart (50 timers, exactly-once) | `JobScheduler`, not the agent — though the agent's own await timer is an ordinary `ops.job` row and rides the same guarded claim | Out of scope for B-08 |
@@ -139,8 +166,8 @@ Other §11.2 clauses:
 
 Veri reviewed the slice-2 PR. Four findings were about slice 3's own surface and are fixed on this
 branch; four are real and are **not** fixed here, because each belongs to work this slice does not
-own. They are listed with their owner rather than closed, so "not in the diff" is not read as "not a
-problem".
+own. They are listed with the slice that must land them rather than closed, so "not in the diff" is
+not read as "not a problem" — and none of them is *deferred*: each is a condition of B-08 closing.
 
 | # | What it was about | Where it stands |
 |---|---|---|
@@ -148,9 +175,9 @@ problem".
 | F3 | the site fence: a run id travels on a job payload or an HTTP route, and nothing downstream of it asked whose tenant it was | **Fixed** (`run/timers.ts` `AND site_id = $3`; `driveRun(runId, { siteId })`; `scope.siteToken` checked against the run's site before the model turn and before a resumed step settles) |
 | F7 | the free-text phrase detector had no tests of its own — it was reached only through `evaluate`, on three examples | **Fixed** (`policy.freeTextShape` exported; `policy.test.ts`, both directions plus the bound it honestly has) |
 | F10 | staff-visible task copy still written inline in two places | **Fixed** (`agentWaits`, `timerDeadTask` and the shared `agentTaskLocator` in `src/ui/copy.ts`) |
-| F2 | **no per-run lease.** Two drivers on one run are bounded by the `(run_id, seq)` unique index and the per-call idempotency key, not by a claim, so the worst case is wasted model turns rather than duplicated effects — but it *is* a worst case, and `driveRun` says so in its own docstring rather than pretending | **Open.** Owner: the slice that adds **`/api/queues/agent`**. The lease is that route's, for the same reason B-03's claim belongs to its consumer and not to its handlers: a lease is a property of the thing that delivers work, and the agent runner has no queue yet. It is the §11.1 row above ("the run is not yet a *queue* job") |
-| F4, F6 | two schema observations on **migration 0007** | **Open.** 0007 is **frozen** — it has reached a shared branch, and DATABASES.md's rule is that a frozen migration is never edited, only fixed forward. Either change is therefore a new `drizzle/0008_*.sql`, and slice 3 adds no migration at all: nothing in the executors needs a schema change, and a 0008 opened to carry two fixes that no feature is waiting on is a production migration nobody asked for. Owner: whichever slice next needs 0008 — F2's lease is the likely one, since a claim wants columns |
-| F9 | **no approval surface.** The rows a human would decide from exist (`ops.change_request`, `ops.approval_request`, both carrying `approval_key` = the call's `args_hash`), and nothing produces a *decision*: `ctx.approvedCalls` is empty everywhere but in tests | **Open.** Owner: **B-12** (the approval UI and the Teams card). Nothing in the catalog as it stands needs one — no tool declares free-text copy, so no send is held behind an approval — which is why this is a missing surface rather than a broken path. It is the §11.2 "Human approval itself" row above |
+| F2 | **no per-run lease.** Two drivers on one run are bounded by the `(run_id, seq)` unique index and the per-call idempotency key, not by a claim, so the worst case is wasted model turns rather than duplicated effects — but it *is* a worst case, and `driveRun` says so in its own docstring rather than pretending | **Open — sequenced to the queue slice (`/api/queues/agent`), and a condition of B-08 closing.** The lease is that route's, for the same reason B-03's claim belongs to its consumer and not to its handlers: a lease is a property of the thing that delivers work, and the agent runner has no queue yet. It is the §11.1 row above ("the run is not yet a *queue* job") |
+| F4, F6 | two schema observations on **migration 0007** | **Open.** 0007 is **frozen** — it has reached a shared branch, and DATABASES.md's rule is that a frozen migration is never edited, only fixed forward. Either change is therefore a new `drizzle/0008_*.sql`, and slice 3 adds no migration at all: nothing in the executors needs a schema change, and a 0008 opened to carry two fixes that no feature is waiting on is a production migration nobody asked for. **Sequenced to migration `0008`, which opens once the founder has swapped the Neon snapshot** — that is when a new migration can be applied and verified against real rows instead of against PGlite alone. F2's lease is the likely co-tenant of that file, since a claim wants columns |
+| F9 | **no approval surface.** The rows a human would decide from exist (`ops.change_request`, `ops.approval_request`, both carrying `approval_key` = the call's `args_hash`), and nothing produces a *decision*: `ctx.approvedCalls` is empty everywhere but in tests | **Open — sequenced to B-12**, which owns both the approval screen and the Teams card beside it. Nothing in the catalog as it stands needs one — no tool declares free-text copy, so no send is held behind an approval — which is why this is a missing surface rather than a broken path. It is the §11.2 "Human approval itself" row above |
 
 ---
 
@@ -186,6 +213,11 @@ approval request and mutates nothing — asserted against a before-and-after sna
 not against a sink. And a tool with no executor fails its step shut: there is no stub in this slice
 that reports an effect it did not have.
 
+One refusal is claimed as narrowly as the effects: `close_task` on a task that is still OPEN says
+so — `TASK_NOT_CLOSABLE_OPEN`, a sentence for staff, and a row that is bit-for-bit the one it read
+— rather than returning a quiet "not closed" that looks the same as an evidence miss. That is a
+refusal and not a capability: §6.3 gained no edge.
+
 Two more things, from the PR #35 review and claimed as narrowly as the rest: a step that was allowed
 when it was written down and whose process then died is re-decided before it runs, so a pause, a
 consent withdrawal or a staff edit that landed in between refuses it — and never the other way
@@ -193,5 +225,6 @@ round, because a refusal is not re-litigated by a more agreeable context. And a 
 authorization: the timer handler, the driver and the assembled scope each have to be about the same
 site, or nothing happens.
 
-Everything else on this page is later work, and none of it is implied by the tests in these three
-slices.
+Everything else on this page is later work in a **named** slice — slice 4, the queue slice,
+migration `0008`, B-12, or the live-provider slice that closes B-08 — and none of it is implied by
+the tests in these three slices.
