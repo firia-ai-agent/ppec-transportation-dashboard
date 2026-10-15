@@ -23,12 +23,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { SITE, freshDb } from "@/test/pglite";
+import type { PolicyDecision } from "../policy";
 import { fakeProvider } from "../providers/fake";
 import type { ToolExecution, ToolExecutor } from "./executors";
 import {
   AT01_EXECUTORS, AT01_FACTS, AT01_SCRIPT, AT01_TOOLS, at01Policy, runHarness,
 } from "./harness";
-import { driveRun } from "./loop";
+import { driveRun, tightenOnResume } from "./loop";
 import { callIdempotencyKey, commitCall, loadRun, persistCall, startRun, toolCalls } from "./store";
 import type { Trigger } from "./triggers";
 
@@ -179,6 +180,32 @@ describe("§11.1 resume: a crash at any point costs no effect and makes no secon
     const audit = h.gateways.at(-1)!.auditLog;
     expect(audit.map((a) => [a.outcome, a.tool])).toEqual([["ACCEPTED", "summarize_thread_for_staff"]]);
   });
+});
+
+/**
+ * PR #35 review, F1. `tightenOnResume` is the whole of the rule, so it is also tested as a
+ * function: all nine (persisted, fresh) pairs, with the direction asserted rather than described.
+ * The effect-time proof — a pause or a withdrawn consent landing between the persist and the
+ * resume, measured at the provider — is `exec/resume-tighten.test.ts`.
+ */
+describe("§11.1 resume re-decides a step tighten-only", () => {
+  const RANKED = ["ALLOW", "PROPOSAL", "BLOCK"] as const;
+  const decision = (verdict: (typeof RANKED)[number]): PolicyDecision =>
+    verdict === "ALLOW"
+      ? { verdict, tool: "get_leg_state", effect: "read", args: {} }
+      : verdict === "PROPOSAL"
+        ? { verdict, rule: "send_requires_approval", tool: "send_followup", args: {}, mutates: false, requiresApproval: true }
+        : { verdict, rule: "send_while_paused", tool: "send_followup", reason: "paused", tasks: [] };
+
+  it.each(RANKED.flatMap((persisted) => RANKED.map((fresh) => [persisted, fresh] as const)))(
+    "persisted %s, now %s",
+    (persisted, fresh) => {
+      const tightened = tightenOnResume(persisted, decision(fresh));
+      // Strictly tighter wins; equal or looser keeps the decision the row was persisted with.
+      const tighter = RANKED.indexOf(fresh) > RANKED.indexOf(persisted);
+      expect(tightened?.verdict ?? null).toBe(tighter ? fresh : null);
+    },
+  );
 });
 
 describe("§11.1 resume: the persisted decision is what a resume obeys", () => {

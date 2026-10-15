@@ -24,6 +24,7 @@
  *    tokens by construction, not by hoping the tool result was clean.
  */
 import { TOOL_NAMES } from "../tools";
+import type { CommittedCall } from "./store";
 import type { Trigger } from "./triggers";
 
 /** What an executor is handed. The arguments are the stored, policy-sanitized ones (store.ts). */
@@ -39,6 +40,16 @@ export type ExecutorCall = {
   readonly idempotencyKey: string;
   readonly trigger: Trigger;
   readonly now: Date;
+  /**
+   * The calls of this run that have already committed, in order — the same list the prompt's
+   * results block is built from, and the same one a resumed run inherits.
+   *
+   * It is here because §11.1's "T2 current state with versions, fetched via tools before every
+   * write" has to be *enforceable* somewhere: an executor that writes needs to know what this run
+   * established by reading, and the only trustworthy record of that is the committed results. A
+   * model-supplied argument is not evidence that the state was read (`exec/effects.factsOf`).
+   */
+  readonly committed: readonly CommittedCall[];
 };
 
 /** §11.1: "delayed external responses are tasks with timers, never waiting sessions." */

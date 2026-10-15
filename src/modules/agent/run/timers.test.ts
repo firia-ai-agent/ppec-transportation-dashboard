@@ -16,6 +16,7 @@ import type { Db } from "@/db/exec";
 import { SITE, freshDb } from "@/test/pglite";
 import { handlers } from "@/modules/jobs/handlers";
 import { handleWake } from "@/modules/jobs/runner";
+import { agentWaits, fill } from "@/ui/copy";
 import { toolCall } from "../providers/fake";
 import { tierPrompt } from "./context";
 import { AT01_EXECUTORS, AT01_FACTS, AT01_NOTE, at01Policy, runHarness } from "./harness";
@@ -25,6 +26,8 @@ import { AGENT_AWAIT_TASK_CATEGORY, AGENT_RESUME_JOB_KIND, awaitTimerKey } from 
 import type { Trigger } from "./triggers";
 
 const TRIGGER: Trigger = { type: "msg.inbound", id: "MSG-1", siteId: SITE };
+/** A second tenant, for the site fence below. */
+const OTHER_SITE = "00000000-0000-7000-8000-0000000000ff";
 
 /** §11.2 request_clarification: an outbound into the thread, then a 15-minute await. */
 const CLARIFY_ARGS = {
@@ -82,8 +85,8 @@ const job = async (key: string) =>
   (await db.query<{ id: string; kind: string; state: string; due_at: Date; payload: { runId: string; seq: number; taskId: string } }>(
     "SELECT id, kind, state, due_at, payload FROM ops.job WHERE key = $1", [key])).rows[0];
 const tasks = async () =>
-  (await db.query<{ category: string; severity: string; state: string; summary: string; completion_predicate: string; sla_due_at: Date }>(
-    "SELECT category, severity, state, summary, completion_predicate, sla_due_at FROM ops.task ORDER BY created_at", [])).rows;
+  (await db.query<{ category: string; severity: string; state: string; summary: string; next_step: string; completion_predicate: string; sla_due_at: Date }>(
+    "SELECT category, severity, state, summary, next_step, completion_predicate, sla_due_at FROM ops.task ORDER BY created_at", [])).rows;
 
 describe("§11.1 an awaited response is a task plus a timer", () => {
   it("parks the run: the call commits, the task and the timer exist, and the run is WAITING_TOOL", async () => {
@@ -107,13 +110,20 @@ describe("§11.1 an awaited response is a task plus a timer", () => {
     // …and its wake-up was published after the transaction committed, at a whole-second delay.
     expect(h.transport.sent).toEqual([expect.objectContaining({ jobId: timer.id, delaySeconds: CLARIFY_SECONDS })]);
 
-    // The staff-visible wait (§11.1: a task, not a session).
+    // The staff-visible wait (§11.1: a task, not a session), in the words of src/ui/copy.ts —
+    // this module chooses which await reason and which step, never the sentence (F10).
     expect(await tasks()).toEqual([
       expect.objectContaining({
         category: AGENT_AWAIT_TASK_CATEGORY,
         severity: "GREEN",
         state: "OPEN",
         completion_predicate: "guardian reply resolves WHICH_CHILD",
+        next_step: agentWaits.nextStep,
+        summary: fill(agentWaits.locator, {
+          summary: "Waiting for the guardian to say which child",
+          trigger: "msg.inbound:MSG-1",
+          step: 0,
+        }),
       }),
     ]);
     expect((await tasks())[0].summary).toContain("msg.inbound:MSG-1");
@@ -155,6 +165,37 @@ describe("§11.1 an awaited response is a task plus a timer", () => {
     // The awaited call ran once, and the resumed turn saw its result.
     expect(h.recorder.intents.map((i) => i.tool)).toEqual(["request_clarification", "summarize_thread_for_staff"]);
     expect(h.gateways.at(-1)!.auditLog.map((a) => a.tool)).toEqual(["summarize_thread_for_staff"]);
+  });
+
+  /**
+   * PR #35 review, F3. The run id travels in the job payload, and a payload is not an
+   * authorization: `agentResumeHandler` re-queues a run only in the site its own job row belongs
+   * to. Remove `AND site_id = $3` from timers.ts and this test fails — a timer scheduled in one
+   * tenant re-queues another tenant's parked run, which is then driven by whoever polls that site.
+   */
+  it("a timer whose job belongs to another site re-queues nothing", async () => {
+    const h = clarifyHarness();
+    const r = await h.start(TRIGGER);
+    const key = awaitTimerKey(r.runId, 0);
+    const timer = await job(key);
+
+    // The same payload, moved to another site's job row — a copied fixture, a hand-run replay, or
+    // a forged wake-up. The site has to exist for the foreign key, and the run stays in ours.
+    await db.query(
+      `INSERT INTO ops.site (id, org_id, name, depot_lat, depot_lng, created_by, updated_by)
+       SELECT $1, org_id, 'SYN Other Site', depot_lat, depot_lng, 'test', 'test' FROM ops.site WHERE id = $2`,
+      [OTHER_SITE, SITE],
+    );
+    await db.query("UPDATE ops.job SET site_id = $2 WHERE id = $1", [timer.id, OTHER_SITE]);
+
+    now = new Date(timer.due_at);
+    expect(await handleWake(db, { jobId: timer.id }, "d1", handlers, () => now)).toBe("fired");
+
+    // The job is done — a wake-up for work this handler may not do is a no-op and an ack, the same
+    // answer every other B-03 handler gives — and the parked run was not touched.
+    expect((await job(key)).state).toBe("DONE");
+    expect((await loadRun(db, r.runId))!.state).toBe("WAITING_TOOL");
+    expect(await toolCalls(db, r.runId)).toHaveLength(1);
   });
 
   it("the timer is a no-op for a run that is no longer waiting", async () => {

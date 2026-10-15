@@ -23,7 +23,8 @@ import { type PolicyContext, familyScope } from "../policy";
 import { fakeProvider, toolCall } from "../providers/fake";
 import type { LlmProvider, ProviderResponseBody } from "../providers/provider";
 import { type TierFacts, fixedAssembler } from "./context";
-import { type IntentRecorder, type ToolExecutor, intentRecorder } from "./executors";
+import type { ProposalWriter } from "./exec/proposals";
+import { type IntentRecorder, type ToolExecutor, type ToolExecutors, intentRecorder } from "./executors";
 import { type RunDeps, type RunResult, driveRun, startAndDriveRun } from "./loop";
 import type { Trigger } from "./triggers";
 
@@ -35,6 +36,14 @@ export type HarnessInput = {
   readonly policy: PolicyContext;
   /** Per-tool executors layered over the intent recorder. */
   readonly overrides?: Readonly<Record<string, ToolExecutor>>;
+  /**
+   * A whole registry *instead* of the intent recorder: what the slice-3 suites pass (the live
+   * executors, which write to the tables). `recorder` is still built and still exposed, so a suite
+   * can mix — but a registry given here is the one the loop drives, intents and all.
+   */
+  readonly executors?: ToolExecutors;
+  /** The §11.2 proposal-row writer (exec/proposals.ts); the slice-3 suites pass the live one. */
+  readonly proposals?: ProposalWriter;
   /** Tools offered each turn; defaults to the whole §11.2 catalog. */
   readonly tools?: readonly string[];
   readonly now: () => Date;
@@ -71,7 +80,8 @@ export function runHarness(input: HarnessInput): Harness {
       db: input.db,
       gateway,
       assemble: fixedAssembler(input.facts, input.policy, input.tools),
-      executors: recorder.executors,
+      executors: input.executors ?? recorder.executors,
+      proposals: input.proposals,
       scheduler,
       now: () => input.now(),
       isFatal: input.isFatal,
@@ -120,9 +130,20 @@ export const AT01_FACTS: TierFacts = {
   t4: "channel=SMS locale=en-US",
 };
 
+/**
+ * The site every run-loop suite triggers in — `src/test/pglite.SITE`, repeated here rather than
+ * imported so this module does not pull PGlite into anything that loads the harness. `run-loop.test.ts`
+ * asserts the two are the same string.
+ *
+ * It has to be the run's *real* site id and not a fixture token, because `driveRun` refuses to take
+ * a turn on a context scoped to a different site than the run row (F3): the family and the objects
+ * in a scope may be synthetic, the tenant may not.
+ */
+export const AT01_SITE = "00000000-0000-7000-8000-000000000001";
+
 /** The run's scope, as a session would build it (never from a tool argument). */
 export const at01Policy = (over: Partial<PolicyContext> = {}): PolicyContext => ({
-  scope: familyScope("F1", ["C1", "L-C1-AM", "TH-F1", "MSG-1", "TK-1", "SESS-C1"], ["V1", "P1", "R1"]),
+  scope: familyScope("F1", ["C1", "L-C1-AM", "TH-F1", "MSG-1", "TK-1", "SESS-C1"], ["V1", "P1", "R1"], AT01_SITE),
   sendableSubjects: new Set(["TH-F1", "SESS-C1"]),
   sourceMessageId: "MSG-1",
   ...over,

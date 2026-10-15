@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { runAfterCommit, type Db } from "@/db/exec";
 import { freshDb, SITE } from "@/test/pglite";
 import { cronAuthorized } from "@/lib/cron-auth";
+import { fill, timerDeadTask } from "@/ui/copy";
 import { FakeTransport } from "./fake-transport";
 import { TIMER_TOPIC } from "./vercel-queue";
 import { VercelQueueScheduler, MAX_ATTEMPTS } from "./scheduler";
@@ -136,8 +137,16 @@ describe("failures, leases, sweeper", () => {
       expect(r).toBe(i < MAX_ATTEMPTS ? "failed" : "dead");
     }
     expect(await state("b")).toMatchObject({ state: "DEAD", attempts: MAX_ATTEMPTS });
-    const task = await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.task WHERE category='TIMER_DEAD' AND severity='RED'", []);
-    expect(task.rows[0].n).toBe(1);
+    const task = await db.query<{ summary: string; next_step: string; completion_predicate: string }>(
+      "SELECT summary, next_step, completion_predicate FROM ops.task WHERE category='TIMER_DEAD' AND severity='RED'", []);
+    expect(task.rows).toHaveLength(1);
+    // A coordinator reads this one, so its words are src/ui/copy.ts's and this module only chooses
+    // which timer they name (PR #35 review, F10).
+    expect(task.rows[0]).toEqual({
+      summary: fill(timerDeadTask.summary, { attempts: MAX_ATTEMPTS, kind: "boom.test", key: "b" }),
+      next_step: timerDeadTask.nextStep,
+      completion_predicate: timerDeadTask.predicate,
+    });
   });
   it("crash after claim (lease expires) is reclaimed and fires exactly once", async () => {
     const { id } = await sched("c", 0);

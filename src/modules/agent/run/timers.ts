@@ -24,6 +24,7 @@ import { z } from "zod";
 import type { Exec } from "@/db/exec";
 import type { Handler } from "@/modules/jobs/runner";
 import type { JobScheduler } from "@/modules/jobs/scheduler";
+import { agentWaits, fill } from "@/ui/copy";
 import { uuidv7 } from "uuidv7";
 import type { AwaitExternal } from "./executors";
 import { type RunRow, type ToolCallRow, commitCall, runActor, setRunState } from "./store";
@@ -84,8 +85,14 @@ export async function parkRunOnTimer(
      VALUES ($1, $2, $3, 'GREEN', 'OPEN', $4, $5, $6, $7, $8, $8, 'SIMULATED')`,
     [
       taskId, args.run.siteId, AGENT_AWAIT_TASK_CATEGORY,
-      `${args.await.summary} (${triggerLabel(args.run.trigger)}, step ${args.call.seq})`,
-      `Wait for the reply, or answer it; the agent resumes when the timer fires`,
+      // The staff-visible words are `src/ui/copy.ts`; what this module decides is which await
+      // reason the summary names and which step it points at (PR #35 review, F10).
+      fill(agentWaits.locator, {
+        summary: args.await.summary,
+        trigger: triggerLabel(args.run.trigger),
+        step: args.call.seq,
+      }),
+      agentWaits.nextStep,
       args.await.completionPredicate,
       dueAt.toISOString(), by,
     ],
@@ -112,12 +119,19 @@ export async function parkRunOnTimer(
  * its own `msg.inbound` trigger and something else already finished this run, or because a human
  * took it over — matches zero rows and the timer fires as a no-op, which is the same answer every
  * other B-03 handler gives to a wake-up for work that is already done.
+ *
+ * `AND site_id = $3` is the tenant fence (PR #35 review, F3). The run id travels in a job payload,
+ * and a payload is not an authorization: the id could be wrong by accident (a hand-written replay,
+ * a copied fixture) or on purpose, and a wake-up that could re-queue *any* run by id would be a
+ * cross-tenant write with a timer in front of it. The job row carries the site it was scheduled
+ * for, so the fence costs one predicate — and a mismatch matches zero rows, which is the same
+ * no-op as every other wake-up for work this handler may not do.
  */
 export const agentResumeHandler: Handler = async (tx, job) => {
   const payload = resumePayloadSchema.parse(job.payload);
   await tx.query(
     `UPDATE ops.agent_run SET state = 'QUEUED', version = version + 1, updated_at = now(), updated_by = $2
-     WHERE id = $1 AND state = 'WAITING_TOOL'`,
-    [payload.runId, `system:job:${AGENT_RESUME_JOB_KIND}`],
+     WHERE id = $1 AND state = 'WAITING_TOOL' AND site_id = $3`,
+    [payload.runId, `system:job:${AGENT_RESUME_JOB_KIND}`, job.site_id],
   );
 };

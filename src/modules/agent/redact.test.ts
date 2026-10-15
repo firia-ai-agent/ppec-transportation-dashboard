@@ -89,6 +89,50 @@ describe("TEST-SEC-01: validatePromptTokensOnly fails closed", () => {
   });
 });
 
+describe("a uuid is a token, not a phone number", () => {
+  /**
+   * Every id this system passes around is a uuid, and roughly one in 170 contains a run that the
+   * seven-digit local-number pattern would otherwise claim: in `…-b741-7402edfbcabb` it finds
+   * "741-7402" with a letter on each side. Refusing those prompts and blocking those tool calls
+   * would be a guard that fails at random, so uuids are excluded from the scan the way
+   * `scripts/seed-lint.mjs` excludes them from its own.
+   */
+  const COLLIDING = "01a13fd0-9612-79ab-b741-7402edfbcabb";
+
+  it("the shape that used to read as a local number is clean, in a prompt and in an argument", () => {
+    expect(findLeaks(COLLIDING)).toEqual([]);
+    expect(() => validatePromptTokensOnly(`T2 leg=${COLLIDING} version=1`)).not.toThrow();
+    expect(redact(COLLIDING)).toBe(COLLIDING);
+  });
+
+  it("holds for a whole prompt full of generated ids", () => {
+    // Deterministic stand-ins for a tier-assembly prompt: the generated ones are what made the
+    // slice-3 suites flaky before this, at about half a percent of runs per id.
+    const ids = [
+      "01a13fd0-9613-7a96-a257-9650bb4d4c64",
+      "0199e5f0-1234-7000-8000-000000000001",
+      "01a00000-999a-7111-b222-3334567890ab",
+    ];
+    const prompt = ids.map((id, i) => `T2 leg${i}=${id}`).join("\n");
+    expect(findLeaks(prompt)).toEqual([]);
+    expect(validatePromptTokensOnly(prompt)).toBe(sha256Hex(prompt));
+  });
+
+  it("a real number next to a uuid is still caught, and the uuid survives the redaction", () => {
+    const text = `leg=${COLLIDING} contact=+1-561-555-0101`;
+    expect(findLeaks(text).map((f) => f.kind)).toEqual(["PHONE"]);
+    expect(redact(text)).toBe(`leg=${COLLIDING} contact=[REDACTED:PHONE]`);
+  });
+
+  it("counts every class once across the chunks either side of a uuid", () => {
+    const text = `call 555-0104 about ${COLLIDING} then 555-0105 for Alma`;
+    expect(findLeaks(text)).toEqual([
+      { kind: "PHONE", count: 2 },
+      { kind: "NAME", count: 1 },
+    ]);
+  });
+});
+
 describe("redact()", () => {
   it("replaces each class with its placeholder", () => {
     expect(redact("text Alma at (561) 555-0102 about 2216 Jog Rd")).toBe(

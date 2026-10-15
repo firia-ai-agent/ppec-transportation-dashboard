@@ -10,7 +10,9 @@
  *   "resumes from last committed result"                          → `driveRun` starts by reading
  *      the run's committed calls. A call that committed is never re-executed; a call that was
  *      persisted but never committed is re-driven with the same idempotency key, which is what
- *      makes the second attempt a no-op at the sink rather than a second effect.
+ *      makes the second attempt a no-op at the sink rather than a second effect — and it is
+ *      re-decided **tighten-only** first (`tightenOnResume`), so a pause or a withdrawn consent
+ *      that landed during the outage refuses the step instead of being outrun by it.
  *   "delayed external responses are tasks with timers, never waiting sessions"  → an executor that
  *      returns `awaitExternal` parks the run on a B-03 timer and the loop *returns* (timers.ts).
  *
@@ -29,11 +31,13 @@
 import type { Db } from "@/db/exec";
 import { type Clock, type JobScheduler, systemClock } from "@/modules/jobs/scheduler";
 import type { LlmGateway, GatewayResult } from "../gateway";
-import { type PolicyDecision, evaluate } from "../policy";
+import { type PolicyContext, type PolicyDecision, evaluate } from "../policy";
 import type { ContextAssembler } from "./context";
+import type { ProposalWriter } from "./exec/proposals";
 import type { ExecutorCall, ToolExecution, ToolExecutors } from "./executors";
 import {
   AgentRunError,
+  type CommittedCall,
   type RunRow,
   type RunState,
   type ToolCallRow,
@@ -63,6 +67,12 @@ export type RunDeps = {
   /** §11.1 tier assembly, called fresh on every model turn (context.ts). */
   readonly assemble: ContextAssembler;
   readonly executors: ToolExecutors;
+  /**
+   * What a `human`-tier call writes instead of executing: the §11.2 proposal rows, written in the
+   * transaction that commits the PROPOSED call (exec/proposals.ts). Optional — with none, a
+   * proposal is a recorded decision and nothing else.
+   */
+  readonly proposals?: ProposalWriter;
   /** B-03. Used only to arm an await timer (ADR-001). */
   readonly scheduler: JobScheduler;
   readonly now?: Clock;
@@ -86,6 +96,18 @@ export type RunResult = {
   readonly awaiting?: ParkedAwait;
 };
 
+export type DriveOpts = {
+  /**
+   * The site this driver is driving runs **for**, and the tenant fence on a run id (PR #35 review,
+   * F3). A run belonging to any other site is refused rather than driven: a run id arrives from a
+   * queue payload or an HTTP route, and neither is an authorization to touch a row. `startAndDriveRun`
+   * passes the trigger's site and `resumeQueuedRuns` passes the site it selected by, so every entry
+   * point into the loop is fenced; a caller with no site in hand may omit it, which is what the
+   * suites that drive a run they just started do.
+   */
+  readonly siteId?: string;
+};
+
 /** How one step ended. `continue` is the only outcome that takes another model turn. */
 type StepOutcome =
   | { kind: "continue" }
@@ -107,7 +129,7 @@ export async function startAndDriveRun(deps: RunDeps, trigger: Trigger): Promise
     model: deps.gateway.config.model,
     provider: deps.gateway.config.provider,
   });
-  const result = await driveRun(deps, runId);
+  const result = await driveRun(deps, runId, { siteId: trigger.siteId });
   return { ...result, created };
 }
 
@@ -120,11 +142,21 @@ export async function startAndDriveRun(deps: RunDeps, trigger: Trigger): Promise
  * (run_id, seq) unique index and the per-call idempotency key, so the worst case is wasted model
  * turns rather than duplicated effects. A per-run lease — the equivalent of the B-03 job claim —
  * belongs with the agent queue route, which is a later slice.
+ *
+ * `opts.siteId` is the tenant fence: a run of another site is refused, with no state touched. The
+ * refusal is a throw rather than a `RunResult` because it is not an outcome of *that run* — the run
+ * is innocent and must not be recorded FAILED because somebody else asked about it.
  */
-export async function driveRun(deps: RunDeps, runId: string): Promise<RunResult> {
+export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {}): Promise<RunResult> {
   const clock = deps.now ?? systemClock;
   const loaded = await loadRun(deps.db, runId);
   if (!loaded) throw new AgentRunError(`no agent run ${runId}`);
+  // 404 rather than 403, as everywhere else (policy.ts step 7): the message does not say whose it
+  // is, because a driver that could tell "no such run" from "another tenant's run" is an existence
+  // oracle for every other site in the database.
+  if (opts.siteId !== undefined && loaded.siteId !== opts.siteId) {
+    throw new AgentRunError(`no agent run ${runId} in this site`);
+  }
   if (TERMINAL_RUN_STATES.has(loaded.state)) {
     return { runId, created: false, state: loaded.state, steps: 0, reason: "run already finished" };
   }
@@ -143,14 +175,17 @@ export async function driveRun(deps: RunDeps, runId: string): Promise<RunResult>
   let steps = 0;
   let calls = await toolCalls(deps.db, runId);
 
-  // 1. Resume: a step that was persisted but never committed. Its policy decision is the one it
-  //    was persisted with — re-deciding it against a context that has moved since would be a
-  //    different call, not a resume — and its idempotency key is the original, so an effect that
-  //    did happen before the crash is not repeated.
+  // 1. Resume: a step that was persisted but never committed. Its idempotency key is the original,
+  //    so an effect that did happen before the crash is not repeated — and its decision is the one
+  //    it was persisted with, except that it may be **tightened** first (`tightenOnResume`).
   const interrupted = pendingCall(calls);
   if (interrupted) {
     steps += 1;
-    const outcome = await settleCall(deps, run, interrupted, clock());
+    const at = clock();
+    const committed = committedCalls(calls);
+    const redecided = await retighten(deps, run, interrupted, committed, at);
+    if (!redecided.ok) return fail(deps, run, redecided.reason, steps);
+    const outcome = await settleCall(deps, run, interrupted, committed, at, redecided.tightened);
     const finished = await finish(deps, run, outcome, steps);
     if (finished) return finished;
     calls = await toolCalls(deps.db, runId);
@@ -169,7 +204,10 @@ export async function driveRun(deps: RunDeps, runId: string): Promise<RunResult>
       return { runId, created: false, state: live?.state ?? loaded.state, steps, reason: "run was taken over before the next turn" };
     }
     const at = clock();
-    const assembled = await deps.assemble({ runId, trigger: run.trigger, committed: committedCalls(calls), now: at });
+    const committed = committedCalls(calls);
+    const assembled = await deps.assemble({ runId, trigger: run.trigger, committed, now: at });
+    const wrongSite = scopeSiteRefusal(run, assembled.policy);
+    if (wrongSite) return fail(deps, run, wrongSite, steps);
     let turn: GatewayResult;
     try {
       turn = await deps.gateway.complete({ runId, prompt: assembled.prompt, tools: assembled.tools });
@@ -186,7 +224,7 @@ export async function driveRun(deps: RunDeps, runId: string): Promise<RunResult>
     steps += 1;
 
     // Nothing above this line executed anything; nothing below it runs without that row committed.
-    const outcome = await settleCall(deps, run, row, at);
+    const outcome = await settleCall(deps, run, row, committed, at);
     const finished = await finish(deps, run, outcome, steps);
     if (finished) return finished;
     calls = await toolCalls(deps.db, runId);
@@ -203,7 +241,9 @@ export async function driveRun(deps: RunDeps, runId: string): Promise<RunResult>
 export async function resumeQueuedRuns(deps: RunDeps, siteId: string, limit = 100): Promise<RunResult[]> {
   const runs = await resumableRuns(deps.db, siteId, limit);
   const out: RunResult[] = [];
-  for (const r of runs) out.push(await driveRun(deps, r.id));
+  // The fence is redundant here — `resumableRuns` selected by site — and passed anyway, so that
+  // the site a run is driven for is stated at every entry point rather than implied by a query.
+  for (const r of runs) out.push(await driveRun(deps, r.id, { siteId }));
   return out;
 }
 
@@ -228,6 +268,94 @@ export function persistedVerdict(policyDecision: string): { verdict: "ALLOW" | "
     throw new AgentRunError(`unreadable policy decision ${JSON.stringify(policyDecision)}`);
   }
   return { verdict, detail: rest.join(":") };
+}
+
+/* ──────────────────── the run's site, and the context's ──────────────────── */
+
+/**
+ * Why the context this turn was assembled from is not this run's to use, or null when it is
+ * (PR #35 review, F3).
+ *
+ * `FamilyScope.siteToken` is the tenant the assembler built the scope for, and `run.site_id` is the
+ * site the run was started in. Everything downstream trusts both and compares neither: the policy
+ * engine checks an argument against `scope.tokens`, while every executor reads and writes
+ * `WHERE … site_id = call.siteId`, which comes off the run row. A context assembled for the wrong
+ * site would therefore pass the scope check against *that* site's tokens and then be executed
+ * against *this* site's rows — the one shape of cross-tenant write that the family-scope
+ * post-validator cannot see, because each half is self-consistent.
+ *
+ * Checked before the model turn, so a mismatch costs no tokens, and fail-shut: the run stops. A
+ * caller whose session and whose run disagree about the tenant has a bug that no retry fixes.
+ */
+function scopeSiteRefusal(run: RunRow, policy: PolicyContext): string | null {
+  return policy.scope.siteToken === run.siteId
+    ? null
+    : "assembled context is scoped to another site than this run";
+}
+
+/* ──────────────────── re-deciding a resumed step, tighten-only ──────────────────── */
+
+/** Loosest to tightest. A resume may move a step up this list and never down it. */
+const VERDICT_RANK: Readonly<Record<PolicyDecision["verdict"], number>> = { ALLOW: 0, PROPOSAL: 1, BLOCK: 2 };
+
+/** The rule a decision blocked or proposed on; for an ALLOW, its effect (`decisionLabel`'s tail). */
+function decisionDetail(decision: PolicyDecision): string {
+  return decision.verdict === "ALLOW" ? decision.effect : decision.rule;
+}
+
+/**
+ * What a resumed step's verdict becomes, given the verdict it was persisted with and the verdict
+ * the *current* context produces: the fresh one when it is strictly tighter, and `null` — keep the
+ * persisted one — otherwise.
+ *
+ * Both halves matter, and they are not symmetrical.
+ *
+ * **Tighten.** A PENDING ALLOW row is a step that was permitted when it was written down and whose
+ * effect may not have happened yet. If the agent was paused in the meantime, or the family withdrew
+ * consent, or a human took the thread over, then executing it now is the paused agent sending a
+ * message — the crash would have bought the model an exemption from the kill switch. So the current
+ * context gets to refuse it, through the same `policy.evaluate` a fresh call goes through.
+ *
+ * **Never loosen.** The reverse is not allowed for the reason the original slice-2 comment gives: a
+ * BLOCK was decided against the context of the turn that produced it, and re-deciding it against a
+ * context that has since become permissive is not a resume, it is a different call that nobody's
+ * model asked for. A persisted BLOCK therefore stays BLOCKED however agreeable policy has become
+ * (`resume.test.ts`), and a PROPOSAL never becomes an ALLOW.
+ */
+export function tightenOnResume(
+  persisted: PolicyDecision["verdict"],
+  fresh: PolicyDecision,
+): PolicyDecision | null {
+  return VERDICT_RANK[fresh.verdict] > VERDICT_RANK[persisted] ? fresh : null;
+}
+
+/** `null` tightened = settle the row on the decision it was persisted with. */
+type Redecided =
+  | { readonly ok: true; readonly tightened: PolicyDecision | null }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * Re-decide one resumed step against the context as it is now, and refuse to loosen it.
+ *
+ * The re-decision is taken on the **stored** arguments, which for an allowed call are the ones the
+ * policy engine sanitized and the executor is about to be handed — so what is judged is what would
+ * run. A persisted BLOCK is skipped: it is already the tightest verdict there is, and asking again
+ * could only produce a looser one.
+ */
+async function retighten(
+  deps: RunDeps,
+  run: RunRow,
+  row: ToolCallRow,
+  committed: readonly CommittedCall[],
+  at: Date,
+): Promise<Redecided> {
+  const persisted = persistedVerdict(row.policyDecision).verdict;
+  if (persisted === "BLOCK") return { ok: true, tightened: null };
+  const assembled = await deps.assemble({ runId: run.id, trigger: run.trigger, committed, now: at });
+  const wrongSite = scopeSiteRefusal(run, assembled.policy);
+  if (wrongSite) return { ok: false, reason: wrongSite };
+  const fresh = evaluate({ tool: row.tool, args: row.args }, assembled.policy);
+  return { ok: true, tightened: tightenOnResume(persisted, fresh) };
 }
 
 async function persistCallFor(
@@ -257,10 +385,27 @@ async function persistCallFor(
  * Take one persisted call to its committed outcome. Called both for a fresh step and for a step
  * being resumed, and it cannot tell the difference — which is the point: the row is the whole
  * input, so "execute it" and "finish executing it" are one code path.
+ *
+ * `tightened` is the one thing a resume may add: the stricter verdict the *current* context gives
+ * the same call (`tightenOnResume`). It replaces the persisted verdict for this settlement and is
+ * recorded on the committed row as `tightened_on_resume`, so a step that was allowed when it was
+ * written down and refused when it ran says both things. The row's `policy_decision` column is
+ * never rewritten — it is the decision the call was persisted with, which is a different fact.
  */
-async function settleCall(deps: RunDeps, run: RunRow, row: ToolCallRow, at: Date): Promise<StepOutcome> {
+async function settleCall(
+  deps: RunDeps,
+  run: RunRow,
+  row: ToolCallRow,
+  committed: readonly CommittedCall[],
+  at: Date,
+  tightened: PolicyDecision | null = null,
+): Promise<StepOutcome> {
   const by = runActor(run.id);
-  const { verdict, detail } = persistedVerdict(row.policyDecision);
+  const persisted = persistedVerdict(row.policyDecision);
+  const verdict = tightened?.verdict ?? persisted.verdict;
+  const detail = tightened ? decisionDetail(tightened) : persisted.detail;
+  /** What the committed row says about having been re-decided at effect time, when it was. */
+  const retightened = tightened ? { tightened_on_resume: `${persisted.verdict}:${persisted.detail}` } : {};
 
   // A blocked call never executes, and the AGT-02 evidence — "out-of-policy tool call rejected +
   // logged" — is two writes, not one: the row goes BLOCKED with its rule, and every task the
@@ -274,10 +419,16 @@ async function settleCall(deps: RunDeps, run: RunRow, row: ToolCallRow, at: Date
   // call's idempotency key, so a replay that got past the fence would still write nothing
   // (tasks.ts).
   if (verdict === "BLOCK") {
-    const tasks = pendingPolicyTasks(row);
+    // The tasks of whichever decision is being recorded: the persisted one's, parked on the row at
+    // persist time, or — when the resume is what refused the step — the fresh decision's.
+    const tasks = tightened?.verdict === "BLOCK" ? tightened.tasks : pendingPolicyTasks(row);
     // Derived, not read back, so the committed row can name the tasks it opened in the same write.
     const taskIds = policyTaskIds(row, tasks);
-    const result = taskIds.length === 0 ? { blocked_rule: detail } : { blocked_rule: detail, task_ids: taskIds };
+    const result = {
+      blocked_rule: detail,
+      ...retightened,
+      ...(taskIds.length === 0 ? {} : { task_ids: taskIds }),
+    };
     const committed = await deps.db.tx(async (tx) => {
       if (!(await commitCall(tx, row.id, "BLOCKED", result, by))) return false;
       await writePolicyTasks(tx, { run, call: row, tasks, by });
@@ -288,8 +439,24 @@ async function settleCall(deps: RunDeps, run: RunRow, row: ToolCallRow, at: Date
   }
   // A proposal mutates nothing and sends nothing; it waits for a human. The run is finished —
   // §11.1 has no notion of a run that waits for an approval, it has a proposal row and a task.
+  //
+  // `proposals` is the seam for the rows a §11.2 `propose_*` call implies (an `ops.change_request`,
+  // an `ops.approval_request`, the exception task). It is deliberately *not* an executor: the loop
+  // must have no code path on which a human-tier call runs one. The writer runs inside the
+  // transaction that commits the PROPOSED row, so a proposal and the record of it cannot come
+  // apart; with no writer configured the behaviour is the slice-2 one, a recorded decision.
   if (verdict === "PROPOSAL") {
-    const ok = await commitCall(deps.db, row.id, "PROPOSED", { proposal_rule: detail, approval_key: row.argsHash }, by);
+    const result: Record<string, unknown> = { proposal_rule: detail, approval_key: row.argsHash, ...retightened };
+    const writer = deps.proposals;
+    const ok = writer
+      ? await deps.db.tx(async (tx) => {
+          const extra = await writer(tx, {
+            runId: run.id, callId: row.id, siteId: run.siteId, seq: row.seq, tool: row.tool,
+            args: row.args, idempotencyKey: row.idempotencyKey, approvalKey: row.argsHash, now: at,
+          });
+          return commitCall(tx, row.id, "PROPOSED", { ...result, ...extra }, by);
+        })
+      : await commitCall(deps.db, row.id, "PROPOSED", result, by);
     return ok ? { kind: "done" } : lost(row);
   }
 
@@ -309,6 +476,7 @@ async function settleCall(deps: RunDeps, run: RunRow, row: ToolCallRow, at: Date
     idempotencyKey: row.idempotencyKey,
     trigger: run.trigger,
     now: at,
+    committed,
   };
 
   let execution: ToolExecution;

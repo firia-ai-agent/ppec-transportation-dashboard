@@ -809,6 +809,117 @@ export const consentFollowUp = {
 } as const;
 
 /**
+ * The staff-facing words of the tasks the **agent** raises (the agent runtime's §11.2 "Failure"
+ * column). A coordinator reads these on the Exceptions board next to the consent ones above, so
+ * they are written the same way: the summary is a label, the next step is one thing to do.
+ *
+ * The agent never writes any of it. A model-supplied summary reaches a task only through
+ * `escalate_exception`, where it is redacted first (policy.ts `sanitizeStaffText`); everything a
+ * tool raises on its own account is one of these entries, chosen by a code.
+ *
+ * `predicate` is the condition that closes the task and staff read it too. These are **prose**
+ * predicates, which is what makes them staff-closable only: `close_task` closes a task only when
+ * its predicate is one of the coded ones the agent itself writes (`run/exec/predicate.ts`).
+ */
+export const agentTasks = {
+  /** §11.2 resolve_sender: "unknown → unknown_sender task". */
+  unknownSender: {
+    summary: "Text from a number we do not recognize",
+    nextStep: "Identify the sender and add them as an authorized contact, or close this as a wrong number.",
+    predicate: "sender identified, or the message confirmed as a wrong number",
+  },
+  /** §11.2 request_clarification: "≤2/thread/hour". The third question in an hour is a human's. */
+  clarificationLimit: {
+    summary: "The agent has asked this family twice in an hour and is still unsure",
+    nextStep: "Call the family, or answer the question in the thread yourself.",
+    predicate: "staff answered the question or recorded what the family wants",
+  },
+  /** §11.2 request_clarification: "send fail → exception". */
+  clarificationSendFailure: {
+    summary: "A clarification could not be queued to the family",
+    nextStep: "Ask the family directly, then record their answer.",
+    predicate: "family reached by another means and the answer recorded",
+  },
+  /** §11.2 record_acknowledgment: "DECLINED → AMBER". */
+  acknowledgmentDeclined: {
+    summary: "Someone declined a request we sent them",
+    nextStep: "Call them to agree what happens instead.",
+    predicate: "another arrangement agreed and recorded",
+  },
+  /**
+   * §11.2 escalate_exception ("always allowed"). The *summary* on one of these comes from the
+   * model, redacted; what is ours is what closing it means. The next step is chosen by code from
+   * `agentNextSteps` below.
+   */
+  escalation: {
+    summary: "The agent escalated something it may not decide",
+    nextStep: "Read the thread and decide what happens next.",
+    predicate: "staff resolved what the agent escalated and recorded the outcome",
+  },
+  /** §11.2 propose_contact_or_profile_change: "change request + exception". */
+  proposedContactChange: {
+    summary: "A family asked for a change the agent may not make",
+    nextStep: "Verify the request with the family, then approve or reject the change request.",
+    predicate: "change request approved or rejected by staff",
+  },
+  /** §11.2 propose_manifest_reallocation: "RED exception + Teams card". */
+  proposedReallocation: {
+    summary: "A vehicle cannot take its runs and the agent has options to show you",
+    nextStep: "Review the options and commit one, or arrange transport another way.",
+    predicate: "an option approved, or transport arranged another way",
+  },
+} as const;
+
+/**
+ * The next step on a task the model escalated, chosen by `escalate_exception`'s `next_step_code`.
+ * The model picks the code; these words are ours.
+ */
+export const agentNextSteps = {
+  STAFF_CALL: "Call the family or the provider about this.",
+  STAFF_REVIEW: "Read the thread and decide what happens next.",
+  DISPATCHER_PING: "Contact the provider's dispatcher.",
+  APPROVAL_NEEDED: "Approve or reject the proposal attached to this.",
+  NONE: "No further step; this is here so it is on the record.",
+} as const;
+
+/**
+ * How a task raised by one agent step says which step it came from. Shared by every agent task
+ * that needs to: a coordinator has to be able to find the step behind the work, and nothing else
+ * about the machinery is theirs to read, so the run id and the tool name are not in here.
+ *
+ * Used by `run/tasks.ts` (a refused step) and `run/timers.ts` (a step waiting for an answer).
+ */
+export const agentTaskLocator = "{summary} ({trigger}, step {step})";
+
+/**
+ * The task that stands in for a run waiting on an answer (§11.1: "delayed external responses are
+ * tasks with timers, never waiting sessions"). The agent is not sitting in a function — it has
+ * ended, and this task plus its timer are the whole of the wait, so these are the words a
+ * coordinator reads while it is open. `run/timers.ts` writes them.
+ */
+export const agentWaits = {
+  locator: agentTaskLocator,
+  nextStep: "Wait for the reply, or answer it yourself; the agent carries on when the timer is up.",
+  /** What is being waited for, per await reason. */
+  clarification: "Waiting for the family to say which child or which ride they mean",
+} as const;
+
+/**
+ * The RED task a background timer opens when it has run out of attempts: a timer that cannot
+ * complete becomes work for a person rather than a silent gap. `modules/jobs/runner.ts` writes it,
+ * and it is on the Exceptions board next to the agent's own tasks, so it is written the same way —
+ * summary, one next step, and the condition that closes it.
+ *
+ * The timer's kind and key ride in the summary because they are the only way to find the thing that
+ * failed; they are the one code on this board that is addressed to whoever is on call.
+ */
+export const timerDeadTask = {
+  summary: "A background timer failed {attempts} times and has stopped retrying ({kind}, {key})",
+  nextStep: "Check the timer, then run it or cancel it by hand.",
+  predicate: "the timer has been run or canceled",
+} as const;
+
+/**
  * The staff tasks a refused agent step opens (PRD §11.2 exceptions). The agent stops when a step
  * is out of policy, and these are what a coordinator reads on the Exceptions board afterwards:
  * one task per thing a human now has to decide, in the same summary / next step / predicate shape
@@ -817,7 +928,7 @@ export const consentFollowUp = {
  * find the step the task came from, and nothing else about the machinery is theirs to read.
  */
 export const agentPolicyTask = {
-  locator: "{summary} ({trigger}, step {step})",
+  locator: agentTaskLocator,
   staffReview: {
     summary: "The assistant tried something it is not allowed to do",
     nextStep: "Read the refused step, then do the work by hand if it still needs doing.",
