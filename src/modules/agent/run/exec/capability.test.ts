@@ -10,12 +10,17 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
+import { uuidv7 } from "uuidv7";
 import type { Db } from "@/db/exec";
+import { phoneHmac } from "@/modules/identity/phone";
 import { freshDb } from "@/test/pglite";
+import { PEPPER } from "@/test/messaging";
 import {
+  DISPATCHER_NUMBER,
   type AgentScenario,
   type ProviderRoute,
   seedAgentScenario,
+  seedInbound,
   seedProviderRoute,
 } from "@/test/agent-state";
 import type { PolicyContext } from "../../policy";
@@ -301,5 +306,166 @@ describe("§11.2 the capability question: at T−90, to the dispatcher, state RE
 
     expect(await h.drainOutbox()).toEqual(["BLOCKED_EGRESS"]);
     expect(h.provider.sent).toEqual([]);
+  });
+});
+
+/* ───────────────────── record_capability_report ───────────────────── */
+
+const PARSED = { layout_code: "1WC3A", wc_positions: 1, amb_positions: 3, lift_present: true };
+
+/** The dispatcher's reply, in their own thread — the evidence a report is recorded from. */
+const seedDispatcherReply = async (fromHmac?: string): Promise<string> => {
+  const threadId = uuidv7();
+  await db.query(
+    `INSERT INTO ops.conversation_thread (id, site_id, counterparty_token, channel, state, last_activity_at, created_by, updated_by)
+     VALUES ($1,$2,$3,'SMS_1TO1','OPEN',$4,'test','test')`,
+    [threadId, sc.siteId, route.dispatcherToken, now.toISOString()],
+  );
+  return seedInbound(db, {
+    siteId: sc.siteId,
+    threadId,
+    fromHmac: fromHmac ?? phoneHmac(DISPATCHER_NUMBER, PEPPER),
+    body: "1 wc 3 amb lift ok",
+    receivedAt: now,
+  });
+};
+
+const reportCall = (messageId: string, over: Record<string, unknown> = {}) =>
+  toolCall("record_capability_report", {
+    vehicle_token: route.vehicleId,
+    parsed: PARSED,
+    source_message_id: messageId,
+    state: "REPORTED",
+    confidence: 0.9,
+    ...over,
+  });
+
+const reportHarness = (messageId: string, over: Record<string, unknown> = {}): LiveHarness =>
+  liveHarness({
+    db,
+    script: [reportCall(messageId, over)],
+    facts: facts(),
+    policy: {
+      ...policy(),
+      scope: {
+        ...sc.scope,
+        tokens: new Set([...sc.scope.tokens, messageId]),
+        shared: new Set([route.vehicleId, route.providerId, route.manifestId]),
+      },
+    },
+    now: () => now,
+  });
+
+const observation = async () =>
+  (await db.query<{
+    state: string; version: number; lift_ok: boolean | null; observed_by: string | null;
+    evidence_message_id: string | null; observed_at: Date | null;
+  }>(
+    `SELECT state, version, lift_ok, observed_by, evidence_message_id, observed_at
+     FROM ops.vehicle_capability_day WHERE id = $1`, [route.capabilityId])).rows[0];
+
+describe("§11.2 the answer coming back: from the provider's contact point, REPORTED only", () => {
+  const requestedRoute = async () => {
+    await seedRoute({
+      siteId: sc.siteId, serviceDate: sc.serviceDate, windowStart: ROUTE_START,
+      legIds: [sc.legs[sc.children[0]].AM], capabilityState: "REQUESTED",
+    });
+  };
+
+  it("records the observation on the vehicle-day row, as the provider", async () => {
+    sc = await seedAgentScenario(db);
+    await requestedRoute();
+    const messageId = await seedDispatcherReply();
+    const h = reportHarness(messageId);
+    const r = await h.start({ ...trigger(), id: "EV-REPORT" });
+
+    const [call] = await toolCalls(db, r.runId);
+    expect([call.tool, call.status]).toEqual(["record_capability_report", "EXECUTED"]);
+    expect(call.result).toMatchObject({
+      capability_state: "REPORTED",
+      parsed: PARSED,
+      confidence: 0.9,
+      staff_review: false,
+    });
+
+    const row = await observation();
+    expect([row.state, row.lift_ok, row.evidence_message_id]).toEqual(["REPORTED", true, messageId]);
+    expect(row.observed_by).toContain(r.runId);
+    expect(row.observed_at).not.toBeNull();
+    // Two writes, one transaction: the machine's edge, then the observation's own columns.
+    expect(row.version).toBe(3);
+    // Nothing is sent by a report, and nobody is asked about this one.
+    expect(await outbound()).toEqual([]);
+    expect(await tasks()).toEqual([]);
+  });
+
+  it("a report from anyone but that provider's dispatcher is refused, and writes nothing", async () => {
+    sc = await seedAgentScenario(db);
+    await requestedRoute();
+    // The family's own message: a known number, and not the provider's contact point.
+    const h = reportHarness(sc.messageId);
+    const r = await h.start({ ...trigger(), id: "EV-GUARDIAN-REPORT" });
+
+    expect(r.state).toBe("FAILED");
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
+      error_code: "NOT_FROM_PROVIDER_CONTACT_POINT",
+    });
+    expect(await observation()).toMatchObject({ state: "REQUESTED", version: 1, evidence_message_id: null });
+  });
+
+  it("low confidence keeps the answer and asks a person to confirm it", async () => {
+    sc = await seedAgentScenario(db);
+    await requestedRoute();
+    const messageId = await seedDispatcherReply();
+    const h = reportHarness(messageId, { confidence: 0.4 });
+    const r = await h.start({ ...trigger(), id: "EV-LOW" });
+
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({ staff_review: true, confidence: 0.4 });
+    expect(await observation()).toMatchObject({ state: "REPORTED" });
+    expect((await tasks()).map((t) => [t.category, t.severity])).toEqual([["CAPABILITY_REVIEW", "AMBER"]]);
+  });
+
+  it("a vehicle-day nobody asked about is not reported on", async () => {
+    sc = await seedAgentScenario(db);
+    await seedRoute();
+    const messageId = await seedDispatcherReply();
+    const h = reportHarness(messageId);
+    const r = await h.start({ ...trigger(), id: "EV-UNASKED" });
+
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
+      error_code: "CAPABILITY_NOT_REQUESTED", capability_state: "UNKNOWN",
+    });
+    expect(await observation()).toMatchObject({ state: "UNKNOWN", version: 1 });
+  });
+
+  it("the same report recorded twice is one observation", async () => {
+    sc = await seedAgentScenario(db);
+    await requestedRoute();
+    const messageId = await seedDispatcherReply();
+    await (await reportHarness(messageId)).start({ ...trigger(), id: "EV-ONCE" });
+    const first = await observation();
+
+    const again = reportHarness(messageId);
+    const r = await again.start({ ...trigger(), id: "EV-TWICE" });
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
+      idempotent: true, capability_state: "REPORTED",
+    });
+    expect(await observation()).toEqual(first);
+  });
+
+  it("a vehicle-day staff have already verified is never re-reported by the agent", async () => {
+    sc = await seedAgentScenario(db);
+    await seedRoute({
+      siteId: sc.siteId, serviceDate: sc.serviceDate, windowStart: ROUTE_START,
+      legIds: [sc.legs[sc.children[0]].AM], capabilityState: "VERIFIED",
+    });
+    const messageId = await seedDispatcherReply();
+    const h = reportHarness(messageId);
+    const r = await h.start({ ...trigger(), id: "EV-VERIFIED" });
+
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
+      error_code: "CAPABILITY_NOT_REQUESTED", capability_state: "VERIFIED",
+    });
+    expect(await observation()).toMatchObject({ state: "VERIFIED", version: 1 });
   });
 });

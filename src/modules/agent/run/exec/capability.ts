@@ -1,5 +1,12 @@
 /**
- * §11.2 `request_provider_capability(vehicle, provider, route, required)` — "capability UNKNOWN at
+ * The two §11.2 tools about what a vehicle can carry today.
+ *
+ * | Tool | Precondition → effect | Failure |
+ * |---|---|---|
+ * | `request_provider_capability(vehicle, provider, route, required)` | capability UNKNOWN at T−90 or on substitution → signed dispatcher link; state REQUESTED | no reply → escalate |
+ * | `record_capability_report(vehicle, parsed, source_msg)` | from provider contact point → observation | low confidence → staff review |
+ *
+ * `request_provider_capability(vehicle, provider, route, required)` — "capability UNKNOWN at
  * T−90 or on substitution → signed dispatcher link; state REQUESTED", failure column "no reply →
  * escalate".
  *
@@ -30,6 +37,26 @@
  *
  * A provider with **no dispatcher contact point** is refused by name and raises a staff task: there
  * is nobody to ask, and moving the row to REQUESTED would record a question that was never put.
+ *
+ * `record_capability_report(vehicle, parsed, source_msg)` is the answer coming back, and §11.2
+ * marks it `auto (REPORTED only)`:
+ *
+ *  - **"from provider contact point"** is a check, not a description. The evidence message's blind
+ *    index has to be the one `identity.external_person_identity` holds for *that vehicle's
+ *    provider's* dispatcher — so a guardian, a stranger or another provider reporting about this van
+ *    is refused. A phone match is recognition, never authority (RES-02), which is why the match has
+ *    to be against the contact point the provider row names rather than against any known number.
+ *  - **the observation is the vehicle-day row itself**: `REQUESTED → REPORTED` as actor `P` (the
+ *    provider reports; the agent only records what they said), with `observed_at`, `observed_by` and
+ *    `evidence_message_id` written in the same transaction. The parsed layout and seat counts have
+ *    no column there — the solver reads layouts from `ops.vehicle_layout` — so they stay on the call
+ *    row as the observation's evidence and reach capability only when staff verify it.
+ *  - **"low confidence → staff review"**: below `CAPABILITY_REPORT_MIN_CONFIDENCE` the observation
+ *    is still recorded (the provider did answer) and an AMBER task asks a person to confirm it
+ *    before the solver is trusted with it.
+ *
+ * `VERIFIED` is unreachable from here twice over: `tools.ts` types the state argument as the literal
+ * `REPORTED`, and `machines.ts` gives `REPORTED → VERIFIED` to staff alone.
  */
 import type { Exec } from "@/db/exec";
 import { CAPABILITY } from "@/domain/machines";
@@ -42,6 +69,7 @@ import {
   type ExecutorDeps,
   actor,
   effectId,
+  factString,
   failed,
   isUuid,
   notFound,
@@ -64,6 +92,15 @@ export const CAPABILITY_REQUEST_RECIPIENT_RULE = "provider_dispatcher";
 export const CAPABILITY_LINK_PURPOSE = "CAPABILITY_VERIFY";
 /** `ops.task.category` when there is no dispatcher to ask. §11.2's own exception category. */
 export const CAPABILITY_TASK_CATEGORY = "CAPABILITY_UNKNOWN";
+/** `ops.task.category` for §11.2's "low confidence → staff review". */
+export const CAPABILITY_REVIEW_TASK_CATEGORY = "CAPABILITY_REVIEW";
+/**
+ * Below this, a parsed report is recorded but asked about: the provider answered, and how well we
+ * read their answer is a different question. Chosen rather than derived — there is no calibration
+ * to derive it from until live traffic — and deliberately high, because the thing downstream of it
+ * is whether a child fits in a van.
+ */
+export const CAPABILITY_REPORT_MIN_CONFIDENCE = 0.7;
 /** What the result says about the link when no signer is configured (see the file header). */
 export const LINK_INTENT_RECORDED = "INTENT_RECORDED";
 export const LINK_CREATED = "CREATED";
@@ -205,6 +242,126 @@ export function requestProviderCapabilityExecutor(deps: ExecutorDeps): ToolExecu
   };
 }
 
+/* ───────────────────────── record_capability_report ───────────────────────── */
+
+export function recordCapabilityReportExecutor(deps: ExecutorDeps): ToolExecutor {
+  return async (call) => {
+    const vehicleId = String(call.args.vehicle_token ?? "");
+    const messageId = String(call.args.source_message_id ?? "");
+    const parsed = (call.args.parsed ?? {}) as Record<string, unknown>;
+    const confidence = Number(call.args.confidence);
+    const by = actor(call.runId);
+
+    if (!isUuid(vehicleId)) return notFound("vehicle");
+    if (!isUuid(messageId)) return notFound("message");
+
+    // "from provider contact point": the evidence has to be an inbound message from the dispatcher
+    // of the provider that runs this vehicle, matched on the blind index identity holds for them.
+    const evidence = await providerEvidence(deps.db, { siteId: call.siteId, vehicleId, messageId });
+    if (!evidence) return notFound("message");
+    if (!evidence.from_provider) {
+      return failed("NOT_FROM_PROVIDER_CONTACT_POINT", { source_message_id: messageId });
+    }
+
+    // The day the report is about: the one this run asked about, else the message's own service
+    // date (PRD §6.1: a calendar date in the site's zone).
+    const serviceDate = factString(call.committed, "request_provider_capability", "service_date")
+      ?? evidence.service_date;
+    const capability = await capabilityRow(deps.db, { siteId: call.siteId, vehicleId, serviceDate });
+    if (!capability) return notFound("vehicle_capability_day");
+
+    const lowConfidence = !Number.isFinite(confidence) || confidence < CAPABILITY_REPORT_MIN_CONFIDENCE;
+    if (capability.state === "REPORTED" && evidence.already_recorded) {
+      // This exact report is already on the row: a re-driven call, not a second observation.
+      return reported({ capability, parsed, confidence, lowConfidence, serviceDate, idempotent: true });
+    }
+    if (capability.state !== "REQUESTED") {
+      return failed("CAPABILITY_NOT_REQUESTED", { capability_state: capability.state });
+    }
+
+    try {
+      return await deps.db.tx(async (tx) => {
+        await transition(tx, CAPABILITY, "ops.vehicle_capability_day", {
+          id: capability.id,
+          version: capability.version,
+          from: "REQUESTED",
+          to: "REPORTED",
+          // machines.ts CAPABILITY: `REQUESTED → REPORTED` by P. The provider reported it; the
+          // agent is writing down their answer, exactly as `record_acknowledgment` records a
+          // therapist's. Verification stays staff's (`REPORTED → VERIFIED` by S).
+          actor: "P",
+          by,
+        });
+        // The observation's own columns, in the same transaction and after the version guard held.
+        const observed = await tx.query<{ version: number }>(
+          `UPDATE ops.vehicle_capability_day
+             SET lift_ok = $2, observed_at = $3, observed_by = $4, evidence_message_id = $5,
+                 version = version + 1, updated_at = now(), updated_by = $4
+           WHERE id = $1 AND version = $6 RETURNING version`,
+          [capability.id, parsed.lift_present === true, call.now.toISOString(), by, messageId,
+            capability.version + 1],
+        );
+        if (observed.rows.length !== 1) throw new StaleOrConflict(`vehicle_capability_day ${capability.id}: stale`);
+        if (lowConfidence) {
+          // §11.2: "low confidence → staff review". The answer is kept; the trust is not.
+          await raiseTask(tx, {
+            id: effectId(call.idempotencyKey, "capability-review"),
+            siteId: call.siteId,
+            category: CAPABILITY_REVIEW_TASK_CATEGORY,
+            severity: "AMBER",
+            words: agentTasks.capabilityLowConfidence,
+            by,
+          });
+        }
+        return reported({
+          capability, parsed, confidence, lowConfidence, serviceDate,
+          version: observed.rows[0].version,
+        });
+      });
+    } catch (e) {
+      if (e instanceof StaleOrConflict) return failed("VERSION_CONFLICT", { http_status: 412 });
+      if (e instanceof IllegalTransition) return failed("ILLEGAL_TRANSITION", { reason: e.message.slice(0, 200) });
+      throw e;
+    }
+  };
+}
+
+/** What `record_capability_report` reports. The parsed numbers are codes and counts, never prose. */
+function reported(a: {
+  capability: CapabilityRow;
+  parsed: Record<string, unknown>;
+  confidence: number;
+  lowConfidence: boolean;
+  serviceDate: string;
+  version?: number;
+  idempotent?: boolean;
+}): ToolExecution {
+  const layoutCode = typeof a.parsed.layout_code === "string" ? a.parsed.layout_code : null;
+  return {
+    status: "executed",
+    data: {
+      capability_id: a.capability.id,
+      capability_state: "REPORTED",
+      service_date: a.serviceDate,
+      // Kept here because the vehicle-day row has no column for them (see the file header).
+      parsed: a.parsed,
+      confidence: Number.isFinite(a.confidence) ? a.confidence : null,
+      staff_review: a.lowConfidence,
+      ...(a.version === undefined ? {} : { capability_version: a.version }),
+      ...(a.idempotent ? { idempotent: true } : {}),
+    },
+    promptFacts: {
+      capability_state: "REPORTED",
+      capability_id: a.capability.id,
+      service_date: a.serviceDate,
+      lift_present: a.parsed.lift_present === true,
+      ...(layoutCode ? { layout_code: layoutCode } : {}),
+      staff_review: a.lowConfidence,
+      ...(a.idempotent ? { idempotent: true } : {}),
+    },
+  };
+}
+
 /* ───────────────────────────── the pieces ───────────────────────────── */
 
 /**
@@ -224,6 +381,39 @@ async function routeRow(
      WHERE m.id = $1 AND v.id = $2 AND p.id = $3
        AND m.site_id = $4 AND v.site_id = $4 AND p.site_id = $4`,
     [a.routeId, a.vehicleId, a.providerId, a.siteId],
+  );
+  return r.rows[0] ?? null;
+}
+
+/**
+ * The evidence message, with the two things that decide whether it may be recorded: was it sent
+ * from this vehicle's provider's dispatcher contact point, and is it already the row's evidence?
+ *
+ * The join is the same direction `resolve_sender` and the inbound handler use — a blind index
+ * against the identity table, never a number — and it is anchored on the *vehicle's* provider, so a
+ * report about a van from somebody else's dispatcher matches nothing.
+ */
+async function providerEvidence(
+  db: Exec,
+  a: { siteId: string; vehicleId: string; messageId: string },
+): Promise<{ service_date: string; from_provider: boolean; already_recorded: boolean } | null> {
+  const r = await db.query<{ service_date: string; from_provider: boolean; already_recorded: boolean }>(
+    `SELECT to_char(m.received_at AT TIME ZONE st.timezone, 'YYYY-MM-DD') AS service_date,
+            EXISTS (
+              SELECT 1 FROM ops.vehicle v
+              JOIN ops.provider p ON p.id = v.provider_id
+              JOIN identity.external_person_identity x ON x.person_token = p.dispatcher_person_token
+              WHERE v.id = $3 AND v.site_id = $2 AND p.site_id = $2 AND x.site_id = $2
+                AND x.phone_hmac = m.from_hmac
+            ) AS from_provider,
+            EXISTS (
+              SELECT 1 FROM ops.vehicle_capability_day c
+              WHERE c.site_id = $2 AND c.vehicle_id = $3 AND c.evidence_message_id = m.id
+            ) AS already_recorded
+     FROM ops.message m
+     JOIN ops.site st ON st.id = m.site_id
+     WHERE m.id = $1 AND m.site_id = $2 AND m.direction = 'IN' AND m.is_own_echo = false`,
+    [a.messageId, a.siteId, a.vehicleId],
   );
   return r.rows[0] ?? null;
 }

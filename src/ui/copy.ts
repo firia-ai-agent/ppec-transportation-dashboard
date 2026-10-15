@@ -862,6 +862,12 @@ export const agentTasks = {
     nextStep: "Call the provider for the vehicle's equipment, then record what they said.",
     predicate: "the vehicle's equipment confirmed with the provider and recorded",
   },
+  /** §11.2 record_capability_report: "low confidence → staff review". */
+  capabilityLowConfidence: {
+    summary: "A provider's answer about a vehicle was hard to read, so it is not trusted yet",
+    nextStep: "Check the vehicle's equipment with the provider, then verify it on the vehicle's day.",
+    predicate: "a coordinator has verified what the vehicle can carry today",
+  },
   /** §11.2 propose_contact_or_profile_change: "change request + exception". */
   proposedContactChange: {
     summary: "A family asked for a change the agent may not make",
