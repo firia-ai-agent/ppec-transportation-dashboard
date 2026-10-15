@@ -15,6 +15,7 @@ import {
   detectInjection,
   evaluate,
   familyScope,
+  freeTextShape,
   prohibitedActionRule,
   sanitizeStaffText,
   triageInbound,
@@ -238,6 +239,98 @@ describe("§11.2 prohibited: free text to parents without approval", () => {
     const freeText = { ...SEND, body: "running a bit late today" };
     const d = evaluate({ tool: "send_followup", args: freeText }, ctx({ approvedCalls: approvals(["send_followup", freeText]) }));
     expect(d).toMatchObject({ verdict: "BLOCK", rule: "free_text_to_parents" });
+  });
+});
+
+/**
+ * PR #35 review, F7: the phrase detector on its own.
+ *
+ * `freeTextShape` is the last of the three gates in front of a templated send — after "every
+ * argument is declared by the schema" and "every var is one the outbox permits for this template"
+ * — and it is the only one that looks at a *value*. It answers one question: is this a code, or did
+ * the model write it? Everything a §11.2 send carries is a template id, a token, an enum code, an
+ * ISO date or a clock time, and none of those contains a space or a sentence.
+ *
+ * Reached through `evaluate` it had three examples. Here it has its boundaries, both directions,
+ * and — the part that matters most for a gate like this — the cases it deliberately does **not**
+ * catch, so nobody mistakes it for a prose classifier.
+ */
+describe("F7 freeTextShape: where a code ends and prose begins", () => {
+  it.each([
+    ["an enum code", "FAMILY_DROPOFF"],
+    ["an ambiguity code", "WHICH_CHILD"],
+    ["a fixture token", "C1"],
+    ["a uuid", "0199e5f0-0000-7000-8000-00000000c001"],
+    ["a template id", "therapist.absence_alert"],
+    ["an ISO service date", "2026-10-16"],
+    ["a clock time", "09:30"],
+    ["an ETA window with an en dash", "08:12–08:22"],
+    ["a day part", "AM"],
+    ["an audience role", "GUARDIAN_OF_CHILD"],
+    ["the empty string", ""],
+    ["a value exactly at the length bound", "A".repeat(64)],
+  ])("passes %s", (_label, value) => {
+    expect(freeTextShape(value)).toBeNull();
+  });
+
+  it.each([
+    ["three words", "see you tomorrow"],
+    ["a phrase with a comma", "tomorrow morning, around nine"],
+    ["a sentence", "Running late."],
+    ["a question", "Which child did you mean?"],
+    ["an exclamation", "Thanks!"],
+    ["a trailing clause", "ok, thanks"],
+    ["a mustache placeholder", "{{legDate}}"],
+    ["a shell placeholder", "${legDate}"],
+    ["a template tag", "<% legDate %>"],
+    ["a backtick template", "`legDate`"],
+    ["an escaped newline", "line one\\nline two"],
+    ["a printf placeholder", "%s"],
+    ["one character over the length bound", "A".repeat(65)],
+  ])("refuses %s", (_label, value) => {
+    expect(freeTextShape(value)).toBeTruthy();
+  });
+
+  it("names the shape and never quotes the value, whatever was in it", () => {
+    // The reason is stored on a blocked call row and read by staff, so it may hold the shape and
+    // not the prose — a value is the one thing a §11.2 log may not keep (redact.ts).
+    const smuggled = "call me on (561) 555-0100, it's urgent";
+    const reason = freeTextShape(smuggled)!;
+    expect(reason).toBe("reads as a phrase rather than a code");
+    expect(reason).not.toContain("555");
+    expect(freeTextShape("A".repeat(80))).toBe("is longer than 64 characters");
+    expect(freeTextShape("{{x}}")).toBe("carries an interpolation placeholder");
+    // Length is checked first, so an over-long phrase is reported as over-long and not quoted.
+    expect(freeTextShape(`${smuggled} ${"x".repeat(64)}`)).toMatch(/longer than/);
+  });
+
+  it("is a shape check and not a prose classifier: two words get through it", () => {
+    // Said out loud because it is the honest bound of *this* function. "running late" has no third
+    // word and no sentence punctuation, so the shape check passes it.
+    expect(freeTextShape("running late")).toBeNull();
+
+    // And the send carrying it is refused anyway, by whichever of the other two gates it reaches
+    // first — which is why this one does not have to be a language model. A var the template does
+    // not list, and an argument the schema does not declare:
+    for (const args of [
+      { ...SEND, vars: { ...SEND.vars, note: "running late" } },
+      { ...SEND, body: "running late" },
+      // …and the var it *is* allowed to fill, because `TEMPLATE_VARS` validates each var's value
+      // and not just its name: `legDate` takes a date, so two words is not one (outbox.ts).
+      { ...SEND, vars: { ...SEND.vars, legDate: "running late" } },
+    ]) {
+      expect(evaluate({ tool: "send_followup", args }, ctx())).toMatchObject({
+        verdict: "BLOCK",
+        rule: "free_text_to_parents",
+      });
+    }
+  });
+
+  it("every var of every allow-listed send in this suite is a code by its own rule", () => {
+    // The gate has to pass the traffic it exists to allow, or the agent cannot send at all.
+    for (const value of Object.values(SEND.vars)) expect(freeTextShape(value)).toBeNull();
+    expect(freeTextShape(SEND.template_id)).toBeNull();
+    expect(freeTextShape(SEND.subject_token)).toBeNull();
   });
 });
 

@@ -463,8 +463,14 @@ const PHRASE = /\S\s+\S+\s+\S|[.!?](?:\s|$)|,\s/;
  * Why this value is prose rather than a code, or null when it is a code. The answer never contains
  * the value: a rejected value is the one thing a §11.2 log may not hold (`redact`), so the reason
  * names the argument and the shape, and a human reads the message itself.
+ *
+ * Exported for its own suite (PR #35 review, F7). It is the narrowest and most load-bearing piece
+ * of the free-text gate — the one test that says where "a code" ends and "the model wrote this"
+ * begins — and reaching it only through `evaluate` tested three examples of it. What it does *not*
+ * catch is in that suite too: this is a shape check, not a language model, and it is the third of
+ * three gates rather than the only one (see `freeTextInTemplatedSend`).
  */
-function freeTextShape(value: string): string | null {
+export function freeTextShape(value: string): string | null {
   if (value.length > SEND_VALUE_MAX) return `is longer than ${SEND_VALUE_MAX} characters`;
   if (INTERPOLATION.test(value)) return "carries an interpolation placeholder";
   if (PHRASE.test(value)) return "reads as a phrase rather than a code";
