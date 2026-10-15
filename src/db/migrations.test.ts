@@ -118,16 +118,16 @@ describe("migrations 0000 + 0001 on PGlite", () => {
   });
 });
 
-// 0004 uses CREATE UNIQUE INDEX IF NOT EXISTS so a retried deploy step (or a hand re-applied migration)
+// 0006 uses CREATE UNIQUE INDEX IF NOT EXISTS so a retried deploy step (or a hand re-applied migration)
 // is a no-op rather than a duplicate-object error. beforeAll already applied it once in journal order, so
 // re-applying the same file here is the second run.
-describe("0004 thread_counterparty_live_uq re-applies cleanly", () => {
+describe("0006 thread_counterparty_live_uq re-applies cleanly", () => {
   const liveUq = () => db.query<{ def: string }>(`SELECT indexdef def FROM pg_indexes
     WHERE schemaname='ops' AND tablename='conversation_thread' AND indexname='thread_counterparty_live_uq'`);
   it("runs twice without error and leaves exactly one unchanged index", async () => {
     const before = await liveUq();
     expect(before.rows.length).toBe(1);
-    await expect(applyMigration("0004_thread_counterparty_live_uq")).resolves.toBeUndefined();
+    await expect(applyMigration("0006_thread_counterparty_live_uq")).resolves.toBeUndefined();
     const after = await liveUq();
     expect(after.rows.map((x) => x.def)).toEqual([before.rows[0].def]);
     expect(before.rows[0].def).toContain("CREATE UNIQUE INDEX");

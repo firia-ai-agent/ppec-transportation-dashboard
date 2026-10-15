@@ -131,7 +131,7 @@ export class DbSimMessagingProvider implements MessagingProvider {
 }
 
 /**
- * One OPEN/PAUSED thread per counterparty and channel, enforced by thread_counterparty_live_uq (0004), a
+ * One OPEN/PAUSED thread per counterparty and channel, enforced by thread_counterparty_live_uq (0006), a
  * unique index on exactly the key this lookup uses, partial on state <> 'CLOSED' so a closed conversation
  * can still be reopened in a new thread.
  *
