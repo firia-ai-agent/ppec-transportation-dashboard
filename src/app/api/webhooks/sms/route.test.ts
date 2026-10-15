@@ -36,8 +36,9 @@ vi.mock("@/modules/messaging/inbound", async (importOriginal) => ({
 vi.mock("@/db/exec", () => ({ getNeonDb: mocks.getNeonDb, runAfterCommit: vi.fn() }));
 vi.mock("@/modules/outbox/transport", () => ({ vercelQueueOutboxTransport: { publish: mocks.publish } }));
 
-const SECRET = "syn-webhook-secret-0123456789";
-const OTHER_SECRET = "syn-other-secret-0123456789";
+const PEPPER = "z".repeat(32);
+const SECRET = "x".repeat(32);
+const OTHER_SECRET = "y".repeat(32);
 const saved = { ...process.env };
 
 /** The form a persona phone posts, as the raw bytes the signature is computed over. */
@@ -61,7 +62,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.ingestInbound.mockResolvedValue({ status: 200, body: { ok: true, duplicate: false } });
   mocks.getNeonDb.mockReturnValue({ query: vi.fn(), tx: vi.fn() });
-  process.env = { ...saved, SIM_WEBHOOK_SECRET: SECRET, VERCEL_ENV: undefined, HMAC_PEPPER: "syn-test-pepper" };
+  process.env = { ...saved, SIM_WEBHOOK_SECRET: SECRET, VERCEL_ENV: undefined, HMAC_PEPPER: PEPPER };
 });
 afterEach(() => { process.env = { ...saved }; });
 
@@ -140,7 +141,7 @@ describe("a correctly signed post is the only one that gets through", () => {
     const [, deps, body, form] = mocks.ingestInbound.mock.calls[0];
     expect(body).toBe(raw); // the bytes under the signature, not a re-serialized form
     expect(form).toMatchObject({ MessageSid: "SM-guard", From: F1_NUMBER });
-    expect(deps).toMatchObject({ pepper: "syn-test-pepper" });
+    expect(deps).toMatchObject({ pepper: PEPPER });
     expect(mocks.getNeonDb).toHaveBeenCalledTimes(1);
   });
 
