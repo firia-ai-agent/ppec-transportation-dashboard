@@ -723,7 +723,7 @@ export const consentFollowUp = {
   STOP: {
     summary: "Family opted out of text messages",
     nextStep:
-      "Record another authorized contact for ride updates, or agree a phone call with the family.",
+      "Record another authorized contact for van updates, or agree a phone call with the family.",
     predicate: "another authorized contact recorded for this family, or a call logged",
   },
   NL_OPT_OUT: {
