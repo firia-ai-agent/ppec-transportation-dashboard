@@ -33,6 +33,7 @@ import { IllegalTransition, StaleOrConflict, transition } from "@/domain/transit
 import { enqueue } from "@/modules/outbox/outbox";
 import { agentTasks, agentWaits } from "@/ui/copy";
 import type { ToolExecution, ToolExecutor } from "../executors";
+import { NO_REPLY_GRACE_SECONDS } from "./escalate";
 import { PREDICATE_INBOUND_REPLY } from "./predicate";
 import {
   type ExecutorDeps,
@@ -41,6 +42,7 @@ import {
   failed,
   isUuid,
   notFound,
+  raiseTask,
   threadRow,
 } from "./effects";
 
@@ -55,6 +57,13 @@ export const CLARIFICATION_RECIPIENT_RULE = "thread_counterparty";
 export const CLARIFICATION_LIMIT_TASK_CATEGORY = "CLARIFICATION_LIMIT";
 export const SEND_FAILURE_TASK_CATEGORY = "SEND_FAILURE";
 export const ACK_DECLINED_TASK_CATEGORY = "ACK_DECLINED";
+/**
+ * `ops.task.category` when the question went out and nobody answered it (§11.2 "no reply →
+ * escalate"). `ACK_OVERDUE` is `escalate_exception`'s own category for "we asked and heard
+ * nothing", which is exactly what this is — the agent is not waiting on a *different* kind of
+ * silence just because the question was a clarification.
+ */
+export const CLARIFICATION_NO_REPLY_CATEGORY = "ACK_OVERDUE";
 
 type AckRow = {
   id: string;
@@ -164,6 +173,17 @@ export function requestClarificationExecutor(deps: ExecutorDeps): ToolExecutor {
         afterSeconds: CLARIFICATION_AWAIT_SECONDS,
         summary: agentWaits.clarification,
         completionPredicate: PREDICATE_INBOUND_REPLY,
+        // §11.2's other half of the deadline: a family that never answers becomes a staff task
+        // without a model turn (exec/escalate.ts). The watch is the thread, because the reply we
+        // are waiting for has no id yet.
+        escalation: {
+          afterSeconds: CLARIFICATION_AWAIT_SECONDS + NO_REPLY_GRACE_SECONDS,
+          reason: "CLARIFICATION",
+          category: CLARIFICATION_NO_REPLY_CATEGORY,
+          severity: "AMBER",
+          nextStepCode: "STAFF_CALL",
+          watch: { kind: "inbound_reply", threadId: thread.id },
+        },
       },
     };
   };
@@ -299,30 +319,5 @@ async function cancelAckTimer(
   return (await deps.scheduler.cancel(tx, key, a.by)) > 0;
 }
 
-/** One staff task, idempotent on the id the caller derived from the call's key. */
-export async function raiseTask(
-  db: Exec,
-  a: {
-    id: string;
-    siteId: string;
-    category: string;
-    severity: "GREEN" | "AMBER" | "RED";
-    words: { summary: string; nextStep: string; predicate: string };
-    by: string;
-    tripLegId?: string | null;
-    childToken?: string | null;
-  },
-): Promise<string> {
-  await db.query(
-    `INSERT INTO ops.task (id, site_id, category, severity, state, summary, next_step, completion_predicate,
-       trip_leg_id, child_token, created_by, updated_by, source_mode)
-     VALUES ($1, $2, $3, $4, 'OPEN', $5, $6, $7, $8, $9, $10, $10, 'SIMULATED')
-     ON CONFLICT (id) DO NOTHING`,
-    [
-      a.id, a.siteId, a.category, a.severity,
-      a.words.summary, a.words.nextStep, a.words.predicate,
-      a.tripLegId ?? null, a.childToken ?? null, a.by,
-    ],
-  );
-  return a.id;
-}
+/** `raiseTask` used to live here; it is `exec/effects.ts`'s, beside the other shared writers. */
+export { raiseTask } from "./effects";

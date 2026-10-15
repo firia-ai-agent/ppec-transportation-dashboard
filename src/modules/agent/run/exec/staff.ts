@@ -42,13 +42,23 @@
  *  - **not closable by the agent.** Its completion predicate is prose (`ui/copy.ts agentNotes`), so
  *    `close_task` cannot read it — and the row is OPEN, which that tool refuses by name anyway.
  */
+import type { Exec } from "@/db/exec";
 import { TASK, canTransition } from "@/domain/machines";
 import { IllegalTransition, StaleOrConflict, transition } from "@/domain/transition";
 import { agentNextSteps, agentNotes, agentRefusals, agentTasks, fill } from "@/ui/copy";
 import type { ToolExecution, ToolExecutor } from "../executors";
 import { triggerLabel } from "../triggers";
-import { raiseTask } from "./clarify";
-import { type ExecutorDeps, actor, effectId, failed, isUuid, legRow, notFound, threadRow } from "./effects";
+import {
+  type ExecutorDeps,
+  actor,
+  effectId,
+  failed,
+  isUuid,
+  legRow,
+  notFound,
+  raiseTask,
+  threadRow,
+} from "./effects";
 import { checkPredicate } from "./predicate";
 
 /** §11.2 severity → `ops.task.severity` (there is no INFO on a task; the board's lowest is GREEN). */
@@ -73,6 +83,49 @@ export const CLOSE_REFUSED_OPEN = "TASK_NOT_CLOSABLE_OPEN";
 /** `ops.task.category` for §11.2's "staff-only note" (`summarize_thread_for_staff`). */
 export const THREAD_NOTE_TASK_CATEGORY = "AGENT_THREAD_NOTE";
 
+/**
+ * The exception row §11.2 `escalate_exception` writes — and the one the "no reply → escalate" timer
+ * writes too (`exec/escalate.ts`), which is why it is a function rather than a statement inside the
+ * executor. A deterministic escalation has to be *the same row* a model-driven one would be: same
+ * table, same columns, same next-step vocabulary, same `ON CONFLICT (id) DO NOTHING` on an id its
+ * caller derived. The only difference is where the sentence came from.
+ *
+ * `nextStepCode` is a code on both paths (§11.2 `next_step`); the words are ours.
+ */
+export async function writeExceptionTask(
+  db: Exec,
+  a: {
+    id: string;
+    siteId: string;
+    category: string;
+    severity: "GREEN" | "AMBER" | "RED";
+    summary: string;
+    nextStepCode: string;
+    /** The leg the exception is about, when it is about one; its state is kept as `prior_leg_state`. */
+    leg?: { id: string; child_token: string; state: string } | null;
+    /** What closing it means. Defaults to the escalation predicate in `ui/copy.ts`. */
+    predicate?: string;
+    by: string;
+  },
+): Promise<string> {
+  await db.query(
+    `INSERT INTO ops.task (id, site_id, category, severity, state, summary, next_step, completion_predicate,
+       trip_leg_id, child_token, prior_leg_state, created_by, updated_by, source_mode)
+     VALUES ($1, $2, $3, $4, 'OPEN', $5, $6, $7, $8, $9, $10, $11, $11, 'SIMULATED')
+     ON CONFLICT (id) DO NOTHING`,
+    [
+      a.id, a.siteId, a.category, a.severity, a.summary,
+      agentNextSteps[a.nextStepCode as keyof typeof agentNextSteps] ?? agentNextSteps.NONE,
+      a.predicate ?? agentTasks.escalation.predicate,
+      a.leg?.id ?? null,
+      a.leg?.child_token ?? null,
+      a.leg?.state ?? null,
+      a.by,
+    ],
+  );
+  return a.id;
+}
+
 export function escalateExceptionExecutor(deps: ExecutorDeps): ToolExecutor {
   return async (call) => {
     const severity = TASK_SEVERITY[String(call.args.severity)] ?? "AMBER";
@@ -88,25 +141,18 @@ export function escalateExceptionExecutor(deps: ExecutorDeps): ToolExecutor {
     if (legId && !leg) return notFound("trip_leg");
 
     const taskId = effectId(call.idempotencyKey, "exception");
-    await deps.db.query(
-      `INSERT INTO ops.task (id, site_id, category, severity, state, summary, next_step, completion_predicate,
-         trip_leg_id, child_token, prior_leg_state, created_by, updated_by, source_mode)
-       VALUES ($1, $2, $3, $4, 'OPEN', $5, $6, $7, $8, $9, $10, $11, $11, 'SIMULATED')
-       ON CONFLICT (id) DO NOTHING`,
-      [
-        taskId, call.siteId, category, severity,
-        // The model's sentence, already redacted by the policy engine before it was stored on the
-        // call row; this is the same value, so the task and the audit trail agree.
-        summary,
-        // The words are ours, chosen by the model's code (§11.2 `next_step`).
-        agentNextSteps[nextStepCode as keyof typeof agentNextSteps] ?? agentNextSteps.NONE,
-        agentTasks.escalation.predicate,
-        leg?.id ?? null,
-        leg?.child_token ?? null,
-        leg?.state ?? null,
-        by,
-      ],
-    );
+    await writeExceptionTask(deps.db, {
+      id: taskId,
+      siteId: call.siteId,
+      category,
+      severity,
+      // The model's sentence, already redacted by the policy engine before it was stored on the
+      // call row; this is the same value, so the task and the audit trail agree.
+      summary,
+      nextStepCode,
+      leg,
+      by,
+    });
 
     return {
       status: "executed",

@@ -41,6 +41,7 @@ import {
   isUuid,
   notFound,
 } from "./effects";
+import { NO_REPLY_GRACE_SECONDS } from "./escalate";
 import { PREDICATE_ACK_CLOSED } from "./predicate";
 
 /** AT-14: "therapist notified ≤10 min, ack tracked" — the ack's own deadline. */
@@ -50,6 +51,8 @@ export const THERAPIST_ALERT_PURPOSE = "THERAPIST_ALERT";
 export const THERAPIST_ALERT_RECIPIENT_RULE = "therapist_of_session";
 /** `ops.therapy_session.status` (§3), the four values the column's comment names. */
 export const THERAPIST_NOTIFIED = "THERAPIST_NOTIFIED";
+/** `ops.task.category` when the ten minutes pass with no acknowledgment (§11.2's own category). */
+export const THERAPIST_NO_REPLY_CATEGORY = "ACK_OVERDUE";
 /** The statuses a notification may move from: a session nobody has told them about yet. */
 const NOTIFIABLE_STATUSES: readonly string[] = ["SCHEDULED", "IMPACTED"];
 
@@ -275,6 +278,19 @@ function notified(a: {
             afterSeconds: THERAPIST_ACK_SECONDS,
             summary: agentWaits.therapistAck,
             completionPredicate: PREDICATE_ACK_CLOSED,
+            // The ack row this wait is for: its `timer_job_id` becomes the escalation job, so the
+            // deadline `record_acknowledgment` cancels is the one that would have escalated it.
+            acknowledgmentId: a.ackId,
+            // §11.2 "no reply → escalate", AT-14's other half: a therapist who never acknowledges
+            // becomes an AMBER exception and an EXPIRED_ESCALATED ack, with no model turn.
+            escalation: {
+              afterSeconds: THERAPIST_ACK_SECONDS + NO_REPLY_GRACE_SECONDS,
+              reason: "ACKNOWLEDGMENT",
+              category: THERAPIST_NO_REPLY_CATEGORY,
+              severity: "AMBER",
+              nextStepCode: "STAFF_CALL",
+              watch: { kind: "acknowledgment", ackId: a.ackId },
+            },
           },
         }
       : {}),

@@ -64,7 +64,6 @@ import { IllegalTransition, StaleOrConflict, transition } from "@/domain/transit
 import { enqueue } from "@/modules/outbox/outbox";
 import { agentTasks, agentWaits } from "@/ui/copy";
 import type { ToolExecution, ToolExecutor } from "../executors";
-import { raiseTask } from "./clarify";
 import {
   type ExecutorDeps,
   actor,
@@ -73,7 +72,9 @@ import {
   failed,
   isUuid,
   notFound,
+  raiseTask,
 } from "./effects";
+import { NO_REPLY_GRACE_SECONDS } from "./escalate";
 import { PREDICATE_CAPABILITY_REPORTED } from "./predicate";
 
 /** §11.2: "capability UNKNOWN at T−90". */
@@ -492,6 +493,16 @@ function requested(a: {
       afterSeconds: CAPABILITY_REPLY_SECONDS,
       summary: agentWaits.capabilityReport,
       completionPredicate: PREDICATE_CAPABILITY_REPORTED,
+      // §11.2's failure column for this tool, in full: a dispatcher who does not answer becomes a
+      // staff task on a second deadline, with no model turn in the path (exec/escalate.ts).
+      escalation: {
+        afterSeconds: CAPABILITY_REPLY_SECONDS + NO_REPLY_GRACE_SECONDS,
+        reason: "CAPABILITY",
+        category: CAPABILITY_TASK_CATEGORY,
+        severity: "AMBER",
+        nextStepCode: "DISPATCHER_PING",
+        watch: { kind: "capability", capabilityId: a.capability.id },
+      },
     },
   };
 }

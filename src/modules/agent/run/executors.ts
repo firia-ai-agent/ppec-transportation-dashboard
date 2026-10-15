@@ -52,6 +52,41 @@ export type ExecutorCall = {
   readonly committed: readonly CommittedCall[];
 };
 
+/**
+ * How a timer firing past the deadline decides whether the thing we were waiting for arrived.
+ *
+ * Deliberately a small closed union of **row references** rather than a predicate string: the
+ * escalation handler is a B-03 handler, which is DB-only and holds no memory of the run, so what it
+ * needs is the one row whose state answers the question (`exec/escalate.ts`). The awaited reply
+ * itself has no id when the wait starts, which is why the clarification case watches the *thread*
+ * from an instant rather than a row.
+ */
+export type AwaitWatch =
+  | { readonly kind: "inbound_reply"; readonly threadId: string }
+  | { readonly kind: "acknowledgment"; readonly ackId: string }
+  | { readonly kind: "capability"; readonly capabilityId: string };
+
+/**
+ * §11.2's "no reply → escalate": a **second** deadline past the first, which raises the exception
+ * without a model turn (AT-02's deterministic half).
+ *
+ * The first deadline re-triggers the run, which may ask or escalate with a turn of its own; this
+ * one is what happens when nothing answers at all, and it costs nothing — a job, a read of the one
+ * row that would show an answer, and an `ops.task` row if it does not.
+ */
+export type NoReplyEscalation = {
+  /** From the same instant as `AwaitExternal.afterSeconds`, and necessarily later than it. */
+  readonly afterSeconds: number;
+  /** Which wait this was, which is how the handler picks the staff-facing words (`ui/copy.ts`). */
+  readonly reason: "CLARIFICATION" | "ACKNOWLEDGMENT" | "CAPABILITY";
+  /** `ops.task.category` — one of §11.2 `escalate_exception`'s own categories. */
+  readonly category: string;
+  readonly severity: "AMBER" | "RED";
+  /** §11.2 `next_step`, as a code, exactly as the tool takes one. */
+  readonly nextStepCode: string;
+  readonly watch: AwaitWatch;
+};
+
 /** §11.1: "delayed external responses are tasks with timers, never waiting sessions." */
 export type AwaitExternal = {
   /** Why the run is waiting, as a code. Goes in the task summary; never prose from a model. */
@@ -62,6 +97,14 @@ export type AwaitExternal = {
   readonly summary: string;
   /** `ops.task.completion_predicate`: what makes this task closable (AGT-04). */
   readonly completionPredicate: string;
+  /** §11.2 "no reply → escalate", when this wait has such a deadline. */
+  readonly escalation?: NoReplyEscalation;
+  /**
+   * The `ops.acknowledgment` this wait is for. Its `timer_job_id` is stamped with the escalation
+   * job, so `record_acknowledgment` cancelling "the timer" cancels the thing that would have
+   * escalated it (§11.2: "matching PENDING ack → close, cancel timer").
+   */
+  readonly acknowledgmentId?: string;
 };
 
 export type ToolExecution = {

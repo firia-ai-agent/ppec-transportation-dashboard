@@ -35,7 +35,6 @@ import { CHILD_TEMPLATES, enqueue } from "@/modules/outbox/outbox";
 import { agentStaffNotice, agentTasks, fill } from "@/ui/copy";
 import type { ToolExecution, ToolExecutor } from "../executors";
 import { triggerLabel } from "../triggers";
-import { raiseTask } from "./clarify";
 import {
   type ExecutorDeps,
   actor,
@@ -45,6 +44,7 @@ import {
   isUuid,
   legRow,
   notFound,
+  raiseTask,
   threadRow,
 } from "./effects";
 

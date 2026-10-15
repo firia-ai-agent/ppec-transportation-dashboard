@@ -216,3 +216,33 @@ export async function attendanceRow(
   );
   return r.rows[0] ?? null;
 }
+
+/* ───────────────────────────── shared writers ───────────────────────────── */
+
+/** One staff task, idempotent on the id the caller derived from the call's key. */
+export async function raiseTask(
+  db: Exec,
+  a: {
+    id: string;
+    siteId: string;
+    category: string;
+    severity: "GREEN" | "AMBER" | "RED";
+    words: { summary: string; nextStep: string; predicate: string };
+    by: string;
+    tripLegId?: string | null;
+    childToken?: string | null;
+  },
+): Promise<string> {
+  await db.query(
+    `INSERT INTO ops.task (id, site_id, category, severity, state, summary, next_step, completion_predicate,
+       trip_leg_id, child_token, created_by, updated_by, source_mode)
+     VALUES ($1, $2, $3, $4, 'OPEN', $5, $6, $7, $8, $9, $10, $10, 'SIMULATED')
+     ON CONFLICT (id) DO NOTHING`,
+    [
+      a.id, a.siteId, a.category, a.severity,
+      a.words.summary, a.words.nextStep, a.words.predicate,
+      a.tripLegId ?? null, a.childToken ?? null, a.by,
+    ],
+  );
+  return a.id;
+}

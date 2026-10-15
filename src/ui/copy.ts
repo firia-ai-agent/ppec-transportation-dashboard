@@ -946,6 +946,27 @@ export const agentWaits = {
  * predicate the agent may not close).
  */
 /**
+ * §11.2's "no reply → escalate": the exception a deadline raises when nobody answered at all
+ * (`run/exec/escalate.ts`). No model is in that path, so every word of the row is here — one entry
+ * per kind of wait, chosen by the await's own reason code.
+ */
+export const agentNoReply = {
+  locator: agentTaskLocator,
+  CLARIFICATION: {
+    summary: "The assistant asked a family a question and nobody answered",
+    predicate: "staff reached the family and recorded what they want",
+  },
+  ACKNOWLEDGMENT: {
+    summary: "A therapist was told about a change and has not acknowledged it",
+    predicate: "the therapist reached and their acknowledgment recorded",
+  },
+  CAPABILITY: {
+    summary: "A provider was asked what a vehicle can carry today and has not answered",
+    predicate: "the vehicle's equipment confirmed with the provider and recorded",
+  },
+} as const;
+
+/**
  * §11.2 `send_followup` with the `STAFF` audience. Staff are reached on Teams (§10.4) and that
  * adapter is B-12, so what the agent can do today is put the follow-up on their board: these are
  * the words of that row, and the whole of it — unlike a note or an exception, nothing here comes
