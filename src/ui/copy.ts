@@ -809,7 +809,7 @@ export const consentFollowUp = {
 } as const;
 
 /**
- * The staff-facing words of the tasks the **agent** raises (B-08 slice 3, the §11.2 "Failure"
+ * The staff-facing words of the tasks the **agent** raises (the agent runtime's §11.2 "Failure"
  * column). A coordinator reads these on the Exceptions board next to the consent ones above, so
  * they are written the same way: the summary is a label, the next step is one thing to do.
  *
