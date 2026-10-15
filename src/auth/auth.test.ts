@@ -1,3 +1,4 @@
+import bcrypt from "bcryptjs";
 import { beforeAll, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
@@ -7,16 +8,20 @@ import { jwtCallback, sessionCallback } from "./callbacks";
 import { encode, decode } from "next-auth/jwt";
 import { decideSeed } from "../../scripts/vercel-seed";
 import { seedDemoUsers, SeedRefused, DEMO_SITE_A, DEMO_SITE_B } from "./seed";
-import { DEMO_ACCOUNTS as DEMO_USERS } from "./demo-accounts";
+import { DEMO_ACCOUNTS as DEMO_USERS, DEMO_SHARED_PASSWORD } from "./demo-accounts";
+import { authorizeCredentials } from "./credentials";
 import type { Exec } from "@/domain/transition";
 
-// Test-only passwords, generated per run (never committed values).
+// Test-only secret, generated per run (never a committed value).
 const pw = () => `t-${Math.random().toString(36).slice(2)}-${Date.now()}`;
-const env: Record<string, string> = {
-  APP_DATA_CLASS: "SYNTHETIC",
-  DEMO_DIRECTOR_PASSWORD: pw(), DEMO_COORDINATOR_PASSWORD: pw(), DEMO_FRONT_DESK_PASSWORD: pw(),
-};
+// The seed needs no password in its environment any more: the three demo accounts share
+// `DEMO_SHARED_PASSWORD` (founder decision, DECISION-LEDGER row 59), hashed here at the same
+// cost drizzle/0005_demo_shared_password.sql bakes into production.
+const env: Record<string, string> = { APP_DATA_CLASS: "SYNTHETIC" };
 let db: Exec;
+
+/** A password no account holds after the seed; stands in for "whatever was there before". */
+const STALE_PASSWORD = "stale-per-role-password-aaaa";
 
 beforeAll(async () => {
   const pg = new PGlite();
@@ -28,26 +33,32 @@ beforeAll(async () => {
 }, 60_000);
 
 describe("seed", () => {
-  it("refuses non-synthetic data class and missing passwords", async () => {
+  it("refuses a non-synthetic data class, dry run included", async () => {
     await expect(seedDemoUsers(db, { ...env, APP_DATA_CLASS: "REAL" }, { dryRun: true })).rejects.toBeInstanceOf(SeedRefused);
-    await expect(seedDemoUsers(db, { APP_DATA_CLASS: "SYNTHETIC" }, { dryRun: true })).rejects.toThrow(/DEMO_DIRECTOR_PASSWORD/);
+    await expect(seedDemoUsers(db, {}, { dryRun: true })).rejects.toThrow(/APP_DATA_CLASS/);
   });
-  it("re-running does not reset existing passwords unless resetPasswords is set", async () => {
-    const before = (await db.query<{ h: string }>("SELECT password_hash h FROM ops.app_user WHERE email='coordinator@example.com'", [])).rows[0].h;
-    const env2 = { ...env, DEMO_COORDINATOR_PASSWORD: pw() };
-    await seedDemoUsers(db, env2, { dryRun: false });
-    expect((await db.query<{ h: string }>("SELECT password_hash h FROM ops.app_user WHERE email='coordinator@example.com'", [])).rows[0].h).toBe(before);
-    expect(await verifyCredentials(db, "coordinator@example.com", env.DEMO_COORDINATOR_PASSWORD)).not.toBeNull();
-    await seedDemoUsers(db, env2, { dryRun: false, resetPasswords: true });
-    expect(await verifyCredentials(db, "coordinator@example.com", env2.DEMO_COORDINATOR_PASSWORD)).not.toBeNull();
-    expect(await verifyCredentials(db, "coordinator@example.com", env.DEMO_COORDINATOR_PASSWORD)).toBeNull();
+  it("gives all three the shared password, so local matches the deployed demo", async () => {
+    for (const u of DEMO_USERS) {
+      expect(await verifyCredentials(db, u.email, DEMO_SHARED_PASSWORD)).toEqual({ id: u.id });
+    }
+  });
+  it("re-running does not reset an existing password unless resetPasswords is set", async () => {
+    // A row left on an older password, the way a long-lived database holds one.
+    const stale = await bcrypt.hash(STALE_PASSWORD, 12);
+    await db.query("UPDATE ops.app_user SET password_hash=$1 WHERE email='coordinator@example.com'", [stale]);
+    await seedDemoUsers(db, env, { dryRun: false });
+    expect((await db.query<{ h: string }>("SELECT password_hash h FROM ops.app_user WHERE email='coordinator@example.com'", [])).rows[0].h).toBe(stale);
+    expect(await verifyCredentials(db, "coordinator@example.com", STALE_PASSWORD)).not.toBeNull();
+    expect(await verifyCredentials(db, "coordinator@example.com", DEMO_SHARED_PASSWORD)).toBeNull();
     await seedDemoUsers(db, env, { dryRun: false, resetPasswords: true });
+    expect(await verifyCredentials(db, "coordinator@example.com", DEMO_SHARED_PASSWORD)).not.toBeNull();
+    expect(await verifyCredentials(db, "coordinator@example.com", STALE_PASSWORD)).toBeNull();
   });
-  it("is idempotent and stores only bcrypt hashes", async () => {
+  it("is idempotent and stores only bcrypt hashes, never the password itself", async () => {
     await seedDemoUsers(db, env, { dryRun: false });
     const r = await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.app_user WHERE password_hash LIKE '$2%'", []);
     expect(r.rows[0].n).toBe(3);
-    const leak = await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.app_user WHERE password_hash = $1", [env.DEMO_DIRECTOR_PASSWORD]);
+    const leak = await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.app_user WHERE password_hash = $1", [DEMO_SHARED_PASSWORD]);
     expect(leak.rows[0].n).toBe(0);
   });
   it("uses only example.com identities", () => {
@@ -73,10 +84,20 @@ describe("session token carries only uid (ADR-004)", () => {
 
 describe("credentials + roles from DB", () => {
   it("accepts the right password, rejects wrong / unknown", async () => {
-    expect(await verifyCredentials(db, "director@example.com", env.DEMO_DIRECTOR_PASSWORD)).toEqual({ id: DEMO_USERS[0].id });
-    expect(await verifyCredentials(db, "Director@Example.com", env.DEMO_DIRECTOR_PASSWORD)).not.toBeNull();
-    expect(await verifyCredentials(db, "director@example.com", env.DEMO_COORDINATOR_PASSWORD)).toBeNull();
+    expect(await verifyCredentials(db, "director@example.com", DEMO_SHARED_PASSWORD)).toEqual({ id: DEMO_USERS[0].id });
+    expect(await verifyCredentials(db, "Director@Example.com", DEMO_SHARED_PASSWORD)).not.toBeNull();
+    expect(await verifyCredentials(db, "director@example.com", STALE_PASSWORD)).toBeNull();
     expect(await verifyCredentials(db, "nobody@example.com", "whatever")).toBeNull();
+  });
+  it("takes the shared password through the provider's own authorize step (ADR-004)", async () => {
+    // The schema in src/auth/credentials.ts is the one src/auth.ts hands to Auth.js: a
+    // four-character password is accepted as it stands (row 59), a wrong one is not.
+    for (const u of DEMO_USERS) {
+      expect(await authorizeCredentials(db, { email: u.email, password: DEMO_SHARED_PASSWORD })).toEqual({ id: u.id });
+    }
+    expect(await authorizeCredentials(db, { email: "director@example.com", password: "ppec" })).toBeNull();
+    expect(await authorizeCredentials(db, { email: "not-an-email", password: DEMO_SHARED_PASSWORD })).toBeNull();
+    expect(await authorizeCredentials(db, { email: "director@example.com", password: "x".repeat(201) })).toBeNull();
   });
   it("roles are read from site_membership and change without re-login", async () => {
     const coord = DEMO_USERS[1].id;
@@ -92,7 +113,7 @@ describe("credentials + roles from DB", () => {
     await expect(requireSiteRole(db, undefined, DEMO_SITE_A, ["DIRECTOR"])).rejects.toBeInstanceOf(Forbidden);
     const fd = DEMO_USERS[2].id;
     await db.query("UPDATE ops.app_user SET disabled_at=now() WHERE id=$1", [fd]);
-    expect(await verifyCredentials(db, "frontdesk@example.com", env.DEMO_FRONT_DESK_PASSWORD)).toBeNull();
+    expect(await verifyCredentials(db, "frontdesk@example.com", DEMO_SHARED_PASSWORD)).toBeNull();
     expect(await getMemberships(db, fd)).toEqual([]);
     expect(await getActiveUser(db, fd)).toBeNull(); // /whoami redirects on null
     await expect(requireUser(db, fd)).rejects.toBeInstanceOf(Forbidden);
@@ -102,8 +123,7 @@ describe("credentials + roles from DB", () => {
 });
 
 describe("build-time seed gate", () => {
-  const ok = { VERCEL_ENV: "preview", APP_DATA_CLASS: "SYNTHETIC", DATABASE_URL_UNPOOLED: "postgresql://u:p@ep-x.neon.tech/db",
-    DEMO_DIRECTOR_PASSWORD: "a", DEMO_COORDINATOR_PASSWORD: "b", DEMO_FRONT_DESK_PASSWORD: "c" };
+  const ok = { VERCEL_ENV: "preview", APP_DATA_CLASS: "SYNTHETIC", DATABASE_URL_UNPOOLED: "postgresql://u:p@ep-x.neon.tech/db" };
   it("never seeds from a build: one shared DB (DECISION-LEDGER #43)", () => {
     for (const env of [ok, { ...ok, VERCEL_ENV: "production" }, { ...ok, VERCEL_ENV: undefined }, {}]) {
       expect(decideSeed(env).run).toBe(false);

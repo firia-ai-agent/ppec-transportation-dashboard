@@ -17,7 +17,12 @@ const ICONS: Record<DemoAccountIcon, LucideIcon> = {
 };
 
 /**
- * Demo accounts under the sign-in form (founder decision, DECISION-LEDGER row 57).
+ * Demo accounts under the sign-in form (founder decision, DECISION-LEDGER rows 57 and 59).
+ *
+ * Each card carries its own email and the one password all three share (row 59), which the
+ * section says once above them; the value comes in with the account, from
+ * `DEMO_SHARED_PASSWORD` by way of `visibleDemoLogins` — there is no env read here, and the
+ * component holds no credential of its own.
  *
  * A card fills the two fields and moves focus to Sign in; it does not submit, so nobody is
  * signed in by a click they meant as "show me this one", and the blue Sign in button stays the
@@ -49,6 +54,7 @@ export function DemoLogins({ accounts }: { accounts: DemoLogin[] }) {
       <h2 id={headingId} className={styles.divider}>
         <span className={styles.dividerText}>{copy.divider}</span>
       </h2>
+      <p className={styles.shared}>{copy.shared}</p>
       <ul className={styles.cards}>
         {accounts.map((account) => {
           const role = copy.roles[account.role];

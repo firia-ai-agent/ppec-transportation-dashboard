@@ -1,6 +1,8 @@
 // Usage: APP_DATA_CLASS=SYNTHETIC pnpm seed:demo-users [--apply] [--reset-passwords]
 // Idempotent: existing users keep their passwords unless --reset-passwords; disabled users stay disabled.
-// Default is a dry run. Reads DATABASE_URL_UNPOOLED (or DATABASE_URL) and DEMO_*_PASSWORD from the environment; never prints them.
+// Default is a dry run. Reads DATABASE_URL_UNPOOLED (or DATABASE_URL) from the environment; never prints it.
+// The password is not an env var: all three accounts share DEMO_SHARED_PASSWORD (src/auth/demo-accounts.ts,
+// DECISION-LEDGER row 59), which /login prints on each demo card.
 // Refuses to write when VERCEL_ENV=preview: previews share the one production DB (single-DB directive, DECISION-LEDGER #43).
 import { withClientExec } from "../src/auth/client-exec";
 import { seedDemoUsers } from "../src/auth/seed";

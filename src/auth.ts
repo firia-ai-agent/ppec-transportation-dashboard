@@ -1,11 +1,8 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { z } from "zod";
-import { verifyCredentials } from "@/auth/core";
+import { authorizeCredentials } from "@/auth/credentials";
 import { getExec } from "@/auth/exec";
 import { jwtCallback, sessionCallback } from "@/auth/callbacks";
-
-const creds = z.object({ email: z.string().email().max(200), password: z.string().min(1).max(200) });
 
 // ADR-004: Credentials provider, seeded synthetic staff users, JWT session carrying userId only.
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -14,11 +11,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Credentials({
       credentials: { email: {}, password: {} },
-      async authorize(raw) {
-        const p = creds.safeParse(raw);
-        if (!p.success) return null;
-        return verifyCredentials(getExec(), p.data.email, p.data.password);
-      },
+      // The schema and the compare live in src/auth/credentials.ts, so the path /login takes
+      // is the path the tests take (src/auth/auth.test.ts, against PGlite).
+      authorize: (raw) => authorizeCredentials(getExec(), raw),
     }),
   ],
   callbacks: {

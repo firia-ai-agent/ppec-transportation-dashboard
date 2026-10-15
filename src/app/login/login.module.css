@@ -78,7 +78,7 @@
   cursor: pointer;
 }
 
-/* ───────────── demo accounts under the form (founder decision, ledger row 57) ─────────────
+/* ───────────── demo accounts under the form (founder decision, ledger rows 57 and 59) ─────────────
    The cards live in the same 380 px card column as the form — they are inside .card, so they
    are the same width at 1024 and at 1440, and the column never widens for them. No violet
    anywhere below: that colour belongs to the DEMO bar alone (D-5). */
@@ -108,6 +108,12 @@
 
 .dividerText {
   line-height: var(--leading-normal);
+}
+
+/* One line, said once: the three passwords below are the same password (ledger row 59). */
+.shared {
+  font-size: var(--text-14);
+  color: var(--color-ink-muted);
 }
 
 /* Stacked, one per row, at every width. */

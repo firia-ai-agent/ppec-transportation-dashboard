@@ -241,17 +241,23 @@ export const mapPreview = {
 } as const;
 
 /**
- * Demo accounts offered under the sign-in form (founder decision, ledger row 57). Shown only
- * where the demo flags are on and the data is synthetic, which is why the words can be this
- * plain: there is no real account to confuse these with. Each line says what that person sees,
- * not what the role is called in the database.
+ * Demo accounts offered under the sign-in form (founder decision, ledger rows 57 and 59).
+ * Shown only where the demo flags are on and the data is synthetic, which is why the words can
+ * be this plain: there is no real account to confuse these with. Each line says what that
+ * person sees, not what the role is called in the database.
  *
  * `use` is what the eye reads on every card; `useRole` is the same button's accessible name,
  * which keeps the visible words and adds the role, so three identical buttons are three
  * distinct things to a screen reader. `filled` is announced in a live region after a fill.
+ *
+ * All three accounts share one password (ledger row 59), so each card still carries its own
+ * email and that password — a card is a complete set of credentials, readable on its own —
+ * and `shared` says once, above them, that the three passwords are the same password. The
+ * value itself is config, not copy: `DEMO_SHARED_PASSWORD` in src/auth/demo-accounts.ts.
  */
 export const demoLogins = {
   divider: "Or use a demo account",
+  shared: "All three accounts use the same password.",
   use: "Use this account",
   useRole: "Use this account, {role}",
   filled: "{role} account filled",
