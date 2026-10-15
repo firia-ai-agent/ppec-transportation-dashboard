@@ -16,7 +16,7 @@ import { SIM_CENTER_NUMBER } from "./sim-numbers";
 import { DbSimMessagingProvider } from "./sim-provider";
 import { HELP_REPLY_BODY } from "./templates";
 
-const SECRET = "syn-webhook-secret-0123456789";
+const SECRET = "x".repeat(32);
 let pg: PGlite; let db: Db; let now: Date; let f1: Persona; let deps: InboundDeps; let drainDeps: DrainDeps;
 let outboxTransport: FakeOutboxTransport; let seen: InboundMessageEvent[];
 
@@ -71,7 +71,7 @@ describe("sim webhook signature (ADR-006)", () => {
     process.env.SIM_WEBHOOK_SECRET = SECRET;
     expect((await send({})).status).toBe(401);
     expect((await send({ [SIM_SIGNATURE_HEADER]: "not-the-signature" })).status).toBe(401);
-    const unsigned = await send({ [SIM_SIGNATURE_HEADER]: signSimWebhook(raw, "another-secret-0123456789") });
+    const unsigned = await send({ [SIM_SIGNATURE_HEADER]: signSimWebhook(raw, "w".repeat(32)) });
     expect(unsigned.status).toBe(401);
     expect(await unsigned.json()).toEqual({ ok: false, error: "SIGNATURE_INVALID" });
 
