@@ -130,9 +130,20 @@ export const AT01_FACTS: TierFacts = {
   t4: "channel=SMS locale=en-US",
 };
 
+/**
+ * The site every run-loop suite triggers in — `src/test/pglite.SITE`, repeated here rather than
+ * imported so this module does not pull PGlite into anything that loads the harness. `run-loop.test.ts`
+ * asserts the two are the same string.
+ *
+ * It has to be the run's *real* site id and not a fixture token, because `driveRun` refuses to take
+ * a turn on a context scoped to a different site than the run row (F3): the family and the objects
+ * in a scope may be synthetic, the tenant may not.
+ */
+export const AT01_SITE = "00000000-0000-7000-8000-000000000001";
+
 /** The run's scope, as a session would build it (never from a tool argument). */
 export const at01Policy = (over: Partial<PolicyContext> = {}): PolicyContext => ({
-  scope: familyScope("F1", ["C1", "L-C1-AM", "TH-F1", "MSG-1", "TK-1", "SESS-C1"], ["V1", "P1", "R1"]),
+  scope: familyScope("F1", ["C1", "L-C1-AM", "TH-F1", "MSG-1", "TK-1", "SESS-C1"], ["V1", "P1", "R1"], AT01_SITE),
   sendableSubjects: new Set(["TH-F1", "SESS-C1"]),
   sourceMessageId: "MSG-1",
   ...over,

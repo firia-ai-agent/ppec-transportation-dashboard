@@ -13,19 +13,19 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { SITE, freshDb } from "@/test/pglite";
-import { approvalKey } from "../policy";
+import { approvalKey, familyScope } from "../policy";
 import { freeText, toolCall } from "../providers/fake";
 import { cassetteFrom, cassetteKey, recordedProvider } from "../providers/recorded";
 import { TOOL_NAMES } from "../tools";
 import type { ProviderResponseBody } from "../providers/provider";
 import { tierPrompt } from "./context";
 import {
-  AT01_EXECUTORS, AT01_FACTS, AT01_NOTE, AT01_READ, AT01_SCRIPT, at01Policy,
+  AT01_EXECUTORS, AT01_FACTS, AT01_NOTE, AT01_READ, AT01_SCRIPT, AT01_SITE, at01Policy,
   type Harness, runHarness,
 } from "./harness";
 import { type ToolExecutor, intentRecorder } from "./executors";
-import { startAndDriveRun } from "./loop";
-import { callIdempotencyKey, setRunState, startRun } from "./store";
+import { driveRun, startAndDriveRun } from "./loop";
+import { callIdempotencyKey, persistCall, setRunState, startRun } from "./store";
 import { policyTaskId } from "./tasks";
 import { TRIGGER_TYPES, TriggerError, type Trigger } from "./triggers";
 
@@ -335,6 +335,96 @@ describe("fail-shut boundaries", () => {
     const [row] = await calls(r.runId);
     expect(row.status).toBe("FAILED");
     expect(row.result).toMatchObject({ error_code: "EXECUTOR_ERROR", error: "leg read timed out" });
+  });
+});
+
+/**
+ * PR #35 review, F3: the tenant fence on the loop's own entry points.
+ *
+ * A run id is not an authorization. It arrives in a queue payload or on an HTTP route, and the two
+ * things downstream of it both trust it — the executors read and write `WHERE site_id =
+ * call.siteId` off the run row, and the policy engine checks arguments against a scope the caller
+ * assembled. So the loop has to say, out loud, that the run, the caller and the context are all the
+ * same site. The timer half of the same fence is in `timers.test.ts`.
+ */
+describe("F3 the tenant fence: a run id from another site drives nothing", () => {
+  const OTHER_SITE = "00000000-0000-7000-8000-0000000000ff";
+
+  /** The fixture site the suites trigger in is the one `at01Policy`'s scope is built for. */
+  it("the harness scope is scoped to the run's real site", () => {
+    expect(AT01_SITE).toBe(SITE);
+    expect(at01Policy().scope.siteToken).toBe(SITE);
+  });
+
+  it("driveRun refuses a run of another site, and says nothing about whose it is", async () => {
+    const h = harness();
+    const started = await h.start(TRIGGER);
+    expect(started.state).toBe("SUCCEEDED");
+
+    // The other site's driver, holding a run id it has no business with.
+    await expect(driveRun(h.deps(3), started.runId, { siteId: OTHER_SITE }))
+      .rejects.toThrow(`no agent run ${started.runId} in this site`);
+    // …which is the same sentence an id that exists nowhere gets: no existence oracle.
+    const absent = "00000000-0000-7000-8000-00000000dead";
+    await expect(driveRun(h.deps(0), absent, { siteId: SITE })).rejects.toThrow(`no agent run ${absent}`);
+  });
+
+  it("a cross-site resume touches no row: the interrupted step is left exactly as it was", async () => {
+    const { runId } = await startRun(db, TRIGGER, { model: "m", provider: "p" });
+    const row = await persistCall(db, {
+      runId, siteId: SITE, seq: 0, tool: "get_leg_state",
+      args: { leg_id: "L-C1-AM" }, storeArgs: { leg_id: "L-C1-AM" }, policyDecision: "ALLOW:read",
+    });
+    const h = harness();
+
+    await expect(driveRun(h.deps(1), runId, { siteId: OTHER_SITE })).rejects.toThrow(/no agent run/);
+
+    // Not claimed, not settled, not executed — the refusal is before the state machine.
+    expect((await runs())[0].state).toBe("QUEUED");
+    const [after] = await calls(runId);
+    expect([after.status, after.committed_at]).toEqual(["PENDING", null]);
+    expect(h.recorder.intents).toEqual([]);
+    expect(row.status).toBe("PENDING");
+  });
+
+  it("every entry point passes the fence: a trigger for another site cannot adopt this run", async () => {
+    // `startRun` already refuses a trigger id that belongs to another site's run (store.ts); this
+    // is the same refusal reached through the loop, so the two cannot drift apart.
+    const h = harness();
+    await h.start(TRIGGER);
+    await expect(startAndDriveRun(h.deps(3), { ...TRIGGER, siteId: OTHER_SITE }))
+      .rejects.toThrow(/already belongs to another site/);
+  });
+
+  it("a context assembled for another site stops the run before the model turn", async () => {
+    const h = harness({ policy: at01Policy({ scope: familyScope("F1", ["C1", "L-C1-AM"], [], OTHER_SITE) }) });
+    const r = await h.start(TRIGGER);
+
+    expect([r.state, r.steps, r.reason]).toEqual([
+      "FAILED", 0, "assembled context is scoped to another site than this run",
+    ]);
+    // No tokens spent, nothing persisted, nothing executed: the check is in front of the gateway.
+    expect(h.gateways.at(-1)!.auditLog).toEqual([]);
+    expect(await calls(r.runId)).toEqual([]);
+    expect(h.recorder.intents).toEqual([]);
+  });
+
+  it("…and stops a resume before the step it found, however permissive that site's scope is", async () => {
+    const { runId } = await startRun(db, TRIGGER, { model: "m", provider: "p" });
+    await persistCall(db, {
+      runId, siteId: SITE, seq: 0, tool: "get_leg_state",
+      args: { leg_id: "L-C1-AM" }, storeArgs: { leg_id: "L-C1-AM" }, policyDecision: "ALLOW:read",
+    });
+    // A scope that would allow the argument — but for a different tenant, whose rows this run's
+    // executors would never have touched. The family-scope post-validator cannot see that.
+    const h = harness({ policy: at01Policy({ scope: familyScope("F1", ["C1", "L-C1-AM"], [], OTHER_SITE) }) });
+
+    const r = await driveRun(h.deps(1), runId);
+
+    expect([r.state, r.reason]).toEqual(["FAILED", "assembled context is scoped to another site than this run"]);
+    const [after] = await calls(runId);
+    expect([after.status, after.committed_at]).toEqual(["PENDING", null]);
+    expect(h.recorder.intents).toEqual([]);
   });
 });
 

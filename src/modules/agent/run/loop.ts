@@ -31,7 +31,7 @@
 import type { Db } from "@/db/exec";
 import { type Clock, type JobScheduler, systemClock } from "@/modules/jobs/scheduler";
 import type { LlmGateway, GatewayResult } from "../gateway";
-import { type PolicyDecision, evaluate } from "../policy";
+import { type PolicyContext, type PolicyDecision, evaluate } from "../policy";
 import type { ContextAssembler } from "./context";
 import type { ProposalWriter } from "./exec/proposals";
 import type { ExecutorCall, ToolExecution, ToolExecutors } from "./executors";
@@ -96,6 +96,18 @@ export type RunResult = {
   readonly awaiting?: ParkedAwait;
 };
 
+export type DriveOpts = {
+  /**
+   * The site this driver is driving runs **for**, and the tenant fence on a run id (PR #35 review,
+   * F3). A run belonging to any other site is refused rather than driven: a run id arrives from a
+   * queue payload or an HTTP route, and neither is an authorization to touch a row. `startAndDriveRun`
+   * passes the trigger's site and `resumeQueuedRuns` passes the site it selected by, so every entry
+   * point into the loop is fenced; a caller with no site in hand may omit it, which is what the
+   * suites that drive a run they just started do.
+   */
+  readonly siteId?: string;
+};
+
 /** How one step ended. `continue` is the only outcome that takes another model turn. */
 type StepOutcome =
   | { kind: "continue" }
@@ -117,7 +129,7 @@ export async function startAndDriveRun(deps: RunDeps, trigger: Trigger): Promise
     model: deps.gateway.config.model,
     provider: deps.gateway.config.provider,
   });
-  const result = await driveRun(deps, runId);
+  const result = await driveRun(deps, runId, { siteId: trigger.siteId });
   return { ...result, created };
 }
 
@@ -130,11 +142,21 @@ export async function startAndDriveRun(deps: RunDeps, trigger: Trigger): Promise
  * (run_id, seq) unique index and the per-call idempotency key, so the worst case is wasted model
  * turns rather than duplicated effects. A per-run lease — the equivalent of the B-03 job claim —
  * belongs with the agent queue route, which is a later slice.
+ *
+ * `opts.siteId` is the tenant fence: a run of another site is refused, with no state touched. The
+ * refusal is a throw rather than a `RunResult` because it is not an outcome of *that run* — the run
+ * is innocent and must not be recorded FAILED because somebody else asked about it.
  */
-export async function driveRun(deps: RunDeps, runId: string): Promise<RunResult> {
+export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {}): Promise<RunResult> {
   const clock = deps.now ?? systemClock;
   const loaded = await loadRun(deps.db, runId);
   if (!loaded) throw new AgentRunError(`no agent run ${runId}`);
+  // 404 rather than 403, as everywhere else (policy.ts step 7): the message does not say whose it
+  // is, because a driver that could tell "no such run" from "another tenant's run" is an existence
+  // oracle for every other site in the database.
+  if (opts.siteId !== undefined && loaded.siteId !== opts.siteId) {
+    throw new AgentRunError(`no agent run ${runId} in this site`);
+  }
   if (TERMINAL_RUN_STATES.has(loaded.state)) {
     return { runId, created: false, state: loaded.state, steps: 0, reason: "run already finished" };
   }
@@ -184,6 +206,8 @@ export async function driveRun(deps: RunDeps, runId: string): Promise<RunResult>
     const at = clock();
     const committed = committedCalls(calls);
     const assembled = await deps.assemble({ runId, trigger: run.trigger, committed, now: at });
+    const wrongSite = scopeSiteRefusal(run, assembled.policy);
+    if (wrongSite) return fail(deps, run, wrongSite, steps);
     let turn: GatewayResult;
     try {
       turn = await deps.gateway.complete({ runId, prompt: assembled.prompt, tools: assembled.tools });
@@ -217,7 +241,9 @@ export async function driveRun(deps: RunDeps, runId: string): Promise<RunResult>
 export async function resumeQueuedRuns(deps: RunDeps, siteId: string, limit = 100): Promise<RunResult[]> {
   const runs = await resumableRuns(deps.db, siteId, limit);
   const out: RunResult[] = [];
-  for (const r of runs) out.push(await driveRun(deps, r.id));
+  // The fence is redundant here — `resumableRuns` selected by site — and passed anyway, so that
+  // the site a run is driven for is stated at every entry point rather than implied by a query.
+  for (const r of runs) out.push(await driveRun(deps, r.id, { siteId }));
   return out;
 }
 
@@ -242,6 +268,29 @@ export function persistedVerdict(policyDecision: string): { verdict: "ALLOW" | "
     throw new AgentRunError(`unreadable policy decision ${JSON.stringify(policyDecision)}`);
   }
   return { verdict, detail: rest.join(":") };
+}
+
+/* ──────────────────── the run's site, and the context's ──────────────────── */
+
+/**
+ * Why the context this turn was assembled from is not this run's to use, or null when it is
+ * (PR #35 review, F3).
+ *
+ * `FamilyScope.siteToken` is the tenant the assembler built the scope for, and `run.site_id` is the
+ * site the run was started in. Everything downstream trusts both and compares neither: the policy
+ * engine checks an argument against `scope.tokens`, while every executor reads and writes
+ * `WHERE … site_id = call.siteId`, which comes off the run row. A context assembled for the wrong
+ * site would therefore pass the scope check against *that* site's tokens and then be executed
+ * against *this* site's rows — the one shape of cross-tenant write that the family-scope
+ * post-validator cannot see, because each half is self-consistent.
+ *
+ * Checked before the model turn, so a mismatch costs no tokens, and fail-shut: the run stops. A
+ * caller whose session and whose run disagree about the tenant has a bug that no retry fixes.
+ */
+function scopeSiteRefusal(run: RunRow, policy: PolicyContext): string | null {
+  return policy.scope.siteToken === run.siteId
+    ? null
+    : "assembled context is scoped to another site than this run";
 }
 
 /* ──────────────────── re-deciding a resumed step, tighten-only ──────────────────── */
@@ -303,6 +352,8 @@ async function retighten(
   const persisted = persistedVerdict(row.policyDecision).verdict;
   if (persisted === "BLOCK") return { ok: true, tightened: null };
   const assembled = await deps.assemble({ runId: run.id, trigger: run.trigger, committed, now: at });
+  const wrongSite = scopeSiteRefusal(run, assembled.policy);
+  if (wrongSite) return { ok: false, reason: wrongSite };
   const fresh = evaluate({ tool: row.tool, args: row.args }, assembled.policy);
   return { ok: true, tightened: tightenOnResume(persisted, fresh) };
 }
