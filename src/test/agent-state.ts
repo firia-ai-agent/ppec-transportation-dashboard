@@ -126,6 +126,41 @@ export async function seedAgentScenario(db: Db, opts: ScenarioOptions = {}): Pro
   };
 }
 
+/**
+ * A PENDING acknowledgment with the outbound message it is for and, optionally, the deadline timer
+ * that would escalate it — the state §11.2 `record_acknowledgment` acts on (B-05 raises these for
+ * real; here they are seeded).
+ */
+export async function seedAcknowledgment(
+  db: Db,
+  a: { siteId: string; contactToken: string; childToken: string; dueAt: Date; withTimer?: boolean },
+): Promise<{ ackId: string; outboundMessageId: string; timerJobId: string | null; timerKey: string | null }> {
+  const outboundMessageId = uuidv7();
+  await db.query(
+    `INSERT INTO ops.outbound_message (id, site_id, purpose, recipient_rule, recipient_token, channel, template_id,
+       vars, child_token, plan_version_basis, not_after, state, idempotency_key, created_by, updated_by)
+     VALUES ($1,$2,'THERAPIST_ALERT','therapist_of_session',$3,'SMS_1TO1','therapist.absence_alert',
+       '{"sessionStart":"09:00"}'::jsonb,$4,0,$5,'SENT',$6,'test','test')`,
+    [outboundMessageId, a.siteId, a.contactToken, a.childToken, a.dueAt.toISOString(), `ack-seed:${outboundMessageId}`],
+  );
+  const timerJobId = a.withTimer === false ? null : uuidv7();
+  const timerKey = timerJobId ? `ack.deadline:${outboundMessageId}` : null;
+  if (timerJobId) {
+    await db.query(
+      `INSERT INTO ops.job (id, site_id, key, kind, payload, due_at, state, created_by, updated_by)
+       VALUES ($1,$2,$3,'ack.deadline','{}'::jsonb,$4,'SCHEDULED','test','test')`,
+      [timerJobId, a.siteId, timerKey, a.dueAt.toISOString()],
+    );
+  }
+  const ackId = uuidv7();
+  await db.query(
+    `INSERT INTO ops.acknowledgment (id, site_id, outbound_message_id, contact_token, state, due_at, timer_job_id, created_by, updated_by)
+     VALUES ($1,$2,$3,$4,'PENDING',$5,$6,'test','test')`,
+    [ackId, a.siteId, outboundMessageId, a.contactToken, a.dueAt.toISOString(), timerJobId],
+  );
+  return { ackId, outboundMessageId, timerJobId, timerKey };
+}
+
 /** One inbound message in a thread. Returns its id — the `msg.inbound` trigger id. */
 export async function seedInbound(
   db: Db,
