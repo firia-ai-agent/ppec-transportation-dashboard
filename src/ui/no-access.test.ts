@@ -51,8 +51,20 @@ describe("the copy lives in src/ui/copy.ts", () => {
 
   it("says it without apology, blame, a code or a route", () => {
     for (const line of Object.values(noAccess)) {
-      expect(line).not.toMatch(/sorry|error|denied|forbidden|403|401|\/|DIRECTOR|COORDINATOR|FRONT_DESK/i);
+      expect(line).not.toMatch(/sorry|error|denied|forbidden|403|401|\//i);
+      /*
+       * And no role *key*, which is the thing a person cannot read: the database's
+       * `DIRECTOR`/`COORDINATOR`/`FRONT_DESK`, not the everyday nouns. "Ask a director to add
+       * you." is Vera's line for the no-role caller, and `roleNames` holds the same words for
+       * the `{who}` line — COPY-GUIDE §2 bans enum names on screen, not the word director.
+       */
+      expect(line).not.toMatch(/DIRECTOR|COORDINATOR|FRONT_DESK/);
     }
+  });
+
+  it("says Vera's two lines for an account with no role at all", () => {
+    expect(noAccess.noRoleHeading).toBe("Your account isn't set up for a site yet");
+    expect(noAccess.noRoleLine).toBe("Ask a director to add you.");
   });
 
   it("names the roles in a person's words, never the database's", () => {
@@ -88,7 +100,7 @@ describe("the card", () => {
       ["/exceptions", "Directors and coordinators can open this."],
       ["/ramp-preview", "Directors, coordinators and front desk staff can open this."],
     ] as const) {
-      expect(await render(CALLERS.noRole, { path: page })).toContain(line);
+      expect(await render(CALLERS.frontDesk, { path: page })).toContain(line);
     }
   });
 
@@ -118,12 +130,32 @@ describe("the card", () => {
     expect(coordinator).toContain(fill(noAccess.back, { page: nav.today }));
   });
 
-  it("sends a signed-in person with no role at all to sign-in, and names no page", async () => {
-    const html = await render(CALLERS.noRole);
-    expect(html).toContain(`href="/login"`);
-    // No `path` prop, so there is no page to say who it is for: the heading and the way out.
-    expect(html).not.toContain("can open this");
-    expect(html).toContain(escapeApostrophes(noAccess.heading));
+  it("tells a signed-in person with no role at all what is true of their account, and who can fix it", async () => {
+    /*
+     * The widest denied row in the table: every page refuses them, so the refusal is not about
+     * the page. They get Vera's fallback — and they get it whether a page was named or not,
+     * because naming the roles that could open it would tell them nothing they can act on.
+     */
+    for (const props of [{}, { path: "/today" }, { path: "/ramp-preview" }]) {
+      const html = await render(CALLERS.noRole, props);
+      expect(html).toContain(escapeApostrophes(noAccess.noRoleHeading));
+      expect(html).toContain(noAccess.noRoleLine);
+      expect(html).not.toContain(escapeApostrophes(noAccess.heading));
+      expect(html).not.toContain("can open this");
+      // One way out, as on every other render of this card.
+      expect(html).toContain(`href="/login"`);
+      expect(html.match(/<a /g)).toHaveLength(1);
+    }
+  });
+
+  it("shows the fallback to nobody else: a role refused one page still gets the role card", async () => {
+    for (const caller of [CALLERS.frontDesk, CALLERS.coordinator]) {
+      const html = await render(caller, { path: "/today" });
+      expect(html).toContain(escapeApostrophes(noAccess.heading));
+      expect(html).toContain("Directors and coordinators can open this.");
+      expect(html).not.toContain(escapeApostrophes(noAccess.noRoleHeading));
+      expect(html).not.toContain(noAccess.noRoleLine);
+    }
   });
 
   it("shows no status code, no role key and no route path", async () => {

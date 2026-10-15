@@ -319,6 +319,15 @@ export const noAccess = {
   /** List joiners for `{who}`: "A, B and C". */
   listSeparator: ", ",
   listAnd: " and ",
+  /**
+   * The signed-in person who holds no role at any site at all (Vera's copy). "This page isn't
+   * part of your role" is the wrong sentence for them — they have no role, so naming the roles
+   * that could open the page tells them nothing they can act on. These two lines say what is
+   * actually true of their account, and who can change it. Shown for that caller only; a staff
+   * caller refused one page keeps the heading and the `{who}` line above.
+   */
+  noRoleHeading: "Your account isn't set up for a site yet",
+  noRoleLine: "Ask a director to add you.",
   /** The way out, labelled with the words its destination already uses ("Go to Today"). */
   back: "Go to {page}",
 } as const;

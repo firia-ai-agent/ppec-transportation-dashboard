@@ -6,14 +6,16 @@
  * evidence of anything until that run happens and its report is attached to the ledger.
  *
  * ── What it answers ───────────────────────────────────────────────────────────────────────────────────
- * DECISION-LEDGER row 58 (2 s claim lease + millisecond re-wake delays) is **conditional** on Vercel Queues
- * honouring sub-second `delaySeconds`, and Athena's research (PR #21) says the service documents
- * at-least-once, unordered delivery with **no delay SLA** at all. RISKS-AND-QUESTIONS U1 and U12. So:
- *   - Is `delaySeconds` honoured at sub-second granularity, or floored / rounded up to whole seconds?
+ * Athena's research (PR #21) says the service documents at-least-once, unordered delivery with **no delay
+ * SLA** at all, and the docs promise no sub-second precision either. RISKS-AND-QUESTIONS U1 and U13. Since
+ * DECISION-LEDGER row 60 the timer path publishes **whole seconds only** and waits out the sub-second part of
+ * a lease inside the invocation, so no outcome here changes the design. What the run is still for:
  *   - What does the lateness distribution look like (p50/p90/p99/max), and how often is it > 250 ms / > 1 s?
+ *     This is the one Queues property ADR-001's simulated 4.95 s worst case still rests on (it assumes ≤1 s
+ *     per delivery), so it is the measurement that would move NFR-03 from simulated to measured.
+ *   - Is `delaySeconds` honoured at sub-second granularity, or floored / rounded up to whole seconds? Now
+ *     informational: it quantifies the precision row 60 gave up, and feeds ADR-001's knobs.
  *   - Does at-least-once show up in practice (duplicates), and does anything go missing?
- * If delays are rounded up to whole seconds, row 58 is reverted to the row 38 parameters (3 s lease,
- * whole-second re-wakes) and the 6.2 s p100 is reported instead — see ADR-001 Consequences.
  *
  * ── How it works ──────────────────────────────────────────────────────────────────────────────────────
  * Two phases, because the measurement itself has to happen on the deployment:
@@ -183,15 +185,20 @@ export function toCsv(s: Summary): string {
   return `${rows.join("\n")}\n`;
 }
 
-/** Verdict on the question row 58 hangs on, from the sub-second buckets alone. */
+/**
+ * Verdict on sub-second granularity, from the sub-second buckets alone. **Informational since
+ * DECISION-LEDGER row 60**: the timer path publishes whole seconds either way, so neither outcome reverts
+ * anything — it tells us how much precision whole-second delays gave up. The lateness distribution above is
+ * the number that still matters.
+ */
 export function subSecondVerdict(s: Summary): string {
   const sub = s.byRequested.filter((g) => g.requested < 1 && g.count);
   if (sub.length === 0) return "INCONCLUSIVE: no sub-second probe was delivered";
   // Rounding a sub-second request up to 1 s shows as lateness ≈ (1000 − requested·1000) ms.
   const rounded = sub.filter((g) => (g.p50 as number) >= (1 - g.requested) * 1000 * 0.8);
-  if (rounded.length === sub.length) return "FAIL: sub-second delays look rounded up to whole seconds → revert row 58 to the row 38 parameters";
+  if (rounded.length === sub.length) return "FAIL: sub-second delays look rounded up to whole seconds (no design change: row 60 already publishes whole seconds)";
   if (rounded.length > 0) return "MIXED: some sub-second buckets look rounded up — inspect byRequested before deciding";
-  return "PASS: sub-second delays are honoured (row 58 stands, subject to the lateness numbers above)";
+  return "PASS: sub-second delays are honoured (precision row 60 chose not to depend on; the lateness numbers above are the verdict that counts)";
 }
 
 // ── I/O and CLI (not unit-tested; needs a live preview deployment) ────────────────────────────────────

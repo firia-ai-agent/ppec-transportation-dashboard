@@ -73,8 +73,11 @@ State labels are fixed in DESIGN-DIRECTION.md §3 and must be used verbatim.
 ### SURF-03 Inbox
 - Identity: "Matched to F4 family · high confidence" / "Unknown number. Don't share ride details." 
 - Extracted change: "Absent today: Mia R. (AM and PM)".
-- Ambiguity (agent): "Thanks for letting us know. Which child is staying home? Reply with the first name, or BOTH."
-  The reply goes out by SMS, so it asks for the name instead of listing names (see "Outbound family SMS" below).
+- Ambiguity (agent): "Is one of your children staying home? Reply ONE or BOTH and we'll call to confirm which."
+  **A reply never asks a family to text a child's name.** The reply goes out by SMS, so asking for a
+  name would put one on whatever phone is holding that number — the same reason no outbound body
+  carries a name (see "Outbound family SMS" below). So the reply asks for a count the family can send
+  as a keyword, and the one ambiguity a count cannot settle is settled by a phone call, not by text.
 - Plan changed banner: "The plan changed at 8:04 AM. Check before you reply."
 - Take over: "Take over" → banner "You're replying. The agent is paused on this thread." [Release to agent]
 - Agent down: "Agent paused. Keyword replies only: ABSENT, SICK, YES, READY, STOP."
@@ -94,6 +97,9 @@ what a family is waiting for is the vehicle. These examples are the rendered wor
 - Ride home: "PPEC: Your child's van home is on the way to Greenacres Branch Library. Arrival 3:40–3:50 PM. Reply HELP for help, STOP to opt out. [DEMO]"
 - HELP: "PPEC: This number sends van updates for your child. Call us at (561) 555-0100 if you need help. Reply STOP to opt out. [DEMO]"
 - Never include needs, health, addresses, a child's name, or other children in a message.
+- And never *ask* for a name: a reply that says "reply with the first name" would put a child's
+  name on that phone as surely as sending one. Ask for a keyword or a count, and phone the family
+  when the answer needs a name (see SURF-03 "Ambiguity" above).
 
 ### SURF-04 Ramp iPad
 - Vehicle tile: "V1 · Provider P1 · arriving 8:52 · 3 riders".

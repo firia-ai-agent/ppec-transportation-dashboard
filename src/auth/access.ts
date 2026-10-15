@@ -304,6 +304,10 @@ export const PAGES: readonly PageRow[] = [
   /**
    * SURF-04, the ramp iPad: the front desk's own surface (PRD §6.2, ARCHITECTURE §1), and a
    * coordinator and a director both walk it.
+   *
+   * OPEN QUESTION for the founder: This is also the front desk's *home* — they can open no
+   * console page, so `HOME_ORDER` below resolves their landing page to this one, which is where
+   * sign-in now puts them. It is a developer preview route. Correct until SURF-04 is real?
    */
   {
     kind: "page",
@@ -311,6 +315,7 @@ export const PAGES: readonly PageRow[] = [
     path: "/ramp-preview",
     access: { roles: ALL_STAFF },
     label: rampPreview.heading,
+    founderQuestion: true,
   },
 ];
 
@@ -566,6 +571,7 @@ export function apiOutcome(caller: Caller, path: string): ApiOutcome {
  * The order a role's own pages are offered in: the nav order first (DESIGN-DIRECTION §2), then
  * the two surfaces that are not in the rail. The first entry a role may open is their home — so
  * the front desk, who has no console page, lands on the ramp check rather than on a refusal.
+ * That landing page is the `/ramp-preview` row's open question above.
  */
 const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/ramp-preview", "/map-preview", "/whoami"] as const;
 

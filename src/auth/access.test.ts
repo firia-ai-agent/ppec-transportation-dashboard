@@ -295,9 +295,25 @@ describe("the policy itself, written out so a silent widening fails", () => {
   });
 
   it("every row whose default is a guess is flagged for the founder, with the question in the file", () => {
-    expect(foundersQuestions()).toEqual(["/today", "/setup", "/health", "/whoami", "/api/health"]);
+    expect(foundersQuestions()).toEqual(["/today", "/setup", "/health", "/whoami", "/ramp-preview", "/api/health"]);
     const source = readFileSync(path.join(__dirname, "access.ts"), "utf8");
     expect(source.match(/OPEN QUESTION for the founder/g)).toHaveLength(foundersQuestions().length);
+  });
+
+  it("all seven open questions are flagged in the source, in the one marker style", () => {
+    /*
+     * Six of the seven are rows in this table (above). The seventh is not about access at all —
+     * the brand palette the brief named, which no token in this repo defines — so it is marked
+     * where someone would act on it, in src/ui/tokens.ts, in the same words. Counted across the
+     * whole of src/ so a question cannot be answered by deleting its marker, and written out per
+     * file so a marker that lands somewhere unexpected fails here rather than passing a total.
+     */
+    const flagged = walk(SRC)
+      .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
+      .map((f) => [rel(f), (readFileSync(f, "utf8").match(/OPEN QUESTION for the founder/g) ?? []).length] as const)
+      .filter(([, count]) => count > 0);
+    expect(Object.fromEntries(flagged)).toEqual({ "src/auth/access.ts": 6, "src/ui/tokens.ts": 1 });
+    expect(flagged.reduce((n, [, count]) => n + count, 0)).toBe(7);
   });
 });
 

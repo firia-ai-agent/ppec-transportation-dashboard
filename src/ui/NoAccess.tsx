@@ -28,20 +28,27 @@ import styles from "./NoAccess.module.css";
  *
  * It is rendered by a `forbidden.tsx` boundary, which is what makes the response a real 403
  * (src/auth/page-guard.ts calls `forbidden()`), and `path` is the page that was asked for. The
- * root boundary passes none, for a signed-in caller who holds no role at any site at all: there
- * is no single page to name, so the card carries the heading and the way out.
+ * root boundary passes none.
+ *
+ * One caller gets different words: someone signed in who holds no role at any site at all. Their
+ * refusal is not about this page — every page refuses them — so "This page isn't part of your
+ * role" and a line naming the roles that could open it would both be beside the point. They get
+ * Vera's two lines instead (`noAccess.noRoleHeading` / `noRoleLine`): what is true of their
+ * account, and who can change it. Everyone else keeps the role card above, page line included.
  */
 export async function NoAccess({ path }: { path?: string }) {
   const caller = await getCaller();
   const home = homePathFor(caller);
+  const noRole = caller.kind === "NO_ROLE";
   return (
     <main className={styles.page}>
       <div className={styles.card}>
         <p className={styles.icon}>
           <UserLock size={icon.nav} aria-hidden="true" />
         </p>
-        <h1 className={styles.heading}>{noAccess.heading}</h1>
-        {path ? <p className={styles.line}>{whoCanOpenLine(path)}</p> : null}
+        <h1 className={styles.heading}>{noRole ? noAccess.noRoleHeading : noAccess.heading}</h1>
+        {noRole ? <p className={styles.line}>{noAccess.noRoleLine}</p> : null}
+        {!noRole && path ? <p className={styles.line}>{whoCanOpenLine(path)}</p> : null}
         <Link className={styles.link} href={home}>
           {fill(noAccess.back, { page: pageLabel(home) })}
         </Link>

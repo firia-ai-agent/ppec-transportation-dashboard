@@ -4,7 +4,7 @@
  */
 import { uuidv7 } from "uuidv7";
 import type { Db, Exec } from "@/db/exec";
-import { arm, EARLY_SLACK_MS, JOB_COLUMNS, LEASE_RENEW_EVERY_MS, LEASE_SECONDS, MAX_ATTEMPTS, MAX_DELAY_SECONDS, REWAKE_DELAY_SECONDS, rewakeDelaySeconds, staleWake, type Clock, type JobRow, type WakeFence, type WakeMessage, type WakeTransport, systemClock } from "./scheduler";
+import { arm, EARLY_SLACK_MS, INLINE_RECHECK_MAX_ITERATIONS, INLINE_RECHECK_MAX_MS, JOB_COLUMNS, LEASE_RENEW_EVERY_MS, LEASE_SECONDS, MAX_ATTEMPTS, MAX_DELAY_SECONDS, REWAKE_DELAY_SECONDS, REWAKE_MARGIN_MS, rewakeDelaySeconds, staleWake, type Clock, type JobRow, type Sleep, type WakeFence, type WakeMessage, type WakeTransport, systemClock, systemSleep } from "./scheduler";
 
 export type Handler = (tx: Exec, job: JobRow) => Promise<void>;
 export type Handlers = Record<string, Handler>;
@@ -25,6 +25,11 @@ export type FireOpts = {
   isFatal?: (err: unknown) => boolean;
   /** Lease renewal period; defaults to LEASE_RENEW_EVERY_MS. */
   renewEveryMs?: number;
+  /**
+   * How the inline lease re-check waits (`recheckLeaseInline`); defaults to a real timer. Tests pass a sleep
+   * that advances their fake clock, so the whole path is deterministic and takes no wall-clock time.
+   */
+  sleep?: Sleep;
 };
 
 /** Deployment pinning: a consumer on a non-active deployment acks without claiming. */
@@ -202,12 +207,60 @@ export async function fire(db: Db, jobId: string, deploymentId: string, handlers
 
 type ClaimedRow = JobRow & { claimed_until: Date | string | null; claimed_by: string | null };
 
+/** Milliseconds of lease left on a claimed row, by the app clock. ≤ 0 means a reclaim would match. */
+function leaseRemainingMs(row: Pick<ClaimedRow, "claimed_until">, now: Date) {
+  return (row.claimed_until ? new Date(row.claimed_until).getTime() : 0) - now.getTime();
+}
+
+/** Either: go on to reclaim + fire here, or publish a re-wake for this (freshly read) row's remaining lease. */
+type RecheckOutcome = { proceed: true } | { proceed: false; row: ClaimedRow; remainingMs: number; now: Date };
+
+/**
+ * A wake that found the lease **still live** (queue jitter, skew between the claiming and the waking instance,
+ * or a renewal by a handler that is still running), with at most INLINE_RECHECK_MAX_MS of it left: wait it out
+ * in this invocation rather than paying a queue hop for it (DECISION-LEDGER row 60).
+ *
+ * The hop is what made this expensive: a published delay is a whole second now, so covering 1 ms of leftover
+ * lease by re-publishing costs ≥ 1 s plus another delivery's jitter, while sleeping 1 ms + REWAKE_MARGIN_MS
+ * here costs nothing we are not already paying for. Each pass sleeps to `claimed_until` + the margin and
+ * re-reads the row; a lapsed lease means the caller can reclaim and fire **in the same invocation**, and a row
+ * that has left CLAIMED (finished, reclaimed or cancelled elsewhere) is judged by the caller's claim like any
+ * other delivery. Nothing here claims or writes anything, so the exactly-once fencing is untouched: the
+ * reclaim still needs `state = 'CLAIMED' AND claimed_until <= now`, and the fire still needs `SCHEDULED`.
+ *
+ * Bounded twice over — INLINE_RECHECK_MAX_MS per pass and INLINE_RECHECK_MAX_ITERATIONS passes, so at most
+ * INLINE_RECHECK_TOTAL_MAX_MS (9.75 s) against the consumer's 60 s budget — and both exits hand the caller a
+ * freshly read row to publish for, because the lease it should wait on is the one that exists now.
+ */
+async function recheckLeaseInline(db: Db, row: ClaimedRow, remainingMs: number, clock: Clock, opts: FireOpts): Promise<RecheckOutcome> {
+  const sleep = opts.sleep ?? systemSleep;
+  let live = row, remaining = remainingMs, now = clock();
+  for (let pass = 0; pass < INLINE_RECHECK_MAX_ITERATIONS; pass++) {
+    // A lease longer than the bound belongs to a handler that is renewing it: it is alive, the job is not at
+    // risk, and holding this invocation open for it is the expensive way to find that out.
+    if (remaining > INLINE_RECHECK_MAX_MS) return { proceed: false, row: live, remainingMs: remaining, now };
+    await sleep(remaining + REWAKE_MARGIN_MS);
+    const r = await db.query<ClaimedRow>(
+      `SELECT ${JOB_COLUMNS}, claimed_until, claimed_by FROM ops.job WHERE id = $1`, [live.id]);
+    const fresh = r.rows[0];
+    now = clock();
+    if (!fresh || fresh.state !== "CLAIMED") return { proceed: true };
+    live = fresh;
+    remaining = leaseRemainingMs(fresh, now);
+    if (remaining <= 0) return { proceed: true };
+  }
+  return { proceed: false, row: live, remainingMs: remaining, now };
+}
+
 /**
  * Re-publish a wake for the rest of a live lease plus a margin. Keyed by the claim token and this arrival's
  * instant: two wakes that arrive in the same millisecond for the same claim dedupe (they are the same
  * re-wake), while a later arrival always gets through Queues' idempotency window. A handler that keeps
  * renewing its lease therefore keeps one re-wake circling at about one message per lease — that is the
  * message that recovers the job if the handler's process dies.
+ *
+ * `delaySeconds` is a whole second (`rewakeDelaySeconds`, never 0 — row 60), which is affordable here exactly
+ * because `recheckLeaseInline` has already taken the short, recovery-critical leases off this path.
  */
 async function deferRewake(row: ClaimedRow, remainingMs: number, now: Date, opts: FireOpts) {
   if (!opts.transport) return false;
@@ -249,6 +302,10 @@ async function deferEarlyWake(db: Db, row: JobRow, remainingMs: number, now: Dat
  * single claim-and-fire or a no-op + ack, decided by `claimForWake`. `dueAt`/`version` are optional so a
  * message published by an older deployment, before the fence existed, is still judged on state and due time
  * rather than dropped.
+ *
+ * One delivery can take a little time on purpose: a wake that lands on a live lease with ≤ INLINE_RECHECK_MAX_MS
+ * left waits it out inside this invocation (`recheckLeaseInline`) and then reclaims and fires, instead of
+ * buying a whole extra second of latency by re-publishing itself (DECISION-LEDGER row 60).
  */
 export async function handleWake(db: Db, msg: { jobId: string } & Partial<WakeMessage>, deploymentId: string, handlers: Handlers, clock: Clock = systemClock, opts: FireOpts = {}): Promise<WakeResult> {
   if (!(await isActiveDeployment(db, deploymentId))) return "inactive-deployment";
@@ -269,12 +326,18 @@ export async function handleWake(db: Db, msg: { jobId: string } & Partial<WakeMe
     // A wake for a generation the row has moved past is dropped outright: re-publishing it (below) would keep
     // a stale message circling for the lifetime of the claim.
     if (staleWake(row, fence)) return "noop";
-    const now = clock();
-    const remainingMs = (row.claimed_until ? new Date(row.claimed_until).getTime() : 0) - now.getTime();
+    let now = clock();
+    const remainingMs = leaseRemainingMs(row, now);
     // Lease still live: either this wake arrived early (queue jitter, or skew between the claiming and the
     // waking instance) or the handler renewed the lease. A reclaim needs `claimed_until <= now`, so returning
-    // noop here would leave recovery to the 1-minute sweep (Veri #10, blocker 1). Re-publish instead.
-    if (remainingMs > 0) return (await deferRewake(row, remainingMs, now, opts)) ? "rewake-deferred" : "noop";
+    // noop here would leave recovery to the 1-minute sweep (Veri #10, blocker 1). Wait the lease out **here**
+    // if it is short enough (row 60: a published delay is a whole second, so a hop costs ≥ 1 s + jitter);
+    // only a lease a live handler is renewing, or one that outlasts the bounded re-check, is re-published.
+    if (remainingMs > 0) {
+      const rc = await recheckLeaseInline(db, row, remainingMs, clock, opts);
+      if (!rc.proceed) return (await deferRewake(rc.row, rc.remainingMs, rc.now, opts)) ? "rewake-deferred" : "noop";
+      now = clock(); // the re-check slept; the reclaim below has to be judged against the clock as it is now
+    }
     const r = await reclaimIfExpired(db, row, now, "system:job:rewake");
     if (r === "dead") return "dead";
   }

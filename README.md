@@ -27,7 +27,7 @@ No secrets here. Values live only in Vercel env vars.
 | Linear | https://linear.app/tokos/project/ppec-transport-dashboard-poc-mock-c71244c967e7 |
 | Notion | https://app.notion.com/p/3f9ac450cdc181cda2becad4340b6833 |
 
-Previews are read-only against that one database: the app opens every preview transaction `READ ONLY` (PR #20, ledger row 55) and the preview login role `ppec_preview` is read-only server-side (ledger row 53): the role and its grants are applied in Neon and tested on the pooled and unpooled hosts (SELECT works, UPDATE is refused, `identity` is refused); pointing the Vercel Preview `DATABASE_URL`/`DATABASE_URL_UNPOOLED` at the role is awaiting founder approval. Previews never run migrations and never seed; migrations and reset/seed act on production only.
+Previews are read-only against that one database: the app opens every preview transaction `READ ONLY` (PR #20, ledger row 55) and the preview login role `ppec_preview` is read-only server-side (ledger row 53): the role and its grants are applied in Neon and tested on the pooled and unpooled hosts (SELECT works, UPDATE is refused, `identity` is refused), and Firia has **switched** the Vercel **Preview** `DATABASE_URL`/`DATABASE_URL_UNPOOLED` to that role (2026-10-14). Preview only — Production keeps the owner role — and previews that already exist keep the old values until they are redeployed, so check `/api/health` `dbRole` on the deployment in front of you rather than assuming. Previews never run migrations and never seed; migrations and reset/seed act on production only.
 
 ## Docs
 - [PRD v1.0](docs/PRD-v1.0.txt)
@@ -47,7 +47,7 @@ APP_DATA_CLASS=SYNTHETIC pnpm dev     # boot refuses any other data class (ADR-0
 pnpm typecheck && pnpm lint && pnpm test && pnpm seed:lint
 pnpm e2e                              # browser check: see "Map" below
 ```
-Health: `GET /api/health` returns the deployed commit, environment and data class. Infra state: `INFRA-BASELINE.md`, `DATABASES.md`, `INFRA-TEMP.md`.
+Health: `GET /api/health` returns the deployed commit, environment, data class and the Postgres role the deployment logs in as (`dbRole`, from `SELECT current_user` — the role name only, never a credential, URL or host; `null` when the query cannot be made). Infra state: `INFRA-BASELINE.md`, `DATABASES.md`, `INFRA-TEMP.md`.
 
 ## Map (M5, ADR-008)
 MapLibre GL + **OpenFreeMap vector tiles**, `positron` base style restyled per [design direction §5.1](docs/design/DESIGN-DIRECTION.md). Attribution "© OpenFreeMap © OpenStreetMap contributors" is always on screen, bottom-right, and is never removed ([OpenFreeMap terms](https://openfreemap.org/tos/) — free, as-is, no SLA; [OSM ODbL](https://www.openstreetmap.org/copyright)).
