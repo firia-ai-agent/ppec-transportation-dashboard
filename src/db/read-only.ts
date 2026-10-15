@@ -56,16 +56,57 @@ export class ReadOnlyRefusedError extends Error {
   }
 }
 
-/** Opens a transaction: `BEGIN [TRANSACTION|WORK] [modes]` or `START TRANSACTION [modes]`. */
-const TX_START = /^(?:BEGIN|START\s+TRANSACTION)\b/i;
+/**
+ * Every character this file reads as a gap between two tokens, as a regex class body: JS' own `\s`
+ * — the server's ASCII whitespace plus most of {@link UNICODE_SPACE} — and the five UNICODE_SPACE
+ * characters JS does not call whitespace at all: NEXT LINE (U+0085) and the zero-width four
+ * (U+200B, U+200C, U+200D, U+2060). Written once and shared, so the multi-token keywords below
+ * (`START TRANSACTION`, `PREPARE TRANSACTION`) and {@link trimSql} agree about where a token may
+ * end: `START\u200BTRANSACTION` opens a transaction to everything above the server exactly as
+ * `START\u00A0TRANSACTION` does, and a gap spelled `\s` would have matched only the second one.
+ */
+const GAP = String.raw`[\s\u0085\u200b-\u200d\u2060]`;
+/** Leading and trailing {@link GAP} runs: what {@link trimSql} strips. */
+const TRIM = new RegExp(`^${GAP}+|${GAP}+$`, "g");
+/**
+ * `stmt` without its leading and trailing gaps. Every keyword check in this file trims through this
+ * helper rather than JS' `.trim()`, on every path — `statementsOf` for {@link isTransactionStart},
+ * and {@link rewriteBeginReadOnly} for the string, the `{text}` and the `inTransaction` cases alike
+ * — so all of them decide about the same statement.
+ *
+ * `.trim()` strips JS whitespace, which is most of {@link UNICODE_SPACE} but not all of it: not NEXT
+ * LINE, and not the zero-width four, since none of those is whitespace to JS or to Unicode. Every
+ * keyword regex here is anchored at `^` — `CALL`, `COMMIT`, `SET`, `BEGIN`, `DO`, `DISCARD`, the
+ * allowlists — so one invisible character in front of a statement made every one of them miss, and
+ * `\u200BCALL p()` went to the server unexamined while whatever strips or space-replaces that
+ * character on the way (a console, a paste out of rendered HTML, a sanitiser) hands the server a
+ * plain `CALL p()`.
+ *
+ * Trimming such a character is safe in a way that reading one as a gap *inside* a statement is not:
+ * what the trim removes is only ever inspected, never sent, and dropping it can only make the guard
+ * see MORE of a keyword — it refuses where it used to pass. Interior gaps go the other way, and are
+ * refused rather than normalised: see {@link onlyPgSpace} and {@link readOnlyTxStart}.
+ */
+const trimSql = (stmt: string) => stmt.replace(TRIM, "");
+
+/**
+ * Opens a transaction: `BEGIN [TRANSACTION|WORK] [modes]` or `START TRANSACTION [modes]`. The gap
+ * between `START` and `TRANSACTION` is {@link GAP} rather than `\s`, so `START\u200BTRANSACTION`
+ * is recognised as the transaction start it is to everything but the server's own lexer — and then
+ * refused by {@link readOnlyTxStart}, instead of being passed through unexamined.
+ */
+const TX_START = new RegExp(String.raw`^(?:BEGIN|START${GAP}+TRANSACTION)\b`, "i");
 /**
  * Ends the current transaction, or hands it to two-phase commit: `COMMIT`, `END`, `ROLLBACK` and
  * `ABORT` — with or without the `WORK`/`TRANSACTION` noise word and with or without `AND [NO] CHAIN`
  * — plus `PREPARE TRANSACTION '...'`, `COMMIT PREPARED '...'` and `ROLLBACK PREPARED '...'`. All of
  * them start with one of these keywords, so the keyword alone is enough to catch every spelling; the
- * one form that begins this way and yet cannot end the transaction is excluded below.
+ * one form that begins this way and yet cannot end the transaction is excluded below. `PREPARE` is
+ * held to its `TRANSACTION` by {@link GAP}, so `PREPARE\u200BTRANSACTION 'x'` is caught like the
+ * `PREPARE\u00A0TRANSACTION 'x'` spelling beside it; the rest end at a regex `\b`, which every one of
+ * these characters is already.
  */
-const TX_END = /^(?:COMMIT|END|ROLLBACK|ABORT|PREPARE\s+TRANSACTION)\b/i;
+const TX_END = new RegExp(String.raw`^(?:COMMIT|END|ROLLBACK|ABORT|PREPARE${GAP}+TRANSACTION)\b`, "i");
 /**
  * `ROLLBACK [WORK|TRANSACTION] TO [SAVEPOINT] name`: it undoes work *inside* the transaction and
  * cannot end it, so a preview may send it (as may `SAVEPOINT name` and `RELEASE [SAVEPOINT] name`,
@@ -364,7 +405,7 @@ function scanPieces(sql: string): string[] {
  * (throws) the SQL it cannot scan, exactly as `scanPieces` does.
  */
 function statementsOf(sql: string): string[] {
-  return scanPieces(sql).map((s) => s.trim()).filter((s) => s.length > 0);
+  return scanPieces(sql).map(trimSql).filter((s) => s.length > 0);
 }
 
 /**
@@ -425,9 +466,22 @@ function transactionModes(tokens: string[], stmt: string): string[] {
   return modes;
 }
 
-/** Rewrite one BEGIN/START TRANSACTION so it opens READ ONLY, keeping its other modes. */
+/**
+ * Rewrite one BEGIN/START TRANSACTION so it opens READ ONLY, keeping its other modes.
+ *
+ * A gap this file reads as one and the server does not — any {@link UNICODE_SPACE} character —
+ * is refused here rather than rewritten, for the reason the two allowlists refuse one
+ * ({@link onlyPgSpace}): `START\u200BTRANSACTION READ WRITE` and
+ * `BEGIN ISOLATION\u2060LEVEL SERIALIZABLE` open a transaction to every layer above the server
+ * and are one long identifier to the server itself, so which modes the statement even carries
+ * depends on who reads it — and one of the readings is a writable transaction against production.
+ * Leading and trailing gaps are already gone by now ({@link trimSql}) and are safe to drop, because
+ * nothing of the statement rides on them; an interior one decides what the tokens are, so it fails
+ * closed instead.
+ */
 function readOnlyTxStart(stmt: string): string {
-  const tokens = stmt.replace(/,/g, " , ").trim().split(/\s+/);
+  if (!onlyPgSpace(stmt)) throw new ReadOnlyRefusedError(stmt);
+  const tokens = trimSql(stmt.replace(/,/g, " , ")).split(/\s+/);
   const at = (i: number) => (tokens[i] ?? "").toUpperCase();
   const head = at(0) === "START" ? ["START", "TRANSACTION"]
     : ["TRANSACTION", "WORK"].includes(at(1)) ? ["BEGIN", at(1)]
@@ -463,6 +517,9 @@ export interface GuardState {
  *     A mode list this cannot parse is refused rather than passed through. With `inTransaction` the
  *     start is refused outright: a second BEGIN inside an open transaction is at best ignored with a
  *     warning and at worst a re-negotiation of the modes that are the only thing guarding the DB.
+ *     A start whose own keywords are held apart by a space the server does not read as one —
+ *     `START\u200BTRANSACTION READ WRITE`, `BEGIN ISOLATION\u2060LEVEL SERIALIZABLE` — is refused
+ *     rather than rewritten: what its mode list says depends on who is reading the gap.
  *   - every transaction-ending statement is refused: `COMMIT`, `ROLLBACK`, `END`, `ABORT` in any case or
  *     spacing, with `WORK`/`TRANSACTION` and with `AND [NO] CHAIN`, plus `PREPARE TRANSACTION '...'`,
  *     `COMMIT PREPARED '...'` and `ROLLBACK PREPARED '...'`. Ending the transaction removes READ ONLY,
@@ -494,6 +551,13 @@ export interface GuardState {
  *     or `'/*'` is not a statement separator and a `;` after them still is.
  *   - SQL that cannot be scanned at all — an unterminated string, identifier, dollar quote or block
  *     comment — is refused: where the quoting ends is exactly what decides everything above.
+ *   - leading and trailing padding is stripped before any of the above, and it may be any
+ *     {@link UNICODE_SPACE} character — the invisible U+200B, U+200C, U+200D, U+2060 and the BOM
+ *     included, none of which JS' own `.trim()` removes (see {@link trimSql}). Every check here is
+ *     anchored at the statement's first character, so `\u200BCALL p()`, `\u200BCOMMIT` and
+ *     `\uFEFFSET x = 1` are the statements they look like to a human and are refused as such, on
+ *     all three paths (a string, a `{text}` config, and either value of `inTransaction`); the same
+ *     padding after a statement, or around its trailing `;`, is likewise not a second statement.
  *   - everything else — reads, SAVEPOINT, and writes the server itself refuses inside the read-only
  *     transaction — is returned untouched, object identity included.
  */
@@ -505,10 +569,10 @@ export function rewriteBeginReadOnly<Q extends SqlLike>(q: Q, state: GuardState 
   // single trailing one with nothing but whitespace and comments after it, introduces a second
   // statement — and the first of two could be the `COMMIT` that ends the read-only transaction, which
   // would leave the second writing in autocommit. No app query is multi-statement, so refuse.
-  if (pieces.length > 2 || (pieces.length === 2 && pieces[1].trim() !== "")) {
+  if (pieces.length > 2 || (pieces.length === 2 && trimSql(pieces[1]) !== "")) {
     throw new ReadOnlyRefusedError(sql);
   }
-  const stmts = pieces.map((s) => s.trim()).filter((s) => s.length > 0);
+  const stmts = pieces.map(trimSql).filter((s) => s.length > 0);
   if (stmts.length === 0) return q;
   const [stmt] = stmts;
   if (isRefusedModeChange(stmt) || isRefusedTxEnd(stmt) || isRefusedCall(stmt)) {

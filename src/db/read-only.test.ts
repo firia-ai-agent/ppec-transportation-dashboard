@@ -150,6 +150,36 @@ const CALL_NON_FORMS = [
   "SELECT 1 AS callback\u200bx", "callback\u200b", "callback\u2060()", "SELECT 'CALL\u200bp()'",
   "SELECT $$CALL\u2060p()$$", "-- CALL\u200bp()\nSELECT 1", "/* CALL\u200dp() */ SELECT 1",
 ];
+/**
+ * The five that show a human nothing at all: {@link ZERO_WIDTH} plus the BOM / ZERO WIDTH NO-BREAK
+ * SPACE, which is zero-width in exactly the same way and differs only in that JS happens to call it
+ * whitespace — so `.trim()` removed it while leaving the other four exactly where they were.
+ */
+const INVISIBLE: ReadonlyArray<[string, string]> = [
+  ...ZERO_WIDTH,
+  ["\ufeff", "ZERO WIDTH NO-BREAK SPACE / BOM (U+FEFF)"],
+];
+/**
+ * One statement per refused rule, in its plainest spelling. Every rule in read-only.ts is anchored at
+ * the statement's first character, so these are what the padding tests put an invisible character in
+ * front of: if the trim misses that character, every one of these rules misses too.
+ */
+const REFUSED_HEADS = [
+  "CALL p()", "call ops.p(1)",
+  "COMMIT", "commit work", "COMMIT AND CHAIN", "ROLLBACK", "END", "ABORT", "end transaction",
+  "PREPARE TRANSACTION 'ppec-1'", "COMMIT PREPARED 'ppec-1'", "ROLLBACK PREPARED 'ppec-1'",
+  "SET x = 1", "set transaction read write", "SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE",
+  "SET standard_conforming_strings = off", "SET LOCAL search_path = public",
+  "RESET ALL", "reset default_transaction_read_only",
+  "DO $$ BEGIN PERFORM 1; END $$", "DISCARD ALL",
+  "SELECT set_config('standard_conforming_strings', 'off', false)",
+];
+/** Statements a preview may send: the padding tests check that padding alone never refuses one. */
+const ALLOWED_HEADS = [
+  "SELECT 1", "select * from ops.vehicles where id = $1", "SELECT 1 AS callback", "callback",
+  "SAVEPOINT sp1", "RELEASE SAVEPOINT sp1", "ROLLBACK TO SAVEPOINT sp1",
+  "SET LOCAL statement_timeout = '5s'", "set local lock_timeout to DEFAULT",
+];
 /** Savepoint work: it rolls back or forgets part of the transaction, but cannot end it. */
 const SAVEPOINT_FORMS = [
   "SAVEPOINT sp1", "savepoint sp1",
@@ -638,6 +668,189 @@ describe("preview read-only fail-safe (DECISION-LEDGER #43)", () => {
       expect(rewriteBeginReadOnly("SET LOCAL statement_timeout = '5s'")).toBe(
         "SET LOCAL statement_timeout = '5s'",
       );
+    });
+
+    it("trims every Unicode space before deciding, so padding cannot hide a keyword", () => {
+      // Every rule in read-only.ts is anchored at `^`, and the trim in front of them was JS'
+      // `.trim()`, which strips most of this list but not NEXT LINE and not the zero-width four.
+      // One such character in front of a statement therefore made `CALL`, `COMMIT`, `SET`, `DO`,
+      // `DISCARD` and the `BEGIN` rewrite all miss at once, and the statement went out unexamined.
+      for (const [c, name] of UNICODE_SPACES) {
+        for (const head of REFUSED_HEADS) {
+          for (const s of [`${c}${head}`, `${head}${c}`, `${c}${c}${head}${c}`, `${c}${head};${c}`]) {
+            const what = `${name}: ${JSON.stringify(s)}`;
+            expect(() => rewriteBeginReadOnly(s), what).toThrow(ReadOnlyRefusedError);
+            expect(() => rewriteBeginReadOnly({ text: s }), what).toThrow(/DECISION-LEDGER #43/);
+            expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), what).toThrow(ReadOnlyRefusedError);
+            // Off previews, production still sends exactly what it was given.
+            expect(rewriteBeginReadOnlyForEnv({ VERCEL_ENV: "production" }, s), what).toBe(s);
+          }
+        }
+      }
+    });
+
+    it("refuses the five invisible characters in front of a keyword: U+200B—U+200D, U+2060, U+FEFF", () => {
+      // The shapes from the report, spelled out: nothing is visible between the start of the string
+      // and the keyword, and whatever strips or space-replaces that character on the way — a
+      // console, a paste out of rendered HTML, a sanitiser — hands the server the bare keyword.
+      for (const [c, name] of INVISIBLE) {
+        for (const s of [`${c}CALL p()`, `${c}COMMIT`, `${c}SET x=1`, `${c}ROLLBACK`,
+          `${c}DISCARD ALL`, `${c}DO $$ BEGIN PERFORM 1; END $$`, `${c}RESET ALL`,
+          `${c}PREPARE TRANSACTION 'ppec-1'`, `${c}${c}call ops.p()`]) {
+          const what = `${name}: ${JSON.stringify(s)}`;
+          expect(() => rewriteBeginReadOnly(s), what).toThrow(ReadOnlyRefusedError);
+          expect(() => rewriteBeginReadOnly({ text: s }), what).toThrow(/DECISION-LEDGER #43/);
+          expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), what).toThrow(ReadOnlyRefusedError);
+        }
+      }
+      expect(() => rewriteBeginReadOnly("\u200bCALL p()")).toThrow(ReadOnlyRefusedError);
+      expect(() => rewriteBeginReadOnly("\u200bCOMMIT")).toThrow(ReadOnlyRefusedError);
+      expect(() => rewriteBeginReadOnly("\ufeffSET x=1")).toThrow(ReadOnlyRefusedError);
+      expect(() => rewriteBeginReadOnly("\u200cCALL p()")).toThrow(ReadOnlyRefusedError);
+      expect(() => rewriteBeginReadOnly("\u200dCOMMIT")).toThrow(ReadOnlyRefusedError);
+      expect(() => rewriteBeginReadOnly("\u2060rollback")).toThrow(ReadOnlyRefusedError);
+    });
+
+    it("trims exactly the Unicode space list and nothing else, character by character", () => {
+      // The pin for the trim's own character class: a `COMMIT` is refused behind a character exactly
+      // when that character is one the guard calls a gap. Four ASCII characters are left out because
+      // they refuse this string for an unrelated reason — `;` makes a second statement of the
+      // `COMMIT`, and `'`, `"` and `$` open a literal, an identifier or a dollar quote that is never
+      // closed, which is refused on its own (fail closed).
+      const gaps = new Set([...UNICODE_SPACES.map(([c]) => c), " ", "\t", "\n", "\r"]);
+      const refused = (sql: string) => {
+        try { rewriteBeginReadOnly(sql); return false; } catch { return true; }
+      };
+      for (let code = 0; code < 0x10000; code += 1) {
+        const c = String.fromCharCode(code);
+        if (`;'"$`.includes(c)) continue;
+        expect(refused(`${c}COMMIT`), `U+${code.toString(16).toUpperCase().padStart(4, "0")}`)
+          .toBe(gaps.has(c));
+      }
+    });
+
+    it("refuses a transaction start whose own keywords are split by a space the server reads as a name", () => {
+      // `START<U+200B>TRANSACTION READ WRITE` opens a writable transaction to every layer above the
+      // server and is one long identifier to the server itself, so what its mode list says depends on
+      // who reads the gap. Rewriting it would be guessing; it is refused, like a padded allowlist.
+      for (const [c, name] of UNICODE_SPACES) {
+        for (const s of [
+          `START${c}TRANSACTION`, `start${c}transaction read write`,
+          `START${c}TRANSACTION ISOLATION LEVEL SERIALIZABLE`, `START${c}${c}TRANSACTION`,
+          `BEGIN${c}TRANSACTION`, `begin${c}work`, `BEGIN${c}READ WRITE`,
+          `BEGIN READ${c}WRITE`, `BEGIN ISOLATION${c}LEVEL SERIALIZABLE`,
+          `begin isolation level repeatable${c}read`,
+          `BEGIN${c}ISOLATION LEVEL SERIALIZABLE, READ WRITE`,
+          // The transaction-ending and state-changing keywords that are two words long, and the
+          // allowlist spellings beside them: all refused for the same reason.
+          `PREPARE${c}TRANSACTION 'ppec-1'`, `prepare${c}transaction 'ppec-1'`,
+          `COMMIT${c}PREPARED 'ppec-1'`, `ROLLBACK${c}PREPARED 'ppec-1'`, `COMMIT${c}AND${c}CHAIN`,
+          `SET${c}LOCAL statement_timeout = '5s'`, `SET${c}TRANSACTION READ WRITE`,
+          `SET${c}SESSION CHARACTERISTICS AS TRANSACTION READ WRITE`,
+          `RESET${c}ALL`, `DISCARD${c}ALL`, `DO${c}$$ BEGIN PERFORM 1; END $$`,
+          `ROLLBACK${c}TO SAVEPOINT sp1`,
+        ]) {
+          const what = `${name}: ${JSON.stringify(s)}`;
+          expect(() => rewriteBeginReadOnly(s), what).toThrow(ReadOnlyRefusedError);
+          expect(() => rewriteBeginReadOnly({ text: s }), what).toThrow(/DECISION-LEDGER #43/);
+          expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), what).toThrow(ReadOnlyRefusedError);
+          expect(rewriteBeginReadOnlyForEnv({ VERCEL_ENV: "production" }, s), what).toBe(s);
+        }
+      }
+      // ...and the ASCII spellings are rewritten exactly as before: no false positive on the words.
+      expect(rewriteBeginReadOnly("START TRANSACTION")).toBe("START TRANSACTION READ ONLY");
+      expect(rewriteBeginReadOnly("start transaction read write")).toBe("START TRANSACTION READ ONLY");
+      expect(rewriteBeginReadOnly("begin isolation level serializable"))
+        .toBe("BEGIN ISOLATION LEVEL SERIALIZABLE, READ ONLY");
+      expect(rewriteBeginReadOnly("BEGIN TRANSACTION")).toBe("BEGIN TRANSACTION READ ONLY");
+    });
+
+    it("agrees on every path about a padded transaction start, and sends only its READ ONLY rewrite", async () => {
+      // `isTransactionStart` and the rewrite trim through the same helper, so the guard cannot end up
+      // thinking a statement is not a transaction start while the rewrite turns it into one — which
+      // would have sent `BEGIN READ ONLY` twice, the second one inside the first.
+      for (const [c, name] of UNICODE_SPACES) {
+        for (const s of [`${c}BEGIN`, `BEGIN${c}`, `${c}begin${c}`, `${c}BEGIN;${c}`, `${c}${c}begin`]) {
+          const what = `${name}: ${JSON.stringify(s)}`;
+          expect(isTransactionStart(s), what).toBe(true);
+          expect(rewriteBeginReadOnly(s), what).toBe(BEGIN_READ_ONLY);
+          expect(rewriteBeginReadOnly({ text: s, rowMode: "array" }), what)
+            .toEqual({ text: BEGIN_READ_ONLY, rowMode: "array" });
+          expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), what).toThrow(ReadOnlyRefusedError);
+        }
+        // Padding outside, the server's own whitespace inside: still rewritten, modes kept.
+        expect(rewriteBeginReadOnly(`${c}start transaction read write${c}`), name)
+          .toBe("START TRANSACTION READ ONLY");
+        expect(rewriteBeginReadOnly(`${c}begin isolation level serializable${c}`), name)
+          .toBe("BEGIN ISOLATION LEVEL SERIALIZABLE, READ ONLY");
+      }
+      // On the wire: one READ ONLY start for the padded BEGIN, and nothing at all for the padded
+      // COMMIT after it, which leaves the read-only transaction open.
+      const { sent, send } = fakeWire();
+      const g = readOnlyGuard(send);
+      await g.query("\u200bbegin");
+      expect(sent).toEqual([BEGIN_READ_ONLY]);
+      expect(g.open).toBe(true);
+      expect(() => g.query("\u200bCOMMIT")).toThrow(/DECISION-LEDGER #43/);
+      expect(() => g.query("\ufeffCALL p()")).toThrow(/DECISION-LEDGER #43/);
+      expect(sent).toEqual([BEGIN_READ_ONLY]);
+      expect(g.open).toBe(true);
+      await g.commit();
+      expect(sent).toEqual([BEGIN_READ_ONLY, "COMMIT"]);
+    });
+
+    it("reads invisible padding after a statement, and around its `;`, as the padding it is", () => {
+      for (const [c, name] of UNICODE_SPACES) {
+        // Allowed, untouched, object identity included: there is one statement here either way, and
+        // what the padding hides is nothing.
+        for (const s of [`SELECT 1${c}`, `${c}SELECT 1`, `SELECT 1;${c}`, `SELECT 1${c};`,
+          `SELECT 1${c};${c}${c}`, `${c}SELECT 1;${c}`, `SELECT 1;${c} -- done${c}`]) {
+          expect(rewriteBeginReadOnly(s), `${name}: ${JSON.stringify(s)}`).toBe(s);
+        }
+        // ...and a real second statement behind that padding is still a second statement.
+        for (const s of [`SELECT 1;${c}COMMIT`, `SELECT 1;${c}INSERT INTO smuggle VALUES (1)`,
+          `SELECT 1;${c}CALL p()`, `${c};${c}COMMIT`, `SELECT 1;${c}SELECT 2`,
+          `COMMIT;${c}`, `CALL p();${c}`]) {
+          expect(() => rewriteBeginReadOnly(s), `${name}: ${JSON.stringify(s)}`)
+            .toThrow(ReadOnlyRefusedError);
+        }
+      }
+    });
+
+    it("never refuses for padding alone: what the allowlists allow still runs", () => {
+      for (const [c, name] of UNICODE_SPACES) {
+        for (const head of ALLOWED_HEADS) {
+          for (const s of [`${c}${head}`, `${head}${c}`, `${c}${c}${head}${c}`, `${c}${head};${c}`]) {
+            const what = `${name}: ${JSON.stringify(s)}`;
+            expect(rewriteBeginReadOnly(s), what).toBe(s); // untouched, object identity included
+            expect(rewriteBeginReadOnly(s, { inTransaction: true }), what).toBe(s);
+          }
+        }
+      }
+    });
+
+    it("leaves an invisible character inside a literal, a quoted name, a comment or a dollar quote", () => {
+      // The other side of the trim: these characters only ever mean anything where a token can start.
+      // Inside quoted data or a comment they are data, and the statement around them still runs.
+      for (const [c, name] of INVISIBLE) {
+        for (const s of [
+          `SELECT '${c}COMMIT'`, `SELECT '${c}CALL p();' AS t`, `SELECT '${c}'`,
+          `SELECT E'\\'${c}COMMIT'`, `SELECT $$${c}COMMIT$$`, `SELECT $tag$${c}CALL p()$tag$`,
+          `SELECT "${c}call" FROM t`, `SELECT 1 AS "co${c}l"`, `SELECT 1 AS "${c}CALL"`,
+          `-- ${c}COMMIT\nSELECT 1`, `/* ${c}CALL p() */ SELECT 1`, `/* ${c} */ SELECT 1 AS callback`,
+          `SELECT 1 AS callback${c}x`, `SELECT length('${c}call')`,
+        ]) {
+          const what = `${name}: ${JSON.stringify(s)}`;
+          expect(rewriteBeginReadOnly(s), what).toBe(s); // untouched, object identity included
+          expect(rewriteBeginReadOnly(s, { inTransaction: true }), what).toBe(s);
+        }
+      }
+      // And the plain spellings of the app's own queries are exactly as they were.
+      for (const s of ["SELECT 1", "select * from ops.vehicles where id = $1", "SAVEPOINT sp1",
+        "ROLLBACK TO SAVEPOINT sp1", "SET LOCAL statement_timeout = '5s'", "SELECT 1 AS callback"]) {
+        expect(rewriteBeginReadOnly(s), s).toBe(s);
+      }
+      expect(rewriteBeginReadOnly("begin")).toBe(BEGIN_READ_ONLY);
     });
 
     it("spells out the whole Unicode space list, so none of them is forgotten", () => {

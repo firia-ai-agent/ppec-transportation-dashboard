@@ -882,12 +882,14 @@ describe("preview: a caller cannot change session state or CALL a procedure (rea
    * which reads only ASCII whitespace as a gap between tokens and every non-ASCII byte as
    * identifier text: `\v`, `\f`, NEXT LINE, NBSP, OGHAM SPACE MARK, the U+2000–U+200A family, the
    * line/paragraph separators, NARROW NO-BREAK and MEDIUM MATHEMATICAL SPACE, IDEOGRAPHIC SPACE
-   * and the BOM. (read-only.test.ts names them one by one and pins the list against JS' `\s`.)
+   * and the BOM — plus the four that are zero-width rather than space-shaped (U+200B, U+200C,
+   * U+200D, U+2060), which show a human nothing at all and are whitespace to neither JS nor
+   * Unicode. (read-only.test.ts names them one by one and pins the list against JS' `\s`.)
    */
   const UNICODE_SPACES = [
     0x0b, 0x0c, 0x85, 0xa0, 0x1680,
     ...Array.from({ length: 11 }, (_, i) => 0x2000 + i),
-    0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff,
+    0x200b, 0x200c, 0x200d, 0x2028, 0x2029, 0x202f, 0x205f, 0x2060, 0x3000, 0xfeff,
   ].map((c) => String.fromCodePoint(c));
   /**
    * `CALL` cut off from its procedure name by one of those. On THIS backend each is a syntax error
@@ -1053,6 +1055,52 @@ describe("preview: a caller cannot change session state or CALL a procedure (rea
     }
     expect(await show("transaction_read_only")).toBe("off");
     expect(await show("standard_conforming_strings")).toBe("on");
+  });
+
+  /**
+   * A refused keyword behind, or in front of, padding the app's own trim has to see through: the five
+   * invisible characters (U+200B, U+200C, U+200D, U+2060 and the BOM), where JS' `.trim()` stripped
+   * only the last. On THIS backend a leading one makes the whole head a single identifier — a
+   * syntax error, as the control below shows — while anything that strips or space-replaces it on
+   * the way hands the server the bare keyword. Refused before either reading can happen.
+   */
+  const PADDED_REFUSALS = [0x200b, 0x200c, 0x200d, 0x2060, 0xfeff]
+    .map((c) => String.fromCodePoint(c))
+    .flatMap((c) => [
+      `${c}CALL p()`,
+      `${c}call ops.commit_and_write()`,
+      `${c}COMMIT`,
+      `${c}SET standard_conforming_strings = off`,
+      `${c}DISCARD ALL`,
+      `COMMIT${c}`,
+      `${c}CALL p();${c}`,
+    ]);
+
+  it.each(PATHS)("a keyword behind invisible padding is refused on $name, and writes nothing", async ({ run }) => {
+    for (const stmt of PADDED_REFUSALS) {
+      const what = JSON.stringify(stmt);
+      const from = h.sent.length;
+      expect(await run([stmt]), what).toEqual(["refused"]);
+      // Everything on the wire bar the guard's own framing, which is where the only COMMIT here is.
+      const sent = h.sent.slice(from).filter((q) => !/^(BEGIN|COMMIT|ROLLBACK)\b/i.test(q));
+      expect(sent, what).not.toContain(stmt); // nothing of the caller's statement left the app
+      expect(sent.join(" | "), what).not.toMatch(/call|commit|discard|standard_conf/i);
+      expect(await rows(), what).toBe(0);
+    }
+    // The guard's transaction was never ended from the inside, and nothing leaked onto the backend.
+    expect(await show("transaction_read_only")).toBe("off");
+    expect(await show("standard_conforming_strings")).toBe("on");
+  });
+
+  it("the control: this backend reads a leading zero-width character as part of the next name", async () => {
+    // Both readings of `<U+200B>CALL p()` are real, which is why the guard refuses rather than pick
+    // one: here the padding glues itself to the keyword and the statement is a syntax error, while
+    // the same character inside a literal is ordinary data that a preview may still select.
+    await expect(backend.exec("\u200bCALL p()")).rejects.toThrow(/syntax error/i);
+    await expect(backend.exec("\u200bCOMMIT")).rejects.toThrow(/syntax error/i);
+    const r = await getNeonDb().query<Record<string, unknown>>("SELECT '\u200bcall' AS n", []);
+    expect(r.rows[0].n).toBe("\u200bcall");
+    expect(await rows()).toBe(0);
   });
 
   it("the control: this backend reads `CALL<NBSP>p()` as one identifier, not as the keyword", async () => {
