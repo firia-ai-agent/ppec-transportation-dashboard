@@ -88,25 +88,36 @@ describe("POST /api/demo/reset gating (ADR-014, ADR-015)", () => {
     expect(await childCount()).toBe(0);
   });
 
-  it("is DIRECTOR only: coordinator, front desk, non-member and disabled director all get 403", async () => {
-    for (const userId of [USERS.COORDINATOR, USERS.FRONT_DESK, USERS.OUTSIDER]) {
+  it("is DIRECTOR only: a member with the wrong role gets 403, a non-member gets the uniform 404", async () => {
+    // Same site, role not allowed → 403 (BUILD-PLAN §4). It is their site either way, so there
+    // is nothing about its existence left to hide.
+    for (const userId of [USERS.COORDINATOR, USERS.FRONT_DESK]) {
       for (const siteId of [SITE, undefined]) {
         const r = await handleDemoReset(db, env, { userId, siteId, now: NOW });
         expect({ userId, siteId, status: r.status }).toEqual({ userId, siteId, status: 403 });
       }
     }
+    // No membership anywhere: naming the site is a 404, and naming no site is a 403 — the
+    // second answer carries no id, so it reveals nothing.
+    expect((await handleDemoReset(db, env, { userId: USERS.OUTSIDER, siteId: SITE, now: NOW })).status).toBe(404);
+    expect((await handleDemoReset(db, env, { userId: USERS.OUTSIDER, now: NOW })).status).toBe(403);
+    // A disabled user is refused before any site is looked at: the session is no longer a user.
     await db.query("UPDATE ops.app_user SET disabled_at = now() WHERE id = $1", [USERS.DIRECTOR]);
-    expect((await handleDemoReset(db, env, { userId: USERS.DIRECTOR, siteId: SITE, now: NOW })).status).toBe(403);
+    expect((await handleDemoReset(db, env, { userId: USERS.DIRECTOR, siteId: SITE, now: NOW })).status).toBe(401);
     await db.query("UPDATE ops.app_user SET disabled_at = NULL WHERE id = $1", [USERS.DIRECTOR]);
     expect(await childCount()).toBe(0);
   });
 
-  it("a director of another site cannot reset this one (ID swap)", async () => {
-    const r = await handleDemoReset(db, env, { userId: USERS.DIRECTOR_B, siteId: SITE, now: NOW });
-    expect(r.status).toBe(403);
+  it("a director of another site cannot reset this one, and cannot tell it apart from a site that does not exist (ID swap)", async () => {
+    const mine = { userId: USERS.DIRECTOR_B, now: NOW };
+    const other = await handleDemoReset(db, env, { ...mine, siteId: SITE });
+    const random = await handleDemoReset(db, env, { ...mine, siteId: "00000000-0000-7000-8000-00000000dead" });
+    expect(other.status).toBe(404);
+    // Byte-for-byte the same answer, so the response cannot be used to enumerate sites.
+    expect(random).toEqual(other);
     expect(await childCount()).toBe(0);
     // Its own site is fine.
-    expect((await handleDemoReset(db, env, { userId: USERS.DIRECTOR_B, siteId: SITE_B, now: NOW })).status).toBe(200);
+    expect((await handleDemoReset(db, env, { ...mine, siteId: SITE_B })).status).toBe(200);
   }, 60_000);
 
   it("a director gets the scenario, the counts and the board census back", async () => {

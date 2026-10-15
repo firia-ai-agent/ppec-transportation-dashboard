@@ -9,13 +9,16 @@
  * The preview used to be open to anyone with the URL, which is survivable on a laptop and not
  * survivable on a deployed preview: the deployed URL is guessable and the page draws a whole
  * fleet, every stop's family label and every notification decision. So it is a protected route
- * now, guarded the way src/app/whoami and src/app/(app)/layout.tsx guard theirs, and what it
- * draws depends on the role.
+ * now — *whether* a role may open it is one row in the one access table (src/auth/access.ts),
+ * the same as every other page — and what it draws once they are in is the matrix below.
  *
  * Pure module: no `next/*`, no Auth.js, no database, no `process.env` read of its own, so the
  * whole matrix is unit-testable, and `StaffRole` arrives as a *type-only* import so none of
  * src/auth (bcrypt, node:crypto) is pulled into the browser bundle by the map component.
- * src/auth/preview-viewer.ts does the session work and calls in here for the answers.
+ * src/auth/caller.ts does the session work and calls in here for the answers. The two
+ * `canOpen…` helpers below stay in step with the access table by test (access.test.ts): they
+ * exist because "may open the page at all" is the same question as "is there any data here for
+ * them", and the matrix is what answers it.
  */
 import type { StaffRole } from "@/auth/core";
 

@@ -286,6 +286,44 @@ export const demoLogins = {
 } as const;
 
 /**
+ * The three staff roles in words a person would use out loud, singular and plural. Nothing on
+ * a screen may print the database's own role name (COPY-GUIDE §2), and the no-access line below
+ * is assembled from the plural forms, so they are written for the middle of a sentence:
+ * "Directors and coordinators can open this."
+ *
+ * Keyed by the role as the database stores it, because the access table (src/auth/access.ts)
+ * is keyed that way; the key never reaches a screen, only its words do.
+ */
+export const roleNames = {
+  DIRECTOR: { one: "Director", many: "directors" },
+  COORDINATOR: { one: "Coordinator", many: "coordinators" },
+  FRONT_DESK: { one: "Front desk", many: "front desk staff" },
+} as const;
+
+/**
+ * A page that exists, is open to staff, and is not open to *this* signed-in person.
+ *
+ * The heading says that in the person's own terms — it is their role that does not include
+ * this page, not a failure of theirs and not a broken link — and then one line says who the
+ * page is for, assembled from the access table so the words cannot drift from the guard that
+ * enforced them. Nothing else: no status code, no role key, no route path, nothing a
+ * coordinator could read as a bug to report (COPY-GUIDE §1–§2).
+ *
+ * `{who}` is the list of roles, already sentence-cased: "Directors and coordinators".
+ */
+export const noAccess = {
+  heading: "This page isn't part of your role",
+  whoCanOpen: "{who} can open this.",
+  /** Said when the page is open to no role at all, so the line is never a bare full stop. */
+  whoCanOpenNobody: "Nobody can open this page yet.",
+  /** List joiners for `{who}`: "A, B and C". */
+  listSeparator: ", ",
+  listAnd: " and ",
+  /** The way out, labelled with the words its destination already uses ("Go to Today"). */
+  back: "Go to {page}",
+} as const;
+
+/**
  * A URL that matches no page. One line, no apology and no blame (§1), and exactly one way
  * back, so there is nothing to choose between. The two labels are the words their destinations
  * already use — the nav item and the sign-in button — so a wording change there carries here.
@@ -610,6 +648,18 @@ export const solver = {
 } as const;
 
 /**
+ * The JSON refusals an endpoint hands back when the caller may not run it (src/auth/api-guard.ts).
+ *
+ * An operator or a developer reads these in a response body, so they say which of the two
+ * things happened — there is no session, or this role is not one the endpoint serves — and
+ * nothing else: no role name, no route, no flag, no secret.
+ */
+export const apiAccess = {
+  signIn: "Sign in to continue.",
+  notYourRole: "This isn't part of your role.",
+} as const;
+
+/**
  * The demo-reset endpoint's answers (ADR-014, DECISION-LEDGER row 17). An operator reads
  * these, so they say what refused and why in plain words, and never name a flag, a ticket or
  * a connection detail. src/modules/demo/reset.ts chooses between them.
@@ -623,6 +673,13 @@ export const demoReset = {
   signIn: "Sign in to continue.",
   directorOnly: "Only a director can reset the demo.",
   nameTheSite: "Name the site to reset.",
+  /**
+   * A site the caller holds no membership at — another site's id, a random id, or an id that
+   * matches nothing. One answer for all three, so the response cannot be used to find out
+   * which sites exist (the ID-swap rule: a uniform not-found, never "forbidden" for one and
+   * "not found" for the other).
+   */
+  noSuchSite: "No such site.",
 } as const;
 
 /**

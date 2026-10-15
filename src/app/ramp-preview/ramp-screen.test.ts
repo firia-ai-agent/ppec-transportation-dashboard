@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { pageOutcome } from "@/auth/access";
 import { canOpenRampPreview } from "@/domain/access/map-view";
 import { rampPreview } from "@/ui/copy";
 
@@ -23,23 +24,27 @@ describe("the route is behind the same door as the map preview", () => {
   const page = read("page.tsx");
   const screen = read("RampCheck.tsx");
 
-  it("guards on the server, with the shared viewer and the shared policy", () => {
+  it("guards on the server, through the shared guard and the one access table", () => {
     expect(page).not.toMatch(/^"use client"/m);
-    expect(page).toMatch(/previewViewer\(\)/);
-    expect(page).toMatch(/canOpenRampPreview/);
-    expect(page).toMatch(/redirect\("\/login"\)/);
+    // The guard is the same one every page calls, keyed by this route's row in the table: it
+    // redirects a signed-out visitor to sign-in and answers 403 for a role the row omits.
+    expect(page).toMatch(/requirePage\("\/ramp-preview"\)/);
+    expect(page).toMatch(/from "@\/auth\/page-guard"/);
     // A session read means the route can never be answered from a static render.
     expect(page).toMatch(/export const dynamic = "force-dynamic"/);
   });
 
   it("leaves the screen itself a plain client component with no guard of its own", () => {
     expect(screen).toMatch(/^"use client"/);
-    expect(screen).not.toMatch(/redirect|previewViewer|auth\(\)/);
+    expect(screen).not.toMatch(/redirect|requirePage|getCaller|auth\(\)/);
   });
 
   it("anonymous cannot reach it, which is the point of the guard", () => {
     expect(canOpenRampPreview("ANONYMOUS")).toBe(false);
     expect(canOpenRampPreview("FRONT_DESK")).toBe(true);
+    // ...and the table, which is what the route actually enforces, says the same.
+    expect(pageOutcome({ kind: "ANONYMOUS" }, "/ramp-preview")).toBe("SIGN_IN");
+    expect(pageOutcome({ kind: "STAFF", role: "FRONT_DESK" }, "/ramp-preview")).toBe("ALLOW");
   });
 
   it("is reachable from the map preview, so it is not URL-only", () => {

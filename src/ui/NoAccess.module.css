@@ -1,0 +1,39 @@
+/*
+ * The no-access card sits on the same shell as sign-in and the 404 — one centred card on the app
+ * background — so a refusal reads as part of the product. The shell classes are composed from the
+ * sign-in stylesheet rather than copied, so the three cards cannot drift.
+ */
+.page {
+  composes: page from "../app/login/login.module.css";
+}
+
+.card {
+  composes: card from "../app/login/login.module.css";
+}
+
+.heading {
+  composes: heading from "../app/login/login.module.css";
+}
+
+/* The icon is the card's first mark; muted, so the heading is still what the eye lands on. */
+.icon {
+  display: flex;
+  color: var(--color-ink-muted);
+}
+
+.line {
+  font-size: var(--text-16);
+  line-height: var(--leading-normal);
+  color: var(--color-ink-muted);
+}
+
+/* Underlined by default (never colour alone) and a full console-sized target (§9). */
+.link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-console);
+  color: var(--color-brand);
+  font-size: var(--text-16);
+  font-weight: var(--weight-medium);
+}

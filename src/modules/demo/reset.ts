@@ -7,17 +7,26 @@
  *     it refuses (403) ahead of every other check, including the role check, so no DB is touched.
  *  2. environment — DEMO_MODE=1 and APP_DATA_CLASS=SYNTHETIC. With the flags off the endpoint behaves as
  *     if it did not exist (404); with real data it refuses outright (403), never "just this once".
- *  3. role — DIRECTOR at the site being reset. The site comes from the caller's own membership, so a
- *     DIRECTOR at site A cannot reset site B by naming it.
+ *  3. role and site — the role the access table names (DIRECTOR) **at the site being reset**. The
+ *     site comes from the caller's own membership when the request does not name one; when it
+ *     does, the id is checked against the caller's memberships, so a DIRECTOR at site A naming
+ *     site B — or a random id, or an id that matches nothing — gets the same 404 and learns
+ *     nothing about which sites exist (BUILD-PLAN §4).
  */
-import { Forbidden, getMemberships, requireSiteRole } from "@/auth/core";
+import { Forbidden, SiteNotFound, Unauthenticated, getMemberships, requireSiteAccess, type StaffRole } from "@/auth/core";
+import { API, endpointRow } from "@/auth/access";
 import { demoReset as copy } from "@/ui/copy";
 import type { Db } from "@/db/exec";
 import { isReadOnlyDbEnv } from "@/db/read-only";
 import { seedStandardScenario, type SeedResult } from "./seed";
 
-/** Only this role may reset the demo (ADR-014). */
-export const RESET_ROLES = ["DIRECTOR"] as const;
+/**
+ * Only this role may reset the demo (ADR-014) — read from the one access table rather than
+ * written out again here, so the endpoint and the table cannot disagree about it.
+ */
+const RESET_ROW = endpointRow(API.demoReset)?.auth;
+export const RESET_ROLES: readonly StaffRole[] =
+  RESET_ROW?.kind === "session" ? RESET_ROW.roles : [];
 
 /** Shown to the caller on a preview deployment. No ticket, flag or connection detail in it. */
 export const PREVIEW_REFUSAL = copy.previewRefusal;
@@ -63,8 +72,12 @@ export async function handleDemoReset(db: Db, env: Record<string, string | undef
   }
 
   try {
-    await requireSiteRole(db, req.userId, siteId, [...RESET_ROLES]);
+    await requireSiteAccess(db, req.userId, siteId, RESET_ROLES);
   } catch (e) {
+    // A user who was disabled while holding a session is signed out, not refused a role.
+    if (e instanceof Unauthenticated) return { status: 401, body: { ok: false, error: copy.signIn } };
+    // A site the caller is not a member of is a uniform not-found, whether it exists or not.
+    if (e instanceof SiteNotFound) return { status: 404, body: { ok: false, error: copy.noSuchSite } };
     if (e instanceof Forbidden) return { status: 403, body: { ok: false, error: copy.directorOnly } };
     throw e;
   }

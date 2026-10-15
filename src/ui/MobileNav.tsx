@@ -5,9 +5,10 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { Menu, X } from "lucide-react";
 import type { ReactNode } from "react";
+import type { StaffRole } from "@/auth/core";
 import { nav } from "./copy";
 import { icon } from "./tokens";
-import { isCurrent, navItems } from "./nav-items";
+import { isCurrent, navItemsFor } from "./nav-items";
 import styles from "./MobileNav.module.css";
 
 /**
@@ -20,8 +21,18 @@ import styles from "./MobileNav.module.css";
  *
  * The drawer closes on a nav click and on Escape, which returns focus to the hamburger.
  */
-export function MobileNav({ identity, signOut }: { identity: ReactNode; signOut: ReactNode }) {
+export function MobileNav({
+  role,
+  identity,
+  signOut,
+}: {
+  role: StaffRole | null;
+  identity: ReactNode;
+  signOut: ReactNode;
+}) {
   const pathname = usePathname();
+  // Same list the rail shows, filtered by the same table (src/auth/access.ts).
+  const navItems = navItemsFor(role);
   const [open, setOpen] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const drawerId = useId();

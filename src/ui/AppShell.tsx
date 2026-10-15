@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { StaffRole } from "@/auth/core";
 import { adapters, app, board, scenarioClock } from "./copy";
 import { AvatarMenu } from "./AvatarMenu";
 import { MobileNav } from "./MobileNav";
@@ -18,13 +19,18 @@ import styles from "./AppShell.module.css";
  * avatar menu, top right.
  *
  * Nav: NavRail handles ≥1280 (232 px, labelled) and 768–1279 (icon rail, label on
- * hover/focus); MobileNav handles <768 (hamburger drawer with nav + identity + Sign out).
+ * hover/focus); MobileNav handles <768 (hamburger drawer with nav + identity + Sign out). Both
+ * are given the caller's role and offer only the destinations that role's row in the access
+ * table opens — a courtesy on top of the per-page server guard, never instead of it.
  */
 export function AppShell({
   displayName,
+  role,
   children,
 }: {
   displayName: string;
+  /** The caller's role, so the rail offers only the pages they can open. `null` shows none. */
+  role: StaffRole | null;
   children: ReactNode;
 }) {
   return (
@@ -35,7 +41,7 @@ export function AppShell({
       </a>
       <header className={styles.header}>
         <div className={styles.topRow}>
-          <MobileNav identity={<p>{displayName}</p>} signOut={<SignOutButton />} />
+          <MobileNav role={role} identity={<p>{displayName}</p>} signOut={<SignOutButton />} />
           <span className={styles.siteName}>{app.siteName}</span>
           <dl className={styles.facts}>
             <div className={styles.fact}>
@@ -70,7 +76,7 @@ export function AppShell({
         </div>
       </header>
       <div className={styles.body}>
-        <NavRail />
+        <NavRail role={role} />
         <main id="content" className={styles.main}>
           {children}
         </main>
