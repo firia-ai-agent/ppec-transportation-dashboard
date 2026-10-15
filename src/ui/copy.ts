@@ -929,7 +929,7 @@ export const agentWaits = {
   nextStep: "Wait for the reply, or answer it yourself; the agent carries on when the timer is up.",
   /** What is being waited for, per await reason. */
   clarification: "Waiting for the family to say which child or which ride they mean",
-  /** §11.2 notify_affected_therapist / AT-14: the ten-minute acknowledgment. */
+  /** §11.2 notify_affected_therapist: the ten-minute acknowledgment. */
   therapistAck: "Waiting for the therapist to acknowledge a change to a child's session",
   /** §11.2 request_provider_capability: the dispatcher's answer about a vehicle. */
   capabilityReport: "Waiting for the provider to confirm what a vehicle can carry today",
@@ -941,9 +941,9 @@ export const agentWaits = {
  * from, what to do with it, and what closing it means.
  *
  * It lands as an `ops.task` row because that is the staff-visible queue this system has today; the
- * thread panel a note would otherwise sit in is B-12's. The predicate is prose on purpose, so the
- * agent can never close its own note (`exec/predicate.ts`: a predicate a machine cannot read is a
- * predicate the agent may not close).
+ * thread panel a note would otherwise sit in belongs to the staff-UI milestone. The predicate is
+ * prose on purpose, so the agent can never close its own note (`exec/predicate.ts`: a predicate a
+ * machine cannot read is a predicate the agent may not close).
  */
 /**
  * §11.2's "no reply → escalate": the exception a deadline raises when nobody answered at all
@@ -968,9 +968,10 @@ export const agentNoReply = {
 
 /**
  * §11.2 `send_followup` with the `STAFF` audience. Staff are reached on Teams (§10.4) and that
- * adapter is B-12, so what the agent can do today is put the follow-up on their board: these are
- * the words of that row, and the whole of it — unlike a note or an exception, nothing here comes
- * from the model, because a follow-up's copy is a template and there is no card to render one on.
+ * adapter belongs to the staff-UI milestone, so what the agent can do today is put the follow-up on
+ * their board: these are the words of that row, and the whole of it — unlike a note or an
+ * exception, nothing here comes from the model, because a follow-up's copy is a template and there
+ * is no card to render one on.
  */
 export const agentStaffNotice = {
   locator: agentTaskLocator,
