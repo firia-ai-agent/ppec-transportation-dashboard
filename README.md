@@ -6,7 +6,7 @@ Transport fulfillment, attendance, family communication and scheduling for a ped
 
 ## Founder locks (full list: [docs/DECISION-LEDGER.md](docs/DECISION-LEDGER.md))
 - Vercel (team firia1) + Neon now; AWS later behind seams
-- Live agent: Claude Sonnet (current) via OpenRouter, `zdr:true`, token-only gateway
+- Live agent: a free OpenRouter model for testing (model ID comes from config only, never hardcoded), token-only gateway; moving to a HIPAA-compliant endpoint later. Demo data only until then
 - Mocked SMS/Twilio, Teams, truck GPS/navigation, vehicle configs; demo reset/replay/fault controls
 - Simulation centered on 2216 Jog Rd, Greenacres FL 33415 (public landmarks only)
 - Auth.js with real RBAC and site scoping
