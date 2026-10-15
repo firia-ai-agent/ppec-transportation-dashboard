@@ -8,7 +8,8 @@
  * never stored twice. `reachedPhone` tells the UI which rows actually left the center, so a blocked or
  * stale message can never be drawn as if the family received it (demo step 10).
  */
-import { Forbidden, getActiveUser, requireSiteRole, type StaffRole } from "@/auth/core";
+import { API, endpointRow } from "@/auth/access";
+import { Forbidden, SiteNotFound, Unauthenticated, getActiveUser, requireSiteAccess, type StaffRole } from "@/auth/core";
 import type { Exec } from "@/db/exec";
 import { phoneHmac } from "@/modules/identity/phone";
 import type { OutboxState } from "@/modules/outbox/outbox";
@@ -17,6 +18,19 @@ import { renderTemplate } from "./templates";
 
 export const DEFAULT_LIMIT = 100;
 export const MAX_LIMIT = 200;
+
+/**
+ * A `?limit=` as a page size. Whatever a caller sends, SQL is handed an integer in [1, MAX_LIMIT]:
+ * absent or empty is the default, anything unreadable (`abc`, `NaN`) is the default, negative and
+ * zero and `-Infinity` clamp up to 1, and huge values and `Infinity` clamp down to the cap. So an
+ * abusive limit is a page of a different size, never an error and never an unbounded read.
+ */
+export function clampLimit(limit: unknown): number {
+  if (limit === null || limit === undefined || limit === "") return DEFAULT_LIMIT;
+  const n = Math.trunc(Number(limit));
+  if (Number.isNaN(n)) return DEFAULT_LIMIT;
+  return Math.min(Math.max(1, n), MAX_LIMIT);
+}
 
 /** States that mean the provider accepted the message, so the phone really has it. */
 const ON_PHONE: ReadonlySet<string> = new Set<OutboxState>(["SENT", "DELIVERED", "UNDELIVERED", "UNKNOWN", "REDACTED"]);
@@ -49,8 +63,8 @@ export async function resolvePersona(db: Exec, a: { number: string; pepper: stri
   return row ? { number, label: simPersonaLabel(number), contactToken: row.contact_token, familyGroupId: row.family_group_id, siteId: row.site_id } : null;
 }
 
-export async function personaMessages(db: Exec, p: Persona, limit = DEFAULT_LIMIT): Promise<PersonaMessage[]> {
-  const n = Math.min(Math.max(1, Math.trunc(limit)), MAX_LIMIT);
+export async function personaMessages(db: Exec, p: Persona, limit: number = DEFAULT_LIMIT): Promise<PersonaMessage[]> {
+  const n = clampLimit(limit);
   const inbound = await db.query<{ id: string; body_tokenized: string; received_at: Date; provider_index: string | null; source_mode: string; external_id: string }>(
     `SELECT m.id, m.body_tokenized, m.received_at, m.provider_index, m.source_mode, m.external_id
      FROM ops.message m JOIN ops.conversation_thread t ON t.id = m.thread_id
@@ -81,28 +95,51 @@ function safeRender(templateId: string, vars: Record<string, unknown>): string |
   try { return renderTemplate(templateId, vars); } catch { return null; }
 }
 
-/** Staff roles allowed to look inside a persona phone: any member of that site (it is a demo instrument). */
-export const MAILBOX_ROLES: StaffRole[] = ["DIRECTOR", "COORDINATOR", "FRONT_DESK"];
+/**
+ * The staff roles allowed to look inside a persona phone, read from this endpoint's row in the one
+ * access table (src/auth/access.ts) rather than written out again here, so the module and the table
+ * cannot disagree about who may read a family's thread. The row's reasoning is on the row: PRD §1.1
+ * gives the web console to the coordinator and director and gives the front desk the ramp iPad, and
+ * a thread is PHI-adjacent, so it is minimum-necessary rather than "any member of the site".
+ */
+const MAILBOX_ROW = endpointRow(API.simPhoneMessages)?.auth;
+export const MAILBOX_ROLES: readonly StaffRole[] = MAILBOX_ROW?.kind === "session" ? MAILBOX_ROW.roles : [];
 
 export type MailboxResponse =
   | { status: 200; body: { number: string; label: string | null; contactToken: string; messages: PersonaMessage[] } }
   | { status: 401 | 403 | 404; body: { error: string } };
 
+/** The one 404, written once: a number nobody holds and a phone at someone else's site get this object. */
+const UNKNOWN_PHONE: MailboxResponse = { status: 404, body: { error: "UNKNOWN_PHONE" } };
+
 /**
- * The whole read path behind GET /api/sim/phones/[number]/messages: signed in, phone known, and a membership
- * at the site that phone belongs to. The site comes from the data, never from the request (DATA-MODEL §5).
+ * The whole read path behind the persona-phone endpoint: signed in and active, the phone known, and a
+ * membership at the site that phone belongs to in one of the roles the access table names. The site comes
+ * from the data, never from the request (DATA-MODEL §5).
+ *
+ * The three refusals, in the order their answers differ (BUILD-PLAN §4, src/auth/core.ts):
+ *  1. no session, or a user disabled or deleted since it was issued → **401**, before the phone is looked
+ *     up, so a signed-out probe cannot learn anything by watching which numbers take longer;
+ *  2. a number that belongs to nobody **and** a phone at a site this caller is not a member of → the same
+ *     **404 `UNKNOWN_PHONE`**, the identical object, so the answer cannot be used to find out which phones
+ *     or which sites exist;
+ *  3. a member of that phone's own site whose role is not one the row allows → **403 `FORBIDDEN`**: their
+ *     own site's existence is not a secret from them, so there is nothing for a 404 to hide here.
  */
 export async function personaMailboxResponse(db: Exec, a: { number: string; pepper: string; userId: string | undefined; limit?: number }): Promise<MailboxResponse> {
   const user = await getActiveUser(db, a.userId);
   if (!user) return { status: 401, body: { error: "UNAUTHENTICATED" } };
   const persona = await resolvePersona(db, { number: a.number, pepper: a.pepper });
-  if (!persona) return { status: 404, body: { error: "UNKNOWN_PHONE" } };
+  if (!persona) return UNKNOWN_PHONE;
   try {
-    await requireSiteRole(db, user.id, persona.siteId, MAILBOX_ROLES);
+    await requireSiteAccess(db, user.id, persona.siteId, MAILBOX_ROLES);
   } catch (e) {
+    // Disabled between the two reads: signed out, not refused a role.
+    if (e instanceof Unauthenticated) return { status: 401, body: { error: "UNAUTHENTICATED" } };
+    if (e instanceof SiteNotFound) return UNKNOWN_PHONE;
     if (e instanceof Forbidden) return { status: 403, body: { error: "FORBIDDEN" } };
     throw e;
   }
-  const messages = await personaMessages(db, persona, a.limit ?? DEFAULT_LIMIT);
+  const messages = await personaMessages(db, persona, clampLimit(a.limit));
   return { status: 200, body: { number: persona.number, label: persona.label, contactToken: persona.contactToken, messages } };
 }

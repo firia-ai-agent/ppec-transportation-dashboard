@@ -107,20 +107,24 @@ export type PageRow = {
  *    A signed-in session grants nothing on these, by design.
  *  - `queue-callback` — invoked by the platform's queue with its own message headers; Vercel
  *    does not expose these routes to the public internet. A session grants nothing here either.
+ *  - `signature-webhook` — reachable from the public internet (a provider posts to it and has no
+ *    session to offer), but every request must carry an HMAC of its own raw body in `header`,
+ *    keyed by the secret in `secretEnv`. So "public network-wise, behind a verified signature":
+ *    unsigned, wrongly signed, signed over a different body, or no secret configured ⇒ 401, and
+ *    the check runs before anything is parsed, read or written. A staff session grants nothing
+ *    here — exactly as on `cron-secret` and `queue-callback` — because the caller is a machine
+ *    and a browser that can reach the URL must not be able to forge an inbound message.
  *  - `auth-endpoint` — Auth.js's own sign-in/sign-out/session handlers, which must be reachable
  *    before anyone has a session.
- *  - `sim-signature` — the simulated SMS provider's own HMAC header (ADR-006), verified against
- *    `SIM_WEBHOOK_SECRET` before the body is parsed or anything is written; an unsigned post is a
- *    401. A provider callback, not a staff surface, so a session grants nothing here either — and
- *    the Twilio adapter would change the one verification line and keep the row.
  *  - `public` — deliberately open, with the reason in `why`.
  */
 export type EndpointAuth =
   | { kind: "session"; roles: readonly StaffRole[]; siteScoped: boolean }
   | { kind: "cron-secret" }
   | { kind: "queue-callback" }
+  /** The request header carrying the hex HMAC, and the environment variable holding the key. */
+  | { kind: "signature-webhook"; header: string; secretEnv: string }
   | { kind: "auth-endpoint" }
-  | { kind: "sim-signature" }
   | { kind: "public" };
 
 export type EndpointRow = {
@@ -415,37 +419,50 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     auth: { kind: "queue-callback" },
   },
   /**
-   * Inbound SMS from the simulated provider (ADR-006, MOCKS §2; PR #28). The sim HMAC header is
-   * checked against `SIM_WEBHOOK_SECRET` before the body is parsed and before anything is
-   * written, and an unsigned post is a 401 — on previews too, where the write is then refused
-   * with a 503 (ledger #43) *after* verification, so the read-only skip is never a way past the
-   * signature. No session is read: a staff session is not a way into a provider callback.
+   * Inbound SMS (MSG-01, ADR-006, MOCKS §3). A provider posts here; there is no session to offer
+   * and never will be, so the route is reachable from the public internet and every request must
+   * carry an HMAC of its own raw body in `x-sim-signature` (`X-Twilio-Signature` when the live
+   * adapter lands — only the verification line changes). Unsigned, wrongly signed, signed over a
+   * different body, or `SIM_WEBHOOK_SECRET` unset ⇒ 401 with no side effect of any kind, and the
+   * compare is constant-time (src/modules/messaging/inbound.ts).
+   *
+   * A staff session grants nothing here, like the cron and queue rows above, and this one matters
+   * more than either: the handler writes a message row, a consent event, a suppression and a
+   * staff task, so a browser that can reach the URL must not be able to forge a family's SMS.
+   * The signature check is therefore the first statement in POST — ahead of the preview skip, the
+   * form parse, the pepper, the database and the outbox.
    */
   {
     kind: "route",
     file: "src/app/api/webhooks/sms/route.ts",
     path: API.smsWebhook,
     methods: ["POST"],
-    auth: { kind: "sim-signature" },
+    auth: { kind: "signature-webhook", header: "x-sim-signature", secretEnv: "SIM_WEBHOOK_SECRET" },
   },
   /**
-   * The persona-phone read behind the demo panel (MOCKS §3, PR #28). A session and any role **at
-   * the site that phone belongs to** — and the site comes from the data the phone resolves to,
-   * never from the request (DATA-MODEL §5), so an unknown phone is a uniform not-found, a phone
-   * at another site is a 403 and no session at all is a 401.
+   * The contents of one persona phone, for the sim panel (MOCKS §3, DESIGN-DIRECTION §6.3). A
+   * staff session, the two console roles, and a membership at the site that phone belongs to.
    *
-   * Its guard is `personaMailboxResponse` in src/modules/messaging/mailbox.ts (`getActiveUser`
-   * then `requireSiteRole`, the same `src/auth/core.ts` pair the site-scoped write uses) rather
-   * than `requireApiSession`, because the authorization is written where it can be tested
-   * without the Auth.js runtime. The roles are the three in `MAILBOX_ROLES`, which access.test.ts
-   * holds against this row so the two cannot drift.
+   * Why not the front desk, who holds every other read in this app: PRD §1.1 gives the
+   * "Transport/attendance coordinator, director" the "Web console (desktop + iPad)" and gives
+   * "Front desk / ramp staff" the "iPad ramp + check-in view" — the sim panel is a web-console
+   * instrument, not a ramp one. PRD §6.2's data-ownership table lists Messages as written by
+   * "adapters only" and puts the front desk down as the writer of "Actual attendance/custody"
+   * alone, so a message thread is not part of their job. And a family's thread is PHI-adjacent:
+   * §12 is minimum-necessary, so a role with no task that needs the thread does not get it.
+   *
+   * Site-scoped on the phone's *own* site, read from the data and never from the request
+   * (DATA-MODEL §5): a phone at a site the caller is not a member of is the same 404 as a number
+   * that belongs to nobody, so the answer cannot be used to find out which phones exist
+   * (BUILD-PLAN §4). A member of that site holding the wrong role is a 403, because their site's
+   * existence is not a secret from them.
    */
   {
     kind: "route",
     file: "src/app/api/sim/phones/[number]/messages/route.ts",
     path: API.simPhoneMessages,
     methods: ["GET"],
-    auth: { kind: "session", roles: ALL_STAFF, siteScoped: true },
+    auth: { kind: "session", roles: CONSOLE, siteScoped: true },
   },
   /**
    * The sign-in form's own action (ADR-004). It hands email and password to the credentials

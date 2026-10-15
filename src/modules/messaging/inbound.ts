@@ -21,6 +21,7 @@
 import { createHash, timingSafeEqual, createHmac } from "node:crypto";
 import { uuidv7 } from "uuidv7";
 import { z } from "zod";
+import { API, endpointRow } from "@/auth/access";
 import type { Db, Exec } from "@/db/exec";
 import { normalizeE164, phoneHmac, tokenizeBody } from "@/modules/identity/phone";
 import { systemClock, type Clock } from "@/modules/jobs/scheduler";
@@ -31,8 +32,18 @@ import { SIM_CENTER_NUMBER } from "./sim-numbers";
 import { HELP_REPLY_TEMPLATE } from "./templates";
 import { getOrCreateThread, touchThread } from "./sim-provider";
 
-/** Sim stand-in for X-Twilio-Signature. The secret is read from the environment by the route (names in docs only). */
-export const SIM_SIGNATURE_HEADER = "x-sim-signature";
+/**
+ * Sim stand-in for X-Twilio-Signature, taken from this webhook's own row in the one access table
+ * (src/auth/access.ts, `signature-webhook`) rather than written out a second time here, so the header the
+ * guard reads and the header the table documents cannot drift apart. The table names the secret's
+ * environment variable; the value is read from the environment by the route and lives nowhere else.
+ *
+ * The fallback is a header no caller sends, so a table with this row removed fails closed with a 401
+ * rather than throwing on an empty header name.
+ */
+const WEBHOOK_ROW = endpointRow(API.smsWebhook)?.auth;
+export const SIM_SIGNATURE_HEADER =
+  WEBHOOK_ROW?.kind === "signature-webhook" ? WEBHOOK_ROW.header : "x-signature-no-row-in-the-access-table";
 export const INBOUND_CHANNEL = "SMS_1TO1";
 /** A HELP answer that has not gone out in this long is not worth sending. */
 export const HELP_REPLY_NOT_AFTER_MS = 15 * 60_000;
@@ -41,7 +52,12 @@ export function signSimWebhook(rawBody: string, secret: string): string {
   return createHmac("sha256", secret).update(rawBody).digest("hex");
 }
 
-/** Fail closed: no secret, no header, wrong length or wrong digest ⇒ false. Compared in constant time. */
+/**
+ * Fail closed: an unset or empty secret, a secret too short to be one, no header, a wrong length or a
+ * wrong digest ⇒ false. Never true by default, and the digests are compared with `timingSafeEqual`, so
+ * a wrong signature leaks nothing about how far it got. The HMAC covers the **raw** body, so the same
+ * signature over a different body does not verify.
+ */
 export function verifySimWebhook(rawBody: string, header: string | null | undefined, secret: string | undefined): boolean {
   if (!secret || secret.length < 16 || !header) return false;
   const want = Buffer.from(signSimWebhook(rawBody, secret));
