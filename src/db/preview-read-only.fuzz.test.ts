@@ -20,8 +20,10 @@ import type { SqlLike } from "./read-only";
  * this file, no new dependency and no run-to-run variation, so a failure here is reproducible from the
  * seed alone — out of the lexical constructs that have done the hiding: `'…'` with `''` doubling,
  * `E'…'` with backslash escapes, `"…"` names, `$tag$`/`$$` dollar quotes, identifiers containing `$`,
- * `--` and nested block comments, SET/RESET/set_config/DO variants, and transaction-ending tails that
- * carry `INSERT INTO smuggle VALUES (1)` behind them. Each case is run through the guard on BOTH
+ * `--` and nested block comments, SET/RESET/set_config/DO variants, `CALL` with its procedure name
+ * cut off by a space Postgres reads as identifier text rather than as a gap (NBSP and the rest of
+ * {@link UNICODE_SPACES}), and transaction-ending tails that carry `INSERT INTO smuggle VALUES (1)`
+ * behind them. Each case is run through the guard on BOTH
  * statement paths (autocommit and transaction), on one real Postgres backend, and the table is checked
  * after every single one.
  *
@@ -48,6 +50,21 @@ const CASES = 2400;
 /** The seed. Fixed, so the corpus is identical on every machine and every run. */
 const SEED = 0x9e3779b9;
 
+/**
+ * The spaces that are spaces to Unicode, to a human and to the drivers but NOT to Postgres, which
+ * reads only ASCII whitespace as a gap and every non-ASCII byte as identifier text: `\v`, `\f`,
+ * NEXT LINE, NBSP, OGHAM SPACE MARK, the U+2000–U+200A family, the line/paragraph separators,
+ * NARROW NO-BREAK and MEDIUM MATHEMATICAL SPACE, IDEOGRAPHIC SPACE and the BOM, plus the four
+ * that are zero-width rather than space-shaped (U+200B—U+200D, U+2060) and so show nothing at
+ * all. Drawn into the
+ * CALL shapes below: `CALL\u00A0p()` is one identifier to this server and a real `CALL` to anything
+ * that normalises the space on the way, so the guard has to refuse it on either reading.
+ */
+const UNICODE_SPACES = [
+  0x0b, 0x0c, 0x85, 0xa0, 0x1680,
+  ...Array.from({ length: 11 }, (_, i) => 0x2000 + i),
+  0x200b, 0x200c, 0x200d, 0x2028, 0x2029, 0x202f, 0x205f, 0x2060, 0x3000, 0xfeff,
+].map((c) => String.fromCodePoint(c));
 /** mulberry32: a tiny, fast, well-distributed 32-bit PRNG. Deterministic from `seed`. */
 function prng(seed: number): () => number {
   let a = seed >>> 0;
@@ -76,6 +93,7 @@ function corpus(): string[][] {
     // `call` as data: inside a literal, a comment or a quoted name it must stay data, and the
     // containing SELECT must still be allowed to run.
     "call", "CALL p()", "; CALL p()", "callback",
+    "CALL\u00a0p()", "; CALL\u2003p()", "call\u3000ops.p()",
   ];
   const inner = () => {
     let s = "";
@@ -113,6 +131,8 @@ function corpus(): string[][] {
     // glued between the keyword and the name, a newline instead of a space, a schema-qualified or
     // quoted procedure name.
     "CALL p(", "call ", "cAlL/**/p(", "CALL\n p(", "/* x */ CALL ops.p(", 'CALL "ops"."p"(',
+    // …and the same keyword separated from its name by a space the server does not read as one.
+    "CALL\u00a0p(", "call\u3000", "cAlL\u2003ops.p(", "CALL\ufeff\u202fp(",
   ];
   /** What is smuggled behind the chunks. Every one of these writes if the string is split wrong. */
   const TAILS = [
@@ -136,6 +156,8 @@ function corpus(): string[][] {
     "; CALL p()",
     "; CALL ops.p(); INSERT INTO smuggle VALUES (1)",
     "; COMMIT; CALL p()",
+    "; CALL\u00a0p()",
+    "; call\u2003ops.p(); INSERT INTO smuggle VALUES (1)",
     "",
     "",
   ];
@@ -162,6 +184,8 @@ function corpus(): string[][] {
     "CALL ops.set_scs_off()",
     "cAlL/**/p()",
     "/* x */ CALL p()",
+    "CALL\u00a0ops.set_scs_off()",
+    "cAlL\u3000p()",
   ];
   /** The exploits that a lexing change arms: harmless while the lexing is the standard one. */
   const ARMED = [
@@ -185,6 +209,8 @@ function corpus(): string[][] {
     "\r", " -- c\r", " -- c\r\n", "\r\n"]);
   const sel = () => pick(["SELECT", "select", "SeLeCt", "/* q */ SELECT", "-- q\nSELECT"]);
   const write = () => `INSERT INTO smuggle VALUES (1)`;
+  /** One of the non-ASCII spaces, as the gap between a keyword and its name. */
+  const usp = () => pick(UNICODE_SPACES);
   /** The CALL keyword, in every case and with every comment/padding shape in front of it. */
   const call = () => pick(["CALL", "call", "cAlL", "Call", "/* c */ CALL", "-- c\nCALL", " CALL"]);
   /** Procedure names: bare, schema-qualified, quoted — all behind the same keyword. */
@@ -225,10 +251,24 @@ function corpus(): string[][] {
     () => `${call()}${pad()}${pick(PROCS)}();${pad()}${write()}`,
     () => `${pick(TX_ENDS)};${pad()}${call()}${pad()}${pick(PROCS)}()`,
     () => `${sel()} 1;${pad()}${call()}${pad()}${pick(PROCS)}();${pad()}${write()}`,
+    // The same shapes with the gap a non-ASCII space: one identifier to this server, a CALL to
+    // anything that normalises it, and refused by the guard either way.
+    () => `${call()}${usp()}${pick(PROCS)}()`,
+    () => `${call()}${usp()}${pick(PROCS)}();${pad()}${write()}`,
+    () => `${call()}${usp()}${usp()}${pick(PROCS)}();${pad()}${write()}`,
+    () => `${pick(TX_ENDS)};${pad()}${call()}${usp()}${pick(PROCS)}()`,
+    () => `${sel()} 1;${pad()}${call()}${usp()}${pick(PROCS)}();${pad()}${write()}`,
+    // The same gaps as padding in FRONT of the keyword, which is where every rule in read-only.ts is
+    // anchored and where JS' own `.trim()` used to leave the invisible ones sitting.
+    () => `${usp()}${pick(TX_ENDS)};${pad()}${write()}`,
+    () => `${usp()}${call()}${pad()}${pick(PROCS)}()`,
+    () => `${usp()}${pick(STATE)};${pad()}${write()}`,
+    () => `${usp()}${sel()} 1 AS ${pick(["callback", "call1", "x"])}`,
     // …and the negatives, which must NOT be refused for the word `call`: it is data, a quoted name,
     // or part of a longer identifier here. (A `;` tail still gets these refused as multi-statement.)
     () => `${sel()} '${pick(["call", "CALL p()", "; CALL p()"])}'${pick(["", " AS n"])}`,
     () => `${sel()} 1 AS ${pick(["callback", "call1", "call_log", "callé", "calls"])}`,
+    () => `${sel()}${usp()}1 AS ${pick(["callback", "call1", "callé"])}`,
     () => `${sel()} "${pick(["call", "CALL"])}" FROM t`,
   ];
 
@@ -277,6 +317,13 @@ describe("preview read-only guard: property fuzz against real Postgres (DECISION
   it(`writes nothing for ${CASES} random SQL strings, on the autocommit and transaction paths`, async () => {
     const CORPUS = corpus();
     expect(CORPUS).toHaveLength(CASES);
+    // The corpus really does carry the shape this file grew for: `CALL` cut off from its procedure
+    // name by a space Postgres reads as part of a name rather than as a gap. Without this, a future
+    // edit to the generator could drop every one of them and the suite would still pass.
+    const spacedCalls = CORPUS.filter((stmts) =>
+      stmts.some((s) => UNICODE_SPACES.some((c) => s.toLowerCase().includes(`call${c}`))),
+    );
+    expect(spacedCalls.length).toBeGreaterThan(200);
     const rows = async () =>
       (await backend.query<{ n: number }>("SELECT count(*)::int n FROM smuggle")).rows[0].n;
 

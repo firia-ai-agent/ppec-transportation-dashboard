@@ -44,6 +44,70 @@ const TX_END_FORMS = [
   "/* drizzle */ commit -- done\n", "commit /* and chain */", "COMMIT\n\n",
 ];
 /**
+ * The four that are zero-width rather than space-shaped: format characters (Unicode `Cf`,
+ * default-ignorable) which are whitespace to neither JS' `\s` nor Unicode's `White_Space`, yet which
+ * every layer above the server may read as a gap, strip, or replace with a space — and which
+ * Postgres reads as identifier text exactly like NBSP, since they too are non-ASCII. `CALL\u200Bp()`
+ * shows a human no gap at all, so nothing downstream can be trusted to agree about where that first
+ * token ends; the guard refuses rather than pick a reading.
+ */
+const ZERO_WIDTH: ReadonlyArray<[string, string]> = [
+  ["\u200b", "ZERO WIDTH SPACE (U+200B)"],
+  ["\u200c", "ZERO WIDTH NON-JOINER (U+200C)"],
+  ["\u200d", "ZERO WIDTH JOINER (U+200D)"],
+  ["\u2060", "WORD JOINER (U+2060)"],
+];
+/**
+ * Every space that is a space to Unicode, to a human and to the drivers, but not to Postgres' own
+ * lexer, which treats only ASCII whitespace as a gap and every non-ASCII byte as identifier text
+ * (`scan.l`: `space [ \t\n\r\f]`, `ident_cont [A-Za-z\200-\377_0-9$]`). Named, because the point of
+ * the list is that each one is a space SOMEWHERE — in a paste, in an editor, in a client library
+ * that normalises them — and the guard cannot know which reading reaches the server.
+ *
+ * The last four are {@link ZERO_WIDTH}: invisible rather than space-shaped, and so not whitespace to
+ * JS or to Unicode at all — see the pin test below.
+ */
+const UNICODE_SPACES: ReadonlyArray<[string, string]> = [
+  ["\v", "LINE TABULATION (U+000B)"],
+  ["\f", "FORM FEED (U+000C)"],
+  ["\u0085", "NEXT LINE (U+0085)"],
+  ["\u00a0", "NO-BREAK SPACE (U+00A0)"],
+  ["\u1680", "OGHAM SPACE MARK (U+1680)"],
+  ["\u2000", "EN QUAD (U+2000)"],
+  ["\u2001", "EM QUAD (U+2001)"],
+  ["\u2002", "EN SPACE (U+2002)"],
+  ["\u2003", "EM SPACE (U+2003)"],
+  ["\u2004", "THREE-PER-EM SPACE (U+2004)"],
+  ["\u2005", "FOUR-PER-EM SPACE (U+2005)"],
+  ["\u2006", "SIX-PER-EM SPACE (U+2006)"],
+  ["\u2007", "FIGURE SPACE (U+2007)"],
+  ["\u2008", "PUNCTUATION SPACE (U+2008)"],
+  ["\u2009", "THIN SPACE (U+2009)"],
+  ["\u200a", "HAIR SPACE (U+200A)"],
+  ["\u2028", "LINE SEPARATOR (U+2028)"],
+  ["\u2029", "PARAGRAPH SEPARATOR (U+2029)"],
+  ["\u202f", "NARROW NO-BREAK SPACE (U+202F)"],
+  ["\u205f", "MEDIUM MATHEMATICAL SPACE (U+205F)"],
+  ["\u3000", "IDEOGRAPHIC SPACE (U+3000)"],
+  ["\ufeff", "ZERO WIDTH NO-BREAK SPACE / BOM (U+FEFF)"],
+  ...ZERO_WIDTH,
+];
+/**
+ * `CALL` separated from its procedure name by one of those, in the shapes a caller would reach for.
+ * Postgres reads `CALL\u00A0p()` as the single identifier `call p` — a syntax error, not a CALL — but
+ * anything that normalises the space on the way (a driver, a pooler, a paste into a console) hands
+ * the server a real `CALL`, so the guard refuses on either reading rather than betting on one.
+ */
+const CALL_UNICODE_SPACE_FORMS = UNICODE_SPACES.flatMap(([c]) => [
+  `CALL${c}p()`,
+  `call${c}ops.p()`,
+  `cAlL${c}${c}p()`,
+  `CALL${c}"ops"."p"()`,
+  `CALL${c}p(); SELECT 1`,
+  `/* x */ CALL${c}ops.commit_and_write()`,
+  `CALL${c}`,
+]);
+/**
  * Every spelling of `CALL`. A procedure body can `COMMIT` — ending the guard's transaction from the
  * inside, where no rule in read-only.ts can see it — so the keyword is refused outright, like COMMIT.
  * Case, padding, newlines, leading and interleaved comments, and the procedure name (bare,
@@ -59,12 +123,15 @@ const CALL_FORMS = [
   'CALL "p"()', 'CALL ops."my proc"()', 'CALL "ops"."p"()', 'call "P"(1)',
   "CALL p('a;b--c/*d')", "CALL p($$;--$$)", "CALL p(E'\\';--')",
   "CALL", "call", "CALL\n",
+  // The keyword cut off from its name by a space the server does not read as one.
+  ...CALL_UNICODE_SPACE_FORMS,
 ];
 /**
  * The word `call` where it is NOT that keyword: inside a literal, inside a quoted identifier, inside a
  * comment, or as part of a longer name. `$` and every non-ASCII character continue an identifier in
  * Postgres, so `call$a$` and `callé` are each ONE name — which is why the keyword's end is checked
- * against `isIdentCont` and not against a regex `\b`.
+ * against Postgres' `ident_cont` and not against a regex `\b`. (The one non-ASCII class that DOES end
+ * it is the Unicode spaces above: see the fail-closed test below.)
  */
 const CALL_NON_FORMS = [
   "SELECT 'call'", "SELECT 'CALL p()'", "select 'call' AS c", "SELECT length('call')",
@@ -74,6 +141,44 @@ const CALL_NON_FORMS = [
   // Statement-initial, and still not the keyword: a longer identifier, or a quoted one.
   "callback", "callback()", "calls", "CALLBACK p()", "call$a$", "call$a$()", "callé", "call1",
   '"call"()', '"CALL" p()',
+  // A Unicode space ends the CALL keyword; it does not make every statement that contains one a
+  // CALL. These still run, exactly as they did before the keyword boundary learned about NBSP.
+  "SELECT\u00a01 AS callback", "SELECT 1 AS callback\u00a0x", "SELECT 'CALL\u00a0p()'",
+  'SELECT "CALL\u00a0p" FROM t', "SELECT $$CALL\u00a0p()$$", "-- CALL\u00a0p()\nSELECT 1",
+  // Same for the zero-width ones: they end the keyword where it is the first token, and nowhere
+  // else. `callback` with one glued into the middle is still the identifier an app really selects.
+  "SELECT 1 AS callback\u200bx", "callback\u200b", "callback\u2060()", "SELECT 'CALL\u200bp()'",
+  "SELECT $$CALL\u2060p()$$", "-- CALL\u200bp()\nSELECT 1", "/* CALL\u200dp() */ SELECT 1",
+];
+/**
+ * The five that show a human nothing at all: {@link ZERO_WIDTH} plus the BOM / ZERO WIDTH NO-BREAK
+ * SPACE, which is zero-width in exactly the same way and differs only in that JS happens to call it
+ * whitespace — so `.trim()` removed it while leaving the other four exactly where they were.
+ */
+const INVISIBLE: ReadonlyArray<[string, string]> = [
+  ...ZERO_WIDTH,
+  ["\ufeff", "ZERO WIDTH NO-BREAK SPACE / BOM (U+FEFF)"],
+];
+/**
+ * One statement per refused rule, in its plainest spelling. Every rule in read-only.ts is anchored at
+ * the statement's first character, so these are what the padding tests put an invisible character in
+ * front of: if the trim misses that character, every one of these rules misses too.
+ */
+const REFUSED_HEADS = [
+  "CALL p()", "call ops.p(1)",
+  "COMMIT", "commit work", "COMMIT AND CHAIN", "ROLLBACK", "END", "ABORT", "end transaction",
+  "PREPARE TRANSACTION 'ppec-1'", "COMMIT PREPARED 'ppec-1'", "ROLLBACK PREPARED 'ppec-1'",
+  "SET x = 1", "set transaction read write", "SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE",
+  "SET standard_conforming_strings = off", "SET LOCAL search_path = public",
+  "RESET ALL", "reset default_transaction_read_only",
+  "DO $$ BEGIN PERFORM 1; END $$", "DISCARD ALL",
+  "SELECT set_config('standard_conforming_strings', 'off', false)",
+];
+/** Statements a preview may send: the padding tests check that padding alone never refuses one. */
+const ALLOWED_HEADS = [
+  "SELECT 1", "select * from ops.vehicles where id = $1", "SELECT 1 AS callback", "callback",
+  "SAVEPOINT sp1", "RELEASE SAVEPOINT sp1", "ROLLBACK TO SAVEPOINT sp1",
+  "SET LOCAL statement_timeout = '5s'", "set local lock_timeout to DEFAULT",
 ];
 /** Savepoint work: it rolls back or forgets part of the transaction, but cannot end it. */
 const SAVEPOINT_FORMS = [
@@ -498,11 +603,305 @@ describe("preview read-only fail-safe (DECISION-LEDGER #43)", () => {
       }
     });
 
+    it("refuses CALL separated from its procedure by a non-ASCII space, whichever way it lexes", () => {
+      // Postgres reads `CALL\u00A0p()` as the one identifier `call p` (a syntax error), because every
+      // non-ASCII byte continues an identifier there; a driver, a pooler or a paste that normalises
+      // the space hands it a real CALL. The guard cannot know which, so it refuses either way.
+      for (const [c, name] of UNICODE_SPACES) {
+        for (const s of [`CALL${c}p()`, `call${c}ops.p()`, `CALL${c}${c}p()`]) {
+          expect(() => rewriteBeginReadOnly(s), name).toThrow(ReadOnlyRefusedError);
+          expect(() => rewriteBeginReadOnly({ text: s }), name).toThrow(/DECISION-LEDGER #43/);
+          expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), name).toThrow(ReadOnlyRefusedError);
+          // Off previews nothing changes: production still sends exactly what it was given.
+          expect(rewriteBeginReadOnlyForEnv({ VERCEL_ENV: "production" }, s), name).toBe(s);
+        }
+      }
+      // Fail closed includes the cases Postgres would read as a plain identifier: `call\u00A0back` is
+      // one name to the server and refused here, while `callback` — the name an app really does use —
+      // keeps running (CALL_NON_FORMS).
+      expect(() => rewriteBeginReadOnly("call\u00a0back")).toThrow(ReadOnlyRefusedError);
+      expect(rewriteBeginReadOnly("callback")).toBe("callback");
+    });
+
+    it("refuses CALL cut from its procedure by a zero-width U+200B, U+200C, U+200D or U+2060", () => {
+      // The space-shaped members of the list above at least look like a gap. These four look like
+      // nothing: `CALL\u200Bp()` renders as `CALLp()`, lexes on the server as the single identifier
+      // `callp`, and arrives as a real `CALL p()` at anything that space-replaces invisible
+      // characters on the way — a console, a paste out of rendered HTML, a sanitiser. The guard
+      // cannot know which reading reaches the server, so it refuses all of them.
+      for (const [c, name] of ZERO_WIDTH) {
+        for (const s of [
+          `CALL${c}p()`,
+          `call${c}ops.p()`,
+          `cAlL${c}p(1, 'x')`,
+          `CALL${c}"ops"."p"()`,
+          `CALL${c}${c}p()`,
+          `/* x */ CALL${c}ops.commit_and_write()`,
+          `CALL${c}`,
+          // One identifier to the server, like `call\u00A0back`: refused all the same, fail closed.
+          `call${c}back`,
+        ]) {
+          const what = `${name}: ${JSON.stringify(s)}`;
+          expect(() => rewriteBeginReadOnly(s), what).toThrow(ReadOnlyRefusedError);
+          expect(() => rewriteBeginReadOnly({ text: s }), what).toThrow(/DECISION-LEDGER #43/);
+          expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), what).toThrow(ReadOnlyRefusedError);
+          // Off previews, production still sends exactly what it was given.
+          expect(rewriteBeginReadOnlyForEnv({ VERCEL_ENV: "production" }, s), what).toBe(s);
+        }
+        // The allowlist side agrees that these are not the server's whitespace: a gap spelled with
+        // one is not the statement an allowlist describes, so the exception does not apply and the
+        // refusal stands. (Refused twice over here — JS `\s` does not match them either, so the
+        // allowlist regex could not match in the first place; `onlyPgSpace` does not rely on that.)
+        for (const s of [
+          `ROLLBACK${c}TO SAVEPOINT sp1`,
+          `rollback${c}to${c}sp1`,
+          `SET${c}LOCAL statement_timeout = '5s'`,
+          `set local statement_timeout${c}= '5s'`,
+        ]) {
+          expect(() => rewriteBeginReadOnly(s), `${name}: ${JSON.stringify(s)}`).toThrow(ReadOnlyRefusedError);
+        }
+      }
+      // And the ordinary spellings are untouched: no new false positive on the words themselves.
+      expect(rewriteBeginReadOnly("CALLBACK p()")).toBe("CALLBACK p()");
+      expect(rewriteBeginReadOnly("SELECT 1 AS callback")).toBe("SELECT 1 AS callback");
+      expect(rewriteBeginReadOnly("ROLLBACK TO SAVEPOINT sp1")).toBe("ROLLBACK TO SAVEPOINT sp1");
+      expect(rewriteBeginReadOnly("SET LOCAL statement_timeout = '5s'")).toBe(
+        "SET LOCAL statement_timeout = '5s'",
+      );
+    });
+
+    it("trims every Unicode space before deciding, so padding cannot hide a keyword", () => {
+      // Every rule in read-only.ts is anchored at `^`, and the trim in front of them was JS'
+      // `.trim()`, which strips most of this list but not NEXT LINE and not the zero-width four.
+      // One such character in front of a statement therefore made `CALL`, `COMMIT`, `SET`, `DO`,
+      // `DISCARD` and the `BEGIN` rewrite all miss at once, and the statement went out unexamined.
+      for (const [c, name] of UNICODE_SPACES) {
+        for (const head of REFUSED_HEADS) {
+          for (const s of [`${c}${head}`, `${head}${c}`, `${c}${c}${head}${c}`, `${c}${head};${c}`]) {
+            const what = `${name}: ${JSON.stringify(s)}`;
+            expect(() => rewriteBeginReadOnly(s), what).toThrow(ReadOnlyRefusedError);
+            expect(() => rewriteBeginReadOnly({ text: s }), what).toThrow(/DECISION-LEDGER #43/);
+            expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), what).toThrow(ReadOnlyRefusedError);
+            // Off previews, production still sends exactly what it was given.
+            expect(rewriteBeginReadOnlyForEnv({ VERCEL_ENV: "production" }, s), what).toBe(s);
+          }
+        }
+      }
+    });
+
+    it("refuses the five invisible characters in front of a keyword: U+200B—U+200D, U+2060, U+FEFF", () => {
+      // The shapes from the report, spelled out: nothing is visible between the start of the string
+      // and the keyword, and whatever strips or space-replaces that character on the way — a
+      // console, a paste out of rendered HTML, a sanitiser — hands the server the bare keyword.
+      for (const [c, name] of INVISIBLE) {
+        for (const s of [`${c}CALL p()`, `${c}COMMIT`, `${c}SET x=1`, `${c}ROLLBACK`,
+          `${c}DISCARD ALL`, `${c}DO $$ BEGIN PERFORM 1; END $$`, `${c}RESET ALL`,
+          `${c}PREPARE TRANSACTION 'ppec-1'`, `${c}${c}call ops.p()`]) {
+          const what = `${name}: ${JSON.stringify(s)}`;
+          expect(() => rewriteBeginReadOnly(s), what).toThrow(ReadOnlyRefusedError);
+          expect(() => rewriteBeginReadOnly({ text: s }), what).toThrow(/DECISION-LEDGER #43/);
+          expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), what).toThrow(ReadOnlyRefusedError);
+        }
+      }
+      expect(() => rewriteBeginReadOnly("\u200bCALL p()")).toThrow(ReadOnlyRefusedError);
+      expect(() => rewriteBeginReadOnly("\u200bCOMMIT")).toThrow(ReadOnlyRefusedError);
+      expect(() => rewriteBeginReadOnly("\ufeffSET x=1")).toThrow(ReadOnlyRefusedError);
+      expect(() => rewriteBeginReadOnly("\u200cCALL p()")).toThrow(ReadOnlyRefusedError);
+      expect(() => rewriteBeginReadOnly("\u200dCOMMIT")).toThrow(ReadOnlyRefusedError);
+      expect(() => rewriteBeginReadOnly("\u2060rollback")).toThrow(ReadOnlyRefusedError);
+    });
+
+    it("trims exactly the Unicode space list and nothing else, character by character", () => {
+      // The pin for the trim's own character class: a `COMMIT` is refused behind a character exactly
+      // when that character is one the guard calls a gap. Four ASCII characters are left out because
+      // they refuse this string for an unrelated reason — `;` makes a second statement of the
+      // `COMMIT`, and `'`, `"` and `$` open a literal, an identifier or a dollar quote that is never
+      // closed, which is refused on its own (fail closed).
+      const gaps = new Set([...UNICODE_SPACES.map(([c]) => c), " ", "\t", "\n", "\r"]);
+      const refused = (sql: string) => {
+        try { rewriteBeginReadOnly(sql); return false; } catch { return true; }
+      };
+      for (let code = 0; code < 0x10000; code += 1) {
+        const c = String.fromCharCode(code);
+        if (`;'"$`.includes(c)) continue;
+        expect(refused(`${c}COMMIT`), `U+${code.toString(16).toUpperCase().padStart(4, "0")}`)
+          .toBe(gaps.has(c));
+      }
+    });
+
+    it("refuses a transaction start whose own keywords are split by a space the server reads as a name", () => {
+      // `START<U+200B>TRANSACTION READ WRITE` opens a writable transaction to every layer above the
+      // server and is one long identifier to the server itself, so what its mode list says depends on
+      // who reads the gap. Rewriting it would be guessing; it is refused, like a padded allowlist.
+      for (const [c, name] of UNICODE_SPACES) {
+        for (const s of [
+          `START${c}TRANSACTION`, `start${c}transaction read write`,
+          `START${c}TRANSACTION ISOLATION LEVEL SERIALIZABLE`, `START${c}${c}TRANSACTION`,
+          `BEGIN${c}TRANSACTION`, `begin${c}work`, `BEGIN${c}READ WRITE`,
+          `BEGIN READ${c}WRITE`, `BEGIN ISOLATION${c}LEVEL SERIALIZABLE`,
+          `begin isolation level repeatable${c}read`,
+          `BEGIN${c}ISOLATION LEVEL SERIALIZABLE, READ WRITE`,
+          // The transaction-ending and state-changing keywords that are two words long, and the
+          // allowlist spellings beside them: all refused for the same reason.
+          `PREPARE${c}TRANSACTION 'ppec-1'`, `prepare${c}transaction 'ppec-1'`,
+          `COMMIT${c}PREPARED 'ppec-1'`, `ROLLBACK${c}PREPARED 'ppec-1'`, `COMMIT${c}AND${c}CHAIN`,
+          `SET${c}LOCAL statement_timeout = '5s'`, `SET${c}TRANSACTION READ WRITE`,
+          `SET${c}SESSION CHARACTERISTICS AS TRANSACTION READ WRITE`,
+          `RESET${c}ALL`, `DISCARD${c}ALL`, `DO${c}$$ BEGIN PERFORM 1; END $$`,
+          `ROLLBACK${c}TO SAVEPOINT sp1`,
+        ]) {
+          const what = `${name}: ${JSON.stringify(s)}`;
+          expect(() => rewriteBeginReadOnly(s), what).toThrow(ReadOnlyRefusedError);
+          expect(() => rewriteBeginReadOnly({ text: s }), what).toThrow(/DECISION-LEDGER #43/);
+          expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), what).toThrow(ReadOnlyRefusedError);
+          expect(rewriteBeginReadOnlyForEnv({ VERCEL_ENV: "production" }, s), what).toBe(s);
+        }
+      }
+      // ...and the ASCII spellings are rewritten exactly as before: no false positive on the words.
+      expect(rewriteBeginReadOnly("START TRANSACTION")).toBe("START TRANSACTION READ ONLY");
+      expect(rewriteBeginReadOnly("start transaction read write")).toBe("START TRANSACTION READ ONLY");
+      expect(rewriteBeginReadOnly("begin isolation level serializable"))
+        .toBe("BEGIN ISOLATION LEVEL SERIALIZABLE, READ ONLY");
+      expect(rewriteBeginReadOnly("BEGIN TRANSACTION")).toBe("BEGIN TRANSACTION READ ONLY");
+    });
+
+    it("agrees on every path about a padded transaction start, and sends only its READ ONLY rewrite", async () => {
+      // `isTransactionStart` and the rewrite trim through the same helper, so the guard cannot end up
+      // thinking a statement is not a transaction start while the rewrite turns it into one — which
+      // would have sent `BEGIN READ ONLY` twice, the second one inside the first.
+      for (const [c, name] of UNICODE_SPACES) {
+        for (const s of [`${c}BEGIN`, `BEGIN${c}`, `${c}begin${c}`, `${c}BEGIN;${c}`, `${c}${c}begin`]) {
+          const what = `${name}: ${JSON.stringify(s)}`;
+          expect(isTransactionStart(s), what).toBe(true);
+          expect(rewriteBeginReadOnly(s), what).toBe(BEGIN_READ_ONLY);
+          expect(rewriteBeginReadOnly({ text: s, rowMode: "array" }), what)
+            .toEqual({ text: BEGIN_READ_ONLY, rowMode: "array" });
+          expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), what).toThrow(ReadOnlyRefusedError);
+        }
+        // Padding outside, the server's own whitespace inside: still rewritten, modes kept.
+        expect(rewriteBeginReadOnly(`${c}start transaction read write${c}`), name)
+          .toBe("START TRANSACTION READ ONLY");
+        expect(rewriteBeginReadOnly(`${c}begin isolation level serializable${c}`), name)
+          .toBe("BEGIN ISOLATION LEVEL SERIALIZABLE, READ ONLY");
+      }
+      // On the wire: one READ ONLY start for the padded BEGIN, and nothing at all for the padded
+      // COMMIT after it, which leaves the read-only transaction open.
+      const { sent, send } = fakeWire();
+      const g = readOnlyGuard(send);
+      await g.query("\u200bbegin");
+      expect(sent).toEqual([BEGIN_READ_ONLY]);
+      expect(g.open).toBe(true);
+      expect(() => g.query("\u200bCOMMIT")).toThrow(/DECISION-LEDGER #43/);
+      expect(() => g.query("\ufeffCALL p()")).toThrow(/DECISION-LEDGER #43/);
+      expect(sent).toEqual([BEGIN_READ_ONLY]);
+      expect(g.open).toBe(true);
+      await g.commit();
+      expect(sent).toEqual([BEGIN_READ_ONLY, "COMMIT"]);
+    });
+
+    it("reads invisible padding after a statement, and around its `;`, as the padding it is", () => {
+      for (const [c, name] of UNICODE_SPACES) {
+        // Allowed, untouched, object identity included: there is one statement here either way, and
+        // what the padding hides is nothing.
+        for (const s of [`SELECT 1${c}`, `${c}SELECT 1`, `SELECT 1;${c}`, `SELECT 1${c};`,
+          `SELECT 1${c};${c}${c}`, `${c}SELECT 1;${c}`, `SELECT 1;${c} -- done${c}`]) {
+          expect(rewriteBeginReadOnly(s), `${name}: ${JSON.stringify(s)}`).toBe(s);
+        }
+        // ...and a real second statement behind that padding is still a second statement.
+        for (const s of [`SELECT 1;${c}COMMIT`, `SELECT 1;${c}INSERT INTO smuggle VALUES (1)`,
+          `SELECT 1;${c}CALL p()`, `${c};${c}COMMIT`, `SELECT 1;${c}SELECT 2`,
+          `COMMIT;${c}`, `CALL p();${c}`]) {
+          expect(() => rewriteBeginReadOnly(s), `${name}: ${JSON.stringify(s)}`)
+            .toThrow(ReadOnlyRefusedError);
+        }
+      }
+    });
+
+    it("never refuses for padding alone: what the allowlists allow still runs", () => {
+      for (const [c, name] of UNICODE_SPACES) {
+        for (const head of ALLOWED_HEADS) {
+          for (const s of [`${c}${head}`, `${head}${c}`, `${c}${c}${head}${c}`, `${c}${head};${c}`]) {
+            const what = `${name}: ${JSON.stringify(s)}`;
+            expect(rewriteBeginReadOnly(s), what).toBe(s); // untouched, object identity included
+            expect(rewriteBeginReadOnly(s, { inTransaction: true }), what).toBe(s);
+          }
+        }
+      }
+    });
+
+    it("leaves an invisible character inside a literal, a quoted name, a comment or a dollar quote", () => {
+      // The other side of the trim: these characters only ever mean anything where a token can start.
+      // Inside quoted data or a comment they are data, and the statement around them still runs.
+      for (const [c, name] of INVISIBLE) {
+        for (const s of [
+          `SELECT '${c}COMMIT'`, `SELECT '${c}CALL p();' AS t`, `SELECT '${c}'`,
+          `SELECT E'\\'${c}COMMIT'`, `SELECT $$${c}COMMIT$$`, `SELECT $tag$${c}CALL p()$tag$`,
+          `SELECT "${c}call" FROM t`, `SELECT 1 AS "co${c}l"`, `SELECT 1 AS "${c}CALL"`,
+          `-- ${c}COMMIT\nSELECT 1`, `/* ${c}CALL p() */ SELECT 1`, `/* ${c} */ SELECT 1 AS callback`,
+          `SELECT 1 AS callback${c}x`, `SELECT length('${c}call')`,
+        ]) {
+          const what = `${name}: ${JSON.stringify(s)}`;
+          expect(rewriteBeginReadOnly(s), what).toBe(s); // untouched, object identity included
+          expect(rewriteBeginReadOnly(s, { inTransaction: true }), what).toBe(s);
+        }
+      }
+      // And the plain spellings of the app's own queries are exactly as they were.
+      for (const s of ["SELECT 1", "select * from ops.vehicles where id = $1", "SAVEPOINT sp1",
+        "ROLLBACK TO SAVEPOINT sp1", "SET LOCAL statement_timeout = '5s'", "SELECT 1 AS callback"]) {
+        expect(rewriteBeginReadOnly(s), s).toBe(s);
+      }
+      expect(rewriteBeginReadOnly("begin")).toBe(BEGIN_READ_ONLY);
+    });
+
+    it("spells out the whole Unicode space list, so none of them is forgotten", () => {
+      // The bulk is JS' own `\s` minus the plain ASCII run Postgres agrees is whitespace: that is
+      // every space a driver, an editor or a paste can produce which the server reads as identifier
+      // text instead. A new one cannot appear in the language without this list — and the guard's —
+      // being updated to match.
+      const jsSpaces = [...Array(0x10000).keys()]
+        .map((c) => String.fromCharCode(c))
+        .filter((c) => /\s/.test(c) && !/^[ \t\n\r]$/.test(c));
+      expect(jsSpaces).toHaveLength(21);
+      // `\s` is the floor and not the list, so the rest is named by hand. U+0085 is whitespace to
+      // Unicode but not to JS, and the guard follows Unicode because the drivers and the humans do.
+      // The zero-width four are whitespace to NEITHER — they are invisible, which is why no
+      // character class finds them and why the list has to say their names. Pinned both ways so
+      // neither half can quietly rot into the other.
+      const extra = ["\u0085", ...ZERO_WIDTH.map(([c]) => c)];
+      expect(extra.filter((c) => /\s/.test(c))).toEqual([]);
+      expect(ZERO_WIDTH.filter(([c]) => !/\p{Cf}/u.test(c))).toEqual([]);
+      expect(new Set(UNICODE_SPACES.map(([c]) => c))).toEqual(new Set([...jsSpaces, ...extra]));
+      expect(UNICODE_SPACES).toHaveLength(26);
+    });
+
     it("leaves the word `call` alone in a literal, a quoted name, a comment or a longer identifier", () => {
       for (const s of CALL_NON_FORMS) {
         expect(rewriteBeginReadOnly(s), s).toBe(s); // untouched, object identity included
         expect(rewriteBeginReadOnly(s, { inTransaction: true }), s).toBe(s);
       }
+    });
+
+    it("never lets a non-ASCII space carry a statement past an allowlist", () => {
+      // The savepoint and `SET LOCAL <timeout>` allowlists are exceptions to a refusal, and they
+      // spell their gaps `\s` — which in JS matches NBSP too. A statement whose gaps are not the
+      // server's own whitespace is not the statement the allowlist describes, so it stays refused.
+      for (const [c, name] of UNICODE_SPACES) {
+        for (const s of [
+          `ROLLBACK${c}TO SAVEPOINT sp1`,
+          `ROLLBACK TO${c}SAVEPOINT sp1`,
+          `rollback${c}to${c}sp1`,
+          `SET${c}LOCAL statement_timeout = '5s'`,
+          `SET LOCAL${c}statement_timeout = '5s'`,
+          `set local statement_timeout${c}= '5s'`,
+        ]) {
+          expect(() => rewriteBeginReadOnly(s), `${name}: ${s}`).toThrow(ReadOnlyRefusedError);
+        }
+      }
+      // …and the ASCII spellings of both are still allowed, unchanged.
+      expect(rewriteBeginReadOnly("ROLLBACK TO SAVEPOINT sp1")).toBe("ROLLBACK TO SAVEPOINT sp1");
+      expect(rewriteBeginReadOnly("SET LOCAL statement_timeout = '5s'")).toBe(
+        "SET LOCAL statement_timeout = '5s'",
+      );
     });
 
     it("refuses a CALL hidden among other statements, from either side of the `;`", () => {

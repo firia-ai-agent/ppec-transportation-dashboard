@@ -210,7 +210,12 @@ export const mapPreview = {
   /** Clock speed buttons (§6.2): ×1 / ×10 / ×60. */
   speed: "×{factor}",
   motionReduced: "Reduced motion: markers step, no tween",
-  motionTweened: "Tweened along route geometry",
+  /**
+   * What the markers are doing when motion is not reduced. It used to say "Tweened along route
+   * geometry" — the implementation, in two words nobody outside this repo uses. The screen says
+   * what a reviewer sees instead (COPY-GUIDE §1: plain words, no jargon).
+   */
+  motionTweened: "Vans follow their routes.",
   mapLabel: "Fleet map: simulated vehicles near the PPEC center",
   centerLabel: "PPEC center",
   decisionsHeading: "Notification decisions",
@@ -514,7 +519,11 @@ export const fleetMap = {
   tilesFailed: "Map tiles did not load.",
   /** The style request failed: say what still works, so nobody assumes the board is down. */
   tilesFailedDetail: "Map tiles did not load. The board below is unaffected.",
-  /** "Okeeheelee Park · F4" — the stop, then the family it belongs to. */
+  /**
+   * "Okeeheelee Park · F4" — the stop, then the family it belongs to. The `title` tooltip on a
+   * vehicle card's stop row, and nothing else: a family code is a build-internal label, so the
+   * card's visible words are the place name alone (COPY-GUIDE §1–§2, src/ui/no-codes.test.ts).
+   */
   stopFamily: "{stop} · {family}",
 } as const;
 

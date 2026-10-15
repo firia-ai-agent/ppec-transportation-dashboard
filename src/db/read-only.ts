@@ -56,16 +56,57 @@ export class ReadOnlyRefusedError extends Error {
   }
 }
 
-/** Opens a transaction: `BEGIN [TRANSACTION|WORK] [modes]` or `START TRANSACTION [modes]`. */
-const TX_START = /^(?:BEGIN|START\s+TRANSACTION)\b/i;
+/**
+ * Every character this file reads as a gap between two tokens, as a regex class body: JS' own `\s`
+ * — the server's ASCII whitespace plus most of {@link UNICODE_SPACE} — and the five UNICODE_SPACE
+ * characters JS does not call whitespace at all: NEXT LINE (U+0085) and the zero-width four
+ * (U+200B, U+200C, U+200D, U+2060). Written once and shared, so the multi-token keywords below
+ * (`START TRANSACTION`, `PREPARE TRANSACTION`) and {@link trimSql} agree about where a token may
+ * end: `START\u200BTRANSACTION` opens a transaction to everything above the server exactly as
+ * `START\u00A0TRANSACTION` does, and a gap spelled `\s` would have matched only the second one.
+ */
+const GAP = String.raw`[\s\u0085\u200b-\u200d\u2060]`;
+/** Leading and trailing {@link GAP} runs: what {@link trimSql} strips. */
+const TRIM = new RegExp(`^${GAP}+|${GAP}+$`, "g");
+/**
+ * `stmt` without its leading and trailing gaps. Every keyword check in this file trims through this
+ * helper rather than JS' `.trim()`, on every path — `statementsOf` for {@link isTransactionStart},
+ * and {@link rewriteBeginReadOnly} for the string, the `{text}` and the `inTransaction` cases alike
+ * — so all of them decide about the same statement.
+ *
+ * `.trim()` strips JS whitespace, which is most of {@link UNICODE_SPACE} but not all of it: not NEXT
+ * LINE, and not the zero-width four, since none of those is whitespace to JS or to Unicode. Every
+ * keyword regex here is anchored at `^` — `CALL`, `COMMIT`, `SET`, `BEGIN`, `DO`, `DISCARD`, the
+ * allowlists — so one invisible character in front of a statement made every one of them miss, and
+ * `\u200BCALL p()` went to the server unexamined while whatever strips or space-replaces that
+ * character on the way (a console, a paste out of rendered HTML, a sanitiser) hands the server a
+ * plain `CALL p()`.
+ *
+ * Trimming such a character is safe in a way that reading one as a gap *inside* a statement is not:
+ * what the trim removes is only ever inspected, never sent, and dropping it can only make the guard
+ * see MORE of a keyword — it refuses where it used to pass. Interior gaps go the other way, and are
+ * refused rather than normalised: see {@link onlyPgSpace} and {@link readOnlyTxStart}.
+ */
+const trimSql = (stmt: string) => stmt.replace(TRIM, "");
+
+/**
+ * Opens a transaction: `BEGIN [TRANSACTION|WORK] [modes]` or `START TRANSACTION [modes]`. The gap
+ * between `START` and `TRANSACTION` is {@link GAP} rather than `\s`, so `START\u200BTRANSACTION`
+ * is recognised as the transaction start it is to everything but the server's own lexer — and then
+ * refused by {@link readOnlyTxStart}, instead of being passed through unexamined.
+ */
+const TX_START = new RegExp(String.raw`^(?:BEGIN|START${GAP}+TRANSACTION)\b`, "i");
 /**
  * Ends the current transaction, or hands it to two-phase commit: `COMMIT`, `END`, `ROLLBACK` and
  * `ABORT` — with or without the `WORK`/`TRANSACTION` noise word and with or without `AND [NO] CHAIN`
  * — plus `PREPARE TRANSACTION '...'`, `COMMIT PREPARED '...'` and `ROLLBACK PREPARED '...'`. All of
  * them start with one of these keywords, so the keyword alone is enough to catch every spelling; the
- * one form that begins this way and yet cannot end the transaction is excluded below.
+ * one form that begins this way and yet cannot end the transaction is excluded below. `PREPARE` is
+ * held to its `TRANSACTION` by {@link GAP}, so `PREPARE\u200BTRANSACTION 'x'` is caught like the
+ * `PREPARE\u00A0TRANSACTION 'x'` spelling beside it; the rest end at a regex `\b`, which every one of
+ * these characters is already.
  */
-const TX_END = /^(?:COMMIT|END|ROLLBACK|ABORT|PREPARE\s+TRANSACTION)\b/i;
+const TX_END = new RegExp(String.raw`^(?:COMMIT|END|ROLLBACK|ABORT|PREPARE${GAP}+TRANSACTION)\b`, "i");
 /**
  * `ROLLBACK [WORK|TRANSACTION] TO [SAVEPOINT] name`: it undoes work *inside* the transaction and
  * cannot end it, so a preview may send it (as may `SAVEPOINT name` and `RELEASE [SAVEPOINT] name`,
@@ -130,10 +171,14 @@ const DISCARD = /^DISCARD\b/i;
  * padding or newlines. Case is free, and `scanPieces` has already turned leading and interleaved
  * comments into whitespace, so `CALL` prefixed by a block comment, `cAlL` with a comment glued between
  * it and the name, and `CALL` split from its name by a newline all arrive here as `CALL <name>(...)`.
- * The token has to END there too, by Postgres' `ident_cont` (`isIdentCont`): `callback` and `call$a$`
- * are single identifiers that merely begin with those letters, so `SELECT 1 AS callback` still runs,
- * as does a `"call"` column — a quoted identifier keeps its quotes through `scanPieces` and so can
- * never be read as this keyword.
+ * The token has to END there too, by {@link endsKeyword}: `callback` and `call$a$` are single
+ * identifiers that merely begin with those letters, so `SELECT 1 AS callback` still runs, as does a
+ * `"call"` column — a quoted identifier keeps its quotes through `scanPieces` and so can never be
+ * read as this keyword. A {@link UNICODE_SPACE} character ends it as well, even though Postgres
+ * reads that one as identifier text: `CALL\u00A0p()`, `CALL\u2003p()` and `call\u3000ops.p()` are a
+ * `CALL` to every eye but the server's lexer, and the guard refuses on either reading. The
+ * zero-width members of that set do the same job while showing nothing at all: `CALL\u200Bp()` and
+ * `call\u2060ops.p()` are refused too.
  */
 const CALL = /^CALL/i;
 /** The isolation levels of `ISOLATION LEVEL ...`, as token runs. */
@@ -158,6 +203,69 @@ const isTagChar = (c: string | undefined) => c !== undefined && (/[A-Za-z0-9_]/.
 const isTagStart = (c: string | undefined) => c !== undefined && (/[A-Za-z_]/.test(c) || isNonAscii(c));
 /** `ident_cont`: a character that continues an identifier, so a token cannot start at it. */
 const isIdentCont = (c: string | undefined) => c !== undefined && (isTagChar(c) || c === "$");
+
+/**
+ * Every character that is a space to Unicode, to a human and to the drivers, but NOT to Postgres'
+ * lexer: NBSP (U+00A0), OGHAM SPACE MARK (U+1680), the U+2000–U+200A family (en space, em space,
+ * thin space, hair space …), LINE and PARAGRAPH SEPARATOR (U+2028, U+2029), NARROW NO-BREAK SPACE
+ * (U+202F), MEDIUM MATHEMATICAL SPACE (U+205F), IDEOGRAPHIC SPACE (U+3000) and the BOM / ZERO WIDTH
+ * NO-BREAK SPACE (U+FEFF) — i.e. all of JS' own `\s` but the plain ASCII space, tab, newline and
+ * carriage return — plus NEXT LINE (U+0085), whitespace to Unicode though not to JS, and `\v` and
+ * `\f`, which are ASCII but which not every Postgres `space` class has included.
+ *
+ * And four that are zero-width rather than space-shaped: ZERO WIDTH SPACE (U+200B), ZERO WIDTH
+ * NON-JOINER (U+200C), ZERO WIDTH JOINER (U+200D) and WORD JOINER (U+2060). These are format
+ * characters (Unicode `Cf`, default-ignorable), so they are whitespace to neither JS' `\s` nor
+ * Unicode's `White_Space` — but they are invisible, one is *named* a space, and the code that
+ * handles text on the way here handles them as one: editors, consoles, copy-paste out of rendered
+ * HTML and the sanitisers that strip or space-replace invisible characters. `CALL\u200Bp()` shows
+ * no gap at all to a human, which makes it worse than NBSP rather than better — whatever reads it
+ * decides on its own whether a token ends there. The BOM (U+FEFF) is the same kind of character and
+ * was already here only because JS happens to call it a space.
+ *
+ * The server's `space` is `[ \t\n\r\f]` while its `ident_cont` is `[A-Za-z\200-\377_0-9\$]`, so
+ * every non-ASCII character here *continues an identifier* there instead of separating two tokens:
+ * `CALL\u00A0p()` is ONE identifier (`call p`) to Postgres and a `CALL` with odd padding to a human,
+ * a client library or anything on the way that normalises spaces. Which of those two readings a
+ * given driver, pooler or paste produces is not knowable from this file, so the guard fails closed
+ * and refuses on either — see {@link endsKeyword} and {@link onlyPgSpace}.
+ */
+const UNICODE_SPACE = new Set([
+  "\v", "\f", "\u0085", "\u00a0", "\u1680",
+  "\u2000", "\u2001", "\u2002", "\u2003", "\u2004", "\u2005",
+  "\u2006", "\u2007", "\u2008", "\u2009", "\u200a",
+  "\u200b", "\u200c", "\u200d", "\u2060",
+  "\u2028", "\u2029", "\u202f", "\u205f", "\u3000", "\ufeff",
+]);
+const isUnicodeSpace = (c: string | undefined) => c !== undefined && UNICODE_SPACE.has(c);
+
+/**
+ * True when a refused keyword really ends at `c`: the character neither continues an identifier
+ * (Postgres' `ident_cont`, so `callback` and `call$a$` are names that merely start with the letters)
+ * nor is one of the {@link UNICODE_SPACE} characters that continue one on the server while reading
+ * as a gap everywhere else. The end of the statement ends a keyword too (`c === undefined`).
+ *
+ * The other refused keywords are matched with a regex `\b`, which ends them at every one of these
+ * characters already (JS `\w` is ASCII, so NBSP is a word boundary to it): `COMMIT\u00A0x` and
+ * `SET\u00A0LOCAL …` are refused with no help from here. `CALL` is the one whose boundary is checked
+ * by hand, because it is the one that must ALSO not fire at the `$` of `call$a$` or the `é` of
+ * `callé` — see {@link isRefusedCall} — and `onlyPgSpace` keeps the two allowlists honest about the
+ * same characters from the other side.
+ */
+const endsKeyword = (c: string | undefined) => !isIdentCont(c) || isUnicodeSpace(c);
+
+/**
+ * True when every space in `stmt` is one the server itself reads as a gap between two tokens.
+ *
+ * The allowlists below (`ROLLBACK_TO_SAVEPOINT`, `SET_LOCAL_ALLOWED`) spell their gaps `\s`, which in
+ * JS matches NBSP and most of {@link UNICODE_SPACE} as well — characters that are identifier text
+ * to Postgres. `SET\u00A0LOCAL\u00A0statement_timeout = '5s'` would satisfy the allowlist regex while
+ * being something else entirely on the wire, so an allowlist is only ever consulted for a statement
+ * whose gaps are ASCII: anything else falls through to the refusal it was an exception to. (The
+ * zero-width four are not JS `\s`, so no allowlist regex can match a gap spelled with one in the
+ * first place; this check rejects them anyway rather than leaving that to the regexes.)
+ */
+const onlyPgSpace = (stmt: string) => ![...stmt].some(isUnicodeSpace);
 
 /**
  * The index just past the quoted run whose first *inner* character is `from`. `q` is the delimiter and
@@ -297,7 +405,7 @@ function scanPieces(sql: string): string[] {
  * (throws) the SQL it cannot scan, exactly as `scanPieces` does.
  */
 function statementsOf(sql: string): string[] {
-  return scanPieces(sql).map((s) => s.trim()).filter((s) => s.length > 0);
+  return scanPieces(sql).map(trimSql).filter((s) => s.length > 0);
 }
 
 /**
@@ -308,23 +416,29 @@ function statementsOf(sql: string): string[] {
  */
 function isRefusedModeChange(stmt: string): boolean {
   if (SET_CONFIG.test(stmt) || DO_BLOCK.test(stmt) || DISCARD.test(stmt)) return true;
-  return SET_OR_RESET.test(stmt) && !SET_LOCAL_ALLOWED.test(stmt);
+  return SET_OR_RESET.test(stmt) && !(onlyPgSpace(stmt) && SET_LOCAL_ALLOWED.test(stmt));
 }
 
 /** True for a statement that could end the transaction the guard is holding open. */
 function isRefusedTxEnd(stmt: string): boolean {
-  return TX_END.test(stmt) && !ROLLBACK_TO_SAVEPOINT.test(stmt);
+  return TX_END.test(stmt) && !(onlyPgSpace(stmt) && ROLLBACK_TO_SAVEPOINT.test(stmt));
 }
 
 /**
  * True for a `CALL` statement, whose procedure body could end that transaction from the inside (see
- * {@link CALL}). Where the keyword ends is checked against `isIdentCont` rather than with a regex
- * `\b`, because the two disagree exactly where it matters: JS `\w` is `[A-Za-z0-9_]`, so `\b` would
- * end the keyword at the `$` of `call$a$` and at the `é` of `callé`, while Postgres reads each of
- * those as ONE identifier — a name that merely starts with those letters, not the keyword.
+ * {@link CALL}). Where the keyword ends is {@link endsKeyword} rather than a regex `\b`, because the
+ * two disagree in both directions, exactly where it matters:
+ *   - JS `\w` is `[A-Za-z0-9_]`, so `\b` would end the keyword at the `$` of `call$a$` and at the `é`
+ *     of `callé`, while Postgres reads each of those as ONE identifier — a name that merely starts
+ *     with those letters, not the keyword — so those must keep running;
+ *   - `isIdentCont` alone would NOT end it at the NBSP of `CALL\u00A0p()`, because every non-ASCII
+ *     character continues an identifier on the server. That is the fail-open half: a space a human,
+ *     a driver or a paste reads as a gap would have hidden the keyword. Every
+ *     {@link UNICODE_SPACE} character therefore ends it, and the statement is refused whichever way
+ *     the server would have lexed it.
  */
 function isRefusedCall(stmt: string): boolean {
-  return CALL.test(stmt) && !isIdentCont(stmt[4]);
+  return CALL.test(stmt) && endsKeyword(stmt[4]);
 }
 
 /**
@@ -352,9 +466,22 @@ function transactionModes(tokens: string[], stmt: string): string[] {
   return modes;
 }
 
-/** Rewrite one BEGIN/START TRANSACTION so it opens READ ONLY, keeping its other modes. */
+/**
+ * Rewrite one BEGIN/START TRANSACTION so it opens READ ONLY, keeping its other modes.
+ *
+ * A gap this file reads as one and the server does not — any {@link UNICODE_SPACE} character —
+ * is refused here rather than rewritten, for the reason the two allowlists refuse one
+ * ({@link onlyPgSpace}): `START\u200BTRANSACTION READ WRITE` and
+ * `BEGIN ISOLATION\u2060LEVEL SERIALIZABLE` open a transaction to every layer above the server
+ * and are one long identifier to the server itself, so which modes the statement even carries
+ * depends on who reads it — and one of the readings is a writable transaction against production.
+ * Leading and trailing gaps are already gone by now ({@link trimSql}) and are safe to drop, because
+ * nothing of the statement rides on them; an interior one decides what the tokens are, so it fails
+ * closed instead.
+ */
 function readOnlyTxStart(stmt: string): string {
-  const tokens = stmt.replace(/,/g, " , ").trim().split(/\s+/);
+  if (!onlyPgSpace(stmt)) throw new ReadOnlyRefusedError(stmt);
+  const tokens = trimSql(stmt.replace(/,/g, " , ")).split(/\s+/);
   const at = (i: number) => (tokens[i] ?? "").toUpperCase();
   const head = at(0) === "START" ? ["START", "TRANSACTION"]
     : ["TRANSACTION", "WORK"].includes(at(1)) ? ["BEGIN", at(1)]
@@ -390,6 +517,9 @@ export interface GuardState {
  *     A mode list this cannot parse is refused rather than passed through. With `inTransaction` the
  *     start is refused outright: a second BEGIN inside an open transaction is at best ignored with a
  *     warning and at worst a re-negotiation of the modes that are the only thing guarding the DB.
+ *     A start whose own keywords are held apart by a space the server does not read as one —
+ *     `START\u200BTRANSACTION READ WRITE`, `BEGIN ISOLATION\u2060LEVEL SERIALIZABLE` — is refused
+ *     rather than rewritten: what its mode list says depends on who is reading the gap.
  *   - every transaction-ending statement is refused: `COMMIT`, `ROLLBACK`, `END`, `ABORT` in any case or
  *     spacing, with `WORK`/`TRANSACTION` and with `AND [NO] CHAIN`, plus `PREPARE TRANSACTION '...'`,
  *     `COMMIT PREPARED '...'` and `ROLLBACK PREPARED '...'`. Ending the transaction removes READ ONLY,
@@ -401,8 +531,11 @@ export interface GuardState {
  *     transaction control: a PL/pgSQL body can `COMMIT` — ending the guard's transaction from the
  *     inside — or `PERFORM set_config(...)`, and the body is not in the statement text for this file
  *     to inspect. Any case, any padding or newlines, comments before or between the tokens, and any
- *     procedure name (schema-qualified or quoted). The word `call` inside a literal, inside a quoted
- *     identifier, or as part of a longer name (`callback`) is not this keyword and still runs.
+ *     procedure name (schema-qualified or quoted) — and the padding may be any Unicode space, NBSP,
+ *     U+2003 and the zero-width U+200B–U+200D and U+2060 included, every one of which the server
+ *     would read as part of a name rather than as a gap. The
+ *     word `call` inside a literal, inside a quoted identifier, or as part of a longer name
+ *     (`callback`, `callé`) is not this keyword and still runs.
  *   - every `SET` and every `RESET` is refused — `SET TRANSACTION ... READ WRITE`,
  *     `SET SESSION CHARACTERISTICS ...` and the read-only GUCs among them — bar `SET LOCAL <timeout>`
  *     for the three timeouts of `SET_LOCAL_ALLOWED`, and so is every `set_config(...)` call, every `DO`
@@ -418,6 +551,13 @@ export interface GuardState {
  *     or `'/*'` is not a statement separator and a `;` after them still is.
  *   - SQL that cannot be scanned at all — an unterminated string, identifier, dollar quote or block
  *     comment — is refused: where the quoting ends is exactly what decides everything above.
+ *   - leading and trailing padding is stripped before any of the above, and it may be any
+ *     {@link UNICODE_SPACE} character — the invisible U+200B, U+200C, U+200D, U+2060 and the BOM
+ *     included, none of which JS' own `.trim()` removes (see {@link trimSql}). Every check here is
+ *     anchored at the statement's first character, so `\u200BCALL p()`, `\u200BCOMMIT` and
+ *     `\uFEFFSET x = 1` are the statements they look like to a human and are refused as such, on
+ *     all three paths (a string, a `{text}` config, and either value of `inTransaction`); the same
+ *     padding after a statement, or around its trailing `;`, is likewise not a second statement.
  *   - everything else — reads, SAVEPOINT, and writes the server itself refuses inside the read-only
  *     transaction — is returned untouched, object identity included.
  */
@@ -429,10 +569,10 @@ export function rewriteBeginReadOnly<Q extends SqlLike>(q: Q, state: GuardState 
   // single trailing one with nothing but whitespace and comments after it, introduces a second
   // statement — and the first of two could be the `COMMIT` that ends the read-only transaction, which
   // would leave the second writing in autocommit. No app query is multi-statement, so refuse.
-  if (pieces.length > 2 || (pieces.length === 2 && pieces[1].trim() !== "")) {
+  if (pieces.length > 2 || (pieces.length === 2 && trimSql(pieces[1]) !== "")) {
     throw new ReadOnlyRefusedError(sql);
   }
-  const stmts = pieces.map((s) => s.trim()).filter((s) => s.length > 0);
+  const stmts = pieces.map(trimSql).filter((s) => s.length > 0);
   if (stmts.length === 0) return q;
   const [stmt] = stmts;
   if (isRefusedModeChange(stmt) || isRefusedTxEnd(stmt) || isRefusedCall(stmt)) {

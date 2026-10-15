@@ -878,6 +878,34 @@ describe("preview: a caller cannot change session state or CALL a procedure (rea
     "CALL",
   ];
   /**
+   * Every space that is a space to Unicode, to a human and to the drivers but NOT to Postgres,
+   * which reads only ASCII whitespace as a gap between tokens and every non-ASCII byte as
+   * identifier text: `\v`, `\f`, NEXT LINE, NBSP, OGHAM SPACE MARK, the U+2000–U+200A family, the
+   * line/paragraph separators, NARROW NO-BREAK and MEDIUM MATHEMATICAL SPACE, IDEOGRAPHIC SPACE
+   * and the BOM — plus the four that are zero-width rather than space-shaped (U+200B, U+200C,
+   * U+200D, U+2060), which show a human nothing at all and are whitespace to neither JS nor
+   * Unicode. (read-only.test.ts names them one by one and pins the list against JS' `\s`.)
+   */
+  const UNICODE_SPACES = [
+    0x0b, 0x0c, 0x85, 0xa0, 0x1680,
+    ...Array.from({ length: 11 }, (_, i) => 0x2000 + i),
+    0x200b, 0x200c, 0x200d, 0x2028, 0x2029, 0x202f, 0x205f, 0x2060, 0x3000, 0xfeff,
+  ].map((c) => String.fromCodePoint(c));
+  /**
+   * `CALL` cut off from its procedure name by one of those. On THIS backend each is a syntax error
+   * — `CALL\u00A0p()` lexes as the single identifier `call p`, as the control below shows — but a
+   * driver, a pooler or a paste that normalises the space hands the server a real CALL, whose body
+   * could COMMIT the guard's transaction and write. The guard cannot know which reading arrives, so
+   * it refuses before anything leaves the app, on every path.
+   */
+  const UNICODE_SPACE_CALLS = UNICODE_SPACES.flatMap((c) => [
+    `CALL${c}p()`,
+    `call${c}ops.p()`,
+    `CALL${c}ops.commit_and_write()`,
+    `/* x */ cAlL${c}${c}"ops"."p"()`,
+  ]);
+
+  /**
    * The word `call` where it is NOT that keyword. These must still RUN on a preview: refusing them
    * would break ordinary reads. Each is a complete statement with a checkable answer.
    */
@@ -1015,6 +1043,74 @@ describe("preview: a caller cannot change session state or CALL a procedure (rea
     // The guard's transaction was never ended from the inside, and nothing leaked onto the backend.
     expect(await show("transaction_read_only")).toBe("off");
     expect(await show("standard_conforming_strings")).toBe("on");
+  });
+
+  it.each(PATHS)("a CALL padded with a non-ASCII space is refused on $name, and writes nothing", async ({ run }) => {
+    for (const stmt of UNICODE_SPACE_CALLS) {
+      const from = h.sent.length;
+      expect(await run([stmt]), JSON.stringify(stmt)).toEqual(["refused"]);
+      expect(h.sent.slice(from), JSON.stringify(stmt)).not.toContain(stmt); // nothing left the app
+      expect(h.sent.slice(from).join(" | "), JSON.stringify(stmt)).not.toMatch(/call/i);
+      expect(await rows(), JSON.stringify(stmt)).toBe(0);
+    }
+    expect(await show("transaction_read_only")).toBe("off");
+    expect(await show("standard_conforming_strings")).toBe("on");
+  });
+
+  /**
+   * A refused keyword behind, or in front of, padding the app's own trim has to see through: the five
+   * invisible characters (U+200B, U+200C, U+200D, U+2060 and the BOM), where JS' `.trim()` stripped
+   * only the last. On THIS backend a leading one makes the whole head a single identifier — a
+   * syntax error, as the control below shows — while anything that strips or space-replaces it on
+   * the way hands the server the bare keyword. Refused before either reading can happen.
+   */
+  const PADDED_REFUSALS = [0x200b, 0x200c, 0x200d, 0x2060, 0xfeff]
+    .map((c) => String.fromCodePoint(c))
+    .flatMap((c) => [
+      `${c}CALL p()`,
+      `${c}call ops.commit_and_write()`,
+      `${c}COMMIT`,
+      `${c}SET standard_conforming_strings = off`,
+      `${c}DISCARD ALL`,
+      `COMMIT${c}`,
+      `${c}CALL p();${c}`,
+    ]);
+
+  it.each(PATHS)("a keyword behind invisible padding is refused on $name, and writes nothing", async ({ run }) => {
+    for (const stmt of PADDED_REFUSALS) {
+      const what = JSON.stringify(stmt);
+      const from = h.sent.length;
+      expect(await run([stmt]), what).toEqual(["refused"]);
+      // Everything on the wire bar the guard's own framing, which is where the only COMMIT here is.
+      const sent = h.sent.slice(from).filter((q) => !/^(BEGIN|COMMIT|ROLLBACK)\b/i.test(q));
+      expect(sent, what).not.toContain(stmt); // nothing of the caller's statement left the app
+      expect(sent.join(" | "), what).not.toMatch(/call|commit|discard|standard_conf/i);
+      expect(await rows(), what).toBe(0);
+    }
+    // The guard's transaction was never ended from the inside, and nothing leaked onto the backend.
+    expect(await show("transaction_read_only")).toBe("off");
+    expect(await show("standard_conforming_strings")).toBe("on");
+  });
+
+  it("the control: this backend reads a leading zero-width character as part of the next name", async () => {
+    // Both readings of `<U+200B>CALL p()` are real, which is why the guard refuses rather than pick
+    // one: here the padding glues itself to the keyword and the statement is a syntax error, while
+    // the same character inside a literal is ordinary data that a preview may still select.
+    await expect(backend.exec("\u200bCALL p()")).rejects.toThrow(/syntax error/i);
+    await expect(backend.exec("\u200bCOMMIT")).rejects.toThrow(/syntax error/i);
+    const r = await getNeonDb().query<Record<string, unknown>>("SELECT '\u200bcall' AS n", []);
+    expect(r.rows[0].n).toBe("\u200bcall");
+    expect(await rows()).toBe(0);
+  });
+
+  it("the control: this backend reads `CALL<NBSP>p()` as one identifier, not as the keyword", async () => {
+    // Why the guard refuses instead of deciding: the two readings are both real. Here the whole
+    // thing is a name — so it is a syntax error — while `SELECT 1 AS call<NBSP>back` is a perfectly
+    // ordinary column alias, which is the same lexing rule seen from the other side.
+    await expect(backend.exec("CALL\u00a0p()")).rejects.toThrow(/syntax error/i);
+    const aliased = await backend.query<Record<string, unknown>>("SELECT 1 AS call\u00a0back");
+    expect(Object.keys(aliased.rows[0])).toEqual(["call\u00a0back"]);
+    expect(await rows()).toBe(0);
   });
 
   it.each(PATHS)("the word `call` in a literal, a name or a comment still runs on $name", async ({ run }) => {
