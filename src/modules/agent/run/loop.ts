@@ -10,7 +10,9 @@
  *   "resumes from last committed result"                          → `driveRun` starts by reading
  *      the run's committed calls. A call that committed is never re-executed; a call that was
  *      persisted but never committed is re-driven with the same idempotency key, which is what
- *      makes the second attempt a no-op at the sink rather than a second effect.
+ *      makes the second attempt a no-op at the sink rather than a second effect — and it is
+ *      re-decided **tighten-only** first (`tightenOnResume`), so a pause or a withdrawn consent
+ *      that landed during the outage refuses the step instead of being outrun by it.
  *   "delayed external responses are tasks with timers, never waiting sessions"  → an executor that
  *      returns `awaitExternal` parks the run on a B-03 timer and the loop *returns* (timers.ts).
  *
@@ -151,14 +153,17 @@ export async function driveRun(deps: RunDeps, runId: string): Promise<RunResult>
   let steps = 0;
   let calls = await toolCalls(deps.db, runId);
 
-  // 1. Resume: a step that was persisted but never committed. Its policy decision is the one it
-  //    was persisted with — re-deciding it against a context that has moved since would be a
-  //    different call, not a resume — and its idempotency key is the original, so an effect that
-  //    did happen before the crash is not repeated.
+  // 1. Resume: a step that was persisted but never committed. Its idempotency key is the original,
+  //    so an effect that did happen before the crash is not repeated — and its decision is the one
+  //    it was persisted with, except that it may be **tightened** first (`tightenOnResume`).
   const interrupted = pendingCall(calls);
   if (interrupted) {
     steps += 1;
-    const outcome = await settleCall(deps, run, interrupted, committedCalls(calls), clock());
+    const at = clock();
+    const committed = committedCalls(calls);
+    const redecided = await retighten(deps, run, interrupted, committed, at);
+    if (!redecided.ok) return fail(deps, run, redecided.reason, steps);
+    const outcome = await settleCall(deps, run, interrupted, committed, at, redecided.tightened);
     const finished = await finish(deps, run, outcome, steps);
     if (finished) return finished;
     calls = await toolCalls(deps.db, runId);
@@ -239,6 +244,69 @@ export function persistedVerdict(policyDecision: string): { verdict: "ALLOW" | "
   return { verdict, detail: rest.join(":") };
 }
 
+/* ──────────────────── re-deciding a resumed step, tighten-only ──────────────────── */
+
+/** Loosest to tightest. A resume may move a step up this list and never down it. */
+const VERDICT_RANK: Readonly<Record<PolicyDecision["verdict"], number>> = { ALLOW: 0, PROPOSAL: 1, BLOCK: 2 };
+
+/** The rule a decision blocked or proposed on; for an ALLOW, its effect (`decisionLabel`'s tail). */
+function decisionDetail(decision: PolicyDecision): string {
+  return decision.verdict === "ALLOW" ? decision.effect : decision.rule;
+}
+
+/**
+ * What a resumed step's verdict becomes, given the verdict it was persisted with and the verdict
+ * the *current* context produces: the fresh one when it is strictly tighter, and `null` — keep the
+ * persisted one — otherwise.
+ *
+ * Both halves matter, and they are not symmetrical.
+ *
+ * **Tighten.** A PENDING ALLOW row is a step that was permitted when it was written down and whose
+ * effect may not have happened yet. If the agent was paused in the meantime, or the family withdrew
+ * consent, or a human took the thread over, then executing it now is the paused agent sending a
+ * message — the crash would have bought the model an exemption from the kill switch. So the current
+ * context gets to refuse it, through the same `policy.evaluate` a fresh call goes through.
+ *
+ * **Never loosen.** The reverse is not allowed for the reason the original slice-2 comment gives: a
+ * BLOCK was decided against the context of the turn that produced it, and re-deciding it against a
+ * context that has since become permissive is not a resume, it is a different call that nobody's
+ * model asked for. A persisted BLOCK therefore stays BLOCKED however agreeable policy has become
+ * (`resume.test.ts`), and a PROPOSAL never becomes an ALLOW.
+ */
+export function tightenOnResume(
+  persisted: PolicyDecision["verdict"],
+  fresh: PolicyDecision,
+): PolicyDecision | null {
+  return VERDICT_RANK[fresh.verdict] > VERDICT_RANK[persisted] ? fresh : null;
+}
+
+/** `null` tightened = settle the row on the decision it was persisted with. */
+type Redecided =
+  | { readonly ok: true; readonly tightened: PolicyDecision | null }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * Re-decide one resumed step against the context as it is now, and refuse to loosen it.
+ *
+ * The re-decision is taken on the **stored** arguments, which for an allowed call are the ones the
+ * policy engine sanitized and the executor is about to be handed — so what is judged is what would
+ * run. A persisted BLOCK is skipped: it is already the tightest verdict there is, and asking again
+ * could only produce a looser one.
+ */
+async function retighten(
+  deps: RunDeps,
+  run: RunRow,
+  row: ToolCallRow,
+  committed: readonly CommittedCall[],
+  at: Date,
+): Promise<Redecided> {
+  const persisted = persistedVerdict(row.policyDecision).verdict;
+  if (persisted === "BLOCK") return { ok: true, tightened: null };
+  const assembled = await deps.assemble({ runId: run.id, trigger: run.trigger, committed, now: at });
+  const fresh = evaluate({ tool: row.tool, args: row.args }, assembled.policy);
+  return { ok: true, tightened: tightenOnResume(persisted, fresh) };
+}
+
 async function persistCallFor(
   deps: RunDeps,
   run: RunRow,
@@ -266,6 +334,12 @@ async function persistCallFor(
  * Take one persisted call to its committed outcome. Called both for a fresh step and for a step
  * being resumed, and it cannot tell the difference — which is the point: the row is the whole
  * input, so "execute it" and "finish executing it" are one code path.
+ *
+ * `tightened` is the one thing a resume may add: the stricter verdict the *current* context gives
+ * the same call (`tightenOnResume`). It replaces the persisted verdict for this settlement and is
+ * recorded on the committed row as `tightened_on_resume`, so a step that was allowed when it was
+ * written down and refused when it ran says both things. The row's `policy_decision` column is
+ * never rewritten — it is the decision the call was persisted with, which is a different fact.
  */
 async function settleCall(
   deps: RunDeps,
@@ -273,9 +347,14 @@ async function settleCall(
   row: ToolCallRow,
   committed: readonly CommittedCall[],
   at: Date,
+  tightened: PolicyDecision | null = null,
 ): Promise<StepOutcome> {
   const by = runActor(run.id);
-  const { verdict, detail } = persistedVerdict(row.policyDecision);
+  const persisted = persistedVerdict(row.policyDecision);
+  const verdict = tightened?.verdict ?? persisted.verdict;
+  const detail = tightened ? decisionDetail(tightened) : persisted.detail;
+  /** What the committed row says about having been re-decided at effect time, when it was. */
+  const retightened = tightened ? { tightened_on_resume: `${persisted.verdict}:${persisted.detail}` } : {};
 
   // A blocked call never executes, and the AGT-02 evidence — "out-of-policy tool call rejected +
   // logged" — is two writes, not one: the row goes BLOCKED with its rule, and every task the
@@ -289,10 +368,16 @@ async function settleCall(
   // call's idempotency key, so a replay that got past the fence would still write nothing
   // (tasks.ts).
   if (verdict === "BLOCK") {
-    const tasks = pendingPolicyTasks(row);
+    // The tasks of whichever decision is being recorded: the persisted one's, parked on the row at
+    // persist time, or — when the resume is what refused the step — the fresh decision's.
+    const tasks = tightened?.verdict === "BLOCK" ? tightened.tasks : pendingPolicyTasks(row);
     // Derived, not read back, so the committed row can name the tasks it opened in the same write.
     const taskIds = policyTaskIds(row, tasks);
-    const result = taskIds.length === 0 ? { blocked_rule: detail } : { blocked_rule: detail, task_ids: taskIds };
+    const result = {
+      blocked_rule: detail,
+      ...retightened,
+      ...(taskIds.length === 0 ? {} : { task_ids: taskIds }),
+    };
     const committed = await deps.db.tx(async (tx) => {
       if (!(await commitCall(tx, row.id, "BLOCKED", result, by))) return false;
       await writePolicyTasks(tx, { run, call: row, tasks, by });
@@ -310,7 +395,7 @@ async function settleCall(
   // transaction that commits the PROPOSED row, so a proposal and the record of it cannot come
   // apart; with no writer configured the behaviour is the slice-2 one, a recorded decision.
   if (verdict === "PROPOSAL") {
-    const result: Record<string, unknown> = { proposal_rule: detail, approval_key: row.argsHash };
+    const result: Record<string, unknown> = { proposal_rule: detail, approval_key: row.argsHash, ...retightened };
     const writer = deps.proposals;
     const ok = writer
       ? await deps.db.tx(async (tx) => {
