@@ -627,6 +627,15 @@ export const demoReset = {
  * `CLOSURE_REASON_CODES`), and COPY-GUIDE §2 keeps enum names off family surfaces, so the
  * code has to become words somewhere — and this is where words are kept. WEATHER is in both
  * tables; the sentences are per template, so each one can read naturally in its own body.
+ *
+ * No body names a child. The Veri #12 rule (outbox.ts) is that an outbound var carries only a
+ * fixed code or a constrained format, and a child's given name is neither: it identifies the
+ * child to anyone holding the phone, and no body needs it — a guardian reads "your child", a
+ * therapist reads "a child" and knows the session. So there is no `childFirstName` placeholder
+ * in this table, the outbox allows no such var, and the tests check both.
+ *
+ * The vehicle is a "van", the word a family uses for what pulls up (COPY-GUIDE §1 plain voice),
+ * not the service word "ride".
  */
 export const outboundSms = {
   /** COPY-GUIDE §6: a simulated message says so, in every body, with no exception. */
@@ -634,9 +643,9 @@ export const outboundSms = {
   optOut: "Reply HELP for help, STOP to opt out.",
   /** The center's number as the copy guide writes it (COPY-GUIDE §5 dispatcher link). */
   centerPhone: "(561) 555-0100",
-  /** The fixed answer to an inbound HELP: same words every time, no child or ride detail. */
+  /** The fixed answer to an inbound HELP: same words every time, no child name and no van detail. */
   helpReply:
-    "PPEC: This number sends ride updates for your child. Call us at {centerPhone} if you need help. Reply STOP to opt out. {demoTag}",
+    "PPEC: This number sends van updates for your child. Call us at {centerPhone} if you need help. Reply STOP to opt out. {demoTag}",
   /**
    * The pickup places a family knows by name (MOCKS §1: public landmarks, never a home), keyed by the
    * short stop token the outbox carries. The token is a developer-facing shape and a family must never
@@ -665,19 +674,19 @@ export const outboundSms = {
   etaApprox: "around {time}",
   bodies: {
     "pickup.eta":
-      "PPEC: {childFirstName}'s ride is on the way to {stopLabel}. Pickup {eta}. {optOut} {demoTag}",
+      "PPEC: Your child's van is on the way to {stopLabel}. Pickup {eta}. {optOut} {demoTag}",
     "dropoff.eta":
-      "PPEC: {childFirstName}'s ride home is on the way to {stopLabel}. Arrival {eta}. {optOut} {demoTag}",
+      "PPEC: Your child's van home is on the way to {stopLabel}. Arrival {eta}. {optOut} {demoTag}",
     "leg.canceled":
-      "PPEC: Got it. {childFirstName}'s ride on {legDate} is canceled. {reasonCode} {optOut} {demoTag}",
+      "PPEC: Got it. Your child's van on {legDate} is canceled. {reasonCode} {optOut} {demoTag}",
     "leg.changed":
-      "PPEC: {childFirstName}'s ride on {legDate} changed. New pickup {eta} at {stopLabel}. {optOut} {demoTag}",
+      "PPEC: Your child's van on {legDate} changed. New pickup {eta} at {stopLabel}. {optOut} {demoTag}",
     "therapist.absence_alert":
-      "PPEC: {childFirstName} is not coming in today. The {sessionStart} session is affected. {optOut} {demoTag}",
+      "PPEC: A child is not coming in today. The {sessionStart} session is affected. {optOut} {demoTag}",
     "therapist.late_alert":
-      "PPEC: {childFirstName} is running late for the {sessionStart} session. Now expected {eta}. {optOut} {demoTag}",
+      "PPEC: A child is running late for the {sessionStart} session. Now expected {eta}. {optOut} {demoTag}",
     "child.not_received":
-      "PPEC: We could not hand off {childFirstName} at {stopLabel} at {eta}. Please call us at {centerPhone}. {demoTag}",
+      "PPEC: We could not hand off your child at {stopLabel} at {eta}. Please call us at {centerPhone}. {demoTag}",
     "center.closure": "PPEC: The center is closed on {date}. {reasonCode} {optOut} {demoTag}",
     /**
      * Fixed copy, no vars (Veri #12): a staff-typed notice could carry a child's name, so the

@@ -20,7 +20,7 @@ const handlers: Handlers = { [SIM_STATUS_JOB_KIND]: simStatusHandler };
 
 const msg = (o: Partial<EnqueueInput> = {}): EnqueueInput => ({
   siteId: SITE, purpose: "PICKUP_UPDATE", recipientRule: "guardian", recipientToken: f1.contactToken, channel: "SMS_1TO1",
-  templateId: "pickup.eta", vars: { childFirstName: "Syn", eta: "08:12", etaEnd: "08:22", stopLabel: "OKEE-PARK" },
+  templateId: "pickup.eta", vars: { eta: "08:12", etaEnd: "08:22", stopLabel: "OKEE-PARK" },
   childToken: f1.childToken, planVersionBasis: 1, notAfter: new Date(now.getTime() + 3_600_000), idempotencyKey: uuidv7(), by: "test", ...o });
 const put = (o: Partial<EnqueueInput> = {}) => db.tx((tx, ac) => enqueue(tx, ac, outboxTransport, msg(o)));
 const inbound = (body: string, sid: string, from: string = F1_NUMBER) => {
@@ -64,7 +64,7 @@ describe("persona phone read model (MOCKS §3, DESIGN-DIRECTION §6.3)", () => {
     const queued = await box();
     expect(queued.length).toBe(1);
     expect(queued[0]).toMatchObject({ direction: "OUT", state: "QUEUED", reachedPhone: false, providerMessageId: null, sourceMode: "SIMULATED" });
-    expect(queued[0].body).toContain("Syn's ride is on the way to Okeeheelee Park. Pickup 8:12\u20138:22 AM.");
+    expect(queued[0].body).toContain("Your child's van is on the way to Okeeheelee Park. Pickup 8:12\u20138:22 AM.");
 
     await drain(db, id, drainDeps);
     expect((await box())[0]).toMatchObject({ state: "SENT", reachedPhone: true, providerMessageId: `SIM-${id}` });

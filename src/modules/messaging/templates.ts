@@ -19,6 +19,9 @@
  *    and what the copy lead needs; with only `eta`, the word "around" says it is a point estimate.
  *
  * Rules enforced here and checked by tests:
+ *  - no child's name reaches a body. No outbound var carries one (outbox TEMPLATE_VARS), the bodies say
+ *    "your child" / "a child", and a placeholder with no display rule below is refused rather than
+ *    rendered raw — so there is no path for a seeded or staff-typed name into a family's SMS;
  *  - every template in TEMPLATE_VARS has a body, and every placeholder is an allowlisted var for it;
  *  - no ticket codes, enum names, stop tokens or internal jargon in user-facing text (COPY-GUIDE §2);
  *  - every body ends with the "[DEMO]" suffix, so a simulated message is never mistaken for a real one;
@@ -39,7 +42,7 @@ export class TemplateRenderError extends Error {}
 const { demoTag, optOut, centerPhone } = outboundSms;
 const FIXED = { demoTag, optOut, centerPhone };
 
-/** Fixed HELP answer. Same words every time, no ticket codes, no child or ride detail. */
+/** Fixed HELP answer. Same words every time, no ticket codes, no child name and no van detail. */
 export const HELP_REPLY_TEMPLATE = "consent.help";
 export const HELP_REPLY_BODY = fill(outboundSms.helpReply, FIXED);
 
@@ -126,9 +129,13 @@ function calendarDay(value: string): string | null {
 }
 
 /**
- * Per-var-name display rule: how an allowlisted value becomes words. A name with no entry renders
- * as itself (childFirstName). Returning null is a refusal — the value passed its TEMPLATE_VARS
- * rule but this module cannot word it, and a raw code must never reach a family.
+ * Per-var-name display rule: how an allowlisted value becomes words. Every placeholder a body
+ * carries has an entry, and since no var carries a child's name any more there is nothing left
+ * that renders as itself: a placeholder with no rule here is a refusal (renderTemplate), because
+ * the alternative is a developer-facing value — a code, a token, a 24h clock — reaching a family.
+ *
+ * Returning null is the other refusal — the value passed its TEMPLATE_VARS rule but this module
+ * cannot word it (a reason code with no sentence, a window that runs backwards).
  *
  * `etaEnd` has no entry of its own: it is not a placeholder in any body, it is read by the `eta`
  * rule to widen that one time into a window.
@@ -171,7 +178,9 @@ export function renderTemplate(templateId: string, vars: Record<string, unknown>
   return body.replace(PLACEHOLDER, (_m, name: string) => {
     const v = vars[name];
     if (v === undefined || v === null || String(v) === "") throw new TemplateRenderError(`template ${templateId} needs var ${name}`);
-    const worded = FORMAT[name] ? FORMAT[name](String(v), templateId, vars) : String(v);
+    const rule = FORMAT[name];
+    if (!rule) throw new TemplateRenderError(`template ${templateId} has no display rule for var ${name}`);
+    const worded = rule(String(v), templateId, vars);
     if (worded === null) throw new TemplateRenderError(`template ${templateId} has no copy for var ${name}`);
     return worded;
   });

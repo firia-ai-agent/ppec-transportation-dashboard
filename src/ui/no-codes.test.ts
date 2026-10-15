@@ -106,7 +106,7 @@ describe("the scan itself works", () => {
   });
 
   it("catches a raw stop token, and passes the things that merely look like one", () => {
-    expect(tokensIn("PPEC: Mia's ride is on the way to OKEE-PARK.")).toEqual(["OKEE-PARK"]);
+    expect(tokensIn("PPEC: Your child's van is on the way to OKEE-PARK.")).toEqual(["OKEE-PARK"]);
     expect(tokensIn("Pickup STOP-4")).toEqual(["STOP-4"]);
     // A phone number, a window and the fixed parts of every body are not tokens.
     expect(tokensIn("Call us at (561) 555-0100. Pickup 8:12\u20138:22 AM. Reply HELP for help, STOP to opt out. [DEMO]")).toEqual([]);
@@ -188,7 +188,7 @@ describe("the strings the review fixed, verbatim", () => {
  */
 describe("no internal codes in an outbound family SMS", () => {
   const SAMPLE: Record<string, string> = {
-    childFirstName: "Mia", stopLabel: "OKEE-PARK", eta: "08:12", etaEnd: "08:22",
+    stopLabel: "OKEE-PARK", eta: "08:12", etaEnd: "08:22",
     sessionStart: "13:30", legDate: "2026-10-14", date: "2026-10-14", reasonCode: "WEATHER",
   };
   const vars = (t: string, over: Record<string, string> = {}): Record<string, string> => ({

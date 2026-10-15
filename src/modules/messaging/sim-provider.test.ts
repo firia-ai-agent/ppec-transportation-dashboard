@@ -27,7 +27,7 @@ const statusJob = async (messageId: string) => (await db.query<{ id: string; due
 
 const msg = (o: Partial<EnqueueInput> = {}): EnqueueInput => ({
   siteId: SITE, purpose: "PICKUP_UPDATE", recipientRule: "guardian", recipientToken: f1.contactToken, channel: "SMS_1TO1",
-  templateId: "pickup.eta", vars: { childFirstName: "Syn", eta: "08:12", etaEnd: "08:22", stopLabel: "OKEE-PARK" },
+  templateId: "pickup.eta", vars: { eta: "08:12", etaEnd: "08:22", stopLabel: "OKEE-PARK" },
   childToken: f1.childToken, planVersionBasis: 1, notAfter: new Date(now.getTime() + 3_600_000), idempotencyKey: uuidv7(), by: "test", ...o });
 const put = (o: Partial<EnqueueInput> = {}) => db.tx((tx, ac) => enqueue(tx, ac, outboxTransport, msg(o)));
 
@@ -56,7 +56,7 @@ describe("MessagingProvider.SIM (ADR-006, MOCKS §3)", () => {
     const box = await mailbox();
     expect(box.length).toBe(1);
     expect(box[0]).toMatchObject({ direction: "OUT", external_id: `SIM-${id}`, source_mode: "SIMULATED" });
-    expect(box[0].body_tokenized).toContain("Syn's ride is on the way to Okeeheelee Park. Pickup 8:12\u20138:22 AM.");
+    expect(box[0].body_tokenized).toContain("Your child's van is on the way to Okeeheelee Park. Pickup 8:12\u20138:22 AM.");
     expect(box[0].body_tokenized).toContain("[DEMO]");
     expect(box[0].from_hmac).not.toContain("555"); // the center's number is stored as a blind index only
 
@@ -109,7 +109,7 @@ describe("MessagingProvider.SIM (ADR-006, MOCKS §3)", () => {
     const { id } = await put();
     await drain(db, id, deps);
     expect(await drain(db, id, deps)).toBe("noop");
-    await provider.send({ messageId: id, siteId: SITE, idempotencyKey: "k", channel: "SMS_1TO1", recipientToken: f1.contactToken, templateId: "pickup.eta", vars: { childFirstName: "Syn", eta: "08:12", etaEnd: "08:22", stopLabel: "OKEE-PARK" } }, { signal: new AbortController().signal });
+    await provider.send({ messageId: id, siteId: SITE, idempotencyKey: "k", channel: "SMS_1TO1", recipientToken: f1.contactToken, templateId: "pickup.eta", vars: { eta: "08:12", etaEnd: "08:22", stopLabel: "OKEE-PARK" } }, { signal: new AbortController().signal });
     expect((await mailbox()).length).toBe(1);
     expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.job", [])).rows[0].n).toBe(1);
   });
@@ -117,14 +117,14 @@ describe("MessagingProvider.SIM (ADR-006, MOCKS §3)", () => {
   it("an unrenderable template is a definite refusal: FAILED, nothing in the mailbox", async () => {
     // A var the body needs but nobody supplied. The enqueue guard only checks the vars it is given,
     // so this row is accepted and the refusal has to come from the render at send time.
-    const { id } = await put({ vars: { childFirstName: "Syn" } });
+    const { id } = await put({ vars: { etaEnd: "08:22" } });
     expect(await drain(db, id, deps)).toBe("FAILED");
     expect((await state(id)).block_reason).toMatch(/needs var stopLabel/);
     expect(await mailbox()).toEqual([]);
   });
 
   it("a reason code is sent as words, never as the code itself (COPY-GUIDE §2)", async () => {
-    const { id } = await put({ templateId: "leg.canceled", vars: { childFirstName: "Syn", legDate: "2026-10-14", reasonCode: "VEHICLE_UNAVAILABLE" } });
+    const { id } = await put({ templateId: "leg.canceled", vars: { legDate: "2026-10-14", reasonCode: "VEHICLE_UNAVAILABLE" } });
     expect(await drain(db, id, deps)).toBe("SENT");
     const body = (await mailbox())[0].body_tokenized;
     expect(body).toContain("The vehicle is not available.");

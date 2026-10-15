@@ -156,7 +156,7 @@ describe("outbox (ADR-003)", () => {
   describe("child reference (Veri #8 review)", () => {
     const THER = uuidv7(); const PERSON = uuidv7(); const SESS = uuidv7();
     const therapistAlert = (o: Partial<EnqueueInput> = {}) => msg({ purpose: "THERAPIST_ALERT", recipientRule: "therapist", recipientToken: PERSON,
-      channel: "TEAMS", templateId: "therapist.absence_alert", vars: { childFirstName: "Sam" }, tripLegId: null, therapySessionId: SESS, childToken: CHILD, ...o });
+      channel: "TEAMS", templateId: "therapist.absence_alert", vars: { sessionStart: "13:30" }, tripLegId: null, therapySessionId: SESS, childToken: CHILD, ...o });
     beforeEach(async () => {
       await db.query(`INSERT INTO ops.therapist (id,site_id,person_token,display_name,created_by,updated_by) VALUES ($1,$2,$3,'SYN T1','t','t')`, [THER, SITE, PERSON]);
       await db.query(`INSERT INTO ops.therapy_session (id,site_id,therapist_id,child_token,starts_at,ends_at,created_by,updated_by)
@@ -240,7 +240,7 @@ describe("outbox (ADR-003)", () => {
       expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.outbound_message", [])).rows[0].n).toBe(0);
       // the codes themselves are fine
       await put(closure({ date: "2026-10-14", reasonCode: "EMERGENCY" }));
-      await put({ templateId: "leg.canceled", vars: { childFirstName: "Sam", legDate: "2026-10-14", reasonCode: "FAMILY_REQUEST" } });
+      await put({ templateId: "leg.canceled", vars: { legDate: "2026-10-14", reasonCode: "FAMILY_REQUEST" } });
     });
     it("generic.notice is fixed copy: any var at all is rejected", async () => {
       for (const vars of [{ text: "Sam B. will be collected at 4" }, { text: "" }, { date: "2026-10-14" }, { reasonCode: "WEATHER" }]) {
@@ -248,11 +248,10 @@ describe("outbox (ADR-003)", () => {
       }
       await put({ tripLegId: null, childToken: null, templateId: "generic.notice", vars: {} });
     });
-    it("time, date and stop-label vars must match their format; childFirstName is bounded", async () => {
+    it("time, date and stop-label vars must match their format", async () => {
       for (const vars of [
         { eta: "SYN" }, { eta: "later today" }, { eta: "25:00" }, { eta: "7:45" }, { eta: 745 },
         { eta: "07:45", stopLabel: "the Henderson house" }, { eta: "07:45", stopLabel: "stop-1" },
-        { eta: "07:45", childFirstName: "S".repeat(41) }, { eta: "07:45", childFirstName: " " },
         // etaEnd is the far end of a window, under the same clock rule as eta: no prose, no loose shapes.
         { eta: "07:45", etaEnd: "a bit after nap" }, { eta: "07:45", etaEnd: "7:55" }, { eta: "07:45", etaEnd: "24:00" },
         { eta: "07:45", etaEnd: 755 }, { eta: "07:45", etaEnd: "07:45-07:55" },
@@ -260,8 +259,8 @@ describe("outbox (ADR-003)", () => {
       await expect(put({ tripLegId: null, childToken: null, templateId: "center.closure", vars: { date: "14/10/2026" } })).rejects.toBeInstanceOf(TemplateVarNotAllowed);
       expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.outbound_message", [])).rows[0].n).toBe(0);
       // valid shapes: HH:MM, ISO timestamp, YYYY-MM-DD, short stop token, a second clock time for the window
-      await put({ vars: { eta: "07:45", stopLabel: "STOP-12", childFirstName: "Sam" } });
-      await put({ vars: { eta: "07:45", etaEnd: "07:55", stopLabel: "OKEE-PARK", childFirstName: "Sam" } });
+      await put({ vars: { eta: "07:45", stopLabel: "STOP-12" } });
+      await put({ vars: { eta: "07:45", etaEnd: "07:55", stopLabel: "OKEE-PARK" } });
       await put({ vars: { eta: "2026-10-14T07:45:00Z" } });
       await put(closure({ date: "2026-10-14" }));
     });
@@ -280,39 +279,36 @@ describe("outbox (ADR-003)", () => {
       // The token for that same park is fine: it carries no words at all.
       await put({ vars: { eta: "07:45", stopLabel: "OKEE-PARK" } });
     });
-    // Veri FAILed the earlier "any non-blank string <= 40" rule: a full name must never ride out as a first name.
-    it("childFirstName is one given-name token: a full name, a surname initial or a digit is rejected", async () => {
+    /*
+     * A child's name used to go out as one given-name token, bounded to letters and 20 characters.
+     * It goes out under no shape at all now: the bodies in copy.ts say "your child", so a name is a
+     * var nothing needs, and a bounded name still identifies the child to whoever holds the phone.
+     */
+    it("childFirstName is not a var any more: every shape of it is rejected, on every template", async () => {
       const NBSP = String.fromCharCode(0xa0);
-      for (const childFirstName of [
-        "Mia Rivera", "Mia R.", "Mia R", "Mia  Rivera", "Mia\tRivera", `Mia${NBSP}Rivera`, // a surname or an initial, however spaced
-        "", " ", "mia2", "M.", "Mia,", "Mia!", "Mia\n", "Mia_Rivera", "Mia.Rivera", // blank, digits, other punctuation
-        "-Mia", "Mia-", "'Mia", "Mia'", "O''Hara", "Anne-Marie-Claire", "Anne--Marie", // one internal hyphen/apostrophe only
-        "A".repeat(21), "S".repeat(41), // over-length
-      ]) await expect(put({ vars: { eta: "07:45", childFirstName } })).rejects.toBeInstanceOf(TemplateVarNotAllowed);
-      for (const childFirstName of [7, null, ["Mia"], { first: "Mia" }]) {
+      const names: unknown[] = [
+        "Mia", "A", "Ng", "Anne-Marie", "D'Andre", "D’Andre", "José", "Łukasz", "Мария", // the shapes the old rule accepted
+        "Mia Rivera", "Mia R.", "Mia R", `Mia${NBSP}Rivera`, "", " ", "mia2", "Mia_Rivera", // and the ones it already refused
+        7, null, ["Mia"], { first: "Mia" },
+      ];
+      for (const childFirstName of names) {
         await expect(put({ vars: { eta: "07:45", childFirstName } })).rejects.toBeInstanceOf(TemplateVarNotAllowed);
       }
       expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.outbound_message", [])).rows[0].n).toBe(0);
-      // accepted: a plain given name, one internal hyphen or apostrophe, non-ASCII letters, 1 and 20 chars
-      const ok = ["Mia", "A", "Ng", "Anne-Marie", "D'Andre", "D’Andre", "José", "Łukasz", "Мария", "A".repeat(20)];
-      for (const childFirstName of ok) await put({ vars: { eta: "07:45", childFirstName } });
-      expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.outbound_message", [])).rows[0].n).toBe(ok.length);
+      // Including on the templates that are about a child, and alongside otherwise valid vars.
+      for (const t of CHILD_TEMPLATES) expect(disallowedVars(t, { childFirstName: "Mia" }), t).toEqual(["childFirstName"]);
+      expect(disallowedVars("center.closure", { childFirstName: "Mia" })).toEqual(["childFirstName"]);
+      expect(disallowedVars("pickup.eta", { eta: "07:45", childFirstName: "Mia" })).toEqual(["childFirstName"]);
+      // No template permits a name-bearing var under any spelling.
+      for (const rules of Object.values(TEMPLATE_VARS)) for (const v of Object.keys(rules)) expect(v).not.toMatch(/name/i);
     });
-    it("a row edited around the guard to carry a full name is blocked at send time", async () => {
+    it("a row edited around the guard to carry a name is blocked at send time", async () => {
       const { id } = await put();
-      await db.query(`UPDATE ops.outbound_message SET vars = '{"eta":"07:45","childFirstName":"Mia Rivera"}'::jsonb WHERE id = $1`, [id]);
+      await db.query(`UPDATE ops.outbound_message SET vars = '{"eta":"07:45","childFirstName":"Mia"}'::jsonb WHERE id = $1`, [id]);
       expect(await drain(db, id, deps)).toBe("BLOCKED_EGRESS");
       expect((await st(id)).block_reason).toMatch(/vars not permitted for template pickup.eta/);
-      expect((await st(id)).block_reason).not.toMatch(/Rivera/); // the rejected value is never echoed
+      expect((await st(id)).block_reason).not.toMatch(/Mia/); // the rejected value is never echoed
       expect(p.sent.length).toBe(0);
-    });
-    it("childFirstName is listed only on child templates, and refused on any other template", () => {
-      for (const [template, rules] of Object.entries(TEMPLATE_VARS)) {
-        if (Object.hasOwn(rules, "childFirstName")) expect(CHILD_TEMPLATES.has(template)).toBe(true);
-      }
-      // and the name is refused on a non-child template independently of that table
-      expect(disallowedVars("center.closure", { childFirstName: "Sam" })).toEqual(["childFirstName"]);
-      expect(disallowedVars("pickup.eta", { childFirstName: "Sam" })).toEqual([]);
     });
     it("a row edited around the guard to carry free text is blocked at send time", async () => {
       const { id } = await put(closure({ date: "2026-10-14", reasonCode: "WEATHER" }));

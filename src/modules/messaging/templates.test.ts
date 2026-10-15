@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { STOPS } from "@/modules/demo/fixtures/standard";
+import { CHILDREN, EXTERNAL_PEOPLE, FAMILIES, STOPS } from "@/modules/demo/fixtures/standard";
 import { CLOSURE_REASON_CODES, LEG_CANCEL_REASON_CODES, TEMPLATE_VARS } from "@/modules/outbox/outbox";
 import { outboundSms } from "@/ui/copy";
 import { HELP_REPLY_BODY, HELP_REPLY_TEMPLATE, knownTemplates, renderTemplate, templatePlaceholders, TemplateRenderError, UNKNOWN_STOP } from "./templates";
@@ -10,7 +10,6 @@ import { HELP_REPLY_BODY, HELP_REPLY_TEMPLATE, knownTemplates, renderTemplate, t
  * time is HH:MM, a reason is a code.
  */
 const SAMPLE: Record<string, string> = {
-  childFirstName: "Syn",
   stopLabel: "OKEE-PARK",
   eta: "08:12",
   etaEnd: "08:22",
@@ -66,20 +65,20 @@ describe("outbound SMS templates (COPY-GUIDE §5)", () => {
   });
 
   it("times and dates are worded, and the words do not depend on the server TZ", () => {
-    expect(renderTemplate("therapist.absence_alert", { childFirstName: "Syn", sessionStart: "13:30" }))
+    expect(renderTemplate("therapist.absence_alert", { sessionStart: "13:30" }))
       .toContain("The 1:30 PM session");
     // The same instant written with an offset renders the wall clock it was written in, not the server's.
-    expect(renderTemplate("therapist.absence_alert", { childFirstName: "Syn", sessionStart: "2026-10-14T13:30:00-04:00" }))
+    expect(renderTemplate("therapist.absence_alert", { sessionStart: "2026-10-14T13:30:00-04:00" }))
       .toContain("The 1:30 PM session");
     expect(renderTemplate("center.closure", { date: "2026-10-14", reasonCode: "HOLIDAY" }))
       .toBe("PPEC: The center is closed on October 14. This is for a holiday. Reply HELP for help, STOP to opt out. [DEMO]");
-    expect(renderTemplate("pickup.eta", { childFirstName: "Syn", eta: "00:05", stopLabel: "OKEE-PARK" })).toContain("Pickup around 12:05 AM");
+    expect(renderTemplate("pickup.eta", { eta: "00:05", stopLabel: "OKEE-PARK" })).toContain("Pickup around 12:05 AM");
     // Both ends of a window are read from their own text too, so neither moves with the server TZ.
-    expect(renderTemplate("pickup.eta", { childFirstName: "Syn", eta: "2026-10-14T08:12:00-04:00", etaEnd: "2026-10-14T08:22:00-04:00", stopLabel: "OKEE-PARK" }))
+    expect(renderTemplate("pickup.eta", { eta: "2026-10-14T08:12:00-04:00", etaEnd: "2026-10-14T08:22:00-04:00", stopLabel: "OKEE-PARK" }))
       .toContain("Pickup 8:12\u20138:22 AM");
   });
 
-  it("HELP is one fixed string with the opt-out word and no ride or child detail", () => {
+  it("HELP is one fixed string with the opt-out word and no van or child detail", () => {
     expect(renderTemplate(HELP_REPLY_TEMPLATE, {})).toBe(HELP_REPLY_BODY);
     expect(HELP_REPLY_BODY).toContain("Reply STOP to opt out.");
     expect(HELP_REPLY_BODY).toContain("(561) 555-0100");
@@ -91,20 +90,20 @@ describe("outbound SMS templates (COPY-GUIDE §5)", () => {
   });
 
   it("renders vars and refuses an unknown template, an unknown var, a bad value or a missing var", () => {
-    expect(renderTemplate("pickup.eta", { childFirstName: "Mia", eta: "08:12", etaEnd: "08:22", stopLabel: "OKEE-PARK" }))
-      .toBe("PPEC: Mia's ride is on the way to Okeeheelee Park. Pickup 8:12\u20138:22 AM. Reply HELP for help, STOP to opt out. [DEMO]");
+    expect(renderTemplate("pickup.eta", { eta: "08:12", etaEnd: "08:22", stopLabel: "OKEE-PARK" }))
+      .toBe("PPEC: Your child's van is on the way to Okeeheelee Park. Pickup 8:12\u20138:22 AM. Reply HELP for help, STOP to opt out. [DEMO]");
     expect(() => renderTemplate("not.a.template", {})).toThrow(TemplateRenderError);
     expect(() => renderTemplate("pickup.eta", { ...sampleVars("pickup.eta"), address: "1 Main St" })).toThrow(/not permitted/);
     // Free text in an allowlisted name is a value-rule refusal, and the value is never echoed back.
     const freeText = () => renderTemplate("pickup.eta", { ...sampleVars("pickup.eta"), stopLabel: "Okeeheelee Park" });
     expect(freeText).toThrow(/not permitted/);
     expect(freeText).not.toThrow(/Okeeheelee/);
-    expect(() => renderTemplate("pickup.eta", { childFirstName: "Mia" })).toThrow(/needs var/);
+    expect(() => renderTemplate("pickup.eta", { stopLabel: "OKEE-PARK" })).toThrow(/needs var/);
   });
 });
 
 /**
- * The two things a family reads a ride message for: where the stop is, and when the ride comes.
+ * The two things a family reads a van message for: where the stop is, and when the van comes.
  * Both are rendered from constrained vars (a short token, one or two clock times) — the outbox's
  * no-free-text rule is untouched, and the names come only from the fixed table in copy.ts.
  */
@@ -153,7 +152,7 @@ describe("the stop a family reads (copy.ts stops table)", () => {
 
 describe("the pickup window (etaEnd, COPY-GUIDE §3)", () => {
   const pickup = (eta: string, etaEnd?: string) =>
-    renderTemplate("pickup.eta", { childFirstName: "Mia", stopLabel: "OKEE-PARK", eta, ...(etaEnd ? { etaEnd } : {}) });
+    renderTemplate("pickup.eta", { stopLabel: "OKEE-PARK", eta, ...(etaEnd ? { etaEnd } : {}) });
 
   it("both ends present read as one window, with the AM/PM said once", () => {
     expect(pickup("08:12", "08:22")).toContain("Pickup 8:12–8:22 AM.");
@@ -169,19 +168,19 @@ describe("the pickup window (etaEnd, COPY-GUIDE §3)", () => {
   });
 
   it("the window is rendered on each template that takes one, and only as a window", () => {
-    expect(renderTemplate("dropoff.eta", { childFirstName: "Mia", stopLabel: "PRINCE-PARK", eta: "16:05", etaEnd: "16:20" }))
-      .toBe("PPEC: Mia's ride home is on the way to John Prince Park. Arrival 4:05–4:20 PM. Reply HELP for help, STOP to opt out. [DEMO]");
-    expect(renderTemplate("leg.changed", { childFirstName: "Mia", legDate: "2026-10-14", stopLabel: "OKEE-PARK", eta: "08:12", etaEnd: "08:22" }))
-      .toBe("PPEC: Mia's ride on October 14 changed. New pickup 8:12–8:22 AM at Okeeheelee Park. Reply HELP for help, STOP to opt out. [DEMO]");
+    expect(renderTemplate("dropoff.eta", { stopLabel: "PRINCE-PARK", eta: "16:05", etaEnd: "16:20" }))
+      .toBe("PPEC: Your child's van home is on the way to John Prince Park. Arrival 4:05–4:20 PM. Reply HELP for help, STOP to opt out. [DEMO]");
+    expect(renderTemplate("leg.changed", { legDate: "2026-10-14", stopLabel: "OKEE-PARK", eta: "08:12", etaEnd: "08:22" }))
+      .toBe("PPEC: Your child's van on October 14 changed. New pickup 8:12–8:22 AM at Okeeheelee Park. Reply HELP for help, STOP to opt out. [DEMO]");
     // etaEnd is read by the eta rule, so no body needs a placeholder of its own for it.
     for (const t of knownTemplates()) expect(templatePlaceholders(t), t).not.toContain("etaEnd");
   });
 
   it("a time a template records rather than estimates is still the exact time", () => {
     // These two have no etaEnd var: the time is what happened, so it is not hedged with "around".
-    expect(renderTemplate("child.not_received", { childFirstName: "Mia", stopLabel: "OKEE-PARK", eta: "08:30" }))
+    expect(renderTemplate("child.not_received", { stopLabel: "OKEE-PARK", eta: "08:30" }))
       .toContain("at Okeeheelee Park at 8:30 AM.");
-    expect(renderTemplate("therapist.late_alert", { childFirstName: "Mia", sessionStart: "13:30", eta: "13:45" }))
+    expect(renderTemplate("therapist.late_alert", { sessionStart: "13:30", eta: "13:45" }))
       .toContain("Now expected 1:45 PM.");
   });
 
@@ -196,7 +195,63 @@ describe("the pickup window (etaEnd, COPY-GUIDE §3)", () => {
     expect(freeText).not.toThrow(/Mia's nap/);
     expect(() => pickup("08:12", "8:22")).toThrow(/not permitted/); // HH:MM, not H:MM
     // The templates that do not take a window do not accept the var either.
-    expect(() => renderTemplate("child.not_received", { childFirstName: "Mia", stopLabel: "OKEE-PARK", eta: "08:30", etaEnd: "08:40" }))
+    expect(() => renderTemplate("child.not_received", { stopLabel: "OKEE-PARK", eta: "08:30", etaEnd: "08:40" }))
       .toThrow(/not permitted/);
+  });
+});
+
+/**
+ * No child's name in an outbound SMS, under any template (the rule the outbox enforces on the var
+ * side, checked here on the words side). A name identifies the child to whoever is holding the
+ * phone, and the bodies say "your child" / "a child" instead, so there is nothing left to leak.
+ */
+describe("no child's name reaches a rendered body", () => {
+  /** Every first name the demo seed can put on the board: children, their guardians, the externals. */
+  const SEEDED = [
+    ...CHILDREN.map((c) => c.firstName),
+    ...FAMILIES.map((f) => f.guardian.firstName),
+    ...EXTERNAL_PEOPLE.map((e) => e.firstName),
+  ];
+  /** Word-bounded, so "Ava" does not match inside "available" — a name is a word, not a substring. */
+  const namesIn = (body: string): string[] =>
+    [...new Set(SEEDED.filter((n) => new RegExp(`\\b${n}\\b`, "i").test(body)))];
+
+  it("the bodies carry no name placeholder at all", () => {
+    for (const t of knownTemplates()) {
+      for (const v of templatePlaceholders(t)) expect(v, `${t} uses ${v}`).not.toMatch(/name/i);
+      expect(Object.keys(TEMPLATE_VARS[t]), t).not.toContain("childFirstName");
+    }
+    expect(JSON.stringify(outboundSms.bodies) + outboundSms.helpReply).not.toContain("childFirstName");
+  });
+
+  it("no seeded first name appears in any rendered body, on any template or stop or reason", () => {
+    const rendered = [HELP_REPLY_BODY];
+    for (const t of knownTemplates()) {
+      rendered.push(renderTemplate(t, sampleVars(t)));
+      for (const code of t === "center.closure" ? [...CLOSURE_REASON_CODES] : t === "leg.canceled" ? [...LEG_CANCEL_REASON_CODES] : []) {
+        rendered.push(renderTemplate(t, sampleVars(t, code)));
+      }
+      if (templatePlaceholders(t).includes("stopLabel")) {
+        for (const token of [...Object.keys(outboundSms.stops), "NEW-STOP"]) rendered.push(renderTemplate(t, { ...sampleVars(t), stopLabel: token }));
+      }
+    }
+    expect(rendered.length).toBeGreaterThan(knownTemplates().length);
+    for (const body of rendered) expect(namesIn(body), body).toEqual([]);
+    // The scan itself works: a name in a body would be caught.
+    expect(namesIn(`PPEC: ${CHILDREN[0].firstName}'s van is on the way.`)).toEqual([CHILDREN[0].firstName]);
+  });
+
+  it("a name passed as a var is refused, not rendered, and never echoed back", () => {
+    for (const t of knownTemplates()) {
+      const withName = () => renderTemplate(t, { ...sampleVars(t), childFirstName: "Mia" });
+      expect(withName, t).toThrow(/not permitted/);
+      expect(withName, t).not.toThrow(/Mia/);
+    }
+  });
+
+  it("every placeholder has a display rule, and one without it would be refused, not printed raw", () => {
+    // Since no var renders as itself any more, a var added to a body with no FORMAT entry is a
+    // refusal rather than a developer-facing value (a code, a token, a 24h clock) in a family's SMS.
+    for (const t of knownTemplates()) expect(() => renderTemplate(t, sampleVars(t)), t).not.toThrow(/no display rule/);
   });
 });

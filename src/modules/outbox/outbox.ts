@@ -44,12 +44,20 @@ type Row = {
 };
 const COLS = "id, site_id, purpose, recipient_token, recipient_rule, channel, template_id, vars, trip_leg_id, therapy_session_id, child_token, plan_version_basis, not_after, state, version, idempotency_key";
 
-/** Templates whose text names or describes a child. Any message using one must carry a child reference. */
+/**
+ * Templates whose text is about a child. None of them names the child (no outbound var carries a name —
+ * see TEMPLATE_VARS below), but each one is still child data: it says a particular child's van, stop or
+ * session. Any message using one must therefore carry a child reference.
+ */
 export const CHILD_TEMPLATES = new Set(["pickup.eta", "dropoff.eta", "leg.canceled", "leg.changed", "therapist.absence_alert", "therapist.late_alert", "child.not_received"]);
 /**
  * Veri #12 review: free text is banned from outbound vars. A staff-typed "reason" or "text" can carry a child's
  * name, and matching values against a name list misses nicknames and typos, so outbound vars carry only fixed
- * codes (reasonCode) and constrained formats (clock times, dates, short stop tokens, one given-name token).
+ * codes (reasonCode) and constrained formats (clock times, dates, short stop tokens).
+ *
+ * A child's name is not among them under any name: `childFirstName` used to be allowed as one given-name token,
+ * and is now allowed on no template at all. A bounded name is still a name — it identifies the child to whoever
+ * is holding the phone — and the bodies in copy.ts say "your child" instead, so nothing needs it.
  * generic.notice is fixed copy with no vars at all.
  */
 export const CLOSURE_REASON_CODES: ReadonlySet<string> = new Set(["WEATHER", "FACILITY", "HOLIDAY", "EMERGENCY"]);
@@ -65,33 +73,26 @@ type VarRule = (value: unknown) => boolean;
 const oneOf = (codes: ReadonlySet<string>): VarRule => (v) => typeof v === "string" && codes.has(v);
 const clockTime: VarRule = (v) => typeof v === "string" && (CLOCK.test(v) || TIMESTAMP.test(v));
 const calendarDay: VarRule = (v) => typeof v === "string" && (DAY.test(v) || TIMESTAMP.test(v));
-/**
- * One given-name token: letters only, with at most one internal hyphen or apostrophe ("Anne-Marie", "D'Andre"),
- * 1-20 characters. Veri FAILed the earlier "any non-blank string <= 40" rule because it let a whole name out:
- * a full name ("Mia Rivera") or a name plus a surname initial ("Mia R.", "Mia R") identifies a child far more
- * narrowly than a given name does, so spaces, digits and all other punctuation are refused.
- */
-const GIVEN_NAME = /^\p{L}+(?:['’-]\p{L}+)?$/u;
-const firstName: VarRule = (v) => typeof v === "string" && [...v].length <= 20 && GIVEN_NAME.test(v);
 const stopToken: VarRule = (v) => typeof v === "string" && /^[A-Z0-9-]{1,12}$/.test(v);
 
 /**
  * Per-template allowlist of permitted var names, each with the rule its value must satisfy (Veri #8 follow-up,
  * value rules from Veri #12). Any template not listed, any var not on its list, and any value breaking its rule
- * is rejected at enqueue and blocked at send. Child-data vars appear only on CHILD_TEMPLATES.
+ * is rejected at enqueue and blocked at send. No template permits a child's name under any var name, so a
+ * name cannot reach a family's phone even on a CHILD_TEMPLATES message: `childFirstName` is off every list.
  *
  * `etaEnd` is the far end of an arrival window ("Pickup 8:12-8:22 AM", COPY-GUIDE: windows), under the same
  * clockTime rule as `eta` and so under the same no-free-text rule: it is a second constrained value, not prose.
  * It is optional on each template that takes it; messaging/templates.ts renders the one time when it is absent.
  */
 export const TEMPLATE_VARS: Readonly<Record<string, Readonly<Record<string, VarRule>>>> = {
-  "pickup.eta": { childFirstName: firstName, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
-  "dropoff.eta": { childFirstName: firstName, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
-  "leg.canceled": { childFirstName: firstName, legDate: calendarDay, reasonCode: oneOf(LEG_CANCEL_REASON_CODES) },
-  "leg.changed": { childFirstName: firstName, legDate: calendarDay, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
-  "therapist.absence_alert": { childFirstName: firstName, sessionStart: clockTime },
-  "therapist.late_alert": { childFirstName: firstName, sessionStart: clockTime, eta: clockTime },
-  "child.not_received": { childFirstName: firstName, stopLabel: stopToken, eta: clockTime },
+  "pickup.eta": { eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
+  "dropoff.eta": { eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
+  "leg.canceled": { legDate: calendarDay, reasonCode: oneOf(LEG_CANCEL_REASON_CODES) },
+  "leg.changed": { legDate: calendarDay, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
+  "therapist.absence_alert": { sessionStart: clockTime },
+  "therapist.late_alert": { sessionStart: clockTime, eta: clockTime },
+  "child.not_received": { stopLabel: stopToken, eta: clockTime },
   "center.closure": { date: calendarDay, reasonCode: oneOf(CLOSURE_REASON_CODES) },
   "generic.notice": {}, // fixed copy, no vars
   // Fixed-copy answer to an inbound HELP (MSG-04). No vars: the words never change (messaging/templates.ts).
@@ -109,8 +110,8 @@ export function disallowedVars(templateId: string, vars: Record<string, unknown>
   const allow = TEMPLATE_VARS[templateId];
   if (!allow) return Object.keys(vars ?? {});
   return Object.entries(vars ?? {})
-    // childFirstName is checked against CHILD_TEMPLATES here too, so the invariant survives an edit to the table above.
-    .filter(([k, v]) => !Object.hasOwn(allow, k) || (k === "childFirstName" && !CHILD_TEMPLATES.has(templateId)) || !allow[k](v))
+    // No name-bearing var is on any list, so `childFirstName` fails the first clause on every template.
+    .filter(([k, v]) => !Object.hasOwn(allow, k) || !allow[k](v))
     .map(([k]) => k);
 }
 
