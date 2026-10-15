@@ -2,14 +2,15 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { DEMO_ACCOUNTS, DEMO_PASSWORD_ENV_NAMES } from "@/auth/demo-accounts";
+import { DEMO_ACCOUNTS, DEMO_SHARED_PASSWORD } from "@/auth/demo-accounts";
 import { demoLogins, fill, login } from "@/ui/copy";
 import { showDemoLogins } from "@/lib/env";
 import { fillLoginForm, type LoginFormFields } from "./fill-form";
 import { visibleDemoLogins } from "./demo-logins";
 
 /**
- * Demo logins on /login (founder decision, DECISION-LEDGER row 57).
+ * Demo logins on /login (founder decision, DECISION-LEDGER rows 57 and 59: the three accounts
+ * share one password, which the page prints beside each email).
  *
  * The page is rendered for real with `renderToStaticMarkup`; `@/auth` is stubbed, so no token
  * is decoded and no database is opened. There is no DOM here (vitest runs in node), so the
@@ -22,8 +23,12 @@ vi.mock("@/auth", () => ({ signIn: vi.fn() }));
 // The page only uses the error class, to tell a bad password from a real failure.
 vi.mock("next-auth", () => ({ AuthError: class AuthError extends Error {} }));
 
-/** Values invented for this test. Not secrets, and nothing here is read from a real env. */
-const PASSWORDS: Record<string, string> = {
+/**
+ * The three per-role env vars row 59 retired. They are canaries now: a deployment may still
+ * carry them, and neither a name nor a value may reach the page (the values here are invented
+ * for this test, and nothing reads a real environment).
+ */
+const RETIRED_ENV: Record<string, string> = {
   DEMO_DIRECTOR_PASSWORD: "director-demo-password-aaaa",
   DEMO_COORDINATOR_PASSWORD: "coordinator-demo-password-bbbb",
   DEMO_FRONT_DESK_PASSWORD: "frontdesk-demo-password-cccc",
@@ -45,6 +50,7 @@ const OTHER_ENV: Record<string, string> = {
   NEXT_PUBLIC_MAP_TILE_URL: "https://canary.example.com/tiles",
   DEMO_EXTRA_PASSWORD: "canary-unlisted-password-nnnnnnnn",
   VERCEL_ENV: "production",
+  ...RETIRED_ENV,
 };
 
 const ON = { DEMO_MODE: "1", APP_DATA_CLASS: "SYNTHETIC" };
@@ -120,7 +126,7 @@ describe("the copy lives in src/ui/copy.ts", () => {
 describe("one shared demo-accounts config", () => {
   it("is the list the seed reads", () => {
     const seed = readFileSync(path.join(__dirname, "..", "..", "auth", "seed.ts"), "utf8");
-    expect(seed).toMatch(/import \{ DEMO_ACCOUNTS \} from "\.\/demo-accounts"/);
+    expect(seed).toMatch(/import \{ DEMO_ACCOUNTS, DEMO_SHARED_PASSWORD \} from "\.\/demo-accounts"/);
     expect(seed).not.toMatch(/director@example\.com/);
   });
 
@@ -130,21 +136,28 @@ describe("one shared demo-accounts config", () => {
     expect(source).not.toMatch(/director@example\.com|DEMO_DIRECTOR_PASSWORD/);
   });
 
-  it("names exactly the three role passwords, one env var each", () => {
-    expect(DEMO_PASSWORD_ENV_NAMES).toEqual([
-      "DEMO_DIRECTOR_PASSWORD",
-      "DEMO_COORDINATOR_PASSWORD",
-      "DEMO_FRONT_DESK_PASSWORD",
-    ]);
-    expect(new Set(DEMO_PASSWORD_ENV_NAMES).size).toBe(3);
+  it("names one password for all three accounts (row 59)", () => {
+    expect(DEMO_SHARED_PASSWORD).toBe("PPEC");
+    const passwords = visibleDemoLogins({ ...ON }).map((a) => a.password);
+    expect(passwords).toEqual([DEMO_SHARED_PASSWORD, DEMO_SHARED_PASSWORD, DEMO_SHARED_PASSWORD]);
+    expect(new Set(passwords).size).toBe(1);
   });
 
-  it("carries the role icon and the password env *name*, never a password", () => {
+  it("carries the role icon, and no password of its own per account", () => {
     for (const account of DEMO_ACCOUNTS) {
       expect(account.icon).toMatch(/^[a-z-]+$/);
-      expect(account.passwordEnv).toMatch(/^DEMO_[A-Z_]+_PASSWORD$/);
-      expect(Object.values(account)).not.toContain(PASSWORDS[account.passwordEnv]);
+      expect(Object.keys(account)).toEqual(["id", "email", "name", "role", "icon"]);
     }
+  });
+
+  it("keeps reading no environment for the password: the retired env vars change nothing", () => {
+    const withRetired = visibleDemoLogins({ ...ON, ...RETIRED_ENV });
+    expect(withRetired.map((a) => a.password)).toEqual(Array(3).fill(DEMO_SHARED_PASSWORD));
+    const source = readFileSync(path.join(__dirname, "demo-logins.ts"), "utf8");
+    // Nothing is looked up in the environment here beyond the two flags, which `showDemoLogins`
+    // owns: no `env[...]`, and no leftover of the per-role mechanism.
+    expect(source).not.toMatch(/passwordEnv|env\[/);
+    for (const name of Object.keys(RETIRED_ENV)) expect(source).not.toContain(name);
   });
 });
 
@@ -157,12 +170,13 @@ describe("both switches, or nothing", () => {
     { name: "data class unset", env: { DEMO_MODE: "1" }, expected: 0 },
     { name: "both off", env: {}, expected: 0 },
   ])("$name renders $expected cards", async ({ env, expected }) => {
-    const html = await renderLogin({ ...env, ...PASSWORDS });
+    const html = await renderLogin({ ...env, ...RETIRED_ENV });
     expect(html.match(/type="button"/g) ?? []).toHaveLength(expected);
     for (const title of expected ? TITLES : []) expect(html).toContain(title);
     if (expected === 0) {
       expect(html).not.toContain(demoLogins.divider);
-      for (const password of Object.values(PASSWORDS)) expect(html).not.toContain(password);
+      expect(html).not.toContain(DEMO_SHARED_PASSWORD);
+      expect(html).not.toContain(demoLogins.shared);
     }
   });
 
@@ -174,54 +188,48 @@ describe("both switches, or nothing", () => {
   });
 
   it("keeps the plain sign-in form whichever way the flags are off", async () => {
-    const html = await renderLogin({ DEMO_MODE: "0", APP_DATA_CLASS: "SYNTHETIC", ...PASSWORDS });
+    const html = await renderLogin({ DEMO_MODE: "0", APP_DATA_CLASS: "SYNTHETIC" });
     expect(html).toContain(login.submit);
     expect(html.match(/<input /g)).toHaveLength(2);
   });
 });
 
-describe("an account with no password is skipped", () => {
-  it("drops just that card and keeps the others", async () => {
-    const html = await renderLogin({ ...ON, DEMO_COORDINATOR_PASSWORD: undefined, ...{
-      DEMO_DIRECTOR_PASSWORD: PASSWORDS.DEMO_DIRECTOR_PASSWORD,
-      DEMO_FRONT_DESK_PASSWORD: PASSWORDS.DEMO_FRONT_DESK_PASSWORD,
-    } });
-    expect(html.match(/type="button"/g)).toHaveLength(2);
-    expect(html).toContain("Director");
-    expect(html).toContain("Front desk");
-    expect(html).not.toContain("Coordinator");
-    expect(html).not.toContain("coordinator@example.com");
-  });
-
-  it("renders nothing at all when no password is set", async () => {
+describe("one password, listed against all three emails (row 59)", () => {
+  it("lists each demo email with the shared password, and says once that it is shared", async () => {
     const html = await renderLogin({ ...ON });
-    expect(html).not.toContain(demoLogins.divider);
-    expect(html).toContain(login.submit);
+    for (const account of DEMO_ACCOUNTS) expect(html).toContain(account.email);
+    expect(html.split(DEMO_SHARED_PASSWORD).length - 1).toBe(3);
+    expect(html.split(demoLogins.shared).length - 1).toBe(1);
   });
 
-  it("selects by the shared config, so an empty value counts as unset", () => {
-    expect(visibleDemoLogins({ ...ON, ...PASSWORDS, DEMO_DIRECTOR_PASSWORD: "" })).toHaveLength(2);
-    expect(visibleDemoLogins({ ...ON, ...PASSWORDS })).toHaveLength(3);
+  it("offers all three whatever the environment carries, because no card needs a value from it", () => {
+    expect(visibleDemoLogins({ ...ON })).toHaveLength(3);
+    expect(visibleDemoLogins({ ...ON, ...RETIRED_ENV, ...OTHER_ENV })).toHaveLength(3);
+    expect(visibleDemoLogins({})).toHaveLength(0);
+  });
+
+  it("is the same password the seed and the migration hash", () => {
+    const seed = readFileSync(path.join(__dirname, "..", "..", "auth", "seed.ts"), "utf8");
+    expect(seed).toMatch(/bcrypt\.hash\(DEMO_SHARED_PASSWORD, 12\)/);
+    // The hash itself is pinned against PGlite in src/db/demo-password.test.ts; here we only
+    // hold that neither surface carries a second, typed-out copy of the password.
+    expect(seed).not.toContain(`"${DEMO_SHARED_PASSWORD}"`);
   });
 });
 
-describe("only the three demo passwords reach the page", () => {
-  it("renders the three passwords and no other env value", async () => {
-    const html = await renderLogin({ ...ON, ...PASSWORDS, ...OTHER_ENV });
-    for (const password of Object.values(PASSWORDS)) expect(html).toContain(password);
+describe("the shared password is on the page; nothing from the environment is", () => {
+  it("renders the shared password and no env value at all", async () => {
+    const html = await renderLogin({ ...ON, ...OTHER_ENV });
+    expect(html).toContain(DEMO_SHARED_PASSWORD);
     const leaked = Object.entries(process.env)
-      .filter(([name, value]) => {
-        if (value === undefined || value.length < 8) return false;
-        if (DEMO_PASSWORD_ENV_NAMES.includes(name)) return false;
-        return html.includes(value);
-      })
+      .filter(([, value]) => value !== undefined && value.length >= 8 && html.includes(value))
       .map(([name]) => name);
     expect(leaked).toEqual([]);
   });
 
   it("names no env var on screen, and never the word the flags are spelled with", async () => {
-    const html = await renderLogin({ ...ON, ...PASSWORDS, ...OTHER_ENV });
-    for (const name of [...DEMO_PASSWORD_ENV_NAMES, ...Object.keys(OTHER_ENV), "DEMO_MODE", "APP_DATA_CLASS"]) {
+    const html = await renderLogin({ ...ON, ...OTHER_ENV });
+    for (const name of [...Object.keys(OTHER_ENV), "DEMO_MODE", "APP_DATA_CLASS"]) {
       expect(html).not.toContain(name);
     }
     expect(html).not.toContain("DEMO_");
@@ -235,18 +243,26 @@ describe("only the three demo passwords reach the page", () => {
     expect(CARDS).not.toMatch(/process\.env|passwordEnv/);
   });
 
-  it("hardcodes no password anywhere in the feature", () => {
+  it("writes the shared password in one place: the demo-accounts config", () => {
     const config = readFileSync(path.join(__dirname, "..", "..", "auth", "demo-accounts.ts"), "utf8");
-    for (const source of [config, PAGE, CARDS, FILL]) {
-      for (const password of Object.values(PASSWORDS)) expect(source).not.toContain(password);
-      expect(source).not.toMatch(/password: "/);
+    const copySource = readFileSync(path.join(__dirname, "..", "..", "ui", "copy.ts"), "utf8");
+    const LIST = readFileSync(path.join(__dirname, "demo-logins.ts"), "utf8");
+    const quoted = `"${DEMO_SHARED_PASSWORD}"`;
+    expect(config.split(quoted).length - 1).toBe(1);
+    // Not in the page, the cards, the fill, the list that builds them, or the copy file: they
+    // all take the value from the config, so a change there is a change everywhere.
+    for (const source of [PAGE, CARDS, FILL, LIST, copySource]) expect(source).not.toContain(quoted);
+    // The retired env values are still nowhere in the feature either.
+    for (const source of [config, PAGE, CARDS, FILL, LIST]) {
+      for (const value of Object.values(RETIRED_ENV)) expect(source).not.toContain(value);
+      expect(source).not.toContain("passwordEnv");
     }
   });
 });
 
 describe("a card fills the form and never submits it", () => {
   it("is a type=button, next to the one submit", async () => {
-    const html = await renderLogin({ ...ON, ...PASSWORDS });
+    const html = await renderLogin({ ...ON });
     expect(html.match(/type="button"/g)).toHaveLength(3);
     expect(html.match(/type="submit"/g)).toHaveLength(1);
     expect(CARDS).toMatch(/type="button"/);
@@ -254,15 +270,15 @@ describe("a card fills the form and never submits it", () => {
 
   it("puts the account in the two fields and moves focus to Sign in", () => {
     const fields = fieldsSpy();
-    const announcement = fillLoginForm(fields.fields, visibleDemoLogins({ ...ON, ...PASSWORDS })[0]);
+    const announcement = fillLoginForm(fields.fields, visibleDemoLogins({ ...ON })[0]);
     expect(fields.email.value).toBe("director@example.com");
-    expect(fields.password.value).toBe(PASSWORDS.DEMO_DIRECTOR_PASSWORD);
+    expect(fields.password.value).toBe(DEMO_SHARED_PASSWORD);
     expect(fields.focused).toBe(1);
     expect(announcement).toBe("Director account filled");
   });
 
   it("announces the role that was actually filled, for each role", () => {
-    for (const account of visibleDemoLogins({ ...ON, ...PASSWORDS })) {
+    for (const account of visibleDemoLogins({ ...ON })) {
       const fields = fieldsSpy();
       const title = demoLogins.roles[account.role].title;
       expect(fillLoginForm(fields.fields, account)).toBe(`${title} account filled`);
@@ -272,7 +288,7 @@ describe("a card fills the form and never submits it", () => {
 
   it("survives a form that is missing a field, rather than throwing on a click", () => {
     const empty: LoginFormFields = { email: null, password: null, submit: null };
-    expect(fillLoginForm(empty, visibleDemoLogins({ ...ON, ...PASSWORDS })[0])).toBe(
+    expect(fillLoginForm(empty, visibleDemoLogins({ ...ON })[0])).toBe(
       "Director account filled",
     );
   });
@@ -285,7 +301,7 @@ describe("a card fills the form and never submits it", () => {
 
 describe("the ear gets the same page as the eye (§9)", () => {
   it("gives each button an accessible name carrying its role", async () => {
-    const html = await renderLogin({ ...ON, ...PASSWORDS });
+    const html = await renderLogin({ ...ON });
     for (const title of TITLES) {
       expect(html).toContain(`aria-label="${fill(demoLogins.useRole, { role: title })}"`);
     }
@@ -293,20 +309,20 @@ describe("the ear gets the same page as the eye (§9)", () => {
   });
 
   it("announces the fill in a polite live region that is in the markup from the start", async () => {
-    const html = await renderLogin({ ...ON, ...PASSWORDS });
+    const html = await renderLogin({ ...ON });
     expect(html).toMatch(/class="srOnly" role="status" aria-live="polite"/);
     expect(html.match(/aria-live="polite"/g)).toHaveLength(1);
   });
 
   it("labels the section with the divider text and hides the icons from the reader", async () => {
-    const html = await renderLogin({ ...ON, ...PASSWORDS });
+    const html = await renderLogin({ ...ON });
     expect(html).toMatch(/<section class="[^"]*" aria-labelledby="[^"]+">/);
     expect(html).toContain(demoLogins.divider);
     expect(html.match(/aria-hidden="true"/g)).toHaveLength(3);
   });
 
   it("labels each credential, so a value is never read without saying which field it is", async () => {
-    const html = await renderLogin({ ...ON, ...PASSWORDS });
+    const html = await renderLogin({ ...ON });
     expect(html.match(new RegExp(`>${demoLogins.emailLabel}</dt>`, "g"))).toHaveLength(3);
     expect(html.match(new RegExp(`>${demoLogins.passwordLabel}</dt>`, "g"))).toHaveLength(3);
   });

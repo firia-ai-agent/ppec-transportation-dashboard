@@ -30,9 +30,10 @@ async function doLogin(formData: FormData) {
  * the fields, wired with aria-describedby. The message never says which half was wrong.
  *
  * Under the button, on a demo deployment, the three synthetic accounts as cards (founder
- * decision, DECISION-LEDGER row 57). The passwords are read here, server-side, per request —
- * `visibleDemoLogins` reads only the three env vars the shared demo-accounts config names, and
- * returns an empty list wherever the demo flags are off, which is what makes the cards vanish.
+ * decision, DECISION-LEDGER rows 57 and 59), each with its email and the one shared password.
+ * The list is built here, server-side, per request: `visibleDemoLogins` reads the two demo
+ * flags out of the environment and returns an empty list wherever either is off, which is what
+ * makes the cards vanish. No other environment value reaches this page.
  */
 export default async function LoginPage({
   searchParams,

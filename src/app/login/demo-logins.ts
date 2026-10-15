@@ -1,4 +1,4 @@
-import { DEMO_ACCOUNTS, type DemoAccountIcon, type DemoRole } from "@/auth/demo-accounts";
+import { DEMO_ACCOUNTS, DEMO_SHARED_PASSWORD, type DemoAccountIcon, type DemoRole } from "@/auth/demo-accounts";
 import { showDemoLogins } from "@/lib/env";
 
 /**
@@ -14,24 +14,25 @@ export type DemoLogin = {
 };
 
 /**
- * The demo accounts this deployment may offer, read from the environment server-side at render
- * time (/login is `force-dynamic`, so this runs per request and never gets baked into a build).
+ * The demo accounts this deployment may offer: the three in `DEMO_ACCOUNTS`, each with the one
+ * shared password (`DEMO_SHARED_PASSWORD`, founder decision, DECISION-LEDGER row 59), or none
+ * at all. Both switches, or nothing: the demo controls on AND synthetic data (ADR-014,
+ * ADR-015), asked as one question of src/lib/env.ts. The tests in login.test.ts hold that.
  *
- * Three rules, and the tests in login.test.ts hold each of them:
- *  - both switches, or nothing: demo controls on AND synthetic data (ADR-014, ADR-015);
- *  - only the three `DEMO_*_PASSWORD` values named by `DEMO_ACCOUNTS` are ever read — the lookup
- *    is by that list, so no other variable can reach the page even if one were named here;
- *  - an account whose password is unset is skipped, because a card that cannot sign anyone in
- *    is worse than no card.
+ * Nothing is read from the environment here any more. Row 59 replaced the three
+ * `DEMO_*_PASSWORD` env vars with one value that lives in config and is printed on screen on
+ * purpose, so there is no secret to fetch and no card that can appear without a password —
+ * either the flags are on and all three are offered, or the page is the plain form. The `env`
+ * argument is still the whole environment, because the flags are read from it.
  */
 export function visibleDemoLogins(
   env: Record<string, string | undefined> = process.env,
 ): DemoLogin[] {
   if (!showDemoLogins(env)) return [];
-  return DEMO_ACCOUNTS.flatMap((account) => {
-    const password = env[account.passwordEnv];
-    return password
-      ? [{ role: account.role, email: account.email, password, icon: account.icon }]
-      : [];
-  });
+  return DEMO_ACCOUNTS.map((account) => ({
+    role: account.role,
+    email: account.email,
+    password: DEMO_SHARED_PASSWORD,
+    icon: account.icon,
+  }));
 }
