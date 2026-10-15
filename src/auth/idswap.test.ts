@@ -84,21 +84,48 @@ beforeEach(async () => {
   await db.query("UPDATE ops.app_user SET disabled_at = now() WHERE id = $1", [USERS.DISABLED_DIRECTOR]);
 }, 60_000);
 
-/** The read-side guard's answer, as a status code, the way a handler maps it. */
-async function readStatus(userId: string | undefined, siteId: string): Promise<number> {
+/** The read-side guard's answer: the status a handler maps it to, and the words behind the throw. */
+async function read(userId: string | undefined, siteId: string): Promise<{ status: number; message: string }> {
   try {
     await requireSiteAccess(db, userId, siteId, WRITE_ROLES);
-    return 200;
+    return { status: 200, message: "" };
   } catch (e) {
-    if (e instanceof Unauthenticated) return 401;
-    if (e instanceof SiteNotFound) return 404;
-    if (e instanceof Forbidden) return 403;
+    const message = e instanceof Error ? e.message : String(e);
+    if (e instanceof Unauthenticated) return { status: 401, message };
+    if (e instanceof SiteNotFound) return { status: 404, message };
+    if (e instanceof Forbidden) return { status: 403, message };
     throw e;
   }
 }
 
-const writeStatus = async (userId: string | undefined, siteId: string) =>
-  (await handleDemoReset(db, env, { userId, siteId, now: NOW })).status;
+const readStatus = async (userId: string | undefined, siteId: string) => (await read(userId, siteId)).status;
+
+const write = (userId: string | undefined, siteId: string) =>
+  handleDemoReset(db, env, { userId, siteId, now: NOW });
+
+const writeStatus = async (userId: string | undefined, siteId: string) => (await write(userId, siteId)).status;
+
+/** Every id in this test and every user in it: nothing a refusal may hand back. */
+const ALL_IDS = [SITE, SITE_B, RANDOM, NONEXISTENT, ...Object.values(USERS)];
+
+/**
+ * The other half of a denied cell: what came back with the status.
+ *
+ * A 404 that names the id it refused tells the person guessing ids that this one is real, and a
+ * 403 that names the role that would have worked tells them which account to go after. So every
+ * refused cell's body is held to one plain sentence in the `{ ok, error }` shape every endpoint
+ * uses, with no id (not even the one the request named), no role key, no table or column name,
+ * no status code and no markup — an API refusal is never a page.
+ */
+function expectNothingLeaked(cell: string, body: unknown, named: string) {
+  const text = JSON.stringify(body);
+  expect({ cell, keys: Object.keys(body as object).sort() }).toEqual({ cell, keys: ["error", "ok"] });
+  expect({ cell, text }).toEqual({ cell, text: expect.not.stringContaining(named) });
+  for (const id of ALL_IDS) expect({ cell, id, text }).toEqual({ cell, id, text: expect.not.stringContaining(id) });
+  expect(text, cell).not.toMatch(/DIRECTOR|COORDINATOR|FRONT_DESK/);
+  expect(text, cell).not.toMatch(/site_membership|app_user|ops\.|SELECT|INSERT|[<>]/i);
+  expect(text, cell).not.toMatch(/\b(400|401|403|404)\b/);
+}
 
 const childCount = async () =>
   (await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.child_profile", [])).rows[0].n;
@@ -119,9 +146,17 @@ describe("the matrix: every role against every target, read and write", () => {
     ["director at site B", USERS.DIRECTOR_B, { "own site": 404, "the other site": 200, "a random id": 404, "an id that exists nowhere": 404 }],
     ["a user with no membership anywhere", USERS.OUTSIDER, { "own site": 404, "the other site": 404, "a random id": 404, "an id that exists nowhere": 404 }],
     ["a disabled director", USERS.DISABLED_DIRECTOR, { "own site": 401, "the other site": 401, "a random id": 401, "an id that exists nowhere": 401 }],
-  ] as const)("%s, reading", async (_who, userId, expected) => {
+  ] as const)("%s, reading", async (who, userId, expected) => {
     for (const [name, target] of TARGETS) {
-      expect({ name, status: await readStatus(userId, target()) }).toEqual({ name, status: expected[name] });
+      const answer = await read(userId, target());
+      expect({ name, status: answer.status }).toEqual({ name, status: expected[name] });
+      /*
+       * The read guard throws rather than returning a body, and the handlers map the throw onto
+       * the words in src/ui/copy.ts — but the message is what a log line and a stack keep, so it
+       * names no id and no role either.
+       */
+      for (const id of ALL_IDS) expect({ who, name, message: answer.message }).toEqual({ who, name, message: expect.not.stringContaining(id) });
+      expect(answer.message, `${who} reading ${name}`).not.toMatch(/DIRECTOR|COORDINATOR|FRONT_DESK/);
     }
   });
 
@@ -132,9 +167,11 @@ describe("the matrix: every role against every target, read and write", () => {
     ["director at site B", USERS.DIRECTOR_B, { "own site": 404, "the other site": 200, "a random id": 404, "an id that exists nowhere": 404 }],
     ["a user with no membership anywhere", USERS.OUTSIDER, { "own site": 404, "the other site": 404, "a random id": 404, "an id that exists nowhere": 404 }],
     ["a disabled director", USERS.DISABLED_DIRECTOR, { "own site": 401, "the other site": 401, "a random id": 401, "an id that exists nowhere": 401 }],
-  ] as const)("%s, writing", async (_who, userId, expected) => {
+  ] as const)("%s, writing", async (who, userId, expected) => {
     for (const [name, target] of TARGETS) {
-      expect({ name, status: await writeStatus(userId, target()) }).toEqual({ name, status: expected[name] });
+      const answer = await write(userId, target());
+      expect({ name, status: answer.status }).toEqual({ name, status: expected[name] });
+      if (answer.status !== 200) expectNothingLeaked(`${who} writing ${name}`, answer.body, target());
     }
     /*
      * A refusal is a refusal, not a partial write. Site B's director has one allowed cell in
@@ -219,28 +256,34 @@ describe("the same swap, sent straight to the endpoint", () => {
     return POST(new Request("https://example.test/reset", { method: "POST", body: JSON.stringify(body) }));
   }
 
+  /** Status, headers and body on one refused HTTP call: the whole answer a `curl` would see. */
+  async function expectRefusedOverHttp(res: Response, status: number, named: string, cell: string) {
+    expect({ cell, status: res.status }).toEqual({ cell, status });
+    expect(res.headers.get("content-type")).toMatch(/application\/json/);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expectNothingLeaked(cell, await res.json(), named);
+    // Nothing written on a refused attempt, whichever refusal it was.
+    expect({ cell, children: await childCount() }).toEqual({ cell, children: 0 });
+  }
+
   it("a director naming another site's id over HTTP gets 404 and writes nothing", async () => {
     const res = await post(USERS.DIRECTOR_A, "DIRECTOR", { siteId: SITE_B });
-    expect(res.status).toBe(404);
-    expect(await childCount()).toBe(0);
-    expect(JSON.stringify(await res.json())).not.toContain(SITE_B);
+    await expectRefusedOverHttp(res, 404, SITE_B, "director at A naming site B");
   });
 
   it("a coordinator naming their own site's id over HTTP gets 403 and writes nothing", async () => {
     const res = await post(USERS.COORDINATOR_A, "COORDINATOR", { siteId: SITE });
-    expect(res.status).toBe(403);
-    expect(await childCount()).toBe(0);
+    await expectRefusedOverHttp(res, 403, SITE, "coordinator naming their own site");
   });
 
   it("a signed-out caller gets 401, body or no body", async () => {
-    expect((await post(undefined, null, { siteId: SITE })).status).toBe(401);
-    expect((await post(undefined, null, {})).status).toBe(401);
-    expect(await childCount()).toBe(0);
+    await expectRefusedOverHttp(await post(undefined, null, { siteId: SITE }), 401, SITE, "signed out, id named");
+    await expectRefusedOverHttp(await post(undefined, null, {}), 401, SITE, "signed out, no id");
   });
 
   it("a malformed id is a 400 before anything is looked up, and not a 500", async () => {
     const res = await post(USERS.DIRECTOR_A, "DIRECTOR", { siteId: "not-a-uuid" });
-    expect(res.status).toBe(400);
-    expect(await childCount()).toBe(0);
+    // The id it refused is not echoed back either, malformed or not.
+    await expectRefusedOverHttp(res, 400, "not-a-uuid", "director with a malformed id");
   });
 });
