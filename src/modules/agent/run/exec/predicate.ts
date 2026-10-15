@@ -14,7 +14,8 @@
  *  - **coded** (`kind:STATE`, e.g. `message:IN`, `outbound:SENT|DELIVERED`) — what the agent writes
  *    on the tasks it raises for *itself*: the 15-minute clarification wait is satisfied by an
  *    inbound message in this site, a therapist ack wait by that acknowledgment reaching
- *    ACKNOWLEDGED. Five kinds, each a table whose state column the evidence is read against.
+ *    ACKNOWLEDGED, a capability request by the vehicle-day reaching REPORTED. Six kinds, each a
+ *    table whose state column the evidence is read against.
  *
  * The evidence is always a row id, never a description, and it is read back from the database at
  * close time — so "evidence" means a thing that happened, not a claim that it did.
@@ -28,6 +29,8 @@ export const PREDICATE_INBOUND_REPLY = "message:IN";
 export const PREDICATE_MESSAGE_SENT = "outbound:SENT|DELIVERED";
 /** An awaited acknowledgment came back. */
 export const PREDICATE_ACK_CLOSED = "ack:ACKNOWLEDGED|DECLINED";
+/** §11.2 `request_provider_capability`: the provider answered about the vehicle. */
+export const PREDICATE_CAPABILITY_REPORTED = "capability:REPORTED|VERIFIED";
 
 /** `kind` → the table and the column the evidence's state is read from. */
 const EVIDENCE_SOURCES: Readonly<Record<string, { table: string; column: string }>> = {
@@ -35,6 +38,7 @@ const EVIDENCE_SOURCES: Readonly<Record<string, { table: string; column: string 
   message: { table: "ops.message", column: "direction" },
   outbound: { table: "ops.outbound_message", column: "state" },
   ack: { table: "ops.acknowledgment", column: "state" },
+  capability: { table: "ops.vehicle_capability_day", column: "state" },
   leg: { table: "ops.trip_leg", column: "state" },
   attendance: { table: "ops.attendance_day", column: "state" },
 };

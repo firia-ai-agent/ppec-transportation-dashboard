@@ -856,6 +856,12 @@ export const agentTasks = {
     nextStep: "Read the thread and decide what happens next.",
     predicate: "staff resolved what the agent escalated and recorded the outcome",
   },
+  /** §11.2 request_provider_capability: a provider with no dispatcher contact point to ask. */
+  noDispatcherContact: {
+    summary: "A provider has no dispatcher contact point, so the vehicle cannot be asked about",
+    nextStep: "Call the provider for the vehicle's equipment, then record what they said.",
+    predicate: "the vehicle's equipment confirmed with the provider and recorded",
+  },
   /** §11.2 propose_contact_or_profile_change: "change request + exception". */
   proposedContactChange: {
     summary: "A family asked for a change the agent may not make",
@@ -919,6 +925,8 @@ export const agentWaits = {
   clarification: "Waiting for the family to say which child or which ride they mean",
   /** §11.2 notify_affected_therapist / AT-14: the ten-minute acknowledgment. */
   therapistAck: "Waiting for the therapist to acknowledge a change to a child's session",
+  /** §11.2 request_provider_capability: the dispatcher's answer about a vehicle. */
+  capabilityReport: "Waiting for the provider to confirm what a vehicle can carry today",
 } as const;
 
 /**

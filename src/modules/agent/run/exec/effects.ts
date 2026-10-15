@@ -27,6 +27,24 @@ import { sha256Hex } from "../../redact";
 import type { ToolExecution } from "../executors";
 import { runActor, type CommittedCall } from "../store";
 
+/**
+ * Who mints a single-use dispatcher link (ADR 5.6, §11.2 `request_provider_capability`: "signed
+ * dispatcher link").
+ *
+ * Only the **hash** comes back, because that is all `ops.dispatcher_link.token_hash` holds and all
+ * ops is allowed to hold: the token itself is the signer's to deliver, exactly as a phone number is
+ * the identity gateway's. It has to be deterministic in `linkId` for the same reason every other
+ * effect here is keyed on the call's idempotency key — a re-driven call recomputes the same hash,
+ * so the insert is a no-op instead of a second live link.
+ *
+ * There is **no implementation in P1**: the link page and its signing key are a later milestone, so
+ * a deployment configures none and the executor records the link as an intent rather than inventing
+ * a token (`exec/capability.ts`). Supplying one is what turns the intent into a row.
+ */
+export type DispatcherLinkSigner = {
+  sign(a: { linkId: string; siteId: string; expiresAt: Date }): Promise<{ tokenHash: string }>;
+};
+
 /** What the live executors are built over. One instance per server process (or per test). */
 export type ExecutorDeps = {
   readonly db: Db;
@@ -34,6 +52,8 @@ export type ExecutorDeps = {
   readonly scheduler: JobScheduler;
   /** The outbox's wake-up transport: `enqueue` publishes on it after commit (ADR-003). */
   readonly transport: OutboxTransport;
+  /** Optional, and absent in P1 — see `DispatcherLinkSigner`. */
+  readonly linkSigner?: DispatcherLinkSigner;
 };
 
 /**

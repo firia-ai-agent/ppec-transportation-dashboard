@@ -15,6 +15,7 @@
 import type { ToolExecutors } from "../executors";
 import { TOOL_NAMES } from "../../tools";
 import { cancelAttendanceOrLegExecutor } from "./cancel";
+import { requestProviderCapabilityExecutor } from "./capability";
 import { recordAcknowledgmentExecutor, requestClarificationExecutor } from "./clarify";
 import type { ExecutorDeps } from "./effects";
 import { sendFollowupExecutor } from "./followup";
@@ -35,6 +36,7 @@ export function liveExecutors(deps: ExecutorDeps): ToolExecutors {
     record_acknowledgment: recordAcknowledgmentExecutor(deps),
     send_followup: sendFollowupExecutor(deps),
     notify_affected_therapist: notifyAffectedTherapistExecutor(deps),
+    request_provider_capability: requestProviderCapabilityExecutor(deps),
     escalate_exception: escalateExceptionExecutor(deps),
     close_task: closeTaskExecutor(deps),
   };
@@ -54,7 +56,6 @@ export function liveProposalWriter(deps: ExecutorDeps): ProposalWriter {
  * and each is a row in B08-SLICE1-DEFERRED.md.
  */
 export const SEQUENCED_EXECUTORS: readonly string[] = [
-  "request_provider_capability",
   "record_capability_report",
   "report_boarding",
   "summarize_thread_for_staff",
