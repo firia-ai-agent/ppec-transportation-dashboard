@@ -89,6 +89,21 @@ Modules (folders under `src/modules/*`; each owns its tables, exports a service 
 
 Every write path goes: **authorize (role × site × object) → load with version → `transition()` guarded update → outbox/event_log/audit rows → commit**, in one interactive transaction (Neon WebSocket `Pool` per request, closed with `after()`, per Neon serverless driver docs).
 
+### 2.1 The agent seam (`src/modules/agent`, B-08 slice 1)
+
+Four files, in the order a run passes through them. Nothing else in the app may reach a model.
+
+| File | What it is | The PRD line it implements |
+|---|---|---|
+| `config.ts` | the **only** place the vendor is named: provider, model id, endpoint allow-list, data mode, rate limits, and the *name* of the env var that would hold the key. One zod schema, `src/lib/env.ts` pattern; every knob optional with an ADR-000 default, so CI and tests need no environment and no key. | §11.2 gateway contract; ADR-000 #4/#12 (OpenRouter, Claude Sonnet, `zdr:true`) |
+| `gateway.ts` | `LlmGateway` + `createGateway(provider, config)`: `redact()`, `validatePromptTokensOnly()` (fails closed on E.164, address patterns and untokenized names — logs a hash only), endpoint allow-list, `vendorAttestation{provider, model, region, baa_version, retention_confirmation_id}` required in PHI mode, rate limits, and a per-call audit row of hashes, ids and codes. Resolves only with **one** schema-valid call to a catalog tool; free text, a batch, an unknown tool and invalid args are each a distinct refusal. | §11.2 "LLM gateway contract" (l.993), TEST-SEC-01 |
+| `tools.ts` | the 15 §11.2 tools as zod schemas with tier `auto`/`human`, exposed to a provider as JSON Schema. No schema takes a recipient, phone, address or permission argument; `tools.test.ts` walks every property at every depth to keep it that way. Outbound copy is an outbox template id plus outbox-allow-listed vars — this module owns no body and no var rule. | §11.2 tool catalog + "schema-only tools with no recipient/permission args" |
+| `policy.ts` | one rule per §11.2 "Prohibited" item, evaluated on an accepted call: prohibited actions the catalog deliberately lacks, staff-only state claims, raw recipients, free text to parents, consent, the family-scope post-validator, clinical advice, attendance persuasion, T3-as-instruction, paused. Human-tier tools return a **proposal** that mutates nothing; T3 is wrapped in `<untrusted_user_message>`; "also text…/new number/I'm the new guardian" raises an `identity_change_request` task. A block is a logged decision, not an exception. | §11.2 Prohibited + injection defenses, AGT-02 |
+
+Providers are transports only — they do not redact, validate, audit or interpret, so a new vendor adapter cannot forget any of it. Slice 1 ships `FakeProvider` (scripted, deterministic) and `RecordedProvider` (replays a cassette keyed by prompt hash; a miss throws rather than falling back), plus `remote.ts` as a typed placeholder: the live OpenRouter call is a body for one `invoke()` and a key the founder supplies, and no test or build needs either. `fixtures/attacks.ts` holds the AT-09 / TEST-SEC-01 red-team set, driven through the real gateway and the real policy engine with a send sink that must stay empty.
+
+What this slice does **not** include: the run loop, tier assembly from the database, `agent_run`/`agent_tool_call` persistence, and any live vendor call. Those are the later B-08 slices and plug in above the gateway, not through it.
+
 ## 3. Core flows (sequence diagrams)
 
 ### 3.1 Inbound message → resolve → agent → state → outbox → notify (demo step 2)
