@@ -120,8 +120,12 @@ describe("§11.2: no recipient, phone or permission arguments, at any depth", ()
     }
   });
 
-  it("names the three forbidden classes from §11.2", () => {
-    expect(Object.keys(FORBIDDEN_ARG_TOKENS).sort()).toEqual(["address", "permission", "recipient"]);
+  it("names the three forbidden classes from §11.2, plus the tenant rule they imply", () => {
+    expect(Object.keys(FORBIDDEN_ARG_TOKENS).sort()).toEqual(["address", "permission", "recipient", "tenant"]);
+    // The run's site comes from the session, never from an argument (VERI-3, site-scope.test.ts).
+    for (const bad of ["site", "site_token", "siteId", "tenant", "organization_token"]) {
+      expect(forbiddenArgReason(bad), bad).not.toBeNull();
+    }
   });
 });
 

@@ -5,11 +5,12 @@
 import { describe, expect, it } from "vitest";
 import { TOOL_NAMES } from "./tools";
 import {
+  POLICY_ROWS,
   POLICY_RULES,
-  SCOPED_ARG_FIELDS,
   UNTRUSTED_CLOSE,
   UNTRUSTED_OPEN,
   type PolicyContext,
+  approvalKey,
   decisionSends,
   detectInjection,
   evaluate,
@@ -26,6 +27,10 @@ const SCOPE = familyScope(
   ["C1", "L-C1-AM", "L-C1-PM", "TH-F1", "ACK-1", "TK-1", "MSG-1", "SESS-C1"],
   ["V1", "P1", "R1"],
 );
+
+/** Approval keys for calls a human has signed off, the way the (later) approval surface would. */
+const approvals = (...calls: readonly [string, Record<string, unknown>][]): ReadonlySet<string> =>
+  new Set(calls.map(([tool, args]) => approvalKey(tool, args)));
 
 const ctx = (overrides: Partial<PolicyContext> = {}): PolicyContext => ({
   scope: SCOPE,
@@ -66,10 +71,13 @@ describe("the happy paths the agent is for", () => {
     expect(decisionSends(d)).toBe(false);
   });
 
-  it("allows a templated follow-up to a consented family", () => {
+  it("holds a templated follow-up to a consented family until a human approves it", () => {
     const d = evaluate({ tool: "send_followup", args: SEND }, ctx());
-    expect(d.verdict).toBe("ALLOW");
-    expect(decisionSends(d)).toBe(true);
+    expect(d).toMatchObject({ verdict: "PROPOSAL", rule: "send_requires_approval", mutates: false });
+    expect(decisionSends(d)).toBe(false);
+    const approved = evaluate({ tool: "send_followup", args: SEND }, ctx({ approvedCalls: approvals(["send_followup", SEND]) }));
+    expect(approved.verdict).toBe("ALLOW");
+    expect(decisionSends(approved)).toBe(true);
   });
 
   it("allows a read with no context at all", () => {
@@ -226,9 +234,10 @@ describe("§11.2 injection defense: the family-scope post-validator", () => {
       path: "leg_id",
       token: "L-C2-AM",
       foreign: true,
+      crossSite: false,
     });
     expect(validateFamilyScope({ tool: "get_leg_state", args: { leg_id: "L-C9-AM" } }, ctx())).toEqual([
-      { path: "leg_id", token: "L-C9-AM", foreign: false },
+      { path: "leg_id", token: "L-C9-AM", foreign: false, crossSite: false },
     ]);
   });
 
@@ -249,8 +258,8 @@ describe("§11.2 injection defense: the family-scope post-validator", () => {
     ).toEqual([]);
   });
 
-  it("has a scope declaration for every catalog tool", () => {
-    expect(Object.keys(SCOPED_ARG_FIELDS).sort()).toEqual([...TOOL_NAMES].sort());
+  it("has a scope declaration for every catalog tool (VERI-1 walks the rest of the row)", () => {
+    expect(Object.keys(POLICY_ROWS).sort()).toEqual([...TOOL_NAMES].sort());
   });
 });
 
@@ -388,9 +397,12 @@ describe("§11.2 injection defense: delimiters and identity_change_request", () 
 });
 
 describe("module invariants", () => {
-  it("names one rule per §11.2 prohibition plus the defenses", () => {
-    expect(POLICY_RULES).toHaveLength(17);
+  it("names one rule per §11.2 prohibition plus the defenses and the three structural rules", () => {
+    expect(POLICY_RULES).toHaveLength(20);
     expect(new Set(POLICY_RULES).size).toBe(POLICY_RULES.length);
+    expect(POLICY_RULES).toEqual(
+      expect.arrayContaining(["missing_policy_row", "cross_site_disclosure", "send_requires_approval"]),
+    );
   });
 
   it("sanitizeStaffText touches only the declared prose fields", () => {
@@ -404,9 +416,11 @@ describe("module invariants", () => {
     expect(sanitizeStaffText("get_leg_state", readArgs)).toBe(readArgs);
   });
 
-  it("decisionSends is true only for an allowed sending tool", () => {
-    expect(decisionSends(evaluate({ tool: "send_followup", args: SEND }, ctx()))).toBe(true);
-    expect(decisionSends(evaluate({ tool: "cancel_attendance_or_leg", args: CANCEL }, ctx()))).toBe(false);
+  it("decisionSends is true only for an approved, allowed sending tool", () => {
+    const approved = ctx({ approvedCalls: approvals(["send_followup", SEND]) });
+    expect(decisionSends(evaluate({ tool: "send_followup", args: SEND }, approved))).toBe(true);
+    expect(decisionSends(evaluate({ tool: "send_followup", args: SEND }, ctx()))).toBe(false);
+    expect(decisionSends(evaluate({ tool: "cancel_attendance_or_leg", args: CANCEL }, approved))).toBe(false);
     expect(decisionSends(evaluate({ tool: "send_followup", args: SEND }, ctx({ paused: true })))).toBe(false);
   });
 });

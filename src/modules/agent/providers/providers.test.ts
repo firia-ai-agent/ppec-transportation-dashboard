@@ -108,9 +108,12 @@ describe("RecordedProvider", () => {
   });
 });
 
+/** A placeholder key, so the wiring gate opens and `invoke()` is what refuses. Never a real one. */
+const KEY_ENV = { [CONFIG.apiKeyEnvVar]: "test-key" };
+
 describe("remote provider placeholder", () => {
   it("is typed, declares the key by env var name, and refuses to run in slice 1", async () => {
-    const provider = remoteProvider(CONFIG);
+    const provider = remoteProvider(CONFIG, KEY_ENV);
     expect(provider.kind).toBe("remote");
     expect(provider.vendor).toBe("openrouter");
     expect(provider.endpoint).toBe(CONFIG.endpointAllowList[0]);
@@ -119,8 +122,9 @@ describe("remote provider placeholder", () => {
   });
 
   it("names the env var in the refusal and never a key value", async () => {
-    const provider = remoteProvider(CONFIG);
+    const provider = remoteProvider(CONFIG, KEY_ENV);
     await expect(provider.invoke(call(provider.endpoint))).rejects.toThrow(/\$OPENROUTER_API_KEY/);
+    await expect(provider.invoke(call(provider.endpoint))).rejects.not.toThrow(/test-key/);
   });
 });
 

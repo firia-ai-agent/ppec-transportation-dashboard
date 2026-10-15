@@ -345,7 +345,8 @@ export function toolDeclarations(names: readonly string[] = TOOL_NAMES) {
 /* ─────────────────────── the "no recipient/permission args" rule ─────────────────────── */
 
 /**
- * Argument-name tokens no tool schema may contain, split by why (§11.2 injection defenses).
+ * Argument-name tokens no tool schema may contain, split by why (§11.2 injection defenses, plus
+ * the tenant rule the same reasoning implies).
  * Matched against each `_`-separated piece of every property name at every depth, so
  * `guardian_phone`, `phones` and `toPhone` all fail. The test that walks the registry with this
  * list is the enforcement; this constant is just where the rule is written down.
@@ -362,6 +363,11 @@ export const FORBIDDEN_ARG_TOKENS: Readonly<Record<string, readonly string[]>> =
   // "overriding approvals; changing policies" is prohibited, so no argument may express either.
   permission: ["permission", "permissions", "scope", "scopes", "authorization", "authorized", "consent",
     "approval", "approve", "approved", "override", "role", "roles", "grant", "grants", "acl", "policy", "policies"],
+  // Not §11.2 text, but the same idea one level up: the *tenant* a run belongs to is decided by
+  // the session that started it and handed to the policy engine as `FamilyScope.siteToken`. If a
+  // tool took a site, an injected message could ask for another one, and the family-scope
+  // post-validator would be checking arguments against a scope the attacker chose.
+  tenant: ["site", "sites", "tenant", "tenants", "org", "orgs", "organization", "organizations"],
 };
 
 const FORBIDDEN_ARG_TOKEN_SET: ReadonlySet<string> = new Set(

@@ -28,8 +28,26 @@ export interface RemoteProvider extends LlmProvider {
   readonly apiKeyEnvVar: string;
 }
 
-export function remoteProvider(config: AgentConfig): RemoteProvider {
+/**
+ * Two gates, both closed in slice 1.
+ *
+ * The first is here, at wiring time: a deployment that selected the remote provider with no key
+ * in the environment gets a clear refusal naming the variable it is missing, rather than a
+ * provider object that looks usable and fails on the first family message. The key's *value* is
+ * never read beyond "is it there" — the live adapter will read it, once there is one to read.
+ *
+ * The second is `invoke()`, which refuses whatever the environment holds: slice 1 ships no HTTP.
+ */
+export function remoteProvider(
+  config: AgentConfig,
+  env: Record<string, string | undefined> = process.env,
+): RemoteProvider {
   const endpoint = config.endpointAllowList[0];
+  if ((env[config.apiKeyEnvVar] ?? "").trim() === "") {
+    throw new RemoteProviderNotEnabled(
+      `remote provider ${config.provider} is not configured: $${config.apiKeyEnvVar} is not set in this environment`,
+    );
+  }
   return {
     kind: "remote",
     vendor: config.provider,

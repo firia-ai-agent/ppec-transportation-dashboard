@@ -15,6 +15,7 @@
  *   free-text to parents without approval ...... free_text_to_parents (template + var allow-list)
  *   messaging non-consented numbers ............ non_consented_number (mirrors the egress re-check)
  *   cross-family disclosure .................... cross_family_disclosure (family-scope post-validator)
+ *   …and the tenant boundary under it .......... cross_site_disclosure (same validator, same 404)
  *   clinical advice ............................ clinical_advice
  *   attendance persuasion ...................... attendance_persuasion
  *   obeying T3 instructions .................... obey_t3_instruction
@@ -24,8 +25,15 @@
  * recipient/permission args (tools.ts), the family-scope post-validator (`validateFamilyScope`),
  * and "also text…/new number/I'm the new guardian" → identity_change_request (`triageInbound`).
  *
- * Two structural rules this module keeps:
+ * Four structural rules this module keeps:
+ *  - every catalog tool has a row in `POLICY_ROWS`, and a tool with no row — or with a row that
+ *    does not say how to consent-check its send — is denied (`missing_policy_row`). The table is
+ *    the authorization surface, so an undeclared tool must fail shut, not inherit a default;
  *  - a `human`-tier tool is always a proposal, never a mutation (§11.2 propose_* rows);
+ *  - nothing goes out to a family, a therapist or a driver without a human approval bound to that
+ *    exact call (`send_requires_approval`). §11.2 prohibits "free-text to parents without human
+ *    approval"; slice 1 gates *every* send, because the approval surface and the egress wiring
+ *    are later slices and an unapproved send would have nothing left to stop it;
  *  - every block is a decision object, never an exception: a blocked call is a normal, logged
  *    outcome that raises an exception row for staff (AGT-02: "out-of-policy tool call rejected +
  *    logged"), not a crash.
@@ -39,6 +47,7 @@ import { type ToolEffect, isRenderableTemplate, toolDef } from "./tools";
 
 export const POLICY_RULES = [
   "schema_only_tools",
+  "missing_policy_row",
   "edit_approved_profile",
   "add_contact_or_relationship",
   "raw_recipient_selection",
@@ -49,12 +58,14 @@ export const POLICY_RULES = [
   "change_policy",
   "free_text_to_parents",
   "non_consented_number",
+  "cross_site_disclosure",
   "cross_family_disclosure",
   "clinical_advice",
   "attendance_persuasion",
   "obey_t3_instruction",
   "send_while_paused",
   "human_tier_requires_approval",
+  "send_requires_approval",
 ] as const;
 
 export type PolicyRuleId = (typeof POLICY_RULES)[number];
@@ -75,10 +86,10 @@ export type PolicyDecision =
   | { readonly verdict: "ALLOW"; readonly tool: string; readonly effect: ToolEffect; readonly args: Record<string, unknown> }
   | {
       readonly verdict: "PROPOSAL";
-      readonly rule: "human_tier_requires_approval";
+      readonly rule: "human_tier_requires_approval" | "send_requires_approval";
       readonly tool: string;
       readonly args: Record<string, unknown>;
-      /** A proposal mutates nothing. Asserted in policy.test.ts for both human-tier tools. */
+      /** A proposal mutates nothing and sends nothing. Asserted for every human-tier and every sending tool. */
       readonly mutates: false;
       readonly requiresApproval: true;
     }
@@ -93,12 +104,16 @@ export type PolicyDecision =
 /* ──────────────────────────────────── context ──────────────────────────────────── */
 
 /**
- * What this run is allowed to touch. `tokens` is every family-scoped identifier the tier
+ * What this run is allowed to touch. A run belongs to exactly one site and one family: `siteToken`
+ * is the tenant the scope was built for, `tokens` is every family-scoped identifier the tier
  * assembly handed the model (its family, children, legs, threads, sessions, acks, tasks,
- * messages); `shared` is the non-family objects it may legitimately name (vehicles, providers,
- * routes). Anything else in a scoped argument is a cross-family reference.
+ * messages), and `shared` is the non-family objects *of that site* it may legitimately name
+ * (vehicles, providers, routes). Anything else in a scoped argument is a cross-family or
+ * cross-site reference, and neither is reachable: the model never names a site, so a scope is
+ * built from the caller's session, never from a tool argument (tools.FORBIDDEN_ARG_TOKENS.tenant).
  */
 export type FamilyScope = {
+  readonly siteToken: string;
   readonly familyToken: string;
   readonly tokens: ReadonlySet<string>;
   readonly shared: ReadonlySet<string>;
@@ -108,8 +123,16 @@ export type PolicyContext = {
   readonly scope: FamilyScope;
   /** Subjects whose authorized contacts have live consent right now (outbox/policy mirror). */
   readonly sendableSubjects: ReadonlySet<string>;
-  /** Tokens known to belong to *other* families. Used by the post-validator for a precise verdict. */
+  /** Tokens known to belong to *other* families in this site. Classification only — see `evaluate`. */
   readonly foreignTokens?: ReadonlySet<string>;
+  /** Tokens known to belong to *another site/tenant*. Classification only — the deny is identical. */
+  readonly foreignSiteTokens?: ReadonlySet<string>;
+  /**
+   * Approval keys (`approvalKey(tool, args)`) a human has signed off for this run. One key
+   * approves one exact call: an approval for yesterday's follow-up authorizes nothing today.
+   * Staff approval is a later B-08 slice, so in slice 1 this is empty everywhere but in tests.
+   */
+  readonly approvedCalls?: ReadonlySet<string>;
   /** T3 bodies in this run's context, as received (unwrapped). Evidence, never instructions. */
   readonly untrustedMessages?: readonly string[];
   /** True while the agent is paused for this site (ops kill switch). */
@@ -119,9 +142,42 @@ export type PolicyContext = {
   readonly sourceMessageId?: string | null;
 };
 
-/** A minimal scope, for tests and for a run that has resolved nothing yet. */
-export function familyScope(familyToken: string, tokens: readonly string[], shared: readonly string[] = []): FamilyScope {
-  return { familyToken, tokens: new Set([familyToken, ...tokens]), shared: new Set(shared) };
+/**
+ * A minimal scope, for tests and for a run that has resolved nothing yet. `siteToken` defaults to
+ * the one fixture site (ADR-000 #5, "S1" throughout the fixtures); a deployment builds the scope
+ * from the session's site, never from a default.
+ */
+export function familyScope(
+  familyToken: string,
+  tokens: readonly string[],
+  shared: readonly string[] = [],
+  siteToken = "S1",
+): FamilyScope {
+  return { siteToken, familyToken, tokens: new Set([familyToken, ...tokens]), shared: new Set(shared) };
+}
+
+/**
+ * The fingerprint a human approval is bound to. Canonical (keys sorted at every depth), so the
+ * same call fingerprints the same whatever order the vendor emitted its arguments in, and a
+ * different call — one changed token, one changed template — fingerprints differently.
+ *
+ * Keyed on the arguments as the model sent them, which is what `evaluate` sees on the next turn.
+ * (No sending tool has a prose field, so sanitization cannot move the key underneath an approval.)
+ */
+export function approvalKey(tool: string, args: Record<string, unknown>): string {
+  return sha256Hex(`${tool} ${JSON.stringify(canonicalize(args))}`);
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([k, v]) => [k, canonicalize(v)]),
+    );
+  }
+  return value;
 }
 
 /* ─────────────────── prohibited actions the catalog deliberately lacks ─────────────────── */
@@ -218,6 +274,9 @@ export type InjectionDirective =
 
 const DIRECTIVE_PATTERNS: readonly { readonly directive: InjectionDirective; readonly pattern: RegExp }[] = [
   { directive: "instruction_override", pattern: /\b(?:ignore|disregard|forget)\b[^.?!]{0,30}\b(?:previous|prior|above|earlier|all)\b[^.?!]{0,20}\b(?:instruction|instructions|rules|prompt|policy|policies)\b/i },
+  // Word order is the first thing an attacker varies: "forget the rules above" says the same
+  // thing as "ignore all previous instructions" and has to be read the same way.
+  { directive: "instruction_override", pattern: /\b(?:ignore|disregard|forget|override)\b[^.?!]{0,30}\b(?:instruction|instructions|rules|prompt|policy|policies|guideline|guidelines)\b/i },
   { directive: "instruction_override", pattern: /\b(?:you are now|from now on you|new system prompt|act as|system:|override your)\b/i },
   { directive: "instruction_override", pattern: /<\/?\s*(?:system|assistant|untrusted_user_message)\s*>/i },
   { directive: "recipient_redirect", pattern: /\balso\s+(?:text|message|txt|sms|notify|send)\b/i },
@@ -230,7 +289,7 @@ const DIRECTIVE_PATTERNS: readonly { readonly directive: InjectionDirective; rea
   },
   { directive: "disclosure_request", pattern: /\b(?:when|what time)\b[^.?!]{0,40}\b(?:the\s+)?(?:other|another|\w+'s)\s+(?:kid|kids|child|children|family|van)\b/i },
   { directive: "disclosure_request", pattern: /\b(?:who else|which (?:other )?(?:kids|children|families))\b/i },
-  { directive: "disclosure_request", pattern: /\b(?:list|tell me|send me|what(?:'s| is))\b[^.?!]{0,30}\b(?:roster|manifest|addresses|phone numbers|everyone)\b/i },
+  { directive: "disclosure_request", pattern: /\b(?:list|tell me|send me|give me|share|reply with|what(?:'s| is))\b[^.?!]{0,30}\b(?:roster|manifest|addresses|phone numbers|everyone)\b/i },
   { directive: "approval_request", pattern: /\b(?:approve|authorize|override|skip)\b[^.?!]{0,30}\b(?:it|this|the\s+\w+|approval|check|verification)\b/i },
   { directive: "approval_request", pattern: /\b(?:mark|set)\b[^.?!]{0,20}\b(?:verified|boarded|complete|completed|handed off)\b/i },
 ];
@@ -268,44 +327,64 @@ export function triageInbound(
   return { wrapped: wrapUntrusted(body), directives, tasks };
 }
 
-/* ──────────────────── which arguments are family-scoped / send subjects ──────────────────── */
+/* ──────────────────────────────── the policy rows ──────────────────────────────── */
 
 /**
- * Per tool, the arguments that name a family-scoped object. The post-validator checks exactly
- * these against the run's scope. Listed per tool rather than inferred from the name, so adding a
- * tool is a deliberate decision about scope — `policy.test.ts` fails if a catalog tool is missing
- * an entry, including an explicit empty one.
+ * One row per catalog tool: what the policy engine has to know about a tool that its schema
+ * cannot say. Written out per tool rather than inferred from names, so the sixteenth tool is a
+ * deliberate decision about scope and consent — and so a tool that arrives *without* that
+ * decision is refused rather than quietly checked against nothing (`missing_policy_row`).
  */
-export const SCOPED_ARG_FIELDS: Readonly<Record<string, readonly string[]>> = {
-  resolve_sender: ["message_id"],
-  get_leg_state: ["leg_id"],
-  cancel_attendance_or_leg: ["child_token"],
-  request_clarification: ["thread_id", "candidate_tokens"],
-  record_acknowledgment: ["ack_id", "source_message_id"],
-  send_followup: ["subject_token"],
-  notify_affected_therapist: ["therapy_session_token", "child_token"],
-  // Vehicles, providers and routes are center-wide, not family-scoped: nothing to check.
-  request_provider_capability: [],
-  record_capability_report: ["source_message_id"],
-  report_boarding: ["leg_id"],
-  propose_manifest_reallocation: ["leg_ids"],
-  propose_contact_or_profile_change: ["family_token", "source_message_id"],
-  escalate_exception: ["leg_id"],
-  close_task: ["task_id", "evidence_ref"],
-  summarize_thread_for_staff: ["thread_id"],
+export type PolicyRow = {
+  readonly tool: string;
+  /**
+   * The arguments that name a scoped object. The post-validator checks exactly these against the
+   * run's site/family scope. `[]` is a declaration ("this tool names nothing scoped"), not a gap.
+   */
+  readonly scopedArgs: readonly string[];
+  /**
+   * For a `send` tool, the argument naming the subject whose consent decides whether anything may
+   * go out; `null` for every tool that does not send. The outbox re-checks consent per contact at
+   * send time (outbox/policy); this is the earlier, cheaper refusal, so a suppressed family never
+   * even gets a queued message (demo step 10). A sending tool whose row leaves this null cannot be
+   * consent-checked, and is therefore refused.
+   */
+  readonly sendSubject: string | null;
+  /** Why the row looks like this. Read by whoever adds the next tool. */
+  readonly note: string;
 };
 
-/**
- * For each sending tool, the argument naming the subject whose consent decides whether anything
- * may go out. The outbox re-checks consent per contact at send time (outbox/policy); this is the
- * earlier, cheaper refusal so a suppressed family never even gets a queued message (demo step 10).
- */
-const SEND_SUBJECT_FIELD: Readonly<Record<string, string>> = {
-  send_followup: "subject_token",
-  notify_affected_therapist: "therapy_session_token",
-  request_clarification: "thread_id",
-  request_provider_capability: "provider_token",
-};
+const ROWS: readonly PolicyRow[] = [
+  { tool: "resolve_sender", scopedArgs: ["message_id"], sendSubject: null, note: "reads one message of this family's thread" },
+  { tool: "get_leg_state", scopedArgs: ["leg_id"], sendSubject: null, note: "a leg belongs to one child" },
+  { tool: "cancel_attendance_or_leg", scopedArgs: ["child_token"], sendSubject: null, note: "the date and day part are not objects" },
+  { tool: "request_clarification", scopedArgs: ["thread_id", "candidate_tokens"], sendSubject: "thread_id", note: "an outbound into a thread: the thread is the consent subject" },
+  { tool: "record_acknowledgment", scopedArgs: ["ack_id", "source_message_id"], sendSubject: null, note: "the ack row already binds its contact" },
+  { tool: "send_followup", scopedArgs: ["subject_token"], sendSubject: "subject_token", note: "audience is a role; the subject is what consent is checked on" },
+  { tool: "notify_affected_therapist", scopedArgs: ["therapy_session_token", "child_token"], sendSubject: "therapy_session_token", note: "the session is the therapist's side of the consent check" },
+  // Vehicles, providers and routes are center-wide rather than family-scoped — but they are still
+  // *this site's*: `scope.shared` holds one site's fleet, so they are checked like anything else.
+  // That is what closes the tenant boundary for an id the runtime cannot classify: an unknown
+  // vehicle is refused for not being in scope, without anyone having to know whose it is.
+  { tool: "request_provider_capability", scopedArgs: ["vehicle_token", "provider_token", "route_token"], sendSubject: "provider_token", note: "site-wide objects, still site-scoped; the dispatcher is the consent subject" },
+  { tool: "record_capability_report", scopedArgs: ["vehicle_token", "source_message_id"], sendSubject: null, note: "an observation about a site vehicle; `parsed` holds codes, not ids" },
+  { tool: "report_boarding", scopedArgs: ["leg_id"], sendSubject: null, note: "BOARDED_REPORTED on one leg" },
+  { tool: "propose_manifest_reallocation", scopedArgs: ["infeasible_vehicle_token", "leg_ids", "options"], sendSubject: null, note: "proposes only; `options` nests the vehicles and legs it would move" },
+  { tool: "propose_contact_or_profile_change", scopedArgs: ["family_token", "source_message_id"], sendSubject: null, note: "proposes against this family only" },
+  { tool: "escalate_exception", scopedArgs: ["leg_id"], sendSubject: null, note: "always allowed (§11.2), still scope-checked" },
+  { tool: "close_task", scopedArgs: ["task_id", "evidence_ref"], sendSubject: null, note: "the evidence must be this run's own" },
+  { tool: "summarize_thread_for_staff", scopedArgs: ["thread_id"], sendSubject: null, note: "staff-only note on this family's thread" },
+];
+
+/** The policy table, by tool name. `evaluate` denies any catalog tool that is not a key here. */
+export const POLICY_ROWS: Readonly<Record<string, PolicyRow>> = Object.fromEntries(
+  ROWS.map((r) => [r.tool, r]),
+);
+
+/** The row governing a tool, or null — which is a denial, never a default (see `evaluate`). */
+export function policyRow(tool: string): PolicyRow | null {
+  return POLICY_ROWS[tool] ?? null;
+}
 
 /** Argument names that would carry prose to a family. None exist in the catalog; the rule outlives it. */
 const FREE_TEXT_ARG = /^(?:body|text|message|message_body|free_text|draft|content|sms_body)$/i;
@@ -330,35 +409,59 @@ function stringLeaves(value: unknown, path = "", acc: Leaf[] = []): Leaf[] {
   return acc;
 }
 
-/** The scoped argument values of a call, flattened (a field may be a token or a list of them). */
+/**
+ * The scoped argument values of a call, flattened (a field may be a token or a list of them).
+ *
+ * With no policy row there is no declaration of what is scoped, so *every* string argument is
+ * treated as scoped: fail shut. `evaluate` refuses a rowless tool before it gets here, and this
+ * is what keeps a direct caller of the post-validator from being the hole.
+ */
 function scopedValues(tool: string, args: Record<string, unknown>): Leaf[] {
-  const fields = SCOPED_ARG_FIELDS[tool] ?? [];
-  return fields.flatMap((f) => stringLeaves(args[f], f));
+  const row = policyRow(tool);
+  if (!row) return stringLeaves(args);
+  return row.scopedArgs.flatMap((f) => stringLeaves(args[f], f));
 }
 
+/** One out-of-scope reference. The classification is for the audit; the denial does not vary. */
+export type ScopeViolation = {
+  readonly path: string;
+  readonly token: string;
+  /** Known to belong to another family in this site. */
+  readonly foreign: boolean;
+  /** Known to belong to another site/tenant. */
+  readonly crossSite: boolean;
+};
+
 /**
- * The §11.2 family-scope post-validator. Returns the offending references, or an empty list when
- * every scoped argument names something this run may touch. A token the runtime knows belongs to
- * another family is reported as such; an unknown token is still out of scope and still refused.
+ * The §11.2 family-scope post-validator, which is also the tenant boundary: it returns the
+ * offending references, or an empty list when every scoped argument names something this run may
+ * touch. A token the runtime knows belongs to another family or another site is reported as such;
+ * an unknown token is still out of scope and still refused, so an id the agent invented and an id
+ * that exists in another tenant are refused identically (see `evaluate` step 7).
  *
- * Two passes, because cross-family disclosure has two shapes. A *structured* one — a scoped
- * argument naming another family's child — is caught by checking those arguments against the
- * scope. A *prose* one — a staff note that answers "when are the other kids picked up" — is
- * caught by looking for any known foreign token anywhere in the arguments, prose fields included.
+ * Two passes, because disclosure has two shapes. A *structured* one — a scoped argument naming
+ * another family's child, or another site's vehicle — is caught by checking those arguments
+ * against the scope. A *prose* one — a staff note that answers "when are the other kids picked
+ * up" — is caught by looking for any known foreign token anywhere in the arguments, prose
+ * fields included.
  */
 export function validateFamilyScope(
   call: { tool: string; args: Record<string, unknown> },
-  ctx: Pick<PolicyContext, "scope" | "foreignTokens">,
-): { path: string; token: string; foreign: boolean }[] {
-  const out = scopedValues(call.tool, call.args)
+  ctx: Pick<PolicyContext, "scope" | "foreignTokens" | "foreignSiteTokens">,
+): ScopeViolation[] {
+  const classify = (token: string) => ({
+    foreign: ctx.foreignTokens?.has(token) ?? false,
+    crossSite: ctx.foreignSiteTokens?.has(token) ?? false,
+  });
+  const out: ScopeViolation[] = scopedValues(call.tool, call.args)
     .filter((l) => !ctx.scope.tokens.has(l.value) && !ctx.scope.shared.has(l.value))
-    .map((l) => ({ path: l.path, token: l.value, foreign: ctx.foreignTokens?.has(l.value) ?? false }));
-  for (const foreignToken of ctx.foreignTokens ?? []) {
+    .map((l) => ({ path: l.path, token: l.value, ...classify(l.value) }));
+  for (const foreignToken of [...(ctx.foreignTokens ?? []), ...(ctx.foreignSiteTokens ?? [])]) {
     const named = new RegExp(`\\b${foreignToken.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
     for (const leaf of stringLeaves(call.args)) {
       if (!named.test(leaf.value)) continue;
       if (out.some((o) => o.path === leaf.path && o.token === foreignToken)) continue;
-      out.push({ path: leaf.path, token: foreignToken, foreign: true });
+      out.push({ path: leaf.path, token: foreignToken, ...classify(foreignToken) });
     }
   }
   return out;
@@ -409,6 +512,24 @@ export function evaluate(
   }
   const effect = def.effect;
 
+  // 1b. Every catalog tool needs a policy row, and a sending tool needs a consent subject on it.
+  //     A tool the table does not declare has been authorized by nobody: the gateway would hand
+  //     its arguments to an engine with no idea what is scoped and nothing to consent-check, so
+  //     the only safe verdict is a block and an exception row for staff. Unreachable with the
+  //     catalog as it stands — which is the point: it is what makes adding tool sixteen safe.
+  const row = policyRow(call.tool);
+  if (!row) {
+    return block("missing_policy_row", call.tool, `${call.tool} has no policy row`, staffReview("missing_policy_row"));
+  }
+  if (effect === "send" && row.sendSubject === null) {
+    return block(
+      "missing_policy_row",
+      call.tool,
+      `${call.tool} sends, but its policy row names no consent subject`,
+      staffReview("missing_policy_row"),
+    );
+  }
+
   // 2. Paused. "sending while paused" is prohibited outright; a mutation while paused is the same
   //    autonomy by another route. escalate_exception stays available — §11.2 marks it "always
   //    allowed", and a paused agent still has to be able to tell staff why it stopped.
@@ -437,7 +558,7 @@ export function evaluate(
 
   // 5. Raw recipients and PII. A number or an address in a tool call is the model choosing a
   //    recipient (§11.2) or leaking one; in a structured argument it is refused outright. In a
-  //    staff-facing prose field it is redacted instead (step 9) — the words still have to reach a
+  //    staff-facing prose field it is redacted instead (`sanitizeStaffText`, below) — the words still have to reach a
   //    human, and `redact()` is exactly the contract for text that is kept.
   for (const leaf of stringLeaves(args)) {
     const field = leaf.path.split(/[.[]/)[0];
@@ -473,15 +594,22 @@ export function evaluate(
     }
   }
 
-  // 7. Family-scope post-validator (§11.2 injection defenses).
+  // 7. Family-scope post-validator (§11.2 injection defenses), which is also the tenant boundary.
+  //
+  //    The *reason* is deliberately the same sentence for all three cases — another site's object,
+  //    another family's object, and an id that exists nowhere. A 404, not a 403: a run that could
+  //    tell "no such leg" from "a leg you may not see" is an existence oracle for every other
+  //    tenant in the database. Which of the three it was lives in the rule, for the audit.
   const outOfScope = validateFamilyScope({ tool: call.tool, args }, ctx);
   if (outOfScope.length > 0) {
-    const first = outOfScope[0];
+    const rule: PolicyRuleId = outOfScope.some((v) => v.crossSite)
+      ? "cross_site_disclosure"
+      : "cross_family_disclosure";
     return block(
-      "cross_family_disclosure",
+      rule,
       call.tool,
-      `argument ${first.path} references ${first.foreign ? "another family's" : "an out-of-scope"} object`,
-      staffReview("cross_family_disclosure"),
+      `argument ${outOfScope[0].path} references an object outside this run's scope`,
+      staffReview(rule),
     );
   }
 
@@ -503,16 +631,34 @@ export function evaluate(
 
   // 9. Consent, by subject. Mirrors the egress re-check so nothing is queued for a family that
   //    has opted out (PRD §18.2 step 10: "blocked at egress").
-  const subjectField = SEND_SUBJECT_FIELD[call.tool];
-  if (effect === "send" && subjectField) {
-    const subject = args[subjectField];
+  if (effect === "send" && row.sendSubject) {
+    const subject = args[row.sendSubject];
     if (typeof subject !== "string" || !ctx.sendableSubjects.has(subject)) {
-      return block("non_consented_number", call.tool, `no live consent for subject in ${subjectField}`, staffReview("non_consented_number"));
+      return block("non_consented_number", call.tool, `no live consent for subject in ${row.sendSubject}`, staffReview("non_consented_number"));
     }
   }
 
-  // 10. Human tier → proposal, never a mutation (§11.2 propose_* rows: "no mutation").
   const sanitized = sanitizeStaffText(call.tool, args);
+
+  // 10. Nothing reaches a family, a therapist or a driver without a human approval bound to this
+  //     exact call. §11.2 prohibits "free-text to parents without human approval" and makes the
+  //     templated follow-ups auto-tier; slice 1 holds *every* send behind an approval instead,
+  //     because the approval surface, the run loop and the egress wiring are later slices — so
+  //     an ALLOW here would be a send with nothing left downstream to check it. The result is a
+  //     proposal: it mutates nothing, queues nothing, and carries the key a human approves.
+  //     (B08-SLICE1-DEFERRED.md: narrowing this back to the §11.2 tiers is slice-2 work.)
+  if (effect === "send" && !(ctx.approvedCalls?.has(approvalKey(call.tool, args)) ?? false)) {
+    return {
+      verdict: "PROPOSAL",
+      rule: "send_requires_approval",
+      tool: call.tool,
+      args: sanitized,
+      mutates: false,
+      requiresApproval: true,
+    };
+  }
+
+  // 11. Human tier → proposal, never a mutation (§11.2 propose_* rows: "no mutation").
   if (def.tier === "human") {
     return {
       verdict: "PROPOSAL",
