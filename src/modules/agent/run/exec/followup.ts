@@ -7,9 +7,12 @@
  * chooses *which* allow-listed message goes out and to which **audience role** — never a recipient
  * and never a word of copy:
  *
- *  - the **recipient is computed here**, from the audience and the subject: an authorized contact
- *    for that child (§6.4 `ops.contact_authorization`), the therapist who owns that session, or the
- *    provider's dispatcher. §10.3: "recipients computed at send time".
+ *  - the **recipients are computed here**, from the audience and the subject: the authorized
+ *    contacts for that child (§6.4 `ops.contact_authorization`), the therapist who owns that
+ *    session, or the provider's dispatcher. §10.3: "recipients computed at send time". There may be
+ *    more than one of them — §10.1 allows a 1:1 broadcast and a family often has two authorized
+ *    guardians — and which of the two guardians a message is for is decided by the table in
+ *    `resolveGuardian`, never by the model.
  *  - the **copy is the outbox's**: a template id from the tool's own allow-list (schema-enforced)
  *    plus vars the outbox permits for it (`TEMPLATE_VARS`, re-checked by the policy engine before
  *    this call and again by the drainer before the message leaves).
@@ -97,9 +100,22 @@ const AUDIENCE_RULES: Readonly<Record<ReachableAudience, {
   },
 };
 
+/**
+ * Which templates are a **decision** rather than a notice, and the whole of why the fan-out below
+ * is shaped the way it is.
+ *
+ * A cancellation or a change confirms *what somebody asked us for*, so it goes back to whoever
+ * asked and to nobody else: the other parent did not make that request, and telling them it was
+ * made is a disclosure about the first one. Everything else — an ETA, a fixed notice — is news
+ * about a ride that is happening, which every authorized contact is entitled to (§10.1 "Fan-out
+ * 1:1 broadcast").
+ */
+const DECISION_TEMPLATES: ReadonlySet<string> = new Set(["leg.canceled", "leg.changed"]);
+
 /** What the subject resolved to: who gets it, and the child reference the message carries. */
 type Resolved = {
-  readonly recipientToken: string;
+  /** One or more authorized contacts, in send order — the asker first when there is one. */
+  readonly recipientTokens: readonly string[];
   readonly childToken: string | null;
   readonly therapySessionId: string | null;
 };
@@ -129,7 +145,7 @@ export function sendFollowupExecutor(deps: ExecutorDeps): ToolExecutor {
       : null;
 
     const resolved = await resolveAudience(deps, {
-      audience: audience as ReachableAudience, subject, siteId: call.siteId, askedBy,
+      audience: audience as ReachableAudience, subject, siteId: call.siteId, askedBy, templateId,
     });
     if ("error" in resolved) {
       if (resolved.error === "TWO_GUARDIAN_CONFLICT") {
@@ -163,29 +179,38 @@ export function sendFollowupExecutor(deps: ExecutorDeps): ToolExecutor {
     const staleBefore = boundLeg ? await canceledStaleFor(deps.db, { legId: boundLeg.id, templateId }) : 0;
 
     try {
-      const queued = await deps.db.tx((tx, afterCommit) =>
-        enqueue(tx, afterCommit, deps.transport, {
-          siteId: call.siteId,
-          purpose: rule.purpose,
-          recipientRule: rule.recipientRule,
-          recipientToken: resolved.recipientToken,
-          channel: rule.channel,
-          templateId,
-          vars,
-          childToken: resolved.childToken,
-          tripLegId: boundLeg?.id ?? null,
-          therapySessionId: resolved.therapySessionId,
-          planVersionBasis: boundLeg?.plan_version ?? 0,
-          notAfter: new Date(call.now.getTime() + FOLLOWUP_NOT_AFTER_MS),
-          idempotencyKey: call.idempotencyKey,
-          by,
-        }),
-      );
+      // One message per recipient, in one transaction: a fan-out either queues for everybody or
+      // for nobody, so a crash cannot tell one parent and not the other.
+      const queued = await deps.db.tx(async (tx, afterCommit) => {
+        const out: { id: string; duplicate: boolean; recipientToken: string }[] = [];
+        for (const recipientToken of resolved.recipientTokens) {
+          const message = await enqueue(tx, afterCommit, deps.transport, {
+            siteId: call.siteId,
+            purpose: rule.purpose,
+            recipientRule: rule.recipientRule,
+            recipientToken,
+            channel: rule.channel,
+            templateId,
+            vars,
+            childToken: resolved.childToken,
+            tripLegId: boundLeg?.id ?? null,
+            therapySessionId: resolved.therapySessionId,
+            planVersionBasis: boundLeg?.plan_version ?? 0,
+            notAfter: new Date(call.now.getTime() + FOLLOWUP_NOT_AFTER_MS),
+            idempotencyKey: fanOutKey(call.idempotencyKey, resolved.recipientTokens, recipientToken),
+            by,
+          });
+          out.push({ ...message, recipientToken });
+        }
+        return out;
+      });
       return {
         status: "executed",
         data: {
-          outbound_message_id: queued.id,
-          duplicate: queued.duplicate,
+          outbound_message_id: queued[0].id,
+          ...(queued.length > 1 ? { outbound_message_ids: queued.map((q) => q.id) } : {}),
+          duplicate: queued.every((q) => q.duplicate),
+          recipients: queued.length,
           audience,
           template_id: templateId,
           trip_leg_id: boundLeg?.id ?? null,
@@ -198,6 +223,8 @@ export function sendFollowupExecutor(deps: ExecutorDeps): ToolExecutor {
           followup_queued: true,
           audience,
           template_id: templateId,
+          // A count, never the contacts: who got it is the outbox's record, not the prompt's.
+          recipients: queued.length,
           ...(boundLeg ? { plan_version_basis: boundLeg.plan_version } : {}),
           ...(staleBefore > 0 ? { recomputed_after_stale: staleBefore } : {}),
         },
@@ -217,24 +244,36 @@ type ResolveFailure = { error: string; detail: Record<string, unknown>; childTok
 
 async function resolveAudience(
   deps: ExecutorDeps,
-  a: { audience: ReachableAudience; subject: string; siteId: string; askedBy: string | null },
+  a: { audience: ReachableAudience; subject: string; siteId: string; askedBy: string | null; templateId: string },
 ): Promise<Resolved | ResolveFailure> {
   return a.audience === "GUARDIAN_OF_CHILD" ? resolveGuardian(deps, a) : resolveTherapist(deps.db, a);
 }
 
 /**
- * The family side. The contacts are the ones §6.4 authorizes for this child on this channel, and
- * which of them gets the message is decided by *who asked*: a confirmation goes back to the
- * guardian whose message started this run (the committed `resolve_sender` contact), which is the
- * AT-01 case. With nobody having asked, one authorized contact is unambiguous and several are
- * PRD §10.3's two-guardian conflict — an exception, not a guess.
+ * The family side, and the §10.3 two-guardian rule in full.
  *
- * Fanning one notice out to every authorized contact (§10.1 "1:1 broadcast") is a later slice;
- * it is one message per contact, each keyed on the call's key plus the contact.
+ * The candidates are the contacts §6.4 authorizes for this child, on this channel, right now — and
+ * which of them this message is *for* depends on two things, neither of them the model's:
+ *
+ * | | somebody asked (this run resolved a sender) | nobody asked (a timer, a sweeper, an event) |
+ * |---|---|---|
+ * | **decision** copy (`leg.canceled`, `leg.changed`) | the guardian who asked, and no one else | one authorized contact → them; several → §10.3 **two-guardian conflict**: an AMBER exception and no send |
+ * | **notice** copy (an ETA, a fixed notice) | every authorized contact, the asker first (§10.1 1:1 broadcast) | same as above |
+ *
+ * The asymmetry is the point. A confirmation is about a request one parent made, so it goes back to
+ * them (AT-01); an ETA is about a ride both parents are entitled to know about. And with nobody
+ * having asked, two authorized contacts is the case where the agent would have to *pick*, which
+ * §10.3 says is an exception rather than a guess — PRD §6.6 settles the same conflict the same way
+ * ("most-restrictive wins; staff resolves"), and no send is the most restrictive thing there is.
+ *
+ * Nothing here is a recipient the model chose: the asker comes from the thread this run resolved,
+ * and the rest from `ops.contact_authorization`. Consent is re-checked **per contact** at send time
+ * by the outbox, so a fan-out to a family where one parent has opted out sends to the other and
+ * visibly refuses the first (§10.3 "recipients computed at send time").
  */
 async function resolveGuardian(
   deps: ExecutorDeps,
-  a: { subject: string; siteId: string; askedBy: string | null },
+  a: { subject: string; siteId: string; askedBy: string | null; templateId: string },
 ): Promise<Resolved | ResolveFailure> {
   const child = await deps.db.query<{ child_token: string }>(
     "SELECT child_token FROM ops.child_profile WHERE child_token = $1 AND site_id = $2",
@@ -254,20 +293,23 @@ async function resolveGuardian(
   if (authorized.length === 0) {
     return { error: "NO_AUTHORIZED_CONTACT", detail: { object: "contact_authorization" }, childToken: a.subject };
   }
-  // Who asked, when somebody did: the reply goes back to them (AT-01).
-  const recipientToken = a.askedBy && authorized.includes(a.askedBy)
-    ? a.askedBy
-    : authorized.length === 1
-      ? authorized[0]
-      : null;
-  if (!recipientToken) {
+  const asker = a.askedBy && authorized.includes(a.askedBy) ? a.askedBy : null;
+  if (asker) {
+    // The asker always first, so the one message a decision produces is theirs and a fan-out
+    // reaches them before anyone else.
+    const recipientTokens = DECISION_TEMPLATES.has(a.templateId)
+      ? [asker]
+      : [asker, ...authorized.filter((c) => c !== asker)];
+    return { recipientTokens, childToken: a.subject, therapySessionId: null };
+  }
+  if (authorized.length > 1) {
     return {
       error: "TWO_GUARDIAN_CONFLICT",
       detail: { authorized_contacts: authorized.length },
       childToken: a.subject,
     };
   }
-  return { recipientToken, childToken: a.subject, therapySessionId: null };
+  return { recipientTokens: [authorized[0]], childToken: a.subject, therapySessionId: null };
 }
 
 /** The therapist who owns this session, and the child the session is about. */
@@ -283,7 +325,24 @@ async function resolveTherapist(
   );
   const row = r.rows[0];
   if (!row) return { error: "NOT_FOUND", detail: { object: "therapy_session" } };
-  return { recipientToken: row.person_token, childToken: row.child_token, therapySessionId: row.id };
+  return { recipientTokens: [row.person_token], childToken: row.child_token, therapySessionId: row.id };
+}
+
+/**
+ * The idempotency key of one message in a fan-out.
+ *
+ * A single-recipient send keeps the call's own key, which is the sink-side half of the resume
+ * contract everywhere else in this directory (and what `ops.outbound_message.idempotency_key`
+ * already holds for every slice-3 send). Each *additional* contact's message is keyed on that key
+ * plus the contact's token — derived, not generated, so a re-driven call computes the same keys and
+ * the unique index turns the second attempt into a no-op per contact rather than a second text.
+ */
+export function fanOutKey(
+  callKey: string,
+  recipients: readonly string[],
+  recipientToken: string,
+): string {
+  return recipients[0] === recipientToken ? callKey : `${callKey}:${recipientToken}`;
 }
 
 /** How many earlier messages about this leg and template were refused for a stale plan. */

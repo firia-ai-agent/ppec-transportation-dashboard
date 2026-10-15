@@ -25,7 +25,7 @@ import type { ProviderResponseBody } from "../../providers/provider";
 import type { TierFacts } from "../context";
 import { toolCalls } from "../store";
 import type { Trigger } from "../triggers";
-import { TWO_GUARDIAN_TASK_CATEGORY } from "./followup";
+import { TWO_GUARDIAN_TASK_CATEGORY, fanOutKey } from "./followup";
 import { type LiveHarness, liveHarness } from "./live-harness";
 
 let pg: PGlite;
@@ -161,6 +161,8 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
   });
 
   it("the confirmation goes back to the guardian who texted, not to the other authorized contact", async () => {
+    // A cancellation confirms what *one* parent asked for, so it is a decision rather than a
+    // notice and does not fan out (see `resolveGuardian`'s table).
     sc = await seedAgentScenario(db);
     const child = sc.children[0];
     const second = await seedSecondGuardian(db, {
@@ -173,6 +175,84 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     expect(msg.recipient_token).toBe(sc.contactToken);
     expect(msg.recipient_token).not.toBe(second);
     expect(await tasks()).toEqual([]);
+  });
+
+  it("a notice fans out to every authorized contact, one message each, the asker first (§10.1)", async () => {
+    sc = await seedAgentScenario(db);
+    const child = sc.children[0];
+    const second = await seedSecondGuardian(db, {
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+    });
+    const h = harness([
+      toolCall("resolve_sender", { message_id: sc.messageId }),
+      followupCall({ template_id: "pickup.eta", vars: { eta: "08:15" } }),
+    ]);
+    const r = await h.start(trigger());
+    expect(r.state).toBe("SUCCEEDED");
+
+    const rows = await outbound();
+    expect(rows).toHaveLength(2);
+    expect(rows.map((m) => m.recipient_token)).toEqual([sc.contactToken, second]);
+    // The call's own key addresses the asker's message; each further contact's is derived from it.
+    expect(rows.map((m) => m.idempotency_key)).toEqual([
+      `agent:${r.runId}:1`, `agent:${r.runId}:1:${second}`,
+    ]);
+    expect((await toolCalls(db, r.runId))[1].result).toMatchObject({
+      recipients: 2, outbound_message_ids: rows.map((m) => m.id),
+    });
+    expect(await tasks()).toEqual([]);
+
+    // Consent is re-checked per contact at send time, so both go out on their own account.
+    expect(await h.drainOutbox()).toEqual(["SENT", "SENT"]);
+    expect(h.provider.sent.map((m) => m.recipientToken)).toEqual([sc.contactToken, second]);
+  });
+
+  it("a fan-out where one parent has opted out sends to the other, and refuses that one", async () => {
+    sc = await seedAgentScenario(db);
+    const child = sc.children[0];
+    const second = await seedSecondGuardian(db, {
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+    });
+    await db.query(
+      `INSERT INTO identity.consent_event (id, site_id, contact_token, kind, channel, at, source_mode)
+       VALUES ($1,$2,$3,'STOP','SMS_1TO1',$4,'SIMULATED')`,
+      ["0199e5f0-0000-7000-8000-00000000d001", sc.siteId, second, now.toISOString()],
+    );
+    const h = harness([
+      toolCall("resolve_sender", { message_id: sc.messageId }),
+      followupCall({ template_id: "pickup.eta", vars: { eta: "08:15" } }),
+    ]);
+    await h.start(trigger());
+
+    expect(await outbound()).toHaveLength(2);
+    expect(await h.drainOutbox()).toEqual(["SENT", "BLOCKED_EGRESS"]);
+    expect(h.provider.sent.map((m) => m.recipientToken)).toEqual([sc.contactToken]);
+  });
+
+  it("each message in a fan-out has its own derived key, so a re-drive writes nothing twice", async () => {
+    sc = await seedAgentScenario(db);
+    const child = sc.children[0];
+    const second = await seedSecondGuardian(db, {
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+    });
+    const h = harness([
+      toolCall("resolve_sender", { message_id: sc.messageId }),
+      followupCall({ template_id: "pickup.eta", vars: { eta: "08:15" } }),
+    ]);
+    const r = await h.start(trigger());
+    const key = `agent:${r.runId}:1`;
+
+    // Derived rather than generated: the asker's message carries the call's key and the other
+    // contact's is that key plus their token, which is what the unique index then fences.
+    expect(fanOutKey(key, [sc.contactToken, second], sc.contactToken)).toBe(key);
+    expect(fanOutKey(key, [sc.contactToken, second], second)).toBe(`${key}:${second}`);
+    const perKey = await db.query<{ idempotency_key: string; n: number }>(
+      `SELECT idempotency_key, count(*)::int n FROM ops.outbound_message
+       GROUP BY idempotency_key ORDER BY idempotency_key`, []);
+    expect(perKey.rows).toEqual([
+      { idempotency_key: key, n: 1 },
+      { idempotency_key: `${key}:${second}`, n: 1 },
+    ]);
   });
 
   it("two authorized contacts and nobody asked: an exception, not a guess (§10.3)", async () => {
