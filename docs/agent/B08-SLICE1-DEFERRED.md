@@ -18,9 +18,18 @@ that is still to come, so nothing in either diff can be mistaken for a claim abo
 built and tested; everything else is still outstanding.
 
 Status key: **Deferred** = not built, named here. **Partial** = the mechanism exists, the wiring
-does not. **Done (slice 2)** = built and tested in `src/modules/agent/run/`. **Stricter** = the
-agent is deliberately tighter than the PRD, and the PRD shape returns with the thing that makes it
-safe.
+does not. **Done (slice 2)** = built and tested in `src/modules/agent/run/`.
+
+**Founder decision, 2026-10-15:** the approval policy is narrowed back to the **PRD §11.2 tiers**.
+Slice 1 held *every* send behind a human approval, which was tighter than §11.2 and is no longer
+what we ship: the templated follow-ups are `auto` and send on their own, and only free text to a
+parent needs a human approval bound to the exact call. Since no tool in the catalog can carry free
+text, the practical effect is that the agent now sends its allow-listed messages autonomously and
+there is no call it can make that puts prose in front of a family. The two halves are
+`policy.ts` steps 6 and 10, the declaration that decides which applies is `tools.ts` `sendCopy`, and
+the bar is held by `attacks.test.ts` (VERI-2) and `free-text-approval.test.ts`. Nothing else about
+the gate moved: pause, consent, scope, injection and the `human`-tier `propose_*` rows are
+unchanged, and the staff approval surface is still the deferred row below.
 
 ---
 
@@ -71,8 +80,8 @@ Other §11.2 clauses:
 
 | Clause | Slice 1 | Status | Lands with |
 |---|---|---|---|
-| "free-text to parents **without human approval**" | **unchanged by slice 2**, deliberately: an unapproved send is persisted `PROPOSED` and executes nothing, so the run loop holds the same bar the seam does (`send_requires_approval`, `approvalKey`) | **Stricter** | narrow back to the §11.2 tiers once the staff approval surface (`ops.approval_request`) and the egress re-check are wired — not before |
-| Human approval itself | no surface produces an approval key; `ctx.approvedCalls` is empty everywhere but in tests. Slice 2 stores the key a human would sign on the proposed row itself (`args_hash` = `approvalKey(tool, args)`, repeated in `result.approval_key`), so the approval and the exact call it releases already match on one column | Partial | the approval UI + B-12 Teams card |
+| "free-text to parents **without human approval**" | the §11.2 tiers, exactly (founder decision above): a send whose copy is an allow-listed template id or a body rendered downstream from structured fields is `auto` and is ALLOWed; a send carrying the model's own words is held behind `ctx.approvedCalls` keyed on `approvalKey(tool, args)`. Which one a tool is comes from its `sendCopy` declaration, and a sending tool that declares nothing is read as free text. No catalog tool declares free text, and a templated one that *carries* any — an undeclared argument, a body-shaped argument name, a value that reads as a sentence, an interpolated or overlong value, an unrenderable template id, a var the template does not permit — is blocked `free_text_to_parents`, with or without an approval | — | — |
+| Human approval itself | no surface produces an approval key, and with the catalog as it stands nothing needs one: `ctx.approvedCalls` is empty everywhere but in tests. The proposed-row plumbing is built either way — a `PROPOSED` row carries `args_hash` = `approvalKey(tool, args)`, repeated in `result.approval_key`, so a human's signature and the exact call it releases match on one column. It is what the `human`-tier `propose_*` rows already use, and what a free-text sender would use on the day one is added | Partial | the approval UI + B-12 Teams card |
 | "messaging non-consented numbers" | consent is checked against `ctx.sendableSubjects`, a set the caller passes | Partial | slice 2 — the mirror reads consent, and the outbox re-checks per contact at send time |
 | Injection defenses: delimiters; schema-only tools; family-scope post-validator; identity_change_request | all four built and tested (VERI-1, VERI-3, VERI-4) | — | — |
 | "red-team fixtures in CI (**≥100 adversarial cases by P2**)" | 45 fixtures + the VERI suites | Partial | P2; the gap is case count, not harness |
@@ -88,7 +97,7 @@ Other §11.2 clauses:
 
 | Test | Slice 1 | Status |
 |---|---|---|
-| **AT-09** wrong-recipient / injection (zero sends) | evidenced **at the seam**: 45 fixtures + VERI-2/VERI-4 through the real gateway and the real policy engine, with a send sink that stays empty | Partial — no run loop, no live traffic, no outbox behind it |
+| **AT-09** wrong-recipient / injection (zero sends) | evidenced **at the seam**: 45 fixtures + VERI-2/VERI-4 through the real gateway and the real policy engine, with a send sink that stays empty for every one of them, for every way of getting free text onto a templated send, and for every clean send once the agent is paused, a directive is in the thread, consent is withdrawn or the subject belongs to another family. The same sink receives exactly one send for each of the four clean, templated calls — so "zero" is a property of the defense and not of a harness that cannot send | Partial — no live traffic, no outbox behind it |
 | **TEST-SEC-01** token-only prompts | `validatePromptTokensOnly` fails closed before the provider is called; audit holds hashes only | Partial — proved against the fixture roster, not the identity vault |
 | AT-01 message→state→notify | the middle of it exists: a trigger starts one run, the run reads, writes and notes in persisted steps, and a crash loses nothing. The two ends do not — the inbound trigger (B-04) and the transition/outbox executors (B-02/B-04) | Partial (slice 2) |
 | AT-02 autonomous timer follow-up + escalation | the follow-up half exists and is tested: an awaited reply becomes a task + a B-03 timer, and the timer firing resumes the run from its committed result. The escalation half does not — no "no reply → escalate" timer, no outbound | Partial (slice 2) |
@@ -107,9 +116,11 @@ Other §11.2 clauses:
 Slice 1, only this: no agent code can reach a model except through the gateway; no prompt leaves
 with a number, an address or an untokenized name in it; no response is accepted unless it is
 exactly one schema-valid call to a catalog tool; every catalog tool has a policy row and an
-undeclared one is refused; nothing addressed to a family, a therapist or a driver becomes a send
-without a human approval bound to that exact call; no argument can name another family's or another
-site's object; an injected SMS executes nothing; and neither provider can reach the network.
+undeclared one is refused; the only messages that go out to a family, a therapist or a driver are
+allow-listed templates and bodies rendered downstream, and anything carrying the model's own words
+is either refused or held behind a human approval bound to that exact call; no argument can name
+another family's or another site's object; an injected SMS executes nothing; and neither provider
+can reach the network.
 
 Slice 2 adds only this: one trigger makes one run, however many times it is delivered; no tool call
 is executed before it is on disk with its policy decision and its effect key; a run killed at any

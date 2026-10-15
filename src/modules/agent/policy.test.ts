@@ -71,13 +71,13 @@ describe("the happy paths the agent is for", () => {
     expect(decisionSends(d)).toBe(false);
   });
 
-  it("holds a templated follow-up to a consented family until a human approves it", () => {
+  it("sends a templated follow-up to a consented family on its own authority (§11.2 auto tier)", () => {
+    // §11.2 marks send_followup `auto` and holds only *free text* behind a human approval. The
+    // model picked an allow-listed template and vars the outbox permits for it, so none of the
+    // words are its own and there is nothing for a human to read before it goes.
     const d = evaluate({ tool: "send_followup", args: SEND }, ctx());
-    expect(d).toMatchObject({ verdict: "PROPOSAL", rule: "send_requires_approval", mutates: false });
-    expect(decisionSends(d)).toBe(false);
-    const approved = evaluate({ tool: "send_followup", args: SEND }, ctx({ approvedCalls: approvals(["send_followup", SEND]) }));
-    expect(approved.verdict).toBe("ALLOW");
-    expect(decisionSends(approved)).toBe(true);
+    expect(d).toMatchObject({ verdict: "ALLOW", effect: "send", args: SEND });
+    expect(decisionSends(d)).toBe(true);
   });
 
   it("allows a read with no context at all", () => {
@@ -186,8 +186,24 @@ describe("§11.2 prohibited: free text to parents without approval", () => {
     expect(d).toMatchObject({ verdict: "BLOCK", rule: "free_text_to_parents" });
   });
 
+  it("refuses an argument the tool's schema never declared", () => {
+    // The strict sending schemas refuse this at the gateway; this is the same refusal for a caller
+    // that did not come through one, so a stripped-off argument can never become a sent one.
+    const d = evaluate({ tool: "send_followup", args: { ...SEND, postscript: "see you tomorrow" } }, ctx());
+    expect(d).toMatchObject({ verdict: "BLOCK", rule: "free_text_to_parents" });
+  });
+
   it("refuses a var the outbox does not permit for that template", () => {
-    const d = evaluate({ tool: "send_followup", args: { ...SEND, vars: { ...SEND.vars, note: "sorry!" } } }, ctx());
+    const d = evaluate({ tool: "send_followup", args: { ...SEND, vars: { ...SEND.vars, note: "sorry" } } }, ctx());
+    expect(d).toMatchObject({ verdict: "BLOCK", rule: "free_text_to_parents" });
+  });
+
+  it.each([
+    ["a phrase", "tomorrow morning, around nine"],
+    ["an interpolation placeholder", "{{legDate}}"],
+    ["a value too long to be a code", "A".repeat(80)],
+  ])("refuses %s where a code belongs", (_label, legDate) => {
+    const d = evaluate({ tool: "send_followup", args: { ...SEND, vars: { ...SEND.vars, legDate } } }, ctx());
     expect(d).toMatchObject({ verdict: "BLOCK", rule: "free_text_to_parents" });
   });
 
@@ -204,6 +220,23 @@ describe("§11.2 prohibited: free text to parents without approval", () => {
       },
       ctx(),
     );
+    expect(d).toMatchObject({ verdict: "BLOCK", rule: "free_text_to_parents" });
+  });
+
+  it("refuses a body on a fixed-copy send, which names no template at all", () => {
+    const d = evaluate(
+      { tool: "notify_affected_therapist", args: { therapy_session_token: "SESS-C1", child_token: "C1", impact: "ABSENT", eta: null, body: "she is out today" } },
+      ctx(),
+    );
+    expect(d).toMatchObject({ verdict: "BLOCK", rule: "free_text_to_parents" });
+  });
+
+  it("a human approval is not a licence to write copy on a templated tool", () => {
+    // §11.2 holds free text behind an approval; a tool whose copy is the outbox's has no approved
+    // version of a free-text call, so the approval changes nothing (free-text-approval.test.ts
+    // holds down the tool that *does* declare free-text copy).
+    const freeText = { ...SEND, body: "running a bit late today" };
+    const d = evaluate({ tool: "send_followup", args: freeText }, ctx({ approvedCalls: approvals(["send_followup", freeText]) }));
     expect(d).toMatchObject({ verdict: "BLOCK", rule: "free_text_to_parents" });
   });
 });
@@ -416,11 +449,10 @@ describe("module invariants", () => {
     expect(sanitizeStaffText("get_leg_state", readArgs)).toBe(readArgs);
   });
 
-  it("decisionSends is true only for an approved, allowed sending tool", () => {
-    const approved = ctx({ approvedCalls: approvals(["send_followup", SEND]) });
-    expect(decisionSends(evaluate({ tool: "send_followup", args: SEND }, approved))).toBe(true);
-    expect(decisionSends(evaluate({ tool: "send_followup", args: SEND }, ctx()))).toBe(false);
-    expect(decisionSends(evaluate({ tool: "cancel_attendance_or_leg", args: CANCEL }, approved))).toBe(false);
+  it("decisionSends is true only for an allowed sending tool", () => {
+    expect(decisionSends(evaluate({ tool: "send_followup", args: SEND }, ctx()))).toBe(true);
+    expect(decisionSends(evaluate({ tool: "cancel_attendance_or_leg", args: CANCEL }, ctx()))).toBe(false);
     expect(decisionSends(evaluate({ tool: "send_followup", args: SEND }, ctx({ paused: true })))).toBe(false);
+    expect(decisionSends(evaluate({ tool: "send_followup", args: { ...SEND, body: "late today" } }, ctx()))).toBe(false);
   });
 });

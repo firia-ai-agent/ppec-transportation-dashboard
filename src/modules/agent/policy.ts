@@ -12,7 +12,8 @@
  *   marking capability VERIFIED ................ forbidden state claims
  *   overriding approvals ....................... PROHIBITED_ACTIONS → override_approval
  *   changing policies .......................... PROHIBITED_ACTIONS → change_policy
- *   free-text to parents without approval ...... free_text_to_parents (template + var allow-list)
+ *   free-text to parents without approval ...... free_text_to_parents (templated send: codes only)
+ *                                          …and send_requires_approval (free-text send: approval)
  *   messaging non-consented numbers ............ non_consented_number (mirrors the egress re-check)
  *   cross-family disclosure .................... cross_family_disclosure (family-scope post-validator)
  *   …and the tenant boundary under it .......... cross_site_disclosure (same validator, same 404)
@@ -30,10 +31,13 @@
  *    does not say how to consent-check its send — is denied (`missing_policy_row`). The table is
  *    the authorization surface, so an undeclared tool must fail shut, not inherit a default;
  *  - a `human`-tier tool is always a proposal, never a mutation (§11.2 propose_* rows);
- *  - nothing goes out to a family, a therapist or a driver without a human approval bound to that
- *    exact call (`send_requires_approval`). §11.2 prohibits "free-text to parents without human
- *    approval"; slice 1 gates *every* send, because the approval surface and the egress wiring
- *    are later slices and an unapproved send would have nothing left to stop it;
+ *  - the §11.2 tiers, exactly: a send whose copy is an allow-listed template id or a body rendered
+ *    downstream from structured fields is `auto` and goes out on the agent's own authority, while a
+ *    send carrying words of the model's own needs a human approval bound to that exact call
+ *    (`send_requires_approval`, `approvalKey`). Which of the two a tool is comes from its
+ *    `sendCopy` declaration (tools.ts), and a sending tool that declares nothing is read as free
+ *    text. No catalog tool declares free text, so the words that reach a family are the outbox's;
+ *    the two halves of that are steps 6 and 10 below;
  *  - every block is a decision object, never an exception: a blocked call is a normal, logged
  *    outcome that raises an exception row for staff (AGT-02: "out-of-policy tool call rejected +
  *    logged"), not a crash.
@@ -41,7 +45,7 @@
 import { disallowedVars } from "@/modules/outbox/outbox";
 import type { AcceptedToolCall } from "./gateway";
 import { findLeaks, redact, sha256Hex } from "./redact";
-import { type ToolEffect, isRenderableTemplate, toolDef } from "./tools";
+import { type SendCopy, type ToolDef, type ToolEffect, isRenderableTemplate, toolDef } from "./tools";
 
 /* ──────────────────────────────────── rules ──────────────────────────────────── */
 
@@ -386,9 +390,6 @@ export function policyRow(tool: string): PolicyRow | null {
   return POLICY_ROWS[tool] ?? null;
 }
 
-/** Argument names that would carry prose to a family. None exist in the catalog; the rule outlives it. */
-const FREE_TEXT_ARG = /^(?:body|text|message|message_body|free_text|draft|content|sms_body)$/i;
-
 /* ──────────────────────────────────── evaluation ──────────────────────────────────── */
 
 type Leaf = { path: string; value: string };
@@ -407,6 +408,90 @@ function stringLeaves(value: unknown, path = "", acc: Leaf[] = []): Leaf[] {
     for (const [k, v] of Object.entries(value)) stringLeaves(v, path ? `${path}.${k}` : k, acc);
   }
   return acc;
+}
+
+/* ───────────── the §11.2 tiers: templated copy, and the free-text approval gate ───────────── */
+
+/** Argument names that would carry prose to a family. None exist in the catalog; the rule outlives it. */
+const FREE_TEXT_ARG = /^(?:body|text|message|message_body|free_text|draft|content|sms_body)$/i;
+
+/**
+ * The longest a single argument value of a templated send may be. Every value in one is a code, an
+ * id, a date or a clock time, and the outbox's own var rules are tighter still
+ * (`outbox.TEMPLATE_VARS`); this is the outer bound, matching the schema's `z.string().max(64)` on
+ * a template var so that a direct caller of `evaluate` gets the same refusal the gateway would.
+ */
+const SEND_VALUE_MAX = 64;
+
+/** A value the model built by filling in a placeholder itself, instead of naming a template. */
+const INTERPOLATION = /\{\{|\}\}|\$\{|<%|%>|`|\\n|%s\b/;
+
+/**
+ * A value shaped like a phrase rather than a code: three or more words, a sentence ending, or a
+ * comma-separated clause. Codes, ids, dates and clock times contain no whitespace and no sentence
+ * punctuation, so this says "the model wrote this" without needing to know what it wrote.
+ */
+const PHRASE = /\S\s+\S+\s+\S|[.!?](?:\s|$)|,\s/;
+
+/**
+ * Why this value is prose rather than a code, or null when it is a code. The answer never contains
+ * the value: a rejected value is the one thing a §11.2 log may not hold (`redact`), so the reason
+ * names the argument and the shape, and a human reads the message itself.
+ */
+function freeTextShape(value: string): string | null {
+  if (value.length > SEND_VALUE_MAX) return `is longer than ${SEND_VALUE_MAX} characters`;
+  if (INTERPOLATION.test(value)) return "carries an interpolation placeholder";
+  if (PHRASE.test(value)) return "reads as a phrase rather than a code";
+  return null;
+}
+
+/**
+ * Why this call to a `template`/`fixed` send tool counts as free text to its recipient, or null
+ * when every part of it is a code. §11.2 makes these tools `auto`, and the whole reason that is
+ * safe is that the model chooses *which* allow-listed message goes out and never a word of it: an
+ * argument the schema does not declare, an argument named like a message body, a prose field on a
+ * tool that should have none, a value shaped like a sentence, an id the outbox cannot render, or a
+ * var the template does not permit each break that, and so each ends the auto tier.
+ *
+ * The verdict is a block rather than an approval request on purpose: the tool this arrived on is
+ * templated, so there is no version of this call a human could sign — the right outcome is a
+ * refusal and an exception row, not a staff queue full of prose someone has to re-type.
+ */
+function freeTextInTemplatedSend(
+  def: ToolDef,
+  copy: Exclude<SendCopy, { kind: "free_text" }>,
+  args: Record<string, unknown>,
+): string | null {
+  // Argument and var *names* come from the vendor's response like everything else, so the ones
+  // quoted back into a reason go through `redact()` — a log may hold the name of a rejected field,
+  // not a number someone hid in it.
+  const declared = new Set(Object.keys(def.schema.shape));
+  const extra = Object.keys(args).filter((k) => !declared.has(k));
+  if (extra.length > 0) return `argument(s) ${redact(extra.join(","))} are not declared by ${def.name}`;
+
+  const prose = Object.keys(args).find((k) => FREE_TEXT_ARG.test(k));
+  if (prose) return `argument ${prose} is free text to a family`;
+  if (def.staffTextFields.length > 0) return `${def.name} sends and declares a prose argument`;
+
+  for (const leaf of stringLeaves(args)) {
+    const shape = freeTextShape(leaf.value);
+    if (shape) return `argument ${leaf.path || "(root)"} ${shape}`;
+  }
+
+  if (copy.kind === "template") {
+    const templateId = args[copy.idArg];
+    if (typeof templateId !== "string" || !isRenderableTemplate(templateId)) {
+      return `${copy.idArg} does not name an outbox template`;
+    }
+    if (copy.varsArg === null) return null;
+    const vars = args[copy.varsArg];
+    if (typeof vars !== "object" || vars === null || Array.isArray(vars)) {
+      return `${copy.varsArg} is not a var object`;
+    }
+    const bad = disallowedVars(templateId, vars as Record<string, unknown>);
+    if (bad.length > 0) return `vars not permitted for ${templateId}: ${redact(bad.join(","))}`;
+  }
+  return null;
 }
 
 /**
@@ -574,24 +659,18 @@ export function evaluate(
     }
   }
 
-  // 6. Free text to parents. Outbound copy is a template id plus allow-listed vars, and the
-  //    outbox owns both lists (outbox.TEMPLATE_VARS) — this re-checks them before enqueue so a
-  //    policy block, not a render error, is what a bad call produces.
-  if (effect === "send") {
-    const prose = Object.keys(args).find((k) => FREE_TEXT_ARG.test(k) && !/template/i.test(k));
-    if (prose) {
-      return block("free_text_to_parents", call.tool, `argument ${prose} is free text to a family`, staffReview("free_text_to_parents"));
-    }
-    const templateId = typeof args.template_id === "string" ? args.template_id : typeof args.draft_template_id === "string" ? args.draft_template_id : null;
-    if (templateId) {
-      if (!isRenderableTemplate(templateId)) {
-        return block("free_text_to_parents", call.tool, `template ${templateId} is not an outbox template`, staffReview("free_text_to_parents"));
-      }
-      const bad = disallowedVars(templateId, (args.vars ?? {}) as Record<string, unknown>);
-      if (bad.length > 0) {
-        return block("free_text_to_parents", call.tool, `vars not permitted for ${templateId}: ${bad.join(",")}`, staffReview("free_text_to_parents"));
-      }
-    }
+  // 6. §11.2 tiers, first half: a templated send carries no free text at all. Outbound copy is an
+  //    allow-listed template id plus vars the outbox permits, and the outbox owns both lists
+  //    (outbox.TEMPLATE_VARS) — this re-checks them before enqueue so a policy block, not a render
+  //    error, is what a bad call produces. The rest of `freeTextInTemplatedSend` is the same
+  //    question asked of the other shapes free text arrives in: an undeclared argument, a
+  //    body-shaped argument name, a value that reads as a sentence.
+  //
+  //    A send tool that declares no copy source is read as free text and falls through to step 10.
+  const sendCopy: SendCopy | null = effect === "send" ? (def.sendCopy ?? { kind: "free_text" }) : null;
+  if (sendCopy && sendCopy.kind !== "free_text") {
+    const freeText = freeTextInTemplatedSend(def, sendCopy, args);
+    if (freeText) return block("free_text_to_parents", call.tool, freeText, staffReview("free_text_to_parents"));
   }
 
   // 7. Family-scope post-validator (§11.2 injection defenses), which is also the tenant boundary.
@@ -640,14 +719,28 @@ export function evaluate(
 
   const sanitized = sanitizeStaffText(call.tool, args);
 
-  // 10. Nothing reaches a family, a therapist or a driver without a human approval bound to this
-  //     exact call. §11.2 prohibits "free-text to parents without human approval" and makes the
-  //     templated follow-ups auto-tier; slice 1 holds *every* send behind an approval instead,
-  //     because the approval surface, the run loop and the egress wiring are later slices — so
-  //     an ALLOW here would be a send with nothing left downstream to check it. The result is a
-  //     proposal: it mutates nothing, queues nothing, and carries the key a human approves.
-  //     (B08-SLICE1-DEFERRED.md: narrowing this back to the §11.2 tiers is slice-2 work.)
-  if (effect === "send" && !(ctx.approvedCalls?.has(approvalKey(call.tool, args)) ?? false)) {
+  // 10. §11.2 tiers, second half: the approval gate, and only where §11.2 puts it.
+  //
+  //     What §11.2 prohibits is "free-text to parents **without human approval**", and it marks
+  //     every sending tool in the catalog `auto`. So a templated or fixed-copy send that has got
+  //     this far — in scope, consented, not paused, no directive in the thread, every value a code
+  //     — goes out on the agent's own authority. That is the autonomy the whole feature is for
+  //     (AT-01's confirmation, AT-14's therapist alert), and the thing that makes it safe is that
+  //     the model chose *which* allow-listed message goes out and not one word of it: the copy is
+  //     the outbox's, the recipients are computed at send time from an audience role (§10.3), and
+  //     the egress layer re-checks consent per contact before anything leaves.
+  //
+  //     A send that would carry the model's own words to its recipient is the one case §11.2 holds
+  //     behind a human, and the approval is bound to this *exact* call: `approvalKey` is canonical
+  //     over the arguments, so an approval for yesterday's follow-up, for another template or for
+  //     another subject releases nothing. Without one the verdict is a proposal — it mutates
+  //     nothing, queues nothing, and carries the key a human signs (run/store.ts `args_hash`).
+  //
+  //     No catalog tool declares free-text copy, so with the catalog as it stands this branch is
+  //     unreachable and there is no call the model can make that puts prose in front of a family.
+  //     It is kept, and tested against a tool that does declare it (free-text-approval.test.ts),
+  //     because the way to add such a tool is to declare it — and declaring it lands here.
+  if (sendCopy?.kind === "free_text" && !(ctx.approvedCalls?.has(approvalKey(call.tool, args)) ?? false)) {
     return {
       verdict: "PROPOSAL",
       rule: "send_requires_approval",

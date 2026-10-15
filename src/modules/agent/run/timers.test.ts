@@ -16,7 +16,6 @@ import type { Db } from "@/db/exec";
 import { SITE, freshDb } from "@/test/pglite";
 import { handlers } from "@/modules/jobs/handlers";
 import { handleWake } from "@/modules/jobs/runner";
-import { approvalKey } from "../policy";
 import { toolCall } from "../providers/fake";
 import { tierPrompt } from "./context";
 import { AT01_EXECUTORS, AT01_FACTS, AT01_NOTE, at01Policy, runHarness } from "./harness";
@@ -52,17 +51,17 @@ afterEach(async () => {
 });
 
 /**
- * The clarification run: one approved send that asks a question, then one staff note once the
- * answer is in. The approval is the slice-1 seam (`ctx.approvedCalls`) — without it the send would
- * be a proposal and nothing would be awaited, which is the slice-1 bar and is tested in
- * `run-loop.test.ts`.
+ * The clarification run: one send that asks a question, then one staff note once the answer is in.
+ * The send needs no approval — §11.2 marks `request_clarification` `auto` and its copy is a
+ * fixed-copy template id, so the policy engine allows it on the agent's own authority (VERI-2).
+ * What a *free-text* send would do instead — propose, await nothing — is `free-text-approval.test.ts`.
  */
 const clarifyHarness = () =>
   runHarness({
     db,
     script: [toolCall("request_clarification", CLARIFY_ARGS), AT01_NOTE],
     facts: AT01_FACTS,
-    policy: at01Policy({ approvedCalls: new Set([approvalKey("request_clarification", CLARIFY_ARGS)]) }),
+    policy: at01Policy(),
     overrides: {
       request_clarification: async () => ({
         data: { would_send: "generic.notice" },

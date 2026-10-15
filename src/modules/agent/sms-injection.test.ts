@@ -202,7 +202,8 @@ describe("VERI-4: an injected SMS executes no tool call", () => {
     expect(control.outcome).toBeNull();
     expect(control.decision).toMatchObject({ verdict: "ALLOW", effect: "mutate" });
     expect(control.executed).toEqual(["cancel_attendance_or_leg"]);
-    // Still nothing outbound: a send needs a human approval (VERI-2), injection or no injection.
+    // The control is a state change, not a message: nothing outbound either way. What the injected
+    // payloads above would have sent is held by `obey_t3_instruction`, and VERI-2 counts the sends.
     expect(control.sends).toEqual([]);
   });
 

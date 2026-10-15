@@ -16,9 +16,11 @@
  *
  * Everything above the gateway and below the tool is unchanged from slice 1: the model is reached
  * only through `LlmGateway.complete` (one schema-valid catalog call or a refusal), every accepted
- * call is judged by `policy.evaluate`, and a send is still a proposal unless a human approval is
- * bound to that exact call. The loop adds no way around any of that — it cannot, because the only
- * thing it may execute is a call the gateway accepted and the policy engine allowed.
+ * call is judged by `policy.evaluate`, and the §11.2 tiers decide what a send may do on its own: a
+ * templated or fixed-copy send is allowed and executed, one carrying the model's own words is a
+ * proposal that executes nothing until a human approval is bound to that exact call. The loop adds
+ * no way around any of that — it cannot, because the only thing it may execute is a call the
+ * gateway accepted and the policy engine allowed.
  *
  * Fail-shut is the default everywhere a step cannot complete: a gateway refusal, a policy block, a
  * missing executor and a failed execution all end the run rather than taking another model turn.

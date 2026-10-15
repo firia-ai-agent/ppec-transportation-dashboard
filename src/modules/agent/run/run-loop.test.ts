@@ -255,30 +255,35 @@ describe("§11.1 blocked and proposed calls are recorded, and execute nothing", 
     expect(h.recorder.intents).toEqual([]);
   });
 
-  it("an unapproved send is a proposal: the loop sends nothing (slice 1's bar, through the loop)", async () => {
-    const send = toolCall("notify_affected_therapist", {
-      therapy_session_token: "SESS-C1", child_token: "C1", impact: "ABSENT", eta: null,
-    });
-    const h = harness({ script: [send] });
-    const r = await h.start(TRIGGER);
-    const [row] = await calls(r.runId);
-    expect([r.state, row.status, row.policy_decision]).toEqual(["SUCCEEDED", "PROPOSED", "PROPOSAL:send_requires_approval"]);
-    expect(h.recorder.intents).toEqual([]);
-  });
-
-  it("the same send with a human approval bound to that exact call is allowed and executed", async () => {
+  it("a fixed-copy send executes on the agent's own authority (§11.2 auto tier, through the loop)", async () => {
     const args = { therapy_session_token: "SESS-C1", child_token: "C1", impact: "ABSENT", eta: null };
     const h = harness({
       script: [toolCall("notify_affected_therapist", args)],
-      policy: at01Policy({ approvedCalls: new Set([approvalKey("notify_affected_therapist", args)]) }),
       overrides: { notify_affected_therapist: async () => ({ data: { would_send: "therapist.absence_alert" }, done: true }) },
     });
     const r = await h.start(TRIGGER);
     const [row] = await calls(r.runId);
     expect([r.state, row.status, row.policy_decision]).toEqual(["SUCCEEDED", "EXECUTED", "ALLOW:send"]);
-    // Still no send: the executor records the intent (B-08 slice 2 ships no outbox wiring).
+    // Still no message: the executor records the intent (B-08 slice 2 ships no outbox wiring).
     expect(h.recorder.intents.map((i) => i.tool)).toEqual(["notify_affected_therapist"]);
     expect(row.result).toMatchObject({ would_send: "therapist.absence_alert" });
+  });
+
+  it("a send carrying free text is recorded BLOCKED and executes nothing", async () => {
+    // The same auto-tier tool as above, with a sentence the model wrote where the template's
+    // clock-time var belongs. Nothing executes: the loop records the block and fails the run shut.
+    const h = harness({
+      script: [toolCall("send_followup", {
+        audience: "THERAPIST_OF_SESSION", subject_token: "SESS-C1", template_id: "therapist.absence_alert",
+        vars: { sessionStart: "out sick today, back tomorrow" },
+      })],
+      overrides: { send_followup: async () => ({ data: { would_send: "therapist.absence_alert" }, done: true }) },
+    });
+    const r = await h.start(TRIGGER);
+    const [row] = await calls(r.runId);
+    expect([r.state, row.status, row.policy_decision]).toEqual(["FAILED", "BLOCKED", "BLOCK:free_text_to_parents"]);
+    expect(row.result).toEqual({ blocked_rule: "free_text_to_parents" });
+    expect(h.recorder.intents).toEqual([]);
   });
 });
 
