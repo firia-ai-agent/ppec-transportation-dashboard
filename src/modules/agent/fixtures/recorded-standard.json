@@ -1,0 +1,43 @@
+{
+  "_comment": "RecordedProvider cassette, keyed by sha256 of the prompt (providers/recorded.cassetteKey). The prompts live in fixtures/prompts.ts and are never copied here: a cassette is checked into the repo, so it holds hashes, labels and responses only. Regenerate a key with cassetteKey(prompt) after any prompt change — a stale key is a CassetteMissError, which is the point.",
+  "entries": [
+    {
+      "prompt_sha256": "d050e9efdc5cef00f4b285f7ee0ece34b60251c3d1ef8e3c0e5fb088ac5c43a9",
+      "note": "AT-01 inbound cancel AM leg",
+      "response": {
+        "tool_calls": [
+          {
+            "name": "cancel_attendance_or_leg",
+            "arguments": {
+              "child_token": "C1",
+              "date": "2026-10-16",
+              "day_part": "AM",
+              "reason_code": "FAMILY_DROPOFF",
+              "expected_self_arrival": "09:30",
+              "expected_version": 3
+            }
+          }
+        ],
+        "finish_reason": "tool_calls"
+      }
+    },
+    {
+      "prompt_sha256": "d1a02b1cb7fc59d295ffff7f752917a72686c014748d6a1f8421f06cf59acac1",
+      "note": "AT-06 sibling ambiguity",
+      "response": {
+        "tool_calls": [
+          {
+            "name": "request_clarification",
+            "arguments": {
+              "thread_id": "TH-F4",
+              "ambiguity_type": "WHICH_CHILD",
+              "candidate_tokens": ["C4", "C5"],
+              "draft_template_id": "generic.notice"
+            }
+          }
+        ],
+        "finish_reason": "tool_calls"
+      }
+    }
+  ]
+}
