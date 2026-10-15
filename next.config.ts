@@ -25,5 +25,16 @@ copyMapWorker();
 
 // `agentRules` writes an AGENTS.md into the repo root on every dev start and build. This
 // project keeps its agent-facing docs in docs/, so the generated file is only noise.
-const nextConfig: NextConfig = { poweredByHeader: false, agentRules: false };
+/*
+ * `experimental.authInterrupts` is what makes `forbidden()` work (src/auth/page-guard.ts). It is
+ * the only supported way for a *page* to answer with a real 403 and still render a page of our
+ * own: without it the role guard could only redirect or render a 200, and "denied" would be
+ * indistinguishable from "fine" to anything but a human eye. The flag enables the `forbidden()`
+ * / `unauthorized()` interrupts and their `forbidden.tsx` boundaries; it changes nothing else.
+ */
+const nextConfig: NextConfig = {
+  poweredByHeader: false,
+  agentRules: false,
+  experimental: { authInterrupts: true },
+};
 export default nextConfig;
