@@ -624,3 +624,120 @@ export const demoReset = {
   directorOnly: "Only a director can reset the demo.",
   nameTheSite: "Name the site to reset.",
 } as const;
+
+/**
+ * Outbound family SMS (COPY-GUIDE §1 voice, §5 "Outbound family SMS", §6 "[DEMO]" suffix;
+ * 10DLC HELP/STOP reply requirement, PRD §17 D-04). A family reads these, so they live here
+ * with the rest of the copy; `src/modules/messaging/templates.ts` owns the rendering — which
+ * var fills which placeholder, and which of these sentences a reason code becomes.
+ *
+ * `reasonCode` is why the code tables are here at all. Since Veri #12 an outbound reason is a
+ * fixed code rather than staff free text (`outbox.LEG_CANCEL_REASON_CODES`,
+ * `CLOSURE_REASON_CODES`), and COPY-GUIDE §2 keeps enum names off family surfaces, so the
+ * code has to become words somewhere — and this is where words are kept. WEATHER is in both
+ * tables; the sentences are per template, so each one can read naturally in its own body.
+ *
+ * No body names a child. The Veri #12 rule (outbox.ts) is that an outbound var carries only a
+ * fixed code or a constrained format, and a child's given name is neither: it identifies the
+ * child to anyone holding the phone, and no body needs it — a guardian reads "your child", a
+ * therapist reads "a child" and knows the session. So there is no `childFirstName` placeholder
+ * in this table, the outbox allows no such var, and the tests check both.
+ *
+ * The vehicle is a "van", the word a family uses for what pulls up (COPY-GUIDE §1 plain voice),
+ * not the service word "ride".
+ */
+export const outboundSms = {
+  /** COPY-GUIDE §6: a simulated message says so, in every body, with no exception. */
+  demoTag: "[DEMO]",
+  optOut: "Reply HELP for help, STOP to opt out.",
+  /** The center's number as the copy guide writes it (COPY-GUIDE §5 dispatcher link). */
+  centerPhone: "(561) 555-0100",
+  /** The fixed answer to an inbound HELP: same words every time, no child name and no van detail. */
+  helpReply:
+    "PPEC: This number sends van updates for your child. Call us at {centerPhone} if you need help. Reply STOP to opt out. {demoTag}",
+  /**
+   * The pickup places a family knows by name (MOCKS §1: public landmarks, never a home), keyed by the
+   * short stop token the outbox carries. The token is a developer-facing shape and a family must never
+   * read one, so this fixed table is the only way a stop becomes words: messaging/templates.ts resolves
+   * `stopLabel` through it, and a token with no entry falls back to `unknownStop`. The table is code-owned
+   * — nothing a coordinator types reaches it, which is what keeps the outbox's no-free-text rule intact.
+   */
+  stops: {
+    "GA-LIBRARY": "Greenacres Branch Library",
+    "OKEE-PARK": "Okeeheelee Park",
+    "GA-CITYHALL": "Greenacres City Hall",
+    "PRINCE-PARK": "John Prince Park",
+    "PBSC-LW": "Palm Beach State College, Lake Worth",
+    "LANTANA-LIB": "Lantana Public Library",
+    "BOYNTON-MALL": "Boynton Beach Mall",
+    "WELLINGTON": "Mall at Wellington Green",
+    "PB-ZOO": "Palm Beach Zoo",
+    /** The center names itself, never its street address (§5 "never … addresses"). */
+    "CENTER": "the PPEC center",
+  },
+  /** A stop token with no copy. Vague on purpose: better than a code, and it names no wrong place. */
+  unknownStop: "your usual stop",
+  /** A window, §3 "windows \"8:12–8:22 AM\"". The en dash is the guide's, not a hyphen. */
+  etaWindow: "{start}–{end}",
+  /** One time with no window end: still an estimate, so it does not promise the minute. */
+  etaApprox: "around {time}",
+  bodies: {
+    "pickup.eta":
+      "PPEC: Your child's van is on the way to {stopLabel}. Pickup {eta}. {optOut} {demoTag}",
+    "dropoff.eta":
+      "PPEC: Your child's van home is on the way to {stopLabel}. Arrival {eta}. {optOut} {demoTag}",
+    "leg.canceled":
+      "PPEC: Got it. Your child's van on {legDate} is canceled. {reasonCode} {optOut} {demoTag}",
+    "leg.changed":
+      "PPEC: Your child's van on {legDate} changed. New pickup {eta} at {stopLabel}. {optOut} {demoTag}",
+    "therapist.absence_alert":
+      "PPEC: A child is not coming in today. The {sessionStart} session is affected. {optOut} {demoTag}",
+    "therapist.late_alert":
+      "PPEC: A child is running late for the {sessionStart} session. Now expected {eta}. {optOut} {demoTag}",
+    "child.not_received":
+      "PPEC: We could not hand off your child at {stopLabel} at {eta}. Please call us at {centerPhone}. {demoTag}",
+    "center.closure": "PPEC: The center is closed on {date}. {reasonCode} {optOut} {demoTag}",
+    /**
+     * Fixed copy, no vars (Veri #12): a staff-typed notice could carry a child's name, so the
+     * only generic message we can send is the one that asks the family to call.
+     */
+    "generic.notice":
+      "PPEC: There is an update about your child's transportation. Please call us at {centerPhone}. {optOut} {demoTag}",
+  },
+  /** What a `reasonCode` says to a family, per template. */
+  reasons: {
+    "leg.canceled": {
+      VEHICLE_UNAVAILABLE: "The vehicle is not available.",
+      WEATHER: "This is because of the weather.",
+      CENTER_CLOSED: "The center is closed.",
+      FAMILY_REQUEST: "This is at your request.",
+      SCHEDULE_CHANGE: "The schedule changed.",
+    },
+    "center.closure": {
+      WEATHER: "This is because of the weather.",
+      FACILITY: "This is a building issue.",
+      HOLIDAY: "This is for a holiday.",
+      EMERGENCY: "This is an emergency closure.",
+    },
+  },
+} as const;
+
+/**
+ * The staff task a revoked consent opens (MSG-04, PRD §10). A coordinator reads these on the
+ * Exceptions board, so the summary is a label and the next step is one thing to do; the
+ * predicate is the condition that closes the task, which staff also read.
+ * `src/modules/messaging/consent.ts` chooses between them.
+ */
+export const consentFollowUp = {
+  STOP: {
+    summary: "Family opted out of text messages",
+    nextStep:
+      "Record another authorized contact for van updates, or agree a phone call with the family.",
+    predicate: "another authorized contact recorded for this family, or a call logged",
+  },
+  NL_OPT_OUT: {
+    summary: "Family asked us in their own words to stop texting",
+    nextStep: "Call the family to confirm what they want and record it.",
+    predicate: "call logged confirming the family's choice",
+  },
+} as const;

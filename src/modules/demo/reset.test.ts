@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { freshDb, ORG, SITE } from "@/test/pglite";
 import { BOARD_CENSUS } from "./fixtures/standard";
@@ -15,10 +16,10 @@ const USERS = {
 const env = { APP_DATA_CLASS: "SYNTHETIC", DEMO_MODE: "1", HMAC_PEPPER: "test-pepper", DATA_KEY: "test-data-key" };
 const NOW = new Date("2026-10-13T17:45:00.000Z");
 
-let db: Db;
+let pg: PGlite; let db: Db;
 
 beforeEach(async () => {
-  ({ db } = await freshDb());
+  ({ pg, db } = await freshDb());
   await db.query(
     `INSERT INTO ops.site (id,org_id,name,depot_lat,depot_lng,created_by,updated_by)
      VALUES ($1,$2,'SYN Second Site',26.645352,-80.145541,'test','test')`, [SITE_B, ORG]);
@@ -32,6 +33,9 @@ beforeEach(async () => {
   }
   await db.query("INSERT INTO ops.site_membership (user_id,site_id,role) VALUES ($1,$2,'DIRECTOR')", [USERS.DIRECTOR_B, SITE_B]);
 }, 60_000);
+
+// One PGlite per test adds up: close it, or the worker is killed part-way through the file.
+afterEach(async () => { await pg.close(); });
 
 const childCount = async () => (await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.child_profile", [])).rows[0].n;
 

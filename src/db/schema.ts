@@ -320,7 +320,15 @@ export const conversationThread = ops.table("conversation_thread", {
   id: pk(), siteId: siteRef(), familyGroupId: uuid("family_group_id").references(() => familyGroup.id, { onDelete: "restrict" }), counterpartyToken: uuid("counterparty_token"),
   channel: channel("channel").notNull(), state: threadState("state").notNull().default("OPEN"),
   ownerUserId: uuid("owner_user_id").references(() => appUser.id, { onDelete: "restrict" }), lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(), ...audit,
-}, (t) => [index("thread_family_idx").on(t.familyGroupId, t.lastActivityAt)]);
+}, (t) => [index("thread_family_idx").on(t.familyGroupId, t.lastActivityAt),
+  /**
+   * One live thread per counterparty and channel: the exact key messaging/sim-provider.getOrCreateThread
+   * looks up, so two concurrent first messages cannot open two threads for one family.
+   * Partial, because a thread can be CLOSED and a later message legitimately opens a new one.
+   * Unknown-sender threads carry no counterparty_token; those rows are distinct under the index (NULLs
+   * never conflict) and are still found through the from_hmac of the messages in them.
+   */
+  uniqueIndex("thread_counterparty_live_uq").on(t.siteId, t.counterpartyToken, t.channel).where(sql`state <> 'CLOSED'`)]);
 export const message = ops.table("message", {
   id: pk(), siteId: siteRef(), threadId: uuid("thread_id").references(() => conversationThread.id, { onDelete: "restrict" }).notNull(), direction: text("direction").notNull(), // IN | OUT
   provider: text("provider").notNull(), externalId: text("external_id").notNull(), // SIM-xxxx | Twilio SID

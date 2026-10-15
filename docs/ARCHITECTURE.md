@@ -63,7 +63,7 @@ One Next.js 16 app (npm `next` 16.4.0 latest on 2026-10-14), TypeScript, Drizzle
 | Function group | Routes | Max duration (Pro: 300 s default, 800 s max, per vercel.com/docs/functions/limitations) |
 |---|---|---|
 | Web/API | pages, server actions, `/api/*` contracts (PRD §12) | default 300 s; most < 2 s |
-| Ingest | `/api/webhooks/sms/sim`, `/api/ingest/{adapter}`, `/api/teams/messages` (mock) | 10 s target (MSG-01 p95 <2 s) |
+| Ingest | `/api/webhooks/sms` (B-04; the sim posts the Twilio body shape with a sim HMAC header, so there is one path, not a `/sim` variant), `/api/ingest/{adapter}`, `/api/teams/messages` (mock) | 10 s target (MSG-01 p95 <2 s) |
 | Timer consumer | `/api/queues/timer` (queue trigger, not publicly reachable per Vercel Queues docs) | 60 s |
 | Outbox drainer | `/api/queues/outbox` + cron `/api/cron/sweep` every minute | 60 s |
 | Agent runner | `/api/queues/agent` (one run per message) | 120 s |
