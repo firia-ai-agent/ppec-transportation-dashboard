@@ -107,6 +107,13 @@ export type PageRow = {
  *    A signed-in session grants nothing on these, by design.
  *  - `queue-callback` — invoked by the platform's queue with its own message headers; Vercel
  *    does not expose these routes to the public internet. A session grants nothing here either.
+ *  - `signature-webhook` — reachable from the public internet (a provider posts to it and has no
+ *    session to offer), but every request must carry an HMAC of its own raw body in `header`,
+ *    keyed by the secret in `secretEnv`. So "public network-wise, behind a verified signature":
+ *    unsigned, wrongly signed, signed over a different body, or no secret configured ⇒ 401, and
+ *    the check runs before anything is parsed, read or written. A staff session grants nothing
+ *    here — exactly as on `cron-secret` and `queue-callback` — because the caller is a machine
+ *    and a browser that can reach the URL must not be able to forge an inbound message.
  *  - `auth-endpoint` — Auth.js's own sign-in/sign-out/session handlers, which must be reachable
  *    before anyone has a session.
  *  - `public` — deliberately open, with the reason in `why`.
@@ -115,6 +122,8 @@ export type EndpointAuth =
   | { kind: "session"; roles: readonly StaffRole[]; siteScoped: boolean }
   | { kind: "cron-secret" }
   | { kind: "queue-callback" }
+  /** The request header carrying the hex HMAC, and the environment variable holding the key. */
+  | { kind: "signature-webhook"; header: string; secretEnv: string }
   | { kind: "auth-endpoint" }
   | { kind: "public" };
 
@@ -148,6 +157,8 @@ export const API = {
   queueTimer: "/api/queues/timer",
   queueOutbox: "/api/queues/outbox",
   queueDelayProbe: "/api/queues/delay-probe",
+  smsWebhook: "/api/webhooks/sms",
+  simPhoneMessages: "/api/sim/phones/[number]/messages",
 } as const;
 
 export const PAGES: readonly PageRow[] = [
@@ -293,6 +304,10 @@ export const PAGES: readonly PageRow[] = [
   /**
    * SURF-04, the ramp iPad: the front desk's own surface (PRD §6.2, ARCHITECTURE §1), and a
    * coordinator and a director both walk it.
+   *
+   * OPEN QUESTION for the founder: This is also the front desk's *home* — they can open no
+   * console page, so `HOME_ORDER` below resolves their landing page to this one, which is where
+   * sign-in now puts them. It is a developer preview route. Correct until SURF-04 is real?
    */
   {
     kind: "page",
@@ -300,6 +315,7 @@ export const PAGES: readonly PageRow[] = [
     path: "/ramp-preview",
     access: { roles: ALL_STAFF },
     label: rampPreview.heading,
+    founderQuestion: true,
   },
 ];
 
@@ -401,6 +417,52 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     path: API.queueDelayProbe,
     methods: ["POST"],
     auth: { kind: "queue-callback" },
+  },
+  /**
+   * Inbound SMS (MSG-01, ADR-006, MOCKS §3). A provider posts here; there is no session to offer
+   * and never will be, so the route is reachable from the public internet and every request must
+   * carry an HMAC of its own raw body in `x-sim-signature` (`X-Twilio-Signature` when the live
+   * adapter lands — only the verification line changes). Unsigned, wrongly signed, signed over a
+   * different body, or `SIM_WEBHOOK_SECRET` unset ⇒ 401 with no side effect of any kind, and the
+   * compare is constant-time (src/modules/messaging/inbound.ts).
+   *
+   * A staff session grants nothing here, like the cron and queue rows above, and this one matters
+   * more than either: the handler writes a message row, a consent event, a suppression and a
+   * staff task, so a browser that can reach the URL must not be able to forge a family's SMS.
+   * The signature check is therefore the first statement in POST — ahead of the preview skip, the
+   * form parse, the pepper, the database and the outbox.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/webhooks/sms/route.ts",
+    path: API.smsWebhook,
+    methods: ["POST"],
+    auth: { kind: "signature-webhook", header: "x-sim-signature", secretEnv: "SIM_WEBHOOK_SECRET" },
+  },
+  /**
+   * The contents of one persona phone, for the sim panel (MOCKS §3, DESIGN-DIRECTION §6.3). A
+   * staff session, the two console roles, and a membership at the site that phone belongs to.
+   *
+   * Why not the front desk, who holds every other read in this app: PRD §1.1 gives the
+   * "Transport/attendance coordinator, director" the "Web console (desktop + iPad)" and gives
+   * "Front desk / ramp staff" the "iPad ramp + check-in view" — the sim panel is a web-console
+   * instrument, not a ramp one. PRD §6.2's data-ownership table lists Messages as written by
+   * "adapters only" and puts the front desk down as the writer of "Actual attendance/custody"
+   * alone, so a message thread is not part of their job. And a family's thread is PHI-adjacent:
+   * §12 is minimum-necessary, so a role with no task that needs the thread does not get it.
+   *
+   * Site-scoped on the phone's *own* site, read from the data and never from the request
+   * (DATA-MODEL §5): a phone at a site the caller is not a member of is the same 404 as a number
+   * that belongs to nobody, so the answer cannot be used to find out which phones exist
+   * (BUILD-PLAN §4). A member of that site holding the wrong role is a 403, because their site's
+   * existence is not a secret from them.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/sim/phones/[number]/messages/route.ts",
+    path: API.simPhoneMessages,
+    methods: ["GET"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: true },
   },
   /**
    * The sign-in form's own action (ADR-004). It hands email and password to the credentials
@@ -509,6 +571,7 @@ export function apiOutcome(caller: Caller, path: string): ApiOutcome {
  * The order a role's own pages are offered in: the nav order first (DESIGN-DIRECTION §2), then
  * the two surfaces that are not in the rail. The first entry a role may open is their home — so
  * the front desk, who has no console page, lands on the ramp check rather than on a refusal.
+ * That landing page is the `/ramp-preview` row's open question above.
  */
 const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/ramp-preview", "/map-preview", "/whoami"] as const;
 

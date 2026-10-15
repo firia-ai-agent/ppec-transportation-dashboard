@@ -283,9 +283,20 @@ async function expectNothingLeaked(page: { file: string; path: string }, who: st
   const home = homePathFor(caller);
   const cell = `${page.path} as ${who}`;
 
+  /*
+   * Two cards, and which one a caller gets is the caller's own: a role refused one page is told
+   * who that page is for, and someone who holds no role at any site is told what is true of
+   * their account instead (`noRoleHeading`/`noRoleLine`, Vera's copy) — every page refuses them,
+   * so naming the roles that could open this one tells them nothing they can act on. Still
+   * equality, not "contains", for both: it leaves no room for anything else to be in there.
+   */
+  const card =
+    caller.kind === "NO_ROLE"
+      ? `${noAccess.noRoleHeading} ${noAccess.noRoleLine}`
+      : `${noAccess.heading} ${whoCanOpenLine(page.path)}`;
   expect({ cell, words }).toEqual({
     cell,
-    words: `${noAccess.heading} ${whoCanOpenLine(page.path)} ${fill(noAccess.back, { page: pageLabel(home) })}`,
+    words: `${card} ${fill(noAccess.back, { page: pageLabel(home) })}`,
   });
   for (const phrase of protectedPhrases) expect({ cell, phrase, words }).toEqual({ cell, phrase, words: expect.not.stringContaining(phrase) });
   expect(words).not.toMatch(/\b(401|403|404)\b/);

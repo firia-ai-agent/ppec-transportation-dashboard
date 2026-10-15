@@ -15,6 +15,14 @@
 
 /* ───────────────────────────── colour (§8) ───────────────────────────── */
 
+/**
+ * OPEN QUESTION for the founder: The brief named a Faith Cloud / Teal / Teal Ink / Coral
+ * palette, and no such tokens exist anywhere in this repo — DESIGN-DIRECTION §8 and the set
+ * below define ink, ink-muted, bg, surface, border-strong, brand, the five tones and the demo
+ * violet, and every surface reads those. Nothing is hardcoded around them (no-hex.test.ts holds
+ * that), so if the brand palette is being adopted the hexes change here once and the whole app
+ * follows. Is it, or is §8 the palette?
+ */
 export const color = {
   ink: "#0F172A",
   "ink-muted": "#475569",

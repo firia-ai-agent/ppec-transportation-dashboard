@@ -14,14 +14,14 @@ export const MAX_DELAY_SECONDS = 7 * 24 * 3600; // Vercel Queues limit
  * its parameters rather than editing it)):
  * short, so a consumer that dies after claiming is recovered within the 5 s bar. Handlers are DB-only and
  * short; one that outlives the lease renews it (runner.ts `startLeaseRenewal`) and is fenced by the claim
- * token either way. Row 58 is conditional on TEST-INF-01 showing Vercel Queues honours sub-second
- * `delaySeconds` (probe: GET /api/probe/delay → topic ppec-delay-probe); if it does not, revert to the row 38
- * parameters (3 s lease, whole-second re-wakes).
+ * token either way. Row 58 made the lease conditional on TEST-INF-01 showing Vercel Queues honours
+ * sub-second `delaySeconds`; **row 60 resolved that conditional the conservative way** (see
+ * `wholeSecondDelay` below) and keeps the 2 s lease, because recovery no longer rests on a sub-second hop.
  */
 export const LEASE_SECONDS = 2;
 /** The re-wake published at claim time arrives this long after the claim. Both sides use the app clock (claim and reclaim). */
 export const REWAKE_DELAY_SECONDS = LEASE_SECONDS; // reclaim uses claimed_until <= now, so the re-wake lands exactly at expiry
-/** Extra wait added when a wake has to re-publish itself, so the next one cannot land before the lease expires. */
+/** Extra wait added when a wake has to wait out a live lease (inline or by re-publishing), so it cannot act before the lease expires. */
 export const REWAKE_MARGIN_MS = 250;
 /**
  * How far ahead of `due_at` a delivery may still claim. Queues' `delaySeconds` is a "not before" floor, so a
@@ -33,6 +33,34 @@ export const REWAKE_MARGIN_MS = 250;
 export const EARLY_SLACK_MS = 1_000;
 /** A handler renews its lease this often; two renewals fit in every lease, so one lost renewal is not fatal. */
 export const LEASE_RENEW_EVERY_MS = (LEASE_SECONDS * 1000) / 2;
+/**
+ * Inline lease re-check (ADR-001, DECISION-LEDGER row 60). A wake that finds the lease **still live** with at
+ * most this much of it left waits it out *inside the same invocation* — sleep to `claimed_until` +
+ * REWAKE_MARGIN_MS, re-read the row, and reclaim + fire if the lease lapsed — instead of publishing another
+ * wake. That is what replaces the sub-second re-wake hop row 58 assumed: a published delay is now a whole
+ * second (`wholeSecondDelay`), so paying a queue hop to cover 1 ms of remaining lease would cost ≥ 1 s plus
+ * delivery jitter, while waiting 1 ms + the margin here costs nothing but the invocation we are already in.
+ *
+ * The bound is the full lease plus the claim slack: a consumer that dies right after claiming leaves at most
+ * LEASE_SECONDS of lease behind, and skew between the claiming and the waking instance can add up to
+ * EARLY_SLACK_MS to what we see, so **every lease a dead consumer can leave is recovered in one invocation**.
+ * Anything longer is a lease a live handler keeps renewing (runner.ts `startLeaseRenewal`) — the job is not at
+ * risk there, so the cheap answer (publish a whole-second re-wake and let this invocation go) is the right one.
+ */
+export const INLINE_RECHECK_MAX_MS = LEASE_SECONDS * 1000 + EARLY_SLACK_MS;
+/**
+ * How many times one invocation may wait out the lease before giving up and publishing. More than one because
+ * a renewal can land while we sleep (a handler that renewed once and then died); a fixed small number because
+ * every extra pass is an invocation held open for a handler that is demonstrably alive.
+ */
+export const INLINE_RECHECK_MAX_ITERATIONS = 3;
+/** Worst case time one invocation spends re-checking: iterations × (bound + margin). Must stay under TIMER_CONSUMER_BUDGET_SECONDS. */
+export const INLINE_RECHECK_TOTAL_MAX_MS = INLINE_RECHECK_MAX_ITERATIONS * (INLINE_RECHECK_MAX_MS + REWAKE_MARGIN_MS);
+/**
+ * The timer consumer's own time budget: `maxDuration` in src/app/api/queues/timer/route.ts. A Next.js route
+ * segment config has to be a literal, so the route cannot import this; jobs.test.ts pins the two together.
+ */
+export const TIMER_CONSUMER_BUDGET_SECONDS = 60;
 export const MAX_ATTEMPTS = 5;
 /** Queue redelivery backoff after a handler failure (route.ts): 2 s, 4 s, 8 s, … capped. */
 export const RETRY_BASE_SECONDS = 2;
@@ -93,16 +121,41 @@ export const QUEUE_VISIBILITY_TIMEOUT_SECONDS = 30;
 export const MAX_DELIVERIES = 8;
 
 /**
- * Delay for a re-wake that arrived while the lease was still live (queue jitter, or clock skew between the
- * claiming and the waking instance): the rest of the lease plus REWAKE_MARGIN_MS, because a reclaim needs
- * `claimed_until <= now` and would otherwise no-op and leave recovery to the 1-minute sweep (Veri #10, blocker 1).
- * Fractional seconds with millisecond precision (ledger row 58): rounding up to whole seconds added up to
- * ~1 s per hop and put the early-arrival path over the NFR-03 bar. Conditional on TEST-INF-01 confirming
- * Vercel Queues honours sub-second `delaySeconds`; if it floors them, revert to the row 38 parameters
- * (whole seconds, 3 s lease).
+ * **Every `delaySeconds` we hand the transport goes through here** (DECISION-LEDGER row 60): a non-negative
+ * whole number of seconds, never fractional, never above the 7-day maximum.
+ *
+ * Why whole seconds. Row 58 made 2 s leases + millisecond re-wake delays conditional on TEST-INF-01 showing
+ * that Vercel Queues honours sub-second `delaySeconds`. The client half is settled — @vercel/queue 0.8.0 types
+ * it `delaySeconds?: number` and sends `options.delaySeconds.toString()` as the `Vqs-Delay-Seconds` header
+ * without validating or rounding — but the **server** half is not: the Queues docs describe the field only as
+ * "Delay in seconds" and state no sub-second precision anywhere. An undocumented behaviour of a Beta service
+ * is not a thing to put the NFR-03 recovery bound on, so we treat delays as whole-second-only (row 38's
+ * granularity) and recover the sub-second part of the lease *inside the invocation* instead
+ * (INLINE_RECHECK_MAX_MS). Rounding is **up**: `delaySeconds` is a "not before" floor, and rounding down
+ * would ask for a delivery before the thing we are waiting for has happened.
+ */
+export function wholeSecondDelay(delaySeconds: number) {
+  if (!Number.isFinite(delaySeconds)) throw new Error(`delaySeconds must be a finite number, got ${delaySeconds}`);
+  return Math.min(MAX_DELAY_SECONDS, Math.max(0, Math.ceil(delaySeconds)));
+}
+
+/** Is this value publishable as-is: a whole number of seconds, ≥ 0 and within the Queues maximum? */
+export function isWholeSecondDelay(delaySeconds: number) {
+  return Number.isInteger(delaySeconds) && delaySeconds >= 0 && delaySeconds <= MAX_DELAY_SECONDS;
+}
+
+/**
+ * Delay for a re-wake that has to wait out a lease this consumer decided not to wait out inline: the rest of
+ * the lease plus REWAKE_MARGIN_MS, rounded **up to a whole second** (never 0, so the next delivery cannot land
+ * in the same millisecond), because a reclaim needs `claimed_until <= now` and would otherwise no-op and leave
+ * recovery to the 1-minute sweep (Veri #10, blocker 1).
+ *
+ * Only two paths reach this now (row 60): a lease longer than INLINE_RECHECK_MAX_MS — i.e. one a live handler
+ * is renewing — and an inline re-check that ran out of iterations. The early-arrival recovery path, which is
+ * what the millisecond precision of row 58 was for, is handled inline instead and pays no queue hop at all.
  */
 export function rewakeDelaySeconds(remainingLeaseMs: number) {
-  return Math.ceil(Math.max(0, remainingLeaseMs) + REWAKE_MARGIN_MS) / 1000;
+  return Math.max(1, wholeSecondDelay((Math.max(0, remainingLeaseMs) + REWAKE_MARGIN_MS) / 1000));
 }
 
 /**
@@ -138,12 +191,20 @@ export type WakeMessage = { jobId: string; dueAt: string; version: number };
 export type WakeFence = { dueAt?: string; version?: number };
 
 export interface WakeTransport {
-  /** Deliver a WakeMessage to the timer consumer after delaySeconds. At-least-once and unordered is fine. */
+  /**
+   * Deliver a WakeMessage to the timer consumer after delaySeconds. At-least-once and unordered is fine.
+   * `delaySeconds` must satisfy `isWholeSecondDelay` (row 60): fractional delays are not a thing Vercel
+   * Queues documents, so every caller rounds up through `wholeSecondDelay`/`rewakeDelaySeconds`/`delayFor`
+   * and both implementations check it — the production one normalises and warns, the fake one throws.
+   */
   publish(msg: WakeMessage, opts: { delaySeconds: number; idempotencyKey: string }): Promise<void>;
 }
 
 export type Clock = () => Date;
 export const systemClock: Clock = () => new Date();
+/** Injectable `await sleep(ms)`, so the inline lease re-check is deterministic in tests (runner.ts). */
+export type Sleep = (ms: number) => Promise<void>;
+export const systemSleep: Sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 
 export type ScheduleInput = { siteId: string; key: string; kind: string; payload: unknown; dueAt: Date; by: string };
 export type JobRow = { id: string; key: string; kind: string; payload: unknown; due_at: Date; state: string; attempts: number; site_id: string; version: number };
@@ -174,11 +235,14 @@ export interface JobScheduler {
 }
 
 /**
- * Delay for the wake published at schedule time. Millisecond precision, not whole seconds (ledger row 58):
- * rounding up cost up to 1 s of lateness on every job, not just the recovery paths.
+ * Delay for the wake published at schedule time: whole seconds, rounded up (ledger row 60). Rounding **up**
+ * costs this path up to 1 s of lateness — well inside the 5 s bar, since a first wake pays no recovery hop —
+ * and is the only safe direction: rounding down would ask Queues to deliver before `due_at`, and a wake more
+ * than EARLY_SLACK_MS early cannot claim (runner.ts `claimForWake` → `not-due`), so it would buy lateness
+ * rather than save it. All PRD timers are whole-second anyway (T−90, 10 min, 15 min, EOD).
  */
 export function delayFor(dueAt: Date, now: Date) {
-  return Math.min(MAX_DELAY_SECONDS, Math.max(0, Math.ceil(dueAt.getTime() - now.getTime())) / 1000);
+  return wholeSecondDelay((dueAt.getTime() - now.getTime()) / 1000);
 }
 
 /**

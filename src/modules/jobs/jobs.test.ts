@@ -9,11 +9,19 @@ import { FakeTransport } from "./fake-transport";
 import { TIMER_TOPIC } from "./vercel-queue";
 import { VercelQueueScheduler, MAX_ATTEMPTS } from "./scheduler";
 import { claimForWake, fire, handleWake, renewLease, sweep, type FireOpts, type Handlers } from "./runner";
-import { EARLY_SLACK_MS, LEASE_SECONDS, MAX_DELAY_SECONDS, MAX_DELIVERIES, QUEUE_RETRY_AFTER_SECONDS, QUEUE_VISIBILITY_TIMEOUT_SECONDS, REWAKE_DELAY_SECONDS, REWAKE_MARGIN_MS, RETRY_MAX_SECONDS, delayFor, queueRetryDirective, redeliveryDelaySeconds, rewakeDelaySeconds, staleWake } from "./scheduler";
+import { EARLY_SLACK_MS, INLINE_RECHECK_MAX_ITERATIONS, INLINE_RECHECK_MAX_MS, INLINE_RECHECK_TOTAL_MAX_MS, LEASE_SECONDS, MAX_DELAY_SECONDS, MAX_DELIVERIES, QUEUE_RETRY_AFTER_SECONDS, QUEUE_VISIBILITY_TIMEOUT_SECONDS, REWAKE_DELAY_SECONDS, REWAKE_MARGIN_MS, RETRY_MAX_SECONDS, TIMER_CONSUMER_BUDGET_SECONDS, delayFor, isWholeSecondDelay, queueRetryDirective, redeliveryDelaySeconds, rewakeDelaySeconds, staleWake, wholeSecondDelay, type Sleep } from "./scheduler";
 
 let db: Db; let t: FakeTransport; let now: Date; let s: VercelQueueScheduler;
 const clock = () => now;
 const at = (secs: number) => new Date(now.getTime() + secs * 1000);
+/**
+ * The two sleeps the inline lease re-check (DECISION-LEDGER row 60) is tested with, both instant in wall-clock
+ * time: `fastSleep` moves the fake clock forward, so the lease really does lapse while the invocation waits;
+ * `frozenSleep` returns without moving it, which is what a lease renewed under us looks like from in here —
+ * every pass sees it live, the loop runs out, and the wake is re-published instead.
+ */
+const fastSleep: Sleep = async (msWaited) => { now = new Date(now.getTime() + Math.max(0, msWaited)); };
+const frozenSleep: Sleep = async () => {};
 const calls: string[] = [];
 const handlers: Handlers = {
   "noop.test": async (_tx, job) => { calls.push(job.key); },
@@ -40,6 +48,9 @@ beforeEach(async () => {
 }, 60_000);
 
 afterEach(async () => {
+  // Row 60, on every test without having to remember it: nothing may reach the transport with a fractional,
+  // negative or over-long delay. FakeTransport throws on one too, so this also pins the assertion itself.
+  for (const m of t.sent) expect([m.idempotencyKey, isWholeSecondDelay(m.delaySeconds)]).toEqual([m.idempotencyKey, true]);
   await Promise.all(open.splice(0).map((pg) => pg.close().catch(() => {})));
 });
 
@@ -186,21 +197,26 @@ describe("cron auth fails closed", () => {
   ])("header %s secret-set %s → %s", (h, s2, ok) => expect(cronAuthorized(h as string | null, s2 as string | undefined)).toBe(ok));
 });
 
-describe("Option A: short lease + re-wake at lease expiry (kill-after-claim)", () => {
-  const due = 10; // job due 10 s after the row's base time
+describe("Option A: short lease + inline re-check + re-wake at lease expiry (kill-after-claim)", () => {
   const NFR03_SECONDS = 5; // PRD NFR-03: fire within 5 s of due (TEST-INF-01 crash paths)
   const MAX_JITTER = 1; // s of queue delivery jitter assumed per delivery
   const ms = (secs: number) => Math.round(secs * 1000); // keep the fake clock on whole milliseconds
-  type Row = { j1: number; j2: number; earlyBy: number; late: number };
+  type Row = { due: number; round: number; j1: number; j2: number; earlyBy: number; late: number; path: "expiry" | "inline" };
 
   /**
-   * One kill-after-claim run on its own job row: the first wake arrives at due+j1 and the consumer dies after
-   * claiming; the re-wake is delivered `earlyBy` s *before* the lease expires (0 = at expiry) and j2 s after
-   * whatever delay it asked for. Returns the measured lateness (`fired_at - due_at`).
+   * One kill-after-claim run on its own job row. `due` is how long after the row's base time the job is due,
+   * deliberately including fractional values: the schedule-time wake asks for a **whole** number of seconds
+   * now (DECISION-LEDGER row 60), so `ceil(due) - due` is lateness we impose on ourselves and it is measured
+   * here rather than assumed away. The first wake then arrives j1 s later and the consumer dies after
+   * claiming; the re-wake is delivered `earlyBy` s *before* the lease expires (0 = at expiry) and otherwise
+   * j2 s after the delay it asked for. Returns the measured lateness (`fired_at - due_at`).
    */
-  async function killAfterClaim(j1: number, j2: number, earlyBy = 0): Promise<Row> {
-    const base = now; const key = `kac-${j1}-${j2}-${earlyBy}`;
+  async function killAfterClaim(due: number, j1: number, j2: number, earlyBy = 0): Promise<Row> {
+    const base = now; const key = `kac-${due}-${j1}-${j2}-${earlyBy}`;
     const { id } = await sched(key, due);
+    const published = t.sent.at(-1)!.delaySeconds; // whole seconds, so never before due_at — see delayFor
+    const round = published - due;
+
     let crashed = false; let firedAt: Date | null = null;
     const hs: Handlers = { "noop.test": async () => {
       if (!crashed) { crashed = true; throw new SimulatedCrash("process killed after claim"); }
@@ -209,67 +225,82 @@ describe("Option A: short lease + re-wake at lease expiry (kill-after-claim)", (
     const opts: FireOpts = { transport: t, ...kill };
     const rewakes = () => t.sent.filter((m) => m.jobId === id && m.idempotencyKey.startsWith("rewake:"));
 
-    now = new Date(base.getTime() + ms(due + j1));
+    now = new Date(base.getTime() + ms(published + j1));
     const claimedAt = now;
     await expect(handleWake(db, { jobId: id }, "d1", hs, clock, opts)).rejects.toBeInstanceOf(SimulatedCrash);
     expect((await state(key)).state).toBe("CLAIMED");
     expect(rewakes()).toEqual([expect.objectContaining({ delaySeconds: REWAKE_DELAY_SECONDS })]);
 
-    // Redelivery of the ORIGINAL message mid-lease must not double-claim; it re-publishes itself instead of no-op.
+    // Redelivery of the ORIGINAL message mid-lease must not double-claim. `frozenSleep` makes every pass of the
+    // inline re-check see the same live lease — what a handler renewing it under us looks like from here — so
+    // this run exercises the one case that still re-publishes, and it re-publishes a whole second (row 60).
     now = new Date(claimedAt.getTime() + (LEASE_SECONDS * 1000) / 2);
-    expect(await handleWake(db, { jobId: id }, "d1", hs, clock, opts)).toBe("rewake-deferred");
+    expect(await handleWake(db, { jobId: id }, "d1", hs, clock, { ...opts, sleep: frozenSleep })).toBe("rewake-deferred");
     expect(rewakes().at(-1)?.delaySeconds).toBe(rewakeDelaySeconds((LEASE_SECONDS * 1000) / 2));
+    expect((await state(key)).state).toBe("CLAIMED"); // not reclaimed, not run
 
-    let deliveredAt = new Date(claimedAt.getTime() + ms(REWAKE_DELAY_SECONDS + j2));
+    const before = rewakes().length;
+    let path: Row["path"] = "expiry";
     if (earlyBy > 0) {
-      // The re-wake lands before the lease expires (queue jitter, or skew between the two instances' clocks).
+      // The re-wake lands before the lease expires (queue jitter, or skew between the claiming and the waking
+      // instance). Row 60: with at most INLINE_RECHECK_MAX_MS of lease left, this invocation waits the rest of
+      // it out and recovers the job itself, so the earliness costs one margin — not another queue hop, which
+      // would now be a whole second plus a second helping of delivery jitter.
+      path = "inline";
       now = new Date(claimedAt.getTime() + ms(REWAKE_DELAY_SECONDS - earlyBy));
-      expect(await handleWake(db, { jobId: id }, "d1", hs, clock, opts)).toBe("rewake-deferred");
-      expect((await state(key)).state).toBe("CLAIMED"); // not reclaimed, not run
-      const republished = rewakes().at(-1);
-      expect(republished?.delaySeconds).toBe(rewakeDelaySeconds(earlyBy * 1000));
-      deliveredAt = new Date(now.getTime() + ms((republished?.delaySeconds ?? 0) + j2));
+      expect(await handleWake(db, { jobId: id }, "d1", hs, clock, { ...opts, sleep: fastSleep })).toBe("fired");
+      // The only thing that invocation published is the *new* claim's own re-wake: no deferred hop at all.
+      expect(rewakes().slice(before)).toEqual([expect.objectContaining({ delaySeconds: REWAKE_DELAY_SECONDS })]);
+    } else {
+      now = new Date(claimedAt.getTime() + ms(REWAKE_DELAY_SECONDS + j2));
+      expect(await handleWake(db, { jobId: id }, "d1", hs, clock, opts)).toBe("fired");
     }
-    now = deliveredAt;
-    expect(await handleWake(db, { jobId: id }, "d1", hs, clock, opts)).toBe("fired");
     expect(await fires(id)).toBe(1);
     const late = ((firedAt as unknown as Date).getTime() - (base.getTime() + ms(due))) / 1000;
     now = new Date(base.getTime() + 3_600_000); // the next row runs an hour later, on its own job row
-    return { j1, j2, earlyBy, late };
+    return { due, round, j1, j2, earlyBy, late, path };
   }
 
-  it("recovers a killed consumer and fires once, both when the re-wake lands at expiry and when it lands early", async () => {
-    // Re-wake at or after lease expiry: the published delay is the whole lease, so recovery is j1 + lease + j2.
+  it("recovers a killed consumer and fires once, whether the re-wake lands at lease expiry or early", async () => {
+    // Re-wake at or after lease expiry: the published delay is the whole lease, so recovery is
+    // (our whole-second rounding of the first wake) + j1 + lease + j2.
     const onTime: Row[] = [];
-    for (const [j1, j2] of [[0, 0], [0.25, 0.25], [0.5, 0.5], [0.75, 0.75], [1, 1]]) onTime.push(await killAfterClaim(j1, j2));
-    for (const r of onTime) expect(r.late).toBeLessThan(NFR03_SECONDS);
+    for (const [due, j1, j2] of [[10, 0, 0], [10, 0.25, 0.25], [10, 0.5, 0.5], [10, 1, 1], [10.3, 1, 1], [10.05, 1, 1]])
+      onTime.push(await killAfterClaim(due, j1, j2));
+    for (const r of onTime) expect(r.late).toBeCloseTo(r.round + r.j1 + LEASE_SECONDS + r.j2, 3);
 
-    // Re-wake early (Veri #10, blocker 1): it re-publishes for the rest of the lease + margin, so recovery costs
-    // one more hop instead of falling back to the 1-minute sweep. With sub-second delays (ledger row 58) that
-    // hop is exactly the margin + jitter, not the margin rounded up to the next whole second.
+    // Re-wake early (Veri #10, blocker 1): with whole-second delays, re-publishing it would cost ≥ 1 s plus
+    // another delivery's jitter, so the invocation waits out the rest of the lease instead (row 60) and the
+    // earliness costs exactly one re-wake margin, for any amount of earliness up to INLINE_RECHECK_MAX_MS.
     const early: Row[] = [];
-    for (const [j1, j2, e] of [[0, 0, 0.001], [0.25, 0.25, 0.5], [0.5, 0.5, 0.75], [1, 1, 0.001], [1, 1, 0.25], [1, 1, 0.5], [1, 1, 0.75], [1, 1, 1]]) early.push(await killAfterClaim(j1, j2, e));
-    for (const r of early) expect(r.late).toBeCloseTo(r.j1 + LEASE_SECONDS - r.earlyBy + rewakeDelaySeconds(r.earlyBy * 1000) + r.j2, 3);
-    for (const r of early) expect(r.late).toBeLessThan(NFR03_SECONDS);
+    for (const [due, j1, j2, e] of [[10, 0, 0, 0.001], [10, 0.25, 0.25, 0.5], [10, 0.5, 0.5, 0.75], [10, 1, 1, 0.001], [10, 1, 1, 1], [10.3, 1, 1, 0.5], [10.05, 1, 1, 0.001], [10.05, 1, 1, 1]])
+      early.push(await killAfterClaim(due, j1, j2, e));
+    for (const r of early) expect(r.late).toBeCloseTo(r.round + r.j1 + LEASE_SECONDS + REWAKE_MARGIN_MS / 1000, 3);
 
     const all = [...onTime, ...early];
+    for (const r of all) expect(r.late).toBeLessThan(NFR03_SECONDS);
     const worst = Math.max(...all.map((r) => r.late));
+    const worstRound = Math.max(...all.map((r) => r.round));
     // Straight to stdout, not console.log: vitest's default reporter drops intercepted console output from
     // *passing* tests when stdout is not a TTY (i.e. in CI), and this table is the deliverable of the test.
     print([
-      "| first delivery jitter | re-wake arrives early by | re-wake jitter | lateness |",
-      "|---|---|---|---|",
-      ...all.map((r) => `| ${r.j1} s | ${r.earlyBy ? `${r.earlyBy} s` : "–"} | ${r.j2} s | ${r.late.toFixed(3)} s |`),
-      `lease ${LEASE_SECONDS} s, re-wake margin ${REWAKE_MARGIN_MS} ms, sub-second (ms-precision) queue delays, jitter ≤ ${MAX_JITTER} s per delivery, early arrival ≤ ${MAX_JITTER} s`,
-      `worst-case lateness ${worst.toFixed(3)} s → margin ${(NFR03_SECONDS - worst).toFixed(3)} s under the ${NFR03_SECONDS} s NFR-03 bar`,
-      `(the re-wake-at-expiry path is ${Math.max(...onTime.map((r) => r.late)).toFixed(3)} s at ${MAX_JITTER} s jitter; the early path costs exactly one re-wake margin more)`,
-      `sub-second delaySeconds is Unverified until a live TEST-INF-01 run (GET /api/probe/delay → topic ppec-delay-probe); if Queues floors it, revert to the 3 s lease proposed for ledger row 38 (PR #10, closed)`,
+      "| due offset | our rounding | first delivery jitter | re-wake arrives early by | re-wake jitter | recovery | lateness |",
+      "|---|---|---|---|---|---|---|",
+      ...all.map((r) => `| ${r.due} s | ${r.round.toFixed(2)} s | ${r.j1} s | ${r.earlyBy ? `${r.earlyBy} s` : "–"} | ${r.path === "inline" ? "–" : `${r.j2} s`} | ${r.path === "inline" ? "inline re-check" : "re-wake at expiry"} | ${r.late.toFixed(3)} s |`),
+      `lease ${LEASE_SECONDS} s, re-wake margin ${REWAKE_MARGIN_MS} ms, **whole-second queue delays** (row 60), inline re-check ≤ ${INLINE_RECHECK_MAX_MS} ms × ${INLINE_RECHECK_MAX_ITERATIONS}, jitter ≤ ${MAX_JITTER} s per delivery, early arrival ≤ ${MAX_JITTER} s`,
+      `worst case in this table ${worst.toFixed(3)} s → ${(NFR03_SECONDS - worst).toFixed(3)} s under the ${NFR03_SECONDS} s NFR-03 bar, at rounding ${worstRound.toFixed(2)} s`,
+      `analytic bound: lateness = (ceil(due−now) − (due−now)) + j1 + lease + (j2 at expiry | margin inline)`,
+      `  ⇒ sup = 1 + ${MAX_JITTER} + ${LEASE_SECONDS} + ${MAX_JITTER} = ${(1 + MAX_JITTER + LEASE_SECONDS + MAX_JITTER).toFixed(2)} s at expiry (never attained: the rounding term is < 1 s), ${(1 + MAX_JITTER + LEASE_SECONDS + REWAKE_MARGIN_MS / 1000).toFixed(2)} s inline`,
+      `  ⇒ ${(LEASE_SECONDS + 2 * MAX_JITTER).toFixed(2)} s / ${(LEASE_SECONDS + MAX_JITTER + REWAKE_MARGIN_MS / 1000).toFixed(2)} s when the due time lands on a whole second (rounding 0), which is the like-for-like comparison with the ${(LEASE_SECONDS + 2 * MAX_JITTER + REWAKE_MARGIN_MS / 1000).toFixed(2)} s of ledger row 58's sub-second design`,
+      `the recovery mechanism itself costs lease + margin = ${(LEASE_SECONDS + REWAKE_MARGIN_MS / 1000).toFixed(2)} s; everything else in the bound is our whole-second rounding of the first wake plus the assumed ${MAX_JITTER} s-per-delivery jitter`,
+      `all ${all.length} runs are SIMULATED (fake clock, in-memory transport, PGlite). The ${MAX_JITTER} s jitter assumption is an assumption: no live Vercel Queues timing has been measured, the TEST-INF-01 restart drill is pending, and so is the delay probe (GET /api/probe/delay → topic ppec-delay-probe), which now only tells us how much precision whole-second delays leave on the table — NFR-03 no longer depends on its answer`,
     ]);
-    // Analytic bound for the early path: j1 + lease − ε + (ε + margin) + j2 = j1 + j2 + lease + margin, for any ε.
-    expect(worst).toBeLessThanOrEqual(LEASE_SECONDS + 2 * MAX_JITTER + REWAKE_MARGIN_MS / 1000);
-  }, 180_000);
+    // 1e-9 of slack, not sloppiness: `round` is the difference of two floats, so the bound carries float noise.
+    expect(worst).toBeLessThanOrEqual(worstRound + LEASE_SECONDS + 2 * MAX_JITTER + 1e-9);
+    expect(worstRound).toBeLessThan(1); // our rounding can never cost a whole second
+  }, 240_000);
 
-  it("a re-wake 1 ms early re-publishes itself for the remaining lease + margin, and that wake reclaims and runs the job", async () => {
+  it("a re-wake 1 ms before expiry reclaims and fires in the same invocation, publishing no extra wake", async () => {
     const { id } = await sched("early", 0);
     const opts: FireOpts = { transport: t, ...kill };
     await expect(handleWake(db, { jobId: id }, "d1", { "noop.test": async () => { throw new SimulatedCrash("killed"); } }, clock, opts))
@@ -277,18 +308,64 @@ describe("Option A: short lease + re-wake at lease expiry (kill-after-claim)", (
     const token = (await db.query<{ claimed_by: string }>("SELECT claimed_by FROM ops.job WHERE id=$1", [id])).rows[0].claimed_by;
     t.sent.length = 0;
 
-    now = at(REWAKE_DELAY_SECONDS - 0.001); // 1 ms before the lease expires: reclaim would match 0 rows
-    expect(await handleWake(db, { jobId: id }, "d1", handlers, clock, opts)).toBe("rewake-deferred");
-    expect((await state("early")).state).toBe("CLAIMED");
-    expect(calls).toEqual([]);
-    // The re-published wake carries the claimed row's own generation, so it fences exactly like the original.
-    expect(t.sent).toEqual([{ jobId: id, dueAt: expect.any(String), version: 1, delaySeconds: rewakeDelaySeconds(1), idempotencyKey: `rewake:${token}:${now.toISOString()}` }]);
-
-    now = at(REWAKE_DELAY_SECONDS - 0.001 + t.sent[0].delaySeconds);
-    expect(await handleWake(db, { jobId: id }, "d1", handlers, clock, opts)).toBe("fired");
+    // 1 ms before the lease expires: a reclaim would match 0 rows, and re-publishing would buy a whole second
+    // of delay (row 60) to cover 1 ms. So this invocation sleeps 1 ms + the margin and recovers the job itself.
+    const arrival = at(REWAKE_DELAY_SECONDS - 0.001);
+    now = arrival;
+    expect(await handleWake(db, { jobId: id }, "d1", handlers, clock, { ...opts, sleep: fastSleep })).toBe("fired");
     expect(calls).toEqual(["early"]);
     expect(await fires(id)).toBe(1);
     expect((await state("early")).state).toBe("DONE");
+    // It waited exactly the rest of the lease plus the margin, inside the one invocation…
+    expect(now.getTime() - arrival.getTime()).toBe(1 + REWAKE_MARGIN_MS);
+    // …and published nothing but the new claim's own re-wake: no `rewake:<token>:<arrival>` hop.
+    expect(t.sent).toEqual([{ jobId: id, dueAt: expect.any(String), version: 2, delaySeconds: REWAKE_DELAY_SECONDS,
+      idempotencyKey: expect.stringMatching(/^rewake:d1:[0-9a-f-]+$/) }]);
+    expect(t.sent[0].idempotencyKey).not.toBe(`rewake:${token}`); // a different claim: the reclaim fenced the dead one out
+  });
+
+  it("falls back to a whole-second re-wake when the lease outlives the inline bound, or the re-check runs out of passes", async () => {
+    const { id } = await sched("fallback", 0);
+    const opts: FireOpts = { transport: t, ...kill };
+    await expect(handleWake(db, { jobId: id }, "d1", { "noop.test": async () => { throw new SimulatedCrash("killed"); } }, clock, opts))
+      .rejects.toBeInstanceOf(SimulatedCrash);
+
+    // (a) Remaining lease beyond the bound — a handler that has been renewing: publish, do not hold the
+    // invocation open for it. The delay is the remaining lease + margin, rounded up to a whole second.
+    const long = INLINE_RECHECK_MAX_MS + 500;
+    await db.query("UPDATE ops.job SET claimed_until=$2 WHERE id=$1", [id, new Date(now.getTime() + long).toISOString()]);
+    t.sent.length = 0;
+    let waited = 0;
+    expect(await handleWake(db, { jobId: id }, "d1", handlers, clock, { ...opts, sleep: async (msWaited) => { waited += msWaited; } })).toBe("rewake-deferred");
+    expect(waited).toBe(0); // it did not wait at all: the lease was too long to be worth an invocation
+    expect(t.sent).toEqual([expect.objectContaining({ delaySeconds: rewakeDelaySeconds(long) })]);
+    expect(t.sent[0].delaySeconds).toBe(Math.ceil((long + REWAKE_MARGIN_MS) / 1000));
+    expect(calls).toEqual([]);
+
+    // (b) Inside the bound, but the lease is still live on every pass (a handler renewing it under us):
+    // the re-check gives up after INLINE_RECHECK_MAX_ITERATIONS passes and publishes a whole second.
+    await db.query("UPDATE ops.job SET claimed_until=$2 WHERE id=$1", [id, at(1).toISOString()]);
+    t.sent.length = 0;
+    let passes = 0;
+    expect(await handleWake(db, { jobId: id }, "d1", handlers, clock, { ...opts, sleep: async () => { passes++; } })).toBe("rewake-deferred");
+    expect(passes).toBe(INLINE_RECHECK_MAX_ITERATIONS);
+    expect(t.sent).toEqual([expect.objectContaining({ delaySeconds: rewakeDelaySeconds(1000) })]);
+    expect((await state("fallback")).state).toBe("CLAIMED"); // never reclaimed, never run
+    expect(calls).toEqual([]);
+
+    // (c) And once that lease really has lapsed, the next delivery reclaims and fires as usual.
+    now = at(2);
+    expect(await handleWake(db, { jobId: id }, "d1", handlers, clock, { ...opts, sleep: fastSleep })).toBe("fired");
+    expect(calls).toEqual(["fallback"]);
+  });
+
+  it("the inline re-check cannot outlast the consumer's time budget", () => {
+    expect(INLINE_RECHECK_MAX_MS).toBe(LEASE_SECONDS * 1000 + EARLY_SLACK_MS); // every lease a dead consumer can leave
+    expect(INLINE_RECHECK_TOTAL_MAX_MS).toBe(INLINE_RECHECK_MAX_ITERATIONS * (INLINE_RECHECK_MAX_MS + REWAKE_MARGIN_MS));
+    expect(INLINE_RECHECK_TOTAL_MAX_MS).toBeLessThan(TIMER_CONSUMER_BUDGET_SECONDS * 1000);
+    // route.ts cannot import the constant (a Next.js segment config has to be a literal), so pin them together.
+    const route = readFileSync(join(__dirname, "..", "..", "app", "api", "queues", "timer", "route.ts"), "utf8");
+    expect(route).toContain(`export const maxDuration = ${TIMER_CONSUMER_BUDGET_SECONDS};`);
   });
 
   it("claim tokens differ per claim, so a reclaimed consumer's DONE (WHERE claimed_by = its token) matches 0 rows", async () => {
@@ -344,9 +421,12 @@ describe("lease renewal for slow handlers (Veri #10, point 2)", () => {
     while ((await leaseUntil(id)) <= now.getTime() && Date.now() < giveUp) await new Promise((r) => setTimeout(r, 10));
     expect(await leaseUntil(id)).toBe(now.getTime() + LEASE_SECONDS * 1000); // renewed from the current clock
 
-    // The re-wake armed at claim time now finds a live (renewed) lease, so it defers instead of reclaiming.
-    expect(await handleWake(db, { jobId: id }, "d1", slow, clock, { transport: t })).toBe("rewake-deferred");
+    // The re-wake armed at claim time now finds a live (renewed) lease. `frozenSleep` is what that looks like
+    // from inside the inline re-check — the handler renews `claimed_until` faster than we can wait it out — so
+    // the re-check runs out of passes and the wake is re-published for a whole second (row 60).
+    expect(await handleWake(db, { jobId: id }, "d1", slow, clock, { transport: t, sleep: frozenSleep })).toBe("rewake-deferred");
     expect(t.sent.at(-1)?.delaySeconds).toBe(rewakeDelaySeconds(LEASE_SECONDS * 1000));
+    expect(t.sent.at(-1)?.delaySeconds).toBe(LEASE_SECONDS + 1); // 2 s of lease + 250 ms margin, rounded up
     expect(runs).toBe(1);
 
     release();
@@ -371,20 +451,67 @@ describe("queue redelivery backoff (route.ts; Veri #10, point 3)", () => {
   it.each([[1, 2], [2, 4], [3, 8], [4, 16], [5, 32], [6, RETRY_MAX_SECONDS], [50, RETRY_MAX_SECONDS]])(
     "delivery %i → redelivery after %i s", (n, secs) => expect(redeliveryDelaySeconds(n)).toBe(secs));
 
-  it("a deferred re-wake waits the remaining lease plus the margin, to the millisecond (ledger row 58)", () => {
-    expect(rewakeDelaySeconds(-5)).toBe(REWAKE_MARGIN_MS / 1000); // expired lease: just the margin
-    expect(rewakeDelaySeconds(1)).toBe(0.251);
+  it("a deferred re-wake waits the remaining lease plus the margin, rounded up to a whole second (ledger row 60)", () => {
+    expect(rewakeDelaySeconds(-5)).toBe(1); // expired lease: the margin, and a delay is never 0
+    expect(rewakeDelaySeconds(0)).toBe(1);
+    expect(rewakeDelaySeconds(1)).toBe(1); // 1 ms of lease left is a whole second of queue delay — hence the inline re-check
     expect(rewakeDelaySeconds(750)).toBe(1);
-    expect(rewakeDelaySeconds(800)).toBe(1.05); // 0.8 s + 250 ms margin, no rounding up to 2 s
-    expect(rewakeDelaySeconds(1.2)).toBe(0.252); // sub-millisecond remainder still rounds up to a whole ms
-    expect(rewakeDelaySeconds(LEASE_SECONDS * 1000)).toBe(LEASE_SECONDS + REWAKE_MARGIN_MS / 1000);
+    expect(rewakeDelaySeconds(800)).toBe(2); // 0.8 s + 250 ms margin, rounded up: never *before* the lease expires
+    expect(rewakeDelaySeconds(LEASE_SECONDS * 1000)).toBe(LEASE_SECONDS + 1);
+    expect(rewakeDelaySeconds(INLINE_RECHECK_MAX_MS)).toBe(Math.ceil((INLINE_RECHECK_MAX_MS + REWAKE_MARGIN_MS) / 1000));
+    for (const remaining of [-5, 0, 1, 1.2, 750, 800, 999, 1_000, 2_250, INLINE_RECHECK_MAX_MS, 7 * 24 * 3600 * 1000])
+      expect(isWholeSecondDelay(rewakeDelaySeconds(remaining))).toBe(true);
   });
 
-  it("the wake published at schedule time keeps millisecond precision", () => {
+  it("the wake published at schedule time is whole seconds, rounded up so it is never early", () => {
     expect(delayFor(new Date(1_000), new Date(0))).toBe(1);
-    expect(delayFor(new Date(1_250), new Date(0))).toBe(1.25);
+    expect(delayFor(new Date(1_250), new Date(0))).toBe(2); // rounding down would ask for delivery before due_at
+    expect(delayFor(new Date(1), new Date(0))).toBe(1);
     expect(delayFor(new Date(0), new Date(1_250))).toBe(0); // already due
     expect(delayFor(new Date(MAX_DELAY_SECONDS * 2000), new Date(0))).toBe(MAX_DELAY_SECONDS);
+    for (const msAhead of [0, 1, 999, 1_000, 1_001, 30_250, 86_400_123])
+      expect(isWholeSecondDelay(delayFor(new Date(msAhead), new Date(0)))).toBe(true);
+  });
+
+  it("wholeSecondDelay is the one place delays are rounded, and the fake transport refuses anything else", async () => {
+    expect([0, 1, 2, MAX_DELAY_SECONDS].map(wholeSecondDelay)).toEqual([0, 1, 2, MAX_DELAY_SECONDS]);
+    expect(wholeSecondDelay(0.001)).toBe(1);
+    expect(wholeSecondDelay(0.251)).toBe(1);
+    expect(wholeSecondDelay(1.05)).toBe(2);
+    expect(wholeSecondDelay(-3)).toBe(0); // a wake for a job that is already due goes out now, not never
+    expect(wholeSecondDelay(MAX_DELAY_SECONDS + 10)).toBe(MAX_DELAY_SECONDS); // Queues' 7-day ceiling
+    expect(() => wholeSecondDelay(Number.NaN)).toThrow(/finite/);
+    expect([0.25, -1, MAX_DELAY_SECONDS + 1, Number.NaN].map(isWholeSecondDelay)).toEqual([false, false, false, false]);
+
+    // The assertion that makes the whole suite a regression test for row 60.
+    const msg = { jobId: "j", dueAt: new Date(0).toISOString(), version: 1 };
+    await expect(t.publish(msg, { delaySeconds: 0.251, idempotencyKey: "k" })).rejects.toThrow(/whole number of seconds/);
+    await expect(t.publish(msg, { delaySeconds: -1, idempotencyKey: "k" })).rejects.toThrow(/whole number of seconds/);
+    await t.publish(msg, { delaySeconds: 1, idempotencyKey: "k" });
+    expect(t.sent.length).toBe(1);
+  });
+
+  it("every publish site rounds: schedule, claim-time re-wake, early-wake deferral, deferred re-wake, sweeper re-arm", async () => {
+    // Fractional due offsets everywhere, so every path has something to round.
+    const { id } = await sched("w-due", 0.75); // arm → delayFor
+    await sched("w-early", 10.4); // arm, then an early first wake → deferEarlyWake
+    const early = t.sent.at(-1)!;
+    expect(await handleWake(db, early, "d1", handlers, clock, { transport: t })).toBe("early-deferred");
+
+    const crash: Handlers = { "noop.test": async () => { throw new SimulatedCrash("killed"); } };
+    now = at(0.75);
+    await expect(handleWake(db, { jobId: id }, "d1", crash, clock, { transport: t, ...kill })).rejects.toBeInstanceOf(SimulatedCrash); // fire → claim-time re-wake
+    now = at(LEASE_SECONDS - 0.4); // mid-lease, renewed under us → deferRewake
+    expect(await handleWake(db, { jobId: id }, "d1", handlers, clock, { transport: t, ...kill, sleep: frozenSleep })).toBe("rewake-deferred");
+
+    t.failNext = 1;
+    await sched("w-lost", 42.6); // publish fails → sweeper re-arms it (arm again)
+    expect((await sweep(db, t, "d1", handlers, clock)).republished).toBeGreaterThan(0);
+
+    expect(t.sent.length).toBeGreaterThanOrEqual(5);
+    // The invariant (row 60), stated where a reader will look for it rather than only in afterEach.
+    expect(t.sent.filter((m) => !Number.isInteger(m.delaySeconds))).toEqual([]);
+    expect(t.sent.filter((m) => m.delaySeconds < 0)).toEqual([]);
   });
 });
 
@@ -464,14 +591,15 @@ describe("handler idempotency at fire time (DECISION-LEDGER row 58; at-least-onc
     await expect(handleWake(db, m, "d1", crash, clock, opts)).rejects.toBeInstanceOf(SimulatedCrash);
     expect((await row(id)).state).toBe("CLAIMED");
 
-    // Redelivery while the lease is still live: no second claim, no handler run.
+    // Redelivery while the lease is still live and being renewed under us (frozenSleep): no second claim, no
+    // handler run, just a whole-second re-wake (row 60).
     now = at(LEASE_SECONDS / 2);
-    expect(await handleWake(db, m, "d1", handlers, clock, opts)).toBe("rewake-deferred");
+    expect(await handleWake(db, m, "d1", handlers, clock, { ...opts, sleep: frozenSleep })).toBe("rewake-deferred");
     expect(calls).toEqual([]);
 
     // Redelivery of that same message once the lease has lapsed: reclaim (version 1 → 2) and fire. The message
     // still carries version 1, so this is the case a `version !== row.version` fence would have broken.
-    now = at(LEASE_SECONDS);
+    now = at(LEASE_SECONDS / 2);
     expect(await handleWake(db, m, "d1", handlers, clock, opts)).toBe("fired");
     expect((await row(id)).version).toBeGreaterThan(m.version);
     for (let i = 0; i < 3; i++) expect(await handleWake(db, m, "d1", handlers, clock, opts)).toBe("noop");

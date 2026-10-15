@@ -1,10 +1,13 @@
 import { send } from "@vercel/queue";
-import { MAX_DELAY_SECONDS, type WakeTransport } from "./scheduler";
+import { isWholeSecondDelay, MAX_DELAY_SECONDS, wholeSecondDelay, type WakeTransport } from "./scheduler";
 
 export const TIMER_TOPIC = "ppec-timer";
 /**
- * TEST-INF-01 sub-second delay probe (DECISION-LEDGER row 58 is conditional on it): GET /api/probe/delay
- * publishes here with fractional `delaySeconds` and the consumer logs the measured delivery delay.
+ * TEST-INF-01 sub-second delay probe: GET /api/probe/delay publishes here with fractional `delaySeconds` and
+ * the consumer logs the measured delivery delay. This is the **one** place a fractional delay is deliberate —
+ * it is the measurement. The timer path no longer depends on the answer (DECISION-LEDGER row 60: whole-second
+ * delays + an inline lease re-check), so the probe now only tells us how much precision we are leaving on the
+ * table, not whether NFR-03 holds.
  */
 export const DELAY_PROBE_TOPIC = "ppec-delay-probe";
 
@@ -26,15 +29,24 @@ export const DELAY_PROBE_TOPIC = "ppec-delay-probe";
  * `retentionSeconds` is the 7-day maximum, matching MAX_DELAY_SECONDS: a message must outlive its own delay
  * or Queues rejects it (`delaySeconds` cannot exceed `retentionSeconds`).
  *
- * On the sub-second delays row 58 rests on, the **client half is settled**: @vercel/queue 0.8.0 neither
- * validates `delaySeconds` as an integer nor rounds it — it sends `options.delaySeconds.toString()` as the
- * `Vqs-Delay-Seconds` header (index.mjs `buildHeaders`), and its type documents only `@minimum 0`,
- * `@maximum 604800`. Every delay we publish is ≥ 1 ms, so none of them can reach the header in exponential
- * notation. What the **server** does with a fractional value is the Unverified half, and the only half
- * TEST-INF-01's delay probe can answer.
+ * **Delays are whole seconds (DECISION-LEDGER row 60).** @vercel/queue 0.8.0 types the field
+ * `delaySeconds?: number` and neither validates it as an integer nor rounds it — it sends
+ * `options.delaySeconds.toString()` as the `Vqs-Delay-Seconds` header (index.mjs `buildHeaders`) — but the
+ * Queues docs describe it only as "Delay in seconds" and promise no sub-second precision, so what the server
+ * does with `0.251` is undocumented behaviour of a Beta service. Row 58's millisecond re-wake delays rested on
+ * that; row 60 takes it off the critical path: every delay is rounded up to a whole second
+ * (`wholeSecondDelay`) and the sub-second part of a lease is waited out inside the invocation instead
+ * (scheduler.ts `INLINE_RECHECK_MAX_MS`). The guard below is the last line: callers already round up, so a
+ * fractional value here means a regression upstream, and a published wake is worth more than a strict error —
+ * we round it up, log once, and let the fake transport's hard assertion (fake-transport.ts) be what fails CI.
  */
 export const vercelQueueTransport: WakeTransport = {
   async publish(msg, opts) {
-    await send(TIMER_TOPIC, msg, { delaySeconds: opts.delaySeconds, idempotencyKey: opts.idempotencyKey, retentionSeconds: MAX_DELAY_SECONDS });
+    let delaySeconds = opts.delaySeconds;
+    if (!isWholeSecondDelay(delaySeconds)) {
+      delaySeconds = wholeSecondDelay(delaySeconds);
+      console.warn(`[queue:timer] non-integer delaySeconds ${opts.delaySeconds} (${opts.idempotencyKey}); published ${delaySeconds}`);
+    }
+    await send(TIMER_TOPIC, msg, { delaySeconds, idempotencyKey: opts.idempotencyKey, retentionSeconds: MAX_DELAY_SECONDS });
   },
 };
