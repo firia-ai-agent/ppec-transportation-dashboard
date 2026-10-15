@@ -54,6 +54,57 @@ describe("§11.2 tool catalog", () => {
     for (const n of human) expect(TOOL_REGISTRY[n].effect).toBe("propose");
   });
 
+  it("says where every sending tool's copy comes from, and nothing else's", () => {
+    for (const name of TOOL_NAMES) {
+      const def = TOOL_REGISTRY[name];
+      if (def.effect !== "send") {
+        expect(def.sendCopy, `${name} does not send but declares a copy source`).toBeNull();
+        continue;
+      }
+      expect(def.sendCopy, `${name} sends and says nothing about its copy`).not.toBeNull();
+      // §11.2 marks every sending tool in the catalog `auto`, and that is only safe because the
+      // model picks which allow-listed message goes out and never a word of it. A `free_text`
+      // declaration here would be a tool that writes to a family, which §11.2 allows only behind
+      // a human approval (policy.ts step 10, free-text-approval.test.ts) — and the catalog has none.
+      expect(def.tier, name).toBe("auto");
+      expect(def.sendCopy!.kind, `${name} declares free-text copy`).not.toBe("free_text");
+    }
+  });
+
+  it("points each templated send at real arguments and real outbox templates", () => {
+    for (const name of TOOL_NAMES) {
+      const def = TOOL_REGISTRY[name];
+      if (def.sendCopy?.kind !== "template") continue;
+      const args = Object.keys(def.schema.shape);
+      // A typo in either name would be worse than no declaration: the policy engine would check a
+      // field the model never sends, find no template id, and pass.
+      expect(args, `${name}.${def.sendCopy.idArg}`).toContain(def.sendCopy.idArg);
+      if (def.sendCopy.varsArg !== null) expect(args, `${name}.${def.sendCopy.varsArg}`).toContain(def.sendCopy.varsArg);
+      // Every id the schema will accept is one the outbox can render, so the template allow-list
+      // the policy engine re-checks can never be wider than the copy that exists.
+      const ids = (toolJsonSchema(name).properties as Record<string, { enum?: string[] }>)[def.sendCopy.idArg]?.enum;
+      expect(ids, `${name}.${def.sendCopy.idArg} is not an enum of template ids`).toBeDefined();
+      for (const id of ids!) expect(isRenderableTemplate(id), `${name} → ${id}`).toBe(true);
+    }
+  });
+
+  it("refuses an argument a model invented on a sending tool, rather than stripping it", () => {
+    // A stripped argument is a message that goes out anyway with the prose quietly removed; on a
+    // tool that sends, the right answer is to refuse the whole call (REJECTED_INVALID_ARGS).
+    for (const name of TOOL_NAMES.filter((n) => TOOL_REGISTRY[n].effect === "send")) {
+      const schema = TOOL_REGISTRY[name].schema;
+      const base = {
+        request_clarification: { thread_id: "TH-F1", ambiguity_type: "WHICH_CHILD", candidate_tokens: ["C1"], draft_template_id: "generic.notice" },
+        send_followup: { audience: "GUARDIAN_OF_CHILD", subject_token: "C1", template_id: "leg.canceled", vars: { legDate: "2026-10-16", reasonCode: "FAMILY_REQUEST" } },
+        notify_affected_therapist: { therapy_session_token: "SESS-C1", child_token: "C1", impact: "ABSENT", eta: null },
+        request_provider_capability: { vehicle_token: "V1", provider_token: "P1", route_token: "R1", required: ["LIFT_OR_RAMP"] },
+      }[name]!;
+      expect(schema.safeParse(base).success, name).toBe(true);
+      expect(schema.safeParse({ ...base, body: "running late" }).success, name).toBe(false);
+      expect((toolJsonSchema(name) as { additionalProperties?: unknown }).additionalProperties, name).toBe(false);
+    }
+  });
+
   it("exposes each tool as JSON Schema (§11.2 JSON-schema tool calls only)", () => {
     for (const d of toolDeclarations()) {
       expect(d.parameters).toMatchObject({ type: "object" });

@@ -14,6 +14,12 @@
  *     or a template id instead. Prose arguments exist only on the staff-facing tools
  *     (`escalate_exception`, `summarize_thread_for_staff`, `propose_contact_or_profile_change`),
  *     are listed in `staffTextFields`, and are redacted by the policy engine before they are kept.
+ *     Every sending tool says where its outbound copy comes from (`sendCopy`), and the four in the
+ *     catalog are all `template` or `fixed` — so no call the model can make puts its own words in
+ *     front of a family. That declaration is what decides the §11.2 tier the policy engine applies
+ *     (policy.ts step 6/10): templated copy sends on the agent's own authority, free text does not.
+ *     The sending schemas are `strictObject` for the same reason: an argument the model invented is
+ *     refused at the gateway rather than quietly stripped off a message that then goes out.
  *
  * Three argument names differ from the PRD's prose signature, and deliberately:
  *  - `cancel_attendance_or_leg(scope …)` → `day_part`: "scope" is the word this system uses for an
@@ -95,6 +101,29 @@ const NEED_REQUIREMENTS = [
   "SEATING_SEPARATION", "MAX_RIDE_TIME", "EQUIPMENT_DIMENSIONS", "MEDICAL_DEVICE_POWER",
 ] as const;
 
+/**
+ * Where a sending tool's outbound copy comes from — the fact §11.2's tier column turns on, written
+ * per tool because no schema can state it:
+ *
+ *  - `template`  the model picks an id from this tool's own allow-list and supplies vars the outbox
+ *                permits for it; the words are the outbox's (`messaging/copy.ts`). `idArg` is the
+ *                argument holding the id, `varsArg` the one holding the vars, or null when the
+ *                allow-listed templates take none.
+ *  - `fixed`     the model supplies no copy at all: the body is rendered downstream from structured
+ *                fields (a minimized therapist SMS, a signed dispatcher link).
+ *  - `free_text` the call carries words of the model's own to its recipient. §11.2 permits that
+ *                only with a human approval bound to the exact call, so the policy engine holds
+ *                such a send behind `ctx.approvedCalls`. **No tool in this catalog declares it** —
+ *                adding one is the deliberate act of putting a tool behind the approval gate.
+ *
+ * A sending tool that declares nothing is read as `free_text`: the strictest tier, so a tool added
+ * without this decision is approval-gated rather than autonomous (policy.ts step 10).
+ */
+export type SendCopy =
+  | { readonly kind: "template"; readonly idArg: string; readonly varsArg: string | null }
+  | { readonly kind: "fixed" }
+  | { readonly kind: "free_text" };
+
 export type ToolDef = {
   readonly name: string;
   readonly tier: ToolTier;
@@ -103,6 +132,8 @@ export type ToolDef = {
   readonly schema: z.ZodObject;
   /** Argument names holding model prose. Staff-facing only, and redacted before storage. */
   readonly staffTextFields: readonly string[];
+  /** Where this tool's outbound copy comes from; `null` on every tool that does not send. */
+  readonly sendCopy: SendCopy | null;
   /** PRD §11.2 row, for the audit trail and for whoever reads this next. */
   readonly prd: string;
 };
@@ -114,6 +145,7 @@ const DEFS: readonly ToolDef[] = [
     effect: "read",
     schema: z.object({ message_id: token }),
     staffTextFields: [],
+    sendCopy: null,
     prd: "§11.2: known contact point → candidates{child, legs, confidence}; unknown → unknown_sender task",
   },
   {
@@ -122,6 +154,7 @@ const DEFS: readonly ToolDef[] = [
     effect: "read",
     schema: z.object({ leg_id: token }),
     staffTextFields: [],
+    sendCopy: null,
     prd: "§11.2: — → leg + version",
   },
   {
@@ -140,13 +173,14 @@ const DEFS: readonly ToolDef[] = [
       expected_version: version,
     }),
     staffTextFields: [],
+    sendCopy: null,
     prd: "§11.2: cancel_attendance_or_leg(child, date, scope FULL_DAY|AM|PM, reason, expected_self_arrival, expected_version)",
   },
   {
     name: "request_clarification",
     tier: "auto",
     effect: "send",
-    schema: z.object({
+    schema: z.strictObject({
       thread_id: token,
       ambiguity_type: z.enum(AMBIGUITY_TYPES),
       candidate_tokens: z.array(token).min(1).max(4),
@@ -155,6 +189,7 @@ const DEFS: readonly ToolDef[] = [
       draft_template_id: z.enum(CLARIFICATION_TEMPLATE_IDS),
     }),
     staffTextFields: [],
+    sendCopy: { kind: "template", idArg: "draft_template_id", varsArg: null },
     prd: "§11.2: thread ACTIVE; ≤2/thread/hour → outbound + 15-min await; send fail → exception",
   },
   {
@@ -167,13 +202,14 @@ const DEFS: readonly ToolDef[] = [
       source_message_id: token,
     }),
     staffTextFields: [],
+    sendCopy: null,
     prd: "§11.2: matching PENDING ack → close, cancel timer; DECLINED → AMBER",
   },
   {
     name: "send_followup",
     tier: "auto",
     effect: "send",
-    schema: z.object({
+    schema: z.strictObject({
       // §11.2 writes `recipient_type, target_token`; renamed per rule 1 (see file header).
       audience: z.enum(AUDIENCES),
       subject_token: token,
@@ -181,32 +217,35 @@ const DEFS: readonly ToolDef[] = [
       vars: templateVars,
     }),
     staffTextFields: [],
+    sendCopy: { kind: "template", idArg: "template_id", varsArg: "vars" },
     prd: "§11.2: template allow-list {confirmation, eta_delay, absence_to_therapist, ack_reminder, capability_req}; egress re-check; notify gates",
   },
   {
     name: "notify_affected_therapist",
     tier: "auto",
     effect: "send",
-    schema: z.object({
+    schema: z.strictObject({
       therapy_session_token: token,
       child_token: token,
       impact: z.enum(["ABSENT", "LATE", "EARLY_PICKUP"]),
       eta: clockTime.nullable(),
     }),
     staffTextFields: [],
+    sendCopy: { kind: "fixed" },
     prd: "§11.2: overlapping session on date → minimized SMS; status THERAPIST_NOTIFIED",
   },
   {
     name: "request_provider_capability",
     tier: "auto",
     effect: "send",
-    schema: z.object({
+    schema: z.strictObject({
       vehicle_token: token,
       provider_token: token,
       route_token: token,
       required: z.array(z.enum(NEED_REQUIREMENTS)).min(1),
     }),
     staffTextFields: [],
+    sendCopy: { kind: "fixed" },
     prd: "§11.2: capability UNKNOWN at T−90 or on substitution → signed dispatcher link; state REQUESTED",
   },
   {
@@ -228,6 +267,7 @@ const DEFS: readonly ToolDef[] = [
       confidence: z.number().min(0).max(1),
     }),
     staffTextFields: [],
+    sendCopy: null,
     prd: "§11.2: from provider contact point → observation; low confidence → staff review",
   },
   {
@@ -242,6 +282,7 @@ const DEFS: readonly ToolDef[] = [
       expected_version: version,
     }),
     staffTextFields: [],
+    sendCopy: null,
     prd: "§11.2: guardian reply or stationary tap → BOARDED_REPORTED only",
   },
   {
@@ -257,6 +298,7 @@ const DEFS: readonly ToolDef[] = [
       rationale_code: z.enum(["CAPACITY", "SECUREMENT", "LIFT", "RIDE_TIME", "SUBSTITUTION"]),
     }),
     staffTextFields: [],
+    sendCopy: null,
     prd: "§11.2: INFEASIBLE/substitution → RED exception + Teams card; no mutation",
   },
   {
@@ -271,6 +313,7 @@ const DEFS: readonly ToolDef[] = [
       source_message_id: token,
     }),
     staffTextFields: ["claim_summary"],
+    sendCopy: null,
     prd: "§11.2: any phone/custody/equipment change → change request + exception",
   },
   {
@@ -288,6 +331,7 @@ const DEFS: readonly ToolDef[] = [
       next_step_code: z.enum(["STAFF_CALL", "STAFF_REVIEW", "DISPATCHER_PING", "APPROVAL_NEEDED", "NONE"]),
     }),
     staffTextFields: ["summary"],
+    sendCopy: null,
     prd: "§11.2: always allowed",
   },
   {
@@ -296,6 +340,7 @@ const DEFS: readonly ToolDef[] = [
     effect: "mutate",
     schema: z.object({ task_id: token, evidence_ref: token }),
     staffTextFields: [],
+    sendCopy: null,
     prd: "§11.2: evidence satisfies completion predicate; else stays open",
   },
   {
@@ -304,6 +349,7 @@ const DEFS: readonly ToolDef[] = [
     effect: "mutate",
     schema: z.object({ thread_id: token, summary: staffProse }),
     staffTextFields: ["summary"],
+    sendCopy: null,
     prd: "§11.2: staff-only note",
   },
 ];
