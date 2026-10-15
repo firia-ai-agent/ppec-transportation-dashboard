@@ -34,6 +34,7 @@ import type { ContextAssembler } from "./context";
 import type { ExecutorCall, ToolExecution, ToolExecutors } from "./executors";
 import {
   AgentRunError,
+  type CommittedCall,
   type RunRow,
   type RunState,
   type ToolCallRow,
@@ -148,7 +149,7 @@ export async function driveRun(deps: RunDeps, runId: string): Promise<RunResult>
   const interrupted = pendingCall(calls);
   if (interrupted) {
     steps += 1;
-    const outcome = await settleCall(deps, run, interrupted, clock());
+    const outcome = await settleCall(deps, run, interrupted, committedCalls(calls), clock());
     const finished = await finish(deps, run, outcome, steps);
     if (finished) return finished;
     calls = await toolCalls(deps.db, runId);
@@ -167,7 +168,8 @@ export async function driveRun(deps: RunDeps, runId: string): Promise<RunResult>
       return { runId, created: false, state: live?.state ?? loaded.state, steps, reason: "run was taken over before the next turn" };
     }
     const at = clock();
-    const assembled = await deps.assemble({ runId, trigger: run.trigger, committed: committedCalls(calls), now: at });
+    const committed = committedCalls(calls);
+    const assembled = await deps.assemble({ runId, trigger: run.trigger, committed, now: at });
     let turn: GatewayResult;
     try {
       turn = await deps.gateway.complete({ runId, prompt: assembled.prompt, tools: assembled.tools });
@@ -184,7 +186,7 @@ export async function driveRun(deps: RunDeps, runId: string): Promise<RunResult>
     steps += 1;
 
     // Nothing above this line executed anything; nothing below it runs without that row committed.
-    const outcome = await settleCall(deps, run, row, at);
+    const outcome = await settleCall(deps, run, row, committed, at);
     const finished = await finish(deps, run, outcome, steps);
     if (finished) return finished;
     calls = await toolCalls(deps.db, runId);
@@ -253,7 +255,13 @@ async function persistCallFor(
  * being resumed, and it cannot tell the difference — which is the point: the row is the whole
  * input, so "execute it" and "finish executing it" are one code path.
  */
-async function settleCall(deps: RunDeps, run: RunRow, row: ToolCallRow, at: Date): Promise<StepOutcome> {
+async function settleCall(
+  deps: RunDeps,
+  run: RunRow,
+  row: ToolCallRow,
+  committed: readonly CommittedCall[],
+  at: Date,
+): Promise<StepOutcome> {
   const by = runActor(run.id);
   const { verdict, detail } = persistedVerdict(row.policyDecision);
 
@@ -286,6 +294,7 @@ async function settleCall(deps: RunDeps, run: RunRow, row: ToolCallRow, at: Date
     idempotencyKey: row.idempotencyKey,
     trigger: run.trigger,
     now: at,
+    committed,
   };
 
   let execution: ToolExecution;

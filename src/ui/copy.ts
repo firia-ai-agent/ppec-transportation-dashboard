@@ -807,3 +807,72 @@ export const consentFollowUp = {
     predicate: "call logged confirming the family's choice",
   },
 } as const;
+
+/**
+ * The staff-facing words of the tasks the **agent** raises (B-08 slice 3, the §11.2 "Failure"
+ * column). A coordinator reads these on the Exceptions board next to the consent ones above, so
+ * they are written the same way: the summary is a label, the next step is one thing to do.
+ *
+ * The agent never writes any of it. A model-supplied summary reaches a task only through
+ * `escalate_exception`, where it is redacted first (policy.ts `sanitizeStaffText`); everything a
+ * tool raises on its own account is one of these entries, chosen by a code.
+ *
+ * `predicate` is the condition that closes the task and staff read it too. These are **prose**
+ * predicates, which is what makes them staff-closable only: `close_task` closes a task only when
+ * its predicate is one of the coded ones the agent itself writes (`run/exec/predicate.ts`).
+ */
+export const agentTasks = {
+  /** §11.2 resolve_sender: "unknown → unknown_sender task". */
+  unknownSender: {
+    summary: "Text from a number we do not recognize",
+    nextStep: "Identify the sender and add them as an authorized contact, or close this as a wrong number.",
+    predicate: "sender identified, or the message confirmed as a wrong number",
+  },
+  /** §11.2 request_clarification: "≤2/thread/hour". The third question in an hour is a human's. */
+  clarificationLimit: {
+    summary: "The agent has asked this family twice in an hour and is still unsure",
+    nextStep: "Call the family, or answer the question in the thread yourself.",
+    predicate: "staff answered the question or recorded what the family wants",
+  },
+  /** §11.2 request_clarification: "send fail → exception". */
+  clarificationSendFailure: {
+    summary: "A clarification could not be queued to the family",
+    nextStep: "Ask the family directly, then record their answer.",
+    predicate: "family reached by another means and the answer recorded",
+  },
+  /** §11.2 record_acknowledgment: "DECLINED → AMBER". */
+  acknowledgmentDeclined: {
+    summary: "Someone declined a request we sent them",
+    nextStep: "Call them to agree what happens instead.",
+    predicate: "another arrangement agreed and recorded",
+  },
+  /** §11.2 propose_contact_or_profile_change: "change request + exception". */
+  proposedContactChange: {
+    summary: "A family asked for a change the agent may not make",
+    nextStep: "Verify the request with the family, then approve or reject the change request.",
+    predicate: "change request approved or rejected by staff",
+  },
+  /** §11.2 propose_manifest_reallocation: "RED exception + Teams card". */
+  proposedReallocation: {
+    summary: "A vehicle cannot take its runs and the agent has options to show you",
+    nextStep: "Review the options and commit one, or arrange transport another way.",
+    predicate: "an option approved, or transport arranged another way",
+  },
+} as const;
+
+/**
+ * The next step on a task the model escalated, chosen by `escalate_exception`'s `next_step_code`.
+ * The model picks the code; these words are ours.
+ */
+export const agentNextSteps = {
+  STAFF_CALL: "Call the family or the provider about this.",
+  STAFF_REVIEW: "Read the thread and decide what happens next.",
+  DISPATCHER_PING: "Contact the provider's dispatcher.",
+  APPROVAL_NEEDED: "Approve or reject the proposal attached to this.",
+  NONE: "No further step; this is here so it is on the record.",
+} as const;
+
+/** What the agent is waiting for, on the task that stands in for the wait (§11.1). */
+export const agentWaits = {
+  clarification: "Waiting for the family to say which child or which ride they mean",
+} as const;

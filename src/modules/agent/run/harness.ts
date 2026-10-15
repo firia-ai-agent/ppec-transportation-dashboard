@@ -23,7 +23,7 @@ import { type PolicyContext, familyScope } from "../policy";
 import { fakeProvider, toolCall } from "../providers/fake";
 import type { LlmProvider, ProviderResponseBody } from "../providers/provider";
 import { type TierFacts, fixedAssembler } from "./context";
-import { type IntentRecorder, type ToolExecutor, intentRecorder } from "./executors";
+import { type IntentRecorder, type ToolExecutor, type ToolExecutors, intentRecorder } from "./executors";
 import { type RunDeps, type RunResult, driveRun, startAndDriveRun } from "./loop";
 import type { Trigger } from "./triggers";
 
@@ -35,6 +35,12 @@ export type HarnessInput = {
   readonly policy: PolicyContext;
   /** Per-tool executors layered over the intent recorder. */
   readonly overrides?: Readonly<Record<string, ToolExecutor>>;
+  /**
+   * A whole registry *instead* of the intent recorder: what the slice-3 suites pass (the live
+   * executors, which write to the tables). `recorder` is still built and still exposed, so a suite
+   * can mix — but a registry given here is the one the loop drives, intents and all.
+   */
+  readonly executors?: ToolExecutors;
   /** Tools offered each turn; defaults to the whole §11.2 catalog. */
   readonly tools?: readonly string[];
   readonly now: () => Date;
@@ -71,7 +77,7 @@ export function runHarness(input: HarnessInput): Harness {
       db: input.db,
       gateway,
       assemble: fixedAssembler(input.facts, input.policy, input.tools),
-      executors: recorder.executors,
+      executors: input.executors ?? recorder.executors,
       scheduler,
       now: () => input.now(),
       isFatal: input.isFatal,

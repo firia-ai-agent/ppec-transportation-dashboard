@@ -407,7 +407,7 @@ describe("the §11.1 trigger list, the run-state edges and the executor registry
 
     const call = {
       runId: "r", callId: "c", siteId: SITE, seq: 0, tool: "get_leg_state", args: { leg_id: "L-C1-AM" },
-      idempotencyKey: "agent:r:0", trigger: TRIGGER, now,
+      idempotencyKey: "agent:r:0", trigger: TRIGGER, now, committed: [],
     };
     const first = await recorder.executors.get_leg_state(call);
     const second = await recorder.executors.get_leg_state(call);
