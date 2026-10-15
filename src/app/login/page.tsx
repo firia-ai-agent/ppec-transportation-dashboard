@@ -16,8 +16,13 @@ async function doLogin(formData: FormData) {
     await signIn("credentials", {
       email: String(formData.get("email") ?? ""),
       password: String(formData.get("password") ?? ""),
-      // The console opens on the board after sign-in (§2).
-      redirectTo: "/today",
+      /*
+       * The entry route, not the board: it reads the new session and sends each role to its own
+       * first page (src/auth/access.ts). A front-desk sign-in used to land on /today, which is a
+       * console page their role does not open — the right answer for them is the ramp check, and
+       * one redirect through "/" is what keeps that answer in one place.
+       */
+      redirectTo: "/",
     });
   } catch (e) {
     if (e instanceof AuthError) redirect("/login?error=1");

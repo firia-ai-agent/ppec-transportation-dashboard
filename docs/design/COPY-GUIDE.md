@@ -73,15 +73,27 @@ State labels are fixed in DESIGN-DIRECTION.md §3 and must be used verbatim.
 ### SURF-03 Inbox
 - Identity: "Matched to F4 family · high confidence" / "Unknown number. Don't share ride details." 
 - Extracted change: "Absent today: Mia R. (AM and PM)".
-- Ambiguity (agent): "Thanks for letting us know. Which child is staying home: Mia, Leo, or both?"
+- Ambiguity (agent): "Thanks for letting us know. Which child is staying home? Reply with the first name, or BOTH."
+  The reply goes out by SMS, so it asks for the name instead of listing names (see "Outbound family SMS" below).
 - Plan changed banner: "The plan changed at 8:04 AM. Check before you reply."
 - Take over: "Take over" → banner "You're replying. The agent is paused on this thread." [Release to agent]
 - Agent down: "Agent paused. Keyword replies only: ABSENT, SICK, YES, READY, STOP."
 
 ### Outbound family SMS (simulated)
-- Confirmation: "PPEC: Got it. Mia's morning ride is canceled. Her afternoon ride home is still on. Reply HELP for help, STOP to opt out. [DEMO]"
-- Delay window: "PPEC: Mia's ride is running about 10 min late. New pickup window 8:20–8:30 AM. [DEMO]"
-- Never include needs, health, addresses, or other children in a message.
+**An SMS never carries a child's name.** A text lands on whatever phone is holding the number, so a name
+would identify the child to whoever reads it. The bodies say "your child" (or "a child" to a therapist)
+instead, and no template permits a name-bearing var — a name passed as one is refused, not sent. Staff
+screens still write a child as "Mia R." (§3); a message to a family does not.
+
+A family SMS also says **van**, not "ride": "ride" is the staff word for a scheduled AM/PM trip (§2), and
+what a family is waiting for is the vehicle. These examples are the rendered words of the fixed bodies in
+`src/ui/copy.ts` (`outboundSms.bodies`), which are the source of truth — copy them, don't paraphrase them.
+- Confirmation: "PPEC: Got it. Your child's van on October 14 is canceled. This is at your request. Reply HELP for help, STOP to opt out. [DEMO]"
+- On the way: "PPEC: Your child's van is on the way to Greenacres Branch Library. Pickup 8:20–8:30 AM. Reply HELP for help, STOP to opt out. [DEMO]"
+- Changed ride: "PPEC: Your child's van on October 14 changed. New pickup 8:20–8:30 AM at Okeeheelee Park. Reply HELP for help, STOP to opt out. [DEMO]"
+- Ride home: "PPEC: Your child's van home is on the way to Greenacres Branch Library. Arrival 3:40–3:50 PM. Reply HELP for help, STOP to opt out. [DEMO]"
+- HELP: "PPEC: This number sends van updates for your child. Call us at (561) 555-0100 if you need help. Reply STOP to opt out. [DEMO]"
+- Never include needs, health, addresses, a child's name, or other children in a message.
 
 ### SURF-04 Ramp iPad
 - Vehicle tile: "V1 · Provider P1 · arriving 8:52 · 3 riders".

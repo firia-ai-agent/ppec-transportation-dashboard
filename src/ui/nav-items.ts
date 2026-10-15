@@ -1,4 +1,6 @@
 import { Activity, Flag, LayoutDashboard, Settings, type LucideIcon } from "lucide-react";
+import { canOpenPage } from "@/auth/access";
+import type { StaffRole } from "@/auth/core";
 import { nav } from "./copy";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon };
@@ -29,4 +31,18 @@ export const navItems: readonly NavItem[] = [
 /** The rail highlights the section, so /today/<child> still marks "Today" as current. */
 export function isCurrent(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/**
+ * The rail as one role sees it: the §2 destinations that role's row in the access table opens.
+ * A front-desk iPad is left with no console destination at all, which is correct — their surface
+ * is the ramp iPad (ARCHITECTURE §1) — and `null` (signed in, no membership anywhere) sees none.
+ *
+ * This is a courtesy, not a guard. Every page checks the server again, and guard-matrix.test.ts
+ * asks the server directly, with no browser involved, exactly because a hidden link is not a
+ * closed door (the ID-swap skill, rule 6: hiding ≠ denying).
+ */
+export function navItemsFor(role: StaffRole | null): readonly NavItem[] {
+  const caller = role ? ({ kind: "STAFF", role } as const) : ({ kind: "ANONYMOUS" } as const);
+  return navItems.filter((item) => canOpenPage(caller, item.href));
 }

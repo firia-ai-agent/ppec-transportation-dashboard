@@ -2,9 +2,10 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import type { StaffRole } from "@/auth/core";
 import { nav } from "./copy";
 import { icon } from "./tokens";
-import { isCurrent, navItems } from "./nav-items";
+import { isCurrent, navItemsFor } from "./nav-items";
 import styles from "./NavRail.module.css";
 
 /**
@@ -16,14 +17,20 @@ import styles from "./NavRail.module.css";
  * `:focus-within` — focus-within is what makes it keyboard-reachable: tabbing into any link
  * opens the labels for every item, not only the focused one.
  *
+ * The rail shows only the destinations this role may open (`navItemsFor`); the server checks
+ * every one of them again when it is asked for.
+ *
  * Each link carries the page name three ways, so none of them is the only way:
  *  - `aria-label`, the accessible name, read by a screen reader at every width;
  *  - `title`, the pointer tooltip, for a sighted mouse user on the icon rail;
  *  - the visible `<span>`, which is in the DOM at every width and revealed by the expansion.
  * The icon is `aria-hidden`, so the name is never announced twice.
  */
-export function NavRail() {
+export function NavRail({ role }: { role: StaffRole | null }) {
   const pathname = usePathname();
+  // The role is a string, so it crosses the server/client boundary; the icons do not, which is
+  // why the list is built here rather than passed in.
+  const navItems = navItemsFor(role);
   return (
     <nav className={styles.rail} aria-label={nav.landmarkLabel}>
       <div className={styles.panel}>

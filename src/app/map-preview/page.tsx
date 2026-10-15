@@ -10,8 +10,9 @@
  *
  * It is, however, behind staff sign-in. A deployed preview URL is guessable, and this page
  * draws a whole fleet, every stop's family label and every notification decision — so the
- * route is guarded exactly as the other protected pages are, and the role decides which of
- * those the viewer actually gets (src/domain/access/map-view.ts holds the matrix).
+ * route is guarded exactly as the other protected pages are, by the one access table
+ * (src/auth/access.ts), and the role decides which of those the viewer actually gets
+ * (src/domain/access/map-view.ts holds that matrix).
  *
  * The DEMO banner and the one NFR-09 source-mode chip come from the root layout
  * (src/app/layout.tsx), which renders them on every route — this page must not mount a
@@ -19,11 +20,10 @@
  */
 
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import LiveFleetMap from "@/components/map/LiveFleetMap";
 import { mapPreview } from "@/ui/copy";
-import { canOpenMapPreview } from "@/domain/access/map-view";
-import { previewViewer } from "@/auth/preview-viewer";
+import { mapViewerOf } from "@/auth/access";
+import { requirePage } from "@/auth/page-guard";
 
 export const metadata = { title: mapPreview.documentTitle };
 
@@ -31,8 +31,10 @@ export const metadata = { title: mapPreview.documentTitle };
 export const dynamic = "force-dynamic";
 
 export default async function MapPreviewPage() {
-  const viewer = await previewViewer();
-  if (!canOpenMapPreview(viewer)) redirect("/login");
+  // Signed out is a redirect to sign-in; a role the table does not list is a 403 and the
+  // no-access page (forbidden.tsx beside this file). Which *data* the role then sees is
+  // src/domain/access/map-view.ts.
+  const viewer = mapViewerOf(await requirePage("/map-preview"));
 
   return (
     <main style={{ padding: "var(--space-5)", display: "grid", gap: "var(--space-4)" }}>

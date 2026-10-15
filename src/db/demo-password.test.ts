@@ -183,9 +183,12 @@ describe("the migration file itself", () => {
   });
 
   it("is in the journal, with a snapshot that says the schema did not move", () => {
-    const entry = JOURNAL.entries.find((e) => e.tag === TAG);
-    expect(entry).toBeDefined();
-    expect(JOURNAL.entries.at(-1)).toEqual(entry);
+    const i = JOURNAL.entries.findIndex((e) => e.tag === TAG);
+    expect(i).toBeGreaterThanOrEqual(0);
+    // Still directly after 0003, the state its snapshot was taken against. It is no longer the last
+    // entry: this branch's 0006_thread_counterparty_live_uq was renumbered to land on top of it, and
+    // whatever follows must chain off this snapshot rather than around it.
+    expect(JOURNAL.entries[i - 1]?.tag).toBe("0003_outbound_child_ref");
     const snap = (idx: string) =>
       JSON.parse(readFileSync(join(DIR, "meta", `${idx}_snapshot.json`), "utf8")) as Record<string, unknown>;
     const mine = snap("0005");
@@ -195,5 +198,7 @@ describe("the migration file itself", () => {
     // A data migration must not carry a schema change: everything but the two ids is identical.
     const strip = (s: Record<string, unknown>) => ({ ...s, id: null, prevId: null });
     expect(strip(mine)).toEqual(strip(previous));
+    const next = JOURNAL.entries[i + 1];
+    if (next) expect(snap(next.tag.slice(0, 4)).prevId).toBe(mine.id);
   });
 });

@@ -43,7 +43,12 @@ export const NEED_CATEGORIES = [
 ] as const;
 export type NeedCategory = (typeof NEED_CATEGORIES)[number];
 
-export type Stop = { key: string; label: string; lat: number; lng: number };
+/**
+ * `smsToken` is the short stop token an outbound message carries in its vars (outbox `stopToken` rule).
+ * The place name a family reads is never this label: messaging/templates.ts resolves the token through
+ * the fixed copy table (`outboundSms.stops`), which is what keeps free text out of outbound vars.
+ */
+export type Stop = { key: string; label: string; lat: number; lng: number; smsToken: string };
 export type Need = { category: NeedCategory; value: Record<string, unknown>; state: NeedState; evidenceRef?: string };
 
 export type Family = {
@@ -99,19 +104,19 @@ export const synLegalName = (firstName: string, lastInitial: string): string =>
 
 /* ───────────────────────────── geography (MOCKS §1) ───────────────────────────── */
 
-export const CENTER_STOP: Stop = { key: "CENTER", label: "PPEC center, 2216 Jog Rd", lat: 26.645352, lng: -80.145541 };
+export const CENTER_STOP: Stop = { key: "CENTER", label: "PPEC center, 2216 Jog Rd", lat: 26.645352, lng: -80.145541, smsToken: "CENTER" };
 /** Fault-scenario detour target; no child is assigned to it. */
-export const SPARE_STOP: Stop = { key: "SPARE", label: "Palm Beach Zoo", lat: 26.667739, lng: -80.069543 };
+export const SPARE_STOP: Stop = { key: "SPARE", label: "Palm Beach Zoo", lat: 26.667739, lng: -80.069543, smsToken: "PB-ZOO" };
 
 export const STOPS: Stop[] = [
-  { key: "S1", label: "Greenacres Branch Library", lat: 26.622639, lng: -80.145953 },
-  { key: "S2", label: "Okeeheelee Park", lat: 26.652165, lng: -80.164767 },
-  { key: "S3", label: "Greenacres City Hall", lat: 26.607061, lng: -80.135511 },
-  { key: "S4", label: "John Prince Park", lat: 26.602482, lng: -80.080532 },
-  { key: "S5", label: "Palm Beach State College, Lake Worth", lat: 26.613772, lng: -80.085865 },
-  { key: "S6", label: "Lantana Public Library", lat: 26.584699, lng: -80.052871 },
-  { key: "S7", label: "Boynton Beach Mall", lat: 26.535418, lng: -80.095675 },
-  { key: "S8", label: "Mall at Wellington Green", lat: 26.646683, lng: -80.208099 },
+  { key: "S1", label: "Greenacres Branch Library", lat: 26.622639, lng: -80.145953, smsToken: "GA-LIBRARY" },
+  { key: "S2", label: "Okeeheelee Park", lat: 26.652165, lng: -80.164767, smsToken: "OKEE-PARK" },
+  { key: "S3", label: "Greenacres City Hall", lat: 26.607061, lng: -80.135511, smsToken: "GA-CITYHALL" },
+  { key: "S4", label: "John Prince Park", lat: 26.602482, lng: -80.080532, smsToken: "PRINCE-PARK" },
+  { key: "S5", label: "Palm Beach State College, Lake Worth", lat: 26.613772, lng: -80.085865, smsToken: "PBSC-LW" },
+  { key: "S6", label: "Lantana Public Library", lat: 26.584699, lng: -80.052871, smsToken: "LANTANA-LIB" },
+  { key: "S7", label: "Boynton Beach Mall", lat: 26.535418, lng: -80.095675, smsToken: "BOYNTON-MALL" },
+  { key: "S8", label: "Mall at Wellington Green", lat: 26.646683, lng: -80.208099, smsToken: "WELLINGTON" },
   CENTER_STOP, SPARE_STOP,
 ];
 
