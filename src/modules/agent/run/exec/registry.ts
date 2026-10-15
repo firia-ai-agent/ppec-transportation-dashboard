@@ -14,6 +14,7 @@
  */
 import type { ToolExecutors } from "../executors";
 import { TOOL_NAMES } from "../../tools";
+import { cancelAttendanceOrLegExecutor } from "./cancel";
 import type { ExecutorDeps } from "./effects";
 import { getLegStateExecutor, resolveSenderExecutor } from "./reads";
 
@@ -24,6 +25,7 @@ export function liveExecutors(deps: ExecutorDeps): ToolExecutors {
   return {
     resolve_sender: resolveSenderExecutor(deps),
     get_leg_state: getLegStateExecutor(deps),
+    cancel_attendance_or_leg: cancelAttendanceOrLegExecutor(deps),
   };
 }
 
@@ -32,7 +34,6 @@ export function liveExecutors(deps: ExecutorDeps): ToolExecutors {
  * and each is a row in B08-SLICE1-DEFERRED.md.
  */
 export const DEFERRED_EXECUTORS: readonly string[] = [
-  "cancel_attendance_or_leg",
   "request_clarification",
   "record_acknowledgment",
   "send_followup",
