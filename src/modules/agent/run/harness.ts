@@ -23,6 +23,7 @@ import { type PolicyContext, familyScope } from "../policy";
 import { fakeProvider, toolCall } from "../providers/fake";
 import type { LlmProvider, ProviderResponseBody } from "../providers/provider";
 import { type TierFacts, fixedAssembler } from "./context";
+import type { ProposalWriter } from "./exec/proposals";
 import { type IntentRecorder, type ToolExecutor, type ToolExecutors, intentRecorder } from "./executors";
 import { type RunDeps, type RunResult, driveRun, startAndDriveRun } from "./loop";
 import type { Trigger } from "./triggers";
@@ -41,6 +42,8 @@ export type HarnessInput = {
    * can mix — but a registry given here is the one the loop drives, intents and all.
    */
   readonly executors?: ToolExecutors;
+  /** The §11.2 proposal-row writer (exec/proposals.ts); the slice-3 suites pass the live one. */
+  readonly proposals?: ProposalWriter;
   /** Tools offered each turn; defaults to the whole §11.2 catalog. */
   readonly tools?: readonly string[];
   readonly now: () => Date;
@@ -78,6 +81,7 @@ export function runHarness(input: HarnessInput): Harness {
       gateway,
       assemble: fixedAssembler(input.facts, input.policy, input.tools),
       executors: input.executors ?? recorder.executors,
+      proposals: input.proposals,
       scheduler,
       now: () => input.now(),
       isFatal: input.isFatal,

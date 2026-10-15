@@ -18,7 +18,9 @@ import { cancelAttendanceOrLegExecutor } from "./cancel";
 import { recordAcknowledgmentExecutor, requestClarificationExecutor } from "./clarify";
 import type { ExecutorDeps } from "./effects";
 import { sendFollowupExecutor } from "./followup";
+import { type ProposalWriter, proposalWriter } from "./proposals";
 import { getLegStateExecutor, resolveSenderExecutor } from "./reads";
+import { closeTaskExecutor, escalateExceptionExecutor } from "./staff";
 
 export type { ExecutorDeps } from "./effects";
 
@@ -31,7 +33,18 @@ export function liveExecutors(deps: ExecutorDeps): ToolExecutors {
     request_clarification: requestClarificationExecutor(deps),
     record_acknowledgment: recordAcknowledgmentExecutor(deps),
     send_followup: sendFollowupExecutor(deps),
+    escalate_exception: escalateExceptionExecutor(deps),
+    close_task: closeTaskExecutor(deps),
   };
+}
+
+/**
+ * The `human`-tier writer. A proposal is not an executor — the loop never calls one for a
+ * `human`-tier call, because §11.2 says those tools mutate nothing — so the proposal rows are
+ * written in the same transaction that commits the PROPOSED call (loop.ts).
+ */
+export function liveProposalWriter(deps: ExecutorDeps): ProposalWriter {
+  return proposalWriter(deps);
 }
 
 /**
@@ -43,8 +56,6 @@ export const DEFERRED_EXECUTORS: readonly string[] = [
   "request_provider_capability",
   "record_capability_report",
   "report_boarding",
-  "escalate_exception",
-  "close_task",
   "summarize_thread_for_staff",
 ];
 

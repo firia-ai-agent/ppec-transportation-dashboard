@@ -846,6 +846,16 @@ export const agentTasks = {
     nextStep: "Call them to agree what happens instead.",
     predicate: "another arrangement agreed and recorded",
   },
+  /**
+   * §11.2 escalate_exception ("always allowed"). The *summary* on one of these comes from the
+   * model, redacted; what is ours is what closing it means. The next step is chosen by code from
+   * `agentNextSteps` below.
+   */
+  escalation: {
+    summary: "The agent escalated something it may not decide",
+    nextStep: "Read the thread and decide what happens next.",
+    predicate: "staff resolved what the agent escalated and recorded the outcome",
+  },
   /** §11.2 propose_contact_or_profile_change: "change request + exception". */
   proposedContactChange: {
     summary: "A family asked for a change the agent may not make",

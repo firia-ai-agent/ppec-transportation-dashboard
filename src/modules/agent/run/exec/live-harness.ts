@@ -20,7 +20,7 @@ import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import type { ToolExecutor } from "../executors";
 import { type Harness, type HarnessInput, runHarness } from "../harness";
 import type { ExecutorDeps } from "./effects";
-import { liveExecutors } from "./registry";
+import { liveExecutors, liveProposalWriter } from "./registry";
 
 export type LiveHarnessInput = Omit<HarnessInput, "executors" | "overrides"> & {
   /** Per-tool executors layered **over** the live registry, for a tool slice 3 does not implement. */
@@ -53,6 +53,7 @@ export function liveHarness(input: LiveHarnessInput): LiveHarness {
   const base = runHarness({
     ...input,
     executors: { ...liveExecutors(execDeps), ...(input.overrides ?? {}) },
+    proposals: liveProposalWriter(execDeps),
   });
   return {
     ...base,

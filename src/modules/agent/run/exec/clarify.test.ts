@@ -172,11 +172,11 @@ describe("AT-06 sibling ambiguity: the agent asks, and mutates nothing", () => {
     expect(await handleWake(db, { jobId: timer.id }, "d1", handlers, () => now)).toBe("fired");
     expect((await loadRun(db, r.runId))!.state).toBe("QUEUED");
 
-    // The resumed run takes its next turn from the committed result. `escalate_exception` has no
-    // live executor in this commit, so the step fails shut — which is the point: the resume
-    // happened, and nothing about the children moved on the way.
+    // The resumed run takes its next turn from the committed result and escalates: the family did
+    // not answer, so a person is asked instead. Nothing about either child moved on the way.
     const resumed = await resumeQueuedRuns(h.deps(2), sc.siteId);
-    expect(resumed.map((x) => x.steps)).toEqual([1]);
+    expect(resumed.map((x) => [x.state, x.steps])).toEqual([["SUCCEEDED", 1]]);
+    expect((await tasks()).map((t) => t.category)).toContain("UNKNOWN_SENDER");
     expect(await legStates()).toEqual(Array(4).fill({ state: "SCHEDULED", version: 1 }));
   });
 });

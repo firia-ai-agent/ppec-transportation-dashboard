@@ -31,6 +31,7 @@ import { type Clock, type JobScheduler, systemClock } from "@/modules/jobs/sched
 import type { LlmGateway, GatewayResult } from "../gateway";
 import { type PolicyDecision, evaluate } from "../policy";
 import type { ContextAssembler } from "./context";
+import type { ProposalWriter } from "./exec/proposals";
 import type { ExecutorCall, ToolExecution, ToolExecutors } from "./executors";
 import {
   AgentRunError,
@@ -62,6 +63,12 @@ export type RunDeps = {
   /** §11.1 tier assembly, called fresh on every model turn (context.ts). */
   readonly assemble: ContextAssembler;
   readonly executors: ToolExecutors;
+  /**
+   * What a `human`-tier call writes instead of executing: the §11.2 proposal rows, written in the
+   * transaction that commits the PROPOSED call (exec/proposals.ts). Optional — with none, a
+   * proposal is a recorded decision and nothing else.
+   */
+  readonly proposals?: ProposalWriter;
   /** B-03. Used only to arm an await timer (ADR-001). */
   readonly scheduler: JobScheduler;
   readonly now?: Clock;
@@ -273,8 +280,24 @@ async function settleCall(
   }
   // A proposal mutates nothing and sends nothing; it waits for a human. The run is finished —
   // §11.1 has no notion of a run that waits for an approval, it has a proposal row and a task.
+  //
+  // `proposals` is the seam for the rows a §11.2 `propose_*` call implies (an `ops.change_request`,
+  // an `ops.approval_request`, the exception task). It is deliberately *not* an executor: the loop
+  // must have no code path on which a human-tier call runs one. The writer runs inside the
+  // transaction that commits the PROPOSED row, so a proposal and the record of it cannot come
+  // apart; with no writer configured the behaviour is the slice-2 one, a recorded decision.
   if (verdict === "PROPOSAL") {
-    const ok = await commitCall(deps.db, row.id, "PROPOSED", { proposal_rule: detail, approval_key: row.argsHash }, by);
+    const result: Record<string, unknown> = { proposal_rule: detail, approval_key: row.argsHash };
+    const writer = deps.proposals;
+    const ok = writer
+      ? await deps.db.tx(async (tx) => {
+          const extra = await writer(tx, {
+            runId: run.id, callId: row.id, siteId: run.siteId, seq: row.seq, tool: row.tool,
+            args: row.args, idempotencyKey: row.idempotencyKey, approvalKey: row.argsHash, now: at,
+          });
+          return commitCall(tx, row.id, "PROPOSED", { ...result, ...extra }, by);
+        })
+      : await commitCall(deps.db, row.id, "PROPOSED", result, by);
     return ok ? { kind: "done" } : lost(row);
   }
 
