@@ -44,11 +44,28 @@ const TX_END_FORMS = [
   "/* drizzle */ commit -- done\n", "commit /* and chain */", "COMMIT\n\n",
 ];
 /**
+ * The four that are zero-width rather than space-shaped: format characters (Unicode `Cf`,
+ * default-ignorable) which are whitespace to neither JS' `\s` nor Unicode's `White_Space`, yet which
+ * every layer above the server may read as a gap, strip, or replace with a space — and which
+ * Postgres reads as identifier text exactly like NBSP, since they too are non-ASCII. `CALL\u200Bp()`
+ * shows a human no gap at all, so nothing downstream can be trusted to agree about where that first
+ * token ends; the guard refuses rather than pick a reading.
+ */
+const ZERO_WIDTH: ReadonlyArray<[string, string]> = [
+  ["\u200b", "ZERO WIDTH SPACE (U+200B)"],
+  ["\u200c", "ZERO WIDTH NON-JOINER (U+200C)"],
+  ["\u200d", "ZERO WIDTH JOINER (U+200D)"],
+  ["\u2060", "WORD JOINER (U+2060)"],
+];
+/**
  * Every space that is a space to Unicode, to a human and to the drivers, but not to Postgres' own
  * lexer, which treats only ASCII whitespace as a gap and every non-ASCII byte as identifier text
  * (`scan.l`: `space [ \t\n\r\f]`, `ident_cont [A-Za-z\200-\377_0-9$]`). Named, because the point of
  * the list is that each one is a space SOMEWHERE — in a paste, in an editor, in a client library
  * that normalises them — and the guard cannot know which reading reaches the server.
+ *
+ * The last four are {@link ZERO_WIDTH}: invisible rather than space-shaped, and so not whitespace to
+ * JS or to Unicode at all — see the pin test below.
  */
 const UNICODE_SPACES: ReadonlyArray<[string, string]> = [
   ["\v", "LINE TABULATION (U+000B)"],
@@ -73,6 +90,7 @@ const UNICODE_SPACES: ReadonlyArray<[string, string]> = [
   ["\u205f", "MEDIUM MATHEMATICAL SPACE (U+205F)"],
   ["\u3000", "IDEOGRAPHIC SPACE (U+3000)"],
   ["\ufeff", "ZERO WIDTH NO-BREAK SPACE / BOM (U+FEFF)"],
+  ...ZERO_WIDTH,
 ];
 /**
  * `CALL` separated from its procedure name by one of those, in the shapes a caller would reach for.
@@ -127,6 +145,10 @@ const CALL_NON_FORMS = [
   // CALL. These still run, exactly as they did before the keyword boundary learned about NBSP.
   "SELECT\u00a01 AS callback", "SELECT 1 AS callback\u00a0x", "SELECT 'CALL\u00a0p()'",
   'SELECT "CALL\u00a0p" FROM t', "SELECT $$CALL\u00a0p()$$", "-- CALL\u00a0p()\nSELECT 1",
+  // Same for the zero-width ones: they end the keyword where it is the first token, and nowhere
+  // else. `callback` with one glued into the middle is still the identifier an app really selects.
+  "SELECT 1 AS callback\u200bx", "callback\u200b", "callback\u2060()", "SELECT 'CALL\u200bp()'",
+  "SELECT $$CALL\u2060p()$$", "-- CALL\u200bp()\nSELECT 1", "/* CALL\u200dp() */ SELECT 1",
 ];
 /** Savepoint work: it rolls back or forgets part of the transaction, but cannot end it. */
 const SAVEPOINT_FORMS = [
@@ -571,17 +593,72 @@ describe("preview read-only fail-safe (DECISION-LEDGER #43)", () => {
       expect(rewriteBeginReadOnly("callback")).toBe("callback");
     });
 
+    it("refuses CALL cut from its procedure by a zero-width U+200B, U+200C, U+200D or U+2060", () => {
+      // The space-shaped members of the list above at least look like a gap. These four look like
+      // nothing: `CALL\u200Bp()` renders as `CALLp()`, lexes on the server as the single identifier
+      // `callp`, and arrives as a real `CALL p()` at anything that space-replaces invisible
+      // characters on the way — a console, a paste out of rendered HTML, a sanitiser. The guard
+      // cannot know which reading reaches the server, so it refuses all of them.
+      for (const [c, name] of ZERO_WIDTH) {
+        for (const s of [
+          `CALL${c}p()`,
+          `call${c}ops.p()`,
+          `cAlL${c}p(1, 'x')`,
+          `CALL${c}"ops"."p"()`,
+          `CALL${c}${c}p()`,
+          `/* x */ CALL${c}ops.commit_and_write()`,
+          `CALL${c}`,
+          // One identifier to the server, like `call\u00A0back`: refused all the same, fail closed.
+          `call${c}back`,
+        ]) {
+          const what = `${name}: ${JSON.stringify(s)}`;
+          expect(() => rewriteBeginReadOnly(s), what).toThrow(ReadOnlyRefusedError);
+          expect(() => rewriteBeginReadOnly({ text: s }), what).toThrow(/DECISION-LEDGER #43/);
+          expect(() => rewriteBeginReadOnly(s, { inTransaction: true }), what).toThrow(ReadOnlyRefusedError);
+          // Off previews, production still sends exactly what it was given.
+          expect(rewriteBeginReadOnlyForEnv({ VERCEL_ENV: "production" }, s), what).toBe(s);
+        }
+        // The allowlist side agrees that these are not the server's whitespace: a gap spelled with
+        // one is not the statement an allowlist describes, so the exception does not apply and the
+        // refusal stands. (Refused twice over here — JS `\s` does not match them either, so the
+        // allowlist regex could not match in the first place; `onlyPgSpace` does not rely on that.)
+        for (const s of [
+          `ROLLBACK${c}TO SAVEPOINT sp1`,
+          `rollback${c}to${c}sp1`,
+          `SET${c}LOCAL statement_timeout = '5s'`,
+          `set local statement_timeout${c}= '5s'`,
+        ]) {
+          expect(() => rewriteBeginReadOnly(s), `${name}: ${JSON.stringify(s)}`).toThrow(ReadOnlyRefusedError);
+        }
+      }
+      // And the ordinary spellings are untouched: no new false positive on the words themselves.
+      expect(rewriteBeginReadOnly("CALLBACK p()")).toBe("CALLBACK p()");
+      expect(rewriteBeginReadOnly("SELECT 1 AS callback")).toBe("SELECT 1 AS callback");
+      expect(rewriteBeginReadOnly("ROLLBACK TO SAVEPOINT sp1")).toBe("ROLLBACK TO SAVEPOINT sp1");
+      expect(rewriteBeginReadOnly("SET LOCAL statement_timeout = '5s'")).toBe(
+        "SET LOCAL statement_timeout = '5s'",
+      );
+    });
+
     it("spells out the whole Unicode space list, so none of them is forgotten", () => {
-      // Derived from JS' own `\s`, minus the plain ASCII run Postgres agrees is whitespace: that is
+      // The bulk is JS' own `\s` minus the plain ASCII run Postgres agrees is whitespace: that is
       // every space a driver, an editor or a paste can produce which the server reads as identifier
       // text instead. A new one cannot appear in the language without this list — and the guard's —
-      // being updated to match. U+0085 is in the list and not in `\s`: Unicode calls it whitespace,
-      // JS does not, and the guard follows Unicode because the drivers and the humans do.
+      // being updated to match.
       const jsSpaces = [...Array(0x10000).keys()]
         .map((c) => String.fromCharCode(c))
         .filter((c) => /\s/.test(c) && !/^[ \t\n\r]$/.test(c));
       expect(jsSpaces).toHaveLength(21);
-      expect(new Set(UNICODE_SPACES.map(([c]) => c))).toEqual(new Set([...jsSpaces, "\u0085"]));
+      // `\s` is the floor and not the list, so the rest is named by hand. U+0085 is whitespace to
+      // Unicode but not to JS, and the guard follows Unicode because the drivers and the humans do.
+      // The zero-width four are whitespace to NEITHER — they are invisible, which is why no
+      // character class finds them and why the list has to say their names. Pinned both ways so
+      // neither half can quietly rot into the other.
+      const extra = ["\u0085", ...ZERO_WIDTH.map(([c]) => c)];
+      expect(extra.filter((c) => /\s/.test(c))).toEqual([]);
+      expect(ZERO_WIDTH.filter(([c]) => !/\p{Cf}/u.test(c))).toEqual([]);
+      expect(new Set(UNICODE_SPACES.map(([c]) => c))).toEqual(new Set([...jsSpaces, ...extra]));
+      expect(UNICODE_SPACES).toHaveLength(26);
     });
 
     it("leaves the word `call` alone in a literal, a quoted name, a comment or a longer identifier", () => {

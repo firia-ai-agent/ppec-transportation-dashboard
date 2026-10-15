@@ -135,7 +135,9 @@ const DISCARD = /^DISCARD\b/i;
  * `"call"` column — a quoted identifier keeps its quotes through `scanPieces` and so can never be
  * read as this keyword. A {@link UNICODE_SPACE} character ends it as well, even though Postgres
  * reads that one as identifier text: `CALL\u00A0p()`, `CALL\u2003p()` and `call\u3000ops.p()` are a
- * `CALL` to every eye but the server's lexer, and the guard refuses on either reading.
+ * `CALL` to every eye but the server's lexer, and the guard refuses on either reading. The
+ * zero-width members of that set do the same job while showing nothing at all: `CALL\u200Bp()` and
+ * `call\u2060ops.p()` are refused too.
  */
 const CALL = /^CALL/i;
 /** The isolation levels of `ISOLATION LEVEL ...`, as token runs. */
@@ -170,6 +172,16 @@ const isIdentCont = (c: string | undefined) => c !== undefined && (isTagChar(c) 
  * carriage return — plus NEXT LINE (U+0085), whitespace to Unicode though not to JS, and `\v` and
  * `\f`, which are ASCII but which not every Postgres `space` class has included.
  *
+ * And four that are zero-width rather than space-shaped: ZERO WIDTH SPACE (U+200B), ZERO WIDTH
+ * NON-JOINER (U+200C), ZERO WIDTH JOINER (U+200D) and WORD JOINER (U+2060). These are format
+ * characters (Unicode `Cf`, default-ignorable), so they are whitespace to neither JS' `\s` nor
+ * Unicode's `White_Space` — but they are invisible, one is *named* a space, and the code that
+ * handles text on the way here handles them as one: editors, consoles, copy-paste out of rendered
+ * HTML and the sanitisers that strip or space-replace invisible characters. `CALL\u200Bp()` shows
+ * no gap at all to a human, which makes it worse than NBSP rather than better — whatever reads it
+ * decides on its own whether a token ends there. The BOM (U+FEFF) is the same kind of character and
+ * was already here only because JS happens to call it a space.
+ *
  * The server's `space` is `[ \t\n\r\f]` while its `ident_cont` is `[A-Za-z\200-\377_0-9\$]`, so
  * every non-ASCII character here *continues an identifier* there instead of separating two tokens:
  * `CALL\u00A0p()` is ONE identifier (`call p`) to Postgres and a `CALL` with odd padding to a human,
@@ -181,6 +193,7 @@ const UNICODE_SPACE = new Set([
   "\v", "\f", "\u0085", "\u00a0", "\u1680",
   "\u2000", "\u2001", "\u2002", "\u2003", "\u2004", "\u2005",
   "\u2006", "\u2007", "\u2008", "\u2009", "\u200a",
+  "\u200b", "\u200c", "\u200d", "\u2060",
   "\u2028", "\u2029", "\u202f", "\u205f", "\u3000", "\ufeff",
 ]);
 const isUnicodeSpace = (c: string | undefined) => c !== undefined && UNICODE_SPACE.has(c);
@@ -204,10 +217,12 @@ const endsKeyword = (c: string | undefined) => !isIdentCont(c) || isUnicodeSpace
  * True when every space in `stmt` is one the server itself reads as a gap between two tokens.
  *
  * The allowlists below (`ROLLBACK_TO_SAVEPOINT`, `SET_LOCAL_ALLOWED`) spell their gaps `\s`, which in
- * JS matches NBSP and the rest of {@link UNICODE_SPACE} as well — characters that are identifier text
+ * JS matches NBSP and most of {@link UNICODE_SPACE} as well — characters that are identifier text
  * to Postgres. `SET\u00A0LOCAL\u00A0statement_timeout = '5s'` would satisfy the allowlist regex while
  * being something else entirely on the wire, so an allowlist is only ever consulted for a statement
- * whose gaps are ASCII: anything else falls through to the refusal it was an exception to.
+ * whose gaps are ASCII: anything else falls through to the refusal it was an exception to. (The
+ * zero-width four are not JS `\s`, so no allowlist regex can match a gap spelled with one in the
+ * first place; this check rejects them anyway rather than leaving that to the regexes.)
  */
 const onlyPgSpace = (stmt: string) => ![...stmt].some(isUnicodeSpace);
 
@@ -459,8 +474,9 @@ export interface GuardState {
  *     transaction control: a PL/pgSQL body can `COMMIT` — ending the guard's transaction from the
  *     inside — or `PERFORM set_config(...)`, and the body is not in the statement text for this file
  *     to inspect. Any case, any padding or newlines, comments before or between the tokens, and any
- *     procedure name (schema-qualified or quoted) — and the padding may be any Unicode space, NBSP
- *     and U+2003 included, which the server would read as part of a name rather than as a gap. The
+ *     procedure name (schema-qualified or quoted) — and the padding may be any Unicode space, NBSP,
+ *     U+2003 and the zero-width U+200B–U+200D and U+2060 included, every one of which the server
+ *     would read as part of a name rather than as a gap. The
  *     word `call` inside a literal, inside a quoted identifier, or as part of a longer name
  *     (`callback`, `callé`) is not this keyword and still runs.
  *   - every `SET` and every `RESET` is refused — `SET TRANSACTION ... READ WRITE`,
