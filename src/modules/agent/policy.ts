@@ -331,6 +331,32 @@ export function triageInbound(
   return { wrapped: wrapUntrusted(body), directives, tasks };
 }
 
+/**
+ * The identity-change tasks the T3 messages of *this* run's context raise, for a decision that is
+ * about to block because of them (`evaluate` step 8). Exactly `triageInbound`'s task, derived
+ * again from the same bodies rather than passed in, so a caller cannot block on a directive and
+ * forget to ask about the claim behind it.
+ *
+ * Deduplicated by evidence hash: the same message quoted twice in one context is one claim, and
+ * one task.
+ */
+function identityClaimTasks(ctx: PolicyContext): PolicyTask[] {
+  const out: PolicyTask[] = [];
+  const seen = new Set<string>();
+  for (const body of ctx.untrustedMessages ?? []) {
+    const { tasks } = triageInbound(body, {
+      familyToken: ctx.scope.familyToken,
+      messageId: ctx.sourceMessageId ?? null,
+    });
+    for (const task of tasks) {
+      if (seen.has(task.evidenceHash)) continue;
+      seen.add(task.evidenceHash);
+      out.push(task);
+    }
+  }
+  return out;
+}
+
 /* ──────────────────────────────── the policy rows ──────────────────────────────── */
 
 /**
@@ -704,7 +730,12 @@ export function evaluate(
       "obey_t3_instruction",
       call.tool,
       `thread carries directive(s) ${Array.from(new Set(directives)).join(",")}; only escalation and proposals remain available`,
-      staffReview("obey_t3_instruction"),
+      // Two tasks, because a thread claiming a new number raises two questions: what to do about
+      // the step that was refused (staff_review), and whether the claim itself is real
+      // (identity_change_request, §11.2). The second is the same task `triageInbound` raises on
+      // the message, carried on the decision so that whatever persists the block persists it too
+      // (run/tasks.ts) — a decision whose tasks are dropped is a claim nobody is asked about.
+      [...staffReview("obey_t3_instruction"), ...identityClaimTasks(ctx)],
     );
   }
 
