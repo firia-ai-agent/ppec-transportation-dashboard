@@ -29,6 +29,13 @@
       "when": 1791996468988,
       "tag": "0003_outbound_child_ref",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792020000000,
+      "tag": "0005_demo_shared_password",
+      "breakpoints": true
     }
   ]
 }

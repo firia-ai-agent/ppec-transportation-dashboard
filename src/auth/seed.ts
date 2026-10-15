@@ -1,15 +1,19 @@
 import bcrypt from "bcryptjs";
 import type { Exec } from "@/domain/transition";
 import { READ_ONLY_REASON, isReadOnlyDbEnv } from "@/db/read-only";
-import { DEMO_ACCOUNTS } from "./demo-accounts";
+import { DEMO_ACCOUNTS, DEMO_SHARED_PASSWORD } from "./demo-accounts";
 
 /**
- * Synthetic demo staff (synthetic-seed-data-rules, ADR-004). Passwords come ONLY from env vars,
- * one per role per environment; nothing is hardcoded, printed or returned.
+ * Synthetic demo staff (synthetic-seed-data-rules, ADR-004). All three share one password —
+ * `DEMO_SHARED_PASSWORD` in src/auth/demo-accounts.ts, the value /login prints on each card
+ * (founder decision, DECISION-LEDGER row 59, superseding the per-role `DEMO_*_PASSWORD` env
+ * vars of row 57). The hash stored here is bcrypt at cost 12, the same algorithm and cost
+ * drizzle/0005_demo_shared_password.sql bakes into production, so a local or PGlite database
+ * accepts exactly what the deployed demo accepts.
+ *
  * Seed declaration: 1 org, 2 sites (A with 3 users, B with none, for ID-swap 404 cases),
- * 3 users director@ / coordinator@ / frontdesk@example.com. Who those three are — email, role,
- * id and the name of the env var holding each password — is `DEMO_ACCOUNTS` in
- * src/auth/demo-accounts.ts, the one list /login reads too, so the two can never drift.
+ * 3 users director@ / coordinator@ / frontdesk@example.com. Who those three are — email, role
+ * and id — is `DEMO_ACCOUNTS`, the one list /login reads too, so the two can never drift.
  * Re-running is idempotent: existing users keep their password unless `resetPasswords` (CLI --reset-passwords) is set.
  * It never re-enables a disabled user. Gate: APP_DATA_CLASS=SYNTHETIC (production is a synthetic demo, DECISION-LEDGER row 17).
  * Second gate: it refuses to write when VERCEL_ENV=preview — previews share the one production DB (DECISION-LEDGER #43).
@@ -23,8 +27,6 @@ export class SeedRefused extends Error {}
 export async function seedDemoUsers(db: Exec, env: Record<string, string | undefined>, opts: { dryRun: boolean; resetPasswords?: boolean }) {
   if (env.APP_DATA_CLASS !== "SYNTHETIC") throw new SeedRefused("APP_DATA_CLASS must be SYNTHETIC");
   if (!opts.dryRun && isReadOnlyDbEnv(env)) throw new SeedRefused(READ_ONLY_REASON);
-  const missing = DEMO_ACCOUNTS.filter((u) => !env[u.passwordEnv] || (env[u.passwordEnv] as string).length < 16).map((u) => u.passwordEnv);
-  if (missing.length) throw new SeedRefused(`missing or too short (<16 chars): ${missing.join(", ")}`);
   const plan = { org: 1, sites: 2, resetPasswords: opts.resetPasswords === true, users: DEMO_ACCOUNTS.map((u) => `${u.email} (${u.role}, site A)`) };
   if (opts.dryRun) return { dryRun: true, plan };
   const by = "'seed:demo-users'";
@@ -36,7 +38,7 @@ export async function seedDemoUsers(db: Exec, env: Record<string, string | undef
         VALUES ($1, $2, $3, 26.645352, -80.145541, ${by}, ${by}, 'SIMULATED') ON CONFLICT (id) DO NOTHING`, [id, DEMO_ORG, name]);
     }
     for (const u of DEMO_ACCOUNTS) {
-      const hash = await bcrypt.hash(env[u.passwordEnv] as string, 12);
+      const hash = await bcrypt.hash(DEMO_SHARED_PASSWORD, 12);
       await db.query(`INSERT INTO ops.app_user (id, email, display_name, password_hash) VALUES ($1, $2, $3, $4)
         ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name,
           password_hash = CASE WHEN $5 THEN EXCLUDED.password_hash ELSE ops.app_user.password_hash END`,

@@ -31,7 +31,7 @@ Vercel Cron runs on **production only**. Previews have no cron: the harness call
 | DEMO_MODE | ✓ | ✓ | plain | Rudy | set |
 | DATABASE_URL, DATABASE_URL_UNPOOLED | ✓ main branch | ✓ per-preview branch | integration (one entry each, not per-target values) | Neon integration | set (part of the 18 Neon-integration names below) |
 | AUTH_SECRET, CRON_SECRET, SIM_WEBHOOK_SECRET, HMAC_PEPPER, DATA_KEY | ✓ | ✓ (distinct values) | sensitive | Rudy (generated, never printed) | set |
-| DEMO_DIRECTOR_PASSWORD, DEMO_COORDINATOR_PASSWORD, DEMO_FRONT_DESK_PASSWORD | ✓ | ✓ (distinct) | sensitive | Rudy | set |
+| ~~DEMO_DIRECTOR_PASSWORD, DEMO_COORDINATOR_PASSWORD, DEMO_FRONT_DESK_PASSWORD~~ | – | – | – | – | **retired 2026-10-14 (DECISION-LEDGER row 59)** — the three demo logins share one password that lives in `src/auth/demo-accounts.ts` and is printed on /login; the app no longer reads these names. Safe to delete from Vercel; leaving them set changes nothing |
 | OPENROUTER_API_KEY | ✓ | ✓ | sensitive | founder via Firia only (DECISION-LEDGER #20) | set (sensitive; never read, set or echoed by Rudy) |
 | MIGRATE_PROD_ON_BUILD (unset ⇒ off; `1` enables prod migrations on builds from `main` only) | `1` (production target only) | – | plain | Rudy, per prod-release-gate | **set 2026-10-14 12:45 ET** |
 | NEXT_PUBLIC_MAP_TILE_URL (unset ⇒ OpenFreeMap positron, ADR-008) | ✓ | ✓ | plain | Rudy | **not set** — optional: the map UI falls back to the ADR-008 default style URL |
@@ -47,7 +47,7 @@ See `DATABASES.md`. Rule: prod and preview never share a database branch. `DATAB
 | APP_DATA_CLASS | build and server boot refuse anything but `SYNTHETIC` | `src/lib/env.ts:9-24`, `next.config.ts:5`, `src/instrumentation.ts:4-6` |
 | DEMO_MODE | (nothing yet) demo panel + APIs per ADR-014, from B-15 | — |
 | AUTH_SECRET (secret) | Auth.js JWT signing; `/login` and `/whoami` fail at request time without it (build does not need it) | `src/auth.ts` |
-| DEMO_*_PASSWORD (secret) | only read by `pnpm seed:demo-users` (dry run unless `--apply`); refuses <16 chars or non-SYNTHETIC | `src/auth/seed.ts` |
+| ~~DEMO_*_PASSWORD~~ | retired (row 59): nothing reads them. The seed hashes `DEMO_SHARED_PASSWORD` instead and still refuses a non-SYNTHETIC data class | `src/auth/demo-accounts.ts`, `src/auth/seed.ts` |
 
 ## Platform/account settings
 - GitHub: private repo, free plan, **no branch protection/rulesets** (HTTP 403, DECISION-LEDGER governance record). CI is advisory; Veri review is the gate.
