@@ -42,7 +42,7 @@ beforeEach(async () => {
     provider: new DbSimMessagingProvider(db, new VercelQueueScheduler(db, wake, () => now), { clock: () => now, pepper: PEPPER }),
     authorizer: dbRecipientAuthorizer(db), clock: () => now, timeoutMs: 500,
   };
-  f1 = await seedPersona(db, F1_NUMBER);
+  f1 = await seedPersona(db, F1_NUMBER, { now });
   now = new Date(Date.now() + 1000);
 }, 60_000);
 

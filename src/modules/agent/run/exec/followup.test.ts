@@ -11,6 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
+import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
 import { F2_NUMBER } from "@/test/messaging";
 import {
@@ -44,7 +45,7 @@ const open: PGlite[] = [];
 beforeEach(async () => {
   ({ pg, db } = await freshDb());
   open.push(pg);
-  now = new Date("2026-10-15T12:00:00.000Z");
+  now = new Date(TEST_NOW);
 }, 60_000);
 
 afterEach(async () => {
@@ -178,7 +179,7 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     sc = await seedAgentScenario(db);
     const child = sc.children[0];
     const second = await seedSecondGuardian(db, {
-      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER, now: sc.receivedAt,
     });
     const h = harness(at01Script());
     const r = await h.start(trigger());
@@ -208,7 +209,7 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     sc = await seedAgentScenario(db);
     const child = sc.children[0];
     const second = await seedSecondGuardian(db, {
-      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER, now: sc.receivedAt,
     });
     const h = harness([
       toolCall("resolve_sender", { message_id: sc.messageId }),
@@ -232,7 +233,7 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     sc = await seedAgentScenario(db);
     const child = sc.children[0];
     const second = await seedSecondGuardian(db, {
-      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER, now: sc.receivedAt,
     });
     const h = harness([
       toolCall("resolve_sender", { message_id: sc.messageId }),
@@ -262,7 +263,7 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     sc = await seedAgentScenario(db);
     const child = sc.children[0];
     const second = await seedSecondGuardian(db, {
-      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER, now: sc.receivedAt,
     });
     await db.query(
       `INSERT INTO identity.consent_event (id, site_id, contact_token, kind, channel, at, source_mode)
@@ -284,7 +285,7 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     sc = await seedAgentScenario(db);
     const child = sc.children[0];
     const second = await seedSecondGuardian(db, {
-      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER, now: sc.receivedAt,
     });
     const h = harness([
       toolCall("resolve_sender", { message_id: sc.messageId }),
@@ -310,7 +311,7 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     sc = await seedAgentScenario(db);
     const child = sc.children[0];
     await seedSecondGuardian(db, {
-      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER, now: sc.receivedAt,
     });
     // A run with no resolve_sender step: a timer or a sweeper, not a reply to anybody.
     const h = harness([followupCall()]);

@@ -14,6 +14,7 @@ import { uuidv7 } from "uuidv7";
 import type { Db } from "@/db/exec";
 import { phoneHmac } from "@/modules/identity/phone";
 import { recipientKind } from "@/modules/outbox/policy";
+import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
 import { PEPPER, seedSecondSite } from "@/test/messaging";
 import {
@@ -56,7 +57,7 @@ const ROUTE_START = new Date("2026-10-15T13:00:00.000Z");
 beforeEach(async () => {
   ({ pg, db } = await freshDb());
   open.push(pg);
-  now = new Date("2026-10-15T12:00:00.000Z");
+  now = new Date(TEST_NOW);
 }, 60_000);
 
 afterEach(async () => {
