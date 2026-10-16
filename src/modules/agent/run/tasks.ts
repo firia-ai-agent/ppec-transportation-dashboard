@@ -83,7 +83,9 @@ export function policyTaskIds(call: ToolCallRow, tasks: readonly PolicyTask[]): 
  */
 export async function writePolicyTasks(
   tx: Exec,
-  args: { run: RunRow; call: ToolCallRow; tasks: readonly PolicyTask[]; by: string },
+  // Only the run's tenant and its trigger label are needed, so that is all this asks for: the
+  // caller's `by` says who is writing, and a task is the run's rather than its driver's.
+  args: { run: Pick<RunRow, "siteId" | "trigger">; call: ToolCallRow; tasks: readonly PolicyTask[]; by: string },
 ): Promise<string[]> {
   const ids: string[] = [];
   const derived = policyTaskIds(args.call, args.tasks);

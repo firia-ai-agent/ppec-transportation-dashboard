@@ -136,7 +136,11 @@ export async function parkRunOnTimer(
     ? await armEscalation(tx, afterCommit, scheduler, { ...args, taskId, by })
     : null;
 
-  const parked = await setRunState(tx, args.run.id, "RUNNING", "WAITING_TOOL", by);
+  // The run row's own writes carry the driver's actor (`DriveOpts.actor` — the lease's claim token
+  // when the queue route is driving, `runActor` otherwise), while the task and the jobs beside it
+  // are the run's and carry `by`. Parking is also how a lease ends on the §11.1 wait: the row
+  // leaves RUNNING, so the claim it was holding is no longer a claim on anything (run/lease.ts).
+  const parked = await setRunState(tx, args.run.id, "RUNNING", "WAITING_TOOL", args.run.updatedBy);
   if (!parked) throw new Error(`run ${args.run.id} was not RUNNING; refusing to park it on a timer`);
 
   return {
