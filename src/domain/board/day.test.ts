@@ -5,7 +5,7 @@ import { serviceDateIso, serviceDateLabel } from "@/ui/service-date";
 import {
   BOARD_SCENARIO_SECONDS,
   DEMO_SERVICE_DATE,
-  SWITCHER_RANGE_DAYS,
+  DAY_RANGE_DAYS,
   boardInstantMs,
   demoDay,
   localTimeOn,
@@ -68,12 +68,12 @@ describe("the phase of a day decides when it is read", () => {
 describe("which days a URL can reach", () => {
   it("walks whole days, and the arrows stop at the end of the range", () => {
     let day = demoDay();
-    for (let i = 0; i < SWITCHER_RANGE_DAYS; i += 1) {
+    for (let i = 0; i < DAY_RANGE_DAYS; i += 1) {
       const next = serviceDayFor(day.nextIso);
       expect(next.offsetDays, next.iso).toBe(day.offsetDays + 1);
       day = next;
     }
-    expect(day.offsetDays).toBe(SWITCHER_RANGE_DAYS);
+    expect(day.offsetDays).toBe(DAY_RANGE_DAYS);
     expect(day.nextIso).toBeNull();
   });
 
@@ -85,7 +85,7 @@ describe("which days a URL can reach", () => {
       timeZoneName: "short",
     });
     const names = new Set<string>();
-    for (const offset of [-SWITCHER_RANGE_DAYS, 0, SWITCHER_RANGE_DAYS]) {
+    for (const offset of [-DAY_RANGE_DAYS, 0, DAY_RANGE_DAYS]) {
       names.add(
         zone
           .formatToParts(new Date(demoDay().instantMs + offset * DAY_MS))

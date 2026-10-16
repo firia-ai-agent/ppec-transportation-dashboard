@@ -28,14 +28,38 @@
   line-height: var(--leading-tight);
 }
 
+/* The one date on screen (§2, PRD §6.1): read, not changed — there is no switcher beside it. */
 .date {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
   font-size: var(--body-console);
-  color: var(--color-ink-muted);
+  color: var(--color-ink);
+  flex-wrap: wrap;
 }
 
 .dateLabel {
   font-size: var(--text-12);
   text-transform: none;
+  color: var(--color-ink-muted);
+}
+
+/*
+ * Which kind of day this is, as words in the §3 neutral tone: it is a fact about what is being
+ * shown — the demo day, replayed — and never a status of the day's rides, so it takes no status
+ * colour (§3, §8).
+ */
+.phase {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  color: var(--color-ink-muted);
+  white-space: nowrap;
 }
 
 .filters {

@@ -19,7 +19,7 @@ import {
   type LegRow,
   type RideView,
 } from "@/domain/board/board";
-import { board as boardCopy, etaText, fill } from "@/ui/copy";
+import { board as boardCopy, etaText, fill, serviceDate } from "@/ui/copy";
 import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
 import {
@@ -31,7 +31,6 @@ import {
 } from "@/ui/states";
 import { humanizeAge } from "@/ui/age";
 import { clockLabel } from "@/ui/service-date";
-import { ServiceDateSwitcher } from "@/ui/ServiceDateSwitcher";
 import { icon } from "@/ui/tokens";
 import { LegDrawer } from "./LegDrawer";
 import { nextStepCellText, stateValues } from "./next-step";
@@ -89,10 +88,12 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
   return (
     <div className={styles.page}>
       {/*
-        The board's own header: which day it is about, and the way to another one. The heading
-        says "Today" on the day that is true of and names the day on any other, because a board
-        of finished rides under a heading that said "Today" would be the one false sentence on
-        the screen.
+        The board's own header: one date, and which day that is (Vera's final call). The date is
+        read, never changed — there is no switcher, because the only day this build replays is
+        the demo day, and a control offering another one would promise a day the demo does not
+        have. The heading says "Today" on the day that is true of and names the day on any
+        other, because a board of finished rides under "Today" would be the one false sentence
+        on the screen.
       */}
       <header className={styles.titleRow}>
         <h1 className={styles.heading}>
@@ -100,7 +101,14 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
             ? boardCopy.heading
             : fill(boardCopy.headingOtherDay, { date: day.label })}
         </h1>
-        <ServiceDateSwitcher day={day} query={query} />
+        <p className={styles.date}>
+          <span className={styles.dateLabel}>{serviceDate.groupLabel}</span>{" "}
+          <time dateTime={day.iso} className="tabularNums">
+            {day.label}
+          </time>{" "}
+          {/* Which kind of day this is — on the demo day, that it is the demo day and not today. */}
+          <span className={styles.phase}>{serviceDate.phases[day.phase]}</span>
+        </p>
       </header>
 
       <div className={styles.filters}>

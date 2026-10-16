@@ -38,6 +38,9 @@ const RIDING_CHILD = "Zoe B.";
  * The day before the demo day, which the scenario drove to the end: every ride on it has an
  * outcome, including the one that ended holding a child (AT-13) and the one whose van arrived
  * and was never handed over (AT-10).
+ *
+ * Reached by URL, which is now the only way: the console has no date switcher in it (Vera's
+ * final call), so this is a review and test path and never something a coordinator lands on.
  */
 const FINISHED = serviceDayFor(demoDay().previousIso);
 const FINISHED_URL = `/today?date=${FINISHED.iso}`;
@@ -243,23 +246,57 @@ for (const width of WIDTHS) {
     });
 
     /**
-     * §2: one service date for the screen, and the arrows beside it are how another day is
-     * reached. The board shows the day it names and nothing else — which is the only way the
-     * finished day above and the live morning can both be true of the same screen.
+     * §2, Vera's final call: **one** date on screen, and it is the replayed demo day, labelled
+     * as the demo day. Not today's real date — the chrome carries no date at all — and not a
+     * date anything on screen can change: there is no switcher, so a coordinator cannot be
+     * looking at a day they did not mean to be looking at.
      */
-    test("the header switches the day, and the board is about the day it names", async ({
+    test("the board shows one date, the demo day, and nothing offers another", async ({
       page,
     }) => {
       await page.goto("/today");
-      const switcher = page.getByRole("navigation", { name: serviceDate.groupLabel });
-      await expect(switcher.getByText(demoDay().label)).toBeVisible();
-      await expect(switcher.getByText(serviceDate.phases.LIVE)).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: boardCopy.heading })).toBeVisible();
+
+      // The one date, labelled: "Service date · Wed, Oct 14 · Demo day".
+      const dates = page.locator("time[datetime]");
+      await expect(dates).toHaveCount(1);
+      await expect(dates).toHaveText(demoDay().label);
+      await expect(dates).toHaveAttribute("datetime", demoDay().iso);
+      await expect(page.getByText(serviceDate.groupLabel)).toBeVisible();
+      await expect(page.getByText(serviceDate.phases.LIVE)).toBeVisible();
+
+      // Today's real date is nowhere on the screen — not in the board, not in the chrome.
+      const realToday = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      }).format(new Date());
+      if (realToday !== demoDay().label) {
+        await expect(page.getByText(realToday)).toHaveCount(0);
+      }
+
+      // No switcher: no control, link or arrow that reaches another service date.
+      await expect(page.locator("a[href*='date=']")).toHaveCount(0);
+      for (const name of [/previous day/i, /next day/i]) {
+        await expect(page.getByRole("link", { name })).toHaveCount(0);
+        await expect(page.getByRole("button", { name })).toHaveCount(0);
+      }
+      await expect(page.getByRole("navigation", { name: serviceDate.groupLabel })).toHaveCount(0);
+
       // The live day has no finished ride on it at all: today is today only.
       await expect(page.getByText(/handed off/i)).toHaveCount(0);
       await expect(page.getByText(legStates.HELD_NO_RECEIVER.label)).toHaveCount(0);
+      console.log("screenshot:", await shot(page, `today-one-date-${width}`));
+    });
 
-      await switcher.getByRole("link", { name: serviceDate.previousDay }).click();
-      await page.waitForURL(`**/today?date=${FINISHED.iso}`);
+    /**
+     * The finished day, reached the only way it can be now: by URL. There is no control on the
+     * board that goes here (the test above holds that), and this is the day AT-13 and AT-10 are
+     * read on — so the board still has to be about the day it names rather than about today.
+     */
+    test("a day asked for by URL is the day the board names", async ({ page }) => {
+      await page.goto(FINISHED_URL);
       await expect(
         page.getByRole("heading", {
           level: 1,
@@ -267,13 +304,9 @@ for (const width of WIDTHS) {
         }),
       ).toBeVisible();
       await expect(page.getByText(serviceDate.phases.ENDED)).toBeVisible();
+      await expect(page.locator("time[datetime]")).toHaveAttribute("datetime", FINISHED.iso);
       // …and that day's rides are the finished ones.
       await expect(page.getByText(/^Handed off to /).first()).toBeVisible();
-
-      await page.getByRole("link", { name: serviceDate.nextDay }).click();
-      await page.waitForURL(`**/today?date=${demoDay().iso}`);
-      await expect(page.getByRole("heading", { level: 1, name: boardCopy.heading })).toBeVisible();
-      console.log("screenshot:", await shot(page, `today-date-switcher-${width}`));
     });
 
     /**

@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
@@ -61,16 +63,34 @@ function drawerHtml(key: string, of: typeof board = board): string {
 describe("the board renders the day", () => {
   const html = boardHtml();
 
-  it("has one heading and the service date it is showing, with a way to another day", () => {
+  /**
+   * Vera's final call: one date on screen, the replayed demo day, labelled as the demo day —
+   * and no switcher. The date is a fact to read, so a `<time>` and the words for what kind of
+   * day it is; there is no arrow, no link and no form that would offer another one.
+   */
+  it("has one heading and one date, the demo day, labelled as the demo day", () => {
     expect(html).toContain(`>${boardCopy.heading}<`);
     expect(html).toMatch(/datetime="2026-10-14"/i);
     expect(html).toContain("Wed, Oct 14");
-    // §2: the date is switchable, and each day says which kind of day it is.
     expect(html).toContain(serviceDate.phases.LIVE);
-    expect(html).toContain(`href="/today?date=${demoDay().previousIso}"`);
-    expect(html).toContain(`href="/today?date=${demoDay().nextIso}"`);
-    expect(html).toContain(serviceDate.previousDay);
-    expect(html).toContain(serviceDate.nextDay);
+    // One date, once: the label, the date and the kind of day, and nothing else dated.
+    expect(html.match(/<time/g)).toHaveLength(1);
+    expect(html).toContain(serviceDate.groupLabel);
+  });
+
+  it("offers no way to change the day: no switcher anywhere on the board", () => {
+    for (const of_ of [board, finished]) {
+      const markup = boardHtml("", of_);
+      expect(markup).not.toMatch(/href="\/today\?date=/);
+      expect(markup).not.toMatch(/\bdate=\d{4}-\d{2}-\d{2}/);
+      expect(markup).not.toMatch(/Previous day|Next day/);
+    }
+    // ...and the component that used to draw it is gone, not merely unmounted.
+    expect(existsSync(path.join(__dirname, "..", "..", "..", "ui", "ServiceDateSwitcher.tsx"))).toBe(
+      false,
+    );
+    expect(serviceDate).not.toHaveProperty("previousDay");
+    expect(serviceDate).not.toHaveProperty("nextDay");
   });
 
   /**
@@ -82,11 +102,6 @@ describe("the board renders the day", () => {
     expect(other).toContain(fill(boardCopy.headingOtherDay, { date: finished.day.label }));
     expect(other).not.toContain(`>${boardCopy.heading}<`);
     expect(other).toContain(serviceDate.phases.ENDED);
-  });
-
-  it("keeps the search term when the day changes, so one filter is not lost in the other", () => {
-    const filtered = boardHtml("Zoe");
-    expect(filtered).toContain(`href="/today?date=${demoDay().previousIso}&amp;q=Zoe"`);
   });
 
   it("stacks the groups with their counts, needs action first", () => {

@@ -18,10 +18,12 @@ export const dynamic = "force-dynamic";
  * `demo reset` seeds. There is no mock row anywhere in this path: a fact on this screen is a
  * fact one of those modules produced, which is what makes a screenshot of it worth anything.
  *
- * One service date for the screen (PRD §6.1): `?date=` picks it, the header's switcher changes
- * it, and the board is about that day and no other. The day also decides *when* it is read —
- * the demo day live, a day before it after the last van is in, a day after it as the plan
- * (src/domain/board/day.ts).
+ * One date on screen (PRD §6.1), and it is the demo day the scenario replays: the board names
+ * it, the shell names none, and there is no switcher — Vera's final call. The day also decides
+ * *when* it is read, which is what `?date=` is still for: a day before the demo day is read
+ * after the last van is in, so every ride on it has an outcome (AT-13's held ride, AT-10's
+ * arrival that is not a handoff). That is a review and test path — the console offers no control
+ * that reaches it, and what a coordinator sees is the demo day (src/domain/board/day.ts).
  *
  * What is not here yet, and is not faked in its absence: live updates, the map pane beside the
  * rows, the inbox and the exceptions table. Each lands in its own change.
@@ -38,8 +40,8 @@ export default async function Page({
     Array.isArray(value) ? value[0] : value;
 
   // The shell's search box submits `?q=` here (src/ui/SearchField.tsx); this is the board it
-  // was always meant to filter. `?date=` is the header's own switcher: one service date for the
-  // screen, and the board is about that day and no other (PRD §6.1).
+  // was always meant to filter. No `?date=`, or one that is not a day in range, is the demo day
+  // — the only day the console itself ever asks for (PRD §6.1).
   const query = one(params.q) ?? "";
   const board = buildBoard(serviceDayFor(one(params.date)));
 

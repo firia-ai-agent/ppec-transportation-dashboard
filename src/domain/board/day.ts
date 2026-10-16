@@ -4,16 +4,16 @@
  *
  * The board used to show one day and never say which: the shell's header carried today's real
  * date, the board carried the seeded day the scenario replays, and both were labelled "Service
- * date" (docs/ui/B12-SLICE1-DEFERRED.md §5). This module is the answer to that — one service
- * date for the screen, chosen in the header, and a board that is about that date and nothing
- * else.
+ * date" (docs/ui/B12-SLICE1-DEFERRED.md §5). This module is the answer to that — one date on
+ * screen, the demo day, and a board that is about that date and nothing else.
  *
- * A date also decides **when** the board is read, which is the thing a date switcher is actually
- * for. The demo day is read live, twelve minutes into its morning runs. A day before it is read
- * after the last van is in, so every ride on it has an outcome — which is the only way to see a
- * ride that *ended* somewhere, rather than one that is on its way. A day after it has not
- * started, so it is the plan and nothing more. Three phases, one rule each, and the board says
- * which it is looking at.
+ * A date also decides **when** the board is read, which is what this module is for now that the
+ * console has no date switcher in it (Vera's final call). The demo day is read live, twelve
+ * minutes into its morning runs, and that is the day `/today` builds. A day before it is read
+ * after the last van is in, so every ride on it has an outcome — the only way to see a ride that
+ * *ended* somewhere rather than one on its way, which is where AT-13 and AT-10 are tested. A day
+ * after it has not started, so it is the plan and nothing more. Three phases, one rule each, and
+ * the board says which it is looking at.
  *
  * Pure: the instants are whole-day offsets from the scenario's own start (`SCENARIO_START_MS`),
  * so nothing here reads a clock and every date in range is as deterministic as the demo day. The
@@ -50,7 +50,7 @@ const DAY_ENDED_LOCAL_MINUTE = 17 * 60 + 30;
 const DAY_NOT_STARTED_LOCAL_MINUTE = 6 * 60;
 
 /** The widest a crafted `?date=` may reach, in days each way (see the daylight-saving note). */
-export const SWITCHER_RANGE_DAYS = 14;
+export const DAY_RANGE_DAYS = 14;
 
 /** The seeded day the scenario's runs are replayed on — the board's default, and its "live" day. */
 export const DEMO_SERVICE_DATE = serviceDateIso(new Date(SCENARIO_START_MS));
@@ -112,7 +112,7 @@ function dayAtOffset(offsetDays: number): ServiceDay {
   const phase = phaseFor(offsetDays);
   const instantMs = instantOn(offsetDays, INSTANT_MINUTE[phase]);
   const weekday = WEEKDAY.format(new Date(instantMs));
-  const inRange = (n: number) => Math.abs(n) <= SWITCHER_RANGE_DAYS;
+  const inRange = (n: number) => Math.abs(n) <= DAY_RANGE_DAYS;
   return {
     iso: serviceDateIso(new Date(instantMs)),
     label: serviceDateLabel(new Date(instantMs)),
@@ -144,7 +144,7 @@ export function demoDay(): ServiceDay {
  */
 export function serviceDayFor(dateIso: string | undefined | null): ServiceDay {
   if (!dateIso || !/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) return demoDay();
-  for (let offset = -SWITCHER_RANGE_DAYS; offset <= SWITCHER_RANGE_DAYS; offset += 1) {
+  for (let offset = -DAY_RANGE_DAYS; offset <= DAY_RANGE_DAYS; offset += 1) {
     const day = dayAtOffset(offset);
     if (day.iso === dateIso) return day;
   }

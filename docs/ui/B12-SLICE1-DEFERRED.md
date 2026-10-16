@@ -43,9 +43,11 @@ one day.
 | History, pending approvals and agent changes in the drawer, with real rows | §4.2 | after Exceptions and the agent surfaces, which own those rows |
 
 > **Slice 2 (docs/ui/B12-SLICE2-DEFERRED.md) answers §3.1, §3.2 and the service-date question in
-> §5.** The afternoon has committed geometry aligned to the scenario, the board takes a service
-> date with a switcher in its header, and the day before the demo day carries the rides that
-> *ended* — which is where AT-13's held ride and AT-10's arrived-but-not-handed-over van live.
+> §5.** The afternoon has committed geometry aligned to the scenario, the board carries one
+> service date in its own header — the replayed demo day, labelled as the demo day, with no
+> switcher beside it — and the day before the demo day carries the rides that *ended*, which is
+> where AT-13's held ride and AT-10's arrived-but-not-handed-over van live. That day is reached
+> by a `?date=` URL and by nothing on screen: it is where those two acceptance tests are read.
 > The rows below are left as they were written, so the two slices can be read in order.
 
 ## 3. Known gaps in the fixtures (not worked around)
@@ -83,14 +85,12 @@ one day.
 
 ## 5. Open questions
 
+The two-service-dates row that was here — the header's real date against the board's seeded day,
+both labelled "Service date" — is answered. Vera's final call, 2026-10-16:
+
+> One date on screen: the replayed demo day, labelled as the demo day. In demo mode the header doesn't show today's real date. No date switcher.
+
 - **Vera:** is "Getting ready" the right fifth group header (§4), or should a planned-but-not-departed ride sit under one of the four?
 - **Vera:** the row drops the provider's name to keep two lines (§4). Confirm, or take a third line?
 - **Vera:** §4.2 writes the drawer's two rides as cards, and they are still cards (a hairline box, 12 px). The board's own cards are gone. Keep the drawer's, or make them dense rows too?
-- **Rudy / Vera:** the screen shows two service dates. The header's is today's real date; the
-  board's is the seeded day the scenario replays. Both are labelled "Service date", which reads
-  as a contradiction even though each is true of what it describes — the demo clock has not
-  started (the header says so, beside it), so there is no one date for the screen to agree on
-  yet. The demo-controls dock (§6.1) is what gives the app a scenario clock to read; until then
-  this is a choice between a header that lies and a header that disagrees with the board. Named
-  here rather than papered over.
 - **Rudy / founder:** regenerating the ADR-007 route fixtures against the scenario's own stops (§3.1) would give every rider a real pickup window and the afternoon a real arrival. Worth the committed-data change before the demo?

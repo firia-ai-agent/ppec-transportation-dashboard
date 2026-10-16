@@ -306,24 +306,26 @@ export const board = {
 } as const;
 
 /**
- * The service date, and moving between them (§2 header, PRD §6.1).
+ * The service date (§2 header, PRD §6.1).
  *
- * One date for the screen. The header used to carry today's real date while the board carried
- * the seeded day the scenario replays, both labelled "Service date" — two different days, the
- * same words, and nothing on the screen to say which one a row belonged to. Now the header
- * carries the day the board is showing, and the two arrows beside it are how you look at
- * another one.
+ * One date on screen, and it is the demo day: the chrome used to carry today's real date while
+ * the board carried the seeded day the scenario replays, both labelled "Service date" — two
+ * different days, the same words, and nothing on the screen to say which one a row belonged to.
+ * The board's own header now carries that one date, and the shell carries none, so in demo mode
+ * nothing on screen claims to be today.
  *
- * Each day says what kind of day it is, because that is the answer to the first question a
- * finished board raises: every ride on it is over, and a coordinator should not have to work out
- * why from the rows. "Demo day" is said plainly rather than "Today" — the demo clock has not
- * started (the readout beside it says so), so the seeded day is the day being shown and not the
- * day it is.
+ * It is read rather than changed (Vera's final call): no switcher, no arrows. The day is the one
+ * the scenario replays, and a control offering another one would offer days this build does not
+ * replay — the chrome would be promising what the data cannot keep.
+ *
+ * The date says what kind of day it is, because that is the answer to the first question the
+ * board raises: "Demo day" is said plainly rather than "Today", since the demo clock has not
+ * started (the readout beside it says so) and the seeded day is the day being shown and not the
+ * day it is. The other two phases belong to a finished or an unstarted day, which the projection
+ * can still be asked for by URL; neither is a day the console offers a way to reach.
  */
 export const serviceDate = {
   groupLabel: "Service date",
-  previousDay: "Previous day",
-  nextDay: "Next day",
   phases: {
     LIVE: "Demo day",
     ENDED: "Day ended",

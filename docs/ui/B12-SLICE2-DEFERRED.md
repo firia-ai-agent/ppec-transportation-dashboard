@@ -19,7 +19,7 @@ Five things, and the first two are the same change seen from different ends.
 | 2 | AT-10 tightened: an arrival and a handoff on one board, told apart | `src/domain/board/board.ts`, `e2e/today-board.spec.ts`, `src/domain/board/board.test.ts` |
 | 3 | A disabled control that looks disabled | `src/ui/tokens.ts`, `src/app/(app)/today/today.module.css` |
 | 4 | Afternoon arrival windows, from geometry aligned to the scenario | `src/fixtures/run-routes.ts`, `src/domain/eta/eta.ts` (`plannedEta`), `src/domain/location/route.ts` (`reverseRoute`) |
-| 5 | One service date for the screen, switchable; the drawer's rides as a timeline | `src/domain/board/day.ts`, `src/ui/ServiceDateSwitcher.tsx`, `src/app/(app)/today/LegDrawer.tsx` |
+| 5 | One date on screen — the replayed demo day, labelled as the demo day, no switcher; the drawer's rides as a timeline | `src/domain/board/day.ts`, `src/app/(app)/today/TodayBoard.tsx`, `src/app/(app)/today/LegDrawer.tsx` |
 
 ## 2. The day the board is about (and why AT-13 needed one)
 
@@ -30,15 +30,17 @@ story about a ride that **ended** can be: at 07:42 nothing has ended. AT-13 is e
 of story — a leg that ends HELD_NO_RECEIVER — and so is the half of AT-10 that is worth proving,
 because a board with no handoff anywhere on it cannot show that an arrival is not one.
 
-So the board now takes a **service date** (`?date=`, PRD §6.1) and reads each day at an instant
-that belongs to it:
+So the board now takes a **service date** (PRD §6.1) and reads each day at an instant that
+belongs to it. The date on screen is the demo day and nothing changes it — Vera's final call, and
+§4 below — so the other three rows of this table are reached by a `?date=` URL, which is how the
+browser checks and a design review read the finished day:
 
 | Day | Phase | Read at | What is on it |
 |---|---|---|---|
 | before the demo day | `ENDED` | 17:30, after the last van is in (MOCKS §7 step 12) | outcomes: ten handoffs, one van arrived with no custody event, one ride holding a child, one run cancelled |
 | the demo day | `LIVE` | 07:30 + 12 min, unchanged | the morning in flight — the stall, the GPS gap, the unlinked device |
 | after it | `PLANNED` | 06:00, the scenario clock's start (MOCKS §6) | the plan, and nothing claimed about it |
-| a weekend | — | — | no rows at all (PRD §18.1 schedules Mon–Fri); the §5 "No rides scheduled for {date}" line, which has always ended in "Change the date" |
+| a weekend | — | — | no rows at all (PRD §18.1 schedules Mon–Fri); the §5 "No rides scheduled for {date}" line. Its "Change the date" is now a sentence with no control behind it — reachable only by typing a weekend into `?date=`, so it is left verbatim as COPY-GUIDE §5 writes it rather than rewritten for a day the console cannot reach |
 
 The instants are whole-day offsets from `SCENARIO_START_MS`, so every day in range is as
 deterministic as the demo day and a screenshot of one is still evidence. The range is ±14 days
@@ -73,14 +75,17 @@ outcome, and each is an acceptance test:
 | 4. a verified capability has no named verifier | unchanged — and now visible in one more place: a morning handoff says "Handed off to the ramp" rather than naming the person who received the child, for the same reason |
 
 And slice 1's open question "the screen shows two service dates" is answered: there is one, it is
-in the board's header, and it is switchable. The shell's duplicate (today's real date, on every
-page including those with no day) is gone.
+in the board's header, it is the replayed demo day and it is labelled as the demo day. The shell's
+duplicate (today's real date, on every page including those with no day) is gone, and so is the
+switcher that first settled the contradiction — Vera's final call, 2026-10-16: one date, read,
+with nothing on screen offering another.
 
 ## 4. Deliberate decisions in this slice
 
 | Decision | Why |
 |---|---|
-| The date switcher is in the **board's** header, not the app shell's | The date belongs to the day on screen. The shell is rendered by a layout, which cannot read `?date=`, so a date up there would have had to be either today's real date (the contradiction slice 1 flagged) or a client component re-deriving the day. Moving it is a one-file change if Vera wants it in the chrome |
+| **No date switcher.** One date on screen, in the **board's** header, read and not changed | Vera's final call, 2026-10-16. The date belongs to the day on screen, and the only day this build replays is the demo day: arrows offering a fortnight each way advertised days the demo does not have, and put a coordinator one stray click from a board that is not today. The shell carries no date either — it is rendered by a layout, which cannot read a day, so a date up there could only be today's real date (the contradiction slice 1 flagged) |
+| The finished day stays reachable by `?date=`, with no control on screen | It is where AT-13 and AT-10 are *proved* — a held ride and an arrival that is not a handoff do not exist on a board twelve minutes into a morning. Deleting the parameter with the switcher would have deleted four browser checks of two acceptance tests to remove a control that is already gone. Nothing in the console links to it; `today-board.test.ts` holds that, both on the demo day and on the finished one |
 | The heading says "Today" only on the demo day; other days read "Rides on Tue, Oct 13" | COPY-GUIDE §5 fixes "Today" as the SURF-01 heading, and a board of finished rides under it would be the one false sentence on the screen |
 | The live day is labelled "Demo day", not "Today" | The demo clock has not started (the readout beside it says so), so the seeded day is the day being *shown*, not the day it is |
 | `plannedEta` is a new function rather than `computeEta` with a vehicle at chainage 0 | `computeEta` reports the origin as *passed* — correct for a van standing at its first stop, and wrong for a plan, where the first family is exactly the one at chainage 0 and still needs a window |
