@@ -50,9 +50,11 @@ export const TERMINAL_RUN_STATES: ReadonlySet<RunState> = new Set<RunState>([
  * `UPDATE … WHERE id = $1 AND state = $from`, 0 rows meaning someone else moved it first.
  *
  *  QUEUED       → RUNNING                     a driver claims it
- *  RUNNING      → RUNNING                     a crashed run is re-claimed by the next driver; safe
- *                                             because the (run_id, seq) index and the per-call
- *                                             idempotency key, not a lease, are what bound effects
+ *  RUNNING      → RUNNING                     a crashed run is re-claimed by the next driver, gated
+ *                                             by the per-run lease (run/lease.ts: only once the
+ *                                             dead driver's claim has run out), while the
+ *                                             (run_id, seq) index and the per-call idempotency key
+ *                                             remain what bound its *effects*
  *  RUNNING      → WAITING_TOOL                a delayed external response became a task + a timer
  *  WAITING_TOOL → QUEUED                      the timer fired (timers.ts `agentResumeHandler`)
  *  *            → SUCCEEDED | FAILED          the loop finished or fail-shut
@@ -87,7 +89,11 @@ export type RunRow = {
    * a release puts back: a token here is the whole difference between "claimed" and "free".
    */
   readonly updatedBy: string;
-  /** `ops.agent_run.updated_at` — when, and so how fresh a lease in `updatedBy` still is. */
+  /**
+   * `ops.agent_run.updated_at` — when that write happened, the database's clock. Deliberately
+   * *not* what a lease expires from: the token in `updatedBy` carries its own claim instant, so
+   * that an ordinary write to this row cannot renew a claim (run/lease.ts).
+   */
   readonly updatedAt: Date;
 };
 
