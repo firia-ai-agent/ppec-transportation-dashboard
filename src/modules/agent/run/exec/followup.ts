@@ -7,9 +7,12 @@
  * chooses *which* allow-listed message goes out and to which **audience role** — never a recipient
  * and never a word of copy:
  *
- *  - the **recipient is computed here**, from the audience and the subject: an authorized contact
- *    for that child (§6.4 `ops.contact_authorization`), the therapist who owns that session, or the
- *    provider's dispatcher. §10.3: "recipients computed at send time".
+ *  - the **recipients are computed here**, from the audience and the subject: the authorized
+ *    contacts for that child (§6.4 `ops.contact_authorization`), the therapist who owns that
+ *    session, or the provider's dispatcher. §10.3: "recipients computed at send time". There may be
+ *    more than one of them — §10.1 allows a 1:1 broadcast and a family often has two authorized
+ *    guardians — and which of the two guardians a message is for is decided by the table in
+ *    `resolveGuardian`, never by the model.
  *  - the **copy is the outbox's**: a template id from the tool's own allow-list (schema-enforced)
  *    plus vars the outbox permits for it (`TEMPLATE_VARS`, re-checked by the policy engine before
  *    this call and again by the drainer before the message leaves).
@@ -29,9 +32,9 @@
  */
 import type { Exec } from "@/db/exec";
 import { CHILD_TEMPLATES, enqueue } from "@/modules/outbox/outbox";
-import { agentTasks } from "@/ui/copy";
+import { agentStaffNotice, agentTasks, fill } from "@/ui/copy";
 import type { ToolExecution, ToolExecutor } from "../executors";
-import { raiseTask } from "./clarify";
+import { triggerLabel } from "../triggers";
 import {
   type ExecutorDeps,
   actor,
@@ -41,6 +44,7 @@ import {
   isUuid,
   legRow,
   notFound,
+  raiseTask,
   threadRow,
 } from "./effects";
 
@@ -50,56 +54,95 @@ export const FOLLOWUP_NOT_AFTER_MS = 30 * 60_000;
 export const TWO_GUARDIAN_TASK_CATEGORY = "TWO_GUARDIAN_CONFLICT";
 
 export type Audience = "GUARDIAN_OF_CHILD" | "THERAPIST_OF_SESSION" | "PROVIDER_DISPATCHER" | "STAFF";
+/** The audiences a follow-up reaches by *message*; `STAFF` is the one that does not. */
+type MessageAudience = Exclude<Audience, "STAFF">;
+
+/** `ops.task.category` for a follow-up whose audience is the center's own staff. */
+export const STAFF_NOTICE_TASK_CATEGORY = "AGENT_STAFF_NOTICE";
+/** `ops.outbound_message.purpose` / `.recipient_rule` for a follow-up to a provider's dispatcher. */
+export const DISPATCHER_PURPOSE = "DISPATCHER_PING";
+export const DISPATCHER_RECIPIENT_RULE = "provider_dispatcher";
 
 /**
- * The two audiences this slice can actually reach, and why the other two are refused rather than
- * half-built:
- *
- *  - `STAFF` are reached on Teams, and the Teams adapter is B-12. Queueing an SMS to a staff token
- *    would be a message no egress path accepts.
- *  - `PROVIDER_DISPATCHER` needs the dispatcher-link channel *and* an identity record the egress
- *    authorizer can check (`identity.external_person_identity` is not wired into
- *    `dbRecipientAuthorizer` yet), so such a message would queue and then be blocked at send time.
- *    It lands with `request_provider_capability`, the tool §11.2 actually gives that job to.
- */
-const UNREACHABLE_AUDIENCES: Readonly<Record<string, string>> = {
-  STAFF: "teams_adapter_not_wired",
-  PROVIDER_DISPATCHER: "dispatcher_egress_not_wired",
-};
-
-/**
- * Which allow-listed template may go to which audience, and on which channel and purpose.
+ * How each §11.2 audience is reached, which allow-listed templates may go to it, and — for the
+ * three that are messages — on which channel and under which purpose.
  *
  * The five §11.2 template families map onto audiences: a confirmation and an ETA delay go to a
  * family, an absence alert to a therapist, a capability request to a dispatcher. `generic.notice`
  * is fixed copy with no vars and is the one body any audience may receive, because it says only
- * "there is an update, please call us".
+ * "there is an update, please call us". A template outside its audience's list is refused rather
+ * than sent to the wrong kind of person — which is also what keeps child data away from a
+ * dispatcher, who is authorized for a vehicle and for no child at all.
+ *
+ * **`STAFF` is deliberately not a message.** Staff are reached on Teams (§10.4), the Teams adapter
+ * is B-12, and queueing an SMS to a staff token would be a message no egress path accepts. What
+ * exists today is their board, so a staff-audience follow-up writes the `ops.task` row a
+ * coordinator reads and queues nothing. The *words* of that row are `ui/copy.ts`'s rather than a
+ * rendered template, so the template allow-list for this audience collapses to the fixed notice:
+ * there is no body to render until there is a card to render it on.
+ *
+ * One consequence of that, named because it is a real edge and not an oversight: `send_followup` is
+ * a `send`-effect tool, so the policy engine consent-checks its **subject** before this executor
+ * runs (policy.ts step 9) — including for the STAFF audience, where nothing is sent to a family at
+ * all. A staff follow-up about a child whose family has opted out is therefore refused, which is
+ * stricter than §11.2 requires and fails in the safe direction. Telling staff something about such
+ * a family is `escalate_exception`'s job: a `mutate` tool, gated on nobody's consent, and "always
+ * allowed".
  */
-type ReachableAudience = "GUARDIAN_OF_CHILD" | "THERAPIST_OF_SESSION";
+type AudienceRule =
+  | {
+      readonly kind: "outbox";
+      readonly templates: readonly string[];
+      readonly channel: "SMS_1TO1";
+      readonly purpose: string;
+      readonly recipientRule: string;
+    }
+  | { readonly kind: "staff_task"; readonly templates: readonly string[] };
 
-const AUDIENCE_RULES: Readonly<Record<ReachableAudience, {
-  readonly templates: readonly string[];
-  readonly channel: "SMS_1TO1";
-  readonly purpose: string;
-  readonly recipientRule: string;
-}>> = {
+const AUDIENCE_RULES: Readonly<Record<Audience, AudienceRule>> = {
   GUARDIAN_OF_CHILD: {
+    kind: "outbox",
     templates: ["leg.canceled", "leg.changed", "pickup.eta", "dropoff.eta", "generic.notice"],
     channel: "SMS_1TO1",
     purpose: "TRANSPORT_UPDATE",
     recipientRule: "guardian_of_child",
   },
   THERAPIST_OF_SESSION: {
+    kind: "outbox",
     templates: ["therapist.absence_alert", "therapist.late_alert", "generic.notice"],
     channel: "SMS_1TO1",
     purpose: "THERAPIST_ALERT",
     recipientRule: "therapist_of_session",
   },
+  PROVIDER_DISPATCHER: {
+    kind: "outbox",
+    // Fixed copy only: everything else in the allow-list is about a child, and a dispatcher is
+    // authorized for a vehicle. The capability question itself has its own tool (§11.2
+    // `request_provider_capability`), which is also where the dispatcher egress path lives.
+    templates: ["generic.notice"],
+    channel: "SMS_1TO1",
+    purpose: DISPATCHER_PURPOSE,
+    recipientRule: DISPATCHER_RECIPIENT_RULE,
+  },
+  STAFF: { kind: "staff_task", templates: ["generic.notice"] },
 };
+
+/**
+ * Which templates are a **decision** rather than a notice, and the whole of why the fan-out below
+ * is shaped the way it is.
+ *
+ * A cancellation or a change confirms *what somebody asked us for*, so it goes back to whoever
+ * asked and to nobody else: the other parent did not make that request, and telling them it was
+ * made is a disclosure about the first one. Everything else — an ETA, a fixed notice — is news
+ * about a ride that is happening, which every authorized contact is entitled to (§10.1 "Fan-out
+ * 1:1 broadcast").
+ */
+const DECISION_TEMPLATES: ReadonlySet<string> = new Set(["leg.canceled", "leg.changed"]);
 
 /** What the subject resolved to: who gets it, and the child reference the message carries. */
 type Resolved = {
-  readonly recipientToken: string;
+  /** One or more authorized contacts, in send order — the asker first when there is one. */
+  readonly recipientTokens: readonly string[];
   readonly childToken: string | null;
   readonly therapySessionId: string | null;
 };
@@ -112,14 +155,16 @@ export function sendFollowupExecutor(deps: ExecutorDeps): ToolExecutor {
     const vars = (call.args.vars ?? {}) as Record<string, unknown>;
     const by = actor(call.runId);
 
-    const unreachable = UNREACHABLE_AUDIENCES[audience];
-    if (unreachable) return failed("UNSUPPORTED_AUDIENCE", { audience, reason_code: unreachable });
-    const rule = AUDIENCE_RULES[audience as ReachableAudience];
+    const rule = AUDIENCE_RULES[audience];
     if (!rule) return failed("UNSUPPORTED_AUDIENCE", { audience });
     if (!rule.templates.includes(templateId)) {
       return failed("TEMPLATE_NOT_FOR_AUDIENCE", { audience, template_id: templateId });
     }
     if (!isUuid(subject)) return notFound("subject");
+    // Staff are reached on their board, not by message (see `AUDIENCE_RULES`).
+    if (rule.kind === "staff_task") {
+      return staffNotice(deps, call, { subject, templateId, by });
+    }
 
     // Who asked, read from the thread this run resolved — so a confirmation goes back to the
     // guardian who texted us, and no contact token ever passes through the prompt to get here.
@@ -129,7 +174,7 @@ export function sendFollowupExecutor(deps: ExecutorDeps): ToolExecutor {
       : null;
 
     const resolved = await resolveAudience(deps, {
-      audience: audience as ReachableAudience, subject, siteId: call.siteId, askedBy,
+      audience: audience as MessageAudience, subject, siteId: call.siteId, askedBy, templateId,
     });
     if ("error" in resolved) {
       if (resolved.error === "TWO_GUARDIAN_CONFLICT") {
@@ -163,29 +208,38 @@ export function sendFollowupExecutor(deps: ExecutorDeps): ToolExecutor {
     const staleBefore = boundLeg ? await canceledStaleFor(deps.db, { legId: boundLeg.id, templateId }) : 0;
 
     try {
-      const queued = await deps.db.tx((tx, afterCommit) =>
-        enqueue(tx, afterCommit, deps.transport, {
-          siteId: call.siteId,
-          purpose: rule.purpose,
-          recipientRule: rule.recipientRule,
-          recipientToken: resolved.recipientToken,
-          channel: rule.channel,
-          templateId,
-          vars,
-          childToken: resolved.childToken,
-          tripLegId: boundLeg?.id ?? null,
-          therapySessionId: resolved.therapySessionId,
-          planVersionBasis: boundLeg?.plan_version ?? 0,
-          notAfter: new Date(call.now.getTime() + FOLLOWUP_NOT_AFTER_MS),
-          idempotencyKey: call.idempotencyKey,
-          by,
-        }),
-      );
+      // One message per recipient, in one transaction: a fan-out either queues for everybody or
+      // for nobody, so a crash cannot tell one parent and not the other.
+      const queued = await deps.db.tx(async (tx, afterCommit) => {
+        const out: { id: string; duplicate: boolean; recipientToken: string }[] = [];
+        for (const recipientToken of resolved.recipientTokens) {
+          const message = await enqueue(tx, afterCommit, deps.transport, {
+            siteId: call.siteId,
+            purpose: rule.purpose,
+            recipientRule: rule.recipientRule,
+            recipientToken,
+            channel: rule.channel,
+            templateId,
+            vars,
+            childToken: resolved.childToken,
+            tripLegId: boundLeg?.id ?? null,
+            therapySessionId: resolved.therapySessionId,
+            planVersionBasis: boundLeg?.plan_version ?? 0,
+            notAfter: new Date(call.now.getTime() + FOLLOWUP_NOT_AFTER_MS),
+            idempotencyKey: fanOutKey(call.idempotencyKey, resolved.recipientTokens, recipientToken),
+            by,
+          });
+          out.push({ ...message, recipientToken });
+        }
+        return out;
+      });
       return {
         status: "executed",
         data: {
-          outbound_message_id: queued.id,
-          duplicate: queued.duplicate,
+          outbound_message_id: queued[0].id,
+          ...(queued.length > 1 ? { outbound_message_ids: queued.map((q) => q.id) } : {}),
+          duplicate: queued.every((q) => q.duplicate),
+          recipients: queued.length,
           audience,
           template_id: templateId,
           trip_leg_id: boundLeg?.id ?? null,
@@ -198,6 +252,8 @@ export function sendFollowupExecutor(deps: ExecutorDeps): ToolExecutor {
           followup_queued: true,
           audience,
           template_id: templateId,
+          // A count, never the contacts: who got it is the outbox's record, not the prompt's.
+          recipients: queued.length,
           ...(boundLeg ? { plan_version_basis: boundLeg.plan_version } : {}),
           ...(staleBefore > 0 ? { recomputed_after_stale: staleBefore } : {}),
         },
@@ -217,24 +273,38 @@ type ResolveFailure = { error: string; detail: Record<string, unknown>; childTok
 
 async function resolveAudience(
   deps: ExecutorDeps,
-  a: { audience: ReachableAudience; subject: string; siteId: string; askedBy: string | null },
+  a: { audience: MessageAudience; subject: string; siteId: string; askedBy: string | null; templateId: string },
 ): Promise<Resolved | ResolveFailure> {
-  return a.audience === "GUARDIAN_OF_CHILD" ? resolveGuardian(deps, a) : resolveTherapist(deps.db, a);
+  if (a.audience === "GUARDIAN_OF_CHILD") return resolveGuardian(deps, a);
+  if (a.audience === "THERAPIST_OF_SESSION") return resolveTherapist(deps.db, a);
+  return resolveDispatcher(deps.db, a);
 }
 
 /**
- * The family side. The contacts are the ones §6.4 authorizes for this child on this channel, and
- * which of them gets the message is decided by *who asked*: a confirmation goes back to the
- * guardian whose message started this run (the committed `resolve_sender` contact), which is the
- * AT-01 case. With nobody having asked, one authorized contact is unambiguous and several are
- * PRD §10.3's two-guardian conflict — an exception, not a guess.
+ * The family side, and the §10.3 two-guardian rule in full.
  *
- * Fanning one notice out to every authorized contact (§10.1 "1:1 broadcast") is a later slice;
- * it is one message per contact, each keyed on the call's key plus the contact.
+ * The candidates are the contacts §6.4 authorizes for this child, on this channel, right now — and
+ * which of them this message is *for* depends on two things, neither of them the model's:
+ *
+ * | | somebody asked (this run resolved a sender) | nobody asked (a timer, a sweeper, an event) |
+ * |---|---|---|
+ * | **decision** copy (`leg.canceled`, `leg.changed`) | the guardian who asked, and no one else | one authorized contact → them; several → §10.3 **two-guardian conflict**: an AMBER exception and no send |
+ * | **notice** copy (an ETA, a fixed notice) | every authorized contact, the asker first (§10.1 1:1 broadcast) | same as above |
+ *
+ * The asymmetry is the point. A confirmation is about a request one parent made, so it goes back to
+ * them (AT-01); an ETA is about a ride both parents are entitled to know about. And with nobody
+ * having asked, two authorized contacts is the case where the agent would have to *pick*, which
+ * §10.3 says is an exception rather than a guess — PRD §6.6 settles the same conflict the same way
+ * ("most-restrictive wins; staff resolves"), and no send is the most restrictive thing there is.
+ *
+ * Nothing here is a recipient the model chose: the asker comes from the thread this run resolved,
+ * and the rest from `ops.contact_authorization`. Consent is re-checked **per contact** at send time
+ * by the outbox, so a fan-out to a family where one parent has opted out sends to the other and
+ * visibly refuses the first (§10.3 "recipients computed at send time").
  */
 async function resolveGuardian(
   deps: ExecutorDeps,
-  a: { subject: string; siteId: string; askedBy: string | null },
+  a: { subject: string; siteId: string; askedBy: string | null; templateId: string },
 ): Promise<Resolved | ResolveFailure> {
   const child = await deps.db.query<{ child_token: string }>(
     "SELECT child_token FROM ops.child_profile WHERE child_token = $1 AND site_id = $2",
@@ -254,20 +324,23 @@ async function resolveGuardian(
   if (authorized.length === 0) {
     return { error: "NO_AUTHORIZED_CONTACT", detail: { object: "contact_authorization" }, childToken: a.subject };
   }
-  // Who asked, when somebody did: the reply goes back to them (AT-01).
-  const recipientToken = a.askedBy && authorized.includes(a.askedBy)
-    ? a.askedBy
-    : authorized.length === 1
-      ? authorized[0]
-      : null;
-  if (!recipientToken) {
+  const asker = a.askedBy && authorized.includes(a.askedBy) ? a.askedBy : null;
+  if (asker) {
+    // The asker always first, so the one message a decision produces is theirs and a fan-out
+    // reaches them before anyone else.
+    const recipientTokens = DECISION_TEMPLATES.has(a.templateId)
+      ? [asker]
+      : [asker, ...authorized.filter((c) => c !== asker)];
+    return { recipientTokens, childToken: a.subject, therapySessionId: null };
+  }
+  if (authorized.length > 1) {
     return {
       error: "TWO_GUARDIAN_CONFLICT",
       detail: { authorized_contacts: authorized.length },
       childToken: a.subject,
     };
   }
-  return { recipientToken, childToken: a.subject, therapySessionId: null };
+  return { recipientTokens: [authorized[0]], childToken: a.subject, therapySessionId: null };
 }
 
 /** The therapist who owns this session, and the child the session is about. */
@@ -283,7 +356,111 @@ async function resolveTherapist(
   );
   const row = r.rows[0];
   if (!row) return { error: "NOT_FOUND", detail: { object: "therapy_session" } };
-  return { recipientToken: row.person_token, childToken: row.child_token, therapySessionId: row.id };
+  return { recipientTokens: [row.person_token], childToken: row.child_token, therapySessionId: row.id };
+}
+
+/**
+ * The provider's dispatcher, from the provider row the subject names. The contact point is
+ * `ops.provider.dispatcher_person_token` and the person behind it is
+ * `identity.external_person_identity`, which the egress authorizer re-checks at send time
+ * (`outbox/policy.dbRecipientAuthorizer`, kind "dispatcher") — so a dispatcher who has been taken
+ * off file, or who has texted STOP, is refused there rather than here.
+ *
+ * No child token and no session: a message to a dispatcher is about a vehicle, and the audience's
+ * template list is fixed copy for exactly that reason.
+ */
+async function resolveDispatcher(
+  db: Exec,
+  a: { subject: string; siteId: string },
+): Promise<Resolved | ResolveFailure> {
+  const r = await db.query<{ dispatcher_person_token: string | null }>(
+    "SELECT dispatcher_person_token FROM ops.provider WHERE id = $1 AND site_id = $2",
+    [a.subject, a.siteId],
+  );
+  const row = r.rows[0];
+  if (!row) return { error: "NOT_FOUND", detail: { object: "provider" } };
+  if (!row.dispatcher_person_token) {
+    return { error: "NO_DISPATCHER_CONTACT", detail: { provider_token: a.subject } };
+  }
+  return { recipientTokens: [row.dispatcher_person_token], childToken: null, therapySessionId: null };
+}
+
+/**
+ * §11.2's `STAFF` audience: one GREEN `ops.task` row, and nothing queued.
+ *
+ * The subject is the thing staff are being told about — a child, or one leg of their day — and it
+ * is resolved here so the row points at it: a coordinator opening the task gets the child and,
+ * where there is one, the ride. A subject that is neither is refused rather than written down
+ * against nothing.
+ *
+ * Idempotent on the call's key like every other row in this directory, so a re-driven follow-up
+ * does not tell the same coordinator twice.
+ */
+async function staffNotice(
+  deps: ExecutorDeps,
+  call: Parameters<ToolExecutor>[0],
+  a: { subject: string; templateId: string; by: string },
+): Promise<ToolExecution> {
+  const leg = await legRow(deps.db, { siteId: call.siteId, legId: a.subject });
+  const child = leg
+    ? leg.child_token
+    : (await deps.db.query<{ child_token: string }>(
+        "SELECT child_token FROM ops.child_profile WHERE child_token = $1 AND site_id = $2",
+        [a.subject, call.siteId],
+      )).rows[0]?.child_token ?? null;
+  if (!child) return notFound("subject");
+
+  const taskId = effectId(call.idempotencyKey, "staff-notice");
+  await raiseTask(deps.db, {
+    id: taskId,
+    siteId: call.siteId,
+    category: STAFF_NOTICE_TASK_CATEGORY,
+    // A follow-up is news, not an exception; `escalate_exception` is the tool for the other thing.
+    severity: "GREEN",
+    words: {
+      summary: fill(agentStaffNotice.locator, {
+        summary: agentStaffNotice.summary,
+        trigger: triggerLabel(call.trigger),
+        step: call.seq,
+      }),
+      nextStep: agentStaffNotice.nextStep,
+      predicate: agentStaffNotice.predicate,
+    },
+    childToken: child,
+    tripLegId: leg?.id ?? null,
+    by: a.by,
+  });
+  return {
+    status: "executed",
+    data: {
+      audience: "STAFF",
+      template_id: a.templateId,
+      // Said plainly in the record, because it is the one audience that is not a send.
+      delivered_as: "staff_task",
+      staff_task_id: taskId,
+      child_token: child,
+      trip_leg_id: leg?.id ?? null,
+      recipients: 1,
+    },
+    promptFacts: { staff_notified: true, audience: "STAFF", recipients: 1 },
+  };
+}
+
+/**
+ * The idempotency key of one message in a fan-out.
+ *
+ * A single-recipient send keeps the call's own key, which is the sink-side half of the resume
+ * contract everywhere else in this directory (and what `ops.outbound_message.idempotency_key`
+ * already holds for every slice-3 send). Each *additional* contact's message is keyed on that key
+ * plus the contact's token — derived, not generated, so a re-driven call computes the same keys and
+ * the unique index turns the second attempt into a no-op per contact rather than a second text.
+ */
+export function fanOutKey(
+  callKey: string,
+  recipients: readonly string[],
+  recipientToken: string,
+): string {
+  return recipients[0] === recipientToken ? callKey : `${callKey}:${recipientToken}`;
 }
 
 /** How many earlier messages about this leg and template were refused for a stale plan. */

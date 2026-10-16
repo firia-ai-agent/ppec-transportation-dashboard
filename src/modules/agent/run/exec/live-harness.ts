@@ -19,12 +19,17 @@ import { SimMessagingProvider } from "@/modules/outbox/provider";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import type { ToolExecutor } from "../executors";
 import { type Harness, type HarnessInput, runHarness } from "../harness";
-import type { ExecutorDeps } from "./effects";
+import type { DispatcherLinkSigner, ExecutorDeps } from "./effects";
 import { liveExecutors, liveProposalWriter } from "./registry";
 
 export type LiveHarnessInput = Omit<HarnessInput, "executors" | "overrides"> & {
-  /** Per-tool executors layered **over** the live registry, for a tool slice 3 does not implement. */
+  /** Per-tool executors layered **over** the live registry, for a tool with no live executor yet. */
   readonly overrides?: Readonly<Record<string, ToolExecutor>>;
+  /**
+   * The dispatcher-link signer seam (`exec/effects.ts`). P1 configures none, so a suite that wants
+   * a link row supplies one of its own — exactly as it supplies the clock.
+   */
+  readonly linkSigner?: DispatcherLinkSigner;
 };
 
 export type LiveHarness = Harness & {
@@ -42,7 +47,9 @@ export function liveHarness(input: LiveHarnessInput): LiveHarness {
   const wake = new FakeTransport();
   const outboxTransport = new FakeOutboxTransport();
   const scheduler = new VercelQueueScheduler(input.db, wake, () => input.now());
-  const execDeps: ExecutorDeps = { db: input.db, scheduler, transport: outboxTransport };
+  const execDeps: ExecutorDeps = {
+    db: input.db, scheduler, transport: outboxTransport, linkSigner: input.linkSigner,
+  };
   const provider = new SimMessagingProvider();
   const drainDeps: DrainDeps = {
     provider,

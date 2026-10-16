@@ -16,6 +16,7 @@ import { F2_NUMBER } from "@/test/messaging";
 import {
   type AgentScenario,
   seedAgentScenario,
+  seedProviderRoute,
   seedSecondGuardian,
   seedTherapySession,
 } from "@/test/agent-state";
@@ -25,7 +26,13 @@ import type { ProviderResponseBody } from "../../providers/provider";
 import type { TierFacts } from "../context";
 import { toolCalls } from "../store";
 import type { Trigger } from "../triggers";
-import { TWO_GUARDIAN_TASK_CATEGORY } from "./followup";
+import { agentStaffNotice } from "@/ui/copy";
+import {
+  DISPATCHER_PURPOSE,
+  STAFF_NOTICE_TASK_CATEGORY,
+  TWO_GUARDIAN_TASK_CATEGORY,
+  fanOutKey,
+} from "./followup";
 import { type LiveHarness, liveHarness } from "./live-harness";
 
 let pg: PGlite;
@@ -161,6 +168,8 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
   });
 
   it("the confirmation goes back to the guardian who texted, not to the other authorized contact", async () => {
+    // A cancellation confirms what *one* parent asked for, so it is a decision rather than a
+    // notice and does not fan out (see `resolveGuardian`'s table).
     sc = await seedAgentScenario(db);
     const child = sc.children[0];
     const second = await seedSecondGuardian(db, {
@@ -173,6 +182,84 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     expect(msg.recipient_token).toBe(sc.contactToken);
     expect(msg.recipient_token).not.toBe(second);
     expect(await tasks()).toEqual([]);
+  });
+
+  it("a notice fans out to every authorized contact, one message each, the asker first (§10.1)", async () => {
+    sc = await seedAgentScenario(db);
+    const child = sc.children[0];
+    const second = await seedSecondGuardian(db, {
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+    });
+    const h = harness([
+      toolCall("resolve_sender", { message_id: sc.messageId }),
+      followupCall({ template_id: "pickup.eta", vars: { eta: "08:15" } }),
+    ]);
+    const r = await h.start(trigger());
+    expect(r.state).toBe("SUCCEEDED");
+
+    const rows = await outbound();
+    expect(rows).toHaveLength(2);
+    expect(rows.map((m) => m.recipient_token)).toEqual([sc.contactToken, second]);
+    // The call's own key addresses the asker's message; each further contact's is derived from it.
+    expect(rows.map((m) => m.idempotency_key)).toEqual([
+      `agent:${r.runId}:1`, `agent:${r.runId}:1:${second}`,
+    ]);
+    expect((await toolCalls(db, r.runId))[1].result).toMatchObject({
+      recipients: 2, outbound_message_ids: rows.map((m) => m.id),
+    });
+    expect(await tasks()).toEqual([]);
+
+    // Consent is re-checked per contact at send time, so both go out on their own account.
+    expect(await h.drainOutbox()).toEqual(["SENT", "SENT"]);
+    expect(h.provider.sent.map((m) => m.recipientToken)).toEqual([sc.contactToken, second]);
+  });
+
+  it("a fan-out where one parent has opted out sends to the other, and refuses that one", async () => {
+    sc = await seedAgentScenario(db);
+    const child = sc.children[0];
+    const second = await seedSecondGuardian(db, {
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+    });
+    await db.query(
+      `INSERT INTO identity.consent_event (id, site_id, contact_token, kind, channel, at, source_mode)
+       VALUES ($1,$2,$3,'STOP','SMS_1TO1',$4,'SIMULATED')`,
+      ["0199e5f0-0000-7000-8000-00000000d001", sc.siteId, second, now.toISOString()],
+    );
+    const h = harness([
+      toolCall("resolve_sender", { message_id: sc.messageId }),
+      followupCall({ template_id: "pickup.eta", vars: { eta: "08:15" } }),
+    ]);
+    await h.start(trigger());
+
+    expect(await outbound()).toHaveLength(2);
+    expect(await h.drainOutbox()).toEqual(["SENT", "BLOCKED_EGRESS"]);
+    expect(h.provider.sent.map((m) => m.recipientToken)).toEqual([sc.contactToken]);
+  });
+
+  it("each message in a fan-out has its own derived key, so a re-drive writes nothing twice", async () => {
+    sc = await seedAgentScenario(db);
+    const child = sc.children[0];
+    const second = await seedSecondGuardian(db, {
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+    });
+    const h = harness([
+      toolCall("resolve_sender", { message_id: sc.messageId }),
+      followupCall({ template_id: "pickup.eta", vars: { eta: "08:15" } }),
+    ]);
+    const r = await h.start(trigger());
+    const key = `agent:${r.runId}:1`;
+
+    // Derived rather than generated: the asker's message carries the call's key and the other
+    // contact's is that key plus their token, which is what the unique index then fences.
+    expect(fanOutKey(key, [sc.contactToken, second], sc.contactToken)).toBe(key);
+    expect(fanOutKey(key, [sc.contactToken, second], second)).toBe(`${key}:${second}`);
+    const perKey = await db.query<{ idempotency_key: string; n: number }>(
+      `SELECT idempotency_key, count(*)::int n FROM ops.outbound_message
+       GROUP BY idempotency_key ORDER BY idempotency_key`, []);
+    expect(perKey.rows).toEqual([
+      { idempotency_key: key, n: 1 },
+      { idempotency_key: `${key}:${second}`, n: 1 },
+    ]);
   });
 
   it("two authorized contacts and nobody asked: an exception, not a guess (§10.3)", async () => {
@@ -269,16 +356,96 @@ describe("§11.2 the template allow-list is read per audience", () => {
     expect(h.provider.sent[0]).toMatchObject({ recipientToken: session.personToken });
   });
 
-  it("staff and dispatchers are refused rather than half-sent", async () => {
+  it("a STAFF follow-up is a task on their board, and nothing is queued (§10.4, Teams is B-12)", async () => {
     sc = await seedAgentScenario(db);
-    for (const audience of ["STAFF", "PROVIDER_DISPATCHER"]) {
-      const h = harness([followupCall({ audience, template_id: "generic.notice", vars: {} })]);
-      const r = await h.start({ type: "sweeper.overdue", id: `SWEEP-${audience}`, siteId: sc.siteId });
-      expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
-        error_code: "UNSUPPORTED_AUDIENCE",
-        audience,
-      });
-    }
+    const legId = sc.legs[sc.children[0]].AM;
+    const h = harness([followupCall({
+      audience: "STAFF", subject_token: legId, template_id: "generic.notice", vars: {},
+    })], { sendableSubjects: new Set([legId, ...sc.children]) });
+    const r = await h.start({ type: "sweeper.overdue", id: "SWEEP-STAFF", siteId: sc.siteId });
+
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
+      audience: "STAFF", delivered_as: "staff_task", child_token: sc.children[0], trip_leg_id: legId,
+    });
+    expect(await outbound()).toEqual([]);
+    const [task] = await db.query<{ category: string; severity: string; child_token: string; trip_leg_id: string; summary: string; next_step: string }>(
+      "SELECT category, severity, child_token, trip_leg_id, summary, next_step FROM ops.task", []).then((x) => x.rows);
+    expect([task.category, task.severity]).toEqual([STAFF_NOTICE_TASK_CATEGORY, "GREEN"]);
+    expect([task.child_token, task.trip_leg_id]).toEqual([sc.children[0], legId]);
+    expect(task.summary).toContain(agentStaffNotice.summary);
+    expect(task.next_step).toBe(agentStaffNotice.nextStep);
+  });
+
+  it("a STAFF follow-up about nothing this site holds is refused, and writes no task", async () => {
+    sc = await seedAgentScenario(db);
+    const nobody = "0199e5f0-0000-7000-8000-0000000000e1";
+    const h = harness([followupCall({
+      audience: "STAFF", subject_token: nobody, template_id: "generic.notice", vars: {},
+    })], {
+      scope: { ...sc.scope, tokens: new Set([...sc.scope.tokens, nobody]) },
+      sendableSubjects: new Set([nobody]),
+    });
+    const r = await h.start({ type: "sweeper.overdue", id: "SWEEP-STAFF-404", siteId: sc.siteId });
+
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({ error_code: "NOT_FOUND", object: "subject" });
+    expect(await tasks()).toEqual([]);
+  });
+
+  it("a PROVIDER_DISPATCHER follow-up reaches the provider's dispatcher, in fixed copy", async () => {
+    sc = await seedAgentScenario(db);
+    const route = await seedProviderRoute(db, {
+      siteId: sc.siteId, serviceDate: sc.serviceDate, windowStart: now,
+    });
+    const h = harness([followupCall({
+      audience: "PROVIDER_DISPATCHER", subject_token: route.providerId,
+      template_id: "generic.notice", vars: {},
+    })], {
+      scope: { ...sc.scope, shared: new Set([route.providerId]) },
+      sendableSubjects: new Set([route.providerId]),
+    });
+    const r = await h.start({ type: "sweeper.overdue", id: "SWEEP-DISPATCH", siteId: sc.siteId });
+
+    const [msg] = await outbound();
+    expect(msg).toMatchObject({
+      purpose: DISPATCHER_PURPOSE,
+      recipient_rule: "provider_dispatcher",
+      recipient_token: route.dispatcherToken,
+      template_id: "generic.notice",
+      child_token: null,
+    });
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({ recipients: 1 });
+    // The egress authorizer knows what a dispatcher is, so the message actually goes.
+    expect(await h.drainOutbox()).toEqual(["SENT"]);
+    expect(h.provider.sent.map((m) => m.recipientToken)).toEqual([route.dispatcherToken]);
+  });
+
+  it("a dispatcher is never sent a child's news, and a provider with no contact point is refused", async () => {
+    sc = await seedAgentScenario(db);
+    const route = await seedProviderRoute(db, {
+      siteId: sc.siteId, serviceDate: sc.serviceDate, windowStart: now, withDispatcher: false,
+    });
+    const scope = {
+      scope: { ...sc.scope, shared: new Set([route.providerId]) },
+      sendableSubjects: new Set([route.providerId]),
+    };
+    // A child template to a dispatcher: refused by the audience's own allow-list.
+    const childCopy = harness([followupCall({
+      audience: "PROVIDER_DISPATCHER", subject_token: route.providerId,
+      template_id: "leg.canceled", vars: { legDate: sc.serviceDate, reasonCode: "FAMILY_REQUEST" },
+    })], scope);
+    const r = await childCopy.start({ type: "sweeper.overdue", id: "SWEEP-DISPATCH-CHILD", siteId: sc.siteId });
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
+      error_code: "TEMPLATE_NOT_FOR_AUDIENCE", audience: "PROVIDER_DISPATCHER",
+    });
+
+    const noContact = harness([followupCall({
+      audience: "PROVIDER_DISPATCHER", subject_token: route.providerId,
+      template_id: "generic.notice", vars: {},
+    })], scope);
+    const r2 = await noContact.start({ type: "sweeper.overdue", id: "SWEEP-DISPATCH-NONE", siteId: sc.siteId });
+    expect((await toolCalls(db, r2.runId))[0].result).toMatchObject({
+      error_code: "NO_DISPATCHER_CONTACT", provider_token: route.providerId,
+    });
     expect(await outbound()).toEqual([]);
   });
 });

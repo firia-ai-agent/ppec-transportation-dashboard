@@ -20,6 +20,9 @@ import { SITE } from "./pglite";
 
 export type ScenarioLegs = { readonly AM: string; readonly PM: string };
 
+/** The sim persona a seeded provider's dispatcher is reachable on (F6; no family uses it). */
+export const DISPATCHER_NUMBER = "+15615550106";
+
 export type AgentScenario = {
   readonly siteId: string;
   readonly serviceDate: string;
@@ -146,6 +149,78 @@ export async function seedTherapySession(
       (a.endsAt ?? new Date(a.startsAt.getTime() + 45 * 60_000)).toISOString()],
   );
   return { therapistId, personToken, sessionId };
+}
+
+export type ProviderRoute = {
+  readonly providerId: string;
+  readonly vehicleId: string;
+  readonly manifestId: string;
+  readonly capabilityId: string;
+  /** `ops.provider.dispatcher_person_token`, or null when the provider has no contact point. */
+  readonly dispatcherToken: string | null;
+};
+
+/**
+ * The provider side of §11.2: a third-party provider with a dispatcher contact point, one vehicle,
+ * the route (manifest) that vehicle runs on a service date, and that vehicle-day's capability row.
+ *
+ * `windowStart` is what makes "T−90" measurable — the route's start is `min(window_start)` over the
+ * legs on the manifest — so the legs handed in are attached to it.
+ */
+export async function seedProviderRoute(
+  db: Db,
+  a: {
+    siteId: string;
+    serviceDate: string;
+    windowStart: Date;
+    legIds?: readonly string[];
+    /** Leave the provider without a dispatcher to reach the NO_DISPATCHER_CONTACT refusal. */
+    withDispatcher?: boolean;
+    capabilityState?: "UNKNOWN" | "REQUESTED" | "REPORTED" | "VERIFIED";
+    /** Bumped to make a reset-after-substitution row (UNKNOWN above version 1). */
+    capabilityVersion?: number;
+    number?: string;
+  },
+): Promise<ProviderRoute> {
+  const providerId = uuidv7();
+  const vehicleId = uuidv7();
+  const manifestId = uuidv7();
+  const capabilityId = uuidv7();
+  const dispatcherToken = a.withDispatcher === false ? null : uuidv7();
+  if (dispatcherToken) {
+    await db.query(
+      `INSERT INTO identity.external_person_identity (person_token,site_id,kind,legal_name,phone_hmac,phone_enc,created_by,updated_by)
+       VALUES ($1,$2,'DISPATCHER','SYN Dispatcher',$3,'enc','test','test')`,
+      [dispatcherToken, a.siteId, phoneHmac(a.number ?? DISPATCHER_NUMBER, PEPPER)],
+    );
+  }
+  await db.query(
+    `INSERT INTO ops.provider (id,site_id,name,dispatch_ownership,dispatcher_person_token,created_by,updated_by)
+     VALUES ($1,$2,'SYN Provider','THIRD_PARTY',$3,'test','test')`,
+    [providerId, a.siteId, dispatcherToken],
+  );
+  await db.query(
+    `INSERT INTO ops.vehicle (id,site_id,provider_id,label,lift_equipped,created_by,updated_by)
+     VALUES ($1,$2,$3,'V9',true,'test','test')`,
+    [vehicleId, a.siteId, providerId],
+  );
+  await db.query(
+    `INSERT INTO ops.manifest (id,site_id,service_date,direction,provider_id,vehicle_id,created_by,updated_by)
+     VALUES ($1,$2,$3,'AM',$4,$5,'test','test')`,
+    [manifestId, a.siteId, a.serviceDate, providerId, vehicleId],
+  );
+  await db.query(
+    `INSERT INTO ops.vehicle_capability_day (id,site_id,vehicle_id,service_date,state,version,created_by,updated_by)
+     VALUES ($1,$2,$3,$4,$5,$6,'test','test')`,
+    [capabilityId, a.siteId, vehicleId, a.serviceDate, a.capabilityState ?? "UNKNOWN", a.capabilityVersion ?? 1],
+  );
+  for (const legId of a.legIds ?? []) {
+    await db.query(
+      "UPDATE ops.trip_leg SET manifest_id = $2, window_start = $3 WHERE id = $1",
+      [legId, manifestId, a.windowStart.toISOString()],
+    );
+  }
+  return { providerId, vehicleId, manifestId, capabilityId, dispatcherToken };
 }
 
 /** A second contact authorized for the same child: PRD §10.3's two-guardian case. */

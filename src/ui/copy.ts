@@ -856,6 +856,18 @@ export const agentTasks = {
     nextStep: "Read the thread and decide what happens next.",
     predicate: "staff resolved what the agent escalated and recorded the outcome",
   },
+  /** §11.2 request_provider_capability: a provider with no dispatcher contact point to ask. */
+  noDispatcherContact: {
+    summary: "A provider has no dispatcher contact point, so the vehicle cannot be asked about",
+    nextStep: "Call the provider for the vehicle's equipment, then record what they said.",
+    predicate: "the vehicle's equipment confirmed with the provider and recorded",
+  },
+  /** §11.2 record_capability_report: "low confidence → staff review". */
+  capabilityLowConfidence: {
+    summary: "A provider's answer about a vehicle was hard to read, so it is not trusted yet",
+    nextStep: "Check the vehicle's equipment with the provider, then verify it on the vehicle's day.",
+    predicate: "a coordinator has verified what the vehicle can carry today",
+  },
   /** §11.2 propose_contact_or_profile_change: "change request + exception". */
   proposedContactChange: {
     summary: "A family asked for a change the agent may not make",
@@ -917,6 +929,61 @@ export const agentWaits = {
   nextStep: "Wait for the reply, or answer it yourself; the agent carries on when the timer is up.",
   /** What is being waited for, per await reason. */
   clarification: "Waiting for the family to say which child or which ride they mean",
+  /** §11.2 notify_affected_therapist: the ten-minute acknowledgment. */
+  therapistAck: "Waiting for the therapist to acknowledge a change to a child's session",
+  /** §11.2 request_provider_capability: the dispatcher's answer about a vehicle. */
+  capabilityReport: "Waiting for the provider to confirm what a vehicle can carry today",
+} as const;
+
+/**
+ * §11.2 `summarize_thread_for_staff` ("staff-only note"). The *note itself* is the model's
+ * sentence, redacted — these are the words around it: how a coordinator finds the step it came
+ * from, what to do with it, and what closing it means.
+ *
+ * It lands as an `ops.task` row because that is the staff-visible queue this system has today; the
+ * thread panel a note would otherwise sit in belongs to the staff-UI milestone. The predicate is
+ * prose on purpose, so the agent can never close its own note (`exec/predicate.ts`: a predicate a
+ * machine cannot read is a predicate the agent may not close).
+ */
+/**
+ * §11.2's "no reply → escalate": the exception a deadline raises when nobody answered at all
+ * (`run/exec/escalate.ts`). No model is in that path, so every word of the row is here — one entry
+ * per kind of wait, chosen by the await's own reason code.
+ */
+export const agentNoReply = {
+  locator: agentTaskLocator,
+  CLARIFICATION: {
+    summary: "The assistant asked a family a question and nobody answered",
+    predicate: "staff reached the family and recorded what they want",
+  },
+  ACKNOWLEDGMENT: {
+    summary: "A therapist was told about a change and has not acknowledged it",
+    predicate: "the therapist reached and their acknowledgment recorded",
+  },
+  CAPABILITY: {
+    summary: "A provider was asked what a vehicle can carry today and has not answered",
+    predicate: "the vehicle's equipment confirmed with the provider and recorded",
+  },
+} as const;
+
+/**
+ * §11.2 `send_followup` with the `STAFF` audience. Staff are reached on Teams (§10.4) and that
+ * adapter belongs to the staff-UI milestone, so what the agent can do today is put the follow-up on
+ * their board: these are the words of that row, and the whole of it — unlike a note or an
+ * exception, nothing here comes from the model, because a follow-up's copy is a template and there
+ * is no card to render one on.
+ */
+export const agentStaffNotice = {
+  locator: agentTaskLocator,
+  summary: "The assistant has an update about a child's transport for you",
+  nextStep: "Read the update beside this task, then close it.",
+  predicate: "a coordinator has read the update and recorded anything that follows from it",
+} as const;
+
+export const agentNotes = {
+  locator: agentTaskLocator,
+  nextStep: "Read the thread, then close this once you have what you need from it.",
+  predicate: "a coordinator has read the note and recorded anything that follows from it",
 } as const;
 
 /**

@@ -26,6 +26,12 @@ import type { Handler } from "@/modules/jobs/runner";
 import type { JobScheduler } from "@/modules/jobs/scheduler";
 import { agentWaits, fill } from "@/ui/copy";
 import { uuidv7 } from "uuidv7";
+import { effectId } from "./exec/effects";
+import {
+  AGENT_ESCALATE_JOB_KIND,
+  type EscalatePayload,
+  escalateTimerKey,
+} from "./exec/escalate";
 import type { AwaitExternal } from "./executors";
 import { type RunRow, type ToolCallRow, commitCall, runActor, setRunState } from "./store";
 import { triggerLabel } from "./triggers";
@@ -51,15 +57,34 @@ export const resumePayloadSchema = z.object({
 });
 export type ResumePayload = z.infer<typeof resumePayloadSchema>;
 
-export type ParkedAwait = { readonly jobKey: string; readonly jobId: string; readonly taskId: string; readonly dueAt: Date };
+export type ParkedAwait = {
+  readonly jobKey: string;
+  readonly jobId: string;
+  readonly taskId: string;
+  readonly dueAt: Date;
+  /** The §11.2 "no reply → escalate" deadline, when this await declared one. */
+  readonly escalateJobKey?: string;
+  readonly escalateJobId?: string;
+  readonly escalateAt?: Date;
+  readonly escalationTaskId?: string;
+};
 
 /**
- * Commit the awaiting call, raise the staff task, arm the timer and park the run — in the caller's
- * transaction, which must be the one that commits the tool call, so the four cannot come apart.
+ * Commit the awaiting call, raise the staff task, arm the timer(s) and park the run — in the
+ * caller's transaction, which must be the one that commits the tool call, so none of it can come
+ * apart.
  *
  * `severity` is GREEN: a run waiting for an answer it asked for on time is not an exception. The
- * task becomes staff-visible work when its own escalation timer fires (the §11.2 "no reply →
- * escalate" row, a later slice), not when it is created.
+ * exception is a **second** job, `agent.await.escalate`, armed here when the await declares one
+ * (§11.2 "no reply → escalate"): it fires a grace period past the first deadline, reads the one row
+ * that would show an answer, and raises the AMBER exception if there is none — with no model turn
+ * in the path (`exec/escalate.ts`). The wait itself stays the GREEN wait it is; the escalation is
+ * its own row, because that is what §11.2's failure column asks for and what a coordinator acts on.
+ *
+ * An await that names an `ops.acknowledgment` has that row's `timer_job_id` stamped with the
+ * **escalation** job, not the resume one: "cancel timer" when an ack comes back (§11.2
+ * `record_acknowledgment`) has to cancel the thing that would have escalated it, and must not
+ * cancel the wake-up that un-parks the run.
  */
 export async function parkRunOnTimer(
   tx: Exec,
@@ -107,10 +132,78 @@ export async function parkRunOnTimer(
     by,
   });
 
+  const escalation = args.await.escalation
+    ? await armEscalation(tx, afterCommit, scheduler, { ...args, taskId, by })
+    : null;
+
   const parked = await setRunState(tx, args.run.id, "RUNNING", "WAITING_TOOL", by);
   if (!parked) throw new Error(`run ${args.run.id} was not RUNNING; refusing to park it on a timer`);
 
-  return { jobKey: awaitTimerKey(args.run.id, args.call.seq), jobId: job.id, taskId, dueAt };
+  return {
+    jobKey: awaitTimerKey(args.run.id, args.call.seq),
+    jobId: job.id,
+    taskId,
+    dueAt,
+    ...(escalation ?? {}),
+  };
+}
+
+/**
+ * The §11.2 "no reply → escalate" job, and the acknowledgment deadline that rides on it.
+ *
+ * Everything the handler will need is on the payload, because a B-03 handler has no memory of the
+ * run that scheduled it: which row to read, which category and severity to raise, and the task id
+ * to raise it under — derived from the awaited call's idempotency key, so a replayed wake-up
+ * writes nothing.
+ */
+async function armEscalation(
+  tx: Exec,
+  afterCommit: (hook: () => Promise<void>) => void,
+  scheduler: JobScheduler,
+  args: {
+    run: RunRow;
+    call: ToolCallRow;
+    await: AwaitExternal;
+    now: Date;
+    taskId: string;
+    by: string;
+  },
+): Promise<{ escalateJobKey: string; escalateJobId: string; escalateAt: Date; escalationTaskId: string }> {
+  const escalation = args.await.escalation!;
+  const escalateAt = new Date(args.now.getTime() + escalation.afterSeconds * 1000);
+  const escalationTaskId = effectId(args.call.idempotencyKey, "no-reply-escalation");
+  const key = escalateTimerKey(args.run.id, args.call.seq);
+
+  const job = await scheduler.schedule(tx, afterCommit, {
+    siteId: args.run.siteId,
+    key,
+    kind: AGENT_ESCALATE_JOB_KIND,
+    payload: {
+      runId: args.run.id,
+      seq: args.call.seq,
+      taskId: args.taskId,
+      escalationTaskId,
+      reason: escalation.reason,
+      category: escalation.category,
+      severity: escalation.severity,
+      nextStepCode: escalation.nextStepCode,
+      since: args.now.toISOString(),
+      watch: escalation.watch,
+    } satisfies EscalatePayload,
+    dueAt: escalateAt,
+    by: args.by,
+  });
+
+  if (args.await.acknowledgmentId) {
+    // Only while it is unset: an ack that already has a deadline keeps the one it was raised with.
+    await tx.query(
+      `UPDATE ops.acknowledgment SET timer_job_id = $1, version = version + 1, updated_at = now(), updated_by = $2
+       WHERE id = $3 AND site_id = $4 AND timer_job_id IS NULL`,
+      [job.id, args.by, args.await.acknowledgmentId, args.run.siteId],
+    );
+  }
+
+  return { escalateJobKey: key, escalateJobId: job.id, escalateAt, escalationTaskId };
 }
 
 /**

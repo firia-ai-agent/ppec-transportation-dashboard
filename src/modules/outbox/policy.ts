@@ -39,14 +39,21 @@ export async function childAuthorized(db: Exec, a: { siteId: string; recipientTo
   return r.rows[0].n > 0;
 }
 
-export type RecipientKind = "guardian" | "therapist";
+export type RecipientKind = "guardian" | "therapist" | "dispatcher";
 /**
  * The recipient's actual type, from the data, never from the recipient_rule string (Veri #8 follow-up):
- * a token that is a therapist's person_token at this site is a therapist; anything else is checked as a guardian contact.
+ * a token that is a therapist's person_token at this site is a therapist, one that is a provider's
+ * `dispatcher_person_token` at this site is that provider's dispatcher (PRD §10.1 "Dispatcher links";
+ * B-08 §11.2 `request_provider_capability`), and anything else is checked as a guardian contact.
+ *
+ * Both lookups are **ops** reads: the token is matched against the operational row that says whose
+ * contact point it is, and only then does the authorizer ask identity about the person behind it.
  */
 export async function recipientKind(db: Exec, a: { siteId: string; recipientToken: string }): Promise<RecipientKind> {
   const r = await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.therapist WHERE site_id = $1 AND person_token = $2", [a.siteId, a.recipientToken]);
-  return r.rows[0].n > 0 ? "therapist" : "guardian";
+  if (r.rows[0].n > 0) return "therapist";
+  const d = await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.provider WHERE site_id = $1 AND dispatcher_person_token = $2", [a.siteId, a.recipientToken]);
+  return d.rows[0].n > 0 ? "dispatcher" : "guardian";
 }
 
 /** Therapist ↔ child at send time: the therapist must still own a non-canceled session for this child (that session, if given). */
@@ -63,10 +70,27 @@ export interface RecipientAuthorizer {
   authorize(a: { siteId: string; recipientToken: string; purpose: string; channel: string; at: Date; kind: RecipientKind }): Promise<{ ok: true } | { ok: false; reason: string }>;
 }
 
-/** Reads identity.guardian_contact. In deployed envs it runs on the identity_gateway connection (0001_roles). */
+/**
+ * Reads identity.guardian_contact, or — for a therapist or a provider's dispatcher —
+ * identity.external_person_identity. In deployed envs it runs on the identity_gateway connection
+ * (0001_roles).
+ *
+ * The dispatcher branch is what makes an egress to `identity.external_person_identity` possible at
+ * all (B-08 §11.2 `request_provider_capability`): the person has to still be on file **for this
+ * site**, and their consent is then checked exactly like anyone else's, because a dispatcher can
+ * text STOP too. A therapist is checked against the same table by the *ops* side instead
+ * (`therapistAuthorized`: they must still own a session for that child), which is why that kind
+ * needs no identity row of its own here.
+ */
 export function dbRecipientAuthorizer(identityDb: Exec): RecipientAuthorizer {
   return {
     async authorize({ siteId, recipientToken, purpose, channel, at, kind }) {
+      if (kind === "dispatcher") {
+        const p = await identityDb.query<{ n: number }>(
+          "SELECT count(*)::int n FROM identity.external_person_identity WHERE person_token = $1 AND site_id = $2",
+          [recipientToken, siteId]);
+        if (p.rows[0].n === 0) return { ok: false, reason: "recipient not found or other site" };
+      }
       if (kind === "guardian") {
       const r = await identityDb.query<{ ok_updates: boolean; ok_emergency: boolean }>(
         `SELECT can_receive_updates ok_updates, is_emergency ok_emergency FROM identity.guardian_contact
