@@ -11,7 +11,10 @@
  *     refusal that had already sent the body would be no guard at all.
  *  2. **The destination is refused before a Bearer header exists.** Plain http, or a host off
  *     `baseUrlHostAllowList`: the base URL decides *where the key goes*, so the refusal has to land
- *     before the key is read, not after a request was sent to a host nobody vetted.
+ *     before the key is read, not after a request was sent to a host nobody vetted. And the base
+ *     URL is only *half* of the destination — the endpoint is joined onto it — so section 10 is
+ *     the other half: an allow-listed endpoint cannot name a host, the URL is built with the URL
+ *     parser rather than concatenated, and the finished URL is re-read where the key is attached.
  *  3. **The fallback chain.** 429 on the primary tries the backup; failure on both degrades to the
  *     §18.1 keyword parser. Any other provider error behaves the same way, because a free endpoint
  *     has more ways to fail than a rate limit.
@@ -40,9 +43,11 @@ import {
   RemoteModelRefused,
   RemoteProviderNotEnabled,
   RemoteProviderUnavailable,
+  RemoteRequestUrlRefused,
   modelChain,
   normalize,
   remoteProvider,
+  verifiedRequestUrl,
 } from "./remote";
 
 /** A placeholder, low entropy, obviously not a credential. The real one is supplied by the founder. */
@@ -691,5 +696,130 @@ describe("model allow-list on the outbound path", () => {
     await remoteProvider(DEMO, KEY_ENV).invoke(call());
     expect(fetchMock).toHaveBeenCalledTimes(2);
     for (const nth of [0, 1]) expect(DEMO.modelAllowList).toContain(bodyOf(nth).model);
+  });
+});
+
+/* ───────── 10. the endpoint is the other half of the destination (S2) ───────── */
+
+/**
+ * Endpoints that name a destination of their own, each one a string a deployment could have put in
+ * `AGENT_ENDPOINT_ALLOW_LIST`. Pasted onto an allow-listed origin — which is how this adapter used
+ * to build its URL — every one of them is a request to somewhere nobody vetted, with the founder's
+ * key in an `authorization` header and nothing about the configured base URL having changed to say
+ * so. These are the ones that still move the destination once the URL *parser* has resolved them,
+ * so the check on the finished URL has to catch them on its own.
+ */
+const DESTINATION_MOVING_ENDPOINTS: [label: string, endpoint: string][] = [
+  ["a scheme-relative authority", "//evil.example/api/v1/chat/completions"],
+  ["userinfo behind a scheme-relative authority", "//user:pass@evil.example/api/v1/chat/completions"],
+  ["a backslash the URL parser folds to a slash", "/\\evil.example/api/v1/chat/completions"],
+  ["a leading pair of backslashes", "\\\\evil.example/api/v1/chat/completions"],
+  ["an absolute URL of its own", "https://evil.example/api/v1/chat/completions"],
+  ["plain http on the allow-listed host", "http://openrouter.ai/api/v1/chat/completions"],
+  ["credentials behind the allow-listed host", "https://user:pass@openrouter.ai/api/v1/chat/completions"],
+];
+
+/**
+ * The two the URL parser resolves *into* the allow-listed host — harmless once the URL is built,
+ * and still refused, because an endpoint nobody configured as a path is not an endpoint.
+ */
+const PATH_RESOLVED_ENDPOINTS: [label: string, endpoint: string][] = [
+  ["userinfo, which turns the allow-listed origin into a username", "@evil.example/api/v1/chat/completions"],
+  ["a bare host", "evil.example/api/v1/chat/completions"],
+];
+
+const HOST_SMUGGLING_ENDPOINTS = [...DESTINATION_MOVING_ENDPOINTS, ...PATH_RESOLVED_ENDPOINTS];
+
+describe("the endpoint cannot move the destination", () => {
+  it.each(HOST_SMUGGLING_ENDPOINTS)("refuses %s, with no request made at all", async (_label, endpoint) => {
+    // `loadAgentConfig` will not parse such an allow-list — the stronger guarantee, asserted
+    // first — so the object is built past the schema to reach the adapter's own check, the one on
+    // the file that actually joins the two halves together and posts the result.
+    expect(() => loadAgentConfig(DEMO_ENV, { endpointAllowList: [endpoint] })).toThrow(AgentConfigError);
+
+    const cfg = { ...DEMO, endpointAllowList: [endpoint] as [string, ...string[]] };
+    const provider = remoteProvider(cfg, KEY_ENV);
+    // On the allow-list, and refused anyway: membership is not the question, shape is.
+    expect(cfg.endpointAllowList).toContain(endpoint);
+    await expect(provider.invoke(call({ endpoint }))).rejects.toThrow(RemoteEndpointRefused);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(HOST_SMUGGLING_ENDPOINTS)("sends no Bearer header anywhere for %s", async (_label, endpoint) => {
+    // The claim that matters, stated separately from the class: nothing left the building, and
+    // the refusal itself carries neither the key nor the prompt.
+    const cfg = { ...DEMO, endpointAllowList: [endpoint] as [string, ...string[]] };
+    try {
+      await remoteProvider(cfg, KEY_ENV).invoke(call({ endpoint }));
+      expect.unreachable();
+    } catch (e) {
+      expect(String(e)).not.toContain(PLACEHOLDER_KEY);
+      expect(String(e)).not.toMatch(/Bearer/);
+      expect(String(e)).not.toContain(SMS);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(DESTINATION_MOVING_ENDPOINTS)(
+    "the built-URL check refuses %s on its own, with the path gate out of the way",
+    (_label, endpoint) => {
+      // The backstop, exercised directly. It is the thing standing there if the path gate above
+      // is ever loosened, and it refuses before `fetch` is reached rather than degrading to the
+      // §18.1 keyword parser: a key that nearly went to the wrong host is a stop, not a fallback.
+      expect(() => verifiedRequestUrl(DEMO, endpoint)).toThrow(RemoteRequestUrlRefused);
+      try {
+        verifiedRequestUrl(DEMO, endpoint);
+        expect.unreachable();
+      } catch (e) {
+        expect(String(e)).toContain("request URL");
+        expect(String(e)).not.toContain(PLACEHOLDER_KEY);
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("the @-endpoint is neutralised by the build itself: the parser keeps the host", () => {
+    // Belt: the path gate refuses it. Braces: resolved by the URL parser instead of concatenated,
+    // the same string is a path segment on the host the deployment allow-listed — which is why
+    // this adapter builds its URL and no longer pastes two strings together.
+    const smuggled = "@evil.example/api/v1/chat/completions";
+    expect(new URL(`${DEMO.baseUrl}${smuggled}`).host).toBe("evil.example");
+    expect(new URL(verifiedRequestUrl(DEMO, smuggled)).host).toBe(new URL(DEMO.baseUrl).host);
+  });
+
+  it("the URL it hands to fetch is https, has no userinfo, and is on the host allow-list", async () => {
+    fetchMock.mockResolvedValue(vendorStatus(RATE_LIMITED));
+    await remoteProvider(DEMO, KEY_ENV).invoke(call());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [url] of fetchMock.mock.calls) {
+      const parsed = new URL(url as string);
+      expect(parsed.protocol).toBe("https:");
+      expect(parsed.username).toBe("");
+      expect(parsed.password).toBe("");
+      expect(DEMO.baseUrlHostAllowList).toContain(parsed.host);
+    }
+  });
+
+  it("a trailing slash on the base URL does not become a // path: the URL is built, not pasted", async () => {
+    // This is also the test that holds the *build* down. For a bare origin and a plain path,
+    // concatenation and resolution agree, so nothing would notice a quiet return to
+    // `${baseUrl}${endpoint}`; a trailing slash is where the two differ, and the parser is the one
+    // that gets it right. `AGENT_BASE_URL` with a trailing slash is a config this module accepts.
+    const slashed = loadAgentConfig({ ...DEMO_ENV, AGENT_BASE_URL: `${DEMO.baseUrl}/` });
+    expect(slashed.baseUrl).toBe(`${DEMO.baseUrl}/`);
+    fetchMock.mockResolvedValue(vendorToolCall("get_leg_state", { leg_id: "L-C1-AM" }));
+    await remoteProvider(slashed, KEY_ENV).invoke(call());
+    expect(fetchMock.mock.calls[0][0]).toBe(`${DEMO.baseUrl}${DEMO.endpointAllowList[0]}`);
+  });
+
+  it("the allow-listed path still goes where it always did", async () => {
+    // The fix is not allowed to move the real request: the built URL is byte-for-byte the one the
+    // concatenation produced for a plain path on an origin.
+    fetchMock.mockResolvedValue(vendorToolCall("get_leg_state", { leg_id: "L-C1-AM" }));
+    await remoteProvider(DEMO, KEY_ENV).invoke(call());
+    expect(fetchMock.mock.calls[0][0]).toBe(`${DEMO.baseUrl}${DEMO.endpointAllowList[0]}`);
+    expect(verifiedRequestUrl(DEMO, DEMO.endpointAllowList[0])).toBe(
+      `${DEMO.baseUrl}${DEMO.endpointAllowList[0]}`,
+    );
   });
 });
