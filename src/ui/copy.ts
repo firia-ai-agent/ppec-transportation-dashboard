@@ -372,6 +372,8 @@ export const mapPreview = {
   routeName: "{stop} run",
   /** Where the ramp iPad preview is, said from the map preview so it can be found at all. */
   openRampCheck: "Open the ramp check",
+  /** The sibling planning surface, for the roles whose own row in the table opens it. */
+  openPlanRoutes: "Open Plan routes",
   /** A device with no active binding has no position to show, so it is absent, not faint. */
   unbound:
     "{vehicle}'s device has no active binding: {unbound} points ingested and stored as unbound, {accepted} displayable. It has no marker, no row and no ETA.",
@@ -875,11 +877,172 @@ export const solver = {
     },
     CANCEL: {
       label: "Cancel the ride",
-      detail: "Cancel today's ride for {who}. Attendance and therapy sessions are updated.",
+      /**
+       * One sentence, with the name inside it rather than at the end of a clause: `{who}` is a
+       * first name and a last initial, so "for Leo B." already ends in a full stop and the old
+       * two-sentence form printed "for Leo B.. Attendance…" wherever an option was listed.
+       */
+      detail: "Cancel today's ride for {who}, and update attendance and therapy sessions.",
     },
   },
   /** The delay sentence with nobody to name, so it never reads "{who} waits at the center". */
   delayAnyone: "Hold the run until a vehicle that fits is free. Riders wait at the center.",
+} as const;
+
+/**
+ * Plan routes (VEH-01…05; DESIGN-DIRECTION §4.1 density rules, COPY-GUIDE §1–§5).
+ *
+ * The coordinator's planning surface: a lane per van, the children in it as stops in pickup
+ * order, and the children in no van at the top with the reason. The verdicts are the capacity
+ * solver's (src/domain/solver); these are the words that say them, and they follow the same
+ * three rules the rest of this file does — name the person, say what to do, never print the
+ * machine's vocabulary. A deficit type, a layout code and a capability state are all internal:
+ * what reaches the screen is "no four-point straps" and "Zoe B.".
+ */
+export const planRoutes = {
+  heading: "Plan routes",
+  /** <title> for the route, so the tab says which screen is open. */
+  documentTitle: "Plan routes · PPEC transportation dashboard",
+  /** "Tue, Oct 14 · morning pickups" (§3 date format). */
+  subtitle: "{date} · {direction}",
+  directionLegend: "Which run?",
+  direction: { AM: "morning pickups", PM: "afternoon drop-offs" },
+  directionButton: { AM: "Morning", PM: "Afternoon" },
+  /** The one primary action on the screen. */
+  plan: "Plan routes",
+  planAgain: "Plan routes again",
+  /** Said where the plan is read, like the ramp check's own line: this surface sends nothing. */
+  localOnly: "Nothing here is sent. A coordinator approves a plan before anyone is told.",
+  /** The family hears nothing until staff have chosen, said out loud while anyone has no van. */
+  nothingSent: "No family has been told anything. Staff choose first.",
+  summary: "{planned} of {total} riders are in a van.",
+
+  /* ── a lane ── */
+  lanesHeading: "Vans",
+  /** "V1 · convertible van" — the label, then what it is. */
+  vanTile: "{vehicle} · {description}",
+  vanMeta: "{provider} · {driver} driving",
+  equipmentHeading: "What this van has",
+  equipment: {
+    lift: "Ramp and lift",
+    noLift: "No ramp or lift",
+    /** "Wheelchair place · L-track · fits 130 × 72 cm" */
+    wcPlace: "Wheelchair place · {securement} · fits {length} × {width} cm",
+  },
+  /**
+   * Places needed against places the van has today, said in both halves rather than as "3 of 1":
+   * a lane can be asked for more than it has — that is what an infeasible run *is* — and "of"
+   * reads as a typo the moment the first number is the larger one.
+   */
+  seatsWc: "Wheelchair places: {used} needed, {available} free",
+  seatsAmb: "Seats: {used} needed, {available} free",
+  seatsTether: "Anchored seats: {used} needed, {available} free",
+  setUpAs: "Set up as {layout}",
+
+  stopsHeading: "Stops, in order",
+  /** "Okeeheelee Park · 6:50 AM" — the place, then the window it is planned for. */
+  pickupRow: "{stop} · {time}",
+  dropOff: "Drop-off",
+  pickUp: "Pickup",
+  /** The end of the run that is the centre rather than a child's own stop. */
+  centerRow: "{what} · {stop}",
+  laneFits: "Every rider in this van fits.",
+  laneEmpty: "No riders in this van yet.",
+  laneNeedsCheck: "Nobody boards until this van is checked.",
+  laneBlocked: "Nobody boards until a coordinator approves.",
+  /** "Doesn’t fit at Palm Beach State College: no four-point straps." */
+  laneMissing: "Doesn’t fit at {stop}: {missing}.",
+
+  /* ── moving a child between vans ── */
+  dragHint: "Drag a rider to another van, or use Move.",
+  move: "Move {child}",
+  moveHeading: "Which van for {child}?",
+  moveTo: "Move to {vehicle}",
+  moveOut: "Take out of the van",
+  moveClose: "Keep where they are",
+  moved: "{child} moved to {vehicle}.",
+  movedOut: "{child} is out of the van, and in nobody else’s.",
+  /** The refusal: one line, the child by name, and the one thing that is missing. */
+  refused: "{vehicle} can’t take {child}: {missing}.",
+  /**
+   * The missing thing, as a refusal reads it. Keyed by the planner's cause so a new cause
+   * cannot reach a screen without words (src/domain/solver/plan.ts `UnplacedCause`).
+   */
+  missing: {
+    NO_WC_PLACE: "no wheelchair place",
+    NO_SECUREMENT: "no {securement}",
+    CHAIR_TOO_LARGE: "no wheelchair place large enough for that chair",
+    NO_LIFT: "no ramp",
+    NO_ANCHORED_SEAT: "no free anchored seat",
+    NO_SEAT: "no free seat",
+    VANS_FULL: "no free seat",
+    UNKNOWN_UNTIL_ARRIVAL: "no check yet, so what it can carry is unknown",
+    NO_VEHICLE: "no van to put them in",
+    NOT_IN_A_VAN: "nobody in it yet",
+  },
+
+  /* ── the children in no van ── */
+  unplacedHeading: "Not in a van yet",
+  /**
+   * One plain sentence per child, naming them and the thing that is missing.
+   *
+   * The ones that end on the child carry no full stop of their own: a child is written as a
+   * first name and a last initial, so "for Noah O." already ends in one and a template that
+   * supplied a second would print "Noah O..". `sentence()` closes them once.
+   */
+  reason: {
+    NO_WC_PLACE: "No van with a wheelchair place for {child}",
+    NO_SECUREMENT: "No van with {securement} for {child}",
+    CHAIR_TOO_LARGE: "No van with a wheelchair place large enough for {child}’s chair.",
+    NO_LIFT: "No van with a ramp for {child}",
+    NO_ANCHORED_SEAT: "No van with an anchored seat for {child}",
+    NO_SEAT: "No van with a free seat for {child}",
+    VANS_FULL: "Every van that fits {child} is full.",
+    UNKNOWN_UNTIL_ARRIVAL:
+      "Only {vehicle} fits {child}, and what it can carry is unknown until it arrives.",
+    NO_VEHICLE: "No van is on the road today for {child}",
+    NOT_IN_A_VAN: "{child} is not in a van yet. Press Plan routes, or move them into one.",
+  },
+  optionsHeading: "What a coordinator can choose for {child}",
+  /** The same list on a lane, where it is about the run rather than one child. */
+  laneOptionsHeading: "What a coordinator can choose",
+  optionRow: "{label} — {detail}",
+  needsApproval: "Needs a coordinator’s approval",
+  optionsNote: "A coordinator chooses one of these. Nothing reaches the family before that.",
+
+  /* ── what arrived (VEH-02, VEH-04) ── */
+  arrivalHeading: "What arrived",
+  arrival: {
+    NOT_CHECKED: "Not checked yet",
+    REPORTED: "Reported by the provider",
+    RAMP_CHECKED: "Checked at the ramp",
+  },
+  /** When the chair that arrives is not the chair on file. */
+  chairMeasure: "Measure {child}’s chair at the ramp",
+  chairOnFile: "Chair on file · {length} × {width} cm",
+  chairMeasured: "Chair measured at the ramp · {length} × {width} cm",
+
+  /* ── substitution (VEH-05) ── */
+  substituteHeading: "Substitution",
+  substitute: "Different van today",
+  substituteDriver: "Different driver today",
+  /** "V3 · substitute van · Omar T. driving" on the button that chooses one. */
+  substituteOption: "{vehicle} · {description} · {driver} driving",
+  substituted: "{vehicle} replaces {previous} today. {driver} is driving.",
+  substitutedDriver: "{driver} is driving {vehicle} today.",
+  askProvider: "Ask the provider what it can carry",
+  asked: "Asked {provider} what {vehicle} can carry today.",
+  recordAnswer: "Record the provider’s answer",
+  answered: "{provider} answered for {vehicle}.",
+
+  /* ── a rider's needs ── */
+  needsCaption: "Derived from intake, not a diagnosis.",
+  /** VEH-01: a need nobody has approved is on screen, and visibly not part of the plan. */
+  unapprovedNeed: "{need} · not used for planning",
+
+  /* ── the map, beside the lanes ── */
+  mapHeading: "Map",
+  mapPlaceholder: "The map of these runs arrives with live updates.",
 } as const;
 
 /**

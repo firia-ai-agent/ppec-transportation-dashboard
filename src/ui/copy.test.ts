@@ -19,6 +19,7 @@ import {
   needCategories,
   notFound,
   places,
+  planRoutes,
   pluralize,
   rampPreview,
   sentence,
@@ -593,6 +594,53 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
     }
   });
 
+  it("the Plan routes screen's reasons, refusals and the AT-12 promise", () => {
+    // The reason on an unplaced child's row is the sentence Vera asked for, verbatim: it names
+    // the child and the thing that is missing, and it is one line.
+    expect(sentence(fill(planRoutes.reason.NO_LIFT, { child: "Noah O." }))).toBe(
+      "No van with a ramp for Noah O.",
+    );
+    expect(
+      sentence(
+        fill(planRoutes.reason.NO_SECUREMENT, {
+          child: "Zoe B.",
+          securement: securement.FOUR_POINT_STRAP,
+        }),
+      ),
+    ).toBe("No van with four-point straps for Zoe B.");
+    for (const [key, line] of Object.entries(planRoutes.reason)) {
+      expect(line, key).toContain("{child}");
+      expect(line.split("\n"), key).toHaveLength(1);
+      // A reason that ends on the child carries no full stop of its own: the last initial
+      // already supplied one, and `sentence()` is what closes the rest.
+      if (line.endsWith("{child}")) continue;
+      expect(sentence(fill(line, { child: "Zoe B.", vehicle: "V1", securement: "L-track" })), key)
+        .not.toMatch(/\.\.$/);
+    }
+
+    // A refused move is one line, names the child, and says what the van is missing.
+    expect(
+      fill(planRoutes.refused, {
+        vehicle: "V3",
+        child: "Zoe B.",
+        missing: fill(planRoutes.missing.NO_SECUREMENT, { securement: securement.FOUR_POINT_STRAP }),
+      }),
+    ).toBe("V3 can’t take Zoe B.: no four-point straps.");
+
+    // AT-12: the family is told only after staff choose, said on the screen rather than implied.
+    expect(planRoutes.nothingSent).toBe("No family has been told anything. Staff choose first.");
+    expect(planRoutes.optionsNote).toMatch(/Nothing reaches the family before that/);
+    // AT-04: nobody boards on a van that does not fit, or on one nobody has checked.
+    expect(planRoutes.laneBlocked).toBe("Nobody boards until a coordinator approves.");
+    expect(planRoutes.laneNeedsCheck).toBe("Nobody boards until this van is checked.");
+    // VEH-01: an unapproved need is on screen and visibly not part of the allocation.
+    expect(fill(planRoutes.unapprovedNeed, { need: needCategories.MEDICAL_DEVICE_POWER })).toBe(
+      "Device that needs power · not used for planning",
+    );
+    // Every cause the planner can report has words for both the reason and the refusal.
+    expect(Object.keys(planRoutes.missing).sort()).toEqual(Object.keys(planRoutes.reason).sort());
+  });
+
   it("a delta that is not known says so, and never prints a bare minus", () => {
     expect(etaText.unknown).toBe("Not known yet");
     expect(etaText.unknown).not.toMatch(/NaN/);
@@ -624,6 +672,7 @@ function allStrings(): Array<[string, string]> {
     needCategories,
     notFound,
     places,
+    planRoutes,
     rampPreview,
     scenarioClock,
     search,

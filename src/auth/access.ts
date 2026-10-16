@@ -32,7 +32,7 @@
  */
 import type { StaffRole } from "@/auth/core";
 import type { MapViewer } from "@/domain/access/map-view";
-import { fill, login, mapPreview, nav, noAccess, rampPreview, roleNames, whoami } from "@/ui/copy";
+import { fill, login, mapPreview, nav, noAccess, planRoutes, rampPreview, roleNames, whoami } from "@/ui/copy";
 
 /** Most capable first. The order the `{who}` line and `mostCapable` read. */
 export const ROLE_LADDER = ["DIRECTOR", "COORDINATOR", "FRONT_DESK"] as const;
@@ -301,6 +301,23 @@ export const PAGES: readonly PageRow[] = [
     path: "/map-preview",
     access: { roles: ALL_STAFF },
     label: mapPreview.heading,
+  },
+  /**
+   * Plan routes (B-09 VEH-01…05, B-13): the coordinator's planning surface — a lane per van, the
+   * children in it, and the children no van fits.
+   *
+   * The two console roles and not the front desk, and the docs settle it rather than a default:
+   * PRD §6.2 gives "attendance plan" and "legs" to coordinators, ARCHITECTURE §1 gives the web
+   * console to the coordinator and the director, and the front desk's own surface is the ramp
+   * iPad — where a van that has arrived is checked, which is a different job from deciding which
+   * van a child rides in. Nothing on this page is director-only, so both console roles are in.
+   */
+  {
+    kind: "page",
+    file: "src/app/plan-preview/page.tsx",
+    path: "/plan-preview",
+    access: { roles: CONSOLE },
+    label: planRoutes.heading,
   },
   /**
    * SURF-04, the ramp iPad: the front desk's own surface (PRD §6.2, ARCHITECTURE §1), and a
@@ -590,7 +607,7 @@ export function apiOutcome(caller: Caller, path: string): ApiOutcome {
  * the front desk, who has no console page, lands on the ramp check rather than on a refusal.
  * That landing page is the `/ramp-preview` row's open question above.
  */
-const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/ramp-preview", "/map-preview", "/whoami"] as const;
+const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/plan-preview", "/ramp-preview", "/map-preview", "/whoami"] as const;
 
 /** Where this caller is sent when they need somewhere to be: their own first page, or sign-in. */
 export function homePathFor(caller: Caller): string {

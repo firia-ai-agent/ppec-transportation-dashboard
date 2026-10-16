@@ -1,0 +1,356 @@
+/*
+ * Plan routes (DESIGN-DIRECTION §4.1 density, §8 tokens, §9 targets).
+ *
+ * Every value is a custom property from src/ui/tokens.ts: no colour literal and no magic number
+ * (src/ui/no-hex.test.ts holds the first, the token table holds the second). The demo violet is
+ * not reachable from here at all — D-5 reserves it for the DEMO bar and the Simulated chip, and
+ * e2e reads the computed colour of every element on this screen to prove it.
+ *
+ * Lanes are rows of a list, not cards in a grid: one van per lane so the eye runs down the
+ * stops in the order they are driven, with the map beside them rather than above.
+ */
+
+.page {
+  /* The DEMO bar (§7) owns the top 32 px of every screen; a full 100vh here would push it off. */
+  min-height: calc(100vh - var(--layout-demo-banner-height));
+  padding: var(--space-5);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: var(--text-24);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.subtitle {
+  color: var(--color-ink-muted);
+}
+
+.actionRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.note {
+  color: var(--color-ink-muted);
+  max-width: 70ch;
+}
+
+/* The one primary action on the screen (§4.1: one primary per surface). */
+.primary {
+  min-height: var(--target-console);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-md);
+  border: var(--border-hairline) solid var(--color-brand);
+  background: var(--color-brand);
+  color: var(--color-surface);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+/* Everything else: outlined, and filled only while it is the current answer. */
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target-console);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+/*
+ * A chosen answer is filled, not outlined — the same rule the ramp check follows: an outline in
+ * the brand tone is the shape of the §9 focus ring, so "this is the answer" and "this is where
+ * the keyboard is" would read as one signal. The check mark beside the label means the state is
+ * never carried by colour alone (§3), and `aria-pressed` says the same thing out loud.
+ */
+.button[aria-pressed="true"] {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--color-surface);
+  font-weight: var(--weight-semibold);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+/* §4.1 / D-6: the map takes the right of the screen once there is room for both. */
+@media (min-width: 1280px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 34%);
+  }
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.sectionHeading {
+  font-size: var(--text-20);
+}
+
+/* The map's place on the screen, holding its shape until the live pane lands. */
+.mapPane {
+  position: sticky;
+  top: calc(var(--layout-demo-banner-height) + var(--space-5));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.mapBox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  padding: var(--space-5);
+  text-align: center;
+  color: var(--color-ink-muted);
+  background: var(--color-bg);
+  border: var(--border-hairline) dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+/* ───────────────────────────── a lane ───────────────────────────── */
+
+.lane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+/* While a rider is being dragged over it. Not the only cue: the row says what happened after. */
+.lane[data-over="true"],
+.unplaced[data-over="true"] {
+  border-color: var(--color-brand);
+  background: var(--color-info-bg);
+}
+
+.laneTitleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.laneTitle {
+  font-size: var(--text-20);
+  font-weight: var(--weight-semibold);
+}
+
+.meta {
+  color: var(--color-ink-muted);
+}
+
+.chips {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* An outlined chip: a fact about the van, not a state. States are StateChip (§3). */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  color: var(--color-ink-muted);
+  font-size: var(--text-12);
+  white-space: nowrap;
+}
+
+/* VEH-01: a need nobody has approved is visible and visibly not part of the plan. */
+.chip[data-approved="false"] {
+  border-style: dashed;
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral-fg);
+}
+
+.laneLine {
+  line-height: var(--leading-normal);
+}
+
+.laneLine[data-tone="ok"] {
+  color: var(--color-ok-fg);
+}
+
+.laneLine[data-tone="warn"] {
+  color: var(--color-warn-fg);
+}
+
+.laneLine[data-tone="crit"] {
+  color: var(--color-crit-fg);
+  font-weight: var(--weight-medium);
+}
+
+/* ───────────────────────────── stops in a lane ───────────────────────────── */
+
+.stops {
+  display: flex;
+  flex-direction: column;
+}
+
+.stopRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-top: var(--border-hairline) solid var(--color-border-strong);
+}
+
+/* The leg number, so the order of the run is readable without counting rows. */
+.stopIndex {
+  min-width: var(--space-6);
+  color: var(--color-ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.stopBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.riderName {
+  font-weight: var(--weight-semibold);
+}
+
+.riderRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* A rider row can be dragged into another lane; Move does the same thing without a mouse. */
+.draggable {
+  cursor: grab;
+}
+
+.rowActions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-bg);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.menuHeading {
+  font-weight: var(--weight-semibold);
+}
+
+/* ───────────────────────────── children with no van ───────────────────────────── */
+
+.unplaced {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-crit-fg);
+  border-radius: var(--radius-md);
+}
+
+.unplacedRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-top: var(--border-hairline) solid var(--color-border-strong);
+}
+
+.reason {
+  color: var(--color-crit-fg);
+  font-weight: var(--weight-medium);
+}
+
+.optionList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-left: var(--space-5);
+}
+
+.option {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* ───────────────────────────── what just happened ───────────────────────────── */
+
+/*
+ * The one line that answers a drag: "moved", or the refusal and what was missing. It keeps its
+ * height whether or not there is anything in it, so a refusal does not push the lanes down the
+ * screen while a coordinator is reading them.
+ */
+.notice {
+  min-height: var(--target-console);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+}
+
+.notice[data-refused="true"] {
+  color: var(--color-crit-fg);
+  background: var(--color-crit-bg);
+  border-color: var(--color-crit-fg);
+  font-weight: var(--weight-medium);
+}

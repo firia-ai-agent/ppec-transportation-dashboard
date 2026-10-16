@@ -260,6 +260,7 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/exceptions": "DIRECTOR+COORDINATOR",
       "/setup": "DIRECTOR+COORDINATOR",
       "/health": "DIRECTOR+COORDINATOR",
+      "/plan-preview": "DIRECTOR+COORDINATOR",
       "/whoami": "DIRECTOR+COORDINATOR+FRONT_DESK",
       "/map-preview": "DIRECTOR+COORDINATOR+FRONT_DESK",
       "/ramp-preview": "DIRECTOR+COORDINATOR+FRONT_DESK",
