@@ -37,7 +37,7 @@ beforeEach(async () => {
   outboxTransport = new FakeOutboxTransport(); wake = new FakeTransport(); faults = new InMemorySimFaultStore();
   provider = new DbSimMessagingProvider(db, new VercelQueueScheduler(db, wake, () => now), { faults, clock: () => now, pepper: PEPPER, seed: "test-seed" });
   deps = { provider, authorizer: dbRecipientAuthorizer(db), clock: () => now, timeoutMs: 500 };
-  f1 = await seedPersona(db, F1_NUMBER);
+  f1 = await seedPersona(db, F1_NUMBER, { now });
   now = new Date(Date.now() + 1000); // after the contact's valid_from
 }, 60_000);
 

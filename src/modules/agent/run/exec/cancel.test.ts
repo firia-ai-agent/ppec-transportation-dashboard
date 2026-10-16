@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { uuidv7 } from "uuidv7";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
+import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
 import { type AgentScenario, seedAgentScenario } from "@/test/agent-state";
 import { F2_NUMBER } from "@/test/messaging";
@@ -40,7 +41,7 @@ const open: PGlite[] = [];
 beforeEach(async () => {
   ({ pg, db } = await freshDb());
   open.push(pg);
-  now = new Date("2026-10-15T12:00:00.000Z");
+  now = new Date(TEST_NOW);
 }, 60_000);
 
 afterEach(async () => {
