@@ -12,12 +12,15 @@ key, and an item whose slice nobody can name does not get to stay on the page as
 | **F4, F6** — two schema observations on migration 0007 | **resolved — `drizzle/0008_agent_status_backfill_type_owner.sql`** | 0007 is frozen (DATABASES.md: a frozen migration is fixed forward, never edited), so both corrections are a new file rather than an edit, and 0008 carries nothing else — F2's lease turned out not to be its co-tenant, having been built on the columns `ops.agent_run` already has. The snapshot swap it was sequenced behind is **gone, not done**: DECISION-LEDGER #66 drops the pre-migration snapshot step while the database holds demo data only, so "verified against real rows" is not what 0008 gets — it is verified against seeded PGlite rows, and has never run against any database |
 | **F9** — no approval *decision* surface — and the approval screen itself | **B-12** | the rows a human decides from (`ops.change_request`, `ops.approval_request`, both carrying `approval_key`) are built here; the screen that signs one is the staff UI's, and so is the Teams card beside it |
 | the **five missing executors** (`notify_affected_therapist`, `request_provider_capability`, `record_capability_report`, `report_boarding`, `summarize_thread_for_staff`), **two-guardian send** fan-out, **`STAFF` / `PROVIDER_DISPATCHER`** sends, and the **no-reply escalation timer** | **resolved — built in slice 4** | all five executors are live (`registry.liveExecutors`; `SEQUENCED_EXECUTORS` is now empty), the fan-out and both audiences are `exec/followup.ts`, and §11.2's "no reply → escalate" is a second B-03 deadline with no model turn in it (`exec/escalate.ts`). What slice 4 did *not* bring is named in its own section below: a dispatcher link **page** and the signer that mints its token |
+| the **agent-side sweeper** and the **timer → queue hand-off** | **B-08 slice 7** | founder decision, 2026-10-16 (ledger row 67), on row 64's rule: the bar is the founder's, the slice name is ours. A fired await deadline makes a run QUEUED and publishes nothing, and nothing on a schedule delivers a QUEUED run — two halves of one gap, so one slice owns both. This **supersedes the sweeper's earlier placement in the live-provider slice**: the live call needs no sweep, and a run nobody delivers should not wait on the slice that spends money. Both rows are detailed in "What the queue slice did not bring" below |
 | `close_task` on a task that is still **OPEN** | **resolved — nothing left to sequence** | founder decision, 2026-10-15: **no new state transition.** §6.3 is unchanged; the tool *refuses*, with the named reason code `TASK_NOT_CLOSABLE_OPEN` and the staff-readable sentence `ui/copy.ts agentRefusals.closeTaskOpen`, and leaves the row exactly as it found it. Built and tested on this branch (`exec/staff.ts`, `exec/staff.test.ts`) |
 
 Everything else on this page carries its slice in its own row, in the "Status" or "Lands with"
 column. The two items that are genuinely nobody's until later are marked as such and say why: the
-**live vendor call** (B-08's own last slice — the provider choice is ADR-000 #4/#12) and the
-**≥100 red-team cases**, which the PRD itself dates to P2.
+**live vendor call** (the live-provider slice — the provider choice is ADR-000 #4/#12) and the
+**≥100 red-team cases**, which the PRD itself dates to P2. The live-provider slice was B-08's *last*
+until 2026-10-16: slice 7 (the sweeper and the timer → queue hand-off) is sequenced beside it, so
+"last" is no longer the thing that makes it late — spending money and leaving the building is.
 
 ---
 
@@ -81,9 +84,9 @@ claim about it. Rows marked **Done (slice 2)** or **Done (slice 3)** below were 
 earlier version of this page and are now built and tested; everything else is still outstanding —
 and outstanding here means **sequenced**, per the table above.
 
-Status key: **Sequenced (0008 / B-12 / live-provider slice)** = not built, owned by that slice, and
-a condition of B-08 closing. **Partial** = the mechanism exists, the wiring does not; the column
-beside it names who finishes it. **Done (slice 2)** = built and tested in `src/modules/agent/run/`.
+Status key: **Sequenced (0008 / B-12 / slice 7 / live-provider slice)** = not built, owned by that
+slice, and a condition of B-08 closing. **Partial** = the mechanism exists, the wiring does not;
+the column beside it names who finishes it. **Done (slice 2)** = built and tested in `src/modules/agent/run/`.
 **Done (slice 3 / slice 4)** = built and tested in `src/modules/agent/run/exec/`. **Done (queue
 slice)** = built and tested in `src/modules/agent/run/{queue,lease}.ts` and
 `src/app/api/queues/agent/`. Nothing is sequenced to **slice 4** or to the **queue slice** any
@@ -177,7 +180,7 @@ Other §11.2 clauses:
 | …per-call audit "of hashes only" | in memory, plus an optional sink. Slice 2 persists the run's hashes in the operational tables — `ops.agent_run.prompt_hash` per turn, `ops.agent_tool_call.args_hash` per call, with results holding codes rather than text — but nothing writes `ops.audit_event` yet | Partial | the audit-event writer (B-12/B-16) |
 | `vendorAttestation` required in PHI mode | enforced; **no deployment may select PHI** (no BAA — ARCHITECTURE risk 3, ADR-000 #4) | Partial | AWS/Bedrock step |
 | Rate limits | per gateway instance, in memory. Slice 2 adds the loop's step budget, counted from the **persisted** calls (`maxCallsPerRun`), so a resumed run does not get a fresh allowance the way the in-memory counter would | Partial | per-site/day budget + ADR-000 #11 spend alert |
-| Live vendor call | `providers/remote.ts` is a typed placeholder that fails closed with no key (VERI-5); no HTTP body, no retries, no timeouts, no token/cost accounting. `ops.agent_run.tokens_in/out` stay NULL for the same reason | **Sequenced — the live-provider slice**, which is B-08's last | ADR-000 #4/#12 (Claude Sonnet via OpenRouter, `zdr:true`). It is sequenced after slice 4 (now landed) for a plain reason: a live call is the only item here that spends money and leaves the building, and it should be the last thing switched on, not the first |
+| Live vendor call | `providers/remote.ts` is a typed placeholder that fails closed with no key (VERI-5); no HTTP body, no retries, no timeouts, no token/cost accounting. `ops.agent_run.tokens_in/out` stay NULL for the same reason | **Sequenced — the live-provider slice** | ADR-000 #4/#12 (Claude Sonnet via OpenRouter, `zdr:true`). It is sequenced after slice 4 (now landed) for a plain reason: a live call is the only item here that spends money and leaves the building, and it should be the last thing switched on, not the first |
 
 ## §18.3 acceptance tests
 
@@ -202,15 +205,17 @@ Other §11.2 clauses:
 ## What the queue slice did **not** bring
 
 The lease is done and so is the route; these four are the queue slice's own honest remainder, each
-with the milestone that owns it. None of them is a half-built mechanism — each is a *caller*, a
-*source*, or a hand-off that another module's rule puts somewhere else.
+with the slice or milestone that owns it. None of them is a half-built mechanism — each is a
+*caller*, a *source*, or a hand-off that another module's rule puts somewhere else. The last two —
+the timer → queue hand-off and the agent-side sweeper — are **B-08 slice 7**'s, by the founder's
+2026-10-16 decision (ledger row 67).
 
 | Not built in the queue slice | Why, and where it lands |
 |---|---|
 | The production **context assembler** — so `/api/queues/agent` acks every delivery instead of driving a run (`run/deps.ts` `agentRunner()`, named reason in the log) | Four of `RunDeps`' five parts exist; `assemble` needs `TierFacts` from the tier sources (B-02's approved profile, B-07's tokenizer, B-04's threads) and a `PolicyContext` whose scope comes from the session the trigger arrived on — **VERI-3**, the §11.1 "Run scope" and tier rows above, all already Partial. A standin is worse than no runner: a scope this process invented for itself is the one cross-tenant write the family-scope post-validator cannot see, a guessed `sendableSubjects` is a consent decision nobody made, and a guessed `paused` is the kill switch answered by the runtime instead of by a person. Fail shut, by name, as everywhere else in this module. When the sources land, `agentRunner()` returns deps and the route does not change |
 | The **publishers**: nothing calls `enqueueRun`, so topic `ppec-agent` is empty in production | The five §11.1 trigger callers, which is the first row of the §11.1 table and has not moved: the B-04 inbound webhook, the operational-rules handoff, the 5-minute overdue sweep and the hourly/EOD reconciliation each belong to their own milestone. `enqueueRun` is the seam each of them calls, and it is tested end to end against the consumer |
-| The **timer → queue hand-off**: when an await deadline fires, `agentResumeHandler` moves the run WAITING_TOOL → QUEUED and publishes nothing, so nothing delivers it | Deliberate, and it is ADR-001/ADR-003's rule rather than an omission: a B-03 handler is DB-only and runs inside the job's claim transaction with no after-commit hook to publish from (`Handler`, `jobs/runner.ts`) — the same reason every message goes through the outbox instead of being sent from a handler. The handler's job is to make the run *drivable*; delivering a QUEUED run is the sweeper's, in the row below. (Giving B-03 handlers an after-commit seam is the other way to close it, and that is a change to B-03, not to B-08) |
-| An **agent-side sweeper**: a run left QUEUED — by a fired deadline, by a publish that failed, or RUNNING by a driver whose redeliveries ran out at MAX_DELIVERIES — is not picked up by anything on a schedule | B-03's every-minute sweep covers `ops.job`, not `ops.agent_run`, and the recovery that *is* built is the queue's: a redelivery after the visibility timeout reclaims an expired claim. A failed publish throws so the caller's own retry re-publishes onto the same (idempotent) run, which is the honest answer for the callers that exist — none. A periodic sweep over `agent_run_resume_idx` (which 0007 added for exactly this) is the shape, and it wants an owner: it is **sequenced to the live-provider slice**, where a run that can really spend money is also the first run worth re-driving on a schedule |
+| The **timer → queue hand-off**: when an await deadline fires, `agentResumeHandler` moves the run WAITING_TOOL → QUEUED and publishes nothing, so nothing delivers it | **Sequenced to B-08 slice 7** (founder decision, 2026-10-16, ledger row 67), with the sweeper below. Not building it in the queue slice was ADR-001/ADR-003's rule rather than an omission: a B-03 handler is DB-only and runs inside the job's claim transaction with no after-commit hook to publish from (`Handler`, `jobs/runner.ts`) — the same reason every message goes through the outbox instead of being sent from a handler. The handler's job is to make the run *drivable*; delivering a QUEUED run is the sweeper's, in the row below. Which of the two ways slice 7 closes it is still open and is ours to pick: the sweeper delivers QUEUED runs, or B-03 handlers get an after-commit seam — and that second one is a change to B-03, not to B-08 |
+| An **agent-side sweeper**: a run left QUEUED — by a fired deadline, by a publish that failed, or RUNNING by a driver whose redeliveries ran out at MAX_DELIVERIES — is not picked up by anything on a schedule | **Sequenced to B-08 slice 7** (founder decision, 2026-10-16, ledger row 67), together with the hand-off above, because the two are halves of one gap: one makes runs QUEUED, the other is what would deliver them. B-03's every-minute sweep covers `ops.job`, not `ops.agent_run`, and the recovery that *is* built is the queue's: a redelivery after the visibility timeout reclaims an expired claim — which only helps a run that was published at least once. A failed publish throws so the caller's own retry re-publishes onto the same (idempotent) run, which is the honest answer for the callers that exist — none. A periodic sweep over `agent_run_resume_idx` (which 0007 added for exactly this) is the shape. This **replaces its earlier placement in the live-provider slice**, which reasoned that a run able to spend money is the first worth re-driving on a schedule: that is the wrong coupling — the live call needs no sweep, and the recovery of a run nobody delivers should not wait on the slice that leaves the building |
 
 ---
 
@@ -313,5 +318,6 @@ the topic, and the consumer acks rather than drives, because the §11.1 context 
 built. Both are named in "What the queue slice did not bring" above, and the route's own refusal
 says so in the log rather than in a comment.
 
-Everything else on this page is later work in a **named** slice — migration `0008`, B-12, or the
-live-provider slice that closes B-08 — and none of it is implied by the tests in these five slices.
+Everything else on this page is later work in a **named** slice — migration `0008`, B-12, **slice 7**
+(the agent-side sweeper and the timer → queue hand-off, founder decision 2026-10-16, ledger row 67)
+or the live-provider slice — and none of it is implied by the tests in these five slices.
