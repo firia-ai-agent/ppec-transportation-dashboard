@@ -81,13 +81,16 @@ export const DISPATCHER_RECIPIENT_RULE = "provider_dispatcher";
  * rendered template, so the template allow-list for this audience collapses to the fixed notice:
  * there is no body to render until there is a card to render it on.
  *
- * One consequence of that, named because it is a real edge and not an oversight: `send_followup` is
- * a `send`-effect tool, so the policy engine consent-checks its **subject** before this executor
- * runs (policy.ts step 9) — including for the STAFF audience, where nothing is sent to a family at
- * all. A staff follow-up about a child whose family has opted out is therefore refused, which is
- * stricter than §11.2 requires and fails in the safe direction. Telling staff something about such
- * a family is `escalate_exception`'s job: a `mutate` tool, gated on nobody's consent, and "always
- * allowed".
+ * One consequence of that, named because it is the one place the two layers have to agree:
+ * `send_followup` is a `send`-effect tool, so the policy engine consent-checks its **subject**
+ * before this executor runs (policy.ts step 9) — but *not* for the STAFF audience, where nothing
+ * leaves the building. A staff follow-up about a child whose family has opted out therefore goes
+ * through and writes its task (founder ruling, DECISION-LEDGER #65, 2026-10-16: an opted-out family
+ * is a thing staff may be told about; it is not a family staff may text). The family scope still
+ * binds it to this run's own family, and every audience below that *is* a message stays
+ * consent-checked. The agreement this rests on is `AUDIENCE_RULES.STAFF` being `staff_task`: the
+ * day STAFF becomes a real channel (Teams, B-12) it becomes an egress path, and the exemption on
+ * the policy row has to come off with it.
  */
 type AudienceRule =
   | {
