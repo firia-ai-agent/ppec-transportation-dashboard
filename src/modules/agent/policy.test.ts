@@ -57,6 +57,13 @@ const SEND = {
   template_id: "leg.canceled",
   vars: { legDate: "2026-10-16", reasonCode: "FAMILY_REQUEST" },
 };
+/** The same tool, pointed at the center's own board: a staff notice about one of this family's legs. */
+const STAFF_NOTICE = {
+  audience: "STAFF",
+  subject_token: "L-C1-AM",
+  template_id: "generic.notice",
+  vars: {},
+};
 const ESCALATE = {
   severity: "AMBER",
   category: "POLICY_BLOCK",
@@ -343,6 +350,55 @@ describe("§11.2 prohibited: messaging non-consented numbers", () => {
   it("still allows a state change for that family — consent gates egress, not the record", () => {
     const d = evaluate({ tool: "cancel_attendance_or_leg", args: CANCEL }, ctx({ sendableSubjects: new Set() }));
     expect(d.verdict).toBe("ALLOW");
+  });
+
+  it("a STAFF task about that opted-out family goes through (founder ruling, ledger #65)", () => {
+    // 2026-10-16: an opted-out family is a family staff may be *told about*. The STAFF audience is
+    // not a message — it writes the GREEN `ops.task` row a coordinator reads and queues nothing
+    // (exec/followup.ts `staffNotice`) — so there is no number here for consent to protect, and
+    // refusing it only meant nobody heard about the family whose consent state is the very reason
+    // to look. The context is the strictest one there is: nothing in this site is sendable.
+    const d = evaluate({ tool: "send_followup", args: STAFF_NOTICE }, ctx({ sendableSubjects: new Set() }));
+    expect(d).toMatchObject({ verdict: "ALLOW", effect: "send", args: STAFF_NOTICE });
+    // Still in scope, though: a staff notice may name this run's own family and nothing else.
+    expect(
+      evaluate({ tool: "send_followup", args: { ...STAFF_NOTICE, subject_token: "C2" } }, ctx({ sendableSubjects: new Set() })),
+    ).toMatchObject({ verdict: "BLOCK", rule: "cross_family_disclosure" });
+    // `decisionSends` still counts this as a send, deliberately: the policy layer classifies by
+    // effect, and the audience → "not a message" step is the executor's. Over-counting keeps the
+    // attack suite's send sink conservative (attacks.test.ts VERI-2).
+  });
+
+  it("every message to that same family is still blocked, whatever shape it takes", () => {
+    const optedOut = ctx({ sendableSubjects: new Set() });
+    const CLARIFY = {
+      thread_id: "TH-F1",
+      ambiguity_type: "WHICH_CHILD",
+      candidate_tokens: ["C1"],
+      draft_template_id: "generic.notice",
+    };
+    for (const [label, tool, args] of [
+      // The decision copy that goes back to the guardian who asked…
+      ["a templated confirmation", "send_followup", SEND],
+      // …and the notice copy that fans out to every authorized contact. *Which* guardian either
+      // reaches is resolved downstream from `ops.contact_authorization` and never appears in a tool
+      // argument (§10.3, exec/followup.ts `resolveGuardian`), so refusing the subject refuses the
+      // family's every contact — there is no per-guardian call for this gate to miss.
+      ["a fixed notice", "send_followup", { ...SEND, template_id: "generic.notice", vars: {} }],
+      // The other tool that reaches them: an outbound into the family's own thread.
+      ["a clarification into their thread", "request_clarification", CLARIFY],
+      // The STAFF exemption is one exact value of one declared argument (`PolicyRow.staffAudience`).
+      // An audience the model bent into shape is not the center's board.
+      ["a near-miss audience", "send_followup", { ...SEND, audience: "staff" }],
+      ["an audience with a trailing space", "send_followup", { ...SEND, audience: "STAFF " }],
+      // Free text to the same family is held by the same gate, before the approval gate it would
+      // otherwise reach: free-text-approval.test.ts asserts it against a catalog that has such a
+      // tool, approval and all ("an approved free-text send is still blocked by no live consent").
+    ] as const) {
+      const d = evaluate({ tool, args: args as Record<string, unknown> }, optedOut);
+      expect(d, label).toMatchObject({ verdict: "BLOCK", rule: "non_consented_number" });
+      expect(decisionSends(d), label).toBe(false);
+    }
   });
 });
 
