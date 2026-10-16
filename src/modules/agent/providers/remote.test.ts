@@ -18,13 +18,19 @@
  *     thrown stack — TEST-SEC-01 on the path that actually leaves the building.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, loadAgentConfig } from "../config";
+import {
+  AgentConfigError,
+  DEMO_DATA_ONLY_ENV_VAR,
+  DEMO_DATA_ONLY_REQUIRED_VALUE,
+  loadAgentConfig,
+} from "../config";
 import { createGateway } from "../gateway";
 import { wrapUntrusted } from "../policy";
 import { sha256Hex } from "../redact";
 import { TOOL_NAMES, toolDeclarations } from "../tools";
 import {
   RATE_LIMITED,
+  RemoteEndpointRefused,
   RemoteProviderNotEnabled,
   RemoteProviderUnavailable,
   modelChain,
@@ -473,5 +479,40 @@ describe("the live provider behind the real gateway", () => {
     await gateway.complete({ runId: "RUN-TOOLS", prompt: PROMPT });
     const names = bodyOf(0).tools.map((t: { function: { name: string } }) => t.function.name);
     expect(names).toEqual([...TOOL_NAMES]);
+  });
+});
+
+/* ───────────────── 6. the endpoint allow-list, re-checked where it is used ───────────────── */
+
+describe("endpoint allow-list on the outbound path", () => {
+  it("refuses an endpoint off the allow-list, without calling fetch", async () => {
+    // The gateway checks this too. It is checked again here because this adapter is the only
+    // thing in the module that leaves the building, and a caller can hold it directly.
+    const provider = remoteProvider(DEMO, KEY_ENV);
+    await expect(provider.invoke(call({ endpoint: "/api/v1/responses" }))).rejects.toThrow(RemoteEndpointRefused);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["/api/v1/files", "/v1/batches", "/api/v1/code-exec", "/v1/web_search", "/v1/fine-tuning/jobs"])(
+    "refuses the excluded family %s even if it were somehow allow-listed",
+    async (endpoint) => {
+      // `loadAgentConfig` refuses to parse such an allow-list at all — asserted here, because it
+      // is the stronger guarantee — so the object is built past the schema to reach the second
+      // check: the one that re-tests the excluded families rather than the configured list.
+      expect(() =>
+        loadAgentConfig({ [DEMO_DATA_ONLY_ENV_VAR]: DEMO_DATA_ONLY_REQUIRED_VALUE }, { endpointAllowList: [endpoint] }),
+      ).toThrow(AgentConfigError);
+
+      const cfg = { ...DEMO, endpointAllowList: [endpoint] as [string, ...string[]] };
+      const provider = remoteProvider(cfg, KEY_ENV);
+      await expect(provider.invoke(call({ endpoint }))).rejects.toThrow(RemoteEndpointRefused);
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows the one completion endpoint the agent needs", async () => {
+    fetchMock.mockResolvedValue(vendorToolCall("get_leg_state", { leg_id: "L-C1-AM" }));
+    await remoteProvider(DEMO, KEY_ENV).invoke(call({ endpoint: DEMO.endpointAllowList[0] }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

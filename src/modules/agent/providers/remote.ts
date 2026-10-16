@@ -30,7 +30,7 @@
  * config plus `vendorAttestation`; nothing in this file names a vendor, a model or a host.
  */
 import type { AgentConfig } from "../config";
-import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE } from "../config";
+import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, forbiddenEndpointReason } from "../config";
 import { keywordResponse } from "./keyword";
 import {
   type LlmProvider,
@@ -41,6 +41,9 @@ import {
 
 /** The provider is not usable in this environment: no demo-data confirmation, or no key. */
 export class RemoteProviderNotEnabled extends ProviderError {}
+
+/** The call named an endpoint this deployment may not POST to (PRD §11.2 allow-list). */
+export class RemoteEndpointRefused extends ProviderError {}
 
 /** Every vendor attempt failed *and* the keyword fallback was switched off. */
 export class RemoteProviderUnavailable extends ProviderError {}
@@ -149,6 +152,15 @@ export function remoteProvider(
       // to be true when the object was made.
       const perCall = liveCallRefusalReason(config, env);
       if (perCall) throw new RemoteProviderNotEnabled(perCall);
+
+      // The gateway already checked this, and checks it again here because *this* file is the one
+      // that leaves the building: a caller holding the adapter directly must not be able to POST
+      // to an endpoint the §11.2 allow-list excludes. Belt and braces on the only outbound path.
+      if (!config.endpointAllowList.includes(call.endpoint)) {
+        throw new RemoteEndpointRefused(`endpoint ${call.endpoint} is not on the configured allow-list`);
+      }
+      const forbidden = forbiddenEndpointReason(call.endpoint);
+      if (forbidden) throw new RemoteEndpointRefused(`endpoint ${call.endpoint} refused: ${forbidden}`);
 
       const theseAttempts: RemoteAttempt[] = [];
       for (const model of modelChain(config)) {
