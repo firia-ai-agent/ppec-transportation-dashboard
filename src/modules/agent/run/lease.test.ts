@@ -24,6 +24,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
 import { SITE, freshDb } from "@/test/pglite";
+import { loadAgentConfig } from "../config";
 import { toolCall } from "../providers/fake";
 import {
   AGENT_RUN_LEASE_SECONDS,
@@ -42,7 +43,8 @@ import { loadRun, runActor, startRun, toolCalls } from "./store";
 import type { Trigger } from "./triggers";
 
 const TRIGGER: Trigger = { type: "msg.inbound", id: "MSG-1", siteId: SITE };
-const ROUTING = { model: "anthropic/claude-sonnet", provider: "openrouter" };
+/** Routing as the row records it. Both values come from config — see no-hardcoded-models.test.ts. */
+const ROUTING = { model: loadAgentConfig({}).model, provider: loadAgentConfig({}).provider };
 /** A second tenant, for the fence. Same string the other run-loop suites use. */
 const OTHER_SITE = "00000000-0000-7000-8000-0000000000ff";
 

@@ -80,7 +80,9 @@ Locks respected (not reopened): POC on Vercel + Neon, AWS later (ledger row 3); 
 | 2A.7 | Haiku (`anthropic/claude-haiku-5.5`, ZDR on Bedrock/Vertex) was checked at 15:28 and dropped by the founder at 15:29; kept here only as a fallback note if a ZDR-capable cheap test model is ever needed | Verified | https://openrouter.ai/api/v1/endpoints/zdr |
 
 ### 2.5 PROPOSED request config for Rudy
-**Status: Proposed.** It implements locked rows 4 and 14 (`zdr:true` for the live Sonnet model) without changing them, plus the founder's 15:29 ET test-model decision.
+**Status: Proposed, and partly Superseded by §2.5A below.** It implements locked rows 4 and 14 (`zdr:true` for the live Sonnet model) without changing them, plus the founder's 15:29 ET test-model decision.
+
+> **Superseded 2026-10-15 (founder).** The **Live (Sonnet)** block and the **production start-up guard** in this section are kept as reference for the later switch to a HIPAA-compliant endpoint and are **not built** in B-08 slice 5. What slice 5 built instead is §2.5A: model ids from config only, and the fail-shut demo-data guard. The **Test** block below is what ships — `allow_fallbacks:false` and `require_parameters:true` on every request, no `zdr`/`only` pinning for the free endpoints. The outbound-body test survives in the shape §2.5A describes: it matches the config allow-list rather than a slug written into the test.
 
 Model ID comes from env: `OPENROUTER_MODEL` (Vercel env per row 20). Exactly two values are allowed.
 
@@ -116,6 +118,37 @@ Model ID comes from env: `OPENROUTER_MODEL` (Vercel env per row 20). Exactly two
 - **Outbound-body test:** for every request, if model is Sonnet then `provider.zdr === true` and `allow_fallbacks === false`; the single exception allowed without `zdr` is exactly `google/gemma-4-31b-it:free` (with `allow_fallbacks === false`); **any other model without `zdr:true` fails the test.** Switching to a backup is a deliberate PR that updates the allow-list.
 - Account side (Firia): turn on ZDR for the **Anthropic** group only and keep prompt logging off. **Don't** turn on the Google group (it blocks Gemma free) or All other models (blocks the Nvidia backups) unless tests move off them. The free-model "may train" setting must be allowed for the test model to route. If a single account setting can't satisfy both, **Proposed:** rely on per-request `provider.zdr:true` for Sonnet (it ORs with account settings), and use two API keys with separate guardrails: a prod key whose guardrail enforces ZDR for all groups, and a preview/local key without it.
 - On 404 or no endpoints, treat it as a hard failure and show the agent as unavailable or hand off to staff. **Never retry without `zdr`** for Sonnet.
+
+**Decided by founder 2026-10-15 07:21 ET (group chat):** the live agent uses a free OpenRouter model for now, on demo data only, and moves to a HIPAA-compliant endpoint later. The model ID lives in config. This replaces the "live model stays Sonnet + ZDR" requirement. The §2.5 Sonnet "Live" block and its production start-up guard are now **Superseded** (kept as reference for the later switch). Model pick, OK'd by Firia 2026-10-15: `google/gemma-4-31b-it:free`, with `nvidia/nemotron-3-super-120b-a12b:free` as backup.
+
+### 2.5A Demo-data-only guard (replaces the Sonnet + ZDR production guard)
+**Status: Proposed.** No ledger row changes.
+
+- **Model from config only.** `OPENROUTER_MODEL` comes from config/env and must be on a config allow-list (Gemma free, Nemotron backup). Test: fails if any model slug is hard-coded anywhere in `src/` outside that config.
+- **Fail-shut demo mode.** The agent refuses to start or make any model call unless an explicit demo-only flag is set (e.g. `AGENT_DATA_MODE=demo`). Tests: set boots; missing refuses; empty or any other value refuses.
+- **Why the guard matters.** None of the free endpoints offer ZDR, and some log or train on prompts (§2A.2, §2A.6). OpenRouter has no BAA. So the guard is the only thing keeping real family data out.
+- **Later switch.** Moving to the compliant endpoint means changing config and removing demo mode, and it's gated on a signed BAA. Which endpoint to use is still undecided (Unverified/open).
+- Every request keeps `allow_fallbacks:false` and `require_parameters:true`. Keep the keyword fallback for rate limits, and keep the outbound-body test's allow-list matching the config allow-list.
+- Account side: leave OpenRouter's **Google** ZDR toggle off while testing on Gemma, because it blocks Gemma free (§2A.4).
+
+### 2.5B As built in B-08 slice 5 (Status: Built)
+§2.5A above is the founder's note, verbatim. This subsection records what the code actually does, because two of the names in it had to change and anyone following the note needs to know which to use.
+
+**Env var names — two deliberate deviations from §2.5A.**
+
+| §2.5A says | Code uses | Why |
+|---|---|---|
+| `OPENROUTER_MODEL` | `AGENT_MODEL`, plus `AGENT_BACKUP_MODEL` and `AGENT_MODEL_ALLOW_LIST` | `src/modules/agent/config.ts` already owned the `AGENT_*` prefix for every knob in the seam; a second prefix for one field would have put the model somewhere a deployment review wouldn't look. The backup needed a name of its own once the fallback chain became primary → backup → keyword. |
+| `AGENT_DATA_MODE=demo` | `AGENT_DEMO_DATA_ONLY=true` | **`AGENT_DATA_MODE` already exists** on that module with different semantics — `SYNTHETIC` \| `PHI`, the switch that makes `vendorAttestation` mandatory in the gateway (PRD §11.2). Adding a third value `demo` would have made one var answer two unrelated questions: what the gateway must demand of the vendor, and whether the operator has confirmed this deployment holds only demo data. They are now two vars with two jobs, and a test pins that each keeps its own meaning. |
+
+- **Required value is exact.** `AGENT_DEMO_DATA_ONLY` must be exactly `true`. Missing, empty, `" true "`, `TRUE`, `True`, `1`, `yes`, `false`, `0` and `demo` all leave the guard shut, because every looser rule (truthiness, case-insensitive compare, "any non-empty value") turns a stray character or a leftover `=0` into permission to call a vendor that may log prompts.
+- **Fail shut, and before anything else.** `providers/remote.ts` refuses with `RemoteProviderNotEnabled` *before* it reads the key, builds a body or constructs a URL — a deployment with a working key and no demo confirmation is the dangerous one, so the refusal names only the demo setting. Re-checked on every `invoke()`, not just at wiring time. Tests assert `fetch` was never called on each refusal path.
+- **Model ids.** `MODEL_PRIMARY` = `google/gemma-4-31b-it:free`, `MODEL_BACKUP` = `nvidia/nemotron-3-super-120b-a12b:free`, both in `config.ts` and nowhere else; `modelAllowList` refuses anything else at config time. `no-hardcoded-models.test.ts` scans every `.ts`/`.tsx` under `src/` — production and tests alike — and fails on a model name or id, with three exclusions: `config.ts`, its test, and the scanner itself.
+- **Fallback chain.** Primary → backup on a 429 *or any other failure* → the PRD §18.1 keyword parser (`providers/keyword.ts`). A free endpoint has more ways to fail than a rate limit, so a 500, a 401, a network error, a malformed envelope, a non-JSON body and the adapter's own timeout (`AGENT_REQUEST_TIMEOUT_MS`, default 20 s) all behave the same way. The keyword parser emits only `escalate_exception` — it classifies ABSENT/SICK/YES/READY/STOP into a staff triage item and never guesses a cancellation or an acknowledgment.
+- **ZDR block.** Sent only when `AGENT_MODEL_ZDR` is on, so the demo deployment sets `AGENT_MODEL_ZDR=0`: the free endpoints have no ZDR to offer and OpenRouter's Google toggle blocks Gemma free outright (§2A.4). `allow_fallbacks:false` and `require_parameters:true` are on **every** request regardless.
+- **Outbound-body test**, in the §2.5A shape: it asserts each request's `model` is one `modelAllowList` admits, rather than comparing against a slug written into the test. Switching models is still a deliberate PR — it moves `AGENT_MODEL` and `AGENT_MODEL_ALLOW_LIST` together, and the config refuses to parse if they disagree.
+- **Not built, by instruction (§2.5, Superseded).** The Sonnet + ZDR production start-up guard — the `VERCEL_ENV === "production"` refusal — is documented only. It belongs to the later HIPAA-compliant endpoint, which is gated on a signed BAA and whose endpoint choice is still open (Unverified #2/#5 below). Nothing in slice 5 reads `VERCEL_ENV`.
+- **Still open after slice 5.** No token or cost accounting (`ops.agent_run.tokens_in/out` stay NULL), and no retry on a transient failure beyond the one backup attempt — a 429 degrades to keyword rather than backing off and retrying. Both are named on `docs/agent/B08-SLICE1-DEFERRED.md`.
 
 ---
 

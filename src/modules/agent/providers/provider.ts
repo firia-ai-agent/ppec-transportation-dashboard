@@ -35,7 +35,8 @@ export type ProviderResponseBody = {
   readonly finish_reason?: string;
 };
 
-export type ProviderKind = "fake" | "recorded" | "remote";
+/** `keyword` is the PRD §18.1 degraded mode (providers/keyword.ts), not a vendor. */
+export type ProviderKind = "fake" | "recorded" | "remote" | "keyword";
 
 export interface LlmProvider {
   readonly kind: ProviderKind;
