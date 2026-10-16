@@ -233,10 +233,9 @@ describe("copy from the review", () => {
   });
 
   it("every unbuilt page says what it will do, in one plain sentence", () => {
-    expect(unbuilt.today).toBe(
-      "The live board will show every ride, where each van is, and what needs attention.",
-    );
-    for (const body of [unbuilt.today, unbuilt.exceptions, unbuilt.setup, unbuilt.health]) {
+    // Today is not among them: the board is built, so there is no sentence promising it.
+    expect(unbuilt).not.toHaveProperty("today");
+    for (const body of [unbuilt.exceptions, unbuilt.setup, unbuilt.health]) {
       expect(body.endsWith("."), body).toBe(true);
       // One sentence: no full stop before the last character.
       expect(body.slice(0, -1).includes("."), body).toBe(false);

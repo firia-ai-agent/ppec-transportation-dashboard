@@ -1,0 +1,485 @@
+/*
+ * SURF-01 board + SURF-02 drawer (DESIGN-DIRECTION §4.1, §4.2).
+ *
+ * Every colour, size and space is a custom property emitted from src/ui/tokens.ts: this file
+ * must never hold a literal (src/ui/no-hex.test.ts holds that line). Density 7 on the console
+ * (§1 dials): 48 px minimum rows, two lines maximum, no decoration.
+ */
+
+.page {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  /* Room under the sticky drawer footer at narrow widths, where the drawer is a full sheet. */
+  padding-bottom: var(--space-8);
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--text-24);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.date {
+  font-size: var(--body-console);
+  color: var(--color-ink-muted);
+}
+
+.dateLabel {
+  font-size: var(--text-12);
+  text-transform: none;
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+
+/* §9: ≥44 px console targets, 8 px apart. */
+.toggle {
+  min-height: var(--target-console);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.toggle[aria-checked="true"] {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--color-surface);
+}
+
+.searchEcho,
+.showing,
+.hint {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.empty {
+  padding: var(--space-6) 0;
+  color: var(--color-ink-muted);
+}
+
+/*
+ * §10: no horizontal scroll, and §4.1: no truncation hiding a child. Both at once means the
+ * columns are given their widths rather than discovered: a cell with more words in it wraps
+ * inside its own column instead of pushing the source chip off the right-hand edge.
+ */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-neutral-bg);
+  border-radius: var(--radius-md);
+  table-layout: fixed;
+}
+
+/*
+ * The widths are the §3 labels' own widths, measured rather than guessed: a chip that reads
+ * "Vehicle check pending" or "No adult on file to receive" takes two lines at 12 px in about
+ * 140 px, and a column narrower than that spends a third line on one word. Two lines is the
+ * §4.1 cap; three is where a dense board stops being one.
+ */
+.colChild {
+  width: 8%;
+}
+
+.colRide {
+  width: 4%;
+}
+
+.colState {
+  width: 14%;
+}
+
+.colVan {
+  width: 12%;
+}
+
+.colLocation {
+  width: 15%;
+}
+
+.colEta {
+  width: 11%;
+}
+
+.colReceiver {
+  width: 13%;
+}
+
+/* The step is a sentence, so it gets the width to be one rather than six stacked words. */
+.colNextStep {
+  width: 14%;
+}
+
+.colSource {
+  width: 9%;
+}
+
+/*
+ * A chip is written to sit on one line (src/ui/StateChip.module.css), which is right in a
+ * header and wrong in a fixed column: "Stale · 9 min · ETA texts paused" would run over the
+ * next cell rather than take a second line. Nothing is hidden and nothing is shortened —
+ * §4.1's rule is no truncation, not one line.
+ */
+.cellChip {
+  white-space: normal;
+}
+
+/* Below 1280 the last three columns leave the row for the drawer, so the rest share the width. */
+@media (max-width: 1279px) {
+  .colChild {
+    width: 14%;
+  }
+
+  .colRide {
+    width: 6%;
+  }
+
+  .colState {
+    width: 22%;
+  }
+
+  .colVan {
+    width: 20%;
+  }
+
+  .colLocation {
+    width: 23%;
+  }
+
+  .colEta {
+    width: 15%;
+  }
+
+  /* Their cells are gone, so their columns must be too, or the board keeps a third of its
+     width for three columns nobody can see. */
+  .colReceiver,
+  .colNextStep,
+  .colSource {
+    width: 0;
+  }
+}
+
+.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink-muted);
+  background: var(--color-bg);
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+/* §4.1: sticky group headers, under the column headers. */
+.groupHeader {
+  position: sticky;
+  top: var(--space-7);
+  z-index: 1;
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink);
+  background: var(--color-neutral-bg);
+}
+
+.row {
+  border-top: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.row td,
+.row th {
+  /* 4 px above and below: the cells are chips, which carry their own padding already. */
+  padding: var(--space-2) var(--space-3);
+  /* §4.1: 48 px minimum row. */
+  height: var(--space-8);
+  vertical-align: top;
+  text-align: left;
+  font-weight: var(--weight-regular);
+  font-size: var(--body-console);
+}
+
+.row:hover {
+  background: var(--color-bg);
+}
+
+.childCell {
+  white-space: nowrap;
+}
+
+.openRow {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-console);
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--color-brand);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  text-align: left;
+}
+
+.direction {
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.van {
+  display: inline-flex;
+  align-items: center;
+  /* 4 px: the chips beside the van's name carry their own padding, so 8 px reads as a gap. */
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.vanName {
+  font-weight: var(--weight-medium);
+}
+
+.muted,
+.caption {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+/*
+ * The next step, on a row and in the drawer's ride card. A sentence that opens with a verb, so
+ * it reads as the instruction it is rather than as another fact about the ride.
+ */
+.nextStep {
+  font-weight: var(--weight-medium);
+  color: var(--color-ink);
+}
+
+.nextStep[data-step="NOTHING"] {
+  font-weight: var(--weight-regular);
+  color: var(--color-ink-muted);
+}
+
+.arriving {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* §3: a delta is an arrow, words and a sign; the tone is the third cue, never the only one. */
+.delta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-medium);
+  color: var(--color-ink-muted);
+}
+
+.delta[data-late="true"] {
+  color: var(--color-warn-fg);
+}
+
+.receiver {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+}
+
+/* The session's chip and, under it, the time and the therapist — who is named, not "a therapist". */
+.therapy {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+}
+
+.receiverLine[data-missing="true"] {
+  color: var(--color-crit-fg);
+  font-weight: var(--weight-medium);
+}
+
+/* §4.1: below 1280 the receiver, the owner and the source chip leave the row for the drawer. */
+@media (max-width: 1279px) {
+  .hideNarrow {
+    display: none;
+  }
+}
+
+/* ───────────────────────────── SURF-02 drawer (§4.2) ───────────────────────────── */
+
+.drawer {
+  position: fixed;
+  top: var(--layout-demo-banner-height);
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  /* §4.2: 480 px right drawer; a full-screen sheet below 768. */
+  width: 480px;
+  max-width: 100vw;
+  background: var(--color-surface);
+  border-left: var(--border-hairline) solid var(--color-border-strong);
+}
+
+@media (max-width: 767px) {
+  .drawer {
+    width: 100vw;
+    left: 0;
+  }
+}
+
+.drawerHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.drawerTitle {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--text-20);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.drawerClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--target-console);
+  min-height: var(--target-console);
+  background: none;
+  border: 0;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.drawerBody {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--space-5);
+  display: grid;
+  gap: var(--space-6);
+}
+
+.section {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+
+.sectionHeading {
+  margin: 0;
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+
+.rideCards {
+  display: grid;
+  gap: var(--space-4);
+  width: 100%;
+}
+
+.rideCard {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  padding: var(--space-4);
+  border: var(--border-hairline) solid var(--color-neutral-bg);
+  border-radius: var(--radius-md);
+}
+
+.rideCardTitle {
+  font-weight: var(--weight-medium);
+}
+
+.needs {
+  display: grid;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.need {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* PRD VEH-01: an unapproved item is greyed and says it is not used for allocation. */
+.need[data-approved="false"] .needName {
+  color: var(--color-ink-muted);
+}
+
+.needName {
+  font-weight: var(--weight-medium);
+}
+
+.drawerFooter {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+  padding: var(--space-5);
+  border-top: var(--border-hairline) solid var(--color-neutral-bg);
+  background: var(--color-surface);
+}
+
+.primary {
+  min-height: var(--target-console);
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-brand);
+  color: var(--color-surface);
+  border: 0;
+  border-radius: var(--radius-md);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.primary:disabled {
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral-fg);
+  cursor: not-allowed;
+}
+
+.secondary {
+  min-height: var(--target-console);
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.secondary:disabled {
+  color: var(--color-ink-muted);
+  cursor: not-allowed;
+}
+
+/* §4.2 / §9: the reason is text beside the button, never a tooltip alone. */
+.blockedReason {
+  font-size: var(--body-console);
+  color: var(--color-crit-fg);
+}
