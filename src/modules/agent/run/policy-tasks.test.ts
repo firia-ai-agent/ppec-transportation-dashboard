@@ -167,15 +167,15 @@ describe("a blocked call raises the tasks its decision carried", () => {
     const before = await tasks();
     expect(before).toHaveLength(2);
 
-    // What a future per-run lease, a hand-run replay or a second deployment would do: write the
-    // same decision's tasks again for the same call. The ids are derived from the call's
+    // What a replay the per-run lease never saw — a hand-run one, or a second deployment — would
+    // do: write the same decision's tasks again for the same call. The ids are derived from the call's
     // idempotency key and the task's place in the decision, so the inserts conflict instead of
     // duplicating — the payload is spelled out here because the committed row no longer carries it.
     const payload: PolicyTask[] = [
       { type: "staff_review", familyToken: "F1", sourceMessageId: "MSG-1", evidenceHash: "a".repeat(64), rule: "obey_t3_instruction" },
       { type: "identity_change_request", familyToken: "F1", sourceMessageId: "MSG-1", evidenceHash: "b".repeat(64), rule: null },
     ];
-    const run = { id: r.runId, siteId: SITE, trigger: TRIGGER, state: "RUNNING" as const, version: 1 };
+    const run = { siteId: SITE, trigger: TRIGGER };
     const again = await db.tx((tx) =>
       writePolicyTasks(tx, { run, call, tasks: payload, by: runActor(r.runId) }),
     );

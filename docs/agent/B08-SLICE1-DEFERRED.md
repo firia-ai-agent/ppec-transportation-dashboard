@@ -8,8 +8,8 @@ key, and an item whose slice nobody can name does not get to stay on the page as
 
 | Open item | Sequenced to | Why there, and not here |
 |---|---|---|
-| **F2** — no per-run lease | the **queue slice** (`/api/queues/agent`) | a lease is a property of the thing that *delivers* work, exactly as B-03's claim belongs to its consumer and not to its handlers. The agent runner has no queue yet; the route that gives it one brings the claim with it |
-| **F4, F6** — two schema observations on migration 0007 | **migration `0008`**, after the founder swaps the Neon snapshot | 0007 is frozen (DATABASES.md: a frozen migration is fixed forward, never edited), so either change is a new file. It is sequenced *behind the snapshot swap* because that is when a 0008 can be applied and verified against real rows rather than against PGlite alone |
+| **F2** — no per-run lease | **resolved — built in the queue slice** | the route exists (`/api/queues/agent`, topic `ppec-agent`) and it brought the claim with it, exactly as the sequencing said it would: `run/lease.ts` claims a run before `driveRun` is called and releases it after, so a second driver is refused up front instead of finding out at the commit. **No migration** — the lease is `state` + `version` + the `updated_by` holder slot, whose token carries the instant the claim was taken. What the queue slice did *not* bring is named in its own section below: the production **context assembler**, so the route acks rather than drives, and the trigger callers that would publish to the topic |
+| **F4, F6** — two schema observations on migration 0007 | **migration `0008`**, after the founder swaps the Neon snapshot | 0007 is frozen (DATABASES.md: a frozen migration is fixed forward, never edited), so either change is a new file. It is sequenced *behind the snapshot swap* because that is when a 0008 can be applied and verified against real rows rather than against PGlite alone. It is **no longer F2's co-tenant**: the lease wanted columns and did not get them, and works without them |
 | **F9** — no approval *decision* surface — and the approval screen itself | **B-12** | the rows a human decides from (`ops.change_request`, `ops.approval_request`, both carrying `approval_key`) are built here; the screen that signs one is the staff UI's, and so is the Teams card beside it |
 | the **five missing executors** (`notify_affected_therapist`, `request_provider_capability`, `record_capability_report`, `report_boarding`, `summarize_thread_for_staff`), **two-guardian send** fan-out, **`STAFF` / `PROVIDER_DISPATCHER`** sends, and the **no-reply escalation timer** | **resolved — built in slice 4** | all five executors are live (`registry.liveExecutors`; `SEQUENCED_EXECUTORS` is now empty), the fan-out and both audiences are `exec/followup.ts`, and §11.2's "no reply → escalate" is a second B-03 deadline with no model turn in it (`exec/escalate.ts`). What slice 4 did *not* bring is named in its own section below: a dispatcher link **page** and the signer that mints its token |
 | `close_task` on a task that is still **OPEN** | **resolved — nothing left to sequence** | founder decision, 2026-10-15: **no new state transition.** §6.3 is unchanged; the tool *refuses*, with the named reason code `TASK_NOT_CLOSABLE_OPEN` and the staff-readable sentence `ui/copy.ts agentRefusals.closeTaskOpen`, and leaves the row exactly as it found it. Built and tested on this branch (`exec/staff.ts`, `exec/staff.test.ts`) |
@@ -50,6 +50,30 @@ still fails shut, and `unaccountedTools` still makes the sixteenth tool a delibe
 Slice 4 adds **no migration**: nothing it builds needed a column that migration 0007 does not
 already have.
 
+The **queue slice** (commits "B-08 queue slice — …") makes the run a **job that something
+delivers**, which is the §11.1 row "the run is not yet a *queue* job" and the home F2's lease was
+sequenced to. Three files and a route:
+
+* `run/queue.ts` — the topic (`ppec-agent`), the payload (`{ runId, siteId }`, so the tenant is the
+  publisher's word and the claim is fenced on it), `enqueueRun` (= `startRun` + one publish keyed
+  `agent:run:<runId>`) and `handleAgentWake` (parse → claim → drive → release). Every refusal is a
+  no-op and an ack; only a drive that threw propagates, because that is the one case a redelivery
+  helps. The delivery knobs are pinned against the lease: lease (150 s) > the route's `maxDuration`
+  (120 s), and the visibility timeout (300 s) and the retry delay (the lease) > the lease.
+* `run/lease.ts` — the claim. `SELECT … FOR UPDATE` → re-check → compare-and-set in one
+  transaction, the same shape as B-03's `claimForWake`, with **no schema change**: `state` decides
+  what is claimable, `version` fences the claim, and `updated_by` is the holder slot, holding a
+  token that carries the instant the claim was taken so no later write can renew it by accident.
+  There is no heartbeat, unlike B-03's 2 s lease, because this one outlives the invocation — the
+  platform kills a wedged driver before its claim can expire.
+* `run/deps.ts` — the honest part: what the route would drive a run *with*, and why it has none.
+* `/api/queues/agent` — the consumer, its `queue-callback` auth row and its `vercel.json` trigger.
+
+The queue slice adds **no migration** either, and this was the file where one looked most likely:
+`ops.agent_run` has no `claimed_by`/`claimed_until`, and the lease was built from the columns it
+already has rather than opening a 0008 for them. The columns a `0008` would add are still the
+tidier shape and are *not* sequenced to it — the lease does not need them.
+
 This file is the honest other half of all three: every part of B-08's PRD scope — **§11.1
 Invocation and context** (PRD l.924), **§11.2 Tool catalog** (l.926–993) and **§18.3 acceptance
 tests** (l.1333) — that is still to come, so nothing in any of the diffs can be mistaken for a
@@ -57,11 +81,13 @@ claim about it. Rows marked **Done (slice 2)** or **Done (slice 3)** below were 
 earlier version of this page and are now built and tested; everything else is still outstanding —
 and outstanding here means **sequenced**, per the table above.
 
-Status key: **Sequenced (queue slice / 0008 / B-12 / live-provider slice)** = not built, owned by
-that slice, and a condition of B-08 closing. **Partial** = the mechanism exists, the wiring does
-not; the column beside it names who finishes it. **Done (slice 2)** = built and tested in
-`src/modules/agent/run/`. **Done (slice 3 / slice 4)** = built and tested in
-`src/modules/agent/run/exec/`. Nothing is sequenced to **slice 4** any more: it has landed.
+Status key: **Sequenced (0008 / B-12 / live-provider slice)** = not built, owned by that slice, and
+a condition of B-08 closing. **Partial** = the mechanism exists, the wiring does not; the column
+beside it names who finishes it. **Done (slice 2)** = built and tested in `src/modules/agent/run/`.
+**Done (slice 3 / slice 4)** = built and tested in `src/modules/agent/run/exec/`. **Done (queue
+slice)** = built and tested in `src/modules/agent/run/{queue,lease}.ts` and
+`src/app/api/queues/agent/`. Nothing is sequenced to **slice 4** or to the **queue slice** any
+more: both have landed, and what each left behind is named rather than carried.
 
 **Founder decision, 2026-10-15:** the approval policy is narrowed back to the **PRD §11.2 tiers**.
 Slice 1 held *every* send behind a human approval, which was tighter than §11.2 and is no longer
@@ -81,7 +107,7 @@ unchanged, and the staff approval surface is the B-12 row below (F9).
 | PRD text | Where it stands after slice 3 | Status | What is left, and with whom |
 |---|---|---|---|
 | Triggers: `msg.inbound`, operational event (rules first), timer/deadline, overdue sweeper (5 min), ETA threshold (deterministic → template), reconciliation (hourly/EOD) | the five trigger types that start a run are `run/triggers.ts`, with the rule that a trigger id is the id of the thing that happened; `startAndDriveRun(trigger)` is the entry point. ETA threshold is deliberately **not** a type: §11.1 marks it "deterministic → template", so it renders copy without a model turn | Partial | the five *callers*: the B-04 inbound webhook, the operational-rules handoff, the 5-minute overdue sweep and the hourly/EOD reconciliation cron each belong to their own milestone. Only the `timer.deadline` caller exists (an agent timer re-triggering its own run) |
-| Each run = job with idempotency `(trigger_type, trigger_id)` | `startRun` inserts `ON CONFLICT (trigger_type, trigger_id) DO NOTHING` and returns the run that already exists; concurrent duplicate starts collapse onto one row (tested five-way). Every entry point into the loop is fenced on the site: a run of another tenant is refused rather than driven (F3) | **Done (slice 2–3)** | the run is not yet a *queue* job: `/api/queues/agent` and its per-run claim are the next slice. Until then a double driver is bounded by the `(run_id, seq)` index and the per-call idempotency key, not by a lease — **Veri F2**, owner: the queue route |
+| Each run = job with idempotency `(trigger_type, trigger_id)` | `startRun` inserts `ON CONFLICT (trigger_type, trigger_id) DO NOTHING` and returns the run that already exists; concurrent duplicate starts collapse onto one row (tested five-way). Every entry point into the loop is fenced on the site: a run of another tenant is refused rather than driven (F3). The run is now also a **queue** job: `enqueueRun` publishes one wake-up per run to topic `ppec-agent`, `/api/queues/agent` consumes it, and the **per-run lease** (`run/lease.ts`, F2) claims the run before `driveRun` is called — so two drivers on one run are refused up front rather than bounded after the fact, an expired claim is reclaimed by the next delivery, and the claim is released on park, success and failure | **Done (slices 2–3, queue slice)** | the two ends of the queue, both outside this slice: nothing **publishes** (the five §11.1 trigger callers are B-04 and the cron milestones, row below) and the consumer does not yet **drive**, because production has no context assembler (`run/deps.ts`) — so in production the topic is empty and a delivery would ack with that named reason |
 | Tool calls persisted **before** execution | `persistCall` commits the row — args fingerprint, redaction-safe args, policy decision, `status='PENDING'`, idempotency key — in its own transaction before any executor runs; the executor's own probe asserts it sees that row PENDING and uncommitted. `status` and `idempotency_key` are migration 0007 | **Done (slice 2)** | — |
 | Resumes from last committed result | `driveRun` settles any call interrupted between its persist and its commit, re-driving it with the original key and **the stricter of its original decision and the one the current context gives it** (`tightenOnResume`, Veri F1: a pause or a withdrawn consent that landed during the outage refuses the step; a persisted BLOCK is never loosened), then continues from the committed results. Tested at three crash points × three steps, asserting exactly one effect per key. The sink-side half is real for every live tool: an outbound goes out under the call's key (`ops.outbound_message.idempotency_key`), every row an executor writes has an id derived from that key (`exec/effects.effectId`, inserted `ON CONFLICT (id) DO NOTHING`), and every state change is a version-guarded `transition()`. A re-driven cancel finds its own `ops.attendance_exception` receipt and answers with the state it left rather than attempting a second write | **Done (slices 2–4)** | — every tool with an effect now keys it on the call's idempotency key: the therapist ack row, the dispatcher link, the staff note and the no-reply escalation task are all `effectId(key, …)` with `ON CONFLICT (id) DO NOTHING`, and every state change is a version-guarded `transition()` |
 | Delayed external responses are tasks with timers, never waiting sessions | an executor returning `awaitExternal` commits the call, raises an `ops.task` row, schedules a B-03 `agent.run.resume` timer and parks the run `WAITING_TOOL` — one transaction. The timer's handler is DB-only and re-triggers the run; the resume takes the next turn from the committed result. Slice 4 adds the **second** deadline beside it: `agent.await.escalate` fires a minute past the first, reads the one row that would show an answer (the thread, the ack, the vehicle-day) and raises the exception with **no model turn** if there is none — because the resumed run is the thing that may not happen (a refusal, an exhausted budget, a paused agent). Three real users now: a clarification, a therapist ack and a capability request | **Done (slices 2–4)** | — |
@@ -173,12 +199,28 @@ Other §11.2 clauses:
 
 ---
 
+## What the queue slice did **not** bring
+
+The lease is done and so is the route; these four are the queue slice's own honest remainder, each
+with the milestone that owns it. None of them is a half-built mechanism — each is a *caller*, a
+*source*, or a hand-off that another module's rule puts somewhere else.
+
+| Not built in the queue slice | Why, and where it lands |
+|---|---|
+| The production **context assembler** — so `/api/queues/agent` acks every delivery instead of driving a run (`run/deps.ts` `agentRunner()`, named reason in the log) | Four of `RunDeps`' five parts exist; `assemble` needs `TierFacts` from the tier sources (B-02's approved profile, B-07's tokenizer, B-04's threads) and a `PolicyContext` whose scope comes from the session the trigger arrived on — **VERI-3**, the §11.1 "Run scope" and tier rows above, all already Partial. A standin is worse than no runner: a scope this process invented for itself is the one cross-tenant write the family-scope post-validator cannot see, a guessed `sendableSubjects` is a consent decision nobody made, and a guessed `paused` is the kill switch answered by the runtime instead of by a person. Fail shut, by name, as everywhere else in this module. When the sources land, `agentRunner()` returns deps and the route does not change |
+| The **publishers**: nothing calls `enqueueRun`, so topic `ppec-agent` is empty in production | The five §11.1 trigger callers, which is the first row of the §11.1 table and has not moved: the B-04 inbound webhook, the operational-rules handoff, the 5-minute overdue sweep and the hourly/EOD reconciliation each belong to their own milestone. `enqueueRun` is the seam each of them calls, and it is tested end to end against the consumer |
+| The **timer → queue hand-off**: when an await deadline fires, `agentResumeHandler` moves the run WAITING_TOOL → QUEUED and publishes nothing, so nothing delivers it | Deliberate, and it is ADR-001/ADR-003's rule rather than an omission: a B-03 handler is DB-only and runs inside the job's claim transaction with no after-commit hook to publish from (`Handler`, `jobs/runner.ts`) — the same reason every message goes through the outbox instead of being sent from a handler. The handler's job is to make the run *drivable*; delivering a QUEUED run is the sweeper's, in the row below. (Giving B-03 handlers an after-commit seam is the other way to close it, and that is a change to B-03, not to B-08) |
+| An **agent-side sweeper**: a run left QUEUED — by a fired deadline, by a publish that failed, or RUNNING by a driver whose redeliveries ran out at MAX_DELIVERIES — is not picked up by anything on a schedule | B-03's every-minute sweep covers `ops.job`, not `ops.agent_run`, and the recovery that *is* built is the queue's: a redelivery after the visibility timeout reclaims an expired claim. A failed publish throws so the caller's own retry re-publishes onto the same (idempotent) run, which is the honest answer for the callers that exist — none. A periodic sweep over `agent_run_resume_idx` (which 0007 added for exactly this) is the shape, and it wants an owner: it is **sequenced to the live-provider slice**, where a run that can really spend money is also the first run worth re-driving on a schedule |
+
+---
+
 ## The PR #35 review (Veri), and where each finding stands
 
-Veri reviewed the slice-2 PR. Four findings were about slice 3's own surface and are fixed on this
-branch; four are real and are **not** fixed here, because each belongs to work this slice does not
-own. They are listed with the slice that must land them rather than closed, so "not in the diff" is
-not read as "not a problem" — and none of them is *deferred*: each is a condition of B-08 closing.
+Veri reviewed the slice-2 PR. Four findings were about slice 3's own surface and were fixed on that
+branch; **F2 is now fixed too, by the queue slice it was sequenced to**; the remaining two rows
+belong to work no slice of B-08 owns yet. They are listed with the slice that must land them rather
+than closed, so "not in the diff" is not read as "not a problem" — and none of them is *deferred*:
+each is a condition of B-08 closing.
 
 | # | What it was about | Where it stands |
 |---|---|---|
@@ -186,13 +228,13 @@ not read as "not a problem" — and none of them is *deferred*: each is a condit
 | F3 | the site fence: a run id travels on a job payload or an HTTP route, and nothing downstream of it asked whose tenant it was | **Fixed** (`run/timers.ts` `AND site_id = $3`; `driveRun(runId, { siteId })`; `scope.siteToken` checked against the run's site before the model turn and before a resumed step settles) |
 | F7 | the free-text phrase detector had no tests of its own — it was reached only through `evaluate`, on three examples | **Fixed** (`policy.freeTextShape` exported; `policy.test.ts`, both directions plus the bound it honestly has) |
 | F10 | staff-visible task copy still written inline in two places | **Fixed** (`agentWaits`, `timerDeadTask` and the shared `agentTaskLocator` in `src/ui/copy.ts`) |
-| F2 | **no per-run lease.** Two drivers on one run are bounded by the `(run_id, seq)` unique index and the per-call idempotency key, not by a claim, so the worst case is wasted model turns rather than duplicated effects — but it *is* a worst case, and `driveRun` says so in its own docstring rather than pretending | **Open — sequenced to the queue slice (`/api/queues/agent`), and a condition of B-08 closing.** The lease is that route's, for the same reason B-03's claim belongs to its consumer and not to its handlers: a lease is a property of the thing that delivers work, and the agent runner has no queue yet. It is the §11.1 row above ("the run is not yet a *queue* job") |
-| F4, F6 | two schema observations on **migration 0007** | **Open.** 0007 is **frozen** — it has reached a shared branch, and DATABASES.md's rule is that a frozen migration is never edited, only fixed forward. Either change is therefore a new `drizzle/0008_*.sql`, and slice 3 adds no migration at all: nothing in the executors needs a schema change, and a 0008 opened to carry two fixes that no feature is waiting on is a production migration nobody asked for. **Sequenced to migration `0008`, which opens once the founder has swapped the Neon snapshot** — that is when a new migration can be applied and verified against real rows instead of against PGlite alone. F2's lease is the likely co-tenant of that file, since a claim wants columns |
+| F2 | **no per-run lease.** Two drivers on one run were bounded by the `(run_id, seq)` unique index and the per-call idempotency key, not by a claim, so the worst case was wasted model turns rather than duplicated effects — but it *was* a worst case, and `driveRun` said so in its own docstring rather than pretending | **Fixed in the queue slice** (`run/lease.ts`, `run/queue.ts`, `/api/queues/agent`; `lease.test.ts`). `driveRunLeased` claims the run, hands the claim token to the loop as `DriveOpts.actor` and releases it; a second driver is refused `leased` before it takes a turn, an expired claim is reclaimed, the claim is released on park / success / failure, and the loop re-checks the holder before every turn so a driver that was reclaimed mid-drive stops instead of spending another turn. Site-fenced at the claim, the release and the drive. **No schema change**: `state` + `version` + the `updated_by` holder slot, whose token carries the claim's instant. The residual is named in the module: a driver that is alive but wedged *past* the lease can be reclaimed, and in that window the pre-lease bounds are still what keep effects once — which is the same statement B-03 makes about its own 2 s lease |
+| F4, F6 | two schema observations on **migration 0007** | **Open.** 0007 is **frozen** — it has reached a shared branch, and DATABASES.md's rule is that a frozen migration is never edited, only fixed forward. Either change is therefore a new `drizzle/0008_*.sql`, and slice 3 adds no migration at all: nothing in the executors needs a schema change, and a 0008 opened to carry two fixes that no feature is waiting on is a production migration nobody asked for. **Sequenced to migration `0008`, which opens once the founder has swapped the Neon snapshot** — that is when a new migration can be applied and verified against real rows instead of against PGlite alone. F2's lease was expected to be the co-tenant of that file, since a claim wants columns — it is **not**: the queue slice built the lease on the columns `ops.agent_run` already has, so 0008 carries only F4 and F6 and no feature is waiting on it |
 | F9 | **no approval surface.** The rows a human would decide from exist (`ops.change_request`, `ops.approval_request`, both carrying `approval_key` = the call's `args_hash`), and nothing produces a *decision*: `ctx.approvedCalls` is empty everywhere but in tests | **Open — sequenced to B-12**, which owns both the approval screen and the Teams card beside it. Nothing in the catalog as it stands needs one — no tool declares free-text copy, so no send is held behind an approval — which is why this is a missing surface rather than a broken path. It is the §11.2 "Human approval itself" row above |
 
 ---
 
-## What slices 1–4 claim
+## What slices 1–4 and the queue slice claim
 
 Slice 1, only this: no agent code can reach a model except through the gateway; no prompt leaves
 with a number, an address or an untokenized name in it; no response is accepted unless it is
@@ -252,6 +294,22 @@ wait has a second deadline behind it that raises the exception with no model in 
 once, and nothing at all when the answer arrived — because the run that would have decided is the
 part that may not happen.
 
-Everything else on this page is later work in a **named** slice — the queue slice, migration
-`0008`, B-12, or the live-provider slice that closes B-08 — and none of it is implied by the tests
-in these four slices.
+The queue slice adds only this. A run is delivered rather than driven by whoever happened to
+receive the trigger: one trigger makes one run and one wake-up, however many times either is
+delivered, and the thing that drives it is a queue consumer with a **claim** in front of it. Two
+drivers on one run no longer both drive it — the second is refused before it takes a model turn, by
+name, and the loop stops the moment the row it is driving stops being stamped with its own claim.
+A claim that has run out is reclaimable, and one that has not is not. A claim is released when the
+drive ends — on a park, a success or a failure — so the next delivery waits for nothing it does not
+have to. None of it crosses a tenant: the site is on the payload, the claim is fenced on it, and a
+run belonging to anyone else is refused without being read into. And none of it needed a column:
+the lease is the run row's own `state`, `version` and `updated_by`, so migration 0007 is still
+frozen and 0008 is still empty.
+
+What the queue slice does **not** claim is that any of this runs in production: nothing publishes to
+the topic, and the consumer acks rather than drives, because the §11.1 context assembler is not
+built. Both are named in "What the queue slice did not bring" above, and the route's own refusal
+says so in the log rather than in a comment.
+
+Everything else on this page is later work in a **named** slice — migration `0008`, B-12, or the
+live-provider slice that closes B-08 — and none of it is implied by the tests in these five slices.

@@ -50,9 +50,11 @@ export const TERMINAL_RUN_STATES: ReadonlySet<RunState> = new Set<RunState>([
  * `UPDATE … WHERE id = $1 AND state = $from`, 0 rows meaning someone else moved it first.
  *
  *  QUEUED       → RUNNING                     a driver claims it
- *  RUNNING      → RUNNING                     a crashed run is re-claimed by the next driver; safe
- *                                             because the (run_id, seq) index and the per-call
- *                                             idempotency key, not a lease, are what bound effects
+ *  RUNNING      → RUNNING                     a crashed run is re-claimed by the next driver, gated
+ *                                             by the per-run lease (run/lease.ts: only once the
+ *                                             dead driver's claim has run out), while the
+ *                                             (run_id, seq) index and the per-call idempotency key
+ *                                             remain what bound its *effects*
  *  RUNNING      → WAITING_TOOL                a delayed external response became a task + a timer
  *  WAITING_TOOL → QUEUED                      the timer fired (timers.ts `agentResumeHandler`)
  *  *            → SUCCEEDED | FAILED          the loop finished or fail-shut
@@ -79,6 +81,20 @@ export type RunRow = {
   readonly trigger: Trigger;
   readonly state: RunState;
   readonly version: number;
+  /**
+   * `ops.agent_run.updated_by` — who last wrote this row, and the **lease's holder slot**
+   * (`run/lease.ts`, F2). While a driver holds the per-run lease this is its claim token, and the
+   * loop stamps that same token on every write *it* makes to the row, so a value that is not this
+   * driver's means somebody else is driving. With no lease it is `runActor(id)`, which is also what
+   * a release puts back: a token here is the whole difference between "claimed" and "free".
+   */
+  readonly updatedBy: string;
+  /**
+   * `ops.agent_run.updated_at` — when that write happened, the database's clock. Deliberately
+   * *not* what a lease expires from: the token in `updatedBy` carries its own claim instant, so
+   * that an ordinary write to this row cannot renew a claim (run/lease.ts).
+   */
+  readonly updatedAt: Date;
 };
 
 export type ToolCallRow = {
@@ -97,14 +113,17 @@ export type ToolCallRow = {
   readonly committedAt: Date | null;
 };
 
-type RunDbRow = { id: string; site_id: string; trigger_type: string; trigger_id: string; state: RunState; version: number };
+type RunDbRow = {
+  id: string; site_id: string; trigger_type: string; trigger_id: string; state: RunState; version: number;
+  updated_by: string; updated_at: Date | string;
+};
 type CallDbRow = {
   id: string; run_id: string; seq: number; tool: string; args_hash: string; args: Record<string, unknown>;
   policy_decision: string; status: CallStatus; idempotency_key: string;
   result: Record<string, unknown> | null; committed_at: Date | string | null;
 };
 
-const RUN_COLUMNS = "id, site_id, trigger_type, trigger_id, state, version";
+const RUN_COLUMNS = "id, site_id, trigger_type, trigger_id, state, version, updated_by, updated_at";
 const CALL_COLUMNS = "id, run_id, seq, tool, args_hash, args, policy_decision, status, idempotency_key, result, committed_at";
 
 const toRun = (r: RunDbRow): RunRow => ({
@@ -113,6 +132,8 @@ const toRun = (r: RunDbRow): RunRow => ({
   trigger: { type: r.trigger_type as TriggerType, id: r.trigger_id, siteId: r.site_id },
   state: r.state,
   version: r.version,
+  updatedBy: r.updated_by,
+  updatedAt: new Date(r.updated_at),
 });
 
 const toCall = (r: CallDbRow): ToolCallRow => ({
@@ -203,11 +224,18 @@ export async function setRunState(db: Exec, runId: string, from: RunState, to: R
   return r.rows.length === 1;
 }
 
-/** The prompt hash of the model turn just taken. Hash only — §11.2 keeps no prompt text anywhere. */
-export async function recordPromptHash(db: Exec, runId: string, promptHash: string): Promise<void> {
+/**
+ * The prompt hash of the model turn just taken. Hash only — §11.2 keeps no prompt text anywhere.
+ *
+ * `by` is the actor the driver stamps on the run row, and it defaults to this run's own. It is a
+ * parameter because of the lease (`run/lease.ts`): `updated_by` is the holder slot, so a driver
+ * that writes a turn must re-state its claim token rather than overwrite it with a generic actor
+ * and silently free the run it is still driving.
+ */
+export async function recordPromptHash(db: Exec, runId: string, promptHash: string, by = runActor(runId)): Promise<void> {
   await db.query(
     `UPDATE ops.agent_run SET prompt_hash = $2, updated_at = now(), updated_by = $3 WHERE id = $1`,
-    [runId, promptHash, runActor(runId)],
+    [runId, promptHash, by],
   );
 }
 

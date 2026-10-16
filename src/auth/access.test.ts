@@ -281,6 +281,7 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/api/demo/reset": "session:DIRECTOR",
       "/api/queues/timer": "queue-callback",
       "/api/queues/outbox": "queue-callback",
+      "/api/queues/agent": "queue-callback",
       "/api/queues/delay-probe": "queue-callback",
       "/api/webhooks/sms": "signature-webhook",
       "/api/sim/phones/[number]/messages": "session:DIRECTOR+COORDINATOR",

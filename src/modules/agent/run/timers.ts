@@ -16,9 +16,17 @@
  * The handler is deliberately tiny. A B-03 handler is DB-only (ADR-001/ADR-003: external effects
  * go through the outbox) and runs inside the job's claim transaction, while a run step needs its
  * own transaction per tool call (that is the whole of persist-before-execute). So the handler does
- * the one DB-only thing that re-triggers a run — move it WAITING_TOOL → QUEUED — and the agent
- * runner picks it up (`resumeQueuedRuns`, loop.ts). Wiring that runner to its own queue route
- * (`/api/queues/agent`, ARCHITECTURE §2) is a later slice; nothing about the protocol changes.
+ * the one DB-only thing that re-triggers a run — move it WAITING_TOOL → QUEUED — and a driver picks
+ * it up (`resumeQueuedRuns`, loop.ts; `driveRunLeased` under a claim, lease.ts).
+ *
+ * The queue slice built that driver (`/api/queues/agent`) and deliberately did **not** wire this
+ * handler to it: publishing a wake-up is an external effect, and a B-03 handler may not have one —
+ * it runs inside the job's claim transaction and has no after-commit hook to publish from
+ * (`Handler` in jobs/runner.ts), which is the same rule that sends every message through the
+ * outbox. So a fired deadline leaves the run QUEUED and visible, and what delivers it is the thing
+ * that delivers any QUEUED run: a periodic sweep of `agent_run_resume_idx`, which is named as not
+ * built in docs/agent/B08-SLICE1-DEFERRED.md ("What the queue slice did not bring"). Nothing about
+ * the protocol changes either way — the handler's job is to make the run drivable, not to drive it.
  */
 import { z } from "zod";
 import type { Exec } from "@/db/exec";
@@ -136,7 +144,11 @@ export async function parkRunOnTimer(
     ? await armEscalation(tx, afterCommit, scheduler, { ...args, taskId, by })
     : null;
 
-  const parked = await setRunState(tx, args.run.id, "RUNNING", "WAITING_TOOL", by);
+  // The run row's own writes carry the driver's actor (`DriveOpts.actor` — the lease's claim token
+  // when the queue route is driving, `runActor` otherwise), while the task and the jobs beside it
+  // are the run's and carry `by`. Parking is also how a lease ends on the §11.1 wait: the row
+  // leaves RUNNING, so the claim it was holding is no longer a claim on anything (run/lease.ts).
+  const parked = await setRunState(tx, args.run.id, "RUNNING", "WAITING_TOOL", args.run.updatedBy);
   if (!parked) throw new Error(`run ${args.run.id} was not RUNNING; refusing to park it on a timer`);
 
   return {

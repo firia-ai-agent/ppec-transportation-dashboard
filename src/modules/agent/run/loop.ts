@@ -106,6 +106,18 @@ export type DriveOpts = {
    * suites that drive a run they just started do.
    */
   readonly siteId?: string;
+  /**
+   * What this driver stamps on `ops.agent_run.updated_by` — its own identity, defaulting to the
+   * run's (`runActor`). The per-run lease passes its claim token here (`run/lease.ts`, F2), which
+   * is what makes the lease hold *across* a drive: `updated_by` is the holder slot, so every write
+   * the loop makes to the run row re-states the claim instead of standing it down, and a row that
+   * comes back stamped with somebody else's actor means this driver has been taken over — checked
+   * before each turn, so a reclaimed run costs at most the turn in flight.
+   *
+   * Only the **run row** is stamped with it. The tool-call rows keep `runActor(runId)`: a call
+   * belongs to the run, not to whichever process happened to settle it.
+   */
+  readonly actor?: string;
 };
 
 /** How one step ended. `continue` is the only outcome that takes another model turn. */
@@ -137,11 +149,17 @@ export async function startAndDriveRun(deps: RunDeps, trigger: Trigger): Promise
  * Drive one run to its next stopping point: finished, parked on a timer, or stopped fail-shut.
  *
  * Safe to call on a run that is already finished (no-op), already waiting on a timer (no-op — the
- * timer is what re-triggers it), or interrupted mid-step (resume). Not safe to call twice
- * concurrently on the same run and not claimed to be: what bounds a double driver is the
- * (run_id, seq) unique index and the per-call idempotency key, so the worst case is wasted model
- * turns rather than duplicated effects. A per-run lease — the equivalent of the B-03 job claim —
- * belongs with the agent queue route, which is a later slice.
+ * timer is what re-triggers it), or interrupted mid-step (resume).
+ *
+ * **Two drivers on one run are kept apart by the per-run lease, not by this function** (F2,
+ * `run/lease.ts`). The lease is the queue route's, for the same reason B-03's claim belongs to its
+ * consumer and not to its handlers: `driveRunLeased` claims the run, hands the claim token down as
+ * `opts.actor`, and releases it. Reached that way, a second driver is refused before it takes a
+ * turn, and this loop re-checks the claim before every turn so a reclaim ends the drive it lost.
+ * Called **without** a lease — the in-process callers and the suites, which drive a run they just
+ * started — what bounds a double driver is what always did: the `(run_id, seq)` unique index and
+ * the per-call idempotency key, so the worst case there is a wasted model turn and never a second
+ * effect.
  *
  * `opts.siteId` is the tenant fence: a run of another site is refused, with no state touched. The
  * refusal is a throw rather than a `RunResult` because it is not an outcome of *that run* — the run
@@ -165,12 +183,16 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
     // forbids, one function call later.
     return { runId, created: false, state: loaded.state, steps: 0, reason: "run is parked on a timer" };
   }
-  const claimed = await setRunState(deps.db, runId, loaded.state, "RUNNING", runActor(runId));
+  // The actor every write to *this row* carries from here on, the lease's claim token included.
+  // Stamped first by the claim below, which is why a run re-queued by its timer handler (whose own
+  // actor is `system:job:…`) is this driver's from its first turn rather than looking taken over.
+  const actor = opts.actor ?? runActor(runId);
+  const claimed = await setRunState(deps.db, runId, loaded.state, "RUNNING", actor);
   if (!claimed) {
     const fresh = await loadRun(deps.db, runId);
     return { runId, created: false, state: fresh?.state ?? loaded.state, steps: 0, reason: "run moved on before this driver claimed it" };
   }
-  const run: RunRow = { ...loaded, state: "RUNNING" };
+  const run: RunRow = { ...loaded, state: "RUNNING", updatedBy: actor };
 
   let steps = 0;
   let calls = await toolCalls(deps.db, runId);
@@ -203,6 +225,13 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
     if (live?.state !== "RUNNING") {
       return { runId, created: false, state: live?.state ?? loaded.state, steps, reason: "run was taken over before the next turn" };
     }
+    // And whose it is, not only what state it is in: the row's actor is the lease's holder slot
+    // (`opts.actor`), so a different one means a reclaiming driver owns the run now. Stop here —
+    // the next turn would be the second driver the lease exists to prevent, and this one has
+    // already lost the right to settle a step (`commitCall` is fenced on PENDING either way).
+    if (live.updatedBy !== actor) {
+      return { runId, created: false, state: live.state, steps, reason: "run was reclaimed by another driver" };
+    }
     const at = clock();
     const committed = committedCalls(calls);
     const assembled = await deps.assemble({ runId, trigger: run.trigger, committed, now: at });
@@ -217,7 +246,7 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
       // row in the gateway's audit log, and nothing was executed. The run stops there.
       return fail(deps, run, `gateway refused the turn: ${message(e)}`, steps);
     }
-    await recordPromptHash(deps.db, runId, turn.promptHash);
+    await recordPromptHash(deps.db, runId, turn.promptHash, actor);
 
     const decision = evaluate(turn.call, assembled.policy);
     const row = await persistCallFor(deps, run, calls.length, turn, decision);
@@ -554,7 +583,9 @@ async function fail(deps: RunDeps, run: RunRow, reason: string, steps: number): 
  * the row actually holds rather than the one this driver intended.
  */
 async function move(deps: RunDeps, run: RunRow, to: RunState, steps: number, reason?: string): Promise<RunResult> {
-  const moved = await setRunState(deps.db, run.id, "RUNNING", to, runActor(run.id));
+  // `run.updatedBy` is this driver's actor (`DriveOpts.actor`), so the run's last write re-states
+  // the claim it was driven under instead of handing the row to a generic one.
+  const moved = await setRunState(deps.db, run.id, "RUNNING", to, run.updatedBy);
   if (moved) return { runId: run.id, created: false, state: to, steps, reason };
   const fresh = await loadRun(deps.db, run.id);
   return {
