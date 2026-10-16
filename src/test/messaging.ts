@@ -3,6 +3,7 @@ import { uuidv7 } from "uuidv7";
 import type { Db } from "@/db/exec";
 import { phoneHmac } from "@/modules/identity/phone";
 import { SIM_PERSONA_NUMBERS, simPersonaLabel } from "@/modules/messaging/sim-numbers";
+import { fixtureValidFrom, TEST_NOW } from "./clock";
 import { ORG, SITE as DEFAULT_SITE } from "./pglite";
 
 export const PEPPER = "syn-test-pepper-0123456789abcdef";
@@ -28,24 +29,33 @@ export async function seedSecondSite(db: Db, siteId: string = SITE_B): Promise<s
 
 export type Persona = { number: string; hmac: string; contactToken: string; familyGroupId: string; childToken: string };
 
-/** One synthetic family: family group, guardian contact keyed by the persona's blind index, child, authorization. */
-export async function seedPersona(db: Db, number: string, opts: { canReceiveUpdates?: boolean; siteId?: string } = {}): Promise<Persona> {
+/**
+ * One synthetic family: family group, guardian contact keyed by the persona's blind index, child,
+ * authorization.
+ *
+ * `now` is the clock the test runs on — the authorization opens a day before it, so a message the
+ * test seeds at that clock is inside the window no matter what the real clock says (see
+ * `src/test/clock.ts`). A suite that runs on the real clock passes it; everything else gets the
+ * pinned `TEST_NOW`.
+ */
+export async function seedPersona(db: Db, number: string, opts: { canReceiveUpdates?: boolean; siteId?: string; now?: Date } = {}): Promise<Persona> {
   const familyGroupId = uuidv7(); const contactToken = uuidv7(); const childToken = uuidv7();
   const hmac = phoneHmac(number, PEPPER);
   const site = opts.siteId ?? DEFAULT_SITE;
+  const validFrom = fixtureValidFrom(opts.now ?? TEST_NOW).toISOString();
   await db.query("INSERT INTO ops.family_group (id,site_id,display_label,created_by,updated_by) VALUES ($1,$2,$3,'test','test')",
     [familyGroupId, site, `${simPersonaLabel(number) ?? "F?"} (Demo)`]);
   await db.query(
     `INSERT INTO identity.guardian_contact (contact_token,site_id,family_group_id,legal_name,phone_hmac,phone_enc,relationship,
        can_receive_updates,valid_from,created_by,updated_by)
-     VALUES ($1,$2,$3,'SYN Guardian',$4,'enc','parent',$5, now() - interval '1 day','test','test')`,
-    [contactToken, site, familyGroupId, hmac, opts.canReceiveUpdates ?? true]);
+     VALUES ($1,$2,$3,'SYN Guardian',$4,'enc','parent',$5,$6,'test','test')`,
+    [contactToken, site, familyGroupId, hmac, opts.canReceiveUpdates ?? true, validFrom]);
   await db.query("INSERT INTO ops.child_profile (child_token,site_id,family_group_id,display_name,created_by,updated_by) VALUES ($1,$2,$3,'Syn C.','test','test')",
     [childToken, site, familyGroupId]);
   await db.query(
     `INSERT INTO ops.contact_authorization (id,site_id,contact_token,child_token,scope,channel,valid_from,created_by,updated_by)
-     VALUES ($1,$2,$3,$4,'RECEIVE_TRANSPORT_UPDATES','SMS_1TO1', now() - interval '1 day','test','test')`,
-    [uuidv7(), site, contactToken, childToken]);
+     VALUES ($1,$2,$3,$4,'RECEIVE_TRANSPORT_UPDATES','SMS_1TO1',$5,'test','test')`,
+    [uuidv7(), site, contactToken, childToken, validFrom]);
   return { number, hmac, contactToken, familyGroupId, childToken };
 }
 

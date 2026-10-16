@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { uuidv7 } from "uuidv7";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
+import { fixtureValidFrom } from "@/test/clock";
 import { freshDb, SITE } from "@/test/pglite";
 import { CHILD_TEMPLATES, ChildReferenceRequired, TEMPLATE_VARS, TemplateVarNotAllowed, disallowedVars, drain, enqueue, resolveUnknownByStaff, sweepOutbox, STUCK_SENDING_SECONDS, type DrainDeps, type EnqueueInput } from "./outbox";
 import { dbRecipientAuthorizer } from "./policy";
@@ -25,9 +26,12 @@ beforeEach(async () => {
     VALUES ($1,$2,$3,'SYN Guardian','h','e','parent',true,'t','t')`, [CONTACT, SITE, FAM]);
   await db.query(`INSERT INTO ops.child_profile (child_token,site_id,family_group_id,display_name,created_by,updated_by) VALUES ($1,$2,$3,'Sam S.','t','t')`, [CHILD, SITE, FAM]);
   await db.query(`INSERT INTO ops.trip_leg (id,site_id,child_token,service_date,direction,mode,created_by,updated_by) VALUES ($1,$2,$3,current_date,'AM','CENTER','t','t')`, [LEG, SITE, CHILD]);
+  // A day before this suite's clock, not before the database's: every fixture window is cut from
+  // the clock the test hands the code under test (src/test/clock.ts).
   await db.query(`INSERT INTO ops.contact_authorization (id,site_id,contact_token,child_token,scope,channel,valid_from,created_by,updated_by)
-    VALUES ($1,$2,$3,$4,'RECEIVE_TRANSPORT_UPDATES','SMS_1TO1',now() - interval '1 day','t','t')`, [uuidv7(), SITE, CONTACT, CHILD]);
-  now = new Date(Date.now() + 1000); // after the contact's valid_from
+    VALUES ($1,$2,$3,$4,'RECEIVE_TRANSPORT_UPDATES','SMS_1TO1',$5,'t','t')`,
+    [uuidv7(), SITE, CONTACT, CHILD, fixtureValidFrom(now).toISOString()]);
+  now = new Date(Date.now() + 1000); // the rows this suite reads carry the database clock
 }, 60_000);
 
 // One PGlite per test adds up: close it, or the worker is killed part-way through the file.
@@ -142,7 +146,8 @@ describe("outbox (ADR-003)", () => {
     });
     it("guardianship removed after enqueue (authorization window closed) → BLOCKED_EGRESS, not sent", async () => {
       const { id } = await put();
-      await db.query("UPDATE ops.contact_authorization SET valid_to = now() - interval '1 second' WHERE contact_token = $1", [CONTACT]);
+      await db.query("UPDATE ops.contact_authorization SET valid_to = $2 WHERE contact_token = $1",
+        [CONTACT, new Date(now.getTime() - 1000).toISOString()]);
       expect(await drain(db, id, deps)).toBe("BLOCKED_EGRESS");
       expect((await st(id)).block_reason).toMatch(/not authorized for this child/);
       expect(p.sent.length).toBe(0);
@@ -160,7 +165,8 @@ describe("outbox (ADR-003)", () => {
     beforeEach(async () => {
       await db.query(`INSERT INTO ops.therapist (id,site_id,person_token,display_name,created_by,updated_by) VALUES ($1,$2,$3,'SYN T1','t','t')`, [THER, SITE, PERSON]);
       await db.query(`INSERT INTO ops.therapy_session (id,site_id,therapist_id,child_token,starts_at,ends_at,created_by,updated_by)
-        VALUES ($1,$2,$3,$4,now() + interval '1 hour',now() + interval '2 hours','t','t')`, [SESS, SITE, THER, CHILD]);
+        VALUES ($1,$2,$3,$4,$5,$6,'t','t')`,
+        [SESS, SITE, THER, CHILD, new Date(now.getTime() + 3600_000).toISOString(), new Date(now.getTime() + 2 * 3600_000).toISOString()]);
     });
     it("enqueue rejects child data, a therapySessionId or a trip leg without a child reference", async () => {
       for (const o of [

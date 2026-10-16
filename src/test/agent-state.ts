@@ -4,17 +4,21 @@
  * thread the family texted into and the message that triggers the run. Test-only, like
  * `src/test/messaging.ts`, and built on it so there is one definition of "a synthetic family".
  *
- * Two things here are not conveniences:
+ * Three things here are not conveniences:
  *  - every id is a **real uuid**, because the executors write to uuid columns. The slice-1/2 suites
  *    use fixture tokens ("C1", "L-C1-AM") and keep working; a run that touches state cannot.
  *  - `scope` is built from those ids the way a session would build it (policy.familyScope), never
  *    from a tool argument, so a test that drives the loop is scope-checked exactly like production.
+ *  - every validity window is cut from `receivedAt`, the clock this scenario's message arrives on,
+ *    and never from the database's `now()` — §6.4 reads the window *at the message's arrival time*,
+ *    so a window cut from the real clock stops containing the message the next day (test/clock.ts).
  */
 import { uuidv7 } from "uuidv7";
 import type { Db } from "@/db/exec";
 import { phoneHmac, tokenizeBody } from "@/modules/identity/phone";
 import { type FamilyScope, familyScope } from "@/modules/agent/policy";
 import { serviceDateIso } from "@/ui/service-date";
+import { fixtureValidFrom, TEST_NOW } from "./clock";
 import { F1_NUMBER, PEPPER, seedPersona } from "./messaging";
 import { SITE } from "./pglite";
 
@@ -53,10 +57,11 @@ export type ScenarioOptions = {
 export async function seedAgentScenario(db: Db, opts: ScenarioOptions = {}): Promise<AgentScenario> {
   const siteId = opts.siteId ?? SITE;
   const number = opts.number ?? F1_NUMBER;
-  const receivedAt = opts.receivedAt ?? new Date("2026-10-15T12:00:00.000Z");
+  const receivedAt = opts.receivedAt ?? TEST_NOW;
   const serviceDate = serviceDateIso(receivedAt);
-  const persona = await seedPersona(db, number, { siteId });
+  const persona = await seedPersona(db, number, { siteId, now: receivedAt });
   const children = [persona.childToken];
+  const validFrom = fixtureValidFrom(receivedAt).toISOString();
 
   for (let i = 1; i < (opts.children ?? 1); i += 1) {
     const childToken = uuidv7();
@@ -67,8 +72,8 @@ export async function seedAgentScenario(db: Db, opts: ScenarioOptions = {}): Pro
     );
     await db.query(
       `INSERT INTO ops.contact_authorization (id, site_id, contact_token, child_token, scope, channel, valid_from, created_by, updated_by)
-       VALUES ($1, $2, $3, $4, 'RECEIVE_TRANSPORT_UPDATES', 'SMS_1TO1', now() - interval '1 day', 'test', 'test')`,
-      [uuidv7(), siteId, persona.contactToken, childToken],
+       VALUES ($1, $2, $3, $4, 'RECEIVE_TRANSPORT_UPDATES', 'SMS_1TO1', $5, 'test', 'test')`,
+      [uuidv7(), siteId, persona.contactToken, childToken, validFrom],
     );
     children.push(childToken);
   }
@@ -223,22 +228,26 @@ export async function seedProviderRoute(
   return { providerId, vehicleId, manifestId, capabilityId, dispatcherToken };
 }
 
-/** A second contact authorized for the same child: PRD §10.3's two-guardian case. */
+/**
+ * A second contact authorized for the same child: PRD §10.3's two-guardian case. `now` is the
+ * scenario's `receivedAt`, so this contact's window opens where the family's own does.
+ */
 export async function seedSecondGuardian(
   db: Db,
-  a: { siteId: string; familyGroupId: string; childToken: string; number: string; pepper?: string },
+  a: { siteId: string; familyGroupId: string; childToken: string; number: string; pepper?: string; now?: Date },
 ): Promise<string> {
   const contactToken = uuidv7();
+  const validFrom = fixtureValidFrom(a.now ?? TEST_NOW).toISOString();
   await db.query(
     `INSERT INTO identity.guardian_contact (contact_token,site_id,family_group_id,legal_name,phone_hmac,phone_enc,relationship,
        can_receive_updates,valid_from,created_by,updated_by)
-     VALUES ($1,$2,$3,'SYN Guardian Two',$4,'enc','parent',true, now() - interval '1 day','test','test')`,
-    [contactToken, a.siteId, a.familyGroupId, phoneHmac(a.number, a.pepper ?? PEPPER)],
+     VALUES ($1,$2,$3,'SYN Guardian Two',$4,'enc','parent',true,$5,'test','test')`,
+    [contactToken, a.siteId, a.familyGroupId, phoneHmac(a.number, a.pepper ?? PEPPER), validFrom],
   );
   await db.query(
     `INSERT INTO ops.contact_authorization (id,site_id,contact_token,child_token,scope,channel,valid_from,created_by,updated_by)
-     VALUES ($1,$2,$3,$4,'RECEIVE_TRANSPORT_UPDATES','SMS_1TO1', now() - interval '1 day','test','test')`,
-    [uuidv7(), a.siteId, contactToken, a.childToken],
+     VALUES ($1,$2,$3,$4,'RECEIVE_TRANSPORT_UPDATES','SMS_1TO1',$5,'test','test')`,
+    [uuidv7(), a.siteId, contactToken, a.childToken, validFrom],
   );
   return contactToken;
 }
