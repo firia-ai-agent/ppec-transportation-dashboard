@@ -1,7 +1,9 @@
 name: ci
 # Advisory checks (no branch protection on the free plan; Veri review is the gate, DECISION-LEDGER #24).
-# Actions minutes are exhausted (DECISION-LEDGER #70): one time zone per PR run, both on main,
-# superseded PR runs are cancelled, and docs-only changes skip this workflow entirely.
+# Actions minutes are exhausted (DECISION-LEDGER #70): a pull request runs the static checks only
+# (TZ=UTC, no `pnpm test`) because Veri runs the full suite locally in both time zones at the PR head;
+# a push to main runs the full suite on the UTC + America/New_York matrix. Superseded PR runs are
+# cancelled, and docs-only changes skip this workflow entirely.
 on:
   pull_request:
     paths-ignore:
@@ -23,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # PRs run UTC only; main runs UTC + America/New_York (NY stays required on main).
+        # PRs run UTC only; main runs UTC + America/New_York (both time zones stay required on main).
         tz: ${{ github.event_name == 'pull_request' && fromJSON('["UTC"]') || fromJSON('["UTC", "America/New_York"]') }}
     env:
       TZ: ${{ matrix.tz }}
@@ -39,7 +41,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
-      - run: pnpm test
+      # Full suite on pushes to main only; on a PR, Veri runs it locally in both time zones.
+      - if: github.event_name == 'push'
+        run: pnpm test
       - run: pnpm seed:lint
       - name: drizzle check + schema/migration drift
         run: pnpm db:check
