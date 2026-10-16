@@ -56,6 +56,8 @@ export const KEYWORD_RULES = [
     severity: "INFO",
     category: "ACK_OVERDUE",
     nextStep: "STAFF_REVIEW",
+    /** "not ready" is not a READY. See NEGATORS. */
+    negatable: true,
   },
   {
     code: "YES",
@@ -63,8 +65,31 @@ export const KEYWORD_RULES = [
     severity: "INFO",
     category: "ACK_OVERDUE",
     nextStep: "STAFF_REVIEW",
+    negatable: true,
   },
 ] as const;
+
+/**
+ * Words that flip the two *informational* rules. "not ready", "he isn't here", "no longer waiting"
+ * all match READY on the bare keyword, and reading them as INFO would under-triage a child who is
+ * not where the van expects them.
+ *
+ * Only READY and YES are `negatable`. STOP, ABSENT and SICK are not, deliberately: "don't stop
+ * texting me" is still a message about an opt-out and still belongs in front of a human, and the
+ * failure direction there is the safe one. A negated informational match falls through to the
+ * no-match item, which is AMBER and asks for a staff read — more attention, never less.
+ */
+const NEGATORS = /\b(?:not|isn'?t|aren'?t|wasn'?t|won'?t|wont|cant|can'?t|dont|don'?t|no longer|never|nope|no)\b/i;
+
+/** Is this rule's match preceded closely by a negation? Looks back one short clause, not the page. */
+function negated(text: string, pattern: RegExp): boolean {
+  const hit = pattern.exec(text);
+  if (!hit) return false;
+  const lookback = text.slice(Math.max(0, hit.index - 24), hit.index);
+  // A clause boundary ends the negation's reach: "not today. ready now" is a READY.
+  const clause = lookback.split(/[.!?;,]/).pop() ?? lookback;
+  return NEGATORS.test(clause);
+}
 
 export type KeywordCode = (typeof KEYWORD_RULES)[number]["code"];
 
@@ -116,7 +141,9 @@ export function untrustedBodies(prompt: string): string[] {
 export function classifyKeywords(prompt: string): KeywordMatch {
   const text = untrustedBodies(prompt).join("\n");
   if (text.trim() === "") return NO_MATCH;
-  const hit = KEYWORD_RULES.find((rule) => rule.pattern.test(text));
+  const hit = KEYWORD_RULES.find(
+    (rule) => rule.pattern.test(text) && !("negatable" in rule && rule.negatable && negated(text, rule.pattern)),
+  );
   return hit
     ? { keyword: hit.code, severity: hit.severity, category: hit.category, nextStep: hit.nextStep }
     : NO_MATCH;

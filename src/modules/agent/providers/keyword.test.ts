@@ -158,3 +158,41 @@ describe("keyword parser: it escalates and never acts", () => {
     }
   });
 });
+
+describe("keyword parser: a negated informational match degrades to a staff read", () => {
+  it.each([
+    "not ready",
+    "he isn't ready yet",
+    "she is no longer waiting",
+    "we aren't outside",
+    "nope",
+    "no",
+  ])("does not read %j as an INFO item", (sms) => {
+    // Reading these as READY/YES would under-triage a child who is not where the van expects
+    // them. They fall through to the no-match item instead: AMBER, and a staff read.
+    const match = classifyKeywords(promptWith(sms));
+    expect(match.keyword).not.toBe("READY");
+    expect(match.keyword).not.toBe("YES");
+    expect(match.severity).toBe("AMBER");
+  });
+
+  it("a clause boundary ends the negation's reach", () => {
+    expect(classifyKeywords(promptWith("not today. ready now")).keyword).toBe("READY");
+    expect(classifyKeywords(promptWith("cant talk, yes to the van")).keyword).toBe("YES");
+  });
+
+  it("does not weaken the rules that must not be negatable", () => {
+    // "don't stop texting me" is still about an opt-out and still belongs in front of a human,
+    // and "not sick" is still a message worth a staff read rather than a silent INFO.
+    expect(classifyKeywords(promptWith("dont stop texting me")).keyword).toBe("STOP");
+    expect(classifyKeywords(promptWith("he is not sick, just late")).keyword).toBe("SICK");
+    expect(classifyKeywords(promptWith("not absent today")).keyword).toBe("ABSENT");
+  });
+
+  it("the plain affirmatives still classify", () => {
+    // Guards against the negation check swallowing the happy path.
+    expect(classifyKeywords(promptWith("ready")).keyword).toBe("READY");
+    expect(classifyKeywords(promptWith("yes")).keyword).toBe("YES");
+    expect(classifyKeywords(promptWith("we are waiting outside")).keyword).toBe("READY");
+  });
+});
