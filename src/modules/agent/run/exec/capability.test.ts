@@ -13,8 +13,9 @@ import type { PGlite } from "@electric-sql/pglite";
 import { uuidv7 } from "uuidv7";
 import type { Db } from "@/db/exec";
 import { phoneHmac } from "@/modules/identity/phone";
+import { recipientKind } from "@/modules/outbox/policy";
 import { freshDb } from "@/test/pglite";
-import { PEPPER } from "@/test/messaging";
+import { PEPPER, seedSecondSite } from "@/test/messaging";
 import {
   DISPATCHER_NUMBER,
   type AgentScenario,
@@ -306,6 +307,49 @@ describe("§11.2 the capability question: at T−90, to the dispatcher, state RE
 
     expect(await h.drainOutbox()).toEqual(["BLOCKED_EGRESS"]);
     expect(h.provider.sent).toEqual([]);
+  });
+
+  it("a dispatcher taken off file is blocked at egress, with zero sends", async () => {
+    // Consent is not the only thing that can change between the question being queued and the
+    // send: the identity row *is* the dispatcher's standing to be texted at all, so a person
+    // taken off file is refused by `dbRecipientAuthorizer`'s dispatcher branch — even though the
+    // provider row still names them, which is what keeps `recipientKind` calling them a
+    // dispatcher and the check reachable.
+    sc = await seedAgentScenario(db);
+    await seedRoute();
+    const h = harness([requestCall()], { linkSigner: signer });
+    await h.start(trigger());
+    expect((await outbound()).map((m) => [m.recipient_token, m.state])).toEqual([
+      [route.dispatcherToken, "QUEUED"],
+    ]);
+
+    await db.query("DELETE FROM identity.external_person_identity WHERE person_token = $1", [route.dispatcherToken]);
+    expect(await h.drainOutbox()).toEqual(["BLOCKED_EGRESS"]);
+    expect(h.provider.sent).toEqual([]);
+    const [msg] = await outbound();
+    expect([msg.state, msg.block_reason]).toEqual(["BLOCKED_EGRESS", "recipient not found or other site"]);
+  });
+
+  it("a dispatcher on file at another site is blocked at egress, with zero sends", async () => {
+    // The same check, against the other half of its WHERE clause: a person token that exists in
+    // identity but belongs to another tenant is not this site's dispatcher. The ops row this site
+    // holds is unchanged, so nothing but the site boundary refuses this send.
+    sc = await seedAgentScenario(db);
+    await seedRoute();
+    const h = harness([requestCall()], { linkSigner: signer });
+    await h.start(trigger());
+
+    const otherSite = await seedSecondSite(db);
+    await db.query(
+      "UPDATE identity.external_person_identity SET site_id = $2 WHERE person_token = $1",
+      [route.dispatcherToken, otherSite],
+    );
+    // Still this site's dispatcher as far as ops is concerned: the refusal is identity's.
+    expect(await recipientKind(db, { siteId: sc.siteId, recipientToken: route.dispatcherToken! })).toBe("dispatcher");
+    expect(await h.drainOutbox()).toEqual(["BLOCKED_EGRESS"]);
+    expect(h.provider.sent).toEqual([]);
+    const [msg] = await outbound();
+    expect([msg.state, msg.block_reason]).toEqual(["BLOCKED_EGRESS", "recipient not found or other site"]);
   });
 });
 
