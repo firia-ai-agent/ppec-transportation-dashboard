@@ -100,10 +100,13 @@ export function liveCallRefusalReason(
   env: Record<string, string | undefined>,
 ): string | null {
   if (!config.demoDataOnly) {
+    // One lowercase clause per fact, the house style for every other refusal in this module —
+    // and the reason `src/ui/copy.test.ts` does not read it as user-facing copy. A staff-readable
+    // sentence, if this ever needs one, belongs in `ui/copy.ts` like the rest.
     return (
-      `live model calls are refused: this deployment has not confirmed demo-data-only operation. ` +
-      `Set $${DEMO_DATA_ONLY_ENV_VAR} to exactly "${DEMO_DATA_ONLY_REQUIRED_VALUE}". ` +
-      `The configured endpoint offers no zero-data-retention guarantee and the vendor has no BAA, ` +
+      `live model calls are refused: this deployment has not confirmed demo-data-only operation; ` +
+      `set $${DEMO_DATA_ONLY_ENV_VAR} to exactly "${DEMO_DATA_ONLY_REQUIRED_VALUE}"; ` +
+      `the configured endpoint offers no zero-data-retention guarantee and the vendor has no BAA, ` +
       `so this guard fails shut`
     );
   }
