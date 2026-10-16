@@ -170,6 +170,32 @@ describe("token shape", () => {
       expect(value, `${name} must not reuse the demo violet (D-5)`).not.toBe(color["demo-bg"]);
     }
   });
+
+  /**
+   * D-5, as a rule about *screens* rather than about the palette: the violet appears on two
+   * things, the DEMO bar and the Simulated source chip, and on nothing else. The test above
+   * keeps a second violet out of the token table; this keeps the one violet off a third
+   * element, which is the way the reservation actually gets spent — four header pills in the
+   * src-sim tone beside a bar that already says "DEMO" and a chip that already says
+   * "Simulated", and the colour stops meaning "this is the demo" and starts meaning nothing.
+   *
+   * Read from the stylesheets on purpose: nothing can paint itself violet without naming one
+   * of these three custom properties, and the map's own copy of the token (style.ts, which is
+   * JSON and cannot read a custom property) is held to the same rule by style.test.ts.
+   */
+  it("spends that reservation on two elements: the bar and the chip", () => {
+    const VIOLET_VARS = /--color-(?:demo-bg|demo-fg|src-sim)\b/;
+    const allowed = new Set([
+      path.join(SRC_ROOT, "ui", "DemoBanner.module.css"),
+      path.join(SRC_ROOT, "ui", "SourceBadge.module.css"),
+    ]);
+    const stylesheets = walkSrc().filter((f) => f.endsWith(".css") && !allowed.has(f));
+    expect(stylesheets.length).toBeGreaterThan(10);
+    const offenders = stylesheets.filter((f) =>
+      VIOLET_VARS.test(readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, "")),
+    );
+    expect(offenders.map((f) => path.relative(SRC_ROOT, f))).toEqual([]);
+  });
 });
 
 describe("tokenCss", () => {

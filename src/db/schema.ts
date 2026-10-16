@@ -70,6 +70,12 @@ export const agentRunState = pgEnum("agent_run_state", [
  * (ALLOW → EXECUTED, BLOCK → BLOCKED, PROPOSAL → PROPOSED) and a failed execution are the only
  * ways out of it. A PENDING row found on resume is a call whose effect may or may not have
  * happened, which is what the per-call idempotency key is for.
+ *
+ * Created by 0007, handed to `migrator` by 0008 (F6): 0001's ownership loop only names the 24 enum
+ * types 0000 created, so a type added by a later migration keeps the migrating role as its owner
+ * unless that migration says otherwise. Any migration that adds a type here owes the same
+ * `ALTER TYPE … OWNER TO migrator` — `migrations.test.ts` fails on a `public` enum owned by anyone
+ * else.
  */
 export const agentToolCallStatus = pgEnum("agent_tool_call_status", [
   "PENDING", "EXECUTED", "BLOCKED", "PROPOSED", "FAILED",
@@ -408,6 +414,11 @@ export const agentRun = ops.table("agent_run", {
  * promise — PENDING at persist time, then EXECUTED / BLOCKED / PROPOSED / FAILED — and
  * `idempotency_key` is what every external effect of the call must be keyed on, so a crash
  * between the persist and the effect cannot double-execute on resume (B-08 slice 2, 0007).
+ *
+ * `status`'s `DEFAULT 'PENDING'` is right for a new row and was wrong for the rows 0007 found: a
+ * call that had already committed (`committed_at IS NOT NULL`) got PENDING too, which is the
+ * predicate `pendingCall()` reads to decide a step was interrupted. 0008 backfills those rows from
+ * their own result — `error_code` ⇒ FAILED, otherwise EXECUTED (F4).
  */
 export const agentToolCall = ops.table("agent_tool_call", {
   id: pk(), siteId: siteRef(), runId: uuid("run_id").references(() => agentRun.id, { onDelete: "restrict" }).notNull(), seq: smallint("seq").notNull(), tool: text("tool").notNull(),

@@ -136,13 +136,143 @@ export const screenReader = {
 } as const;
 
 /**
- * SURF-01 Board (Today). There is no data layer yet, so `empty` is not rendered anywhere
- * today — the Today route says it is not built (see `unbuilt`) rather than claim an empty day.
+ * Places every surface names the same way. The centre is named, never addressed: the demo
+ * fixture carries its street, and no screen may print an address (COPY-GUIDE §7).
+ */
+export const places = {
+  center: "PPEC center",
+} as const;
+
+/**
+ * Deltas and windows (COPY-GUIDE l.36). U+2212 for the minus, so "−3 min" lines up with the
+ * digits instead of using a hyphen. `unknown` is what an unusable delta says: a missing or
+ * non-finite shift is not "On time", and it is never printed as "−NaN min".
+ */
+export const etaText = {
+  ahead: "+{n} min",
+  behind: "−{n} min",
+  onTime: "On time",
+  unknown: "Not known yet",
+  /** No window has been worked out for this ride yet. Never read as "no ride". */
+  pending: "Window pending",
+  /** LOC-03: the last published window, with the pause spelled out. */
+  paused: "{window} · ETA texts paused",
+} as const;
+
+/**
+ * SURF-01 Board (Today) — COPY-GUIDE §5 "SURF-01", DESIGN-DIRECTION §4.1.
+ *
+ * `empty` is the §5 sentence verbatim. The group headers are the §5 headers verbatim too, with
+ * one addition: §5 names four groups, written for a mid-morning board where every ride has
+ * started, and a ride that is planned but has not left is neither "on the way" nor "not riding
+ * today" — so there is a fifth, and it says plainly what it is.
+ *
+ * The board's unit is one child's one ride: a row is "Mia R., morning", so the morning and the
+ * afternoon are two rows with their own state, van, window and next step. That is why
+ * the counts below are counted in rides rather than children.
  */
 export const board = {
   heading: "Today",
+  /**
+   * The three ways this board can be empty, each one line and each ending in the one thing to
+   * do about it. They are three strings and not one because they are not the same fact: a day
+   * with no rides in it is not a search that matched nobody, and neither is a filter that is
+   * hiding everything. One sentence for all three would be wrong twice.
+   */
   empty: "No rides scheduled for {date}. Change the date or reset the demo.",
+  emptySearch: "No child matches {query}. Clear the search to see the whole day.",
+  emptyNeedsAction: "Nothing needs action right now. Turn the filter off to see the whole day.",
   dateLabel: "Service date",
+  /** §5: "Needs action (2)", "On the way (11)", "Done (9)", "Not riding today (4)". */
+  groups: {
+    NEEDS_ACTION: "Needs action",
+    GETTING_READY: "Getting ready",
+    ON_THE_WAY: "On the way",
+    DONE: "Done",
+    NOT_RIDING: "Not riding today",
+  },
+  groupHeading: "{group} ({count})",
+  onlyNeedsAction: "Only needs action",
+  /** Said above the rows, so a filtered board never looks like the whole day. */
+  showing: "Showing {shown} of {total} rides",
+  /** The one search term the shell's box carried in, echoed so it can be cleared. */
+  searchedFor: "Search: {query}",
+  clearSearch: "Clear search",
+  /** §4.1: the row's own columns, in order. Used as the table's column headers. */
+  columns: {
+    child: "Child",
+    ride: "Ride",
+    state: "Ride state",
+    vehicle: "Van",
+    gps: "Van location",
+    eta: "Arriving",
+    receiver: "Receiver and therapy",
+    nextStep: "Next step",
+    source: "Source",
+  },
+  tableLabel: "Today's rides, one row for each child's morning and afternoon",
+  am: "AM",
+  pm: "PM",
+  /** The ride in words, for the ear and for the row opener's accessible name. */
+  amSpoken: "morning",
+  pmSpoken: "afternoon",
+  /** A ride the family drives themselves: there is no van to show, and that is not a gap. */
+  familyDrives: "Family drives",
+  /** "V2 · SYN Greenacres center fleet" — the van, then who runs it. Drawer only (§4.1 density). */
+  vanAndProvider: "{van} · {provider}",
+  /** The vehicle is assigned but has sent nothing we may draw (an unlinked device, LOC-01). */
+  noPosition: "No van location yet",
+  /** No window has been worked out for this ride yet — a state, so it gets an icon and a label. */
+  windowPending: etaText.pending,
+  /** §5.1: a stall is words and a clock, never a colour. */
+  stopped: "Stopped {minutes} min",
+  /** The therapy detail beside the "Therapy scheduled" chip: "9:30 AM · Tasha L." */
+  therapyAt: "{time} · {therapist}",
+  /** TRP-02: nobody on file may take the child at the end of the afternoon ride. */
+  noReceiver: "No adult on file to receive",
+  /** §1 "name the person": the adult on file is named, never called "a receiver on file". */
+  receiverNamed: "{adult} receives",
+  /**
+   * Why a ride is in "Needs action", in the order the board ranks them. Each one names the
+   * thing it is about — the child, or the van — because "this child" and "this van" are only
+   * unambiguous next to the row they came from, and these are read in the drawer too.
+   */
+  reasons: {
+    DOES_NOT_FIT: "{van} does not fit everyone on this run.",
+    NO_RECEIVING_ADULT: "No adult on file may receive {child} at the end of the afternoon ride.",
+    RIDE_STATE: "{child}'s ride needs a person to decide what happens next.",
+    LOCATION_LOST: "Nothing has been heard from {van} for ten minutes.",
+  },
+  /**
+   * The next step on a ride: a sentence that opens with a verb and names the child.
+   *
+   * This column used to name a role — "Coordinator", "Front desk" — which is the one thing a
+   * coordinator reading their own board already knows. A step is a thing to do and the person
+   * it is done for has a name (COPY-GUIDE §1 "name the person", §3 "verb + object"), so each of
+   * these is written as one, and `NOTHING` is the only entry that is not an instruction because
+   * it is the only one that is not a step.
+   */
+  nextSteps: {
+    MOVE_TO_FITTING_VAN: "Move {child} to a van that fits.",
+    /** Closed with `sentence()`: "{child}" already ends in the last initial's full stop. */
+    RECORD_RECEIVER: "Record who receives {child}",
+    DECIDE_RIDE: "Decide what happens to {child}'s ride.",
+    FIND_VAN: "Find {child}'s van.",
+    CONFIRM_BOARDING: "Confirm {child} boarded.",
+    CONFIRM_HANDOFF: "Confirm the handoff for {child}",
+    /**
+     * A van nobody has reported on. Which step it is depends on whose van it is: a provider's
+     * van is somebody's answer to give, and that somebody is named. The centre's own van has no
+     * dispatcher to ring because the people who can answer are the ones at the ramp.
+     */
+    ASK_ABOUT_VAN: "Ask {dispatcher} about {child}'s van.",
+    CHECK_VAN_AT_RAMP: "Check {child}'s van at the ramp.",
+    NOTHING: "Nothing to do",
+  },
+  /** §4.1 keyboard: j / k move, Enter opens. Said once, above the rows. */
+  keyboardHint: "Use J and K to move between rides, Enter to open one.",
+  /** "Open Mia R., morning ride" — one opener per row, so two rows are two distinct buttons. */
+  openRow: "Open {child}, {ride} ride",
 } as const;
 
 /**
@@ -161,12 +291,14 @@ export const scenarioClock = {
  * Surfaces that exist in the nav but whose data and interactions are not built yet. Each one
  * says so in its heading and then says, in one plain sentence, what it will do. No ticket
  * codes: a build-step name means nothing to a coordinator (COPY-GUIDE §1).
+ *
+ * Today is not in here any more: the board is built, so a sentence promising it would be the
+ * one thing this table exists to prevent — a screen saying something that is not true of it.
  */
 export const unbuilt = {
   /** `{page}` is the nav label, so the heading reads "Health & ROI isn't built yet". */
   heading: "{page} isn't built yet",
   tag: "Not built yet",
-  today: "The live board will show every ride, where each van is, and what needs attention.",
   exceptions:
     "This page will list what needs action, who is handling it, and when it is due.",
   setup: "This page will hold the vans, their seat layouts, and the people allowed to receive a child.",
@@ -217,7 +349,7 @@ export const mapPreview = {
    */
   motionTweened: "Vans follow their routes.",
   mapLabel: "Fleet map: simulated vehicles near the PPEC center",
-  centerLabel: "PPEC center",
+  centerLabel: places.center,
   decisionsHeading: "Notification decisions",
   /**
    * Says plainly that this step only *decides*. `{suppressed}` is `suppression` /
@@ -559,9 +691,9 @@ export const fleetMap = {
   /** A stop the vehicle reached. Never "Handed off": a geofence cannot complete a handoff. */
   arrived: "Arrived (vehicle)",
   passed: "Passed",
-  windowPending: "Window pending",
-  /** LOC-03: the last published window, with the pause spelled out. */
-  windowPaused: "{window} · ETA texts paused",
+  /** The board and the map pane say these the same way, so they are written once (`etaText`). */
+  windowPending: etaText.pending,
+  windowPaused: etaText.paused,
   /** The style request was abandoned (navigation, unmount): nothing more to say. */
   tilesFailed: "Map tiles did not load.",
   /** The style request failed: say what still works, so nobody assumes the board is down. */
@@ -584,15 +716,109 @@ export const arrival = {
 } as const;
 
 /**
- * ETA deltas (COPY-GUIDE l.36). U+2212 for the minus, so "−3 min" lines up with the digits
- * instead of using a hyphen. `unknown` is what an unusable delta says: a missing or
- * non-finite shift is not "On time", and it is never printed as "−NaN min".
+ * SURF-02, the child's drawer (COPY-GUIDE §5 "SURF-02", DESIGN-DIRECTION §4.2, PRD l.1059).
+ *
+ * The drawer is where a coordinator reads one child's whole day, so the rules about certainty
+ * are at their sharpest here: a need is never a diagnosis, an unapproved need is greyed and
+ * says why, a provider's report is not a ramp check, and the handoff button says in text — not
+ * in a tooltip — what is stopping it.
+ *
+ * Everything in here names people and never their roles (COPY-GUIDE §1 "name the person"): the
+ * child the panel is about, the adult the family has on file to receive them, the dispatcher a
+ * van's capability has to be asked of. "An adult on file may receive this child" is true of
+ * every family in the building and tells a coordinator nothing they can act on; "Alma R.,
+ * Mia R.'s parent, may receive them." is the sentence they are actually checking.
  */
-export const etaText = {
-  ahead: "+{n} min",
-  behind: "−{n} min",
-  onTime: "On time",
-  unknown: "Not known yet",
+export const drawer = {
+  /** Announced as the dialog's name: "Mia R." plus what this panel is. */
+  label: "{child}, ride details",
+  close: "Close",
+  /**
+   * §4.2 section order. The drawer has room for words the board's "AM"/"PM" tag does not, and
+   * needs them: a card headed "AM 6:50 AM" reads as a stutter.
+   */
+  amRide: "Morning ride",
+  pmRide: "Afternoon ride",
+  ridesHeading: "Today's rides",
+  needsHeading: "Approved needs",
+  capabilityHeading: "Vehicle check",
+  receiverHeading: "Who receives the child",
+  approvalsHeading: "Waiting for a decision",
+  agentHeading: "Changes the assistant made",
+  historyHeading: "History",
+
+  /** §5: "Derived from intake, not a diagnosis." Shared with the ramp check, written once. */
+  needsCaption: rampPreview.needsCaption,
+  /** PRD VEH-01: an unapproved item is greyed and never drives seat allocation. */
+  needNotApproved: "Not approved yet. Ask the director to review.",
+  needNotUsed: "Not used for allocation",
+  noNeeds: "No transport needs are recorded for {child} yet. Ask the director to review their intake.",
+  /** §4.2: the profile's version, so a reader knows which approval they are looking at. */
+  profileVersion: "Approved v{n}",
+
+  /** §5: "Verified 17 min ago by J.T." / "Reported by provider, not checked at the ramp." */
+  capabilityVerified: "Checked at the ramp before this run.",
+  /** Named, not "the provider": a report is somebody's answer, and that somebody is on file. */
+  capabilityReported: "Reported by {dispatcher} at {provider}. Not checked at the ramp.",
+  capabilityUnknown: "Unknown until arrival. Nothing about this van is assumed yet.",
+  /** The solver's verdict, in a sentence a coordinator can act on. */
+  fits: "Everyone on this run has a place.",
+  doesNotFit: "The van does not fit everyone on this run. A coordinator decides before anyone boards.",
+
+  /**
+   * "Alma R., Mia R.'s parent, may receive them." Both people named, and in that order —
+   * written this way round rather than ending on the child's name, because a child's label
+   * already ends in the last initial's full stop and a sentence closing on it reads "Mia R..".
+   */
+  receiverOnFile: "{adult}, {child}'s {relationship}, may receive them.",
+  receiverMissing:
+    "Nobody on file may receive {child} yet. Agree who will, and record it, before the afternoon van leaves.",
+  /** PRD §6.6: a child is held, never driven back on their own. */
+  heldNoReturn: "If nobody is there, {child} waits with the van and staff are called. There is no automatic return.",
+
+  noApprovals: "Nothing is waiting for a decision about {child} today.",
+  noAgentChanges: "The assistant has not changed anything for {child} today.",
+  /** §5: "Dana changed AM ride to Center van · ramp check didn't fit · 9:41 AM". */
+  historyEmpty: "Nothing has changed for {child} today.",
+  showHistory: "Show history",
+  hideHistory: "Hide history",
+
+  /**
+   * §4.2: one primary action, in a sticky footer — and it says whose handoff it is. A drawer
+   * opens over a 56-row board, so the one control that commits a custody event names the child
+   * it would commit it for.
+   */
+  confirmHandoff: "Confirm handoff for {child}",
+  /** §5: the disabled reason, in text beside the button and never in a tooltip alone. */
+  handoffBlockedRamp: "Check {child}'s van at the ramp first.",
+  handoffBlockedNotArrived: "Wait for {child}'s van to arrive.",
+  handoffBlockedNoReceiver: "Record who receives {child} first.",
+  overrideWithReason: "Override for {child}, with reason",
+  /** §5 override dialog. */
+  overrideHeading: "Override ramp check",
+  overrideReasonLabel: "Reason (required)",
+  overrideCancel: "Cancel",
+  /** This slice reads; it does not write. Said out loud rather than left to be discovered. */
+  readOnly: "This panel shows the day. Confirming and overriding are not connected yet.",
+} as const;
+
+/**
+ * The PRD §9 (l.880) approved-need categories, in words a coordinator would say out loud.
+ *
+ * A need is a thing the ride has to provide, never a thing the child has (COPY-GUIDE §1–§2):
+ * "Boards by lift or ramp", not a condition; "Chair size", not a measurement of a person. The
+ * enum key is how the fixture and the database write it and never reaches a screen.
+ */
+export const needCategories = {
+  WHEELCHAIR_SECUREMENT: "Wheelchair securement",
+  LIFT_OR_RAMP: "Boards by lift or ramp",
+  CAR_SEAT_OR_BOOSTER: "Car seat or booster",
+  HARNESS_OR_VEST: "Harness or vest",
+  ATTENDANT_ESCORT: "Attendant rides along",
+  SEATING_SEPARATION: "Seated away from another rider",
+  MAX_RIDE_TIME: "Longest time on the van",
+  EQUIPMENT_DIMENSIONS: "Chair size",
+  MEDICAL_DEVICE_POWER: "Device that needs power",
 } as const;
 
 /**
