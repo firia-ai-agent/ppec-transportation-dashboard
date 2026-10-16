@@ -156,6 +156,7 @@ export const API = {
   demoReset: "/api/demo/reset",
   queueTimer: "/api/queues/timer",
   queueOutbox: "/api/queues/outbox",
+  queueAgent: "/api/queues/agent",
   queueDelayProbe: "/api/queues/delay-probe",
   smsWebhook: "/api/webhooks/sms",
   simPhoneMessages: "/api/sim/phones/[number]/messages",
@@ -404,6 +405,22 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     kind: "route",
     file: "src/app/api/queues/outbox/route.ts",
     path: API.queueOutbox,
+    methods: ["POST"],
+    auth: { kind: "queue-callback" },
+  },
+  /**
+   * Queue trigger for topic ppec-agent (vercel.json): one message, one agent run (PRD §11.1 "each
+   * run = job"). Same platform invocation path as the timer, and a staff session grants nothing —
+   * which matters more here than on the other two, because the thing behind this route takes a
+   * model turn and executes §11.2 tools. The tenant is not the caller's to assert either: the run
+   * id and the site both arrive on the queue payload, and the per-run claim is fenced on the site
+   * the payload names (F2/F3, `src/modules/agent/run/lease.ts`), so a forged or mis-copied message
+   * is a no-op rather than a cross-tenant drive.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/queues/agent/route.ts",
+    path: API.queueAgent,
     methods: ["POST"],
     auth: { kind: "queue-callback" },
   },

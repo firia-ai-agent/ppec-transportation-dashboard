@@ -27,6 +27,15 @@
         }
       ]
     },
+    "src/app/api/queues/agent/route.ts": {
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "ppec-agent",
+          "retryAfterSeconds": 150
+        }
+      ]
+    },
     "src/app/api/queues/delay-probe/route.ts": {
       "experimentalTriggers": [
         {
