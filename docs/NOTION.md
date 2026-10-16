@@ -1,7 +1,7 @@
 # Notion mirror
 
 Workspace **Firia**, teamspace **PPEC Transport Dashboard** (id 3f9ac450-cdc1-81b1-97ed-00422fcfa43d), approved by the founder 2026-10-14 as the PPEC Notion home.
-**GitHub is canonical for specs.** Notion mirrors them for reading and is the home for the decision ledger and runbooks. Loaded 2026-10-14 ~11:40 ET from commit f339baa. **Synced to main @ d8b99e5:** the Decision ledger page and its entries database hold **61 rows**, matching main. Build plan M2–M9 and the Queues/OpenRouter research page are now mirrored too (pages below).
+**GitHub is canonical for specs.** Notion mirrors them for reading and is the home for the decision ledger and runbooks. Loaded 2026-10-14 ~11:40 ET from commit f339baa. **Last synced to main @ d8b99e5:** the Decision ledger page and its entries database hold **61 rows**. This branch's ledger now carries **67 rows, numbered up to 69** (rows 64–65 are the founder's 2026-10-16 10:13 ET FU-4 ruling; rows 68–69 are the 2026-10-15 7:21 AM ET free-model ruling and the 2026-10-16 12:14 PM ET security-hardening pause — all added on `team/ppe-b08-slice5`; **rows 66–67 are not here, they belong to PR #45**), so **rows 62–65 and 68–69 are not yet mirrored** — mirror them on the next Notion sync, after #45's 66–67. Build plan M2–M9 and the Queues/OpenRouter research page are now mirrored too (pages below).
 
 | Page | Mirrors | URL |
 |---|---|---|
@@ -9,7 +9,7 @@ Workspace **Firia**, teamspace **PPEC Transport Dashboard** (id 3f9ac450-cdc1-81
 | Status: live work (Notion-native: open PRs, pending decisions, live environments) | — | https://app.notion.com/p/3f9ac450cdc181f1b13bdd57080dce4e |
 | Overview | README.md | https://app.notion.com/p/3f9ac450cdc181718e4bd1c21215d730 |
 | Decision ledger | docs/DECISION-LEDGER.md | https://app.notion.com/p/3f9ac450cdc181a48d74e670433c901a |
-| ↳ Decision ledger entries (database, 61 rows, synced to main @ d8b99e5) | docs/DECISION-LEDGER.md | https://app.notion.com/p/793dcf2d775744fe90ed913ebc3c9be8 |
+| ↳ Decision ledger entries (database, 61 of this branch's 67 rows; last synced to main @ d8b99e5) | docs/DECISION-LEDGER.md | https://app.notion.com/p/793dcf2d775744fe90ed913ebc3c9be8 |
 | PRD v1.0 (pointer only) | docs/PRD-v1.0.txt | https://app.notion.com/p/3f9ac450cdc181869b84e78d6868b6a7 |
 | Architecture | docs/ARCHITECTURE.md | https://app.notion.com/p/3f9ac450cdc1816ca2c5eae06ea71441 |
 | Data model | docs/DATA-MODEL.md | https://app.notion.com/p/3f9ac450cdc181d1bd8ad1c3dd1bc114 |
