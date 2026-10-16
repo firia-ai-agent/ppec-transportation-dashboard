@@ -4,7 +4,11 @@ import { icon } from "./tokens";
 import type { Tone } from "./tokens";
 import styles from "./FreshnessPill.module.css";
 
-/** Adapter pills may also carry the simulated violet, which is not a status tone (§7.1, D-5). */
+/**
+ * An adapter pill may also be the outlined "sim" variant, which is not a status tone (§7.1): it
+ * says where a value came from, not how the day is going, so it gets an outline and no fill.
+ * It is not violet — D-5 keeps that for the DEMO bar and the Simulated chip, and nothing else.
+ */
 export type PillTone = Tone | "sim";
 
 /**
@@ -40,9 +44,11 @@ export function FreshnessPill({
 }
 
 /**
- * The interim pill approved for build in §2: "<adapter> · Simulated", `flask-conical` in the
- * src-sim tone, matching the D-10 source badge. §10 requires this to be replaced by real ages
- * (humanized through src/ui/age.ts) when the live board lands.
+ * The interim pill approved for build in §2: "<adapter> · Simulated", `flask-conical`, in the
+ * outlined variant that matches the D-10 source badge's shape without taking its colour. §10
+ * requires the text to be replaced by real ages (humanized through src/ui/age.ts) when the live
+ * stream can carry them; until then it says "Simulated", which is true, rather than an age that
+ * is not.
  */
 export function SimulatedAdapterPill({ adapter }: { adapter: string }) {
   return (
