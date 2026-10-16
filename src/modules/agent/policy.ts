@@ -380,6 +380,20 @@ export type PolicyRow = {
    * consent-checked, and is therefore refused.
    */
   readonly sendSubject: string | null;
+  /**
+   * For a sending tool whose §11.2 audience is one of its arguments: the argument naming the
+   * audience, and the one value of it that reaches the center's **own staff** and nobody outside
+   * the building. A call for that audience is not an egress event at all — the executor writes the
+   * `ops.task` row a coordinator reads and queues nothing (run/exec/followup.ts `AUDIENCE_RULES`)
+   * — so a family's consent to be *messaged* is not what decides whether staff may be told
+   * something about them (founder ruling, DECISION-LEDGER #65, 2026-10-16). The family scope above
+   * still is: a staff notice may only name this run's own family.
+   *
+   * Left out of every other row, and leaving it out means "consent-check every send on this row".
+   * The exemption is a per-tool declaration matched on an exact value, so a sending tool added
+   * without this decision keeps the strict check (`staffAudienceSend`).
+   */
+  readonly staffAudience?: { readonly arg: string; readonly value: string };
   /** Why the row looks like this. Read by whoever adds the next tool. */
   readonly note: string;
 };
@@ -390,7 +404,14 @@ const ROWS: readonly PolicyRow[] = [
   { tool: "cancel_attendance_or_leg", scopedArgs: ["child_token"], sendSubject: null, note: "the date and day part are not objects" },
   { tool: "request_clarification", scopedArgs: ["thread_id", "candidate_tokens"], sendSubject: "thread_id", note: "an outbound into a thread: the thread is the consent subject" },
   { tool: "record_acknowledgment", scopedArgs: ["ack_id", "source_message_id"], sendSubject: null, note: "the ack row already binds its contact" },
-  { tool: "send_followup", scopedArgs: ["subject_token"], sendSubject: "subject_token", note: "audience is a role; the subject is what consent is checked on" },
+  {
+    tool: "send_followup",
+    scopedArgs: ["subject_token"],
+    sendSubject: "subject_token",
+    // The one audience that is not a message: STAFF is a row on the center's own board.
+    staffAudience: { arg: "audience", value: "STAFF" },
+    note: "audience is a role; the subject is what consent is checked on, except for STAFF — which sends nothing",
+  },
   { tool: "notify_affected_therapist", scopedArgs: ["therapy_session_token", "child_token"], sendSubject: "therapy_session_token", note: "the session is the therapist's side of the consent check" },
   // Vehicles, providers and routes are center-wide rather than family-scoped — but they are still
   // *this site's*: `scope.shared` holds one site's fleet, so they are checked like anything else.
@@ -584,6 +605,19 @@ export function validateFamilyScope(
   return out;
 }
 
+/**
+ * True when this call's declared audience is the center's own staff, and so puts no message in
+ * front of anybody outside the building (`PolicyRow.staffAudience`, DECISION-LEDGER #65).
+ *
+ * An exact match on an exact value, because everything this does *not* match is a send to a
+ * guardian, a therapist or a dispatcher and has to keep the consent check: a row that declares no
+ * staff audience, a missing argument, a value that is not a string, and every other audience —
+ * including a near-miss the model invented, like "staff" or "STAFF " — all answer false.
+ */
+function staffAudienceSend(row: PolicyRow, args: Record<string, unknown>): boolean {
+  return row.staffAudience !== undefined && args[row.staffAudience.arg] === row.staffAudience.value;
+}
+
 /** Tools that stay available while an injection is in the thread: they inform humans, nothing else. */
 const DEFENSIVE_TOOLS: ReadonlySet<string> = new Set([
   "resolve_sender",
@@ -747,7 +781,21 @@ export function evaluate(
 
   // 9. Consent, by subject. Mirrors the egress re-check so nothing is queued for a family that
   //    has opted out (PRD §18.2 step 10: "blocked at egress").
-  if (effect === "send" && row.sendSubject) {
+  //
+  //    Except where the call sends to nobody outside the building. A STAFF-audience follow-up is
+  //    the center telling itself something: the executor writes a GREEN `ops.task` row on the
+  //    coordinators' board and queues no message at all (run/exec/followup.ts `staffNotice`), so
+  //    there is no number for a family's consent to protect. The founder's ruling of 2026-10-16
+  //    (DECISION-LEDGER #65) is that staff may be given a task about an opted-out family, and
+  //    refusing it only meant a coordinator never heard about the family whose consent state is
+  //    exactly the reason to look. What still gates it is step 7: a staff notice may name this
+  //    run's own family and nothing else.
+  //
+  //    The exemption is a declaration on the row, matched on one exact audience value, so it
+  //    cannot widen by accident: every send that does reach a guardian, a therapist or a
+  //    dispatcher — templated or free text, whichever guardian the executor later resolves — comes
+  //    through here, and a sending tool whose row declares no staff audience is checked as before.
+  if (effect === "send" && row.sendSubject && !staffAudienceSend(row, args)) {
     const subject = args[row.sendSubject];
     if (typeof subject !== "string" || !ctx.sendableSubjects.has(subject)) {
       return block("non_consented_number", call.tool, `no live consent for subject in ${row.sendSubject}`, staffReview("non_consented_number"));
