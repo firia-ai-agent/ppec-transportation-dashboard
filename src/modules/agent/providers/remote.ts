@@ -7,18 +7,26 @@
  * (docs/research/QUEUES-AND-OPENROUTER-ZDR.md §2.5A). This file is the only one in the agent
  * module that calls `fetch`, and `no-network.test.ts` holds that down by name.
  *
- * Three gates, in this order, and the order is the design:
+ * Four gates, in this order, and the order is the design:
  *
- *  1. **The demo-data-only guard, fail shut.** No key is read, no body is built, no URL is
- *     constructed and `fetch` is not touched unless `config.demoDataOnly` is true. None of the
- *     free endpoints offer ZDR, some log or train on prompts, and OpenRouter has no BAA — so this
- *     guard is the only thing keeping real family data away from them. It refuses *before* the
- *     key check on purpose: a deployment that has a key but has not confirmed demo data is
- *     exactly the dangerous one, and it must not matter whether the key is present.
- *  2. **The key, by env var name only** (`config.apiKeyEnvVar`). Read here and nowhere else, never
+ *  1. **The demo-data guard, fail shut** (`config.demoDataGuardRefusal`: the confirmation var, the
+ *     ADR-015 boot data class, and this module's data mode, all three). No key is read, no body is
+ *     built, no URL is constructed and `fetch` is not touched unless it passes. None of the free
+ *     endpoints offer ZDR, some log or train on prompts, and OpenRouter has no BAA — so this guard
+ *     is the only thing keeping real family data away from them. It refuses *before* the key check
+ *     on purpose: a deployment that has a key but has not confirmed demo data is exactly the
+ *     dangerous one, and it must not matter whether the key is present.
+ *  2. **The destination, before there is a Bearer header to send.** `config.baseUrl` must be https
+ *     and its host must be on `config.baseUrlHostAllowList` (`baseUrlRefusalReason`). Config
+ *     refuses such a value at parse time; this is the re-check on the path that leaves the
+ *     building, because the base URL is the one knob that decides *where the key goes* and a
+ *     caller can hold a config object this file did not parse.
+ *  3. **The key, by env var name only** (`config.apiKeyEnvVar`). Read here and nowhere else, never
  *     logged, never in an error message, never in a thrown stack.
- *  3. **The model chain.** Primary, then backup on a 429 or any other failure, then the keyword
- *     fallback (providers/keyword.ts). A rate limit must degrade, not fail the run.
+ *  4. **The model chain.** Primary, then backup on a 429 or any other failure, then the keyword
+ *     fallback (providers/keyword.ts). A rate limit must degrade, not fail the run. Every model in
+ *     the chain is re-checked against `config.modelAllowList` before the first request, for the
+ *     same reason as the endpoint and the host: config checked it, and this is the outbound path.
  *
  * What this file does *not* do is any of the gateway's work. It does not redact, validate, audit
  * or interpret: the prompt arriving here has already passed `validatePromptTokensOnly()`, and the
@@ -30,7 +38,7 @@
  * config plus `vendorAttestation`; nothing in this file names a vendor, a model or a host.
  */
 import type { AgentConfig } from "../config";
-import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, forbiddenEndpointReason } from "../config";
+import { baseUrlRefusalReason, demoDataGuardRefusal, forbiddenEndpointReason } from "../config";
 import { keywordResponse } from "./keyword";
 import {
   type LlmProvider,
@@ -44,6 +52,16 @@ export class RemoteProviderNotEnabled extends ProviderError {}
 
 /** The call named an endpoint this deployment may not POST to (PRD §11.2 allow-list). */
 export class RemoteEndpointRefused extends ProviderError {}
+
+/**
+ * The configured origin is not one this deployment may send a key to: plain http, a host off
+ * `baseUrlHostAllowList`, credentials in the URL, or not a URL at all. Its own class because it is
+ * a different accident from a missing confirmation — somebody repointed the vendor.
+ */
+export class RemoteBaseUrlRefused extends ProviderError {}
+
+/** A model in the chain is not on `config.modelAllowList`, re-checked on the outbound path. */
+export class RemoteModelRefused extends ProviderError {}
 
 /** Every vendor attempt failed *and* the keyword fallback was switched off. */
 export class RemoteProviderUnavailable extends ProviderError {}
@@ -91,34 +109,49 @@ export type RemoteProviderOptions = {
 };
 
 /**
- * Why this environment may not make a live call, or null when it may. Exported because the
- * refusal is worth asserting on directly, and because a caller deciding between the live and the
- * recorded provider should be able to ask without constructing one.
+ * Gates one to three as a classed error, or null when this environment may make a live call. The
+ * order is the one documented at the top of the file, and the key is the *last* thing looked at:
+ * every refusal above it has to hold whether or not a key is present, and none of them may be
+ * reached only after the key has been read.
  */
-export function liveCallRefusalReason(
+function liveCallRefusal(
   config: AgentConfig,
   env: Record<string, string | undefined>,
-): string | null {
-  if (!config.demoDataOnly) {
-    // One lowercase clause per fact, the house style for every other refusal in this module —
-    // and the reason `src/ui/copy.test.ts` does not read it as user-facing copy. A staff-readable
-    // sentence, if this ever needs one, belongs in `ui/copy.ts` like the rest.
-    return (
-      `live model calls are refused: this deployment has not confirmed demo-data-only operation; ` +
-      `set $${DEMO_DATA_ONLY_ENV_VAR} to exactly "${DEMO_DATA_ONLY_REQUIRED_VALUE}"; ` +
-      `the configured endpoint offers no zero-data-retention guarantee and the vendor has no BAA, ` +
-      `so this guard fails shut`
-    );
-  }
+): ProviderError | null {
+  const guard = demoDataGuardRefusal(config, env);
+  if (guard) return new RemoteProviderNotEnabled(guard);
+
+  const destination = baseUrlRefusalReason(config.baseUrl, config.baseUrlHostAllowList);
+  if (destination) return new RemoteBaseUrlRefused(destination);
+
   if ((env[config.apiKeyEnvVar] ?? "").trim() === "") {
-    return `remote provider ${config.provider} is not configured: $${config.apiKeyEnvVar} is not set in this environment`;
+    return new RemoteProviderNotEnabled(
+      `remote provider ${config.provider} is not configured: $${config.apiKeyEnvVar} is not set in this environment`,
+    );
   }
   return null;
 }
 
 /**
- * The models to try, in order: primary, then backup when it is a different id. Both are already
- * checked against `modelAllowList` at config time, so nothing here validates them again.
+ * Why this environment may not make a live call, or null when it may. Exported because the
+ * refusal is worth asserting on directly, and because a caller deciding between the live and the
+ * recorded provider should be able to ask without constructing one.
+ *
+ * Every message is one lowercase clause per fact, the house style for every other refusal in this
+ * module — and the reason `src/ui/copy.test.ts` does not read any of them as user-facing copy. A
+ * staff-readable sentence, if this ever needs one, belongs in `ui/copy.ts` like the rest.
+ */
+export function liveCallRefusalReason(
+  config: AgentConfig,
+  env: Record<string, string | undefined>,
+): string | null {
+  return liveCallRefusal(config, env)?.message ?? null;
+}
+
+/**
+ * The models to try, in order: primary, then backup when it is a different id. The order only —
+ * `invoke` re-checks the chain against `modelAllowList` before it posts anything, so this stays a
+ * pure list and the refusal has one home.
  */
 export function modelChain(config: AgentConfig): readonly string[] {
   return config.model === config.backupModel ? [config.model] : [config.model, config.backupModel];
@@ -133,11 +166,12 @@ export function remoteProvider(
   const keywordFallback = options.keywordFallback ?? true;
   const attempts: RemoteAttempt[] = [];
 
-  // Gate one and gate two, at wiring time: a deployment that selected this provider without
-  // confirming demo data, or without a key, gets a clear refusal naming what it is missing
-  // rather than a provider object that looks usable and fails on the first family message.
-  const refusal = liveCallRefusalReason(config, env);
-  if (refusal) throw new RemoteProviderNotEnabled(refusal);
+  // Gates one to three, at wiring time: a deployment that selected this provider without
+  // confirming demo data, pointed at a host it may not send a key to, or without a key at all,
+  // gets a clear refusal naming what is wrong rather than a provider object that looks usable and
+  // fails on the first family message.
+  const refusal = liveCallRefusal(config, env);
+  if (refusal) throw refusal;
 
   // Read once, here, and never stored on the returned object.
   const apiKey = (env[config.apiKeyEnvVar] ?? "").trim();
@@ -152,9 +186,10 @@ export function remoteProvider(
     async invoke(call: ProviderCall): Promise<RemoteResponseBody> {
       // Re-checked per call, not just at wiring time: config is a value a caller can rebuild, and
       // the guard has to be the thing that is impossible to get past, not the thing that happened
-      // to be true when the object was made.
-      const perCall = liveCallRefusalReason(config, env);
-      if (perCall) throw new RemoteProviderNotEnabled(perCall);
+      // to be true when the object was made. The destination check rides along for the same
+      // reason, and still lands before the Bearer header is built.
+      const perCall = liveCallRefusal(config, env);
+      if (perCall) throw perCall;
 
       // The gateway already checked this, and checks it again here because *this* file is the one
       // that leaves the building: a caller holding the adapter directly must not be able to POST
@@ -165,8 +200,21 @@ export function remoteProvider(
       const forbidden = forbiddenEndpointReason(call.endpoint);
       if (forbidden) throw new RemoteEndpointRefused(`endpoint ${call.endpoint} refused: ${forbidden}`);
 
+      // The model allow-list, re-checked here for the same reason as the endpoint above: config
+      // refuses a model off the list at parse time, and this is the file that puts a model id in a
+      // body and posts it. The whole chain is checked before the first request rather than each
+      // model before its own, so a tampered-with config sends nothing at all instead of spending
+      // one call on the model that happened to still be allowed.
+      const chain = modelChain(config);
+      const offList = chain.filter((m) => !config.modelAllowList.includes(m));
+      if (offList.length > 0) {
+        throw new RemoteModelRefused(
+          `model${offList.length > 1 ? "s" : ""} ${offList.join(", ")} not on the configured model allow-list`,
+        );
+      }
+
       const theseAttempts: RemoteAttempt[] = [];
-      for (const model of modelChain(config)) {
+      for (const model of chain) {
         const attempt = await attemptOnce(model, call);
         theseAttempts.push(attempt.record);
         attempts.push(attempt.record);

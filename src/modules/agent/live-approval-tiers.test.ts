@@ -41,6 +41,7 @@ vi.mock("./tools", async (importOriginal) => {
   };
 });
 
+import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
 import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, loadAgentConfig } from "./config";
 import { createGateway } from "./gateway";
 import {
@@ -57,8 +58,13 @@ import { remoteProvider } from "./providers/remote";
 import { toolDef } from "./tools";
 
 const PLACEHOLDER_KEY = "placeholder-not-a-key";
-const KEY_ENV = { OPENROUTER_API_KEY: PLACEHOLDER_KEY };
-const DEMO = loadAgentConfig({ [DEMO_DATA_ONLY_ENV_VAR]: DEMO_DATA_ONLY_REQUIRED_VALUE });
+/** Both halves of the demo-data guard: the operator's confirmation and the ADR-015 boot class. */
+const DEMO_ENV = {
+  [DEMO_DATA_ONLY_ENV_VAR]: DEMO_DATA_ONLY_REQUIRED_VALUE,
+  [DATA_CLASS_ENV_VAR]: SYNTHETIC_DATA_CLASS,
+};
+const KEY_ENV = { ...DEMO_ENV, OPENROUTER_API_KEY: PLACEHOLDER_KEY };
+const DEMO = loadAgentConfig(DEMO_ENV);
 
 const PROMPT = [
   "role=transport_coordinator_agent",

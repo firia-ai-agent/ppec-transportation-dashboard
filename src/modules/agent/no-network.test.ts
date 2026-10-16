@@ -26,7 +26,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import cassetteJson from "./fixtures/recorded-standard.json";
 import { RECORDED_PROMPTS } from "./fixtures/prompts";
 import { ATTACK_FIXTURES } from "./fixtures/attacks";
-import { loadAgentConfig } from "./config";
+import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
+import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, loadAgentConfig } from "./config";
 import { GatewayError, createGateway } from "./gateway";
 import { sha256Hex } from "./redact";
 import { TOOL_NAMES } from "./tools";
@@ -36,6 +37,16 @@ import { RemoteProviderNotEnabled, remoteProvider } from "./providers/remote";
 
 const CONFIG = loadAgentConfig({});
 const PROMPT = "T1 site=S1 family=F1 child=C1\nT2 leg=L-C1-AM state=SCHEDULED version=3";
+
+/**
+ * What a confirmed demo deployment has in its environment. Both vars, because the guard is both:
+ * the operator's `AGENT_DEMO_DATA_ONLY` confirmation and the ADR-015 boot data class it has to
+ * agree with (`config.demoDataGuardRefusal`).
+ */
+const DEMO_ENV = {
+  [DEMO_DATA_ONLY_ENV_VAR]: DEMO_DATA_ONLY_REQUIRED_VALUE,
+  [DATA_CLASS_ENV_VAR]: SYNTHETIC_DATA_CLASS,
+};
 
 /* ─────────────────────────────── 1. the static scan ─────────────────────────────── */
 
@@ -256,13 +267,26 @@ describe("VERI-5: driving both providers with fetch stubbed to throw", () => {
   });
 
   it("VERI-5 with the guard confirmed, a missing key still fails closed naming the variable", () => {
-    const demo = loadAgentConfig({}, { demoDataOnly: true });
-    expect(() => remoteProvider(demo, {})).toThrow(RemoteProviderNotEnabled);
-    expect(() => remoteProvider(demo, {})).toThrow(/\$OPENROUTER_API_KEY/);
-    expect(() => remoteProvider(demo, {})).toThrow(/not configured/);
+    const demo = loadAgentConfig(DEMO_ENV);
+    expect(() => remoteProvider(demo, DEMO_ENV)).toThrow(RemoteProviderNotEnabled);
+    expect(() => remoteProvider(demo, DEMO_ENV)).toThrow(/\$OPENROUTER_API_KEY/);
+    expect(() => remoteProvider(demo, DEMO_ENV)).toThrow(/not configured/);
     // An empty or blank value is a missing key, not a key.
-    expect(() => remoteProvider(demo, { OPENROUTER_API_KEY: "" })).toThrow(RemoteProviderNotEnabled);
-    expect(() => remoteProvider(demo, { OPENROUTER_API_KEY: "   " })).toThrow(RemoteProviderNotEnabled);
+    expect(() => remoteProvider(demo, { ...DEMO_ENV, OPENROUTER_API_KEY: "" })).toThrow(RemoteProviderNotEnabled);
+    expect(() => remoteProvider(demo, { ...DEMO_ENV, OPENROUTER_API_KEY: "   " })).toThrow(
+      RemoteProviderNotEnabled,
+    );
+    expect(attempted).not.toHaveBeenCalled();
+  });
+
+  it("VERI-5 the guard's other two conditions refuse without touching fetch either", () => {
+    // Same claim as above for the two facts the confirmation has to agree with: a deployment whose
+    // boot data class is not SYNTHETIC, and one whose agent data mode is not, reach no network.
+    const phiClass = { ...DEMO_ENV, [DATA_CLASS_ENV_VAR]: "PHI", OPENROUTER_API_KEY: "placeholder-not-a-key" };
+    expect(() => remoteProvider(loadAgentConfig(phiClass), phiClass)).toThrow(RemoteProviderNotEnabled);
+
+    const phiMode = { ...DEMO_ENV, AGENT_DATA_MODE: "PHI", OPENROUTER_API_KEY: "placeholder-not-a-key" };
+    expect(() => remoteProvider(loadAgentConfig(phiMode), phiMode)).toThrow(RemoteProviderNotEnabled);
     expect(attempted).not.toHaveBeenCalled();
   });
 
@@ -271,8 +295,8 @@ describe("VERI-5: driving both providers with fetch stubbed to throw", () => {
     // network. With the stub throwing — which is what an unreachable vendor looks like — the
     // §18.1 keyword fallback answers instead, and the run ends in a staff triage item rather
     // than an exception nobody sees.
-    const demo = loadAgentConfig({}, { demoDataOnly: true });
-    const provider = remoteProvider(demo, { OPENROUTER_API_KEY: "placeholder-not-a-key" });
+    const demo = loadAgentConfig(DEMO_ENV);
+    const provider = remoteProvider(demo, { ...DEMO_ENV, OPENROUTER_API_KEY: "placeholder-not-a-key" });
     const gateway = createGateway(provider, demo);
     const result = await gateway.complete({ runId: "RUN-REMOTE", prompt: PROMPT });
     expect(result.call.tool).toBe("escalate_exception");

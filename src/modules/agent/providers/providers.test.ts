@@ -4,9 +4,10 @@
  * the key, and nothing in this slice — build, CI or test — may need one to pass.
  */
 import { describe, expect, it } from "vitest";
+import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
 import cassetteJson from "../fixtures/recorded-standard.json";
 import { RECORDED_PROMPTS } from "../fixtures/prompts";
-import { loadAgentConfig } from "../config";
+import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, loadAgentConfig } from "../config";
 import { createGateway } from "../gateway";
 import { sha256Hex } from "../redact";
 import { ProviderError } from "./provider";
@@ -109,12 +110,17 @@ describe("RecordedProvider", () => {
 });
 
 /**
- * A placeholder key and the demo-data confirmation, which is what the live adapter needs before it
- * will build a request at all. Never a real key: the whole seam references it by env var name.
+ * A placeholder key and the demo-data confirmation — the agent's own var *and* the ADR-015 boot
+ * data class, which is what the live adapter needs before it will build a request at all. Never a
+ * real key: the whole seam references it by env var name.
  */
-const KEY_ENV = { [CONFIG.apiKeyEnvVar]: "placeholder-not-a-key" };
+const DEMO_ENV = {
+  [DEMO_DATA_ONLY_ENV_VAR]: DEMO_DATA_ONLY_REQUIRED_VALUE,
+  [DATA_CLASS_ENV_VAR]: SYNTHETIC_DATA_CLASS,
+};
+const KEY_ENV = { ...DEMO_ENV, [CONFIG.apiKeyEnvVar]: "placeholder-not-a-key" };
 /** The config a demo deployment has: the guard confirmed. `remote.test.ts` exercises the rest. */
-const DEMO_CONFIG = loadAgentConfig({}, { demoDataOnly: true });
+const DEMO_CONFIG = loadAgentConfig(DEMO_ENV);
 
 describe("remote provider wiring", () => {
   it("is typed and declares the key by env var name, never by value", () => {
@@ -133,8 +139,12 @@ describe("remote provider wiring", () => {
   });
 
   it("names the env var in a missing-key refusal and never a key value", () => {
-    expect(() => remoteProvider(DEMO_CONFIG, {})).toThrow(/\$OPENROUTER_API_KEY/);
-    expect(() => remoteProvider(DEMO_CONFIG, { [CONFIG.apiKeyEnvVar]: "   " })).toThrow(RemoteProviderNotEnabled);
+    // The key is the *last* gate, so the environment here is a confirmed demo one with no key in
+    // it — otherwise the guard answers first and the refusal names the data class instead.
+    expect(() => remoteProvider(DEMO_CONFIG, DEMO_ENV)).toThrow(/\$OPENROUTER_API_KEY/);
+    expect(() => remoteProvider(DEMO_CONFIG, { ...DEMO_ENV, [CONFIG.apiKeyEnvVar]: "   " })).toThrow(
+      RemoteProviderNotEnabled,
+    );
     try {
       remoteProvider(CONFIG, KEY_ENV);
       expect.unreachable();

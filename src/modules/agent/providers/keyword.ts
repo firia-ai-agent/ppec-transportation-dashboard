@@ -23,6 +23,7 @@
  * in its output: the `summary` it produces names the matched keyword code and nothing else, so
  * the audit log and the staff note stay as free of family prose as they are on the live path.
  */
+import type { AgentConfig } from "../config";
 import { UNTRUSTED_OPEN, UNTRUSTED_CLOSE } from "../policy";
 import type { LlmProvider, ProviderCall, ProviderResponseBody } from "./provider";
 
@@ -184,13 +185,21 @@ export type KeywordProvider = LlmProvider & {
  * The fallback as a standalone provider, for the degraded-mode suites and for a deployment that
  * wants the keyword path with no vendor configured at all. `remoteProvider` uses the functions
  * above directly rather than this object, so its fallback needs no second provider instance.
+ *
+ * The config is a required argument and there is no default behind it: `vendor` and `endpoint` are
+ * on `LlmProvider` because the gateway checks both — `vendor` against `config.provider` so an
+ * attestation cannot lie, `endpoint` against `config.endpointAllowList` — and a literal here would
+ * be a second source of truth for exactly the two values those checks compare against. One vendor
+ * rename later and this provider would be the file that still names the old one.
  */
-export function keywordProvider(options: { readonly vendor?: string; readonly endpoint?: string } = {}): KeywordProvider {
+export function keywordProvider(
+  config: Pick<AgentConfig, "provider" | "endpointAllowList">,
+): KeywordProvider {
   const matches: KeywordMatch[] = [];
   return {
     kind: "keyword",
-    vendor: options.vendor ?? "openrouter",
-    endpoint: options.endpoint ?? "/api/v1/chat/completions",
+    vendor: config.provider,
+    endpoint: config.endpointAllowList[0],
     matches,
     async invoke(call: ProviderCall): Promise<ProviderResponseBody> {
       matches.push(classifyKeywords(call.prompt));

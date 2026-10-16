@@ -125,7 +125,7 @@ describe("keyword parser: it escalates and never acts", () => {
   });
 
   it("its call passes the real gateway, so the fallback is audited like any other turn", async () => {
-    const provider = keywordProvider({ vendor: CONFIG.provider });
+    const provider = keywordProvider(CONFIG);
     const gateway = createGateway(provider, CONFIG);
     const prompt = promptWith("staying home sick today");
     const result = await gateway.complete({ runId: "RUN-KW", prompt });
@@ -137,7 +137,7 @@ describe("keyword parser: it escalates and never acts", () => {
   });
 
   it("records what it classified and never the text it classified", async () => {
-    const provider = keywordProvider({ vendor: CONFIG.provider });
+    const provider = keywordProvider(CONFIG);
     await provider.invoke(call(promptWith("he is sick")));
     await provider.invoke(call(promptWith("stop")));
     expect(provider.matches.map((m) => m.keyword)).toEqual(["SICK", "STOP"]);
@@ -150,7 +150,7 @@ describe("keyword parser: it escalates and never acts", () => {
     });
     vi.stubGlobal("fetch", attempted);
     try {
-      const provider = keywordProvider({ vendor: CONFIG.provider });
+      const provider = keywordProvider(CONFIG);
       await provider.invoke(call(promptWith("staying home sick")));
       expect(attempted).not.toHaveBeenCalled();
     } finally {

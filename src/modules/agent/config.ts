@@ -18,11 +18,21 @@
  *     slugs in `src/`, and `no-hardcoded-models.test.ts` fails the build if a second one appears
  *     anywhere outside this module and its test. Every other module reads `config.model` /
  *     `config.backupModel`, so switching vendors is an env change and never a code change.
- *  2. **The demo-data guard is in this module too** (`demoDataOnly`), because the thing it has to
- *     be impossible to forget is a *config* property of the deployment, not a provider-level flag.
- *     None of the free endpoints offer ZDR and OpenRouter has no BAA, so this guard is the only
- *     thing keeping real family data away from them: it fails shut, and `remoteProvider` refuses
- *     before it builds a request body.
+ *  2. **The demo-data guard is in this module too** (`demoDataGuardRefusal`), because the thing it
+ *     has to be impossible to forget is a *config* property of the deployment, not a provider-level
+ *     flag. None of the free endpoints offer ZDR and OpenRouter has no BAA, so this guard is the
+ *     only thing keeping real family data away from them: it fails shut, and `remoteProvider`
+ *     refuses before it builds a request body. It is three conditions and not one, because any of
+ *     the three being wrong means the data is not what the operator confirmed it was:
+ *     `AGENT_DEMO_DATA_ONLY=true`, **and** the ADR-015 boot class `APP_DATA_CLASS=SYNTHETIC`,
+ *     **and** this module's own `dataMode=SYNTHETIC`. `loadAgentConfig` refuses an *override* of
+ *     the flag for the same reason: a fail-shut default that any caller holding the config could
+ *     set to `true` is not a guard.
+ *  3. **The destination is allow-listed, not merely configured.** `baseUrl` must be `https` and its
+ *     host must be on `baseUrlHostAllowList`, checked at config time *and* again on the outbound
+ *     path before a `Bearer` header exists — the base URL is the one knob that decides where the
+ *     founder's key is sent, so an off-list host or a plain-http origin is a refusal, never a
+ *     credential handed to a host nobody vetted.
  *
  * The API key is referenced by *variable name* only (`apiKeyEnvVar`). This module never reads
  * its value, never requires it, and nothing here fails when it is absent — so boot, CI and
@@ -30,6 +40,7 @@
  * hold without a secret in the repo.
  */
 import { z } from "zod";
+import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS, isSyntheticDemo } from "@/lib/env";
 
 export const DATA_MODES = ["SYNTHETIC", "PHI"] as const;
 /**
@@ -84,6 +95,63 @@ export const DEFAULT_MODEL_ALLOW_LIST = [MODEL_PRIMARY, MODEL_BACKUP] as const;
  * file in the agent module carries a URL.
  */
 export const DEFAULT_BASE_URL = "https://openrouter.ai";
+
+/**
+ * The hosts this deployment may open a vendor connection to — and therefore the only hosts the
+ * founder's key can reach. `AGENT_BASE_URL` is checked against this list, so repointing at the
+ * compliant endpoint moves two env vars together (`AGENT_BASE_URL` and
+ * `AGENT_BASE_URL_HOST_ALLOW_LIST`) exactly as switching models moves `AGENT_MODEL` with
+ * `AGENT_MODEL_ALLOW_LIST`. A single var would mean any value that parsed as a URL became a place
+ * to send a Bearer token.
+ *
+ * An entry is a *host*, so a port is part of it: `vendor.example:8443` does not match
+ * `vendor.example` and has to be allow-listed on its own.
+ */
+export const DEFAULT_BASE_URL_HOST_ALLOW_LIST = ["openrouter.ai"] as const;
+
+/**
+ * The only scheme a vendor call may use, in `URL.protocol` form (trailing colon) so the comparison
+ * is against a parsed URL and not a prefix match on a string. Plain http would put the key and the
+ * prompt on the wire in clear, and a redirect from it is no mitigation — the first request has
+ * already been sent.
+ *
+ * The colon also keeps this off `no-network.test.ts`'s "a node network module" pattern, which bans
+ * a bare `"https"` literal in every file in the module, this one included: the exemption config.ts
+ * holds is for an absolute URL and nothing else.
+ */
+export const REQUIRED_BASE_URL_PROTOCOL = "https:";
+
+/**
+ * Why this base URL may not be called, or null when it may. Four refusals, in the order a bad
+ * value is most likely to arrive: not a URL at all, not https, carrying credentials in its
+ * userinfo (`https://user:pass@host` passes a host check while smuggling a credential through
+ * config), or a host no deployment vetted.
+ *
+ * Messages name the scheme and the host and never the whole string: a URL can carry a secret in
+ * its userinfo or its query, and this text ends up in a thrown error.
+ */
+export function baseUrlRefusalReason(
+  baseUrl: string,
+  hostAllowList: readonly string[],
+): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    return "base URL is not an absolute URL";
+  }
+  if (parsed.protocol !== REQUIRED_BASE_URL_PROTOCOL) {
+    const required = REQUIRED_BASE_URL_PROTOCOL.replace(":", "");
+    return `base URL scheme ${parsed.protocol.replace(":", "")} is refused: a vendor call must use ${required}`;
+  }
+  if (parsed.username !== "" || parsed.password !== "") {
+    return "base URL carries credentials in its userinfo, which no deployment may configure";
+  }
+  if (!hostAllowList.includes(parsed.host)) {
+    return `base URL host ${parsed.host} is not on the configured host allow-list`;
+  }
+  return null;
+}
 
 /** Hard ceiling on one vendor call. A hung request must become a keyword fallback, not a hung run. */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
@@ -141,14 +209,25 @@ export const agentConfigSchema = z.object({
   apiKeyEnvVar: z.string().min(1).default("OPENROUTER_API_KEY"),
   rateLimits: rateLimits.default(DEFAULT_RATE_LIMITS),
   /**
-   * Demo-data-only guard, fail shut (§2.5A). `false` unless the deployment sets
+   * The operator's demo-data confirmation, fail shut (§2.5A). `false` unless the deployment sets
    * `AGENT_DEMO_DATA_ONLY` to exactly `DEMO_DATA_ONLY_REQUIRED_VALUE`; a missing, empty, mistyped
    * or merely truthy-looking value ("1", "TRUE", "yes") leaves it `false` and no live model call
-   * is possible. Default `false` is the whole point: forgetting the var cannot open the gate.
+   * is possible. The schema default is `false` and that is the whole point: forgetting the var —
+   * or parsing a config object that never mentions it — cannot open the gate.
+   *
+   * It is **necessary and not sufficient**. The guard that gates a live call is
+   * `demoDataGuardRefusal`, which also requires `APP_DATA_CLASS=SYNTHETIC` and
+   * `dataMode=SYNTHETIC`; and `loadAgentConfig` refuses an *override* of this field, so the only
+   * way it becomes `true` is the environment saying so.
    */
   demoDataOnly: z.boolean().default(false),
-  /** Vendor origin for the live adapter (DEFAULT_BASE_URL). */
+  /** Vendor origin for the live adapter (DEFAULT_BASE_URL). https, and on the host allow-list. */
   baseUrl: z.string().min(1).default(DEFAULT_BASE_URL),
+  /** Hosts `baseUrl` may name (DEFAULT_BASE_URL_HOST_ALLOW_LIST). A port is part of the host. */
+  baseUrlHostAllowList: z
+    .array(z.string().min(1))
+    .nonempty()
+    .default([...DEFAULT_BASE_URL_HOST_ALLOW_LIST]),
   /** Per-call timeout in ms. Exceeding it is a provider error, which the fallback chain handles. */
   requestTimeoutMs: z.number().int().positive().default(DEFAULT_REQUEST_TIMEOUT_MS),
 }).superRefine((c, ctx) => {
@@ -162,6 +241,10 @@ export const agentConfigSchema = z.object({
       });
     }
   }
+  // And neither is a destination the deployment may not reach. Refused here rather than at call
+  // time so no deployment can boot into a shape where the key has somewhere unvetted to go.
+  const badBaseUrl = baseUrlRefusalReason(c.baseUrl, c.baseUrlHostAllowList);
+  if (badBaseUrl) ctx.addIssue({ code: "custom", path: ["baseUrl"], message: badBaseUrl });
 });
 
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
@@ -209,7 +292,63 @@ export function demoDataOnlyFromEnv(env: Record<string, string | undefined>): bo
   return env[DEMO_DATA_ONLY_ENV_VAR] === DEMO_DATA_ONLY_REQUIRED_VALUE;
 }
 
-/** Env var names this module reads. Listed so a deployment review can see the whole surface. */
+/** Why the guard fails shut, appended to every refusal below so no message states only half of it. */
+const WHY_IT_FAILS_SHUT =
+  "the configured endpoint offers no zero-data-retention guarantee and the vendor has no BAA, " +
+  "so this guard fails shut";
+
+/**
+ * The demo-data guard: why a live model call is refused in this deployment, or null when all
+ * **three** conditions hold. One lowercase clause per fact, the house style for every other
+ * refusal in this module — and the reason `src/ui/copy.test.ts` does not read it as user-facing
+ * copy. A staff-readable sentence, if this ever needs one, belongs in `ui/copy.ts`.
+ *
+ * Why three and not one. `AGENT_DEMO_DATA_ONLY` is an operator's *assertion* about the data, and
+ * an assertion can be stale or simply wrong — a var set once on a demo project and inherited by a
+ * clone that later holds real rows is exactly how one goes bad quietly. So the two facts the
+ * deployment can state about itself have to agree with it:
+ *
+ *  - `APP_DATA_CLASS=SYNTHETIC` — the ADR-015 boot class, the same one `assertBootEnv` refuses to
+ *    start without. If this deployment is not the synthetic one, nothing it holds is demo data,
+ *    whatever `AGENT_DEMO_DATA_ONLY` says.
+ *  - `dataMode=SYNTHETIC` — this module's own mode. PHI mode is the one that demands a
+ *    `vendorAttestation` of the vendor (gateway.ts), and a vendor with no BAA cannot produce one;
+ *    a deployment in PHI mode calling a free endpoint is the contradiction this refuses.
+ *
+ * The order is the design: the operator's missing confirmation is named first, because it is the
+ * one a deployment is most likely to have simply forgotten.
+ */
+export function demoDataGuardRefusal(
+  config: Pick<AgentConfig, "demoDataOnly" | "dataMode">,
+  env: Record<string, string | undefined>,
+): string | null {
+  if (!config.demoDataOnly) {
+    return (
+      `live model calls are refused: this deployment has not confirmed demo-data-only operation; ` +
+      `set $${DEMO_DATA_ONLY_ENV_VAR} to exactly "${DEMO_DATA_ONLY_REQUIRED_VALUE}"; ${WHY_IT_FAILS_SHUT}`
+    );
+  }
+  if (!isSyntheticDemo(env)) {
+    return (
+      `live model calls are refused: $${DATA_CLASS_ENV_VAR} is not ${SYNTHETIC_DATA_CLASS}, so this ` +
+      `deployment may hold real family data whatever $${DEMO_DATA_ONLY_ENV_VAR} asserts; ${WHY_IT_FAILS_SHUT}`
+    );
+  }
+  if (config.dataMode !== "SYNTHETIC") {
+    return (
+      `live model calls are refused: the configured agent data mode is ${config.dataMode}, not ` +
+      `SYNTHETIC, and a vendor with no BAA cannot produce the attestation that mode requires; ` +
+      `${WHY_IT_FAILS_SHUT}`
+    );
+  }
+  return null;
+}
+
+/**
+ * Env var names this module reads. Listed so a deployment review can see the whole surface.
+ * `APP_DATA_CLASS` is on it because the demo-data guard reads it (demoDataGuardRefusal) even though
+ * it is the boot guard's var and src/lib/env.ts owns its name.
+ */
 export const AGENT_ENV_VARS = [
   "AGENT_PROVIDER",
   "AGENT_MODEL",
@@ -218,8 +357,10 @@ export const AGENT_ENV_VARS = [
   "AGENT_MODEL_ZDR",
   "AGENT_DATA_MODE",
   DEMO_DATA_ONLY_ENV_VAR,
+  DATA_CLASS_ENV_VAR,
   "AGENT_ENDPOINT_ALLOW_LIST",
   "AGENT_BASE_URL",
+  "AGENT_BASE_URL_HOST_ALLOW_LIST",
   "AGENT_REQUEST_TIMEOUT_MS",
   "AGENT_API_KEY_ENV_VAR",
   "AGENT_MAX_CALLS_PER_RUN",
@@ -235,11 +376,25 @@ const asList = (v: string | undefined): string[] | undefined =>
  * Config for this deployment. Every knob is optional with an ADR-000 default, so an environment
  * with none of these set — CI, a test, a fresh clone — gets the founder-locked shape and boots.
  * `overrides` is for tests and for the AWS adapter, which will pass its own region/endpoint.
+ *
+ * `demoDataOnly` is the **one** knob an override may not set, and it throws rather than being
+ * quietly ignored (see below): a deployment confirms demo data in its environment or not at all.
  */
 export function loadAgentConfig(
   env: Record<string, string | undefined> = process.env,
   overrides: Partial<z.input<typeof agentConfigSchema>> = {},
 ): AgentConfig {
+  // The guard comes from the environment and from nowhere else. An override may set every other
+  // knob — that is what the Bedrock swap and the suites use it for — but a fail-shut default that
+  // any caller holding a config could flip to `true` would not be a guard at all, and "pass
+  // demoDataOnly" is the shortest way for a test helper to become a production bypass. Loud, not
+  // silent, so a caller that believed the override worked finds out here.
+  if (overrides.demoDataOnly !== undefined) {
+    throw new AgentConfigError(
+      `Invalid agent config [demoDataOnly: may not be set by an override; it is read only from ` +
+        `$${DEMO_DATA_ONLY_ENV_VAR}]`,
+    );
+  }
   const fromEnv: z.input<typeof agentConfigSchema> = {
     provider: env.AGENT_PROVIDER,
     model: env.AGENT_MODEL,
@@ -251,6 +406,7 @@ export function loadAgentConfig(
     demoDataOnly: demoDataOnlyFromEnv(env),
     endpointAllowList: asList(env.AGENT_ENDPOINT_ALLOW_LIST),
     baseUrl: env.AGENT_BASE_URL,
+    baseUrlHostAllowList: asList(env.AGENT_BASE_URL_HOST_ALLOW_LIST),
     requestTimeoutMs: asInt(env.AGENT_REQUEST_TIMEOUT_MS),
     apiKeyEnvVar: env.AGENT_API_KEY_ENV_VAR,
     rateLimits: {
@@ -261,6 +417,9 @@ export function loadAgentConfig(
   };
   // undefined keys must not shadow a default, and must not shadow an override either.
   const merged = { ...prune(fromEnv), ...prune(overrides) };
+  // Re-asserted after the merge, not merely checked before it: the env read is the only source
+  // this value may ever have, whatever shape a caller passed.
+  merged.demoDataOnly = demoDataOnlyFromEnv(env);
   if (fromEnv.rateLimits || overrides.rateLimits) {
     merged.rateLimits = { ...prune(fromEnv.rateLimits ?? {}), ...prune(overrides.rateLimits ?? {}) };
   }

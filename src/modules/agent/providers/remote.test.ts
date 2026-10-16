@@ -2,22 +2,27 @@
  * The live OpenRouter adapter (B-08 slice 5). `fetch` is stubbed in every test here — nothing in
  * this file, or anywhere in the suite, reaches a real vendor.
  *
- * Four things are worth proving, in descending order of how much damage getting them wrong does:
+ * Five things are worth proving, in descending order of how much damage getting them wrong does:
  *
- *  1. **The demo-data-only guard fails shut, and refuses without calling fetch.** Missing setting,
- *     wrong value, right value. None of the free endpoints offer zero data retention and
- *     OpenRouter has no BAA, so this guard is the only thing keeping real family data away from
- *     them. A refusal that had already sent the body would be no guard at all.
- *  2. **The fallback chain.** 429 on the primary tries the backup; failure on both degrades to the
+ *  1. **The demo-data guard fails shut, and refuses without calling fetch.** All three conditions:
+ *     the confirmation var (missing, wrong value, right value), the ADR-015 boot data class, and
+ *     this module's data mode. None of the free endpoints offer zero data retention and OpenRouter
+ *     has no BAA, so this guard is the only thing keeping real family data away from them. A
+ *     refusal that had already sent the body would be no guard at all.
+ *  2. **The destination is refused before a Bearer header exists.** Plain http, or a host off
+ *     `baseUrlHostAllowList`: the base URL decides *where the key goes*, so the refusal has to land
+ *     before the key is read, not after a request was sent to a host nobody vetted.
+ *  3. **The fallback chain.** 429 on the primary tries the backup; failure on both degrades to the
  *     §18.1 keyword parser. Any other provider error behaves the same way, because a free endpoint
  *     has more ways to fail than a rate limit.
- *  3. **The outbound body.** The model id comes from config and is on the allow-list,
- *     `allow_fallbacks:false` and `require_parameters:true` are on every request, and the key is
- *     in the authorization header and nowhere else.
- *  4. **Nothing leaks.** No key value and no prompt text in an error, an attempt record or a
+ *  4. **The outbound body.** The model id comes from config, is re-checked against the allow-list
+ *     on this path, `allow_fallbacks:false` and `require_parameters:true` are on every request, and
+ *     the key is in the authorization header and nowhere else.
+ *  5. **Nothing leaks.** No key value and no prompt text in an error, an attempt record or a
  *     thrown stack — TEST-SEC-01 on the path that actually leaves the building.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
 import {
   AgentConfigError,
   DEMO_DATA_ONLY_ENV_VAR,
@@ -30,7 +35,9 @@ import { sha256Hex } from "../redact";
 import { TOOL_NAMES, toolDeclarations } from "../tools";
 import {
   RATE_LIMITED,
+  RemoteBaseUrlRefused,
   RemoteEndpointRefused,
+  RemoteModelRefused,
   RemoteProviderNotEnabled,
   RemoteProviderUnavailable,
   modelChain,
@@ -40,10 +47,16 @@ import {
 
 /** A placeholder, low entropy, obviously not a credential. The real one is supplied by the founder. */
 const PLACEHOLDER_KEY = "placeholder-not-a-key";
-const KEY_ENV = { OPENROUTER_API_KEY: PLACEHOLDER_KEY };
+
+/** What a confirmed demo deployment has in its environment: the agent's var, the boot class, a key. */
+const DEMO_ENV = {
+  [DEMO_DATA_ONLY_ENV_VAR]: DEMO_DATA_ONLY_REQUIRED_VALUE,
+  [DATA_CLASS_ENV_VAR]: SYNTHETIC_DATA_CLASS,
+};
+const KEY_ENV = { ...DEMO_ENV, OPENROUTER_API_KEY: PLACEHOLDER_KEY };
 
 /** The config a demo deployment has: the guard confirmed, everything else at its default. */
-const DEMO = loadAgentConfig({ [DEMO_DATA_ONLY_ENV_VAR]: DEMO_DATA_ONLY_REQUIRED_VALUE });
+const DEMO = loadAgentConfig(DEMO_ENV);
 /** The fail-shut default: no demo confirmation anywhere in the environment. */
 const UNCONFIRMED = loadAgentConfig({});
 
@@ -247,10 +260,7 @@ describe("fallback chain", () => {
   });
 
   it("maps its own timeout to a timeout, and still degrades", async () => {
-    const quick = loadAgentConfig(
-      { [DEMO_DATA_ONLY_ENV_VAR]: DEMO_DATA_ONLY_REQUIRED_VALUE },
-      { requestTimeoutMs: 5 },
-    );
+    const quick = loadAgentConfig(DEMO_ENV, { requestTimeoutMs: 5 });
     // A vendor that never answers: the request settles only when our AbortController fires.
     fetchMock.mockImplementation(
       (_url: string, init: { signal: AbortSignal }) =>
@@ -285,10 +295,7 @@ describe("fallback chain", () => {
   });
 
   it("tries one model when the primary and the backup are the same id", async () => {
-    const same = loadAgentConfig(
-      { [DEMO_DATA_ONLY_ENV_VAR]: DEMO_DATA_ONLY_REQUIRED_VALUE },
-      { backupModel: DEMO.model },
-    );
+    const same = loadAgentConfig(DEMO_ENV, { backupModel: DEMO.model });
     expect(modelChain(same)).toEqual([DEMO.model]);
     fetchMock.mockResolvedValue(vendorStatus(RATE_LIMITED));
     const body = await remoteProvider(same, KEY_ENV).invoke(call());
@@ -499,9 +506,7 @@ describe("endpoint allow-list on the outbound path", () => {
       // `loadAgentConfig` refuses to parse such an allow-list at all — asserted here, because it
       // is the stronger guarantee — so the object is built past the schema to reach the second
       // check: the one that re-tests the excluded families rather than the configured list.
-      expect(() =>
-        loadAgentConfig({ [DEMO_DATA_ONLY_ENV_VAR]: DEMO_DATA_ONLY_REQUIRED_VALUE }, { endpointAllowList: [endpoint] }),
-      ).toThrow(AgentConfigError);
+      expect(() => loadAgentConfig(DEMO_ENV, { endpointAllowList: [endpoint] })).toThrow(AgentConfigError);
 
       const cfg = { ...DEMO, endpointAllowList: [endpoint] as [string, ...string[]] };
       const provider = remoteProvider(cfg, KEY_ENV);
@@ -514,5 +519,177 @@ describe("endpoint allow-list on the outbound path", () => {
     fetchMock.mockResolvedValue(vendorToolCall("get_leg_state", { leg_id: "L-C1-AM" }));
     await remoteProvider(DEMO, KEY_ENV).invoke(call({ endpoint: DEMO.endpointAllowList[0] }));
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+/* ───────────────── 7. the guard's other two conditions, on the adapter ───────────────── */
+
+describe("the demo-data guard's other two conditions", () => {
+  it("refuses a PHI boot data class, with the confirmation set and a key present", () => {
+    // `AGENT_DEMO_DATA_ONLY=true` is an assertion about the data; `APP_DATA_CLASS` is what the
+    // deployment says it holds. When they disagree, the assertion is the one that is wrong.
+    const env = { ...KEY_ENV, [DATA_CLASS_ENV_VAR]: "PHI" };
+    expect(loadAgentConfig(env).demoDataOnly).toBe(true);
+    expect(() => remoteProvider(loadAgentConfig(env), env)).toThrow(RemoteProviderNotEnabled);
+    expect(() => remoteProvider(loadAgentConfig(env), env)).toThrow(new RegExp(DATA_CLASS_ENV_VAR));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a non-synthetic dataMode, with the confirmation set and a key present", () => {
+    const env = { ...KEY_ENV, AGENT_DATA_MODE: "PHI" };
+    const cfg = loadAgentConfig(env);
+    expect([cfg.demoDataOnly, cfg.dataMode]).toEqual([true, "PHI"]);
+    expect(() => remoteProvider(cfg, env)).toThrow(RemoteProviderNotEnabled);
+    expect(() => remoteProvider(cfg, env)).toThrow(/not\s+SYNTHETIC/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("cannot be opened by a config override, so no provider is built that way either", () => {
+    // The route a test helper would take to "just enable it" is a config error, not a provider.
+    expect(() => loadAgentConfig({}, { demoDataOnly: true })).toThrow(AgentConfigError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("re-checks both on every call, not only at wiring time", async () => {
+    fetchMock.mockResolvedValue(vendorToolCall("get_leg_state", { leg_id: "L-C1-AM" }));
+    // A mutable env object, which is what `process.env` is: the data class can change under a
+    // provider that was built when it was still SYNTHETIC.
+    const env: Record<string, string | undefined> = { ...KEY_ENV };
+    const provider = remoteProvider(loadAgentConfig(env), env);
+    await provider.invoke(call());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    env[DATA_CLASS_ENV_VAR] = "PHI";
+    await expect(provider.invoke(call())).rejects.toThrow(RemoteProviderNotEnabled);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // no second call
+  });
+});
+
+/* ───────────────── 8. the destination, checked before any Bearer key is sent (S3) ───────────────── */
+
+describe("base URL: https, and a host this deployment allow-listed", () => {
+  /** Past the schema, which refuses such a value outright, to reach the adapter's own check. */
+  const withBaseUrl = (baseUrl: string) => ({ ...DEMO, baseUrl });
+
+  it.each([
+    ["plain http on the right host", "http://openrouter.ai"],
+    ["plain http on another host", "http://vendor-b.example"],
+    ["a non-HTTP scheme", "ftp://openrouter.ai"],
+  ])("refuses %s before a key is read or a request sent", (_label, baseUrl) => {
+    // `loadAgentConfig` will not parse it at all — the stronger guarantee, asserted first.
+    expect(() => loadAgentConfig({ ...DEMO_ENV, AGENT_BASE_URL: baseUrl })).toThrow(AgentConfigError);
+
+    expect(() => remoteProvider(withBaseUrl(baseUrl), KEY_ENV)).toThrow(RemoteBaseUrlRefused);
+    expect(() => remoteProvider(withBaseUrl(baseUrl), KEY_ENV)).toThrow(/scheme/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["another vendor", "https://vendor-b.example"],
+    ["a lookalike subdomain", "https://openrouter.ai.evil.example"],
+    ["the right host on another port", "https://openrouter.ai:8443"],
+  ])("refuses %s, which is off the host allow-list", (_label, baseUrl) => {
+    expect(() => loadAgentConfig({ ...DEMO_ENV, AGENT_BASE_URL: baseUrl })).toThrow(AgentConfigError);
+
+    expect(() => remoteProvider(withBaseUrl(baseUrl), KEY_ENV)).toThrow(RemoteBaseUrlRefused);
+    expect(() => remoteProvider(withBaseUrl(baseUrl), KEY_ENV)).toThrow(/host allow-list/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends no Bearer header anywhere when the destination is refused", () => {
+    // The claim that matters: the key is not read, not put in a header, and not sent to the
+    // unvetted host — the refusal lands before any of that exists.
+    for (const baseUrl of ["http://openrouter.ai", "https://vendor-b.example"]) {
+      try {
+        remoteProvider(withBaseUrl(baseUrl), KEY_ENV);
+        expect.unreachable();
+      } catch (e) {
+        expect(String(e)).not.toContain(PLACEHOLDER_KEY);
+        expect(String(e)).not.toMatch(/Bearer/);
+      }
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a destination that changed under a wired provider, per call", async () => {
+    fetchMock.mockResolvedValue(vendorToolCall("get_leg_state", { leg_id: "L-C1-AM" }));
+    const mutable = { ...DEMO };
+    const provider = remoteProvider(mutable, KEY_ENV);
+    await provider.invoke(call());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    mutable.baseUrl = "http://openrouter.ai";
+    await expect(provider.invoke(call())).rejects.toThrow(RemoteBaseUrlRefused);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // the key went nowhere new
+  });
+
+  it("the guard still comes first: an unconfirmed deployment is refused for that, not for its URL", () => {
+    // Order matters for the operator reading the log: the missing confirmation is the thing to
+    // fix, and it must not be masked by a complaint about the destination.
+    expect(() => remoteProvider({ ...UNCONFIRMED, baseUrl: "http://openrouter.ai" }, KEY_ENV)).toThrow(
+      RemoteProviderNotEnabled,
+    );
+  });
+
+  it("POSTs to the allow-listed origin when it is one", async () => {
+    fetchMock.mockResolvedValue(vendorToolCall("get_leg_state", { leg_id: "L-C1-AM" }));
+    await remoteProvider(DEMO, KEY_ENV).invoke(call());
+    expect(fetchMock.mock.calls[0][0]).toBe(`${DEMO.baseUrl}${DEMO.endpointAllowList[0]}`);
+    expect(new URL(DEMO.baseUrl).protocol).toBe("https:");
+    expect(DEMO.baseUrlHostAllowList).toContain(new URL(DEMO.baseUrl).host);
+  });
+});
+
+/* ───────────────── 9. the model allow-list, re-checked on the outbound path ───────────────── */
+
+describe("model allow-list on the outbound path", () => {
+  it("refuses a primary that is off the allow-list, without calling fetch", async () => {
+    // Config refuses this at parse time — asserted first, because it is the stronger guarantee —
+    // so the object is built past the schema to reach the adapter's own check: the one on the
+    // file that actually puts a model id in a body and posts it.
+    expect(() => loadAgentConfig({ ...DEMO_ENV, AGENT_MODEL: "vendor-b/some-model" })).toThrow(AgentConfigError);
+
+    const cfg = { ...DEMO, model: "vendor-b/some-model" };
+    const provider = remoteProvider(cfg, KEY_ENV);
+    await expect(provider.invoke(call())).rejects.toThrow(RemoteModelRefused);
+    await expect(provider.invoke(call())).rejects.toThrow(/model allow-list/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses an off-list backup before spending the primary's call", async () => {
+    // The whole chain is checked before the first request: a tampered config sends nothing at
+    // all rather than one call on the model that happened to still be allowed.
+    fetchMock.mockResolvedValue(vendorToolCall("get_leg_state", { leg_id: "L-C1-AM" }));
+    const cfg = { ...DEMO, backupModel: "vendor-b/some-model" };
+    await expect(remoteProvider(cfg, KEY_ENV).invoke(call())).rejects.toThrow(RemoteModelRefused);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a shrunken allow-list that no longer admits the configured models", async () => {
+    const cfg = { ...DEMO, modelAllowList: ["vendor-c/compliant"] as [string, ...string[]] };
+    const provider = remoteProvider(cfg, KEY_ENV);
+    await expect(provider.invoke(call())).rejects.toThrow(RemoteModelRefused);
+    // Both models are named, so the log says what to fix rather than only the first thing wrong.
+    await expect(provider.invoke(call())).rejects.toThrow(new RegExp(DEMO.backupModel));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("names the model and no key, prompt or vendor text in the refusal", async () => {
+    const cfg = { ...DEMO, model: "vendor-b/some-model" };
+    try {
+      await remoteProvider(cfg, KEY_ENV).invoke(call());
+      expect.unreachable();
+    } catch (e) {
+      expect(String(e)).toContain("vendor-b/some-model");
+      expect(String(e)).not.toContain(PLACEHOLDER_KEY);
+      expect(String(e)).not.toContain(SMS);
+    }
+  });
+
+  it("lets the configured chain through, and every id it posts is on the list", async () => {
+    fetchMock.mockResolvedValue(vendorStatus(RATE_LIMITED));
+    await remoteProvider(DEMO, KEY_ENV).invoke(call());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const nth of [0, 1]) expect(DEMO.modelAllowList).toContain(bodyOf(nth).model);
   });
 });
