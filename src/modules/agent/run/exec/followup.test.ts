@@ -167,20 +167,64 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     expect(calls[3].result).toMatchObject({ audience: "GUARDIAN_OF_CHILD", plan_version_basis: 2 });
   });
 
-  it("the confirmation goes back to the guardian who texted, not to the other authorized contact", async () => {
+  it("the confirmation goes back to the guardian who texted, and the other contact gets nothing", async () => {
     // A cancellation confirms what *one* parent asked for, so it is a decision rather than a
     // notice and does not fan out (see `resolveGuardian`'s table).
+    //
+    // The claim is about the *other* parent, so it is asserted over every row and every send
+    // rather than over the first one: "the asker's message is first" is also true of a fan-out,
+    // and a fan-out is the bug. So: how many messages exist at all, who each of them is
+    // addressed to, what the result says about the count, and what reached the provider.
     sc = await seedAgentScenario(db);
     const child = sc.children[0];
     const second = await seedSecondGuardian(db, {
       siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
     });
     const h = harness(at01Script());
-    await h.start(trigger());
+    const r = await h.start(trigger());
+    expect(r.state).toBe("SUCCEEDED");
 
-    const [msg] = await outbound();
-    expect(msg.recipient_token).toBe(sc.contactToken);
-    expect(msg.recipient_token).not.toBe(second);
+    const rows = await outbound();
+    expect(rows.map((m) => m.recipient_token)).toEqual([sc.contactToken]);
+    expect(rows.filter((m) => m.recipient_token === second)).toEqual([]);
+    // Not even under the derived fan-out key, which is the only other id a second message to
+    // them could be written against.
+    expect(rows.map((m) => m.idempotency_key)).toEqual([`agent:${r.runId}:3`]);
+    // And the result the next model turn reads counts one recipient, with no fan-out to name.
+    const call = (await toolCalls(db, r.runId))[3];
+    expect(call.result).toMatchObject({ audience: "GUARDIAN_OF_CHILD", recipients: 1 });
+    expect(call.result).not.toHaveProperty("outbound_message_ids");
+
+    // The send-time half: one message leaves, to the asker. The other parent is on no wire.
+    expect(await h.drainOutbox()).toEqual(["SENT"]);
+    expect(h.provider.sent.map((m) => m.recipientToken)).toEqual([sc.contactToken]);
+    expect(JSON.stringify(h.provider.sent)).not.toContain(second);
+    expect(await tasks()).toEqual([]);
+  });
+
+  it("a change confirmation is a decision too: the asker only, and nothing to the other contact", async () => {
+    // `leg.changed` is the other half of `DECISION_TEMPLATES`, and it is a disclosure about the
+    // same request: the parent who did not ask is not told what the parent who did asked for.
+    sc = await seedAgentScenario(db);
+    const child = sc.children[0];
+    const second = await seedSecondGuardian(db, {
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+    });
+    const h = harness([
+      toolCall("resolve_sender", { message_id: sc.messageId }),
+      toolCall("get_leg_state", { leg_id: sc.legs[child].AM }),
+      followupCall({ template_id: "leg.changed", vars: { legDate: sc.serviceDate, eta: "09:30" } }),
+    ]);
+    const r = await h.start(trigger());
+    expect(r.state).toBe("SUCCEEDED");
+
+    const rows = await outbound();
+    expect(rows.map((m) => [m.template_id, m.recipient_token])).toEqual([["leg.changed", sc.contactToken]]);
+    expect(rows.filter((m) => m.recipient_token === second)).toEqual([]);
+    expect((await toolCalls(db, r.runId))[2].result).toMatchObject({ recipients: 1 });
+    expect(await h.drainOutbox()).toEqual(["SENT"]);
+    expect(h.provider.sent.map((m) => m.recipientToken)).toEqual([sc.contactToken]);
+    expect(JSON.stringify(h.provider.sent)).not.toContain(second);
     expect(await tasks()).toEqual([]);
   });
 
