@@ -15,6 +15,7 @@ import { formatDelta } from "@/domain/eta/eta";
 import {
   matchesQuery,
   type Board,
+  type DayPhase,
   type LegRow,
   type RideView,
 } from "@/domain/board/board";
@@ -30,9 +31,10 @@ import {
 } from "@/ui/states";
 import { humanizeAge } from "@/ui/age";
 import { clockLabel } from "@/ui/service-date";
+import { ServiceDateSwitcher } from "@/ui/ServiceDateSwitcher";
 import { icon } from "@/ui/tokens";
 import { LegDrawer } from "./LegDrawer";
-import { nextStepCellText } from "./next-step";
+import { nextStepCellText, stateValues } from "./next-step";
 import styles from "./today.module.css";
 
 /**
@@ -51,17 +53,8 @@ import styles from "./today.module.css";
  * Keyboard (§4.1): J and K move between rides and Enter opens one, which is also what the row's
  * own button does, so nothing here is keyboard-only or mouse-only.
  */
-export function TodayBoard({
-  board,
-  query,
-  serviceDateLabel,
-  serviceDateIso,
-}: {
-  board: Board;
-  query: string;
-  serviceDateLabel: string;
-  serviceDateIso: string;
-}) {
+export function TodayBoard({ board, query }: { board: Board; query: string }) {
+  const { day } = board;
   const [onlyNeedsAction, setOnlyNeedsAction] = useState(false);
   const [openChild, setOpenChild] = useState<string | null>(null);
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -95,15 +88,20 @@ export function TodayBoard({
 
   return (
     <div className={styles.page}>
-      <div className={styles.titleRow}>
-        <h1 className={styles.heading}>{boardCopy.heading}</h1>
-        <p className={styles.date}>
-          <span className={styles.dateLabel}>{boardCopy.dateLabel}</span>{" "}
-          <time dateTime={serviceDateIso} className="tabularNums">
-            {serviceDateLabel}
-          </time>
-        </p>
-      </div>
+      {/*
+        The board's own header: which day it is about, and the way to another one. The heading
+        says "Today" on the day that is true of and names the day on any other, because a board
+        of finished rides under a heading that said "Today" would be the one false sentence on
+        the screen.
+      */}
+      <header className={styles.titleRow}>
+        <h1 className={styles.heading}>
+          {day.phase === "LIVE"
+            ? boardCopy.heading
+            : fill(boardCopy.headingOtherDay, { date: day.label })}
+        </h1>
+        <ServiceDateSwitcher day={day} query={query} />
+      </header>
 
       <div className={styles.filters}>
         <button
@@ -131,7 +129,7 @@ export function TodayBoard({
 
       {order.length === 0 ? (
         <p className={styles.empty}>
-          {emptyLine({ query, onlyNeedsAction, serviceDateLabel, rides: board.legs.length })}
+          {emptyLine({ query, onlyNeedsAction, date: day.label, rides: board.legs.length })}
         </p>
       ) : (
         <>
@@ -182,6 +180,7 @@ export function TodayBoard({
                   <Row
                     key={leg.key}
                     leg={leg}
+                    phase={day.phase}
                     index={order.indexOf(leg)}
                     register={registerRow(order.indexOf(leg))}
                     onMove={focusRow}
@@ -211,28 +210,31 @@ export function TodayBoard({
 function emptyLine({
   query,
   onlyNeedsAction,
-  serviceDateLabel,
+  date,
   rides,
 }: {
   query: string;
   onlyNeedsAction: boolean;
-  serviceDateLabel: string;
+  date: string;
   rides: number;
 }): string {
-  if (rides === 0) return fill(boardCopy.empty, { date: serviceDateLabel });
+  if (rides === 0) return fill(boardCopy.empty, { date });
   if (query.trim().length > 0) return fill(boardCopy.emptySearch, { query });
   if (onlyNeedsAction) return boardCopy.emptyNeedsAction;
-  return fill(boardCopy.empty, { date: serviceDateLabel });
+  return fill(boardCopy.empty, { date });
 }
 
 function Row({
   leg,
+  phase,
   index,
   register,
   onMove,
   onOpen,
 }: {
   leg: LegRow;
+  /** Which kind of day this row is on: a finished day has no live van to locate. */
+  phase: DayPhase;
   index: number;
   register: (el: HTMLButtonElement | null) => void;
   onMove: (index: number) => void;
@@ -272,13 +274,17 @@ function Row({
         </span>
       </td>
       <td>
-        <StateChip state={legStates[ride.state]} className={styles.cellChip} />
+        <StateChip
+          state={legStates[ride.state]}
+          values={stateValues(leg)}
+          className={styles.cellChip}
+        />
       </td>
       <td>
         <VanCell ride={ride} />
       </td>
       <td>
-        <LocationCell ride={ride} />
+        <LocationCell ride={ride} phase={phase} />
       </td>
       <td>
         <ArrivingCell ride={ride} />
@@ -317,10 +323,21 @@ const NO_POSITION: StateDescriptor = {
   tone: "neutral",
 };
 
+/** The same column on a day that is over: this slice keeps no position history. */
+const NO_POSITION_KEPT: StateDescriptor = {
+  icon: Locate,
+  label: boardCopy.noPositionRecorded,
+  tone: "neutral",
+};
+
 /**
- * No arrival window has been worked out for this ride yet. Normal for the afternoon, which has
- * no committed geometry, and so neutral rather than a warning — but still an icon and a label,
- * because "Window pending" is a state of the ride and not a gap in the table (§3, §9).
+ * No arrival window at all: a ride on a van whose run has no committed geometry.
+ *
+ * It used to be every afternoon row on the board, because the afternoon had no geometry to be
+ * planned from (src/fixtures/run-routes.ts is now that geometry, read out of the scenario
+ * itself). Nothing in the committed scenario reaches this any more, and it stays because the
+ * honest answer to "when does this ride arrive" is sometimes "nobody has worked that out" — and
+ * a blank cell says it is missing data instead (§3, §9).
  */
 const WINDOW_PENDING: StateDescriptor = {
   icon: Clock,
@@ -366,10 +383,12 @@ function VanCell({ ride }: { ride: RideView }) {
   );
 }
 
-function LocationCell({ ride }: { ride: RideView }) {
+function LocationCell({ ride, phase }: { ride: RideView; phase: DayPhase }) {
   if (ride.vehicleLabel === null) return <StateChip state={FAMILY_DRIVES} className={styles.cellChip} />;
   if (ride.gpsFreshness === null || ride.gpsAgeSeconds === null) {
-    return <StateChip state={NO_POSITION} className={styles.cellChip} />;
+    // "…yet" is a promise, and only a day that has not been driven can keep it.
+    const state = phase === "ENDED" ? NO_POSITION_KEPT : NO_POSITION;
+    return <StateChip state={state} className={styles.cellChip} />;
   }
   return (
     <span className={styles.van}>
@@ -397,6 +416,11 @@ function LocationCell({ ride }: { ride: RideView }) {
 function ArrivingCell({ ride }: { ride: RideView }) {
   const { windowText, deltaSeconds } = ride;
   if (windowText === null) {
+    // A ride with no van has no arrival to publish: the family brings the child, at the time
+    // the plan says, and that is the whole answer to this column.
+    if (ride.vehicleLabel === null) {
+      return <StateChip state={FAMILY_DRIVES} className={styles.cellChip} />;
+    }
     return <StateChip state={WINDOW_PENDING} className={styles.cellChip} />;
   }
   const delta = deltaSeconds === null ? null : formatDelta(deltaSeconds);

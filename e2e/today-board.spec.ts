@@ -14,8 +14,9 @@
  * and is refused outright on any deployment. The board it renders is the committed demo day.
  */
 import { expect, test } from "@playwright/test";
-import { board as boardCopy, drawer, fill, sentence } from "../src/ui/copy";
+import { board as boardCopy, drawer, fill, sentence, serviceDate } from "../src/ui/copy";
 import { legStates } from "../src/ui/states";
+import { demoDay, serviceDayFor } from "../src/domain/board/day";
 import {
   boxOf,
   expectDemoBarPinned,
@@ -32,6 +33,14 @@ const VIEWPORT = { height: 900 };
 /** The child the scenario gives no authorized receiving adult, and one on a van that is moving. */
 const NO_RECEIVER_CHILD = "Noah O.";
 const RIDING_CHILD = "Zoe B.";
+
+/**
+ * The day before the demo day, which the scenario drove to the end: every ride on it has an
+ * outcome, including the one that ended holding a child (AT-13) and the one whose van arrived
+ * and was never handed over (AT-10).
+ */
+const FINISHED = serviceDayFor(demoDay().previousIso);
+const FINISHED_URL = `/today?date=${FINISHED.iso}`;
 
 /** The 28 children of the standard scenario, each with a morning row and an afternoon row. */
 const RIDES = 56;
@@ -65,6 +74,11 @@ for (const width of WIDTHS) {
       await expect(
         page.getByRole("button", { name: opener(RIDING_CHILD, boardCopy.pmSpoken) }),
       ).toBeVisible();
+
+      // Every ride says when it arrives, the afternoon included: no row on the board is still
+      // waiting for its window to be worked out.
+      await expect(page.getByText(boardCopy.windowPending)).toHaveCount(0);
+      await expect(page.getByText(/\d{1,2}:\d{2}–\d{1,2}:\d{2} [AP]M/).first()).toBeVisible();
 
       // D-5: the violet is the DEMO bar and the Simulated chip, and nothing else on the board.
       await expectVioletOnlyOnDemoChrome(page);
@@ -100,8 +114,166 @@ for (const width of WIDTHS) {
         expect((await chip.innerText()).trim(), "a state chip with an icon and no label").not.toBe("");
         await expect(chip.locator("svg")).toHaveCount(1);
       }
-      // AT-10: a vehicle reaching a place is never a child changing hands.
-      await expect(page.getByText(/handed off to/i)).toHaveCount(0);
+      // Nobody has reported anything on the live board yet, so nothing on it is handed off.
+      await expect(page.getByText(/handed off/i)).toHaveCount(0);
+    });
+
+    /**
+     * AT-10, measured where both answers are on one board.
+     *
+     * The finished day has a van that reached a kerb with no custody event recorded, and ten
+     * rides a person did receive. The rule is the difference between them, so this test is
+     * written as that difference: the arrived row says "Arrived (vehicle)" and asks for the
+     * handoff, the received rows say who received the child, and the count of handoffs on the
+     * whole board is exactly the number of custody events the day recorded. Make the projection
+     * read an arrival as a handoff and the arrived row changes, the step disappears and the
+     * count goes up — three assertions, not one, because the mutation has to be caught wherever
+     * it is made.
+     */
+    test("a van that arrived is not a child handed over (AT-10)", async ({ page }) => {
+      await page.goto(`${FINISHED_URL}&q=Zoe`);
+
+      const arrived = page
+        .getByRole("row")
+        .filter({ has: page.getByRole("button", { name: opener(RIDING_CHILD, boardCopy.pmSpoken) }) });
+      await expect(arrived.getByText(legStates.ARRIVED_DROPOFF.label).first()).toBeVisible();
+      // The row that merely arrived says nothing about a handoff, in any of its cells.
+      await expect(arrived.getByText(/handed off/i)).toHaveCount(0);
+
+      // The morning of the same child was received at the centre, and names where.
+      const handedOff = page
+        .getByRole("row")
+        .filter({ has: page.getByRole("button", { name: opener(RIDING_CHILD) }) });
+      await expect(
+        handedOff
+          .getByText(
+            fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": boardCopy.receivedByRamp }),
+            { exact: true },
+          )
+          .first(),
+      ).toBeVisible();
+
+      // Whole-board count: a handoff on screen for every custody event the day recorded, and
+      // not one more. Eleven rides ran that day; ten of them were received by a person.
+      await page.goto(FINISHED_URL);
+      await expect(page.getByText(/^Handed off to /)).toHaveCount(10);
+      await expect(page.getByText(legStates.ARRIVED_DROPOFF.label, { exact: true })).toHaveCount(1);
+
+      /*
+       * And the control that would commit one. The van is there and an adult is on file, so the
+       * day has nothing left to ask — the button is still unavailable, and the reason it gives
+       * is this build's, not a pretend one about the van not having arrived (§1 honesty).
+       */
+      await page.getByRole("button", { name: opener(RIDING_CHILD, boardCopy.pmSpoken) }).click();
+      const panel = page.getByRole("dialog");
+      await expect(
+        panel.getByRole("button", { name: fill(drawer.confirmHandoff, { child: RIDING_CHILD }) }),
+      ).toBeDisabled();
+      await expect(panel.getByText(drawer.handoffBlockedNotConnected)).toBeVisible();
+      await expect(
+        panel.getByText(fill(drawer.handoffBlockedNotArrived, { child: RIDING_CHILD })),
+      ).toHaveCount(0);
+      console.log("screenshot:", await shot(page, `today-arrival-not-handoff-${width}`));
+    });
+
+    /**
+     * AT-13: a ride that **ended** with nobody on file to receive the child.
+     *
+     * The afternoon van reached Noah O.'s stop, no adult on file may receive him and no custody
+     * event was recorded, so the leg machine's only remaining edge was HELD_NO_RECEIVER. What
+     * the board has to carry is the part a coordinator cannot be left to assume: he is waiting
+     * with the van, and nothing is bringing him back on its own (PRD §6.6 CA-04).
+     */
+    test("a ride that ends held, with no automatic return (AT-13)", async ({ page }) => {
+      await page.goto(`${FINISHED_URL}&q=Noah`);
+
+      const held = page
+        .getByRole("row")
+        .filter({
+          has: page.getByRole("button", { name: opener(NO_RECEIVER_CHILD, boardCopy.pmSpoken) }),
+        });
+      await expect(held.getByText(legStates.HELD_NO_RECEIVER.label).first()).toBeVisible();
+      // It is a held child, not a handed-over one, and not a van still on its way.
+      await expect(held.getByText(/handed off/i)).toHaveCount(0);
+      // Needs action, first group on the board (§4.1).
+      const headers = page.locator("th[scope='colgroup']");
+      await expect(headers.first()).toContainText(boardCopy.groups.NEEDS_ACTION);
+
+      const reason = fill(boardCopy.reasons.CHILD_HELD, { child: NO_RECEIVER_CHILD });
+      const step = sentence(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: NO_RECEIVER_CHILD }));
+      if (width >= 1280) {
+        await expect(page.getByText(step, { exact: true })).toBeVisible();
+      }
+
+      // The drawer: the day read as one day, with the hold on the afternoon row and the rule
+      // about no automatic return said out loud.
+      await page
+        .getByRole("button", { name: opener(NO_RECEIVER_CHILD, boardCopy.pmSpoken) })
+        .click();
+      const panel = page.getByRole("dialog");
+      await expect(panel.getByText(legStates.HELD_NO_RECEIVER.label).first()).toBeVisible();
+      await expect(panel.getByText(reason).first()).toBeVisible();
+      await expect(panel.getByText(step).first()).toBeVisible();
+      await expect(
+        panel.getByText(fill(drawer.heldNoReturn, { child: NO_RECEIVER_CHILD })),
+      ).toBeVisible();
+      // The morning of the same day is finished: one held ride is not a held day (AT-07).
+      await expect(
+        panel
+          .getByText(
+            fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": boardCopy.receivedByRamp }),
+            { exact: true },
+          )
+          .first(),
+      ).toBeVisible();
+      // Nothing on this screen can move it: the one action that would is unavailable, and says
+      // which person has to answer first.
+      await expect(
+        panel.getByRole("button", {
+          name: fill(drawer.confirmHandoff, { child: NO_RECEIVER_CHILD }),
+        }),
+      ).toBeDisabled();
+      await expect(
+        panel.getByText(fill(drawer.handoffBlockedNoReceiver, { child: NO_RECEIVER_CHILD })),
+      ).toBeVisible();
+
+      await expectNoInternalCodes(page);
+      await expectVioletOnlyOnDemoChrome(page);
+      console.log("screenshot:", await shot(page, `today-held-no-receiver-${width}`));
+    });
+
+    /**
+     * §2: one service date for the screen, and the arrows beside it are how another day is
+     * reached. The board shows the day it names and nothing else — which is the only way the
+     * finished day above and the live morning can both be true of the same screen.
+     */
+    test("the header switches the day, and the board is about the day it names", async ({
+      page,
+    }) => {
+      await page.goto("/today");
+      const switcher = page.getByRole("navigation", { name: serviceDate.groupLabel });
+      await expect(switcher.getByText(demoDay().label)).toBeVisible();
+      await expect(switcher.getByText(serviceDate.phases.LIVE)).toBeVisible();
+      // The live day has no finished ride on it at all: today is today only.
+      await expect(page.getByText(/handed off/i)).toHaveCount(0);
+      await expect(page.getByText(legStates.HELD_NO_RECEIVER.label)).toHaveCount(0);
+
+      await switcher.getByRole("link", { name: serviceDate.previousDay }).click();
+      await page.waitForURL(`**/today?date=${FINISHED.iso}`);
+      await expect(
+        page.getByRole("heading", {
+          level: 1,
+          name: fill(boardCopy.headingOtherDay, { date: FINISHED.label }),
+        }),
+      ).toBeVisible();
+      await expect(page.getByText(serviceDate.phases.ENDED)).toBeVisible();
+      // …and that day's rides are the finished ones.
+      await expect(page.getByText(/^Handed off to /).first()).toBeVisible();
+
+      await page.getByRole("link", { name: serviceDate.nextDay }).click();
+      await page.waitForURL(`**/today?date=${demoDay().iso}`);
+      await expect(page.getByRole("heading", { level: 1, name: boardCopy.heading })).toBeVisible();
+      console.log("screenshot:", await shot(page, `today-date-switcher-${width}`));
     });
 
     /**
@@ -169,10 +341,30 @@ for (const width of WIDTHS) {
       const panel = page.getByRole("dialog");
       await expect(panel).toBeVisible();
       await expect(panel.getByRole("heading", { name: NO_RECEIVER_CHILD })).toBeVisible();
-      // Both of the child's rides, read as one day — which is what the drawer is for.
+
+      /*
+       * Both of the child's rides, read as one day — which is what the drawer is for, and why
+       * they are rows and not cards: a time column, where the ride runs between, and the state
+       * as an icon and a label, morning above afternoon.
+       */
+      const rides = panel.locator("ol > li");
+      await expect(rides).toHaveCount(2);
       for (const heading of [drawer.amRide, drawer.pmRide]) {
         await expect(panel.getByText(heading, { exact: true })).toBeVisible();
       }
+      await expect(rides.first().getByText(/^\d{1,2}:\d{2} [AP]M$/)).toBeVisible();
+      await expect(
+        rides.first().getByText(fill(drawer.rideFromTo, { from: "Okeeheelee Park", to: "PPEC center" })),
+      ).toBeVisible();
+      await expect(
+        rides.last().getByText(fill(drawer.rideFromTo, { from: "PPEC center", to: "Okeeheelee Park" })),
+      ).toBeVisible();
+      for (const ride of await rides.all()) {
+        await expect(ride.locator("[data-tone]").first()).toBeVisible();
+      }
+      // Morning above afternoon: the order is the information, so it is a laid-out fact.
+      const [morning, afternoon] = [await boxOf(rides.first()), await boxOf(rides.last())];
+      expect(morning.y).toBeLessThan(afternoon.y);
 
       // §4.2: the sections, in the order the design fixes them.
       for (const heading of [
@@ -229,6 +421,83 @@ for (const width of WIDTHS) {
 
       await panel.getByRole("button", { name: drawer.close }).click();
       await expect(page.getByRole("dialog")).toHaveCount(0);
+    });
+
+    /**
+     * §4.2 / §9: and the disabled action has to *look* disabled.
+     *
+     * "Override with reason" was drawn in `ink-muted` inside a `border-strong` box on the panel's
+     * own surface — 7.58:1 text in a crisp outline, which is exactly how an enabled secondary
+     * button is drawn, so the only thing saying it was unavailable was the attribute. This reads
+     * the computed colours the browser actually painted and holds them to the inert tokens: the
+     * fill, the text and the hairline all drop together, and the contrast comes out lower than
+     * the live control beside it.
+     */
+    test("an unavailable action is drawn as unavailable, not only marked as one", async ({
+      page,
+    }) => {
+      await page.goto("/today");
+      await page.getByRole("button", { name: opener(NO_RECEIVER_CHILD) }).click();
+      const panel = page.getByRole("dialog");
+
+      const override = panel.getByRole("button", {
+        name: fill(drawer.overrideWithReason, { child: NO_RECEIVER_CHILD }),
+      });
+      await expect(override).toBeDisabled();
+
+      const painted = await override.evaluate((el) => {
+        const s = getComputedStyle(el);
+        const root = getComputedStyle(document.documentElement);
+        const token = (name: string) => root.getPropertyValue(name).trim();
+        return {
+          color: s.color,
+          background: s.backgroundColor,
+          border: s.borderTopColor,
+          cursor: s.cursor,
+          tokens: {
+            fg: token("--color-disabled-fg"),
+            bg: token("--color-disabled-bg"),
+            line: token("--color-disabled-border"),
+            strong: token("--color-border-strong"),
+            inkMuted: token("--color-ink-muted"),
+            surface: token("--color-surface"),
+          },
+        };
+      });
+
+      // The hexes are the tokens' own: src/ui/tokens.ts is the only place a colour is written.
+      const rgb = (hex: string) => {
+        const h = hex.replace("#", "");
+        return `rgb(${[0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)).join(", ")})`;
+      };
+      expect(painted.color).toBe(rgb(painted.tokens.fg));
+      expect(painted.background).toBe(rgb(painted.tokens.bg));
+      expect(painted.border).toBe(rgb(painted.tokens.line));
+      expect(painted.cursor).toBe("not-allowed");
+      // And it is no longer dressed as the enabled secondary it used to look like.
+      expect(painted.border).not.toBe(rgb(painted.tokens.strong));
+      expect(painted.color).not.toBe(rgb(painted.tokens.inkMuted));
+      expect(painted.background).not.toBe(rgb(painted.tokens.surface));
+
+      // The one primary action is dressed the same way, and never in the brand colour.
+      const confirm = panel.getByRole("button", {
+        name: fill(drawer.confirmHandoff, { child: NO_RECEIVER_CHILD }),
+      });
+      await expect(confirm).toBeDisabled();
+      const primary = await confirm.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { color: s.color, background: s.backgroundColor };
+      });
+      expect(primary).toEqual({ color: painted.color, background: painted.background });
+
+      // §9: the reason beside them keeps its full contrast — nothing about *why* is dimmed.
+      const reason = panel.getByText(
+        fill(drawer.handoffBlockedNoReceiver, { child: NO_RECEIVER_CHILD }),
+      );
+      await expect(reason).toBeVisible();
+      expect(await reason.evaluate((el) => getComputedStyle(el).color)).not.toBe(painted.color);
+
+      console.log("screenshot:", await shot(page, `today-disabled-action-${width}`));
     });
 
     test("the needs-action filter narrows the board and says how much of it is left", async ({

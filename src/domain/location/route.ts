@@ -75,6 +75,31 @@ export interface Route {
   sourceMode: "SIMULATED";
 }
 
+/**
+ * The same road driven the other way.
+ *
+ * The demo scenario's afternoon is its morning reversed: every child boards at the centre and is
+ * set down at their own stop, in the reverse of the pickup order (`RUNS` in
+ * src/modules/demo/fixtures/standard.ts, and `manifestFor` which reads it). So the afternoon's
+ * geometry is the morning's taken backwards rather than a second survey, and the two cannot
+ * drift apart. Distances and durations come across unchanged — a leg is as long one way as the
+ * other, which is the one thing a reversal may assume — and the source is kept, because
+ * reversing a committed OSRM response does not make it less of one.
+ */
+export function reverseRoute(route: Route, into: { id: string }): Route {
+  return {
+    ...route,
+    id: into.id,
+    stops: [...route.stops].reverse(),
+    legs: [...route.legs].reverse().map((leg) => ({
+      ...leg,
+      fromStopId: leg.toStopId,
+      toStopId: leg.fromStopId,
+      geometry: [...leg.geometry].reverse(),
+    })),
+  };
+}
+
 /** One leg placed on the whole-route chainage and free-flow timeline. */
 export interface MeasuredLeg {
   leg: RouteLeg;

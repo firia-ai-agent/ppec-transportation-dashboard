@@ -42,6 +42,12 @@ one day.
 | Provider / vehicle / AM-PM filter chips with counts | §4.1 | the next board change. This slice ships the "Only needs action" toggle and the §2 search |
 | History, pending approvals and agent changes in the drawer, with real rows | §4.2 | after Exceptions and the agent surfaces, which own those rows |
 
+> **Slice 2 (docs/ui/B12-SLICE2-DEFERRED.md) answers §3.1, §3.2 and the service-date question in
+> §5.** The afternoon has committed geometry aligned to the scenario, the board takes a service
+> date with a switcher in its header, and the day before the demo day carries the rides that
+> *ended* — which is where AT-13's held ride and AT-10's arrived-but-not-handed-over van live.
+> The rows below are left as they were written, so the two slices can be read in order.
+
 ## 3. Known gaps in the fixtures (not worked around)
 
 1. **The committed routes and the standard scenario disagree.** `src/fixtures/routes.ts` was

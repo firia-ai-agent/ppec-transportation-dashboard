@@ -1,19 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { canTransition, LEG } from "@/domain/machines";
+import { ACTORS, canTransition, LEG } from "@/domain/machines";
 import { legState } from "@/db/schema";
-import { BOARD_CENSUS, CHILDREN, RUNS } from "@/modules/demo/fixtures/standard";
+import {
+  BOARD_CENSUS,
+  CHILDREN,
+  FINISHED_DAY_RIDES,
+  RUNS,
+  type RideRecord,
+} from "@/modules/demo/fixtures/standard";
 import { board as boardCopy } from "@/ui/copy";
 import { legStates } from "@/ui/states";
+import { clockLabel } from "@/ui/service-date";
 import {
   BOARD_GROUPS,
   NEXT_STEPS,
-  boardInstantMs,
+  NOTHING_REPORTED,
   buildBoard,
+  demoDay,
   groupForState,
   matchesQuery,
   rideStateFrom,
+  serviceDayFor,
   type BoardRow,
   type LegRow,
+  type RideFacts,
   type RideView,
 } from "./board";
 import {
@@ -36,18 +46,59 @@ import {
  */
 
 const board = buildBoard();
+/** The day before the demo day, read after the last van is in: every ride on it has an outcome. */
+const finished = buildBoard(serviceDayFor(demoDay().previousIso));
 const rowOf = (key: string): BoardRow => {
   const row = board.rows.find((r) => r.childKey === key);
   if (!row) throw new Error(`no row for ${key}`);
   return row;
 };
 /** One row of the board: one child's one ride. */
-const legOf = (key: string, direction: "AM" | "PM"): LegRow => {
-  const leg = board.legs.find(
-    (l) => l.child.childKey === key && l.ride.direction === direction,
-  );
+const legIn = (of: typeof board, key: string, direction: "AM" | "PM"): LegRow => {
+  const leg = of.legs.find((l) => l.child.childKey === key && l.ride.direction === direction);
   if (!leg) throw new Error(`no ${direction} row for ${key}`);
   return leg;
+};
+const legOf = (key: string, direction: "AM" | "PM"): LegRow => legIn(board, key, direction);
+
+/** One ride, with nothing observed about it: the starting point for a walk under test. */
+const facts = (over: Partial<RideFacts> = {}): RideFacts => ({
+  assigned: true,
+  capability: "UNKNOWN",
+  solver: null,
+  departed: false,
+  pickupArrived: false,
+  dropoffArrived: false,
+  receivingAdultOnFile: true,
+  ...NOTHING_REPORTED,
+  ...over,
+});
+
+/**
+ * The finished day, with one of its recorded rides replaced — for asking what the board does
+ * with a record the scenario would never write. The fixture is put back afterwards, pass or
+ * fail, because every other suite in this file reads the real one.
+ */
+function buildFinishedWith(record: RideRecord): ReturnType<typeof buildBoard> {
+  const at = FINISHED_DAY_RIDES.findIndex(
+    (r) => r.childKey === record.childKey && r.direction === record.direction,
+  );
+  const original = FINISHED_DAY_RIDES[at];
+  FINISHED_DAY_RIDES[at] = record;
+  try {
+    return buildBoard(serviceDayFor(demoDay().previousIso));
+  } finally {
+    FINISHED_DAY_RIDES[at] = original;
+  }
+}
+
+/** Everything a vehicle and a geofence can possibly report about a ride, and nothing a person has. */
+const VEHICLE_SAW_EVERYTHING: Partial<RideFacts> = {
+  capability: "VERIFIED",
+  solver: "FEASIBLE",
+  departed: true,
+  pickupArrived: true,
+  dropoffArrived: true,
 };
 const am = (row: BoardRow): RideView => row.rides.find((r) => r.direction === "AM")!;
 const pm = (row: BoardRow): RideView => row.rides.find((r) => r.direction === "PM")!;
@@ -79,8 +130,9 @@ describe("the board is the seeded day, one row per child and ride", () => {
     }
   });
 
-  it("is deterministic: the same instant builds the same board", () => {
-    expect(buildBoard(boardInstantMs())).toEqual(buildBoard(boardInstantMs()));
+  it("is deterministic: the same day builds the same board", () => {
+    expect(buildBoard(demoDay())).toEqual(buildBoard(demoDay()));
+    expect(board.day.phase).toBe("LIVE");
   });
 
   it("every row carries where its data came from (NFR-09)", () => {
@@ -107,26 +159,14 @@ describe("every ride state is a legal walk of the leg machine", () => {
   it("refuses to build a state the machine has no edge to", () => {
     // A verified vehicle whose solve is not feasible may not lock a manifest, so the walk stops
     // at CAPABILITY_VERIFIED rather than skipping to a van on the road.
-    const { state } = rideStateFrom({
-      assigned: true,
-      capability: "VERIFIED",
-      solver: "INFEASIBLE",
-      departed: true,
-      pickupArrived: true,
-      dropoffArrived: true,
-    });
+    const { state } = rideStateFrom(
+      facts({ ...VEHICLE_SAW_EVERYTHING, solver: "INFEASIBLE" }),
+    );
     expect(state).toBe("CAPABILITY_VERIFIED");
   });
 
   it("a child the family brings stays scheduled: there is no ride to advance", () => {
-    const { state, path } = rideStateFrom({
-      assigned: false,
-      capability: "UNKNOWN",
-      solver: null,
-      departed: false,
-      pickupArrived: false,
-      dropoffArrived: false,
-    });
+    const { state, path } = rideStateFrom(facts({ assigned: false }));
     expect(state).toBe("SCHEDULED");
     expect(path).toEqual(["SCHEDULED"]);
   });
@@ -145,30 +185,71 @@ describe("every ride state is a legal walk of the leg machine", () => {
  * acceptance, §6.3 ARRIVED_DROPOFF → COMPLETED_HANDOFF by a person).
  */
 describe("a geofence arrival is never a handoff (AT-10)", () => {
-  it("no row reaches 'handed off' from the day's observations", () => {
+  it("no row on the live board reaches 'handed off': nobody has reported anything yet", () => {
     for (const row of board.rows) {
       for (const ride of row.rides) expect(ride.state).not.toBe("COMPLETED_HANDOFF");
     }
   });
 
   it("the walk cannot be pushed past the vehicle's arrival, however much it has seen", () => {
-    const { state } = rideStateFrom({
-      assigned: true,
-      capability: "VERIFIED",
-      solver: "FEASIBLE",
-      departed: true,
-      pickupArrived: true,
-      dropoffArrived: true,
-    });
+    const { state } = rideStateFrom(facts(VEHICLE_SAW_EVERYTHING));
     expect(state).toBe("ARRIVED_PICKUP");
     // And the machine agrees it is not one step from done, whoever asks.
     expect(canTransition(LEG, "ARRIVED_DROPOFF", "COMPLETED_HANDOFF", "Y")).toBe(false);
     expect(canTransition(LEG, "ARRIVED_DROPOFF", "COMPLETED_HANDOFF", "S")).toBe(true);
   });
 
+  /**
+   * The rule stated as the one thing that changes it. Every vehicle fact is held fixed — the van
+   * left, reached the kerb, reached the drop-off — and the person facts are added one at a time.
+   * Nothing a device reports gets past the boarding report, and nothing gets past the arrival
+   * without a custody event. If a later change ever let an arrival stand in for a handoff, the
+   * last two rows of this table are what would catch it.
+   */
+  it.each([
+    { reported: false, verified: false, custody: false, state: "ARRIVED_PICKUP" },
+    { reported: true, verified: false, custody: false, state: "BOARDED_REPORTED" },
+    { reported: true, verified: true, custody: false, state: "ARRIVED_DROPOFF" },
+    { reported: true, verified: true, custody: true, state: "COMPLETED_HANDOFF" },
+  ])(
+    "boarding reported $reported, verified $verified, custody $custody ⇒ $state",
+    ({ reported, verified, custody, state }) => {
+      const walked = rideStateFrom(
+        facts({
+          ...VEHICLE_SAW_EVERYTHING,
+          boardingReported: reported,
+          boardingVerified: verified,
+          custodyEvent: custody,
+        }),
+      );
+      expect(walked.state).toBe(state);
+    },
+  );
+
   it("the label for a vehicle at the drop-off says so, and never 'Handed off'", () => {
     expect(legStates.ARRIVED_DROPOFF.label).toBe("Arrived (vehicle)");
     expect(legStates.ARRIVED_DROPOFF.label).not.toMatch(/handed off/i);
+  });
+
+  /**
+   * The finished day is where both answers are on one board, which is the only place the
+   * difference between them can be seen: ten rides were received by somebody and say so, one
+   * van is standing at a kerb with the handoff not recorded, and the count of the first kind is
+   * exactly the count of custody events the day recorded. Nothing rounds an arrival up.
+   */
+  it("on a finished day, a ride is handed off exactly when a custody event was recorded", () => {
+    const handedOff = finished.legs.filter((l) => l.ride.state === "COMPLETED_HANDOFF");
+    const recorded = FINISHED_DAY_RIDES.filter((r) => r.receivedBy !== null);
+    expect(handedOff.map((l) => l.key).sort()).toEqual(
+      recorded.map((r) => `${r.childKey}/${r.direction}`).sort(),
+    );
+
+    const arrived = legIn(finished, "C6", "PM");
+    expect(arrived.ride.state).toBe("ARRIVED_DROPOFF");
+    expect(arrived.ride.path).toContain("ARRIVED_DROPOFF");
+    expect(arrived.ride.path).not.toContain("COMPLETED_HANDOFF");
+    // The van is there and the board asks the person for the one thing only a person can do.
+    expect(arrived.nextStep).toBe("CONFIRM_HANDOFF");
   });
 });
 
@@ -213,6 +294,91 @@ describe("a child with no adult on file to receive them (AT-13)", () => {
       if (leg.key === "C2/PM") continue;
       expect(leg.needsActionReasons, leg.key).not.toContain("NO_RECEIVING_ADULT");
     }
+  });
+
+  /**
+   * The other half of AT-13, and the half the acceptance test is actually about: **a ride that
+   * ends there**. The demo scenario's finished day drove Noah O. home, nobody on file could
+   * receive him, and no custody event was recorded — so the leg machine's only remaining edge is
+   * HELD_NO_RECEIVER, by the system. Everything after that is the "no auto-return" rule:
+   * nothing moves the ride on, the board keeps asking for a person, and the only exit the
+   * machine has is a staff one.
+   */
+  describe("and a ride that ends held, on the day that did it (AT-13)", () => {
+    const leg = legIn(finished, "C2", "PM");
+
+    it("ends HELD_NO_RECEIVER, by a walk the machine allowed one edge at a time", () => {
+      expect(leg.ride.state).toBe("HELD_NO_RECEIVER");
+      expect(leg.ride.path).toEqual([
+        "SCHEDULED",
+        "PROVISIONAL_ASSIGNED",
+        "CAPABILITY_PENDING",
+        "CAPABILITY_REPORTED",
+        "CAPABILITY_VERIFIED",
+        "MANIFEST_LOCKED",
+        "EN_ROUTE_PICKUP",
+        "ARRIVED_PICKUP",
+        "BOARDED_REPORTED",
+        "BOARDED_VERIFIED",
+        "IN_TRANSIT",
+        "ARRIVED_DROPOFF",
+        "HELD_NO_RECEIVER",
+      ]);
+      for (let i = 1; i < leg.ride.path.length; i += 1) {
+        const [from, to] = [leg.ride.path[i - 1], leg.ride.path[i]];
+        const legal = LEG.edges.some((e) => (e.from === from || e.from === "*") && e.to === to);
+        expect(legal, `${from} → ${to}`).toBe(true);
+      }
+    });
+
+    it("is held because nobody on file may receive the child, and says so first", () => {
+      expect(leg.child.receivingAdult).toBeNull();
+      expect(leg.group).toBe("NEEDS_ACTION");
+      // One fact, said once, and it is the first thing the row says.
+      expect(leg.needsActionReasons).toEqual(["CHILD_HELD"]);
+      expect(leg.nextStep).toBe("CALL_CONTACTS");
+    });
+
+    it("never turns into a handoff, and nothing automatic takes it anywhere (CA-04)", () => {
+      expect(leg.ride.state).not.toBe("COMPLETED_HANDOFF");
+      // PRD §6.6 / l.750: the hold exits by staff only, and no wildcard edge leaves it — which
+      // is what "no automatic return to the centre" is, written as a machine.
+      expect(LEG.noWildcardFrom).toContain("HELD_NO_RECEIVER");
+      for (const actor of ACTORS) {
+        for (const to of legState.enumValues) {
+          const allowed = canTransition(LEG, "HELD_NO_RECEIVER", to, actor);
+          if (!allowed) continue;
+          expect([actor, to], "only staff may move a held ride").toEqual(["S", "COMPLETED_HANDOFF"]);
+        }
+      }
+    });
+
+    it("is the one ride on that day that ended holding a child", () => {
+      const held = finished.legs.filter((l) => l.ride.state === "HELD_NO_RECEIVER");
+      expect(held.map((l) => l.key)).toEqual(["C2/PM"]);
+      // And it is the same child the scenario gives no authorized receiving adult — not a
+      // second case written into the finished day by hand.
+      expect(held[0].child.childKey).toBe(noReceiver[0].key);
+    });
+
+    it("keeps the morning of the same child done: one held ride is not a held day (AT-07)", () => {
+      // The centre receives every child it is open for, and needs no family scope to do it —
+      // which is why the same child's morning ends handed off and their afternoon does not.
+      expect(legIn(finished, "C2", "AM").ride.state).toBe("COMPLETED_HANDOFF");
+      expect(legIn(finished, "C2", "AM").ride.receivedBy).toBe("CENTER_STAFF");
+    });
+
+    /**
+     * PRD §6.3: a handoff is a custody event naming a receiving adult *with can_receive_child*.
+     * A day that recorded one for a family holding no such scope did not record a weaker
+     * handoff — it recorded an impossible one, and the board refuses it rather than drawing it.
+     */
+    it("refuses a recorded handoff to an adult the family does not have (TRP-02)", () => {
+      const record = FINISHED_DAY_RIDES.find((r) => r.childKey === "C2" && r.direction === "PM")!;
+      expect(record.receivedBy).toBeNull();
+      const impossible = { ...record, receivedBy: "ADULT_ON_FILE" as const };
+      expect(() => buildFinishedWith(impossible)).toThrow(/an adult F2 does not have/);
+    });
   });
 
   it("names the adult from the family's own guardian, with no surname anywhere (D-3)", () => {
@@ -324,11 +490,15 @@ describe("the capacity solver answers for the van, and the board shows its answe
 });
 
 describe("the arrival window and the van's location come from the replayed run", () => {
-  it("a van with no displayable position has no window and no age (LOC-01)", () => {
+  it("a van with no displayable position has no age, and still a planned window (LOC-01)", () => {
+    // LOC-01 is about a *position*: an unlinked device sends nothing we may draw. The family
+    // still holds the window the plan gave them, which is not a thing the van's device knows.
     const ride = am(rowOf("C1"));
-    expect(ride.windowText).toBeNull();
     expect(ride.gpsAgeSeconds).toBeNull();
     expect(ride.gpsFreshness).toBeNull();
+    expect(ride.windowText).toMatch(/^\d{1,2}:\d{2}–\d{1,2}:\d{2} [AP]M$/);
+    // Planned, so nothing claims the day has moved it.
+    expect(ride.deltaSeconds).toBeNull();
   });
 
   it("a van on the road carries the window its families hold, and how far it has moved", () => {
@@ -347,9 +517,120 @@ describe("the arrival window and the van's location come from the replayed run",
     expect(ride.windowText).not.toBeNull();
   });
 
-  it("an afternoon ride has no committed geometry, and says the window is pending", () => {
+  /**
+   * The afternoon used to read "Window pending" on every row of the board, because the committed
+   * routes had no afternoon in them (docs/ui/B12-SLICE1-DEFERRED.md §3.2). It has one now —
+   * src/fixtures/run-routes.ts, each run's own children's own stops, read out of the scenario —
+   * so every afternoon ride has the window its family is actually given.
+   */
+  it("an afternoon ride carries the window its own stop is planned for", () => {
+    for (const leg of board.legs) {
+      const { ride } = leg;
+      if (ride.direction !== "PM") continue;
+      if (ride.mode === "FAMILY") {
+        // No van, no arrival to publish: the family brings the child themselves.
+        expect(ride.windowText, leg.key).toBeNull();
+        continue;
+      }
+      expect(ride.windowText, leg.key).toMatch(/^\d{1,2}:\d{2}–\d{1,2}:\d{2} [AP]M$/);
+      expect(ride.deltaSeconds, leg.key).toBeNull();
+    }
+    // And it is this child's own afternoon, not the run's first drop: C2 is set down last.
+    expect(pm(rowOf("C2")).windowText).toBe("4:20–4:30 PM");
+    expect(pm(rowOf("C9")).windowText).toBe("3:50–4:00 PM");
+  });
+
+  it("no ride on the board says its window has not been worked out", () => {
+    for (const leg of board.legs) {
+      if (leg.ride.mode === "FAMILY") continue;
+      expect(leg.ride.windowText, leg.key).not.toBeNull();
+    }
+  });
+
+  /**
+   * The window a family holds is the one the route gives their stop, and the plan the scenario
+   * wrote by hand says the same thing — within a window's width, which is as exactly as a
+   * 10-minute window can agree with anything. That is what "the route data and the scenario are
+   * aligned" means in practice, and src/fixtures/run-routes.test.ts holds the per-stop version
+   * of it against the geometry.
+   */
+  it("agrees with the plan the scenario wrote, to within one window", () => {
     for (const row of board.rows) {
-      expect(pm(row).windowText, row.childKey).toBeNull();
+      for (const ride of row.rides) {
+        /*
+         * Planned windows only. A van that is on the road publishes against the replay's own
+         * clock, which starts at 07:30 and so runs later than the plan's first pickups — the
+         * one piece of the §3.1 fixture gap that is left, and it belongs to the replay rather
+         * than to the geometry this is about.
+         */
+        if (ride.windowText === null || ride.gpsFreshness !== null) continue;
+        const planned = clockLabel(ride.plannedWindow);
+        const [start, end] = ride.windowText.split("–");
+        const meridiem = ride.windowText.slice(-2);
+        const minutes = (text: string) => {
+          const [, h, m, ap] = /(\d{1,2}):(\d{2})(?: ([AP]M))?/.exec(text) ?? [];
+          const hour = Number(h) % 12 + ((ap ?? meridiem) === "PM" ? 12 : 0);
+          return hour * 60 + Number(m);
+        };
+        const gap = Math.min(
+          Math.abs(minutes(planned) - minutes(start)),
+          Math.abs(minutes(planned) - minutes(end)),
+        );
+        expect(gap, `${row.childKey} ${ride.direction}: ${planned} vs ${ride.windowText}`)
+          .toBeLessThanOrEqual(10);
+      }
+    }
+  });
+});
+
+/**
+ * One service date for the screen, and the phase of a day decides what the board can show of it
+ * (./day.ts). The live day is the only one with a replayed van on it; the day before it is the
+ * only one with outcomes; the day after it is the plan.
+ */
+describe("the board is about one day, and says which", () => {
+  it("carries the day it was built for", () => {
+    expect(board.day.iso).toBe(demoDay().iso);
+    expect(finished.day.phase).toBe("ENDED");
+    expect(buildBoard(serviceDayFor(demoDay().nextIso)).day.phase).toBe("PLANNED");
+  });
+
+  it("has a live van only on the day the replays belong to", () => {
+    expect(board.legs.some((l) => l.ride.gpsFreshness !== null)).toBe(true);
+    for (const day of [finished, buildBoard(serviceDayFor(demoDay().nextIso))]) {
+      for (const leg of day.legs) {
+        expect(leg.ride.gpsFreshness, `${day.day.iso} ${leg.key}`).toBeNull();
+        expect(leg.ride.stoppedSeconds, `${day.day.iso} ${leg.key}`).toBe(0);
+      }
+    }
+  });
+
+  it("asks nobody about a van on a day that has not started (PRD §18.2 step 5)", () => {
+    const planned = buildBoard(serviceDayFor(demoDay().nextIso));
+    for (const leg of planned.legs) {
+      expect(["NOTHING", "RECORD_RECEIVER"], leg.key).toContain(leg.nextStep);
+    }
+    // …and does ask on the day the vans are running, which is the contrast that makes it a rule.
+    expect(legOf("C1", "AM").nextStep).toBe("ASK_ABOUT_VAN");
+  });
+
+  it("has no rows at all on a day the scenario does not run (PRD §18.1 Mon–Fri)", () => {
+    const saturday = serviceDayFor("2026-10-17");
+    expect(saturday.scheduled).toBe(false);
+    const weekend = buildBoard(saturday);
+    expect(weekend.legs).toHaveLength(0);
+    expect(weekend.rows).toHaveLength(0);
+  });
+
+  /** AT-12's shape, on the day it happened: the van did not fit, so staff called it off. */
+  it("shows the run whose van does not fit as cancelled by staff, needing nothing further", () => {
+    for (const key of ["C1", "C4", "C5"]) {
+      const leg = legIn(finished, key, "AM");
+      expect(leg.ride.state, key).toBe("CANCELED_TRANSPORT");
+      expect(leg.group, key).toBe("NOT_RIDING");
+      // A ride that is over needs nothing: the seating question was answered by cancelling it.
+      expect(leg.needsActionReasons, key).toEqual([]);
+      expect(leg.nextStep, key).toBe("NOTHING");
     }
   });
 });

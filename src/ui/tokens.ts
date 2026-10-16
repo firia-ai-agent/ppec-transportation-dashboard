@@ -43,6 +43,24 @@ export const color = {
   "neutral-fg": "#334155",
   "neutral-bg": "#E2E8F0",
 
+  /**
+   * An unavailable control (§4.2's disabled "Confirm handoff" and the "Override with reason"
+   * beside it). These exist because the five tones do not have an "inert" among them: the
+   * drawer's disabled override was being drawn in `ink-muted` on `surface` inside a
+   * `border-strong` box — 7.58:1 text in a crisp outline, which is what an *enabled* secondary
+   * button looks like. A control that cannot be used has to look like one before it is clicked,
+   * so it loses the surface, drops to 4.34:1, and takes a hairline that reads as switched off.
+   *
+   * 4.34:1 is deliberate and it is the floor, not a miss: WCAG 2.1 exempts an inactive component
+   * from 1.4.3 and 1.4.11 altogether, and a disabled button nobody can read is no kinder than
+   * one nobody can tell is disabled — the reason it is disabled is beside it in full-contrast
+   * text either way (§4.2, §9). The border is the one part that is allowed to be faint, because
+   * the exemption is exactly what it is for.
+   */
+  "disabled-fg": "#64748B",
+  "disabled-bg": "#F1F5F9",
+  "disabled-border": "#CBD5E1",
+
   // Violet is reserved for demo/simulated only (D-5) so it never reads as a status colour.
   "demo-fg": "#FFFFFF",
   "demo-bg": "#6D28D9",
@@ -97,6 +115,8 @@ export const contrastPairs: ReadonlyArray<{
   { fg: "warn-fg", bg: "warn-bg", documented: 6.38, needs: 4.5 },
   { fg: "crit-fg", bg: "crit-bg", documented: 6.8, needs: 4.5 },
   { fg: "neutral-fg", bg: "neutral-bg", documented: 8.4, needs: 4.5 },
+  // Not a §8 row: an inactive control, which WCAG 2.1 exempts. Held to the 3:1 UI floor anyway.
+  { fg: "disabled-fg", bg: "disabled-bg", documented: 4.34, needs: 3 },
   { fg: "demo-fg", bg: "demo-bg", documented: 7.1, needs: 4.5 },
   { fg: "ok-fg", bg: "surface", documented: 7.13, needs: 4.5 },
   { fg: "warn-fg", bg: "surface", documented: 6.85, needs: 4.5 },

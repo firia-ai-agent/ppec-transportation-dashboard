@@ -1,0 +1,49 @@
+/*
+ * The service date and its two arrows (§2 header, §9 targets). Every colour and size is a token
+ * from src/ui/tokens.ts; this file holds no literal (src/ui/no-hex.test.ts).
+ */
+
+.switcher {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* §9: ≥44 px, and the arrow keeps its focus ring — it is the one control in here. */
+.arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--target-console);
+  min-height: var(--target-console);
+  border-radius: var(--radius-sm);
+  color: var(--color-brand);
+}
+
+.current {
+  margin: 0;
+  font-size: var(--body-console);
+  color: var(--color-ink);
+}
+
+.label {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+/*
+ * The kind of day, as words in the §3 neutral tone: it is a fact about what is being shown and
+ * never a status of the day's rides, so it takes no status colour (§3, §8).
+ */
+.phase {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  color: var(--color-ink-muted);
+  white-space: nowrap;
+}

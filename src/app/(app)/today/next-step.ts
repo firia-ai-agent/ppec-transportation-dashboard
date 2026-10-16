@@ -41,3 +41,20 @@ export function nextStepCellText(leg: LegRow): string {
 export function needsActionReasonText(leg: LegRow): string[] {
   return leg.needsActionReasons.map((reason) => fill(boardCopy.reasons[reason], values(leg)));
 }
+
+/**
+ * The §3 handoff label is "Handed off to {receiver role}", and this is who filled it: the adult
+ * the family has on file, by name, or the ramp for a morning ride that ended at the centre
+ * (COPY-GUIDE §1 "name the person"; the ramp observation carries no person — see
+ * docs/ui/B12-SLICE1-DEFERRED.md §3.4). Written once because the row and the drawer both show
+ * that chip, and a handoff must not be announced two different ways on one screen.
+ */
+export function stateValues(leg: LegRow): Record<string, string> | undefined {
+  if (leg.ride.receivedBy === null) return undefined;
+  return {
+    "receiver role":
+      leg.ride.receivedBy === "ADULT_ON_FILE" && leg.child.receivingAdult !== null
+        ? leg.child.receivingAdult.name
+        : boardCopy.receivedByRamp,
+  };
+}

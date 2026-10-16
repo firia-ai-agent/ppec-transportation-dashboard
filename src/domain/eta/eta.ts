@@ -190,6 +190,55 @@ export function formatDelta(seconds: number): string {
     : fill(etaText.behind, { n: Math.abs(minutes) });
 }
 
+/**
+ * The window each family holds *from the plan*, before the van has moved (PRD §8).
+ *
+ * The same formula as {@link computeEta} with the vehicle at its first stop and nothing observed
+ * yet: Σ route_time from the committed durations × traffic, plus dwell and service at every stop
+ * in between, and no hold term because the synthetic fixtures set no pickup windows. The origin
+ * is served at the departure itself, so it gets a window too — which is what the morning's first
+ * family is given, and `computeEta` cannot say because a vehicle standing at chainage 0 has
+ * already "passed" that stop.
+ *
+ * This is how an afternoon ride has an arrival window at nine in the morning: the committed
+ * geometry of the run the van will drive, from the time it is planned to leave. It is a plan and
+ * never an observation — there is no position in it, so nothing here may move a window the way a
+ * live recalculation does (ASM-11, hysteresis). The row that shows one says so by having no
+ * shift beside it.
+ */
+export function plannedEta(input: {
+  measured: MeasuredRoute;
+  /** Epoch ms the run is planned to leave its first stop. */
+  departureMs: number;
+  trafficMultiplier: number;
+}): StopEta[] {
+  const { measured, departureMs, trafficMultiplier } = input;
+  const stops = measured.route.stops;
+  return stops.map((stop, k) => {
+    const driveSeconds = freeFlowSecondsBetween(measured, 0, k) * trafficMultiplier;
+    // i from 1: the origin carries no dwell — the run begins at its departure, loaded.
+    let dwellSeconds = 0;
+    for (let i = 1; i < k; i += 1) dwellSeconds += stopHoldSeconds(stops[i]);
+    const etaMs = departureMs + (driveSeconds + dwellSeconds) * 1000;
+    const window = windowFor(etaMs);
+    return {
+      stopIndex: k,
+      stopId: stop.id,
+      stopName: stop.name,
+      familyLabel: stop.familyLabel,
+      status: "pending" as const,
+      etaMs,
+      uncertaintySeconds: uncertaintySeconds(driveSeconds + dwellSeconds),
+      windowStartMs: window.startMs,
+      windowEndMs: window.endMs,
+      windowText: formatWindow(window.startMs, window.endMs),
+      driveSeconds,
+      dwellSeconds,
+      holdSeconds: 0,
+    };
+  });
+}
+
 /** Dwell + service still owed at `stop`, given any observed arrival. */
 function dwellStillOwed(stop: RouteStop, nowMs: number, arrivalMs?: number): number {
   const total = stopHoldSeconds(stop);
