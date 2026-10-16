@@ -8,6 +8,9 @@ import { GatewayError, createGateway } from "./gateway";
 import { fakeProvider, freeText, toolCall } from "./providers/fake";
 import { sha256Hex } from "./redact";
 
+/** This deployment's configured shape. Model ids come from here, never from a literal. */
+const CONFIG = loadAgentConfig({});
+
 const PROMPT = [
   "T1 site=S1 family=F1 child=C1",
   "T2 leg=L-C1-AM state=SCHEDULED version=3",
@@ -25,7 +28,10 @@ const CANCEL = {
 
 const ATTESTATION = {
   provider: "openrouter",
-  model: "anthropic/claude-sonnet",
+  // From config, never a literal: a model id anywhere outside the config module fails
+  // no-hardcoded-models.test.ts, and an attestation naming a model this deployment does not
+  // call would not be an attestation about this call anyway.
+  model: CONFIG.model,
   region: "us-east-1",
   baa_version: "2026-02",
   retention_confirmation_id: "zdr-7781",
@@ -51,7 +57,7 @@ describe("complete(): one schema-valid catalog tool call, or nothing", () => {
     expect(r.promptHash).toBe(sha256Hex(PROMPT));
     // ADR-000 #12: zdr:true on every call, decided by the gateway, not the adapter.
     expect(provider.calls).toEqual([
-      { promptHash: sha256Hex(PROMPT), endpoint: "/api/v1/chat/completions", model: "anthropic/claude-sonnet", zdr: true, tools: 15 },
+      { promptHash: sha256Hex(PROMPT), endpoint: "/api/v1/chat/completions", model: CONFIG.model, zdr: true, tools: 15 },
     ]);
   });
 
@@ -203,7 +209,7 @@ describe("vendorAttestation in PHI mode (§11.2)", () => {
   it("refuses an attestation that is about another provider or model", async () => {
     const { gateway } = gatewayFor([toolCall("get_leg_state", { leg_id: "L-C1-AM" })], { dataMode: "PHI" });
     await expect(
-      gateway.complete({ runId: "RUN-1", prompt: PROMPT, vendorAttestation: { ...ATTESTATION, model: "gpt-9" } }),
+      gateway.complete({ runId: "RUN-1", prompt: PROMPT, vendorAttestation: { ...ATTESTATION, model: `${CONFIG.model}-not-the-configured-one` } }),
     ).rejects.toMatchObject({ outcome: "REJECTED_ATTESTATION" });
   });
 
@@ -280,7 +286,7 @@ describe("per-call audit of hashes only (§11.2)", () => {
       runId: "RUN-1",
       provider: "openrouter",
       providerKind: "fake",
-      model: "anthropic/claude-sonnet",
+      model: CONFIG.model,
       zdr: true,
       dataMode: "SYNTHETIC",
       promptHash: sha256Hex(PROMPT),
