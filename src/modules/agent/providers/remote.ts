@@ -21,6 +21,15 @@
  *     refuses such a value at parse time; this is the re-check on the path that leaves the
  *     building, because the base URL is the one knob that decides *where the key goes* and a
  *     caller can hold a config object this file did not parse.
+ *
+ *     And the base URL is only half of it: the endpoint is joined onto it, so the destination is
+ *     checked *twice more* on the way out. The endpoint must be a plain absolute path
+ *     (`endpointPathRefusalReason`) — `"@evil.example/…"` concatenated onto an allow-listed origin
+ *     is a request to `evil.example` with the origin as a username, and `"//evil.example/…"` and
+ *     `"/\evil.example/…"` land there too. Then the URL is *built* with the URL parser rather than
+ *     concatenated, and `verifiedRequestUrl` re-reads the scheme, the userinfo and the host off
+ *     the finished URL on the line before the `Bearer` header is written. Each of the two refuses
+ *     every one of those shapes on its own; neither is the only thing standing there.
  *  3. **The key, by env var name only** (`config.apiKeyEnvVar`). Read here and nowhere else, never
  *     logged, never in an error message, never in a thrown stack.
  *  4. **The model chain.** Primary, then backup on a 429 or any other failure, then the keyword
@@ -38,7 +47,13 @@
  * config plus `vendorAttestation`; nothing in this file names a vendor, a model or a host.
  */
 import type { AgentConfig } from "../config";
-import { baseUrlRefusalReason, demoDataGuardRefusal, forbiddenEndpointReason } from "../config";
+import {
+  baseUrlRefusalReason,
+  demoDataGuardRefusal,
+  endpointPathRefusalReason,
+  forbiddenEndpointReason,
+  vendorRequestUrl,
+} from "../config";
 import { keywordResponse } from "./keyword";
 import {
   type LlmProvider,
@@ -59,6 +74,15 @@ export class RemoteEndpointRefused extends ProviderError {}
  * a different accident from a missing confirmation — somebody repointed the vendor.
  */
 export class RemoteBaseUrlRefused extends ProviderError {}
+
+/**
+ * The URL a call was about to be sent to is not one this deployment may send a key to, read off
+ * the *built* URL rather than off either half of it. Its own class because it is a different
+ * accident again: not a misconfigured origin, and not an endpoint off the allow-list, but an
+ * endpoint that moved the host the allow-listed origin named. Reached only if
+ * `endpointPathRefusalReason` is ever wrong, which is the point of it being here.
+ */
+export class RemoteRequestUrlRefused extends ProviderError {}
 
 /** A model in the chain is not on `config.modelAllowList`, re-checked on the outbound path. */
 export class RemoteModelRefused extends ProviderError {}
@@ -149,6 +173,27 @@ export function liveCallRefusalReason(
 }
 
 /**
+ * The URL one call is about to be sent to, or a throw. Built with the URL parser and re-checked on
+ * the finished URL (`config.vendorRequestUrl`).
+ *
+ * It throws rather than returning a reason because of where it sits: the line before the `Bearer`
+ * header is written, in the one function in this module that attaches the key. A return value
+ * there is something a later edit can forget to read; an exception is not.
+ *
+ * Exported for the same reason `liveCallRefusalReason` is — this is the backstop behind
+ * `endpointPathRefusalReason`, so it is worth asserting on its own, with that gate out of the way,
+ * rather than only through a path that can never reach it while the gate is correct.
+ */
+export function verifiedRequestUrl(
+  config: Pick<AgentConfig, "baseUrl" | "baseUrlHostAllowList">,
+  endpoint: string,
+): string {
+  const built = vendorRequestUrl(config, endpoint);
+  if (built.refusal !== null) throw new RemoteRequestUrlRefused(built.refusal);
+  return built.url;
+}
+
+/**
  * The models to try, in order: primary, then backup when it is a different id. The order only —
  * `invoke` re-checks the chain against `modelAllowList` before it posts anything, so this stays a
  * pure list and the refusal has one home.
@@ -200,6 +245,13 @@ export function remoteProvider(
       const forbidden = forbiddenEndpointReason(call.endpoint);
       if (forbidden) throw new RemoteEndpointRefused(`endpoint ${call.endpoint} refused: ${forbidden}`);
 
+      // An allow-listed endpoint is still only a *path*, and this is where that is established.
+      // The allow-list is a list of strings a deployment configured, and a string like
+      // "@evil.example/api/v1/chat/completions" on it is on the list and also a different host
+      // once it is joined onto the base URL — so membership is not the question, shape is.
+      const shape = endpointPathRefusalReason(call.endpoint);
+      if (shape) throw new RemoteEndpointRefused(`endpoint ${call.endpoint} refused: ${shape}`);
+
       // The model allow-list, re-checked here for the same reason as the endpoint above: config
       // refuses a model off the list at parse time, and this is the file that puts a model id in a
       // body and posts it. The whole chain is checked before the first request rather than each
@@ -241,13 +293,24 @@ export function remoteProvider(
     model: string,
     call: ProviderCall,
   ): Promise<{ readonly record: RemoteAttempt; readonly body: ProviderResponseBody | null }> {
+    // The last thing checked before a Bearer header exists: the URL is *built* from the base URL
+    // and the endpoint with the URL parser, and then the finished URL is asked where it is going —
+    // https, no userinfo, and a host on the allow-list. A concatenated string could not be asked:
+    // "https://openrouter.ai" + "@evil.example/…" is a request to evil.example, and the only way
+    // to find that out is to parse the result and read its host.
+    //
+    // Outside the try below on purpose. A refusal here has to leave `invoke` as a thrown
+    // RemoteRequestUrlRefused, not be recorded as a failed attempt and degraded to the keyword
+    // parser: "the key nearly went to a host nobody vetted" is not a fallback case, it is a stop.
+    const url = verifiedRequestUrl(config, call.endpoint);
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), config.requestTimeoutMs);
     try {
       // The global, called plainly. There is no injected transport seam on purpose: tests stub
       // the global (vi.stubGlobal), and an alias here would evade the `fetch(` pattern that
       // no-network.test.ts uses to prove this is the only file in the module that calls out.
-      const response = await fetch(`${config.baseUrl}${call.endpoint}`, {
+      const response = await fetch(url, {
         method: "POST",
         headers: {
           // The key goes in a header and nowhere else: not a query param, which would put it in
