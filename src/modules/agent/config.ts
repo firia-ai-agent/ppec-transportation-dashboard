@@ -8,7 +8,21 @@
  *
  * Defaults come from ADR-000 founder locks #4 and #12: "Agent is live (Claude via OpenRouter,
  * founder supplies key); synthetic data only" and "model Claude Sonnet (current) via OpenRouter,
- * zdr:true". The model id is a placeholder slug on purpose — slice 1 ships no remote provider.
+ * zdr:true".
+ *
+ * **B-08 slice 5 (founder, 2026-10-15).** The live agent runs on a *free* OpenRouter model on demo
+ * data only, and moves to a HIPAA-compliant endpoint later (docs/research/QUEUES-AND-OPENROUTER-ZDR.md
+ * §2.5A). Two things follow, and both are load-bearing:
+ *
+ *  1. **Model ids live here and nowhere else.** `MODEL_PRIMARY`/`MODEL_BACKUP` are the only model
+ *     slugs in `src/`, and `no-hardcoded-models.test.ts` fails the build if a second one appears
+ *     anywhere outside this module and its test. Every other module reads `config.model` /
+ *     `config.backupModel`, so switching vendors is an env change and never a code change.
+ *  2. **The demo-data guard is in this module too** (`demoDataOnly`), because the thing it has to
+ *     be impossible to forget is a *config* property of the deployment, not a provider-level flag.
+ *     None of the free endpoints offer ZDR and OpenRouter has no BAA, so this guard is the only
+ *     thing keeping real family data away from them: it fails shut, and `remoteProvider` refuses
+ *     before it builds a request body.
  *
  * The API key is referenced by *variable name* only (`apiKeyEnvVar`). This module never reads
  * its value, never requires it, and nothing here fails when it is absent — so boot, CI and
@@ -44,6 +58,35 @@ export function forbiddenEndpointReason(endpoint: string): string | null {
   const hit = FORBIDDEN_ENDPOINT_PATTERNS.find((re) => re.test(endpoint));
   return hit ? `endpoint matches excluded family ${String(hit)}` : null;
 }
+
+/* ───────────────────────────────── models (the only slugs in src/) ───────────────────────────────── */
+
+/**
+ * The live model, OK'd by the founder 2026-10-15: a free OpenRouter endpoint, for demo data only.
+ * It is a *constant in this module* rather than a literal at a call site so that
+ * `no-hardcoded-models.test.ts` can prove there is exactly one place to change it.
+ */
+export const MODEL_PRIMARY = "google/gemma-4-31b-it:free";
+
+/** The backup, same decision. Tried when the primary rate-limits (429) or errors (providers/remote.ts). */
+export const MODEL_BACKUP = "nvidia/nemotron-3-super-120b-a12b:free";
+
+/**
+ * Models this deployment may call. A model id that is not on this list is refused at config time,
+ * so a typo or a paste from a changelog cannot become a vendor call. The later compliant endpoint
+ * joins the list by env (`AGENT_MODEL_ALLOW_LIST`) when the BAA is signed, not by editing code.
+ */
+export const DEFAULT_MODEL_ALLOW_LIST = [MODEL_PRIMARY, MODEL_BACKUP] as const;
+
+/**
+ * Vendor origin. Here rather than in the adapter for the same reason as the model ids: one place
+ * to repoint at the compliant endpoint, and `no-network.test.ts` can keep asserting that no other
+ * file in the agent module carries a URL.
+ */
+export const DEFAULT_BASE_URL = "https://openrouter.ai";
+
+/** Hard ceiling on one vendor call. A hung request must become a keyword fallback, not a hung run. */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 
 /**
  * The one endpoint the agent needs: a single synchronous completion with tools. Anything that
@@ -81,8 +124,12 @@ const rateLimits = z.object({
 export const agentConfigSchema = z.object({
   /** Vendor name, for vendorAttestation and the audit record. ADR-000 #4/#12: OpenRouter. */
   provider: z.string().min(1).default("openrouter"),
-  /** ADR-000 #12 "Claude Sonnet (current) via OpenRouter" — placeholder slug until a real call exists. */
-  model: z.string().min(1).default("anthropic/claude-sonnet"),
+  /** Primary model id. Founder 2026-10-15: the free Gemma endpoint, demo data only (MODEL_PRIMARY). */
+  model: z.string().min(1).default(MODEL_PRIMARY),
+  /** Tried when the primary 429s or errors, before the keyword fallback (MODEL_BACKUP). */
+  backupModel: z.string().min(1).default(MODEL_BACKUP),
+  /** Model ids this deployment may call. `model` and `backupModel` must both be on it. */
+  modelAllowList: z.array(z.string().min(1)).nonempty().default([...DEFAULT_MODEL_ALLOW_LIST]),
   /** ADR-000 #12 zdr:true. The gateway stamps it on every provider call. */
   zdr: z.boolean().default(true),
   dataMode: z.enum(DATA_MODES).default("SYNTHETIC"),
@@ -93,6 +140,28 @@ export const agentConfigSchema = z.object({
    */
   apiKeyEnvVar: z.string().min(1).default("OPENROUTER_API_KEY"),
   rateLimits: rateLimits.default(DEFAULT_RATE_LIMITS),
+  /**
+   * Demo-data-only guard, fail shut (§2.5A). `false` unless the deployment sets
+   * `AGENT_DEMO_DATA_ONLY` to exactly `DEMO_DATA_ONLY_REQUIRED_VALUE`; a missing, empty, mistyped
+   * or merely truthy-looking value ("1", "TRUE", "yes") leaves it `false` and no live model call
+   * is possible. Default `false` is the whole point: forgetting the var cannot open the gate.
+   */
+  demoDataOnly: z.boolean().default(false),
+  /** Vendor origin for the live adapter (DEFAULT_BASE_URL). */
+  baseUrl: z.string().min(1).default(DEFAULT_BASE_URL),
+  /** Per-call timeout in ms. Exceeding it is a provider error, which the fallback chain handles. */
+  requestTimeoutMs: z.number().int().positive().default(DEFAULT_REQUEST_TIMEOUT_MS),
+}).superRefine((c, ctx) => {
+  // A model the deployment may not call is a config error, not a runtime surprise.
+  for (const [field, value] of [["model", c.model], ["backupModel", c.backupModel]] as const) {
+    if (!c.modelAllowList.includes(value)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [field],
+        message: `model ${JSON.stringify(value)} is not on the configured model allow-list`,
+      });
+    }
+  }
 });
 
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
@@ -114,13 +183,44 @@ export const vendorAttestationSchema = z.object({
 
 export type VendorAttestation = z.infer<typeof vendorAttestationSchema>;
 
+/* ──────────────────────────────── the demo-data-only guard ──────────────────────────────── */
+
+/**
+ * The guard's env var. Named for what it asserts about the *data*, not about the model — and
+ * deliberately not `AGENT_DATA_MODE`, which already exists on this module with different
+ * semantics (SYNTHETIC|PHI, the attestation switch). Two vars, two jobs: `AGENT_DATA_MODE` says
+ * what the gateway must demand of the vendor, `AGENT_DEMO_DATA_ONLY` says the operator has
+ * confirmed this deployment holds nothing but demo data and accepts a non-ZDR endpoint.
+ */
+export const DEMO_DATA_ONLY_ENV_VAR = "AGENT_DEMO_DATA_ONLY";
+
+/**
+ * The only accepted value. An exact match on a spelled-out word, because every looser rule —
+ * truthiness, a case-insensitive compare, "any non-empty value" — turns a stray character or a
+ * leftover `AGENT_DEMO_DATA_ONLY=0` into permission to call a vendor that logs prompts.
+ */
+export const DEMO_DATA_ONLY_REQUIRED_VALUE = "true";
+
+/**
+ * Fail-shut read of the guard: `true` only for an exact match, `false` for missing, empty,
+ * differently-cased, padded or any other value. The one place the comparison is made.
+ */
+export function demoDataOnlyFromEnv(env: Record<string, string | undefined>): boolean {
+  return env[DEMO_DATA_ONLY_ENV_VAR] === DEMO_DATA_ONLY_REQUIRED_VALUE;
+}
+
 /** Env var names this module reads. Listed so a deployment review can see the whole surface. */
 export const AGENT_ENV_VARS = [
   "AGENT_PROVIDER",
   "AGENT_MODEL",
+  "AGENT_BACKUP_MODEL",
+  "AGENT_MODEL_ALLOW_LIST",
   "AGENT_MODEL_ZDR",
   "AGENT_DATA_MODE",
+  DEMO_DATA_ONLY_ENV_VAR,
   "AGENT_ENDPOINT_ALLOW_LIST",
+  "AGENT_BASE_URL",
+  "AGENT_REQUEST_TIMEOUT_MS",
   "AGENT_API_KEY_ENV_VAR",
   "AGENT_MAX_CALLS_PER_RUN",
   "AGENT_MAX_CALLS_PER_MINUTE",
@@ -143,9 +243,15 @@ export function loadAgentConfig(
   const fromEnv: z.input<typeof agentConfigSchema> = {
     provider: env.AGENT_PROVIDER,
     model: env.AGENT_MODEL,
+    backupModel: env.AGENT_BACKUP_MODEL,
+    modelAllowList: asList(env.AGENT_MODEL_ALLOW_LIST),
     zdr: env.AGENT_MODEL_ZDR === undefined ? undefined : env.AGENT_MODEL_ZDR !== "0",
     dataMode: env.AGENT_DATA_MODE as DataMode | undefined,
+    // Always read, never defaulted from anything but a missing var: see demoDataOnlyFromEnv.
+    demoDataOnly: demoDataOnlyFromEnv(env),
     endpointAllowList: asList(env.AGENT_ENDPOINT_ALLOW_LIST),
+    baseUrl: env.AGENT_BASE_URL,
+    requestTimeoutMs: asInt(env.AGENT_REQUEST_TIMEOUT_MS),
     apiKeyEnvVar: env.AGENT_API_KEY_ENV_VAR,
     rateLimits: {
       maxCallsPerRun: asInt(env.AGENT_MAX_CALLS_PER_RUN),

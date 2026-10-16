@@ -12,6 +12,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { MAX_DELIVERIES } from "@/modules/jobs/scheduler";
 import { SITE, freshDb } from "@/test/pglite";
+import { loadAgentConfig } from "../config";
 import { AGENT_RUN_LEASE_SECONDS, acquireRunLease } from "./lease";
 import { AT01_EXECUTORS, AT01_FACTS, AT01_SCRIPT, at01Policy, runHarness } from "./harness";
 import {
@@ -31,7 +32,8 @@ import { loadRun, toolCalls } from "./store";
 import type { Trigger } from "./triggers";
 
 const TRIGGER: Trigger = { type: "msg.inbound", id: "MSG-1", siteId: SITE };
-const ROUTING = { model: "anthropic/claude-sonnet", provider: "openrouter" };
+/** Routing as the row records it. Both values come from config — see no-hardcoded-models.test.ts. */
+const ROUTING = { model: loadAgentConfig({}).model, provider: loadAgentConfig({}).provider };
 const OTHER_SITE = "00000000-0000-7000-8000-0000000000ff";
 
 /** What Queues is handed, in order. Fails on demand, like `FakeOutboxTransport`. */

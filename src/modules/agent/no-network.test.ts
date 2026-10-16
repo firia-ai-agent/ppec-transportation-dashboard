@@ -60,6 +60,23 @@ function code(file: string): string {
     .join("\n");
 }
 
+/**
+ * B-08 slice 5 narrowed this bar rather than dropped it. The live provider exists now, so "no
+ * file reaches the network" is no longer true — but "only these two files can, and only this way"
+ * is, and it is the claim worth testing:
+ *
+ *  - `config.ts` is the **only** file that may carry a URL, for the same reason it is the only
+ *    file that may carry a model id: one place to repoint at the compliant endpoint.
+ *
+ * Every other pattern still applies to every file, including that one: no `fetch`, no node
+ * network module, no HTTP client package, no browser transport. A URL literal in a second file
+ * fails this suite — which is the point. The exemptions are per *pattern*, not a blanket pass
+ * for the file.
+ */
+const EXEMPT: Readonly<Record<string, readonly string[]>> = {
+  "an absolute URL": ["config.ts"],
+};
+
 const NETWORK_PATTERNS: readonly { readonly what: string; readonly pattern: RegExp }[] = [
   { what: "a fetch() call", pattern: /\bfetch\s*\(/ },
   { what: "a node network module", pattern: /["'](?:node:)?(?:http|https|net|tls|dgram|dns|http2)["']/ },
@@ -88,9 +105,30 @@ describe("VERI-5: the agent module contains no way to reach the network", () => 
     expect(readFileSync(path.join(AGENT_DIR, "providers/remote.ts"), "utf8")).toContain("no HTTP");
   });
 
-  it.each(NETWORK_PATTERNS.map((p) => [p.what, p.pattern] as const))("VERI-5 no file contains %s", (_what, pattern) => {
-    const offenders = sourceFiles.filter((f) => pattern.test(code(f)));
-    expect(offenders).toEqual([]);
+  it.each(NETWORK_PATTERNS.map((p) => [p.what, p.pattern] as const))(
+    "VERI-5 no file outside the named exemption contains %s",
+    (what, pattern) => {
+      const exempt = EXEMPT[what] ?? [];
+      const offenders = sourceFiles.filter((f) => !exempt.includes(f)).filter((f) => pattern.test(code(f)));
+      expect(offenders).toEqual([]);
+    },
+  );
+
+  it("VERI-5 every exemption is still used, and is still only the ones named here", () => {
+    // An exemption nobody needs is an open door left open. If the URL ever moves, this fails and
+    // the exemption has to go with it.
+    expect(Object.keys(EXEMPT).sort()).toEqual(["an absolute URL"]);
+    for (const [what, files] of Object.entries(EXEMPT)) {
+      const pattern = NETWORK_PATTERNS.find((p) => p.what === what)!.pattern;
+      for (const f of files) {
+        expect(sourceFiles, `${f} is exempted but not scanned`).toContain(f);
+        expect(pattern.test(code(f)), `${f} no longer needs the "${what}" exemption`).toBe(true);
+      }
+    }
+  });
+
+  it("VERI-5 the exemption is per pattern: config.ts may hold a URL and still not call out", () => {
+    expect(/\bfetch\s*\(/.test(code("config.ts"))).toBe(false);
   });
 
   it("VERI-5 the scan would notice if one arrived", () => {

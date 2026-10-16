@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { SITE, freshDb } from "@/test/pglite";
+import { loadAgentConfig } from "../config";
 import type { PolicyDecision } from "../policy";
 import { fakeProvider } from "../providers/fake";
 import type { ToolExecution, ToolExecutor } from "./executors";
@@ -43,7 +44,8 @@ const isFatal = (e: unknown) =>
   e instanceof SimulatedCrash || (e instanceof Error && /script exhausted/.test(e.message));
 
 const TRIGGER: Trigger = { type: "msg.inbound", id: "MSG-1", siteId: SITE };
-const ROUTING = { model: "anthropic/claude-sonnet", provider: "openrouter" };
+/** Routing as the row records it. Both values come from config — see no-hardcoded-models.test.ts. */
+const ROUTING = { model: loadAgentConfig({}).model, provider: loadAgentConfig({}).provider };
 
 let pg: PGlite;
 let db: Db;
