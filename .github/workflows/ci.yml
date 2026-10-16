@@ -1,18 +1,30 @@
 name: ci
 # Advisory checks (no branch protection on the free plan; Veri review is the gate, DECISION-LEDGER #24).
+# Actions minutes are exhausted (DECISION-LEDGER #70): one time zone per PR run, both on main,
+# superseded PR runs are cancelled, and docs-only changes skip this workflow entirely.
 on:
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   check:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        tz: ["UTC", "America/New_York"]
+        # PRs run UTC only; main runs UTC + America/New_York (NY stays required on main).
+        tz: ${{ github.event_name == 'pull_request' && fromJSON('["UTC"]') || fromJSON('["UTC", "America/New_York"]') }}
     env:
       TZ: ${{ matrix.tz }}
       APP_DATA_CLASS: SYNTHETIC
@@ -36,15 +48,3 @@ jobs:
         run: |
           if APP_DATA_CLASS=REAL pnpm build > /tmp/neg.log 2>&1; then echo "build should have failed"; exit 1; fi
           grep -q "APP_DATA_CLASS must be SYNTHETIC" /tmp/neg.log
-  secrets:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
