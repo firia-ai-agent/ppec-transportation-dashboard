@@ -41,7 +41,8 @@ export const AGENT_TOPIC = "ppec-agent";
  * The agent route's `maxDuration` (ARCHITECTURE §2, "Agent runner … 120 s"), pinned here because
  * the lease is chosen *against* it: `AGENT_RUN_LEASE_SECONDS` has to be longer, so that the
  * platform stops a wedged driver before its claim can expire (lease.ts). `queue.test.ts` holds the
- * two together, and the route's own `maxDuration` to this number.
+ * two together; the route cannot import this (Next wants a literal in a segment config export), so
+ * it spells the number out and `route.test.ts` pins that copy to this one.
  */
 export const AGENT_RUN_MAX_DURATION_SECONDS = 120;
 

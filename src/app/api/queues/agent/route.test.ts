@@ -146,6 +146,8 @@ describe("the delivery knobs", () => {
 
   it("the route's maxDuration is the one the lease was chosen against", async () => {
     const { maxDuration, dynamic } = await load();
+    // The route has to spell the number out — Next rejects a segment config export that is not a
+    // literal — so this is what keeps the spelled-out 120 and the constant from drifting apart.
     expect(maxDuration).toBe(AGENT_RUN_MAX_DURATION_SECONDS);
     // A queue delivery is never answered from a static render.
     expect(dynamic).toBe("force-dynamic");

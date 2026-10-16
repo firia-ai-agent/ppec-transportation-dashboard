@@ -4,14 +4,16 @@ import { previewSkip } from "@/db/read-only";
 import { agentRunner } from "@/modules/agent/run/deps";
 import {
   AGENT_QUEUE_VISIBILITY_TIMEOUT_SECONDS,
-  AGENT_RUN_MAX_DURATION_SECONDS,
   agentRetryDirective,
   agentWakeLog,
   handleAgentWake,
 } from "@/modules/agent/run/queue";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = AGENT_RUN_MAX_DURATION_SECONDS;
+// AGENT_RUN_MAX_DURATION_SECONDS, spelled out: Next parses the segment config statically and rejects
+// the build ("Invalid segment configuration export detected") if this is anything but a literal.
+// route.test.ts asserts the two are equal, so the constant is still the one place to change it.
+export const maxDuration = 120;
 
 // Queue trigger (topic ppec-agent, vercel.json). Not publicly invocable per the Vercel Queues docs,
 // and a staff session grants nothing here (src/auth/access.ts, `queue-callback`).
