@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { phoneHmac } from "@/modules/identity/phone";
+import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
 import { F2_NUMBER, PEPPER } from "@/test/messaging";
 import {
@@ -54,7 +55,7 @@ const F4_NUMBER = "+15615550104";
 beforeEach(async () => {
   ({ pg, db } = await freshDb());
   open.push(pg);
-  now = new Date("2026-10-15T12:00:00.000Z");
+  now = new Date(TEST_NOW);
 }, 60_000);
 
 afterEach(async () => {
@@ -223,7 +224,7 @@ describe("a third guardian nobody listed: no write, no send, and no fan-out", ()
     // On file as a guardian contact of this family — so the contact point resolves — and listed on
     // no child's authorization, which is the whole difference between recognized and authorized.
     const third = await seedSecondGuardian(db, {
-      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: sc.children[0], number: F4_NUMBER,
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: sc.children[0], number: F4_NUMBER, now: sc.receivedAt,
     });
     await db.query("DELETE FROM ops.contact_authorization WHERE contact_token = $1", [third]);
     const messageId = await messageFrom(F4_NUMBER);
@@ -245,14 +246,14 @@ describe("a third guardian nobody listed: no write, no send, and no fan-out", ()
     sc = await seedAgentScenario(db, { children: 2 });
     const [child, sibling] = sc.children;
     const lapsed = await seedSecondGuardian(db, {
-      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER,
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER, now: sc.receivedAt,
     });
     await db.query(
-      "UPDATE ops.contact_authorization SET valid_to = now() - interval '1 hour' WHERE contact_token = $1",
-      [lapsed],
+      "UPDATE ops.contact_authorization SET valid_to = $2 WHERE contact_token = $1",
+      [lapsed, new Date(now.getTime() - 3_600_000).toISOString()],
     );
     const siblingOnly = await seedSecondGuardian(db, {
-      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: sibling, number: F4_NUMBER,
+      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: sibling, number: F4_NUMBER, now: sc.receivedAt,
     });
 
     const h = harness([

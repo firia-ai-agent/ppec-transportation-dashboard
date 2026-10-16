@@ -15,6 +15,7 @@ import { handlers } from "@/modules/jobs/handlers";
 import { handleWake } from "@/modules/jobs/runner";
 import { phoneHmac } from "@/modules/identity/phone";
 import { agentNextSteps, agentNoReply } from "@/ui/copy";
+import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
 import { PEPPER } from "@/test/messaging";
 import {
@@ -49,7 +50,7 @@ const OTHER_SITE = "00000000-0000-7000-8000-0000000000ff";
 beforeEach(async () => {
   ({ pg, db } = await freshDb());
   open.push(pg);
-  now = new Date("2026-10-15T12:00:00.000Z");
+  now = new Date(TEST_NOW);
 }, 60_000);
 
 afterEach(async () => {
