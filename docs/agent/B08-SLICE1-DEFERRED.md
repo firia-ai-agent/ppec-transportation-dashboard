@@ -15,9 +15,10 @@ key, and an item whose slice nobody can name does not get to stay on the page as
 | `close_task` on a task that is still **OPEN** | **resolved — nothing left to sequence** | founder decision, 2026-10-15: **no new state transition.** §6.3 is unchanged; the tool *refuses*, with the named reason code `TASK_NOT_CLOSABLE_OPEN` and the staff-readable sentence `ui/copy.ts agentRefusals.closeTaskOpen`, and leaves the row exactly as it found it. Built and tested on this branch (`exec/staff.ts`, `exec/staff.test.ts`) |
 
 Everything else on this page carries its slice in its own row, in the "Status" or "Lands with"
-column. The two items that are genuinely nobody's until later are marked as such and say why: the
-**live vendor call** (B-08's own last slice — the provider choice is ADR-000 #4/#12) and the
-**≥100 red-team cases**, which the PRD itself dates to P2.
+column. The **live vendor call** was the one item dated to B-08's own last slice, and slice 5 built
+it — so the only thing on this page that is genuinely nobody's until later is the **≥100 red-team
+cases**, which the PRD itself dates to P2. What slice 5 left behind is small and named in its row:
+no token/cost accounting, and no retry beyond the single backup attempt.
 
 ---
 
@@ -68,6 +69,29 @@ sequenced to. Three files and a route:
   platform kills a wedged driver before its claim can expire.
 * `run/deps.ts` — the honest part: what the route would drive a run *with*, and why it has none.
 * `/api/queues/agent` — the consumer, its `queue-callback` auth row and its `vercel.json` trigger.
+
+**Slice 5** (commits "B-08 slice 5 — …") switches the vendor on, which is why it was sequenced
+last: it is the only part of B-08 that spends money and leaves the building. Two files carry it.
+
+* `config.ts` — the model ids (`MODEL_PRIMARY`, `MODEL_BACKUP`), the `modelAllowList` that refuses
+  anything else at config time, the base URL, the request timeout, and the **demo-data-only
+  guard**. The founder's 2026-10-15 decision replaced ADR-000 #12's Sonnet + ZDR shape for now: a
+  free OpenRouter model, demo data only, with the HIPAA-compliant endpoint sequenced behind a
+  signed BAA. `AGENT_DEMO_DATA_ONLY` must be exactly `true` — it is deliberately **not**
+  `AGENT_DATA_MODE`, which already means `SYNTHETIC|PHI` on this module, and the reasoning is in
+  docs/research/QUEUES-AND-OPENROUTER-ZDR.md §2.5B.
+* `providers/remote.ts` — the adapter. The guard refuses before the key is read, a body is built or
+  a URL is constructed, and is re-checked on every `invoke()`; then primary model, backup on a 429
+  or any other failure, and finally the PRD §18.1 keyword parser (`providers/keyword.ts`), which
+  escalates to staff rather than guessing a cancellation from five characters of SMS.
+
+Slice 5 adds **no migration** — nothing it builds needed a column — and no dependency. Two tests
+are the load-bearing ones: `no-hardcoded-models.test.ts` scans every `.ts`/`.tsx` under `src/` and
+fails on a model id outside the config module, so the later switch stays an env change; and
+`live-approval-tiers.test.ts` drives the real adapter through the real gateway into the real policy
+engine and proves the §11.2 tiers decide identically there and against the fake. The Sonnet + ZDR
+production start-up guard is **documented and not built**, by instruction: it belongs to the later
+endpoint, whose choice is still open.
 
 The queue slice adds **no migration** either, and this was the file where one looked most likely:
 `ops.agent_run` has no `claimed_by`/`claimed_until`, and the lease was built from the columns it
@@ -177,7 +201,7 @@ Other §11.2 clauses:
 | …per-call audit "of hashes only" | in memory, plus an optional sink. Slice 2 persists the run's hashes in the operational tables — `ops.agent_run.prompt_hash` per turn, `ops.agent_tool_call.args_hash` per call, with results holding codes rather than text — but nothing writes `ops.audit_event` yet | Partial | the audit-event writer (B-12/B-16) |
 | `vendorAttestation` required in PHI mode | enforced; **no deployment may select PHI** (no BAA — ARCHITECTURE risk 3, ADR-000 #4) | Partial | AWS/Bedrock step |
 | Rate limits | per gateway instance, in memory. Slice 2 adds the loop's step budget, counted from the **persisted** calls (`maxCallsPerRun`), so a resumed run does not get a fresh allowance the way the in-memory counter would | Partial | per-site/day budget + ADR-000 #11 spend alert |
-| Live vendor call | `providers/remote.ts` is a typed placeholder that fails closed with no key (VERI-5); no HTTP body, no retries, no timeouts, no token/cost accounting. `ops.agent_run.tokens_in/out` stay NULL for the same reason | **Sequenced — the live-provider slice**, which is B-08's last | ADR-000 #4/#12 (Claude Sonnet via OpenRouter, `zdr:true`). It is sequenced after slice 4 (now landed) for a plain reason: a live call is the only item here that spends money and leaves the building, and it should be the last thing switched on, not the first |
+| Live vendor call | **resolved — built in slice 5.** `providers/remote.ts` has a real HTTP body: `fetch` to `config.baseUrl + endpoint`, the key read by env var name only and sent in the authorization header, `allow_fallbacks:false` and `require_parameters:true` on every request, a timeout (`AGENT_REQUEST_TIMEOUT_MS`), and a fallback chain of primary → backup model → the §18.1 keyword parser. The founder's 2026-10-15 decision changed the model under it: a **free** OpenRouter model on **demo data only** (`AGENT_DEMO_DATA_ONLY=true`, fail shut), with Sonnet + ZDR moved to the later HIPAA endpoint and documented but **not built** (docs/research/QUEUES-AND-OPENROUTER-ZDR.md §2.5/§2.5A/§2.5B). Model ids live in `config.ts` alone, enforced by `no-hardcoded-models.test.ts` scanning all of `src/`. **Still open:** no token/cost accounting — `ops.agent_run.tokens_in/out` stay NULL — and no retry beyond the single backup attempt; a 429 degrades to the keyword parser rather than backing off | **resolved — built in slice 5**, with the two remainders named at left | ADR-000 #4/#12, as amended by the founder 2026-10-15. It was sequenced last for a plain reason, and that reason held: a live call is the only item here that spends money and leaves the building, so it was the last thing switched on |
 
 ## §18.3 acceptance tests
 
@@ -193,9 +217,9 @@ Other §11.2 clauses:
 | AT-04/05/12 approval-gated infeasibility and substitution | the proposal rows are real — a RED exception plus an `ops.approval_request` holding the options, carrying the approval key, with a before/after snapshot asserting no mutation — and slice 4 adds the capability half in front of them: a substitution is asked about at once rather than at T−90, the provider's answer is recorded `REPORTED` only, and a low-confidence parse is a staff review beside it. The Teams card and the approval decision surface are B-12, and the solver side (what makes a manifest INFEASIBLE) is B-06 | Partial (slices 3–4) |
 | **AT-14** therapist notified ≤10 min, ack tracked | **built and tested** (`exec/therapist.test.ts`, `exec/escalate.test.ts`): the overlapping session is found on the date this run read, the minimized SMS goes out through the real outbox (a template id and a site-local clock time — no name, no number, no prose), the session moves to `THERAPIST_NOTIFIED` on its own version, and the ack is a PENDING row on a ten-minute deadline whose expiry closes it `EXPIRED_ESCALATED` and raises one AMBER exception. Recording the ack cancels that deadline and leaves the resume timer alone | **Done (slice 4)** |
 | AT-09 wrong-recipient / injection, with an outbox behind it | the slice-1 evidence is at the seam (above); slice 3 added a real `ops.outbound_message` behind every send, so "zero sends" is also measured at the provider — an opted-out family, an unknown sender and a stale plan each produce zero provider calls with the message visibly BLOCKED_EGRESS or CANCELED_STALE — and slice 4 adds the two recipients that are not families: an opted-out **dispatcher** is blocked at egress too, and the one guardian of two who has opted out is refused while the other is sent | Partial — still no live inbound traffic (the B-04 caller) |
-| TEST-SEC-02 egress (zero `*.googleapis.com`, zero tokens in routing payloads) | VERI-5 proves the agent module makes no network call at all; the egress allow-list itself is B-16's | Partial |
+| TEST-SEC-02 egress (zero `*.googleapis.com`, zero tokens in routing payloads) | VERI-5 is **narrowed, not dropped**, now that slice 5 ships a live adapter: `providers/remote.ts` is the only file in the module that may call `fetch` and `config.ts` the only one that may hold a URL — per *pattern*, with every other pattern (node network modules, HTTP client packages, browser transports) still applying to both, and an exemption that stops being needed failing the suite. So the destination is still exactly one configured host and the prompt is still tokens only. The egress allow-list itself is B-16's | Partial |
 | TEST-INF-01 restart (50 timers, exactly-once) | `JobScheduler`, not the agent — though the agent's own await timer is an ordinary `ops.job` row and rides the same guarded claim | Out of scope for B-08 |
-| §18.4 source-mode matrix, LLM row: "Live vendor API, synthetic — proves tool-calling, policy, **recovery**" | policy is proved against scripted and recorded providers, and **recovery is now proved** against them too (crash-and-resume at every step, exactly one effect per call). **Live** tool-calling and live recovery remain unproven | Partial |
+| §18.4 source-mode matrix, LLM row: "Live vendor API, synthetic — proves tool-calling, policy, **recovery**" | policy is proved against scripted and recorded providers, and recovery against them too (crash-and-resume at every step, exactly one effect per call). Slice 5 adds the live adapter and proves **the live path's contract** with `fetch` mocked: the vendor envelope maps onto one schema-valid catalog call, the demo guard refuses before any request, a 429 moves to the backup and then to the keyword parser, and the approval tiers decide identically through the live adapter and the fake (`live-approval-tiers.test.ts`). What is still unproven is the part no test can stand in for — tool-calling against the **real** endpoint, with a real key, and recovery across a real vendor failure | Partial |
 
 ---
 
