@@ -1,8 +1,14 @@
 /**
  * The Today board, computed (PRD §14 SURF-01, DESIGN-DIRECTION §4.1).
  *
- * One row per child, and every fact on it is an answer from a module that already owns the
- * question:
+ * One row per child **and ride**: a row is "Mia R., morning", so a child's two rides are two
+ * rows with their own state, van, arrival window, needs-action reasons and next step. That is
+ * AT-07 made structural — a leg absence is not a day absence, and the morning being on the road
+ * says nothing about the afternoon — and it is why nothing here has to choose which of a
+ * child's two rides "the row" is about. The drawer is still per child: it is where the two rows
+ * are read as one day.
+ *
+ * Every fact on a row is an answer from a module that already owns the question:
  *  - the ride's state is walked through the **leg machine** (src/domain/machines.ts) one legal
  *    edge at a time, so a state the board shows is a state the domain allows;
  *  - whether the vehicle fits its riders is the **capacity solver** (src/domain/solver), run
@@ -41,7 +47,9 @@ import {
   boardChildren,
   capabilityFor,
   CENTER_STOP_ID,
+  dispatcherOf,
   plannedWindow,
+  receivingAdultOf,
   replayForVehicle,
   runOfChild,
   solverLeg,
@@ -49,6 +57,7 @@ import {
   stopLabel,
   vehicleOf,
   type Direction,
+  type ReceivingAdult,
 } from "./scenario";
 
 type LegS = (typeof legState.enumValues)[number];
@@ -117,22 +126,6 @@ export function groupForState(state: LegS): BoardGroup {
   }
 }
 
-/**
- * Which of a child's two rides decides the row's group.
- *
- * Not the earliest and not the worst: the one that is *happening*. A child whose morning van
- * is on the road and whose afternoon van has not been checked yet belongs under "On the way" —
- * filing them under "Getting ready" because of a ride six hours away would hide the van that
- * is moving now. Needs-action is handled before this, because it outranks everything.
- */
-const GROUP_BY_ACTIVITY: readonly BoardGroup[] = [
-  "NEEDS_ACTION",
-  "ON_THE_WAY",
-  "GETTING_READY",
-  "DONE",
-  "NOT_RIDING",
-];
-
 /* ───────────────────────────── the row ───────────────────────────── */
 
 /** Why this row is in "Needs action". Codes, so the words stay in the copy module. */
@@ -148,8 +141,32 @@ export const NEEDS_ACTION_REASONS = [
 ] as const;
 export type NeedsActionReason = (typeof NEEDS_ACTION_REASONS)[number];
 
-/** Who the next step belongs to. Roles, never invented people (COPY-GUIDE §1 "name the person"). */
-export type NextStepOwner = "COORDINATOR" | "FRONT_DESK" | "PROVIDER" | "FAMILY" | "NOBODY";
+/**
+ * The next step on a ride. A thing to do, not a role to pass it to.
+ *
+ * This used to be the owner — COORDINATOR, FRONT_DESK, PROVIDER — which is a column that tells
+ * a coordinator reading their own board the one thing they already know. The codes below are
+ * chosen here and become a sentence in src/ui/copy.ts (`board.nextSteps`), where each one opens
+ * with a verb and names the child: "Record who receives Noah O.", not "Coordinator".
+ */
+export const NEXT_STEPS = [
+  "MOVE_TO_FITTING_VAN",
+  "RECORD_RECEIVER",
+  "DECIDE_RIDE",
+  "FIND_VAN",
+  "CONFIRM_BOARDING",
+  "CONFIRM_HANDOFF",
+  /**
+   * Two codes for one question — what can this van carry today? A provider's van is a
+   * dispatcher's answer to give, and the dispatcher has a name. The centre's own van has no
+   * dispatcher: the people who can answer it are the ones standing at the ramp.
+   */
+  "ASK_ABOUT_VAN",
+  "CHECK_VAN_AT_RAMP",
+  /** The only entry that is not an instruction, because it is the only one that is not a step. */
+  "NOTHING",
+] as const;
+export type NextStep = (typeof NEXT_STEPS)[number];
 
 export type RideView = {
   direction: Direction;
@@ -165,6 +182,8 @@ export type RideView = {
   vehicleLabel: string | null;
   vehicleDescription: string | null;
   providerName: string | null;
+  /** The person at the provider who answers for this van, named. Null for the centre's fleet. */
+  providerDispatcher: string | null;
   layoutCode: string | null;
   capability: CapabilityS;
   solver: SolveStatus | null;
@@ -190,18 +209,17 @@ export type NeedView = {
   usedForAllocation: boolean;
 };
 
+/** One child's day. The drawer's unit, and what a board row's two halves belong to. */
 export type BoardRow = {
   childKey: string;
   /** "Mia R." — first name plus last initial, the only child label a staff screen shows (D-3). */
   childLabel: string;
   attendance: AttendanceS;
   rides: readonly RideView[];
-  group: BoardGroup;
-  needsActionReasons: readonly NeedsActionReason[];
-  nextStep: NextStepOwner;
-  /** TRP-02: is there an adult on file allowed to receive this child? */
-  receivingAdultOnFile: boolean;
-  therapy: { therapist: string; startsAt: string } | null;
+  /** TRP-02: the adult on file allowed to receive this child, named, or null when there is none. */
+  receivingAdult: ReceivingAdult | null;
+  /** `direction` is the half of the day the session falls in, so it sits on that ride's row. */
+  therapy: { therapist: string; startsAt: string; direction: Direction } | null;
   needs: readonly NeedView[];
   /** The approved transport profile's version (PRD VEH-01; the seed writes v1, APPROVED). */
   profileVersion: number;
@@ -209,12 +227,33 @@ export type BoardRow = {
   sourceMode: "SIMULATED";
 };
 
-export type BoardGroupView = { group: BoardGroup; rows: readonly BoardRow[] };
+/**
+ * One child's one ride: the board's own unit, and the thing a row is.
+ *
+ * It carries the child it belongs to rather than copying the child's facts out, so the row and
+ * the drawer cannot drift: the same `BoardRow` object is behind both.
+ */
+export type LegRow = {
+  /** Stable per child and direction, so React keys and focus survive a filter. */
+  key: string;
+  child: BoardRow;
+  ride: RideView;
+  group: BoardGroup;
+  /** Why *this ride* needs action. An afternoon with nobody to receive never flags the morning. */
+  needsActionReasons: readonly NeedsActionReason[];
+  nextStep: NextStep;
+};
+
+export type BoardGroupView = { group: BoardGroup; legs: readonly LegRow[] };
 
 export type Board = {
   nowMs: number;
+  /** One per child, in fixture order: what the drawer reads. */
   rows: readonly BoardRow[];
+  /** One per child and ride, in fixture order then morning before afternoon: what the board is. */
+  legs: readonly LegRow[];
   groups: readonly BoardGroupView[];
+  /** Rides needing action, which is what the "Only needs action" toggle filters the board to. */
   needsActionCount: number;
 };
 
@@ -379,6 +418,7 @@ function rideFor(child: DemoChild, direction: Direction, nowMs: number): RideVie
       vehicleLabel: null,
       vehicleDescription: null,
       providerName: null,
+      providerDispatcher: null,
       layoutCode: null,
       capability: "UNKNOWN",
       solver: null,
@@ -388,6 +428,7 @@ function rideFor(child: DemoChild, direction: Direction, nowMs: number): RideVie
   }
 
   const vehicle = solverVehicle(vehicleOf(run));
+  const dispatcher = dispatcherOf(vehicleOf(run));
   const { solve, capability, departed } = solveRun(run, direction, nowMs);
   const frame = direction === "AM" ? frameFor(run, nowMs) : null;
   const ownStop = stopLabel(child);
@@ -410,6 +451,7 @@ function rideFor(child: DemoChild, direction: Direction, nowMs: number): RideVie
     vehicleLabel: vehicle.label,
     vehicleDescription: vehicle.description,
     providerName: vehicle.providerName,
+    providerDispatcher: dispatcher,
     layoutCode: run.layoutCode,
     capability,
     solver: solve.status,
@@ -418,73 +460,75 @@ function rideFor(child: DemoChild, direction: Direction, nowMs: number): RideVie
   };
 }
 
-/**
- * TRP-02 / PRD §6.6: a child may only be handed to an adult the family has authorized, and the
- * scenario deliberately contains one family with nobody on file (standard.ts: F2 holds every
- * scope except RECEIVE_CHILD). Staff have to know that before the van is at the kerb, not when
- * it gets there, so it is a row on the board from the first screen of the day.
- */
-function hasReceivingAdult(child: DemoChild): boolean {
-  return child.scopes.includes("RECEIVE_CHILD");
-}
-
 function attendanceFor(child: DemoChild): AttendanceS {
   // A child the family brings in themselves is an AM self-drop, which is an attendance fact
   // rather than a ride (PRD ATT-01, §3 "Family drop-off").
   return child.amMode === "FAMILY" ? "AM_SELF_DROP" : "SCHEDULED";
 }
 
-function needsActionFor(child: DemoChild, rides: readonly RideView[]): NeedsActionReason[] {
+/**
+ * Why *this ride* needs action, in the order the board ranks them.
+ *
+ * Per ride, not per child: a morning van on the road and an afternoon with nobody to receive
+ * the child are two different facts with two different next steps, and rolling them into one
+ * row forced the board to pick which of them to say out loud. The afternoon's missing receiver
+ * is still visible in the morning — the receiver column carries it on both of a child's rows
+ * (TRP-02 / PRD §6.6: the scenario's F2 family holds every scope except RECEIVE_CHILD, and
+ * staff have to know before the van is at the kerb) — but the step belongs to the ride that
+ * ends away from the centre, because that is the ride it stops.
+ */
+function needsActionFor(child: DemoChild, ride: RideView): NeedsActionReason[] {
   const reasons: NeedsActionReason[] = [];
-  if (rides.some((r) => r.solver === "INFEASIBLE" || r.solver === "VEHICLE_UNAVAILABLE")) {
+  if (ride.solver === "INFEASIBLE" || ride.solver === "VEHICLE_UNAVAILABLE") {
     reasons.push("DOES_NOT_FIT");
   }
-  // Only a ride that ends away from the centre needs an adult waiting at the other end.
-  if (rides.some((r) => r.direction === "PM" && r.mode !== "FAMILY") && !hasReceivingAdult(child)) {
+  if (
+    ride.direction === "PM" &&
+    ride.mode !== "FAMILY" &&
+    receivingAdultOf(child) === null
+  ) {
     reasons.push("NO_RECEIVING_ADULT");
   }
-  if (rides.some((r) => groupForState(r.state) === "NEEDS_ACTION")) reasons.push("RIDE_STATE");
-  if (rides.some((r) => r.gpsFreshness === "LOST")) reasons.push("LOCATION_LOST");
+  if (groupForState(ride.state) === "NEEDS_ACTION") reasons.push("RIDE_STATE");
+  if (ride.gpsFreshness === "LOST") reasons.push("LOCATION_LOST");
   return reasons;
 }
 
-/** The ride the row is about right now (see {@link GROUP_BY_ACTIVITY}). */
-export function activeRide(rides: readonly RideView[]): RideView {
-  for (const group of GROUP_BY_ACTIVITY) {
-    const ride = rides.find((r) => groupForState(r.state) === group);
-    if (ride) return ride;
-  }
-  return rides[0];
-}
+/** The step each needs-action reason asks for, keyed by the reason the board ranks first. */
+const STEP_FOR_REASON: Readonly<Record<NeedsActionReason, NextStep>> = {
+  DOES_NOT_FIT: "MOVE_TO_FITTING_VAN",
+  NO_RECEIVING_ADULT: "RECORD_RECEIVER",
+  RIDE_STATE: "DECIDE_RIDE",
+  LOCATION_LOST: "FIND_VAN",
+};
 
-function nextStepFor(ride: RideView, reasons: readonly NeedsActionReason[]): NextStepOwner {
-  if (reasons.length > 0) return "COORDINATOR";
-  if (ride.mode === "FAMILY") return "FAMILY";
-  if (ride.state === "ARRIVED_PICKUP" || ride.state === "IN_TRANSIT") return "FRONT_DESK";
-  if (ride.capability === "UNKNOWN" || ride.capability === "REQUESTED") return "PROVIDER";
-  return "NOBODY";
+/**
+ * The one thing to do next on this ride.
+ *
+ * A ride that needs action takes the step its first-ranked reason asks for. Otherwise the step
+ * is whatever the ride's own state is waiting on, and "nothing" is a real answer: a van in
+ * transit, a family driving their own child and a locked manifest are all waiting on nobody,
+ * and a column that invented work for them would bury the rides that have some.
+ */
+function nextStepFor(ride: RideView, reasons: readonly NeedsActionReason[]): NextStep {
+  if (reasons.length > 0) return STEP_FOR_REASON[reasons[0]];
+  if (ride.mode === "FAMILY") return "NOTHING";
+  if (ride.state === "ARRIVED_PICKUP") return "CONFIRM_BOARDING";
+  if (ride.state === "ARRIVED_DROPOFF") return "CONFIRM_HANDOFF";
+  if (ride.capability === "UNKNOWN" || ride.capability === "REQUESTED") {
+    return ride.providerDispatcher === null ? "CHECK_VAN_AT_RAMP" : "ASK_ABOUT_VAN";
+  }
+  return "NOTHING";
 }
 
 function rowFor(child: DemoChild, nowMs: number, therapy: BoardRow["therapy"]): BoardRow {
   const rides: RideView[] = [rideFor(child, "AM", nowMs), rideFor(child, "PM", nowMs)];
-  const needsActionReasons = needsActionFor(child, rides);
-  const active = activeRide(rides);
-  const group: BoardGroup =
-    needsActionReasons.length > 0
-      ? "NEEDS_ACTION"
-      : rides.every((r) => r.mode === "FAMILY")
-        ? "NOT_RIDING"
-        : groupForState(active.state);
-
   return {
     childKey: child.key,
     childLabel: child.label,
     attendance: attendanceFor(child),
     rides,
-    group,
-    needsActionReasons,
-    nextStep: nextStepFor(active, needsActionReasons),
-    receivingAdultOnFile: hasReceivingAdult(child),
+    receivingAdult: receivingAdultOf(child),
     therapy,
     needs: child.needs.map((n) => ({
       category: n.category,
@@ -496,13 +540,40 @@ function rowFor(child: DemoChild, nowMs: number, therapy: BoardRow["therapy"]): 
   };
 }
 
-/** Today's therapy sessions, by child (PRD §18.1: T1 at 09:30, T2 in the afternoon). */
+/** One row of the board: this child, this ride, and what it is waiting for. */
+function legFor(child: DemoChild, row: BoardRow, ride: RideView): LegRow {
+  const needsActionReasons = needsActionFor(child, ride);
+  return {
+    key: `${row.childKey}/${ride.direction}`,
+    child: row,
+    ride,
+    group:
+      needsActionReasons.length > 0
+        ? "NEEDS_ACTION"
+        : ride.mode === "FAMILY"
+          ? "NOT_RIDING"
+          : groupForState(ride.state),
+    needsActionReasons,
+    nextStep: nextStepFor(ride, needsActionReasons),
+  };
+}
+
+/**
+ * Today's therapy sessions, by child (PRD §18.1: T1 at 09:30, T2 in the afternoon).
+ *
+ * The session's half of the day comes from its own start time, so it lands on the row for the
+ * ride it could actually affect rather than on both of them.
+ */
 function therapyByChild(): Map<string, BoardRow["therapy"]> {
   const out = new Map<string, BoardRow["therapy"]>();
   for (const session of THERAPY_SESSIONS) {
     const therapist = THERAPISTS.find((t) => t.key === session.therapistKey);
     if (!therapist) continue;
-    out.set(session.childKey, { therapist: therapist.label, startsAt: session.start });
+    out.set(session.childKey, {
+      therapist: therapist.label,
+      startsAt: session.start,
+      direction: Number(session.start.slice(0, 2)) < 12 ? "AM" : "PM",
+    });
   }
   return out;
 }
@@ -510,15 +581,19 @@ function therapyByChild(): Map<string, BoardRow["therapy"]> {
 export function buildBoard(nowMs: number = boardInstantMs()): Board {
   const therapy = therapyByChild();
   const rows = boardChildren.map((child) => rowFor(child, nowMs, therapy.get(child.key) ?? null));
+  const legs = boardChildren.flatMap((child, i) =>
+    rows[i].rides.map((ride) => legFor(child, rows[i], ride)),
+  );
   const groups = BOARD_GROUPS.map((group) => ({
     group,
-    rows: rows.filter((r) => r.group === group),
-  })).filter((g) => g.rows.length > 0);
+    legs: legs.filter((l) => l.group === group),
+  })).filter((g) => g.legs.length > 0);
   return {
     nowMs,
     rows,
+    legs,
     groups,
-    needsActionCount: rows.filter((r) => r.group === "NEEDS_ACTION").length,
+    needsActionCount: legs.filter((l) => l.group === "NEEDS_ACTION").length,
   };
 }
 
@@ -526,13 +601,20 @@ export function buildBoard(nowMs: number = boardInstantMs()): Board {
  * The §2 global search, applied to the board: a child, a vehicle or a provider. The shell's
  * search box already submits `?q=` to this page; this is the half that was waiting for a board
  * to search.
+ *
+ * Asked of a row, which is one ride — so searching a van brings back the rides that van is
+ * driving today and not the other half of those children's days, which is on a different van.
  */
-export function matchesQuery(row: BoardRow, query: string): boolean {
+export function matchesQuery(leg: LegRow, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (q.length === 0) return true;
+  const { ride } = leg;
   const haystack = [
-    row.childLabel,
-    ...row.rides.flatMap((r) => [r.vehicleLabel, r.vehicleDescription, r.providerName, r.stop]),
+    leg.child.childLabel,
+    ride.vehicleLabel,
+    ride.vehicleDescription,
+    ride.providerName,
+    ride.stop,
   ];
   return haystack.some((value) => value !== null && value.toLowerCase().includes(q));
 }

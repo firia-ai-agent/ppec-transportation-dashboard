@@ -1,13 +1,21 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Car, Locate } from "lucide-react";
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  Car,
+  CirclePause,
+  Clock,
+  Hand,
+  Locate,
+  UserCheck,
+} from "lucide-react";
 import { formatDelta } from "@/domain/eta/eta";
 import {
-  activeRide,
   matchesQuery,
   type Board,
-  type BoardRow,
+  type LegRow,
   type RideView,
 } from "@/domain/board/board";
 import { board as boardCopy, etaText, fill } from "@/ui/copy";
@@ -17,23 +25,31 @@ import {
   capabilityStates,
   gpsFreshnessStates,
   legStates,
+  therapySessionStates,
   type StateDescriptor,
 } from "@/ui/states";
 import { humanizeAge } from "@/ui/age";
 import { clockLabel } from "@/ui/service-date";
+import { icon } from "@/ui/tokens";
 import { LegDrawer } from "./LegDrawer";
+import { nextStepCellText } from "./next-step";
 import styles from "./today.module.css";
 
 /**
  * SURF-01, the board (DESIGN-DIRECTION §4.1).
  *
- * One row per child, grouped needs-action first, with sticky group headers; every state is an
- * icon plus a label, so the board reads in greyscale and colour is only ever the third cue
- * (§3, §9). The rows themselves are computed on the server by src/domain/board — this
- * component chooses words and boxes, and decides nothing about the day.
+ * One row per child and ride, grouped needs-action first, with sticky group headers. Dense rows
+ * and no cards: 56 rides on one screen is the point of the surface, and a card would spend a
+ * third of the width on padding. Every state is an icon plus a label — the ride's state, the
+ * van's check, the van's location, the window that is not worked out yet, the shift that has
+ * moved, the stall, the receiver, the therapy session — so the board reads in greyscale and
+ * colour is only ever the third cue (§3, §9).
  *
- * Keyboard (§4.1): J and K move between children and Enter opens one, which is also what the
- * row's own button does, so nothing here is keyboard-only or mouse-only.
+ * The rows themselves are computed on the server by src/domain/board; this component chooses
+ * words and boxes, and decides nothing about the day.
+ *
+ * Keyboard (§4.1): J and K move between rides and Enter opens one, which is also what the row's
+ * own button does, so nothing here is keyboard-only or mouse-only.
  */
 export function TodayBoard({
   board,
@@ -51,17 +67,17 @@ export function TodayBoard({
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const matched = useMemo(
-    () => board.rows.filter((row) => matchesQuery(row, query)),
-    [board.rows, query],
+    () => board.legs.filter((leg) => matchesQuery(leg, query)),
+    [board.legs, query],
   );
-  const visible = onlyNeedsAction ? matched.filter((r) => r.group === "NEEDS_ACTION") : matched;
+  const visible = onlyNeedsAction ? matched.filter((l) => l.group === "NEEDS_ACTION") : matched;
 
   const groups = board.groups
-    .map((g) => ({ group: g.group, rows: g.rows.filter((r) => visible.includes(r)) }))
-    .filter((g) => g.rows.length > 0);
+    .map((g) => ({ group: g.group, legs: g.legs.filter((l) => visible.includes(l)) }))
+    .filter((g) => g.legs.length > 0);
 
   // Flat row order, so J and K walk the board the way the eye does: down the groups in order.
-  const order = groups.flatMap((g) => g.rows);
+  const order = groups.flatMap((g) => g.legs);
 
   const focusRow = (index: number) => {
     const clamped = Math.max(0, Math.min(order.length - 1, index));
@@ -69,12 +85,13 @@ export function TodayBoard({
   };
 
   // Registering from here, not from the row: the list of openers belongs to the board, which
-  // is the thing that knows what "the next child" means.
+  // is the thing that knows what "the next ride" means.
   const registerRow = (index: number) => (el: HTMLButtonElement | null) => {
     rowRefs.current[index] = el;
   };
 
-  const openRow = board.rows.find((r) => r.childKey === openChild) ?? null;
+  // The drawer is per child: its two rows are the one day it reads.
+  const openLegs = board.legs.filter((l) => l.child.childKey === openChild);
 
   return (
     <div className={styles.page}>
@@ -108,12 +125,14 @@ export function TodayBoard({
           </span>
         ) : null}
         <p className={styles.showing}>
-          {fill(boardCopy.showing, { shown: visible.length, total: board.rows.length })}
+          {fill(boardCopy.showing, { shown: visible.length, total: board.legs.length })}
         </p>
       </div>
 
       {order.length === 0 ? (
-        <p className={styles.empty}>{fill(boardCopy.empty, { date: serviceDateLabel })}</p>
+        <p className={styles.empty}>
+          {emptyLine({ query, onlyNeedsAction, serviceDateLabel, rides: board.legs.length })}
+        </p>
       ) : (
         <>
           <p className={styles.hint}>{boardCopy.keyboardHint}</p>
@@ -155,18 +174,18 @@ export function TodayBoard({
                   <th scope="colgroup" colSpan={9} className={styles.groupHeader}>
                     {fill(boardCopy.groupHeading, {
                       group: boardCopy.groups[group.group],
-                      count: group.rows.length,
+                      count: group.legs.length,
                     })}
                   </th>
                 </tr>
-                {group.rows.map((row) => (
+                {group.legs.map((leg) => (
                   <Row
-                    key={row.childKey}
-                    row={row}
-                    index={order.indexOf(row)}
-                    register={registerRow(order.indexOf(row))}
+                    key={leg.key}
+                    leg={leg}
+                    index={order.indexOf(leg)}
+                    register={registerRow(order.indexOf(leg))}
                     onMove={focusRow}
-                    onOpen={() => setOpenChild(row.childKey)}
+                    onOpen={() => setOpenChild(leg.child.childKey)}
                   />
                 ))}
               </tbody>
@@ -175,55 +194,82 @@ export function TodayBoard({
         </>
       )}
 
-      {openRow ? <LegDrawer row={openRow} onClose={() => setOpenChild(null)} /> : null}
+      {openLegs.length > 0 ? (
+        <LegDrawer legs={openLegs} onClose={() => setOpenChild(null)} />
+      ) : null}
     </div>
   );
 }
 
+/**
+ * Which "nothing here" this is.
+ *
+ * Three different facts, and a board that said "No rides scheduled" to a filter that is hiding
+ * everything would be telling a coordinator the day is empty when it is not. Each line ends in
+ * the one thing to do about it, which for two of the three is undoing what they just did.
+ */
+function emptyLine({
+  query,
+  onlyNeedsAction,
+  serviceDateLabel,
+  rides,
+}: {
+  query: string;
+  onlyNeedsAction: boolean;
+  serviceDateLabel: string;
+  rides: number;
+}): string {
+  if (rides === 0) return fill(boardCopy.empty, { date: serviceDateLabel });
+  if (query.trim().length > 0) return fill(boardCopy.emptySearch, { query });
+  if (onlyNeedsAction) return boardCopy.emptyNeedsAction;
+  return fill(boardCopy.empty, { date: serviceDateLabel });
+}
+
 function Row({
-  row,
+  leg,
   index,
   register,
   onMove,
   onOpen,
 }: {
-  row: BoardRow;
+  leg: LegRow;
   index: number;
   register: (el: HTMLButtonElement | null) => void;
   onMove: (index: number) => void;
   onOpen: () => void;
 }) {
-  /*
-   * §4.1 writes a row as one AM/PM chip and one state chip, two lines at most — so the row is
-   * about the ride that is *happening*, marked AM or PM, and the drawer is where both rides of
-   * the day are read side by side. Stacking them here would double every row and bury the van
-   * that is moving now under one six hours away.
-   */
-  const ride = activeRide(row.rides);
+  const { child, ride } = leg;
+  const opener = fill(boardCopy.openRow, {
+    child: child.childLabel,
+    ride: ride.direction === "AM" ? boardCopy.amSpoken : boardCopy.pmSpoken,
+  });
   return (
-    <tr className={styles.row} data-group={row.group}>
+    <tr className={styles.row} data-group={leg.group}>
       <th scope="row" className={styles.childCell}>
         <button
           type="button"
           className={styles.openRow}
           ref={register}
-          // §9: the eye reads the child's name; the ear is told what the button does with it.
-          aria-label={fill(boardCopy.openRow, { child: row.childLabel })}
+          // §9: the eye reads the child's name; the ear is told what the button does with it,
+          // and which of the child's two rides this row is.
+          aria-label={opener}
           onClick={onOpen}
           onKeyDown={(event) => {
-            // §4.1: j / k move between children. Enter is the button's own behaviour.
+            // §4.1: j / k move between rides. Enter is the button's own behaviour.
             if (event.key === "j" || event.key === "J") onMove(index + 1);
             else if (event.key === "k" || event.key === "K") onMove(index - 1);
             else return;
             event.preventDefault();
           }}
         >
-          <span className="srOnly">{fill(boardCopy.openRow, { child: row.childLabel })}</span>
-          <span aria-hidden="true">{row.childLabel}</span>
+          <span className="srOnly">{opener}</span>
+          <span aria-hidden="true">{child.childLabel}</span>
         </button>
       </th>
       <td>
-        <DirectionTag ride={ride} />
+        <span className={styles.direction}>
+          {ride.direction === "AM" ? boardCopy.am : boardCopy.pm}
+        </span>
       </td>
       <td>
         <StateChip state={legStates[ride.state]} className={styles.cellChip} />
@@ -238,21 +284,15 @@ function Row({
         <ArrivingCell ride={ride} />
       </td>
       <td className={styles.hideNarrow}>
-        <ReceiverCell row={row} />
+        <ReceiverCell leg={leg} />
       </td>
-      <td className={styles.hideNarrow}>{boardCopy.owners[row.nextStep]}</td>
       <td className={styles.hideNarrow}>
-        <SourceBadge mode={row.sourceMode} className={styles.cellChip} />
+        <NextStepCell leg={leg} />
+      </td>
+      <td className={styles.hideNarrow}>
+        <SourceBadge mode={child.sourceMode} className={styles.cellChip} />
       </td>
     </tr>
-  );
-}
-
-function DirectionTag({ ride }: { ride: RideView }) {
-  return (
-    <span className={styles.direction}>
-      {ride.direction === "AM" ? boardCopy.am : boardCopy.pm}
-    </span>
   );
 }
 
@@ -278,11 +318,42 @@ const NO_POSITION: StateDescriptor = {
 };
 
 /**
+ * No arrival window has been worked out for this ride yet. Normal for the afternoon, which has
+ * no committed geometry, and so neutral rather than a warning — but still an icon and a label,
+ * because "Window pending" is a state of the ride and not a gap in the table (§3, §9).
+ */
+const WINDOW_PENDING: StateDescriptor = {
+  icon: Clock,
+  label: boardCopy.windowPending,
+  tone: "neutral",
+};
+
+/** §5.1: a stall is words and a clock, never a colour — so neutral, with the minutes in it. */
+const STOPPED: StateDescriptor = {
+  icon: CirclePause,
+  label: boardCopy.stopped,
+  tone: "neutral",
+};
+
+/** TRP-02: the adult on file who may receive this child, named — or nobody, which is urgent. */
+const RECEIVER_NAMED: StateDescriptor = {
+  icon: UserCheck,
+  label: boardCopy.receiverNamed,
+  tone: "ok",
+};
+
+const RECEIVER_MISSING: StateDescriptor = {
+  icon: Hand,
+  label: boardCopy.noReceiver,
+  tone: "crit",
+};
+
+/**
  * The van and what is known about it today.
  *
  * The van's label and its capability chip, and not the provider's name: §1 puts the console at
  * density 7, §4.1 caps a row at two lines, and a provider name is three or four words that
- * would take a third line on every row of a 28-row board. It is one keystroke away in the
+ * would take a third line on every row of a 56-row board. It is one keystroke away in the
  * drawer, and the §2 search still finds a child by their provider.
  */
 function VanCell({ ride }: { ride: RideView }) {
@@ -308,9 +379,11 @@ function LocationCell({ ride }: { ride: RideView }) {
         className={styles.cellChip}
       />
       {ride.stoppedSeconds >= 60 ? (
-        <span className={styles.stopped}>
-          {fill(boardCopy.stopped, { minutes: Math.floor(ride.stoppedSeconds / 60) })}
-        </span>
+        <StateChip
+          state={STOPPED}
+          values={{ minutes: Math.floor(ride.stoppedSeconds / 60) }}
+          className={styles.cellChip}
+        />
       ) : null}
     </span>
   );
@@ -318,21 +391,25 @@ function LocationCell({ ride }: { ride: RideView }) {
 
 /**
  * The window the family holds, and how far today has moved it. A paused window still shows the
- * window — never hide data (§4.1) — and says the texts about it have stopped (LOC-03).
+ * window — never hide data (§4.1) — and says the texts about it have stopped (LOC-03). The
+ * shift carries the §3 arrow, so "later than planned" is readable without the warn tone.
  */
 function ArrivingCell({ ride }: { ride: RideView }) {
   const { windowText, deltaSeconds } = ride;
   if (windowText === null) {
-    return <span className={styles.muted}>{etaText.pending}</span>;
+    return <StateChip state={WINDOW_PENDING} className={styles.cellChip} />;
   }
   const delta = deltaSeconds === null ? null : formatDelta(deltaSeconds);
+  const late = deltaSeconds !== null && deltaSeconds > 0;
+  const Arrow = late ? ArrowUpRight : ArrowDownRight;
   return (
     <span className={styles.arriving}>
       <span className="tabularNums">
         {ride.etaPaused ? fill(etaText.paused, { window: windowText }) : windowText}
       </span>
       {delta !== null && deltaSeconds !== null && delta !== etaText.onTime ? (
-        <span className={styles.delta} data-late={deltaSeconds > 0}>
+        <span className={styles.delta} data-late={late}>
+          <Arrow size={icon.chip} aria-hidden="true" />
           {delta}
         </span>
       ) : null}
@@ -340,20 +417,44 @@ function ArrivingCell({ ride }: { ride: RideView }) {
   );
 }
 
-function ReceiverCell({ row }: { row: BoardRow }) {
+/**
+ * Who receives the child, and the therapy session that half of the day holds.
+ *
+ * The receiver is a fact about the child's day rather than about one ride, so it is on both of
+ * the child's rows: AT-13 is the rule that staff see a missing receiving adult in the morning,
+ * not at the kerb in the afternoon. The step that fixes it still belongs to the afternoon ride,
+ * which is the one it stops.
+ */
+function ReceiverCell({ leg }: { leg: LegRow }) {
+  const { child, ride } = leg;
+  const therapy = child.therapy?.direction === ride.direction ? child.therapy : null;
   return (
     <span className={styles.receiver}>
-      <span data-missing={!row.receivingAdultOnFile}>
-        {row.receivingAdultOnFile ? boardCopy.receiverOnFile : boardCopy.noReceiver}
-      </span>
-      {row.therapy ? (
-        <span className={styles.muted}>
-          {fill(boardCopy.therapyAt, {
-            time: clockLabel(row.therapy.startsAt),
-            therapist: row.therapy.therapist,
-          })}
+      <StateChip
+        state={child.receivingAdult === null ? RECEIVER_MISSING : RECEIVER_NAMED}
+        values={child.receivingAdult === null ? undefined : { adult: child.receivingAdult.name }}
+        className={styles.cellChip}
+      />
+      {therapy ? (
+        <span className={styles.therapy}>
+          <StateChip state={therapySessionStates.SCHEDULED} className={styles.cellChip} />
+          <span className={styles.muted}>
+            {fill(boardCopy.therapyAt, {
+              time: clockLabel(therapy.startsAt),
+              therapist: therapy.therapist,
+            })}
+          </span>
         </span>
       ) : null}
+    </span>
+  );
+}
+
+/** The one thing to do next: a verb, and the name of the child it is done for. */
+function NextStepCell({ leg }: { leg: LegRow }) {
+  return (
+    <span className={styles.nextStep} data-step={leg.nextStep}>
+      {nextStepCellText(leg)}
     </span>
   );
 }

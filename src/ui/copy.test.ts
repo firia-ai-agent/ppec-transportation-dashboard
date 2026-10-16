@@ -72,6 +72,159 @@ describe("COPY-GUIDE strings, verbatim", () => {
     );
   });
 
+  /**
+   * The taste bar for this surface, as assertions. Three rules, each of which the board broke
+   * at least once before it was written down:
+   *
+   *  - an action item is a thing to do, so it opens with a verb and names the child it is done
+   *    for. The "Next step" column used to say "Coordinator", which is the one fact a
+   *    coordinator reading their own board already has;
+   *  - a person is named, never described. "An adult on file may receive this child" is true of
+   *    every family in the building (COPY-GUIDE §1 "name the person");
+   *  - an empty state is one line and ends in what to do next.
+   */
+  const VERBS = [
+    "Move",
+    "Record",
+    "Decide",
+    "Find",
+    "Confirm",
+    "Ask",
+    "Check",
+    "Wait",
+    "Override",
+    "Change",
+    "Clear",
+    "Turn",
+  ];
+
+  describe("§1 / §3: an action item opens with a verb and names the child", () => {
+    const steps = Object.entries(board.nextSteps).filter(([key]) => key !== "NOTHING");
+
+    it("has steps to check", () => {
+      expect(steps.length).toBeGreaterThan(5);
+    });
+
+    it.each(steps)("%s opens with a verb, names the child, and is one sentence", (key, step) => {
+      expect(VERBS, `${key}: ${step}`).toContain(step.split(" ")[0]);
+      expect(step, key).toContain("{child}");
+      // Rendered, because a child's label ends in the full stop its last initial carries and a
+      // template that supplied its own would print "Leo B..". `sentence()` closes it once.
+      const rendered = sentence(
+        fill(step, {
+          child: "Leo B.",
+          dispatcher: "Hal B.",
+          provider: "SYN Palm Lift Transport",
+          van: "V1",
+        }),
+      );
+      expect(rendered.endsWith("."), rendered).toBe(true);
+      expect(rendered, rendered).not.toMatch(/\.\./);
+      expect(rendered, rendered).not.toMatch(/\{\w+\}/);
+      // ≤3 words is for buttons (§3); a step in a column is still short enough to read at once.
+      expect(step.split(" ").length, `${key}: ${step}`).toBeLessThanOrEqual(8);
+    });
+
+    it("never hands a step to a role instead of saying what the step is", () => {
+      // The owner column these replaced. A role is not a next step.
+      expect(board).not.toHaveProperty("owners");
+      for (const [key, step] of Object.entries(board.nextSteps)) {
+        for (const role of ["Coordinator", "Front desk", "Provider", "Family"]) {
+          expect(step, `${key} names a role`).not.toContain(role);
+        }
+      }
+    });
+
+    it("and the only entry that is not an instruction is the one that is not a step", () => {
+      expect(board.nextSteps.NOTHING).toBe("Nothing to do");
+    });
+  });
+
+  describe("§1: the drawer names people, and never stands in for a name", () => {
+    /** Every drawer line about a person, and the one placeholder each of them must carry. */
+    const namesTheChild = [
+      "noNeeds",
+      "receiverOnFile",
+      "receiverMissing",
+      "heldNoReturn",
+      "noApprovals",
+      "noAgentChanges",
+      "historyEmpty",
+      "confirmHandoff",
+      "handoffBlockedRamp",
+      "handoffBlockedNotArrived",
+      "handoffBlockedNoReceiver",
+      "overrideWithReason",
+    ] as const;
+
+    it.each(namesTheChild)("drawer.%s names the child, and reads right once filled", (key) => {
+      expect(drawer[key], key).toContain("{child}");
+      // "Leo B." ends in a full stop, so no line may put one straight after the name.
+      const rendered = fill(drawer[key], {
+        child: "Leo B.",
+        adult: "Alma R.",
+        relationship: "parent",
+      });
+      expect(rendered, `${key}: ${rendered}`).not.toMatch(/\.\./);
+      expect(rendered, `${key}: ${rendered}`).not.toMatch(/\{\w+\}/);
+    });
+
+    it("names the adult and their relationship to the child", () => {
+      expect(
+        fill(drawer.receiverOnFile, {
+          adult: "Alma R.",
+          relationship: "parent",
+          child: "Mia R.",
+        }),
+      ).toBe("Alma R., Mia R.'s parent, may receive them.");
+    });
+
+    it("names the dispatcher whose report a capability is", () => {
+      expect(
+        fill(drawer.capabilityReported, {
+          dispatcher: "Hal B.",
+          provider: "SYN Palm Lift Transport",
+        }),
+      ).toBe("Reported by Hal B. at SYN Palm Lift Transport. Not checked at the ramp.");
+    });
+
+    it("has no sentence left that says 'this child' instead of naming one", () => {
+      for (const [key, value] of Object.entries(drawer)) {
+        expect(value, `${key}: ${value}`).not.toMatch(/\bthis child\b/);
+      }
+    });
+
+    it("keeps the three handoff blockers as verbs: what would make the button work", () => {
+      for (const blocked of [
+        drawer.handoffBlockedRamp,
+        drawer.handoffBlockedNotArrived,
+        drawer.handoffBlockedNoReceiver,
+      ]) {
+        expect(VERBS, blocked).toContain(blocked.split(" ")[0]);
+      }
+    });
+  });
+
+  describe("§5: an empty state is one line that says what to do next", () => {
+    const empties = [
+      ["board.empty", board.empty],
+      ["board.emptySearch", board.emptySearch],
+      ["board.emptyNeedsAction", board.emptyNeedsAction],
+    ] as const;
+
+    it.each(empties)("%s is one line, and its last sentence is the thing to do", (key, line) => {
+      expect(line.split("\n"), key).toHaveLength(1);
+      const sentences = line.split(". ");
+      expect(sentences, key).toHaveLength(2);
+      expect(VERBS, `${key}: ${sentences[1]}`).toContain(sentences[1].split(" ")[0]);
+      expect(line.endsWith("."), key).toBe(true);
+    });
+
+    it("§5 SURF-05's words, reused where they are the same fact", () => {
+      expect(board.emptyNeedsAction.startsWith("Nothing needs action right now.")).toBe(true);
+    });
+  });
+
   it("§6.1: the five source-mode labels", () => {
     expect(sourceMode).toEqual({
       SIMULATED: "Simulated",

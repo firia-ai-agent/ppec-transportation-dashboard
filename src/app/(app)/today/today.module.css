@@ -88,8 +88,14 @@
   table-layout: fixed;
 }
 
+/*
+ * The widths are the §3 labels' own widths, measured rather than guessed: a chip that reads
+ * "Vehicle check pending" or "No adult on file to receive" takes two lines at 12 px in about
+ * 140 px, and a column narrower than that spends a third line on one word. Two lines is the
+ * §4.1 cap; three is where a dense board stops being one.
+ */
 .colChild {
-  width: 9%;
+  width: 8%;
 }
 
 .colRide {
@@ -97,15 +103,15 @@
 }
 
 .colState {
-  width: 15%;
+  width: 14%;
 }
 
 .colVan {
-  width: 13%;
+  width: 12%;
 }
 
 .colLocation {
-  width: 17%;
+  width: 15%;
 }
 
 .colEta {
@@ -116,12 +122,13 @@
   width: 13%;
 }
 
+/* The step is a sentence, so it gets the width to be one rather than six stacked words. */
 .colNextStep {
-  width: 8%;
+  width: 14%;
 }
 
 .colSource {
-  width: 10%;
+  width: 9%;
 }
 
 /*
@@ -201,7 +208,8 @@
 
 .row td,
 .row th {
-  padding: var(--space-3);
+  /* 4 px above and below: the cells are chips, which carry their own padding already. */
+  padding: var(--space-2) var(--space-3);
   /* §4.1: 48 px minimum row. */
   height: var(--space-8);
   vertical-align: top;
@@ -241,7 +249,8 @@
 .van {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-3);
+  /* 4 px: the chips beside the van's name carry their own padding, so 8 px reads as a gap. */
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
@@ -250,9 +259,22 @@
 }
 
 .muted,
-.stopped,
 .caption {
   font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+/*
+ * The next step, on a row and in the drawer's ride card. A sentence that opens with a verb, so
+ * it reads as the instruction it is rather than as another fact about the ride.
+ */
+.nextStep {
+  font-weight: var(--weight-medium);
+  color: var(--color-ink);
+}
+
+.nextStep[data-step="NOTHING"] {
+  font-weight: var(--weight-regular);
   color: var(--color-ink-muted);
 }
 
@@ -263,8 +285,11 @@
   flex-wrap: wrap;
 }
 
-/* §3: a delta is words and a sign; the tone is the third cue, never the only one. */
+/* §3: a delta is an arrow, words and a sign; the tone is the third cue, never the only one. */
 .delta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   font-variant-numeric: tabular-nums;
   font-weight: var(--weight-medium);
   color: var(--color-ink-muted);
@@ -277,9 +302,16 @@
 .receiver {
   display: grid;
   gap: var(--space-1);
+  justify-items: start;
 }
 
-.receiver [data-missing="true"],
+/* The session's chip and, under it, the time and the therapist — who is named, not "a therapist". */
+.therapy {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+}
+
 .receiverLine[data-missing="true"] {
   color: var(--color-crit-fg);
   font-weight: var(--weight-medium);

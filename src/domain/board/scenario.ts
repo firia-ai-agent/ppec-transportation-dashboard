@@ -37,10 +37,12 @@ import { DEMO_RUNS } from "@/fixtures/replays";
 import { places } from "@/ui/copy";
 import {
   CHILDREN,
+  EXTERNAL_PEOPLE,
   PROVIDERS,
   RUNS,
   VEHICLES,
   childByKey,
+  familyByKey,
   stopByKey,
   type Child as DemoChild,
   type Layout as DemoLayout,
@@ -199,6 +201,41 @@ export function solverLeg(run: DemoRun, direction: Direction): SolverLeg {
     children: run.childKeys.map((key) => solverChild(childByKey(key))),
     stops: manifestFor(run, direction),
   };
+}
+
+/**
+ * The adult the family has on file to receive this child, by name.
+ *
+ * The screens that read this say "Alma R. (parent) may receive Mia R." rather than "an adult on
+ * file may receive this child" (COPY-GUIDE §1 "name the person"): the second sentence is true of
+ * every family in the building, so it tells a coordinator nothing they can check. `null` is the
+ * TRP-02 case — the family holds every other scope but not RECEIVE_CHILD — and it is a missing
+ * authorization, never a missing name: there is no adult to name because none is allowed.
+ *
+ * Same rule as everywhere else: first name plus last initial, no surname anywhere (D-3).
+ */
+export type ReceivingAdult = { name: string; relationship: string };
+
+export function receivingAdultOf(child: DemoChild): ReceivingAdult | null {
+  if (!child.scopes.includes("RECEIVE_CHILD")) return null;
+  const { guardian } = familyByKey(child.familyKey);
+  return {
+    name: `${guardian.firstName} ${guardian.lastInitial}.`,
+    relationship: guardian.relationship,
+  };
+}
+
+/**
+ * The person at the provider who answers for what a vehicle can carry today, by name.
+ *
+ * `null` for the centre's own fleet, which has no dispatcher on file — so the drawer's step says
+ * "Ask SYN Greenacres center fleet" rather than inventing somebody to ask.
+ */
+export function dispatcherOf(vehicle: DemoVehicle): string | null {
+  const provider = PROVIDERS.find((p) => p.key === vehicle.providerKey);
+  if (!provider?.dispatcher) return null;
+  const person = EXTERNAL_PEOPLE.find((p) => p.key === provider.dispatcher);
+  return person ? `${person.firstName} ${person.lastInitial}.` : null;
 }
 
 export function vehicleOf(run: DemoRun): DemoVehicle {

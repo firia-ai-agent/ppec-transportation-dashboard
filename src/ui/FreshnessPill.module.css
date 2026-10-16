@@ -12,9 +12,16 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* "sim" is the outlined violet variant: simulation is not a status (§7.1). */
+/*
+ * "sim" is the outlined variant: simulation is not a status, so it gets no tone fill (§7.1).
+ *
+ * It is outlined and *not* violet. D-5 reserves the demo violet for two things — the DEMO bar
+ * and the Simulated source chip — and four more violet chips in the header beside them spend
+ * that reservation on the one screen element that already says "Simulated" twice over. The
+ * §2 interim text stays until the live stream can carry real ages; the colour does not.
+ */
 .pill[data-tone="sim"] {
-  color: var(--color-src-sim);
+  color: var(--color-ink-muted);
   background: var(--color-surface);
   border: var(--border-hairline) solid var(--color-border-strong);
 }

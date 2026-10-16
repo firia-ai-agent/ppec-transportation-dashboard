@@ -14,9 +14,16 @@
  * and is refused outright on any deployment. The board it renders is the committed demo day.
  */
 import { expect, test } from "@playwright/test";
-import { board as boardCopy, drawer, fill } from "../src/ui/copy";
+import { board as boardCopy, drawer, fill, sentence } from "../src/ui/copy";
 import { legStates } from "../src/ui/states";
-import { boxOf, expectDemoBarPinned, expectNoInternalCodes, overlaps, shot } from "./helpers";
+import {
+  boxOf,
+  expectDemoBarPinned,
+  expectNoInternalCodes,
+  expectVioletOnlyOnDemoChrome,
+  overlaps,
+  shot,
+} from "./helpers";
 
 /** The review's two widths: the icon rail lives at 1024, the labelled rail at 1280. */
 const WIDTHS = [1024, 1280] as const;
@@ -26,8 +33,12 @@ const VIEWPORT = { height: 900 };
 const NO_RECEIVER_CHILD = "Noah O.";
 const RIDING_CHILD = "Zoe B.";
 
-const opener = (child: string) =>
-  fill(boardCopy.openRow, { child }) as string;
+/** The 28 children of the standard scenario, each with a morning row and an afternoon row. */
+const RIDES = 56;
+
+/** One row's opener: a child and which of their two rides this row is. */
+const opener = (child: string, ride: string = boardCopy.amSpoken) =>
+  fill(boardCopy.openRow, { child, ride }) as string;
 
 for (const width of WIDTHS) {
   test.describe(`at ${width}px`, () => {
@@ -47,9 +58,16 @@ for (const width of WIDTHS) {
       expect(texts[0]).toContain(boardCopy.groups.NEEDS_ACTION);
       for (const text of texts) expect(text).toMatch(/\(\d+\)$/);
 
-      // Every child the scenario puts on the board has a row, and the census is the board.
+      // One row per child and ride: the whole census, both halves of every day (AT-07).
       const openers = page.getByRole("button", { name: /^Open / });
-      await expect(openers).toHaveCount(28);
+      await expect(openers).toHaveCount(RIDES);
+      await expect(page.getByRole("button", { name: opener(RIDING_CHILD) })).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: opener(RIDING_CHILD, boardCopy.pmSpoken) }),
+      ).toBeVisible();
+
+      // D-5: the violet is the DEMO bar and the Simulated chip, and nothing else on the board.
+      await expectVioletOnlyOnDemoChrome(page);
 
       /*
        * The group header is sticky (§4.1). Scrolled to the bottom of a 28-row board, the last
@@ -67,14 +85,52 @@ for (const width of WIDTHS) {
 
     test("a row says what is happening in words, not in colour alone", async ({ page }) => {
       await page.goto("/today");
-      const row = page.getByRole("row").filter({ hasText: RIDING_CHILD });
+      // This child's *morning* row: their afternoon is a row of its own, in another group.
+      const row = page
+        .getByRole("row")
+        .filter({ has: page.getByRole("button", { name: opener(RIDING_CHILD) }) });
 
       // §3: icon + label, always. The label is the §3 string, verbatim.
       await expect(row.getByText(legStates.EN_ROUTE_PICKUP.label).first()).toBeVisible();
       // §4.1: the window the family holds, and how far today has moved it.
       await expect(row.getByText(/\d{1,2}:\d{2}–\d{1,2}:\d{2} [AP]M/).first()).toBeVisible();
+      // Every chip on the row carries a label beside its icon, so the row reads in greyscale.
+      // `:visible` because below 1280 three cells leave the row for the drawer (§4.1).
+      for (const chip of await row.locator("[data-tone]:visible").all()) {
+        expect((await chip.innerText()).trim(), "a state chip with an icon and no label").not.toBe("");
+        await expect(chip.locator("svg")).toHaveCount(1);
+      }
       // AT-10: a vehicle reaching a place is never a child changing hands.
-      await expect(page.getByText(/handed off/i)).toHaveCount(0);
+      await expect(page.getByText(/handed off to/i)).toHaveCount(0);
+    });
+
+    /**
+     * The "Next step" column, which is the taste rule this board was re-cut for: a step is a
+     * thing to do, written as a verb and the name of the child it is done for — never a role.
+     */
+    test("every row says what to do next, as a verb and a child's name", async ({ page }) => {
+      await page.goto("/today");
+      const step = sentence(
+        fill(boardCopy.nextSteps.RECORD_RECEIVER, { child: NO_RECEIVER_CHILD }),
+      );
+
+      if (width >= 1280) {
+        await expect(page.getByText(step, { exact: true })).toBeVisible();
+        // The adult who receives a child is named on the row, not described.
+        await expect(
+          page.getByText(fill(boardCopy.receiverNamed, { adult: "Alma R." })).first(),
+        ).toBeVisible();
+        await expect(page.getByText(boardCopy.noReceiver).first()).toBeVisible();
+        // The role names the column used to carry are gone from the board.
+        for (const role of ["Coordinator", "Front desk"]) {
+          await expect(page.getByRole("cell", { name: role, exact: true })).toHaveCount(0);
+        }
+      } else {
+        // §4.1 folds this column into the drawer below 1280, so that is where it has to be.
+        await page.getByRole("button", { name: opener(NO_RECEIVER_CHILD, boardCopy.pmSpoken) }).click();
+        // Exact: the footer's disabled reason is the same instruction with "first" on the end.
+        await expect(page.getByRole("dialog").getByText(step, { exact: true })).toBeVisible();
+      }
     });
 
     test("the keyboard walks the board and opens a child, with focus visible throughout", async ({
@@ -113,6 +169,10 @@ for (const width of WIDTHS) {
       const panel = page.getByRole("dialog");
       await expect(panel).toBeVisible();
       await expect(panel.getByRole("heading", { name: NO_RECEIVER_CHILD })).toBeVisible();
+      // Both of the child's rides, read as one day — which is what the drawer is for.
+      for (const heading of [drawer.amRide, drawer.pmRide]) {
+        await expect(panel.getByText(heading, { exact: true })).toBeVisible();
+      }
 
       // §4.2: the sections, in the order the design fixes them.
       for (const heading of [
@@ -129,10 +189,18 @@ for (const width of WIDTHS) {
        * tooltip only — so it is readable without a pointer and by a screen reader. This child
        * has nobody on file who may receive them, which is the thing to fix first.
        */
-      const confirm = panel.getByRole("button", { name: drawer.confirmHandoff });
+      const confirm = panel.getByRole("button", {
+        name: fill(drawer.confirmHandoff, { child: NO_RECEIVER_CHILD }),
+      });
       await expect(confirm).toBeDisabled();
-      await expect(panel.getByText(drawer.handoffBlockedNoReceiver)).toBeVisible();
-      await expect(panel.getByText(drawer.receiverMissing)).toBeVisible();
+      await expect(
+        panel.getByText(fill(drawer.handoffBlockedNoReceiver, { child: NO_RECEIVER_CHILD })),
+      ).toBeVisible();
+      await expect(
+        panel.getByText(fill(drawer.receiverMissing, { child: NO_RECEIVER_CHILD })),
+      ).toBeVisible();
+      // §1 "name the person": no sentence in here stands in for a name with "this child".
+      await expect(panel.getByText(/this child/i)).toHaveCount(0);
 
       // §9: a transport need is never a diagnosis, and the caption says so on screen.
       await expect(panel.getByText(drawer.needsCaption)).toBeVisible();
@@ -156,6 +224,7 @@ for (const width of WIDTHS) {
       expect(overlaps(await boxOf(bar), await boxOf(panel))).toBe(false);
 
       await expectNoInternalCodes(page);
+      await expectVioletOnlyOnDemoChrome(page);
       console.log("screenshot:", await shot(page, `today-drawer-${width}`));
 
       await panel.getByRole("button", { name: drawer.close }).click();
@@ -171,13 +240,37 @@ for (const width of WIDTHS) {
       await toggle.click();
       await expect(toggle).toHaveAttribute("aria-checked", "true");
 
-      await expect(page.getByRole("button", { name: opener(NO_RECEIVER_CHILD) })).toBeVisible();
+      /*
+       * One row, not one child: the ride that needs a person is the afternoon one, because
+       * that is the ride nobody on file may receive this child off (AT-13). The morning ride
+       * is on the road and needs nothing, so it is not in here.
+       */
+      await expect(
+        page.getByRole("button", { name: opener(NO_RECEIVER_CHILD, boardCopy.pmSpoken) }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: opener(NO_RECEIVER_CHILD, boardCopy.amSpoken) }),
+      ).toHaveCount(0);
       await expect(page.getByRole("button", { name: opener(RIDING_CHILD) })).toHaveCount(0);
       await expect(
-        page.getByText(fill(boardCopy.showing, { shown: 1, total: 28 })),
+        page.getByText(fill(boardCopy.showing, { shown: 1, total: RIDES })),
       ).toBeVisible();
 
       console.log("screenshot:", await shot(page, `today-needs-action-${width}`));
+    });
+
+    /** An empty board says which kind of empty it is, and ends in the way out of it. */
+    test("a filter that hides everything says so, and says how to undo it", async ({ page }) => {
+      await page.goto("/today?q=no+child+is+called+this");
+      await expect(
+        page.getByText(fill(boardCopy.emptySearch, { query: "no child is called this" })),
+      ).toBeVisible();
+      // Not the "no rides today" line: there are 56 rides today, they just do not match.
+      await expect(page.getByText(/No rides scheduled/)).toHaveCount(0);
+      await expect(page.locator("table")).toHaveCount(0);
+
+      await page.getByRole("link", { name: boardCopy.clearSearch }).click();
+      await expect(page.getByRole("button", { name: /^Open / })).toHaveCount(RIDES);
     });
 
     test("the header's search box filters the board it was always meant to", async ({ page }) => {
@@ -186,6 +279,8 @@ for (const width of WIDTHS) {
       await page.getByRole("searchbox").press("Enter");
       await page.waitForURL(/\/today\?q=Zoe/);
 
+      // A child's name brings back their whole day: both rides, still one row each.
+      await expect(page.getByRole("button", { name: /^Open / })).toHaveCount(2);
       await expect(page.getByRole("button", { name: opener(RIDING_CHILD) })).toBeVisible();
       await expect(page.getByRole("button", { name: opener(NO_RECEIVER_CHILD) })).toHaveCount(0);
       await page.getByRole("link", { name: boardCopy.clearSearch }).click();

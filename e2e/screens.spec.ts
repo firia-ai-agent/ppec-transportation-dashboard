@@ -19,6 +19,7 @@ import {
   contains,
   expectDemoBarPinned,
   expectNoInternalCodes,
+  expectVioletOnlyOnDemoChrome,
   overlaps,
   shot,
 } from "./helpers";
@@ -57,6 +58,14 @@ for (const width of WIDTHS) {
           `${item.label}'s icon is clipped by the rail: ${JSON.stringify(iconBox)} vs ${JSON.stringify(railBox)}`,
         ).toBe(true);
       }
+
+      /*
+       * D-5, on the screen the reservation was being spent on: the header's four adapter pills
+       * used to carry the demo violet, beside a bar that says "DEMO" and a chip that says
+       * "Simulated". The violet is now on those two and nothing else, so it still means what it
+       * is for. The pills keep the §2 interim text, which is true, and the outline.
+       */
+      await expectVioletOnlyOnDemoChrome(page);
 
       await expectNoInternalCodes(page);
       console.log("screenshot:", await shot(page, `today-${width}`));
@@ -148,6 +157,7 @@ for (const width of WIDTHS) {
       await page.goto("/ramp-preview");
       await expect(page.getByRole("heading", { level: 1, name: rampPreview.heading })).toBeVisible();
       await expectDemoBarPinned(page);
+      await expectVioletOnlyOnDemoChrome(page);
       console.log("screenshot:", await shot(page, `ramp-preview-${width}`));
 
       // §9 / COPY-GUIDE: the selected answer is filled and announced, not outlined.

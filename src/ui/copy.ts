@@ -166,10 +166,22 @@ export const etaText = {
  * one addition: §5 names four groups, written for a mid-morning board where every ride has
  * started, and a ride that is planned but has not left is neither "on the way" nor "not riding
  * today" — so there is a fifth, and it says plainly what it is.
+ *
+ * The board's unit is one child's one ride: a row is "Mia R., morning", so the morning and the
+ * afternoon are two rows with their own state, van, window and next step. That is why
+ * the counts below are counted in rides rather than children.
  */
 export const board = {
   heading: "Today",
+  /**
+   * The three ways this board can be empty, each one line and each ending in the one thing to
+   * do about it. They are three strings and not one because they are not the same fact: a day
+   * with no rides in it is not a search that matched nobody, and neither is a filter that is
+   * hiding everything. One sentence for all three would be wrong twice.
+   */
   empty: "No rides scheduled for {date}. Change the date or reset the demo.",
+  emptySearch: "No child matches {query}. Clear the search to see the whole day.",
+  emptyNeedsAction: "Nothing needs action right now. Turn the filter off to see the whole day.",
   dateLabel: "Service date",
   /** §5: "Needs action (2)", "On the way (11)", "Done (9)", "Not riding today (4)". */
   groups: {
@@ -182,7 +194,7 @@ export const board = {
   groupHeading: "{group} ({count})",
   onlyNeedsAction: "Only needs action",
   /** Said above the rows, so a filtered board never looks like the whole day. */
-  showing: "Showing {shown} of {total} children",
+  showing: "Showing {shown} of {total} rides",
   /** The one search term the shell's box carried in, echoed so it can be cleared. */
   searchedFor: "Search: {query}",
   clearSearch: "Clear search",
@@ -198,40 +210,69 @@ export const board = {
     nextStep: "Next step",
     source: "Source",
   },
-  tableLabel: "Children riding today",
+  tableLabel: "Today's rides, one row for each child's morning and afternoon",
   am: "AM",
   pm: "PM",
+  /** The ride in words, for the ear and for the row opener's accessible name. */
+  amSpoken: "morning",
+  pmSpoken: "afternoon",
   /** A ride the family drives themselves: there is no van to show, and that is not a gap. */
   familyDrives: "Family drives",
   /** "V2 · SYN Greenacres center fleet" — the van, then who runs it. Drawer only (§4.1 density). */
   vanAndProvider: "{van} · {provider}",
   /** The vehicle is assigned but has sent nothing we may draw (an unlinked device, LOC-01). */
   noPosition: "No van location yet",
+  /** No window has been worked out for this ride yet — a state, so it gets an icon and a label. */
+  windowPending: etaText.pending,
   /** §5.1: a stall is words and a clock, never a colour. */
   stopped: "Stopped {minutes} min",
-  /** The therapy line on a row: "Therapy 09:30 · Tasha L." */
-  therapyAt: "Therapy {time} · {therapist}",
+  /** The therapy detail beside the "Therapy scheduled" chip: "9:30 AM · Tasha L." */
+  therapyAt: "{time} · {therapist}",
   /** TRP-02: nobody on file may take the child at the end of the afternoon ride. */
   noReceiver: "No adult on file to receive",
-  receiverOnFile: "Receiver on file",
-  /** Why a row is in "Needs action", in the order the board ranks them. */
+  /** §1 "name the person": the adult on file is named, never called "a receiver on file". */
+  receiverNamed: "{adult} receives",
+  /**
+   * Why a ride is in "Needs action", in the order the board ranks them. Each one names the
+   * thing it is about — the child, or the van — because "this child" and "this van" are only
+   * unambiguous next to the row they came from, and these are read in the drawer too.
+   */
   reasons: {
-    DOES_NOT_FIT: "The van does not fit everyone on this run.",
-    NO_RECEIVING_ADULT: "No adult on file may receive this child at the end of the afternoon ride.",
-    RIDE_STATE: "This ride needs a person to decide what happens next.",
-    LOCATION_LOST: "Nothing has been heard from this van for ten minutes.",
+    DOES_NOT_FIT: "{van} does not fit everyone on this run.",
+    NO_RECEIVING_ADULT: "No adult on file may receive {child} at the end of the afternoon ride.",
+    RIDE_STATE: "{child}'s ride needs a person to decide what happens next.",
+    LOCATION_LOST: "Nothing has been heard from {van} for ten minutes.",
   },
-  /** Who the next step belongs to. Roles, never a name we made up. */
-  owners: {
-    COORDINATOR: "Coordinator",
-    FRONT_DESK: "Front desk",
-    PROVIDER: "Provider",
-    FAMILY: "Family",
-    NOBODY: "Nothing to do",
+  /**
+   * The next step on a ride: a sentence that opens with a verb and names the child.
+   *
+   * This column used to name a role — "Coordinator", "Front desk" — which is the one thing a
+   * coordinator reading their own board already knows. A step is a thing to do and the person
+   * it is done for has a name (COPY-GUIDE §1 "name the person", §3 "verb + object"), so each of
+   * these is written as one, and `NOTHING` is the only entry that is not an instruction because
+   * it is the only one that is not a step.
+   */
+  nextSteps: {
+    MOVE_TO_FITTING_VAN: "Move {child} to a van that fits.",
+    /** Closed with `sentence()`: "{child}" already ends in the last initial's full stop. */
+    RECORD_RECEIVER: "Record who receives {child}",
+    DECIDE_RIDE: "Decide what happens to {child}'s ride.",
+    FIND_VAN: "Find {child}'s van.",
+    CONFIRM_BOARDING: "Confirm {child} boarded.",
+    CONFIRM_HANDOFF: "Confirm the handoff for {child}",
+    /**
+     * A van nobody has reported on. Which step it is depends on whose van it is: a provider's
+     * van is somebody's answer to give, and that somebody is named. The centre's own van has no
+     * dispatcher to ring because the people who can answer are the ones at the ramp.
+     */
+    ASK_ABOUT_VAN: "Ask {dispatcher} about {child}'s van.",
+    CHECK_VAN_AT_RAMP: "Check {child}'s van at the ramp.",
+    NOTHING: "Nothing to do",
   },
   /** §4.1 keyboard: j / k move, Enter opens. Said once, above the rows. */
-  keyboardHint: "Use J and K to move between children, Enter to open one.",
-  openRow: "Open {child}",
+  keyboardHint: "Use J and K to move between rides, Enter to open one.",
+  /** "Open Mia R., morning ride" — one opener per row, so two rows are two distinct buttons. */
+  openRow: "Open {child}, {ride} ride",
 } as const;
 
 /**
@@ -681,6 +722,12 @@ export const arrival = {
  * are at their sharpest here: a need is never a diagnosis, an unapproved need is greyed and
  * says why, a provider's report is not a ramp check, and the handoff button says in text — not
  * in a tooltip — what is stopping it.
+ *
+ * Everything in here names people and never their roles (COPY-GUIDE §1 "name the person"): the
+ * child the panel is about, the adult the family has on file to receive them, the dispatcher a
+ * van's capability has to be asked of. "An adult on file may receive this child" is true of
+ * every family in the building and tells a coordinator nothing they can act on; "Alma R.,
+ * Mia R.'s parent, may receive them." is the sentence they are actually checking.
  */
 export const drawer = {
   /** Announced as the dialog's name: "Mia R." plus what this panel is. */
@@ -705,38 +752,48 @@ export const drawer = {
   /** PRD VEH-01: an unapproved item is greyed and never drives seat allocation. */
   needNotApproved: "Not approved yet. Ask the director to review.",
   needNotUsed: "Not used for allocation",
-  noNeeds: "No transport needs recorded.",
+  noNeeds: "No transport needs are recorded for {child} yet. Ask the director to review their intake.",
   /** §4.2: the profile's version, so a reader knows which approval they are looking at. */
   profileVersion: "Approved v{n}",
 
   /** §5: "Verified 17 min ago by J.T." / "Reported by provider, not checked at the ramp." */
   capabilityVerified: "Checked at the ramp before this run.",
-  capabilityReported: "Reported by provider, not checked at the ramp.",
+  /** Named, not "the provider": a report is somebody's answer, and that somebody is on file. */
+  capabilityReported: "Reported by {dispatcher} at {provider}. Not checked at the ramp.",
   capabilityUnknown: "Unknown until arrival. Nothing about this van is assumed yet.",
   /** The solver's verdict, in a sentence a coordinator can act on. */
   fits: "Everyone on this run has a place.",
   doesNotFit: "The van does not fit everyone on this run. A coordinator decides before anyone boards.",
 
-  receiverOnFile: "An adult on file may receive this child.",
+  /**
+   * "Alma R., Mia R.'s parent, may receive them." Both people named, and in that order —
+   * written this way round rather than ending on the child's name, because a child's label
+   * already ends in the last initial's full stop and a sentence closing on it reads "Mia R..".
+   */
+  receiverOnFile: "{adult}, {child}'s {relationship}, may receive them.",
   receiverMissing:
-    "Nobody on file may receive this child. Agree who will, and record it, before the afternoon van leaves.",
+    "Nobody on file may receive {child} yet. Agree who will, and record it, before the afternoon van leaves.",
   /** PRD §6.6: a child is held, never driven back on their own. */
-  heldNoReturn: "If nobody is there, the child waits with the van and staff are called. There is no automatic return.",
+  heldNoReturn: "If nobody is there, {child} waits with the van and staff are called. There is no automatic return.",
 
-  noApprovals: "Nothing is waiting for a decision.",
-  noAgentChanges: "The assistant has not changed anything for this child today.",
+  noApprovals: "Nothing is waiting for a decision about {child} today.",
+  noAgentChanges: "The assistant has not changed anything for {child} today.",
   /** §5: "Dana changed AM ride to Center van · ramp check didn't fit · 9:41 AM". */
-  historyEmpty: "Nothing has changed today.",
+  historyEmpty: "Nothing has changed for {child} today.",
   showHistory: "Show history",
   hideHistory: "Hide history",
 
-  /** §4.2: one primary action, in a sticky footer. */
-  confirmHandoff: "Confirm handoff",
+  /**
+   * §4.2: one primary action, in a sticky footer — and it says whose handoff it is. A drawer
+   * opens over a 56-row board, so the one control that commits a custody event names the child
+   * it would commit it for.
+   */
+  confirmHandoff: "Confirm handoff for {child}",
   /** §5: the disabled reason, in text beside the button and never in a tooltip alone. */
-  handoffBlockedRamp: "Confirm at the ramp first. The van hasn't been checked.",
-  handoffBlockedNotArrived: "The van hasn't arrived yet.",
-  handoffBlockedNoReceiver: "Record who receives this child first.",
-  overrideWithReason: "Override with reason",
+  handoffBlockedRamp: "Check {child}'s van at the ramp first.",
+  handoffBlockedNotArrived: "Wait for {child}'s van to arrive.",
+  handoffBlockedNoReceiver: "Record who receives {child} first.",
+  overrideWithReason: "Override for {child}, with reason",
   /** §5 override dialog. */
   overrideHeading: "Override ramp check",
   overrideReasonLabel: "Reason (required)",

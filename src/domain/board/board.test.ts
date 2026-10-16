@@ -6,16 +6,24 @@ import { board as boardCopy } from "@/ui/copy";
 import { legStates } from "@/ui/states";
 import {
   BOARD_GROUPS,
-  activeRide,
+  NEXT_STEPS,
   boardInstantMs,
   buildBoard,
   groupForState,
   matchesQuery,
   rideStateFrom,
   type BoardRow,
+  type LegRow,
   type RideView,
 } from "./board";
-import { manifestFor, solverChild, solverVehicle, vehicleOf } from "./scenario";
+import {
+  dispatcherOf,
+  manifestFor,
+  receivingAdultOf,
+  solverChild,
+  solverVehicle,
+  vehicleOf,
+} from "./scenario";
 
 /**
  * The board, as a projection (PRD §14 SURF-01).
@@ -33,13 +41,36 @@ const rowOf = (key: string): BoardRow => {
   if (!row) throw new Error(`no row for ${key}`);
   return row;
 };
+/** One row of the board: one child's one ride. */
+const legOf = (key: string, direction: "AM" | "PM"): LegRow => {
+  const leg = board.legs.find(
+    (l) => l.child.childKey === key && l.ride.direction === direction,
+  );
+  if (!leg) throw new Error(`no ${direction} row for ${key}`);
+  return leg;
+};
 const am = (row: BoardRow): RideView => row.rides.find((r) => r.direction === "AM")!;
 const pm = (row: BoardRow): RideView => row.rides.find((r) => r.direction === "PM")!;
 
-describe("the board is the seeded day, one row per child", () => {
+describe("the board is the seeded day, one row per child and ride", () => {
   it("has the census the scenario builds, in fixture order", () => {
     expect(board.rows).toHaveLength(BOARD_CENSUS);
     expect(board.rows.map((r) => r.childKey)).toEqual(CHILDREN.map((c) => c.key));
+  });
+
+  it("is one row per child and ride: two rows a child, morning before afternoon", () => {
+    expect(board.legs).toHaveLength(BOARD_CENSUS * 2);
+    expect(board.legs.map((l) => l.key)).toEqual(
+      CHILDREN.flatMap((c) => [`${c.key}/AM`, `${c.key}/PM`]),
+    );
+    // Every row points at the child's own day, so the row and the drawer cannot disagree.
+    for (const leg of board.legs) {
+      expect(leg.child.rides, leg.key).toContain(leg.ride);
+    }
+  });
+
+  it("gives every row a step the copy module has words for", () => {
+    for (const leg of board.legs) expect(NEXT_STEPS, leg.key).toContain(leg.nextStep);
   });
 
   it("labels a child by first name and last initial, and never with a surname (D-3)", () => {
@@ -153,19 +184,73 @@ describe("a child with no adult on file to receive them (AT-13)", () => {
     expect(noReceiver.map((c) => c.key)).toEqual(["C2"]);
   });
 
-  it("is on the board under needs action, with the reason named", () => {
-    const row = rowOf("C2");
-    expect(row.group).toBe("NEEDS_ACTION");
-    expect(row.needsActionReasons).toContain("NO_RECEIVING_ADULT");
-    expect(row.receivingAdultOnFile).toBe(false);
-    expect(row.nextStep).toBe("COORDINATOR");
+  it("has the afternoon ride under needs action, with the reason and the step named", () => {
+    const leg = legOf("C2", "PM");
+    expect(leg.group).toBe("NEEDS_ACTION");
+    expect(leg.needsActionReasons).toContain("NO_RECEIVING_ADULT");
+    expect(leg.nextStep).toBe("RECORD_RECEIVER");
+    // There is no adult to name, which is the whole of the problem.
+    expect(leg.child.receivingAdult).toBeNull();
   });
 
-  it("and every other riding child is not flagged for it", () => {
+  it("is still visible in the morning: the fact is on the child, not on one ride", () => {
+    // The step belongs to the ride it stops — the afternoon — but the morning row carries the
+    // same child, and the board's receiver column reads it from there (AT-13 is seen at 07:00).
+    expect(legOf("C2", "AM").child.receivingAdult).toBeNull();
+    expect(legOf("C2", "AM").needsActionReasons).not.toContain("NO_RECEIVING_ADULT");
+  });
+
+  it("and every other riding child has a named adult, never a role", () => {
     for (const row of board.rows) {
-      if (row.childKey === "C2") continue;
-      expect(row.needsActionReasons, row.childKey).not.toContain("NO_RECEIVING_ADULT");
+      if (row.childKey === "C2") {
+        expect(row.receivingAdult).toBeNull();
+        continue;
+      }
+      expect(row.receivingAdult?.name, row.childKey).toMatch(/^[A-Z][a-z]+ [A-Z]\.$/);
+      expect(row.receivingAdult?.relationship, row.childKey).toMatch(/^(parent|grandparent)$/);
     }
+    for (const leg of board.legs) {
+      if (leg.key === "C2/PM") continue;
+      expect(leg.needsActionReasons, leg.key).not.toContain("NO_RECEIVING_ADULT");
+    }
+  });
+
+  it("names the adult from the family's own guardian, with no surname anywhere (D-3)", () => {
+    expect(receivingAdultOf(CHILDREN.find((c) => c.key === "C1")!)).toEqual({
+      name: "Alma R.",
+      relationship: "parent",
+    });
+    expect(receivingAdultOf(CHILDREN.find((c) => c.key === "C9")!)).toEqual({
+      name: "Lena V.",
+      relationship: "grandparent",
+    });
+  });
+});
+
+/**
+ * COPY-GUIDE §1 "name the person": a van's capability is somebody's answer, and the board knows
+ * whose. The centre's own fleet has nobody on file, which is a gap to say out loud rather than
+ * a person to invent.
+ */
+describe("the person who answers for a van is named", () => {
+  it("names the provider's dispatcher, first name and last initial", () => {
+    expect(dispatcherOf(vehicleOf(RUNS.find((r) => r.key === "R1")!))).toBe("Hal B.");
+    expect(dispatcherOf(vehicleOf(RUNS.find((r) => r.key === "R3")!))).toBe("Rae S.");
+  });
+
+  it("has nobody to name for the centre's own fleet, and says so with null", () => {
+    expect(dispatcherOf(vehicleOf(RUNS.find((r) => r.key === "R2")!))).toBeNull();
+  });
+
+  it("so the step on an unreported van is the one with somebody in it to ask", () => {
+    // C1's van is the unbound device: nothing has been reported about it all morning, so the
+    // step is to ask the dispatcher who can answer.
+    expect(legOf("C1", "AM").nextStep).toBe("ASK_ABOUT_VAN");
+    expect(legOf("C1", "AM").ride.providerDispatcher).toBe("Rae S.");
+    // C3 rides the centre's own van: same unanswered question in the afternoon, and the step
+    // that sends it to the ramp, because there is no dispatcher on file to ring about it.
+    expect(legOf("C3", "PM").nextStep).toBe("CHECK_VAN_AT_RAMP");
+    expect(legOf("C3", "PM").ride.providerDispatcher).toBeNull();
   });
 });
 
@@ -270,15 +355,15 @@ describe("the arrival window and the van's location come from the replayed run",
 });
 
 describe("grouping and counts", () => {
-  it("every row is in exactly one group, and the groups add up to the census", () => {
-    const grouped = board.groups.flatMap((g) => g.rows);
-    expect(grouped).toHaveLength(board.rows.length);
-    expect(new Set(grouped.map((r) => r.childKey)).size).toBe(board.rows.length);
+  it("every row is in exactly one group, and the groups add up to the board", () => {
+    const grouped = board.groups.flatMap((g) => g.legs);
+    expect(grouped).toHaveLength(board.legs.length);
+    expect(new Set(grouped.map((l) => l.key)).size).toBe(board.legs.length);
   });
 
   it("needs action is the first group on the board (§4.1)", () => {
     expect(board.groups[0].group).toBe("NEEDS_ACTION");
-    expect(board.needsActionCount).toBe(board.groups[0].rows.length);
+    expect(board.needsActionCount).toBe(board.groups[0].legs.length);
   });
 
   it("the group names are the ones the copy guide fixes", () => {
@@ -288,43 +373,67 @@ describe("grouping and counts", () => {
     expect(boardCopy.groups.NOT_RIDING).toBe("Not riding today");
   });
 
-  it("a child whose morning van is moving is on the way, whatever the afternoon says", () => {
+  /**
+   * The reason the board is one row per ride: a child whose morning van is on the road and
+   * whose afternoon van has not been reported on is in two places at once, and before this
+   * the row had to pick one of them and drop the other.
+   */
+  it("a child's two rides are grouped separately, each by its own state", () => {
     const row = rowOf("C7");
     expect(am(row).state).toBe("EN_ROUTE_PICKUP");
     expect(pm(row).state).toBe("CAPABILITY_PENDING");
-    expect(row.group).toBe("ON_THE_WAY");
-    expect(activeRide(row.rides).direction).toBe("AM");
+    expect(legOf("C7", "AM").group).toBe("ON_THE_WAY");
+    expect(legOf("C7", "PM").group).toBe("GETTING_READY");
   });
 
   it("a child the family brings is not riding with us, and no van is implied", () => {
-    const pad = board.rows.filter((r) => r.rides.every((ride) => ride.mode === "FAMILY"));
+    const pad = board.legs.filter((l) => l.ride.mode === "FAMILY");
     expect(pad.length).toBeGreaterThan(0);
-    for (const row of pad) {
-      expect(row.group).toBe("NOT_RIDING");
-      expect(row.nextStep).toBe("FAMILY");
-      for (const ride of row.rides) expect(ride.vehicleLabel).toBeNull();
+    for (const leg of pad) {
+      expect(leg.group, leg.key).toBe("NOT_RIDING");
+      expect(leg.nextStep, leg.key).toBe("NOTHING");
+      expect(leg.ride.vehicleLabel, leg.key).toBeNull();
     }
+  });
+
+  it("a therapy session sits on the row for the half of the day it falls in", () => {
+    // PRD §18.1: one session at 09:30 and one at 14:15.
+    expect(rowOf("C3").therapy).toEqual({
+      therapist: "Tasha L.",
+      startsAt: "09:30",
+      direction: "AM",
+    });
+    expect(rowOf("C6").therapy).toEqual({
+      therapist: "Devon P.",
+      startsAt: "14:15",
+      direction: "PM",
+    });
   });
 });
 
 describe("the shell's search box, applied to the board", () => {
-  const row = rowOf("C6");
+  const leg = legOf("C6", "AM");
 
   it("matches a child by the name on screen, in any case", () => {
-    expect(matchesQuery(row, "zoe")).toBe(true);
-    expect(matchesQuery(row, "Zoe B.")).toBe(true);
+    expect(matchesQuery(leg, "zoe")).toBe(true);
+    expect(matchesQuery(leg, "Zoe B.")).toBe(true);
   });
 
   it("matches a van and a provider, which is what the box offers to search", () => {
-    expect(matchesQuery(row, "V1")).toBe(true);
-    expect(matchesQuery(row, "palm lift")).toBe(true);
+    expect(matchesQuery(leg, "V1")).toBe(true);
+    expect(matchesQuery(leg, "palm lift")).toBe(true);
   });
 
   it("an empty query is not a filter", () => {
-    expect(matchesQuery(row, "   ")).toBe(true);
+    expect(matchesQuery(leg, "   ")).toBe(true);
   });
 
   it("matches nothing it should not", () => {
-    expect(matchesQuery(row, "nobody rides this")).toBe(false);
+    expect(matchesQuery(leg, "nobody rides this")).toBe(false);
+  });
+
+  it("a search for a child brings back both of their rides", () => {
+    const found = board.legs.filter((l) => matchesQuery(l, "Zoe"));
+    expect(found.map((l) => l.key)).toEqual(["C6/AM", "C6/PM"]);
   });
 });
