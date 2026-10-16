@@ -1,12 +1,21 @@
 import { z } from "zod";
 
 /**
+ * The boot guard's variable and its one accepted value, exported so a module that *depends* on the
+ * data class can name it in its own refusal without writing a second copy of either string. The
+ * agent's demo-data guard does exactly that (`src/modules/agent/config.ts`): it may not send a
+ * prompt to a non-ZDR endpoint unless this deployment is the synthetic one.
+ */
+export const DATA_CLASS_ENV_VAR = "APP_DATA_CLASS";
+export const SYNTHETIC_DATA_CLASS = "SYNTHETIC";
+
+/**
  * Boot guard (ADR-015, DECISION-LEDGER #4). P1 runs on synthetic data only:
  * any value other than exactly "SYNTHETIC" stops the build and the server.
  * Secrets are validated by name only and never echoed.
  */
 const bootSchema = z.object({
-  APP_DATA_CLASS: z.literal("SYNTHETIC"),
+  [DATA_CLASS_ENV_VAR]: z.literal(SYNTHETIC_DATA_CLASS),
   DEMO_MODE: z.enum(["0", "1"]).optional(),
   /**
    * The single map config knob (ADR-008): the MapLibre style URL for the basemap.
@@ -39,7 +48,7 @@ export function assertBootEnv(env: Record<string, string | undefined>): BootEnv 
  * `assertBootEnv`, called from next.config.ts, and a render must not be the thing that fails.
  */
 export function isSyntheticDemo(env: Record<string, string | undefined> = process.env): boolean {
-  return env.APP_DATA_CLASS === "SYNTHETIC";
+  return env[DATA_CLASS_ENV_VAR] === SYNTHETIC_DATA_CLASS;
 }
 
 /**
