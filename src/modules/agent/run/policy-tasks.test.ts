@@ -19,6 +19,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
+import { TEST_NOW } from "@/test/clock";
 import { SITE, freshDb } from "@/test/pglite";
 import { agentPolicyTask, fill } from "@/ui/copy";
 import type { PolicyTask } from "../policy";
@@ -46,7 +47,7 @@ const open: PGlite[] = [];
 beforeEach(async () => {
   ({ pg, db } = await freshDb());
   open.push(pg);
-  now = new Date("2026-10-15T12:00:00.000Z");
+  now = new Date(TEST_NOW);
 }, 60_000);
 
 // Each PGlite holds its own WASM heap; leaking them into one worker gets the worker OOM-killed.

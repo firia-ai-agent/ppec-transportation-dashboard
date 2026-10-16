@@ -47,7 +47,7 @@ beforeEach(async () => {
     authorizer: dbRecipientAuthorizer(db), clock: () => now, timeoutMs: 500,
   };
   inboundDeps = { pepper: PEPPER, transport: outboxTransport, clock: () => now };
-  f1 = await seedPersona(db, F1_NUMBER);
+  f1 = await seedPersona(db, F1_NUMBER, { now });
 }, 60_000);
 
 // One PGlite per test adds up: close it, or the worker is killed part-way through the file.
@@ -89,7 +89,7 @@ describe("persona phone read model (MOCKS §3, DESIGN-DIRECTION §6.3)", () => {
   });
 
   it("merges the persona's own messages in time order and keeps families apart", async () => {
-    const f2 = await seedPersona(db, F2_NUMBER);
+    const f2 = await seedPersona(db, F2_NUMBER, { now });
     await inbound("won't need the AM van, dropping at 9:30", "SM-1");
     const { id } = await put();
     await drain(db, id, drainDeps);
@@ -201,7 +201,7 @@ describe("the persona phone's access rules (PRD §1.1, BUILD-PLAN §4)", () => {
 
   it("a director of the other site gets the same 404 for this site's phone as for a number nobody holds", async () => {
     await seedSecondSite(db);
-    const f3 = await seedPersona(db, F3_NUMBER, { siteId: SITE_B });
+    const f3 = await seedPersona(db, F3_NUMBER, { siteId: SITE_B, now });
     const directorA = await seedStaff(db, "DIRECTOR");
     const directorB = await seedStaff(db, "DIRECTOR", SITE_B);
 

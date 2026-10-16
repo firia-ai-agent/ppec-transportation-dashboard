@@ -11,6 +11,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import { uuidv7 } from "uuidv7";
 import type { Db } from "@/db/exec";
 import { GPS_STALE_SECONDS } from "@/domain/location/freshness";
+import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
 import {
   type AgentScenario,
@@ -37,7 +38,7 @@ const open: PGlite[] = [];
 beforeEach(async () => {
   ({ pg, db } = await freshDb());
   open.push(pg);
-  now = new Date("2026-10-15T12:00:00.000Z");
+  now = new Date(TEST_NOW);
 }, 60_000);
 
 afterEach(async () => {
@@ -82,7 +83,7 @@ const atPickup = async () => {
   route = await seedProviderRoute(db, {
     siteId: sc.siteId,
     serviceDate: sc.serviceDate,
-    windowStart: new Date("2026-10-15T12:00:00.000Z"),
+    windowStart: new Date(TEST_NOW),
     legIds: [legId()],
   });
   await db.query(
