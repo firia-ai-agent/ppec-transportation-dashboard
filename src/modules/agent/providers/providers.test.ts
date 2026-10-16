@@ -108,23 +108,39 @@ describe("RecordedProvider", () => {
   });
 });
 
-/** A placeholder key, so the wiring gate opens and `invoke()` is what refuses. Never a real one. */
-const KEY_ENV = { [CONFIG.apiKeyEnvVar]: "test-key" };
+/**
+ * A placeholder key and the demo-data confirmation, which is what the live adapter needs before it
+ * will build a request at all. Never a real key: the whole seam references it by env var name.
+ */
+const KEY_ENV = { [CONFIG.apiKeyEnvVar]: "placeholder-not-a-key" };
+/** The config a demo deployment has: the guard confirmed. `remote.test.ts` exercises the rest. */
+const DEMO_CONFIG = loadAgentConfig({}, { demoDataOnly: true });
 
-describe("remote provider placeholder", () => {
-  it("is typed, declares the key by env var name, and refuses to run in slice 1", async () => {
-    const provider = remoteProvider(CONFIG, KEY_ENV);
+describe("remote provider wiring", () => {
+  it("is typed and declares the key by env var name, never by value", () => {
+    const provider = remoteProvider(DEMO_CONFIG, KEY_ENV);
     expect(provider.kind).toBe("remote");
     expect(provider.vendor).toBe("openrouter");
     expect(provider.endpoint).toBe(CONFIG.endpointAllowList[0]);
     expect(provider.apiKeyEnvVar).toBe("OPENROUTER_API_KEY");
-    await expect(provider.invoke(call(provider.endpoint))).rejects.toThrow(RemoteProviderNotEnabled);
+    expect(JSON.stringify(provider)).not.toContain("placeholder-not-a-key");
   });
 
-  it("names the env var in the refusal and never a key value", async () => {
-    const provider = remoteProvider(CONFIG, KEY_ENV);
-    await expect(provider.invoke(call(provider.endpoint))).rejects.toThrow(/\$OPENROUTER_API_KEY/);
-    await expect(provider.invoke(call(provider.endpoint))).rejects.not.toThrow(/test-key/);
+  it("refuses to wire at all without the demo-data confirmation, key or no key", () => {
+    // CONFIG is loadAgentConfig({}), i.e. demoDataOnly false — the fail-shut default.
+    expect(() => remoteProvider(CONFIG, KEY_ENV)).toThrow(RemoteProviderNotEnabled);
+    expect(() => remoteProvider(CONFIG, {})).toThrow(RemoteProviderNotEnabled);
+  });
+
+  it("names the env var in a missing-key refusal and never a key value", () => {
+    expect(() => remoteProvider(DEMO_CONFIG, {})).toThrow(/\$OPENROUTER_API_KEY/);
+    expect(() => remoteProvider(DEMO_CONFIG, { [CONFIG.apiKeyEnvVar]: "   " })).toThrow(RemoteProviderNotEnabled);
+    try {
+      remoteProvider(CONFIG, KEY_ENV);
+      expect.unreachable();
+    } catch (e) {
+      expect(String(e)).not.toContain("placeholder-not-a-key");
+    }
   });
 });
 
