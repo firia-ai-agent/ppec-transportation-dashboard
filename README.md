@@ -75,6 +75,10 @@ pnpm e2e e2e/today-board.spec.ts         # just the board's: today-board / arriv
 pnpm e2e e2e/screens.spec.ts             # today-* / live-map-* / ramp-ipad-* at both review widths
 pnpm e2e e2e/live-map.spec.ts            # artifacts/live-map.png
 pnpm e2e e2e/nav-rail.spec.ts            # the rail a role gets, read off the page: nav-rail-<role>.png
+E2E_DEMO_ROLE=FRONT_DESK pnpm e2e e2e/one-menu.spec.ts
+                                         # the menu on the three screens that had none, at 1280 and 390:
+                                         # one-menu-<role>-<screen>-<width>.png. One run is one role, so
+                                         # the three roles are three runs (DIRECTOR is the default).
 pnpm e2e e2e/moved-addresses.spec.ts     # /plan-preview, /map-preview, /ramp-preview still 308 to the screens
 ```
 

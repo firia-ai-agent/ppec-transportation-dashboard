@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { LAYOUT, PAGES, ROLE_LADDER } from "@/auth/access";
+import { LAYOUT, PAGES, ROLE_LADDER, homePathFor } from "@/auth/access";
 import { navItems, navItemsFor } from "./nav-items";
 
 /**
@@ -117,16 +117,16 @@ describe("every destination in the menu renders the menu", () => {
 
   /**
    * The front desk is the role this mattered most for: they have no console page, so the ramp
-   * iPad is where they land (`homePathFor`), and before this change the screen they start their
-   * day on was the one screen with no way off it.
+   * iPad is where they land, and before this change the screen they start their day on was the
+   * one screen with no way off it.
    */
   it("the front desk lands on a screen with the menu on it", () => {
-    const home = navItemsFor("FRONT_DESK")[0];
-    expect(home.href).toBe("/live-map");
-    for (const href of ["/live-map", "/ramp-ipad"]) {
-      const chain = layoutChainOf(pageFileOf(href));
-      expect(chain.some((file) => /<ConsoleShell\b/.test(read(file))), href).toBe(true);
-    }
+    const landing = homePathFor({ kind: "STAFF", role: "FRONT_DESK", userId: "u-f" });
+    expect(landing).toBe("/ramp-ipad");
+    const chain = layoutChainOf(pageFileOf(landing));
+    expect(chain.some((file) => /<ConsoleShell\b/.test(read(file))), landing).toBe(true);
+    // And the menu they find there is their own two destinations, not a list of 403s.
+    expect(navItemsFor("FRONT_DESK").map((item) => item.href)).toEqual(["/live-map", "/ramp-ipad"]);
   });
 });
 
