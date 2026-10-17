@@ -422,20 +422,24 @@ describe("the policy itself, written out so a silent widening fails", () => {
     expect(source.match(/OPEN QUESTION for the founder/g)).toHaveLength(foundersQuestions().length);
   });
 
-  it("all six open questions are flagged in the source, in the one marker style", () => {
+  it("all five open questions are flagged in the source, in the one marker style", () => {
     /*
-     * Five of the six are rows in this table (above). The sixth is not about access at all —
-     * the brand palette the brief named, which no token in this repo defines — so it is marked
-     * where someone would act on it, in src/ui/tokens.ts, in the same words. Counted across the
-     * whole of src/ so a question cannot be answered by deleting its marker, and written out per
-     * file so a marker that lands somewhere unexpected fails here rather than passing a total.
+     * Five, and they are all rows in this table. There were six: the sixth was not about access
+     * at all — the brand palette the brief named, which no token in this repo defined — and it
+     * was marked in src/ui/tokens.ts where someone would act on it. The founder answered it on
+     * 2026-10-17 at 6:19 PM ET (teal, Teal Ink, the selected tint, coral for alerts), so the
+     * marker came off with the question, which is the rule this file holds everywhere else too.
+     *
+     * Counted across the whole of src/ so a question cannot be answered by deleting its marker,
+     * and written out per file so a marker that lands somewhere unexpected fails here rather
+     * than passing a total.
      */
     const flagged = walk(SRC)
       .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
       .map((f) => [rel(f), (readFileSync(f, "utf8").match(/OPEN QUESTION for the founder/g) ?? []).length] as const)
       .filter(([, count]) => count > 0);
-    expect(Object.fromEntries(flagged)).toEqual({ "src/auth/access.ts": 5, "src/ui/tokens.ts": 1 });
-    expect(flagged.reduce((n, [, count]) => n + count, 0)).toBe(6);
+    expect(Object.fromEntries(flagged)).toEqual({ "src/auth/access.ts": 5 });
+    expect(flagged.reduce((n, [, count]) => n + count, 0)).toBe(5);
   });
 });
 

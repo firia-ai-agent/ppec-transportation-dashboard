@@ -371,9 +371,14 @@ export default function FleetMap({ fixture, label = copy.label }: FleetMapProps)
                       ))}
                     </span>
                   ) : null}
-                  <span className={styles.vehicleMeta}>
-                    {fill(copy.source, { label: fixture.sourceLabel })}
-                  </span>
+                  {/*
+                    NFR-09 asks every record to carry its source; Vera's review of 2026-10-17
+                    asks every *screen* to say "Simulated" exactly once, in the DEMO bar. Both
+                    hold at once by saying it to the ear only: the tile no longer prints the
+                    word a third, fourth and fifth time under the three vans, and a screen
+                    reader still hears where this van's position came from.
+                  */}
+                  <span className="srOnly">{fill(copy.source, { label: fixture.sourceLabel })}</span>
                 </button>
               </li>
             );

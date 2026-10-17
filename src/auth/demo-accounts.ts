@@ -5,26 +5,33 @@
  * (src/auth/seed.ts), which creates the users, and /login, which offers them as demo cards once
  * the demo flags are on. Email, role, id and icon live here; the words shown on screen live in
  * src/ui/copy.ts (`demoLogins`), keyed by role.
+ *
+ * Each stored name is the synthetic marker, a first name, a family name and the role — the form
+ * ADR-015 asks a seeded row to carry, so a developer reading `ops.app_user` can tell the three
+ * apart. None of that is what a screen shows: src/ui/display-name.ts turns the row into the
+ * person ("Dana M."), and the screen says their role in its own words beside it. The family
+ * name is there so there is an initial to say; before it, every demo account was a first name
+ * and a role, and the console could only ever read "Dana".
  */
 export const DEMO_ACCOUNTS = [
   {
     id: "01900000-0000-7000-8000-0000000000d1",
     email: "director@example.com",
-    name: "SYN Dana Director",
+    name: "SYN Dana Mercer Director",
     role: "DIRECTOR",
     icon: "shield-check",
   },
   {
     id: "01900000-0000-7000-8000-0000000000c1",
     email: "coordinator@example.com",
-    name: "SYN Casey Coordinator",
+    name: "SYN Casey Ruiz Coordinator",
     role: "COORDINATOR",
     icon: "clipboard-list",
   },
   {
     id: "01900000-0000-7000-8000-0000000000f1",
     email: "frontdesk@example.com",
-    name: "SYN Frankie FrontDesk",
+    name: "SYN Frankie Lowell FrontDesk",
     role: "FRONT_DESK",
     icon: "concierge-bell",
   },

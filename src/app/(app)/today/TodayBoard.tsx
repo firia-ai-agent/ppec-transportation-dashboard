@@ -19,19 +19,19 @@ import {
   type LegRow,
   type RideView,
 } from "@/domain/board/board";
-import { board as boardCopy, etaText, fill, onDay, serviceDate } from "@/ui/copy";
+import { board as boardCopy, etaText, fill, onDay, screenReader, serviceDate } from "@/ui/copy";
 import { SearchField } from "@/ui/SearchField";
-import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
 import {
   capabilityStates,
   gpsFreshnessStates,
   legStates,
+  sourceModes,
   therapySessionStates,
   type StateDescriptor,
 } from "@/ui/states";
 import { humanizeAge } from "@/ui/age";
-import { clockLabel } from "@/ui/service-date";
+import { clockLabel, demoDateIso } from "@/ui/service-date";
 import { icon } from "@/ui/tokens";
 import { LegDrawer } from "./LegDrawer";
 import { nextStepCellText, stateValues } from "./next-step";
@@ -105,7 +105,13 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
         </h1>
         <p className={styles.date}>
           <span className={styles.dateLabel}>{serviceDate.groupLabel}</span>{" "}
-          <time dateTime={day.iso} className="tabularNums">
+          {/*
+            The machine-readable date is the one the words say (Firia, 4:50 PM ET): the day the
+            demo is being given on, not the fixture day the rows are keyed by. A `<time>` whose
+            attribute and whose text named two different days would be the bug this ruling
+            fixed, written down twice.
+          */}
+          <time dateTime={demoDateIso(day.iso)} className="tabularNums">
             {day.label}
           </time>{" "}
           {/* Which kind of day this is — on the demo day, that it is the demo day and not today. */}
@@ -169,7 +175,6 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
               <col className={styles.colEta} />
               <col className={styles.colReceiver} />
               <col className={styles.colNextStep} />
-              <col className={styles.colSource} />
             </colgroup>
             <thead>
               <tr>
@@ -185,15 +190,12 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
                 <th scope="col" className={styles.hideNarrow}>
                   {boardCopy.columns.nextStep}
                 </th>
-                <th scope="col" className={styles.hideNarrow}>
-                  {boardCopy.columns.source}
-                </th>
               </tr>
             </thead>
             {groups.map((group) => (
               <tbody key={group.group}>
                 <tr className={styles.groupRow}>
-                  <th scope="colgroup" colSpan={9} className={styles.groupHeader}>
+                  <th scope="colgroup" colSpan={8} className={styles.groupHeader}>
                     {fill(boardCopy.groupHeading, {
                       group: boardCopy.groups[group.group],
                       count: group.legs.length,
@@ -289,6 +291,16 @@ function Row({
           }}
         >
           <span className="srOnly">{opener}</span>
+          {/*
+            NFR-09's per-record source, said to the ear and not to the eye (Vera's review,
+            2026-10-17, and the founder's walk: 56 violet "Simulated" chips down the right of
+            the board, under a DEMO bar that already says it once). The word that matters on
+            this screen is in the bar; a row still answers "where did this come from?" for a
+            screen reader, which is what the requirement is actually for.
+          */}
+          <span className="srOnly">
+            {fill(screenReader.source, { label: sourceModes[child.sourceMode].label })}
+          </span>
           <span aria-hidden="true">{child.childLabel}</span>
         </button>
       </th>
@@ -318,9 +330,6 @@ function Row({
       </td>
       <td className={styles.hideNarrow}>
         <NextStepCell leg={leg} />
-      </td>
-      <td className={styles.hideNarrow}>
-        <SourceBadge mode={child.sourceMode} className={styles.cellChip} />
       </td>
     </tr>
   );
