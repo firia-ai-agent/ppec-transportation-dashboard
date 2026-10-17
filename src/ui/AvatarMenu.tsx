@@ -16,8 +16,15 @@ function initials(name: string): string {
 
 /**
  * §2: one identity location — the avatar menu, top right. Built from <details>/<summary> so it
- * is keyboard-operable with no client JavaScript. Hidden below 768 px, where the hamburger
- * drawer carries identity instead.
+ * is keyboard-operable with no client JavaScript.
+ *
+ * At every width, as of Firia's 3:08 PM ET ruling on 2026-10-17. It used to be hidden below 768
+ * and the hamburger drawer carried the name and Sign out; the drawer is gone, so the phone's
+ * header carries this instead, compact — the initials and the first name in a 44 px pill, with
+ * "Signed in as {name}" and Sign out in the panel it opens.
+ *
+ * The name it is given is the person's, not the row's: "Dana", not "SYN Dana Director"
+ * (src/ui/display-name.ts, applied once in src/ui/ConsoleShell.tsx).
  */
 export function AvatarMenu({ displayName }: { displayName: string }) {
   return (

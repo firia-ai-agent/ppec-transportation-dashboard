@@ -364,10 +364,11 @@ export const PAGES: readonly PageRow[] = [
    * SURF-04, the ramp iPad: the front desk's own surface (PRD §6.2, ARCHITECTURE §1), and a
    * coordinator and a director both walk it.
    *
-   * OPEN QUESTION for the founder: This is also the front desk's *home* — they can open no
-   * console page, so `HOME_ORDER` below resolves their landing page to this one, which is where
-   * sign-in now puts them. The screen is a walk-through of SURF-04 and records nothing. Correct
-   * until SURF-04 is real?
+   * It was the front desk's home, and the open question on this row was whether that was right
+   * until SURF-04 is real. Firia answered it on 2026-10-17 at 3:08 PM ET — "Front desk gets two
+   * tabs, Live map (their home) and Ramp iPad" — so the question is closed and the flag is off
+   * the row. This is still their second tab, and the surface the PRD names them after; the
+   * screen is a walk-through of SURF-04 and records nothing.
    */
   {
     kind: "page",
@@ -375,7 +376,6 @@ export const PAGES: readonly PageRow[] = [
     path: "/ramp-ipad",
     access: { roles: ALL_STAFF },
     label: rampIpad.heading,
-    founderQuestion: true,
   },
   /* ── the three old addresses, kept as permanent redirects ── */
   /**
@@ -693,12 +693,16 @@ export function apiOutcome(caller: Caller, path: string): ApiOutcome {
 /* ───────────────────────────── where a role lives ───────────────────────────── */
 
 /**
- * The order a role's own pages are offered in: the nav order first (DESIGN-DIRECTION §2), then
- * the two surfaces that are not in the rail. The first entry a role may open is their home — so
- * the front desk, who has no console page, lands on the ramp check rather than on a refusal.
- * That landing page is the `/ramp-ipad` row's open question above.
+ * The order a role's own pages are offered in. The first entry a role may open is their home —
+ * so a director and a coordinator land on the board, and the front desk, who may open no
+ * console page, lands on a screen of their own rather than on a refusal.
+ *
+ * **The front desk's home is the live map**, Firia's final ruling of 2026-10-17 3:08 PM ET:
+ * "Front desk gets two tabs, Live map (their home) and Ramp iPad." That is why `/live-map` sits
+ * ahead of `/ramp-ipad` here — it used to be the other way round, and sign-in, `/` and every
+ * "send them home" redirect read this one list, so moving it moves all of them at once.
  */
-const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/plan-routes", "/ramp-ipad", "/live-map", "/whoami"] as const;
+const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/plan-routes", "/live-map", "/ramp-ipad", "/whoami"] as const;
 
 /** Where this caller is sent when they need somewhere to be: their own first page, or sign-in. */
 export function homePathFor(caller: Caller): string {

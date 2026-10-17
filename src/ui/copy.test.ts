@@ -2,7 +2,6 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  adapters,
   arrival,
   board,
   countable,
@@ -31,6 +30,7 @@ import {
   securement,
   solver,
   sourceMode,
+  toast,
   unbuilt,
   vanName,
   whoami,
@@ -360,17 +360,19 @@ describe("COPY-GUIDE strings, verbatim", () => {
     });
   });
 
-  it("§5: the interim adapter pills read '<adapter> · Simulated'", () => {
-    expect(adapters.simulatedValue).toBe("Simulated");
-    expect([adapters.sms, adapters.teams, adapters.gps, adapters.agent]).toEqual([
-      "SMS",
-      "Teams",
-      "GPS",
-      "Agent",
-    ]);
-    expect(`${adapters.sms}${adapters.separator}${adapters.simulatedValue}`).toBe(
-      "SMS · Simulated",
-    );
+  /**
+   * One Simulated chip on a screen, and it is the §7.1 one in the DEMO bar (Vera's review,
+   * 2026-10-17 2:44 PM ET). The header's four per-adapter pills — "SMS · Simulated", "Teams ·
+   * Simulated", "GPS · Simulated", "Agent · Simulated" — and the "Times are simulated…" line
+   * under them said it four more times, on every screen. The strings are gone with the
+   * component, and this is what stops them coming back as copy nobody renders.
+   */
+  it("has no per-adapter Simulated pill left to render", async () => {
+    const copy = (await import("./copy")) as Record<string, unknown>;
+    expect(copy).not.toHaveProperty("adapters");
+    for (const [key, value] of allStrings()) {
+      expect(value, key).not.toBe("Times are simulated until the live board is connected.");
+    }
   });
 
   it("§9: chips and badges announce themselves as 'State: …' and 'Source: …'", () => {
@@ -469,11 +471,24 @@ describe("COPY-GUIDE strings, verbatim", () => {
   });
 
   it("§1: the scenario clock says the demo has not started, and why Start is inert", () => {
-    expect(scenarioClock.notStarted).toBe("Demo not started");
+    // The readout carries its own subject now that the "Scenario clock" label above it is gone.
+    expect(scenarioClock.notStarted).toBe("Demo day · Not started");
     // §3: verb + object, ≤3 words. "Start" alone did not say what it starts.
     expect(scenarioClock.start).toBe("Start demo day");
     expect(scenarioClock.start.split(" ").length).toBeLessThanOrEqual(3);
     expect(scenarioClock.startUnavailable).toBe("Demo controls aren't connected yet.");
+  });
+
+  /**
+   * §9.5 `toast.notOnMenu`. The sentence a person gets when they typed the URL of a page their
+   * role does not carry and the guard put them on their own home instead: about the menu, not
+   * about them, and with no code, no path and no role key in it (no-codes.test.ts and
+   * no-internals.test.ts scan every string, this one included).
+   */
+  it("§9.5: the toast says why you are somewhere else, in four words", () => {
+    expect(toast.notOnMenu).toBe("Not on your menu");
+    expect(toast.notOnMenu.split(" ").length).toBeLessThanOrEqual(6);
+    expect(toast.dismiss).toBe("Dismiss");
   });
 });
 
@@ -913,7 +928,6 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
 /** Every leaf string exported from copy.ts, flattened with a dotted key for messages. */
 function allStrings(): Array<[string, string]> {
   const copy: Record<string, unknown> = {
-    adapters,
     arrival,
     board,
     countable,
@@ -936,6 +950,7 @@ function allStrings(): Array<[string, string]> {
     securement,
     solver,
     sourceMode,
+    toast,
     unbuilt,
     whoami,
   };

@@ -1,7 +1,9 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { Flag, type LucideIcon } from "lucide-react";
-import { pageLabel } from "@/auth/access";
-import { isCurrent, navItems } from "./nav-items";
+import { PAGES, ROLE_LADDER, pageLabel } from "@/auth/access";
+import { isCurrent, menuItems, navItems, navItemsFor } from "./nav-items";
 import { liveMap, nav, planRoutes, rampIpad } from "./copy";
 import { sourceModes, vocabularies } from "./states";
 
@@ -87,6 +89,68 @@ describe("nav icons", () => {
 
   it("gives every destination its own icon", () => {
     expect(new Set(navItems.map((i) => i.icon)).size).toBe(navItems.length);
+  });
+});
+
+/**
+ * THE MENU LISTS ONLY SCREENS THAT WORK — Firia's ruling, 2026-10-17 2:48 PM ET.
+ *
+ * Three of the seven destinations are a `Placeholder` saying the page is not built yet
+ * (src/ui/Placeholder.tsx, `unbuilt` in copy.ts). A menu item that opens one of those is a
+ * founder clicking into a dead end mid-demo, so each row carries an `inMenu` flag and the two
+ * rails render the filtered list. The routes are untouched: still there, still guarded the same
+ * way, still answering a typed URL exactly as before — which is the next test but one.
+ */
+describe("the menu lists only screens that work", () => {
+  const REPO = path.resolve(__dirname, "..", "..");
+
+  /** The page file behind a destination, from the access table's own row. */
+  function sourceOf(href: string): string {
+    const row = PAGES.find((p) => p.kind === "page" && p.path === href) as { file: string };
+    expect(row, href).toBeDefined();
+    return readFileSync(path.join(REPO, row.file), "utf8");
+  }
+
+  it("is the four built screens, in the order the rail had them", () => {
+    expect(menuItems.map((i) => i.href)).toEqual([
+      "/today",
+      "/plan-routes",
+      "/live-map",
+      "/ramp-ipad",
+    ]);
+  });
+
+  /**
+   * The rule, not the list: whichever rows are on the menu, none of them may open a page that
+   * renders the "{page} isn't built yet" copy. Turning one back on (PR #60's Health & ROI, PR
+   * #61's Exceptions) passes this the moment the page behind it is a real screen, and fails it
+   * the moment the flag is flipped ahead of the build.
+   */
+  it("no item on the menu opens a page that says it is not built", () => {
+    const unbuilt = menuItems.filter((item) => /\bunbuilt\b|<Placeholder\b/.test(sourceOf(item.href)));
+    expect(unbuilt.map((i) => i.label)).toEqual([]);
+  });
+
+  it("the three that are off are off for a reason, and are still routes", () => {
+    const off = navItems.filter((item) => !item.inMenu).map((i) => i.href);
+    expect(off).toEqual(["/exceptions", "/setup", "/health"]);
+    // Off the menu is not deleted and not closed: every one still has a row and a page.
+    for (const href of off) {
+      expect(PAGES.some((p) => p.kind === "page" && p.path === href), href).toBe(true);
+      expect(sourceOf(href)).toMatch(/requirePage/);
+    }
+  });
+
+  it("is the same filtered list at both widths, for every role", () => {
+    for (const role of ROLE_LADDER) {
+      const theirs = navItemsFor(role);
+      // Nothing off the menu reaches a role's list...
+      expect(theirs.every((item) => item.inMenu), role).toBe(true);
+      // ...and the list is the menu narrowed by the access table, nothing else.
+      expect(theirs).toEqual(menuItems.filter((item) => theirs.includes(item)));
+    }
+    expect(navItemsFor("FRONT_DESK").map((i) => i.href)).toEqual(["/live-map", "/ramp-ipad"]);
+    expect(navItemsFor(null)).toEqual([]);
   });
 });
 

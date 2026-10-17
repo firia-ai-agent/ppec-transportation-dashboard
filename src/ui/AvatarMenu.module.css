@@ -63,9 +63,22 @@
   color: var(--color-ink-muted);
 }
 
-/* <768: identity lives in the hamburger drawer instead (§2). */
+/*
+ * <768 it stays — compact, not hidden.
+ *
+ * It used to be `display: none` here, because the hamburger drawer carried the name and Sign
+ * out below 768. The drawer is gone (Firia, 2026-10-17 3:08 PM ET: a bottom tab bar, no
+ * hamburger and no side panel), so this is the one identity location at every width, and on a
+ * phone it shares the header row with the demo readout and its Start. The pill keeps its 44 px
+ * target and its initials; the name beside them gives up what it has to.
+ */
 @media (max-width: 767px) {
-  .menu {
-    display: none;
+  .summary {
+    gap: var(--space-2);
+    padding: 0 var(--space-2);
+  }
+
+  .name {
+    max-width: 8ch;
   }
 }

@@ -139,6 +139,37 @@ export async function expectDemoControlStyling(control: Locator): Promise<void> 
   expect(option.ink, "the chosen option inverts the pair").toBe(DEMO_VIOLET);
 }
 
+/**
+ * ONE Simulated chip in the chrome — Vera's review, 2026-10-17 2:44 PM ET.
+ *
+ * The §7.1 chip in the violet DEMO bar is the one that says where this screen's data comes
+ * from. The app header under it used to say the same thing four more times, as a row of
+ * per-adapter pills ("SMS · Simulated", "Teams · Simulated", "GPS · Simulated", "Agent ·
+ * Simulated"), with "Times are simulated until the live board is connected." beneath them.
+ *
+ * What is counted, and what is deliberately not: the chip **in the bar** (exactly one), and any
+ * chip **in the app header** (none). The per-record source badges on the board's rows are a
+ * different claim — NFR-09 asks for one on every record — so they are left alone; what is
+ * barred everywhere is the pill shape the header used, `<adapter> · Simulated`.
+ */
+export async function expectOneSimulatedChip(page: Page): Promise<void> {
+  const seen = await page.evaluate(() => {
+    const bar = document.querySelector('[role="status"][aria-label="DEMO"]')?.parentElement ?? null;
+    const header = document.querySelector("header");
+    return {
+      inBar: bar ? bar.querySelectorAll('[data-token="src-sim"]').length : 0,
+      inHeader: header ? header.querySelectorAll('[data-token="src-sim"]').length : 0,
+      headerText: (header as HTMLElement | null)?.innerText ?? "",
+      bodyText: document.body.innerText,
+    };
+  });
+  expect(seen.inBar, `the one §7.1 chip in the DEMO bar on ${page.url()}`).toBe(1);
+  expect(seen.inHeader, "the app header is carrying a source chip of its own again").toBe(0);
+  expect(seen.headerText, "the app header says 'Simulated' again").not.toMatch(/Simulated/);
+  expect(seen.bodyText, "a per-adapter Simulated pill is back").not.toMatch(/·\s*Simulated/);
+  expect(seen.bodyText, "the 'Times are simulated' line is back").not.toMatch(/[Tt]imes are simulated/);
+}
+
 /** Every page: the one DEMO bar, and it is on screen at the bottom of the page too (NFR-09). */
 export async function expectDemoBarPinned(page: Page): Promise<void> {
   const bar = page.getByRole("status", { name: demoBanner.ariaLabel });

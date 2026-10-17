@@ -12,7 +12,26 @@ import { canOpenPage } from "@/auth/access";
 import type { StaffRole } from "@/auth/core";
 import { liveMap, nav, planRoutes, rampIpad } from "./copy";
 
-export type NavItem = { href: string; label: string; icon: LucideIcon };
+export type NavItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  /**
+   * Is this destination **on the menu**?
+   *
+   * Firia's ruling, 2026-10-17 2:48 PM ET: "the menu lists only screens that work." A menu item
+   * that opens a page saying it is not built yet is a founder clicking into a dead end during a
+   * demo, so each row carries its own answer here and the two rails render the same filtered
+   * list. This is a flag per row, not a rule about a page: no rail, no layout and no screen
+   * contains a condition about `/health` or `/exceptions` — they read this field.
+   *
+   * `false` does **not** change access, and deletes nothing: the route still exists, its row in
+   * the access table is untouched, and a person who types the URL is answered exactly as before
+   * (src/auth/page-guard.ts). It is off the *menu*, and `nav-items.test.ts` holds that no item
+   * left on it opens a page that renders the `unbuilt` copy.
+   */
+  inMenu: boolean;
+};
 
 /**
  * THE RAIL — every destination this app has, and nothing a role cannot open.
@@ -38,6 +57,11 @@ export type NavItem = { href: string; label: string; icon: LucideIcon };
  *
  * Every label is the heading of its own screen, read from src/ui/copy.ts — never a second
  * string in `nav` — so the rail and the page cannot drift apart. nav-items.test.ts holds that.
+ *
+ * This list is every destination; the **menu** is the rows whose `inMenu` is true (`menuItems`
+ * below). Firia's 2:48 PM ET ruling on 2026-10-17 took the three screens that are not built off
+ * the menu, and the flag is where that lives: the routes, their rows in the access table and
+ * their answers to a typed URL are all unchanged.
  *
  * All seven render this list, and that is new as of 2026-10-17. The three screens above are
  * routes outside src/app/(app) and used to render no menu at all — §2 even says the ramp iPad is
@@ -77,14 +101,34 @@ export type NavItem = { href: string; label: string; icon: LucideIcon };
  * and its two siblings), so a bookmark or a link in an old PR still lands on the screen.
  */
 export const navItems: readonly NavItem[] = [
-  { href: "/today", label: nav.today, icon: LayoutDashboard },
-  { href: "/plan-routes", label: planRoutes.heading, icon: Route },
-  { href: "/live-map", label: liveMap.heading, icon: MapIcon },
-  { href: "/exceptions", label: nav.exceptions, icon: Flag },
-  { href: "/setup", label: nav.setup, icon: Settings },
-  { href: "/health", label: nav.health, icon: Activity },
-  { href: "/ramp-ipad", label: rampIpad.heading, icon: Tablet },
+  { href: "/today", label: nav.today, icon: LayoutDashboard, inMenu: true },
+  { href: "/plan-routes", label: planRoutes.heading, icon: Route, inMenu: true },
+  { href: "/live-map", label: liveMap.heading, icon: MapIcon, inMenu: true },
+  /*
+   * Off the menu until the screen behind it is a screen (Firia, 2026-10-17 2:48 PM ET). Each
+   * one says, in its own line, what brings it back — the flag is the whole mechanism, so
+   * turning one on is this word and nothing else.
+   */
+  // Returns when #61 (the late text and the agent's live path) merges: that PR is what fills it.
+  { href: "/exceptions", label: nav.exceptions, icon: Flag, inMenu: false },
+  // Returns with the equipment-counts redesign, which is what the page is for.
+  { href: "/setup", label: nav.setup, icon: Settings, inMenu: false },
+  /*
+   * Returns when #60 is on main. Checked on origin/main on 2026-10-17 at 3:20 PM ET: #60 is
+   * open, and `src/app/(app)/health/page.tsx` there still renders the `unbuilt` Placeholder, so
+   * the menu would be offering a page that says it is not built. On the merge, the page becomes
+   * the built one and this is `true`.
+   */
+  { href: "/health", label: nav.health, icon: Activity, inMenu: false },
+  { href: "/ramp-ipad", label: rampIpad.heading, icon: Tablet, inMenu: true },
 ];
+
+/**
+ * The menu itself: every row whose screen works, in the order above. Both rails render this
+ * list — the desktop rail and the phone tab bar — so there is one answer to "what is on the
+ * menu" at every width (`navItemsFor` narrows it to one role).
+ */
+export const menuItems: readonly NavItem[] = navItems.filter((item) => item.inMenu);
 
 /** The rail highlights the section, so /today/<child> still marks "Today" as current. */
 export function isCurrent(pathname: string, href: string): boolean {
@@ -112,5 +156,5 @@ export function isCurrent(pathname: string, href: string): boolean {
  */
 export function navItemsFor(role: StaffRole | null): readonly NavItem[] {
   const caller = role ? ({ kind: "STAFF", role } as const) : ({ kind: "ANONYMOUS" } as const);
-  return navItems.filter((item) => canOpenPage(caller, item.href));
+  return menuItems.filter((item) => canOpenPage(caller, item.href));
 }

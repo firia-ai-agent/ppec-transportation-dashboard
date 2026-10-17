@@ -3,7 +3,7 @@
  *
  * Why this file exists, and why it is not the same check as e2e/nav-rail.spec.ts.
  *
- * The founder screenshotted prod signed in as SYN Dana Director and the rail showed four items:
+ * The founder screenshotted prod signed in as the demo director and the rail showed four items:
  * Today · Exceptions & Approvals · Setup · Health & ROI, with no Plan routes. Every unit test
  * passed, and nav-rail.spec.ts passed, because both of them read the same `navItems` list the
  * app reads — a list that was already correct in the commit prod reported. What neither could
@@ -68,17 +68,21 @@ async function deployedCommit(request: { get: (url: string) => Promise<{ json: (
 }
 
 /**
- * The rail a DIRECTOR must get, in order: §2's four console destinations, with Plan routes and
- * the live map between the board and the exceptions it raises, and the ramp iPad last. Written
- * out on purpose — see the note above.
+ * The rail a DIRECTOR must get, in order. Written out on purpose — see the note above.
+ *
+ * Four, not the seven that are routes: Firia's ruling of 2026-10-17 2:48 PM ET is that the menu
+ * lists only screens that work, so Exceptions & Approvals, Setup and Health & ROI are off it
+ * until the pages behind them are built (#61, the equipment-counts redesign, #60). They are
+ * still routes and still answer — this file measures the *menu*.
+ *
+ * Like every expectation here, it is keyed to the build under test: `E2E_EXPECTED_COMMIT`
+ * defaults to this checkout's HEAD, so running it against a deployment older than this change
+ * fails on the commit check first and says so, rather than arguing about the rail.
  */
 const DIRECTOR_RAIL = [
   { label: "Today", href: "/today" },
   { label: "Plan routes", href: "/plan-routes" },
   { label: "Live map", href: "/live-map" },
-  { label: "Exceptions & Approvals", href: "/exceptions" },
-  { label: "Setup", href: "/setup" },
-  { label: "Health & ROI", href: "/health" },
   { label: "Ramp iPad", href: "/ramp-ipad" },
 ] as const;
 
@@ -122,7 +126,7 @@ test.describe("the deployed build, as the demo director", () => {
     expect(words).toContain(DIRECTOR.name);
   });
 
-  test("renders every one of the director's seven destinations, and clips none of them", async ({
+  test("renders every one of the director's menu destinations, and clips none of them", async ({
     page,
   }) => {
     await signInAsDirector(page);
@@ -145,7 +149,7 @@ test.describe("the deployed build, as the demo director", () => {
     );
     expect(
       { commit: served, rail: rendered },
-      "the rail the deployment rendered is not the director's seven",
+      "the rail the deployment rendered is not the director's menu",
     ).toEqual({ commit: served, rail: DIRECTOR_RAIL.map((item) => ({ ...item })) });
 
     // Nothing in the rail says "preview", in its words or in its address (Vera, 2026-10-17).
@@ -174,7 +178,7 @@ test.describe("the deployed build, as the demo director", () => {
     }
   });
 
-  test("opens each of the seven from the rail, on the screen it names", async ({ page }) => {
+  test("opens each of them from the rail, on the screen it names", async ({ page }) => {
     await signInAsDirector(page);
     const rail = page.getByRole("navigation", { name: nav.landmarkLabel });
     for (const item of DIRECTOR_RAIL) {

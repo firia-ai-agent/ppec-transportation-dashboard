@@ -204,6 +204,13 @@ export const layout = {
   sourceBadgeHeight: "20px",
   sourceBadgeHeightRamp: "24px",
   headerHeight: "64px",
+  /**
+   * <768: the bottom tab bar (Firia's final ruling, 2026-10-17 3:08 PM ET). 64 px carries a 20
+   * px icon over a 12 px label and is well over the §9 44 px target; the device's own safe-area
+   * inset is added under it rather than taken out of it, so the tabs never sit in the iPhone's
+   * home-bar gesture area. The shell pads the page by the same two lengths.
+   */
+  tabBarHeight: "64px",
   contentMaxWidth: "1440px",
 } as const;
 
@@ -222,7 +229,11 @@ export const target = { console: "44px", ramp: "56px" } as const;
 /** Focus: 2 px focus outline + 2 px offset, never removed (§9). */
 export const focusRing = { width: "2px", offset: "2px" } as const;
 
-export const border = { hairline: "1px" } as const;
+/**
+ * `hairline` is every rule and box edge; `current` is the one thicker bar that marks the page
+ * you are on in the phone tab bar (§9: never colour alone).
+ */
+export const border = { hairline: "1px", current: "3px" } as const;
 
 /** Icon metrics. Lucide, single set, 1.75 stroke (§2). */
 export const icon = {
@@ -248,7 +259,7 @@ const cssVars: Record<string, string> = {
   "--body-ramp": bodySize.ramp,
   "--focus-width": focusRing.width,
   "--focus-offset": focusRing.offset,
-  "--border-hairline": border.hairline,
+  ...Object.fromEntries(Object.entries(border).map(([k, v]) => [`--border-${kebab(k)}`, v])),
   "--icon-stroke": String(icon.strokeWidth),
 };
 

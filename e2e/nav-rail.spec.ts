@@ -39,15 +39,17 @@ test.describe(`the rail as ${ROLE}`, () => {
       EXPECTED.map((item) => item.label),
     );
 
-    // The director is the role in the screenshot, so say out loud what they should be getting.
+    /*
+     * The director is the role in the screenshot, so say out loud what they should be getting.
+     * Four, not seven, since Firia's 2:48 PM ET ruling on 2026-10-17: the menu lists only
+     * screens that work, and Exceptions & Approvals, Setup and Health & ROI are each still a
+     * page that says it is not built (src/ui/nav-items.ts carries the flag and the reason).
+     */
     if (ROLE === "DIRECTOR") {
       expect(EXPECTED.map((item) => item.href)).toEqual([
         "/today",
         "/plan-routes",
         "/live-map",
-        "/exceptions",
-        "/setup",
-        "/health",
         "/ramp-ipad",
       ]);
     }
@@ -98,7 +100,13 @@ test.describe(`the rail as ${ROLE}`, () => {
 });
 
 test.describe("the two copy fixes, on the screens that show them", () => {
+  /*
+   * Off the menu, not deleted: /health still answers for a role whose row opens it, and it
+   * still says the one honest thing it has to say. Typed, because no menu item leads here any
+   * more — e2e/role-pages.spec.ts is where "no menu item opens an unbuilt page" is measured.
+   */
   test("the health page says 'not built' once, with no chip repeating it", async ({ page }) => {
+    test.skip(ROLE === "FRONT_DESK", "the front desk's row does not open a console page");
     await page.goto("/health");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(
       unbuilt.heading.replace("{page}", nav.health),
@@ -109,9 +117,10 @@ test.describe("the two copy fixes, on the screens that show them", () => {
     expect(text.match(/built yet/g), text).toHaveLength(1);
   });
 
-  test("the Start beside 'Demo not started' says what it starts, and stays inert", async ({
+  test("the Start beside the demo readout says what it starts, and stays inert", async ({
     page,
   }) => {
+    test.skip(ROLE === "FRONT_DESK", "the board is not on the front desk's menu");
     await page.goto("/today");
     await expect(page.getByText(scenarioClock.notStarted)).toBeVisible();
     const start = page.getByRole("button", { name: scenarioClock.start });

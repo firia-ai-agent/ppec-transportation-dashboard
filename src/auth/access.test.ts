@@ -404,14 +404,19 @@ describe("the policy itself, written out so a silent widening fails", () => {
   });
 
   it("every row whose default is a guess is flagged for the founder, with the question in the file", () => {
-    expect(foundersQuestions()).toEqual(["/today", "/setup", "/health", "/whoami", "/ramp-ipad", "/api/health"]);
+    /*
+     * Five rows, not six: `/ramp-ipad` asked whether the front desk should land there until
+     * SURF-04 is real, and Firia answered it on 2026-10-17 at 3:08 PM ET by making the live map
+     * their home. An answered question is taken off the row rather than left standing.
+     */
+    expect(foundersQuestions()).toEqual(["/today", "/setup", "/health", "/whoami", "/api/health"]);
     const source = readFileSync(path.join(__dirname, "access.ts"), "utf8");
     expect(source.match(/OPEN QUESTION for the founder/g)).toHaveLength(foundersQuestions().length);
   });
 
-  it("all seven open questions are flagged in the source, in the one marker style", () => {
+  it("all six open questions are flagged in the source, in the one marker style", () => {
     /*
-     * Six of the seven are rows in this table (above). The seventh is not about access at all —
+     * Five of the six are rows in this table (above). The sixth is not about access at all —
      * the brand palette the brief named, which no token in this repo defines — so it is marked
      * where someone would act on it, in src/ui/tokens.ts, in the same words. Counted across the
      * whole of src/ so a question cannot be answered by deleting its marker, and written out per
@@ -421,8 +426,8 @@ describe("the policy itself, written out so a silent widening fails", () => {
       .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
       .map((f) => [rel(f), (readFileSync(f, "utf8").match(/OPEN QUESTION for the founder/g) ?? []).length] as const)
       .filter(([, count]) => count > 0);
-    expect(Object.fromEntries(flagged)).toEqual({ "src/auth/access.ts": 6, "src/ui/tokens.ts": 1 });
-    expect(flagged.reduce((n, [, count]) => n + count, 0)).toBe(7);
+    expect(Object.fromEntries(flagged)).toEqual({ "src/auth/access.ts": 5, "src/ui/tokens.ts": 1 });
+    expect(flagged.reduce((n, [, count]) => n + count, 0)).toBe(6);
   });
 });
 
@@ -541,8 +546,12 @@ describe("where each role lives", () => {
   it("sends every role to a page that role can actually open", () => {
     expect(homePathFor(callers.director)).toBe("/today");
     expect(homePathFor(callers.coordinator)).toBe("/today");
-    // The front desk has no console page: their surface is the ramp iPad (ARCHITECTURE §1).
-    expect(homePathFor(callers.frontDesk)).toBe("/ramp-ipad");
+    /*
+     * The front desk has no console page. Their home is the live map — Firia's final ruling,
+     * 2026-10-17 3:08 PM ET: "Front desk gets two tabs, Live map (their home) and Ramp iPad."
+     * It was the ramp iPad before that, which is still their other tab.
+     */
+    expect(homePathFor(callers.frontDesk)).toBe("/live-map");
     expect(homePathFor(callers.signedOut)).toBe("/login");
     expect(homePathFor(callers.noRole)).toBe("/login");
     for (const caller of [callers.director, callers.coordinator, callers.frontDesk]) {
@@ -558,19 +567,14 @@ describe("where each role lives", () => {
 
   it("offers each role only the nav items it can open", () => {
     /*
-     * The whole rail: §2's four console destinations, Plan routes and the live map between the
-     * board and the exceptions it raises, and the ramp iPad last (PRD §14 lists it after the
-     * console destinations because it is not one). Addresses only — no "preview" in any of them.
+     * The whole menu, for a role whose row opens everything: the board, the planning surface,
+     * the live map and the ramp iPad. The three console destinations whose pages are not built
+     * — Exceptions & Approvals, Setup, Health & ROI — are off the *menu* (Firia, 2026-10-17
+     * 2:48 PM ET, the `inMenu` flag in src/ui/nav-items.ts) while their rows and their routes
+     * stay exactly as they are; `rolesWhoCanOpen` below is still asked about all seven.
+     * Addresses only — no "preview" in any of them.
      */
-    const everything = [
-      "/today",
-      "/plan-routes",
-      "/live-map",
-      "/exceptions",
-      "/setup",
-      "/health",
-      "/ramp-ipad",
-    ];
+    const everything = ["/today", "/plan-routes", "/live-map", "/ramp-ipad"];
     expect(navItemsFor("DIRECTOR").map((i) => i.href)).toEqual(everything);
     expect(navItemsFor("COORDINATOR").map((i) => i.href)).toEqual(everything);
     /*
@@ -583,14 +587,21 @@ describe("where each role lives", () => {
     expect(navItemsFor("FRONT_DESK").map((i) => i.href)).toEqual(["/live-map", "/ramp-ipad"]);
     expect(navItemsFor(null)).toEqual([]);
     /*
-     * And the rail is never wider than the table for any role: this compares the whole rail
-     * against `rolesWhoCanOpen` row by row, so an item added to nav-items.ts whose row omits a
-     * role fails here rather than on a screen.
+     * And the menu is never wider than the table for any role: this compares what a role is
+     * shown against `rolesWhoCanOpen` row by row, so an item added to nav-items.ts whose row
+     * omits a role fails here rather than on a screen. Narrower is allowed and is what the
+     * `inMenu` flag does — the comparison is against the rows that are *on* the menu.
      */
     for (const role of ROLES) {
       const shown = navItemsFor(role).map((i) => i.href);
-      const allowed = navItems.filter((i) => rolesWhoCanOpen(i.href).includes(role)).map((i) => i.href);
+      const allowed = navItems
+        .filter((i) => i.inMenu && rolesWhoCanOpen(i.href).includes(role))
+        .map((i) => i.href);
       expect(shown, role).toEqual(allowed);
+      // Nothing off the menu is reachable from it, for any role.
+      for (const off of navItems.filter((i) => !i.inMenu)) {
+        expect(shown, `${role} is offered ${off.href}`).not.toContain(off.href);
+      }
     }
     // ...and hiding is only ever the same answer the server gives, never a different one.
     for (const role of ROLES) {

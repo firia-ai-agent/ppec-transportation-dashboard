@@ -1,0 +1,49 @@
+/*
+ * Under the DEMO bar, which is sticky at the top of every screen and must stay above this
+ * (NFR-09, z-index 20). Centred and `position: fixed`, so the notice is in the same place
+ * whatever the screen behind it is doing, and `max-width` keeps it off both edges on a phone.
+ */
+.toast {
+  position: fixed;
+  top: calc(var(--layout-demo-banner-height) + var(--space-4));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 19;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: calc(100% - var(--space-6));
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-5);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  /* Lifted off the screen with the token palette's own ink, not a colour literal (§10). */
+  box-shadow: 0 0 0 var(--border-hairline) var(--color-border-strong);
+}
+
+.message {
+  margin: 0;
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+  color: var(--color-ink);
+}
+
+.dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* §9: ≥44 px target, on a control a thumb has to find on a phone. */
+  min-width: var(--target-console);
+  min-height: var(--target-console);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+}
+
+.dismiss:hover {
+  background: var(--color-neutral-bg);
+  color: var(--color-ink);
+}

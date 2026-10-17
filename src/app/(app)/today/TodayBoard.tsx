@@ -20,6 +20,7 @@ import {
   type RideView,
 } from "@/domain/board/board";
 import { board as boardCopy, etaText, fill, onDay, serviceDate } from "@/ui/copy";
+import { SearchField } from "@/ui/SearchField";
 import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
 import {
@@ -50,7 +51,10 @@ import styles from "./today.module.css";
  * words and boxes, and decides nothing about the day.
  *
  * Keyboard (§4.1): J and K move between rides and Enter opens one, which is also what the row's
- * own button does, so nothing here is keyboard-only or mouse-only.
+ * own button does, so nothing here is keyboard-only or mouse-only. The line that said so above
+ * the rows is gone — Vera's review, 2026-10-17 2:44 PM ET — and the keys are not: every row is
+ * reachable by Tab and by its own button, so the hint was a sentence about a shortcut rather
+ * than the only way to work the board.
  */
 export function TodayBoard({ board, query }: { board: Board; query: string }) {
   const { day } = board;
@@ -109,6 +113,14 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
         </p>
       </header>
 
+      {/*
+        Search, under the board's own title (Vera's review, 2026-10-17 2:44 PM ET). It used to
+        sit in the shell's header on every screen, including the four that have nothing to
+        search; it searches *these rows*, so it belongs to them. It submits `?q=` to this page,
+        which is where it always went (src/app/(app)/today/page.tsx).
+      */}
+      <SearchField />
+
       <div className={styles.filters}>
         <button
           type="button"
@@ -139,7 +151,6 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
         </p>
       ) : (
         <>
-          <p className={styles.hint}>{boardCopy.keyboardHint}</p>
           <table className={styles.table}>
             {/*
               The caption is read before the first row, so it names the day the heading does —

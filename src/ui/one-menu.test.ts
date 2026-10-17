@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { LAYOUT, PAGES, ROLE_LADDER, homePathFor } from "@/auth/access";
+import { layout } from "./tokens";
 import { navItems, navItemsFor } from "./nav-items";
 
 /**
@@ -20,7 +21,7 @@ import { navItems, navItemsFor } from "./nav-items";
  * Read off the filesystem and the source, because vitest runs in node with no DOM: what is
  * proved here is that each route's layout chain mounts the one shell component and hands it the
  * one caller → role mapping. That the browser then paints it is e2e/one-menu.spec.ts, which
- * measures the rail and the phone drawer on all three screens.
+ * measures the rail and the phone tab bar on all three screens.
  */
 const UI = __dirname;
 const SRC = path.resolve(UI, "..");
@@ -100,7 +101,7 @@ describe("every destination in the menu renders the menu", () => {
       /role=\{caller\.kind === "STAFF" \? caller\.role : null\}/,
     );
     // And both rails filter with that one function rather than listing destinations again.
-    for (const component of ["NavRail.tsx", "MobileNav.tsx"]) {
+    for (const component of ["NavRail.tsx", "TabBar.tsx"]) {
       expect(read(path.join(UI, component)), component).toMatch(/navItemsFor\(role\)/);
     }
   });
@@ -116,13 +117,15 @@ describe("every destination in the menu renders the menu", () => {
   });
 
   /**
-   * The front desk is the role this mattered most for: they have no console page, so the ramp
-   * iPad is where they land, and before this change the screen they start their day on was the
-   * one screen with no way off it.
+   * The front desk is the role this mattered most for: they have no console page, so one of the
+   * three screens outside the group is where they land, and before this change the screen they
+   * start their day on was the one screen with no way off it.
    */
   it("the front desk lands on a screen with the menu on it", () => {
     const landing = homePathFor({ kind: "STAFF", role: "FRONT_DESK", userId: "u-f" });
-    expect(landing).toBe("/ramp-ipad");
+    // Firia's final ruling, 2026-10-17 3:08 PM ET: "Front desk gets two tabs, Live map (their
+    // home) and Ramp iPad." `homePathFor` is what sign-in, `/` and every refusal read.
+    expect(landing).toBe("/live-map");
     const chain = layoutChainOf(pageFileOf(landing));
     expect(chain.some((file) => /<ConsoleShell\b/.test(read(file))), landing).toBe(true);
     // And the menu they find there is their own two destinations, not a list of 403s.
@@ -165,48 +168,74 @@ describe("one `main` landmark per screen (§9)", () => {
 });
 
 /**
- * The phone drawer, from the same walk: "You can't click on anything."
+ * THE MENU ON A PHONE: a bottom tab bar, and no drawer left to open.
  *
- * The drawer was positioned against the hamburger's own 44 px wrapper, so `left: 0; right: 0`
- * measured 44 px — every label broken one word per line, Sign out crushed to a sliver. The rules
- * below are what make it a full-width sheet under the header instead; e2e/one-menu.spec.ts
- * measures the result at 390 px, which is the half a stylesheet assertion cannot prove.
+ * Firia's final ruling, 2026-10-17 3:08 PM ET, which supersedes the 3:07 PM full-height panel:
+ * "On phone, the menu is the bottom tab bar in #64, not the left panel. There's no hamburger
+ * and no side panel on phone." So the rules below are about a bar that is always on screen, and
+ * the first of them is that the drawer is *gone* — not hidden, not behind a flag, deleted, with
+ * its stylesheet and its "Open menu" copy. e2e/one-menu.spec.ts measures the bar at 390 px on
+ * every screen; what is proved here is that there is one and that nothing of the old one is
+ * left to come back.
  */
-describe("§2 hamburger drawer, <768", () => {
-  const css = read(path.join(UI, "MobileNav.module.css"));
+describe("§2 bottom tab bar, <768", () => {
+  const css = read(path.join(UI, "TabBar.module.css"));
   const phone = css.slice(css.indexOf("@media (max-width: 767px)"));
 
-  it("does not position the hamburger's wrapper, so the drawer is not the button's width", () => {
-    expect(phone).toMatch(/\.wrap \{[^}]*display: block/);
-    expect(phone).not.toMatch(/\.wrap \{[^}]*position:/);
-    // The header is what it anchors to instead, and the header is positioned for it.
-    expect(read(path.join(UI, "AppShell.module.css"))).toMatch(/\.header \{[^}]*position: relative/);
+  it("has no hamburger and no drawer anywhere in the app", () => {
+    for (const gone of ["MobileNav.tsx", "MobileNav.module.css"]) {
+      expect(existsSync(path.join(UI, gone)), gone).toBe(false);
+    }
+    const sources = readdirSync(UI)
+      .filter((f) => f.endsWith(".tsx") && !f.endsWith(".test.tsx"))
+      .map((f) => [f, read(path.join(UI, f))] as const);
+    for (const [file, source] of sources) {
+      expect(source, file).not.toMatch(/MobileNav|data-nav-drawer|nav\.openMenu|nav\.closeMenu/);
+    }
+    // And the two words a hamburger needs are not sitting in copy.ts waiting for one.
+    const copy = read(path.join(UI, "copy.ts"));
+    expect(copy).not.toMatch(/openMenu|closeMenu/);
   });
 
-  it("spans the width it is anchored to, with no width cap left on it", () => {
-    const drawer = css.slice(css.indexOf(".drawer {"), css.indexOf(".drawer[hidden]"));
-    expect(drawer).toMatch(/left: 0/);
-    expect(drawer).toMatch(/right: 0/);
-    expect(drawer).toMatch(/top: 100%/);
-    expect(drawer).not.toMatch(/max-width/);
-    // Seven destinations plus the identity can be taller than a phone: scroll, never clip.
-    expect(drawer).toMatch(/overflow-y: auto/);
+  it("is on screen without being opened, and only below 768", () => {
+    // No `hidden`, no `aria-expanded`, no state: a tab bar has nothing to toggle.
+    const component = read(path.join(UI, "TabBar.tsx"));
+    expect(component).not.toMatch(/useState\(|aria-expanded|\shidden=/);
+    expect(css).toMatch(/\.bar \{\s*display: none/);
+    expect(phone).toMatch(/\.bar \{[^}]*display: block/);
+    expect(phone).toMatch(/\.bar \{[^}]*position: fixed/);
+    expect(phone).toMatch(/\.bar \{[^}]*bottom: 0/);
   });
 
-  it("keeps every row a §9 target and every label on one line", () => {
-    const link = css.slice(css.indexOf(".link {"), css.indexOf('.link[aria-current="page"]'));
-    expect(link).toMatch(/min-height: var\(--target-console\)/);
-    expect(link).toMatch(/white-space: nowrap/);
-    // Sign out is the row under them, and it is full width inside the drawer.
-    expect(read(path.join(UI, "SignOutButton.module.css"))).toMatch(
-      /min-height: var\(--target-console\)/,
+  it("gives every tab a §9 target, an icon and a label", () => {
+    const tab = css.slice(css.indexOf(".tab {"), css.indexOf('.tab[aria-current="page"]'));
+    expect(tab).toMatch(/min-height: var\(--layout-tab-bar-height\)/);
+    expect(layout.tabBarHeight).toBe("64px");
+    expect(Number.parseInt(layout.tabBarHeight, 10)).toBeGreaterThanOrEqual(44);
+    const component = read(path.join(UI, "TabBar.tsx"));
+    expect(component).toMatch(/<Icon size=\{icon\.nav\}/);
+    expect(component).toMatch(/\{item\.label\}/);
+  });
+
+  it("marks the page you are on by more than colour", () => {
+    expect(read(path.join(UI, "TabBar.tsx"))).toMatch(/aria-current=\{current \? "page" : undefined\}/);
+    const current = css.slice(css.indexOf('.tab[aria-current="page"]'));
+    expect(current).toMatch(/border-top-color: var\(--color-brand\)/);
+    expect(current).toMatch(/font-weight: var\(--weight-semibold\)/);
+  });
+
+  it("sits clear of the iPhone home bar, and the page clears the bar", () => {
+    expect(phone).toMatch(/padding-bottom: env\(safe-area-inset-bottom, 0px\)/);
+    // The same two lengths on the page's side, so nothing is hidden behind the bar.
+    const shell = read(path.join(UI, "AppShell.module.css"));
+    const shellPhone = shell.slice(shell.indexOf("@media (max-width: 767px)"));
+    expect(shellPhone).toMatch(
+      /padding-bottom: calc\(var\(--layout-tab-bar-height\) \+ env\(safe-area-inset-bottom, 0px\)\)/,
     );
   });
 
-  it("the three screens get the drawer, because they get the shell", () => {
-    // The hamburger is in the shell's header, so "the menu button is missing on these three"
-    // and "the menu is missing on these three" were one bug with one fix.
-    expect(read(path.join(UI, "AppShell.tsx"))).toMatch(/<MobileNav /);
+  it("the three screens get the bar, because they get the shell", () => {
+    expect(read(path.join(UI, "AppShell.tsx"))).toMatch(/<TabBar role=\{role\} \/>/);
     expect(shellLayouts).toHaveLength(4);
     expect(LAYOUT.planRoutes).toBe("layout:plan-routes");
   });

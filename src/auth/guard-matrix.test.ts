@@ -28,6 +28,7 @@ import {
 } from "./access";
 import type { Membership } from "./core";
 import { apiAccess, fill, noAccess } from "@/ui/copy";
+import { NOT_ON_YOUR_MENU, withNotice } from "@/ui/notice";
 
 /**
  * THE MATRIX: every role × every page, and every role × every endpoint, asked of the server.
@@ -42,8 +43,14 @@ import { apiAccess, fill, noAccess } from "@/ui/copy";
  * What a cell asserts, per outcome:
  *  - ALLOW      → the page function returns, i.e. it rendered for that role;
  *  - SIGN_IN    → it threw Next's redirect, to /login;
- *  - NO_ACCESS  → **both halves of the answer**, because a status code with the page still in
- *                 the body is not a refusal:
+ *  - NO_ACCESS, caller holds a role → it threw Next's redirect, to **their own home** carrying
+ *                 `?notice=not-on-your-menu` (§9.3, Firia/Vera 2026-10-17). The refusal page was
+ *                 a dead end on production — a card and no way back — so a person who has a
+ *                 screen of their own is put on it and told why. Nothing is loosened: the page
+ *                 still does not render for them, and the API cells below still answer 403 to
+ *                 the same caller;
+ *  - NO_ACCESS, caller holds no role anywhere → **both halves of the answer**, because a status
+ *                 code with the page still in the body is not a refusal:
  *                   · the status — Next's own `getAccessFallbackHTTPStatus` on the thrown
  *                     interrupt, which must be exactly 403;
  *                   · the body — the `forbidden.tsx` Next would render for that page, rendered
@@ -379,6 +386,22 @@ describe("every page, for every role and for a signed-out visitor", () => {
           return;
         }
         expect(expected).toBe("NO_ACCESS");
+        if (caller.kind === "STAFF") {
+          /*
+           * A role with pages of its own is moved to the first of them and told why, rather
+           * than shown a card it cannot leave (§9.3). The destination is `homePathFor`, which
+           * reads the same table that just refused, so it is never a page they would be
+           * refused again.
+           */
+          expect(result).toEqual({
+            rendered: false,
+            interrupt: {
+              kind: "redirect",
+              to: withNotice(homePathFor(caller), NOT_ON_YOUR_MENU),
+            },
+          });
+          return;
+        }
         // Half one: the status line is a real 403, as Next's own reader reports it.
         expect(result).toEqual({ rendered: false, interrupt: { kind: "http", status: 403 } });
         // Half two: and the body it answers with holds nothing the page would have shown.
@@ -387,14 +410,22 @@ describe("every page, for every role and for a signed-out visitor", () => {
     }
   }
 
-  it("the front desk is refused all four console pages, with a 403 and never an empty frame", async () => {
-    for (const p of ["/today", "/exceptions", "/setup", "/health"]) {
+  /**
+   * The front desk, on the four console pages their row does not open. None of them renders —
+   * which is the half that matters — and none of them answers with the refusal card either:
+   * they land on the live map, their own home since Firia's 3:08 PM ET ruling, with the one
+   * line that says why. The page module is still the thing being called, so this is the
+   * server's answer and not a rail's.
+   */
+  it("the front desk is sent home from all four console pages, never shown a refusal", async () => {
+    const home = withNotice(homePathFor(CALLERS.frontDesk), NOT_ON_YOUR_MENU);
+    expect(home).toBe("/live-map?notice=not-on-your-menu");
+    for (const p of ["/today", "/exceptions", "/setup", "/health", "/plan-routes"]) {
       const page = pageFiles.find((f) => f.path === p) as { file: string; path: string };
       getCaller.mockResolvedValue(CALLERS.frontDesk);
       expect({ p, ...(await openPage(page.file)) }).toEqual({
-        p, rendered: false, interrupt: { kind: "http", status: 403 },
+        p, rendered: false, interrupt: { kind: "redirect", to: home },
       });
-      await expectNothingLeaked(page, "frontDesk", CALLERS.frontDesk);
     }
   });
 
@@ -426,12 +457,13 @@ describe("every page, for every role and for a signed-out visitor", () => {
      * neither the guard nor the copy may name a code (no-access.test.ts scans the copy too).
      */
     const page = pageFiles.find((f) => f.path === "/today") as { file: string; path: string };
-    getCaller.mockResolvedValue(CALLERS.frontDesk);
+    // The caller who still gets the card: signed in, no membership anywhere, no home to go to.
+    getCaller.mockResolvedValue(CALLERS.noRole);
     const refused = await openPage(page.file);
     expect(refused).toEqual({ rendered: false, interrupt: { kind: "http", status: 403 } });
-    getCaller.mockResolvedValue(CALLERS.frontDesk);
+    getCaller.mockResolvedValue(CALLERS.noRole);
     const body = readable(await toHtml((await import(/* @vite-ignore */ boundaryFor(page.file))).default({})));
-    expect(body).toContain(noAccess.heading);
+    expect(body).toContain(noAccess.noRoleHeading);
     expect(body).not.toMatch(/40\d/);
     expect(readFileSync(path.join(SRC, "auth", "page-guard.ts"), "utf8")).toMatch(/forbidden\(\)/);
   });
