@@ -26,14 +26,19 @@ export const maxDuration = 120;
 //
 // Two reasons to ack without work, both logged rather than silent:
 //  * previews share the one production DB read-only (DECISION-LEDGER #43), as on every queue route;
-//  * this deployment has no §11.1 context assembler to drive a run *with* (`agentRunner`), so a run
-//    would have to be driven against a scope the runtime invented — fail shut instead.
+//  * this deployment has no vendor it may call at all (`agentRunner`) — a base URL off the
+//    allow-list is not a thing a redelivery fixes. A *missing key* is not one of these: that
+//    degrades to the PRD §18.1 keyword parser and the run still ends in front of a person.
 export const POST = handleCallback(async (message: unknown) => {
   const skip = previewSkip(process.env);
   if (skip) { console.log(`[queue:agent] ${skip.skipped} (${skip.reason})`); return; }
-  const runner = agentRunner();
+  const db = getNeonDb();
+  const runner = agentRunner(db);
   if (!runner.ok) { console.log(`[queue:agent] ${runner.skipped} (${runner.reason})`); return; }
-  const outcome = await handleAgentWake(getNeonDb(), message, { deps: runner.deps });
+  // Said once per delivery when it applies: a run answered by the keyword parser is a degraded
+  // run, and the log is where that is visible without reading the run's rows.
+  if (runner.degraded) console.log(`[queue:agent] degraded provider (${runner.reason})`);
+  const outcome = await handleAgentWake(db, message, { deps: runner.deps });
   console.log(`[queue:agent] ${agentWakeLog(outcome)}`);
 }, {
   // Longer than the per-run lease, so the first redelivery after a dead driver finds a run it can

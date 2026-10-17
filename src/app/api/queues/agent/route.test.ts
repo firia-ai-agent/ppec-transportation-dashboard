@@ -8,8 +8,9 @@
  *     `handleCallback` before our handler is called at all — asserted against the *real*
  *     `@vercel/queue`, not a stand-in, because "the platform checks it" is the whole auth story
  *     this row claims (`src/auth/access.ts`, `queue-callback`).
- *  2. **A delivery nobody can act on acks without work**, and says which of the two reasons it
- *     was — and does not open a database handle on the way.
+ *  2. **What it does with a delivery**: a preview acks without work and without a database
+ *     handle; everything else is driven, with a degraded vendor named in the log rather than
+ *     left to be inferred from the run's rows.
  *  3. **Its delivery knobs are the ones the lease was chosen against**, including the vercel.json
  *     trigger, which cannot import a constant and so is pinned here instead.
  */
@@ -17,7 +18,6 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_DELIVERIES } from "@/modules/jobs/scheduler";
-import { AGENT_RUNNER_NO_CONTEXT_SOURCE } from "@/modules/agent/run/deps";
 import {
   AGENT_QUEUE_RETRY_AFTER_SECONDS,
   AGENT_QUEUE_VISIBILITY_TIMEOUT_SECONDS,
@@ -46,6 +46,23 @@ vi.mock("@vercel/queue", async (importOriginal) => {
       seen.options = options as typeof seen.options;
       return real.handleCallback(seen.handler, options as Parameters<typeof real.handleCallback>[1]);
     },
+  };
+});
+
+/**
+ * A database handle that answers every read with no rows. Enough for the lease to refuse an
+ * unknown run, which is the outcome this suite wants, and it keeps the route off a real
+ * connection — `getNeonDb()` would throw without `DATABASE_URL`.
+ */
+vi.mock("@/db/exec", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/db/exec")>();
+  return {
+    ...real,
+    getNeonDb: () => ({
+      query: async () => ({ rows: [] }),
+      tx: async (fn: (tx: unknown, after: (h: () => Promise<void>) => void) => unknown) =>
+        fn({ query: async () => ({ rows: [] }) }, () => {}),
+    }),
   };
 });
 
@@ -89,19 +106,43 @@ describe("the route is reachable only as a queue callback", () => {
   });
 });
 
-describe("a delivery nobody can act on is acked, and says why", () => {
-  it("no §11.1 context assembler: the run is not driven, and no database handle is opened", async () => {
+describe("what a delivery does", () => {
+  /**
+   * The §11.1 assembler exists now (`run/assembler.ts`), so a well-formed wake-up is **driven**:
+   * it reaches the per-run lease, which refuses a run this database does not have and acks. The
+   * database is a stub rather than a real one because what this asserts is the route's wiring —
+   * the lease's own answers are `run/lease.test.ts`, against a real schema.
+   *
+   * It also asserts the thing the old "no runner" case used to: a deployment with no
+   * `$OPENROUTER_API_KEY` still drives the run, on the PRD §18.1 keyword parser, and says so.
+   */
+  it("drives the wake-up, and names the degraded vendor when there is no key", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     await load();
 
-    // A well-formed wake-up, delivered straight to the consumer: it still does no work, because a
-    // run driven against a scope the runtime invented is the one thing worse than no runner.
     await seen.handler!({ runId: "00000000-0000-7000-8000-00000000000a", siteId: "00000000-0000-7000-8000-000000000001" });
 
-    expect(log).toHaveBeenCalledTimes(1);
-    expect(log.mock.calls[0][0]).toBe(`[queue:agent] no agent runner (${AGENT_RUNNER_NO_CONTEXT_SOURCE})`);
-    // `getNeonDb()` would have thrown without DATABASE_URL, which is the evidence that it was not
-    // reached: a delivery that cannot be acted on must not cost a connection either.
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    expect(lines.some((l) => l.startsWith("[queue:agent] degraded provider ("))).toBe(true);
+    // The run was driven: the lease is what answered, and it refused a run this database has not
+    // got rather than the route refusing to look.
+    expect(lines.some((l) => l.startsWith("[queue:agent] refused missing run="))).toBe(true);
+  });
+
+  /**
+   * The same delivery on a deployment that *has* confirmed demo-data operation but has no key:
+   * still driven, still degraded, and the reason names the environment variable — never a value.
+   * This is the one that matters for the founder's deployment, where the two demo vars are set.
+   */
+  it("names the missing key by its variable when the demo-data guard passes", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await load({ AGENT_DEMO_DATA_ONLY: "true", APP_DATA_CLASS: "SYNTHETIC", OPENROUTER_API_KEY: undefined });
+
+    await seen.handler!({ runId: "00000000-0000-7000-8000-00000000000a", siteId: "00000000-0000-7000-8000-000000000001" });
+
+    const lines = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(lines).toContain("$OPENROUTER_API_KEY");
+    expect(lines).toContain("degraded provider");
   });
 
   it("previews ack without work, as on every queue route (DECISION-LEDGER #43)", async () => {
@@ -125,11 +166,12 @@ describe("a delivery nobody can act on is acked, and says why", () => {
     const at = (needle: string) => body.indexOf(needle);
 
     expect(at("previewSkip")).toBeGreaterThan(-1);
-    expect(at("previewSkip")).toBeLessThan(at("agentRunner()"));
-    // The database handle and the drive are the same statement; both are below the two checks.
-    for (const later of ["getNeonDb()", "handleAgentWake"]) {
-      expect({ later, after: at(later) > at("agentRunner()") }, later).toEqual({ later, after: true });
+    // Nothing is read, claimed or driven above the preview check: not the database handle, not
+    // the runner, not the lease.
+    for (const later of ["getNeonDb()", "agentRunner(db)", "handleAgentWake"]) {
+      expect({ later, after: at(later) > at("previewSkip") }, later).toEqual({ later, after: true });
     }
+    expect(at("agentRunner(db)")).toBeLessThan(at("handleAgentWake"));
   });
 });
 

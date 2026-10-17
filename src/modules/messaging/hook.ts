@@ -27,7 +27,16 @@ export type InboundMessageEvent = {
   consentKind: ConsentKind | null;
 };
 
-export type InboundMessageHook = (tx: Exec, event: InboundMessageEvent) => Promise<void>;
+/**
+ * `afterCommit` is the webhook transaction's own (`db.tx`): the run row is written in the
+ * transaction and the queue wake-up is published after it lands, because a consumer that reads
+ * the row before the commit finds nothing to drive. The no-op below uses neither.
+ */
+export type InboundMessageHook = (
+  tx: Exec,
+  event: InboundMessageEvent,
+  afterCommit: (handler: () => Promise<void>) => void,
+) => Promise<void>;
 
 /** P1 default: record and stop. No LLM call anywhere in B-04. */
 export const noopInboundMessageHook: InboundMessageHook = async () => {};
