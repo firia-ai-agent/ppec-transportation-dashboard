@@ -381,8 +381,8 @@ describe("the screen's own rules", () => {
       planLanes(scenario).map((lane) => lane.capability.serviceDate),
     );
     expect([...new Set(dates)]).toEqual([PLAN_SERVICE_DATE]);
-    expect(screen.match(/serviceDateLabel\(/g)).toHaveLength(1);
-    expect(screen).toMatch(/const SERVICE_DATE_LABEL = serviceDateLabel\(/);
+    expect(screen.match(/demoDateLabel\(/g)).toHaveLength(1);
+    expect(screen).toMatch(/const SERVICE_DATE_LABEL = demoDateLabel\(/);
     expect(screen).toMatch(/date: SERVICE_DATE_LABEL/);
   });
 
