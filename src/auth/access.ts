@@ -32,7 +32,7 @@
  */
 import type { StaffRole } from "@/auth/core";
 import type { MapViewer } from "@/domain/access/map-view";
-import { fill, login, mapPreview, nav, noAccess, planRoutes, rampPreview, roleNames, whoami } from "@/ui/copy";
+import { fill, login, mapPreview, nav, noAccess, phonePanel, planRoutes, rampPreview, roleNames, whoami } from "@/ui/copy";
 
 /** Most capable first. The order the `{who}` line and `mostCapable` read. */
 export const ROLE_LADDER = ["DIRECTOR", "COORDINATOR", "FRONT_DESK"] as const;
@@ -318,6 +318,27 @@ export const PAGES: readonly PageRow[] = [
     path: "/plan-preview",
     access: { roles: CONSOLE },
     label: planRoutes.heading,
+  },
+  /**
+   * The parent phone panel (DESIGN-DIRECTION §6.3): the texts the demo sent to a family, read as
+   * the family reads them — where a founder clicks through from a child on the board to the text
+   * that went out (PRD §18.2 step 7).
+   *
+   * The same roles as the persona-phone endpoint below, and settled by the same three sentences
+   * rather than by a default: PRD §1.1 gives the "Web console (desktop + iPad)" to the
+   * "Transport/attendance coordinator, director"; PRD §6.2's ownership table lists Messages as
+   * written by "adapters only" and puts the front desk down as the writer of "Actual
+   * attendance/custody" alone, so a family's thread is not part of their job; and §12 is
+   * minimum-necessary, which is what decides a PHI-adjacent screen for a role with no task that
+   * needs it. The page and the endpoint it reads through therefore cannot disagree about who may
+   * see a thread.
+   */
+  {
+    kind: "page",
+    file: "src/app/(app)/phone-preview/page.tsx",
+    path: "/phone-preview",
+    access: { roles: CONSOLE },
+    label: phonePanel.heading,
   },
   /**
    * SURF-04, the ramp iPad: the front desk's own surface (PRD §6.2, ARCHITECTURE §1), and a
@@ -607,7 +628,7 @@ export function apiOutcome(caller: Caller, path: string): ApiOutcome {
  * the front desk, who has no console page, lands on the ramp check rather than on a refusal.
  * That landing page is the `/ramp-preview` row's open question above.
  */
-const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/plan-preview", "/ramp-preview", "/map-preview", "/whoami"] as const;
+const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/plan-preview", "/phone-preview", "/ramp-preview", "/map-preview", "/whoami"] as const;
 
 /** Where this caller is sent when they need somewhere to be: their own first page, or sign-in. */
 export function homePathFor(caller: Caller): string {

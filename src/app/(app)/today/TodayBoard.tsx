@@ -52,7 +52,20 @@ import styles from "./today.module.css";
  * Keyboard (§4.1): J and K move between rides and Enter opens one, which is also what the row's
  * own button does, so nothing here is keyboard-only or mouse-only.
  */
-export function TodayBoard({ board, query }: { board: Board; query: string }) {
+export function TodayBoard({
+  board,
+  query,
+  textedChildKeys = [],
+}: {
+  board: Board;
+  query: string;
+  /**
+   * Children whose family the day has texted (PRD §18.2 step 7). Computed on the server and
+   * handed down, so the board carries no replay engine into the browser and the drawer's link to
+   * the §6.3 phone panel only exists where there is a text to read.
+   */
+  textedChildKeys?: readonly string[];
+}) {
   const { day } = board;
   const [onlyNeedsAction, setOnlyNeedsAction] = useState(false);
   const [openChild, setOpenChild] = useState<string | null>(null);
@@ -207,7 +220,12 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
       )}
 
       {openLegs.length > 0 ? (
-        <LegDrawer legs={openLegs} day={day} onClose={() => setOpenChild(null)} />
+        <LegDrawer
+          legs={openLegs}
+          day={day}
+          hasTexts={textedChildKeys.includes(openLegs[0].child.childKey)}
+          onClose={() => setOpenChild(null)}
+        />
       ) : null}
     </div>
   );

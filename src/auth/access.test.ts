@@ -260,6 +260,7 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/exceptions": "DIRECTOR+COORDINATOR",
       "/setup": "DIRECTOR+COORDINATOR",
       "/health": "DIRECTOR+COORDINATOR",
+      "/phone-preview": "DIRECTOR+COORDINATOR",
       "/plan-preview": "DIRECTOR+COORDINATOR",
       "/whoami": "DIRECTOR+COORDINATOR+FRONT_DESK",
       "/map-preview": "DIRECTOR+COORDINATOR+FRONT_DESK",
@@ -440,7 +441,7 @@ describe("where each role lives", () => {
   });
 
   it("offers each role only the nav items it can open", () => {
-    const console = ["/today", "/plan-preview", "/exceptions", "/setup", "/health"];
+    const console = ["/today", "/plan-preview", "/phone-preview", "/exceptions", "/setup", "/health"];
     expect(navItemsFor("DIRECTOR").map((i) => i.href)).toEqual(console);
     expect(navItemsFor("COORDINATOR").map((i) => i.href)).toEqual(console);
     // The front desk's row opens no console destination, Plan routes included: deciding which

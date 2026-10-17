@@ -1,0 +1,210 @@
+/*
+ * The parent phone panel (DESIGN-DIRECTION §6.3 persona phones, §8 tokens).
+ *
+ * Every colour, size and space is a custom property emitted from src/ui/tokens.ts; this file
+ * holds no literal (src/ui/no-hex.test.ts holds that line). The frame is phone-shaped and
+ * carries no Apple mark of any kind (§6.3) — it is a rounded surface with a banner across the
+ * top, which is as much "phone" as this needs to be.
+ */
+
+.page {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  padding-bottom: var(--space-8);
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--text-24);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.intro {
+  margin: 0;
+  max-width: 70ch;
+  color: var(--color-ink-muted);
+  line-height: var(--leading-normal);
+}
+
+/* One tab per family the day texted. Links, so a thread has its own URL to share. */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-console);
+  padding: 0 var(--space-4);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  text-decoration: none;
+}
+
+/* §3: the fill is never the only cue — the current tab is also the one marked for a reader. */
+.tab[aria-current="page"] {
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral-fg);
+  font-weight: var(--weight-semibold);
+}
+
+.tab:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+/* §6.3: the phone itself. 390 px is the phone width the design direction measures against. */
+.phone {
+  display: grid;
+  gap: 0;
+  width: 100%;
+  max-width: 420px;
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+/*
+ * The "Simulated phone" banner §6.3 asks for, across the top of the frame where a phone's status
+ * bar would be — so a screenshot of this panel cannot be mistaken for a screenshot of a phone.
+ *
+ * Deliberately **not** violet. D-5 reserves the violet for the DEMO bar, the Simulated chip and a
+ * control that steers the demo, and tokens.test.ts holds that to three stylesheets because a
+ * fourth violet element is how the colour stops meaning "this is the demo". The chip sitting on
+ * this banner is the violet one (§7.1) and it is the one that has to be; the banner itself is the
+ * §3 neutral tone, which is what it is — a fact about the panel, not a status of the thread.
+ */
+.simBanner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral-fg);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  border-bottom: var(--border-hairline) solid var(--color-border-strong);
+}
+
+.simChip {
+  margin-left: auto;
+}
+
+.threadHeader {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-bottom: var(--border-hairline) solid var(--color-border-strong);
+}
+
+.threadHeading {
+  margin: 0;
+  font-size: var(--text-16);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.threadWho,
+.threadRide,
+.threadDay {
+  margin: 0;
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+  line-height: var(--leading-normal);
+}
+
+.thread {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: var(--space-4);
+  list-style: none;
+}
+
+.bubbleRow {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 92%;
+}
+
+/*
+ * The center's messages on one side, the family's on the other, and never the only cue — each
+ * bubble says who it is from. The *row* is justified; the words inside it stay left-aligned,
+ * because a right-aligned paragraph is harder to read and a text message is a paragraph.
+ */
+.bubbleRow[data-direction="OUT"] {
+  justify-self: end;
+  justify-items: end;
+}
+
+.bubbleWho {
+  margin: 0;
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  color: var(--color-ink-muted);
+}
+
+.bubble {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  line-height: var(--leading-normal);
+}
+
+.bubbleRow[data-direction="OUT"] .bubble {
+  background: var(--color-info-bg);
+  color: var(--color-info-fg);
+}
+
+/*
+ * A message that never left the center (blocked at egress, or out of date) is drawn as an
+ * outline and never as a delivered bubble — the §3 state chip beside it says which, and the
+ * styling must not contradict it (demo step 10).
+ */
+.bubbleRow[data-reached="false"] .bubble {
+  background: var(--color-surface);
+  color: var(--color-ink-muted);
+  border-style: dashed;
+}
+
+.bubbleMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-ink-muted);
+}
+
+/* Where the thread came from, in a sentence (thread.ts chooses). */
+.source {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--border-hairline) solid var(--color-border-strong);
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+  line-height: var(--leading-normal);
+}

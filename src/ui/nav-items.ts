@@ -1,7 +1,7 @@
-import { Activity, Flag, LayoutDashboard, Route, Settings, type LucideIcon } from "lucide-react";
+import { Activity, Flag, LayoutDashboard, MessagesSquare, Route, Settings, type LucideIcon } from "lucide-react";
 import { canOpenPage } from "@/auth/access";
 import type { StaffRole } from "@/auth/core";
-import { nav, planRoutes } from "./copy";
+import { nav, phonePanel, planRoutes } from "./copy";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon };
 
@@ -28,10 +28,17 @@ export type NavItem = { href: string; label: string; icon: LucideIcon };
  * only by typing the URL or through the map preview, which is not a way anybody finds a screen.
  * Its label is the heading of the screen itself rather than a second string in `nav`, so the
  * rail and the page cannot drift apart.
+ *
+ * Family texts is the sixth, and the same argument: the persona-phone panel (§6.3) is where the
+ * text a family was actually sent is read, and it was reachable only by typing the URL. Its icon
+ * is `messages-square` — a thread, two bubbles — which neither §3 nor §7.1 gives a meaning to;
+ * `message-square` on its own is the §3 inbound-message mark, so the rail takes the plural one
+ * and the state keeps the singular (nav-items.test.ts fails on the collision either way).
  */
 export const navItems: readonly NavItem[] = [
   { href: "/today", label: nav.today, icon: LayoutDashboard },
   { href: "/plan-preview", label: planRoutes.heading, icon: Route },
+  { href: "/phone-preview", label: phonePanel.heading, icon: MessagesSquare },
   { href: "/exceptions", label: nav.exceptions, icon: Flag },
   { href: "/setup", label: nav.setup, icon: Settings },
   { href: "/health", label: nav.health, icon: Activity },

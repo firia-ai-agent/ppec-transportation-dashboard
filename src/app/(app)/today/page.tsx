@@ -1,5 +1,6 @@
 import { requirePage } from "@/auth/page-guard";
 import { buildBoard, requestedServiceDay } from "@/domain/board/board";
+import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
 import { TodayBoard } from "./TodayBoard";
 
 /** The guard reads a session, so this route is never statically rendered. */
@@ -46,6 +47,12 @@ export default async function Page({
   // shell that asked for the override there is one day to be on: the demo day (PRD §6.1).
   const query = one(params.q) ?? "";
   const board = buildBoard(requestedServiceDay(one(params.date), process.env));
+  /*
+   * Which children's families this day texted (PRD §18.2 step 7 / AT-03), from the same
+   * projection the phone panel renders. Computed here, on the server, so the drawer can offer the
+   * thread for a child that has one and say plainly that there is none for a child that does not.
+   */
+  const textedChildKeys = demoLateDropoffs(board.day).map((text) => text.childKey);
 
-  return <TodayBoard board={board} query={query} />;
+  return <TodayBoard board={board} query={query} textedChildKeys={textedChildKeys} />;
 }

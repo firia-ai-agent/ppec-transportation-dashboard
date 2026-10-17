@@ -605,6 +605,59 @@ export const whoami = {
  * that says it belongs here. Voice rules from §1 apply: plain, honest about certainty, a need
  * is never a diagnosis.
  */
+/**
+ * The parent phone panel (DESIGN-DIRECTION §6.3 "Persona phones", COPY-GUIDE §5): the texts the
+ * demo sends to a family, read as a family reads them.
+ *
+ * Two kinds of sentence live here, and the difference matters:
+ *  - the **thread's own chrome** — who the phone belongs to, which child the texts are about,
+ *    which van the ride is on. Staff-facing, so people are named (COPY-GUIDE §1): "Dara O. is
+ *    Noah's parent" is a thing a coordinator can check, "an adult on file" is not.
+ *  - the **source line**, which says where the bubbles came from. The panel can read the real
+ *    message log or project the demo day's own replay, and a thread that did not say which it was
+ *    showing would be the one screen in this app that could be mistaken for a real send.
+ *
+ * The *messages* themselves are not here: a body belongs to `outboundSms` above, because it is
+ * the outbox that owns the words that leave the building (Veri #12). Nothing in this block ever
+ * appears inside a bubble.
+ */
+export const phonePanel = {
+  heading: "Family texts",
+  documentTitle: "Family texts · PPEC transportation",
+  intro:
+    "What the demo sends to a family's phone, on the day it sends it. Nothing here leaves the building.",
+  /** §6.3: the phone carries its own banner, under the one in the header. */
+  simulatedPhone: "Simulated phone",
+  /** The tab list: one phone per family the day has a text for. */
+  pickPhone: "Whose phone",
+  /** A tab, "Dara O. · Noah". */
+  tab: "{adult} · {child}",
+  /** The phone's own heading: who holds it, and the number it is reachable on. */
+  threadHeading: "{adult} · {phone}",
+  /**
+   * A number as a person reads it, in the form the rest of the copy already uses for the
+   * center's own line ("(561) 555-0100"). The fixtures store a dialling form; no screen prints
+   * one.
+   */
+  phoneFormat: "({area}) {prefix}-{line}",
+  /** One line under it, naming the relationship rather than describing it. */
+  threadWho: "{adult} is {child}'s {relationship}.",
+  /** The ride these texts are about: the van by name, and who runs it. */
+  rideLine: "{child} rides home in the {van}, run by {provider}, to {place}.",
+  /** The day the thread is from — the same date the board names (PRD §6.1). */
+  dayLine: "Texts from {date}",
+  /** Read before the time under a bubble, for a screen reader (§9). */
+  timeLabel: "Sent {time}",
+  /** The two sources, each said plainly. */
+  fromLog: "These are the messages the center sent, with what happened to each one under it.",
+  fromScenario:
+    "The demo day has not run on this deployment, so these are the texts it sends when it does. Delivery is not shown, because nothing has been sent yet.",
+  empty: "No texts to this family on this day.",
+  emptyDay: "The demo day sends no family texts.",
+  /** The way back to the child this thread is about. */
+  backToBoard: "Open the board",
+} as const;
+
 export const rampPreview = {
   heading: "Ramp check",
   /** `{date}` is the site-timezone service date, "Tue, Oct 14" (§3). */
@@ -881,6 +934,12 @@ export const drawer = {
   receiverHeading: "Who receives the child",
   approvalsHeading: "Waiting for a decision",
   agentHeading: "Changes the assistant made",
+  /**
+   * The thread, from the child it is about (DESIGN-DIRECTION §4.2 is a list of sections and this
+   * is the one the §6.3 panel answers): a coordinator reading a late ride wants to know what the
+   * family was actually told, and the words are one click away rather than paraphrased here.
+   */
+  textsHeading: "Texts to the family",
   historyHeading: "History",
 
   /** §5: "Derived from intake, not a diagnosis." Shared with the ramp check, written once. */
@@ -918,6 +977,9 @@ export const drawer = {
 
   noApprovals: "Nothing is waiting for a decision about {child} today.",
   noAgentChanges: "The assistant has not changed anything for {child} today.",
+  /** The link to the phone panel, named for whose text it opens. */
+  openTexts: "See the text {child}'s family got",
+  noTexts: "Nothing has been texted to {child}'s family today.",
   /** §5: "Dana changed AM ride to Center van · ramp check didn't fit · 9:41 AM". */
   historyEmpty: "Nothing has changed for {child} today.",
   showHistory: "Show history",

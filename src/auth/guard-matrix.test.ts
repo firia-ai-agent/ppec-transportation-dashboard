@@ -315,7 +315,7 @@ describe("the harness itself works", () => {
   it("found every page on disk and can name each one's route", () => {
     const paths = pageFiles.map((p) => p.path).sort();
     expect(paths).toEqual(
-      ["/", "/_not-found", "/exceptions", "/health", "/login", "/map-preview", "/plan-preview", "/ramp-preview", "/setup", "/today", "/whoami"].sort(),
+      ["/", "/_not-found", "/exceptions", "/health", "/login", "/map-preview", "/phone-preview", "/plan-preview", "/ramp-preview", "/setup", "/today", "/whoami"].sort(),
     );
   });
 
@@ -375,9 +375,9 @@ describe("every page, for every role and for a signed-out visitor", () => {
 
   it("a signed-in person with no role anywhere is refused every staff page, body and all", async () => {
     const staffPages = pageFiles.filter((p) => pageOutcome(CALLERS.noRole, p.path) === "NO_ACCESS");
-    // Every page that asks for a role at all: the four console pages and the four previews.
+    // Every page that asks for a role at all: the four console pages and the five previews.
     expect(staffPages.map((p) => p.path).sort()).toEqual(
-      ["/exceptions", "/health", "/map-preview", "/plan-preview", "/ramp-preview", "/setup", "/today", "/whoami"],
+      ["/exceptions", "/health", "/map-preview", "/phone-preview", "/plan-preview", "/ramp-preview", "/setup", "/today", "/whoami"],
     );
     for (const page of staffPages) {
       getCaller.mockResolvedValue(CALLERS.noRole);
