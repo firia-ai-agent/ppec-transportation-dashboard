@@ -727,9 +727,14 @@ test.describe("Vera's bar: what a van's marker says", () => {
     // …and the demo violet paints those two things and nothing else on this screen (D-5).
     await expectVioletOnlyOnDemoChrome(page);
 
-    // One date, and it says which kind of day it is.
+    // One date, and it says which kind of day it is — asserted on the board's own date line
+    // rather than anywhere on the page, because since #59 the header's demo-clock button reads
+    // "Start demo day" (`scenarioClock.start`), and a bare text match for the phase would find
+    // that control as happily as the label. The line is the one that carries the date.
     await expect(page.locator("time")).toHaveCount(1);
-    await expect(page.getByText(serviceDate.phases.LIVE)).toBeVisible();
+    const dateLine = page.locator("p").filter({ has: page.locator("time") });
+    await expect(dateLine).toHaveCount(1);
+    await expect(dateLine).toContainText(serviceDate.phases.LIVE);
 
     // The clock on screen is the scenario clock, reading the tick the board is being walked on.
     const clock = page.getByRole("banner").getByText(/^\d{1,2}:\d{2} [AP]M$/);

@@ -2,8 +2,9 @@ import { randomBytes } from "node:crypto";
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Browser checks (`pnpm e2e`). Three specs: the Today board and its drawer, the map preview,
- * and the screen set a design review reads at both review widths. Every screenshot they take
+ * Browser checks (`pnpm e2e`). The Today board and its drawer, the live map on both its
+ * surfaces, the nav rail, the moved addresses, the stream's guard, and the screen set a design
+ * review reads at both review widths. Every screenshot they take
  * lands in artifacts/ (gitignored) — `pnpm e2e` is the command that regenerates the whole set,
  * and README "Browser check" lists what it writes.
  *
