@@ -2,9 +2,14 @@
 
 **Not a PR yet, by instruction** (Firia, 2026-10-17 6:19 PM ET): this body is written down here and
 the branch `team/ppe-rework-ramp-board` is pushed. Nothing was opened, marked ready or reviewed.
-This PR merges **second**, after the frame PR (Rework 1, `team/ppe-rework-frame`) — that branch did
-not exist at `git ls-remote` time, so this one is built on `main` and leaves the room the frame
-needs (see "At 390" below). When the frame lands, merge it (never rebase).
+
+This merges **second**, after the frame (Rework 1). `origin/team/ppe-rework-frame` appeared while
+this was being built and **is merged in** (`4bdd034`, merge commit "Merge the frame (Rework 1)"),
+together with `origin/main` (#70). So the board and the ramp render **inside the frame's shell**:
+the 232 px rail at 1440, the 64 px bottom tab bar at 390, one header row, one Simulated chip. The
+two screens are each their own `<main>` inside `ConsoleShell` (the layouts the frame added at
+`src/app/plan-routes/layout.tsx` and `src/app/ramp-ipad/layout.tsx`), and the room for the tab bar
+is the shell's padding, not a second copy of it here.
 
 ## What this is
 
@@ -108,11 +113,14 @@ frontdesk-ramp-wontfit-1440.png   frontdesk-ramp-wontfit-390.png
 ```
 Regenerate: `E2E_PORT=3211 E2E_DEMO_ROLE=DIRECTOR pnpm e2e e2e/rework-ramp-board.spec.ts` (then
 3212/COORDINATOR, 3213/FRONT_DESK). `artifacts/` stays gitignored apart from this one directory.
+Every shot here is **inside the frame** (rail at 1440, tab bar at 390).
 
 ## Tests
-- **Targeted vitest, `--maxWorkers=2`, foreground:** `src/domain/plan src/modules/plan
-  src/app/plan-routes src/app/ramp-ipad src/app/api src/ui src/auth src/modules/demo
-  src/components` → **38 files, 3433 tests, all passing**.
+- **Targeted vitest, `--maxWorkers=2`, foreground:** `src/ui src/auth src/app src/domain
+  src/modules src/components` (everything either PR touches, after the frame merge) → **107
+  files, 5 214 tests, all passing**. The board/ramp subset on its own (`src/domain/plan
+  src/modules/plan src/app/plan-routes src/app/ramp-ipad src/app/api src/ui src/auth
+  src/modules/demo src/components`) is 38 files / 3 433 tests.
 - New files: `src/domain/plan/placement.test.ts` (1 051 assertions over 200 generated days per
   property), `src/modules/plan/memory.test.ts`, `src/ui/rebuilt-screens.test.ts`,
   `src/test/board-day.ts` (helper). Rewritten: `board.test.ts`, `map.test.ts`, `lines.test.ts`,
@@ -122,8 +130,9 @@ Regenerate: `E2E_PORT=3211 E2E_DEMO_ROLE=DIRECTOR pnpm e2e e2e/rework-ramp-board
   change the verdicts live, the won't-fit line and Re-plan, Confirm → `CHECKED` → reload still
   says so, drag accepted, drag refused and snapped back with the reason announced, keyboard drag,
   Auto-plan → Save → reload shows the same plan, the count chip's link to the ramp, the front
-  desk's 403 on the page **and** on `POST /api/plan/save`, the DOM lint (no `V\d`, no `1WC/3A`,
-  no 24-hour time, no "Oct 14", no provider name), and the 390 layout.
+  desk sent home with "Not on your menu" **and** a 403 from `POST /api/plan/save`, the DOM lint
+  (no `V\d`, no `1WC/3A`, no 24-hour time, no "Oct 14", no provider name), and the 390 layout
+  with nothing under the tab bar.
 - `pnpm typecheck` and `pnpm lint`: clean.
 - **`drizzle/` diff against `origin/main` is empty** (checked before every push). No migration was
   written, generated or run; no database was touched.
@@ -169,8 +178,9 @@ Scope note: DIFF item 4 says approve writes `ops.trip_leg`; this PR does **not**
    stop, and the stepper value has no boxed well around it.
 6. **The map pane** has the van chips on top and the long sentence removed, but keeps the
    "Zoom to show every route" button the mockup does not draw, and its attribution strip.
-7. **No app frame.** No rail at 1440 and no tab bar at 390 — that is Rework 1's PR. At 390 both
-   screens reserve `64px + safe-area` of bottom padding for it (asserted in the e2e), and nothing
-   here hides or overrides main's nav.
+7. **The frame is the frame's.** The rail, the header, the tab bar and the "Not on your menu"
+   redirect come from Rework 1, merged in here unchanged; this PR only stops drawing its own
+   viewport-height box and lets the shell own the tab bar's room. The e2e asserts the bar is
+   there at 390 and that no rider card or Confirm sits under it, scrolled to the bottom.
 8. **Live map still reads `src/fixtures/map.ts` and `replays.ts`** (four vehicles, V1–V4). It is
    untouched by this PR; the one van list is exported and ready for it (Downstream step 2).

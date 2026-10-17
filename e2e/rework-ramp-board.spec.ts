@@ -19,7 +19,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { flow, planBoard, vanArrival } from "../src/ui/copy";
+import { flow, planBoard, toast, vanArrival } from "../src/ui/copy";
 import {
   ARTIFACTS,
   boxOf,
@@ -64,10 +64,18 @@ test.beforeEach(async ({ page }) => {
 const rampUrl = (day: string) => `/ramp-ipad?date=${day}`;
 const boardUrl = (day: string) => `/plan-routes?date=${day}&leg=pm`;
 
-/** The review screenshots this PR is gated on, named for the role and the width. */
+/**
+ * The review screenshots this PR is gated on, named for the role and the width.
+ *
+ * It waits for the map to have painted when there is one: MapLibre fetches its tiles over the
+ * network and a shot taken the instant a test finishes catches an empty canvas, which reads as a
+ * broken map rather than as a fast test.
+ */
 async function review(page: Page, screen: string): Promise<void> {
   const dir = path.join(ARTIFACTS, "rework-ramp-board");
   mkdirSync(dir, { recursive: true });
+  const canvas = page.locator("canvas");
+  if (await canvas.count()) await page.waitForTimeout(2500);
   const width = page.viewportSize()?.width ?? WIDE.width;
   await page.screenshot({ path: path.join(dir, `${WHO}-${screen}-${width}.png`), fullPage: false });
 }
@@ -379,12 +387,19 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
 
 /* ───────────────────────── the role that cannot plan ───────────────────────── */
 
-test.describe("§1.7 #5: the front desk is refused the board, twice", () => {
+test.describe("§1.7 #5: the front desk cannot plan, and the endpoint says so too", () => {
   test.skip(CONSOLE_ROLE, "this role may plan");
 
-  test("the page is a 403, and the endpoint says the same", async ({ page }) => {
-    const response = await page.goto(boardUrl(DAY.refusal));
-    expect(response?.status()).toBe(403);
+  /**
+   * Two halves, and they are deliberately different answers (§9.3, and the frame's own rule):
+   * the **page** sends them home with "Not on your menu" — a refusal page with no way back was
+   * the dead end the founder's walk found — while the **endpoint** still answers a flat 403,
+   * because hiding a link is a courtesy and the guard is the guard.
+   */
+  test("the board sends them home with a word, and the save endpoint is a 403", async ({ page }) => {
+    await page.goto(boardUrl(DAY.refusal));
+    await expect(page.locator("[data-notice]")).toContainText(toast.notOnMenu);
+    expect(new URL(page.url()).pathname).not.toBe("/plan-routes");
     await expect(page.getByRole("heading", { name: planBoard.heading, level: 1 })).toHaveCount(0);
 
     const refused = await page.request.post("/api/plan/save", {
@@ -426,7 +441,13 @@ async function expectRoomForTabBar(page: Page): Promise<void> {
   await expect(bar).toBeVisible();
   const barBox = await boxOf(bar);
   expect(barBox.height).toBeGreaterThanOrEqual(64);
-  for (const locator of [page.locator("[data-rider]").last(), page.locator("[data-confirm]")]) {
+  // Scrolled all the way down is where a page that reserved nothing hides its last control
+  // under the bar. Everything has to be clear of it *there*, not only at the top of the page.
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.waitForTimeout(300);
+  // Only what is actually on screen: at 390 the columns that are not showing are display:none,
+  // and a hidden card has no box to compare.
+  for (const locator of [page.locator("[data-rider]:visible").last(), page.locator("[data-confirm]:visible")]) {
     if ((await locator.count()) === 0) continue;
     const box = await boxOf(locator.first());
     expect(box.y + box.height, "a control sits under the tab bar").toBeLessThanOrEqual(barBox.y + 1);
