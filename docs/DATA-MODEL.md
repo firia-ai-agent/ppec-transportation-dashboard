@@ -20,7 +20,7 @@
 
 Equipment types are listed once, in config (#66 `EQUIPMENT_COUNTERS` src/config/equipment.ts:63-74).
 **Sign-off edits (Firia, 2026-10-17):**
-1. **VanDayCounts state:** code writes only `DEFAULT` and `CHECKED`. `PLANNED` stays in the frozen 0009 check constraint, but nothing writes it, because the board has no planned counts. The header comment in migration 0009 says the board sets PLANNED; that is out of date. Nothing writes PLANNED, and 0009 stays byte-identical.
+1. **VanDayCounts state:** code writes only `DEFAULT` and `CHECKED`. `PLANNED` stays in the frozen 0009 check constraint, but nothing writes it, because the board has no planned counts. The header comment at `drizzle/0009_plan_board.sql:13` ("PLANNED set on the board") is out of date. Nothing writes PLANNED, and 0009 stays byte-identical. A van with no setup confirmed today shows "Using default setup" on the board and uses the DEFAULT counts from shared config.
 2. **Placement:** ONE function, built on the counters in `fit.ts`, places every child and computes every shortfall. The seat-level solver must not make a second placement decision. If it's kept, it only orders stops, and no screen imports its types.
 3. **StaffAlert:** only director and coordinator see the 'needs a person' alert and act on it. Front desk keeps Live map and Ramp iPad only and does NOT see it; access.ts is unchanged. It never sends anything to the parent. The model-down path goes to Exceptions & Approvals, not Family texts (the diagram is fixed).
 4. **Plan store:** `memory.ts` can't be selected when a database URL is set. It fails closed in prod and in previews.
