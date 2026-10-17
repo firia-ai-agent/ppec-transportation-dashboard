@@ -13,6 +13,8 @@ import {
   reportedByProvider,
   spareVehicleKeys,
   vehicleByKey,
+  type DemoScenario,
+  type Direction,
 } from "@/domain/plan/day";
 import {
   canTake,
@@ -966,6 +968,42 @@ describe("reading back the plan a run already has", () => {
     };
   }
 
+  /**
+   * The runs a plan can belong to, other than the morning of the first fleet that every check
+   * above asks about: two fleets × two runs is the whole key a saved plan is filed under
+   * (src/modules/demo/plan-store.ts), and the afternoon is the half no test used to name.
+   */
+  const RUNS = [
+    { scenario: "EVERY_RIDER_FITS", direction: "PM" },
+    { scenario: "ONE_RIDER_HAS_NO_VAN", direction: "PM" },
+    { scenario: "ONE_RIDER_HAS_NO_VAN", direction: "AM" },
+  ] as const;
+
+  /** One run's day as the screen builds it, so the plan in an answer is a plan of that run. */
+  function dayOf(run: { scenario: DemoScenario; direction: Direction }): PlanDay {
+    return { ...run, stages: initialStages(run.scenario), measured: [] };
+  }
+
+  /** An answer keeping the planner's own plan of one day — the lanes as ids, as they travel. */
+  function savedBody(day: PlanDay) {
+    return {
+      ok: true,
+      saved: {
+        scenario: day.scenario,
+        direction: day.direction,
+        stages: Object.fromEntries(
+          Object.entries(day.stages).map(([laneId, stage]) => [
+            laneId,
+            { vehicleKey: stage.vehicleKey, arrival: stage.arrival },
+          ]),
+        ),
+        measured: day.measured,
+        assignment: planAssignment(planInputOf(day)),
+        savedAt: SAVED_AT,
+      },
+    };
+  }
+
   /** The endpoint, answered by the test: vitest has no server and the shape is the contract. */
   function answering(payload: unknown, init: { ok?: boolean } = {}) {
     return vi.fn(async () =>
@@ -1084,6 +1122,66 @@ describe("reading back the plan a run already has", () => {
     expect(showingSavedLine("2026-10-17T20:05:00Z")).toBe("Showing the plan saved at 4:05 PM.");
     // The clock at the centre, not the instant and not a placeholder left unfilled.
     expect(showingSavedLine(SAVED_AT)).not.toMatch(/17:24|\{time\}|T\d|Z\b|UTC/);
+  });
+
+  /**
+   * Veri's S1-2, 2026-10-17: **the run asked for is the run on screen.**
+   *
+   * Hard-wiring the read-back to the morning (`direction=AM`) passed every test this file had,
+   * because every one of them asked about `EVERY_RIDER_FITS/AM` — the one run a mutation to the
+   * morning cannot be told apart from. A plan belongs to one run of one fleet, so both halves
+   * of the key are asserted here, for the afternoon and for the second fleet.
+   */
+  it("asks about the run it was given — the afternoon, and the other fleet", async () => {
+    for (const run of RUNS) {
+      const fetched = answering(savedBody(dayOf(run)));
+      globalThis.fetch = fetched as unknown as typeof fetch;
+
+      const loaded = await loadSavedPlan(run.scenario, run.direction);
+      const [url] = fetched.mock.calls[0] as unknown as [string];
+      expect(url, JSON.stringify(run)).toContain(`scenario=${run.scenario}`);
+      expect(url, JSON.stringify(run)).toContain(`direction=${run.direction}`);
+      // And what comes back is that run's day, not whatever the answer claims to be about.
+      expect(loaded?.day.scenario).toBe(run.scenario);
+      expect(loaded?.day.direction).toBe(run.direction);
+      expect(loaded?.assignment).toEqual(planAssignment(planInputOf(dayOf(run))));
+    }
+  });
+
+  /**
+   * The same rule as behaviour rather than as a string in a URL: an endpoint that keeps one plan
+   * per run, with a plan saved for the afternoon and nothing for the morning.
+   *
+   * A screen asking the wrong way round gets the other run's answer, which is how a coordinator
+   * would meet this — an afternoon plan that does not come back after a reload, and a morning
+   * that shows a plan nobody made for it.
+   */
+  it("reads back the afternoon's plan, and the morning's nothing, from an endpoint that keeps both", async () => {
+    const perRun = Object.fromEntries(
+      RUNS.filter((run) => run.direction === "PM").map((run) => [
+        `${run.scenario}/${run.direction}`,
+        savedBody(dayOf(run)).saved,
+      ]),
+    );
+    globalThis.fetch = vi.fn(async (input: string) => {
+      const asked = new URL(input, "http://plan.test").searchParams;
+      const saved = perRun[`${asked.get("scenario")}/${asked.get("direction")}`] ?? null;
+      return new Response(JSON.stringify({ ok: true, saved }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    for (const scenario of ["EVERY_RIDER_FITS", "ONE_RIDER_HAS_NO_VAN"] as const) {
+      const afternoon = await loadSavedPlan(scenario, "PM");
+      expect(afternoon?.savedAt, scenario).toBe(SAVED_AT);
+      expect(afternoon?.day.direction, scenario).toBe("PM");
+      expect(afternoon?.assignment, scenario).toEqual(
+        planAssignment(planInputOf(dayOf({ scenario, direction: "PM" }))),
+      );
+      // The morning of the same fleet has nothing saved, and says so.
+      expect(await loadSavedPlan(scenario, "AM"), scenario).toBeNull();
+    }
   });
 });
 

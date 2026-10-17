@@ -125,6 +125,35 @@ async function lanes(page: Page): Promise<Lane[]> {
   return out;
 }
 
+/**
+ * One run's plan as "which children are in which van", with each van's riders sorted.
+ *
+ * Sorted because a plan is who is in which van and not the order they were put there, which is
+ * the same reason the screen's own fingerprint sorts them (save-plan.ts `planFingerprint`). Two
+ * of these compare equal when they are the same plan, so a test can say which run's plan — or
+ * whose plan — is on the screen.
+ */
+function riderMap(all: Lane[]): Record<string, string[]> {
+  return Object.fromEntries(all.map((lane) => [lane.id, [...lane.riders].sort()]));
+}
+
+/**
+ * The minute the server has on record for one run's saved plan, read off the endpoint.
+ *
+ * The time a saved plan carries is the server's own and a test cannot know it in advance, so it
+ * is asked for rather than guessed — and asked for per run, because that is the key a plan is
+ * filed under.
+ */
+async function savedAtOf(page: Page, direction: "AM" | "PM"): Promise<string> {
+  const kept = await page.request.get(
+    `${SAVE_ENDPOINT}?scenario=EVERY_RIDER_FITS&direction=${direction}`,
+  );
+  expect(kept.status()).toBe(200);
+  const savedAt: unknown = (await kept.json()).saved?.savedAt;
+  expect(typeof savedAt, `no plan saved for ${direction}`).toBe("string");
+  return savedAt as string;
+}
+
 function laneOf(page: Page, id: string): Locator {
   return page.locator(`[data-lane="${id}"]`);
 }
@@ -1240,6 +1269,169 @@ test.describe("Plan routes", () => {
     expect((await emptied.json()).error).toBe(copy.saveNothingPlaced);
     const still = await page.request.get(`${SAVE_ENDPOINT}?scenario=EVERY_RIDER_FITS&direction=AM`);
     expect((await still.json()).saved.savedAt).toBe(savedAt);
+  });
+
+  /**
+   * Veri's S1-2, 2026-10-17: **the afternoon's plan is the afternoon's.**
+   *
+   * The read-back asks for one run — a scenario and a run of it — and the reload above only ever
+   * saved and reloaded the morning, so a read-back hard-wired to the morning passed it. A
+   * coordinator meets that as two faults at once: an afternoon plan that is gone after a reload,
+   * and an afternoon screen showing the morning's plan as though somebody had made it for the
+   * afternoon.
+   *
+   * Both runs are saved here, and they are saved as different plans — the morning as the
+   * planner's own answer and the afternoon with a move on top of it — because two identical
+   * plans could not tell the two runs apart.
+   */
+  test("the afternoon's plan comes back for the afternoon, and the morning keeps its own", async ({
+    page,
+  }) => {
+    await page.goto("/plan-routes");
+
+    /* ── the morning: the planner's answer, saved ── */
+    await plan(page);
+    await page.getByRole("button", { name: copy.save, exact: true }).click();
+    await expect(page.locator("[data-notice]")).toHaveText(SAVED_LINE);
+    const morning = riderMap(await lanes(page));
+    const morningAt = await savedAtOf(page, "AM");
+
+    /* ── the afternoon: a plan somebody made, saved as that run's ── */
+    await page.getByRole("button", { name: copy.directionButton.PM, exact: true }).click();
+    await plan(page);
+    const moved = await moveWhoeverFits(page);
+    await page.getByRole("button", { name: copy.save, exact: true }).click();
+    await expect(page.locator("[data-notice]")).toHaveText(SAVED_LINE);
+    const afternoon = riderMap(await lanes(page));
+    const afternoonAt = await savedAtOf(page, "PM");
+    // The two runs hold different plans, which is what makes the rest of this readable at all.
+    expect(afternoon).not.toEqual(morning);
+
+    /* ── the reload, which opens on the morning ── */
+    await page.reload();
+    await expect(page.locator("[data-lane]").first()).toBeVisible();
+    await expect(page.locator("[data-notice]")).toHaveText(
+      fill(copy.showingSaved, { time: siteClock(morningAt) }),
+    );
+    expect(riderMap(await lanes(page))).toEqual(morning);
+
+    /* ── and the afternoon, which has its own ── */
+    await page.getByRole("button", { name: copy.directionButton.PM, exact: true }).click();
+    await expect(page.locator("[data-notice]")).toHaveText(SHOWING_LINE);
+    await expect(page.locator("[data-notice]")).toHaveText(
+      fill(copy.showingSaved, { time: siteClock(afternoonAt) }),
+    );
+    const back = await lanes(page);
+    expect(riderMap(back)).toEqual(afternoon);
+    // The child a coordinator moved in the afternoon is in the van they were moved to.
+    expect(back.find((lane) => lane.id === moved.to)?.riders).toContain(moved.child);
+    expect(back.find((lane) => lane.id === moved.from)?.riders).not.toContain(moved.child);
+    expect(await waitingNames(page)).not.toContain(moved.child);
+    // It is the kept plan, so nothing claims to be ahead of what the server has.
+    await expect(page.locator("[data-unsaved]")).toHaveCount(0);
+
+    /* ── back to the morning, which is still the morning's plan and not the afternoon's ── */
+    await page.getByRole("button", { name: copy.directionButton.AM, exact: true }).click();
+    await expect(page.locator("[data-notice]")).toHaveText(
+      fill(copy.showingSaved, { time: siteClock(morningAt) }),
+    );
+    const again = riderMap(await lanes(page));
+    expect(again).toEqual(morning);
+    expect(again).not.toEqual(afternoon);
+
+    await expectNoInternalCodes(page);
+    await expectNoVehicleCodes(page);
+    await page.waitForLoadState("networkidle");
+    console.log("screenshot:", await shot(page, "plan-routes-saved-per-run"));
+  });
+
+  /**
+   * Veri's S1-3, 2026-10-17: **the read-back takes nothing away from a coordinator.**
+   *
+   * The answer to "what has this run got saved" arrives some time after the screen opens, and a
+   * coordinator does not wait for it: they press Plan routes and start moving children. The
+   * screen compares what is on it now with what was on it when it asked, and drops an answer
+   * that would land on work somebody has done since (`onScreen` in PlanRoutes.tsx). Without
+   * that, the saved plan quietly replaces the coordinator's — which is the fault this test is
+   * here to catch, so the answer is held back until the work exists to be taken away.
+   *
+   * The plan saved first is the planner's own answer and the coordinator then makes a move on
+   * top of it, so the two are different plans and it is plain which one the screen is showing.
+   */
+  test("a coordinator's work is kept when the saved plan arrives after it", async ({ page }) => {
+    await page.goto("/plan-routes");
+    await plan(page);
+    await page.getByRole("button", { name: copy.save, exact: true }).click();
+    await expect(page.locator("[data-notice]")).toHaveText(SAVED_LINE);
+    const kept = riderMap(await lanes(page));
+    const savedAt = await savedAtOf(page, "AM");
+
+    /*
+     * The read-back, held back by the test. Only the GET: a save is a different request to the
+     * same path and this test does not interfere with one.
+     */
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let asked = 0;
+    await page.route(`**${SAVE_ENDPOINT}*`, async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.continue();
+        return;
+      }
+      asked += 1;
+      await held;
+      await route.continue();
+    });
+
+    await page.reload();
+    // The screen while the answer is still on its way: the empty day, which is where a
+    // coordinator who does not wait starts from.
+    await expect(page.getByRole("button", { name: copy.plan, exact: true })).toBeEnabled();
+    // Nothing is said about a saved plan, because the screen has not been told of one yet: the
+    // line in that row is the hint it carries when there is nothing to report.
+    await expect(page.locator("[data-notice]")).toHaveText(copy.dragHint);
+
+    /* ── the coordinator's own work, done before the answer lands ── */
+    await plan(page);
+    const moved = await moveWhoeverFits(page);
+    const mine = riderMap(await lanes(page));
+    expect(mine).not.toEqual(kept);
+    expect(asked, "the read-back was asked once and held").toBe(1);
+    await expect(page.locator("[data-unsaved]")).toHaveText(copy.unsaved);
+
+    /* ── and now the answer arrives ── */
+    const answered = page.waitForResponse(
+      (response) =>
+        response.url().includes(SAVE_ENDPOINT) && response.request().method() === "GET",
+    );
+    release();
+    const response = await answered;
+    expect(response.status()).toBe(200);
+    // The held answer really is the saved plan, so what follows is the screen's decision and
+    // not an empty answer that could not have changed anything.
+    expect((await response.json()).saved.savedAt).toBe(savedAt);
+    // Room for the answer to land on the screen, if it were going to.
+    await page.waitForLoadState("networkidle");
+    await page.waitForTimeout(1_000);
+
+    // Nothing of the coordinator's has been taken away.
+    expect(riderMap(await lanes(page))).toEqual(mine);
+    expect(
+      (await lanes(page)).find((lane) => lane.id === moved.to)?.riders,
+      `${moved.child} was moved by hand before the saved plan arrived`,
+    ).toContain(moved.child);
+    // And the screen does not claim to be showing the saved plan, because it is not: what is on
+    // it is the coordinator's, and the row beside the button says so.
+    await expect(page.locator("[data-unsaved]")).toHaveText(copy.unsaved);
+    const [showing] = copy.showingSaved.split("{time}");
+    expect(await page.getByRole("main").innerText()).not.toContain(showing);
+
+    release();
+    await page.unroute(`**${SAVE_ENDPOINT}*`);
+    await page.waitForLoadState("networkidle");
+    console.log("screenshot:", await shot(page, "plan-routes-coordinator-kept"));
   });
 
   /**
