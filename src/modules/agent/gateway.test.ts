@@ -7,6 +7,7 @@ import { type AgentConfig, loadAgentConfig } from "./config";
 import { GatewayError, createGateway } from "./gateway";
 import { fakeProvider, freeText, toolCall } from "./providers/fake";
 import { sha256Hex } from "./redact";
+import { TOOL_COUNT } from "./tools";
 
 /** This deployment's configured shape. Model ids come from here, never from a literal. */
 const CONFIG = loadAgentConfig({});
@@ -57,7 +58,9 @@ describe("complete(): one schema-valid catalog tool call, or nothing", () => {
     expect(r.promptHash).toBe(sha256Hex(PROMPT));
     // ADR-000 #12: zdr:true on every call, decided by the gateway, not the adapter.
     expect(provider.calls).toEqual([
-      { promptHash: sha256Hex(PROMPT), endpoint: "/api/v1/chat/completions", model: CONFIG.model, zdr: true, tools: 15 },
+      // The whole §11.2 catalog is offered; `TOOL_COUNT` rather than a literal, so adding a tool
+      // is one edit in tools.ts and not two (the sixteenth one broke this line).
+      { promptHash: sha256Hex(PROMPT), endpoint: "/api/v1/chat/completions", model: CONFIG.model, zdr: true, tools: TOOL_COUNT },
     ]);
   });
 
