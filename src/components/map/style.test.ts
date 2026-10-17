@@ -22,8 +22,15 @@ import {
   LABEL_HALO_WIDTH,
   MAP_LAYER_IDS,
   MAP_TOKENS,
+  planMapLayers,
   plannedRoutesGeoJson,
+  planRoutesGeoJson,
+  planStopsGeoJson,
+  PLAN_LAYER_IDS,
+  PLAN_SOURCE_IDS,
   resolveMapStyleUrl,
+  ROUTE_COLORS,
+  routeColor,
   truckTone,
   type Coord,
   type StyleLike,
@@ -254,6 +261,159 @@ describe("our layers (DESIGN-DIRECTION §5.1, §8)", () => {
         expect(haystack.toLowerCase()).not.toContain(violet);
       }
     }
+  });
+});
+
+/**
+ * The Plan routes pane (B-09): one line per van, the stops numbered in the order they are
+ * driven, and a selected lane that comes forward. Everything a coordinator reads off this map is
+ * checked here except that it draws at all, which needs a browser (e2e/plan-routes.spec.ts).
+ */
+describe("the plan's layers (one line per van)", () => {
+  const layers = planMapLayers();
+  const layer = (id: string) => layers.find((l) => l.id === id);
+
+  it("gives each van its own colour, and the first one is the route colour the map already had", () => {
+    expect(ROUTE_COLORS).toHaveLength(3);
+    expect(ROUTE_COLORS[0]).toBe(MAP_TOKENS.route);
+    expect(new Set(ROUTE_COLORS).size).toBe(3);
+    // Every one of them is a token, and none is a status colour or the demo violet.
+    for (const colour of ROUTE_COLORS) {
+      expect(colour).toMatch(/^#[0-9A-F]{6}$/);
+      expect(colour).not.toBe(DEMO_VIOLET);
+      expect([MAP_TOKENS.truckOk, MAP_TOKENS.truckStale, MAP_TOKENS.truckCrit]).not.toContain(colour);
+    }
+  });
+
+  it("wraps past the third van rather than running out of colours", () => {
+    expect([0, 1, 2, 3, 4].map(routeColor)).toEqual([
+      ROUTE_COLORS[0],
+      ROUTE_COLORS[1],
+      ROUTE_COLORS[2],
+      ROUTE_COLORS[0],
+      ROUTE_COLORS[1],
+    ]);
+    // A negative or fractional index is somebody's bug, not a crash and not a missing line.
+    expect(routeColor(-1)).toBe(ROUTE_COLORS[2]);
+    expect(routeColor(1.7)).toBe(ROUTE_COLORS[1]);
+  });
+
+  it("takes the line colour from the feature, so three vans are three colours in one layer", () => {
+    const line = layer(PLAN_LAYER_IDS.routeLine);
+    expect(line?.source).toBe(PLAN_SOURCE_IDS.routes);
+    expect(line?.paint?.["line-color"]).toEqual(["get", "color"]);
+  });
+
+  it("writes the van's name along its own line, so colour is never the only cue", () => {
+    const label = layer(PLAN_LAYER_IDS.routeLabel);
+    expect(label?.layout?.["text-field"]).toEqual(["get", "van"]);
+    expect(label?.layout?.["symbol-placement"]).toBe("line-center");
+  });
+
+  it("numbers every stop inside its own disc, in the drive's order", () => {
+    const disc = layer(PLAN_LAYER_IDS.stopCircle);
+    expect(disc?.paint?.["circle-color"]).toEqual(["get", "color"]);
+    expect(disc?.paint?.["circle-stroke-width"]).toBe(2);
+    expect(disc?.paint?.["circle-stroke-color"]).toBe(MAP_TOKENS.surface);
+
+    const order = layer(PLAN_LAYER_IDS.stopOrder);
+    expect(order?.layout?.["text-field"]).toEqual(["get", "order"]);
+    // The number is never dropped by collision: a disc with no number says nothing.
+    expect(order?.layout?.["text-allow-overlap"]).toBe(true);
+    expect(order?.paint?.["text-color"]).toBe(MAP_TOKENS.surface);
+    // White digits on the disc, which is why each route colour is held to 4.5:1 on white.
+    expect(layer(PLAN_LAYER_IDS.stopLabel)?.layout?.["text-field"]).toEqual(["get", "label"]);
+  });
+
+  it("brings a selected lane forward by weight as well as by strength", () => {
+    const line = layer(PLAN_LAYER_IDS.routeLine);
+    expect(JSON.stringify(line?.paint?.["line-width"])).toContain("selected");
+    expect(JSON.stringify(line?.paint?.["line-opacity"])).toContain("dimmed");
+    const widths = JSON.stringify(line?.paint?.["line-width"]);
+    // Two different widths, so the selected line is thicker and not merely brighter.
+    expect(widths).toMatch(/7/);
+    expect(widths).toMatch(/4/);
+  });
+
+  it("orders the stack lines → names → stops → the centre", () => {
+    expect(layers.map((l) => l.id)).toEqual([
+      PLAN_LAYER_IDS.routeLine,
+      PLAN_LAYER_IDS.routeLabel,
+      PLAN_LAYER_IDS.stopCircle,
+      PLAN_LAYER_IDS.stopOrder,
+      PLAN_LAYER_IDS.stopLabel,
+      MAP_LAYER_IDS.centerPin,
+      MAP_LAYER_IDS.centerLabel,
+    ]);
+  });
+
+  it("never uses the demo violet either (§5.1)", () => {
+    expect(JSON.stringify(planMapLayers()).toLowerCase()).not.toContain(DEMO_VIOLET.toLowerCase());
+    expect(JSON.stringify(ROUTE_COLORS).toLowerCase()).not.toContain(DEMO_VIOLET.toLowerCase());
+  });
+});
+
+describe("the plan's GeoJSON", () => {
+  const CONVERTIBLE = {
+    laneId: "V1",
+    vanName: "the convertible van",
+    colorIndex: 0,
+    line: [
+      [-80.1, 26.6],
+      [-80.11, 26.61],
+    ] as Coord[],
+    stops: [{ order: 1, label: "Okeeheelee Park", coord: [-80.1, 26.6] as Coord }],
+  };
+  const SEDAN = {
+    laneId: "V4",
+    vanName: "the sedan",
+    colorIndex: 2,
+    line: [
+      [-80.2, 26.5],
+      [-80.21, 26.51],
+    ] as Coord[],
+    stops: [{ order: 1, label: "John Prince Park", coord: [-80.2, 26.5] as Coord }],
+  };
+  const EMPTY_LANE = { laneId: "V2", vanName: "the center van", colorIndex: 1, line: [], stops: [] };
+
+  it("draws a line per van with its colour and its name on it", () => {
+    const lines = planRoutesGeoJson([CONVERTIBLE, SEDAN]);
+    expect(lines.features.map((f) => f.properties)).toEqual([
+      { laneId: "V1", van: "the convertible van", color: ROUTE_COLORS[0], selected: false, dimmed: false },
+      { laneId: "V4", van: "the sedan", color: ROUTE_COLORS[2], selected: false, dimmed: false },
+    ]);
+  });
+
+  it("draws nothing for a van nobody is in yet", () => {
+    expect(planRoutesGeoJson([EMPTY_LANE]).features).toEqual([]);
+    expect(planStopsGeoJson([EMPTY_LANE]).features).toEqual([]);
+  });
+
+  it("marks the selected lane and dims every other one, lines and stops alike", () => {
+    const lines = planRoutesGeoJson([CONVERTIBLE, SEDAN], "V4");
+    expect(lines.features.map((f) => [f.properties.laneId, f.properties.selected, f.properties.dimmed])).toEqual([
+      ["V1", false, true],
+      ["V4", true, false],
+    ]);
+    const stops = planStopsGeoJson([CONVERTIBLE, SEDAN], "V4");
+    expect(stops.features.map((f) => [f.properties.laneId, f.properties.dimmed])).toEqual([
+      ["V1", true],
+      ["V4", false],
+    ]);
+  });
+
+  it("dims nothing while no lane is selected", () => {
+    for (const selection of [null, undefined, ""]) {
+      const lines = planRoutesGeoJson([CONVERTIBLE, SEDAN], selection);
+      expect(lines.features.every((f) => !f.properties.dimmed && !f.properties.selected)).toBe(true);
+    }
+  });
+
+  it("carries each stop's place name and its number as text, ready to draw", () => {
+    const stops = planStopsGeoJson([CONVERTIBLE]);
+    expect(stops.features[0].properties.label).toBe("Okeeheelee Park");
+    expect(stops.features[0].properties.order).toBe("1");
+    expect(stops.features[0].geometry.coordinates).toEqual([-80.1, 26.6]);
   });
 });
 
