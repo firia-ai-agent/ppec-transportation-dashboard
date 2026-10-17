@@ -20,7 +20,6 @@
  * rows keep updating, because the stream belongs to the shell and not to this component.
  */
 
-import { useState } from "react";
 import FleetMap from "@/components/map/FleetMap";
 import { mapFixtureFrom } from "@/components/map/live-fixture";
 import { formatClock } from "@/domain/eta/eta";
@@ -33,6 +32,8 @@ export function BoardMap({
   selectedVanId,
   highlightVanId,
   onSelectVan,
+  shown,
+  onToggle,
 }: {
   snapshot: LiveSnapshot;
   /** The van of the ride whose drawer is open: the pane rings it and flies to it. */
@@ -40,8 +41,14 @@ export function BoardMap({
   /** The van of the row under the pointer or the keyboard focus: ringed, no camera move. */
   highlightVanId: string | null;
   onSelectVan: (id: string) => void;
+  /**
+   * Folded or not. The state belongs to the board rather than to this component because the
+   * split is the board's grid: folding has to give the rows the width back (§4.1), and a pane
+   * that kept the flag to itself could only ever hide its own canvas inside the same column.
+   */
+  shown: boolean;
+  onToggle: () => void;
 }) {
-  const [shown, setShown] = useState(true);
   const fixture = mapFixtureFrom(snapshot);
 
   return (
@@ -52,7 +59,7 @@ export function BoardMap({
           type="button"
           className={styles.mapToggle}
           aria-expanded={shown}
-          onClick={() => setShown((on) => !on)}
+          onClick={onToggle}
         >
           {shown ? copy.hideMap : copy.showMap}
         </button>
@@ -64,27 +71,35 @@ export function BoardMap({
           <FleetMap
             fixture={fixture}
             label={copy.mapLabel}
+            layout="stacked"
             selectedVehicleId={selectedVanId}
             highlightVehicleId={highlightVanId}
             onSelectVehicle={onSelectVan}
           />
 
-          {/* AT-11 / ADR-013, in numbers the seam itself produced. */}
+          {/*
+            AT-11 / ADR-013, in numbers the seam itself produced — for the role the map-view
+            matrix gives the demo internals to. A role that may not see them is not sent them
+            (src/domain/board/live.ts `forViewer`), so there is no list to render rather than a
+            list that has been hidden.
+          */}
           <ul className={styles.mapNotes}>
             {snapshot.vehicles.map((vehicle) => {
-              const dropped = vehicle.counts.duplicate + vehicle.counts.outOfOrder;
+              const counts = vehicle.counts;
+              if (!counts) return null;
+              const dropped = counts.duplicate + counts.outOfOrder;
               return (
                 <li key={vehicle.id} data-van={vehicle.id}>
                   {fill(copy.pointsRow, {
                     van: vehicle.id,
-                    used: fill(copy.pointsUsed, { accepted: vehicle.counts.accepted }),
+                    used: fill(copy.pointsUsed, { accepted: counts.accepted }),
                     dropped:
                       dropped === 0
                         ? copy.pointsNoneDropped
                         : fill(copy.pointsDropped, {
                             dropped,
-                            duplicate: vehicle.counts.duplicate,
-                            outOfOrder: vehicle.counts.outOfOrder,
+                            duplicate: counts.duplicate,
+                            outOfOrder: counts.outOfOrder,
                           }),
                   })}
                 </li>
@@ -117,7 +132,9 @@ export function BoardMap({
                     {fill(copy.updateRow, {
                       time: formatClock(update.atMs),
                       vehicle: update.vehicleId,
-                      family: update.familyLabel ?? "",
+                      // The place, never the family code: a code is a key between engineers
+                      // (COPY-GUIDE §1–§2, src/ui/no-codes.test.ts).
+                      stop: update.stopName,
                       shift: update.shiftText,
                       window: update.windowText ?? "",
                     })}

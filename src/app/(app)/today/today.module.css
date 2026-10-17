@@ -102,9 +102,14 @@
 
 /*
  * The rows and the map are one grid, so the two halves scroll as one surface and the pane
- * cannot cover a row (§5.1 asks the same of the attribution control). Below 1280 the map goes
- * under the rows rather than beside them: the board's own columns already fold at that width
- * (§4.1), and a 40% pane on top of that would leave neither half readable.
+ * cannot cover a row (§5.1 asks the same of the attribution control).
+ *
+ * **The pane is a ≥1280 surface** — D-6 (DECISION-LEDGER row 34) decided the split pane at that
+ * width, and nothing decided anything below it. Stacking the map under the rows on a 1024 iPad
+ * was tried and is worse than not drawing it: the board's own columns have already folded at
+ * that width (§4.1), the rows are the surface a coordinator is reading, and a map underneath
+ * them puts half a screen of basemap between the last ride and the bottom of the page. So below
+ * 1280 the rows take the whole width and the pane is not shown at all.
  */
 .split {
   display: grid;
@@ -112,8 +117,17 @@
   align-items: start;
 }
 
+/*
+ * §4.1 says "rows left 60%, map right 40%". The shape is that; the width is bounded, because a
+ * flat 40% is read off the *window* and what matters is what is left for the rows: nine columns
+ * at 1280 minus 40% is narrower than the width §4.1 folds three of them at, and the board would
+ * be squeezing cells on the one screen size this pane was decided for. A third, never under
+ * 320 px (below which the map stops being a map) and never over 460 px (beyond which a wide
+ * screen is spending width on basemap), keeps both halves readable — and the pane folds away
+ * entirely when the rows need everything.
+ */
 .split[data-with-map="true"] {
-  grid-template-columns: 3fr 2fr;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 34%, 460px);
 }
 
 @media (max-width: 1279px) {
@@ -131,6 +145,18 @@
   display: grid;
   gap: var(--space-3);
   min-width: 0;
+}
+
+/*
+ * Below the width the split was decided at, the rows take the whole surface and the pane is not
+ * shown at all (see the note above `.split`). Written after `.mapPane` rather than beside the
+ * grid rule above it, because both selectors carry the same specificity and the later one wins —
+ * a `display: none` ahead of the `display: grid` would have been a rule that did nothing.
+ */
+@media (max-width: 1279px) {
+  .mapPane {
+    display: none;
+  }
 }
 
 .mapHeader {
@@ -243,6 +269,31 @@
 
 .colSource {
   width: 9%;
+}
+
+/*
+ * The same nine columns in about two thirds of the width, when the map pane is open.
+ *
+ * The percentages above were measured against a full-width board; with the pane beside them the
+ * narrowest column — the §7.1 source chip, which does not wrap — was being clipped by its own
+ * cell. Nothing is dropped (NFR-09 wants the chip on every record, and §4.1 only folds columns
+ * below 1280, where the pane is not shown at all): the width is taken from the three columns
+ * whose chips already wrap to two lines, and given to the one that cannot.
+ */
+.split[data-with-map="true"] .colState {
+  width: 13%;
+}
+
+.split[data-with-map="true"] .colVan {
+  width: 11%;
+}
+
+.split[data-with-map="true"] .colLocation {
+  width: 14%;
+}
+
+.split[data-with-map="true"] .colSource {
+  width: 13%;
 }
 
 /*

@@ -162,8 +162,16 @@ export const etaText = {
   behind: "−{n} min",
   onTime: "On time",
   unknown: "Not known yet",
-  /** No window has been worked out for this ride yet. Never read as "no ride". */
-  pending: "Window pending",
+  /**
+   * No window has been worked out for this ride yet. Never read as "no ride".
+   *
+   * It said "Window pending" until the live map landed. "Pending" is a state name — our state
+   * name — and a coordinator reading a row wants the fact: nobody has settled this time yet
+   * (COPY-GUIDE §1 plain words, §2 no internal vocabulary; the console page named this item for
+   * this slice). The case is unreachable in the committed scenario now that the afternoon has
+   * geometry, so this is the wording of a fallback rather than a line the demo shows.
+   */
+  pending: "Time not set yet",
   /** LOC-03: the last published window, with the pause spelled out. */
   paused: "{window} · ETA texts paused",
 } as const;
@@ -352,7 +360,7 @@ export const board = {
   updatesHeading: "Window updates",
   updatesIntro: "The windows the gate has moved since this board opened. Decisions only — nothing is sent.",
   updatesEmpty: "No window has moved yet.",
-  updateRow: "{time} · {vehicle} · {family} · {shift} · new window {window}",
+  updateRow: "{time} · {vehicle} · {stop} · {shift} · new window {window}",
 } as const;
 
 /**

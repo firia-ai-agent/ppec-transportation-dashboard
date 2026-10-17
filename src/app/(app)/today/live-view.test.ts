@@ -158,7 +158,11 @@ describe("§4.1: the row and the marker are wired to each other", () => {
     expect(pane).toContain("copy.showMap");
     expect(pane).toMatch(/aria-expanded=\{shown\}/);
     const css = read("today.module.css");
-    expect(css).toMatch(/\.split\[data-with-map="true"\] \{\s*grid-template-columns: 3fr 2fr;/);
+    expect(css).toMatch(
+      /\.split\[data-with-map="true"\] \{\s*grid-template-columns: minmax\(0, 1fr\) clamp\(/,
+    );
+    // Below the width the split was decided at, the rows take everything and the pane is gone.
+    expect(css).toMatch(/@media \(max-width: 1279px\) \{[\s\S]*?\.mapPane \{\s*display: none;/);
     expect(css).toMatch(/@media \(max-width: 1279px\)/);
   });
 

@@ -1,6 +1,7 @@
+import { mapViewerOf } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
 import { BOARD_SCENARIO_TICK, buildBoard, serviceDayFor } from "@/domain/board/board";
-import { liveSnapshotAt } from "@/domain/board/live";
+import { snapshotFor } from "@/domain/board/live";
 import { normalizeSpeed } from "@/domain/eta/scenario-clock";
 import { TodayBoard } from "./TodayBoard";
 import { streamsLiveUpdates } from "./live-view";
@@ -43,7 +44,7 @@ export default async function Page({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requirePage("/today");
+  const caller = await requirePage("/today");
 
   const params = await searchParams;
   const one = (value: string | string[] | undefined): string | undefined =>
@@ -61,7 +62,12 @@ export default async function Page({
    * finished day has no van on the road and a day that has not started has none yet.
    */
   const live = streamsLiveUpdates(board.day);
-  const initialSnapshot = live ? liveSnapshotAt(BOARD_SCENARIO_TICK) : null;
+  /*
+   * Filtered by role, exactly as the stream filters it (src/domain/board/live.ts `forViewer`):
+   * the first paint and the first event have to be the same board, and the rule about what a
+   * role may hold is the map-view matrix's, in one place, applied before the payload is built.
+   */
+  const initialSnapshot = live ? snapshotFor(mapViewerOf(caller), BOARD_SCENARIO_TICK) : null;
   // §6.2's clock speeds, the review and test path — the same shape as `?date=`: anything that
   // is not one of the three offered speeds is the console's own (`normalizeSpeed`).
   const speed = normalizeSpeed(one(params.speed));

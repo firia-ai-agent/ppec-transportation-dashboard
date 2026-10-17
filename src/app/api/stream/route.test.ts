@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StaffRole } from "@/auth/core";
 import { apiAccess } from "@/ui/copy";
 import { BOARD_SCENARIO_TICK } from "@/domain/board/day";
-import { liveSnapshotAt } from "@/domain/board/live";
+import { snapshotFor } from "@/domain/board/live";
 import { LIVE_EVENT, SSE_CONTENT_TYPE } from "@/modules/realtime/sse";
 
 const mocks = vi.hoisted(() => ({ getCaller: vi.fn() }));
@@ -107,7 +107,27 @@ describe("the first bytes", () => {
     expect(raw.startsWith("retry: ")).toBe(true);
     expect(frames[0].event).toBe(LIVE_EVENT.snapshot);
     expect(frames[0].id).toBe(String(BOARD_SCENARIO_TICK));
-    expect(frames[0].data).toEqual(JSON.parse(JSON.stringify(liveSnapshotAt(BOARD_SCENARIO_TICK))));
+    // The board **as this role may hold it**: the payload is filtered before it is written
+    // (src/domain/board/live.ts `forViewer`), not after it reaches the browser.
+    expect(frames[0].data).toEqual(
+      JSON.parse(JSON.stringify(snapshotFor("COORDINATOR", BOARD_SCENARIO_TICK))),
+    );
+  });
+
+  it("carry the demo's internals to a director and not to a coordinator", async () => {
+    signedIn("DIRECTOR");
+    const director = await read(await open(), 1);
+    signedIn("COORDINATOR");
+    const coordinator = await read(await open(), 1);
+
+    const silentOf = (data: unknown) => (data as { silent: unknown[] }).silent;
+    const countsOf = (data: unknown) =>
+      (data as { vehicles: Array<{ counts?: unknown }> }).vehicles.map((v) => v.counts);
+
+    expect(silentOf(director.frames[0].data).length).toBeGreaterThan(0);
+    expect(silentOf(coordinator.frames[0].data)).toEqual([]);
+    expect(countsOf(director.frames[0].data).every((c) => c !== undefined)).toBe(true);
+    expect(countsOf(coordinator.frames[0].data).every((c) => c === undefined)).toBe(true);
   });
 
   it("carry no snapshot when the client says which tick it already holds", async () => {

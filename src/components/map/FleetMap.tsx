@@ -115,6 +115,12 @@ export interface FleetMapProps {
    * move, because a pointer sliding down 56 rows would otherwise fly the map 56 times.
    */
   highlightVehicleId?: string | null;
+  /**
+   * Where the vehicle list goes: beside the canvas (a pane that owns a page, /map-preview) or
+   * under it (a pane that is one column of a split, the board). The caller decides because a
+   * media query cannot — the question is the width of this pane's column, not of the window.
+   */
+  layout?: "beside" | "stacked";
 }
 
 export default function FleetMap({
@@ -123,6 +129,7 @@ export default function FleetMap({
   selectedVehicleId,
   onSelectVehicle,
   highlightVehicleId = null,
+  layout = "beside",
 }: FleetMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -289,6 +296,14 @@ export default function FleetMap({
     setData(MAP_SOURCE_IDS.routesDriven, drivenRoutesGeoJson(fixture.routes));
     setData(MAP_SOURCE_IDS.routesPlanned, plannedRoutesGeoJson(fixture.routes));
     setData(MAP_SOURCE_IDS.stops, stopsGeoJson(fixture.stops));
+    /*
+     * Which van is wearing the ring, published on the container for the same reason the
+     * `idle` handler above publishes what was drawn: the ring is painted inside a WebGL
+     * canvas, so "hovering a row lifts its marker" is invisible to the DOM and a browser
+     * check could only ever assert that nothing crashed. This is the pane saying what it did.
+     */
+    const container = containerRef.current;
+    if (container) container.dataset.ringedVehicle = ringedId ?? "";
   }, [fixture, ready, ringedId]);
 
   const fitAllVehicles = useCallback(() => {
@@ -345,6 +360,9 @@ export default function FleetMap({
     const vehicle = fixture.vehicles.find((v) => v.id === selectedId);
     if (!vehicle) return;
     flownToRef.current = selectedId;
+    // Published for the same reason as the ring: a camera move leaves no trace in the DOM.
+    const container = containerRef.current;
+    if (container) container.dataset.cameraVehicle = selectedId;
     applyCameraMove(
       map,
       cameraMove({ center: vehicle.coord, zoom: SELECTION_ZOOM }, prefersReducedMotion()),
@@ -352,7 +370,7 @@ export default function FleetMap({
   }, [selectedId, ready, fixture]);
 
   return (
-    <div className={styles.pane}>
+    <div className={styles.pane} data-layout={layout}>
       <div className={styles.canvasWrap}>
         <div ref={containerRef} className={styles.canvas} role="region" aria-label={label} />
         <div className={styles.overlay}>

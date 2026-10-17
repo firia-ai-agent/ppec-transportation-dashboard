@@ -26,17 +26,30 @@
 
 import { liveStreamConfig } from "@/config/live";
 import { BOARD_SCENARIO_TICK } from "@/domain/board/day";
-import { liveDeltaBetween, liveSnapshotAt } from "@/domain/board/live";
+import { deltaFor, snapshotFor } from "@/domain/board/live";
+import type { MapViewer } from "@/domain/access/map-view";
 import { clampTick, LAST_TICK, ticksElapsed, tickIntervalMs } from "@/domain/eta/scenario-clock";
 import { LIVE_EVENT, type SseFrame } from "./sse";
 
-/** Where a connection starts, and the first thing it sends. */
-export function openStream(lastTick: number | null): { tick: number; frames: SseFrame[] } {
+/**
+ * Where a connection starts, and the first thing it sends.
+ *
+ * `viewer` is the subscriber's role, and it is applied to the payload itself
+ * (src/domain/board/live.ts `forViewer`): a role that may not see the fault counts or the
+ * family labels never receives them, rather than receiving them and not drawing them.
+ */
+export function openStream(
+  lastTick: number | null,
+  viewer: MapViewer,
+): { tick: number; frames: SseFrame[] } {
   if (lastTick === null) {
     // A client with nothing: the whole board at the instant the page itself was rendered at,
     // so the first frame cannot disagree with the HTML the browser already has.
     const tick = BOARD_SCENARIO_TICK;
-    return { tick, frames: [{ event: LIVE_EVENT.snapshot, id: tick, data: liveSnapshotAt(tick) }] };
+    return {
+      tick,
+      frames: [{ event: LIVE_EVENT.snapshot, id: tick, data: snapshotFor(viewer, tick) }],
+    };
   }
   /*
    * A reconnecting client already holds the board at `lastTick`. Sending a snapshot would be a
@@ -59,6 +72,7 @@ export function advance(
   currentTick: number,
   elapsedMs: number,
   speed: number,
+  viewer: MapViewer,
 ): { tick: number; frames: SseFrame[] } {
   const target = clampTick(startTick + ticksElapsed(elapsedMs, speed));
   if (target <= currentTick) {
@@ -67,7 +81,9 @@ export function advance(
   }
   return {
     tick: target,
-    frames: [{ event: LIVE_EVENT.delta, id: target, data: liveDeltaBetween(currentTick, target) }],
+    frames: [
+      { event: LIVE_EVENT.delta, id: target, data: deltaFor(viewer, currentTick, target) },
+    ],
   };
 }
 

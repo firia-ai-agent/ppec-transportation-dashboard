@@ -24,6 +24,7 @@
  * involved — a screenshot of a tick is evidence of that tick.
  */
 
+import { canSeeMapData, type MapViewer } from "@/domain/access/map-view";
 import { instantAt, scenarioSecondsAt } from "@/domain/eta/scenario-clock";
 import { formatClock } from "@/domain/eta/eta";
 import type { NotificationDecision } from "@/domain/eta/notify-gate";
@@ -113,7 +114,12 @@ export interface LiveVehicle {
   exceptionRaised: boolean;
   routeId: string;
   stops: readonly LiveStop[];
-  counts: LiveIngestCounts;
+  /**
+   * Absent for a role the map-view matrix does not give the fault internals to
+   * (src/domain/access/map-view.ts `injectedFaults`). Absent, not blanked: a role that may not
+   * see a number never receives it, so there is nothing in the payload to hide.
+   */
+  counts?: LiveIngestCounts;
 }
 
 /** A van with no displayable position at all — an unlinked device (LOC-01). */
@@ -136,6 +142,12 @@ export interface LiveNotification {
   atMs: number;
   vehicleId: string;
   stopId: string;
+  /**
+   * The place, in words. The screen says this; the family code below is a key between
+   * engineers and never reaches a row (COPY-GUIDE §1–§2, src/ui/no-codes.test.ts).
+   */
+  stopName: string;
+  /** Which family's window moved — the gate's own label, for the send that is not built yet. */
   familyLabel?: string;
   shiftText: string;
   windowText?: string;
@@ -291,7 +303,8 @@ function fleetAt(nowMs: number): {
 
     for (const decision of frame.decisions) {
       if (decision.outcome !== "NOTIFY") continue;
-      notifications.push(liveNotificationOf(vehicleKey, decision));
+      const stop = route.stops.find((candidate) => candidate.id === decision.stopId);
+      notifications.push(liveNotificationOf(vehicleKey, decision, stop?.name ?? ""));
     }
   }
 
@@ -299,15 +312,80 @@ function fleetAt(nowMs: number): {
   return { vehicles, silent, routes, gpsAgeSeconds: freshest, notifications };
 }
 
-function liveNotificationOf(vehicleId: string, decision: NotificationDecision): LiveNotification {
+function liveNotificationOf(
+  vehicleId: string,
+  decision: NotificationDecision,
+  stopName: string,
+): LiveNotification {
   return {
     atMs: decision.atMs,
     vehicleId,
     stopId: decision.stopId,
+    stopName,
     familyLabel: decision.familyLabel,
     shiftText: decision.shiftText,
     windowText: decision.windowText,
   };
+}
+
+/**
+ * The same board, as one role may see it (src/domain/access/map-view.ts).
+ *
+ * The matrix was written for the map preview and it is the same question here: a front-desk
+ * iPad has no business holding the family list, and the fault internals — the dropped-point
+ * counts and the van with no binding — belong to whoever runs the demo. So the filtering
+ * happens **before the payload is built**, not in the component: a role that may not see
+ * something never receives it, which is the only version of that rule a browser cannot undo.
+ *
+ * `/today` is open to the two console roles, so in practice this strips the fault counts for a
+ * coordinator and nothing else. It is written against the matrix rather than against those two
+ * roles so that the day another role is given the board, the answer is already decided.
+ */
+export function forViewer(snapshot: LiveSnapshot, viewer: MapViewer): LiveSnapshot {
+  const can = (key: Parameters<typeof canSeeMapData>[1]) => canSeeMapData(viewer, key);
+  const positions = can("vehiclePositions");
+  const windows = can("stopWindows");
+  const families = can("familyLabels");
+  const faults = can("injectedFaults");
+
+  return {
+    ...snapshot,
+    vehicles: positions
+      ? snapshot.vehicles.map((vehicle) => ({
+          ...vehicle,
+          counts: faults ? vehicle.counts : undefined,
+          stops: vehicle.stops.map((stop) => ({
+            ...stop,
+            windowText: windows ? stop.windowText : undefined,
+            familyLabel: families ? stop.familyLabel : undefined,
+          })),
+        }))
+      : [],
+    routes: positions ? snapshot.routes : [],
+    silent: faults ? snapshot.silent : [],
+    notifications: can("notificationDecisions")
+      ? snapshot.notifications.map((notification) => ({
+          ...notification,
+          familyLabel: families ? notification.familyLabel : undefined,
+        }))
+      : [],
+    gpsAgeSeconds: positions ? snapshot.gpsAgeSeconds : null,
+  };
+}
+
+/** The board at a tick, as this role may see it. What the stream actually sends. */
+export function snapshotFor(viewer: MapViewer, tick: number): LiveSnapshot {
+  return forViewer(liveSnapshotAt(tick), viewer);
+}
+
+/**
+ * The delta between two ticks, as this role may see it.
+ *
+ * Filtered on both ends before the difference is taken, so a delta can never carry a field the
+ * snapshot it is applied to was not allowed to have.
+ */
+export function deltaFor(viewer: MapViewer, fromTick: number, toTick: number): LiveDelta {
+  return liveDelta(snapshotFor(viewer, fromTick), snapshotFor(viewer, toTick));
 }
 
 /** The whole live board at a tick of the scenario clock. */

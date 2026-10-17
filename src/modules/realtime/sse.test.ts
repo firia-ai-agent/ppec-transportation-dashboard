@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { liveStreamConfig } from "@/config/live";
 import { BOARD_SCENARIO_TICK } from "@/domain/board/day";
-import { liveSnapshotAt } from "@/domain/board/live";
+import { snapshotFor, type LiveSnapshot } from "@/domain/board/live";
 import { LAST_TICK } from "@/domain/eta/scenario-clock";
 import {
   advance,
@@ -71,47 +71,50 @@ describe("the wire format", () => {
   });
 });
 
+/** The role every assertion below subscribes as, unless it is about roles. */
+const DIRECTOR = "DIRECTOR" as const;
+
 describe("a fresh connection", () => {
   it("opens at the instant the page itself was rendered at, with the whole board", () => {
-    const { tick, frames } = openStream(null);
+    const { tick, frames } = openStream(null, DIRECTOR);
     expect(tick).toBe(BOARD_SCENARIO_TICK);
     expect(frames).toHaveLength(1);
     expect(frames[0].event).toBe(LIVE_EVENT.snapshot);
     expect(frames[0].id).toBe(BOARD_SCENARIO_TICK);
-    expect(frames[0].data).toEqual(liveSnapshotAt(BOARD_SCENARIO_TICK));
+    expect(frames[0].data).toEqual(snapshotFor(DIRECTOR, BOARD_SCENARIO_TICK));
   });
 });
 
 describe("a reconnecting connection (ADR-002: no missed and no duplicate event)", () => {
   it("sends no snapshot: the client already holds that board", () => {
-    const resumed = openStream(BOARD_SCENARIO_TICK);
+    const resumed = openStream(BOARD_SCENARIO_TICK, DIRECTOR);
     expect(resumed.tick).toBe(BOARD_SCENARIO_TICK);
     expect(resumed.frames).toEqual([]);
   });
 
   it("resumes at the tick the client named, so the next id is the next tick", () => {
-    const resumed = openStream(100);
-    const step = advance(resumed.tick, resumed.tick, tickIntervalMs(1), 1);
+    const resumed = openStream(100, DIRECTOR);
+    const step = advance(resumed.tick, resumed.tick, tickIntervalMs(1), 1, DIRECTOR);
     expect(step.frames[0].id).toBe(101);
     expect(step.frames[0].event).toBe(LIVE_EVENT.delta);
   });
 
   it("carries a delta measured from the client's own tick, so it can be applied", () => {
-    const resumed = openStream(144);
-    const step = advance(resumed.tick, resumed.tick, tickIntervalMs(1) * 3, 1);
+    const resumed = openStream(144, DIRECTOR);
+    const step = advance(resumed.tick, resumed.tick, tickIntervalMs(1) * 3, 1, DIRECTOR);
     expect(step.frames[0].data).toMatchObject({ fromTick: 144, tick: 147 });
   });
 });
 
 describe("walking the clock", () => {
   it("sends nothing until a whole tick of wall time has passed", () => {
-    const step = advance(144, 144, tickIntervalMs(1) - 1, 1);
+    const step = advance(144, 144, tickIntervalMs(1) - 1, 1, DIRECTOR);
     expect(step.tick).toBe(144);
     expect(step.frames[0].event).toBe(LIVE_EVENT.idle);
   });
 
   it("covers several missed ticks with one delta rather than a burst", () => {
-    const step = advance(144, 144, tickIntervalMs(1) * 12, 1);
+    const step = advance(144, 144, tickIntervalMs(1) * 12, 1, DIRECTOR);
     expect(step.tick).toBe(156);
     expect(step.frames).toHaveLength(1);
     expect(step.frames[0].data).toMatchObject({ fromTick: 144, tick: 156 });
@@ -119,13 +122,13 @@ describe("walking the clock", () => {
 
   it("reads the target off the elapsed time, so a slow loop never drifts", () => {
     // Two steps, the second one late: the tick is where the wall clock says, not one further.
-    const first = advance(144, 144, tickIntervalMs(1), 1);
-    const late = advance(144, first.tick, tickIntervalMs(1) * 9, 1);
+    const first = advance(144, 144, tickIntervalMs(1), 1, DIRECTOR);
+    const late = advance(144, first.tick, tickIntervalMs(1) * 9, 1, DIRECTOR);
     expect(late.tick).toBe(153);
   });
 
   it("holds at the end of the morning and keeps saying so", () => {
-    const step = advance(LAST_TICK, LAST_TICK, tickIntervalMs(60) * 10_000, 60);
+    const step = advance(LAST_TICK, LAST_TICK, tickIntervalMs(60) * 10_000, 60, DIRECTOR);
     expect(step.tick).toBe(LAST_TICK);
     expect(step.frames[0].event).toBe(LIVE_EVENT.idle);
     expect(atEndOfMorning(LAST_TICK)).toBe(true);
@@ -137,5 +140,44 @@ describe("walking the clock", () => {
     expect(streamExpired(liveStreamConfig.maxStreamSeconds * 1000 - 1)).toBe(false);
     expect(streamExpired(liveStreamConfig.maxStreamSeconds * 1000)).toBe(true);
     expect(liveStreamConfig.maxStreamSeconds).toBeLessThan(300);
+  });
+});
+
+describe("what a subscriber is sent depends on their role (map-view matrix)", () => {
+  it("gives the demo's own internals to the director and not to the coordinator", () => {
+    const director = openStream(null, "DIRECTOR").frames[0].data as LiveSnapshot;
+    const coordinator = openStream(null, "COORDINATOR").frames[0].data as LiveSnapshot;
+
+    // The fault internals: the van with no binding, and the dropped-point counts.
+    expect(director.silent.length).toBeGreaterThan(0);
+    expect(coordinator.silent).toEqual([]);
+    expect(director.vehicles.every((v) => v.counts !== undefined)).toBe(true);
+    expect(coordinator.vehicles.every((v) => v.counts === undefined)).toBe(true);
+
+    // Everything the board is actually about is the same for both.
+    expect(coordinator.vehicles.map((v) => v.id)).toEqual(director.vehicles.map((v) => v.id));
+    expect(coordinator.rides).toEqual(director.rides);
+    expect(coordinator.notifications).toEqual(director.notifications);
+  });
+
+  it("strips the family label and the windows for a role that may not hold them", () => {
+    const frontDesk = openStream(null, "FRONT_DESK").frames[0].data as LiveSnapshot;
+    expect(frontDesk.notifications).toEqual([]);
+    for (const vehicle of frontDesk.vehicles) {
+      for (const stop of vehicle.stops) expect(stop.familyLabel).toBeUndefined();
+    }
+  });
+
+  it("sends a role with no map at all no vans and no routes", () => {
+    const nobody = openStream(null, "ANONYMOUS").frames[0].data as LiveSnapshot;
+    expect(nobody.vehicles).toEqual([]);
+    expect(nobody.routes).toEqual([]);
+    expect(nobody.gpsAgeSeconds).toBeNull();
+  });
+
+  it("filters a delta the same way, so one can always be applied to the other", () => {
+    const step = advance(144, 144, tickIntervalMs(1) * 12, 1, "COORDINATOR");
+    const delta = step.frames[0].data as { vehicles: Array<{ counts?: unknown }> };
+    expect(delta.vehicles.every((v) => v.counts === undefined)).toBe(true);
   });
 });

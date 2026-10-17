@@ -23,6 +23,23 @@
   }
 }
 
+/*
+ * Stacked: the list under the canvas instead of beside it.
+ *
+ * For a pane in a **column** rather than on a page — the board's split pane is 40% of the
+ * window (§4.1), and 260 px of that is the vehicle list, which leaves the map a sliver you
+ * cannot read a fleet off. The caller says which shape it is in, because a media query cannot:
+ * the question is how wide this pane's own column is, not how wide the window is.
+ */
+.pane[data-layout="stacked"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.pane[data-layout="stacked"] .canvasWrap {
+  height: clamp(320px, 42vh, 520px);
+  min-height: 320px;
+}
+
 .canvasWrap {
   position: relative;
   min-height: 420px;

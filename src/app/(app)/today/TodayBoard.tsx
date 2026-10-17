@@ -86,6 +86,8 @@ export function TodayBoard({
   const [openChild, setOpenChild] = useState<string | null>(null);
   /** The van under the pointer or the keyboard focus (§4.1 row hover ↔ marker highlight). */
   const [hoveredVan, setHoveredVan] = useState<string | null>(null);
+  /** §4.1: the pane folds, and the rows take the width back when it does. */
+  const [mapShown, setMapShown] = useState(true);
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   // One connection per tab, opened by the shell and asked for here — the only surface with a
@@ -174,7 +176,7 @@ export function TodayBoard({
         </p>
       </div>
 
-      <div className={styles.split} data-with-map={snapshot !== null}>
+      <div className={styles.split} data-with-map={snapshot !== null && mapShown}>
       <div className={styles.rows}>
       {order.length === 0 ? (
         <p className={styles.empty}>
@@ -251,6 +253,8 @@ export function TodayBoard({
       {snapshot !== null ? (
         <BoardMap
           snapshot={snapshot}
+          shown={mapShown}
+          onToggle={() => setMapShown((on) => !on)}
           selectedVanId={openVan}
           highlightVanId={hoveredVan}
           onSelectVan={(id) => {
@@ -326,6 +330,7 @@ function Row({
       className={styles.row}
       data-group={leg.group}
       data-van={ride.vehicleLabel ?? undefined}
+      data-ride={ride.direction}
       onMouseEnter={() => onPoint(ride.vehicleLabel)}
       onMouseLeave={() => onPoint(null)}
       onFocus={() => onPoint(ride.vehicleLabel)}

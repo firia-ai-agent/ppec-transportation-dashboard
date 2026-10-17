@@ -19,7 +19,7 @@
  * socket involved is the one the browser opened.
  */
 
-import { API } from "@/auth/access";
+import { API, mapViewerOf } from "@/auth/access";
 import { requireApiSession } from "@/auth/api-guard";
 import { liveStreamConfig } from "@/config/live";
 import { normalizeSpeed, parseLastTick, tickIntervalMs } from "@/domain/eta/scenario-clock";
@@ -51,7 +51,13 @@ export async function GET(request: Request): Promise<Response> {
    */
   const speed = normalizeSpeed(url.searchParams.get("speed"));
 
-  const opened = openStream(lastTick);
+  /*
+   * What this subscriber may see. The same matrix the map preview reads
+   * (src/domain/access/map-view.ts), applied to the payload rather than to the markup: the two
+   * console roles differ by the fault internals, and a coordinator's browser is never sent them.
+   */
+  const viewer = mapViewerOf(guard.caller);
+  const opened = openStream(lastTick, viewer);
   const startedAtMs = Date.now();
   const encoder = new TextEncoder();
   let tick = opened.tick;
@@ -92,7 +98,7 @@ export async function GET(request: Request): Promise<Response> {
           stop();
           return;
         }
-        const step = advance(opened.tick, tick, elapsedMs, speed);
+        const step = advance(opened.tick, tick, elapsedMs, speed, viewer);
         tick = step.tick;
         for (const frame of step.frames) write(encodeFrame(frame));
       }, tickIntervalMs(speed));

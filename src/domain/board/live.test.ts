@@ -22,6 +22,7 @@ import {
   liveDeltaBetween,
   liveSnapshotAt,
   publishedWindowsOf,
+  type LiveIngestCounts,
   type LiveSnapshot,
   type LiveVehicle,
 } from "./live";
@@ -38,9 +39,21 @@ function stalledVan(snapshot: LiveSnapshot): LiveVehicle {
 
 /** The van the §18.2 step 8 GPS gap belongs to: the one whose signal is about to go. */
 function gapVan(snapshot: LiveSnapshot): LiveVehicle {
-  const van = snapshot.vehicles.find((v) => v.counts.duplicate > 0 || v.counts.outOfOrder > 0);
+  const van = snapshot.vehicles.find(
+    (v) => (v.counts?.duplicate ?? 0) > 0 || (v.counts?.outOfOrder ?? 0) > 0,
+  );
   expect(van, "no van has the AT-11 fault points on it").toBeDefined();
   return van as LiveVehicle;
+}
+
+/**
+ * The ingest counts of a van in an **unfiltered** snapshot, which always has them: they are
+ * optional on the payload only because a role that may not see them never receives them
+ * (`forViewer`, and the role suite at the bottom of this file).
+ */
+function countsOf(van: LiveVehicle): LiveIngestCounts {
+  expect(van.counts, `${van.id} has no ingest counts`).toBeDefined();
+  return van.counts as LiveIngestCounts;
 }
 
 describe("a snapshot is the board at an instant", () => {
@@ -130,28 +143,33 @@ describe("AT-03 · the delay reaches the downstream family and nobody else", () 
     }
   });
 
-  it("a notification is a decision: it names a family label and no address or phone", () => {
+  it("a notification is a decision: a place, a shift and a window, and no address or phone", () => {
     const [only] = liveSnapshotAt(LAST_TICK).notifications;
     expect(Object.keys(only).sort()).toEqual([
       "atMs",
       "familyLabel",
       "shiftText",
       "stopId",
+      "stopName",
       "vehicleId",
       "windowText",
     ]);
+    // The place is in words, because that is what a screen may print; the family code stays
+    // in the data for the send that is not built yet (src/ui/no-codes.test.ts).
+    expect(only.stopName.length).toBeGreaterThan(0);
+    expect(only.stopName).not.toMatch(/^F\d/);
   });
 });
 
 describe("AT-11 · duplicate and out-of-order points, counted rather than drawn", () => {
   it("shows the counts the ingest seam produced for the van that was sent them", () => {
-    const van = gapVan(liveSnapshotAt(BOARD_SCENARIO_TICK));
-    expect(van.counts.duplicate).toBeGreaterThan(0);
-    expect(van.counts.outOfOrder).toBeGreaterThan(0);
-    expect(van.counts.accepted).toBeGreaterThan(0);
+    const counts = countsOf(gapVan(liveSnapshotAt(BOARD_SCENARIO_TICK)));
+    expect(counts.duplicate).toBeGreaterThan(0);
+    expect(counts.outOfOrder).toBeGreaterThan(0);
+    expect(counts.accepted).toBeGreaterThan(0);
     // The points that were refused are not in the accepted stream, so they move nothing.
-    expect(van.counts.accepted).toBeLessThan(
-      van.counts.accepted + van.counts.duplicate + van.counts.outOfOrder,
+    expect(counts.accepted).toBeLessThan(
+      counts.accepted + counts.duplicate + counts.outOfOrder,
     );
   });
 
