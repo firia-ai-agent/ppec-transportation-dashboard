@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import type { StaffRole } from "@/auth/core";
 import { adapters, app, scenarioClock } from "./copy";
 import { AvatarMenu } from "./AvatarMenu";
+import { GpsAdapterPill } from "./GpsAdapterPill";
+import { LiveUpdatesBar } from "./LiveUpdatesBar";
 import { MobileNav } from "./MobileNav";
 import { NavRail } from "./NavRail";
 import { ScenarioClock } from "./ScenarioClock";
@@ -67,14 +69,22 @@ export function AppShell({
           <section className={styles.adapters} aria-label={adapters.groupLabel}>
             <SimulatedAdapterPill adapter={adapters.sms} />
             <SimulatedAdapterPill adapter={adapters.teams} />
-            <SimulatedAdapterPill adapter={adapters.gps} />
+            {/*
+              §10's switch, for the one adapter that has an age to show: the GPS pill carries the
+              freshest position in the fleet, from the board's own stream, in the §3 band
+              vocabulary. On a surface that opened no stream it says "Simulated" like the rest,
+              because there is nothing to age.
+            */}
+            <GpsAdapterPill />
             <SimulatedAdapterPill adapter={adapters.agent} />
-            {/* §2/§10: these are interim values, and the header says so out loud. */}
+            {/* §2/§10: the remaining values are interim, and the header says so out loud. */}
             <p className={styles.adaptersNote}>{adapters.interimNote}</p>
           </section>
           <SearchField />
         </div>
       </header>
+      {/* §2: the amber bar sits directly under the header and takes nothing off the screen. */}
+      <LiveUpdatesBar />
       <div className={styles.body}>
         <NavRail role={role} />
         <main id="content" className={styles.main}>

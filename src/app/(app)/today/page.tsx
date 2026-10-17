@@ -1,6 +1,9 @@
 import { requirePage } from "@/auth/page-guard";
-import { buildBoard, serviceDayFor } from "@/domain/board/board";
+import { BOARD_SCENARIO_TICK, buildBoard, serviceDayFor } from "@/domain/board/board";
+import { liveSnapshotAt } from "@/domain/board/live";
+import { normalizeSpeed } from "@/domain/eta/scenario-clock";
 import { TodayBoard } from "./TodayBoard";
+import { streamsLiveUpdates } from "./live-view";
 
 /** The guard reads a session, so this route is never statically rendered. */
 export const dynamic = "force-dynamic";
@@ -25,8 +28,15 @@ export const dynamic = "force-dynamic";
  * arrival that is not a handoff). That is a review and test path — the console offers no control
  * that reaches it, and what a coordinator sees is the demo day (src/domain/board/day.ts).
  *
- * What is not here yet, and is not faked in its absence: live updates, the map pane beside the
- * rows, the inbox and the exceptions table. Each lands in its own change.
+ * Live updates and the map pane are here now (slice 3). Both are rendered at the **same
+ * instant** the rows are: the first live snapshot is computed on the server beside the board
+ * and handed to the client, so the first paint is the whole surface and a stream that never
+ * connects leaves a board that is still true — with the §2 amber bar above it saying the
+ * updates have stopped. The stream itself is `/api/stream` (ADR-002), opened once per tab by
+ * the console shell.
+ *
+ * What is not here yet, and is not faked in its absence: the inbox, the exceptions table and
+ * every write (confirm handoff, override, snooze, approve). Each lands in its own change.
  */
 export default async function Page({
   searchParams,
@@ -45,5 +55,23 @@ export default async function Page({
   const query = one(params.q) ?? "";
   const board = buildBoard(serviceDayFor(one(params.date)));
 
-  return <TodayBoard board={board} query={query} />;
+  /*
+   * The fleet at the board's own tick, computed here so the rows and the map are one instant
+   * and the page needs no connection to be complete. Only on the day the scenario replays: a
+   * finished day has no van on the road and a day that has not started has none yet.
+   */
+  const live = streamsLiveUpdates(board.day);
+  const initialSnapshot = live ? liveSnapshotAt(BOARD_SCENARIO_TICK) : null;
+  // §6.2's clock speeds, the review and test path — the same shape as `?date=`: anything that
+  // is not one of the three offered speeds is the console's own (`normalizeSpeed`).
+  const speed = normalizeSpeed(one(params.speed));
+
+  return (
+    <TodayBoard
+      board={board}
+      query={query}
+      initialSnapshot={initialSnapshot}
+      speed={speed}
+    />
+  );
 }

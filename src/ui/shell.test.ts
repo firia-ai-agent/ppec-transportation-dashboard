@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { adapters, demoBanner, login, nav, scenarioClock, unbuilt } from "./copy";
@@ -229,7 +230,14 @@ describe("§2 scenario clock", () => {
   });
 
   it("renders a focusable, inert Start whose note is tied to it", () => {
-    const html = renderToStaticMarkup(ScenarioClock());
+    /*
+     * Through `createElement`, not by calling it: the clock reads the live board's context now
+     * (the readout is the tick the stream is walking), so it is a component with a hook in it
+     * rather than a function that returns markup. Rendered with no provider above it, which is
+     * also the honest case this assertion is about — a surface with no stream has no scenario
+     * time to show and says "Demo not started".
+     */
+    const html = renderToStaticMarkup(createElement(ScenarioClock));
     expect(html).toContain(scenarioClock.notStarted);
     expect(html).toContain(scenarioClock.start);
     expect(html).toContain(escapeApostrophes(scenarioClock.startUnavailable));

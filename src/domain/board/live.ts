@@ -30,7 +30,7 @@ import type { NotificationDecision } from "@/domain/eta/notify-gate";
 import { frameAt, legStateLabel, type ReplayFrame } from "@/domain/eta/replay";
 import type { GpsBand } from "@/domain/location/freshness";
 import type { Coord } from "@/domain/location/geo";
-import { routeGeometry } from "@/domain/location/route";
+import { routeGeometry, type Route } from "@/domain/location/route";
 import { RUNS } from "@/modules/demo/fixtures/standard";
 import type { GpsFreshness } from "@/ui/states";
 import { buildBoard, type Board, type BoardGroup, type LegRow } from "./board";
@@ -71,6 +71,8 @@ export interface LiveRide {
 export interface LiveStop {
   stopId: string;
   name: string;
+  /** The landmark's own coordinate, so the pane can draw it without a second fixture. */
+  coord: Coord;
   familyLabel?: string;
   status: "arrived" | "passed" | "pending";
   windowText?: string;
@@ -211,10 +213,14 @@ function countsOf(replay: ReturnType<typeof replayForVehicle>, deviceId: string)
   };
 }
 
-function stopsOf(frame: ReplayFrame): LiveStop[] {
+function stopsOf(frame: ReplayFrame, route: Route): LiveStop[] {
+  const coords = new Map(route.stops.map((stop) => [stop.id, stop.coord]));
   return frame.stops.map((stop) => ({
     stopId: stop.stopId,
     name: stop.stopName,
+    // The committed route is where a stop's place comes from, so the pane needs no fixture of
+    // its own and cannot draw a landmark the run does not actually call at.
+    coord: coords.get(stop.stopId) ?? route.stops[0].coord,
     familyLabel: stop.familyLabel,
     status: stop.status,
     windowText: stop.windowText,
@@ -279,7 +285,7 @@ function fleetAt(nowMs: number): {
       etaTextSuppressed: frame.etaTextSuppressed,
       exceptionRaised: frame.exceptionRaised,
       routeId: route.id,
-      stops: stopsOf(frame),
+      stops: stopsOf(frame, route),
       counts,
     });
 

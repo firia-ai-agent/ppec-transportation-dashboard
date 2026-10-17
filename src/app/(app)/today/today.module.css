@@ -98,6 +98,96 @@
   color: var(--color-ink-muted);
 }
 
+/* ───────────────────── §4.1 split pane: rows left 60%, map right 40% ───────────────────── */
+
+/*
+ * The rows and the map are one grid, so the two halves scroll as one surface and the pane
+ * cannot cover a row (§5.1 asks the same of the attribution control). Below 1280 the map goes
+ * under the rows rather than beside them: the board's own columns already fold at that width
+ * (§4.1), and a 40% pane on top of that would leave neither half readable.
+ */
+.split {
+  display: grid;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.split[data-with-map="true"] {
+  grid-template-columns: 3fr 2fr;
+}
+
+@media (max-width: 1279px) {
+  .split[data-with-map="true"] {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rows {
+  /* The table is `table-layout: fixed`, so the column it lives in must be allowed to narrow. */
+  min-width: 0;
+}
+
+.mapPane {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.mapHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.mapHeading {
+  margin: 0;
+  font-size: var(--text-16);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--color-ink);
+}
+
+.mapSubheading {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink);
+}
+
+/* §9: a real console target, 44 px and its own words rather than an icon-only chevron. */
+.mapToggle {
+  min-height: var(--target-console);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  font-size: var(--body-console);
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.mapHint {
+  margin: 0;
+  font-size: var(--text-12);
+  line-height: var(--leading-normal);
+  color: var(--color-ink-muted);
+}
+
+.mapNotes {
+  margin: 0;
+  padding-left: var(--space-5);
+  font-size: var(--text-12);
+  line-height: var(--leading-normal);
+  color: var(--color-ink-muted);
+}
+
+.mapNotes ul {
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
 /*
  * §10: no horizontal scroll, and §4.1: no truncation hiding a child. Both at once means the
  * columns are given their widths rather than discovered: a cell with more words in it wraps

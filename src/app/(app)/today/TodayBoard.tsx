@@ -32,7 +32,17 @@ import {
 import { humanizeAge } from "@/ui/age";
 import { clockLabel } from "@/ui/service-date";
 import { icon } from "@/ui/tokens";
+import { useLiveBoard, useRequestLiveBoard } from "@/ui/LiveStream";
+import type { LiveSnapshot } from "@/domain/board/live";
+import { BoardMap } from "./BoardMap";
 import { LegDrawer } from "./LegDrawer";
+import {
+  groupsOf,
+  liveLegs,
+  needsActionCountOf,
+  streamsLiveUpdates,
+  vanIdOf,
+} from "./live-view";
 import { nextStepCellText, stateValues } from "./next-step";
 import styles from "./today.module.css";
 
@@ -51,22 +61,48 @@ import styles from "./today.module.css";
  *
  * Keyboard (§4.1): J and K move between rides and Enter opens one, which is also what the row's
  * own button does, so nothing here is keyboard-only or mouse-only.
+ *
+ * Live (slice 3): the rows are updated from the shell's one stream (ADR-002) and the map pane
+ * sits beside them (§4.1 split pane). The page arrives with the board *and* the first snapshot
+ * already rendered, at the same tick, so the first paint is the whole surface rather than a
+ * board waiting for a connection — and a stream that never connects leaves the board exactly
+ * as the server computed it, with the §2 amber bar above saying so.
  */
-export function TodayBoard({ board, query }: { board: Board; query: string }) {
+export function TodayBoard({
+  board,
+  query,
+  initialSnapshot = null,
+  speed,
+}: {
+  board: Board;
+  query: string;
+  /** The snapshot at the board's own instant, computed on the server with the rows. */
+  initialSnapshot?: LiveSnapshot | null;
+  /** §6.2 clock speed, from the page's own `?speed=` (the review and test path). */
+  speed: number;
+}) {
   const { day } = board;
   const [onlyNeedsAction, setOnlyNeedsAction] = useState(false);
   const [openChild, setOpenChild] = useState<string | null>(null);
+  /** The van under the pointer or the keyboard focus (§4.1 row hover ↔ marker highlight). */
+  const [hoveredVan, setHoveredVan] = useState<string | null>(null);
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
-  const matched = useMemo(
-    () => board.legs.filter((leg) => matchesQuery(leg, query)),
-    [board.legs, query],
-  );
-  const visible = onlyNeedsAction ? matched.filter((l) => l.group === "NEEDS_ACTION") : matched;
+  // One connection per tab, opened by the shell and asked for here — the only surface with a
+  // day on it. A finished or unstarted day has no live van, so it asks for nothing.
+  const live = streamsLiveUpdates(day);
+  useRequestLiveBoard(live, speed);
+  const { snapshot: streamed } = useLiveBoard();
+  const snapshot = live ? (streamed ?? initialSnapshot) : null;
 
-  const groups = board.groups
-    .map((g) => ({ group: g.group, legs: g.legs.filter((l) => visible.includes(l)) }))
-    .filter((g) => g.legs.length > 0);
+  // The server's rows with the tick folded in, then grouped again: a van going quiet moves its
+  // rides into "Needs action", and the row would otherwise sit under a header it contradicts.
+  const legs = useMemo(() => liveLegs(board.legs, snapshot), [board.legs, snapshot]);
+  const matched = useMemo(() => legs.filter((leg) => matchesQuery(leg, query)), [legs, query]);
+  const visible = onlyNeedsAction ? matched.filter((l) => l.group === "NEEDS_ACTION") : matched;
+  const needsActionCount = snapshot ? needsActionCountOf(legs) : board.needsActionCount;
+
+  const groups = groupsOf(visible);
 
   // Flat row order, so J and K walk the board the way the eye does: down the groups in order.
   const order = groups.flatMap((g) => g.legs);
@@ -82,8 +118,11 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
     rowRefs.current[index] = el;
   };
 
-  // The drawer is per child: its two rows are the one day it reads.
-  const openLegs = board.legs.filter((l) => l.child.childKey === openChild);
+  // The drawer is per child: its two rows are the one day it reads, and they are the live
+  // ones, so a panel left open does not quietly freeze while the board underneath it moves.
+  const openLegs = legs.filter((l) => l.child.childKey === openChild);
+  /** The van the open ride is on: what the pane rings and flies to. */
+  const openVan = openLegs.map(vanIdOf).find((id) => id !== null) ?? null;
 
   return (
     <div className={styles.page}>
@@ -121,7 +160,7 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
         >
           {fill(boardCopy.groupHeading, {
             group: boardCopy.onlyNeedsAction,
-            count: board.needsActionCount,
+            count: needsActionCount,
           })}
         </button>
         {query.length > 0 ? (
@@ -135,6 +174,8 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
         </p>
       </div>
 
+      <div className={styles.split} data-with-map={snapshot !== null}>
+      <div className={styles.rows}>
       {order.length === 0 ? (
         <p className={styles.empty}>
           {emptyLine({ query, onlyNeedsAction, date: day.label, rides: board.legs.length })}
@@ -193,6 +234,7 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
                     register={registerRow(order.indexOf(leg))}
                     onMove={focusRow}
                     onOpen={() => setOpenChild(leg.child.childKey)}
+                    onPoint={setHoveredVan}
                   />
                 ))}
               </tbody>
@@ -200,6 +242,26 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
           </table>
         </>
       )}
+      </div>
+
+      {/*
+        §4.1: rows left, map right, and the pane is only there when there is a fleet to draw.
+        A finished day has no van on the road, so it keeps the board it always had.
+      */}
+      {snapshot !== null ? (
+        <BoardMap
+          snapshot={snapshot}
+          selectedVanId={openVan}
+          highlightVanId={hoveredVan}
+          onSelectVan={(id) => {
+            // Clicking a marker opens the first ride on that van, so the two halves of the
+            // screen stay one screen: a selection on the map is a ride in the drawer.
+            const leg = legs.find((l) => vanIdOf(l) === id);
+            if (leg) setOpenChild(leg.child.childKey);
+          }}
+        />
+      ) : null}
+      </div>
 
       {openLegs.length > 0 ? (
         <LegDrawer legs={openLegs} onClose={() => setOpenChild(null)} />
@@ -239,6 +301,7 @@ function Row({
   register,
   onMove,
   onOpen,
+  onPoint,
 }: {
   leg: LegRow;
   /** Which kind of day this row is on: a finished day has no live van to locate. */
@@ -247,6 +310,11 @@ function Row({
   register: (el: HTMLButtonElement | null) => void;
   onMove: (index: number) => void;
   onOpen: () => void;
+  /**
+   * §4.1 "row hover syncs map marker highlight". Fired on the pointer *and* on focus, so the
+   * link is not mouse-only: tabbing or walking the board with J and K lifts the marker too.
+   */
+  onPoint: (vanId: string | null) => void;
 }) {
   const { child, ride } = leg;
   const opener = fill(boardCopy.openRow, {
@@ -254,7 +322,15 @@ function Row({
     ride: ride.direction === "AM" ? boardCopy.amSpoken : boardCopy.pmSpoken,
   });
   return (
-    <tr className={styles.row} data-group={leg.group}>
+    <tr
+      className={styles.row}
+      data-group={leg.group}
+      data-van={ride.vehicleLabel ?? undefined}
+      onMouseEnter={() => onPoint(ride.vehicleLabel)}
+      onMouseLeave={() => onPoint(null)}
+      onFocus={() => onPoint(ride.vehicleLabel)}
+      onBlur={() => onPoint(null)}
+    >
       <th scope="row" className={styles.childCell}>
         <button
           type="button"

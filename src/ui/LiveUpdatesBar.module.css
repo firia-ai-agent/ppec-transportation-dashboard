@@ -1,0 +1,27 @@
+/*
+ * DESIGN-DIRECTION §2: the amber bar under the header. §8 tokens only — this file may hold no
+ * colour literal (src/ui/no-hex.test.ts), and the amber it wears is the `warn` pair, which is
+ * 6.38:1 for text and reads as a warning rather than as the demo violet (D-5 keeps that for the
+ * DEMO bar and the Simulated chip).
+ */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-5);
+  color: var(--color-warn-fg);
+  background: var(--color-warn-bg);
+  border-bottom: var(--border-hairline) solid var(--color-warn-fg);
+  font-size: var(--body-console);
+  line-height: var(--leading-normal);
+}
+
+.title {
+  font-weight: var(--weight-semibold);
+}
+
+.body {
+  font-weight: var(--weight-regular);
+}

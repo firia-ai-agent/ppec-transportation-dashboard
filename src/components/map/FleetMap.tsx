@@ -21,6 +21,7 @@ import {
   Map as MapLibreMap,
   NavigationControl,
   type LngLatLike,
+  type MapLayerMouseEvent,
 } from "maplibre-gl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -100,15 +101,41 @@ export interface FleetMapProps {
   fixture: MapFixture;
   /** Accessible name for the map region. */
   label?: string;
+  /**
+   * Selection, controlled from outside — the board's rows drive it (DESIGN-DIRECTION §4.1).
+   * Supplying it also means "the camera follows this": the pane flies to the van when the id
+   * changes, and never when its position merely moves, so a ticking clock does not drag the
+   * map around under the pointer. Left `undefined`, the pane keeps its own selection, which
+   * is what /map-preview uses.
+   */
+  selectedVehicleId?: string | null;
+  onSelectVehicle?: (id: string) => void;
+  /**
+   * §4.1 "row hover syncs map marker highlight": lifts the marker and nothing else. No camera
+   * move, because a pointer sliding down 56 rows would otherwise fly the map 56 times.
+   */
+  highlightVehicleId?: string | null;
 }
 
-export default function FleetMap({ fixture, label = copy.label }: FleetMapProps) {
+export default function FleetMap({
+  fixture,
+  label = copy.label,
+  selectedVehicleId,
+  onSelectVehicle,
+  highlightVehicleId = null,
+}: FleetMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [ownSelection, setOwnSelection] = useState<string | null>(null);
+  /** Controlled when the prop is given, the pane's own otherwise. */
+  const selectedId = selectedVehicleId === undefined ? ownSelection : selectedVehicleId;
+  /** What the ring is drawn around: the hover wins while it lasts, selection otherwise. */
+  const ringedId = highlightVehicleId ?? selectedId;
+  /** The last id the camera was moved for, so a tick that moves a van does not re-fly. */
+  const flownToRef = useRef<string | null>(null);
 
   const styleUrl = useMemo(
     () => resolveMapStyleUrl(process.env.NEXT_PUBLIC_MAP_TILE_URL),
@@ -204,10 +231,6 @@ export default function FleetMap({ fixture, label = copy.label }: FleetMapProps)
         });
         for (const layer of fleetMapLayers()) map.addLayer(layer as never);
 
-        map.on("click", MAP_LAYER_IDS.vehicleCircle, (e) => {
-          const id = e.features?.[0]?.properties?.id;
-          if (typeof id === "string") setSelectedId(id);
-        });
         map.on("mouseenter", MAP_LAYER_IDS.vehicleCircle, () => {
           if (map) map.getCanvas().style.cursor = "pointer";
         });
@@ -262,11 +285,11 @@ export default function FleetMap({ fixture, label = copy.label }: FleetMapProps)
       const source = map.getSource(id);
       if (source && "setData" in source) (source as { setData: (d: unknown) => void }).setData(data);
     };
-    setData(MAP_SOURCE_IDS.vehicles, vehiclesGeoJson(fixture.vehicles, selectedId));
+    setData(MAP_SOURCE_IDS.vehicles, vehiclesGeoJson(fixture.vehicles, ringedId));
     setData(MAP_SOURCE_IDS.routesDriven, drivenRoutesGeoJson(fixture.routes));
     setData(MAP_SOURCE_IDS.routesPlanned, plannedRoutesGeoJson(fixture.routes));
     setData(MAP_SOURCE_IDS.stops, stopsGeoJson(fixture.stops));
-  }, [fixture, ready, selectedId]);
+  }, [fixture, ready, ringedId]);
 
   const fitAllVehicles = useCallback(() => {
     const map = mapRef.current;
@@ -280,14 +303,53 @@ export default function FleetMap({ fixture, label = copy.label }: FleetMapProps)
   }, [vehicleCoords]);
 
   const selectVehicle = useCallback(
-    (id: string, coord: Coord) => {
-      setSelectedId(id);
-      const map = mapRef.current;
-      if (!map) return;
-      applyCameraMove(map, cameraMove({ center: coord, zoom: SELECTION_ZOOM }, prefersReducedMotion()));
+    (id: string) => {
+      if (onSelectVehicle) onSelectVehicle(id);
+      if (selectedVehicleId === undefined) setOwnSelection(id);
     },
-    [],
+    [onSelectVehicle, selectedVehicleId],
   );
+
+  /*
+   * Clicking a marker takes the same path a row click takes, so the pane and whatever is
+   * driving it agree about what is selected. Registered in its own effect rather than inside
+   * the build, because the selector changes when the board hands us a new callback and a
+   * handler captured at build time would keep calling the first one.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const onClick = (event: MapLayerMouseEvent): void => {
+      const id = event.features?.[0]?.properties?.id;
+      if (typeof id === "string") selectVehicle(id);
+    };
+    map.on("click", MAP_LAYER_IDS.vehicleCircle, onClick);
+    return () => {
+      map.off("click", MAP_LAYER_IDS.vehicleCircle, onClick);
+    };
+  }, [ready, selectVehicle]);
+
+  /*
+   * §4.1 / §5.1: selecting a van flies to it (≤600 ms, or a jump under reduced motion), and
+   * only when the *selection* changes. A clock tick moves every van's coordinate several times
+   * a minute, and re-flying on each of those would take the map away from whoever is reading it.
+   */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    if (selectedId === null) {
+      flownToRef.current = null;
+      return;
+    }
+    if (flownToRef.current === selectedId) return;
+    const vehicle = fixture.vehicles.find((v) => v.id === selectedId);
+    if (!vehicle) return;
+    flownToRef.current = selectedId;
+    applyCameraMove(
+      map,
+      cameraMove({ center: vehicle.coord, zoom: SELECTION_ZOOM }, prefersReducedMotion()),
+    );
+  }, [selectedId, ready, fixture]);
 
   return (
     <div className={styles.pane}>
@@ -324,7 +386,7 @@ export default function FleetMap({ fixture, label = copy.label }: FleetMapProps)
                   type="button"
                   className={styles.vehicleButton}
                   aria-pressed={selectedId === vehicle.id}
-                  onClick={() => selectVehicle(vehicle.id, vehicle.coord)}
+                  onClick={() => selectVehicle(vehicle.id)}
                 >
                   <span className={styles.vehicleId}>
                     {fill(copy.vehicleRow, { id: vehicle.id, description: vehicle.description })}

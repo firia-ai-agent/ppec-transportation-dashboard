@@ -116,6 +116,15 @@ export const age = {
 export const liveUpdates = {
   downTitle: "Live updates paused",
   downBody: "Live updates paused. Reconnecting… Board may be up to 40 s old.",
+  /**
+   * The bar's accessible name, so the §2 amber strip is one named status region rather than a
+   * sentence that appears out of nowhere in the page order.
+   */
+  ariaLabel: "Live updates",
+  /** Said on the board while the stream is live, so "paused" has something to be the opposite of. */
+  live: "Live",
+  /** The age of the board itself: how long since the last update arrived. */
+  updatedAgo: "Updated {age} ago",
 } as const;
 
 /** COPY-GUIDE §6.1 / DESIGN-DIRECTION §7.1. Screen reader: "Source: {label}". */
@@ -303,6 +312,47 @@ export const board = {
   keyboardHint: "Use J and K to move between rides, Enter to open one.",
   /** "Open Mia R., morning ride" — one opener per row, so two rows are two distinct buttons. */
   openRow: "Open {child}, {ride} ride",
+
+  /* ── the map pane beside the rows (DESIGN-DIRECTION §4.1 split pane, §5) ── */
+
+  /**
+   * The pane's heading and its accessible name. "Where the vans are" rather than "Map",
+   * because the question a coordinator brings to it is the one it answers; the map region
+   * itself says what it draws, for a screen reader that lands on the canvas.
+   */
+  mapHeading: "Where the vans are",
+  mapLabel: "Vans on today's runs, near the center",
+  /** The pane folds away at any width (§4.1: collapsible), and the control says which way. */
+  hideMap: "Hide the map",
+  showMap: "Show the map",
+  /**
+   * Hovering or opening a ride lifts that van's marker and flies the camera to it (§4.1 "row
+   * hover syncs map marker highlight"). Said once, above the pane, because a link between two
+   * halves of a screen that nobody mentions is a link most people never find.
+   */
+  mapHint: "Point at a ride to lift its van on the map. Opening one flies to it.",
+  /**
+   * The vans that are not drawn, and why — an unlinked device has no position we may show, so
+   * it is named here rather than drawn faintly on the map (LOC-01).
+   */
+  mapSilentHeading: "Not on the map",
+  mapSilent: "{van} has sent no position we can draw: its device is not linked to it.",
+  /**
+   * What ingest did with a van's points. On screen because "duplicates and points that arrive
+   * out of order are dropped" is otherwise a claim about machinery nobody can see.
+   */
+  pointsRow: "{van} · {used} · {dropped}",
+  pointsUsed: "{accepted} positions used",
+  pointsDropped: "{dropped} dropped: {duplicate} duplicate, {outOfOrder} out of order",
+  pointsNoneDropped: "none dropped",
+  /**
+   * The windows families have been told about since the board opened (PRD §8 notify gate). A
+   * decision, not a send: this build queues nothing, and the line says so once above the list.
+   */
+  updatesHeading: "Window updates",
+  updatesIntro: "The windows the gate has moved since this board opened. Decisions only — nothing is sent.",
+  updatesEmpty: "No window has moved yet.",
+  updateRow: "{time} · {vehicle} · {family} · {shift} · new window {window}",
 } as const;
 
 /**

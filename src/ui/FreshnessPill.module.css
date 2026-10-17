@@ -59,3 +59,12 @@
 .separator {
   white-space: pre;
 }
+
+/*
+ * §2: while live updates are paused, the ages in the header are dimmed rather than removed.
+ * Opacity only — the tone pair underneath keeps its documented contrast, and the words stay
+ * readable, which is the difference between "this is old" and "this is gone".
+ */
+.pill[data-stale="true"] {
+  opacity: 0.6;
+}

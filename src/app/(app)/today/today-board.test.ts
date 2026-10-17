@@ -50,8 +50,16 @@ const legOf = (key: string, direction: "AM" | "PM"): LegRow => {
   return leg;
 };
 
+/**
+ * The board as the server renders it, with no live snapshot: what reaches a browser before any
+ * stream event does, and the whole of what a day with no live van ever shows. The live half has
+ * its own tests — src/domain/board/live.test.ts for the values, live-view.test.ts for the merge
+ * — so this file stays about the rows themselves.
+ */
 function boardHtml(query = "", of: typeof board = board): string {
-  return renderToStaticMarkup(createElement(TodayBoard, { board: of, query }));
+  return renderToStaticMarkup(
+    createElement(TodayBoard, { board: of, query, speed: 1, initialSnapshot: null }),
+  );
 }
 
 function drawerHtml(key: string, of: typeof board = board): string {

@@ -21,6 +21,7 @@ export function FreshnessPill({
   icon: Icon,
   tone = "neutral",
   className,
+  stale,
 }: {
   /** "SMS", "Teams", "GPS", "Agent". */
   adapter: string;
@@ -29,9 +30,19 @@ export function FreshnessPill({
   icon: LucideIcon;
   tone?: PillTone;
   className?: string;
+  /**
+   * §2: "dim the 'updated' timestamps" while live updates are paused. The value stays on
+   * screen — the last thing we heard is still the last thing we heard — and says, by fading,
+   * that nothing newer has arrived.
+   */
+  stale?: boolean;
 }) {
   return (
-    <span className={[styles.pill, className].filter(Boolean).join(" ")} data-tone={tone}>
+    <span
+      className={[styles.pill, className].filter(Boolean).join(" ")}
+      data-tone={tone}
+      data-stale={stale ? "true" : undefined}
+    >
       <Icon size={icon.chip} aria-hidden="true" />
       <span className="srOnly">{fill(screenReader.freshness, { adapter, value })}</span>
       <span aria-hidden="true" className={styles.label}>

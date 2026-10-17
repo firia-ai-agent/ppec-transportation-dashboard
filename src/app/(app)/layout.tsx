@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { LAYOUT } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
 import { AppShell } from "@/ui/AppShell";
+import { LiveStreamProvider } from "@/ui/LiveStream";
 
 export const dynamic = "force-dynamic";
 
@@ -21,11 +22,19 @@ export const dynamic = "force-dynamic";
  * (src/app/layout.tsx), which puts them above every route, signed in or not (§7, §7.1,
  * NFR-09). shell.test.ts holds that line.
  */
+/*
+ * One live subscription per tab, held here rather than by the board (ADR-002): the §2 header
+ * ages its GPS pill off the same stream the rows are updated from, and two connections would
+ * drift apart within a minute. It connects only when a surface inside asks — the board does,
+ * and only on the day the scenario actually replays — so Setup and Health open nothing.
+ */
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const caller = await requirePage(LAYOUT.console);
   return (
-    <AppShell displayName={caller.displayName ?? ""} role={caller.kind === "STAFF" ? caller.role : null}>
-      {children}
-    </AppShell>
+    <LiveStreamProvider>
+      <AppShell displayName={caller.displayName ?? ""} role={caller.kind === "STAFF" ? caller.role : null}>
+        {children}
+      </AppShell>
+    </LiveStreamProvider>
   );
 }
