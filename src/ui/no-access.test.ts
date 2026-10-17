@@ -4,7 +4,7 @@ import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { UserLock, type LucideIcon } from "lucide-react";
-import { fill, nav, noAccess, rampPreview, roleNames } from "./copy";
+import { fill, nav, noAccess, rampIpad, roleNames } from "./copy";
 import { sourceModes, vocabularies } from "./states";
 import { whoCanOpenLine, type Caller } from "@/auth/access";
 
@@ -98,7 +98,7 @@ describe("the card", () => {
   it("says it for each page, in that page's own answer", async () => {
     for (const [page, line] of [
       ["/exceptions", "Directors and coordinators can open this."],
-      ["/ramp-preview", "Directors, coordinators and front desk staff can open this."],
+      ["/ramp-ipad", "Directors, coordinators and front desk staff can open this."],
     ] as const) {
       expect(await render(CALLERS.frontDesk, { path: page })).toContain(line);
     }
@@ -119,8 +119,8 @@ describe("the card", () => {
 
   it("offers one way out: the first page this person's own role can open", async () => {
     const frontDesk = await render(CALLERS.frontDesk, { path: "/today" });
-    expect(frontDesk).toContain(`href="/ramp-preview"`);
-    expect(frontDesk).toContain(fill(noAccess.back, { page: rampPreview.heading }));
+    expect(frontDesk).toContain(`href="/ramp-ipad"`);
+    expect(frontDesk).toContain(fill(noAccess.back, { page: rampIpad.heading }));
     expect(frontDesk.match(/<a /g)).toHaveLength(1);
 
     // A coordinator can be refused a page too (a director-only one, when there is one), and
@@ -136,7 +136,7 @@ describe("the card", () => {
      * the page. They get Vera's fallback — and they get it whether a page was named or not,
      * because naming the roles that could open it would tell them nothing they can act on.
      */
-    for (const props of [{}, { path: "/today" }, { path: "/ramp-preview" }]) {
+    for (const props of [{}, { path: "/today" }, { path: "/ramp-ipad" }]) {
       const html = await render(CALLERS.noRole, props);
       expect(html).toContain(escapeApostrophes(noAccess.noRoleHeading));
       expect(html).toContain(noAccess.noRoleLine);
@@ -169,7 +169,7 @@ describe("the card", () => {
         expect(words).not.toMatch(page);
         // The one path in the markup at all is the href of the way out — where they *can* go.
         const hrefs = [...html.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
-        expect(hrefs).toEqual([caller.kind === "STAFF" && caller.role === "FRONT_DESK" ? "/ramp-preview" : caller.kind === "STAFF" ? "/today" : "/login"]);
+        expect(hrefs).toEqual([caller.kind === "STAFF" && caller.role === "FRONT_DESK" ? "/ramp-ipad" : caller.kind === "STAFF" ? "/today" : "/login"]);
       }
     }
   });

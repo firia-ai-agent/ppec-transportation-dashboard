@@ -1,6 +1,6 @@
 "use client";
 /**
- * Ramp iPad preview (SURF-04, PRD l.1061; design DESIGN-DIRECTION §4.4; copy COPY-GUIDE §5).
+ * Ramp iPad (SURF-04, PRD l.1061; design DESIGN-DIRECTION §4.4; copy COPY-GUIDE §5).
  *
  * Mock surface: client state and fixtures only. It reads nothing from the database, writes nothing
  * to an API, and sends no messages — the capability checklist feeds the deterministic capacity
@@ -17,7 +17,7 @@ import { feasible } from "@/domain/solver";
 import type { AlternateCandidate, Child, LayoutPosition, SolveResult } from "@/domain/solver";
 import { chairFitsPosition } from "@/domain/solver";
 import { ARRIVING_VEHICLES, SERVICE_DATE, fullyAvailable } from "@/fixtures/fleet";
-import { fill, layoutName, rampPreview, sentence } from "@/ui/copy";
+import { fill, layoutName, rampIpad, sentence } from "@/ui/copy";
 import { serviceDateLabel } from "@/ui/service-date";
 import { toneVars } from "@/ui/tokens";
 import type { Tone } from "@/ui/tokens";
@@ -237,22 +237,22 @@ export default function RampCheck() {
     const riderKey = `${vehicle.id}:${child.token}`;
     const queueId = crypto.randomUUID();
     const at = stamp();
-    const action = kind === "BOARDED" ? rampPreview.boardingConfirmed
-      : kind === "NOT_ON_VEHICLE" ? rampPreview.notOnVehicle
-      : rampPreview.leftEarly;
+    const action = kind === "BOARDED" ? rampIpad.boardingConfirmed
+      : kind === "NOT_ON_VEHICLE" ? rampIpad.notOnVehicle
+      : rampIpad.leftEarly;
     setQueue((prev) => [...prev, {
       id: queueId,
       // Saved once, even if this iPad retries later (PRD §12 mutations carry an idempotency key).
       idempotencyKey: crypto.randomUUID(),
-      label: fill(rampPreview.queueLabel, { action, child: child.displayName }),
+      label: fill(rampIpad.queueLabel, { action, child: child.displayName }),
       at, offline,
     }]);
     setRiderActions((prev) => ({ ...prev, [riderKey]: { kind, pickedUpBy, at, queueId, recordedLate: false } }));
     setArmed(null);
     setAskingEarly(null);
-    const template = kind === "BOARDED" ? rampPreview.snackBoarded
-      : kind === "NOT_ON_VEHICLE" ? rampPreview.snackNotOnVehicle
-      : rampPreview.snackLeftEarly;
+    const template = kind === "BOARDED" ? rampIpad.snackBoarded
+      : kind === "NOT_ON_VEHICLE" ? rampIpad.snackNotOnVehicle
+      : rampIpad.snackLeftEarly;
     setSnack({ id: queueId, riderKey, text: sentence(fill(template, { child: child.displayName })) });
   }, [offline, vehicle.id]);
 
@@ -283,8 +283,8 @@ export default function RampCheck() {
   const riders = [...leg.children];
   // Nobody boards until the check says the run fits: the solver blocks the manifest lock (PRD §9).
   const blockedReason = result.status === "FEASIBLE" ? null
-    : result.status === "CAPABILITY_PENDING" ? rampPreview.blockedPending
-    : rampPreview.blockedInfeasible;
+    : result.status === "CAPABILITY_PENDING" ? rampIpad.blockedPending
+    : rampIpad.blockedInfeasible;
 
   return (
     <main style={{
@@ -301,22 +301,22 @@ export default function RampCheck() {
         display: "flex", alignItems: "center", gap: "var(--space-4)", flexWrap: "wrap",
         marginBottom: "var(--space-5)",
       }}>
-        <h1 style={{ fontSize: "var(--text-24)", margin: 0 }}>{rampPreview.heading}</h1>
+        <h1 style={{ fontSize: "var(--text-24)", margin: 0 }}>{rampIpad.heading}</h1>
         <span style={{ color: "var(--color-ink-muted)" }}>
-          {fill(rampPreview.subtitle, { date: SERVICE_DATE_LABEL })}
+          {fill(rampIpad.subtitle, { date: SERVICE_DATE_LABEL })}
         </span>
         {savedOffline > 0 ? (
           <span style={{ marginLeft: "auto" }}>
             <Chip toneName="warn" icon="offline">
-              {fill(rampPreview.offlinePill, { count: savedOffline })}
+              {fill(rampIpad.offlinePill, { count: savedOffline })}
             </Chip>
           </span>
         ) : null}
       </div>
-      <p style={{ color: "var(--color-ink-muted)", marginTop: 0 }}>{rampPreview.localOnly}</p>
+      <p style={{ color: "var(--color-ink-muted)", marginTop: 0 }}>{rampIpad.localOnly}</p>
 
       {/* Arriving-vehicle selector */}
-      <h2 style={{ fontSize: "var(--text-20)" }}>{rampPreview.arrivalsHeading}</h2>
+      <h2 style={{ fontSize: "var(--text-20)" }}>{rampIpad.arrivalsHeading}</h2>
       <div style={{
         display: "flex", gap: "var(--space-5)", flexWrap: "wrap", marginBottom: "var(--space-5)",
       }}>
@@ -338,7 +338,7 @@ export default function RampCheck() {
             >
               <strong style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-3)" }}>
                 {chosen ? <Icon name="check" /> : null}
-                {fill(rampPreview.vehicleTile, {
+                {fill(rampIpad.vehicleTile, {
                   vehicle: candidate.vehicle.label, provider: candidate.vehicle.providerName,
                 })}
               </strong>
@@ -348,7 +348,7 @@ export default function RampCheck() {
                 // filled card the detail line rides the same surface-white as the title.
                 color: chosen ? "var(--color-surface)" : "var(--color-ink-muted)",
               }}>
-                {fill(rampPreview.vehicleTileDetail, {
+                {fill(rampIpad.vehicleTileDetail, {
                   time: candidate.arrivingAt, riders: candidate.leg.children.length,
                 })}
               </span>
@@ -361,13 +361,13 @@ export default function RampCheck() {
         {/* Capability checklist */}
         <section style={{ ...CARD, flex: "1 1 420px" }} aria-labelledby="checklist-heading">
           <h2 id="checklist-heading" style={{ fontSize: "var(--text-20)", marginTop: 0 }}>
-            {fill(rampPreview.checklistHeading, { vehicle: vehicle.label })}
+            {fill(rampIpad.checklistHeading, { vehicle: vehicle.label })}
           </h2>
-          <p style={{ color: "var(--color-ink-muted)", marginTop: 0 }}>{rampPreview.checklistIntro}</p>
+          <p style={{ color: "var(--color-ink-muted)", marginTop: 0 }}>{rampIpad.checklistIntro}</p>
 
           <fieldset style={{ border: 0, padding: 0, margin: "0 0 var(--space-5)" }}>
             <legend style={{ fontWeight: "var(--weight-semibold)", padding: 0 }}>
-              {rampPreview.layoutLegend}
+              {rampIpad.layoutLegend}
             </legend>
             <div style={{
               display: "flex", gap: "var(--space-3)", flexWrap: "wrap", marginTop: "var(--space-3)",
@@ -384,7 +384,7 @@ export default function RampCheck() {
           </fieldset>
 
           <AnswerRow
-            label={rampPreview.liftRow} value={checklist.lift} options={["YES", "NO", "UNSURE"] as const}
+            label={rampIpad.liftRow} value={checklist.lift} options={["YES", "NO", "UNSURE"] as const}
             labels={ANSWER_LABEL} onChange={(lift: Answer) => setChecklist({ ...checklist, lift })}
           />
           {layout.positions.map((position, index) => {
@@ -403,7 +403,7 @@ export default function RampCheck() {
             );
           })}
           <AnswerRow
-            label={rampPreview.latchRow} value={checklist.latch} options={["YES", "NO", "UNSURE"] as const}
+            label={rampIpad.latchRow} value={checklist.latch} options={["YES", "NO", "UNSURE"] as const}
             labels={ANSWER_LABEL} onChange={(latch: Answer) => setChecklist({ ...checklist, latch })}
           />
 
@@ -411,18 +411,18 @@ export default function RampCheck() {
             display: "flex", gap: "var(--space-3)", flexWrap: "wrap", marginTop: "var(--space-5)",
           }}>
             <Chip toneName="neutral" icon="wheelchair">
-              {fill(rampPreview.wcFree, { available: available.wc, needed: need.wc })}
+              {fill(rampIpad.wcFree, { available: available.wc, needed: need.wc })}
             </Chip>
             <Chip toneName="neutral" icon="seat">
-              {fill(rampPreview.ambFree, { available: available.amb, needed: need.amb })}
+              {fill(rampIpad.ambFree, { available: available.amb, needed: need.amb })}
             </Chip>
             <Chip toneName="neutral" icon="seat">
-              {fill(rampPreview.tetherFree, { available: available.tether, needed: need.tether })}
+              {fill(rampIpad.tetherFree, { available: available.tether, needed: need.tether })}
             </Chip>
           </div>
           <p style={{ marginBottom: 0 }}>
             <BigButton
-              label={offline ? rampPreview.wifiBack : rampPreview.loseWifi}
+              label={offline ? rampIpad.wifiBack : rampIpad.loseWifi}
               onClick={() => (offline ? goOnline() : setOffline(true))}
             />
           </p>
@@ -434,7 +434,7 @@ export default function RampCheck() {
         }}>
           <div style={CARD} aria-labelledby="slots-heading">
             <h2 id="slots-heading" style={{ fontSize: "var(--text-20)", marginTop: 0 }}>
-              {rampPreview.slotsHeading}
+              {rampIpad.slotsHeading}
             </h2>
             <div style={{
               display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))",
@@ -463,11 +463,11 @@ export default function RampCheck() {
                           </Chip>
                         : occupant
                           ? <Chip toneName="info" icon="check">{occupant.displayName}</Chip>
-                          : <Chip toneName="neutral" icon="seat">{rampPreview.free}</Chip>}
+                          : <Chip toneName="neutral" icon="seat">{rampIpad.free}</Chip>}
                     </span>
                     {answer === "FREE" ? (
                       <BigButton
-                        label={open ? rampPreview.close : occupant ? rampPreview.change : rampPreview.assign}
+                        label={open ? rampIpad.close : occupant ? rampIpad.change : rampIpad.assign}
                         onClick={() => setOpenPosition(open ? null : position.id)} pressed={open}
                       />
                     ) : null}
@@ -477,7 +477,7 @@ export default function RampCheck() {
                         marginTop: "var(--space-3)",
                       }}>
                         {occupant ? (
-                          <BigButton label={rampPreview.clearSeat} onClick={() => {
+                          <BigButton label={rampIpad.clearSeat} onClick={() => {
                             setSeatChoices((prev) => ({ ...prev, [`${vehicle.id}:${position.id}`]: null }));
                             setOpenPosition(null);
                           }} />
@@ -489,7 +489,7 @@ export default function RampCheck() {
                           }} />
                         ))}
                         {eligible.length === 0 && !occupant ? (
-                          <span style={MUTED}>{rampPreview.noEligibleRider}</span>
+                          <span style={MUTED}>{rampIpad.noEligibleRider}</span>
                         ) : null}
                       </div>
                     ) : null}
@@ -500,7 +500,7 @@ export default function RampCheck() {
           </div>
 
           <div style={CARD}>
-            <h2 style={{ fontSize: "var(--text-20)", marginTop: 0 }}>{rampPreview.ridersHeading}</h2>
+            <h2 style={{ fontSize: "var(--text-20)", marginTop: 0 }}>{rampIpad.ridersHeading}</h2>
             {riders.map((child) => {
               const riderKey = `${vehicle.id}:${child.token}`;
               const action = riderActions[riderKey];
@@ -514,20 +514,20 @@ export default function RampCheck() {
                     display: "flex", gap: "var(--space-3)", alignItems: "baseline", flexWrap: "wrap",
                   }}>
                     <strong style={{ fontSize: "var(--text-20)" }}>{child.displayName}</strong>
-                    {child.boarded ? <Chip toneName="info" icon="check">{rampPreview.boardedReported}</Chip> : null}
+                    {child.boarded ? <Chip toneName="info" icon="check">{rampIpad.boardedReported}</Chip> : null}
                     {action?.kind === "BOARDED" ? (
-                      <Chip toneName="ok" icon="check">{fill(rampPreview.boardedVerified, { time: action.at })}</Chip>
+                      <Chip toneName="ok" icon="check">{fill(rampIpad.boardedVerified, { time: action.at })}</Chip>
                     ) : null}
                     {action?.kind === "NOT_ON_VEHICLE" ? (
-                      <Chip toneName="neutral" icon="ban">{fill(rampPreview.notOnVehicleChip, { time: action.at })}</Chip>
+                      <Chip toneName="neutral" icon="ban">{fill(rampIpad.notOnVehicleChip, { time: action.at })}</Chip>
                     ) : null}
                     {action?.kind === "LEFT_EARLY" ? (
                       <Chip toneName="warn" icon="alert">
-                        {fill(rampPreview.leftEarlyChip, { by: action.pickedUpBy ?? "", time: action.at })}
+                        {fill(rampIpad.leftEarlyChip, { by: action.pickedUpBy ?? "", time: action.at })}
                       </Chip>
                     ) : null}
                     {action?.recordedLate ? (
-                      <Chip toneName="neutral" icon="offline">{rampPreview.recordedLate}</Chip>
+                      <Chip toneName="neutral" icon="offline">{rampIpad.recordedLate}</Chip>
                     ) : null}
                   </div>
                   <div style={{
@@ -541,17 +541,17 @@ export default function RampCheck() {
                       }}>{chip}</span>
                     ))}
                   </div>
-                  <p style={{ ...MUTED, margin: "0 0 var(--space-3)" }}>{rampPreview.needsCaption}</p>
+                  <p style={{ ...MUTED, margin: "0 0 var(--space-3)" }}>{rampIpad.needsCaption}</p>
                   {action ? null : (
                     <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
                       <BigButton
                         variant="primary" disabled={blockedReason !== null}
-                        label={isArmed ? rampPreview.confirmAgain : rampPreview.confirmBoarding}
+                        label={isArmed ? rampIpad.confirmAgain : rampIpad.confirmBoarding}
                         onClick={() => (isArmed ? record(child, "BOARDED") : setArmed(riderKey))}
                       />
-                      <BigButton label={rampPreview.notOnVehicle} onClick={() => record(child, "NOT_ON_VEHICLE")} />
+                      <BigButton label={rampIpad.notOnVehicle} onClick={() => record(child, "NOT_ON_VEHICLE")} />
                       <BigButton
-                        label={rampPreview.leftEarly} pressed={askingEarly === riderKey}
+                        label={rampIpad.leftEarly} pressed={askingEarly === riderKey}
                         onClick={() => setAskingEarly(askingEarly === riderKey ? null : riderKey)}
                       />
                     </div>
@@ -568,12 +568,12 @@ export default function RampCheck() {
                   {askingEarly === riderKey ? (
                     <div
                       role="group"
-                      aria-label={fill(rampPreview.whoPickedUpFor, { child: child.displayName })}
+                      aria-label={fill(rampIpad.whoPickedUpFor, { child: child.displayName })}
                       style={{ marginTop: "var(--space-3)" }}
                     >
-                      <p style={{ margin: "0 0 var(--space-3)" }}>{rampPreview.whoPickedUp}</p>
+                      <p style={{ margin: "0 0 var(--space-3)" }}>{rampIpad.whoPickedUp}</p>
                       <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
-                        {rampPreview.pickupRoles.map((role) => (
+                        {rampIpad.pickupRoles.map((role) => (
                           <BigButton key={role} label={role} onClick={() => record(child, "LEFT_EARLY", role)} />
                         ))}
                       </div>
@@ -586,14 +586,14 @@ export default function RampCheck() {
 
           {queue.length > 0 ? (
             <div style={CARD}>
-              <h2 style={{ fontSize: "var(--text-20)", marginTop: 0 }}>{rampPreview.queueHeading}</h2>
+              <h2 style={{ fontSize: "var(--text-20)", marginTop: 0 }}>{rampIpad.queueHeading}</h2>
               <ul style={{ margin: 0, paddingLeft: "var(--space-6)" }}>
                 {queue.map((entry) => (
                   <li key={entry.id} style={{ marginBottom: "var(--space-3)" }}>
-                    {fill(rampPreview.queueRow, { label: entry.label, time: entry.at })}{" "}
+                    {fill(rampIpad.queueRow, { label: entry.label, time: entry.at })}{" "}
                     {entry.offline
-                      ? <Chip toneName="warn" icon="offline">{rampPreview.queueWaiting}</Chip>
-                      : <Chip toneName="neutral" icon="check">{rampPreview.queueSaved}</Chip>}
+                      ? <Chip toneName="warn" icon="offline">{rampIpad.queueWaiting}</Chip>
+                      : <Chip toneName="neutral" icon="check">{rampIpad.queueSaved}</Chip>}
                   </li>
                 ))}
               </ul>
@@ -618,7 +618,7 @@ export default function RampCheck() {
           {hasDetails ? (
             <span style={{ marginLeft: "auto" }}>
               <BigButton
-                label={bannerOpen ? rampPreview.hideDetails : rampPreview.showDetails}
+                label={bannerOpen ? rampIpad.hideDetails : rampIpad.showDetails}
                 onClick={() => setBannerOpen((open) => !open)}
               />
             </span>
@@ -630,17 +630,17 @@ export default function RampCheck() {
         {bannerOpen && result.options.length > 0 ? (
           <div style={{ marginTop: "var(--space-5)", color: "var(--color-ink)" }}>
             <h3 style={{ fontSize: "var(--body-ramp)", margin: "0 0 var(--space-3)" }}>
-              {rampPreview.optionsHeading}
+              {rampIpad.optionsHeading}
             </h3>
             <ol style={{ margin: 0, paddingLeft: "var(--space-6)" }}>
               {result.options.map((option) => (
                 <li key={option.id} style={{ marginBottom: "var(--space-3)" }}>
-                  {fill(rampPreview.optionRow, { label: option.label, detail: option.detail })}{" "}
-                  <Chip toneName="neutral" icon="question">{rampPreview.needsApproval}</Chip>
+                  {fill(rampIpad.optionRow, { label: option.label, detail: option.detail })}{" "}
+                  <Chip toneName="neutral" icon="question">{rampIpad.needsApproval}</Chip>
                 </li>
               ))}
             </ol>
-            <p style={{ color: "var(--color-ink-muted)", marginBottom: 0 }}>{rampPreview.optionsNote}</p>
+            <p style={{ color: "var(--color-ink-muted)", marginBottom: 0 }}>{rampIpad.optionsNote}</p>
           </div>
         ) : null}
       </div>
@@ -667,7 +667,7 @@ export default function RampCheck() {
                 outlineOffset: "var(--focus-offset)",
               }}
             >
-              {rampPreview.undo}
+              {rampIpad.undo}
             </button>
           </span>
         ) : null}

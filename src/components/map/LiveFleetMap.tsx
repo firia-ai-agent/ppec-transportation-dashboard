@@ -32,7 +32,7 @@ import {
   type ReplayResult,
 } from "@/domain/eta/replay";
 import { measurePath, pathUpTo } from "@/domain/location/geo";
-import { fill, mapPreview, sourceMode } from "@/ui/copy";
+import { fill, liveMap, sourceMode } from "@/ui/copy";
 import { routeGeometry, type Route } from "@/domain/location/route";
 import { icon } from "@/ui/tokens";
 import { DEMO_RUNS, DEMO_RUN_SECONDS, SCENARIO_START_MS } from "@/fixtures/replays";
@@ -94,7 +94,7 @@ function useSimClock(playing: boolean, speed: number, reduced: boolean) {
  * id ("route1", "route1-unbound") stays where it belongs — in the fixture file.
  */
 function routeLabelOf(route: Route): string {
-  return fill(mapPreview.routeName, { stop: route.stops[0]?.name ?? "" });
+  return fill(liveMap.routeName, { stop: route.stops[0]?.name ?? "" });
 }
 
 interface RunView {
@@ -269,7 +269,7 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
 
   const fixture: MapFixture = {
     center: DEMO_CENTER,
-    centerLabel: mapPreview.centerLabel,
+    centerLabel: liveMap.centerLabel,
     initialZoom: 11,
     stops: can("map") ? stopsOf(displayed) : [],
     // Each line of the matrix is load-bearing: a role without `vehiclePositions` gets an
@@ -295,7 +295,7 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
     0,
   );
   const suppressedText = fill(
-    suppressed === 1 ? mapPreview.suppression : mapPreview.suppressionPlural,
+    suppressed === 1 ? liveMap.suppression : liveMap.suppressionPlural,
     { count: suppressed },
   );
 
@@ -309,13 +309,13 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
           flexWrap: "wrap",
         }}
       >
-        <span style={heading}>{fill(mapPreview.clock, { time: formatClock(nowMs) })}</span>
+        <span style={heading}>{fill(liveMap.clock, { time: formatClock(nowMs) })}</span>
         {/* §6.2: the clock is a demo control, so only the role that holds them gets it. The
             clock itself keeps running for everyone — the readout above is not a control. */}
         {can("clockControls") ? (
           <>
             <button type="button" style={button} onClick={() => setPlaying((p) => !p)}>
-              {playing ? mapPreview.pause : mapPreview.play}
+              {playing ? liveMap.pause : liveMap.play}
             </button>
             {SPEEDS.map((option) => (
               <button
@@ -326,34 +326,34 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
                 onClick={() => setSpeed(option)}
               >
                 {speed === option ? <Check size={icon.inline} aria-hidden="true" /> : null}
-                {fill(mapPreview.speed, { factor: option })}
+                {fill(liveMap.speed, { factor: option })}
               </button>
             ))}
             <button type="button" style={button} onClick={restart}>
-              {mapPreview.restart}
+              {liveMap.restart}
             </button>
           </>
         ) : null}
         <span style={meta}>
-          {reduced ? mapPreview.motionReduced : mapPreview.motionTweened}
+          {reduced ? liveMap.motionReduced : liveMap.motionTweened}
         </span>
       </div>
 
-      <FleetMap fixture={fixture} label={mapPreview.mapLabel} />
+      <FleetMap fixture={fixture} label={liveMap.mapLabel} />
 
       {can("notificationDecisions") ? (
       <section style={{ display: "grid", gap: "var(--space-3)" }}>
-        <h2 style={heading}>{mapPreview.decisionsHeading}</h2>
+        <h2 style={heading}>{liveMap.decisionsHeading}</h2>
         <p style={{ ...meta, margin: 0, maxWidth: "70ch" }}>
-          {fill(mapPreview.decisionsIntro, { suppressed: suppressedText })}
+          {fill(liveMap.decisionsIntro, { suppressed: suppressedText })}
         </p>
         {decisions.length === 0 ? (
-          <p style={{ ...meta, margin: 0 }}>{mapPreview.decisionsEmpty}</p>
+          <p style={{ ...meta, margin: 0 }}>{liveMap.decisionsEmpty}</p>
         ) : (
           <ul style={{ ...meta, margin: 0, paddingLeft: "var(--space-6)" }}>
             {decisions.map(({ vehicleId, decision }) => (
               <li key={`${vehicleId}-${decision.stopId}-${decision.atMs}`}>
-                {fill(mapPreview.decisionRow, {
+                {fill(liveMap.decisionRow, {
                   time: formatClock(decision.atMs),
                   vehicle: vehicleId,
                   // Both are optional on the decision; a NOTIFY row always carries them, and
@@ -371,11 +371,11 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
 
       {can("injectedFaults") ? (
       <section style={{ display: "grid", gap: "var(--space-3)" }}>
-        <h2 style={heading}>{mapPreview.faultsHeading}</h2>
+        <h2 style={heading}>{liveMap.faultsHeading}</h2>
         <ul style={{ ...meta, margin: 0, paddingLeft: "var(--space-6)" }}>
           {runs.map((run) => (
             <li key={run.result.spec.route.id}>
-              {fill(mapPreview.faultRow, {
+              {fill(liveMap.faultRow, {
                 vehicle: run.result.spec.route.vehicleId,
                 route: run.routeLabel,
                 fault: run.faultLabel,
@@ -388,7 +388,7 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
           return (
             // LOC-01 / ADR-013: unbound points are stored with `bound=false` and never displayed.
             <p key={run.result.spec.route.id} style={{ ...meta, margin: 0, maxWidth: "70ch" }}>
-              {fill(mapPreview.unbound, {
+              {fill(liveMap.unbound, {
                 vehicle: run.result.spec.route.vehicleId,
                 unbound: device?.counts.unbound ?? 0,
                 accepted: device?.counts.accepted ?? 0,

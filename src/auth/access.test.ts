@@ -6,6 +6,7 @@ import {
   API,
   ENDPOINTS,
   LAYOUT,
+  MOVED_PAGES,
   PAGES,
   POLICY,
   ROLE_LADDER,
@@ -21,8 +22,8 @@ import {
   whoCanOpenLine,
   type Caller,
 } from "./access";
-import { canOpenMapPreview, canOpenRampPreview } from "@/domain/access/map-view";
-import { navItemsFor } from "@/ui/nav-items";
+import { canOpenLiveMap, canOpenRampIpad } from "@/domain/access/map-view";
+import { navItems, navItemsFor } from "@/ui/nav-items";
 import { noAccess } from "@/ui/copy";
 
 /**
@@ -135,6 +136,83 @@ describe("every surface in the filesystem has exactly one row", () => {
   it("no path is claimed twice", () => {
     const paths = POLICY.map((row) => row.path);
     expect(new Set(paths).size).toBe(paths.length);
+  });
+});
+
+/**
+ * The three addresses that moved. Vera's review (2026-10-17): no "preview" in any menu label or
+ * address. The screens are at `/plan-routes`, `/live-map` and `/ramp-ipad`; the old addresses
+ * still answer, because a URL that has been read out loud in a demo and bookmarked does not get
+ * to start 404ing.
+ *
+ * What is asserted here is the pair, not the redirect alone: both ends have a row, the old row
+ * is open to exactly the roles the new one is, and the redirect is permanent and happens *after*
+ * the guard. A redirect that ran before the guard would answer "that screen exists" to a role
+ * that may not open it.
+ */
+describe("the addresses that moved", () => {
+  it("has no \"preview\" left in any address a screen is reached at, or any label", () => {
+    const destinations = PAGES.filter((p) => p.kind === "page" && !(p.path in MOVED_PAGES));
+    for (const row of destinations) {
+      expect(row.path, row.file).not.toMatch(/preview/i);
+      expect(row.label ?? "", row.file).not.toMatch(/preview/i);
+    }
+    // And the labels on the redirect rows are the destinations' labels, so there is no second
+    // name for a screen hiding on an old address either.
+    for (const [from, to] of Object.entries(MOVED_PAGES)) {
+      expect(pageLabel(from), from).toBe(pageLabel(to));
+      expect(pageLabel(from), from).not.toMatch(/preview/i);
+    }
+  });
+
+  it("is these three pairs, with both ends in the table", () => {
+    expect(MOVED_PAGES).toEqual({
+      "/plan-preview": "/plan-routes",
+      "/map-preview": "/live-map",
+      "/ramp-preview": "/ramp-ipad",
+    });
+    for (const [from, to] of Object.entries(MOVED_PAGES)) {
+      expect(PAGES.map((p) => p.path), from).toContain(from);
+      expect(PAGES.map((p) => p.path), to).toContain(to);
+    }
+  });
+
+  it("sends only a caller who could open the destination, and refuses everyone else the same way", () => {
+    for (const [from, to] of Object.entries(MOVED_PAGES)) {
+      expect(rolesWhoCanOpen(from), from).toEqual(rolesWhoCanOpen(to));
+      for (const caller of Object.values(callers)) {
+        expect({ from, outcome: pageOutcome(caller, from) }).toEqual({
+          from,
+          outcome: pageOutcome(caller, to),
+        });
+      }
+    }
+  });
+
+  it("redirects permanently, and only after the guard has run", () => {
+    for (const [from, to] of Object.entries(MOVED_PAGES)) {
+      const row = PAGES.find((p) => p.path === from);
+      expect(row, from).toBeDefined();
+      const source = readFileSync(path.join(REPO, row!.file), "utf8");
+      // 308, not 307: the old address is not coming back.
+      expect(source, from).toContain("permanentRedirect");
+      expect(source, from).not.toMatch(/\bredirect\(/);
+      // The destination is read from this table, so a redirect cannot point off it.
+      expect(source, from).toContain(`MOVED_PAGES["${from}"]`);
+      expect(source, from).not.toContain(`"${to}"`);
+      // Guard first. Both calls are in the one function body, so compare their positions.
+      const guardAt = source.indexOf(`requirePage("${from}")`);
+      const redirectAt = source.indexOf("permanentRedirect(");
+      expect(guardAt, from).toBeGreaterThan(-1);
+      expect(redirectAt, from).toBeGreaterThan(guardAt);
+    }
+  });
+
+  it("keeps the moved addresses out of the rail and out of every role's home", () => {
+    for (const from of Object.keys(MOVED_PAGES)) {
+      expect(navItems.map((i) => i.href), from).not.toContain(from);
+      for (const caller of Object.values(callers)) expect(homePathFor(caller), from).not.toBe(from);
+    }
   });
 });
 
@@ -260,8 +338,13 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/exceptions": "DIRECTOR+COORDINATOR",
       "/setup": "DIRECTOR+COORDINATOR",
       "/health": "DIRECTOR+COORDINATOR",
-      "/plan-preview": "DIRECTOR+COORDINATOR",
+      "/plan-routes": "DIRECTOR+COORDINATOR",
       "/whoami": "DIRECTOR+COORDINATOR+FRONT_DESK",
+      "/live-map": "DIRECTOR+COORDINATOR+FRONT_DESK",
+      "/ramp-ipad": "DIRECTOR+COORDINATOR+FRONT_DESK",
+      // The three old addresses, still answering as permanent redirects, each behind the same
+      // roles as the screen it sends you to.
+      "/plan-preview": "DIRECTOR+COORDINATOR",
       "/map-preview": "DIRECTOR+COORDINATOR+FRONT_DESK",
       "/ramp-preview": "DIRECTOR+COORDINATOR+FRONT_DESK",
     });
@@ -297,7 +380,7 @@ describe("the policy itself, written out so a silent widening fails", () => {
   });
 
   it("every row whose default is a guess is flagged for the founder, with the question in the file", () => {
-    expect(foundersQuestions()).toEqual(["/today", "/setup", "/health", "/whoami", "/ramp-preview", "/api/health"]);
+    expect(foundersQuestions()).toEqual(["/today", "/setup", "/health", "/whoami", "/ramp-ipad", "/api/health"]);
     const source = readFileSync(path.join(__dirname, "access.ts"), "utf8");
     expect(source.match(/OPEN QUESTION for the founder/g)).toHaveLength(foundersQuestions().length);
   });
@@ -339,16 +422,26 @@ describe("the decision, cell by cell", () => {
 
   it("refuses a signed-in caller who holds no membership anywhere, rather than bouncing them to sign-in", () => {
     expect(pageOutcome(callers.noRole, "/today")).toBe("NO_ACCESS");
-    expect(pageOutcome(callers.noRole, "/ramp-preview")).toBe("NO_ACCESS");
+    expect(pageOutcome(callers.noRole, "/ramp-ipad")).toBe("NO_ACCESS");
     expect(pageOutcome(callers.noRole, LAYOUT.console)).toBe("ALLOW"); // the shell; the page then refuses
     expect(apiOutcome(callers.noRole, API.demoReset)).toBe("FORBIDDEN");
   });
 
-  it("gives the front desk the ramp check and the previews, and no console page", () => {
+  it("gives the front desk the live map and their own ramp iPad, and no console page", () => {
     const allowed = PAGES.filter((p) => p.kind === "page" && pageOutcome(callers.frontDesk, p.path) === "ALLOW").map(
       (p) => p.path,
     );
-    expect(allowed).toEqual(["/", "/login", "/_not-found", "/whoami", "/map-preview", "/ramp-preview"]);
+    expect(allowed).toEqual([
+      "/",
+      "/login",
+      "/_not-found",
+      "/whoami",
+      "/live-map",
+      "/ramp-ipad",
+      // The redirects to those same two screens, and not the one to Plan routes.
+      "/map-preview",
+      "/ramp-preview",
+    ]);
   });
 
   it("a session is never a way into a cron, queue, webhook or Auth.js route", () => {
@@ -425,7 +518,7 @@ describe("where each role lives", () => {
     expect(homePathFor(callers.director)).toBe("/today");
     expect(homePathFor(callers.coordinator)).toBe("/today");
     // The front desk has no console page: their surface is the ramp iPad (ARCHITECTURE §1).
-    expect(homePathFor(callers.frontDesk)).toBe("/ramp-preview");
+    expect(homePathFor(callers.frontDesk)).toBe("/ramp-ipad");
     expect(homePathFor(callers.signedOut)).toBe("/login");
     expect(homePathFor(callers.noRole)).toBe("/login");
     for (const caller of [callers.director, callers.coordinator, callers.frontDesk]) {
@@ -440,13 +533,41 @@ describe("where each role lives", () => {
   });
 
   it("offers each role only the nav items it can open", () => {
-    const console = ["/today", "/plan-preview", "/exceptions", "/setup", "/health"];
-    expect(navItemsFor("DIRECTOR").map((i) => i.href)).toEqual(console);
-    expect(navItemsFor("COORDINATOR").map((i) => i.href)).toEqual(console);
-    // The front desk's row opens no console destination, Plan routes included: deciding which
-    // van a child rides in is not their job (ARCHITECTURE §1).
-    expect(navItemsFor("FRONT_DESK")).toEqual([]);
+    /*
+     * The whole rail: §2's four console destinations, Plan routes and the live map between the
+     * board and the exceptions it raises, and the ramp iPad last (PRD §14 lists it after the
+     * console destinations because it is not one). Addresses only — no "preview" in any of them.
+     */
+    const everything = [
+      "/today",
+      "/plan-routes",
+      "/live-map",
+      "/exceptions",
+      "/setup",
+      "/health",
+      "/ramp-ipad",
+    ];
+    expect(navItemsFor("DIRECTOR").map((i) => i.href)).toEqual(everything);
+    expect(navItemsFor("COORDINATOR").map((i) => i.href)).toEqual(everything);
+    /*
+     * The front desk's row opens no console destination, Plan routes included: deciding which
+     * van a child rides in is not their job (ARCHITECTURE §1). What is left is their own
+     * surface, the ramp iPad (PRD §6.2), and the live map, whose row is all staff because a
+     * person at the door needs to see where the vans are — src/domain/access/map-view.ts then
+     * withholds the family labels and the notification queue from them.
+     */
+    expect(navItemsFor("FRONT_DESK").map((i) => i.href)).toEqual(["/live-map", "/ramp-ipad"]);
     expect(navItemsFor(null)).toEqual([]);
+    /*
+     * And the rail is never wider than the table for any role: this compares the whole rail
+     * against `rolesWhoCanOpen` row by row, so an item added to nav-items.ts whose row omits a
+     * role fails here rather than on a screen.
+     */
+    for (const role of ROLES) {
+      const shown = navItemsFor(role).map((i) => i.href);
+      const allowed = navItems.filter((i) => rolesWhoCanOpen(i.href).includes(role)).map((i) => i.href);
+      expect(shown, role).toEqual(allowed);
+    }
     // ...and hiding is only ever the same answer the server gives, never a different one.
     for (const role of ROLES) {
       for (const item of navItemsFor(role)) {
@@ -464,7 +585,7 @@ describe("the line the no-access page says", () => {
   });
 
   it("names all three where all three are in", () => {
-    expect(whoCanOpenLine("/ramp-preview")).toBe(
+    expect(whoCanOpenLine("/ramp-ipad")).toBe(
       "Directors, coordinators and front desk staff can open this.",
     );
   });
@@ -494,22 +615,22 @@ describe("the helpers the table shares with the map matrix", () => {
     expect(mapViewerOf(callers.signedOut)).toBe("ANONYMOUS");
   });
 
-  it("agrees with the preview policy in src/domain/access/map-view.ts", () => {
-    // Two files answer "may this role open the preview": the table, which the route enforces,
+  it("agrees with the screen policy in src/domain/access/map-view.ts", () => {
+    // Two files answer "may this role open the live map": the table, which the route enforces,
     // and the data matrix, whose answer is "is there anything here for them". They must match.
     for (const role of ROLES) {
       const caller: Caller = { kind: "STAFF", role };
-      expect({ role, open: canOpenMapPreview(role) }).toEqual({
+      expect({ role, open: canOpenLiveMap(role) }).toEqual({
         role,
-        open: pageOutcome(caller, "/map-preview") === "ALLOW",
+        open: pageOutcome(caller, "/live-map") === "ALLOW",
       });
-      expect({ role, ramp: canOpenRampPreview(role) }).toEqual({
+      expect({ role, ramp: canOpenRampIpad(role) }).toEqual({
         role,
-        ramp: pageOutcome(caller, "/ramp-preview") === "ALLOW",
+        ramp: pageOutcome(caller, "/ramp-ipad") === "ALLOW",
       });
     }
-    expect(canOpenMapPreview("ANONYMOUS")).toBe(false);
-    expect(canOpenRampPreview("ANONYMOUS")).toBe(false);
+    expect(canOpenLiveMap("ANONYMOUS")).toBe(false);
+    expect(canOpenRampIpad("ANONYMOUS")).toBe(false);
   });
 
   it("rolesWhoCanOpen is the roles for a staff page and every role for a public one", () => {

@@ -383,7 +383,7 @@ for (const width of WIDTHS) {
       page,
     }) => {
       await page.goto("/today?q=Noah");
-      await expect(page.getByText(serviceDate.phases.LIVE)).toBeVisible();
+      await expect(page.getByText(serviceDate.phases.LIVE, { exact: true })).toBeVisible();
 
       // No hold anywhere on the board a walk opens, and nothing on it handed over either.
       await expect(page.getByText(legStates.HELD_NO_RECEIVER.label)).toHaveCount(0);
@@ -492,7 +492,7 @@ for (const width of WIDTHS) {
       const dates = page.locator("time[datetime]");
       await expect(dates).toHaveCount(1);
       await expect(dates).toHaveAttribute("datetime", demoDay().iso);
-      await expect(page.getByText(serviceDate.phases.LIVE)).toBeVisible();
+      await expect(page.getByText(serviceDate.phases.LIVE, { exact: true })).toBeVisible();
       await expect(page.getByRole("heading", { level: 1, name: boardCopy.heading })).toBeVisible();
 
       // The van is back at his stop with nobody recorded as receiving him: the ride is held, in
@@ -557,7 +557,7 @@ for (const width of WIDTHS) {
       await expect(dates).toHaveText(demoDay().label);
       await expect(dates).toHaveAttribute("datetime", demoDay().iso);
       await expect(page.getByText(serviceDate.groupLabel)).toBeVisible();
-      await expect(page.getByText(serviceDate.phases.LIVE)).toBeVisible();
+      await expect(page.getByText(serviceDate.phases.LIVE, { exact: true })).toBeVisible();
 
       // Today's real date is nowhere on the screen — not in the board, not in the chrome.
       const realToday = new Intl.DateTimeFormat("en-US", {

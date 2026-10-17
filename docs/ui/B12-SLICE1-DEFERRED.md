@@ -62,7 +62,7 @@ one day.
 
 ## 1.1 What slice 2 landed: Plan routes
 
-The coordinator's planning screen, at `/plan-preview`, behind the two console roles (PRD §6.2
+The coordinator's planning screen, at `/plan-routes`, behind the two console roles (PRD §6.2
 gives the plan and the legs to coordinators; the front desk's surface is the ramp iPad). One lane
 per van: what the van has today, places needed against places free, and the children in it as
 stops in the order they are driven, with the map's place beside the lanes and one primary button —
@@ -78,10 +78,10 @@ assigned, locked or sent, and the screen says so.
 |---|---|
 | The planner over the fleet: lanes, unplaced children with causes, the §9 option set | `src/domain/solver/plan.ts` |
 | The day it plans, projected from the demo scenario (vans, drivers, riders, the spare van, the chair the ramp measures) | `src/domain/plan/day.ts` |
-| The screen | `src/app/plan-preview/PlanRoutes.tsx`, `plan.module.css` |
-| The verdicts as words and §3 state chips | `src/app/plan-preview/lanes.ts` |
+| The screen | `src/app/plan-routes/PlanRoutes.tsx`, `plan.module.css` |
+| The verdicts as words and §3 state chips | `src/app/plan-routes/lanes.ts` |
 | The words | `src/ui/copy.ts` (`planRoutes`) |
-| Unit checks over the real scenario | `src/domain/solver/plan.test.ts`, `src/app/plan-preview/plan-screen.test.ts` |
+| Unit checks over the real scenario | `src/domain/solver/plan.test.ts`, `src/app/plan-routes/plan-screen.test.ts` |
 | Browser checks and screenshots | `e2e/plan-routes.spec.ts` → `artifacts/plan-routes-*.png` |
 
 What it answers, in the PRD's own terms:
@@ -342,7 +342,7 @@ Still open:
 | Thing | § | What slice 3 has to land |
 |---|---|---|
 | Live updates, reconnect delta, the amber "paused" bar over 15 s | §2, §4.1 | the SSE stream (ADR-002), and with it the U3 commit→screen measurement RISKS-AND-QUESTIONS has open. AT-11's duplicate, out-of-order and location-loss bands are read here |
-| The map pane beside the rows, row-hover ↔ marker highlight, fly-to | §4.1, §5 | the split pane at ≥1280 px that D-6 (ledger row 34) decided. The pane itself already exists at `/map-preview`, and Plan routes already holds its place on screen (§1.1) — slice 3 puts the live map in both, and with it AT-03's delay on a real route |
+| The map pane beside the rows, row-hover ↔ marker highlight, fly-to | §4.1, §5 | the split pane at ≥1280 px that D-6 (ledger row 34) decided. The pane itself already exists at `/live-map`, and Plan routes already holds its place on screen (§1.1) — slice 3 puts the live map in both, and with it AT-03's delay on a real route |
 | Header adapter pills showing real ages instead of "· Simulated" | §2, §10 | the ages come from the same stream; the pills' **violet is already gone** (§4), so only the text is interim |
 | A **named approver and a named verifier** in the seed | §4.2, COPY-GUIDE §5 | **Firia's call, 2026-10-16 10:21 PM ET**, within founder locks (DECISION-LEDGER row 71; slice naming delegated, row 63): both land here, and that is a *sequence* rather than a deferral — B-12 does not close until slice 3 passes. `seed.ts` names the approver on the transport profile (`approved_by`), and the ramp observation becomes a seeded capability report with a person on it, so the drawer can say "Verified 17 min ago by J.T." and mean it (§3.3, §3.4) |
 | The **OSRM re-probe of the eight committed legs** — every one `DERIVED` and **Unverified** today | ADR-007, §3.1, §5 | the eight legs the three replay tracks are built from, probed against the public OSRM demo server, so a committed leg is survey-grade again and `PROBE_SPEED_MPS` (`src/fixtures/survey.ts`) stops being the provenance of every duration in the demo. A **dev-time job** and never a test or a runtime (ADR-007), run **before the evidence package** (P-11's export and P-12's signing), so no AT is signed over geometry nobody probed. **Firia's call, 2026-10-17 5:43 AM ET**, within founder locks (slice naming delegated, ledger row 63) |
