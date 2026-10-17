@@ -32,6 +32,7 @@ it("still fails closed on previews when the cron secret is wrong", async () => {
  * at all, and that a deployment holding real data gets the refusal rather than a queued message.
  */
 it("asks for the demo day's late-ride texts, and is refused on a real-data deployment", async () => {
+  const { DAY_LAST_TICK, demoDayAtTick } = await import("@/domain/board/day");
   const { dueEtaNotices } = await import("@/modules/demo/late-dropoff");
   expect(dueEtaNotices().length).toBeGreaterThan(0);
 
@@ -42,6 +43,9 @@ it("asks for the demo day's late-ride texts, and is refused on a real-data deplo
     sweepEtaNotices(noDb as never, new FakeOutboxTransport(), {
       due: dueEtaNotices(),
       now: new Date(),
+      // Past the end of the demo day, so the data-class refusal is what is being measured here and
+      // not the scenario-clock gate — that one has its own tests in eta-notice-sweep.test.ts.
+      scenarioNow: new Date(demoDayAtTick(DAY_LAST_TICK).instantMs),
       env: { APP_DATA_CLASS: "REAL", DEMO_MODE: "1" },
     }),
   ).resolves.toEqual({ skipped: "not a demo deployment" });

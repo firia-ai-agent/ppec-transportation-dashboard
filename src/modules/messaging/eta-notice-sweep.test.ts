@@ -3,11 +3,14 @@ import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { windowFor } from "@/domain/eta/eta";
 import type { NotificationDecision } from "@/domain/eta/notify-gate";
+import { demoDay, demoDayAtTick, demoDayTickAt } from "@/domain/board/day";
 import { childByKey, demoChildToken, demoLegId, stopByKey } from "@/modules/demo/fixtures/standard";
+import { dueEtaNotices } from "@/modules/demo/late-dropoff";
 import { seedStandardScenario } from "@/modules/demo/seed";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { freshDb, SITE } from "@/test/pglite";
-import { sweepEtaNotices, type DueEtaNotice } from "./eta-notice";
+import { serviceDateIso } from "@/ui/service-date";
+import { etaNoticeKey, sweepEtaNotices, type DueEtaNotice } from "./eta-notice";
 
 /**
  * The drive (PRD §18.2 step 7): the one-minute sweep queues the demo day's own crossings against
@@ -67,8 +70,22 @@ function due(lateSeconds = 900): DueEtaNotice {
   return { decision, childKey: CHILD_KEY, direction: "PM", stopToken: stopByKey(child.stopKey!).smsToken };
 }
 
+/**
+ * The scenario instant these tests sweep at, unless one of them says otherwise: late enough that
+ * the hand-made crossing above has happened. The gate on `scenarioNow` is the subject of its own
+ * block at the bottom of this file; everywhere else it is set out of the way so that the rest of
+ * the suite keeps testing what it was written to test.
+ */
+const AFTER_THE_CROSSING = new Date(due().decision.atMs + 60_000);
+
 const sweep = (overrides: Partial<Parameters<typeof sweepEtaNotices>[2]> = {}) =>
-  sweepEtaNotices(db, transport, { due: [due()], now: NOW, env, ...overrides });
+  sweepEtaNotices(db, transport, {
+    due: [due()],
+    now: NOW,
+    scenarioNow: AFTER_THE_CROSSING,
+    env,
+    ...overrides,
+  });
 
 async function queued() {
   const r = await db.query<{
@@ -114,7 +131,14 @@ describe("sweeping the demo day's crossings", () => {
   it("skips a ride the day does not have", async () => {
     const notSeeded: DueEtaNotice = { ...due(), childKey: "C28", direction: "AM" };
     await db.query("DELETE FROM ops.trip_leg WHERE id = $1", [demoLegId("C28", "AM")]);
-    expect(await sweepEtaNotices(db, transport, { due: [notSeeded], now: NOW, env })).toEqual({
+    expect(
+      await sweepEtaNotices(db, transport, {
+        due: [notSeeded],
+        now: NOW,
+        scenarioNow: AFTER_THE_CROSSING,
+        env,
+      }),
+    ).toEqual({
       queued: 0,
       duplicates: 0,
       skipped: { "no-leg": 1 },
@@ -136,5 +160,85 @@ describe("sweeping the demo day's crossings", () => {
       expect(await sweep({ env: off }), JSON.stringify(off)).toEqual({ skipped: "not a demo deployment" });
     }
     expect(await queued()).toHaveLength(0);
+  });
+});
+
+/**
+ * THE SCENARIO CLOCK DECIDES WHETHER A CROSSING HAS HAPPENED (Veri's review, demo item 4).
+ *
+ * The bug: the sweep queued every crossing the replay holds the first time it ran after a reset.
+ * A reset rewinds the scenario clock to six in the morning, so one minute later a family's phone
+ * held a text about an afternoon van that had not left the centre — the exact thing this feature
+ * exists to get right, got wrong, in the first minute of the demo.
+ *
+ * These run against the **real projection** (`dueEtaNotices()`), not the hand-made decision above,
+ * because the thing being asserted is about the demo day's own times: the afternoon stall's two
+ * crossings both open at 4:08:54 PM scenario time, and the board's own instant is 7:42 AM.
+ */
+describe("a crossing is queued only once its time has passed on the scenario clock", () => {
+  /** Noah, the family furthest downstream of the stall — the one text the demo is built around. */
+  const NOAH = "C2";
+  const noahsCrossing = () => dueEtaNotices().find((d) => d.childKey === NOAH)!;
+
+  const sweepAt = (scenarioNow: Date) =>
+    sweepEtaNotices(db, transport, { due: dueEtaNotices(), now: NOW, scenarioNow, env });
+
+  const noahsRows = async () =>
+    (await queued()).filter((r) => r.trip_leg_id === demoLegId(NOAH, "PM"));
+
+  it("the projection really does put the crossing in the demo day's afternoon", () => {
+    // If this ever stops being true the two tests below would pass vacuously, so it is checked.
+    expect(noahsCrossing().decision.atMs).toBeGreaterThan(demoDay().instantMs);
+    expect(noahsCrossing().decision.atMs).toBeLessThan(demoDayAtTick(demoDayTickAt("16:20")).instantMs);
+  });
+
+  it("says nothing before its time: not at the board's own instant, not at 4:00 PM", async () => {
+    // The morning, which is where a reset leaves the clock. This is the first sweep after a reset.
+    expect(await sweepAt(new Date(demoDay().instantMs))).toEqual({
+      queued: 0,
+      duplicates: 0,
+      skipped: { "not-yet": dueEtaNotices().length },
+    });
+    expect(await noahsRows()).toHaveLength(0);
+
+    // And still nothing eight minutes before the van's own crossing.
+    expect(await sweepAt(new Date(demoDayAtTick(demoDayTickAt("16:00")).instantMs))).toMatchObject({
+      queued: 0,
+      skipped: { "not-yet": dueEtaNotices().length },
+    });
+    expect(await noahsRows()).toHaveLength(0);
+  });
+
+  it("queues it once its time has passed, and exactly once however often the sweep runs", async () => {
+    const at420 = new Date(demoDayAtTick(demoDayTickAt("16:20")).instantMs);
+
+    const first = await sweepAt(at420);
+    expect(first).toMatchObject({ duplicates: 0 });
+    expect("queued" in first && first.queued).toBeGreaterThan(0);
+    const rows = await noahsRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].template_id).toBe("dropoff.late");
+
+    // The one-minute sweep runs again, and again. Still one text (the idempotency key).
+    expect(await sweepAt(at420)).toMatchObject({ queued: 0 });
+    expect(await sweepAt(new Date(demoDayAtTick(demoDayTickAt("17:00")).instantMs))).toMatchObject({ queued: 0 });
+    expect(await noahsRows()).toHaveLength(1);
+  });
+
+  /**
+   * The key carries the scenario date, so the same leg and the same window on the *next* demo day
+   * is a different text rather than a duplicate silently dropped (Veri's S3 note). Asserted on the
+   * key itself, because the row it would collide with is a day away.
+   */
+  it("keys the text by the scenario date as well as the window", () => {
+    const window = noahsCrossing().decision.windowStartMs!;
+    const leg = demoLegId(NOAH, "PM");
+    const key = etaNoticeKey(leg, window);
+
+    expect(key).toContain(serviceDateIso(new Date(window)));
+    // The same window one day later is a different key, which is the whole point.
+    expect(etaNoticeKey(leg, window + 24 * 3600_000)).not.toBe(key);
+    // And it still collapses two sweeps of the same crossing onto one row.
+    expect(etaNoticeKey(leg, window)).toBe(key);
   });
 });

@@ -47,6 +47,7 @@ import { isDemoMode, isSyntheticDemo } from "@/lib/env";
 import { demoLegId } from "@/modules/demo/fixtures/standard";
 import { enqueue, type OutboxTransport } from "@/modules/outbox/outbox";
 import { FAMILY_SMS, authorizedContactsForChild } from "@/modules/outbox/policy";
+import { serviceDateIso } from "@/ui/service-date";
 
 /* ───────────────────────────── config ───────────────────────────── */
 
@@ -107,16 +108,25 @@ export type NoticeRide = {
 };
 
 /**
- * One text per ride per threshold crossing.
+ * One text per ride per threshold crossing, **on one scenario day**.
  *
  * The crossing is named by the window it published, not by the instant it happened: two sweeps of
  * the same replay compute the same window and so the same key, while a later crossing publishes a
  * different window and gets its own text (the gate refuses to re-publish an unchanged window at
  * all — `same-window`). So this is idempotent across redeliveries without anybody having to
  * remember what was already sent.
+ *
+ * The **scenario date** is in the key because a window is only a time of day. A leg id is seeded
+ * deterministically (`demoLegId`), so C2's afternoon leg has the same id on every reset — and
+ * "4:30 PM" is the same four characters tomorrow as today. Without the date, the second day of a
+ * demo would compute a key the first day already wrote, `ON CONFLICT DO NOTHING` would swallow it,
+ * and the family would be told nothing at all about a ride that really is late. The date comes off
+ * the window itself rather than off a wall clock, so it is the scenario's date (§8: acceleration
+ * applies to the scenario clock, never to anything derived from a carrier timestamp) and two
+ * sweeps of the same crossing still agree.
  */
 export function etaNoticeKey(legId: string, windowStartMs: number): string {
-  return `eta-notice:${legId}:${formatClock24(windowStartMs)}`;
+  return `eta-notice:${legId}:${serviceDateIso(new Date(windowStartMs))}:${formatClock24(windowStartMs)}`;
 }
 
 /** The vars the body is rendered from: a 10-minute window, a stop token, and whole minutes late. */
@@ -246,7 +256,7 @@ const NOT_RIDABLE: ReadonlySet<string> = new Set([
   "HELD_NO_RECEIVER", "LEFT_BEHIND_CAPACITY", "EXCEPTION",
 ]);
 
-export type SweepSkip = NoticeSkip | "no-leg" | "leg-not-ridable";
+export type SweepSkip = NoticeSkip | "no-leg" | "leg-not-ridable" | "not-yet";
 
 export type EtaNoticeSweepReport = {
   /** Rows written by this sweep. */
@@ -260,25 +270,54 @@ export type EtaNoticeSweepReport = {
 export type SweepRefusal = { readonly skipped: "not a demo deployment" };
 
 /**
- * Queue every due crossing, idempotently. Called from the one-minute sweep
+ * Queue every crossing **whose time has come**, idempotently. Called from the one-minute sweep
  * (`/api/cron/sweep`), which is where ARCHITECTURE §6 puts work that nobody's request is waiting
  * for — and the reason the text exists in the database *during the demo day* rather than only
  * when somebody opens a screen.
+ *
+ * ## Two clocks, and why this takes both
+ *
+ * `now` is **wall time**: it stamps the row and cuts the outbox's `not_after`, and PRD §8 is
+ * explicit that acceleration never touches a carrier timestamp, so it must stay the real clock.
+ *
+ * `scenarioNow` is **the scenario clock's now** — the instant the demo day has been walked to
+ * (`domain/eta/scenario-clock.ts` through `board/day.demoDayAtTick`). It is what decides whether a
+ * crossing has happened *yet*, because a crossing's `atMs` is a scenario instant and comparing it
+ * to a wall clock is comparing two different days.
+ *
+ * Before this argument existed the sweep queued **every** crossing the replay holds the first time
+ * it ran after a reset — the whole afternoon's worth of texts, at six in the morning, in one
+ * minute. A family's phone then held a text about a van that had not left, which is the one thing
+ * a demo of this feature must not show. Now a crossing still in the scenario's future is skipped
+ * by name (`not-yet`) and queued by a later sweep, once, when its time has actually passed; the
+ * idempotency key does the rest.
+ *
+ * There is no clock control on any deployment (`requestedScenarioTick` refuses wherever
+ * `VERCEL_ENV` is set), so in production this is the board's own instant and the afternoon's texts
+ * stay ahead of it — which is correct, and is why the phone panel projects what the day *will*
+ * send rather than claiming it was sent.
  *
  * Gated on the ADR-015 data class **and** the ADR-014 demo switch, both, because this queues
  * messages derived from a committed replay: on a deployment holding real data there is no
  * scenario to replay and a text about a fixture's van would be a message to a real family. The
  * refusal is a value, not a throw — the sweep logs it beside its other skips.
  *
- * Safe to call every minute forever: each crossing's key is the leg plus the window it published,
- * so the second and every later sweep writes nothing (`duplicates`).
+ * Safe to call every minute forever: each crossing's key is the leg, the scenario date and the
+ * window it published, so the second and every later sweep writes nothing (`duplicates`).
  */
 export async function sweepEtaNotices(
   db: Db,
   transport: OutboxTransport,
   a: {
     readonly due: readonly DueEtaNotice[];
+    /** Wall time: what stamps the row. Never accelerated (§8). */
     readonly now: Date;
+    /**
+     * The scenario clock's now. Required, and deliberately without a default: a default would be
+     * this module deciding how far into the demo day it is, which is exactly the guess that
+     * queued the whole afternoon at once.
+     */
+    readonly scenarioNow: Date;
     readonly env?: Record<string, string | undefined>;
     readonly by?: string;
   },
@@ -291,7 +330,14 @@ export async function sweepEtaNotices(
     report.skipped[reason] = (report.skipped[reason] ?? 0) + 1;
   };
 
+  const scenarioNowMs = a.scenarioNow.getTime();
   for (const notice of a.due) {
+    // Has this crossing happened yet, on the clock it happened on? Checked before the leg is even
+    // read: a text about a van that has not left is not a cheaper mistake for having been looked up.
+    if (notice.decision.atMs > scenarioNowMs) {
+      skip("not-yet");
+      continue;
+    }
     const legId = demoLegId(notice.childKey, notice.direction);
     const leg = await db.query<{
       id: string; site_id: string; child_token: string; plan_version: number; state: string;
