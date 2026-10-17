@@ -9,14 +9,19 @@
  *
  * Pure: age in seconds in, band out. The map pane re-exports these so the UI and the
  * notify gate can never drift apart.
+ *
+ * The three boundaries themselves are calibration, so they live in src/config/live.ts with
+ * the rest of the §8 parameter table; this module names them and decides what they mean.
  */
 
+import { freshnessConfig } from "@/config/live";
+
 /** Live band ends here (ledger row 30). */
-export const GPS_FRESH_SECONDS = 60;
+export const GPS_FRESH_SECONDS = freshnessConfig.freshSeconds;
 /** Stale band starts here: badge + ETA texts suppressed (LOC-03, ASM-15). */
-export const GPS_STALE_SECONDS = 180;
+export const GPS_STALE_SECONDS = freshnessConfig.staleSeconds;
 /** "No signal" band starts here: exception + dispatcher ping (LOC-03). */
-export const GPS_LOST_SECONDS = 600;
+export const GPS_LOST_SECONDS = freshnessConfig.lostSeconds;
 
 /**
  * How far ahead of our clock a carrier timestamp may sit and still be believed.
@@ -27,7 +32,7 @@ export const GPS_LOST_SECONDS = 600;
  * reading on the map. `ingestPoint` re-exports this constant and refuses such a point
  * outright, so a skewed stamp cannot sit in front of the real points behind it.
  */
-export const MAX_FUTURE_SKEW_MS = 60_000;
+export const MAX_FUTURE_SKEW_MS = freshnessConfig.maxFutureSkewMs;
 
 /** The four ledger row 30 bands. */
 export type GpsBand = "fresh" | "aging" | "stale" | "lost";
