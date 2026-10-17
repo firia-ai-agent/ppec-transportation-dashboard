@@ -1,24 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { apiAccess, planRoutes, vanName } from "@/ui/copy";
-import { initialStages, planInputOf } from "@/domain/plan/stages";
-import { planAssignment, type Assignment } from "@/domain/solver";
+import { apiAccess } from "@/ui/copy";
+import { VANS } from "@/config/vans";
+import { childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/standard";
+import { needsOfKey } from "@/domain/plan/needs";
+import { clearMemoryPlanStore } from "@/modules/plan/memory";
+import { serviceDateIso } from "@/ui/service-date";
 
 /**
- * POST and GET /api/plan/save, called as the server calls them.
+ * `POST /api/plan/save` and `GET /api/plan`, called as the server calls them.
  *
  * `getCaller` is the one session reader (src/auth/caller.ts) and the shared API guard is built on
  * it, so stubbing it is how a role is put on the request; the reader's own steps are tested
- * against a real database in caller.test.ts. `@/db/exec` throws a sentinel, so "this route
- * reached the database" is observable — and the point of this endpoint is that it never does: the
- * plan is checked by the pure solver and kept in the demo's own state.
+ * against a real database in caller.test.ts.
  *
- * What is asserted here is the half a unit test of `checkPlan` cannot reach: the status codes, the
- * guard in front of them, and that a refused plan leaves nothing behind.
+ * These two routes run here on the **memory store**, because the test server has no
+ * `DATABASE_URL` — which is the same position the browser check is in, and the reason that store
+ * exists (src/modules/plan/memory.ts). What the SQL behind them does is asserted directly against
+ * the migrations in src/modules/plan/sql.test.ts; what is asserted here is the half neither of
+ * those can reach: the status codes, the guard in front of them, and that a refused plan leaves
+ * nothing behind.
  */
-const DB_OPENED = "stub: the route opened the database";
 const getCaller = vi.fn();
 const getNeonDb = vi.fn(() => {
-  throw new Error(DB_OPENED);
+  throw new Error("stub: the route opened the database");
 });
 vi.mock("@/auth/caller", () => ({ getCaller }));
 vi.mock("@/db/exec", () => ({ getNeonDb }));
@@ -27,63 +31,40 @@ const CALLERS = {
   director: {
     kind: "STAFF" as const,
     role: "DIRECTOR" as const,
-    userId: "00000000-0000-7000-8000-0000000000d1",
+    userId: "01900000-0000-7000-8000-0000000000d1",
     memberships: [],
   },
   coordinator: {
     kind: "STAFF" as const,
     role: "COORDINATOR" as const,
-    userId: "00000000-0000-7000-8000-0000000000c1",
+    userId: "01900000-0000-7000-8000-0000000000c1",
     memberships: [],
   },
   frontDesk: {
     kind: "STAFF" as const,
     role: "FRONT_DESK" as const,
-    userId: "00000000-0000-7000-8000-0000000000f1",
+    userId: "01900000-0000-7000-8000-0000000000f1",
     memberships: [],
   },
-  noRole: { kind: "NO_ROLE" as const, userId: "00000000-0000-7000-8000-0000000000e1", memberships: [] },
+  noRole: { kind: "NO_ROLE" as const, userId: "01900000-0000-7000-8000-0000000000e1", memberships: [] },
   signedOut: { kind: "ANONYMOUS" as const, memberships: [] },
 };
 
 const saved = { ...process.env };
+const TODAY = serviceDateIso(new Date());
+const VAN = (n: 0 | 1 | 2) => vehicleIdOf(VANS[n].vehicleKey);
 
 beforeEach(() => {
   getCaller.mockReset();
   getCaller.mockResolvedValue(CALLERS.coordinator);
   getNeonDb.mockClear();
+  clearMemoryPlanStore();
   process.env = { ...saved, DEMO_MODE: "1", APP_DATA_CLASS: "SYNTHETIC", DATABASE_URL: undefined };
 });
-afterEach(async () => {
+afterEach(() => {
   process.env = { ...saved };
-  const { clearSavedPlans } = await import("@/modules/demo/plan-store");
-  clearSavedPlans();
+  clearMemoryPlanStore();
 });
-
-/** The lanes as the endpoint takes them: ids only, with no person's name on the wire. */
-function asked(scenario: "EVERY_RIDER_FITS" | "ONE_RIDER_HAS_NO_VAN") {
-  return Object.fromEntries(
-    Object.entries(initialStages(scenario)).map(([laneId, stage]) => [
-      laneId,
-      { vehicleKey: stage.vehicleKey, arrival: stage.arrival },
-    ]),
-  );
-}
-
-const DAY = {
-  scenario: "EVERY_RIDER_FITS" as const,
-  direction: "AM" as const,
-  stages: asked("EVERY_RIDER_FITS"),
-  measured: [] as string[],
-};
-
-/** The day as the solver sees it, which is what the endpoint rebuilds from the body above. */
-const INPUT = planInputOf({ ...DAY, stages: initialStages("EVERY_RIDER_FITS") });
-
-/** The plan the screen would send after pressing Plan routes once. */
-function plannedAssignment(): Assignment {
-  return planAssignment(INPUT);
-}
 
 async function post(body: unknown): Promise<Response> {
   const { POST } = await import("./route");
@@ -95,29 +76,53 @@ async function post(body: unknown): Promise<Response> {
   );
 }
 
-async function get(query: string): Promise<Response> {
-  const { GET } = await import("./route");
-  return GET(new Request(`https://example.test/called-by-the-test${query}`));
+async function board(): Promise<{
+  ok: boolean;
+  version: number;
+  savedAt: string | null;
+  savedBy: string | null;
+  plan: Record<string, { bucket: string; vanId: string | null }>;
+  day: { riders: { token: string; name: string }[] };
+}> {
+  const { GET } = await import("../route");
+  const res = await GET(new Request(`https://example.test/plan?date=${TODAY}&direction=PM`));
+  return res.json();
 }
+
+/** Everybody in Unassigned: the board as a fresh day opens it. */
+async function emptyPlacements(): Promise<Record<string, { bucket: string; vanId: null; pinned: boolean }>> {
+  const { plan } = (await board()) as unknown as { plan: Record<string, { bucket: string; vanId: null; pinned: boolean }> };
+  return plan;
+}
+
+const body = (placements: unknown, over?: Partial<{ version: number; allowOver: boolean }>) => ({
+  date: TODAY,
+  direction: "PM" as const,
+  version: 0,
+  placements,
+  ...over,
+});
 
 describe("the guard in front of it", () => {
   it("is the two console roles', exactly like the screen it saves from", async () => {
     for (const who of ["director", "coordinator"] as const) {
+      clearMemoryPlanStore();
       getCaller.mockResolvedValue(CALLERS[who]);
-      const res = await post({ ...DAY, assignment: plannedAssignment() });
+      const res = await post(body(await emptyPlacements()));
       expect({ who, status: res.status }).toEqual({ who, status: 200 });
     }
   });
 
-  it("refuses the front desk with a bare 403, and a signed-out caller with a 401", async () => {
+  it("refuses the front desk with a bare 403, and a signed-out caller with a 401 (§1.7 #5)", async () => {
     const expected = {
       frontDesk: { status: 403, error: apiAccess.notYourRole },
       noRole: { status: 403, error: apiAccess.notYourRole },
       signedOut: { status: 401, error: apiAccess.signIn },
     };
+    const placements = await emptyPlacements();
     for (const [who, answer] of Object.entries(expected)) {
       getCaller.mockResolvedValue(CALLERS[who as keyof typeof CALLERS]);
-      const res = await post({ ...DAY, assignment: plannedAssignment() });
+      const res = await post(body(placements));
       const text = await res.text();
       expect({ who, status: res.status }).toEqual({ who, status: answer.status });
       expect({ who, body: JSON.parse(text) }).toEqual({ who, body: { ok: false, error: answer.error } });
@@ -129,190 +134,161 @@ describe("the guard in front of it", () => {
   });
 
   it("refuses before it reads the plan, so a refused caller cannot save one", async () => {
+    const placements = await emptyPlacements();
     getCaller.mockResolvedValue(CALLERS.frontDesk);
-    expect((await post({ ...DAY, assignment: plannedAssignment() })).status).toBe(403);
+    expect((await post(body(placements))).status).toBe(403);
     getCaller.mockResolvedValue(CALLERS.coordinator);
-    const read = await get("?scenario=EVERY_RIDER_FITS&direction=AM");
-    expect((await read.json()).saved).toBeNull();
+    expect((await board()).savedAt).toBeNull();
   });
 
-  it("opens no database connection on any path, refused or kept", async () => {
+  it("opens no database connection on this server: there is none to open", async () => {
     for (const who of Object.keys(CALLERS) as Array<keyof typeof CALLERS>) {
       getCaller.mockResolvedValue(CALLERS[who]);
-      await post({ ...DAY, assignment: plannedAssignment() });
-      await get("?scenario=EVERY_RIDER_FITS&direction=AM");
+      await post(body(await emptyPlacements()));
     }
     expect(getNeonDb).not.toHaveBeenCalled();
   });
 });
 
-describe("saving a plan", () => {
-  it("keeps the plan and says how much of the day is in a van", async () => {
-    const res = await post({ ...DAY, assignment: plannedAssignment() });
+describe("saving a board", () => {
+  it("keeps it, says when, and reads the same board back (§1.7 #3)", async () => {
+    const placements = await emptyPlacements();
+    const res = await post(body(placements));
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.placed).toBe(INPUT.riders.length);
-    expect(body.riders).toBe(INPUT.riders.length);
+    const answer = await res.json();
+    expect(answer).toMatchObject({ ok: true, version: 1, over: [] });
+    expect(answer.savedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     expect(res.headers.get("cache-control")).toBe("no-store");
-    /*
-     * And when it kept it, which is the half the screen prints (Vera's review, 2026-10-17): the
-     * saved line reads a real minute, and the only clock that knows it is this one. It is the
-     * same instant the run reads back, in UTC, for the screen to put on the centre's clock.
-     */
-    expect(body.savedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
-    const read = await (await get("?scenario=EVERY_RIDER_FITS&direction=AM")).json();
-    expect(read.saved.savedAt).toBe(body.savedAt);
+
+    const read = await board();
+    expect(read.version).toBe(1);
+    expect(read.savedAt).toBe(answer.savedAt);
+    // Saved by the coordinator who asked, in the words a screen may print.
+    expect(read.savedBy).toBe("Casey O.");
   });
 
-  it("reads back the plan it kept, for that run and no other", async () => {
-    await post({ ...DAY, assignment: plannedAssignment() });
-    const mine = await (await get("?scenario=EVERY_RIDER_FITS&direction=AM")).json();
-    expect(mine.saved.assignment).toEqual(plannedAssignment());
-    expect(mine.saved.savedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    // The afternoon is a different run, and nothing has been saved for it.
-    const afternoon = await (await get("?scenario=EVERY_RIDER_FITS&direction=PM")).json();
-    expect(afternoon.saved).toBeNull();
+  it("keeps where each child is, van by van", async () => {
+    const placements = await emptyPlacements();
+    const liam = childTokenOf("C3");
+    const moved = { ...placements, [liam]: { bucket: "VAN", vanId: VAN(1), pinned: true } };
+    expect((await post(body(moved))).status).toBe(200);
+    const read = await board();
+    expect(read.plan[liam]).toEqual({ bucket: "VAN", vanId: VAN(1), pinned: true });
   });
 
-  it("replaces the run's last plan rather than keeping two", async () => {
-    await post({ ...DAY, assignment: plannedAssignment() });
-    const emptied = Object.fromEntries(INPUT.lanes.map((lane) => [lane.id, []]));
-    await post({ ...DAY, assignment: emptied });
-    const read = await (await get("?scenario=EVERY_RIDER_FITS&direction=AM")).json();
-    expect(read.saved.assignment).toEqual(emptied);
+  it("refuses a second save against the version the first one moved on from (§1.3)", async () => {
+    const placements = await emptyPlacements();
+    expect((await post(body(placements))).status).toBe(200);
+    const stale = await post(body(placements, { version: 0 }));
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toEqual({ ok: false, reason: "CHANGED", changedBy: "Casey O." });
+    // And the plan is still the first one.
+    expect((await board()).version).toBe(1);
   });
 });
 
-describe("a refused move cannot be saved by posting it directly", () => {
+describe("a refused drop cannot be saved by posting it directly (§1.7 #1)", () => {
   /**
-   * The request that skips the screen. In the scenario where one child cannot be placed, no van
-   * has four-point straps: the screen refuses that drag and never sends it, so this is the same
-   * plan arriving from something that is not the screen. It is re-asked of the solver and refused
-   * in the same words, with nothing kept.
+   * Van 3 has no wheelchair spot and no lift, so the board refuses that drag and never sends it.
+   * This is the same plan arriving from something that is not the board: it is replayed through
+   * the same fit rule and refused, with nothing kept.
    */
-  const scenario = "ONE_RIDER_HAS_NO_VAN" as const;
-  const stages = asked(scenario);
-  const laneId = Object.keys(stages)[0];
-  const forced = {
-    scenario,
-    direction: "AM" as const,
-    stages,
-    measured: [],
-    assignment: Object.fromEntries(
-      Object.keys(stages).map((id) => [id, id === laneId ? ["C6"] : []]),
-    ),
-  };
+  async function forced() {
+    const placements = await emptyPlacements();
+    const noah = childTokenOf("C2");
+    expect(needsOfKey("C2").wheelchair).toBe(true);
+    return {
+      noah,
+      body: body({ ...placements, [noah]: { bucket: "VAN", vanId: VAN(2), pinned: true } }),
+    };
+  }
 
-  it("answers 422 with the refusal a coordinator would have read", async () => {
-    const res = await post(forced);
+  it("answers 422, naming the child, the van and the one thing that is missing", async () => {
+    const { noah, body: forcedBody } = await forced();
+    const res = await post(forcedBody);
     expect(res.status).toBe(422);
-    const body = await res.json();
-    expect(body.ok).toBe(false);
-    const input = planInputOf({
-      scenario,
-      direction: "AM",
-      stages: initialStages(scenario),
-      measured: [],
+    expect(await res.json()).toEqual({
+      ok: false,
+      reason: "WHEELCHAIR",
+      childToken: noah,
+      vanId: VAN(2),
     });
-    const lane = input.lanes.find((l) => l.id === laneId);
-    expect(body.error).toContain("Zoe B.");
-    expect(body.error).toContain(vanName(lane?.vehicle.description ?? ""));
-    // No code and no deficit type in the sentence.
-    expect(body.error).not.toMatch(/\bV\d\b|\bC\d\b|WC_|_SEAT/);
   });
 
-  it("keeps nothing: after the refusal there is still no saved plan for that run", async () => {
-    await post(forced);
-    const read = await (await get(`?scenario=${scenario}&direction=AM`)).json();
-    expect(read.saved).toBeNull();
+  it("keeps nothing: after the refusal there is still no saved plan", async () => {
+    await post((await forced()).body);
+    expect((await board()).savedAt).toBeNull();
   });
 
   it("does not keep the half of the plan that was fine either", async () => {
-    // One good lane and one refused one, in the same request: all or nothing.
-    const mixed = {
-      ...forced,
-      assignment: Object.fromEntries(
-        Object.keys(stages).map((id, i) => [id, id === laneId ? ["C6"] : i === 1 ? ["C7"] : []]),
-      ),
-    };
+    const { noah, body: forcedBody } = await forced();
+    const mixed = body({
+      ...(forcedBody.placements as Record<string, unknown>),
+      [childTokenOf("C3")]: { bucket: "VAN", vanId: VAN(0), pinned: true },
+      [noah]: { bucket: "VAN", vanId: VAN(2), pinned: true },
+    });
     expect((await post(mixed)).status).toBe(422);
-    const read = await (await get(`?scenario=${scenario}&direction=AM`)).json();
-    expect(read.saved).toBeNull();
+    expect((await board()).savedAt).toBeNull();
+  });
+
+  it("saves an over-capacity van only when a person answered the confirm (§1.3)", async () => {
+    // Four children into Van 3, which has three seats: over, not impossible. Without the
+    // confirm it is refused; with it, it is kept and the answer names the van that is over.
+    const placements = await emptyPlacements();
+    const four = ["C1", "C3", "C8", "C9"].map((key) => childTokenOf(key));
+    const overloaded = { ...placements };
+    for (const token of four) overloaded[token] = { bucket: "VAN", vanId: VAN(2), pinned: true } as never;
+    expect((await post(body(overloaded))).status).toBe(422);
+    const allowed = await post(body(overloaded, { allowOver: true }));
+    expect(allowed.status).toBe(200);
+    expect(await allowed.json()).toMatchObject({ ok: true, over: [VAN(2)] });
   });
 });
 
 describe("an id swap over HTTP", () => {
   /**
-   * The ids a saved plan carries are the only ids this app takes from a request besides a site
-   * id, so they get the same rule: one uniform answer for an id that is another run's, another
-   * fleet's, or nobody's, in the same words, with nothing echoed back.
+   * The ids a saved board carries are ids from outside, so they get the rule every id in this app
+   * gets: one uniform answer for a child who is not on this day, a van that is not on the board,
+   * and an id that matches nothing at all — in the same words, with nothing echoed back.
    */
-  const swaps: Array<[string, unknown]> = [
-    ["a child who is on no run today", { ...DAY, assignment: { V1: ["C12"], V2: [], V4: [] } }],
-    ["a child id that matches nothing", { ...DAY, assignment: { V1: ["C999"], V2: [], V4: [] } }],
-    ["a van that is on no lane today", { ...DAY, assignment: { V1: [], V2: [], V4: [], V3: ["C7"] } }],
-    ["a lane id that matches nothing", { ...DAY, assignment: { V1: [], V2: [], V4: [], "lane-x": ["C7"] } }],
-    [
-      "a van that is not in the fleet",
-      {
-        ...DAY,
-        stages: { ...DAY.stages, V1: { ...DAY.stages.V1, vehicleKey: "V99" } },
-        assignment: { V1: [], V2: [], V4: [] },
-      },
-    ],
-    [
-      "a configuration that van is not built with",
-      {
-        ...DAY,
-        stages: {
-          ...DAY.stages,
-          V1: { ...DAY.stages.V1, arrival: "RAMP_CHECKED", rampLayoutId: "L-nope" },
-        },
-        assignment: { V1: [], V2: [], V4: [] },
-      },
-    ],
-    ["a chair measured for a child on no run", { ...DAY, measured: ["C12"], assignment: { V1: [], V2: [], V4: [] } }],
+  const swaps: Array<[string, Record<string, unknown>]> = [
+    ["a child who is on no run today", { "01900000-0000-7000-8000-00110000beef": { bucket: "UNASSIGNED", vanId: null, pinned: false } }],
+    ["a child id that matches nothing", { "not-a-child": { bucket: "UNASSIGNED", vanId: null, pinned: false } }],
   ];
 
-  it.each(swaps)("%s is a uniform 404 that confirms nothing", async (_what, body) => {
-    const res = await post(body);
+  it.each(swaps)("%s is a uniform 404 that confirms nothing", async (_what, placements) => {
+    const res = await post(body({ ...(await emptyPlacements()), ...placements }));
     const text = await res.text();
     expect(res.status).toBe(404);
-    expect(JSON.parse(text)).toEqual({ ok: false, error: planRoutes.saveNotThisRun });
-    for (const leak of ["C12", "C999", "V99", "V3", "lane-x", "L-nope", "Mallory"]) {
+    expect(JSON.parse(text)).toEqual({ ok: false, reason: "NOT_THIS_DAY" });
+    for (const leak of ["beef", "not-a-child", "Mia", "Zoe"]) {
       expect(text, leak).not.toContain(leak);
     }
-    expect(getNeonDb).not.toHaveBeenCalled();
   });
 
-  it("saves nothing on any of them", async () => {
-    for (const [, body] of swaps) await post(body);
-    const read = await (await get("?scenario=EVERY_RIDER_FITS&direction=AM")).json();
-    expect(read.saved).toBeNull();
+  it("refuses a van that is not on the board, and keeps nothing", async () => {
+    const placements = await emptyPlacements();
+    const someone = childTokenOf("C3");
+    const res = await post(
+      body({ ...placements, [someone]: { bucket: "VAN", vanId: vehicleIdOf("V3"), pinned: true } }),
+    );
+    expect(res.status).toBe(404);
+    expect((await board()).savedAt).toBeNull();
   });
 
-  it("is a 400 before any of that when the body or the query cannot be read at all", async () => {
+  it("is a 400 before any of that when the body cannot be read at all", async () => {
     const bodies: unknown[] = [
       "not json",
       {},
-      { ...DAY, assignment: "mine" },
-      { ...DAY, scenario: "OTHER_DAY" },
-      // A field this endpoint does not take. It is strict on purpose: the one that used to be
-      // here was a driver's name, and a name it ignored is a name that still travelled.
-      {
-        ...DAY,
-        stages: { ...DAY.stages, V1: { ...DAY.stages.V1, driverName: "Mallory X." } },
-        assignment: { V1: [], V2: [], V4: [] },
-      },
+      { ...body({}), direction: "EVENING" },
+      { ...body({}), date: "yesterday" },
+      { ...body({ "a-child": { bucket: "NOWHERE", vanId: null, pinned: false } }) },
+      { ...body({}), extra: true },
     ];
-    for (const body of bodies) {
-      const res = await post(body);
-      expect(res.status).toBe(400);
+    for (const bad of bodies) {
+      const res = await post(bad);
+      expect({ bad, status: res.status }).toEqual({ bad, status: 400 });
       expect(await res.json()).toEqual({ ok: false, error: apiAccess.badRequest });
-    }
-    for (const query of ["", "?scenario=EVERY_RIDER_FITS", "?scenario=nope&direction=AM"]) {
-      expect((await get(query)).status).toBe(400);
     }
   });
 });

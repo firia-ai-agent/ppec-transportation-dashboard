@@ -1476,6 +1476,216 @@ export const planRoutes = {
 } as const;
 
 /**
+ * The equipment every screen counts in, in one place: the plan board's meters and steppers, and
+ * the ramp iPad's steppers (redesign spec §0's vocabulary table).
+ *
+ * One word per thing, shared, because the front desk and the coordinator are counting the same
+ * four things and a van that reads "Car seats" on one screen and "Car seats on board" on the
+ * other is two vocabularies for one van. The list and the order live in src/config/equipment.ts;
+ * these are the words for it.
+ */
+export const equipment = {
+  seats: "Seats",
+  wheelchair: "Wheelchair",
+  carSeats: "Car seats",
+  oxygen: "Oxygen",
+  lift: "Lift",
+} as const;
+
+/**
+ * The plan board (redesign spec §1.5), which replaces the visible parts of `planRoutes` above.
+ *
+ * The rules this block is written to, from §0: labels are one to three words, a state is an icon
+ * plus a word so it never relies on colour, numbers are big and words are small ("4/6", not
+ * "4 of 6 seats used"), nothing explains a control that can explain itself, and every person and
+ * van is named ("Marco D." drives "Van 1"). The whole `#drag` state comes to about 95 visible
+ * words, most of them names and places — #58's screen had 607.
+ */
+export const planBoard = {
+  heading: "Plan routes",
+  /** <title> for the route, so the tab says which screen is open. */
+  documentTitle: "Plan routes · PPEC transportation dashboard",
+  /** The two legs of the day, as the segmented control says them. */
+  morning: "Morning",
+  afternoon: "Afternoon",
+  /** "10 of 12 placed" — the one count in the toolbar. */
+  placed: "{n} of {total} placed",
+  unassigned: "Unassigned",
+  /** The whole Unassigned list once nobody is left in it (§1.3 "All placed"). */
+  allPlaced: "All placed",
+  familyDrives: "Family drives",
+  absent: "Absent",
+  /** Every van on the board is "Van {n}": one generic van, numbered (conflict C1). */
+  vanName: "Van {n}",
+  /** The driver row's chip: the ramp confirmed this van today, or it did not. */
+  checked: "Checked",
+  notChecked: "Not checked",
+  autoPlan: "Auto-plan",
+  save: "Save",
+  saving: "Saving…",
+  /** "Saved 2:41 PM" — the server's own instant, in centre time. */
+  saved: "Saved {time}",
+  notSaved: "Not saved",
+  saveFailed: "Couldn’t save · Retry",
+  /** Somebody else saved while this board was open (§1.3, a version mismatch). */
+  changedBy: "Changed by {name} · Reload",
+  /** A van is over its own counts and the save asks first (§1.3 "Over capacity"). */
+  overConfirm: "{van} is over. Save anyway?",
+  overChip: "Full",
+  undo: "Undo",
+  /** The dashed target inside an empty van column. */
+  dropHere: "Drop here",
+  addVan: "Add van",
+  stops: "{n} stops",
+  minutes: "{n} min",
+  /** The toast a drop leaves behind: "Mia R. → Van 2". */
+  moved: "{child} → {van}",
+  moveTo: "Move to…",
+  /**
+   * Why a van cannot take this child — one word on the column's chip, keyed by the fit rule's own
+   * reason (src/config/equipment.ts), so a screen never has to translate a verdict.
+   */
+  reject: {
+    SEAT: "Full",
+    WHEELCHAIR: "Wheelchair",
+    CAR_SEAT: "Car seat",
+    OXYGEN: "Oxygen",
+    LIFT: "Lift",
+  },
+  /** Announced when a drop is refused, so the refusal is not only a colour and a shape. */
+  rejectSr: "{child} won’t fit {van}: no {thing}",
+  /** The thing a refusal names, in the words a sentence needs rather than a chip. */
+  rejectThing: {
+    SEAT: "seat",
+    WHEELCHAIR: "wheelchair spot",
+    CAR_SEAT: "car seat",
+    OXYGEN: "oxygen mount",
+    LIFT: "lift",
+  },
+  setupTitle: "{van} setup",
+  /** "From Fri · Ramp staff" — which day this setup was carried forward from, and by whom. */
+  setupFrom: "From {day} · {name}",
+  seats: equipment.seats,
+  wheelchair: equipment.wheelchair,
+  carSeats: equipment.carSeats,
+  oxygen: equipment.oxygen,
+  lift: equipment.lift,
+  /** The live preview inside the setup popover, about the child a coordinator is holding. */
+  fits: "{child} fits",
+  wontFit: "{child} won’t fit",
+  apply: "Apply",
+  cancel: "Cancel",
+  /** A meter's own label for a screen reader: "4 of 6 seats". */
+  meterSr: "{used} of {total} {thing}",
+  mapLabel: "Route map",
+  /** The one column a phone shows at a time is chosen here (§9.3 at 390 px). */
+  columnSwitcher: "Which column?",
+} as const;
+
+/**
+ * The ramp iPad's van arrival (redesign spec §2): four steppers, a lift toggle, Confirm, and the
+ * riders beside them.
+ *
+ * Every string is three or four words. What it replaces is the §4.4 checklist's own vocabulary —
+ * the layout picker, the per-place Free / Out / Not sure answers, the LATCH row and the slot
+ * matrix — all of which §2 removes in favour of counting what is on board.
+ */
+export const vanArrival = {
+  heading: "Ramp iPad",
+  documentTitle: "Ramp iPad · PPEC transportation dashboard",
+  /** The card over the steppers: "What’s on Van 1?" */
+  whatsOn: "What’s on {van}?",
+  seats: equipment.seats,
+  wheelchair: equipment.wheelchair,
+  carSeats: equipment.carSeats,
+  oxygen: equipment.oxygen,
+  liftWorks: "Lift works",
+  yes: "Yes",
+  no: "No",
+  /** Under a counter the front desk has changed: what the plan had for it. */
+  planned: "Planned {n}",
+  /** The van tabs, in arrival order: the one at the ramp, and when the others leave. */
+  here: "Here",
+  leaves: "Leaves {time}",
+  ridersHeading: "Riders",
+  fits: "Fits",
+  /** The crit banner: "Mia R. won’t fit" over "1 car seat short". */
+  wontFit: "{child} won’t fit",
+  short: "{n} {thing} short",
+  /** The lift is not a number, so its shortfall is said rather than counted. */
+  noLift: "No lift",
+  replan: "Re-plan",
+  confirm: "Confirm {van}",
+  /** Why confirming matters beyond today, in four words. */
+  tomorrow: "Tomorrow starts from this",
+  /** Said once every van has been confirmed today (§9.3). */
+  allChecked: "All vans checked",
+  /** No plan saved yet, so there is nobody to list beside the steppers (§9.3). */
+  noRidersPlanned: "No riders planned",
+  /** Who an observation is attributed to when the front desk counts a van themselves. */
+  observedBy: "Ramp staff",
+  /** A counter's own label for a screen reader, since the numbers are the big part. */
+  counterSr: "{thing}: {n}",
+} as const;
+
+/**
+ * The order of the day, and what a screen says when the step before it is missing (redesign spec
+ * §9.5, binding interim rules of 2026-10-17 3:00 PM ET).
+ *
+ * One block, because the step strip, every empty state and the server guards read the same
+ * readiness object (src/domain/day/readiness.ts) and must say the same thing about it. No string
+ * here is longer than six words, every state has a word as well as an icon, and the times are
+ * 12-hour in centre time.
+ */
+export const flow = {
+  steps: {
+    aria: "Today’s steps",
+    setup: "Van setup",
+    plan: planBoard.heading,
+    live: liveMap.heading,
+  },
+  state: { done: "Done", needed: "Needed", locked: "Locked", running: "Running" },
+  setup: {
+    /** "1/3 checked" — how many vans the ramp has confirmed today. */
+    detail: "{checked}/{total} checked",
+    /** "From Fri" — the day the setups being planned against were confirmed on. */
+    detailFrom: "From {day}",
+  },
+  plan: {
+    detailSaved: "Saved {time}",
+    detailNone: "Not saved",
+    detailNotStarted: "Start the day first",
+  },
+  live: {
+    detailLocked: "Plan first",
+    detailNeeded: "Not started",
+    detailRunning: "{n} vans out",
+    notStartedChip: "Not started",
+  },
+  empty: {
+    noRoutes: "No routes yet",
+    /** "9 riders · Morning" */
+    ridersLeg: "{n} riders · {leg}",
+    noRiders: "No riders today",
+    noRidersPlanned: vanArrival.noRidersPlanned,
+    noVans: "No vans yet",
+    allChecked: vanArrival.allChecked,
+  },
+  banner: {
+    usingYesterday: "Using yesterday’s van setup",
+    usingDefaults: "Using van defaults",
+    notStarted: "Day not started",
+  },
+  action: {
+    planRoutes: planBoard.heading,
+    checkVans: "Check vans",
+    startDemo: "Start demo day",
+  },
+  leave: { title: "Leave without saving?", stay: "Stay", leave: "Leave" },
+  error: { load: "Couldn’t load · Retry" },
+} as const;
+
+/**
  * A van as the Plan routes screen names it: "the convertible van".
  *
  * Here rather than in the screen's own helpers because three layers need it and none of them may
@@ -1500,6 +1710,12 @@ export const apiAccess = {
   notYourRole: "This isn't part of your role.",
   /** A body or a query this endpoint cannot read at all. Says nothing about what it wanted. */
   badRequest: "That request couldn't be read.",
+  /**
+   * The database could not be reached, so there is no answer to give. Says that and nothing
+   * about why: a connection error is not something a caller can act on, and the screen that
+   * reads this shows its own "Couldn't load · Retry" inside the module (§9.3).
+   */
+  unavailable: "That couldn't be loaded. Try again.",
 } as const;
 
 /**

@@ -18,12 +18,23 @@
 export const demoId = (kind: number, n: number): string =>
   `01900000-0000-7000-8000-${kind.toString(16).padStart(4, "0")}${n.toString(16).padStart(8, "0")}`;
 
+/**
+ * The demo centre every screen's data belongs to — `ops.site` row `…00000000000a`, which
+ * src/auth/seed.ts creates as site A.
+ *
+ * It lives here, in the pure fixture module, because a surface that needs it must not have to
+ * import the *seed* to get it: the seed truncates data, and src/modules/demo/build-isolation.test.ts
+ * holds the line that only the two deliberate entry points may reach it. The seed reads the same
+ * constant from here, so there is one id and not two.
+ */
+export const DEMO_SITE_ID = "01900000-0000-7000-8000-00000000000a";
+
 /** Id namespaces. 0x0000 is reserved: src/auth/seed.ts uses it for the org, sites and staff users. */
 export const KIND = {
   family: 0x10, child: 0x11, contact: 0x12, consent: 0x13, auth: 0x14, stop: 0x15, profile: 0x16,
   need: 0x17, person: 0x18, therapist: 0x19, session: 0x1a, provider: 0x1b, vehicle: 0x1c,
   layout: 0x1d, position: 0x1e, capability: 0x1f, plan: 0x20, exception: 0x21, attendanceDay: 0x22,
-  manifest: 0x23, leg: 0x24, reservation: 0x25,
+  manifest: 0x23, leg: 0x24, reservation: 0x25, setupDay: 0x26,
 } as const;
 
 /* ───────────────────────────── types ───────────────────────────── */
@@ -509,3 +520,31 @@ export const runOfChild = (key: string): Run | undefined => RUNS.find((r) => r.c
 
 /** Every coordinate this fixture set may use (MOCKS §1); the seed linter enforces the same list. */
 export const ALLOWED_COORDS: number[] = STOPS.flatMap((s) => [s.lat, s.lng]);
+
+/* ───────────────────────── the ids the database holds ───────────────────────── */
+
+/**
+ * The deterministic `ops.child_profile.child_token` and `ops.vehicle.id` for a fixture key.
+ *
+ * The seed has always built these (src/modules/demo/seed.ts), and until the plan board nothing
+ * outside the seed needed them: the screens ran on the fixtures and the keys were their own
+ * vocabulary. The board stores a plan in `ops.plan_assignment`, so the key has to become the id
+ * the row's foreign key points at, and — since the board's addresses and markup carry ids rather
+ * than codes (§9.3: "Ids, never codes, go in the URL and never on screen") — back again on the
+ * way in. One formula, here, read by both: a second copy would be a plan written against child
+ * tokens no `child_profile` row has.
+ */
+export const childTokenOf = (key: string): string => demoId(KIND.child, idxOrThrow(CHILDREN, key) + 1);
+export const vehicleIdOf = (key: string): string => demoId(KIND.vehicle, idxOrThrow(VEHICLES, key) + 1);
+
+/** The fixture key an id belongs to, or `null` for an id this scenario does not have. */
+export const childKeyOfToken = (token: string): string | null =>
+  CHILDREN.find((c) => childTokenOf(c.key) === token)?.key ?? null;
+export const vehicleKeyOfId = (id: string): string | null =>
+  VEHICLES.find((v) => vehicleIdOf(v.key) === id)?.key ?? null;
+
+function idxOrThrow<T extends { key: string }>(xs: readonly T[], key: string): number {
+  const i = xs.findIndex((x) => x.key === key);
+  if (i < 0) throw new Error(`unknown fixture key ${key}`);
+  return i;
+}

@@ -5,6 +5,13 @@
  * (src/auth/seed.ts), which creates the users, and /login, which offers them as demo cards once
  * the demo flags are on. Email, role, id and icon live here; the words shown on screen live in
  * src/ui/copy.ts (`demoLogins`), keyed by role.
+ *
+ * **`label` is the staff-visible name, and `name` is not.** `display_name` on the user row reads
+ * "SYN Casey Coordinator": it carries the synthetic marker,
+ * which is right for a seed and wrong on a screen — the plan board says who saved a plan and the
+ * ramp iPad says whose count a van's setup is, and §1.5 / COPY-GUIDE §3 want a real first name
+ * and a last initial there, with no fixture marker anywhere on the canvas. So the two live side
+ * by side in the one list both the seed and /login already read, and nothing has to guess.
  */
 export const DEMO_ACCOUNTS = [
   {
@@ -13,6 +20,7 @@ export const DEMO_ACCOUNTS = [
     name: "SYN Dana Director",
     role: "DIRECTOR",
     icon: "shield-check",
+    label: "Dana M.",
   },
   {
     id: "01900000-0000-7000-8000-0000000000c1",
@@ -20,6 +28,7 @@ export const DEMO_ACCOUNTS = [
     name: "SYN Casey Coordinator",
     role: "COORDINATOR",
     icon: "clipboard-list",
+    label: "Casey O.",
   },
   {
     id: "01900000-0000-7000-8000-0000000000f1",
@@ -27,6 +36,7 @@ export const DEMO_ACCOUNTS = [
     name: "SYN Frankie FrontDesk",
     role: "FRONT_DESK",
     icon: "concierge-bell",
+    label: "Frankie P.",
   },
 ] as const;
 
@@ -57,3 +67,14 @@ export type DemoAccountIcon = DemoAccount["icon"];
 
 /** The three emails the shared password belongs to. Used by the migration test, so keep it exact. */
 export const DEMO_EMAILS: readonly string[] = DEMO_ACCOUNTS.map((a) => a.email);
+
+/**
+ * The staff-visible name for a user id, or `null` for an id this list does not have — which is
+ * every id outside the demo accounts, and also the browser-check session, which has no user at
+ * all (src/auth/caller.ts). A screen that gets `null` says who did something in other words
+ * ("Ramp staff") rather than inventing a person.
+ */
+export function staffLabel(userId: string | null | undefined): string | null {
+  if (!userId) return null;
+  return DEMO_ACCOUNTS.find((account) => account.id === userId)?.label ?? null;
+}

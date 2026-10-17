@@ -20,9 +20,10 @@
  * `[lng, lat]` (src/domain/location/geo.ts), which is the order GeoJSON wants, so the component
  * that hands it to MapLibre has nothing to convert.
  */
-import type { Coord } from "@/domain/location/geo";
+import { distanceM, type Coord } from "@/domain/location/geo";
 import type { Direction, RoutePlan } from "@/domain/solver";
 import { CENTER_STOP_ID, committedLeg } from "@/fixtures/run-routes";
+import { PROBE_SPEED_MPS } from "@/fixtures/survey";
 import { CENTER_STOP, STOPS } from "@/modules/demo/fixtures/standard";
 import { places, vanName } from "@/ui/copy";
 
@@ -62,6 +63,13 @@ export type PlanMapSegment = {
   geometry: Coord[];
   /** True when this stretch is the committed road; false when it is the line between two stops. */
   surveyed: boolean;
+  /**
+   * How long this stretch takes. The survey's own measured duration where it has the pair, and
+   * the straight line at the survey's own probe speed where it does not — the same speed the
+   * committed durations were measured at (src/fixtures/survey.ts), so a rearranged plan is
+   * timed on one number rather than on a guess invented here. The van's footer reads the sum.
+   */
+  durationSec: number;
 };
 
 export type PlanMapRoute = {
@@ -75,6 +83,8 @@ export type PlanMapRoute = {
   /** The van's own stops, centre excluded: the centre is one pin for every van. */
   stops: PlanMapStop[];
   segments: PlanMapSegment[];
+  /** The whole line's driving time, rounded to minutes: what the van's footer says (§1.2). */
+  minutes: number;
   /** Every segment's geometry, end to end, with the shared vertex not repeated. */
   line: Coord[];
   /** True when every stretch of this line is the committed road. */
@@ -105,8 +115,14 @@ function segmentBetween(
   to: { key: string; coord: Coord },
 ): PlanMapSegment {
   const leg = committedLeg(from.key, to.key);
-  if (leg && leg.geometry.length >= 2) return { geometry: leg.geometry, surveyed: true };
-  return { geometry: [from.coord, to.coord], surveyed: false };
+  if (leg && leg.geometry.length >= 2) {
+    return { geometry: leg.geometry, surveyed: true, durationSec: leg.durationSec };
+  }
+  return {
+    geometry: [from.coord, to.coord],
+    surveyed: false,
+    durationSec: distanceM(from.coord, to.coord) / PROBE_SPEED_MPS,
+  };
 }
 
 /** Segments joined end to end, dropping the vertex each pair shares. */
@@ -169,19 +185,29 @@ function placesOf(plan: RoutePlan, laneIndex: number): LanePlace[] {
  * colour is its lane's position, so a van keeps the same colour while children move in and out
  * of it.
  */
-export function planMap(plan: RoutePlan): PlanMapData {
+export function planMap(
+  plan: RoutePlan,
+  /**
+   * What to call each van, by lane id. The plan board names its vans by number ("Van 2", §1.5)
+   * and holds them by id, so it passes its own lookup rather than letting the solver's
+   * `description` reach the map — on that screen the description is an id, not words. Omitted,
+   * the name is the solver's own ("the convertible van"), which is what #58's lanes read.
+   */
+  nameOf: (laneId: string) => string = () => "",
+): PlanMapData {
   const routes = plan.lanes.map((lanePlan, laneIndex) => {
     const stops = placesOf(plan, laneIndex);
     const segments = stops.slice(0, -1).map((stop, i) => segmentBetween(stop, stops[i + 1]));
     return {
       laneId: lanePlan.lane.id,
-      vanName: vanName(lanePlan.lane.vehicle.description),
+      vanName: nameOf(lanePlan.lane.id) || vanName(lanePlan.lane.vehicle.description),
       colorIndex: laneIndex,
       riderCount: lanePlan.riders.length,
       stops: stops
         .filter((stop) => !stop.isCenter)
         .map((stop) => ({ order: stop.k, label: stop.label, coord: stop.coord })),
       segments,
+      minutes: Math.round(segments.reduce((sec, segment) => sec + segment.durationSec, 0) / 60),
       line: joined(segments),
       surveyed: segments.every((segment) => segment.surveyed),
     };
