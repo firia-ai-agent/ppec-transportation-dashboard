@@ -260,6 +260,7 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/exceptions": "DIRECTOR+COORDINATOR",
       "/setup": "DIRECTOR+COORDINATOR",
       "/health": "DIRECTOR+COORDINATOR",
+      "/plan-preview": "DIRECTOR+COORDINATOR",
       "/whoami": "DIRECTOR+COORDINATOR+FRONT_DESK",
       "/map-preview": "DIRECTOR+COORDINATOR+FRONT_DESK",
       "/ramp-preview": "DIRECTOR+COORDINATOR+FRONT_DESK",
@@ -439,8 +440,11 @@ describe("where each role lives", () => {
   });
 
   it("offers each role only the nav items it can open", () => {
-    expect(navItemsFor("DIRECTOR").map((i) => i.href)).toEqual(["/today", "/exceptions", "/setup", "/health"]);
-    expect(navItemsFor("COORDINATOR").map((i) => i.href)).toEqual(["/today", "/exceptions", "/setup", "/health"]);
+    const console = ["/today", "/plan-preview", "/exceptions", "/setup", "/health"];
+    expect(navItemsFor("DIRECTOR").map((i) => i.href)).toEqual(console);
+    expect(navItemsFor("COORDINATOR").map((i) => i.href)).toEqual(console);
+    // The front desk's row opens no console destination, Plan routes included: deciding which
+    // van a child rides in is not their job (ARCHITECTURE §1).
     expect(navItemsFor("FRONT_DESK")).toEqual([]);
     expect(navItemsFor(null)).toEqual([]);
     // ...and hiding is only ever the same answer the server gives, never a different one.

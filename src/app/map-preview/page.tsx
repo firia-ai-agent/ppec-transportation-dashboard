@@ -22,7 +22,7 @@
 import Link from "next/link";
 import LiveFleetMap from "@/components/map/LiveFleetMap";
 import { mapPreview } from "@/ui/copy";
-import { mapViewerOf } from "@/auth/access";
+import { canOpenPage, mapViewerOf } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
 
 export const metadata = { title: mapPreview.documentTitle };
@@ -34,7 +34,8 @@ export default async function MapPreviewPage() {
   // Signed out is a redirect to sign-in; a role the table does not list is a 403 and the
   // no-access page (forbidden.tsx beside this file). Which *data* the role then sees is
   // src/domain/access/map-view.ts.
-  const viewer = mapViewerOf(await requirePage("/map-preview"));
+  const caller = await requirePage("/map-preview");
+  const viewer = mapViewerOf(caller);
 
   return (
     <main style={{ padding: "var(--space-5)", display: "grid", gap: "var(--space-4)" }}>
@@ -79,6 +80,17 @@ export default async function MapPreviewPage() {
       <p style={{ margin: 0, fontSize: "var(--body-console)" }}>
         <Link href="/ramp-preview">{mapPreview.openRampCheck}</Link>
       </p>
+      {/*
+        Plan routes is the third preview behind the same door, and it is the coordinator's and
+        the director's (src/auth/access.ts). The link is offered only to a role whose own row
+        opens that page — hiding it is a courtesy, not the guard: /plan-preview checks the table
+        again on the server, like every other page.
+      */}
+      {canOpenPage(caller, "/plan-preview") ? (
+        <p style={{ margin: 0, fontSize: "var(--body-console)" }}>
+          <Link href="/plan-preview">{mapPreview.openPlanRoutes}</Link>
+        </p>
+      ) : null}
       <LiveFleetMap viewer={viewer} />
     </main>
   );
