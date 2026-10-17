@@ -26,7 +26,7 @@ import {
   type Caller,
 } from "./access";
 import type { Membership } from "./core";
-import { apiAccess, fill, noAccess } from "@/ui/copy";
+import { apiAccess, fill, noAccess, rampReplan } from "@/ui/copy";
 
 /**
  * THE MATRIX: every role × every page, and every role × every endpoint, asked of the server.
@@ -404,6 +404,67 @@ describe("every page, for every role and for a signed-out visitor", () => {
     expect(body).toContain(noAccess.heading);
     expect(body).not.toMatch(/40\d/);
     expect(readFileSync(path.join(SRC, "auth", "page-guard.ts"), "utf8")).toMatch(/forbidden\(\)/);
+  });
+
+  /**
+   * The ramp check a link carries (`?arrival=`) is a parameter, and a parameter never opens a
+   * door.
+   *
+   * The ramp iPad hands Plan routes and the Today board a van it has just looked at, by linking
+   * to them (src/domain/plan/arrival.ts). That link is a URL somebody can type, so it is worth
+   * holding the obvious thing: it is read *after* the guard, on a page the guard already
+   * refused, and the front desk — whose own surface is the ramp — still cannot open the
+   * coordinator's plan with one in hand.
+   */
+  it("a ramp check in the URL does not open a page the role may not open", async () => {
+    const withArrival = async (file: string) => {
+      const mod = (await import(/* @vite-ignore */ file)) as {
+        default: (props: unknown) => Promise<unknown>;
+      };
+      try {
+        await mod.default({
+          searchParams: Promise.resolve({ arrival: "V1~1WC/3A~out=3,4" }),
+          params: Promise.resolve({}),
+        });
+        return { rendered: true as const };
+      } catch (e) {
+        const i = interrupt(e);
+        if (!i) throw e;
+        return { rendered: false as const, interrupt: i };
+      }
+    };
+
+    for (const route of ["/plan-preview", "/today"]) {
+      const page = pageFiles.find((f) => f.path === route) as { file: string; path: string };
+      // The front desk is not in either row, and carrying a ramp check does not add them to it.
+      expect(rolesWhoCanOpen(route)).not.toContain("FRONT_DESK");
+      getCaller.mockResolvedValue(CALLERS.frontDesk);
+      expect(await withArrival(page.file), route).toEqual({
+        rendered: false,
+        interrupt: { kind: "http", status: 403 },
+      });
+      // And a visitor with no session is sent to sign in, not handed the plan.
+      getCaller.mockResolvedValue(CALLERS.signedOut);
+      expect(await withArrival(page.file), route).toEqual({
+        rendered: false,
+        interrupt: { kind: "redirect", to: "/login" },
+      });
+    }
+  });
+
+  it("a role that may open the page renders it with the ramp check on it", async () => {
+    const page = pageFiles.find((f) => f.path === "/plan-preview") as { file: string; path: string };
+    getCaller.mockResolvedValue(CALLERS.coordinator);
+    const mod = (await import(/* @vite-ignore */ page.file)) as {
+      default: (props: unknown) => Promise<unknown>;
+    };
+    const html = await toHtml(
+      await mod.default({
+        searchParams: Promise.resolve({ arrival: "V1~1WC/3A~out=3,4" }),
+        params: Promise.resolve({}),
+      }),
+    );
+    expect(readable(html)).toContain(rampReplan.bannerHeading);
   });
 
   it("the console shell lets any session in and leaves the role to the page inside it", async () => {
