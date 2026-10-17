@@ -29,6 +29,8 @@ import {
   type RideFacts,
   type RideView,
 } from "./board";
+/** The day's own wall clock, for asking where a ride's window falls relative to the instant. */
+import { localTimeOn } from "./day";
 import {
   dispatcherOf,
   manifestFor,
@@ -309,11 +311,16 @@ describe("a geofence arrival is never a handoff (AT-10)", () => {
      * The same arrival on a board read mid-morning is **not** a thing to do: the van is at the
      * kerb now, and the handoff is what happens next rather than what nobody did. That contrast
      * is the rule — it is the day that is over, not the state, that makes the row open work.
+     *
+     * Read on the **morning** ride, because mid-morning is the only part of the day a live board
+     * has reached: an afternoon record on a board read at 07:42 is a ride the clock is not at yet
+     * and the projection declines to read it at all (`dayRecordFor`, Firia 2026-10-17). Zoe B.'s
+     * 06:45 pickup is behind the clock, so this is the same arrival with the same acts on it.
      */
     it("and the same ride mid-morning is on the way, with the handoff still to come", () => {
       const live = buildLiveWith({
         childKey: "C6",
-        direction: "PM",
+        direction: "AM",
         departed: true,
         pickupArrived: true,
         boardingReportedBy: "PROVIDER",
@@ -321,7 +328,7 @@ describe("a geofence arrival is never a handoff (AT-10)", () => {
         dropoffArrived: true,
         receivedBy: null,
       });
-      const leg = legIn(live, "C6", "PM");
+      const leg = legIn(live, "C6", "AM");
       expect(leg.ride.state).toBe("ARRIVED_DROPOFF");
       expect(leg.group).toBe("ON_THE_WAY");
       expect(leg.needsActionReasons).toEqual([]);
@@ -345,24 +352,52 @@ describe("a child with no adult on file to receive them (AT-13)", () => {
   });
 
   /**
-   * Read on a day the ride has not run yet, which is where this reason belongs: the afternoon
-   * needs a person because nobody on file may receive the child, and the step is to record one.
-   * On the demo day the same ride has already ended holding him, and a held child outranks it
-   * (below) — the reason is the same fact one stage earlier.
+   * Nothing is asked of a ride the day has not got to (Vera, 2026-10-17). On the demo day and on
+   * the plan alike, Noah O.'s 4:20 PM afternoon is ahead of the clock the board is read at, so it
+   * is a ride nothing has happened to: no reason, no step, and not in the first group of the day.
+   *
+   * The fact itself is not hidden — it is on the child, in the receiver column, on both of his
+   * rows (the test below) — it is the *work* that waits for the ride it belongs to.
    */
-  it("has the afternoon ride under needs action, with the reason and the step named", () => {
-    const leg = legIn(planned, "C2", "PM");
+  it("asks nothing of the afternoon while the day's clock is still short of it", () => {
+    for (const of_ of [board, planned]) {
+      const leg = legIn(of_, "C2", "PM");
+      expect(leg.ride.reached, of_.day.iso).toBe(false);
+      expect(leg.needsActionReasons, of_.day.iso).toEqual([]);
+      expect(leg.nextStep, of_.day.iso).toBe("NOTHING");
+      expect(leg.group, of_.day.iso).not.toBe("NEEDS_ACTION");
+      // There is still no adult to name, which is the whole of the problem.
+      expect(leg.child.receivingAdult, of_.day.iso).toBeNull();
+    }
+    // So the board a demo walk opens has no needs-action group on it at all.
+    expect(board.needsActionCount).toBe(0);
+    expect(board.groups.map((g) => g.group)).not.toContain("NEEDS_ACTION");
+  });
+
+  /**
+   * And once the clock *is* past that ride with nobody recorded as receiving him, it is the open
+   * thing it says it is: the reason is named and the step is to record a receiver.
+   *
+   * Read on the finished day with the one act the scenario's record has removed from it — the van
+   * never reported reaching his stop — because that is the shape this reason is left with. Where
+   * the van did reach it, no custody event followed and nobody on file could have given one, the
+   * machine's answer is the hold, and the hold says this fact itself (below).
+   */
+  it("asks for a receiver once the day is past the ride and nobody recorded one", () => {
+    const record = FINISHED_DAY_RIDES.find((r) => r.childKey === "C2" && r.direction === "PM")!;
+    const leg = legIn(buildFinishedWith({ ...record, dropoffArrived: false }), "C2", "PM");
+    expect(leg.ride.reached).toBe(true);
+    expect(leg.ride.state).not.toBe("HELD_NO_RECEIVER");
     expect(leg.group).toBe("NEEDS_ACTION");
-    expect(leg.needsActionReasons).toContain("NO_RECEIVING_ADULT");
+    expect(leg.needsActionReasons).toEqual(["NO_RECEIVING_ADULT"]);
     expect(leg.nextStep).toBe("RECORD_RECEIVER");
-    // There is no adult to name, which is the whole of the problem.
-    expect(leg.child.receivingAdult).toBeNull();
   });
 
   it("is still visible in the morning: the fact is on the child, not on one ride", () => {
-    // The step belongs to the ride it stops — the afternoon — but the morning row carries the
-    // same child, and the board's receiver column reads it from there (AT-13 is seen at 07:00).
+    // Nothing is asked of either ride at 07:42, but the morning row carries the same child, and
+    // the board's receiver column reads the missing adult from there (AT-13 is seen at 07:00).
     expect(legOf("C2", "AM").child.receivingAdult).toBeNull();
+    expect(legOf("C2", "PM").child.receivingAdult).toBeNull();
     expect(legOf("C2", "AM").needsActionReasons).not.toContain("NO_RECEIVING_ADULT");
   });
 
@@ -391,12 +426,14 @@ describe("a child with no adult on file to receive them (AT-13)", () => {
    * by the system. Everything after that is the "no auto-return" rule: nothing moves the ride
    * on, the board keeps asking for a person, and the only exit the machine has is a staff one.
    *
-   * Read on the **demo day**, because that is the board a demo walk opens (`DEMO_DAY_RIDES`,
-   * Vera 2026-10-16): a story only a crafted `?date=` could reach was a story the demo did not
-   * tell. The finished day records the same ride, and the suite below reads it there too.
+   * Read on a day whose clock is **past the ride** — the finished day, read at 17:30, after the
+   * last van is in. The demo day records the same acts (`DEMO_DAY_RIDES`) and still will not show
+   * the hold at 07:42, because a hold is a thing that has happened and at 07:42 it has not
+   * (Firia, 2026-10-17; the suite below is that rule). The two days agree about the ride and
+   * disagree only about whether the clock has got to it.
    */
-  describe("and a ride that ends held, on the day a walk opens (AT-13)", () => {
-    const leg = legOf("C2", "PM");
+  describe("and a ride that ends held, once the clock has reached it (AT-13)", () => {
+    const leg = legIn(finished, "C2", "PM");
 
     it("ends HELD_NO_RECEIVER, by a walk the machine allowed one edge at a time", () => {
       expect(leg.ride.state).toBe("HELD_NO_RECEIVER");
@@ -444,14 +481,12 @@ describe("a child with no adult on file to receive them (AT-13)", () => {
       }
     });
 
-    it("is the one ride on either day that ended holding a child", () => {
-      for (const of_ of [board, finished]) {
-        const held = of_.legs.filter((l) => l.ride.state === "HELD_NO_RECEIVER");
-        expect(held.map((l) => l.key)).toEqual(["C2/PM"]);
-        // And it is the same child the scenario gives no authorized receiving adult — not a
-        // second case written into a day by hand.
-        expect(held[0].child.childKey).toBe(noReceiver[0].key);
-      }
+    it("is the one ride on the day that ended holding a child", () => {
+      const held = finished.legs.filter((l) => l.ride.state === "HELD_NO_RECEIVER");
+      expect(held.map((l) => l.key)).toEqual(["C2/PM"]);
+      // And it is the same child the scenario gives no authorized receiving adult — not a
+      // second case written into a day by hand.
+      expect(held[0].child.childKey).toBe(noReceiver[0].key);
     });
 
     /**
@@ -468,11 +503,83 @@ describe("a child with no adult on file to receive them (AT-13)", () => {
       expect(Object.keys(record)).not.toContain("state");
     });
 
-    it("leaves the rest of the demo day where the replay has it: one outcome, not a finished day", () => {
-      // The one recorded ride is the hold and nothing else: no other row on the live board
-      // claims an outcome, so nothing on it says a child was received.
+    it("leaves the demo day where the replay has it: nothing on it claims an outcome", () => {
+      // No row on the live board claims one, so nothing on it says a child was received — and
+      // now nothing on it says a child is being held either.
       expect(board.legs.filter((l) => l.ride.receivedBy !== null)).toEqual([]);
       expect(legOf("C2", "AM").ride.state).toBe("EN_ROUTE_PICKUP");
+    });
+
+    /**
+     * The hold is derived from the clock, which is the whole of Firia's call (2026-10-17).
+     *
+     * Noah O.'s afternoon window is 4:20 PM and the demo day is read twelve minutes into its
+     * morning runs, so at 07:42 that ride has not been driven, nobody has failed to receive him
+     * and there is no hold: the board said one was on while his morning van was still out
+     * collecting him, which is a child set down at home before the van that fetches him had
+     * finished its run. A record is a thing that happened, and the clock is what says whether it
+     * has (docs/ui/B12-SLICE2-DEFERRED.md §5, which asked this question and is now answered).
+     *
+     * What the row says instead is the one thing that is true of it at 07:42: it is a ride that
+     * has not happened, so it is scheduled, it is waiting on nobody, and the cell that would
+     * otherwise publish a window says the time the plan gives it (Vera, 2026-10-17).
+     */
+    it("a ride the demo clock has not reached is scheduled, not held", () => {
+      const live = legOf("C2", "PM");
+      expect(clockLabel(live.ride.plannedWindow)).toBe("4:20 PM");
+      expect(board.nowMs).toBeLessThan(localTimeOn(demoDay(), live.ride.plannedWindow));
+      expect(live.ride.reached).toBe(false);
+
+      expect(live.ride.state).not.toBe("HELD_NO_RECEIVER");
+      expect(live.ride.path).not.toContain("HELD_NO_RECEIVER");
+      expect(live.ride.path).not.toContain("ARRIVED_DROPOFF");
+      expect(live.ride.receivedBy).toBeNull();
+
+      // And nothing is asked of it: a ride the day has not got to has had nothing happen to it.
+      expect(live.group).toBe("GETTING_READY");
+      expect(live.needsActionReasons).toEqual([]);
+      expect(live.nextStep).toBe("NOTHING");
+    });
+
+    /**
+     * And it is a rule about the clock rather than a special case for one ride: no ride anywhere
+     * on any day is held before the day has reached the window it is planned for. A fixture that
+     * grows a second recorded ride, or a `BOARD_SCENARIO_SECONDS` somebody moves, is held to the
+     * same thing.
+     */
+    it("no ride ahead of its day's clock is held, on any day", () => {
+      for (const of_ of [board, finished, planned]) {
+        for (const leg of of_.legs) {
+          const where = `${leg.key} on ${of_.day.iso}`;
+          expect(leg.ride.reached, where).toBe(
+            of_.nowMs >= localTimeOn(of_.day, leg.ride.plannedWindow),
+          );
+          if (leg.ride.reached) continue;
+          expect(leg.ride.state, where).not.toBe("HELD_NO_RECEIVER");
+          expect(leg.needsActionReasons, where).not.toContain("CHILD_HELD");
+          // Nor is a receiver asked for on a ride the day has not reached (Vera, 2026-10-17), so
+          // on these three days nothing ahead of the clock is work at all.
+          expect(leg.needsActionReasons, where).toEqual([]);
+          expect(leg.nextStep, where).toBe("NOTHING");
+        }
+      }
+    });
+
+    /**
+     * The other end of the same rule: once the clock *is* past the ride, the acts the demo day
+     * records make the hold, on the live day as much as the finished one. The gate is the clock
+     * and nothing else — so a demo clock that walks to the afternoon arrives at CA-04 rather than
+     * at a board that has quietly dropped it (B-10; the e2e says the same in the browser).
+     */
+    it("and the same demo-day record is held once the clock is past 4:20 PM", () => {
+      const evening = buildBoard({
+        ...demoDay(),
+        instantMs: localTimeOn(demoDay(), "16:30"),
+      });
+      const leg = legIn(evening, "C2", "PM");
+      expect(leg.ride.state).toBe("HELD_NO_RECEIVER");
+      expect(leg.needsActionReasons).toEqual(["CHILD_HELD"]);
+      expect(leg.nextStep).toBe("CALL_CONTACTS");
     });
 
     it("keeps the morning of the same child done on the finished day (AT-07)", () => {
@@ -528,10 +635,21 @@ describe("the person who answers for a van is named", () => {
     // step is to ask the dispatcher who can answer.
     expect(legOf("C1", "AM").nextStep).toBe("ASK_ABOUT_VAN");
     expect(legOf("C1", "AM").ride.providerDispatcher).toBe("Rae S.");
-    // C3 rides the centre's own van: same unanswered question in the afternoon, and the step
-    // that sends it to the ramp, because there is no dispatcher on file to ring about it.
-    expect(legOf("C3", "PM").nextStep).toBe("CHECK_VAN_AT_RAMP");
-    expect(legOf("C3", "PM").ride.providerDispatcher).toBeNull();
+    /*
+     * C3 rides the centre's own van: the same unanswered question in the afternoon, and the step
+     * that sends it to the ramp, because there is no dispatcher on file to ring about it.
+     *
+     * Asked of a board whose clock is past that 4:05 PM run, since a van nobody has reported on
+     * is only late with an answer once somebody is waiting for one: the capability request goes
+     * out ninety minutes before the run (PRD §18.2 step 5), so at 07:42 that afternoon is waiting
+     * on nobody and the board says so (Vera, 2026-10-17).
+     */
+    const evening = buildBoard({ ...demoDay(), instantMs: localTimeOn(demoDay(), "16:30") });
+    const afternoon = legIn(evening, "C3", "PM");
+    expect(afternoon.ride.reached).toBe(true);
+    expect(afternoon.nextStep).toBe("CHECK_VAN_AT_RAMP");
+    expect(afternoon.ride.providerDispatcher).toBeNull();
+    expect(legOf("C3", "PM").nextStep).toBe("NOTHING");
   });
 });
 
@@ -827,9 +945,22 @@ describe("grouping and counts", () => {
     expect(new Set(grouped.map((l) => l.key)).size).toBe(board.legs.length);
   });
 
-  it("needs action is the first group on the board (§4.1)", () => {
-    expect(board.groups[0].group).toBe("NEEDS_ACTION");
-    expect(board.needsActionCount).toBe(board.groups[0].legs.length);
+  /**
+   * Needs action is the first group wherever there is one — the finished day, which is the board
+   * with open work on it. The demo day is read twelve minutes into its morning and has none: the
+   * one row that used to be in it was an afternoon the clock had not reached (Vera, 2026-10-17),
+   * so the group is absent rather than empty, which is the rule `buildBoard` keeps for all five.
+   */
+  it("needs action is the first group on a board that has one (§4.1)", () => {
+    expect(finished.groups[0].group).toBe("NEEDS_ACTION");
+    expect(finished.needsActionCount).toBe(finished.groups[0].legs.length);
+    expect(board.needsActionCount).toBe(0);
+    expect(board.groups.map((g) => g.group)).not.toContain("NEEDS_ACTION");
+    for (const of_ of [board, finished]) {
+      expect(of_.groups.map((g) => g.group), of_.day.iso).toEqual(
+        BOARD_GROUPS.filter((group) => of_.legs.some((l) => l.group === group)),
+      );
+    }
   });
 
   it("the group names are the ones the copy guide fixes", () => {

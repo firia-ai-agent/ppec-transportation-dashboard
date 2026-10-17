@@ -3,7 +3,14 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
-import { buildBoard, demoDay, serviceDayFor, type LegRow } from "@/domain/board/board";
+import {
+  buildBoard,
+  demoDay,
+  demoDayAtTick,
+  demoDayTickAt,
+  serviceDayFor,
+  type LegRow,
+} from "@/domain/board/board";
 import {
   board as boardCopy,
   drawer,
@@ -12,7 +19,8 @@ import {
   places,
   serviceDate,
 } from "@/ui/copy";
-import { legStates, therapySessionStates } from "@/ui/states";
+import { freshnessConfig } from "@/config/live";
+import { gpsFreshnessLabel, legStates, therapySessionStates } from "@/ui/states";
 import { clockLabel } from "@/ui/service-date";
 import { TodayBoard } from "./TodayBoard";
 import { LegDrawer } from "./LegDrawer";
@@ -60,6 +68,18 @@ function drawerHtml(key: string, of: typeof board = board): string {
   return renderToStaticMarkup(
     createElement(LegDrawer, { legs: legsIn(of, key), day: of.day, onClose: () => {} }),
   );
+}
+
+/**
+ * The panel's two ride rows alone — what the drawer says about the *rides*, which is where a
+ * reason and a step live (§4.1 folds those columns in here below 1280). Read apart from the rest
+ * of the panel because the footer's own sentence about the disabled handoff is a standing one
+ * about the child ("Record who receives Noah O. first.") and not a claim about a ride.
+ */
+function timelineOf(html: string): string {
+  const [, timeline] = /<ol[^>]*>([\s\S]*?)<\/ol>/.exec(html) ?? [];
+  if (timeline === undefined) throw new Error("the drawer rendered no ride rows");
+  return timeline;
 }
 
 describe("the board renders the day", () => {
@@ -208,9 +228,14 @@ describe("the board renders the day", () => {
    * coordinator reading their own board already knows.
    */
   it("says the next step as a verb and a child's name, never as a role", () => {
-    expect(html).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
     expect(html).toContain(
       escaped(fill(boardCopy.nextSteps.ASK_ABOUT_VAN, { dispatcher: "Rae S.", child: "Mia R." })),
+    );
+    // And on the day with open work on it, the two steps that day's own rows ask for.
+    const ended = boardHtml("", finished);
+    expect(ended).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
+    expect(ended).toContain(
+      escaped(fill(boardCopy.nextSteps.CONFIRM_HANDOFF, { child: "Zoe B." })),
     );
     expect(html).toContain(boardCopy.nextSteps.NOTHING);
     for (const role of ["Coordinator", "Front desk", "Provider"]) {
@@ -234,18 +259,35 @@ describe("the board renders the day", () => {
   });
 
   /**
-   * Every row's arrival window, which the afternoon used to go without: the board printed
+   * Every row says when its ride is, which the afternoon used to go without: the board printed
    * "Window pending" on all 28 of its PM rows because the committed routes had no afternoon in
    * them. They do now (src/fixtures/run-routes.ts), so the only row that says nothing about an
    * arrival is one with no van in it at all.
+   *
+   * Two answers, and which one a row gets is the clock (Vera, 2026-10-17): a van on the road
+   * publishes the ten-minute window its families hold, and a ride the day has not reached says
+   * the time the plan gives it and which end of the ride that is.
    */
   it("says when each ride arrives, and never that the window is still being worked out", () => {
     expect(html).not.toContain(boardCopy.windowPending);
-    const windows = html.match(/\d{1,2}:\d{2}–\d{1,2}:\d{2} [AP]M/g) ?? [];
     const riding = board.legs.filter((l) => l.ride.mode !== "FAMILY");
-    expect(windows.length).toBeGreaterThanOrEqual(riding.length);
-    // The afternoon of the child the scenario holds, from the geometry of their own run.
-    expect(html).toContain("4:20–4:30 PM");
+    expect(riding.length).toBeGreaterThan(0);
+    for (const leg of riding) {
+      const { ride } = leg;
+      const text = ride.reached
+        ? ride.windowText
+        : fill(ride.direction === "AM" ? boardCopy.pickupAt : boardCopy.dropoffAt, {
+            time: clockLabel(ride.plannedWindow),
+          });
+      expect(text, leg.key).not.toBeNull();
+      expect(html, leg.key).toContain(text);
+    }
+    // The morning runs are on the road, so the windows their families hold are on the board.
+    expect(html).toMatch(/\d{1,2}:\d{2}–\d{1,2}:\d{2} [AP]M/);
+    // And the afternoon of the child the scenario holds, hours before his van leaves: the plan's
+    // own time for the stop it sets him down at, rather than a window published off a moving van.
+    expect(html).toContain("Drop-off 4:20 PM");
+    expect(html).not.toContain("4:20–4:30 PM");
   });
 
   it("never prints 'Handed off' for a vehicle that merely arrived (AT-10)", () => {
@@ -281,25 +323,113 @@ describe("the board renders the day", () => {
   /**
    * AT-13 on the board: the ride that ended holding a child, and what it says about it.
    *
-   * On the demo day first, because that is the board a demo walk opens (`DEMO_DAY_RIDES`): the
-   * hold and the no-auto-return rule used to live only on a day reachable by a crafted URL, and
-   * a story the walk cannot reach is a story the demo does not tell (Vera, 2026-10-16).
+   * Read on a day whose clock is past the ride — the finished day, where the morning of the same
+   * child is finished too, so one held ride is visibly not a held day.
    */
   it("shows the ride that ended with nobody to receive the child (AT-13)", () => {
-    const live = boardHtml("Noah");
-    expect(live).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
-    expect(live).toContain(boardCopy.groups.NEEDS_ACTION);
-    expect(live).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
-    // It is the only ride on the live board with an outcome: nothing else on it is finished.
-    expect(live).not.toMatch(/handed off/i);
-
-    // And on the finished day, where the morning of the same child is finished too: one held
-    // ride is not a held day.
     const ended = boardHtml("Noah", finished);
     expect(ended).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+    expect(ended).toContain(boardCopy.groups.NEEDS_ACTION);
+    expect(ended).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
     expect(ended).toContain(
       `State: ${fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": boardCopy.receivedByRamp })}`,
     );
+  });
+
+  /**
+   * And the demo day, read twelve minutes into its morning runs, does not show it (Firia,
+   * 2026-10-17). Noah O.'s afternoon window is 4:20 PM: at 07:42 that ride has not run, so a
+   * board claiming he is being held sat beside his morning row still on the road.
+   *
+   * What the row says instead is its time, and nothing else (Vera, 2026-10-17): no hold, and no
+   * step either, because the ride that would need one has not happened. The missing receiver is
+   * still on the row — in the receiver column, where it is a fact about the child rather than
+   * work on a ride — which is the whole of what AT-13 asks a morning board for.
+   */
+  it("says nothing about a hold on a board read before the ride (AT-13, the clock)", () => {
+    const live = boardHtml("Noah");
+    expect(live).not.toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+    expect(live).not.toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
+    // Nothing on the live board claims an outcome of any kind, held or handed over.
+    expect(live).not.toMatch(/handed off/i);
+
+    // Nor does it ask for anything about that afternoon: no needs-action group on the board at
+    // all, and no step on a ride the day has not reached.
+    expect(live).not.toContain(boardCopy.groups.NEEDS_ACTION);
+    expect(live).not.toContain(
+      escaped(fill(boardCopy.nextSteps.RECORD_RECEIVER, { child: "Noah O." })),
+    );
+    expect(live).not.toContain(
+      escaped(fill(boardCopy.reasons.NO_RECEIVING_ADULT, { child: "Noah O." })),
+    );
+
+    // What it does say about that ride: when it is, at the end it is about.
+    expect(live).toContain("Drop-off 4:20 PM");
+    // And who may receive him, which is the one thing a 07:42 board can be acted on for.
+    expect(live).toContain(`State: ${boardCopy.noReceiver}`);
+  });
+
+  /**
+   * And the demo day *walked* to the ride, which is the half of AT-13 the demo day itself can
+   * now reach (Founder, 2026-10-17): the same day, the same board, read at 4:25 PM.
+   *
+   * This is the ride ending in front of a coordinator rather than in yesterday's records — the
+   * van is back at Noah O.'s stop, nobody on file may receive him and no custody event was
+   * recorded, so the row carries the hold, the group that must never be skimmed carries the
+   * row, and the step asks a person to call his contacts and record who receives him. PRD §6.6
+   * CA-04 is the part that is not on the row and is in the panel below: nothing returns him to
+   * the centre on its own.
+   */
+  it("shows the hold once the clock is past the ride, on the demo day itself (AT-13)", () => {
+    const walked = boardHtml("Noah", buildBoard(demoDayAtTick(demoDayTickAt("16:25"))));
+    expect(walked).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+    expect(walked).toContain(boardCopy.groups.NEEDS_ACTION);
+    expect(walked).toContain(
+      escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })),
+    );
+    // The window the row showed as a time before the ride ("Drop-off 4:20 PM") is the window the
+    // ride was driven to, now that the day has been there.
+    expect(walked).toContain("4:20–4:30 PM");
+    // Still the demo day, and still "Today": a walked clock is another instant on this day, not
+    // another day. A board that renamed itself as it walked would be claiming a date it is not.
+    expect(walked).toContain(`>${boardCopy.heading}<`);
+    expect(walked).toContain(serviceDate.phases.LIVE);
+    expect(walked).toMatch(/datetime="2026-10-14"/i);
+    // And nothing claims he was handed over, at any instant of the day: there is no edge from a
+    // hold to a handoff without a person (AT-10's rule, on AT-13's ride).
+    expect(walked).not.toMatch(/handed off to/i);
+  });
+
+  /**
+   * What else a day walked past the committed replays says, said on purpose.
+   *
+   * The replays are the morning (they end at 08:47) and the afternoon has no track at all, so at
+   * 4:25 PM the last point any van recorded is hours old. The board does not pretend otherwise
+   * and does not quietly stop counting either: the morning row says "No signal" with the age on
+   * it and asks for the van to be found, which is LOC-03 applied to the data the fixture has.
+   * Suppressing that because the run "ought to be over" would be the board deciding a van is
+   * fine on no evidence — the one thing a location rule exists to prevent.
+   */
+  it("says a van has gone quiet when the clock is hours past its last point (LOC-03)", () => {
+    const walked = buildBoard(demoDayAtTick(demoDayTickAt("16:25")));
+    const morning = legsIn(walked, "C2").find((l) => l.ride.direction === "AM")!;
+    expect(morning.ride.gpsFreshness).toBe("LOST");
+    expect(morning.ride.gpsAgeSeconds).toBeGreaterThan(freshnessConfig.lostSeconds);
+    const html = boardHtml("Noah", walked);
+    expect(html).toContain(`State: ${gpsFreshnessLabel(morning.ride.gpsAgeSeconds!)}`);
+    expect(html).toContain(escaped(fill(boardCopy.nextSteps.FIND_VAN, { child: "Noah O." })));
+  });
+
+  /** The panel the held row opens, where CA-04 is said in full. */
+  it("says there is no automatic return, in the panel the hold opens (CA-04)", () => {
+    const walked = buildBoard(demoDayAtTick(demoDayTickAt("16:25")));
+    const panel = drawerHtml("C2", walked);
+    expect(panel).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+    expect(panel).toContain(escaped(fill(drawer.heldNoReturn, { child: "Noah O." })));
+    expect(panel).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
+    expect(panel).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
+    // The one action that would move it is unavailable, and says who has to answer first.
+    expect(panel).toContain(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
   });
 
   it("filters to one child's two rides when the shell's search box carried a name in", () => {
@@ -379,7 +509,19 @@ describe("the drawer reads one child's day", () => {
     for (const heading of [drawer.amRide, drawer.pmRide]) expect(html).toContain(heading);
     expect(html).toContain(`State: ${legStates[legOf("C6", "AM").ride.state].label}`);
     expect(html).toContain(`State: ${legStates[legOf("C6", "PM").ride.state].label}`);
-    expect(html).toContain(escaped(nextStepCellText(legOf("C6", "PM"))));
+    // The step where there is one: this child's van is the unreported one all morning.
+    expect(legOf("C1", "AM").nextStep).toBe("ASK_ABOUT_VAN");
+    expect(drawerHtml("C1")).toContain(
+      escaped(fill(boardCopy.nextSteps.ASK_ABOUT_VAN, { dispatcher: "Rae S.", child: "Mia R." })),
+    );
+    /*
+     * And none where there is none. Zoe B.'s two rides are a van on the road and an afternoon the
+     * day has not reached, so neither is waiting on a person — the panel says nothing rather than
+     * "Nothing to do", which is the row's answer for an empty cell and would be a line of its own
+     * in here (§4.2: the panel carries the columns that fold, not the words that fill them).
+     */
+    for (const leg of legsOf("C6")) expect(leg.nextStep, leg.key).toBe("NOTHING");
+    expect(html).not.toContain(boardCopy.nextSteps.NOTHING);
   });
 
   /**
@@ -507,34 +649,53 @@ describe("the one primary action, and why it is not available", () => {
     const html = drawerHtml("C2");
     expect(html).toContain(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
     expect(html).toContain(escaped(fill(drawer.receiverMissing, { child: "Noah O." })));
-    // The afternoon ride says why it needs a person, and the step that answers it. On the demo
-    // day that ride has ended holding him, so the reason is the hold itself (below).
-    expect(html).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
-    expect(html).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
-    // PRD §6.6: a child is held with the van; nothing drives them back on their own.
+    /*
+     * The panel's own sentence about it is the one that carries this at 07:42 (Vera, 2026-10-17):
+     * who may receive him, and what the rule is if nobody is there. His afternoon row claims
+     * nothing — the day has not reached that ride, so there is no reason on it and no step under
+     * it — and the two sentences above are the ones a coordinator can act on before the van goes.
+     */
     expect(html).toContain(escaped(fill(drawer.heldNoReturn, { child: "Noah O." })));
+    const rides = timelineOf(html);
+    expect(rides).not.toContain(
+      escaped(fill(boardCopy.reasons.NO_RECEIVING_ADULT, { child: "Noah O." })),
+    );
+    expect(rides).not.toContain(
+      escaped(fill(boardCopy.nextSteps.RECORD_RECEIVER, { child: "Noah O." })),
+    );
+    expect(rides).not.toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
+    // What stands in for it is the footer's own sentence under the one control that would commit
+    // a handoff: a standing fact about the child, not a thing that has happened to a ride.
+    expect(html).toContain(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
   });
 
   it("says out loud that this slice does not write (§1 honesty)", () => {
-    expect(drawerHtml("C2")).toContain(drawer.readOnly);
+    expect(drawerHtml("C2")).toContain(escaped(drawer.readOnly));
   });
 
   /**
-   * Two disabled controls, two reasons, each under the button it is about (Vera, 2026-10-16).
-   * The handoff's reason was the only sentence beside the override as well, so it read as the
-   * child's missing receiver being what stops an override — which is not what stops it. What
-   * stops it is this build, and the override now says so under itself.
+   * Two disabled controls, two lines, each under the button it is about (Vera, 2026-10-16). The
+   * handoff's reason was the only sentence beside the override as well, so it read as the
+   * child's missing receiver being what stops an override — which is not what stops it. The
+   * override's own line names what the control is about instead, and the one sentence about this
+   * build not writing is the caption below them both, said once (Vera, #51).
    */
-  it("gives the override its own reason, under the override's own button", () => {
+  it("gives the override its own line, under the override's own button", () => {
     const html = drawerHtml("C2");
     const button = html.indexOf(escaped(fill(drawer.overrideWithReason, { child: "Noah O." })));
     const own = html.indexOf(escaped(drawer.overrideDisabled));
     expect(button).toBeGreaterThan(-1);
     expect(own).toBeGreaterThan(button);
     // The handoff's reason is still there, and still above its own button.
-    const handoff = html.indexOf(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
+    const handoff = html.indexOf(
+      escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })),
+    );
     expect(handoff).toBeGreaterThan(-1);
     expect(handoff).toBeLessThan(button);
+    // And the footer says "connected" once: the caption under both, and nowhere else.
+    const text = html.replace(/<[^>]*>/g, " ");
+    expect(text.match(/connected/g) ?? []).toHaveLength(1);
+    expect(html).toContain(escaped(drawer.readOnly));
   });
 
   /**
@@ -554,27 +715,25 @@ describe("the one primary action, and why it is not available", () => {
 
   /**
    * AT-13 in the drawer: the ride that ended held, and the rule about no automatic return. Read
-   * on the demo day, the board a walk opens, and on the finished day, where the same ride is one
-   * of a whole day of outcomes.
+   * on the finished day, which is the day whose clock is past the 4:20 PM ride — on the demo day
+   * it is 07:42 and the ride has not run, so there is no hold to read (Firia, 2026-10-17).
    */
   describe("a ride that ended with nobody to receive the child (AT-13)", () => {
-    const held = drawerHtml("C2");
+    const held = drawerHtml("C2", finished);
 
-    it("says the ride is held, on the afternoon row, and never that it was handed off", () => {
+    it("says the ride is held, on the afternoon row, and the step that answers it", () => {
       expect(held).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
       expect(held).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
       expect(held).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
-      // A hold is not a handoff, and the panel says nothing that could be read as one.
-      expect(held).not.toMatch(/handed off/i);
     });
 
-    it("reads the same on the finished day, whose morning was received at the ramp", () => {
-      const ended = drawerHtml("C2", finished);
-      expect(ended).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
-      expect(ended).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
-      expect(ended).toContain(
+    it("has the morning of the same child received at the ramp: one held ride, not a held day", () => {
+      expect(held).toContain(
         `State: ${fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": boardCopy.receivedByRamp })}`,
       );
+      // And the hold itself is never drawn as a handoff: the afternoon row says held and no more.
+      const afternoon = held.slice(held.indexOf(legStates.HELD_NO_RECEIVER.label));
+      expect(afternoon).not.toMatch(/handed off/i);
     });
 
     it("says the child waits with the van and nothing brings them back (PRD §6.6 CA-04)", () => {
@@ -582,6 +741,36 @@ describe("the one primary action, and why it is not available", () => {
       expect(held).toContain(escaped(fill(drawer.receiverMissing, { child: "Noah O." })));
       // No automatic return, and no handoff either: the only exit is a person's.
       expect(held).toContain(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
+    });
+
+    /**
+     * And the same panel on the demo day, where the clock is twelve minutes into the morning,
+     * claims none of it has happened — while still saying the rule that makes it matter.
+     *
+     * That split is the point of Firia's call. A held child is the worst thing on this board to
+     * learn late, so the **rule** — nobody on file may receive him, and if nobody is there he
+     * waits with the van and nothing brings him back — is said at 07:42, where a coordinator can
+     * still do something about it. What is not said at 07:42 is that it has already gone wrong on
+     * a ride the day has not driven yet.
+     */
+    it("says the rule but claims no hold on a day the clock has not carried to the ride", () => {
+      const live = drawerHtml("C2");
+      expect(live).not.toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+      expect(live).not.toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
+      expect(live).not.toContain(
+        escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })),
+      );
+      // Nor the receiver asked for as work on that ride, which is the same claim one stage back:
+      // the afternoon it would belong to has not happened (Vera, 2026-10-17).
+      expect(timelineOf(live)).not.toContain(
+        escaped(fill(boardCopy.nextSteps.RECORD_RECEIVER, { child: "Noah O." })),
+      );
+
+      // CA-04 itself, and the missing receiver it hangs on: both still here, in the present tense.
+      expect(live).toContain(escaped(fill(drawer.heldNoReturn, { child: "Noah O." })));
+      expect(live).toContain(escaped(fill(drawer.receiverMissing, { child: "Noah O." })));
+      // And the panel's own time column still says when that ride is, as it does on any day.
+      expect(live).toMatch(/<time dateTime="16:20"[^>]*>4:20 PM<\/time>/);
     });
   });
 });

@@ -425,6 +425,12 @@ function LocationCell({ ride, phase }: { ride: RideView; phase: DayPhase }) {
  * The window the family holds, and how far today has moved it. A paused window still shows the
  * window — never hide data (§4.1) — and says the texts about it have stopped (LOC-03). The
  * shift carries the §3 arrow, so "later than planned" is readable without the warn tone.
+ *
+ * Unless the day has not got to this ride yet, in which case the cell says the plan's own time
+ * and which end of the ride it is: "Drop-off 4:20 PM" (Vera, 2026-10-17). A published window is
+ * a ten-minute promise kept against a van's real position, and there is no van in motion on a
+ * ride nothing has happened to — the afternoon of a board read at 07:42 was carrying a window
+ * that read as a live arrival eight hours before the van left.
  */
 function ArrivingCell({ ride }: { ride: RideView }) {
   const { windowText, deltaSeconds } = ride;
@@ -435,6 +441,15 @@ function ArrivingCell({ ride }: { ride: RideView }) {
       return <StateChip state={FAMILY_DRIVES} className={styles.cellChip} />;
     }
     return <StateChip state={WINDOW_PENDING} className={styles.cellChip} />;
+  }
+  if (!ride.reached) {
+    return (
+      <span className={`${styles.arriving} tabularNums`}>
+        {fill(ride.direction === "AM" ? boardCopy.pickupAt : boardCopy.dropoffAt, {
+          time: clockLabel(ride.plannedWindow),
+        })}
+      </span>
+    );
   }
   const delta = deltaSeconds === null ? null : formatDelta(deltaSeconds);
   const late = deltaSeconds !== null && deltaSeconds > 0;
