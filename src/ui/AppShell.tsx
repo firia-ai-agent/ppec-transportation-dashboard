@@ -54,7 +54,7 @@ export function AppShell({
             */}
             <div className={styles.fact}>
               <dt className={styles.factLabel}>{scenarioClock.label}</dt>
-              {/* The demo clock is wired by the demo-controls dock (§6.1); until then it says so. */}
+              {/* The readout and the demo's Start, which runs the day (src/ui/demo-clock.ts). */}
               <dd className={styles.factValue}>
                 <ScenarioClock />
               </dd>

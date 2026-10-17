@@ -13,13 +13,16 @@ import {
 } from "lucide-react";
 import { formatDelta } from "@/domain/eta/eta";
 import {
+  buildBoard,
   matchesQuery,
   type Board,
   type DayPhase,
   type LegRow,
   type RideView,
 } from "@/domain/board/board";
+import { demoDayAtTick } from "@/domain/board/day";
 import { board as boardCopy, etaText, fill, onDay, serviceDate } from "@/ui/copy";
+import { useDemoClock } from "@/ui/demo-clock";
 import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
 import {
@@ -52,7 +55,31 @@ import styles from "./today.module.css";
  * Keyboard (§4.1): J and K move between rides and Enter opens one, which is also what the row's
  * own button does, so nothing here is keyboard-only or mouse-only.
  */
-export function TodayBoard({ board, query }: { board: Board; query: string }) {
+export function TodayBoard({ board: rendered, query }: { board: Board; query: string }) {
+  /*
+   * The board follows the demo clock (src/ui/demo-clock.ts). Until Start is pressed this is the
+   * board the server rendered and nothing else; once the day is walking, it is the same day read
+   * at the tick the header is showing — the same projection, from the same function, at a later
+   * instant (`buildBoard(demoDayAtTick(tick))`, exactly what the page does on the server). One
+   * clock, one board builder: a second copy of either would be a second answer about the day.
+   *
+   * Only the demo day walks. A day that has ended or has not started *is* its instant, and a
+   * tick that moved it would invent a phase the day does not have (src/domain/board/day.ts).
+   *
+   * Veri #49 is not loosened here. That refusal is about a day a *request* can name — a pasted
+   * link quietly putting another instant in front of a coordinator who believes they are reading
+   * now — and `?tick=` is still read only through the gate, on a local synthetic shell that asked
+   * for it. This is the opposite: a control the viewer pressed, with the instant it moved to in
+   * the header above the board for as long as it is running.
+   */
+  const clock = useDemoClock();
+  const board = useMemo(
+    () =>
+      clock.running && rendered.day.phase === "LIVE"
+        ? buildBoard(demoDayAtTick(clock.tick))
+        : rendered,
+    [rendered, clock.running, clock.tick],
+  );
   const { day } = board;
   const [onlyNeedsAction, setOnlyNeedsAction] = useState(false);
   const [openChild, setOpenChild] = useState<string | null>(null);

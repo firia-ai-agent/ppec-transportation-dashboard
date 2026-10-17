@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { adapters, demoBanner, login, nav, scenarioClock, unbuilt } from "./copy";
@@ -208,39 +209,47 @@ describe("§2 scenario clock", () => {
 
   it("reads 'Demo not started' and offers 'Start demo day' beside it", () => {
     expect(scenarioClock.notStarted).toBe("Demo not started");
-    // COPY-GUIDE §3: verb + object, ≤3 words — the button now says what it starts.
+    // COPY-GUIDE §3: verb + object, ≤3 words — the button says what it starts.
     expect(scenarioClock.start).toBe("Start demo day");
+    // …and the same button, once the day is running, says what it undoes.
+    expect(scenarioClock.reset).toBe("Reset demo day");
   });
 
-  it("says honestly why Start does nothing", () => {
-    expect(scenarioClock.startUnavailable).toBe("Demo controls aren't connected yet.");
-  });
-
-  it("is aria-disabled and still focusable, so the reason can be read", () => {
-    expect(component).toMatch(/aria-disabled="true"/);
-    // A real `disabled` would drop the button out of the tab order and silence the note.
+  /**
+   * The founder's first click on prod (2026-10-17 14:40 ET) landed on this button and nothing
+   * happened: it was rendered `aria-disabled` with no handler and a tooltip saying the demo
+   * controls were not connected. None of that may come back — a button that looks like a button
+   * does its job, and an explanation on hover is no explanation on a phone.
+   */
+  it("is wired to the demo clock, with nothing left that makes it inert", () => {
+    expect(component).toMatch(/onClick=\{clock\.running \? resetDemoClock : startDemoClock\}/);
+    // The attribute, not the word: the file's own comment says what it used to be rendered as.
+    expect(component).not.toMatch(/aria-disabled=/);
     expect(component).not.toMatch(/\sdisabled[=\s/>]/);
-    expect(component).toMatch(/aria-describedby=\{TOOLTIP_ID\}/);
-    expect(component).toMatch(/role="tooltip"/);
+    expect(component).not.toMatch(/role="tooltip"/);
+    expect(css).not.toMatch(/tooltip/);
+    expect(css).not.toMatch(/not-allowed/);
   });
 
-  it("shows the note on hover and on focus", () => {
-    expect(css).toMatch(/\.start:hover \+ \.tooltip/);
-    expect(css).toMatch(/\.start:focus \+ \.tooltip/);
+  it("looks like the control it is: a pointer, a hover fill, and the §9 focus ring", () => {
+    expect(css).toMatch(/cursor: pointer/);
+    expect(css).toMatch(/\.start:hover/);
+    // §9's ring is global (src/app/globals.css) and nothing here removes it.
+    expect(css).not.toMatch(/outline:\s*none/);
   });
 
-  it("renders a focusable, inert Start whose note is tied to it", () => {
-    const html = renderToStaticMarkup(ScenarioClock());
+  /**
+   * The clock reads a store, so a *server* render has exactly one thing it can say: the demo has
+   * not started. That is also the hydration contract — the first client render must match this.
+   */
+  it("renders the readout and a live Start", () => {
+    const html = renderToStaticMarkup(createElement(ScenarioClock));
     expect(html).toContain(scenarioClock.notStarted);
     expect(html).toContain(scenarioClock.start);
-    expect(html).toContain(escapeApostrophes(scenarioClock.startUnavailable));
-    expect(html).toMatch(/aria-disabled="true"/);
-    // Nothing removes it from the tab order: no `disabled`, no negative tabindex.
+    expect(html).not.toContain(scenarioClock.reset);
+    expect(html).not.toMatch(/aria-disabled/);
     expect(html).not.toMatch(/\sdisabled[=\s/>]/);
     expect(html).not.toMatch(/tabindex="-1"/i);
-    const describedBy = /aria-describedby="([^"]+)"/.exec(html)?.[1];
-    expect(describedBy).toBeTruthy();
-    expect(html).toContain(`id="${describedBy}" role="tooltip"`);
   });
 });
 

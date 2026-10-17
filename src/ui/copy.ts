@@ -389,8 +389,10 @@ export function onDay(words: { today: string; otherDay: string }, day: LabelledD
 }
 
 /**
- * Scenario clock in the header (§2). The demo-controls dock (§6.1) owns the clock; until it
- * is wired the readout says the demo has not started and Start says honestly why it is inert.
+ * Scenario clock in the header (§2), and the demo day's one control (§6.1 "Clock", COPY-GUIDE
+ * §52: "Demo not started" with a [Start] button). Two words for the readout and two for the
+ * button, because the clock has two states and the state is in the words rather than in a
+ * colour (§3, §9). The fuller dock §6.1 sketches around it is a later build step.
  */
 export const scenarioClock = {
   label: "Scenario clock",
@@ -402,8 +404,13 @@ export const scenarioClock = {
    * predates §3's button rule and is the shorter of the two, so the rule wins.
    */
   start: "Start demo day",
-  /** Shown on hover and on focus; the button stays focusable so this can be read (§9). */
-  startUnavailable: "Demo controls aren't connected yet.",
+  /**
+   * The same button once the day is walking (§3 again: verb + object, ≤3 words). It puts the
+   * readout back to "Demo not started" and every surface reading the clock back to the instant
+   * the page was rendered at. It does not touch the demo's data — starting the clock stores
+   * nothing, so there is nothing stored to undo (src/ui/demo-clock.ts).
+   */
+  reset: "Reset demo day",
 } as const;
 
 /**

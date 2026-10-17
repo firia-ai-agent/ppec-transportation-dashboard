@@ -468,12 +468,16 @@ describe("COPY-GUIDE strings, verbatim", () => {
     expect(login.error).toBe("Email or password is incorrect.");
   });
 
-  it("§1: the scenario clock says the demo has not started, and why Start is inert", () => {
+  it("§1: the scenario clock says the demo has not started, and the button says what it does", () => {
     expect(scenarioClock.notStarted).toBe("Demo not started");
     // §3: verb + object, ≤3 words. "Start" alone did not say what it starts.
     expect(scenarioClock.start).toBe("Start demo day");
-    expect(scenarioClock.start.split(" ").length).toBeLessThanOrEqual(3);
-    expect(scenarioClock.startUnavailable).toBe("Demo controls aren't connected yet.");
+    expect(scenarioClock.reset).toBe("Reset demo day");
+    for (const label of [scenarioClock.start, scenarioClock.reset]) {
+      expect(label.split(" ").length).toBeLessThanOrEqual(3);
+    }
+    // The note that explained why Start did nothing is gone, because Start does something.
+    expect(scenarioClock).not.toHaveProperty("startUnavailable");
   });
 });
 
