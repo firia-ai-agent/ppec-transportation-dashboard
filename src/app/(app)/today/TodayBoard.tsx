@@ -19,7 +19,7 @@ import {
   type LegRow,
   type RideView,
 } from "@/domain/board/board";
-import { board as boardCopy, etaText, fill, onDay, serviceDate } from "@/ui/copy";
+import { board as boardCopy, etaText, fill, onDay, serviceDate, vanDisplayName } from "@/ui/copy";
 import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
 import {
@@ -381,16 +381,20 @@ const RECEIVER_MISSING: StateDescriptor = {
 /**
  * The van and what is known about it today.
  *
- * The van's label and its capability chip, and not the provider's name: §1 puts the console at
+ * The van's own name — "Center van", never the fixture's key (`vanDisplayName`, which Plan
+ * routes names its lanes through too) — and its capability chip, and not the provider's name:
+ * §1 puts the console at
  * density 7, §4.1 caps a row at two lines, and a provider name is three or four words that
  * would take a third line on every row of a 56-row board. It is one keystroke away in the
  * drawer, and the §2 search still finds a child by their provider.
  */
 function VanCell({ ride }: { ride: RideView }) {
-  if (ride.vehicleLabel === null) return <StateChip state={FAMILY_DRIVES} className={styles.cellChip} />;
+  if (ride.vehicleDescription === null) {
+    return <StateChip state={FAMILY_DRIVES} className={styles.cellChip} />;
+  }
   return (
     <span className={styles.van}>
-      <span className={styles.vanName}>{ride.vehicleLabel}</span>
+      <span className={styles.vanName}>{vanDisplayName(ride.vehicleDescription)}</span>
       <StateChip state={capabilityStates[ride.capability]} className={styles.cellChip} />
     </span>
   );

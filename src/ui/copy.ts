@@ -238,7 +238,10 @@ export const board = {
   pmSpoken: "afternoon",
   /** A ride the family drives themselves: there is no van to show, and that is not a gap. */
   familyDrives: "Family drives",
-  /** "V2 · SYN Greenacres center fleet" — the van, then who runs it. Drawer only (§4.1 density). */
+  /**
+   * "Center van · SYN Greenacres center fleet" — the van, then who runs it. Drawer only
+   * (§4.1 density). `{van}` is the van's own name and never the fixture's key (`vanDisplayName`).
+   */
   vanAndProvider: "{van} · {provider}",
   /** The vehicle is assigned but has sent nothing we may draw (an unlinked device, LOC-01). */
   noPosition: "No van location yet",
@@ -274,6 +277,10 @@ export const board = {
    * Why a ride is in "Needs action", in the order the board ranks them. Each one names the
    * thing it is about — the child, or the van — because "this child" and "this van" are only
    * unambiguous next to the row they came from, and these are read in the drawer too.
+   *
+   * A van is named by its own name and never by the fixture's key: `{van}` is the name standing
+   * on its own ("Center van", `vanDisplayName`) and `{the van}` is the same name mid-sentence
+   * ("the center van", `vanName`), so each line reads as a sentence a person would say.
    */
   reasons: {
     /**
@@ -303,7 +310,7 @@ export const board = {
      */
     HANDOFF_UNRECORDED: "{child}'s van is back and nobody recorded who received them.",
     RIDE_STATE: "{child}'s ride needs a person to decide what happens next.",
-    LOCATION_LOST: "Nothing has been heard from {van} for ten minutes.",
+    LOCATION_LOST: "Nothing has been heard from {the van} for ten minutes.",
   },
   /**
    * The next step on a ride: a sentence that opens with a verb and names the child.
@@ -1391,6 +1398,21 @@ export const planRoutes = {
  */
 export function vanName(description: string): string {
   return fill(planRoutes.vanNamed, { description });
+}
+
+/**
+ * The same van where its name has to stand on its own: a board cell, a phone card, the opening
+ * words of a sentence — "Center van".
+ *
+ * One van, one name, two places it can sit. The fixtures write a van as a code and then what it
+ * is ("V2 center van"), and the solver splits that into a `label` (the code) and a
+ * `description` (the words) — so a screen that reaches for the label prints "V2", which is the
+ * machine's handle on the van and not a thing anybody says out loud (Vera's review, 2026-10-17:
+ * no code reaches a screen at all). Both of these read the `description` and nothing else, which
+ * is what makes the key unprintable rather than merely unprinted.
+ */
+export function vanDisplayName(description: string): string {
+  return description.charAt(0).toUpperCase() + description.slice(1);
 }
 
 /**

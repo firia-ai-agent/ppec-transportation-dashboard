@@ -11,12 +11,15 @@ import {
   needCategories,
   places,
   serviceDate,
+  vanDisplayName,
+  vanName,
 } from "@/ui/copy";
 import { legStates, therapySessionStates } from "@/ui/states";
 import { clockLabel } from "@/ui/service-date";
+import { VEHICLES } from "@/modules/demo/fixtures/standard";
 import { TodayBoard } from "./TodayBoard";
 import { LegDrawer } from "./LegDrawer";
-import { nextStepCellText } from "./next-step";
+import { needsActionReasonText, nextStepCellText } from "./next-step";
 
 /**
  * The board and the drawer as markup (SURF-01 / SURF-02).
@@ -152,6 +155,48 @@ describe("the board renders the day", () => {
       expect(other, of_.day.iso).not.toContain(escaped(boardCopy.tableLabel));
       expect(other, of_.day.iso).not.toMatch(/Today&#x27;s rides/);
     }
+  });
+
+  /**
+   * Vera's review: "V2" is the fixture's key for a van and nobody at the centre calls a van
+   * that. Every van on the board — and in the reason and step sentences that name one — is the
+   * van's own name, read off the same `description` field Plan routes names its lanes from, so
+   * the key is unprintable here rather than merely unprinted.
+   */
+  it("names every van by its own name, never by the fixture's key", () => {
+    for (const of_ of [board, finished, planned]) {
+      const text = boardHtml("", of_).replace(/<[^>]*>/g, " ");
+      for (const leg of of_.legs) {
+        const { vehicleDescription } = leg.ride;
+        if (vehicleDescription === null) continue;
+        expect(text, leg.key).toContain(vanDisplayName(vehicleDescription));
+      }
+      for (const key of VEHICLES.map((v) => v.key)) {
+        expect(text, `${of_.day.iso} prints ${key}`).not.toMatch(
+          new RegExp(`\\b${key}\\b`),
+        );
+      }
+    }
+  });
+
+  /** The two sentences that used to open on the key: a reason naming the van, and its step. */
+  it("names the van in a sentence a person would say", () => {
+    for (const of_ of [board, finished, planned]) {
+      for (const leg of of_.legs) {
+        const description = leg.ride.vehicleDescription;
+        if (description === null) continue;
+        for (const line of needsActionReasonText(leg)) {
+          if (!line.includes(vanDisplayName(description)) && !line.includes(vanName(description))) {
+            continue;
+          }
+          expect(line, leg.key).not.toMatch(/\bV\d\b/);
+          // Capital where the name opens the sentence, lower case inside one.
+          expect(line, leg.key).toMatch(/^[A-Z]/);
+        }
+      }
+    }
+    expect(vanDisplayName("center van")).toBe("Center van");
+    expect(vanName("center van")).toBe("the center van");
   });
 
   it("stacks the groups with their counts, needs action first", () => {
@@ -478,6 +523,8 @@ describe("the drawer reads one child's day", () => {
     expect(text).not.toMatch(/\bC6\b/);
     expect(text).not.toMatch(/\bF5\b/);
     expect(text).not.toMatch(/\bR1\b/);
+    // …and not the van's: the drawer's "van · provider" line used to open on it.
+    expect(text).not.toMatch(/\bV\d\b/);
     expect(text).not.toMatch(/\d+WC\/\d+A/);
   });
 });

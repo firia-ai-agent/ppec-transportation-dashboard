@@ -1,5 +1,5 @@
 import type { LegRow } from "@/domain/board/board";
-import { board as boardCopy, fill, sentence } from "@/ui/copy";
+import { board as boardCopy, fill, sentence, vanDisplayName, vanName } from "@/ui/copy";
 
 /**
  * The words a ride's next step and its needs-action reasons are read as — written once, because
@@ -13,11 +13,18 @@ import { board as boardCopy, fill, sentence } from "@/ui/copy";
  * codes for one question.
  */
 function values(leg: LegRow): Record<string, string> {
+  const description = leg.ride.vehicleDescription;
   return {
     child: leg.child.childLabel,
     dispatcher: leg.ride.providerDispatcher ?? "",
     provider: leg.ride.providerName ?? "",
-    van: leg.ride.vehicleLabel ?? "",
+    /*
+     * The van's own name, in the two shapes these sentences need it: opening one, and inside
+     * one. Never `vehicleLabel`, which is the fixture's key — "V2 does not fit everyone on this
+     * run" is a sentence about a thing nobody at the centre can name (Vera's review).
+     */
+    van: description === null ? "" : vanDisplayName(description),
+    "the van": description === null ? "" : vanName(description),
   };
 }
 

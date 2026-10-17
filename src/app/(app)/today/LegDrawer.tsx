@@ -11,6 +11,7 @@ import {
   needCategories,
   onDay,
   places,
+  vanDisplayName,
 } from "@/ui/copy";
 import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
@@ -236,7 +237,7 @@ function Ride({ leg }: { leg: LegRow }) {
           {ride.vehicleLabel === null
             ? boardCopy.familyDrives
             : fill(boardCopy.vanAndProvider, {
-                van: ride.vehicleLabel,
+                van: vanDisplayName(ride.vehicleDescription ?? ""),
                 provider: ride.providerName ?? "",
               })}
         </p>
