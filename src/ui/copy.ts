@@ -1620,7 +1620,8 @@ export const planBoard = {
  * matrix — all of which §2 removes in favour of counting what is on board.
  */
 export const vanArrival = {
-  heading: "Ramp iPad",
+  /** The screen's own name, which the rail reads too — one string, so they cannot drift. */
+  heading: rampIpad.heading,
   documentTitle: "Ramp iPad · PPEC transportation dashboard",
   /** The card over the steppers: "What’s on Van 1?" */
   whatsOn: "What’s on {van}?",
@@ -1633,8 +1634,7 @@ export const vanArrival = {
   no: "No",
   /** Under a counter the front desk has changed: what the plan had for it. */
   planned: "Planned {n}",
-  /** The van tabs, in arrival order: the one at the ramp, and when the others leave. */
-  here: "Here",
+  /** The van tabs, in the order they leave the centre. */
   leaves: "Leaves {time}",
   ridersHeading: "Riders",
   fits: "Fits",
@@ -1643,6 +1643,18 @@ export const vanArrival = {
   short: "{n} {thing} short",
   /** The lift is not a number, so its shortfall is said rather than counted. */
   noLift: "No lift",
+  /**
+   * What a van is short of, counted: "1 car seat short", "2 seats short". Pairs rather than an
+   * "+s" rule, for the same reason `countable` above keeps them — a noun that does not pluralise
+   * with an s has somewhere to go.
+   */
+  shortThing: {
+    SEAT: { one: "seat", many: "seats" },
+    WHEELCHAIR: { one: "wheelchair spot", many: "wheelchair spots" },
+    CAR_SEAT: { one: "car seat", many: "car seats" },
+    OXYGEN: { one: "oxygen mount", many: "oxygen mounts" },
+    LIFT: { one: "lift", many: "lifts" },
+  },
   replan: "Re-plan",
   confirm: "Confirm {van}",
   /** Why confirming matters beyond today, in four words. */
