@@ -20,6 +20,11 @@ import styles from "./MobileNav.module.css";
  * action for signing out stays out of this client component.
  *
  * The drawer closes on a nav click and on Escape, which returns focus to the hamburger.
+ *
+ * It opens as a full-width sheet under the header. It used to open as a 44 px strip — the width
+ * of the hamburger it was positioned against — with every label broken one word per line and
+ * Sign out crushed to a sliver (the founder's 2026-10-17 walk of production). The fix is in the
+ * stylesheet, and e2e/one-menu.spec.ts measures the box at 390 px on every screen.
  */
 export function MobileNav({
   role,
@@ -63,7 +68,12 @@ export function MobileNav({
         <span className="srOnly">{open ? nav.closeMenu : nav.openMenu}</span>
       </button>
 
-      <div id={drawerId} className={styles.drawer} hidden={!open}>
+      {/*
+        `data-nav-drawer` is the hook the browser check measures the sheet by (e2e/one-menu.spec.ts):
+        its width against the window's, and the one identity location inside it. Measured on the
+        drawer itself rather than on the nav landmark in it, because the bug was the box.
+      */}
+      <div id={drawerId} data-nav-drawer className={styles.drawer} hidden={!open}>
         <nav aria-label={nav.menuLabel}>
           <ul className={styles.list}>
             {navItems.map((item) => {
