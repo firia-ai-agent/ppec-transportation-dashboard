@@ -47,7 +47,10 @@ const PLACE_BY_LABEL: ReadonlyMap<string, { key: string; coord: Coord }> = new M
 
 /** One stop a van's line passes through, in the order it is driven. */
 export type PlanMapStop = {
-  /** 1-based position in this van's drive, over the stops that are actually drawn. */
+  /**
+   * The lane's own stop number for this place: the `k` the lane's stop list prints beside it, so
+   * "stop 3" on the map and "stop 3" in the lane are the same stop.
+   */
   order: number;
   /** The landmark, in words. Never an address and never a stop code. */
   label: string;
@@ -119,27 +122,41 @@ function joined(segments: readonly PlanMapSegment[]): Coord[] {
   return line;
 }
 
+/** One place a lane stops at, with the lane's own stop number for it. */
+type LanePlace = { key: string; coord: Coord; label: string; isCenter: boolean; k: number };
+
 /**
- * The places one lane drives, in manifest order, with the consecutive repeats collapsed.
+ * The places one lane drives, in manifest order, with the consecutive repeats collapsed — each
+ * carrying the lane's own stop number (`k`) for it.
+ *
+ * The number is the manifest's and not a count of what was drawn (Vera's review, 2026-10-17).
+ * The lane beside the map prints `k` down its stop list, and the centre is one of those rows — so
+ * a map that numbered its own discs from one disagreed with the list it sits next to: every
+ * afternoon stop was one lower, because the afternoon's `k` 1 is the centre and the centre is
+ * never a disc.
  *
  * Two children of one family board at the same kerb (the scenario's siblings do), and the
- * manifest carries one stop per child, so a van really does have two stops at one place. The map
+ * manifest carries one stop per child, so a van really does have two rows at one place. The map
  * draws the place once — two circles on the same coordinate are one circle with a smudge — and
- * numbers what it drew, which is why `order` is the position in the drive rather than the
- * manifest's own `k`.
+ * the disc takes the last of the rows it covers, so the number on the map is never lower than a
+ * row of the list that place accounts for.
  */
-function placesOf(plan: RoutePlan, laneIndex: number): Array<{ key: string; coord: Coord; label: string; isCenter: boolean }> {
+function placesOf(plan: RoutePlan, laneIndex: number): LanePlace[] {
   const lanePlan = plan.lanes[laneIndex];
   const stops = lanePlan.leg.stops;
   const lastK = stops.length;
-  const out: Array<{ key: string; coord: Coord; label: string; isCenter: boolean }> = [];
+  const out: LanePlace[] = [];
   for (const stop of stops) {
     const isCenter = plan.direction === "AM" ? stop.k === lastK : stop.k === 1;
     const place = placeOf(stop.label);
     if (!place) continue;
     const previous = out[out.length - 1];
-    if (previous && previous.key === place.key) continue;
-    out.push({ ...place, label: stop.label, isCenter });
+    if (previous && previous.key === place.key) {
+      // One circle for the kerb, numbered with the last row of the list it stands for.
+      previous.k = stop.k;
+      continue;
+    }
+    out.push({ ...place, label: stop.label, isCenter, k: stop.k });
   }
   return out;
 }
@@ -163,7 +180,7 @@ export function planMap(plan: RoutePlan): PlanMapData {
       riderCount: lanePlan.riders.length,
       stops: stops
         .filter((stop) => !stop.isCenter)
-        .map((stop, i) => ({ order: i + 1, label: stop.label, coord: stop.coord })),
+        .map((stop) => ({ order: stop.k, label: stop.label, coord: stop.coord })),
       segments,
       line: joined(segments),
       surveyed: segments.every((segment) => segment.surveyed),

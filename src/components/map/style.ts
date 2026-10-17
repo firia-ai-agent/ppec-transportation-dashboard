@@ -875,9 +875,10 @@ export function planRoutesGeoJson(
 }
 
 /**
- * Every van's stops, each carrying its position in that van's drive as **text**, because that
- * number is drawn inside the disc: "1" is the first kerb this van reaches, and a plan a
- * coordinator has rearranged is read from those numbers rather than from the shape of the line.
+ * Every van's stops, each carrying its number in that van's own stop list as **text**, because
+ * that number is drawn inside the disc: it is the row the lane beside the map prints for the same
+ * kerb (src/domain/plan/map.ts), and a plan a coordinator has rearranged is read from those
+ * numbers rather than from the shape of the line.
  */
 export function planStopsGeoJson(
   routes: readonly PlanRouteLike[],

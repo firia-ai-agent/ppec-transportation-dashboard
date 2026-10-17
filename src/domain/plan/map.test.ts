@@ -106,21 +106,101 @@ describe("the stops, in the order the van drives them", () => {
     );
   });
 
-  it("draws a kerb two children share once, and numbers what it drew", () => {
+  it("draws a kerb two children share once, and numbers it from the lane's own list", () => {
     // The scenario's siblings board at one kerb, so the manifest has two stops there and the map
-    // has one circle: two circles on one coordinate are one circle and a smudge.
+    // has one circle: two circles on one coordinate are one circle and a smudge. The circle
+    // carries the last of the rows it stands for — rows 2 and 3 of this lane are both John
+    // Prince Park, so the disc reads 3 and no row of the list is numbered above it.
     const plan = routePlan(input(), scenarioAssignment());
     const sedan = planMap(plan).routes[2];
-    const manifest = plan.lanes[2].leg.stops.slice(0, -1).map((stop) => stop.label);
+    const manifest = plan.lanes[2].leg.stops.slice(0, -1).map((stop) => [stop.k, stop.label]);
     expect(manifest).toEqual([
-      "Greenacres Branch Library",
-      "John Prince Park",
-      "John Prince Park",
+      [1, "Greenacres Branch Library"],
+      [2, "John Prince Park"],
+      [3, "John Prince Park"],
     ]);
     expect(sedan.stops.map((stop) => [stop.order, stop.label])).toEqual([
       [1, "Greenacres Branch Library"],
-      [2, "John Prince Park"],
+      [3, "John Prince Park"],
     ]);
+  });
+
+  /**
+   * Vera's review, 2026-10-17: the number in a disc is the number in the lane beside it.
+   *
+   * The map used to count its own discs from one over the stops it drew, which agreed with the
+   * lane only in the morning and only where no kerb was shared: the afternoon's first row is the
+   * centre and the centre is never a disc, so every afternoon stop was one lower than the row it
+   * is, and a kerb two children share collapses two rows into one circle.
+   *
+   * So this reads the lane's own stop list — the `k` the screen prints down the left of it — and
+   * asks of every disc on the map: is that number one of the rows this place accounts for? Over
+   * both runs, every van, the shared kerb included.
+   */
+  it("numbers every disc with the lane's own stop number, morning and afternoon", () => {
+    for (const direction of ["AM", "PM"] as const) {
+      const plan = routePlan(input(direction), scenarioAssignment(direction));
+      const data = planMap(plan);
+      let sharedKerbsSeen = 0;
+
+      data.routes.forEach((route, laneIndex) => {
+        const lane = plan.lanes[laneIndex];
+        const where = `${direction} ${route.vanName}`;
+        // Every row of the lane's list, as "which rows is this place?" — the centre included,
+        // because it is one of the numbered rows and is the reason the old count drifted.
+        const rowsOf = new Map<string, number[]>();
+        for (const stop of lane.leg.stops) {
+          rowsOf.set(stop.label, [...(rowsOf.get(stop.label) ?? []), stop.k]);
+        }
+
+        for (const stop of route.stops) {
+          const rows = rowsOf.get(stop.label) ?? [];
+          expect(rows, `${where}: ${stop.label}`).not.toHaveLength(0);
+          // The disc is a row of this lane's list, and the last of the rows this place is.
+          expect({ where, label: stop.label, order: stop.order }).toEqual({
+            where,
+            label: stop.label,
+            order: rows[rows.length - 1],
+          });
+          if (rows.length > 1) sharedKerbsSeen += 1;
+        }
+
+        // Nothing is lost to the collapse: one disc per distinct place the lane drives, centre
+        // excluded, and they are in the order the van reaches them.
+        expect(route.stops.map((stop) => stop.order), where).toEqual(
+          [...route.stops.map((stop) => stop.order)].sort((a, b) => a - b),
+        );
+      });
+
+      // The sedan's siblings, in both runs: the assertion above is not vacuous.
+      expect(sharedKerbsSeen, direction).toBe(1);
+    }
+  });
+
+  /**
+   * The afternoon, spelled out: the run that was wrong on every van.
+   *
+   * The centre is row 1 of an afternoon lane and is drawn as the one pin every line runs to, so
+   * the first disc on an afternoon route is row 2 — never row 1.
+   */
+  it("starts the afternoon's discs at the row after the centre", () => {
+    const plan = routePlan(input("PM"), scenarioAssignment("PM"));
+    const data = planMap(plan);
+    expect(data.routes[0].stops.map((stop) => [stop.order, stop.label])).toEqual([
+      [2, "Boynton Beach Mall"],
+      [3, "Lantana Public Library"],
+      [4, "Palm Beach State College, Lake Worth"],
+    ]);
+    // And the lane says the same, with the centre at the top of its list.
+    expect(plan.lanes[0].leg.stops.map((stop) => [stop.k, stop.label])).toEqual([
+      [1, PLAN_CENTER_LABEL],
+      [2, "Boynton Beach Mall"],
+      [3, "Lantana Public Library"],
+      [4, "Palm Beach State College, Lake Worth"],
+    ]);
+    for (const route of data.routes) {
+      expect(route.stops.map((stop) => stop.order), route.vanName).not.toContain(1);
+    }
   });
 
   it("runs the morning to the centre and the afternoon out of it", () => {
