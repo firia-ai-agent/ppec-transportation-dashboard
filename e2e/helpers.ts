@@ -36,10 +36,18 @@ export function contains(outer: Box, inner: Box): boolean {
   );
 }
 
-export async function shot(page: Page, name: string): Promise<string> {
+/**
+ * A screenshot in artifacts/, and the path to it so the run's log says where it went.
+ *
+ * The window by default, which is what a review of "what is on screen" wants. `fullPage` is for
+ * the shots that have to show the chrome *and* the screen under it in one image — the frame
+ * checks at 390 and 1440 px (e2e/one-menu.spec.ts), where the thing being reviewed is that the
+ * menu is there at all and the page below it is not hiding behind it.
+ */
+export async function shot(page: Page, name: string, { fullPage = false } = {}): Promise<string> {
   mkdirSync(ARTIFACTS, { recursive: true });
   const file = path.join(ARTIFACTS, `${name}.png`);
-  await page.screenshot({ path: file, fullPage: false });
+  await page.screenshot({ path: file, fullPage });
   return file;
 }
 

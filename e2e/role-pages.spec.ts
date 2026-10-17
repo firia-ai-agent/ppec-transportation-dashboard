@@ -19,7 +19,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { API, canOpenPage, homePathFor } from "../src/auth/access";
 import type { StaffRole } from "../src/auth/core";
-import { nav, toast, unbuilt } from "../src/ui/copy";
+import { nav, planRoutes, toast, unbuilt } from "../src/ui/copy";
 import { navItems, navItemsFor } from "../src/ui/nav-items";
 import {
   boxOf,
@@ -62,6 +62,26 @@ const UNBUILT_SCREENS = [
   [unbuilt.heading.replace("{page}", nav.health), unbuilt.health],
 ].flat();
 
+/**
+ * "{page} isn't built yet" in any words — the Placeholder's heading with any page name in it
+ * (src/ui/Placeholder.tsx), built from the copy rather than typed out again, so a rewording of
+ * the sentence cannot walk out from under this check. Both apostrophes, because the copy file
+ * uses the typewriter one here and the typographic one elsewhere and a screen may say either.
+ */
+const UNBUILT_HEADING = new RegExp(
+  unbuilt.heading.replace("{page}", "[^\\n]+").replace(/['\u2019]/g, "['\u2019]"),
+  "g",
+);
+
+/**
+ * The one place a built screen still says it, and the only string excluded from the check
+ * above: Plan routes draws its map pane as "The route map isn't built yet." — a part of a
+ * screen that works, not a screen that does not. Excluded **by its copy key**, so when #58
+ * puts the real map in the pane the key goes and this exclusion goes with it; nothing else
+ * matching the heading is allowed through. #58 owns that replacement.
+ */
+const KNOWN_UNBUILT_PART = planRoutes.mapPlaceholder;
+
 /** The menu, whichever shape this width draws it in. */
 function menuOn(page: Page, width: number) {
   return width < 768
@@ -96,6 +116,29 @@ for (const width of [1280, 390] as const) {
           unbuilt.heading.replace("{page}", item.label),
         );
         await expect(menuOn(page, width)).toBeVisible();
+      }
+    });
+
+    /**
+     * NO MENU ITEM MAY OPEN AN "ISN'T BUILT YET" PAGE — Firia, 2026-10-17 2:48 PM ET: "the menu
+     * lists only screens that work."
+     *
+     * The test above names the three pages that are off the menu today, in their own words. This
+     * one is the rule rather than the list: every destination this role is offered is opened and
+     * the rendered text is searched for the placeholder heading *in any wording*, so a fourth
+     * screen that arrives half-built — or a menu flag turned on ahead of its page — fails here
+     * without anybody remembering to add it. Read off the browser, which is the only place "what
+     * the page says" is a fact.
+     */
+    test("no item on the menu opens a page that says it isn't built", async ({ page }) => {
+      for (const item of MENU) {
+        await page.goto(item.href);
+        await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+        const text = (await page.locator("body").innerText()).split(KNOWN_UNBUILT_PART).join(" ");
+        expect(
+          [...text.matchAll(UNBUILT_HEADING)].map((match) => match[0]),
+          `${item.label} opens a page that says it is not built`,
+        ).toEqual([]);
       }
     });
 
