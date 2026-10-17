@@ -76,7 +76,15 @@ pnpm e2e e2e/screens.spec.ts             # today-* / live-map-* / ramp-ipad-* at
 pnpm e2e e2e/live-map.spec.ts            # artifacts/live-map.png
 pnpm e2e e2e/nav-rail.spec.ts            # the rail a role gets, read off the page: nav-rail-<role>.png
 pnpm e2e e2e/moved-addresses.spec.ts     # /plan-preview, /map-preview, /ramp-preview still 308 to the screens
+pnpm e2e e2e/plan-routes.spec.ts         # the plan board's §1.7 walk: plan-board-drop-refused / -setup /
+                                         # -drop-taken / -planned / -390-*
+pnpm e2e e2e/ramp-arrival.spec.ts        # the van arrival: ramp-arrival / -short / -390, plan-board-van-checked
+pnpm e2e e2e/day-steps.spec.ts           # the Today step strip: today-steps / -planned / -390
 ```
+
+The last three walk **stateful** screens — a plan is saved, a van is confirmed — and `pnpm e2e`
+reuses one server, so each of them plans a day of its own (`?date=`, redesign spec §9.3). A walk
+on a day nobody has touched opens the same way every run: yesterday's van setup, no plan saved.
 
 **The rail on a deployment.** `e2e/deployed-rail.spec.ts` is the one spec that does not use the
 local server: it signs in to a real deployment as the seeded demo director and reads the rendered
