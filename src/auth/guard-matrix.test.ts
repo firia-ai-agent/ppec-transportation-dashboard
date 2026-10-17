@@ -468,14 +468,21 @@ const ROUTE = (...parts: string[]) => path.join(APP, "api", ...parts, "route.ts"
 
 describe("the session endpoint, for every role and for a signed-out caller", () => {
   /**
-   * The one session route, cell by cell. A session route answers two different refusals and the
+   * The demo reset, cell by cell. A session route answers two different refusals and the
    * difference is deliberate: **401** means "no usable session" (none, or one whose user is
    * disabled or gone) and **403** means "signed in, this is not your role". A person who was
    * disabled mid-session must be told to sign in, not told their role is wrong.
+   *
+   * Two roles reach the work since the founder's final ruling (2026-10-17 14:44 ET, ledger row
+   * 72) — the director and the coordinator — and the front desk is refused **here**, by the
+   * server, which is the half a hidden button does not do: the header offers them no control
+   * (shell.test.ts), and this is what answers them if they call the endpoint anyway.
    */
   const EXPECTED: Record<string, { status: number; error: string } | "reached the db"> = {
     director: "reached the db",
-    coordinator: { status: 403, error: apiAccess.notYourRole },
+    // Row 72 (founder, 2026-10-17 14:44 ET): the coordinator may reset the demo too, so their
+    // cell is now the work rather than a refusal. The front desk's is unchanged.
+    coordinator: "reached the db",
     frontDesk: { status: 403, error: apiAccess.notYourRole },
     noRole: { status: 403, error: apiAccess.notYourRole },
     signedOut: { status: 401, error: apiAccess.signIn },
@@ -505,7 +512,7 @@ describe("the session endpoint, for every role and for a signed-out caller", () 
     expect(getNeonDb).not.toHaveBeenCalled();
   }
 
-  it("POST /api/demo/reset is the director's alone: 401 signed out, 403 for every other role", async () => {
+  it("POST /api/demo/reset is the console roles': 401 signed out, 403 for the front desk and no role", async () => {
     for (const [who, caller] of Object.entries(CALLERS)) {
       getCaller.mockResolvedValue(caller);
       getNeonDb.mockClear();

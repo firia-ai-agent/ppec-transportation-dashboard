@@ -13,7 +13,7 @@
  */
 import { expect, test } from "@playwright/test";
 import type { StaffRole } from "../src/auth/core";
-import { nav, scenarioClock, unbuilt } from "../src/ui/copy";
+import { nav, unbuilt } from "../src/ui/copy";
 import { navItemsFor } from "../src/ui/nav-items";
 import { expectDemoBarPinned, expectNoInternalCodes, shot } from "./helpers";
 
@@ -97,7 +97,7 @@ test.describe(`the rail as ${ROLE}`, () => {
   }
 });
 
-test.describe("the two copy fixes, on the screens that show them", () => {
+test.describe("the copy fix, on the screen that shows it", () => {
   test("the health page says 'not built' once, with no chip repeating it", async ({ page }) => {
     await page.goto("/health");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(
@@ -109,16 +109,10 @@ test.describe("the two copy fixes, on the screens that show them", () => {
     expect(text.match(/built yet/g), text).toHaveLength(1);
   });
 
-  test("the Start beside 'Demo not started' says what it starts, and stays inert", async ({
-    page,
-  }) => {
-    await page.goto("/today");
-    await expect(page.getByText(scenarioClock.notStarted)).toBeVisible();
-    const start = page.getByRole("button", { name: scenarioClock.start });
-    await expect(start).toBeVisible();
-    // Inert, not absent: it keeps its place in the tab order so the reason can be read (§9).
-    await expect(start).toHaveAttribute("aria-disabled", "true");
-    await start.focus();
-    await expect(page.getByRole("tooltip")).toHaveText(scenarioClock.startUnavailable);
-  });
+  /*
+   * The Start beside "Demo not started" used to be checked here, as the second of the two copy
+   * fixes, and what it asserted was that the button stays inert. It starts the demo day now
+   * (founder, 2026-10-17 14:40 ET), so the press and everything it changes are walked in the
+   * clock's own spec: e2e/scenario-clock.spec.ts.
+   */
 });

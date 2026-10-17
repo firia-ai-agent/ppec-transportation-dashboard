@@ -54,9 +54,14 @@ export function AppShell({
             */}
             <div className={styles.fact}>
               <dt className={styles.factLabel}>{scenarioClock.label}</dt>
-              {/* The demo clock is wired by the demo-controls dock (§6.1); until then it says so. */}
+              {/*
+                The readout, and the demo's one control beside it: it puts the day's data back
+                and then runs the clock (src/ui/demo-day.ts). The role goes in because the
+                control is offered only to the roles the reset endpoint's own row names — the
+                front desk gets the readout and no button (ScenarioClock.tsx).
+              */}
               <dd className={styles.factValue}>
-                <ScenarioClock />
+                <ScenarioClock role={role} />
               </dd>
             </div>
           </dl>

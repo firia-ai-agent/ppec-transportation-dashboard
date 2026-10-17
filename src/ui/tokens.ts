@@ -145,6 +145,13 @@ export const contrastPairs: ReadonlyArray<{
   { fg: "ok-fg", bg: "surface", documented: 7.13, needs: 4.5 },
   { fg: "warn-fg", bg: "surface", documented: 6.85, needs: 4.5 },
   { fg: "crit-fg", bg: "surface", documented: 8.31, needs: 4.5 },
+  /*
+   * Not a §8 row: the destructive answer in a confirm dialog inverts the critical pair, the way
+   * the demo control inverts the violet one. The header's "Restart demo day" asks before it
+   * throws a demo away, and its "Restart" button is white on the critical ink
+   * (src/ui/ScenarioClock.module.css, founder's ruling of 2026-10-17 14:44 ET).
+   */
+  { fg: "surface", bg: "crit-fg", documented: 8.31, needs: 4.5 },
   { fg: "src-sim", bg: "surface", documented: 7.1, needs: 4.5 },
   { fg: "src-sim", bg: "bg", documented: 6.79, needs: 4.5 },
   { fg: "ink-muted", bg: "surface", documented: 7.58, needs: 4.5 },

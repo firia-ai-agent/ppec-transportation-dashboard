@@ -12,7 +12,8 @@ const noStore = { "cache-control": "no-store" };
 
 /**
  * Reset & seed the standard synthetic scenario (MOCKS-AND-DEMO §6). Behind the ADR-014 demo flags and
- * open to the role the access table names for this route — DIRECTOR — at the caller's own site.
+ * open to the roles the access table names for this route — the director and the coordinator
+ * (DECISION-LEDGER row 72) — at the caller's own site.
  *
  * Three guards, in this order, and each one is here rather than inside the next because of what it
  * protects:
@@ -26,7 +27,12 @@ const noStore = { "cache-control": "no-store" };
  */
 export async function POST(req: Request) {
   const gate = demoControlsGate(process.env);
-  if (!gate.allowed) return Response.json({ ok: false, error: gate.reason }, { status: gate.status, headers: noStore });
+  if (!gate.allowed) {
+    // `refusal` only on the by-design one, so the header's control can start the clock on a
+    // preview and say so, and treat everything else as a failure (src/modules/demo/refusal.ts).
+    const body = { ok: false, error: gate.reason, ...(gate.refusal ? { refusal: gate.refusal } : {}) };
+    return Response.json(body, { status: gate.status, headers: noStore });
+  }
   const guard = await requireApiSession(API.demoReset);
   if (!guard.ok) return guard.response;
   const parsed = body.safeParse(await req.json().catch(() => ({})));

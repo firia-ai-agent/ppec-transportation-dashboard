@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { DEMO_RESET_REFUSAL } from "@/modules/demo/refusal";
 import { PREVIEW_REFUSAL } from "@/modules/demo/reset";
 
 /**
@@ -35,9 +36,24 @@ async function post(env: Record<string, string | undefined>, body: unknown = {})
 it("refuses on a preview with 403 and a clear JSON error, even for a DIRECTOR", async () => {
   const res = await post({ VERCEL_ENV: "preview" });
   expect(res.status).toBe(403);
-  expect(await res.json()).toEqual({ ok: false, error: PREVIEW_REFUSAL });
+  /*
+   * The sentence an operator reads, and beside it the code a *surface* reads: this refusal is
+   * expected rather than wrong, so the header starts the scenario clock anyway and says the
+   * reset is the live site's (src/modules/demo/refusal.ts, src/ui/demo-day.ts, ledger row 72).
+   * A failure carries no code, which is how the two are told apart without matching on words.
+   */
+  expect(await res.json()).toEqual({ ok: false, error: PREVIEW_REFUSAL, refusal: DEMO_RESET_REFUSAL.readOnlyDb });
   expect(PREVIEW_REFUSAL).toMatch(/preview/i);
   expect(res.headers.get("cache-control")).toBe("no-store");
+});
+
+it("the code names no flag, environment variable or connection, and no other refusal carries one", async () => {
+  expect(DEMO_RESET_REFUSAL.readOnlyDb).toBe("read-only-db");
+  // The flags-off 404 and the real-data 403 are not "by design" to a caller: no code on them.
+  for (const env of [{ DEMO_MODE: "0" }, { APP_DATA_CLASS: "REAL" }]) {
+    const body = await (await post(env)).json();
+    expect(Object.keys(body).sort()).toEqual(["error", "ok"]);
+  }
 });
 
 it("reads neither the session nor the DB when it refuses on a preview", async () => {
@@ -68,11 +84,21 @@ it("off a preview a flagged deployment still runs: the route reaches the session
   }
 });
 
+it("a coordinator reaches the work, the same as a director (ledger row 72)", async () => {
+  // Founder's final ruling, 2026-10-17 14:44 ET: both console roles may reset the demo. The DB
+  // stub throwing is the proof it got past both guards — there is nothing after them but work.
+  for (const role of ["DIRECTOR", "COORDINATOR"] as const) {
+    getCaller.mockResolvedValue({ kind: "STAFF", role, userId: "00000000-0000-7000-8000-0000000000d1", memberships: [] } as never);
+    await expect(post({})).rejects.toThrow(DB_OPENED);
+  }
+});
+
 it("a signed-out caller is 401 and a wrong role is 403, before the DB is opened", async () => {
   getCaller.mockResolvedValue({ kind: "ANONYMOUS" } as never);
   const anon = await post({});
   expect(anon.status).toBe(401);
 
+  // The front desk is refused by the server, not merely offered no button (ledger row 72).
   getCaller.mockResolvedValue({ kind: "STAFF", role: "FRONT_DESK", userId: "u1", memberships: [] } as never);
   const frontDesk = await post({});
   expect(frontDesk.status).toBe(403);

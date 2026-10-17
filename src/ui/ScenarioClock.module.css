@@ -4,64 +4,147 @@
   gap: var(--space-3);
 }
 
+/* The time, in the header's own ink: it is the fact this control is about (§6.1's readout). */
 .readout {
   font-size: var(--text-14);
   font-weight: var(--weight-medium);
+  color: var(--color-ink);
 }
 
-.control {
-  position: relative;
-  display: inline-flex;
-}
-
-/* An inert control must look inert: outlined, muted, and it does not take the brand colour,
-   which §8 reserves for the one real primary action on a surface. */
+/* A real control, and it looks like one: the same outlined button the shell's other secondary
+   actions wear (SignOutButton), with the pointer and the hover fill that say so. Not the brand
+   colour — §8 reserves that for the one primary action on a surface, and the demo's clock is not
+   the board's. Focus comes from the global §9 ring. */
 .start {
   min-height: var(--target-console);
   padding: 0 var(--space-4);
   border: var(--border-hairline) solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-surface);
-  color: var(--color-ink-muted);
+  color: var(--color-ink);
   font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.start:hover {
+  background: var(--color-neutral-bg);
+}
+
+/* The press it answers is still running. The one state this control is unavailable in, and it
+   reads as switched off rather than as a crisp secondary button (§8's inactive trio). */
+.start:disabled {
+  color: var(--color-disabled-fg);
+  background: var(--color-disabled-bg);
+  border-color: var(--color-disabled-border);
+  cursor: progress;
+}
+
+/* The one line beside the button: what a press did, when there is something to say. Muted ink,
+   because the ordinary case is a preview saying the reset is the live site's — not a problem. */
+.note {
+  max-width: 30ch;
+  font-size: var(--text-12);
+  line-height: var(--leading-normal);
+  color: var(--color-ink-muted);
+}
+
+/* A failure is the exception and wears §8's critical ink. Colour is never the only cue: the
+   words are different sentences, and this one is the only one that says it did not work. */
+.note[data-scenario-clock="error"] {
+  color: var(--color-crit-fg);
   font-weight: var(--weight-medium);
 }
 
-.start[aria-disabled="true"] {
-  /* `cursor: not-allowed` without `disabled`: still focusable, visibly not usable. */
-  cursor: not-allowed;
+/* ───────────────────────── the confirm (§9 modal) ───────────────────────── */
+
+/*
+ * Over the whole screen rather than inside the header: the question is about the demo day the
+ * board is showing, and the header is 64 px tall. `color-mix` is out (no-hex.test.ts bans every
+ * colour function outside tokens.ts), so the scrim is the ink token at an opacity.
+ */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
 }
 
-.tooltip {
+/* The dim is a layer of its own, not an opacity on the scrim: `opacity` applies to everything
+   inside an element, and a half-transparent confirm dialog is not a confirm dialog. */
+.scrim::before {
+  content: "";
   position: absolute;
-  inset-inline-start: 0;
-  inset-block-start: calc(100% + var(--space-2));
-  z-index: 15;
-  width: max-content;
-  max-width: 28ch;
-  padding: var(--space-2) var(--space-3);
+  inset: 0;
+  background: var(--color-ink);
+  opacity: 0.5;
+}
+
+.dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 420px;
+  padding: var(--space-6);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  text-align: left;
+}
+
+.dialogTitle {
+  margin: 0;
+  font-size: var(--text-20);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--color-ink);
+}
+
+.dialogBody {
+  margin: 0;
+  font-size: var(--text-14);
+  line-height: var(--leading-normal);
+  color: var(--color-ink-muted);
+}
+
+.dialogActions {
+  display: flex;
+  gap: var(--space-3);
+}
+
+/* The destructive answer, in §8's critical pair used the other way round: white on the critical
+   ink, 8.31:1. Not the brand colour — this is not the surface's primary action, it is the one
+   the person is being warned about. */
+.danger {
+  min-height: var(--target-console);
+  padding: 0 var(--space-5);
+  border: var(--border-hairline) solid var(--color-crit-fg);
+  border-radius: var(--radius-md);
+  background: var(--color-crit-fg);
+  color: var(--color-surface);
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+/* The way out: the same outlined secondary button the rest of the shell wears. */
+.cancel {
+  min-height: var(--target-console);
+  padding: 0 var(--space-5);
   border: var(--border-hairline) solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-ink);
-  font-size: var(--text-12);
-  font-weight: var(--weight-regular);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease;
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
 }
 
-/* Hover and focus both reveal it; `:focus` as well as `:focus-visible` so the note is there
-   however the button was reached. It stays in the DOM either way for `aria-describedby`. */
-.start:hover + .tooltip,
-.start:focus + .tooltip,
-.start:focus-visible + .tooltip,
-.control:hover .tooltip {
-  opacity: 1;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tooltip {
-    transition: none;
-  }
+.cancel:hover {
+  background: var(--color-neutral-bg);
 }

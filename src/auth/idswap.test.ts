@@ -37,11 +37,16 @@ import type { Db } from "@/db/exec";
  * |----------------------|------------|------------|--------------|--------------|-------------|-------------|
  * | signed out           | 401        | 401        | 401          | 401           | 401        | 401         |
  * | front desk (least)   | 403        | 403        | 404          | 404           | 404        | 404         |
- * | coordinator          | 403        | 403        | 404          | 404           | 404        | 404         |
+ * | coordinator (site A) | ALLOW      | ALLOW      | 404          | 404           | 404        | 404         |
  * | director (site A)    | ALLOW      | ALLOW      | 404          | 404           | 404        | 404         |
  * | director (site B)    | 404 (at A) | 404 (at A) | ALLOW (at B) | ALLOW (at B)  | 404        | 404         |
  * | no membership at all | 404        | 404        | 404          | 404           | 404        | 404         |
  * | disabled director    | 401        | 401        | 401          | 401           | 401        | 401         |
+ *
+ * The coordinator's own-site row changed with the founder's final ruling of 2026-10-17 14:44 ET
+ * (DECISION-LEDGER row 72), which opened the demo reset to them as well as the director. Only
+ * that cell moved: every cell about **another** site, a random id or an id that exists nowhere is
+ * what it was, because widening a role says nothing about widening a tenant.
  *
  * "R" is `requireSiteAccess`, the read-side guard every id-taking handler calls; "W" is the one
  * write that exists, `POST /api/demo/reset`, exercised through the module **and** through the
@@ -149,7 +154,7 @@ describe("the matrix: every role against every target, read and write", () => {
   it.each([
     ["signed out", undefined, { "own site": 401, "the other site": 401, "a random id": 401, "an id that exists nowhere": 401 }],
     ["front desk (least privileged)", USERS.FRONT_DESK_A, { "own site": 403, "the other site": 404, "a random id": 404, "an id that exists nowhere": 404 }],
-    ["coordinator", USERS.COORDINATOR_A, { "own site": 403, "the other site": 404, "a random id": 404, "an id that exists nowhere": 404 }],
+    ["coordinator at site A", USERS.COORDINATOR_A, { "own site": 200, "the other site": 404, "a random id": 404, "an id that exists nowhere": 404 }],
     ["director at site A", USERS.DIRECTOR_A, { "own site": 200, "the other site": 404, "a random id": 404, "an id that exists nowhere": 404 }],
     ["director at site B", USERS.DIRECTOR_B, { "own site": 404, "the other site": 200, "a random id": 404, "an id that exists nowhere": 404 }],
     ["a user with no membership anywhere", USERS.OUTSIDER, { "own site": 404, "the other site": 404, "a random id": 404, "an id that exists nowhere": 404 }],
@@ -171,7 +176,7 @@ describe("the matrix: every role against every target, read and write", () => {
   it.each([
     ["signed out", undefined, { "own site": 401, "the other site": 401, "a random id": 401, "an id that exists nowhere": 401 }],
     ["front desk (least privileged)", USERS.FRONT_DESK_A, { "own site": 403, "the other site": 404, "a random id": 404, "an id that exists nowhere": 404 }],
-    ["coordinator", USERS.COORDINATOR_A, { "own site": 403, "the other site": 404, "a random id": 404, "an id that exists nowhere": 404 }],
+    ["coordinator at site A", USERS.COORDINATOR_A, { "own site": 200, "the other site": 404, "a random id": 404, "an id that exists nowhere": 404 }],
     ["director at site B", USERS.DIRECTOR_B, { "own site": 404, "the other site": 200, "a random id": 404, "an id that exists nowhere": 404 }],
     ["a user with no membership anywhere", USERS.OUTSIDER, { "own site": 404, "the other site": 404, "a random id": 404, "an id that exists nowhere": 404 }],
     ["a disabled director", USERS.DISABLED_DIRECTOR, { "own site": 401, "the other site": 401, "a random id": 401, "an id that exists nowhere": 401 }],
@@ -189,14 +194,19 @@ describe("the matrix: every role against every target, read and write", () => {
     const allowedSite = TARGETS.filter(([name]) => expected[name] === 200).map(([, t]) => t());
     const rows = await db.query<{ site_id: string }>("SELECT DISTINCT site_id FROM ops.child_profile", []);
     expect(rows.rows.map((r) => r.site_id).sort()).toEqual([...allowedSite].sort());
-  }, 60_000);
+  }, 120_000);
 
-  it("the director of site A is the one cell that writes, and only at site A", async () => {
-    expect(await writeStatus(USERS.DIRECTOR_A, SITE_B)).toBe(404);
-    expect(await childCount()).toBe(0);
+  it("the two console roles at site A are the cells that write, and only at site A", async () => {
+    for (const userId of [USERS.DIRECTOR_A, USERS.COORDINATOR_A]) {
+      expect(await writeStatus(userId, SITE_B)).toBe(404);
+      expect(await childCount()).toBe(0);
+    }
     expect(await writeStatus(USERS.DIRECTOR_A, SITE)).toBe(200);
     expect(await childCount()).toBeGreaterThan(0);
-  }, 120_000);
+    // The same cell for the coordinator since row 72, and still their own site only.
+    expect(await writeStatus(USERS.COORDINATOR_A, SITE)).toBe(200);
+    expect(await childCount()).toBeGreaterThan(0);
+  }, 180_000);
 });
 
 describe("a refusal says nothing about what exists", () => {
@@ -214,7 +224,8 @@ describe("a refusal says nothing about what exists", () => {
   });
 
   it("a wrong role at your own site is 403, which hides nothing it could hide", async () => {
-    // Their own site: its existence is not a secret from a member of it (BUILD-PLAN §4).
+    // Their own site: its existence is not a secret from a member of it (BUILD-PLAN §4). The
+    // front desk is the wrong role since row 72 opened the write to the coordinator as well.
     const r = await handleDemoReset(db, env, { userId: USERS.FRONT_DESK_A, siteId: SITE, now: NOW });
     expect(r.status).toBe(403);
   });
@@ -279,10 +290,34 @@ describe("the same swap, sent straight to the endpoint", () => {
     await expectRefusedOverHttp(res, 404, SITE_B, "director at A naming site B");
   });
 
-  it("a coordinator naming their own site's id over HTTP gets 403 and writes nothing", async () => {
-    const res = await post(USERS.COORDINATOR_A, "COORDINATOR", { siteId: SITE });
-    await expectRefusedOverHttp(res, 403, SITE, "coordinator naming their own site");
+  it("the front desk naming their own site's id over HTTP gets 403 and writes nothing", async () => {
+    const res = await post(USERS.FRONT_DESK_A, "FRONT_DESK", { siteId: SITE });
+    await expectRefusedOverHttp(res, 403, SITE, "front desk naming their own site");
   });
+
+  /**
+   * The role half of the founder's final ruling (2026-10-17 14:44 ET, ledger row 72) over HTTP,
+   * which is where the browser asks: the coordinator's reset **runs** and the front desk's is
+   * refused by the server. The header offering the front desk no button (shell.test.ts) is a
+   * courtesy on top of this, never instead of it.
+   */
+  it("a coordinator's reset runs over HTTP, and only at their own site", async () => {
+    // Another site's id first, while the database is still empty, so "writes nothing" is a
+    // count and not an inference: the same uniform not-found a director gets (the matrix above).
+    await expectRefusedOverHttp(
+      await post(USERS.COORDINATOR_A, "COORDINATOR", { siteId: SITE_B }),
+      404,
+      SITE_B,
+      "coordinator naming site B",
+    );
+
+    // Their own site: the reset runs, and the rows land at that site and nowhere else.
+    const res = await post(USERS.COORDINATOR_A, "COORDINATOR", { siteId: SITE });
+    expect(res.status).toBe(200);
+    expect(await childCount()).toBeGreaterThan(0);
+    const rows = await db.query<{ site_id: string }>("SELECT DISTINCT site_id FROM ops.child_profile", []);
+    expect(rows.rows.map((r) => r.site_id)).toEqual([SITE]);
+  }, 180_000);
 
   it("a signed-out caller gets 401, body or no body", async () => {
     await expectRefusedOverHttp(await post(undefined, null, { siteId: SITE }), 401, SITE, "signed out, id named");

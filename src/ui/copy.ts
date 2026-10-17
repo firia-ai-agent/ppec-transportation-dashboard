@@ -389,8 +389,17 @@ export function onDay(words: { today: string; otherDay: string }, day: LabelledD
 }
 
 /**
- * Scenario clock in the header (§2). The demo-controls dock (§6.1) owns the clock; until it
- * is wired the readout says the demo has not started and Start says honestly why it is inert.
+ * Scenario clock in the header (§2), and the demo day's one control (§6.1 "Clock", COPY-GUIDE
+ * §52: "Demo not started" with a [Start] button). Two words for the readout and three for the
+ * button, because the clock has two states and the state is in the words rather than in a
+ * colour (§3, §9). The fuller dock §6.1 sketches around it is a later build step.
+ *
+ * The control does two things in one press (founder's final ruling, 2026-10-17 14:44 ET,
+ * DECISION-LEDGER row 72): it puts the demo back to the start of the day with all its data —
+ * the demo-reset endpoint, whose own answers are the `demoReset` table below — and then starts
+ * the clock. So the words here cover a press that can refuse, which the earlier clock-only
+ * button could not: a confirm before the second press, a pending label while the data is being
+ * put back, and the two answers a press can come back with.
  */
 export const scenarioClock = {
   label: "Scenario clock",
@@ -400,10 +409,39 @@ export const scenarioClock = {
    * after it, sitting next to "Demo not started", so the one thing a founder is about to click
    * did not say what it starts. COPY-GUIDE §5 sketches this control as "[Start]"; that line
    * predates §3's button rule and is the shorter of the two, so the rule wins.
+   *
+   * No confirm on this one: before the first run there is nothing of anybody's to lose, so the
+   * press resets and starts straight away.
    */
   start: "Start demo day",
-  /** Shown on hover and on focus; the button stays focusable so this can be read (§9). */
-  startUnavailable: "Demo controls aren't connected yet.",
+  /**
+   * The same button once the day is walking (§3 again: verb + object, ≤3 words). "Restart", not
+   * "Reset": it is the same act as the first press — the day's data back to the start, then the
+   * clock — and this time there is a demo in progress to lose, so it asks first.
+   */
+  restart: "Restart demo day",
+  /** While the data is going back. §1: the one thing in the present tense, so the press is felt. */
+  starting: "Starting…",
+  /** The same wait on the second press, named for what it is. */
+  restarting: "Restarting…",
+  /** The confirm, COPY-GUIDE §1: a question, then the one consequence, then the verb. */
+  confirmTitle: "Restart the demo day?",
+  confirmBody: "Anything changed since the start will be lost.",
+  /** The destructive answer. Red, and the verb alone — the title said what it restarts. */
+  confirmRestart: "Restart",
+  /** The way out, and where the focus lands, so the quiet keypress is the harmless one (§9). */
+  confirmCancel: "Cancel",
+  /**
+   * A preview deployment is served production's database read-only (DECISION-LEDGER #43), so the
+   * reset refuses there **by design** and the clock starts anyway. One line, next to the button:
+   * what did not happen, and what did.
+   */
+  previewOnly: "Restart works on the live site only. The clock has started.",
+  /**
+   * A real failure, which is a different thing: nothing was put back and the clock did not
+   * start. No status code, no endpoint, no flag — one sentence and the way forward (§1).
+   */
+  failed: "Couldn't reset the demo. Try again.",
 } as const;
 
 /**
@@ -1533,7 +1571,12 @@ export const demoReset = {
   notSynthetic: "Refusing: this deployment is not marked as synthetic data.",
   enabled: "Demo controls are enabled.",
   signIn: "Sign in to continue.",
-  directorOnly: "Only a director can reset the demo.",
+  /**
+   * The roles the access table opens this endpoint to, in words (founder's final ruling,
+   * 2026-10-17 14:44 ET, DECISION-LEDGER row 72: the director and the coordinator, and not the
+   * front desk). It named the director alone until that ruling.
+   */
+  roleRefused: "Only a director or coordinator can reset the demo.",
   nameTheSite: "Name the site to reset.",
   /**
    * A site the caller holds no membership at — another site's id, a random id, or an id that

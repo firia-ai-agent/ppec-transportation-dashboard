@@ -7,39 +7,51 @@
  *     it refuses (403) ahead of every other check, including the role check, so no DB is touched.
  *  2. environment — DEMO_MODE=1 and APP_DATA_CLASS=SYNTHETIC. With the flags off the endpoint behaves as
  *     if it did not exist (404); with real data it refuses outright (403), never "just this once".
- *  3. role and site — the role the access table names (DIRECTOR) **at the site being reset**. The
+ *  3. role and site — the roles the access table names **at the site being reset**. The
  *     site comes from the caller's own membership when the request does not name one; when it
  *     does, the id is checked against the caller's memberships, so a DIRECTOR at site A naming
  *     site B — or a random id, or an id that matches nothing — gets the same 404 and learns
  *     nothing about which sites exist (BUILD-PLAN §4).
  */
 import { Forbidden, SiteNotFound, Unauthenticated, getMemberships, requireSiteAccess, type StaffRole } from "@/auth/core";
-import { API, endpointRow } from "@/auth/access";
+import { API, rolesWhoCanCall } from "@/auth/access";
 import { demoReset as copy } from "@/ui/copy";
 import type { Db } from "@/db/exec";
 import { isReadOnlyDbEnv } from "@/db/read-only";
+import { DEMO_RESET_REFUSAL, type DemoResetRefusal } from "./refusal";
 import { seedStandardScenario, type SeedResult } from "./seed";
 import { clearSavedPlans } from "./plan-store";
 
 /**
- * Only this role may reset the demo (ADR-014) — read from the one access table rather than
- * written out again here, so the endpoint and the table cannot disagree about it.
+ * The roles that may reset the demo — the director and the coordinator, by the founder's final
+ * ruling (2026-10-17 14:44 ET, DECISION-LEDGER row 72; ADR-014 named the director alone). Read
+ * from the one access table rather than written out again here, so the endpoint and the table
+ * cannot disagree about it: the row is the single place either of them changes.
  */
-const RESET_ROW = endpointRow(API.demoReset)?.auth;
-export const RESET_ROLES: readonly StaffRole[] =
-  RESET_ROW?.kind === "session" ? RESET_ROW.roles : [];
+export const RESET_ROLES: readonly StaffRole[] = rolesWhoCanCall(API.demoReset);
 
 /** Shown to the caller on a preview deployment. No ticket, flag or connection detail in it. */
 export const PREVIEW_REFUSAL = copy.previewRefusal;
 
 export type Gate =
   | { allowed: true; status: 200; reason: string }
-  | { allowed: false; status: 403 | 404; reason: string };
+  | {
+      allowed: false;
+      status: 403 | 404;
+      reason: string;
+      /**
+       * Set on the one refusal that is expected rather than wrong, so a surface can act on it
+       * without matching on the sentence (./refusal.ts). Absent on every other refusal.
+       */
+      refusal?: DemoResetRefusal;
+    };
 
 export function demoControlsGate(env: Record<string, string | undefined>): Gate {
   // Loud rather than invisible, and ahead of the DEMO_MODE 404: an operator on a preview (where the
   // demo flags are normally on) needs to read why the reset refused, and the shared DB is what is at stake.
-  if (isReadOnlyDbEnv(env)) return { allowed: false, status: 403, reason: PREVIEW_REFUSAL };
+  if (isReadOnlyDbEnv(env)) {
+    return { allowed: false, status: 403, reason: PREVIEW_REFUSAL, refusal: DEMO_RESET_REFUSAL.readOnlyDb };
+  }
   if (env.DEMO_MODE !== "1") return { allowed: false, status: 404, reason: copy.notEnabled };
   if (env.APP_DATA_CLASS !== "SYNTHETIC") {
     return { allowed: false, status: 403, reason: copy.notSynthetic };
@@ -50,26 +62,36 @@ export function demoControlsGate(env: Record<string, string | undefined>): Gate 
 export type ResetRequest = { userId?: string; siteId?: string; now: Date };
 export type ResetResponse =
   | { status: 200; body: { ok: true } & SeedResult }
-  | { status: 400 | 401 | 403 | 404; body: { ok: false; error: string } };
+  | { status: 400 | 401 | 403 | 404; body: { ok: false; error: string; refusal?: DemoResetRefusal } };
 
 /**
- * Runs the standard-scenario reset for a signed-in DIRECTOR. Never throws for an authorization
- * problem: the caller maps {status, body} straight onto the HTTP response.
+ * Runs the standard-scenario reset for a signed-in caller holding one of `RESET_ROLES`. Never
+ * throws for an authorization problem: the caller maps {status, body} straight onto the HTTP
+ * response.
  */
 export async function handleDemoReset(db: Db, env: Record<string, string | undefined>, req: ResetRequest): Promise<ResetResponse> {
   const gate = demoControlsGate(env);
-  if (!gate.allowed) return { status: gate.status, body: { ok: false, error: gate.reason } };
+  if (!gate.allowed) {
+    const body = { ok: false as const, error: gate.reason, ...(gate.refusal ? { refusal: gate.refusal } : {}) };
+    return { status: gate.status, body };
+  }
   if (!req.userId) return { status: 401, body: { ok: false, error: copy.signIn } };
 
   let siteId = req.siteId;
   if (!siteId) {
-    const directorAt = (await getMemberships(db, req.userId)).filter((m) => m.role === "DIRECTOR");
-    if (directorAt.length !== 1) {
-      return directorAt.length === 0
-        ? { status: 403, body: { ok: false, error: copy.directorOnly } }
+    /*
+     * The caller's own memberships, narrowed to the roles the table opens this endpoint to — so
+     * a coordinator resolves their site the same way a director does, from one list. One row per
+     * site, by `site_membership`'s own primary key (user_id, site_id), so these are sites: none
+     * of them is a 403, and more than one is the question only the caller can answer.
+     */
+    const resetAt = (await getMemberships(db, req.userId)).filter((m) => RESET_ROLES.includes(m.role));
+    if (resetAt.length !== 1) {
+      return resetAt.length === 0
+        ? { status: 403, body: { ok: false, error: copy.roleRefused } }
         : { status: 400, body: { ok: false, error: copy.nameTheSite } };
     }
-    siteId = directorAt[0].siteId;
+    siteId = resetAt[0].siteId;
   }
 
   try {
@@ -79,7 +101,7 @@ export async function handleDemoReset(db: Db, env: Record<string, string | undef
     if (e instanceof Unauthenticated) return { status: 401, body: { ok: false, error: copy.signIn } };
     // A site the caller is not a member of is a uniform not-found, whether it exists or not.
     if (e instanceof SiteNotFound) return { status: 404, body: { ok: false, error: copy.noSuchSite } };
-    if (e instanceof Forbidden) return { status: 403, body: { ok: false, error: copy.directorOnly } };
+    if (e instanceof Forbidden) return { status: 403, body: { ok: false, error: copy.roleRefused } };
     throw e;
   }
 
