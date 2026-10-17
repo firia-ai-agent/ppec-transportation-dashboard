@@ -1,5 +1,5 @@
 import { requirePage } from "@/auth/page-guard";
-import { buildBoard, requestedServiceDay } from "@/domain/board/board";
+import { buildBoard, CLOCK_PARAM, requestedBoardDay } from "@/domain/board/board";
 import { TodayBoard } from "./TodayBoard";
 
 /** The guard reads a session, so this route is never statically rendered. */
@@ -27,6 +27,13 @@ export const dynamic = "force-dynamic";
  * ride on it has an outcome (AT-13's held ride, AT-10's arrival that is not a handoff), which is
  * what the browser checks walk (`dateOverrideAllowed` in src/domain/board/day.ts).
  *
+ * `?tick=` is the same test path for the *instant* the demo day is read at, and it is read
+ * through the same gate and the same function (`requestedBoardDay`, which calls
+ * `dateOverrideAllowed`). It is how AT-13's browser check walks the demo day past Noah O.'s
+ * 4:20 PM drop-off and watches the afternoon that had nothing to say at 07:42 become the ride
+ * that ends holding him. No deployment has a clock control either, production included: there
+ * is no control on this screen and no parameter behind it on anything the platform runs.
+ *
  * What is not here yet, and is not faked in its absence: live updates, the map pane beside the
  * rows, the inbox and the exceptions table. Each lands in its own change.
  */
@@ -45,7 +52,9 @@ export default async function Page({
   // was always meant to filter. The date is read through the gate, so unless this is a test
   // shell that asked for the override there is one day to be on: the demo day (PRD §6.1).
   const query = one(params.q) ?? "";
-  const board = buildBoard(requestedServiceDay(one(params.date), process.env));
+  const board = buildBoard(
+    requestedBoardDay(one(params.date), one(params[CLOCK_PARAM]), process.env),
+  );
 
   return <TodayBoard board={board} query={query} />;
 }
