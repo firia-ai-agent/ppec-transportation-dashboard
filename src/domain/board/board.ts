@@ -613,7 +613,9 @@ function rideFor(child: DemoChild, direction: Direction, day: ServiceDay): RideV
     capability,
     solver: solve.status,
     departed,
-    // The child's own stop, only when the committed geometry actually names it.
+    // The child's own stop — which the committed geometry now names, because the replayed track
+    // is this run's own morning (src/fixtures/routes.ts). It used to be another run's road, so
+    // this could only ever be false and a van's arrival at a kerb was unreadable here.
     pickupArrived:
       frame?.stops.some((s) => s.stopName === ownStop && s.status === "arrived") ?? false,
     dropoffArrived:

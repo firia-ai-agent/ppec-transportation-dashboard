@@ -22,7 +22,7 @@ stay on the page as a shrug.
 |---|---|---|
 | 1 | The Today board (SURF-01) and the child drawer (SURF-02), read-only, over the seeded scenario | **landed** — this page's §1 |
 | 2 | Inbox, Exceptions & Approvals, the writes, and every fixture and taste item below | **in progress** — the first part landed (docs/ui/B12-SLICE2-DEFERRED.md); §2 marks which rows it closed |
-| 3 | Live updates (SSE) and the map pane | sequenced |
+| 3 | Live updates (SSE), the map pane, and the seeded approver and verifier | sequenced — the two seeded names by the founder's own call (Firia, 2026-10-16 10:21 PM ET; DECISION-LEDGER row 71) |
 
 ## 1. What slice 1 is
 
@@ -64,9 +64,10 @@ slice 2 does not close until all of them are in.
 | **One service date on screen**, in the board's own header | §2, §6.1 | **landed, and it is not a switcher.** Vera's final call (§5): one date, the replayed demo day, labelled as the demo day, with nothing on screen offering another. The shell's duplicate — today's real date on every page — is gone, which is what the two "Service date" labels were. The board takes a service date (`src/domain/board/day.ts`) and other days are reached by the test-only date override and by nothing on screen or on a deployment (Veri #49) |
 | An **AT-13 `HELD_NO_RECEIVER` ride in the scenario** | PRD §6.6, l.1327 | **landed.** The scenario had the *family* for AT-13 — F2, no authorized receiving adult (`standard.ts:140`) — but no ride in the state. C2's afternoon on the finished day is now that ride: `ARRIVED_DROPOFF → HELD_NO_RECEIVER` by the system (CA-04, ledger row 47), with no automatic return because the machine's `noWildcardFrom` gives it no edge out but a staff one. The board, the drawer and AT-13's own check all read it |
 | A tighter, **mutation-proven** AT-10 e2e | PRD SURF-01 acceptance | **landed.** Slice 1's AT-10 line was a negative — `expect(page.getByText(/handed off to/i)).toHaveCount(0)` — which also passed on a board that rendered nothing. It now asserts positively on the finished day, where an arrival and a handoff are both on screen and told apart: C6's van arrived and no custody event was recorded, so the row reads "Arrived (vehicle)" and does **not** read as handed off |
-| **Afternoon route data aligned with the scenario** | ADR-007, §3 below | **landed for the plan.** `src/fixtures/run-routes.ts` is one route per run per direction, built from the scenario's own stops; the afternoon is the morning reversed (`reverseRoute`) and `plannedEta` gives each stop its family's 10-minute window. No row says "Window pending" any more. The three **ADR-007 replay** routes are untouched — that is still a committed-routing-data change and still the founder's call (§3.1, §5) |
-| An unknown window reads **"Time not set yet"**, with an icon | COPY-GUIDE §5, §3 | **landed.** Slice 2's geometry made the case unreachable in the committed scenario; the fallback is still there for a run with no geometry, and it now says the guide's own sentence instead of the code-flavoured "Window pending" (`etaText.pending`, `TodayBoard.tsx` `WINDOW_PENDING`, which keeps its clock icon — never colour or absence alone) |
-| A **named approver and a named verifier** on the seeded records | §4.2, COPY-GUIDE §5 | **moves to slice 3.** Slice 2 left both fixtures as they were (§3.3, §3.4): `approved_by` is still NULL in `seed.ts` and the ramp check still has no person on it, so the drawer still cannot say "Verified 17 min ago by J.T." and truthfully mean it. Slice 3 puts the approver and the verifier in the seed |
+| **Afternoon route data aligned with the scenario** | ADR-007, §3 below | **landed for the plan.** `src/fixtures/run-routes.ts` is one route per run per direction, built from the scenario's own stops; the afternoon is the morning reversed (`reverseRoute`) and `plannedEta` gives each stop its family's 10-minute window. No row says "Window pending" any more. The three **ADR-007 replay** routes were left as they were here, and **this PR regenerated them too** — §3.1 |
+| The three **ADR-007 replay routes**, regenerated against the scenario | ADR-007, §3.1, §5 | **landed in this PR.** The founder's call, and it was made: the three committed tracks are the three runs' own morning geometry now, read out of `run-routes.ts` rather than copied, so the plan and the replayed morning are one survey. What it cost and what is left are in §3.1 |
+| An unknown window reads **"Time not set yet"**, with an icon | COPY-GUIDE §5, §3 | **landed in this PR** (the copy pass, `src/ui/copy.ts` `etaText.pending`) — confirmed on the branch against `origin/main`, which still says "Window pending". Slice 2's geometry made the case unreachable in the committed scenario; the fallback is still there for a run with no geometry, and it now says the guide's own sentence, keeping its clock icon — never colour or absence alone (`TodayBoard.tsx` `WINDOW_PENDING`). **Nothing about it is left for slice 3**, and §6 no longer lists it |
+| A **named approver and a named verifier** on the seeded records | §4.2, COPY-GUIDE §5 | **slice 3, and that is a founder decision** — approved by Firia, 2026-10-16 10:21 PM ET (DECISION-LEDGER row 71). It is a **sequencing** call and not a deferral, on the same rule as ledger row 63: slice 3 sits inside B-12, B-12 does not close until it passes, and the item names its slice rather than a milestone. Slice 2 left both fixtures as they were (§3.3, §3.4): `approved_by` is still NULL in `seed.ts` and the ramp check still has no person on it, so the drawer cannot yet say "Verified 17 min ago by J.T." and truthfully mean it. Slice 3 puts the approver and the verifier in the seed |
 
 > **Slice 2 (docs/ui/B12-SLICE2-DEFERRED.md) answers §3.1, §3.2 and the service-date question in
 > §5.** The afternoon has committed geometry aligned to the scenario, the board carries one
@@ -80,8 +81,9 @@ slice 2 does not close until all of them are in.
 ## 3. Known gaps in the fixtures — the slice each one closes in
 
 Slice 1 did not work around any of these, and neither does slice 2: each is fixed at the
-fixture, which is where the wrong fact is. Two are closed, one is half closed, and the state of
-each is the first thing its row says.
+fixture, which is where the wrong fact is. The two about geometry are **closed** — the second by
+slice 2, the first by this PR — and the two about a person's name are **slice 3's**, by the
+founder's call. The state of each is the first thing its row says.
 
 1. **The committed routes and the standard scenario disagree.** `src/fixtures/routes.ts` was
    authored before `src/modules/demo/fixtures/standard.ts`: `route2` carries V1 but stops at S4
@@ -91,19 +93,59 @@ each is the first thing its row says.
    child's stop the board says the window is pending rather than borrowing another run's
    numbers. **Half closed in slice 2:** `src/fixtures/run-routes.ts` is new, scenario-derived
    geometry — each run's own children's own stops, in `manifestFor`'s order — and every window on
-   the board now comes from it. The three **ADR-007 replay** routes are deliberately untouched
-   (one is a real OSRM response, and they are the live morning), so regenerating *them* against
-   the scenario is still a change to committed routing data and still the founder's call — §5.
+   the board now comes from it.
+
+   **Closed in this PR**, on the founder's call (§5): the three replay tracks are the three runs'
+   own morning geometry. `routes.ts` surveys nothing of its own any more — it spreads
+   `runRoute("R3"|"R1"|"R2", "AM")` and adds the fixture id the demo CLI names (`--track=route2`),
+   so `route1` is V4's run, `route2` is V1's (the longest, which is what the §18.2 step 7 stall
+   needs) and `route3` is V2's. Each track's vehicle and device are its run's, every stop is one
+   of that run's children's own kerbs, and the family labels and ASM-12 service times are read off
+   the children who ride from them. Five things followed, and each is held by a test:
+
+   - the **unbound device** (LOC-01) is V4's own device on V4's own run, rather than a sedan
+     replaying someone else's road (`replays.ts`), and the jitter run belongs to **V3**, the
+     reserve van the scenario puts on no run — on R1's road, which is the run the §7 step 6 ramp
+     substitution would hand it;
+   - the board can read a van's arrival at a **named child's kerb** (`board.ts` `pickupArrived`),
+     which before could only ever be false;
+   - the **notification decisions** name the family who actually rides from the stop: the stall
+     now damps one window for F7 at Boynton Beach Mall, and the pickup the van is minutes from is
+     not texted at all (ASM-14's lead rule, visible for the first time);
+   - a **real road is driven twice**, and the ETA engine had to learn it. R1 collects a child at
+     the Lantana library and leaves the way it came, so one stretch of Lantana Rd carries the van
+     out and back and a position on it has two chainages 3.5 km apart. Projected with no history
+     the engine took whichever pass it scanned first, and the ETA jumped nine minutes and back
+     while the van drove normally. `projectToPath` now takes the vehicle's last known chainage
+     (`nearM`, `src/domain/location/geo.ts`) and breaks that tie towards the pass it is on. The
+     old fixtures never doubled back, so this is a defect the truer geometry *found* rather than
+     one it caused — a real route survey would have had it from the first probe;
+   - **no committed leg is survey-grade any longer.** The one real OSRM response
+     (`docs/research/osrm-okeeheelee-to-center.json`, Okeeheelee Park → the centre) is a road no
+     run drives — R2 collects C2 there and goes on to City Hall — so keeping it would have meant
+     keeping a fourth route belonging to no run, which is the thing this change removes. It stays
+     committed as the **provenance of the speed** every derived duration is divided by
+     (`src/fixtures/survey.ts` `PROBE_SPEED_MPS`, asserted in `routes.test.ts`). Re-probing the
+     scenario's eight legs against OSRM is a dev-time job (ADR-007) and is **the open item §5
+     carries forward**.
+
+   One disagreement is left and it is a **clock**, not a road: the replay starts at 07:30 ET
+   (`SCENARIO_START_MS`) because all four trucks must share one traffic band and `am-peak` begins
+   at 07:00, while the plan departs on the first family's window (06:45 for R1). So a live morning
+   row publishes a centre arrival about an hour after the window the same child's planned row
+   shows. It was true before this change and the longer, truer runs make it plainer — §5.
 2. **The afternoon has no committed geometry at all**, so every PM ride's window reads
    "Window pending". **Closed in slice 2:** the afternoon is the morning reversed
    (`reverseRoute`), which is what the scenario says a run's afternoon is, and
    `run-routes.test.ts` holds every derived arrival to within ten minutes of the window the plan
    promised, stop by stop, in both directions. Where a window is still genuinely unknown the cell
-   is the fallback whose wording moves to slice 3 (§2).
+   is the fallback, which says "Time not set yet" as of this PR (§2).
 3. **A seeded transport profile has no named approver** (`approved_by` is NULL by design in
    `seed.ts`), so the drawer shows the approved version and no approver. §4.2 asks for both.
-   **Unchanged by slice 2; moves to slice 3**, which names the approver in the seed — a synthetic
-   staff name, from the same fixture the rest of the screen's people come from.
+   **Unchanged by slice 2; sequenced to slice 3** — the founder's call, Firia 2026-10-16
+   10:21 PM ET (DECISION-LEDGER row 71), and a slice rather than a deferral. Slice 3 names the
+   approver in the seed — a synthetic staff name, from the same fixture the rest of the screen's
+   people come from.
 4. **A verified vehicle capability has no named verifier.** Every other person on this screen is
    named — the child, the adult on file to receive them, the dispatcher who can answer for a van
    — because the fixture has a name for them. The ramp observation does not: `capabilityFor` in
@@ -111,9 +153,10 @@ each is the first thing its row says.
    displayable position, so it cannot have skipped the check), and no person is attached to it.
    So slice 1's drawer says "Checked at the ramp before this run." where COPY-GUIDE §5 asks for
    "Verified 17 min ago by J.T.". Inventing a verifier *in the view* would make the sentence read
-   right and the screen wrong. **Unchanged by slice 2; moves to slice 3**, which puts the verifier
-   in the fixture as a seeded capability report with a person on it, and the view reads what the
-   day recorded. Slice 2 made it visible in one more place: a morning handoff says "Handed off to
+   right and the screen wrong. **Unchanged by slice 2; sequenced to slice 3** on the same founder
+   call as §3.3 (Firia, 2026-10-16 10:21 PM ET; ledger row 71). Slice 3 puts the verifier in the
+   fixture as a seeded capability report with a person on it, and the view reads what the day
+   recorded. Slice 2 made it visible in one more place: a morning handoff says "Handed off to
    the ramp" rather than naming the person who received the child, for the same reason.
 
 ## 4. Deviations from the design direction — each one Vera's call, in slice 2
@@ -134,8 +177,8 @@ lock (D-5's violet reservation is kept, not traded — see the last row).
 
 ## 5. The calls slice 2 has to carry, and who makes them
 
-All taste; all Vera's; none waits on the founder — except the last, which is the founder's and
-says so. Each is answered by something slice 2 is building, so the answer lands with the code
+Taste calls are Vera's and wait on no founder; the two rows that are the founder's say so by
+name. Each is answered by something slice 2 is building, so the answer lands with the code
 rather than ahead of it.
 
 **The two service dates are answered.** The row that was here — the header's real date against
@@ -151,8 +194,28 @@ as a URL anyone can type (Veri #49: a `?date=` the server read on a deployment w
 without the control). The demo-controls dock (§6.1) is what eventually gives the app a scenario
 clock; nothing on this page waits on it.
 
+**The replay routes are answered, and the two seeded names have their slice.** Both were the
+founder's to make and both were made on 2026-10-16 (DECISION-LEDGER row 71). The three replay
+routes were to be regenerated against the scenario — so the committed routing data changed in
+this PR, and §3.1 says exactly what changed and what it cost. The seeded approver and verifier
+land in **slice 3** (Firia, 10:21 PM ET), which is a sequence and not a deferral: they are §6's,
+inside B-12, and B-12 does not close until slice 3 passes.
+
 Still open:
 
+- **Rudy / founder: re-probing the eight committed legs against OSRM** (§3.1). Every leg in the
+  demo is now `DERIVED` and **Unverified** — hand-authored along public roads, with durations
+  divided out of the one probe that was run. ADR-007 always said these get replaced by real OSRM
+  responses "when the fixtures are regenerated"; doing it needs the public demo server, so it is a
+  dev-time job and not something a test or a runtime may do. Worth a probe run before the demo?
+- **Rudy: the live morning's clock** (§3.1). The replays start at 07:30 ET so the four trucks
+  share one traffic band, and the plan departs at the first family's window (06:45), so a live row
+  publishes a centre arrival an hour after the planned row's window. The honest fix is the same
+  one §6.1's dock is for — a scenario clock the board reads — rather than a second start time.
+- **Vera: now that a track names each child's own kerb**, a live morning row could show the window
+  for *that child's pickup* until they are aboard, instead of the van's arrival at the centre
+  (`board.ts liveEtaView`). Is the ride's end the right thing to show all morning, or the next
+  thing that happens to this child?
 - **Is "Getting ready" the right fifth group header** (§4), or should a planned-but-not-departed
   ride sit under one of the four? Either way COPY-GUIDE §5 is amended to match what ships.
 - **The row drops the provider's name to keep two lines** (§4). Confirm the two-line cap, or take
@@ -165,24 +228,24 @@ Still open:
 - **A finished day's rows say "No van location kept"** in the van-location column, because this
   slice keeps no position history. Is a column that can only say that worth keeping on a finished
   day, or should it fold away like the three that fold below 1280?
-- **Rudy / founder: regenerating the ADR-007 replay routes** against the scenario's own stops
-  (§3.1). The run-aligned routes now exist and agree with the plan, so this is a smaller change
-  than it was — it would give the live morning real per-child pickup arrivals, and it is the one
-  item on this page that is a founder decision, because it changes committed routing data.
 - **Rudy:** the finished day is a fixture in `standard.ts`, not something `demo reset` seeds. When
   the scenario clock lands (§6.1 dock), the honest version is the clock walking the real day and
   the board reading whatever it has reached. Does the clock subsume this fixture, or stay beside
   it as the "yesterday" the board can look back at?
 
-## 6. Slice 3 — live updates, the map, and the two fixture names
+## 6. Slice 3 — live updates, the map, and the two seeded names
 
 | Thing | § | What slice 3 has to land |
 |---|---|---|
 | Live updates, reconnect delta, the amber "paused" bar over 15 s | §2, §4.1 | the SSE stream (ADR-002), and with it the U3 commit→screen measurement RISKS-AND-QUESTIONS has open |
 | The map pane beside the rows, row-hover ↔ marker highlight, fly-to | §4.1, §5 | the split pane at ≥1280 px that D-6 (ledger row 34) decided. The pane itself already exists at `/map-preview` |
 | Header adapter pills showing real ages instead of "· Simulated" | §2, §10 | the ages come from the same stream; the pills' **violet is already gone** (§4), so only the text is interim |
-| A **named approver and a named verifier** in the seed | §4.2, COPY-GUIDE §5 | moved here from slice 2 (§2, §3.3, §3.4), which left both fixtures as they were |
-| An unknown window reads **"Time not set yet"**, with an icon | COPY-GUIDE §5, §3 | moved here from slice 2 (§2): the case is unreachable in the committed scenario, and the fallback's wording is all that is left |
+| A **named approver and a named verifier** in the seed | §4.2, COPY-GUIDE §5 | **the founder's call, 2026-10-16 10:21 PM ET** (Firia; DECISION-LEDGER row 71): both land here, and that is a *sequence* rather than a deferral — B-12 does not close until slice 3 passes. `seed.ts` names the approver on the transport profile (`approved_by`), and the ramp observation becomes a seeded capability report with a person on it, so the drawer can say "Verified 17 min ago by J.T." and mean it (§3.3, §3.4) |
+
+> **"Time not set yet" is done and has left this table.** It was listed here when slice 2 moved
+> it; it landed with this PR's copy pass (§2), so the fallback says the guide's own sentence with
+> its clock icon and nothing about it is slice 3's. A row on this page for something already on
+> screen is the same shrug §1 refuses.
 
 ---
 

@@ -147,14 +147,50 @@ export interface Projection {
 }
 
 /**
+ * How much further off the path a candidate may be and still count as the same piece of road,
+ * in metres.
+ *
+ * Only used to resolve an ambiguity: a route that drives one stretch twice offers two chainages
+ * for one position, and where the two passes are the same tarmac their perpendicular distances
+ * are the same number to within rounding. This is the width of that "same spot" — wide enough to
+ * cover the ±40 m of injected GPS noise landing a hair closer to one pass than the other, far too
+ * narrow to call two different roads one.
+ */
+export const PROJECTION_TIE_M = 30;
+
+export interface ProjectionOptions {
+  /**
+   * Where the vehicle was last known to be, as a chainage in metres.
+   *
+   * A route that drives one stretch of road twice has two answers to "how far along are we",
+   * kilometres apart, and the nearer-looking one is a coin toss: R1's morning collects a child at
+   * the Lantana library and leaves the way it came, so the same tarmac carries the van out and
+   * back (src/fixtures/run-routes.ts). With no history the projection takes whichever pass scans
+   * first, and the ETA jumps by the time it takes to drive the loop again — a van driving
+   * normally, publishing a window nine minutes late and then taking it back.
+   *
+   * Given this hint, a tie between two passes (within {@link PROJECTION_TIE_M}) goes to the one
+   * nearest where the vehicle already was, which is the pass it is actually on. It is a
+   * tie-break and nothing more: a position that is genuinely closer to another part of the route
+   * still projects there, so a vehicle that turns round is followed rather than pinned.
+   */
+  nearM?: number;
+}
+
+/**
  * Project a coordinate onto the path. Used by the ETA engine: a reported position —
  * jittered or not — becomes "how far along the route are we", which is the only
  * progress measure the §8 formula needs.
  */
-export function projectToPath(path: MeasuredPath, coord: Coord): Projection {
+export function projectToPath(
+  path: MeasuredPath,
+  coord: Coord,
+  options: ProjectionOptions = {},
+): Projection {
   const { coords, cumulativeM } = path;
   if (coords.length === 1) return { alongM: 0, offsetM: distanceM(coords[0], coord) };
 
+  const candidates: Projection[] = [];
   let best: Projection = { alongM: 0, offsetM: Number.POSITIVE_INFINITY };
   // Work in a local metre frame per segment: at demo scale (segments ≤ a few km) the
   // error of treating lng/lat as planar after scaling is far below the 40 m jitter.
@@ -174,10 +210,23 @@ export function projectToPath(path: MeasuredPath, coord: Coord): Projection {
     const cx = bx * t;
     const cy = by * t;
     const offsetM = Math.hypot(px - cx, py - cy);
-    if (offsetM < best.offsetM) {
-      const segLen = cumulativeM[i] - cumulativeM[i - 1];
-      best = { alongM: cumulativeM[i - 1] + segLen * t, offsetM };
-    }
+    const segLen = cumulativeM[i] - cumulativeM[i - 1];
+    const candidate: Projection = { alongM: cumulativeM[i - 1] + segLen * t, offsetM };
+    if (offsetM < best.offsetM) best = candidate;
+    if (options.nearM !== undefined) candidates.push(candidate);
   }
-  return best;
+
+  const { nearM } = options;
+  if (nearM === undefined) return best;
+
+  // Every spot that is equally "on the road" (see PROJECTION_TIE_M) — one of them per pass,
+  // where the route drives a stretch twice.
+  const tied = candidates.filter((c) => c.offsetM <= best.offsetM + PROJECTION_TIE_M);
+  // Of those, the ones the vehicle has not reached yet, because progress along a committed route
+  // is forwards: a van pulling away from a turnaround is on the road it has still to drive, not
+  // the one that brought it there. Only when every tied spot is behind it — it really has gone
+  // backwards — is the nearest one taken instead.
+  const ahead = tied.filter((c) => c.alongM >= nearM);
+  const choices = ahead.length > 0 ? ahead : tied;
+  return choices.reduce((a, b) => (Math.abs(b.alongM - nearM) < Math.abs(a.alongM - nearM) ? b : a));
 }

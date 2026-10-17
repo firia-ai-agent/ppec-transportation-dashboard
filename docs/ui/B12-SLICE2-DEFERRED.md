@@ -73,7 +73,7 @@ outcome, and each is an acceptance test:
 
 | Slice 1 §3 | Now |
 |---|---|
-| 1. the committed routes and the scenario disagree | **Half closed.** `src/fixtures/run-routes.ts` is one route per run per direction, built from the scenario itself — its own children's own stops, in `manifestFor`'s order, with each family's label and each stop's ASM-12 service time read off the children who ride from it. Every window on the board now comes from geometry that names the child's own stop. The three ADR-007 replay routes are **untouched**: they are the demo day's live morning (and one of them is a real OSRM response), and regenerating them against the scenario is still a change to committed routing data and still the founder's call. The one visible remnant is that a van on the road publishes against the replay's clock, which starts at 07:30 — later than the plan's first pickups |
+| 1. the committed routes and the scenario disagree | **Half closed.** `src/fixtures/run-routes.ts` is one route per run per direction, built from the scenario itself — its own children's own stops, in `manifestFor`'s order, with each family's label and each stop's ASM-12 service time read off the children who ride from it. Every window on the board now comes from geometry that names the child's own stop. The three ADR-007 replay routes were **untouched by this slice**: they are the demo day's live morning, and regenerating them was a change to committed routing data and so the founder's call. **It was made, and they were regenerated in the PR after this one** — the three tracks are the runs' own morning geometry now, which closes slice 1's §3.1 outright (docs/ui/B12-SLICE1-DEFERRED.md §3.1, DECISION-LEDGER row 71). What that PR did *not* change is the remnant this slice already had: a van on the road publishes against the replay's clock, which starts at 07:30 — later than the plan's first pickups |
 | 2. the afternoon has no committed geometry | **Closed.** The afternoon is the morning reversed (`reverseRoute`), which is what the scenario says a run's afternoon is, and `plannedEta` gives each stop the 10-minute window its family holds. No row on the board says it has no time yet. `run-routes.test.ts` holds every derived arrival to within ten minutes of the window the scenario's plan promised — the two agree, stop by stop, in both directions |
 | 3. a seeded profile has no named approver | unchanged |
 | 4. a verified capability has no named verifier | unchanged — and now visible in one more place: a morning handoff says "Handed off to the ramp" rather than naming the person who received the child, for the same reason |
@@ -118,10 +118,11 @@ with nothing on screen offering another.
 - **Vera:** a finished day's rows say "No van location kept" in the van-location column, because
   this slice keeps no position history. Is a column that can only say that worth keeping on a
   finished day, or should it fold away like the three that fold below 1280?
-- **Rudy / founder:** the ADR-007 replay routes are still the pre-scenario geometry (§3.1). The
-  run-aligned routes now exist and agree with the plan, so regenerating the replays against them
-  is a smaller change than it was — it would also give the live morning real per-child pickup
-  arrivals. Worth the committed-data change before the demo?
+- ~~**Rudy / founder:** the ADR-007 replay routes are still the pre-scenario geometry (§3.1).~~
+  **Answered: yes, and they were regenerated in the next PR** (founder, 2026-10-16; DECISION-LEDGER
+  row 71). The tracks are the runs' own morning geometry, the live morning reaches each child's
+  own kerb, and the cost — no committed leg is survey-grade any more — is written up in
+  docs/ui/B12-SLICE1-DEFERRED.md §3.1.
 - **Rudy:** the finished day is a fixture in `standard.ts`, not something `demo reset` seeds. When
   the scenario clock lands (§6.1 dock), the honest version is the clock walking the real day and
   the board reading whatever it has reached. Does the clock subsume this fixture, or stay beside
