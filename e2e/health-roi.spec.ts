@@ -127,9 +127,12 @@ for (const width of WIDTHS) {
         await expect(page.locator('[aria-expanded="true"]')).toHaveCount(1);
       }
 
-      // The one ride that needs a person, and the child panel behind it.
+      // The one ride that needs a person, and the child panel behind it. Opened only if the
+      // loop above has not left it open: the tile is a toggle, so clicking it blindly would
+      // close the list this half of the check is about.
       const tile = tileFor(page, metricLabel(OPEN_RIDE.key));
-      await tile.click();
+      if ((await tile.getAttribute("aria-expanded")) !== "true") await tile.click();
+      await expect(tile).toHaveAttribute("aria-expanded", "true");
       const child = OPEN_RIDE.children[0];
       const opener = page.getByRole("button", {
         name: fill(health.openRide, { child, ride: boardCopy.pmSpoken }),
@@ -187,6 +190,9 @@ for (const width of WIDTHS) {
       // Nothing on the screen wears the "ok" tone, and the word "Live" is nowhere on it.
       await expect(page.locator('[data-tone="ok"]')).toHaveCount(0);
       await expect(page.getByText(health.adapterPanel.modes.LIVE, { exact: true })).toHaveCount(0);
+      // Scrolled to before the shot: the panel is below the numbers, and a screenshot of the
+      // top of the page is not a picture of the thing this check is about.
+      await intro.scrollIntoViewIfNeeded();
       console.log("screenshot:", await shot(page, `health-adapters-${width}`));
     });
   });

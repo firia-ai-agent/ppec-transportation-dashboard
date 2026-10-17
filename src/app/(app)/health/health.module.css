@@ -92,6 +92,11 @@
  * `pointer-events: none` because every number on top of it is a button: a watermark that ate a
  * click would make the drill-down look broken. `aria-hidden` in the markup: the DEMO bar and
  * the Simulated chip already say this to the ear, twice is enough.
+ *
+ * It is scaled rather than given a font size of its own: §2's type scale stops at 32 px because
+ * that is the largest thing a person *reads*, and a watermark is not read — so the token stays
+ * the token and the transform makes it the size a watermark has to be to be one. Under a
+ * reduced-motion preference it is unchanged: this is a transform and never an animation.
  */
 .watermark {
   position: absolute;
@@ -99,10 +104,10 @@
   left: 50%;
   z-index: 0;
   margin: 0;
-  transform: translate(-50%, -50%) rotate(-24deg);
+  transform: translate(-50%, -50%) rotate(-18deg) scale(2.2);
   font-size: var(--text-32);
   font-weight: var(--weight-semibold);
-  letter-spacing: 0.35em;
+  letter-spacing: 0.3em;
   color: var(--color-neutral-bg);
   white-space: nowrap;
   pointer-events: none;
@@ -110,19 +115,31 @@
 }
 
 /*
- * Four tiles, as wide as they need to be for a sentence and no wider. `auto-fit` rather than a
- * fixed four, so the row folds to two and then to one instead of squeezing a sentence into a
- * column narrower than it reads in.
+ * Four tiles: two by two below the §2 rail breakpoint and a single row of four at and above it.
+ * Written out rather than left to `auto-fit`, which gave three columns and one orphan at 1024 —
+ * a ragged row that reads as a fifth number missing rather than as four numbers.
  */
 .tiles {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: var(--space-4);
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+@media (min-width: 1280px) {
+  .tiles {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 599px) {
+  .tiles {
+    grid-template-columns: 1fr;
+  }
 }
 
 .tile {
@@ -141,15 +158,21 @@
   min-height: var(--target-console);
   padding: var(--space-4);
   text-align: left;
-  background: var(--color-surface);
+  /*
+   * No fill of its own, so the watermark behind the tiles is actually visible through them —
+   * which is the whole point of a watermark, and was not true while each tile painted itself
+   * white over the top of it. The panel's own `surface` is what the words sit on.
+   */
+  background: transparent;
   border: var(--border-hairline) solid var(--color-border-strong);
   border-radius: var(--radius-md);
   color: var(--color-ink);
   cursor: pointer;
 }
 
+/* Hover and open both change the *edge* rather than the fill, for the same reason. */
 .tileButton:hover {
-  background: var(--color-bg);
+  border-color: var(--color-ink);
 }
 
 .tileButton[aria-expanded="true"] {
