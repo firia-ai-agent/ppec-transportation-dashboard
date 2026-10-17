@@ -47,6 +47,7 @@ import {
   type PlanLane,
   type PlanRider,
   type RoutePlan,
+  type SolveResult,
   type SolveStatus,
   type Unplaced,
   type UnplacedCause,
@@ -406,10 +407,34 @@ export function replanForArrival(
  * for the run as it was planned, and this is what the solver would do about it.
  */
 export function arrivedVerdict(replan: ArrivalReplan): SolveStatus {
+  return arrivedResult(replan).status;
+}
+
+/**
+ * The same verdict in full: the configuration it was reached in, the per-stop plan, the deficit
+ * and the §9 options a coordinator could choose from.
+ *
+ * The ramp iPad's sticky bar needs all of it, and this is why it exists. The bar used to ask
+ * `feasible()` a second question of its own — the van in front of it, with the children's
+ * *on-file* chair measurements — while the panel below it read the re-plan, which is the same
+ * question asked with what the ramp actually measured. So a chair measured bigger than the file
+ * said left the bar saying "Fits: 1 wheelchair, 3 walking seats" over a panel saying the child
+ * does not fit, and the boarding lock followed the bar: "Confirm boarding & securement" was
+ * live for a run the solver had already refused (Veri's review of 53423de, 2026-10-17). One
+ * computation now answers all three, so they cannot disagree.
+ *
+ * `withOptions` is on because the bar lists them behind "Show details", and the alternates are
+ * the day's own other lanes as the day has them (`before`) rather than a set assembled by the
+ * screen — the same vans the re-plan would move a rider to.
+ */
+export function arrivedResult(replan: ArrivalReplan): SolveResult {
   const { input, finding, before } = replan;
   const lane = input.lanes.find((l) => l.id === finding.laneId);
   if (!lane) throw new Error(`no lane on the day is ${finding.laneId}`);
-  return solveLane(input, lane, ridersOf(input, before[finding.laneId] ?? [])).status;
+  return solveLane(input, lane, ridersOf(input, before[finding.laneId] ?? []), {
+    withOptions: true,
+    assignment: before,
+  });
 }
 
 /* ───────────────────────────── the board's half ───────────────────────────── */

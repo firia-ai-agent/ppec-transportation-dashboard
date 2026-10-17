@@ -24,19 +24,15 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { StaffRole } from "@/auth/core";
-import { feasible } from "@/domain/solver";
-import type { AlternateCandidate, Child, LayoutPosition, SolveResult } from "@/domain/solver";
+import type { Child, LayoutPosition, SolveResult } from "@/domain/solver";
 import { chairFitsPosition } from "@/domain/solver";
 import {
+  arrivedResult,
   encodeFinding,
   rampArrivals,
   replanForArrival,
 } from "@/domain/plan/arrival";
-import {
-  MEASURED_AT_ARRIVAL,
-  PLAN_SERVICE_DATE,
-  reportedByProvider,
-} from "@/domain/plan/day";
+import { MEASURED_AT_ARRIVAL, PLAN_SERVICE_DATE } from "@/domain/plan/day";
 import { fill, layoutName, rampIpad, rampReplan, sentence, vanName, vanTitle } from "@/ui/copy";
 import { holdLines, moveLines, stayLines } from "@/ui/arrival-lines";
 import { StateChip } from "@/ui/StateChip";
@@ -46,7 +42,6 @@ import type { Tone } from "@/ui/tokens";
 import {
   ANSWER_LABEL, POSITION_ANSWER_LABEL, availableSummary, bannerCopy, defaultChecklist,
   findingOfChecklist, isAmb, isWc, layoutOf, needChips, needSummary, positionDetail, positionName,
-  toCapability,
 } from "./capability";
 import type { Answer, Checklist, PositionAnswer } from "./capability";
 import { Icon } from "./icons";
@@ -223,22 +218,6 @@ export default function RampCheck({ role }: { role: StaffRole | null }) {
   const checklist = checklists[vehicle.id] ?? defaultChecklist(vehicle, arrival.plannedLayoutId);
   const layout = layoutOf(vehicle, checklist.layoutId);
 
-  const result: SolveResult = useMemo(() => {
-    const capability = toCapability(vehicle, checklist, PLAN_SERVICE_DATE);
-    const alternates: AlternateCandidate[] = arrivals
-      .filter((other) => other.vehicle.id !== vehicle.id)
-      .map((other) => ({
-        vehicle: other.vehicle,
-        leg: other.leg,
-        // Checked on this iPad if ramp staff have filled it in, otherwise what the provider
-        // reported for today. A van nobody has said anything about still takes nobody (VEH-04).
-        capability: checklists[other.vehicle.id]
-          ? toCapability(other.vehicle, checklists[other.vehicle.id], PLAN_SERVICE_DATE)
-          : reportedByProvider(other.vehicle.id),
-      }));
-    return feasible(vehicle, leg, capability, { alternates });
-  }, [arrivals, vehicle, leg, checklist, checklists]);
-
   /**
    * Is the vehicle check finished? Nothing is re-planned off a half-answered checklist.
    *
@@ -266,6 +245,19 @@ export default function RampCheck({ role }: { role: StaffRole | null }) {
    * once the check is finished.
    */
   const replan = useMemo(() => replanForArrival(finding), [finding]);
+  /**
+   * The verdict for the van as it arrived — the sticky bar's words, the options behind "Show
+   * details", the seats it suggests and the boarding lock, all four off one computation.
+   *
+   * The bar used to ask the solver a second question of its own, about the children's *on-file*
+   * chair measurements, while the panel below read this re-plan, which asks with what the ramp
+   * actually measured. A chair measured bigger than the file said therefore left the bar saying
+   * "Fits: 1 wheelchair, 3 walking seats" over a panel saying Zoe B. does not fit — and the
+   * lock followed the bar, so "Confirm boarding & securement" was live for a run the solver had
+   * already refused (Veri's review of 53423de, 2026-10-17). There is one answer now, so the
+   * bar, the panel and the lock cannot disagree.
+   */
+  const result: SolveResult = useMemo(() => arrivedResult(replan), [replan]);
   const findingCode = useMemo(() => encodeFinding(finding), [finding]);
   /** The screens this role can carry the check to. The front desk can open neither. */
   const onward = useMemo(() => onwardLinks(role, findingCode), [role, findingCode]);

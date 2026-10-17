@@ -171,6 +171,27 @@ test.describe("a ramp check that finds the wrong equipment re-plans the van", ()
     await page.getByRole("button", { name: rampIpad.measureChair }).click();
     await expect(page.locator("main")).toContainText("Measured 142 × 74 cm");
 
+    /*
+     * The sticky bar is the same verdict as the panel, measured on the real screen.
+     *
+     * It used to ask the solver its own question, about the chair the file describes rather than
+     * the one the ramp just measured, so it read "Fits: 1 wheelchair, 3 walking seats" over a
+     * panel holding Zoe B. — and the boarding lock followed the bar, which left "Confirm
+     * boarding & securement" live for a run the solver had refused (Veri's review of 53423de).
+     */
+    const verdict = page.locator("#ramp-verdict");
+    await expect(verdict).toContainText(
+      fill(rampIpad.doesntFit, { phrase: rampIpad.deficitFootprint }),
+    );
+    await expect(verdict).not.toContainText("Fits");
+    // Nobody boards a run the solver refused: every confirm button on the screen is off.
+    const confirm = page.getByRole("button", { name: rampIpad.confirmBoarding });
+    const confirms = await confirm.count();
+    expect(confirms, "the riders each have a confirm button").toBeGreaterThan(0);
+    for (let i = 0; i < confirms; i += 1) {
+      await expect(confirm.nth(i)).toBeDisabled();
+    }
+
     // No van in the scenario has a wheelchair place that takes a chair that size, so she is
     // held with the reason rather than quietly dropped — and a coordinator decides.
     await expect(panel).toContainText(rampReplan.heldHeading);
