@@ -61,6 +61,7 @@ import {
   VEHICLES,
   childByKey,
   familyByKey,
+  providerDisplayName,
   stopByKey,
   type Child as DemoChild,
   type Layout as DemoLayout,
@@ -124,7 +125,9 @@ export function solverVehicle(vehicle: DemoVehicle): SolverVehicle {
     label,
     description: rest.join(" "),
     providerId: provider.key,
-    providerName: provider.name,
+    // The fixture keeps the "SYN" marker on every organisation name; a screen does not
+    // (Vera's review, 2026-10-17 — `providerDisplayName`).
+    providerName: providerDisplayName(provider.name),
     liftEquipped: vehicle.liftEquipped,
     layouts: vehicle.layouts.map((l) => ({
       id: `${vehicle.key}/${l.code}`,
@@ -247,7 +250,7 @@ export function receivingAdultOf(child: DemoChild): ReceivingAdult | null {
  * The person at the provider who answers for what a vehicle can carry today, by name.
  *
  * `null` for the centre's own fleet, which has no dispatcher on file — so the drawer's step says
- * "Ask SYN Greenacres center fleet" rather than inventing somebody to ask.
+ * "Ask Greenacres center fleet" rather than inventing somebody to ask.
  */
 export function dispatcherOf(vehicle: DemoVehicle): string | null {
   const provider = PROVIDERS.find((p) => p.key === vehicle.providerKey);

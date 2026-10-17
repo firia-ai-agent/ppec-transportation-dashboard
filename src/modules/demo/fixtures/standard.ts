@@ -102,6 +102,24 @@ export const synLegalLastName = (lastInitial: string): string => `${lastInitial}
 export const synLegalName = (firstName: string, lastInitial: string): string =>
   `${firstName} ${synLegalLastName(lastInitial)}`;
 
+/**
+ * The marker that says a name in this file is invented. It is on every organisation name here so
+ * that a row in the database, an export or a support query is self-evidently synthetic.
+ */
+const SYN_MARKER = /^SYN /;
+
+/**
+ * A provider as a screen names it: the fixture's name with the synthetic marker taken off.
+ *
+ * Vera's review, 2026-10-17: "SYN" is a marker between engineers and the database, and a
+ * coordinator reading "Ask SYN Palm Lift Transport what this van can carry" has to step over it
+ * to find the company. The marker stays in the fixture and in every row seeded from it (ADR-015
+ * is what makes the data synthetic, not the prefix); it comes off at the one boundary where the
+ * name becomes words on a screen. The names themselves are still invented: there is no Palm
+ * Lift Transport, and the §7.1 Simulated chip says so on every screen that shows one.
+ */
+export const providerDisplayName = (name: string): string => name.replace(SYN_MARKER, "");
+
 /* ───────────────────────────── geography (MOCKS §1) ───────────────────────────── */
 
 export const CENTER_STOP: Stop = { key: "CENTER", label: "PPEC center, 2216 Jog Rd", lat: 26.645352, lng: -80.145541, smsToken: "CENTER" };

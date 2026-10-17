@@ -33,6 +33,7 @@ import {
   sourceMode,
   unbuilt,
   vanName,
+  vanTitle,
   whoami,
 } from "./copy";
 
@@ -805,6 +806,22 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
     expect(vanName("convertible van")).toBe("the convertible van");
     expect(vanName("sedan")).toBe("the sedan");
     expect(vanName("convertible van")).not.toMatch(/\bV\d\b/);
+    // The scenario writes a vehicle as its key and then what it is, and a `description` is a
+    // plain string any fixture or URL can hand over: the code comes off here, once, rather than
+    // at the dozen call sites that ask a van for its name (Vera, 2026-10-17).
+    expect(vanName("V1 convertible van")).toBe("the convertible van");
+    expect(vanName("V12 center van")).toBe("the center van");
+    for (const description of ["V1 convertible van", "V2 center van", "V4 sedan"]) {
+      expect(vanName(description), description).not.toMatch(/\bV\d\b/);
+      expect(vanTitle(description), description).not.toMatch(/\bV\d\b/);
+    }
+    // The fixtures disagree about the case they write a vehicle in, and this lands mid-sentence.
+    expect(vanName("Convertible van")).toBe("the convertible van");
+    // A van the fixtures named nothing is still a van, not "the ".
+    expect(vanName("")).toBe("a van");
+    expect(vanTitle("")).toBe("A van");
+    expect(vanTitle("V1 convertible van")).toBe("The convertible van");
+    expect(vanTitle("center van")).toBe("The center van");
     // Every sentence on the screen that carries a van takes it from there, and none of them
     // opens on it — a van's name opens with "the", and a sentence cannot.
     for (const [key, line] of Object.entries({

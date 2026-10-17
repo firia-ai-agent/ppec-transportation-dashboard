@@ -6,6 +6,8 @@
  * the demo flags are on. Email, role, id and icon live here; the words shown on screen live in
  * src/ui/copy.ts (`demoLogins`), keyed by role.
  */
+import { providerDisplayName } from "@/modules/demo/fixtures/standard";
+
 export const DEMO_ACCOUNTS = [
   {
     id: "01900000-0000-7000-8000-0000000000d1",
@@ -54,6 +56,25 @@ export type DemoRole = DemoAccount["role"];
 
 /** Lucide icon names (§2: one set, 1.75 stroke). Mapped to components by the card. */
 export type DemoAccountIcon = DemoAccount["icon"];
+
+/**
+ * The name an account wears in the app header: the first name, and nothing else.
+ *
+ * The stored name is deliberately long — "SYN Dana Director" says, to anybody reading a row in
+ * the database or an export, that this account is synthetic and which role it was made for. On a
+ * screen it is three words of bookkeeping where a person's name goes, and it was in the header
+ * of every console page (Vera's prod walk, 2026-10-17 2:48 PM ET). The header says "Dana",
+ * which is how the rest of the app talks about people (COPY-GUIDE §3: real first names).
+ *
+ * The stored name does not change: this is a display helper, applied where the session's name
+ * becomes words on a screen (src/app/(app)/layout.tsx), and the seed, /login and the database
+ * still hold "SYN Dana Director". The synthetic marker comes off through the same helper every
+ * organisation name goes through (`providerDisplayName`), so there is one rule about that prefix
+ * and not a second regex here.
+ */
+export function accountFirstName(name: string): string {
+  return providerDisplayName(name.trim()).split(/\s+/)[0] ?? "";
+}
 
 /** The three emails the shared password belongs to. Used by the migration test, so keep it exact. */
 export const DEMO_EMAILS: readonly string[] = DEMO_ACCOUNTS.map((a) => a.email);

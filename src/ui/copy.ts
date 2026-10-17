@@ -238,7 +238,14 @@ export const board = {
   pmSpoken: "afternoon",
   /** A ride the family drives themselves: there is no van to show, and that is not a gap. */
   familyDrives: "Family drives",
-  /** "V2 · SYN Greenacres center fleet" — the van, then who runs it. Drawer only (§4.1 density). */
+  /**
+   * "The center van · Greenacres center fleet" — the van, then who runs it. Drawer only
+   * (§4.1 density).
+   *
+   * Both halves are display names, not fixture keys: `{van}` is `vanTitle` and `{provider}` is
+   * the company with the synthetic marker already off it, because this line read
+   * "V2 · SYN Greenacres center fleet" on prod (Vera, 2026-10-17 2:48 PM ET).
+   */
   vanAndProvider: "{van} · {provider}",
   /** The vehicle is assigned but has sent nothing we may draw (an unlinked device, LOC-01). */
   noPosition: "No van location yet",
@@ -879,18 +886,27 @@ export const rampIpad = {
 
   arrivalsHeading: "Which vehicle is at the ramp?",
   /**
-   * The vehicle tile, over two lines: the van as the Today board writes it and the provider who
-   * answers for it, then what it is, when it pulls away from the centre and how many it carries.
+   * §5: the tile reads "The convertible van · Palm Lift Transport", then "leaves at 3:16 PM ·
+   * 3 riders", over two lines.
    *
-   * The second line names the van in words as well, because the first line's label is the board's
-   * handle on it and this screen is the one place somebody is standing in front of the van.
-   * `{time}` used to be a hand-written arrival string in a fixture beside the screen; it is now
-   * the moment the plan has this run leaving the centre, which is the deadline a ramp check is
-   * actually against.
+   * Both names are display names. It read "V1 · SYN Palm Lift Transport" — a fixture key and the
+   * fixture's own synthetic marker, on the most-rendered tile of the surface a ramp attendant
+   * actually holds (Vera's prod walk, 2026-10-17 2:48 PM ET). `{vehicle}` is `vanTitle`, because
+   * a tile's title is a name standing on its own.
+   *
+   * The second line no longer repeats the van: it carried `{description}` while the first line
+   * carried the key, which is one tile saying "V1" and then "convertible van" — two names for
+   * one van. Now the title says the name and the line under it says the two facts a ramp check
+   * is against. `{time}` is the moment the plan has this run leaving the centre, never a
+   * hand-written fixture string.
    */
   vehicleTile: "{vehicle} · {provider}",
-  vehicleTileDetail: "{description} · leaves at {time} · {riders} riders",
+  vehicleTileDetail: "leaves at {time} · {riders} riders",
 
+  /**
+   * "What can the convertible van carry today?" — `{vehicle}` is `vanName`, the mid-sentence
+   * form, because this heading sits inside a question.
+   */
   checklistHeading: "What can {vehicle} carry today?",
   checklistIntro:
     "Unknown until arrival is normal. Anything left on “Not sure” keeps the run unchecked.",
@@ -1505,6 +1521,16 @@ export const planRoutes = {
    * stylesheet, so there is one name for a van and not two.
    */
   vanNamed: "the {description}",
+  /**
+   * A van the fixtures gave no plain-words name: "A van".
+   *
+   * `vanTitle("")` built "The " out of `vanNamed` and an empty description, which is a van with
+   * a blank name on the screen — and the live map asks for a name by vehicle id, so a van
+   * missing from the fixture map got exactly that (Vera, 2026-10-17). A van with no description
+   * is still a van, and this is what it is called. Standalone and capitalised, like `vanTitle`
+   * itself, because that is where a van's name stands alone.
+   */
+  vanUnnamed: "A van",
   vanMeta: "{provider} · {driver} driving",
   equipmentHeading: "What this van has",
   equipment: {
@@ -1731,6 +1757,22 @@ export const planRoutes = {
 } as const;
 
 /**
+ * The fixture's key, where a van's description still carries it: "V1 convertible van".
+ *
+ * The scenario writes a vehicle as its key and then what it is, and the board's projection
+ * splits the two (src/domain/board/scenario.ts) — but not every caller comes through that
+ * projection, and a `description` is a plain string that any fixture, replay or URL can hand
+ * over. One screen printing "the V1 convertible van" is exactly the thing Vera's review is
+ * about (2026-10-17), so the guard is here, on the one path every name goes down, rather than
+ * repeated at the dozen call sites that ask for a van's name.
+ */
+const VAN_KEY = /^\s*V\d+\b[\s·-]*/;
+
+function vanWords(description: string): string {
+  return description.replace(VAN_KEY, "").trim();
+}
+
+/**
  * A van as the Plan routes screen names it: "the convertible van".
  *
  * Here rather than in the screen's own helpers because three layers need it and none of them may
@@ -1740,7 +1782,31 @@ export const planRoutes = {
  * that is not the code.
  */
 export function vanName(description: string): string {
-  return fill(planRoutes.vanNamed, { description });
+  const words = vanWords(description);
+  if (words === "") return planRoutes.vanUnnamed.toLowerCase();
+  // Lower-cased, because this lands in the middle of a sentence and the fixtures disagree about
+  // the case they write a vehicle in: the scenario says "V1 convertible van" and the interim
+  // fleet fixture says "Convertible van", which gave "the Convertible van" on whichever screen
+  // read the second one. A van's kind is a common noun, so there is nothing here to capitalise.
+  return fill(planRoutes.vanNamed, { description: words.toLowerCase() });
+}
+
+/**
+ * The same van where its name stands alone rather than sitting in a sentence: "The center van".
+ *
+ * Plan routes gets this for free — a lane's heading is `vanName` with its first letter raised by
+ * the stylesheet (plan.module.css) — and the places that cannot do it in CSS need it as a
+ * string: a MapLibre `text-field` on a map marker, the live map's own sentences about a van that
+ * has no marker, the board's van column and the drawer's van line. So the words are the Plan
+ * routes words, capitalised here once, and a van is called the same thing on every screen
+ * (Vera, 2026-10-17: the screens say the vans' names, never "V1").
+ */
+export function vanTitle(description: string): string {
+  // A van the fixtures named nothing is handled one layer down, in `vanName`, so the standalone
+  // form of "a van" is the capitalised `planRoutes.vanUnnamed` and not a second answer written
+  // here (Vera, 2026-10-17).
+  const named = vanName(description);
+  return named.charAt(0).toUpperCase() + named.slice(1);
 }
 
 /**
