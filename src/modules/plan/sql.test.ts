@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
-import { freshDb, SITE } from "@/test/pglite";
+import { freshPlanDb, SITE } from "@/test/pglite";
 import { DEMO_ACCOUNTS } from "@/auth/demo-accounts";
 import { VANS } from "@/config/vans";
 import { childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/standard";
@@ -11,7 +10,13 @@ import type { PlanStore } from "./types";
 
 /**
  * The three tables migration 0009 adds, exercised through the real statements against the real
- * migrations (PGlite, the same way src/db/migrations.test.ts and the seed's own tests run).
+ * migrations.
+ *
+ * It runs on PGlite by default — in this process, no setup, nothing to point anywhere — and on a
+ * **throwaway local Postgres** when `TEST_DATABASE_URL` names one (`pnpm test:db`, README
+ * "Database tests"). Veri asked for the second; the first is what keeps it running on every
+ * commit. A non-loopback URL is refused outright (src/test/pglite.ts `assertLocal`): these
+ * statements recreate schemas, and the shared Neon database must never be on the other end.
  *
  * This is the file that has to exist: the board can be walked in a browser against the memory
  * fallback (src/modules/plan/memory.ts), and that proves nothing about the SQL a deployment
@@ -25,8 +30,8 @@ const NOW = new Date("2026-10-16T17:45:00.000Z");
 const TODAY = "2026-10-16";
 const YESTERDAY = "2026-10-15";
 
-let pg: PGlite;
 let db: Db;
+let close: () => Promise<void>;
 let store: PlanStore;
 const DIRECTOR = DEMO_ACCOUNTS.find((account) => account.role === "DIRECTOR")!;
 
@@ -34,7 +39,7 @@ const vanOne = () => vehicleIdOf(VANS[0].vehicleKey);
 const vanTwo = () => vehicleIdOf(VANS[1].vehicleKey);
 
 beforeAll(async () => {
-  ({ pg, db } = await freshDb());
+  ({ db, close } = await freshPlanDb());
   // The seed is what creates the vans and the children these rows point at, and it writes the
   // yesterday setups this suite then reads through the ladder.
   await seedStandardScenario(db, { now: NOW, siteId: SITE, env });
@@ -49,7 +54,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-  await pg.close();
+  await close();
 });
 
 describe("ops.vehicle_setup_day", () => {
