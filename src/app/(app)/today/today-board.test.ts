@@ -108,10 +108,14 @@ describe("the board renders the day", () => {
    * line that decides which is the one asserted here, because a page component is not something
    * a unit test can render.
    */
-  it("reads the request's date through the gate, never through the projection", () => {
+  it("reads the request's date and tick through the gate, never through the projection", () => {
     const page = readFileSync(path.join(__dirname, "page.tsx"), "utf8");
-    expect(page).toContain("requestedServiceDay(one(params.date), process.env)");
+    expect(page).toContain("requestedBoardDay(one(params.date), one(params[CLOCK_PARAM])");
+    expect(page).toContain("process.env");
+    // Neither the projection nor the clock may be reached around the gate.
     expect(page).not.toMatch(/serviceDayFor\s*\(/);
+    expect(page).not.toMatch(/demoDayAtTick\s*\(/);
+    expect(page).not.toMatch(/requestedServiceDay\s*\(/);
   });
 
   /**

@@ -116,14 +116,14 @@ async function plan(page: Page): Promise<void> {
 /**
  * No vehicle code anywhere in the planning surface (Vera's review, 2026-10-17).
  *
- * "V1" is how the fixtures file a van and how the solver keys one. The map preview and the ramp
+ * "V1" is how the fixtures file a van and how the solver keys one. The live map and the ramp
  * iPad print it on purpose — a device, a marker and a manifest are all identified by it — and a
  * coordinator deciding which van a child rides in reads the van's name instead, so this is a
  * rule about this screen and lives here rather than in e2e/helpers.ts. Read off the rendered
  * text, so an interpolated code has nowhere to hide.
  *
- * The planning surface is the screen's own `<main>`, by role rather than by id: /plan-preview is
- * its own route outside the console shell (src/app/plan-preview/page.tsx renders the screen and
+ * The planning surface is the screen's own `<main>`, by role rather than by id: /plan-routes is
+ * its own route outside the console shell (src/app/plan-routes/page.tsx renders the screen and
  * nothing else), so the shell's `#content` is not on this page at all and waiting for it is a
  * two-minute timeout rather than an assertion.
  */
@@ -226,7 +226,7 @@ function laneTarget(page: Page, laneId: string): Locator {
 
 test.describe("Plan routes", () => {
   /**
-   * The screen was reachable by typing the URL and from a link on the map preview, which is not
+   * The screen was reachable by typing the URL and from a link on the live map, which is not
    * how anybody finds a screen. It is a destination in the console rail now, for the two roles
    * whose row opens it, and this is the walk a coordinator actually makes.
    */
@@ -239,7 +239,7 @@ test.describe("Plan routes", () => {
     await link.click();
 
     await expect(page.getByRole("heading", { level: 1, name: copy.heading })).toBeVisible();
-    expect(new URL(page.url()).pathname).toBe("/plan-preview");
+    expect(new URL(page.url()).pathname).toBe("/plan-routes");
     await expectNoInternalCodes(page);
     await expectNoVehicleCodes(page);
     console.log("screenshot:", await shot(page, "plan-routes-from-the-nav"));
@@ -248,7 +248,7 @@ test.describe("Plan routes", () => {
   test("plans every child into a van that fits their equipment, and covers every drop-off", async ({
     page,
   }) => {
-    await page.goto("/plan-preview");
+    await page.goto("/plan-routes");
     await expect(page.getByRole("heading", { level: 1, name: copy.heading })).toBeVisible();
     await expectDemoBarPinned(page);
     await expectVioletOnlyOnDemoChrome(page);
@@ -339,7 +339,7 @@ test.describe("Plan routes", () => {
   });
 
   test("refuses a move the van cannot take, in one line that names the child", async ({ page }) => {
-    await page.goto("/plan-preview");
+    await page.goto("/plan-routes");
     await plan(page);
 
     const from = (await lanes(page)).find((lane) => lane.riders.includes(CHAIR_CHILD));
@@ -389,7 +389,7 @@ test.describe("Plan routes", () => {
    * stays in the van they were put in, and one line says what was kept.
    */
   test("keeps a coordinator's own moves when the day is planned again", async ({ page }) => {
-    await page.goto("/plan-preview");
+    await page.goto("/plan-routes");
     await plan(page);
 
     // A rider who needs only a seat, and a van that says it has a free one: both read off the
@@ -452,7 +452,7 @@ test.describe("Plan routes", () => {
     test.use({ viewport: { width: 1440, height: 2000 } });
 
     test("moves a rider into a van that fits, and refuses one that does not", async ({ page }) => {
-      await page.goto("/plan-preview");
+      await page.goto("/plan-routes");
       await plan(page);
       const notice = page.locator("[data-notice]");
 
@@ -544,7 +544,7 @@ test.describe("Plan routes", () => {
   test("AT-04: equipment unknown until arrival stops boarding and asks for a person", async ({
     page,
   }) => {
-    await page.goto("/plan-preview");
+    await page.goto("/plan-routes");
     await plan(page);
 
     const laneId = (await lanes(page)).find((lane) => lane.riders.includes(CHAIR_CHILD))?.id ?? "";
@@ -589,7 +589,7 @@ test.describe("Plan routes", () => {
   });
 
   test("AT-05: a substitute van is unknown, is asked about, and is solved again", async ({ page }) => {
-    await page.goto("/plan-preview");
+    await page.goto("/plan-routes");
     await plan(page);
 
     const laneId = (await lanes(page)).find((lane) => lane.riders.includes(CHAIR_CHILD))?.id ?? "";
@@ -647,7 +647,7 @@ test.describe("Plan routes", () => {
   test("AT-12: a child with no van is named a reason, and no family is told first", async ({
     page,
   }) => {
-    await page.goto("/plan-preview");
+    await page.goto("/plan-routes");
     await plan(page);
 
     // Take away the one van built for this chair, the way a provider does: a substitution.
@@ -713,7 +713,7 @@ test.describe("Plan routes", () => {
   test("AT-12: the demo scenario where one child cannot be placed shows the group and a reason", async ({
     page,
   }) => {
-    await page.goto("/plan-preview");
+    await page.goto("/plan-routes");
 
     // The scenario is a choice on the screen, in plain words, and the normal day is the default.
     const toggle = page.locator('[data-demo-control="true"]');
@@ -812,7 +812,7 @@ test.describe("Plan routes", () => {
       }),
     );
 
-    await page.goto("/plan-preview");
+    await page.goto("/plan-routes");
     // Everything on the screen that could possibly ask something of the network: planning,
     // moving a child, substituting a van, asking the provider, measuring a chair, both runs.
     await plan(page);

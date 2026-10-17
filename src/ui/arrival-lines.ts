@@ -14,7 +14,7 @@
  * type or a solver verdict — the vocabularies the machine uses to talk to itself.
  *
  * The three cause-keyed helpers at the top were the Plan routes screen's own
- * (src/app/plan-preview/lanes.ts, which now re-exports them from here). They moved when the
+ * (src/app/plan-routes/lanes.ts, which now re-exports them from here). They moved when the
  * ramp iPad and the board needed the same answer: "why has this child no van" has one wording,
  * and a second copy of it would be a second wording a week later.
  */

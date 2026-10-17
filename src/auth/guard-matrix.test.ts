@@ -16,6 +16,7 @@ import {
 } from "next/dist/client/components/http-access-fallback/http-access-fallback";
 import {
   ENDPOINTS,
+  MOVED_PAGES,
   PAGES,
   ROLE_LADDER,
   homePathFor,
@@ -244,13 +245,21 @@ const phrases = new Map<string, readonly string[]>();
 async function protectedPhrasesOf(page: { file: string; path: string }): Promise<readonly string[]> {
   const cached = phrases.get(page.path);
   if (cached) return cached;
+  /*
+   * A redirect page renders nothing of its own, so the words its 403 must not carry are the
+   * *destination* screen's words — which is the stronger question anyway: refused at
+   * `/ramp-preview`, do you see any of the ramp iPad?
+   */
+  const moved = MOVED_PAGES[page.path];
+  const subject = moved ? (pageFiles.find((f) => f.path === moved) as { file: string; path: string }) : page;
+  expect(subject, page.path).toBeDefined();
   const allowed = ROLE_LADDER.find((role) => rolesWhoCanOpen(page.path).includes(role));
   expect(allowed, page.path).toBeDefined();
   getCaller.mockResolvedValue({
     kind: "STAFF", role: allowed as Membership["role"], userId: "00000000-0000-7000-8000-0000000000d1",
     displayName: "SYN Dana Director", memberships: [{ siteId: SITE, role: allowed as Membership["role"] }],
   });
-  const mod = (await import(/* @vite-ignore */ page.file)) as { default: (p: unknown) => Promise<unknown> };
+  const mod = (await import(/* @vite-ignore */ subject.file)) as { default: (p: unknown) => Promise<unknown> };
   const html = await toHtml(await mod.default({ searchParams: Promise.resolve({}), params: Promise.resolve({}) }));
   const found = readable(html)
     .split(/[.!?·|•]+/)
@@ -315,7 +324,12 @@ describe("the harness itself works", () => {
   it("found every page on disk and can name each one's route", () => {
     const paths = pageFiles.map((p) => p.path).sort();
     expect(paths).toEqual(
-      ["/", "/_not-found", "/exceptions", "/health", "/login", "/map-preview", "/plan-preview", "/ramp-preview", "/setup", "/today", "/whoami"].sort(),
+      [
+        "/", "/_not-found", "/exceptions", "/health", "/login", "/live-map", "/plan-routes",
+        "/ramp-ipad", "/setup", "/today", "/whoami",
+        // The three old addresses, which are pages too: a guard, then a permanent redirect.
+        ...Object.keys(MOVED_PAGES),
+      ].sort(),
     );
   });
 
@@ -346,7 +360,18 @@ describe("every page, for every role and for a signed-out visitor", () => {
           return;
         }
         if (expected === "ALLOW") {
-          expect(result).toEqual({ rendered: true });
+          /*
+           * The three old addresses are pages whose whole body is a redirect: a caller who may
+           * open the destination is sent there, and the guard has already run by then. Everyone
+           * else falls through to the SIGN_IN and NO_ACCESS branches below, exactly as on the
+           * destination — which is what keeps a redirect from answering "that screen exists".
+           */
+          const moved = MOVED_PAGES[page.path];
+          expect(result).toEqual(
+            moved
+              ? { rendered: false, interrupt: { kind: "redirect", to: moved } }
+              : { rendered: true },
+          );
           return;
         }
         if (expected === "SIGN_IN") {
@@ -375,9 +400,13 @@ describe("every page, for every role and for a signed-out visitor", () => {
 
   it("a signed-in person with no role anywhere is refused every staff page, body and all", async () => {
     const staffPages = pageFiles.filter((p) => pageOutcome(CALLERS.noRole, p.path) === "NO_ACCESS");
-    // Every page that asks for a role at all: the four console pages and the four previews.
+    // Every page that asks for a role at all: the four console pages, the three screens outside
+    // the console shell, /whoami, and the three redirects that stand in front of those screens.
     expect(staffPages.map((p) => p.path).sort()).toEqual(
-      ["/exceptions", "/health", "/map-preview", "/plan-preview", "/ramp-preview", "/setup", "/today", "/whoami"],
+      [
+        "/exceptions", "/health", "/live-map", "/map-preview", "/plan-preview", "/plan-routes",
+        "/ramp-ipad", "/ramp-preview", "/setup", "/today", "/whoami",
+      ],
     );
     for (const page of staffPages) {
       getCaller.mockResolvedValue(CALLERS.noRole);
@@ -434,7 +463,7 @@ describe("every page, for every role and for a signed-out visitor", () => {
       }
     };
 
-    for (const route of ["/plan-preview", "/today"]) {
+    for (const route of ["/plan-routes", "/today"]) {
       const page = pageFiles.find((f) => f.path === route) as { file: string; path: string };
       // The front desk is not in either row, and carrying a ramp check does not add them to it.
       expect(rolesWhoCanOpen(route)).not.toContain("FRONT_DESK");
@@ -453,7 +482,7 @@ describe("every page, for every role and for a signed-out visitor", () => {
   });
 
   it("a role that may open the page renders it with the ramp check on it", async () => {
-    const page = pageFiles.find((f) => f.path === "/plan-preview") as { file: string; path: string };
+    const page = pageFiles.find((f) => f.path === "/plan-routes") as { file: string; path: string };
     getCaller.mockResolvedValue(CALLERS.coordinator);
     const mod = (await import(/* @vite-ignore */ page.file)) as {
       default: (props: unknown) => Promise<unknown>;

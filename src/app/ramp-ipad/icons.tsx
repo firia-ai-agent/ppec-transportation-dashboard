@@ -1,7 +1,7 @@
 import { icon as iconMetrics } from "@/ui/tokens";
 
 /**
- * Minimal inline icons for the ramp preview. Every state is icon + label, never colour alone
+ * Minimal inline icons for the ramp iPad. Every state is icon + label, never colour alone
  * (DESIGN-DIRECTION §3). These are plain stand-ins drawn here so this page adds no dependency;
  * the shared shell replaces them with the Lucide names listed in §3. Their metrics come from
  * src/ui/tokens.ts so they match the §2 icon scale and stroke weight.

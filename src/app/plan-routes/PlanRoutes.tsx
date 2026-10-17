@@ -69,7 +69,7 @@ import {
   type ResolutionOption,
   type Unplaced,
 } from "@/domain/solver";
-import { board, fill, needCategories, places, planRoutes, rampPreview, rampReplan, vanName } from "@/ui/copy";
+import { board, fill, needCategories, places, planRoutes, rampIpad, rampReplan, vanName } from "@/ui/copy";
 import { DemoControls } from "@/ui/DemoControls";
 import { serviceDateLabel } from "@/ui/service-date";
 import { StateChip } from "@/ui/StateChip";
@@ -188,7 +188,7 @@ function capabilityOf(stage: LaneStage): DailyCapability {
     case "RAMP_CHECKED":
       if (stage.rampCapability) return stage.rampCapability;
       return stage.rampLayoutId
-        ? checkedAtRamp(stage.vehicleKey, stage.rampLayoutId, rampPreview.observedBy)
+        ? checkedAtRamp(stage.vehicleKey, stage.rampLayoutId, rampIpad.observedBy)
         : reportedByProvider(stage.vehicleKey);
     default:
       return reportedByProvider(stage.vehicleKey);
@@ -1001,10 +1001,10 @@ export default function PlanRoutes({ arrival = null }: { arrival?: RampFinding |
               </p>
             ))}
             <p className={styles.actionRow}>
-              <a href="/plan-preview" className={styles.button}>
+              <a href="/plan-routes" className={styles.button}>
                 {rampReplan.clear}
               </a>
-              <a href="/ramp-preview" className={styles.button}>
+              <a href="/ramp-ipad" className={styles.button}>
                 {rampReplan.backToRamp}
               </a>
             </p>

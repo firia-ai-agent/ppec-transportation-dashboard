@@ -17,7 +17,7 @@
  * playwright.config.ts), which grants a role and nothing else.
  */
 import { expect, test, type Page } from "@playwright/test";
-import { fill, rampPreview, rampReplan, vanName } from "../src/ui/copy";
+import { fill, rampIpad, rampReplan, vanName } from "../src/ui/copy";
 import {
   expectDemoBarPinned,
   expectNoInternalCodes,
@@ -46,19 +46,19 @@ async function answer(page: Page, label: string, choice: string) {
  * §18.2 step 6, answered on the checklist exactly as ramp staff would answer it.
  */
 async function reportTwoSeatsOut(page: Page) {
-  await answer(page, rampPreview.liftRow, rampPreview.answer.YES);
-  await answer(page, rampPreview.latchRow, rampPreview.answer.YES);
-  await answer(page, "Wheelchair position 1", rampPreview.positionAnswer.FREE);
-  await answer(page, "Walking seat 1", rampPreview.positionAnswer.FREE);
-  await answer(page, "Walking seat 2", rampPreview.positionAnswer.OUT);
-  await answer(page, "Walking seat 3", rampPreview.positionAnswer.OUT);
+  await answer(page, rampIpad.liftRow, rampIpad.answer.YES);
+  await answer(page, rampIpad.latchRow, rampIpad.answer.YES);
+  await answer(page, "Wheelchair position 1", rampIpad.positionAnswer.FREE);
+  await answer(page, "Walking seat 1", rampIpad.positionAnswer.FREE);
+  await answer(page, "Walking seat 2", rampIpad.positionAnswer.OUT);
+  await answer(page, "Walking seat 3", rampIpad.positionAnswer.OUT);
 }
 
 test.describe("a ramp check that finds the wrong equipment re-plans the van", () => {
   test("the iPad takes the check, and the plan and the board show what it did", async ({ page }) => {
     /* ── 1. the ramp, on the day the board shows ── */
-    await page.goto("/ramp-preview");
-    await expect(page.getByRole("heading", { name: rampPreview.heading })).toBeVisible();
+    await page.goto("/ramp-ipad");
+    await expect(page.getByRole("heading", { name: rampIpad.heading })).toBeVisible();
     await expectDemoBarPinned(page);
 
     // The van at the ramp is the scenario's own, with the scenario's own children on it.
@@ -71,7 +71,7 @@ test.describe("a ramp check that finds the wrong equipment re-plans the van", ()
     // Nothing is answered yet, so the panel asks for the rest of the check rather than
     // announcing that three children have no van. That is the honest state of every morning.
     const panel = page.locator("#ramp-replan");
-    await expect(panel).toContainText(rampPreview.notCheckedDetail);
+    await expect(panel).toContainText(rampIpad.notCheckedDetail);
     await expect(panel).not.toContainText(rampReplan.movedHeading);
     await expect(page.getByRole("link", { name: rampReplan.openPlan })).toHaveCount(0);
 
@@ -122,7 +122,7 @@ test.describe("a ramp check that finds the wrong equipment re-plans the van", ()
     // writes them down (no database behind these screens), so the check is answered again —
     // which is also worth walking: the same answers produce the same link, every time.
     await page.getByRole("link", { name: rampReplan.backToRamp }).click();
-    await expect(page.getByRole("heading", { name: rampPreview.heading })).toBeVisible();
+    await expect(page.getByRole("heading", { name: rampIpad.heading })).toBeVisible();
     await reportTwoSeatsOut(page);
 
     const toBoard = page.getByRole("link", { name: rampReplan.openBoard });
@@ -155,20 +155,20 @@ test.describe("a ramp check that finds the wrong equipment re-plans the van", ()
   test("a chair measured bigger than the file leaves her with no van, and says what is missing", async ({
     page,
   }) => {
-    await page.goto("/ramp-preview");
+    await page.goto("/ramp-ipad");
 
     // The van is fine. The chair is not the chair the approved profile describes — a new
     // headrest and a tray — which is the whole of "equipment found unknown at arrival".
-    await answer(page, rampPreview.liftRow, rampPreview.answer.YES);
-    await answer(page, rampPreview.latchRow, rampPreview.answer.YES);
+    await answer(page, rampIpad.liftRow, rampIpad.answer.YES);
+    await answer(page, rampIpad.latchRow, rampIpad.answer.YES);
     for (const row of ["Wheelchair position 1", "Walking seat 1", "Walking seat 2", "Walking seat 3"]) {
-      await answer(page, row, rampPreview.positionAnswer.FREE);
+      await answer(page, row, rampIpad.positionAnswer.FREE);
     }
 
     const panel = page.locator("#ramp-replan");
     await expect(panel).toContainText(rampReplan.nothingChanged);
 
-    await page.getByRole("button", { name: rampPreview.measureChair }).click();
+    await page.getByRole("button", { name: rampIpad.measureChair }).click();
     await expect(page.locator("main")).toContainText("Measured 142 × 74 cm");
 
     // No van in the scenario has a wheelchair place that takes a chair that size, so she is

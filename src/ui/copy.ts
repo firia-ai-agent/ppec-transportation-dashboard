@@ -395,7 +395,13 @@ export function onDay(words: { today: string; otherDay: string }, day: LabelledD
 export const scenarioClock = {
   label: "Scenario clock",
   notStarted: "Demo not started",
-  start: "Start",
+  /**
+   * COPY-GUIDE §3, "Buttons: verb + object, ≤3 words". It read "Start" — a verb with nothing
+   * after it, sitting next to "Demo not started", so the one thing a founder is about to click
+   * did not say what it starts. COPY-GUIDE §5 sketches this control as "[Start]"; that line
+   * predates §3's button rule and is the shorter of the two, so the rule wins.
+   */
+  start: "Start demo day",
   /** Shown on hover and on focus; the button stays focusable so this can be read (§9). */
   startUnavailable: "Demo controls aren't connected yet.",
 } as const;
@@ -412,7 +418,6 @@ export const scenarioClock = {
 export const unbuilt = {
   /** `{page}` is the nav label, so the heading reads "Setup isn't built yet". */
   heading: "{page} isn't built yet",
-  tag: "Not built yet",
   exceptions:
     "This page will list what needs action, who is handling it, and when it is due.",
   setup: "This page will hold the vans, their seat layouts, and the people allowed to receive a child.",
@@ -647,22 +652,34 @@ export const login = {
 } as const;
 
 /**
- * The map preview — a developer and design-review surface, like `whoami`: Vera and Veri walk
- * the DESIGN-DIRECTION §10 map checklist here before the live board exists. Its copy is
- * precise about what is and is not simulated rather than coordinator-friendly, and it still
- * lives in this file so the §1 voice rules apply to it too.
+ * The live map — where the fleet is now, on its own route until the map lands inside SURF-01
+ * (BUILD-PLAN-M2 P-03). Vera and Veri also walk the DESIGN-DIRECTION §10 map checklist here, so
+ * the copy is precise about what is and is not simulated, and it lives in this file so the §1
+ * voice rules apply to it too.
+ *
+ * On the name: "Live map" is what the screen is *for* — where every van is right now — and the
+ * §7.1 source chip in the DEMO bar is what says where the positions come from, "Simulated", on
+ * this route as on every other. That is the same division the whole app uses: the board is
+ * called "Today" and the chip says the rides are simulated. The label used to be "Map preview",
+ * which named the build rather than the screen, and Vera's review (2026-10-17) rules out
+ * "preview" in any menu label or address. Nothing here claims the data is live: `signedInOnly`
+ * says it is simulated in words, `mapLabel` says it again to a screen reader, and every row the
+ * pane draws is a fixture replay (src/fixtures/replays.ts).
  */
-export const mapPreview = {
-  heading: "Map preview",
-  /** <title> for the route, so the tab says which preview is open. */
-  documentTitle: "Map preview · PPEC transportation dashboard",
+export const liveMap = {
+  heading: "Live map",
+  /** <title> for the route, so the tab says which screen is open. */
+  documentTitle: "Live map · PPEC transportation dashboard",
   /**
-   * What the surface is, in two sentences a reviewer reads once. It used to carry the build's
+   * What the surface is, in one sentence a reviewer reads once. It used to carry the build's
    * own surface code and a paragraph of fixture provenance; neither means anything to the
-   * people who stand in front of this screen, so both are gone (COPY-GUIDE §1–§2).
+   * people who stand in front of this screen, so both are gone (COPY-GUIDE §1–§2). It also used
+   * to end "Nothing here is live", which was the honest half of a screen called "Map preview";
+   * the sentence below says where the vans are from, and `signedInOnly` says the data is
+   * simulated, so the screen never claims a live feed it does not have.
    */
-  intro: "Simulated vans on demo routes. Nothing here is live.",
-  /** Said on the page itself: a preview surface is still behind staff sign-in. */
+  intro: "Where every van is, on the demo's own routes and clock.",
+  /** Said on the page itself: this surface is still behind staff sign-in, and still simulated. */
   signedInOnly: "Staff sign-in only. The data below is simulated, and the roles still apply.",
   clock: "Scenario clock {time} ET",
   pause: "Pause",
@@ -699,10 +716,17 @@ export const mapPreview = {
   faultRow: "{vehicle} · {route} · {fault}",
   /** A demo run, named by where it starts: "Okeeheelee Park run". */
   routeName: "{stop} run",
-  /** Where the ramp iPad preview is, said from the map preview so it can be found at all. */
-  openRampCheck: "Open the ramp check",
-  /** The sibling planning surface, for the roles whose own row in the table opens it. */
-  openPlanRoutes: "Open Plan routes",
+  /**
+   * Where a sibling screen is, said from the live map so it can be found at all — the ramp
+   * iPad, and the planning surface for the roles whose own row in the table opens it.
+   *
+   * `{page}` is that screen's own heading, so a link cannot call a screen something the screen
+   * does not call itself. It was two strings with the two names written out again, and when
+   * SURF-04 took the PRD's name (`rampIpad.heading`) one of them was left pointing at
+   * "the ramp check", a screen with that title no longer existing. src/ui/nav-items.ts reads
+   * the same headings for the rail.
+   */
+  openScreen: "Open {page}",
   /** A device with no active binding has no position to show, so it is absent, not faint. */
   unbound:
     "{vehicle}'s device has no active binding: {unbound} points ingested and stored as unbound, {accepted} displayable. It has no marker, no row and no ETA.",
@@ -817,12 +841,20 @@ export const whoami = {
  * SURF-04 Ramp iPad (COPY-GUIDE §5 "SURF-04", §3 formats, DESIGN-DIRECTION §4.4).
  *
  * Every word the ramp check renders, including the strings the pure helpers in
- * src/app/ramp-preview/capability.ts build up — a verdict is computed there, but the sentence
+ * src/app/ramp-ipad/capability.ts build up — a verdict is computed there, but the sentence
  * that says it belongs here. Voice rules from §1 apply: plain, honest about certainty, a need
  * is never a diagnosis.
  */
-export const rampPreview = {
-  heading: "Ramp check",
+export const rampIpad = {
+  /**
+   * The PRD's own name for this screen, now that the rail links to it: PRD §14 calls the
+   * destination "Ramp iPad" in the navigation line (l.1055) and titles the surface "SURF-04
+   * Ramp iPad" (l.1061), and DESIGN-DIRECTION §2 repeats it ("Ramp iPad is its own full-screen
+   * route"). It was "Ramp check", which said the job rather than the surface; one name, in the
+   * rail and at the top of the page, is worth more than two good ones (src/ui/nav-items.ts
+   * reads this string for the rail label, so they cannot drift).
+   */
+  heading: "Ramp iPad",
   /** `{date}` is the site-timezone service date, "Tue, Oct 14" (§3). */
   subtitle: "{date} · afternoon rides",
   /**
@@ -858,7 +890,7 @@ export const rampPreview = {
   /**
    * A seat layout in words. The fixtures carry the trade's shorthand ("1WC/3A"), which is
    * fine on a manifest and wrong on a 56 px button a ramp attendant taps in the rain, so the
-   * button says what the shorthand means. `layoutName` in src/app/ramp-preview/capability.ts
+   * button says what the shorthand means. `layoutName` in src/app/ramp-ipad/capability.ts
    * reads the two counts out of the code; these are the words it puts round them.
    */
   layout: {
@@ -1112,9 +1144,9 @@ export function layoutName(code: string): string {
   if (!match) return code;
   const chairs =
     Number(match[1]) === 0
-      ? rampPreview.layout.noWheelchairs
+      ? rampIpad.layout.noWheelchairs
       : pluralize(Number(match[1]), countable.wheelchair);
-  return `${chairs}${rampPreview.layout.separator}${pluralize(Number(match[2]), countable.seat)}`;
+  return `${chairs}${rampIpad.layout.separator}${pluralize(Number(match[2]), countable.seat)}`;
 }
 
 /**
@@ -1216,7 +1248,7 @@ export const drawer = {
   historyHeading: "History",
 
   /** §5: "Derived from intake, not a diagnosis." Shared with the ramp check, written once. */
-  needsCaption: rampPreview.needsCaption,
+  needsCaption: rampIpad.needsCaption,
   /** PRD VEH-01: an unapproved item is greyed and never drives seat allocation. */
   needNotApproved: "Not approved yet. Ask the director to review.",
   needNotUsed: "Not used for allocation",
@@ -1331,7 +1363,7 @@ export const solver = {
   /** Capability states that put the vehicle out of today's reach entirely. */
   unusable: {
     REJECTED: "Staff rejected this vehicle's report for today.",
-    UNAVAILABLE: rampPreview.vehicleOut,
+    UNAVAILABLE: rampIpad.vehicleOut,
     /** Already checked and already found not to fit: re-solving it would say the same thing. */
     VERIFIED_INFEASIBLE: "Staff checked this vehicle and the run does not fit it.",
   },
@@ -1675,7 +1707,7 @@ export const planRoutes = {
   /**
    * Said once, under the Vans heading, about every rider card below it — not on each one.
    *
-   * It is the same promise as the ramp check's `rampPreview.needsCaption` and it is not the same
+   * It is the same promise as the ramp check's `rampIpad.needsCaption` and it is not the same
    * string, because here it is a caption over a list rather than a line under one child's chips:
    * nine copies of "Derived from intake, not a diagnosis." was the single most repeated sentence
    * on the screen (Vera's review, 2026-10-17).

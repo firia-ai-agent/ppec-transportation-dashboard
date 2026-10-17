@@ -1,5 +1,5 @@
 /**
- * Who sees what on /map-preview.
+ * Who sees what on /live-map.
  *
  * The matrix is written out in full below rather than derived, so changing a cell in
  * src/domain/access/map-view.ts has to be a deliberate edit here too — a privilege ladder
@@ -8,8 +8,8 @@
 import { describe, expect, it } from "vitest";
 import type { StaffRole } from "@/auth/core";
 import {
-  canOpenMapPreview,
-  canOpenRampPreview,
+  canOpenLiveMap,
+  canOpenRampIpad,
   canSeeMapData,
   demoSessionRole,
   MAP_DATA_BY_ROLE,
@@ -82,13 +82,13 @@ describe("role × map data", () => {
 
   it("gives an anonymous visitor nothing, so the sign-in guard is not decorative", () => {
     expect(MAP_DATA_BY_ROLE.ANONYMOUS).toEqual([]);
-    expect(canOpenMapPreview("ANONYMOUS")).toBe(false);
+    expect(canOpenLiveMap("ANONYMOUS")).toBe(false);
     for (const key of MAP_DATA_KEYS) expect(canSeeMapData("ANONYMOUS", key)).toBe(false);
   });
 
   it("lets all three staff roles open the page", () => {
     for (const role of ["DIRECTOR", "COORDINATOR", "FRONT_DESK"] as const) {
-      expect(canOpenMapPreview(role)).toBe(true);
+      expect(canOpenLiveMap(role)).toBe(true);
     }
   });
 
@@ -116,7 +116,7 @@ describe("mapViewerFor", () => {
 
   it("is ANONYMOUS for an active user with no membership anywhere", () => {
     expect(mapViewerFor([])).toBe("ANONYMOUS");
-    expect(canOpenMapPreview(mapViewerFor([]))).toBe(false);
+    expect(canOpenLiveMap(mapViewerFor([]))).toBe(false);
   });
 });
 
@@ -155,21 +155,21 @@ describe("the browser-test session grants a role and nothing else", () => {
 describe("who may open the ramp check", () => {
   it("lets every staff role in: the front desk's own surface, walked by all three", () => {
     for (const role of ["DIRECTOR", "COORDINATOR", "FRONT_DESK"] satisfies StaffRole[]) {
-      expect(canOpenRampPreview(role)).toBe(true);
+      expect(canOpenRampIpad(role)).toBe(true);
     }
   });
 
-  it("keeps anonymous out, for the reason the map preview keeps them out", () => {
+  it("keeps anonymous out, for the reason the live map keeps them out", () => {
     // The deployed URL is guessable and the page lists children by name, the transport needs
     // derived from their intake, and which seat each of them is in.
-    expect(canOpenRampPreview("ANONYMOUS")).toBe(false);
+    expect(canOpenRampIpad("ANONYMOUS")).toBe(false);
   });
 
-  it("is the same door as the map preview, so neither can be reached around the other", () => {
+  it("is the same door as the live map, so neither can be reached around the other", () => {
     for (const viewer of ["DIRECTOR", "COORDINATOR", "FRONT_DESK", "ANONYMOUS"] as const) {
-      expect({ viewer, ramp: canOpenRampPreview(viewer) }).toEqual({
+      expect({ viewer, ramp: canOpenRampIpad(viewer) }).toEqual({
         viewer,
-        ramp: canOpenMapPreview(viewer),
+        ramp: canOpenLiveMap(viewer),
       });
     }
   });

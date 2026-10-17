@@ -551,7 +551,7 @@ export function centerOfBounds(bounds: Bounds): Coord {
 }
 
 // ---------------------------------------------------------------------------
-// GeoJSON builders (pure, so the preview page and tests share them)
+// GeoJSON builders (pure, so the live map and tests share them)
 // ---------------------------------------------------------------------------
 
 export interface PointFeature<P> {

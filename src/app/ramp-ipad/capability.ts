@@ -10,7 +10,7 @@ import type {
 } from "@/domain/solver";
 import { onboardByStop } from "@/domain/solver";
 import type { RampArrival, RampFinding } from "@/domain/plan/arrival";
-import { countable, fill, layoutName, pluralize, rampPreview, securement } from "@/ui/copy";
+import { countable, fill, layoutName, pluralize, rampIpad, securement } from "@/ui/copy";
 import type { Tone } from "@/ui/tokens";
 
 export type Answer = "YES" | "NO" | "UNSURE";
@@ -25,8 +25,8 @@ export type Checklist = {
   positions: Record<string, PositionAnswer>;
 };
 
-export const ANSWER_LABEL: Record<Answer, string> = rampPreview.answer;
-export const POSITION_ANSWER_LABEL: Record<PositionAnswer, string> = rampPreview.positionAnswer;
+export const ANSWER_LABEL: Record<Answer, string> = rampIpad.answer;
+export const POSITION_ANSWER_LABEL: Record<PositionAnswer, string> = rampIpad.positionAnswer;
 
 export function layoutOf(vehicle: Vehicle, layoutId: string): Layout {
   const layout = vehicle.layouts.find((l) => l.id === layoutId);
@@ -60,7 +60,7 @@ export function toCapability(vehicle: Vehicle, checklist: Checklist, serviceDate
     latchOk: checklist.latch === "UNSURE" ? null : checklist.latch === "YES",
     unavailablePositionIds: ids.filter((id) => checklist.positions[id] === "OUT"),
     unknownPositionIds: ids.filter((id) => (checklist.positions[id] ?? "UNSURE") === "UNSURE"),
-    observedBy: rampPreview.observedBy,
+    observedBy: rampIpad.observedBy,
   };
 }
 
@@ -137,17 +137,17 @@ export function bannerCopy(result: SolveResult, need: Counts, available: Counts)
     if (need.amb > 0) {
       const seats = pluralize(need.amb, countable.walkingSeat);
       parts.push(need.tether > 0
-        ? fill(rampPreview.withAnchors, { parts: seats, count: need.tether })
+        ? fill(rampIpad.withAnchors, { parts: seats, count: need.tether })
         : seats);
     }
     return {
       tone: "ok",
       title: parts.length > 0
-        ? fill(rampPreview.fits, { parts: parts.join(", ") })
-        : rampPreview.fitsNobody,
+        ? fill(rampIpad.fits, { parts: parts.join(", ") })
+        : rampIpad.fitsNobody,
       // "Checked as 1 wheelchair · 3 seats." — the banner reads the same words as the button
       // that was tapped, never the provider's shorthand.
-      detail: fill(rampPreview.checkedAs, {
+      detail: fill(rampIpad.checkedAs, {
         layout: result.layout ? layoutName(result.layout.code) : "",
       }).trim(),
     };
@@ -155,27 +155,27 @@ export function bannerCopy(result: SolveResult, need: Counts, available: Counts)
   if (result.status === "CAPABILITY_PENDING") {
     return {
       tone: "warn",
-      title: rampPreview.notChecked,
-      detail: result.pendingReason ?? rampPreview.notCheckedDetail,
+      title: rampIpad.notChecked,
+      detail: result.pendingReason ?? rampIpad.notCheckedDetail,
     };
   }
   if (result.status === "VEHICLE_UNAVAILABLE") {
-    return { tone: "crit", title: rampPreview.vehicleOut, detail: result.pendingReason };
+    return { tone: "crit", title: rampIpad.vehicleOut, detail: result.pendingReason };
   }
   const deficit = result.deficit;
   const shortfall = (needed: string, have: number) =>
-    fill(rampPreview.deficitCount, { needed, available: have });
-  const phrase = !deficit ? rampPreview.deficitFallback
+    fill(rampIpad.deficitCount, { needed, available: have });
+  const phrase = !deficit ? rampIpad.deficitFallback
     : deficit.type === "WC_POSITION" ? shortfall(pluralize(need.wc, countable.wcPosition), available.wc)
     : deficit.type === "AMBULATORY_SEAT" ? shortfall(pluralize(need.amb, countable.walkingSeat), available.amb)
     : deficit.type === "TETHER_SEAT" ? shortfall(pluralize(need.tether, countable.anchoredSeat), available.tether)
-    : deficit.type === "WC_SECUREMENT" ? rampPreview.deficitSecurement
-    : deficit.type === "WC_FOOTPRINT" ? rampPreview.deficitFootprint
-    : rampPreview.deficitLift;
+    : deficit.type === "WC_SECUREMENT" ? rampIpad.deficitSecurement
+    : deficit.type === "WC_FOOTPRINT" ? rampIpad.deficitFootprint
+    : rampIpad.deficitLift;
   return {
     tone: "crit",
-    title: fill(rampPreview.doesntFit, { phrase }),
-    detail: deficit ? fill(rampPreview.foundAtStop, { k: deficit.k }) : null,
+    title: fill(rampIpad.doesntFit, { phrase }),
+    detail: deficit ? fill(rampIpad.foundAtStop, { k: deficit.k }) : null,
   };
 }
 
@@ -183,19 +183,19 @@ export function bannerCopy(result: SolveResult, need: Counts, available: Counts)
 export function needChips(child: Child): string[] {
   const chips: string[] = [];
   if (child.mobility === "WC") {
-    chips.push(fill(rampPreview.usesWheelchair, { securement: securement[child.securement ?? "OTHER"] }));
+    chips.push(fill(rampIpad.usesWheelchair, { securement: securement[child.securement ?? "OTHER"] }));
     if (child.wcLengthCm && child.wcWidthCm) {
-      chips.push(fill(rampPreview.chairSize, { length: child.wcLengthCm, width: child.wcWidthCm }));
+      chips.push(fill(rampIpad.chairSize, { length: child.wcLengthCm, width: child.wcWidthCm }));
     }
   }
-  if (child.tether) chips.push(rampPreview.needsAnchoredSeat);
-  if (child.escort) chips.push(rampPreview.escortRides);
+  if (child.tether) chips.push(rampIpad.needsAnchoredSeat);
+  if (child.escort) chips.push(rampIpad.escortRides);
   return chips;
 }
 
 /** A position's own name: "Wheelchair position 1" / "Walking seat 3". */
 export function positionName(position: LayoutPosition, index: number): string {
-  const template = isWc(position) ? rampPreview.wcPosition : rampPreview.ambPosition;
+  const template = isWc(position) ? rampIpad.wcPosition : rampIpad.ambPosition;
   return fill(template, { n: index });
 }
 
@@ -205,13 +205,13 @@ export function positionName(position: LayoutPosition, index: number): string {
  */
 export function positionDetail(position: LayoutPosition): string {
   if (isWc(position)) {
-    return fill(rampPreview.wcPositionDetail, {
+    return fill(rampIpad.wcPositionDetail, {
       securement: securement[position.securement],
       length: position.maxLengthCm,
       width: position.maxWidthCm,
     });
   }
-  return position.tetherCapable ? rampPreview.ambPositionDetail : "";
+  return position.tetherCapable ? rampIpad.ambPositionDetail : "";
 }
 
 /** Name plus detail, as the checklist and the slot matrix read it out together. */

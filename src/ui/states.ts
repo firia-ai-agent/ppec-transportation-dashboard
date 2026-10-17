@@ -96,6 +96,7 @@ import {
   UserX,
   TriangleAlert,
 } from "lucide-react";
+import { freshnessConfig } from "@/config/live";
 import { fill } from "./copy";
 import { humanizeAge } from "./age";
 import type { LucideIcon } from "lucide-react";
@@ -285,11 +286,16 @@ export const therapySessionStates: Vocabulary<TherapySessionStatus> = {
 
 /* ───────────────────── GPS freshness: four bands (D-2, §3) ───────────────────── */
 
-/** Band boundaries in seconds. D-2 chose four bands to honour both the PRD and the STALE badge. */
+/**
+ * Band boundaries in seconds. D-2 chose four bands to honour both the PRD and the STALE badge,
+ * and the three numbers are the ones src/config/live.ts holds — the same boundaries the domain
+ * reads (src/domain/location/freshness.ts), so a chip on a row and the rule that suppresses an
+ * ETA text can never be calibrated apart.
+ */
 export const gpsFreshnessBands = [
-  { key: "FRESH", maxAgeSeconds: 60 },
-  { key: "AGING", maxAgeSeconds: 180 },
-  { key: "STALE", maxAgeSeconds: 600 },
+  { key: "FRESH", maxAgeSeconds: freshnessConfig.freshSeconds },
+  { key: "AGING", maxAgeSeconds: freshnessConfig.staleSeconds },
+  { key: "STALE", maxAgeSeconds: freshnessConfig.lostSeconds },
   { key: "LOST", maxAgeSeconds: Number.POSITIVE_INFINITY },
 ] as const;
 export type GpsFreshness = (typeof gpsFreshnessBands)[number]["key"];

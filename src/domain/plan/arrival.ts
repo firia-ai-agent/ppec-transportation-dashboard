@@ -53,7 +53,7 @@ import {
   type Vehicle,
 } from "@/domain/solver";
 import { RUNS, type Run as DemoRun } from "@/modules/demo/fixtures/standard";
-import { places, rampPreview } from "@/ui/copy";
+import { places, rampIpad } from "@/ui/copy";
 import {
   asMeasured,
   checkedAtRamp,
@@ -201,7 +201,7 @@ function positionIds(layout: Layout, ordinals: readonly number[]): string[] {
 export function observedCapability(finding: RampFinding): DailyCapability {
   const vehicle = vehicleByKey(finding.laneId);
   const layout = layoutByCode(vehicle, finding.layoutCode);
-  return checkedAtRamp(vehicle.id, layout.id, rampPreview.observedBy, {
+  return checkedAtRamp(vehicle.id, layout.id, rampIpad.observedBy, {
     liftOk: finding.liftOk,
     latchOk: finding.latchOk,
     unavailablePositionIds: positionIds(layout, finding.outOfService),

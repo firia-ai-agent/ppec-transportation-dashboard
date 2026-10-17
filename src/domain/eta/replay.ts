@@ -8,10 +8,11 @@
  *
  * Deterministic and pure: given a {@link ReplaySpec} this returns the whole run —
  * points, arrivals, recalculations, notification **decisions** and location-loss
- * exceptions — with no clock, no network, no database and no sending. The /map-preview
+ * exceptions — with no clock, no network, no database and no sending. The /live-map
  * clock then reads frames out of the result; it does not drive the engine.
  */
 
+import { recomputeConfig } from "@/config/live";
 import {
   ageSecondsAt,
   gpsBand,
@@ -43,16 +44,21 @@ import {
 } from "./notify-gate";
 import { trafficMultiplierAt } from "./traffic";
 
+/*
+ * The ASM-11 recompute policy, named here and calibrated in src/config/live.ts (PRD §8 gives
+ * it a "≤90 s/vehicle" alternative, so it is a dial rather than a fact).
+ */
+
 /** ASM-11: recompute on a new position after ≥60 s… */
-export const RECOMPUTE_MIN_SECONDS = 60;
+export const RECOMPUTE_MIN_SECONDS = recomputeConfig.minSeconds;
 /** …or ≥300 m… */
-export const RECOMPUTE_MIN_METERS = 300;
+export const RECOMPUTE_MIN_METERS = recomputeConfig.minMeters;
 /** …and at least every 5 minutes. */
-export const RECOMPUTE_PERIOD_SECONDS = 300;
+export const RECOMPUTE_PERIOD_SECONDS = recomputeConfig.periodSeconds;
 /** ASM-11: with a 30 s debounce. */
-export const RECOMPUTE_DEBOUNCE_SECONDS = 30;
+export const RECOMPUTE_DEBOUNCE_SECONDS = recomputeConfig.debounceSeconds;
 /** ARCHITECTURE §6: the freshness sweeper runs every minute. */
-export const FRESHNESS_SWEEP_SECONDS = 60;
+export const FRESHNESS_SWEEP_SECONDS = recomputeConfig.sweepSeconds;
 
 export interface ReplaySpec {
   route: Route;

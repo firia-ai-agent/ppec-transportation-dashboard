@@ -12,7 +12,7 @@
  * iPad and the Today board too, so they live in src/ui/arrival-lines.ts and are re-exported
  * here. One wording, three screens — see that file for why.
  */
-import { countable, fill, layoutName, pluralize, planRoutes, rampPreview, securement, sentence, vanName } from "@/ui/copy";
+import { countable, fill, layoutName, pluralize, planRoutes, rampIpad, securement, sentence, vanName } from "@/ui/copy";
 import { missingPhrase, reasonLine, unplacedState } from "@/ui/arrival-lines";
 import { capabilityStates, legStates, reservationStates, type StateDescriptor } from "@/ui/states";
 import { clockLabel } from "@/ui/service-date";
@@ -102,7 +102,7 @@ export function laneLines(lane: LanePlan): string[] {
     );
   }
   if (verdict.status === "VEHICLE_UNAVAILABLE") {
-    return [verdict.pendingReason ?? rampPreview.vehicleOut, planRoutes.laneBlocked];
+    return [verdict.pendingReason ?? rampIpad.vehicleOut, planRoutes.laneBlocked];
   }
   const deficit = verdict.deficit;
   const stop = lane.leg.stops.find((s) => s.k === deficit?.k)?.label;
@@ -181,7 +181,7 @@ export function setUpAsLine(layout: Layout): string {
     layout.positions.length - places,
     countable.seat,
   );
-  return `${planRoutes.setUpNoWcPlaces}${rampPreview.layout.separator}${seats}`;
+  return `${planRoutes.setUpNoWcPlaces}${rampIpad.layout.separator}${seats}`;
 }
 
 /**
@@ -249,7 +249,7 @@ export function stopLine(rider: PlanRider): string {
 export function needChips(child: Child, measured: boolean): string[] {
   const chips: string[] = [];
   if (child.mobility === "WC") {
-    chips.push(fill(rampPreview.usesWheelchair, { securement: securement[child.securement ?? "OTHER"] }));
+    chips.push(fill(rampIpad.usesWheelchair, { securement: securement[child.securement ?? "OTHER"] }));
     if (child.wcLengthCm !== undefined && child.wcWidthCm !== undefined) {
       chips.push(
         fill(measured ? planRoutes.chairMeasured : planRoutes.chairOnFile, {
@@ -259,8 +259,8 @@ export function needChips(child: Child, measured: boolean): string[] {
       );
     }
   }
-  if (child.tether) chips.push(rampPreview.needsAnchoredSeat);
-  if (child.escort) chips.push(rampPreview.escortRides);
+  if (child.tether) chips.push(rampIpad.needsAnchoredSeat);
+  if (child.escort) chips.push(rampIpad.escortRides);
   return chips;
 }
 
