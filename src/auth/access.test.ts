@@ -271,14 +271,15 @@ describe("every role-restricted page has a 403 boundary beside it", () => {
       const boundary = path.join(REPO, path.dirname(row.file), "forbidden.tsx");
       expect(existsSync(boundary), `missing ${rel(boundary)}`).toBe(true);
       const source = readFileSync(boundary, "utf8");
-      // It names its own page, which is where the "who can open this" line comes from.
-      expect(source).toContain(`<NoAccess path="${row.path}" />`);
+      // It names its own page, which is where the "who can open this" line comes from. The
+      // frame around the card is the shared component's (src/ui/refused-frame.test.ts).
+      expect(source).toContain(`<RefusedPage path="${row.path}" />`);
     },
   );
 
   it("every boundary names a path the table holds", () => {
     for (const file of surfaceFiles.forbidden) {
-      const named = /<NoAccess path="([^"]+)"/.exec(readFileSync(path.join(REPO, file), "utf8"))?.[1];
+      const named = /<RefusedPage path="([^"]+)"/.exec(readFileSync(path.join(REPO, file), "utf8"))?.[1];
       // The root boundary names no page on purpose: it is the refusal with no page to name.
       if (!named) {
         expect(file).toBe("src/app/forbidden.tsx");
@@ -351,13 +352,19 @@ describe("the policy itself, written out so a silent widening fails", () => {
     const written = Object.fromEntries(
       PAGES.filter((p) => p.kind === "page").map((p) => [
         p.path,
-        "roles" in p.access ? [...p.access.roles].join("+") : "PUBLIC",
+        "roles" in p.access ? [...p.access.roles].join("+") : "signedIn" in p.access ? "SIGNED_IN" : "PUBLIC",
       ]),
     );
     expect(written).toEqual({
       "/": "PUBLIC",
       "/login": "PUBLIC",
       "/_not-found": "PUBLIC",
+      /*
+       * The refusal card at an address: a session and nothing more, and then `forbidden()` for
+       * every one of them. It grants no access to anything — there is nothing behind it — and
+       * it is the only page whose policy is a bare session (src/app/refusal-check/page.tsx).
+       */
+      "/refusal-check": "SIGNED_IN",
       "/today": "DIRECTOR+COORDINATOR",
       "/exceptions": "DIRECTOR+COORDINATOR",
       "/setup": "DIRECTOR+COORDINATOR",
@@ -465,6 +472,12 @@ describe("the decision, cell by cell", () => {
       "/login",
       "/_not-found",
       "/whoami",
+      /*
+       * The refusal card at an address. "Allowed" here is the guard letting a session past, and
+       * the page then refuses it — which is the whole route: it carries no data and no screen,
+       * so there is nothing for this row to have given the front desk.
+       */
+      "/refusal-check",
       "/live-map",
       "/ramp-ipad",
       // The redirects to those same two screens, and not the one to Plan routes.

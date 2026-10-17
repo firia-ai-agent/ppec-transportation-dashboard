@@ -332,6 +332,27 @@ export const PAGES: readonly PageRow[] = [
     founderQuestion: true,
   },
   /**
+   * The refusal card itself, at an address (src/app/refusal-check/page.tsx). It reads nothing,
+   * renders nothing, and answers 403 to every session: its body is `forbidden()`.
+   *
+   * `signedIn` is the whole of its policy, and it is the narrowest row that still does the one
+   * job this route has. The card is the only screen in the app no staff role can reach — a
+   * wrong-role URL is a 307 to that person's own home now (§9.3) — so there was no way to look
+   * at it in a browser, and "the refusal has a frame around it" could be asserted from the
+   * source and nowhere else. Asking for a session first means a signed-out visitor is sent to
+   * sign-in here exactly as on every other page, rather than being told this address exists;
+   * everyone past that point is refused, so the row grants no access to anything.
+   *
+   * No label, because it is on no menu and is no role's home: it is in neither
+   * src/ui/nav-items.ts nor `HOME_ORDER`.
+   */
+  {
+    kind: "page",
+    file: "src/app/refusal-check/page.tsx",
+    path: "/refusal-check",
+    access: { signedIn: true },
+  },
+  /**
    * The live map (DESIGN-DIRECTION §5). Open to all staff; what each role actually sees on it is
    * the per-key matrix in src/domain/access/map-view.ts (the front-desk iPad gets the vans and
    * no family labels or notification queue).

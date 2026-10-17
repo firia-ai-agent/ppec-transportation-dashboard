@@ -97,6 +97,22 @@ vi.mock("next-auth", () => ({ AuthError: class AuthError extends Error {} }));
 vi.mock("@/components/map/LiveFleetMap", () => ({ default: () => null }));
 vi.mock("@/db/exec", () => ({ getNeonDb, runAfterCommit: vi.fn() }));
 /*
+ * The console shell, as a pass-through. Since Vera's review (2026-10-17 4:19 PM ET) the 403
+ * boundaries render the refusal card *inside the app frame* — header, account menu, and this
+ * role's own menu — so that a refusal is not a dead end (src/ui/RefusedPage.tsx). On most
+ * routes that frame comes from the folder's layout and the boundary is only the card; on the
+ * rest the boundary mounts it. What this file reads is the card either way: the body a 403
+ * answers with, asserted as an equality so that nothing else can be hiding in it. The frame is
+ * chrome — it carries the signed-in person's own name on purpose — and its rules are
+ * src/ui/refused-frame.test.ts and e2e/one-menu.spec.ts, which measures it in a browser.
+ *
+ * It is `async` so that `toHtml` below unwraps it the way it unwraps any server component and
+ * reaches the card inside.
+ */
+vi.mock("@/ui/ConsoleShell", () => ({
+  ConsoleShell: async ({ children }: { children: ReactNode }) => children,
+}));
+/*
  * The real `next/link` wants a router from React context that exists only inside Next, and the
  * no-access card and two of the pages hold one. A plain anchor is enough: what is read off the
  * rendered HTML below is the words and the hrefs.
@@ -334,6 +350,8 @@ describe("the harness itself works", () => {
       [
         "/", "/_not-found", "/exceptions", "/health", "/login", "/live-map", "/plan-routes",
         "/ramp-ipad", "/setup", "/today", "/whoami",
+        // The refusal card at an address: a session, and then 403 for every one of them.
+        "/refusal-check",
         // The three old addresses, which are pages too: a guard, then a permanent redirect.
         ...Object.keys(MOVED_PAGES),
       ].sort(),
@@ -364,6 +382,22 @@ describe("every page, for every role and for a signed-out visitor", () => {
         if (page.path === "/") {
           // The entry route always redirects, to wherever this caller's own first page is.
           expect(result).toEqual({ rendered: false, interrupt: { kind: "redirect", to: homePathFor(caller) } });
+          return;
+        }
+        if (page.path === "/refusal-check") {
+          /*
+           * The refusal card at an address (src/app/refusal-check/page.tsx). Its row is a bare
+           * session, so the guard lets every signed-in caller through and sends a signed-out
+           * one to sign-in like any other page — and then the body refuses them all, which is
+           * the only reason the route exists: the card is otherwise unreachable in a browser
+           * for any staff role (§9.3 sends them home instead), so there was no way to look at
+           * it. Nothing is read and nothing is rendered, so there is nothing here to leak.
+           */
+          expect(result).toEqual(
+            expected === "SIGN_IN"
+              ? { rendered: false, interrupt: { kind: "redirect", to: "/login" } }
+              : { rendered: false, interrupt: { kind: "http", status: 403 } },
+          );
           return;
         }
         if (expected === "ALLOW") {
