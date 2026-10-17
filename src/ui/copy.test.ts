@@ -36,7 +36,9 @@ import {
   vanTitle,
   whoami,
 } from "./copy";
-import { DEMO_RUNS } from "@/fixtures/replays";
+import { DEMO_RUNS, RUN_GPS_GAP, RUN_JITTER } from "@/fixtures/replays";
+import { DEMO_VEHICLES } from "@/fixtures/map";
+import { JITTER_METERS, type GpsGapFault, type JitterFault } from "@/domain/location/simulator";
 
 /**
  * COPY-GUIDE.md is the source of truth for words. These assertions pin the strings the guide
@@ -776,14 +778,51 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
   it("holds the demo runs' fault labels, and the fixture reads them from here", () => {
     expect(liveMap.fault).toEqual({
       stall: "Stall 12 min",
-      gpsGap: "GPS gap 11 min · duplicate + out-of-order points",
-      jitter: "Jitter ±40 m",
+      // Vera, 2026-10-17: the fault's name in the simulator ("GPS gap", "Jitter") and a
+      // tolerance notation ("±40 m") are not what a reviewer sees happen, so these two say the
+      // symptom instead — and the number each of them names is a placeholder, filled by the
+      // fixture from the fault that produces it (the test below).
+      gpsGap: "No GPS for {minutes} min, then repeated and out-of-order points",
+      jitter: "Position wobbles up to {meters} m",
       unboundDevice: "Device not linked to a van",
     });
-    expect(DEMO_RUNS.map((run) => run.faultLabel)).toEqual(Object.values(liveMap.fault));
     // And the fixture holds no copy of its own for them.
     const fixture = readFileSync(path.join(SRC, "fixtures", "replays.ts"), "utf8");
     for (const label of Object.values(liveMap.fault)) expect(fixture).not.toContain(`"${label}"`);
+  });
+
+  /**
+   * The two labels that name a number take it from the run, not from this file.
+   *
+   * Vera, 2026-10-17: "keep the minutes interpolated, not hardcoded". The number on the screen
+   * is the gap fault's own duration and the jitter fault's own radius, so a run whose gap is
+   * lengthened says the new length rather than keeping one the run stopped producing. Both
+   * halves are asserted: that the fixture fills the templates at all (no `{…}` survives to the
+   * screen), and that what it fills them with is the spec's own value.
+   */
+  it("fills the gap and the wobble from the runs that produce them", () => {
+    const labels = DEMO_RUNS.map((run) => run.faultLabel);
+    for (const label of labels) expect(label, label).not.toMatch(/\{\w+\}/);
+
+    const gap = RUN_GPS_GAP.faults?.find((f): f is GpsGapFault => f.kind === "gpsGap");
+    const jitter = RUN_JITTER.faults?.find((f): f is JitterFault => f.kind === "jitter");
+    expect(gap, "RUN_GPS_GAP injects no gap").toBeDefined();
+    expect(jitter, "RUN_JITTER injects no jitter").toBeDefined();
+
+    const byRun = new Map(DEMO_RUNS.map((run) => [run.spec, run.faultLabel]));
+    expect(byRun.get(RUN_GPS_GAP)).toBe(
+      fill(liveMap.fault.gpsGap, { minutes: Math.round(gap!.durationSec / 60) }),
+    );
+    // `meters` is optional on the fault; unset means the simulator's own default, which is what
+    // the run will actually do and so what the label must say.
+    expect(byRun.get(RUN_JITTER)).toBe(
+      fill(liveMap.fault.jitter, { meters: jitter!.meters ?? JITTER_METERS }),
+    );
+
+    // What the two sentences read as, with the numbers these runs carry today — the 660 s gap
+    // and the ±40 m wobble that replays.test.ts holds from the simulator's side.
+    expect(byRun.get(RUN_GPS_GAP)).toBe("No GPS for 11 min, then repeated and out-of-order points");
+    expect(byRun.get(RUN_JITTER)).toBe("Position wobbles up to 40 m");
   });
 
   /**
@@ -929,6 +968,39 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
       expect(line, key).toContain("{provider}");
       expect(line, key).not.toMatch(/\bthe provider\b/);
     }
+  });
+
+  /**
+   * A van the fixtures gave no plain-words name is still a van, and never a blank name.
+   *
+   * Vera, 2026-10-17. `vanTitle("")` filled `vanNamed` with nothing and returned "The ", and
+   * the live map is the screen that can ask for one: it looks a van up by vehicle id and passes
+   * `?? ""` when the fixture has no row for it (`vanNameOf` in
+   * src/components/map/LiveFleetMap.tsx, pinned against that source by
+   * src/components/map/pane.test.ts). So the path a van with no description takes to the screen
+   * is this function, and this is where the answer is held — for every van the live map draws
+   * and for an id no fixture has.
+   */
+  it("never puts a blank name on a van, named by the fixtures or not", () => {
+    expect(planRoutes.vanUnnamed).toBe("A van");
+    expect(vanTitle("")).toBe(planRoutes.vanUnnamed);
+    expect(vanTitle("   ")).toBe(planRoutes.vanUnnamed);
+    // The old answer, which is the shape of the bug: an article and then nothing.
+    expect(vanTitle("")).not.toMatch(/^The\s*$/);
+
+    // Every van the live map names, by the route the component itself takes.
+    const meta = new Map(DEMO_VEHICLES.map((vehicle) => [vehicle.id, vehicle]));
+    const ids = [...DEMO_RUNS.map((run) => run.spec.route.vehicleId), "V-not-in-the-fixture"];
+    for (const id of ids) {
+      const name = vanTitle(meta.get(id)?.description ?? "");
+      expect(name, id).toMatch(/^[A-Z]/);
+      // A name, not an article with nothing after it.
+      expect(name.replace(/^(?:The|A)\s*/, ""), id).not.toBe("");
+      expect(name, id).not.toMatch(/\{\w+\}/);
+    }
+
+    // And a van that *is* named still reads the way Plan routes names it.
+    expect(vanTitle("convertible van")).toBe("The convertible van");
   });
 
   /**

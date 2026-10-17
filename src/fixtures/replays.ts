@@ -12,7 +12,8 @@
  */
 
 import type { ReplaySpec } from "@/domain/eta/replay";
-import { liveMap } from "@/ui/copy";
+import { fill, liveMap } from "@/ui/copy";
+import { JITTER_METERS, type GpsGapFault, type JitterFault, type SimFault } from "@/domain/location/simulator";
 import type { Route } from "@/domain/location/route";
 import { ROUTE_1, ROUTE_2, ROUTE_3 } from "./routes";
 
@@ -97,18 +98,36 @@ export interface DemoRun {
   faultLabel: string;
 }
 
+/** The first fault of a kind in a spec, which is as many as any of these runs injects. */
+function faultOf<T extends SimFault>(spec: ReplaySpec, kind: T["kind"]): T | undefined {
+  return spec.faults?.find((fault): fault is T => fault.kind === kind);
+}
+
+/**
+ * The two labels that carry a number, filled from the fault that produces it.
+ *
+ * Vera, 2026-10-17: the numbers belong in the label, and the label is in src/ui/copy.ts — so
+ * what is left here is where each number comes from. Reading them off the spec is the point: a
+ * run whose gap is lengthened says the new length on the screen, instead of the screen keeping
+ * a number the run stopped producing. `meters` is optional on the fault, and unset means the
+ * simulator's own default, so the label says what the simulator will actually do.
+ */
+const GPS_GAP_MINUTES = Math.round((faultOf<GpsGapFault>(RUN_GPS_GAP, "gpsGap")?.durationSec ?? 0) / 60);
+const JITTER_RADIUS_M = faultOf<JitterFault>(RUN_JITTER, "jitter")?.meters ?? JITTER_METERS;
+
 /**
  * The runs the live map draws. `faultLabel` is the only one of these fields that reaches a
  * screen, which is why the four labels are no longer written here: they live with every other
  * user-facing string, in src/ui/copy.ts (`liveMap.fault` — Vera, 2026-10-17), and this file
- * says which run shows which fault. The PRD step and acceptance test each run exists for stay
- * in the comments above their specs, where they are a note to the next engineer rather than
- * something a reviewer standing at the board has to decode.
+ * says which run shows which fault and fills the two labels that name a number from the fault
+ * that produces it. The PRD step and acceptance test each run exists for stay in the comments
+ * above their specs, where they are a note to the next engineer rather than something a
+ * reviewer standing at the board has to decode.
  */
 export const DEMO_RUNS: DemoRun[] = [
   { spec: RUN_STALL, faultLabel: liveMap.fault.stall },
-  { spec: RUN_GPS_GAP, faultLabel: liveMap.fault.gpsGap },
-  { spec: RUN_JITTER, faultLabel: liveMap.fault.jitter },
+  { spec: RUN_GPS_GAP, faultLabel: fill(liveMap.fault.gpsGap, { minutes: GPS_GAP_MINUTES }) },
+  { spec: RUN_JITTER, faultLabel: fill(liveMap.fault.jitter, { meters: JITTER_RADIUS_M }) },
   { spec: RUN_UNBOUND, faultLabel: liveMap.fault.unboundDevice },
 ];
 

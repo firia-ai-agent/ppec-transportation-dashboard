@@ -555,8 +555,25 @@ export const liveMap = {
    */
   fault: {
     stall: "Stall 12 min",
-    gpsGap: "GPS gap 11 min · duplicate + out-of-order points",
-    jitter: "Jitter ±40 m",
+    /**
+     * What the run shows, in the order a reviewer watching it sees the two halves happen.
+     *
+     * It read "GPS gap 11 min · duplicate + out-of-order points" (Vera, 2026-10-17). "GPS gap"
+     * is the fault's name in the simulator rather than what a reader sees, and the middle dot
+     * made one run's two symptoms look like two separate rows — so the line says the silence
+     * first and then what arrived after it, which is the order they happen in.
+     *
+     * `{minutes}` is the gap fault's own duration, read off the run's spec in
+     * src/fixtures/replays.ts rather than written out here, so the number on the screen cannot
+     * drift from the run it describes.
+     */
+    gpsGap: "No GPS for {minutes} min, then repeated and out-of-order points",
+    /**
+     * The same change for the same reason: "Jitter ±40 m" was the fault's name plus a tolerance
+     * notation, and what a reviewer sees is a marker that will not sit still. `{meters}` is the
+     * jitter fault's own radius out of the run's spec, never written out here.
+     */
+    jitter: "Position wobbles up to {meters} m",
     unboundDevice: "Device not linked to a van",
   },
   /** A demo run, named by where it starts: "Okeeheelee Park run". */
@@ -1238,6 +1255,16 @@ export const planRoutes = {
    * stylesheet, so there is one name for a van and not two.
    */
   vanNamed: "the {description}",
+  /**
+   * A van the fixtures gave no plain-words name: "A van".
+   *
+   * `vanTitle("")` built "The " out of `vanNamed` and an empty description, which is a van with
+   * a blank name on the screen — and the live map asks for a name by vehicle id, so a van
+   * missing from the fixture map got exactly that (Vera, 2026-10-17). A van with no description
+   * is still a van, and this is what it is called. Standalone and capitalised, like `vanTitle`
+   * itself, because that is where a van's name stands alone.
+   */
+  vanUnnamed: "A van",
   vanMeta: "{provider} · {driver} driving",
   equipmentHeading: "What this van has",
   equipment: {
@@ -1481,6 +1508,10 @@ export function vanName(description: string): string {
  * never "V1").
  */
 export function vanTitle(description: string): string {
+  // A van the fixtures named nothing is still a van, and never a blank name on the screen
+  // (Vera, 2026-10-17). Here rather than at the live map's call site because every surface that
+  // asks for a van's standalone name — the map's sentences and its marker labels — asks here.
+  if (description.trim() === "") return planRoutes.vanUnnamed;
   const named = vanName(description);
   return named.charAt(0).toUpperCase() + named.slice(1);
 }

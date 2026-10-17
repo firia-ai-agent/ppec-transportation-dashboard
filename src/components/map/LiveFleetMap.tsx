@@ -115,6 +115,11 @@ const VEHICLE_META = new Map(DEMO_VEHICLES.map((v) => [v.id, v]));
  * built from the same helper one layer down (src/components/map/style.ts), so a marker and the
  * sentence about the van that has no marker agree; the code stays in the fixtures, where it is
  * the key that joins a run to a vehicle.
+ *
+ * A run whose vehicle id is not in the fixture map has no description to name, and the `?? ""`
+ * below used to make `vanTitle` print "The " — a van with a blank name in the middle of a
+ * sentence about it. `vanTitle` answers `planRoutes.vanUnnamed` ("A van") for that now, so no
+ * van on this screen is nameless (Vera, 2026-10-17; src/ui/copy.ts).
  */
 function vanNameOf(vehicleId: string): string {
   return vanTitle(VEHICLE_META.get(vehicleId)?.description ?? "");
