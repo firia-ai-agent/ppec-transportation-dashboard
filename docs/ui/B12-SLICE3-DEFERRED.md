@@ -21,7 +21,7 @@ Five things, and the first two are one change seen from each end.
 |---|---|---|
 | 1 | **Live updates**: `GET /api/stream`, a snapshot then deltas, a reconnect that resumes rather than restarts | `src/app/api/stream/route.ts`, `src/modules/realtime/{sse,live-board-stream}.ts`, `src/ui/LiveStream.tsx` |
 | 2 | **The board at a tick**, and the difference between two ticks | `src/domain/board/live.ts`, `src/domain/board/day.ts` (`demoDayAtTick`) |
-| 3 | **The scenario clock**, as B-10 work rather than B-12's | `src/domain/eta/scenario-clock.ts` |
+| 3 | **The scenario clock**, as B-10 work rather than B-12's — **merged ahead of this branch in #56** (`d6e9f67`), with the `?tick=` gate and the day's own last tick; this slice calls it and keeps no copy | `src/domain/eta/scenario-clock.ts`, `src/domain/board/day.ts` (`demoDayAtTick`, `DAY_LAST_TICK`, `requestedScenarioTick`) |
 | 4 | **The map pane beside the rows** (§4.1 split pane), with row-hover ↔ marker highlight and fly-to | `src/app/(app)/today/BoardMap.tsx`, `src/components/map/{FleetMap.tsx,live-fixture.ts}`, `today.module.css` |
 | 5 | **The §2 chrome that was waiting on a stream**: the amber "paused" bar past 15 s, the GPS pill's real age, the scenario clock's readout | `src/ui/{LiveUpdatesBar,GpsAdapterPill,ScenarioClock}.tsx`, `src/ui/AppShell.tsx` |
 
@@ -29,6 +29,12 @@ And the thresholds all five of them read now live in one file: `src/config/live.
 PRD §8 parameter table (the 60/180/600 s bands, the ASM-14 hysteresis, the ASM-11 recompute
 policy) plus the stream's own settings, because every one of those numbers is a calibration the
 PRD itself offers an alternative for. `live.test.ts` fails if a module declares one again.
+**That file and the clock above landed on main in #56, ahead of this branch** — both were built
+twice, here and there, while #56 was in review, and the duplicates are gone: everything on this
+branch reads main's `liveStreamConfig`, main's `scenario-clock.ts` and main's
+`dateOverrideAllowed`. One addition sits on top of main's `day.ts` and nowhere else:
+`requestedClockSpeed`, §6.2's ×1/×10/×60 for the stream, which calls that same gate helper
+rather than restating its four conditions (§4.1's last row).
 
 ## 2. The one difference from ADR-002, and why
 
@@ -113,7 +119,7 @@ Each row says what landed and where it is held.
 | **Only the demo day's clock, the DEMO bar and the Simulated chip on top, no date control** | Unchanged where it was already true (one `<time>`, "Demo day", no switcher) and now asserted as an absence on the whole rendered surface — no field, no picker, no option list, no link to another day, no arrows — with the violet measured on the real screen as painting the bar and the chip and nothing else | `today-board.test.ts` ("carries the demo day and offers no control"), the e2e above ("shows one day — the demo day") |
 | **Faith palette tokens only; violet only on the DEMO bar and the Simulated chip; quiet base map; no default blue pins or stock Leaflet** | Every colour added here is a §8 token read through `MAP_TOKENS` or a CSS custom property, including the glyphs' ink and white, which are parsed from the tokens rather than written as bytes. **The named Faith palette still does not exist in this repo** — `src/ui/tokens.ts` has carried that open question for the founder since §8 was written, and this change did not invent hexes to answer it. Nothing Leaflet is in the build at all | `src/ui/no-hex.test.ts`, `style.test.ts` ("never uses the demo violet"), `e2e/helpers.ts` `expectVioletOnlyOnDemoChrome`, the e2e above |
 | **Veri: `GET /api/stream` checks the session before streaming anything** — 401 and zero events | The guard was already first; what was missing was the proof. Each refusal is now asserted three ways: the status, a body with no SSE framing in it, and the board walker left uncalled — plus no timer left running. And over real HTTP against a second server started without the synthetic session, because the configured browser server cannot be anonymous | `src/app/api/stream/route.test.ts`, `e2e/stream-guard.spec.ts` |
-| **Veri: the scenario clock moves only under the same gates as `dateOverrideAllowed`; no clock control on any deployment** | `requestedClockSpeed` calls that helper — one list of gates, not two — and /today and the stream read `?speed=` through it. The header's Start and the preview's play/pause/speed/restart render only where the gate is open, and `VERCEL_ENV` is set on every deployment, so production and preview have the readout and no control | `day.test.ts`, `shell.test.ts`, `route.test.ts` — one test per gate at each level |
+| **Veri: the scenario clock moves only under the same gates as `dateOverrideAllowed`; no clock control on any deployment** | `requestedClockSpeed` calls that helper — one list of gates, now with three callers and not three lists: `?date=`, #56's `?tick=` (`requestedScenarioTick`) and `?speed=` — and /today and the stream read `?speed=` through it. /today resolves the tick once and gives the rows and the map pane the same one, so a board walked by `?tick=` has no second instant in its canvas. The header's Start and the preview's play/pause/speed/restart render only where the gate is open, and `VERCEL_ENV` is set on every deployment, so production and preview have the readout and no control | `day.test.ts`, `shell.test.ts`, `route.test.ts` — one test per gate at each level |
 
 Three judgement calls inside that work, named rather than left to be found:
 

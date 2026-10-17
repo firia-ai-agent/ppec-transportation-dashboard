@@ -7,14 +7,21 @@ import { serviceDate } from "@/ui/copy";
 import { serviceDateIso, serviceDateLabel } from "@/ui/service-date";
 import {
   BOARD_SCENARIO_SECONDS,
+  BOARD_SCENARIO_TICK,
+  CLOCK_PARAM,
   DATE_OVERRIDE_ENV_VAR,
+  DAY_LAST_TICK,
   DEMO_SERVICE_DATE,
   DAY_RANGE_DAYS,
   boardInstantMs,
   dateOverrideAllowed,
   demoDay,
+  demoDayAtTick,
+  demoDayTickAt,
   localTimeOn,
+  requestedBoardDay,
   requestedClockSpeed,
+  requestedScenarioTick,
   requestedServiceDay,
   serviceDayFor,
 } from "./day";
@@ -29,6 +36,15 @@ import {
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** A local browser-check shell: every one of the four gates open. */
+const TEST_SHELL = {
+  APP_DATA_CLASS: "SYNTHETIC",
+  DEMO_MODE: "1",
+  [DATE_OVERRIDE_ENV_VAR]: "1",
+} as const;
+
+const yesterday = demoDay().previousIso!;
 
 describe("the demo day", () => {
   it("is the day the committed replays are on, read twelve minutes into them", () => {
@@ -78,15 +94,6 @@ describe("the phase of a day decides when it is read", () => {
  * four gates, one of which (`VERCEL_ENV` unset) cannot hold on any deployment we own.
  */
 describe("the date override is a test path and nothing a deployment has", () => {
-  /** A local browser-check shell: every gate open. */
-  const TEST_SHELL = {
-    APP_DATA_CLASS: "SYNTHETIC",
-    DEMO_MODE: "1",
-    [DATE_OVERRIDE_ENV_VAR]: "1",
-  } as const;
-
-  const yesterday = demoDay().previousIso!;
-
   it("reads the day a test shell asks for", () => {
     expect(dateOverrideAllowed(TEST_SHELL)).toBe(true);
     const day = requestedServiceDay(yesterday, TEST_SHELL);
@@ -273,5 +280,123 @@ describe("which days the override can reach", () => {
 
   it("refuses a clock time that is not one, rather than reading it as midnight", () => {
     expect(() => localTimeOn(demoDay(), "half past four")).toThrow(/wall-clock time/);
+  });
+});
+
+/**
+ * Moving the board's clock is gated exactly as the date is, by calling the same function: a
+ * clock decides which rides have *happened*, so a request that could move it could put a hold,
+ * an exception or a cleared board in front of a coordinator reading what they believe is now.
+ *
+ * One test per gate below, and the first assertion in each is on `dateOverrideAllowed` itself —
+ * if the clock ever grows a condition of its own, the pair stops agreeing and these fail.
+ */
+describe("moving the clock is gated exactly as the date is", () => {
+  /** 4:25 PM on the demo day: five minutes past the AT-13 ride's window (AT-13's whole point). */
+  const PAST_THE_DROPOFF = String(demoDayTickAt("16:25"));
+
+  it("walks the demo day to the tick a test shell asks for", () => {
+    expect(dateOverrideAllowed(TEST_SHELL)).toBe(true);
+    expect(requestedScenarioTick(PAST_THE_DROPOFF, TEST_SHELL)).toBe(demoDayTickAt("16:25"));
+    const day = requestedBoardDay(undefined, PAST_THE_DROPOFF, TEST_SHELL);
+    // The same day — its date, its label, its phase — read at another instant on it.
+    expect(day.iso).toBe(DEMO_SERVICE_DATE);
+    expect(day.phase).toBe("LIVE");
+    expect(day.instantMs).toBe(localTimeOn(demoDay(), "16:25"));
+  });
+
+  /** Gate 1. The platform sets `VERCEL_ENV` on every deployment, production included. */
+  it("has no clock on a deployment, production included", () => {
+    for (const vercelEnv of ["production", "preview", "development"]) {
+      const env = { ...TEST_SHELL, VERCEL_ENV: vercelEnv };
+      expect(dateOverrideAllowed(env), vercelEnv).toBe(false);
+      expect(requestedScenarioTick(PAST_THE_DROPOFF, env), vercelEnv).toBe(BOARD_SCENARIO_TICK);
+      expect(requestedBoardDay(undefined, PAST_THE_DROPOFF, env).instantMs, vercelEnv).toBe(
+        boardInstantMs(),
+      );
+    }
+  });
+
+  /** Gate 2. ADR-015: with a real day in the database there is no scenario to walk. */
+  it("has no clock on anything but synthetic data", () => {
+    for (const dataClass of ["LIVE", undefined]) {
+      const env = { ...TEST_SHELL, APP_DATA_CLASS: dataClass };
+      expect(dateOverrideAllowed(env), String(dataClass)).toBe(false);
+      expect(requestedScenarioTick(PAST_THE_DROPOFF, env), String(dataClass)).toBe(
+        BOARD_SCENARIO_TICK,
+      );
+    }
+  });
+
+  /** Gate 3. ADR-014: the demo switch. */
+  it("has no clock with the demo switch off", () => {
+    for (const demoMode of ["0", undefined]) {
+      const env = { ...TEST_SHELL, DEMO_MODE: demoMode };
+      expect(dateOverrideAllowed(env), String(demoMode)).toBe(false);
+      expect(requestedScenarioTick(PAST_THE_DROPOFF, env), String(demoMode)).toBe(
+        BOARD_SCENARIO_TICK,
+      );
+    }
+  });
+
+  /** Gate 4. Said by name, so a local `pnpm dev` is the demo day at 07:42 unless it asked. */
+  it("has no clock in a local shell that did not ask for the override by name", () => {
+    for (const asked of [undefined, "true", "0"]) {
+      const env = { ...TEST_SHELL, [DATE_OVERRIDE_ENV_VAR]: asked };
+      expect(dateOverrideAllowed(env), String(asked)).toBe(false);
+      expect(requestedScenarioTick(PAST_THE_DROPOFF, env), String(asked)).toBe(
+        BOARD_SCENARIO_TICK,
+      );
+    }
+    expect(dateOverrideAllowed({})).toBe(false);
+    expect(requestedScenarioTick(PAST_THE_DROPOFF, {})).toBe(BOARD_SCENARIO_TICK);
+  });
+
+  it("is the board's own instant when no tick is asked for, to the millisecond", () => {
+    expect(requestedScenarioTick(undefined, TEST_SHELL)).toBe(BOARD_SCENARIO_TICK);
+    expect(demoDayAtTick(BOARD_SCENARIO_TICK)).toEqual(demoDay());
+    expect(requestedBoardDay(undefined, undefined, TEST_SHELL)).toEqual(demoDay());
+  });
+
+  /** A tick arrives in a URL that is typed by hand, so none of these may fail to render. */
+  it.each([
+    ["the end of the day, and holds there", "999999", "17:30"],
+    ["the scenario's own start, which is tick zero", "0", "07:30"],
+  ])("walks to %s", (_why, asked, hhmm) => {
+    expect(requestedBoardDay(undefined, asked, TEST_SHELL).instantMs).toBe(
+      localTimeOn(demoDay(), hhmm),
+    );
+  });
+
+  it.each(["", "   ", "noon", "4:20 PM", "NaN", "-500"])(
+    "is the board's own instant for a tick that is not one (%p)",
+    (asked) => {
+      expect(requestedScenarioTick(asked, TEST_SHELL)).toBe(BOARD_SCENARIO_TICK);
+    },
+  );
+
+  it("holds at the end of the day, which is where a finished day is read too", () => {
+    expect(demoDayAtTick(DAY_LAST_TICK).instantMs).toBe(localTimeOn(demoDay(), "17:30"));
+    expect(demoDayAtTick(DAY_LAST_TICK + 1000)).toEqual(demoDayAtTick(DAY_LAST_TICK));
+    // Longer than the committed replays on purpose: they stop in the morning and the ride
+    // AT-13 is about ends at 4:20 PM.
+    expect(DAY_LAST_TICK).toBeGreaterThan(demoDayTickAt("16:20"));
+  });
+
+  /**
+   * The clock is the demo day's. A finished day *is* its instant — after the last van is in —
+   * and a tick that moved it would be inventing a phase the day does not have.
+   */
+  it("leaves a day that is not the demo day at the instant its phase is read at", () => {
+    const ended = requestedBoardDay(yesterday, PAST_THE_DROPOFF, TEST_SHELL);
+    expect(ended.phase).toBe("ENDED");
+    expect(ended.instantMs).toBe(localTimeOn(ended, "17:30"));
+    const planned = requestedBoardDay(demoDay().nextIso, PAST_THE_DROPOFF, TEST_SHELL);
+    expect(planned.phase).toBe("PLANNED");
+    expect(planned.instantMs).toBe(localTimeOn(planned, "06:00"));
+  });
+
+  it("names the parameter once, so nothing has to spell it twice", () => {
+    expect(CLOCK_PARAM).toBe("tick");
   });
 });

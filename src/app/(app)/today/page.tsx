@@ -1,10 +1,11 @@
 import { mapViewerOf } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
 import {
-  BOARD_SCENARIO_TICK,
   buildBoard,
+  CLOCK_PARAM,
+  requestedBoardDay,
   requestedClockSpeed,
-  requestedServiceDay,
+  requestedScenarioTick,
 } from "@/domain/board/board";
 import { snapshotFor } from "@/domain/board/live";
 import { TodayBoard } from "./TodayBoard";
@@ -35,12 +36,20 @@ export const dynamic = "force-dynamic";
  * ride on it has an outcome (AT-13's held ride, AT-10's arrival that is not a handoff), which is
  * what the browser checks walk (`dateOverrideAllowed` in src/domain/board/day.ts).
  *
- * Live updates and the map pane are here now (slice 3). Both are rendered at the **same
- * instant** the rows are: the first live snapshot is computed on the server beside the board
- * and handed to the client, so the first paint is the whole surface and a stream that never
- * connects leaves a board that is still true — with the §2 amber bar above it saying the
- * updates have stopped. The stream itself is `/api/stream` (ADR-002), opened once per tab by
- * the console shell.
+ * `?tick=` is the same test path for the *instant* the demo day is read at, and it is read
+ * through the same gate and the same function (`requestedBoardDay`, which calls
+ * `dateOverrideAllowed`). It is how AT-13's browser check walks the demo day past Noah O.'s
+ * 4:20 PM drop-off and watches the afternoon that had nothing to say at 07:42 become the ride
+ * that ends holding him. No deployment has a clock control either, production included: there
+ * is no control on this screen and no parameter behind it on anything the platform runs.
+ *
+ * Live updates and the map pane are here now (slice 3), and they are rendered at the **same
+ * instant** the rows are — the one tick this request resolved to, so a board walked to the
+ * afternoon by `?tick=` has a map pane in the afternoon too. The first live snapshot is computed
+ * on the server beside the board and handed to the client, so the first paint is the whole
+ * surface and a stream that never connects leaves a board that is still true, with the §2 amber
+ * bar above it saying the updates have stopped. The stream itself is `/api/stream` (ADR-002),
+ * opened once per tab by the console shell.
  *
  * What is not here yet, and is not faked in its absence: the inbox, the exceptions table and
  * every write (confirm handoff, override, snooze, approve). Each lands in its own change.
@@ -60,7 +69,8 @@ export default async function Page({
   // was always meant to filter. The date is read through the gate, so unless this is a test
   // shell that asked for the override there is one day to be on: the demo day (PRD §6.1).
   const query = one(params.q) ?? "";
-  const board = buildBoard(requestedServiceDay(one(params.date), process.env));
+  const tickRaw = one(params[CLOCK_PARAM]);
+  const board = buildBoard(requestedBoardDay(one(params.date), tickRaw, process.env));
 
   /*
    * The fleet at the board's own tick, computed here so the rows and the map are one instant
@@ -73,10 +83,11 @@ export default async function Page({
    * the first paint and the first event have to be the same board, and the rule about what a
    * role may hold is the map-view matrix's, in one place, applied before the payload is built.
    */
-  const initialSnapshot = live ? snapshotFor(mapViewerOf(caller), BOARD_SCENARIO_TICK) : null;
+  const tick = requestedScenarioTick(tickRaw, process.env);
+  const initialSnapshot = live ? snapshotFor(mapViewerOf(caller), tick) : null;
   // §6.2's clock speeds, the review and test path — and read through the *same gate* as the
-  // date, not a second one of its own (Veri): off a test shell, and on every deployment, the
-  // clock is the console's own ×1 whatever `?speed=` says.
+  // date and the tick above, not a third one of its own (Veri): off a test shell, and on every
+  // deployment, the clock is the console's own ×1 whatever `?speed=` says.
   const speed = requestedClockSpeed(one(params.speed), process.env);
 
   return (
