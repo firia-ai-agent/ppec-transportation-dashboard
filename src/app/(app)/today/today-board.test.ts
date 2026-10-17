@@ -204,7 +204,9 @@ describe("the board renders the day", () => {
    * coordinator reading their own board already knows.
    */
   it("says the next step as a verb and a child's name, never as a role", () => {
-    expect(html).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
+    expect(html).toContain(
+      escaped(fill(boardCopy.nextSteps.RECORD_RECEIVER, { child: "Noah O." })),
+    );
     expect(html).toContain(
       escaped(fill(boardCopy.nextSteps.ASK_ABOUT_VAN, { dispatcher: "Rae S.", child: "Mia R." })),
     );
@@ -277,24 +279,38 @@ describe("the board renders the day", () => {
   /**
    * AT-13 on the board: the ride that ended holding a child, and what it says about it.
    *
-   * On the demo day first, because that is the board a demo walk opens (`DEMO_DAY_RIDES`): the
-   * hold and the no-auto-return rule used to live only on a day reachable by a crafted URL, and
-   * a story the walk cannot reach is a story the demo does not tell (Vera, 2026-10-16).
+   * Read on a day whose clock is past the ride — the finished day, where the morning of the same
+   * child is finished too, so one held ride is visibly not a held day.
    */
   it("shows the ride that ended with nobody to receive the child (AT-13)", () => {
-    const live = boardHtml("Noah");
-    expect(live).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
-    expect(live).toContain(boardCopy.groups.NEEDS_ACTION);
-    expect(live).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
-    // It is the only ride on the live board with an outcome: nothing else on it is finished.
-    expect(live).not.toMatch(/handed off/i);
-
-    // And on the finished day, where the morning of the same child is finished too: one held
-    // ride is not a held day.
     const ended = boardHtml("Noah", finished);
     expect(ended).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+    expect(ended).toContain(boardCopy.groups.NEEDS_ACTION);
+    expect(ended).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
     expect(ended).toContain(
       `State: ${fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": boardCopy.receivedByRamp })}`,
+    );
+  });
+
+  /**
+   * And the demo day, read twelve minutes into its morning runs, does not show it (Firia,
+   * 2026-10-17). Noah O.'s afternoon window is 4:20 PM: at 07:42 that ride has not run, so a
+   * board claiming he is being held sat beside his morning row still on the road. The row is
+   * still under "Needs action" and still asks a person for the same first move — it asks for it
+   * for the reason that is true at 07:42, which is that nobody on file may receive him.
+   */
+  it("says nothing about a hold on a board read before the ride (AT-13, the clock)", () => {
+    const live = boardHtml("Noah");
+    expect(live).not.toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+    expect(live).not.toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
+    // Nothing on the live board claims an outcome of any kind, held or handed over.
+    expect(live).not.toMatch(/handed off/i);
+
+    // What it does say, about the afternoon it is true of: still the first group on the board,
+    // still asking a person for the move that would answer it.
+    expect(live).toContain(boardCopy.groups.NEEDS_ACTION);
+    expect(live).toContain(
+      escaped(fill(boardCopy.nextSteps.RECORD_RECEIVER, { child: "Noah O." })),
     );
   });
 
@@ -504,11 +520,18 @@ describe("the one primary action, and why it is not available", () => {
     expect(html).toContain(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
     expect(html).toContain(escaped(fill(drawer.receiverMissing, { child: "Noah O." })));
     // The afternoon ride says why it needs a person, and the step that answers it. On the demo
-    // day that ride has ended holding him, so the reason is the hold itself (below).
-    expect(html).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
-    expect(html).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
-    // PRD §6.6: a child is held with the van; nothing drives them back on their own.
+    // day the clock has not reached that ride, so the reason is the one that is true before it
+    // runs: there is nobody on file to receive him. The hold is the same fact after 4:20 PM, and
+    // the finished day is where the drawer is read for it (below).
+    expect(html).toContain(
+      escaped(fill(boardCopy.reasons.NO_RECEIVING_ADULT, { child: "Noah O." })),
+    );
+    expect(html).toContain(escaped(fill(boardCopy.nextSteps.RECORD_RECEIVER, { child: "Noah O." })));
+    // The CA-04 rule is still said, because it is a standing rule about this child and not a
+    // claim about a ride: if nobody is there he waits with the van and nothing brings him back.
+    // What is gone is the past tense — nothing says the hold has happened.
     expect(html).toContain(escaped(fill(drawer.heldNoReturn, { child: "Noah O." })));
+    expect(html).not.toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
   });
 
   it("says out loud that this slice does not write (§1 honesty)", () => {
@@ -550,27 +573,25 @@ describe("the one primary action, and why it is not available", () => {
 
   /**
    * AT-13 in the drawer: the ride that ended held, and the rule about no automatic return. Read
-   * on the demo day, the board a walk opens, and on the finished day, where the same ride is one
-   * of a whole day of outcomes.
+   * on the finished day, which is the day whose clock is past the 4:20 PM ride — on the demo day
+   * it is 07:42 and the ride has not run, so there is no hold to read (Firia, 2026-10-17).
    */
   describe("a ride that ended with nobody to receive the child (AT-13)", () => {
-    const held = drawerHtml("C2");
+    const held = drawerHtml("C2", finished);
 
-    it("says the ride is held, on the afternoon row, and never that it was handed off", () => {
+    it("says the ride is held, on the afternoon row, and the step that answers it", () => {
       expect(held).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
       expect(held).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
       expect(held).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
-      // A hold is not a handoff, and the panel says nothing that could be read as one.
-      expect(held).not.toMatch(/handed off/i);
     });
 
-    it("reads the same on the finished day, whose morning was received at the ramp", () => {
-      const ended = drawerHtml("C2", finished);
-      expect(ended).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
-      expect(ended).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
-      expect(ended).toContain(
+    it("has the morning of the same child received at the ramp: one held ride, not a held day", () => {
+      expect(held).toContain(
         `State: ${fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": boardCopy.receivedByRamp })}`,
       );
+      // And the hold itself is never drawn as a handoff: the afternoon row says held and no more.
+      const afternoon = held.slice(held.indexOf(legStates.HELD_NO_RECEIVER.label));
+      expect(afternoon).not.toMatch(/handed off/i);
     });
 
     it("says the child waits with the van and nothing brings them back (PRD §6.6 CA-04)", () => {
@@ -578,6 +599,32 @@ describe("the one primary action, and why it is not available", () => {
       expect(held).toContain(escaped(fill(drawer.receiverMissing, { child: "Noah O." })));
       // No automatic return, and no handoff either: the only exit is a person's.
       expect(held).toContain(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
+    });
+
+    /**
+     * And the same panel on the demo day, where the clock is twelve minutes into the morning,
+     * claims none of it has happened — while still saying the rule that makes it matter.
+     *
+     * That split is the point of Firia's call. A held child is the worst thing on this board to
+     * learn late, so the **rule** — nobody on file may receive him, and if nobody is there he
+     * waits with the van and nothing brings him back — is said at 07:42, where a coordinator can
+     * still do something about it. What is not said at 07:42 is that it has already gone wrong on
+     * a ride the day has not driven yet.
+     */
+    it("says the rule but claims no hold on a day the clock has not carried to the ride", () => {
+      const live = drawerHtml("C2");
+      expect(live).not.toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+      expect(live).not.toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
+      expect(live).not.toContain(
+        escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })),
+      );
+
+      // CA-04 itself, and the missing receiver it hangs on: both still here, in the present tense.
+      expect(live).toContain(escaped(fill(drawer.heldNoReturn, { child: "Noah O." })));
+      expect(live).toContain(escaped(fill(drawer.receiverMissing, { child: "Noah O." })));
+      expect(live).toContain(
+        escaped(fill(boardCopy.reasons.NO_RECEIVING_ADULT, { child: "Noah O." })),
+      );
     });
   });
 });

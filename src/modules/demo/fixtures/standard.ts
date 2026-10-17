@@ -459,13 +459,21 @@ export const rideRecordFor = (
  * RECEIVE_CHILD (`NO_RECEIVER_SCOPES`), so the afternoon van reached Noah O.'s stop with nobody
  * on file to receive him and no custody event to record.
  *
- * What it *is* ahead of is the board's own clock: the demo day is read twelve minutes into its
- * morning runs (`BOARD_SCENARIO_SECONDS`) and this ride's window is 4:20 PM, so the hold is on
- * screen before the ride it belongs to would have run, and Noah's morning row is still on the
- * road beside it. That is the price of showing an ended ride on a board read mid-morning, and it
- * is paid here, in one ride, rather than by faking a whole finished day. The honest version is
- * the scenario clock walking the day and the board reading whatever it has reached
- * (docs/ui/B12-SLICE2-DEFERRED.md §5).
+ * And it is read **when the clock reaches it**, not before (Firia, 2026-10-17). This ride's window
+ * is 4:20 PM and the demo day is read twelve minutes into its morning runs
+ * (`BOARD_SCENARIO_SECONDS`), so the board used to show the hold while Noah's morning row was
+ * still on the road beside it — a child set down at home before the van that collects him had
+ * finished its run. `dayRecordFor` in src/domain/board/board.ts compares the day's instant with
+ * the ride's planned window and declines to read a record the day has not got to, so this one is
+ * a scheduled afternoon until 4:20 PM and the hold after it. That answers the open question in
+ * docs/ui/B12-SLICE2-DEFERRED.md §5 the way that costs nothing.
+ *
+ * The consequence is that the demo walk's own board no longer *shows* the hold: a clock that
+ * walks the day is what would carry it there, and this build has none (B-10). What the walk does
+ * reach is the rule the hold is about — nobody on file may receive this child, and if nobody is
+ * there he waits with the van and nothing brings him back — said in the present tense, on the
+ * afternoon row and in the drawer, where a coordinator can still act on it. The finished day is
+ * where the ended ride itself is read.
  */
 export const DEMO_DAY_RIDES: RideRecord[] = [{ ...ranAsPlanned("C2", "PM"), receivedBy: null }];
 

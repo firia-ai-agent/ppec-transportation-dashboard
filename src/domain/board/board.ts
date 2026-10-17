@@ -46,7 +46,7 @@ import {
   type RideRecord,
   type Run as DemoRun,
 } from "@/modules/demo/fixtures/standard";
-import { demoDay, type DayPhase, type ServiceDay } from "./day";
+import { demoDay, localTimeOn, type DayPhase, type ServiceDay } from "./day";
 import {
   boardChildren,
   capabilityFor,
@@ -530,11 +530,29 @@ function liveEtaView(run: DemoRun, frame: ReplayFrame): EtaView {
  * What the day recorded about this ride, in person acts.
  *
  * A day that has ended recorded all of them, which is what makes it the day with outcomes on it.
- * The demo day is read twelve minutes into its morning runs, so it records one — the AT-13 ride
- * (`DEMO_DAY_RIDES`), on the board because a demo walk that cannot reach the hold and the
- * no-auto-return rule does not show them at all (Vera, 2026-10-16). Every other ride on it stops
- * at what the replay can see, which is the state it was already in; a day that has not started
- * has nothing to record at all.
+ * The demo day records one — the AT-13 ride (`DEMO_DAY_RIDES`) — because a demo walk that cannot
+ * reach the hold and the no-auto-return rule does not show them at all (Vera, 2026-10-16). Every
+ * other ride on it stops at what the replay can see, which is the state it was already in; a day
+ * that has not started has nothing to record at all.
+ *
+ * **And a record is only read once the clock has reached the ride it is about** (Firia,
+ * 2026-10-17). The demo day is read twelve minutes into its morning runs and the AT-13 ride's
+ * window is 4:20 PM, so the hold used to be on screen beside the same child's morning ride still
+ * being driven — a child set down at home before the van collecting him had finished its run.
+ * That was the price written up as an open question in docs/ui/B12-SLICE2-DEFERRED.md §5, and the
+ * answer is the one that needs no price: a ride the clock has not reached yet has had nothing
+ * happen to it, so there is nothing to record. It then stops exactly where every other unreported
+ * afternoon on this board stops — at the vehicle check, scheduled and waiting — and the hold
+ * appears when the clock reaches 4:20 PM and not a minute before.
+ *
+ * The row is no quieter for it. The afternoon it belongs to is still the board's one needs-action
+ * row, because no adult on file may receive this child and that is true from 07:00 (TRP-02,
+ * `needsActionFor`); what changes is that it asks for a receiver to be recorded instead of
+ * announcing a hold that has not happened.
+ *
+ * The comparison is against the ride's *planned* window, not the replay, because the afternoon
+ * has no replayed track to read a position off (`etaViewFor`): what the plan promised this child's
+ * own stop is the only time the day has for it.
  */
 function dayRecordFor(
   child: DemoChild,
@@ -542,7 +560,9 @@ function dayRecordFor(
   day: ServiceDay,
 ): RideRecord | undefined {
   if (day.phase === "ENDED") return rideRecordFor(child.key, direction);
-  return day.phase === "LIVE" ? demoDayRecordFor(child.key, direction) : undefined;
+  if (day.phase !== "LIVE") return undefined;
+  if (day.instantMs < localTimeOn(day, plannedWindow(child, direction))) return undefined;
+  return demoDayRecordFor(child.key, direction);
 }
 
 function reportedActs(child: DemoChild, record: RideRecord | undefined) {
