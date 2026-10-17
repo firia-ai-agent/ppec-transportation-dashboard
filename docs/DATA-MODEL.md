@@ -1,8 +1,8 @@
-> Mirror of the Notion page "PPEC Data Model (PROPOSED, pending founder sign-off)" — https://app.notion.com/p/3fcac450cdc1813db394ddc7902e63f3 — fetched 2026-10-17 5:50 PM ET (21:50:35 UTC). Converted to Markdown without content edits; Notion tables rendered as Markdown tables. The Notion page is the source of truth.
+> Mirror of the Notion page "PPEC Data Model (PROPOSED, pending founder sign-off)" — https://app.notion.com/p/3fcac450cdc1813db394ddc7902e63f3 — fetched 2026-10-17 6:02 PM ET (22:02:11 UTC). Converted to Markdown without content edits; Notion tables rendered as Markdown tables. The Notion page is the source of truth. Post-#69 ACCEPTED rules and M10–M14 mirrored; Veri #69 review S3 notes applied (see PR body for Notion page follow-ups).
 
 # PPEC Data Model (PROPOSED, pending founder sign-off)
 
-> Once the founder signs off, this page supersedes the older "Data model" page (a mirror of docs/[DATA-MODEL.md](http://DATA-MODEL.md)). Until then, everything here is PROPOSED.
+> Once the founder signs off, this page supersedes the older "Data model" page (a mirror of docs/DATA-MODEL.md). Until then, everything here is PROPOSED.
 
 ## Section 1 — Core types (van, day counts, child needs, plan): SIGNED OFF for build 2026-10-17 by Firia (founder final sign-off pending)
 
@@ -25,12 +25,18 @@ Equipment types are listed once, in config (#66 `EQUIPMENT_COUNTERS` src/config/
 3. **StaffAlert:** only director and coordinator see the 'needs a person' alert and act on it. Front desk keeps Live map and Ramp iPad only and does NOT see it; access.ts is unchanged. It never sends anything to the parent. The model-down path goes to Exceptions & Approvals, not Family texts (the diagram is fixed).
 4. **Plan store:** `memory.ts` can't be selected when a database URL is set. It fails closed in prod and in previews.
 5. **Day data:** rebuilt screens read day data through one domain interface and never import `@/fixtures` directly. Fixtures sit only behind the demo adapter.
-**Approver roles:** VERIFIED, director and coordinator only (access.ts:44, :241).
+**Approver roles:** VERIFIED, director and coordinator only (access.ts:44, main :243 / #61 :241).
 **Note:** sections 4 and 8 (the duplicate time-zone and van-name helpers, and the copy.ts merge) are done inside the rebuild, not as separate PRs.
+**ACCEPTED by Firia 2026-10-17 6:01 PM ET (post-#69 additions):**
+1. **One source for the plan:** Live map, Today and Health read the saved plan from `plan_run`/`plan_assignment`. An approved drop-off change saves a new plan version; it does not write only to `ops.trip_leg` (today `approvals/decide.ts:268` writes trip_leg).
+2. **One roster and one van list** behind the domain interface, with one fleet fixture behind the demo adapter. "Van 3" is the same van on every screen (today there are three fleet fixtures/rosters, e.g. #66 `config/vans.ts:41-60` vs the Live map's V3).
+3. **"Day started"** comes only from the database clock (#66 `plan/sql.ts:123`); no browser session storage (#65).
+4. **Names:** one name helper in shared helpers; providers never show on screen (today there are duplicate `providerDisplayName` helpers in `fixtures/standard.ts:121` and `ui/copy.ts:58`).
+5. **Copy gate:** at most one title and one helper line per screen, plus a copy-location check, enforced by Veri.
 **Step locks (Today step strip, PROPOSED):** steps read only `VanDayCounts.state = CHECKED` (counts confirmed) and whether a `Plan` row exists for the date and leg. No screen owns its own 'done' state.
 **DEFAULT (Firia's call, pending founder sign-off):** the front desk sets and confirms van counts on the arrival screen. The board only reads them, and the board has no planned counts. A nurse takes a regular seat, so there are four counters only.
 Written 2026-10-17, 5:55 PM ET, for the 2026-10-18 demo. Read-only: nothing was pushed, commented or changed, and no env values or secrets were read.
-Sources: main @ 3553ec5 (includes 0009 @ adbe1cc), PR #66 @ 38ef27f, #60 (local `pr60`), #61 @ bfe70a5, `/workspace/ppec-redesign/REDESIGN-SPEC.md` (SPEC), `mockups/ramp-arrival.html`, and the Notion page "PPEC transportation dashboard / Data model" (a mirror of docs/[DATA-MODEL.md](http://DATA-MODEL.md)).
+Sources: main @ 3553ec5 (includes 0009 @ adbe1cc), PR #66 @ 38ef27f, #60 (local `pr60`), #61 @ bfe70a5, `/workspace/ppec-redesign/REDESIGN-SPEC.md` (SPEC), `mockups/ramp-arrival.html`, and the Notion page "PPEC transportation dashboard / Data model" (a mirror of docs/DATA-MODEL.md).
 Everything marked **PROPOSED** waits on founder sign-off.
 
 ## 0. Headline
@@ -53,8 +59,8 @@ Everything marked **PROPOSED** waits on founder sign-off.
 | Solver types | src/domain/solver/types.ts:14-67: `Securement`, `WcPosition`, `AmbSeat`, `Layout`, `Child` with mobility/size | SPEC l.118: wrap the solver with `setupToLayout()` | Seat-level types survive behind an adapter (see §4) |
 | Approval / AgentProposal | #61 src/modules/approvals/decide.ts (roles from `rolesWhoCanOpen`, :51-61); proposals in src/modules/agent/run/exec/proposals.ts | Director/coordinator approve | Roles are read from the access table rather than named in decide.ts. VERIFIED: approval decisions check `approvalRoles()`, which reads the /exceptions access row = director + coordinator only (access.ts:44, :241; #61 local head 713e95f, per Rudy) |
 | StaffAlert ("needs a person") | Not a distinct type. Keyword fallback provider `src/modules/agent/providers/keyword.ts:1-31,195` on main, called from `remote.ts:57`; #61 config.ts:269,318 "become a keyword fallback" | Founder: **no keyword/text parser fallback**; staff alert with the parent's words, no proposal | **CONTRADICTS** |
-| Metric (Health/ROI) | #60 src/domain/health/metrics.ts:47-89 `ROI_METRICS`, `BASELINE_ROWS HOURS_SAVED/MONEY_SAVED`, `DayCounts` | SPEC §5: counts only; money/hours shown as `—` "Not measured" | Looks aligned. UNVERIFIED that the UI renders `—` |
-| ParentMessage | `message`/thread tables in schema.ts (not line-checked: UNVERIFIED); late template in #61 src/modules/messaging/templates.ts, eta-notice.ts | SPEC §4 l.237 fixed late template, 12-hour time, stop display name | UNVERIFIED in detail |
+| Metric (Health/ROI) | #60 src/domain/health/metrics.ts:47-89 `ROI_METRICS`, `BASELINE_ROWS HOURS_SAVED/MONEY_SAVED`, `DayCounts` | SPEC §5: counts only; money/hours shown as `—` "Not measured" | VERIFIED via Section 1 Metric row and "Code today": Health prints "Not measured yet", not `—` (HealthScreen.tsx:262-297, copy.ts:591). No value field, so no number can show. |
+| ParentMessage | main @ 3553ec5: `ops.message` schema.ts:416-424, `conversation_thread` :403-415, `outbound_message` :432-445, `acknowledgment` :446-450 (see Section 1 ParentMessage row); late template in #61 src/modules/messaging/templates.ts, eta-notice.ts | SPEC §4 l.237 fixed late template, 12-hour time, stop display name | VERIFIED via Section 1 ParentMessage row and "Code today": shape only for the demo (no `kind` column; body encrypted; outbox and message are two tables). |
 
 
 ## 2. Dataflow
@@ -116,8 +122,13 @@ flowchart LR
 | M5 | Vehicle defaults/name/colour | `vehicle.name, color_slot, default_*` | config/vans.ts (#66), name `vanNameOf(slot)`; DB `vehicle.label` = "V1 convertible van" (schema.ts:263) still carries the internal code | After demo (if no screen reads label) | 0010: add the columns, or ratify config as the source of truth. Lint that `label` never renders | Yes (if columns) |
 | M6 | Shortfall reason | "Mia R. won't fit · 1 car seat short" | Computed live (`shortfalls()`), not stored with UNASSIGNED rows | After demo | Fine computed. Store it only if Health/history needs it | Optional |
 | M7 | Seat-level enums/tables | Deferred (C3/C7) | `securement` enum, layout tables, `transport_profile.wc*Cm/tether/maxRideMinutes` live | After demo | Keep the tables (SPEC l.252). Fence them: no screen import of `domain/solver` types | No |
-| M8 | Notion Data model page | should mirror code | Lists vehicle_layout/layout_position, none of the 0009 tables | After demo | Regenerate the mirror from docs/[DATA-MODEL.md](http://DATA-MODEL.md) after updating that file | No |
+| M8 | Notion Data model page | should mirror code | Lists vehicle_layout/layout_position, none of the 0009 tables | After demo | Regenerate the mirror from docs/DATA-MODEL.md after updating that file | No |
 | M9 | Approval roles | Director/coordinator | decide.ts reads `rolesWhoCanOpen` (#61 :51-61). VERIFIED: approval decisions check `approvalRoles()`, which reads the /exceptions access row = director + coordinator only (access.ts:44, :241; #61 local head 713e95f, per Rudy) | Resolved | Assert the role set in a test | No |
+| M10 | Plan source | Live map, Today and Health read plan_run/plan_assignment; an approved change saves a new plan version | approvals/decide.ts:268 writes ops.trip_leg only. Source: Vera's diff list (per Firia; I haven't read the list myself) | Blocks demo | Approval writes a new plan_run version; screens read only the saved plan | No |
+| M11 | Roster / van identity | One roster + one van list behind the domain interface; one fleet fixture behind the demo adapter | Three fleet fixtures/rosters (#66 config/vans.ts:41-60 vs Live map V3). Source: Vera's diff list (per Firia; I haven't read the list myself) | Blocks demo | Collapse to one fleet source; Van N is the same van everywhere | No |
+| M12 | Day started | Database clock only (#66 plan/sql.ts:123) | #65 uses browser session storage. Source: Vera's diff list (per Firia; I haven't read the list myself) | Blocks demo | Read the started state from the DB; drop sessionStorage | No |
+| M13 | Names / providers | One name helper; providers never on screen | Duplicate providerDisplayName: fixtures/standard.ts:121 and ui/copy.ts:58. Source: Vera's diff list (per Firia; I haven't read the list myself) | Blocks demo | One helper in shared helpers; remove provider names from the UI | No |
+| M14 | Copy gate | At most one title + one helper line per screen; copy lives in copy.ts | Not enforced. Source: Vera's diff list (per Firia; I haven't read the list myself) | Gate (Veri) | Veri enforces it with a copy-location check | No |
 
 
 ## 4. Abstraction issues
@@ -143,7 +154,7 @@ flowchart LR
 3. Van name, colour and defaults stay in shared config for the demo, with no screen hardcoding. Whether to move them to the DB is decided after the demo.
 4. Removing the keyword reader ships first, as a small PR (M3, IN PROGRESS).
 
-## Code today (answered by Rudy, main @ 3553ec5)
+## 7. Code today (answered by Rudy, main @ 3553ec5)
 - NEEDS_PERSON alert: no 0010. `ops.task` (schema.ts:458-466) has free-text `category`, `severity` RED and `state` OPEN, written by `raiseTask()` effects.ts:223-246. The parent's words stay in `ops.message.body_enc`, referenced from `completion_evidence`.
 - Message tables: `conversation_thread` schema.ts:403-415, `message` :416-424, `change_request` :425-430, `outbound_message` :432-445, `acknowledgment` :446-450, `suppression` :451-455, `consent_event` :138-146.
 - Health: #60 prints "Not measured yet" on the hours and money rows, not `—` (HealthScreen.tsx:262-297, copy.ts:591). There's no value field, so no number can show.
