@@ -98,37 +98,59 @@ export type UnavailableReason = "no_key" | "rate_limited" | "timeout" | "provide
 /**
  * Is this error "the model is unavailable", and if so which kind? `null` for anything else.
  *
- * Deliberately narrow. A policy block, a prompt leak, a free-text refusal and an invalid-argument
- * rejection are all the agent working correctly and refusing something, and none of them is a
- * reason to tell a coordinator their assistant is down — they have their own tasks
- * (`run/tasks.ts`). Only a `PROVIDER_ERROR` from the gateway, or an adapter error thrown before a
- * gateway existed, is this.
+ * **Deliberately two classes wide, and the narrowness is the design.** Only these mean "we asked
+ * for a model turn and no model answered":
+ *
+ *  - `RemoteApiKeyMissing` — there is no key to call with;
+ *  - `RemoteProviderUnavailable` — every model in the chain was tried and every one failed;
+ *  - a gateway `PROVIDER_ERROR` whose cause is **not** a `ProviderError` at all, i.e. a raw
+ *    transport failure from an adapter that does not classify its own errors.
+ *
+ * Everything else an adapter can throw is a **refusal or a stop**, not an outage, and must not put
+ * a card in front of a coordinator:
+ *
+ *  - `RemoteEndpointRefused`, `RemoteBaseUrlRefused`, `RemoteRequestUrlRefused`,
+ *    `RemoteModelRefused` — somebody repointed the vendor, or an allow-list was edited.
+ *    `providers/remote.ts` says it plainly about the URL check: "a key that nearly went to the
+ *    wrong host is a stop, not a fallback". A staff alert would be the wrong answer twice over —
+ *    it is not a coordinator's job, and "reply to this family yourself" is not the fix.
+ *  - `RemoteProviderNotEnabled` without a missing key — a deployment that has not confirmed demo
+ *    data. The fix is a setting, not a person reading a text.
+ *  - every `ProviderError` from a non-vendor adapter: a scripted provider running out of
+ *    responses is a harness condition, and it used to raise a card in suites that had nothing to
+ *    do with this (`run/exec/clarify.test.ts`, `run/exec/staff.test.ts`), which is exactly how a
+ *    false positive looks from the outside.
+ *
+ * And a policy block, a prompt leak, a free-text refusal and an invalid-argument rejection are all
+ * the agent working correctly and refusing something. None is a reason to say the assistant is
+ * down; they have their own tasks (`run/tasks.ts`).
  */
 export function modelUnavailableReason(err: unknown): UnavailableReason | null {
-  const inner =
-    err instanceof GatewayError
-      ? err.outcome === "PROVIDER_ERROR"
-        ? (err.cause ?? err)
-        : null
-      : err instanceof ProviderError
-        ? err
-        : null;
-  if (inner === null) return null;
+  // Thrown straight at a caller that holds the adapter, with no gateway in between.
+  if (err instanceof RemoteApiKeyMissing) return "no_key";
+  if (err instanceof RemoteProviderUnavailable) return chainReason(err);
 
-  // A key that was never set. Checked first: it is the one case with no attempt behind it, and
-  // the one whose fix is a deployment setting rather than waiting for a vendor.
-  if (inner instanceof RemoteApiKeyMissing) return "no_key";
+  if (!(err instanceof GatewayError) || err.outcome !== "PROVIDER_ERROR") return null;
+  const cause = err.cause;
+  if (cause instanceof RemoteApiKeyMissing) return "no_key";
+  if (cause instanceof RemoteProviderUnavailable) return chainReason(cause);
+  // A classed provider error that is neither of those is a refusal; see the list above.
+  if (cause instanceof ProviderError) return null;
+  // Anything else got as far as trying and failed in a way nobody classified.
+  return "provider_error";
+}
 
-  if (inner instanceof RemoteProviderUnavailable && inner.attempts.length > 0) {
-    // Read off the recorded attempts rather than the message. "Every model timed out" and "every
-    // model 429ed" are the two a coordinator's on-call would act on differently; a mixed chain is
-    // neither, and says so.
-    const failures = new Set(inner.attempts.map((a) => a.failure));
-    if (failures.size === 1) {
-      const only = [...failures][0];
-      if (only === "timeout") return "timeout";
-      if (only === "rate_limited") return "rate_limited";
-    }
+/**
+ * Which kind of outage an exhausted chain was, read off the recorded attempts rather than the
+ * error's message. "Every model timed out" and "every model 429ed" are the two an on-call would
+ * act on differently; a mixed chain is neither, and says so.
+ */
+function chainReason(err: RemoteProviderUnavailable): UnavailableReason {
+  const failures = new Set(err.attempts.map((a) => a.failure));
+  if (failures.size === 1) {
+    const only = [...failures][0];
+    if (only === "timeout") return "timeout";
+    if (only === "rate_limited") return "rate_limited";
   }
   return "provider_error";
 }
@@ -301,7 +323,12 @@ export type AssistantAlert = {
   readonly theirWords: string;
   /** The thread "Open text" and "Reply" lead to. */
   readonly threadId: string | null;
-  readonly messageId: string;
+  /**
+   * The message the card's words came from. Nullable because the join is a LEFT JOIN: every row
+   * this module writes carries a locator, and a row that somehow does not should still render as
+   * a card a person can see rather than disappear from the board.
+   */
+  readonly messageId: string | null;
   /** True once a staff member has opened it: the card stays, marked as taken. */
   readonly beingHandled: boolean;
 };
@@ -309,7 +336,7 @@ export type AssistantAlert = {
 type AlertRow = {
   id: string;
   state: string;
-  message_id: string;
+  message_id: string | null;
   thread_id: string | null;
   body_tokenized: string | null;
   child_display_name: string | null;
@@ -406,7 +433,7 @@ function toAlert(row: AlertRow): AssistantAlert {
         : fillCard(assistantUnavailable.card, { adult, child, leg }),
     theirWords: row.body_tokenized ?? "",
     threadId: row.thread_id,
-    messageId: row.message_id,
+    messageId: row.message_id ?? null,
     beingHandled: row.state === "IN_PROGRESS",
   };
 }

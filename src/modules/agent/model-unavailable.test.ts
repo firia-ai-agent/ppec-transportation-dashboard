@@ -45,8 +45,18 @@ import { freshDb } from "@/test/pglite";
 import { type AgentScenario, seedAgentScenario } from "@/test/agent-state";
 import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, loadAgentConfig } from "./config";
 import type { PolicyContext } from "./policy";
-import type { LlmProvider } from "./providers/provider";
-import { remoteProvider } from "./providers/remote";
+import { GatewayError } from "./gateway";
+import { type LlmProvider, ProviderError } from "./providers/provider";
+import {
+  RemoteApiKeyMissing,
+  RemoteBaseUrlRefused,
+  RemoteEndpointRefused,
+  RemoteModelRefused,
+  RemoteProviderNotEnabled,
+  RemoteProviderUnavailable,
+  RemoteRequestUrlRefused,
+  remoteProvider,
+} from "./providers/remote";
 import type { TierFacts } from "./run/context";
 import { type LiveHarness, liveHarness } from "./run/exec/live-harness";
 import type { Trigger } from "./run/triggers";
@@ -54,6 +64,7 @@ import {
   MODEL_UNAVAILABLE_CATEGORY,
   assistantAlertCount,
   modelUnavailableLogLine,
+  modelUnavailableReason,
   openAlert,
   openAssistantAlerts,
 } from "./staff-alert";
@@ -332,6 +343,64 @@ describe("(c) the vendor never answers: one staff alert, and nothing else", () =
     await expectNeedsAPersonAndNothingElse("timeout", assistantUnavailable.legWord.PM);
     expect(await legs()).toEqual(before);
     expect(h.provider.sent).toEqual([]);
+  });
+});
+
+/* ───────────── what is NOT an outage: a refusal, a stop, and a scripted provider ───────────── */
+
+describe("only a model that could not answer raises a card", () => {
+  /**
+   * The narrowness of `modelUnavailableReason` is load-bearing, so it is pinned directly. Each of
+   * these is an adapter saying "no" for a reason that is not an outage, and a card for any of them
+   * would be the wrong answer twice over: it is not a coordinator's job, and "reply to this family
+   * yourself" is not the fix.
+   */
+  it.each([
+    ["an endpoint off the allow-list", new RemoteEndpointRefused("endpoint /v1/files refused")],
+    ["a base URL nobody vetted", new RemoteBaseUrlRefused("base URL is not https")],
+    ["a URL that moved the host", new RemoteRequestUrlRefused("request URL host is not allow-listed")],
+    ["a model off the allow-list", new RemoteModelRefused("model vendor-b/x not on the list")],
+    ["no demo-data confirmation", new RemoteProviderNotEnabled("set $AGENT_DEMO_DATA_ONLY")],
+    ["a scripted provider running out", new ProviderError("fake provider script exhausted")],
+  ])("%s is a refusal, not an outage", (_label, err) => {
+    expect(modelUnavailableReason(err)).toBeNull();
+    // ...and the same through the gateway, which is how the run loop actually sees it.
+    expect(modelUnavailableReason(new GatewayError("PROVIDER_ERROR", "refused", { cause: err }))).toBeNull();
+  });
+
+  it("every other gateway outcome is the agent refusing correctly, and raises no card", () => {
+    for (const outcome of [
+      "REJECTED_FREE_TEXT",
+      "REJECTED_PROMPT_LEAK",
+      "REJECTED_INVALID_ARGS",
+      "REJECTED_RATE_LIMIT",
+      "REJECTED_UNKNOWN_TOOL",
+    ] as const) {
+      expect(modelUnavailableReason(new GatewayError(outcome, outcome)), outcome).toBeNull();
+    }
+  });
+
+  it("the two classes that do mean an outage still do, with and without a gateway", () => {
+    const noKey = new RemoteApiKeyMissing("$OPENROUTER_API_KEY is not set in this environment");
+    expect(modelUnavailableReason(noKey)).toBe("no_key");
+    expect(modelUnavailableReason(new GatewayError("PROVIDER_ERROR", "x", { cause: noKey }))).toBe("no_key");
+
+    const attempt = (failure: "timeout" | "rate_limited" | "http_error") =>
+      ({ model: "m", status: null, ok: false, failure }) as const;
+    expect(modelUnavailableReason(new RemoteProviderUnavailable("x", [attempt("timeout"), attempt("timeout")]))).toBe(
+      "timeout",
+    );
+    expect(
+      modelUnavailableReason(new RemoteProviderUnavailable("x", [attempt("rate_limited"), attempt("rate_limited")])),
+    ).toBe("rate_limited");
+    // A mixed chain is neither of the two an on-call would act on differently.
+    expect(
+      modelUnavailableReason(new RemoteProviderUnavailable("x", [attempt("timeout"), attempt("http_error")])),
+    ).toBe("provider_error");
+    // And an unclassified transport failure from any adapter is an outage.
+    expect(modelUnavailableReason(new GatewayError("PROVIDER_ERROR", "x", { cause: new TypeError("fetch failed") }))).toBe(
+      "provider_error",
+    );
   });
 });
 
