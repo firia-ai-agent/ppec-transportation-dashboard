@@ -9,6 +9,7 @@ import { ARRIVAL_PARAM, rampArrivals } from "@/domain/plan/arrival";
 import { MEASURED_AT_ARRIVAL } from "@/domain/plan/day";
 import { boardChildren } from "@/domain/board/scenario";
 import { demoBanner, rampIpad, rampReplan } from "@/ui/copy";
+import { onwardLinks } from "./onward";
 import RampCheck from "./RampCheck";
 
 /**
@@ -142,7 +143,7 @@ describe("the vans at the ramp are the day the board shows", () => {
   });
 
   it("renders the scenario's own children, by the labels the board writes them with", () => {
-    const html = renderToStaticMarkup(createElement(RampCheck));
+    const html = renderToStaticMarkup(createElement(RampCheck, { role: "DIRECTOR" }));
     const arrival = rampArrivals()[0];
     for (const rider of arrival.riders) {
       expect(html, rider.child.displayName).toContain(rider.child.displayName);
@@ -152,7 +153,7 @@ describe("the vans at the ramp are the day the board shows", () => {
   });
 
   it("names every van the day runs, and takes each tile's time from the plan", () => {
-    const html = renderToStaticMarkup(createElement(RampCheck));
+    const html = renderToStaticMarkup(createElement(RampCheck, { role: "DIRECTOR" }));
     for (const arrival of rampArrivals()) {
       expect(html, arrival.laneId).toContain(arrival.vehicle.description);
       expect(html, arrival.laneId).toContain(arrival.leavesAt);
@@ -162,7 +163,7 @@ describe("the vans at the ramp are the day the board shows", () => {
   });
 
   it("mounts no second DEMO bar and no second source chip: both ride in the root layout", () => {
-    const html = renderToStaticMarkup(createElement(RampCheck));
+    const html = renderToStaticMarkup(createElement(RampCheck, { role: "DIRECTOR" }));
     expect(demoBanner.text).toBe("DEMO");
     expect(html).not.toContain(`aria-label="${demoBanner.ariaLabel}"`);
     expect(html.match(/Simulated/g) ?? []).toHaveLength(0);
@@ -181,7 +182,7 @@ describe("what the check does to the afternoon, on the screen that took it", () 
   const screen = read("RampCheck.tsx");
 
   it("says nothing about moves until the vehicle check is finished", () => {
-    const html = renderToStaticMarkup(createElement(RampCheck));
+    const html = renderToStaticMarkup(createElement(RampCheck, { role: "DIRECTOR" }));
     // Opening state: nothing answered, so the panel asks for the rest of the check instead of
     // announcing that three children have no van.
     expect(html).toContain(rampReplan.heading);
@@ -201,11 +202,21 @@ describe("what the check does to the afternoon, on the screen that took it", () 
     expect(screen).not.toMatch(/tryMove|planAssignment/);
   });
 
-  it("hands the result on as a link, carrying the finding to both screens", () => {
-    expect(screen).toContain(`/plan-routes?${"$"}{ARRIVAL_PARAM}=`);
-    expect(screen).toContain(`/today?${"$"}{ARRIVAL_PARAM}=`);
-    expect(screen).toMatch(/encodeURIComponent\(findingCode\)/);
+  /**
+   * The links themselves are `./onward.ts`, which is a pure function of the role and the
+   * finding — so what is left for the screen is that it renders what that function returns and
+   * holds no address of its own. A literal `/plan-routes?...` back in here would be a link the
+   * front desk can see again (see onward.test.ts).
+   */
+  it("hands the result on as links, carrying the finding to the screens a role can open", () => {
+    expect(screen).toMatch(/onwardLinks\(role, findingCode\)/);
+    expect(screen).toMatch(/onward\.map\(\(link\) => \(/);
+    expect(screen).not.toMatch(/href=\{`\/(?:plan-routes|today)\?/);
     expect(ARRIVAL_PARAM).toBe("arrival");
+    // A director is offered both, with the finding on each address.
+    const links = onwardLinks("DIRECTOR", "a-finding");
+    expect(links.map((l) => l.label)).toEqual([rampReplan.openPlan, rampReplan.openBoard]);
+    for (const link of links) expect(link.href).toContain(`${ARRIVAL_PARAM}=a-finding`);
   });
 
   it("says a proposal is a proposal, and that no family has been told", () => {
@@ -218,7 +229,7 @@ describe("what the check does to the afternoon, on the screen that took it", () 
    * ramp's finding leaves the iPad now, and the boarding records still do not.
    */
   it("no longer claims every answer stays on the iPad", () => {
-    const html = renderToStaticMarkup(createElement(RampCheck));
+    const html = renderToStaticMarkup(createElement(RampCheck, { role: "DIRECTOR" }));
     expect(html).toContain(rampIpad.localOnly);
     expect(rampIpad.localOnly).toContain("goes to the plan");
     expect(rampIpad.localOnly).toContain("boarding records stay on this iPad");

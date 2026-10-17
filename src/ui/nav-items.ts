@@ -105,6 +105,27 @@ export function isCurrent(pathname: string, href: string): boolean {
  * closed door (the ID-swap skill, rule 6: hiding ≠ denying).
  */
 export function navItemsFor(role: StaffRole | null): readonly NavItem[] {
+  return navItems.filter((item) => canRoleOpen(role, item.href));
+}
+
+/**
+ * Would this role's row in the access table open this screen?
+ *
+ * The rail's own filter, pulled out so that a link *outside* the rail can ask the same question
+ * of the same table. The ramp iPad needs it: its re-plan panel offers to carry the check on to
+ * Plan routes and to the Today board, and the front desk — whose surface the ramp iPad is — can
+ * open neither (Vera's prod walk, 2026-10-17: both links were on the front desk's screen, and
+ * both answered 403). A link that refuses is worse than no link, because the person tapping it
+ * has to work out whether the check was lost.
+ *
+ * `role` is the caller's role as a page already read it off the guard, and `null` is a visitor
+ * with a session and no membership anywhere — which opens nothing, here as in the rail.
+ *
+ * Still a courtesy and not a guard: every page checks the server again, and guard-matrix.test.ts
+ * asks the server with no browser involved, exactly because a hidden link is not a closed door
+ * (the ID-swap skill, rule 6: hiding ≠ denying).
+ */
+export function canRoleOpen(role: StaffRole | null, href: string): boolean {
   const caller = role ? ({ kind: "STAFF", role } as const) : ({ kind: "ANONYMOUS" } as const);
-  return navItems.filter((item) => canOpenPage(caller, item.href));
+  return canOpenPage(caller, href);
 }

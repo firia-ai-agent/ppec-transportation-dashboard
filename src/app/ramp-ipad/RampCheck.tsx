@@ -23,11 +23,11 @@
  * so this page must not mount a second pair.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { StaffRole } from "@/auth/core";
 import { feasible } from "@/domain/solver";
 import type { AlternateCandidate, Child, LayoutPosition, SolveResult } from "@/domain/solver";
 import { chairFitsPosition } from "@/domain/solver";
 import {
-  ARRIVAL_PARAM,
   encodeFinding,
   rampArrivals,
   replanForArrival,
@@ -50,6 +50,7 @@ import {
 } from "./capability";
 import type { Answer, Checklist, PositionAnswer } from "./capability";
 import { Icon } from "./icons";
+import { onwardLinks } from "./onward";
 
 type RiderActionKind = "BOARDED" | "NOT_ON_VEHICLE" | "LEFT_EARLY";
 type RiderAction = { kind: RiderActionKind; pickedUpBy?: string; at: string; queueId: string; recordedLate: boolean };
@@ -166,7 +167,13 @@ function AnswerRow<T extends string>({
   );
 }
 
-export default function RampCheck() {
+/**
+ * `role` is the caller's role, as the route's own guard already read it (page.tsx) — the same
+ * way the console shell is given one. It decides nothing about what this screen may show: it
+ * decides which of the two onward links is offered, because the front desk can open neither of
+ * the screens they lead to (see ./onward.ts).
+ */
+export default function RampCheck({ role }: { role: StaffRole | null }) {
   const [arrivalIndex, setArrivalIndex] = useState(0);
   const [checklists, setChecklists] = useState<Record<string, Checklist>>({});
   /** Manual seat choices; null means "cleared the suggestion". Keyed "vehicleId:positionId". */
@@ -260,6 +267,8 @@ export default function RampCheck() {
    */
   const replan = useMemo(() => replanForArrival(finding), [finding]);
   const findingCode = useMemo(() => encodeFinding(finding), [finding]);
+  /** The screens this role can carry the check to. The front desk can open neither. */
+  const onward = useMemo(() => onwardLinks(role, findingCode), [role, findingCode]);
 
   const need = useMemo(() => needSummary(leg), [leg]);
   const available = availableSummary(vehicle, checklist);
@@ -722,19 +731,14 @@ export default function RampCheck() {
                 <p style={{ ...MUTED, margin: "var(--space-5) 0 0" }}>{rampReplan.decides}</p>
               </>
             )}
-            {checkFinished ? (
+            {checkFinished && onward.length > 0 ? (
               <p style={{
                 display: "flex", gap: "var(--space-3)", flexWrap: "wrap",
                 margin: "var(--space-5) 0 0",
               }}>
-                <OnwardLink
-                  href={`/plan-routes?${ARRIVAL_PARAM}=${encodeURIComponent(findingCode)}`}
-                  label={rampReplan.openPlan}
-                />
-                <OnwardLink
-                  href={`/today?${ARRIVAL_PARAM}=${encodeURIComponent(findingCode)}`}
-                  label={rampReplan.openBoard}
-                />
+                {onward.map((link) => (
+                  <OnwardLink key={link.href} href={link.href} label={link.label} />
+                ))}
               </p>
             ) : null}
           </div>

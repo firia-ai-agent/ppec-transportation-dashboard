@@ -19,6 +19,12 @@ import RampCheck from "./RampCheck";
 export const dynamic = "force-dynamic";
 
 export default async function RampIpadPage() {
-  await requirePage("/ramp-ipad");
-  return <RampCheck />;
+  const caller = await requirePage("/ramp-ipad");
+  /*
+   * The role the guard just read, handed to the screen the way the console shell is handed one
+   * (src/app/(app)/layout.tsx). The screen shows the same check to every staff role; the role
+   * decides only which of the re-plan panel's two onward links is offered, because the front
+   * desk cannot open Plan routes or the board (./onward.ts).
+   */
+  return <RampCheck role={caller.kind === "STAFF" ? caller.role : null} />;
 }
