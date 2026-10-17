@@ -54,19 +54,6 @@ export const nav = {
   openMenu: "Open menu",
   closeMenu: "Close menu",
   menuLabel: "Menu",
-  /**
-   * The way back from a screen that has no rail of its own (Firia, 2026-10-17).
-   *
-   * Plan routes, the live map and the ramp iPad are all full-screen routes outside the console
-   * layout, so there is nothing on them that returns to the board: a founder walking the three
-   * had to use the browser's Back button or retype the address. One link, rendered by one
-   * component (src/ui/BackToToday.tsx) on all three.
-   *
-   * `{page}` is the board's own label, which is also the board's row in the access table, so
-   * the link cannot call the destination something the destination does not call itself. The
-   * same shape as `liveMap.openScreen`, and for the same reason.
-   */
-  backTo: "Back to {page}",
 } as const;
 
 /** COPY-GUIDE §5: visible label "Search", placeholder "Child, route or vehicle". */

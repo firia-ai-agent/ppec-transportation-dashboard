@@ -14,7 +14,6 @@
  * this page must not mount a second pair.
  */
 import { requirePage } from "@/auth/page-guard";
-import BackToToday from "@/ui/BackToToday";
 import { planRoutes } from "@/ui/copy";
 import PlanRoutes from "./PlanRoutes";
 
@@ -24,12 +23,6 @@ export const metadata = { title: planRoutes.documentTitle };
 export const dynamic = "force-dynamic";
 
 export default async function PlanRoutesPage() {
-  const caller = await requirePage("/plan-routes");
-  return (
-    <>
-      {/* The one way back to the board, on all three rail-less screens (src/ui/BackToToday.tsx). */}
-      <BackToToday caller={caller} />
-      <PlanRoutes />
-    </>
-  );
+  await requirePage("/plan-routes");
+  return <PlanRoutes />;
 }

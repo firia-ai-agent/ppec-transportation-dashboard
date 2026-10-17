@@ -31,7 +31,6 @@
 
 import Link from "next/link";
 import LiveFleetMap from "@/components/map/LiveFleetMap";
-import BackToToday from "@/ui/BackToToday";
 import { fill, liveMap, planRoutes, rampIpad } from "@/ui/copy";
 import { canOpenPage, mapViewerOf } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
@@ -49,64 +48,60 @@ export default async function LiveMapPage() {
   const viewer = mapViewerOf(caller);
 
   return (
-    <>
-      {/* The one way back to the board, on all three rail-less screens (src/ui/BackToToday.tsx). */}
-      <BackToToday caller={caller} />
-      <main style={{ padding: "var(--space-5)", display: "grid", gap: "var(--space-4)" }}>
-        <h1
-          style={{
-            margin: 0,
-            fontSize: "var(--text-20)",
-            fontWeight: "var(--weight-semibold)",
-            lineHeight: "var(--leading-tight)",
-            color: "var(--color-ink)",
-          }}
-        >
-          {liveMap.heading}
-        </h1>
-        <p
-          style={{
-            margin: 0,
-            maxWidth: "70ch",
-            fontSize: "var(--body-console)",
-            lineHeight: "var(--leading-normal)",
-            color: "var(--color-ink-muted)",
-          }}
-        >
-          {liveMap.intro}
-        </p>
-        <p
-          style={{
-            margin: 0,
-            maxWidth: "70ch",
-            fontSize: "var(--body-console)",
-            lineHeight: "var(--leading-normal)",
-            color: "var(--color-ink-muted)",
-          }}
-        >
-          {liveMap.allSimulated}
-        </p>
-        {/*
-          The ramp iPad is a sibling surface behind the same guard, and until the rail carried it
-          the only way to reach it was to know the URL. The two are walked in one sitting, so each
-          one says where the other is.
-        */}
+    <main style={{ padding: "var(--space-5)", display: "grid", gap: "var(--space-4)" }}>
+      <h1
+        style={{
+          margin: 0,
+          fontSize: "var(--text-20)",
+          fontWeight: "var(--weight-semibold)",
+          lineHeight: "var(--leading-tight)",
+          color: "var(--color-ink)",
+        }}
+      >
+        {liveMap.heading}
+      </h1>
+      <p
+        style={{
+          margin: 0,
+          maxWidth: "70ch",
+          fontSize: "var(--body-console)",
+          lineHeight: "var(--leading-normal)",
+          color: "var(--color-ink-muted)",
+        }}
+      >
+        {liveMap.intro}
+      </p>
+      <p
+        style={{
+          margin: 0,
+          maxWidth: "70ch",
+          fontSize: "var(--body-console)",
+          lineHeight: "var(--leading-normal)",
+          color: "var(--color-ink-muted)",
+        }}
+      >
+        {liveMap.allSimulated}
+      </p>
+      {/*
+        The ramp iPad is a sibling surface behind the same guard, and until the rail carried it
+        the only way to reach it was to know the URL. The two are walked in one sitting, so each
+        one says where the other is.
+      */}
+      <p style={{ margin: 0, fontSize: "var(--body-console)" }}>
+        <Link href="/ramp-ipad">{fill(liveMap.openScreen, { page: rampIpad.heading })}</Link>
+      </p>
+      {/*
+        Plan routes is the third screen behind the same door, and it is the coordinator's and
+        the director's (src/auth/access.ts). The link is offered only to a role whose own row
+        opens that page — hiding it is a courtesy, not the guard: /plan-routes checks the table
+        again on the server, like every other page.
+      */}
+      {canOpenPage(caller, "/plan-routes") ? (
         <p style={{ margin: 0, fontSize: "var(--body-console)" }}>
-          <Link href="/ramp-ipad">{fill(liveMap.openScreen, { page: rampIpad.heading })}</Link>
+          <Link href="/plan-routes">{fill(liveMap.openScreen, { page: planRoutes.heading })}</Link>
         </p>
-        {/*
-          Plan routes is the third screen behind the same door, and it is the coordinator's and
-          the director's (src/auth/access.ts). The link is offered only to a role whose own row
-          opens that page — hiding it is a courtesy, not the guard: /plan-routes checks the table
-          again on the server, like every other page.
-        */}
-        {canOpenPage(caller, "/plan-routes") ? (
-          <p style={{ margin: 0, fontSize: "var(--body-console)" }}>
-            <Link href="/plan-routes">{fill(liveMap.openScreen, { page: planRoutes.heading })}</Link>
-          </p>
-        ) : null}
-        <LiveFleetMap viewer={viewer} />
-      </main>
-    </>
+      ) : null}
+      <LiveFleetMap viewer={viewer} />
+    </main>
   );
 }
