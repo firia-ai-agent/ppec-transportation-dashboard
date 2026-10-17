@@ -1022,7 +1022,34 @@ export const rampReplan = {
   /** "The convertible van was checked at the ramp, and the afternoon is re-planned around it." */
   banner: "{vehicle} was checked at the ramp, and the afternoon is re-planned around it.",
   bannerNothing: "{vehicle} was checked at the ramp and arrived as planned.",
-  bannerCount: "{moved} moving to another van, {held} with no van.",
+  /**
+   * How many children the check is about, as one sentence.
+   *
+   * It used to be one template over two numbers — "{moved} moving to another van, {held} with
+   * no van" — and on the ordinary case that printed "0 with no van", which is the sentence a
+   * reader stops on. A zero is also the good news here, and good news stated as a nought reads
+   * like a fault. So each half appears only when it counted somebody, written out at one and
+   * at more than one, exactly as the Health & ROI numbers are.
+   *
+   * `alsoHeld` is the held clause when a moved clause already said "child", so the sentence
+   * does not say the noun twice. `changed` is false when neither counted anybody, so there is
+   * no empty case to write.
+   */
+  count: {
+    moved: {
+      one: "One child is moving to another van",
+      many: "{moved} children are moving to another van",
+    },
+    held: {
+      one: "One child has no van this afternoon",
+      many: "{held} children have no van this afternoon",
+    },
+    alsoHeld: { one: "one has no van this afternoon", many: "{held} have no van this afternoon" },
+    /** One clause, closed. */
+    sentence: "{clause}.",
+    /** Both, in the order a coordinator acts on them: who moved, then who is still stuck. */
+    twoClauses: "{moved}, and {held}.",
+  },
   backToRamp: "Back to the ramp check",
   clear: "Show the plan without it",
 

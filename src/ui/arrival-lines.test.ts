@@ -90,7 +90,9 @@ describe("two walking seats out of service: what the three screens say", () => {
     expect(arrivalBannerLines(replan)).toEqual([
       // Written for mid-sentence, and capitalised by the stylesheet, like every other van name.
       "the convertible van was checked at the ramp, and the afternoon is re-planned around it.",
-      "2 moving to another van, 0 with no van.",
+      // No "0 with no van": the half that counted nobody is left off, because the good news
+      // here is a zero, and a zero on a banner reads like a fault.
+      "2 children are moving to another van.",
     ]);
     assertPlain(arrivalBannerLines(replan));
   });
@@ -120,13 +122,62 @@ describe("a van with no place for a chair: the child nobody can carry", () => {
   });
 
   it("counts the hold in the banner rather than hiding it behind the moves", () => {
-    expect(arrivalBannerLines(replan)[1]).toBe("0 moving to another van, 1 with no van.");
+    // One child, and nobody moved: both halves say so in words rather than printing a one
+    // against a nought.
+    expect(arrivalBannerLines(replan)[1]).toBe("One child has no van this afternoon.");
   });
 
   it("says on the board that the ride has no van, with the state beside it", () => {
     const change = boardArrival(replan).changes.get("C6")!;
     expect(rideChangeLine(change)).toBe("No van after the ramp check.");
     expect(rideChangeState(change)).not.toBeNull();
+  });
+});
+
+/**
+ * The banner's count sentence, in every shape a real re-plan produces it.
+ *
+ * It is the one line on these screens built from two numbers, so it is the one line where a
+ * nought can appear by accident — and the nought is always the good news ("nobody was left
+ * without a van"), which is exactly the fact a reader must not mistake for a fault.
+ */
+describe("how many children the banner says a check is about", () => {
+  const sentence = (over: Partial<RampFinding>) =>
+    arrivalBannerLines(replanForArrival(finding(over)))[1];
+
+  it("says moves alone, holds alone, and both, each in its own words", () => {
+    // Two walking seats out: everybody who had to move found a van.
+    expect(sentence({ outOfService: [3, 4] })).toBe("2 children are moving to another van.");
+    // No place for the chair, and nobody else had to move.
+    expect(sentence({ layoutCode: "0WC/6A" })).toBe("One child has no van this afternoon.");
+    // Both halves, and the second does not say "child" again.
+    expect(sentence({ outOfService: [2, 3, 4] })).toBe(
+      "2 children are moving to another van, and one has no van this afternoon.",
+    );
+    // Both halves at one child each: "One child …, and one …", never "1 … 1 …".
+    expect(sentence({ latchOk: false })).toBe(
+      "One child is moving to another van, and one has no van this afternoon.",
+    );
+  });
+
+  it("never prints a nought, and never a bare count without its noun", () => {
+    const shapes: Partial<RampFinding>[] = [
+      { outOfService: [3, 4] },
+      { outOfService: [2, 3, 4] },
+      { layoutCode: "0WC/6A" },
+      { layoutCode: "2WC/1A" },
+      { layoutCode: "0WC/6A", outOfService: [1, 2, 3, 4] },
+      { liftOk: false },
+      { latchOk: false },
+    ];
+    for (const shape of shapes) {
+      const line = sentence(shape);
+      const where = `${JSON.stringify(shape)}: ${line}`;
+      expect(line, where).not.toMatch(/\b0\b/);
+      // Every numeral on the line is followed by the thing it counted.
+      expect(line, where).not.toMatch(/\d+(?!\d)(?! (?:child|children))/);
+      assertPlain([line]);
+    }
   });
 });
 

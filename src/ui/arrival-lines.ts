@@ -164,13 +164,33 @@ export function holdLines(replan: ArrivalReplan): ArrivalLine[] {
 export function arrivalBannerLines(replan: ArrivalReplan): string[] {
   const vehicle = laneVanName(replan.finding.laneId);
   if (!replan.changed) return [fill(rampReplan.bannerNothing, { vehicle })];
-  return [
-    fill(rampReplan.banner, { vehicle }),
-    fill(rampReplan.bannerCount, {
-      moved: replan.moves.length,
-      held: replan.holds.length,
-    }),
-  ];
+  return [fill(rampReplan.banner, { vehicle }), countSentence(replan)];
+}
+
+/**
+ * "Two children are moving to another van, and one has no van this afternoon."
+ *
+ * A half that counted nobody is left out rather than printed as a nought: "0 with no van" is
+ * the good news said in the one form that reads like a fault, and it was on the banner of
+ * every ordinary re-plan. `changed` is false when neither half counted anybody, so the
+ * function is never asked for a sentence about nothing.
+ */
+function countSentence(replan: ArrivalReplan): string {
+  const { count } = rampReplan;
+  const moved = replan.moves.length;
+  const held = replan.holds.length;
+  const one = <T extends { one: string; many: string }>(n: number, pair: T) =>
+    n === 1 ? pair.one : pair.many;
+
+  if (moved === 0) {
+    return fill(count.sentence, { clause: fill(one(held, count.held), { held }) });
+  }
+  const movedClause = fill(one(moved, count.moved), { moved });
+  if (held === 0) return fill(count.sentence, { clause: movedClause });
+  return fill(count.twoClauses, {
+    moved: movedClause,
+    held: fill(one(held, count.alsoHeld), { held }),
+  });
 }
 
 /**
