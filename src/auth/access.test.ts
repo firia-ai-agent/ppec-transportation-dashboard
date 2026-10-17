@@ -365,6 +365,7 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/api/probe/delay": "cron-secret",
       // Row 72: the coordinator too, so the one source for both halves is this row.
       "/api/demo/reset": "session:DIRECTOR+COORDINATOR",
+      "/api/plan/save": "session:DIRECTOR+COORDINATOR",
       "/api/queues/timer": "queue-callback",
       "/api/queues/outbox": "queue-callback",
       "/api/queues/agent": "queue-callback",

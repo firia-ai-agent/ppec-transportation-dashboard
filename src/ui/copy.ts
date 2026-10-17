@@ -828,6 +828,8 @@ export const countable = {
    * beside it already uses ("Wheelchair place · L-track").
    */
   wcPlace: { one: "wheelchair place", many: "wheelchair places" },
+  /** The kerbs on one van's run, as the route map's list beside it counts them. */
+  stop: { one: "stop", many: "stops" },
 } as const;
 
 /** "1 wheelchair" / "2 wheelchairs" — a count never reaches the screen without its noun. */
@@ -1228,6 +1230,17 @@ export const planRoutes = {
   seatsOver: "{line} · more than this van has",
   setUpAs: "Set up as {layout}",
   /**
+   * The same line for a van set up with no chairs in mind, written as a sentence of its own.
+   *
+   * `layoutName` is a *label*: it opens on a capital because it is read on a button ("No
+   * wheelchairs · 6 seats"), and dropping that label into `setUpAs` made the lane say "Set up as
+   * No wheelchairs · 6 seats" — a label wearing a sentence, with a capital in the middle of it
+   * (Vera's review, 2026-10-17). Lowercasing the "no" only hid the seam. So the one setup that
+   * has nothing to count says itself in plain words instead, and the seat count it drops is the
+   * place line directly underneath ("0 of 6 seats used").
+   */
+  setUpNoWheelchairs: "Set up with no wheelchair places",
+  /**
    * Why the line above is not the same line all day on a van that can be re-seated.
    *
    * A convertible van has several configurations (V1 is built as 6 seats, as 1 wheelchair place
@@ -1414,8 +1427,109 @@ export const planRoutes = {
 
   /* ── the map, beside the lanes ── */
   mapHeading: "Map",
-  /** Says what it is rather than promising when: "arrives with live updates" is a date we owe. */
-  mapPlaceholder: "The route map isn’t built yet.",
+  /**
+   * On a lane: bring that van's route forward on the map.
+   *
+   * On the lane rather than only under the map, because a coordinator reading a van is already
+   * looking at the lane — and it is pressed, with a check mark, so "this is the van on the map"
+   * is a word and a mark before it is a thicker line (§3).
+   */
+  showOnMap: "Show on the map",
+  /** The §9 accessible name of the map region, which says what the map is of. */
+  mapLabel: "The day’s routes",
+  /**
+   * What the lines are, said once over the map rather than on each one.
+   *
+   * The second sentence is the honest half: the demo's roads are the eight stretches its own
+   * runs drive (ADR-007), and a coordinator who moves a child makes a pair of kerbs nobody
+   * surveyed. Those stretches are drawn as the straight line between the two stops, and saying
+   * so is cheaper than letting a reviewer believe a road was measured.
+   *
+   * It says it the way a coordinator reads it (Vera's review, 2026-10-17): what a straight line
+   * means for the van is that nobody drew its route, and "no surveyed road" was our word for
+   * our own data rather than theirs.
+   */
+  mapNote:
+    "Each van’s stops, in the order it drives them. A straight line is direct, not the road the van will take.",
+  /** The group of buttons that pick one van's route out of the three. */
+  mapVansHeading: "Show one van’s route",
+  /** "the center van · 3 stops" on the button that brings that van's line forward. */
+  mapVanRow: "{vehicle} · {stops}",
+  /**
+   * Back to all three lines at full strength.
+   *
+   * "Show every van" read like a thing that had not happened yet beside a map already showing
+   * one of them; the word that was missing is that this undoes a pick (Vera's review,
+   * 2026-10-17).
+   */
+  mapShowAll: "Show all vans again",
+  /**
+   * The camera control: back out until every van's line is in the pane.
+   *
+   * It moves the camera and nothing else, so it says so with the verb a map is read with. "Fit
+   * every van" is the cartographer's word for it (Vera's review, 2026-10-17).
+   */
+  mapFitAll: "Zoom to show every route",
+  /** Nobody is in a van, so there is no route to draw and the map says what to press. */
+  mapEmpty: "No routes yet. Press Plan routes.",
+
+  /* ── saving the plan ── */
+  /**
+   * Saving is its own step, and it is not sending.
+   *
+   * The screen plans in the browser; this is the one thing on it that asks the server, and the
+   * server re-asks the solver about every child in the plan before it keeps it, so a move the
+   * screen refused cannot be saved by a request that skips the screen. So the saved
+   * line says what was kept and repeats the promise the rest of the screen makes — a plan is
+   * not a message, and no family has heard anything.
+   */
+  save: "Save plan",
+  saving: "Saving…",
+  /**
+   * What was kept, and when — the minute the server wrote it down, in the site's own timezone
+   * (`siteTimeLabel`). "Plan saved." alone left a coordinator who saved twice with no way to
+   * tell which of the two the line was about (Vera's review, 2026-10-17); a real time is the
+   * shortest honest answer, and the promise it carries is the one the rest of the screen makes.
+   */
+  saved: "Plan saved at {time}. No family has been told.",
+  /**
+   * Beside Save plan, whenever what is on screen is not what was last saved.
+   *
+   * Said in the row with the button rather than in the one line that answers a drag, because it
+   * is not an answer to anything a coordinator just did — it is the state of the plan in front
+   * of them, and it stays until they save it.
+   */
+  unsaved: "Changes not saved yet.",
+  /**
+   * The save did not reach the server, or the server answered something this screen cannot
+   * read. It says what to do and claims nothing about what was kept.
+   */
+  saveFailed: "The plan wasn’t saved. Try again.",
+  /**
+   * A plan naming a child or a van that is not on this run. One answer for all of them — a
+   * child at another site, a van on no lane today, an id that matches nothing — so the response
+   * cannot be used to find out which of the three it was.
+   */
+  saveNotThisRun: "That plan names a child or a van that isn’t on this run.",
+  /**
+   * What the screen found when it opened a run: the plan last saved for it, and the minute it
+   * was kept (Veri's S1, 2026-10-17 — a saved plan used to be gone on reload).
+   *
+   * Said as what is in front of them rather than as what just happened, because nothing just
+   * happened: a coordinator who reloads the page is reading a plan, not making one. It claims
+   * nothing about where the plan was kept, and nothing about anyone having been told.
+   */
+  showingSaved: "Showing the plan saved at {time}.",
+  /**
+   * Saving an empty screen over a plan that is already saved, refused.
+   *
+   * There is one way to reach it and it is not the button — the button cannot be pressed with
+   * nobody in a van — so this is a request that skipped the screen, or a second tab a
+   * coordinator never planned in. Either way, emptying a run is not a plan of it, and a plan
+   * somebody made is not something to lose to one. It says what to do instead.
+   */
+  saveNothingPlaced:
+    "There is already a saved plan. Put at least one child in a van before saving over it.",
 } as const;
 
 /**
@@ -1441,6 +1555,8 @@ export function vanName(description: string): string {
 export const apiAccess = {
   signIn: "Sign in to continue.",
   notYourRole: "This isn't part of your role.",
+  /** A body or a query this endpoint cannot read at all. Says nothing about what it wanted. */
+  badRequest: "That request couldn't be read.",
 } as const;
 
 /**

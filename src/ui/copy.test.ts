@@ -12,6 +12,7 @@ import {
   etaText,
   fill,
   fleetMap,
+  layoutName,
   liveUpdates,
   login,
   liveMap,
@@ -888,12 +889,133 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
     expect(planRoutes.missing.UNKNOWN_UNTIL_ARRIVAL).toBe("not checked yet");
     expect(fill(planRoutes.optionsHeading, { child: "Zoe B." })).toBe("Options for Zoe B.");
     expect(planRoutes.laneOptionsHeading).toBe("Options");
-    expect(planRoutes.mapPlaceholder).toBe("The route map isn’t built yet.");
+    // The pane said the map was not built yet until the map landed; what is left of that line
+    // is the empty state, which says what to press rather than what is missing.
+    expect(planRoutes).not.toHaveProperty("mapPlaceholder");
+    expect(planRoutes.mapEmpty).toBe("No routes yet. Press Plan routes.");
     // Said once over the lanes rather than under every rider card, so it is shorter than the
     // ramp check's own copy of the same promise and deliberately not the same string.
     expect(planRoutes.needsCaption).toBe("From intake, not a diagnosis.");
     expect(planRoutes.waitingHeading).toBe("Waiting to be planned");
     expect(planRoutes.changeVan).toBe("Change van or report");
+  });
+
+  /**
+   * Vera's review, 2026-10-17: the two things the save row says.
+   *
+   * "Plan saved." alone left a coordinator who had saved twice with no way to tell which save
+   * the line was about, and nothing on the screen said when what was in front of them had last
+   * been kept — so one line carries the minute and the other says the screen is ahead of it.
+   */
+  it("the save row: a time on the saved line, and the words for an unsaved change", () => {
+    expect(planRoutes.saved).toBe("Plan saved at {time}. No family has been told.");
+    expect(fill(planRoutes.saved, { time: "1:24 PM" })).toBe(
+      "Plan saved at 1:24 PM. No family has been told.",
+    );
+    expect(planRoutes.unsaved).toBe("Changes not saved yet.");
+    // Saving is still not sending, and the saved line says both in one breath.
+    expect(planRoutes.saved).toContain("No family has been told");
+    // Neither line is about the request, the endpoint or what a server did.
+    for (const line of [planRoutes.saved, planRoutes.unsaved]) {
+      expect(line, line).not.toMatch(/server|request|endpoint|HTTP|200\b/i);
+    }
+    // The unsaved line says it about the screen, not about the thing a coordinator last did.
+    expect(planRoutes.unsaved.split(" ")).toHaveLength(4);
+  });
+
+  /**
+   * Veri's S1, 2026-10-17: a saved plan used to be gone on reload, so the screen now reads one
+   * back — and these are the two lines that act arrived with.
+   *
+   * One says what is in front of a coordinator who has just opened the run, and the other
+   * refuses to lose a plan somebody made to an empty screen. Both are said as a fact about the
+   * plan and what to do about it, with nothing about a request, a server or where a plan is
+   * kept: none of that is a coordinator's business, and the second line is read by one.
+   */
+  it("the read-back: what is on screen, and the refusal to save nothing over it", () => {
+    expect(planRoutes.showingSaved).toBe("Showing the plan saved at {time}.");
+    expect(fill(planRoutes.showingSaved, { time: "1:24 PM" })).toBe(
+      "Showing the plan saved at 1:24 PM.",
+    );
+    expect(planRoutes.saveNothingPlaced).toBe(
+      "There is already a saved plan. Put at least one child in a van before saving over it.",
+    );
+    // The refusal says what to do next, in the words the screen uses for a van all through.
+    expect(planRoutes.saveNothingPlaced).toContain("Put at least one child in a van");
+    // Neither is about the machinery: no request, no endpoint, no status, no storage.
+    for (const line of [planRoutes.showingSaved, planRoutes.saveNothingPlaced]) {
+      expect(line, line).not.toMatch(/server|request|endpoint|HTTP|409|reload|cache|memory/i);
+    }
+  });
+
+  /**
+   * Vera's screenshots at 1440 and 390: nothing new on this screen may show the machine's own
+   * handles. A van is "the convertible van" and never "V1", a child is a first name and never
+   * a token, nothing says "ETA" where a real time belongs, and the synthetic marking is the
+   * DEMO bar's job and not a word in a sentence.
+   */
+  it("the lines the read-back added carry no code, key, id or 'ETA'", () => {
+    const added = [planRoutes.showingSaved, planRoutes.saveNothingPlaced];
+    for (const line of added) {
+      // Van codes and vehicle keys, ride and child ids, and the layout ids behind a ramp check.
+      expect(line, line).not.toMatch(/\bV\d+\b|\bC\d+\b|\bL-\w+\b|\bvehicleKey\b|\blaneId\b/);
+      // The synthetic marking, which is the DEMO bar's and never a sentence's.
+      expect(line, line).not.toMatch(/\bSYN\b|Provider P\d/);
+      // The word the copy guide bans outright, and the enum shapes a screen must never show.
+      expect(line, line).not.toMatch(/\bETA\b/);
+      expect(line, line).not.toMatch(/\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/);
+      // Said in plain words: no placeholder left but the time, and no bracketed machinery.
+      expect(line.replace("{time}", ""), line).not.toMatch(/[{}<>]/);
+    }
+  });
+
+  /**
+   * Vera's review, 2026-10-17: the three lines over and under the map, in a coordinator's words.
+   *
+   * The note said "no surveyed road", which is a fact about our data and not about the day — what
+   * a coordinator needs from a straight line is that it is not the route the van drives. The two
+   * buttons said what a map library calls these moves ("Fit every van") rather than what pressing
+   * them does to the screen in front of them.
+   */
+  it("the map's note and its two buttons, in the words the review fixed", () => {
+    expect(planRoutes.mapNote).toBe(
+      "Each van’s stops, in the order it drives them. A straight line is direct, not the road the van will take.",
+    );
+    expect(planRoutes.mapFitAll).toBe("Zoom to show every route");
+    expect(planRoutes.mapShowAll).toBe("Show all vans again");
+    // The note is two sentences and neither of them is about the survey, the fixtures or a leg.
+    expect(planRoutes.mapNote.split(". ")).toHaveLength(2);
+    expect(planRoutes.mapNote).not.toMatch(/surveyed|geometry|segment|leg\b/i);
+    // Each button says what it does to the screen: one zooms, the other undoes a pick.
+    expect(planRoutes.mapFitAll).toMatch(/^Zoom /);
+    expect(planRoutes.mapShowAll).toMatch(/ again$/);
+    for (const label of [planRoutes.mapFitAll, planRoutes.mapShowAll]) {
+      expect(label, label).not.toMatch(/\bFit\b|\bcamera\b|\bzoom level\b/);
+      expect(label, label).not.toMatch(/[.?!]$/);
+    }
+  });
+
+  /**
+   * Vera's review, 2026-10-17: the setup line is a sentence, so the one setup with nothing to
+   * count says itself in words rather than carrying the button's label inside it. "Set up as No
+   * wheelchairs · 6 seats" is a label in a sentence's clothing, and lowercasing the "no" would
+   * only have hidden the seam — the label itself has no business in there.
+   */
+  it("says a van with no wheelchair place in plain words, not with the layout's label", () => {
+    // "places" is the word the rest of the screen counts in — "1 of 1 wheelchair place used" —
+    // so the line that says there are none says it in the same noun (Vera's review, 2026-10-17).
+    expect(planRoutes.setUpNoWheelchairs).toBe("Set up with no wheelchair places");
+    // The label is still the label, on the button where it is read as one.
+    expect(layoutName("0WC/6A")).toBe("No wheelchairs · 6 seats");
+    // And no sentence is built by dropping that label into the "Set up as …" template, in
+    // either case: the capital mid-sentence and the lowercased patch of it are both out.
+    const built = fill(planRoutes.setUpAs, { layout: layoutName("0WC/6A") });
+    expect(planRoutes.setUpNoWheelchairs).not.toBe(built);
+    expect(planRoutes.setUpNoWheelchairs).not.toBe(built.toLowerCase());
+    expect(planRoutes.setUpNoWheelchairs).not.toMatch(/\bNo wheelchairs\b|\bno wheelchairs\b/);
+    // Still the "Set up …" line, and it counts nothing: the places line underneath does that.
+    expect(planRoutes.setUpNoWheelchairs).toMatch(/^Set up /);
+    expect(planRoutes.setUpNoWheelchairs).not.toMatch(/\d/);
   });
 
   /**

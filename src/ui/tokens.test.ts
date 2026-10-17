@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { planRoutes } from "./copy";
 import {
   color,
   contrastPairs,
@@ -32,8 +33,8 @@ function walkSrc(dir: string = SRC_ROOT): string[] {
  * WCAG 2.1 AA, or that drifts from the published ratio, fails the build.
  */
 describe("§8 contrast", () => {
-  it("covers every colour pair the doc lists, plus the inactive-control, demo-control and danger-button pairs", () => {
-    expect(contrastPairs).toHaveLength(29);
+  it("covers every colour pair the doc lists, plus the inactive-control, demo-control, danger-button and route-line pairs", () => {
+    expect(contrastPairs).toHaveLength(31);
   });
 
   it.each(contrastPairs)(
@@ -68,6 +69,23 @@ describe("§8 contrast", () => {
 });
 
 describe("token shape", () => {
+  /**
+   * The route palette's comment cites the copy entry that keeps colour from being the only cue —
+   * the van's own name, written along its line. It cited `planRoutes.mapVanLine`, which is not a
+   * key copy.ts has: the entry it means is `mapVanRow` (Vera's review, 2026-10-17).
+   *
+   * So every `planRoutes.…` this file names is checked against the real table, comments
+   * included. A citation nobody can follow is worse than no citation, and a renamed key is
+   * exactly how one goes stale.
+   */
+  it("cites copy entries that exist, in its comments too", () => {
+    const source = readFileSync(path.join(SRC_ROOT, "ui", "tokens.ts"), "utf8");
+    const cited = [...source.matchAll(/planRoutes\.([A-Za-z]+)/g)].map((m) => m[1]);
+    expect(cited).toContain("mapVanRow");
+    expect(cited).not.toContain("mapVanLine");
+    for (const key of cited) expect(planRoutes, key).toHaveProperty(key);
+  });
+
   it("writes every colour as an uppercase #RRGGBB literal", () => {
     for (const [name, value] of Object.entries(color)) {
       expect(value, name).toMatch(/^#[0-9A-F]{6}$/);
@@ -92,6 +110,8 @@ describe("token shape", () => {
         "info-fg",
         "ink",
         "ink-muted",
+        "map-route-2",
+        "map-route-3",
         "map-truck-crit",
         "map-truck-ok",
         "map-truck-stale",

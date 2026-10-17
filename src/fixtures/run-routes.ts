@@ -210,6 +210,30 @@ function legBetween(fromStopId: string, toStopId: string): RouteLeg {
   return found;
 }
 
+/**
+ * The committed road between two stops, in the asked-for direction, or `null` where this survey
+ * has none.
+ *
+ * `legBetween` above is the runs' own lookup and throws, because a run whose geometry is missing
+ * is a fixture mistake. This one answers the other question — *is* there a surveyed road between
+ * these two stops — which is what a plan a coordinator has rearranged has to ask: the eight legs
+ * below are the pairs the scenario's own runs drive, and a child dragged into another van makes
+ * a pair nobody surveyed. A leg surveyed the other way round comes back reversed, which is the
+ * same claim `reverseRoute` makes about a whole route: a road is as long one way as the other.
+ */
+export function committedLeg(fromStopId: string, toStopId: string): RouteLeg | null {
+  const forward = LEGS.find((l) => l.fromStopId === fromStopId && l.toStopId === toStopId);
+  if (forward) return forward;
+  const back = LEGS.find((l) => l.fromStopId === toStopId && l.toStopId === fromStopId);
+  if (!back) return null;
+  return {
+    ...back,
+    fromStopId,
+    toStopId,
+    geometry: [...back.geometry].reverse(),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // The runs, in the scenario's own order
 // ---------------------------------------------------------------------------

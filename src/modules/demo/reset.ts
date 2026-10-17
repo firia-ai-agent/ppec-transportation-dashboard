@@ -20,6 +20,7 @@ import type { Db } from "@/db/exec";
 import { isReadOnlyDbEnv } from "@/db/read-only";
 import { DEMO_RESET_REFUSAL, type DemoResetRefusal } from "./refusal";
 import { seedStandardScenario, type SeedResult } from "./seed";
+import { clearSavedPlans } from "./plan-store";
 
 /**
  * The roles that may reset the demo — the director and the coordinator, by the founder's final
@@ -105,6 +106,9 @@ export async function handleDemoReset(db: Db, env: Record<string, string | undef
   }
 
   const result = await seedStandardScenario(db, { now: req.now, siteId, env });
+  // The day those plans were plans of has just been re-seeded, so the demo's own plan state goes
+  // with it: a reset that left yesterday's saved plan behind would be a half reset.
+  clearSavedPlans();
   return { status: 200, body: { ok: true, ...result } };
 }
 

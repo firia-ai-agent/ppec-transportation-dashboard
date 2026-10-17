@@ -14,11 +14,19 @@ import type { Db } from "@/db/exec";
  * Every cell below is filled for reads **and** writes, and each one is run against a real
  * database with two sites in it.
  *
- * OBJECT: the site (`ops.site`), which is the only object an id reaches in this app today — the
- * one id-taking surface is `POST /api/demo/reset {siteId}`. There is no child, leg, thread or
- * invoice route yet; when one lands it gets its own matrix here, and `requireSiteAccess` is the
- * helper it must call. The PR description says this out loud rather than implying coverage of
- * surfaces that do not exist.
+ * OBJECTS: two, now.
+ *
+ * The first is the site (`ops.site`), reached by `POST /api/demo/reset {siteId}` — the only id
+ * that names a *row* in this app today. There is still no child, leg, thread or invoice route;
+ * when one lands it gets its own matrix here, and `requireSiteAccess` is the helper it must call.
+ *
+ * The second is a **plan**, saved by `POST /api/plan/save` (B-09): a body naming lanes, vans,
+ * drivers, configurations and children, every one of them an id from outside. It reaches no
+ * database at all — the plan is checked by the pure solver and kept in the demo's own state
+ * (src/modules/demo/plan-store.ts) — so its matrix is at the bottom of this file rather than
+ * woven into the seeded one above, and the targets are "this run's ids" and "not this run's"
+ * instead of "site A" and "site B". The rule it is held to is the same: a refusal that confirms
+ * nothing, identical for another run's id, another fleet's van and an id that exists nowhere.
  *
  * Spec rule, quoted: ADR-004 — "Every handler goes through `requireSiteRole(siteId, roles)` and
  * loads rows `WHERE site_id = session site`." BUILD-PLAN §4 — same site, role not allowed: 403;
@@ -320,5 +328,146 @@ describe("the same swap, sent straight to the endpoint", () => {
     const res = await post(USERS.DIRECTOR_A, "DIRECTOR", { siteId: "not-a-uuid" });
     // The id it refused is not echoed back either, malformed or not.
     await expectRefusedOverHttp(res, 400, "not-a-uuid", "director with a malformed id");
+  });
+});
+
+/**
+ * THE SAME PROCEDURE, at the one other surface that takes ids: saving a plan.
+ *
+ * | Role \ Target          | this run's ids | not this run's | a plan the solver refuses |
+ * |-------------------------|----------------|----------------|---------------------------|
+ * | signed out              | 401            | 401            | 401                       |
+ * | front desk (least)      | 403            | 403            | 403                       |
+ * | no membership at all    | 403            | 403            | 403                       |
+ * | coordinator             | ALLOW          | 404            | 422                       |
+ * | director                | ALLOW          | 404            | 422                       |
+ *
+ * Read against the matrix above it: there is no site column, because the body carries no site id
+ * and the endpoint writes no row — so the swap that matters here is a *child* or a *van* from
+ * somewhere the caller cannot see, and the answer to all of those is one 404 with one sentence.
+ * The refused-plan column is the other half of the same hole: the screen checks every move, and a
+ * request is not the screen, so the plan is re-asked of the solver before anything keeps it.
+ *
+ * Every cell is called over HTTP, which is how the original hole was found. Nothing is kept on any
+ * refused cell, and the store is read back to prove it.
+ */
+describe("the same procedure, at the plan save endpoint", () => {
+  const getCaller = vi.fn();
+  const saved = { ...process.env };
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.doMock("@/auth/caller", () => ({ getCaller }));
+    vi.doMock("@/db/exec", () => ({ getNeonDb: () => db, runAfterCommit: vi.fn() }));
+    process.env = { ...saved, ...env, DATABASE_URL: undefined };
+  });
+
+  /** The roles the access table gives this write. Read from the row, so the two cannot drift. */
+  const PLAN_ROW = endpointRow(API.planSave)?.auth;
+  const PLAN_ROLES = PLAN_ROW?.kind === "session" ? PLAN_ROW.roles : [];
+
+  async function callPlanSave(
+    role: "DIRECTOR" | "COORDINATOR" | "FRONT_DESK" | null,
+    body: unknown,
+  ): Promise<Response> {
+    getCaller.mockResolvedValue(
+      role
+        ? { kind: "STAFF", role, userId: USERS.DIRECTOR_A, memberships: [] }
+        : { kind: "ANONYMOUS", memberships: [] },
+    );
+    const { POST } = await import("@/app/api/plan/save/route");
+    return POST(new Request("https://example.test/save", { method: "POST", body: JSON.stringify(body) }));
+  }
+
+  async function savedPlanNow(): Promise<unknown> {
+    getCaller.mockResolvedValue({ kind: "STAFF", role: "DIRECTOR", userId: USERS.DIRECTOR_A, memberships: [] });
+    const { GET } = await import("@/app/api/plan/save/route");
+    const res = await GET(new Request("https://example.test/save?scenario=EVERY_RIDER_FITS&direction=AM"));
+    return (await res.json()).saved;
+  }
+
+  async function planBodies() {
+    const { initialStages, planInputOf } = await import("@/domain/plan/stages");
+    const { planAssignment } = await import("@/domain/solver");
+    const day = {
+      scenario: "EVERY_RIDER_FITS" as const,
+      direction: "AM" as const,
+      stages: initialStages("EVERY_RIDER_FITS"),
+      measured: [] as string[],
+    };
+    const lanes = planInputOf(day).lanes.map((lane) => lane.id);
+    // The lanes as the wire carries them: ids only, with no person's name in the body.
+    const stages = Object.fromEntries(
+      Object.entries(day.stages).map(([laneId, stage]) => [
+        laneId,
+        { vehicleKey: stage.vehicleKey, arrival: stage.arrival },
+      ]),
+    );
+    const empty = Object.fromEntries(lanes.map((id) => [id, [] as string[]]));
+    const asked = { ...day, stages };
+    return {
+      /** This run's own ids, in a plan the solver agreed with. */
+      ours: { ...asked, assignment: planAssignment(planInputOf(day)) },
+      /** A child this run does not drive — the swap. */
+      theirs: { ...asked, assignment: { ...empty, [lanes[0]]: ["C12"] } },
+      /** A van that is in the fleet and on no lane today — the other swap. */
+      otherVan: { ...asked, assignment: { ...empty, V3: ["C7"] } },
+      empty: { ...asked, assignment: empty },
+    };
+  }
+
+  it("gives the two console roles the write, and nobody else — straight from the row", async () => {
+    expect([...PLAN_ROLES].sort()).toEqual(["COORDINATOR", "DIRECTOR"]);
+    const { ours } = await planBodies();
+    for (const role of ["DIRECTOR", "COORDINATOR"] as const) {
+      expect({ role, status: (await callPlanSave(role, ours)).status }).toEqual({ role, status: 200 });
+    }
+    expect((await callPlanSave("FRONT_DESK", ours)).status).toBe(403);
+    expect((await callPlanSave(null, ours)).status).toBe(401);
+  });
+
+  it("refuses an id that is not this run's with one 404, whichever id it was", async () => {
+    const { theirs, otherVan } = await planBodies();
+    const answers: string[] = [];
+    for (const body of [theirs, otherVan]) {
+      const res = await callPlanSave("COORDINATOR", body);
+      expect(res.status).toBe(404);
+      expect(res.headers.get("content-type")).toMatch(/application\/json/);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      const text = await res.text();
+      // Nothing about the id it refused, so the answer cannot be used to find out what exists.
+      for (const leak of ["C12", "V3", "Owen"]) expect(text, leak).not.toContain(leak);
+      answers.push(text);
+    }
+    expect(new Set(answers).size).toBe(1);
+  });
+
+  it("keeps nothing on any refused cell, so a refusal is not a write", async () => {
+    const { ours, theirs, otherVan } = await planBodies();
+    for (const [role, body] of [
+      [null, ours],
+      ["FRONT_DESK", ours],
+      ["COORDINATOR", theirs],
+      ["COORDINATOR", otherVan],
+    ] as const) {
+      await callPlanSave(role, body);
+      expect({ role, saved: await savedPlanNow() }).toEqual({ role, saved: null });
+    }
+    // And the allowed cell does write, so the check above is not passing for want of a store.
+    await callPlanSave("COORDINATOR", ours);
+    expect(await savedPlanNow()).not.toBeNull();
+  });
+
+  it("writes no database row on any cell: there is no row for a site id to scope", async () => {
+    const { ours, theirs } = await planBodies();
+    for (const [role, body] of [
+      [null, ours],
+      ["FRONT_DESK", ours],
+      ["COORDINATOR", theirs],
+      ["DIRECTOR", ours],
+    ] as const) {
+      await callPlanSave(role, body);
+    }
+    expect(await childCount()).toBe(0);
   });
 });

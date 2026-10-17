@@ -68,6 +68,30 @@
   cursor: pointer;
 }
 
+/*
+ * The screen's second action: saving. Outlined rather than filled, because §4.1 allows one
+ * primary per surface and that one is Plan routes — a coordinator plans the day and may save it,
+ * in that order. It is the one control on the screen that goes unavailable, and it says so in
+ * its own words while it does ("Saving…"), so the disabled tokens are read here too.
+ */
+.secondary {
+  min-height: var(--target-console);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-md);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.secondary:disabled {
+  color: var(--color-disabled-fg);
+  background: var(--color-disabled-bg);
+  border-color: var(--color-disabled-border);
+  cursor: default;
+}
+
 /* Everything else: outlined, and filled only while it is the current answer. */
 .button {
   display: inline-flex;
@@ -162,18 +186,11 @@
   }
 }
 
-.mapBox {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 320px;
-  padding: var(--space-5);
-  text-align: center;
-  color: var(--color-ink-muted);
-  background: var(--color-bg);
-  border: var(--border-hairline) dashed var(--color-border-strong);
-  border-radius: var(--radius-md);
-}
+/*
+ * The map itself is src/components/map/PlanMap.tsx and brings its own stylesheet; what was here
+ * was the dashed box that stood in for it. The pane keeps its padding and its border, so the
+ * canvas sits in the same frame the placeholder did.
+ */
 
 /* ───────────────────────────── a lane ───────────────────────────── */
 
@@ -191,6 +208,17 @@
 .lane[data-over="true"] {
   border-color: var(--color-brand);
   background: var(--color-info-bg);
+}
+
+/*
+ * The lane whose route is in front on the map. The cue a reader needs is on the *map* — the
+ * line thickens and the others dim — so here it is only enough to tie the two together: a
+ * stronger edge, and the pressed "Show on the map" button inside the lane says it in words with
+ * a check mark beside them (§3: never colour alone).
+ */
+.lane[data-selected="true"] {
+  border-color: var(--color-ink);
+  box-shadow: inset 0 0 0 var(--border-hairline) var(--color-ink);
 }
 
 .laneTitleRow {
@@ -217,6 +245,18 @@
 
 .meta {
   color: var(--color-ink-muted);
+}
+
+/*
+ * Beside Save plan: the screen holds a plan the server has not been told about.
+ *
+ * The screen's own ink and a little weight, and no colour of its own — it is a fact about the
+ * plan rather than one of the §3 states, and the row it sits in is read left to right: the
+ * button, then this, then how much of the day is in a van.
+ */
+.unsaved {
+  color: var(--color-ink);
+  font-weight: var(--weight-medium);
 }
 
 .chips {
@@ -364,6 +404,11 @@
   gap: var(--space-3);
   padding-left: var(--space-4);
   border-left: var(--border-hairline) solid var(--color-border-strong);
+}
+
+/* A folded panel is folded away: `display` outranks the hidden attribute unless this says so. */
+.changes[hidden] {
+  display: none;
 }
 
 /* ───────────────────────────── children with no van ───────────────────────────── */

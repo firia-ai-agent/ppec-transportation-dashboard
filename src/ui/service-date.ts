@@ -39,6 +39,26 @@ const CLOCK_FMT = new Intl.DateTimeFormat("en-US", {
   hour12: true,
 });
 
+/**
+ * An instant as the clock on the wall at the centre: "2026-10-17T17:24:03Z" → "1:24 PM".
+ *
+ * The companion to {@link clockLabel}, for the times this app *makes* rather than reads out of a
+ * fixture. A plan is saved at a moment, the server is the one that knows when, and it answers in
+ * UTC — so the conversion is this function's, in the site's own timezone (PRD §6.1), and never
+ * the browser's idea of local time: a coordinator on a laptop still set to Phoenix must read the
+ * same minute as the one next to them.
+ */
+export function siteTimeLabel(at: Date): string {
+  return SITE_CLOCK_FMT.format(at);
+}
+
+const SITE_CLOCK_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: SITE_TIME_ZONE,
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+
 /** "2026-10-14", for `<time dateTime>` and, later, query parameters. */
 export function serviceDateIso(now: Date = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {
