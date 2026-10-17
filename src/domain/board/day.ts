@@ -27,6 +27,7 @@
  * Wednesday stays inside EDT.
  */
 
+import { clampTick, instantAt, tickAtScenarioSeconds } from "@/domain/eta/scenario-clock";
 import { SCENARIO_START_MS } from "@/fixtures/replays";
 import { serviceDateIso, serviceDateLabel, SITE_TIME_ZONE } from "@/ui/service-date";
 
@@ -201,4 +202,23 @@ export function requestedServiceDay(
   env: Record<string, string | undefined>,
 ): ServiceDay {
   return dateOverrideAllowed(env) ? serviceDayFor(dateIso) : demoDay();
+}
+
+/** The tick the board's own instant falls on, so the live stream starts where the page did. */
+export const BOARD_SCENARIO_TICK = tickAtScenarioSeconds(BOARD_SCENARIO_SECONDS);
+
+/**
+ * The demo day read at a tick of the scenario clock rather than at the fixed board instant.
+ *
+ * This is the one thing the live board needs that the three phases cannot give it: the same
+ * service day, read *later*. The day is still the demo day in every other respect — its date,
+ * its label, its LIVE phase, the runs it schedules — so a board built from it is the board a
+ * coordinator is already looking at, a few minutes further into the morning.
+ *
+ * The clock holds at the last tick of the committed runs (`LAST_TICK`): the morning ends, and
+ * a console that silently looped back to 07:30 would be claiming a day that is not happening.
+ */
+export function demoDayAtTick(tick: number): ServiceDay {
+  const day = demoDay();
+  return { ...day, instantMs: instantAt(clampTick(tick)) };
 }
