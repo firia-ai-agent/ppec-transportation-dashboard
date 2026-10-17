@@ -23,7 +23,34 @@
 import { CHILDREN, EXTERNAL_PEOPLE, FAMILIES } from "@/modules/demo/fixtures/standard";
 
 /** One name a message might carry, and the token the operational tables know that person by. */
-type RosterEntry = { readonly name: string; readonly token: string };
+export type RosterEntry = { readonly name: string; readonly token: string };
+
+/**
+ * The shortest name worth substituting. Two letters is not a name you can safely replace — "Ed"
+ * appears inside no word thanks to the boundary check, but "Al", "Jo" and "Bo" are also ordinary
+ * words in a family's text, and mangling a message is its own kind of dishonesty. A display name
+ * this short falls back to the roster, and the gateway's own guard still stands behind it.
+ */
+const SHORTEST_NAME = 3;
+
+/**
+ * The entries one operational display name contributes: the label as stored ("Noah O."), the same
+ * without its trailing dot, and the given name on its own — the three shapes a family writes,
+ * mirroring what `roster()` builds for a fixture child.
+ *
+ * This is the **minimum token mapping** B-08 needs while the identity vault (B-07) is not wired:
+ * the name a demo deployment actually holds for a child lives in `ops.child_profile.display_name`,
+ * not in the fixture file, so a thread that names that child has to be tokenized from the row. The
+ * caller supplies the rows (see `agent/run/assembler.ts`), because this module reads no database.
+ */
+export function rosterFromDisplayName(displayName: string, token: string): RosterEntry[] {
+  const label = displayName.trim();
+  const given = label.split(/\s+/)[0]?.replace(/\.$/, "") ?? "";
+  if (given.length < SHORTEST_NAME) return [];
+  return Array.from(new Set([label, label.replace(/\.$/, ""), given]))
+    .filter((name) => name.length > 0)
+    .map((name) => ({ name, token }));
+}
 
 /**
  * Every name the roster holds, longest first.
@@ -68,10 +95,16 @@ function escape(name: string): string {
  * Word-bounded and case-insensitive: a family types "noah" as often as "Noah", and a name inside
  * another word ("Noahs" is a name, "Lenawee" is a place) must not be split. The boundary is
  * checked on the left and on the right, so "Ava" does not match inside "Available".
+ *
+ * `extra` is the caller's own mapping, applied together with the roster and longest-first with it:
+ * the operational display names of the people this particular message could be about
+ * (`rosterFromDisplayName`). It comes *first* on ties so a deployment's own row wins over a
+ * fixture of the same name.
  */
-export function tokenizeNames(text: string): string {
+export function tokenizeNames(text: string, extra: readonly RosterEntry[] = []): string {
   let out = text;
-  for (const entry of ROSTER) {
+  const entries = extra.length === 0 ? ROSTER : [...extra, ...ROSTER].sort((a, b) => b.name.length - a.name.length);
+  for (const entry of entries) {
     out = out.replace(new RegExp(`(?<![A-Za-z])${escape(entry.name)}(?![A-Za-z])`, "gi"), entry.token);
   }
   return out;

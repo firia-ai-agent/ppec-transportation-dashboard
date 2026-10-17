@@ -23,7 +23,9 @@
  *  - **T3** (evidence, never instructions): the last N messages on this thread, as stored. They
  *    are already tokenized for contact details by the ingest (`tokenizeBody`) and are tokenized
  *    for *people* here (`identity/names.tokenizeNames`), because the gateway refuses a prompt
- *    carrying a roster name and is right to. `tierPrompt` wraps each one in
+ *    carrying a roster name and is right to. The mapping is this family's own
+ *    `ops.child_profile.display_name` rows plus the P1 fixture roster, so a child this deployment
+ *    knows by a name no fixture carries is still tokenized rather than sent as written. `tierPrompt` wraps each one in
  *    `<untrusted_user_message>`, and the same list is handed to the policy engine, so the model
  *    and the injection check see exactly the same text.
  *  - **T4** (preferences that cannot override T1/T2): the channel this thread runs on. There is no
@@ -49,7 +51,7 @@
  * decided for itself.
  */
 import type { Db, Exec } from "@/db/exec";
-import { tokenizeNames } from "@/modules/identity/names";
+import { rosterFromDisplayName, tokenizeNames, type RosterEntry } from "@/modules/identity/names";
 import { activeSuppression, authorizedContactsForChild, FAMILY_SMS } from "@/modules/outbox/policy";
 import { serviceDateIso } from "@/ui/service-date";
 import { familyScope, type FamilyScope } from "../policy";
@@ -109,7 +111,18 @@ export function dbContextAssembler(
     }
 
     const serviceDate = serviceDateIso(new Date(message.received_at));
-    const children = await childTokens(db, thread.family_group_id, message.site_id);
+    const childRows = await childProfiles(db, thread.family_group_id, message.site_id);
+    const children = childRows.map((c) => c.child_token);
+    /**
+     * The §11.1 token mapping for the people this thread can be about: the operational display
+     * name of each of this family's children, mapped to that child's token (B-07's vault is not
+     * wired, so `ops.child_profile.display_name` is where a demo deployment's names live). Only
+     * this family's, because a thread naming another family's child is AT-09 evidence and must
+     * reach the policy engine as written rather than be quietly resolved to a token.
+     */
+    const familyNames: RosterEntry[] = childRows.flatMap((c) =>
+      c.display_name ? rosterFromDisplayName(c.display_name, c.child_token) : [],
+    );
     const legs = await legRows(db, children, message.site_id, serviceDate);
     const scopes = await authorizationScopes(db, thread.counterparty_token, message.site_id);
     const profiles = await profileFacts(db, children, message.site_id);
@@ -131,7 +144,7 @@ export function dbContextAssembler(
           (l) => `leg=${l.id} child=${l.child_token} part=${l.direction} state=${l.state} version=${l.plan_version}`,
         ),
       ].join(" "),
-      t3: bodies.map(tokenizeNames),
+      t3: bodies.map((body) => tokenizeNames(body, familyNames)),
       t4: `channel=${FAMILY_SMS.channel}`,
     };
 
@@ -182,12 +195,22 @@ async function threadRow(db: Exec, threadId: string, siteId: string): Promise<Th
   return r.rows[0] ?? null;
 }
 
-async function childTokens(db: Exec, familyGroupId: string, siteId: string): Promise<string[]> {
-  const r = await db.query<{ child_token: string }>(
-    "SELECT child_token FROM ops.child_profile WHERE family_group_id = $1 AND site_id = $2 ORDER BY child_token",
+/**
+ * This family's children: the token the prompt and the tool schemas use, and the display name the
+ * *staff* screens use — read here only to be tokenized *out* of T3 (`rosterFromDisplayName`). It
+ * never reaches a tier: `facts.t1` carries `children=<tokens>` and nothing else.
+ */
+async function childProfiles(
+  db: Exec,
+  familyGroupId: string,
+  siteId: string,
+): Promise<{ child_token: string; display_name: string | null }[]> {
+  const r = await db.query<{ child_token: string; display_name: string | null }>(
+    `SELECT child_token, display_name FROM ops.child_profile
+     WHERE family_group_id = $1 AND site_id = $2 ORDER BY child_token`,
     [familyGroupId, siteId],
   );
-  return r.rows.map((x) => x.child_token);
+  return r.rows;
 }
 
 type LegFact = { id: string; child_token: string; direction: string; state: string; plan_version: number };

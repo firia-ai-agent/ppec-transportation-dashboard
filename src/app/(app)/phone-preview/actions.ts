@@ -26,7 +26,7 @@ import {
   type ApprovedDropoff,
   type DemoAgentTurn,
 } from "@/modules/demo/agent-turn";
-import { apiAccess } from "@/ui/copy";
+import { apiAccess, phonePanel } from "@/ui/copy";
 
 const PAGE = "/phone-preview";
 
@@ -45,14 +45,32 @@ async function allowed(): Promise<boolean> {
   return canOpenPage(await getCaller(), PAGE);
 }
 
-/** One agent turn over a staff-typed family text. */
+/**
+ * One agent turn over a staff-typed family text.
+ *
+ * The `catch` is not defensive habit, it is the panel's only way to say the thing out loud. A turn
+ * that throws has no state in `useActionState` — React re-raises it, Next shows its error boundary
+ * and the screen says nothing about the assistant at all. Three things can throw rather than
+ * degrade, and all three are a vendor this deployment may not call: an agent config it cannot
+ * parse, a base URL off the host allow-list, and a provider that refuses at wiring time
+ * (`agent/providers/remote.ts` — "the key nearly went to a host nobody vetted" is a stop, not a
+ * fallback). A reachable-but-failing vendor never arrives here: the adapter's own chain degrades
+ * to the §18.1 keyword reader and the turn comes back `answered` and labelled.
+ *
+ * The error itself is not shown and not logged here: the refusals name an environment variable but
+ * a thrown message is not copy, and the words a coordinator reads live in `ui/copy.ts`.
+ */
 export async function runAgentTurn(_previous: TurnState, form: FormData): Promise<TurnState> {
   if (!(await allowed())) return { status: "refused", message: apiAccess.notYourRole };
   const childKey = String(form.get("child") ?? "");
   const text = String(form.get("text") ?? "").trim().slice(0, 600);
   if (!childKey || !text) return { status: "idle" };
-  const turn = await demoAgentTurn({ childKey, text, day: demoDay() });
-  return { status: "answered", childKey, text, turn };
+  try {
+    const turn = await demoAgentTurn({ childKey, text, day: demoDay() });
+    return { status: "answered", childKey, text, turn };
+  } catch {
+    return { status: "refused", message: phonePanel.assistantUnavailable };
+  }
 }
 
 /**

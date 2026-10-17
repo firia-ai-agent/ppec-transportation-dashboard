@@ -690,6 +690,16 @@ export const phonePanel = {
     "The confirmation below went out on the assistant's own authority: it is one of the messages we allow, filled in with a time and a place. Free text to a family still needs a person.",
   /** A turn the gateway or the policy engine refused. */
   blockedLead: "The assistant's answer was refused before anything happened.",
+  /**
+   * The vendor could not be reached *at all* — not rate-limited, not slow, but a deployment whose
+   * model endpoint this build may not call (a base URL off the allow-list, a configuration nobody
+   * has fixed yet). Distinct from `answeredByKeyword` on purpose: there, the keyword reader
+   * answered and a person has the text; here nothing ran, so the sentence has to say that and say
+   * what to do instead. The panel shows it in place of the turn card (`actions.ts` returns it as a
+   * refusal), because a server action that throws leaves the screen with nothing to say.
+   */
+  assistantUnavailable:
+    "The assistant could not be reached, so nothing happened: no ride changed and no message was sent. Try again in a moment, or answer this text yourself.",
   /** Said under a refusal and under the keyword card alike: the rule, in plain words. */
   nothingHappened: "No ride changed and no message was sent.",
 } as const;
