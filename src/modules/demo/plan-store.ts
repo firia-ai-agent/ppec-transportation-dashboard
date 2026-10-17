@@ -52,7 +52,10 @@ export function getSavedPlan(scenario: DemoScenario, direction: Direction): Save
   return SAVED.get(savedPlanKey(scenario, direction)) ?? null;
 }
 
-/** Forget every saved plan. For a demo reset, and for a test that wants a fresh process. */
+/**
+ * Forget every saved plan. Called by the demo reset (src/modules/demo/reset.ts), because the day
+ * those plans were plans of has just been re-seeded, and by tests that want a fresh process.
+ */
 export function clearSavedPlans(): void {
   SAVED.clear();
 }
