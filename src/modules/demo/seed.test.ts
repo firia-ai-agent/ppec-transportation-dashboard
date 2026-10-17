@@ -7,14 +7,6 @@ import {
   ALLOWED_COORDS, BOARD_CENSUS, CHILDREN, DATE_EXCEPTION, EXTERNAL_PEOPLE, FAMILIES, RUNS, STOPS, VEHICLES,
   WEEKDAY_RRULE, vehicleIdOf,
 } from "./fixtures/standard";
-import { VANS } from "@/config/vans";
-
-/** The service date before this one, for the seeded van setups. */
-const yesterdayOf = (date: string): string => {
-  const at = new Date(`${date}T12:00:00Z`);
-  at.setUTCDate(at.getUTCDate() - 1);
-  return at.toISOString().slice(0, 10);
-};
 
 const env = { APP_DATA_CLASS: "SYNTHETIC", DEMO_MODE: "1", HMAC_PEPPER: "test-pepper", DATA_KEY: "test-data-key" };
 // A Tuesday 13:45 local, so "today" is a weekday and the 06:00 rewind is a real rewind.
@@ -51,7 +43,6 @@ describe("standard scenario seed (PRD §18.1)", () => {
       "ops.layout_position": 23,
       "ops.vehicle_capability_day": 4,
       // One CHECKED setup per van on the board, dated yesterday (the §9 reset contract).
-      "ops.vehicle_setup_day": 3,
       "ops.attendance_plan": 28,
       "ops.attendance_exception": 1,
       "ops.attendance_day": 28,
@@ -293,37 +284,21 @@ describe("standard scenario seed (PRD §18.1)", () => {
   });
 
   /**
-   * The state a fresh demo day has to start in, which is what makes the walk read the way the
-   * founder is shown it (Vera's reset contract, 2026-10-17 3:07 PM ET; redesign spec §9.1).
+   * The reset contract as re-cut on 2026-10-17 6:00 PM ET (Firia/Veri): a fresh day has **no**
+   * van setup at all, for today or for any earlier day, and no saved plan.
    *
-   * Yesterday's van setups are there and today's are not, so Plan routes plans on yesterday's
-   * counts and says so, and every van reads "Not checked" until the front desk confirms it. No
-   * plan is saved for today, so the live map is locked until one is.
+   * There is no carry-over in the product, so there is none in the seed either: every van is
+   * planned on its shared-config defaults and every column says "Using default setup" until the
+   * front desk confirms it at the ramp, and the live map stays locked until a plan is saved.
    */
-  it("starts the day on yesterday's van setups, with no setup and no plan for today", async () => {
-    const setups = await rows<{ service_date: string; state: string; set_by: string | null; n: number }>(`
-      SELECT service_date::text AS service_date, state, set_by::text AS set_by, count(*)::int AS n
-        FROM ops.vehicle_setup_day GROUP BY 1, 2, 3`);
-    expect(setups).toEqual([
-      { service_date: yesterdayOf(r.serviceDate), state: "CHECKED", set_by: null, n: VANS.length },
-    ]);
+  it("starts the day with no van setup and no plan, for any date", async () => {
+    const setups = await rows<{ n: number }>("SELECT count(*)::int AS n FROM ops.vehicle_setup_day");
+    expect(setups).toEqual([{ n: 0 }]);
     const counts = await one<{ setups_today: number; runs: number; assignments: number }>(`
       SELECT (SELECT count(*)::int FROM ops.vehicle_setup_day WHERE service_date = $1::date) AS setups_today,
              (SELECT count(*)::int FROM ops.plan_run) AS runs,
              (SELECT count(*)::int FROM ops.plan_assignment) AS assignments`, [r.serviceDate]);
     expect(counts).toEqual({ setups_today: 0, runs: 0, assignments: 0 });
-    // The counts are the configured defaults, so the planning ladder's last rung and the seeded
-    // rows cannot drift apart (src/config/vans.ts).
-    const first = await one<{ seats: number; wheelchair_spots: number; car_seats: number; oxygen_mounts: number; has_lift: boolean }>(`
-      SELECT seats, wheelchair_spots, car_seats, oxygen_mounts, has_lift
-        FROM ops.vehicle_setup_day WHERE vehicle_id = $1`, [vehicleIdOf(VANS[0].vehicleKey)]);
-    expect(first).toEqual({
-      seats: VANS[0].defaultSetup.seats,
-      wheelchair_spots: VANS[0].defaultSetup.wheelchairSpots,
-      car_seats: VANS[0].defaultSetup.carSeats,
-      oxygen_mounts: VANS[0].defaultSetup.oxygenMounts,
-      has_lift: VANS[0].defaultSetup.hasLift,
-    });
   });
 
   it("keeps permanent test opt-outs and clears everything else a reset owns", async () => {

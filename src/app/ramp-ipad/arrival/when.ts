@@ -1,4 +1,4 @@
-import type { Direction } from "@/domain/solver";
+import type { Direction } from "@/domain/day/leg";
 
 /**
  * The ramp checks the afternoon.

@@ -56,6 +56,14 @@ export type OtherChild = { token: string; name: string; bucket: Bucket };
 export interface DayDataSource {
   /** The vans on the road on this date, in slot order. */
   vans(date: string): readonly DayVan[];
+  /**
+   * When this van pulls away from the centre on this leg, epoch ms.
+   *
+   * The ramp's van tabs are in the order the vans leave (§2), and that time is a fact about the
+   * day's own runs — so it comes through the port with the rest of the day rather than out of a
+   * fixture the screen reads for itself.
+   */
+  leavesAtMs(date: string, leg: Direction, vanId: string): number;
   /** The children this leg drives, minus anybody recorded away. */
   riders(date: string, leg: Direction, absentTokens: readonly string[]): readonly DayRider[];
   /** Everybody else on the roster: the families who drive their own child, and anybody away. */

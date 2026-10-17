@@ -3,18 +3,20 @@
  * plan has on each of them, and who is riding.
  *
  * Server-side composition only — the board's own day (src/modules/plan/store.ts) plus the one
- * thing it does not carry, when each van leaves the centre. That comes from the committed survey
- * through `plannedStops` (src/domain/board/scenario.ts), which is where every other screen reads
- * a planned time from, so the ramp's clock and the board's cannot disagree.
+ * thing it does not carry, when each van leaves the centre, which comes through the same day
+ * port everything else does (Firia's rule 5: no screen reads a fixture).
+ *
+ * The riders beside the steppers are **the saved plan when there is one, and the placement
+ * function's own answer when there is not** (Vera's differences list, item 3). A ramp screen
+ * with an empty Riders card cannot be checked at all, and "no plan yet" is the state a fresh
+ * demo day starts in — so the front desk sees who the day would put on this van, and the
+ * won't-fit line and Re-plan are reachable.
  *
  * Pure apart from reading the day: no database of its own, no network, no React.
  */
-import { demoDay } from "@/domain/board/day";
-import { plannedStops } from "@/domain/board/scenario";
+import type { DayDataSource } from "@/domain/day/source";
 import type { BoardDay, BoardPlan, BoardRider, BoardVan } from "@/domain/plan/board";
-import { ridersInVan } from "@/domain/plan/board";
-import { RUNS, vehicleIdOf } from "@/modules/demo/fixtures/standard";
-import { RAMP_DIRECTION } from "./when";
+import { autoPlan, ridersInVan } from "@/domain/plan/board";
 
 /** One van at the ramp: everything the card above its steppers shows. */
 export type ArrivalVan = {
@@ -32,24 +34,22 @@ export type ArrivalVan = {
  * is no live position on this screen (that is the live map's, #53), so they are ordered by when
  * the plan says each one leaves, and none of them claims to be "here" when nothing knows that.
  */
-export function arrivalVans(day: BoardDay, plan: BoardPlan): ArrivalVan[] {
-  const serviceDay = demoDay();
+export function arrivalVans(
+  day: BoardDay,
+  plan: BoardPlan,
+  source: DayDataSource,
+  planSaved: boolean,
+): ArrivalVan[] {
+  // No plan saved yet: show the day as the one placement function would place it, so the card is
+  // populated and the "won't fit" line is reachable. Nothing is written by looking.
+  const shown = planSaved ? plan : autoPlan(day, plan);
   return day.vans
     .map((van) => ({
       van,
-      riders: ridersInVan(day, plan, van.id),
-      leavesMs: leavesAt(van.id, serviceDay),
+      riders: ridersInVan(day, shown, van.id),
+      leavesMs: source.leavesAtMs(day.date, day.direction, van.id),
     }))
     .sort((a, b) => a.leavesMs - b.leavesMs);
-}
-
-/** The instant this van's afternoon run leaves the centre. */
-function leavesAt(vanId: string, serviceDay: ReturnType<typeof demoDay>): number {
-  const run = RUNS.find((candidate) => vehicleIdOf(candidate.vehicleKey) === vanId);
-  if (!run) return serviceDay.instantMs;
-  const stops = plannedStops(run, RAMP_DIRECTION, serviceDay);
-  // The afternoon run starts at the centre, so its first stop *is* the departure (PRD §8).
-  return stops[0]?.etaMs ?? serviceDay.instantMs;
 }
 
 /** The van the address names, or the first one to leave. */

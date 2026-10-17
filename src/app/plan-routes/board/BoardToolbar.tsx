@@ -1,7 +1,7 @@
 "use client";
 
 import { Calendar, Check, Save, Sparkles, Undo2 } from "lucide-react";
-import type { Direction } from "@/domain/solver";
+import type { Direction } from "@/domain/day/leg";
 import { planBoard } from "@/ui/copy";
 import { icon } from "@/ui/tokens";
 import { placedLine, saveLine, type SaveState } from "./lines";

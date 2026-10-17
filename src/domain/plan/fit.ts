@@ -220,6 +220,8 @@ export function placeRiders(
   const ordered = [...riders].sort(
     (a, b) => hardness(b.needs) - hardness(a.needs) || a.token.localeCompare(b.token),
   );
+  /** Who could not be placed, and which vans their shortfall is about (their pin, or all). */
+  const refused: { rider: FitRider; scope: readonly PlaceableVan[] }[] = [];
   // A pin is a decision somebody already made, so it is honoured before the search runs.
   const pinnedFirst = [
     ...ordered.filter((rider) => rider.token in pinned),
@@ -246,6 +248,16 @@ export function placeRiders(
       continue;
     }
     vanOf[rider.token] = null;
+    refused.push({ rider, scope });
+  }
+
+  /*
+   * The shortfall is computed **after** everybody is placed, not while the search runs, so it
+   * describes the plan as it ends up: "Mia R. won't fit · 1 car seat short" is about the board a
+   * coordinator is looking at, and a child placed after her must not leave her line describing a
+   * van that has since filled up differently.
+   */
+  for (const { rider, scope } of refused) {
     unplaced.push({ token: rider.token, shortfall: shortestFall(scope, byVan, rider) });
   }
 

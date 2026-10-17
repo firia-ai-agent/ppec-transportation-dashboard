@@ -16,7 +16,7 @@
  */
 import { canOpenPage } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
-import { loadBoard, planStore } from "@/modules/plan/store";
+import { dayDataSource, loadBoard, planStore } from "@/modules/plan/store";
 import { siteOf } from "@/modules/plan/api";
 import { resolveDate, VAN_PARAM } from "@/modules/plan/when";
 import { flow, vanArrival } from "@/ui/copy";
@@ -49,7 +49,7 @@ export default async function RampIpadPage({
     view = null;
   }
 
-  const vans = view ? arrivalVans(view.day, view.plan) : [];
+  const vans = view ? arrivalVans(view.day, view.plan, dayDataSource(), view.savedAt !== null) : [];
   const selected = selectedVan(vans, one(params[VAN_PARAM]));
 
   if (!view || !selected) {
