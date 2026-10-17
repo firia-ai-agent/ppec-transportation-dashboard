@@ -5,6 +5,9 @@ import * as copy from "./copy";
 import { renderedStrings } from "./no-internals.test";
 import { DEMO_RUNS } from "@/fixtures/replays";
 import { FIXTURE_ROUTES } from "@/fixtures/routes";
+import { FLEET } from "@/fixtures/fleet";
+import { PROVIDERS } from "@/modules/demo/fixtures/standard";
+import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
 import { knownTemplates, renderTemplate, templatePlaceholders, UNKNOWN_STOP } from "@/modules/messaging/templates";
 import { TEMPLATE_VARS } from "@/modules/outbox/outbox";
 
@@ -179,6 +182,47 @@ describe("the fixture words that are rendered as words", () => {
       "Okeeheelee Park run",
     ]);
     for (const label of named) expect(codesIn(label)).toEqual([]);
+  });
+});
+
+/**
+ * THE `SYN ` MARKER STAYS IN THE DATA (Vera's review, 2026-10-17).
+ *
+ * ADR-015 stamps every synthetic row's name with it, and that has to stay: it is how a query, an
+ * export or a support ticket tells a fiction from a real record. What it must not do is reach a
+ * screen — "SYN Greenacres center fleet" is not a thing a coordinator calls anybody, and the DEMO
+ * bar and the §7.1 Simulated chip already say the same thing once, loudly, in the place a person
+ * is looking. `copy.withoutSynPrefix` is the one seam between the two, applied where a name
+ * crosses from data into a projection a screen reads.
+ *
+ * Both halves are asserted, because either one alone would be the wrong fix: the fixtures must
+ * still carry the marker, and no projection may.
+ */
+describe("the SYN marker is in the data and on no screen", () => {
+  it("the fixtures still carry it, so the marker has not simply been deleted", () => {
+    const marked = PROVIDERS.filter((p) => p.name.startsWith(copy.SYN_PREFIX));
+    expect(marked.length).toBe(PROVIDERS.length);
+  });
+
+  it("no provider name a screen reads carries it", () => {
+    // The solver's and the board's view of the fleet: what the drawer, Plan routes and the ride
+    // line all print.
+    for (const vehicle of FLEET) {
+      expect(vehicle.providerName, vehicle.label).not.toContain(copy.SYN_PREFIX);
+      expect(codesIn(vehicle.providerName), vehicle.providerName).toEqual([]);
+    }
+    // And the phone panel's own ride line, which reads the fixtures directly.
+    for (const drop of demoLateDropoffs()) {
+      expect(drop.providerName, drop.childKey).not.toContain(copy.SYN_PREFIX);
+    }
+  });
+
+  it("strips only the marker, and only at the front", () => {
+    expect(copy.withoutSynPrefix("SYN Greenacres center fleet")).toBe("Greenacres center fleet");
+    // A name that merely contains the letters is a name, not a marker.
+    expect(copy.withoutSynPrefix("Synergy Transport")).toBe("Synergy Transport");
+    expect(copy.withoutSynPrefix("Palm Lift Transport SYN ")).toBe("Palm Lift Transport SYN ");
+    expect(copy.withoutSynPrefix("")).toBe("");
   });
 });
 

@@ -272,6 +272,26 @@
   color: var(--color-ink-muted);
 }
 
+/*
+ * Which reader will answer, when it is not a model (Vera's review, 2026-10-17).
+ *
+ * A condition of the screen, not an alert: it carries the §3 neutral frame — a hairline and the
+ * page background — rather than a status colour, because nothing has gone wrong for a *family*
+ * and an amber bar here would read as a problem with somebody's ride. Never colour alone either
+ * way (§9): the sentence says the whole thing, and `data-reach` is for the tests, not for a cue a
+ * person is expected to decode.
+ */
+.reachNotice {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-size: var(--text-14);
+  line-height: var(--leading-normal);
+}
+
 /* §9: ≥44 px targets, and the ring is never removed. */
 .primary,
 .secondary {

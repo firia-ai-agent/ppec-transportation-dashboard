@@ -8,7 +8,7 @@ import { drawer, fill, familyTexts, places, sourceMode } from "@/ui/copy";
 import { outboundStates } from "@/ui/states";
 import { LegDrawer } from "../today/LegDrawer";
 import { PhonePanel } from "./PhonePanel";
-import { e164Of, phoneLabel, type Thread } from "./thread";
+import { e164Of, faultLine, phoneLabel, threadFor, type Thread } from "./thread";
 
 /**
  * The parent phone panel as markup (DESIGN-DIRECTION §6.3), and the one click that reaches it.
@@ -175,5 +175,71 @@ describe("the number the panel asks the message log for", () => {
 
   it("and shows it in the form a person reads", () => {
     expect(phoneLabel(noah)).toBe("(561) 555-0102");
+  });
+});
+
+/**
+ * A LOG THAT COULD NOT BE READ IS NOT A DAY THAT HAS NOT RUN (Veri's S3 note).
+ *
+ * `threadFor` used to funnel a thrown database read into the same `scenario` source as an empty
+ * mailbox, so the panel said "the demo day hasn't run yet" when the truth was "we could not read
+ * your message log". The first is a claim about the day; the second is a fault in the system. A
+ * coordinator deciding whether a family was actually told needs to know which one they are
+ * looking at.
+ *
+ * Driven through the real `threadFor` with a database that throws, so what is asserted is the
+ * module's own choice and not a hand-made source value.
+ */
+describe("a message log that cannot be read says so", () => {
+  const throwingDb = () => ({
+    query: async () => {
+      throw new Error("getaddrinfo ENOTFOUND db.example.internal");
+    },
+    tx: async () => {
+      throw new Error("no");
+    },
+  }) as never;
+
+  const reading = { dropoff: noah, pepper: "test-pepper", userId: "01900000-0000-7000-8000-00000000abcd" };
+
+  it("comes back as its own source, with the projection still on screen", async () => {
+    const thread = await threadFor(throwingDb, reading);
+
+    expect(thread.source).toBe("logUnreadable");
+    // Not a blank thread: the words are the same outbox copy the day would send.
+    expect(thread.bubbles).toHaveLength(1);
+    expect(thread.bubbles[0].body).toBe(noah.body);
+    // And no delivery state, because nothing was sent and nothing is known about what was.
+    expect(thread.bubbles[0].delivery).toBeNull();
+  });
+
+  it("says that, and not that the day has not run", async () => {
+    const html = panelHtml(await threadFor(throwingDb, reading));
+
+    expect(html).toContain(esc(familyTexts.logUnreadable));
+    expect(html).not.toContain(esc(familyTexts.fromScenario));
+    expect(html).not.toContain(esc(familyTexts.fromLog));
+  });
+
+  /** No session is not a fault: there is nothing to read, and the day is the honest answer. */
+  it("still says the day has not run when there was simply nothing to ask with", async () => {
+    const thread = await threadFor(throwingDb, { ...reading, userId: undefined });
+    expect(thread.source).toBe("scenario");
+    expect(panelHtml(thread)).toContain(esc(familyTexts.fromScenario));
+  });
+
+  /**
+   * The fault reaches the server log and the credential does not. A driver that cannot reach its
+   * host quotes the whole DSN back, so the one line that is written strips it.
+   */
+  it("strips a connection string out of the line it logs", () => {
+    const dsn = "postgresql://ppec:sup3rs3cret@db.example.internal:5432/ppec";
+    const line = faultLine(new Error(`connection to ${dsn} failed`));
+
+    expect(line).not.toContain("sup3rs3cret");
+    expect(line).toContain("[redacted]@");
+    // Still useful: the class of the fault and the host it was about.
+    expect(line).toContain("Error:");
+    expect(line).toContain("db.example.internal");
   });
 });

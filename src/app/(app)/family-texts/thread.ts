@@ -43,7 +43,20 @@ export type Bubble = {
   readonly reachedPhone: boolean;
 };
 
-export type ThreadSource = "log" | "scenario";
+/**
+ * Where the bubbles came from — and the third one is the point of this being a union of three.
+ *
+ *  - `log` — the message log answered, and the thread is the real thing.
+ *  - `scenario` — there is nothing in the log for this family *and nothing went wrong*: the demo
+ *    day has not run on this deployment, so the panel shows what it will send.
+ *  - `logUnreadable` — the log could not be asked. A database that is not configured, not
+ *    reachable, or that refused. The bubbles are still the projection, because a blank screen
+ *    helps nobody, but this is **not** the same fact as `scenario` and the panel must not say it
+ *    is: "the demo day hasn't run yet" is a claim about the day, and saying it when the truth is
+ *    "we could not read the log" is the screen telling a coordinator something false about their
+ *    own data (Veri's S3 note — the error used to be swallowed into `scenario`).
+ */
+export type ThreadSource = "log" | "scenario" | "logUnreadable";
 
 export type Thread = {
   readonly source: ThreadSource;
@@ -72,38 +85,79 @@ export function phoneLabel(dropoff: Pick<LateDropoff, "phone">): string {
 /**
  * The thread for one family, log first.
  *
- * Every refusal the read model can answer with lands in the same place — no session (the browser
- * check's synthetic role has a role and no user), a phone at another site, a database that is not
- * configured or not reachable — because for this panel they all mean the same thing: the log
- * cannot tell us, so show the day the scenario would send. The refusal is never rendered: a
- * coordinator reading a family's thread has no use for a status code.
+ * Three answers, not two, and the difference is the whole of Veri's S3 note. The read model can
+ * refuse for reasons that mean "there is nothing here" — no session (the browser check's synthetic
+ * role has a role and no user), a phone at another site, an empty mailbox — and the projection is
+ * the right answer for all of those. But it can also **fail**: no `DATABASE_URL`, an unreachable
+ * host, a query that threw. That used to land in the same `catch` and come back as `scenario`, so
+ * the panel told a coordinator "the demo day hasn't run yet" when the truth was "we could not read
+ * your message log". One of those is a fact about the day and the other is a fault in the system,
+ * and a screen that says the first when it means the second is lying to the person reading it.
+ *
+ * So a thrown read is `logUnreadable` and says so on screen. The bubbles are still the projection
+ * — a blank thread helps nobody, and the words in them are the same outbox copy either way — but
+ * the sentence under them is different, and it is the one that tells the truth.
+ *
+ * The error's own text is never rendered. A connection error can carry a host and a database name,
+ * and a coordinator has no use for either; the words they read live in `ui/copy.ts`. It goes to
+ * the server log, where a fault belongs, through `message` alone rather than the whole object, so
+ * nothing attached to the error can ride along with it.
  */
 export async function threadFor(
   db: () => Db,
   a: { dropoff: LateDropoff; pepper: string | undefined; userId: string | undefined },
 ): Promise<Thread> {
   const logged = await loggedThread(db, a);
-  if (logged && logged.length > 0) return { source: "log", bubbles: logged };
+  if (logged.kind === "unreadable") return { source: "logUnreadable", bubbles: [projected(a.dropoff)] };
+  if (logged.bubbles.length > 0) return { source: "log", bubbles: logged.bubbles };
   return { source: "scenario", bubbles: [projected(a.dropoff)] };
 }
+
+/** What the log could say: some bubbles (possibly none), or that it could not be asked at all. */
+type LoggedThread =
+  | { readonly kind: "read"; readonly bubbles: readonly Bubble[] }
+  | { readonly kind: "unreadable" };
 
 async function loggedThread(
   db: () => Db,
   a: { dropoff: LateDropoff; pepper: string | undefined; userId: string | undefined },
-): Promise<readonly Bubble[] | null> {
-  if (!a.pepper || !a.userId) return null;
+): Promise<LoggedThread> {
+  // Not a fault: the browser check's synthetic role holds a role and no user, and the read model
+  // needs both. There is nothing to read, which is what the projection is for.
+  if (!a.pepper || !a.userId) return { kind: "read", bubbles: [] };
   try {
     const answer = await personaMailboxResponse(db(), {
       number: e164Of(a.dropoff),
       pepper: a.pepper,
       userId: a.userId,
     });
-    if (answer.status !== 200) return null;
-    return answer.body.messages.map(bubbleOf);
-  } catch {
-    // No database on this deployment, or it refused. The scenario is the answer either way.
-    return null;
+    // A refusal the read model *can* answer with — another site's phone, a caller it will not
+    // serve. It answered, so this is a fact about the data and not a fault.
+    if (answer.status !== 200) return { kind: "read", bubbles: [] };
+    return { kind: "read", bubbles: answer.body.messages.map(bubbleOf) };
+  } catch (e) {
+    // The log could not be asked. Said on screen (`logUnreadable`) rather than swallowed, and
+    // recorded here — through `faultLine`, which is where the credential rule lives.
+    console.error(`[family-texts] the message log could not be read: ${faultLine(e)}`);
+    return { kind: "unreadable" };
   }
+}
+
+/**
+ * One line about a fault, safe to put in a log.
+ *
+ * A database error's message is the one place a connection string turns up by accident: a driver
+ * that cannot reach its host will happily quote the whole DSN back, password and all. So the
+ * message is taken (never the error object, which can carry a `cause` with the same string in it),
+ * any `scheme://user:password@host` is reduced to its scheme and host, and the result is bounded.
+ *
+ * The error's class name comes first because it is the part that is always safe and is usually
+ * what identifies the fault.
+ */
+export function faultLine(e: unknown): string {
+  const name = e instanceof Error ? e.constructor.name : typeof e;
+  const text = e instanceof Error ? e.message : String(e);
+  return `${name}: ${text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s@]*@/gi, "$1[redacted]@").slice(0, 200)}`;
 }
 
 function bubbleOf(message: PersonaMessage): Bubble {

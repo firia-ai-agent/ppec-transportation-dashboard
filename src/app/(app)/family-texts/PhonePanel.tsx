@@ -110,9 +110,17 @@ export function PhonePanel({
           )}
         </ol>
 
-        {/* Which of the two sources this thread is, in a sentence (see thread.ts). */}
+        {/*
+          Which of the three sources this thread is, in a sentence (see thread.ts). Three, not two:
+          a log that could not be *read* is not the same fact as a day that has not *run*, and the
+          panel used to say the second when it meant the first.
+        */}
         <p className={styles.source} data-source={thread.source}>
-          {thread.source === "log" ? familyTexts.fromLog : familyTexts.fromScenario}
+          {thread.source === "log"
+            ? familyTexts.fromLog
+            : thread.source === "logUnreadable"
+              ? familyTexts.logUnreadable
+              : familyTexts.fromScenario}
         </p>
       </section>
 

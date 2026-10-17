@@ -1,6 +1,7 @@
 import { requirePage } from "@/auth/page-guard";
 import { getNeonDb } from "@/db/exec";
 import { demoDay } from "@/domain/board/day";
+import { modelReach } from "@/modules/agent/run/deps";
 import { familyTexts } from "@/ui/copy";
 import { Placeholder } from "@/ui/Placeholder";
 import { nav } from "@/ui/copy";
@@ -71,6 +72,7 @@ export default async function PhonePreviewPage({
           childKey={selected.childKey}
           childFirstName={selected.childFirstName}
           guardianName={selected.guardianName}
+          modelReachKind={modelReach().kind}
         />
       }
     />

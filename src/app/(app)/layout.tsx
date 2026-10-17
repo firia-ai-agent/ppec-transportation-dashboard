@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { LAYOUT } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
 import { AppShell } from "@/ui/AppShell";
+import { withoutSynPrefix } from "@/ui/copy";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export const dynamic = "force-dynamic";
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const caller = await requirePage(LAYOUT.console);
   return (
-    <AppShell displayName={caller.displayName ?? ""} role={caller.kind === "STAFF" ? caller.role : null}>
+    <AppShell displayName={withoutSynPrefix(caller.displayName ?? "")} role={caller.kind === "STAFF" ? caller.role : null}>
       {children}
     </AppShell>
   );

@@ -26,10 +26,16 @@ import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
 import { demoDay } from "@/domain/board/day";
 import { EVERY_MODEL_FAILED, demoAgentTurn } from "@/modules/demo/agent-turn";
 import { familyTexts } from "@/ui/copy";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { modelReach } from "./run/deps";
 import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, loadAgentConfig } from "./config";
 import { TOOL_NAMES, toolDef } from "./tools";
 
 const KEY = "placeholder-not-a-key";
+
+/** The client component that renders the notice. Read as text: it must have no reason to print. */
+const COMPOSER = path.join(process.cwd(), "src", "app", "(app)", "family-texts", "PhoneComposer.tsx");
 
 /** A deployment that may make a live call, so every failure below is the *vendor's* and not a gate's. */
 const LIVE_ENV: Record<string, string | undefined> = {
@@ -232,5 +238,84 @@ describe("check 5, part 5: the server action answers with that sentence instead 
     } finally {
       process.env = saved;
     }
+  });
+});
+
+/**
+ * check 5, part 6: THE SCREEN SAYS IT, NOT ONLY THE SERVER LOG (Vera's review, 2026-10-17).
+ *
+ * Parts 1–5 are about one turn: a coordinator types a text, the vendor fails, and the card under
+ * it is labelled. What was missing is the state *before* anybody types. The queue route logged
+ * "degraded provider (…)" per delivery and no screen said anything, so a deployment whose model
+ * was unreachable looked perfectly healthy: the keyword reader's answer arrived with no sign that
+ * no model had ever seen the text, and the one place that knew was a log nobody at a demo reads.
+ *
+ * `modelReach` is the answer to "which reader will answer here", and it is one function so that
+ * the log line and the sentence on screen cannot disagree. These hold the three answers, the
+ * sentence each one puts on screen, and the rule that the refusal's own words never get there.
+ */
+describe("check 5, part 6: which reader will answer is on the screen", () => {
+  it("names the model on a deployment that may call one", () => {
+    const reach = modelReach(LIVE_ENV);
+    expect(reach.kind).toBe("model");
+    expect(reach.kind === "model" && reach.model).toBe(loadAgentConfig(LIVE_ENV).model);
+  });
+
+  it("is the keyword reader, by name, when no live call is allowed", () => {
+    // No key: the §18.1 degraded path, which still ends in front of a person.
+    const reach = modelReach({ ...LIVE_ENV, OPENROUTER_API_KEY: undefined });
+    expect(reach.kind).toBe("keyword");
+    expect(reach.kind === "keyword" && reach.reason.length).toBeGreaterThan(0);
+  });
+
+  it("is unavailable, not a thrown stack, when the config cannot be read at all", () => {
+    // A base URL this build may not send a key to: `chooseProvider` refuses at wiring time.
+    const reach = modelReach({ ...LIVE_ENV, AGENT_BASE_URL: "https://not-vetted.example.com/v1" });
+    expect(reach.kind).toBe("unavailable");
+  });
+
+  /**
+   * The copy each kind puts on screen. `model` shows nothing — the per-turn card already names
+   * the model — and the other two get the sentences Vera wrote, which say which reader ran and
+   * what did not happen.
+   */
+  it("maps each kind to a plain sentence, and the model case to silence", () => {
+    const said: Record<string, string | null> = {
+      model: null,
+      keyword: familyTexts.answeredByKeyword,
+      unavailable: familyTexts.assistantUnavailable,
+    };
+    for (const [kind, sentence] of Object.entries(said)) {
+      if (sentence === null) continue;
+      expect(sentence, kind).toMatch(/^[A-Z].*\.$/s);
+      // Plain words: no status code, no variable name, no vendor.
+      expect(sentence, kind).not.toMatch(/\b\d{3}\b|OPENROUTER|_ENV|process\.env/i);
+    }
+    // And the composer renders exactly those two and nothing for a reachable model.
+    const composer = readFileSync(COMPOSER, "utf8");
+    expect(composer).toContain("modelReachKind === \"model\" ? null");
+    expect(composer).toContain("familyTexts.answeredByKeyword");
+    expect(composer).toContain("familyTexts.assistantUnavailable");
+  });
+
+  /**
+   * The key never reaches the screen or a log line, under any of the three answers. The reason a
+   * refusal carries names an environment *variable*; this asserts no reach carries its *value*,
+   * and that the component the panel renders has no way to print a reason at all — its prop is
+   * the kind alone, which makes the rule structural rather than remembered.
+   */
+  it("carries no key, and the screen has no reason to print", () => {
+    for (const env of [
+      LIVE_ENV,
+      { ...LIVE_ENV, OPENROUTER_API_KEY: undefined },
+      { ...LIVE_ENV, AGENT_BASE_URL: "https://not-vetted.example.com/v1" },
+    ]) {
+      const reach = modelReach(env);
+      expect(JSON.stringify(reach)).not.toContain(KEY);
+    }
+    const composer = readFileSync(COMPOSER, "utf8");
+    // The prop is a kind, not a reach: there is no `.reason` on it to render by accident.
+    expect(composer).toContain('modelReachKind: "model" | "keyword" | "unavailable"');
+    expect(composer).not.toMatch(/reach\.reason|modelReach\(/);
   });
 });

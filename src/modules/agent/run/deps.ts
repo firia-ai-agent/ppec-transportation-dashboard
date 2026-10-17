@@ -60,6 +60,56 @@ export function chooseProvider(
   return { provider: remoteProvider(config, env), degraded: false, reason: null };
 }
 
+/**
+ * WHICH READER WILL ANSWER, SAID ONCE, FOR THE LOG AND FOR THE SCREEN.
+ *
+ * The queue route used to be the only thing that knew: it logged "degraded provider (…)" per
+ * delivery and the screens said nothing, so a deployment whose model was unreachable looked
+ * perfectly healthy to the coordinator reading a family's thread — the keyword reader's answer
+ * arrived with no sign that a model had never seen the text. Vera's review (2026-10-17): say it
+ * plainly on the screen, not only in a server log.
+ *
+ * So the route and the panel read the same function, which is the point of it being here rather
+ * than in the panel: a log line and a sentence on screen that could disagree would be worse than
+ * either alone. Three answers, and they are the three things that can actually be true:
+ *
+ *  - `model` — a vendor this deployment may call, named by its model id, which is what a reviewer
+ *    checks. (A model that is reachable but *fails* is not this: the adapter's own chain degrades
+ *    inside the call, and the turn comes back labelled `keyword` by `DemoAgentTurn.source`.)
+ *  - `keyword` — no live call is allowed or possible, so the PRD §18.1 keyword reader will answer
+ *    and the message still ends in front of a person. Degraded, working, and said so.
+ *  - `unavailable` — there is no reader at all: a config this build cannot parse, a base URL off
+ *    the host allow-list. Nothing runs, so the screen has to say that and say what to do instead.
+ *
+ * `reason` is the refusal's own words — the name of an environment variable, never a value. The
+ * key is read inside the adapter and appears in no log line, no error and no property
+ * (providers/remote.ts), and `key-never-leaves.test.ts` holds that. It is **not** rendered: the
+ * sentences a coordinator reads live in `ui/copy.ts` and name no variable at all. This field is
+ * for the server log.
+ *
+ * Reads the environment only — no database — so a server component can call it.
+ */
+export type ModelReach =
+  | { readonly kind: "model"; readonly model: string }
+  | { readonly kind: "keyword"; readonly reason: string }
+  | { readonly kind: "unavailable"; readonly reason: string };
+
+export function modelReach(env: Record<string, string | undefined> = process.env): ModelReach {
+  try {
+    const config = loadAgentConfig(env);
+    const choice = chooseProvider(config, env);
+    if (choice.degraded) return { kind: "keyword", reason: choice.reason ?? "no live call allowed" };
+    return { kind: "model", model: config.model };
+  } catch (e) {
+    return { kind: "unavailable", reason: (e instanceof Error ? e.message : String(e)).slice(0, 280) };
+  }
+}
+
+/** The one log line for a reach, for whichever route is about to drive a run. */
+export function modelReachLog(reach: ModelReach): string {
+  return reach.kind === "model" ? `model ${reach.model}` : `${reach.kind} (${reach.reason})`;
+}
+
 export type AgentRunner =
   | { readonly ok: true; readonly deps: RunDeps; readonly degraded: boolean; readonly reason: string | null }
   | { readonly ok: false; readonly skipped: string; readonly reason: string };

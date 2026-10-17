@@ -19,6 +19,33 @@ export function fill(template: string, values: Record<string, string | number>):
 }
 
 /**
+ * A synthetic record's name, as a person reads it: without the `SYN ` marker in front of it.
+ *
+ * ADR-015 stamps every synthetic row with that prefix, and it has to stay in the data — it is how
+ * a query, an export or a support ticket tells a fiction from a real record, and removing it there
+ * would remove the one marker that is checkable. But a *screen* has better ways of saying the same
+ * thing: the DEMO bar and the §7.1 Simulated chip the root layout renders on every route, which
+ * say it once, loudly, where a person is already looking. Printing it a second time inside a
+ * provider's name turns a company into a code (Vera's review, 2026-10-17: "SYN Greenacres center
+ * fleet" is not a thing a coordinator calls anybody), and COPY-GUIDE §2 bars internal markers from
+ * user-facing text for exactly that reason.
+ *
+ * So this is the one seam between the two, applied where a name crosses from data into a
+ * projection a screen reads — the board's rides, the solver's lanes, the phone panel's ride line,
+ * the signed-in person in the header. `no-codes.test.ts` holds that none of those carries it and
+ * that the fixtures still do.
+ *
+ * Case-sensitive and anchored: only the `SYN ` marker at the front goes. A name that merely
+ * contains the letters ("Synergy Transport") is untouched, and so is one already clean.
+ */
+export function withoutSynPrefix(name: string): string {
+  return name.startsWith(SYN_PREFIX) ? name.slice(SYN_PREFIX.length) : name;
+}
+
+/** The ADR-015 marker every synthetic row's name carries. Data only; never rendered. */
+export const SYN_PREFIX = "SYN ";
+
+/**
  * Closes a sentence with exactly one full stop. Needed because §3 writes a child as first name
  * plus last initial ("Leo B."), so a template that supplied its own period would print "Leo B..".
  */
@@ -679,6 +706,15 @@ export const familyTexts = {
    */
   fromScenario:
     "The demo day hasn't run yet, so these are the texts it will send. There's no delivery status because nothing has been sent.",
+  /**
+   * The message log could not be read at all (`thread.ts` → `logUnreadable`). Distinct from
+   * `fromScenario` on purpose, and that distinction is the whole of Veri's S3 note: "the demo day
+   * hasn't run yet" is a claim about the *day*, and saying it when the truth is "we could not read
+   * your message log" tells a coordinator something false about their own data. So this says which
+   * of the two it is, says what is on screen instead, and asks for nothing a person cannot do.
+   */
+  logUnreadable:
+    "We couldn't read the message log just now, so these are the texts the demo day sends rather than what was actually sent. Try again in a moment.",
   empty: "No texts to this family on this day.",
   /**
    * A day the demo sends no family text at all. Vera's wording (2026-10-17) replaces "Today isn't
@@ -1099,8 +1135,13 @@ export const drawer = {
 
   noApprovals: "Nothing is waiting for a decision about {child} today.",
   noAgentChanges: "The assistant has not changed anything for {child} today.",
-  /** The link to the phone panel, named for whose text it opens. */
-  openTexts: "See the text {child}'s family got",
+  /**
+   * The link to the phone panel, named for whose text it opens. Vera's wording, verbatim
+   * (2026-10-17): "See the text {child}'s family got" described the destination, while this one
+   * says what the link does and names the screen it opens by the name the rail and the page both
+   * use ("Family texts"), so a coordinator who clicks it recognizes where they have arrived.
+   */
+  openTexts: "Open {child}'s family texts",
   noTexts: "Nothing has been texted to {child}'s family today.",
   /** §5: "Dana changed AM ride to Center van · ramp check didn't fit · 9:41 AM". */
   historyEmpty: "Nothing has changed for {child} today.",
@@ -1656,7 +1697,7 @@ export const outboundSms = {
      * the child on a staff screen, a family's phone says "your child".
      */
     "dropoff.late":
-      "PPEC: Your child's van home is running about {delayMinutes} minutes late. New drop-off {eta} at {stopLabel}. {optOut} {demoTag}",
+      "PPEC: The van bringing your child home is running about {delayMinutes} minutes late. New drop-off {eta} at {stopLabel}. {optOut} {demoTag}",
     "leg.canceled":
       "PPEC: Got it. Your child's van on {legDate} is canceled. {reasonCode} {optOut} {demoTag}",
     "leg.changed":

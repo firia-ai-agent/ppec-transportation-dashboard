@@ -29,10 +29,18 @@ export function PhoneComposer({
   childKey,
   childFirstName,
   guardianName,
+  modelReachKind,
 }: {
   childKey: string;
   childFirstName: string;
   guardianName: string;
+  /**
+   * Which reader will answer on this deployment (`agent/run/deps.modelReach`), as a kind and
+   * nothing else. The refusal's own `reason` names an environment variable and is for the server
+   * log; this prop is the shape that makes "the reason is never rendered" structural rather than a
+   * rule somebody has to remember — there is no reason here to render.
+   */
+  modelReachKind: "model" | "keyword" | "unavailable";
 }) {
   const [turnState, submitTurn, turnPending] = useActionState<TurnState, FormData>(runAgentTurn, {
     status: "idle",
@@ -48,6 +56,18 @@ export function PhoneComposer({
 
   return (
     <section className={styles.composer} aria-label={fill(familyTexts.composerHeading, { adult: guardianName })}>
+      {/*
+        Said before anybody presses the button, not only after a turn and not only in a server log
+        (Vera's review, 2026-10-17): a deployment whose model is unreachable used to look perfectly
+        healthy here, and the keyword reader's answer arrived with no sign that no model had seen
+        the text. `role="status"` because it is a condition of the screen rather than a heading, and
+        it is announced if it appears after load.
+      */}
+      {modelReachKind === "model" ? null : (
+        <p className={styles.reachNotice} role="status" data-reach={modelReachKind}>
+          {modelReachKind === "keyword" ? familyTexts.answeredByKeyword : familyTexts.assistantUnavailable}
+        </p>
+      )}
       <form action={submitTurn} className={styles.composerForm}>
         <input type="hidden" name="child" value={childKey} />
         <label className={styles.composerLabel} htmlFor="composer-text">

@@ -8,6 +8,7 @@ import {
   agentWakeLog,
   handleAgentWake,
 } from "@/modules/agent/run/queue";
+import { modelReach, modelReachLog } from "@/modules/agent/run/deps";
 
 export const dynamic = "force-dynamic";
 // AGENT_RUN_MAX_DURATION_SECONDS, spelled out: Next parses the segment config statically and rejects
@@ -36,8 +37,10 @@ export const POST = handleCallback(async (message: unknown) => {
   const runner = agentRunner(db);
   if (!runner.ok) { console.log(`[queue:agent] ${runner.skipped} (${runner.reason})`); return; }
   // Said once per delivery when it applies: a run answered by the keyword parser is a degraded
-  // run, and the log is where that is visible without reading the run's rows.
-  if (runner.degraded) console.log(`[queue:agent] degraded provider (${runner.reason})`);
+  // run. The log is no longer the *only* place it is visible — `modelReach` is the same function
+  // the phone panel reads to say it on screen (Vera's review, 2026-10-17), so a log line and a
+  // sentence a coordinator reads cannot disagree about which reader answered.
+  if (runner.degraded) console.log(`[queue:agent] degraded provider: ${modelReachLog(modelReach())}`);
   const outcome = await handleAgentWake(db, message, { deps: runner.deps });
   console.log(`[queue:agent] ${agentWakeLog(outcome)}`);
 }, {
