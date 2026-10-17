@@ -477,7 +477,10 @@ describe("the words a lane says", () => {
   it("says a setup with no wheelchair place in plain words", () => {
     const sedan = laneIn(planRoutes(inputFor()), "V4");
     expect(sedan.layout.positions.some((position) => position.kind === "WC")).toBe(false);
-    expect(setUpAsLine(sedan.layout)).toBe("Set up with no wheelchair spaces");
+    // In the noun the lane counts in: the place lines underneath say "wheelchair place", so the
+    // line that says there are none says "places" too (Vera's review, 2026-10-17).
+    expect(setUpAsLine(sedan.layout)).toBe("Set up with no wheelchair places");
+    expect(setUpAsLine(sedan.layout)).not.toMatch(/\bspaces?\b/);
     // The three failures that line replaced, in one place: the label inside the sentence, the
     // lowercased patch of the same thing, and the shorthand.
     expect(setUpAsLine(sedan.layout)).not.toMatch(/[Nn]o wheelchairs/);

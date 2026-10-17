@@ -85,7 +85,7 @@ export const color = {
    * colour the map already had (src/components/map/style.ts `MAP_TOKENS.route`) — so these are
    * its second and third and there is no fourth copy of blue. Blue, bluish-green and vermillion
    * is the colour-vision-deficient-safe trio, and it is still never the only cue: every line on
-   * the plan map carries the van's own name along it (§3, `planRoutes.mapVanLine`).
+   * the plan map carries the van's own name along it (§3, `planRoutes.mapVanRow`).
    *
    * Not a status colour between them: green, amber and red are the truck tones above and the
    * five chip tones, and violet is the demo's. A van is not a state.

@@ -1169,7 +1169,7 @@ export const planRoutes = {
    * has nothing to count says itself in plain words instead, and the seat count it drops is the
    * place line directly underneath ("0 of 6 seats used").
    */
-  setUpNoWheelchairs: "Set up with no wheelchair spaces",
+  setUpNoWheelchairs: "Set up with no wheelchair places",
   /**
    * Why the line above is not the same line all day on a van that can be re-seated.
    *
@@ -1374,17 +1374,32 @@ export const planRoutes = {
    * runs drive (ADR-007), and a coordinator who moves a child makes a pair of kerbs nobody
    * surveyed. Those stretches are drawn as the straight line between the two stops, and saying
    * so is cheaper than letting a reviewer believe a road was measured.
+   *
+   * It says it the way a coordinator reads it (Vera's review, 2026-10-17): what a straight line
+   * means for the van is that nobody drew its route, and "no surveyed road" was our word for
+   * our own data rather than theirs.
    */
   mapNote:
-    "Each van’s stops, in the order it drives them. Between two stops with no surveyed road, the line is straight.",
+    "Each van’s stops, in the order it drives them. A straight line is direct, not the road the van will take.",
   /** The group of buttons that pick one van's route out of the three. */
   mapVansHeading: "Show one van’s route",
   /** "the center van · 3 stops" on the button that brings that van's line forward. */
   mapVanRow: "{vehicle} · {stops}",
-  /** Back to all three lines at full strength. */
-  mapShowAll: "Show every van",
-  /** The camera control: back out until every van's line is in the pane. */
-  mapFitAll: "Fit every van",
+  /**
+   * Back to all three lines at full strength.
+   *
+   * "Show every van" read like a thing that had not happened yet beside a map already showing
+   * one of them; the word that was missing is that this undoes a pick (Vera's review,
+   * 2026-10-17).
+   */
+  mapShowAll: "Show all vans again",
+  /**
+   * The camera control: back out until every van's line is in the pane.
+   *
+   * It moves the camera and nothing else, so it says so with the verb a map is read with. "Fit
+   * every van" is the cartographer's word for it (Vera's review, 2026-10-17).
+   */
+  mapFitAll: "Zoom to show every route",
   /** Nobody is in a van, so there is no route to draw and the map says what to press. */
   mapEmpty: "No routes yet. Press Plan routes.",
 

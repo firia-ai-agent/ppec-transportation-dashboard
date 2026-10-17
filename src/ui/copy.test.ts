@@ -847,13 +847,41 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
   });
 
   /**
+   * Vera's review, 2026-10-17: the three lines over and under the map, in a coordinator's words.
+   *
+   * The note said "no surveyed road", which is a fact about our data and not about the day — what
+   * a coordinator needs from a straight line is that it is not the route the van drives. The two
+   * buttons said what a map library calls these moves ("Fit every van") rather than what pressing
+   * them does to the screen in front of them.
+   */
+  it("the map's note and its two buttons, in the words the review fixed", () => {
+    expect(planRoutes.mapNote).toBe(
+      "Each van’s stops, in the order it drives them. A straight line is direct, not the road the van will take.",
+    );
+    expect(planRoutes.mapFitAll).toBe("Zoom to show every route");
+    expect(planRoutes.mapShowAll).toBe("Show all vans again");
+    // The note is two sentences and neither of them is about the survey, the fixtures or a leg.
+    expect(planRoutes.mapNote.split(". ")).toHaveLength(2);
+    expect(planRoutes.mapNote).not.toMatch(/surveyed|geometry|segment|leg\b/i);
+    // Each button says what it does to the screen: one zooms, the other undoes a pick.
+    expect(planRoutes.mapFitAll).toMatch(/^Zoom /);
+    expect(planRoutes.mapShowAll).toMatch(/ again$/);
+    for (const label of [planRoutes.mapFitAll, planRoutes.mapShowAll]) {
+      expect(label, label).not.toMatch(/\bFit\b|\bcamera\b|\bzoom level\b/);
+      expect(label, label).not.toMatch(/[.?!]$/);
+    }
+  });
+
+  /**
    * Vera's review, 2026-10-17: the setup line is a sentence, so the one setup with nothing to
    * count says itself in words rather than carrying the button's label inside it. "Set up as No
    * wheelchairs · 6 seats" is a label in a sentence's clothing, and lowercasing the "no" would
    * only have hidden the seam — the label itself has no business in there.
    */
   it("says a van with no wheelchair place in plain words, not with the layout's label", () => {
-    expect(planRoutes.setUpNoWheelchairs).toBe("Set up with no wheelchair spaces");
+    // "places" is the word the rest of the screen counts in — "1 of 1 wheelchair place used" —
+    // so the line that says there are none says it in the same noun (Vera's review, 2026-10-17).
+    expect(planRoutes.setUpNoWheelchairs).toBe("Set up with no wheelchair places");
     // The label is still the label, on the button where it is read as one.
     expect(layoutName("0WC/6A")).toBe("No wheelchairs · 6 seats");
     // And no sentence is built by dropping that label into the "Set up as …" template, in
