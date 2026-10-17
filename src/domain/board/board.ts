@@ -142,6 +142,14 @@ export const NEEDS_ACTION_REASONS = [
   "DOES_NOT_FIT",
   /** No adult on file is allowed to receive this child at the end of the ride (TRP-02, PRD §6.6). */
   "NO_RECEIVING_ADULT",
+  /**
+   * AT-10 at the end of a day: the van reached the drop-off, the day is over, and no custody
+   * event was ever recorded. The *state* is still the arrival and nothing more — that is the
+   * rule, and this reason does not touch it — but on a day whose vans are back in the yard the
+   * missing handoff is the last open thing about that ride, and a row that sat under "On the
+   * way" said the opposite: that it was still happening and would resolve itself.
+   */
+  "HANDOFF_UNRECORDED",
   /** The ride's own state is one of the §3 crit states. */
   "RIDE_STATE",
   /** LOC-03: nothing has been heard from the vehicle for ten minutes. */
@@ -658,8 +666,16 @@ function attendanceFor(child: DemoChild): AttendanceS {
  * (TRP-02 / PRD §6.6: the scenario's F2 family holds every scope except RECEIVE_CHILD, and
  * staff have to know before the van is at the kerb) — but the step belongs to the ride that
  * ends away from the centre, because that is the ride it stops.
+ *
+ * The day's own phase is an argument too, for one reason only (`HANDOFF_UNRECORDED`): the same
+ * ride state is a handoff about to happen on a board read mid-morning and a handoff nobody
+ * recorded on a board read after the last van is in.
  */
-function needsActionFor(child: DemoChild, ride: RideView): NeedsActionReason[] {
+function needsActionFor(
+  child: DemoChild,
+  ride: RideView,
+  phase: DayPhase,
+): NeedsActionReason[] {
   /*
    * A ride that is over needs nothing. The seating question a cancelled ride would otherwise
    * raise was answered by cancelling it, and a handed-off child is not waiting on anybody — so
@@ -690,6 +706,19 @@ function needsActionFor(child: DemoChild, ride: RideView): NeedsActionReason[] {
   ) {
     reasons.push("NO_RECEIVING_ADULT");
   }
+  /*
+   * A van that arrived and a day that is over, with no custody event between them (AT-10).
+   *
+   * The ride's state stays what the machine made of it — ARRIVED_DROPOFF, "Arrived (vehicle)",
+   * which is the arrival and not a handoff — and the day is what makes it a thing to do: on the
+   * live board an arrival minutes old is a handoff about to be recorded at the kerb, so the row
+   * belongs under "On the way" and its step asks for it. Once the vans are in, nobody is going
+   * to record it unless this board says so, and a row left under "On the way" on a finished day
+   * both reads as still happening and is invisible to "Only needs action" — which is where a
+   * coordinator closing out a day looks. The phase is why this is a reason here and not an edge
+   * in the machine: nothing about the ride changed, only what is still open about it.
+   */
+  if (phase === "ENDED" && ride.state === "ARRIVED_DROPOFF") reasons.push("HANDOFF_UNRECORDED");
   if (!held && groupForState(ride.state) === "NEEDS_ACTION") reasons.push("RIDE_STATE");
   if (ride.gpsFreshness === "LOST") reasons.push("LOCATION_LOST");
   return reasons;
@@ -700,6 +729,8 @@ const STEP_FOR_REASON: Readonly<Record<NeedsActionReason, NextStep>> = {
   CHILD_HELD: "CALL_CONTACTS",
   DOES_NOT_FIT: "MOVE_TO_FITTING_VAN",
   NO_RECEIVING_ADULT: "RECORD_RECEIVER",
+  /** The same step the arrival asks for mid-morning: a person records who received the child. */
+  HANDOFF_UNRECORDED: "CONFIRM_HANDOFF",
   RIDE_STATE: "DECIDE_RIDE",
   LOCATION_LOST: "FIND_VAN",
 };
@@ -751,7 +782,7 @@ function rowFor(child: DemoChild, day: ServiceDay, therapy: BoardRow["therapy"])
 
 /** One row of the board: this child, this ride, and what it is waiting for. */
 function legFor(child: DemoChild, row: BoardRow, ride: RideView, phase: DayPhase): LegRow {
-  const needsActionReasons = needsActionFor(child, ride);
+  const needsActionReasons = needsActionFor(child, ride, phase);
   return {
     key: `${row.childKey}/${ride.direction}`,
     child: row,

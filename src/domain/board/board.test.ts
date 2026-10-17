@@ -93,6 +93,20 @@ function buildFinishedWith(record: RideRecord): ReturnType<typeof buildBoard> {
   }
 }
 
+/**
+ * The **demo day**, with one extra recorded ride — for asking what a board read mid-morning does
+ * with an outcome the finished day has and it does not. `DEMO_DAY_RIDES` is put back afterwards,
+ * pass or fail, because every other suite in this file reads the real one (one ride, the hold).
+ */
+function buildLiveWith(record: RideRecord): ReturnType<typeof buildBoard> {
+  DEMO_DAY_RIDES.push(record);
+  try {
+    return buildBoard(demoDay());
+  } finally {
+    DEMO_DAY_RIDES.pop();
+  }
+}
+
 /** Everything a vehicle and a geofence can possibly report about a ride, and nothing a person has. */
 const VEHICLE_SAW_EVERYTHING: Partial<RideFacts> = {
   capability: "VERIFIED",
@@ -251,6 +265,66 @@ describe("a geofence arrival is never a handoff (AT-10)", () => {
     expect(arrived.ride.path).not.toContain("COMPLETED_HANDOFF");
     // The van is there and the board asks the person for the one thing only a person can do.
     expect(arrived.nextStep).toBe("CONFIRM_HANDOFF");
+  });
+
+  /**
+   * And on a day that is over, that ride needs a person — which is the other half of AT-10 and
+   * was the half the board got wrong.
+   *
+   * Zoe B.'s afternoon van arrived and no custody event was ever recorded. The state is right
+   * and stays right: "Arrived (vehicle)", never a handoff. But it sat under **On the way** on a
+   * board whose vans are all back in the yard, which reads as a ride still in progress that will
+   * close itself — and it was missing from "Only needs action", the one view a coordinator
+   * closing out the day works from. So the last unrecorded handoff of the day was the one row
+   * nobody was told about.
+   */
+  describe("a finished day's unrecorded handoff is a thing to do, not a ride in progress", () => {
+    const arrived = legIn(finished, "C6", "PM");
+
+    it("is in needs action, with the reason named and the handoff asked for", () => {
+      expect(arrived.ride.receivedBy).toBeNull();
+      expect(arrived.group).toBe("NEEDS_ACTION");
+      expect(arrived.needsActionReasons).toEqual(["HANDOFF_UNRECORDED"]);
+      expect(arrived.nextStep).toBe("CONFIRM_HANDOFF");
+    });
+
+    /** AT-10 is untouched by all of it: the row still says the van arrived and no more. */
+    it("still says the van arrived, and nothing about a handoff", () => {
+      expect(arrived.ride.state).toBe("ARRIVED_DROPOFF");
+      expect(arrived.ride.path).not.toContain("COMPLETED_HANDOFF");
+      expect(legStates[arrived.ride.state].label).not.toMatch(/handed off/i);
+    });
+
+    /** Which is what the "Only needs action" toggle filters the board to, so it counts it. */
+    it("is counted by the only-needs-action filter", () => {
+      const needsAction = finished.legs.filter((l) => l.group === "NEEDS_ACTION");
+      expect(needsAction.map((l) => l.key).sort()).toEqual(["C2/PM", "C6/PM"]);
+      expect(finished.needsActionCount).toBe(needsAction.length);
+      expect(finished.groups[0].group).toBe("NEEDS_ACTION");
+    });
+
+    /**
+     * The same arrival on a board read mid-morning is **not** a thing to do: the van is at the
+     * kerb now, and the handoff is what happens next rather than what nobody did. That contrast
+     * is the rule — it is the day that is over, not the state, that makes the row open work.
+     */
+    it("and the same ride mid-morning is on the way, with the handoff still to come", () => {
+      const live = buildLiveWith({
+        childKey: "C6",
+        direction: "PM",
+        departed: true,
+        pickupArrived: true,
+        boardingReportedBy: "PROVIDER",
+        boardingVerified: true,
+        dropoffArrived: true,
+        receivedBy: null,
+      });
+      const leg = legIn(live, "C6", "PM");
+      expect(leg.ride.state).toBe("ARRIVED_DROPOFF");
+      expect(leg.group).toBe("ON_THE_WAY");
+      expect(leg.needsActionReasons).toEqual([]);
+      expect(leg.nextStep).toBe("CONFIRM_HANDOFF");
+    });
   });
 });
 
@@ -642,6 +716,37 @@ describe("the board is about one day, and says which", () => {
         expect(leg.ride.stoppedSeconds, `${day.day.iso} ${leg.key}`).toBe(0);
       }
     }
+  });
+
+  /**
+   * A day that has not started has **no van out and nothing checked**, and that is a rule about
+   * the day rather than about the hour it is read at.
+   *
+   * The committed replays belong to the demo day alone, and they are read by instant: ask one for
+   * a position at six in the morning of the day *after* and the track has long since finished, so
+   * the last accepted point comes back and the van looks like it left. From there the whole day
+   * unravels on its own — a van that left was checked at the ramp, a checked van can be solved, a
+   * solved manifest can be locked — and the plan would be showing vans on the road, ramp checks
+   * nobody did and arrivals at kerbs, a day ahead of itself. So this is asserted at both ends:
+   * nothing is on the road, and nothing has been observed about any van.
+   */
+  it("has no van out and nothing checked on a day that has not started", () => {
+    const planned = buildBoard(serviceDayFor(demoDay().nextIso));
+    expect(planned.day.phase).toBe("PLANNED");
+    expect(planned.legs.length).toBeGreaterThan(0);
+    for (const leg of planned.legs) {
+      // The vehicle facts, from the one module that could have produced them: none of them.
+      expect(leg.ride.path, leg.key).not.toContain("EN_ROUTE_PICKUP");
+      expect(leg.ride.path, leg.key).not.toContain("ARRIVED_PICKUP");
+      expect(leg.ride.path, leg.key).not.toContain("ARRIVED_DROPOFF");
+      // And nobody has looked at the van, so there is nothing for the solver to answer with.
+      expect(leg.ride.capability, leg.key).toBe("UNKNOWN");
+      if (leg.ride.vehicleLabel === null) continue;
+      expect(leg.ride.solver, leg.key).toBe("CAPABILITY_PENDING");
+      expect(leg.ride.state, leg.key).toBe("CAPABILITY_PENDING");
+    }
+    // The plan is the plan: no ride on it has an outcome either.
+    expect(planned.legs.filter((l) => l.ride.receivedBy !== null)).toEqual([]);
   });
 
   it("asks nobody about a van on a day that has not started (PRD §18.2 step 5)", () => {

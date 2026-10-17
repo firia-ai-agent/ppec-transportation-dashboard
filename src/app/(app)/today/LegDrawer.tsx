@@ -3,7 +3,15 @@
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import type { BoardRow, LegRow, NeedView, RideView, ServiceDay } from "@/domain/board/board";
-import { board as boardCopy, drawer, etaText, fill, needCategories, places } from "@/ui/copy";
+import {
+  board as boardCopy,
+  drawer,
+  etaText,
+  fill,
+  needCategories,
+  onDay,
+  places,
+} from "@/ui/copy";
 import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
 import { capabilityStates, legStates, needItemStates, profileStates } from "@/ui/states";
@@ -81,9 +89,7 @@ export function LegDrawer({
             be about another day and is read without looking back at it.
           */}
           <h3 className={styles.sectionHeading}>
-            {day.phase === "LIVE"
-              ? drawer.ridesHeading
-              : fill(drawer.ridesHeadingOtherDay, { date: day.label })}
+            {onDay({ today: drawer.ridesHeading, otherDay: drawer.ridesHeadingOtherDay }, day)}
           </h3>
           {/*
             The day in order, morning then afternoon: an ordered list, because that is what it

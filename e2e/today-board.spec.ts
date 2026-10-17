@@ -194,6 +194,65 @@ for (const width of WIDTHS) {
     });
 
     /**
+     * …and on a day that is over, that same van is a thing somebody has to do.
+     *
+     * The state is right either way — "Arrived (vehicle)", never a handoff — but the group it
+     * sits in is a claim too. Under "On the way" on a board whose vans are all back in the yard
+     * it reads as a ride still in progress, and worse, it was not in "Only needs action", which
+     * is the view a coordinator closing out the day works from: the last unrecorded handoff of
+     * the day was the one row nobody was told about. So it is walked here through the filter,
+     * which is the measurement that would catch it coming back.
+     */
+    test("a handoff nobody recorded is needs action once the day is over", async ({ page }) => {
+      await page.goto(FINISHED_URL);
+      const headers = page.locator("th[scope='colgroup']");
+      await expect(headers.first()).toContainText(boardCopy.groups.NEEDS_ACTION);
+
+      // Two rides need a person on that day: the held child, and this arrival nobody closed.
+      const toggle = page.getByRole("switch");
+      await expect(toggle).toContainText(
+        fill(boardCopy.groupHeading, { group: boardCopy.onlyNeedsAction, count: 2 }),
+      );
+      await toggle.click();
+      await expect(toggle).toHaveAttribute("aria-checked", "true");
+      await expect(
+        page.getByText(fill(boardCopy.showing, { shown: 2, total: RIDES })),
+      ).toBeVisible();
+
+      // The afternoon row is in it; the morning of the same child was received and is not.
+      const arrived = page.getByRole("button", {
+        name: opener(RIDING_CHILD, boardCopy.pmSpoken),
+      });
+      await expect(arrived).toBeVisible();
+      await expect(page.getByRole("button", { name: opener(RIDING_CHILD) })).toHaveCount(0);
+      await expect(
+        page.getByRole("button", { name: opener(NO_RECEIVER_CHILD, boardCopy.pmSpoken) }),
+      ).toBeVisible();
+
+      // The row still says what the van did and no more, and the panel says why it is in here.
+      const row = page.getByRole("row").filter({ has: arrived });
+      await expect(row.getByText(legStates.ARRIVED_DROPOFF.label).first()).toBeVisible();
+      await expect(row.getByText(/handed off/i)).toHaveCount(0);
+      await arrived.click();
+      const panel = page.getByRole("dialog");
+      await expect(
+        panel
+          .getByText(fill(boardCopy.reasons.HANDOFF_UNRECORDED, { child: RIDING_CHILD }), {
+            exact: true,
+          })
+          .first(),
+      ).toBeVisible();
+      await expect(
+        panel
+          .getByText(sentence(fill(boardCopy.nextSteps.CONFIRM_HANDOFF, { child: RIDING_CHILD })), {
+            exact: true,
+          })
+          .first(),
+      ).toBeVisible();
+      console.log("screenshot:", await shot(page, `today-unrecorded-handoff-${width}`));
+    });
+
+    /**
      * AT-13: a ride that **ended** with nobody on file to receive the child.
      *
      * The afternoon van reached Noah O.'s stop, no adult on file may receive him and no custody

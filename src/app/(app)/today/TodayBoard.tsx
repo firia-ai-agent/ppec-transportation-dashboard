@@ -19,7 +19,7 @@ import {
   type LegRow,
   type RideView,
 } from "@/domain/board/board";
-import { board as boardCopy, etaText, fill, serviceDate } from "@/ui/copy";
+import { board as boardCopy, etaText, fill, onDay, serviceDate } from "@/ui/copy";
 import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
 import {
@@ -97,9 +97,7 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
       */}
       <header className={styles.titleRow}>
         <h1 className={styles.heading}>
-          {day.phase === "LIVE"
-            ? boardCopy.heading
-            : fill(boardCopy.headingOtherDay, { date: day.label })}
+          {onDay({ today: boardCopy.heading, otherDay: boardCopy.headingOtherDay }, day)}
         </h1>
         <p className={styles.date}>
           <span className={styles.dateLabel}>{serviceDate.groupLabel}</span>{" "}
@@ -143,11 +141,13 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
         <>
           <p className={styles.hint}>{boardCopy.keyboardHint}</p>
           <table className={styles.table}>
-            {/* The caption is read before the first row, so it names the day the heading does. */}
+            {/*
+              The caption is read before the first row, so it names the day the heading does —
+              by the same rule and through the same function, because the ear is the one reader
+              who cannot check the date beside it (`onDay`, Veri #49).
+            */}
             <caption className="srOnly">
-              {day.phase === "LIVE"
-                ? boardCopy.tableLabel
-                : fill(boardCopy.tableLabelOtherDay, { date: day.label })}
+              {onDay({ today: boardCopy.tableLabel, otherDay: boardCopy.tableLabelOtherDay }, day)}
             </caption>
             <colgroup>
               <col className={styles.colChild} />

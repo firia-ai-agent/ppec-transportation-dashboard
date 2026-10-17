@@ -289,6 +289,19 @@ export const board = {
     CHILD_HELD: "{child} is waiting with the van. No adult on file can receive them.",
     DOES_NOT_FIT: "{van} does not fit everyone on this run.",
     NO_RECEIVING_ADULT: "No adult on file may receive {child} at the end of the afternoon ride.",
+    /**
+     * The end of a day with a handoff missing from it: the van arrived, the day is over, and no
+     * custody event was ever recorded. It names the vehicle's fact and then what is missing, in
+     * that order, because the first half is the one a coordinator can see for themselves on the
+     * row — the state chip beside it says "Arrived (vehicle)" — and the second is the one only
+     * this line says.
+     *
+     * It is a *reason*, not a state: the row still says the van arrived and nothing more, which
+     * is the rule about arrivals and handoffs. What changed is where the row sits, because a day
+     * whose vans are back in the yard has nobody left to record the handoff unless a person is
+     * asked to.
+     */
+    HANDOFF_UNRECORDED: "{child}'s van is back and nobody recorded who received them.",
     RIDE_STATE: "{child}'s ride needs a person to decide what happens next.",
     LOCATION_LOST: "Nothing has been heard from {van} for ten minutes.",
   },
@@ -353,6 +366,27 @@ export const serviceDate = {
     PLANNED: "Not started",
   },
 } as const;
+
+/** The day a heading is about: its phase, and the date it is labelled by (src/domain/board/day.ts). */
+export type LabelledDay = { phase: keyof typeof serviceDate.phases; label: string };
+
+/**
+ * A heading that may only say "Today" on the day that is true of (Veri #49).
+ *
+ * Three places read one day and name it — the board's own heading, the table's screen-reader
+ * caption, and the drawer's first section heading — and each carried the same ternary beside it.
+ * Three copies of one rule is three places it can be broken, and the two hardest to catch by
+ * looking are in there: the caption only the ear hears, and a panel that covers the header
+ * carrying the date, so a day that is *not* the demo day could be introduced as "Today's rides"
+ * with nothing on screen to correct it.
+ *
+ * So the rule is here, once, and it is the narrow one: the words that say "Today" are used on
+ * the live demo day and on no other phase. A finished day and a day that has not started are
+ * both named by their date, because neither of them is today.
+ */
+export function onDay(words: { today: string; otherDay: string }, day: LabelledDay): string {
+  return day.phase === "LIVE" ? words.today : fill(words.otherDay, { date: day.label });
+}
 
 /**
  * Scenario clock in the header (§2). The demo-controls dock (§6.1) owns the clock; until it

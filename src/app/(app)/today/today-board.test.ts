@@ -37,6 +37,8 @@ function escaped(text: string): string {
 const board = buildBoard();
 /** The day before, read after the last van is in: the one with outcomes on it (AT-10, AT-13). */
 const finished = buildBoard(serviceDayFor(demoDay().previousIso));
+/** The day after, read before it starts: the plan, and the other day that is not "today". */
+const planned = buildBoard(serviceDayFor(demoDay().nextIso));
 
 const legsIn = (of: typeof board, key: string): LegRow[] => {
   const legs = of.legs.filter((l) => l.child.childKey === key);
@@ -110,24 +112,42 @@ describe("the board renders the day", () => {
    * a heading that said "Today" would be the one false sentence on the screen.
    */
   it("names the day instead of saying 'Today' when it is showing another one", () => {
-    const other = boardHtml("", finished);
-    expect(other).toContain(fill(boardCopy.headingOtherDay, { date: finished.day.label }));
-    expect(other).not.toContain(`>${boardCopy.heading}<`);
-    expect(other).toContain(serviceDate.phases.ENDED);
+    for (const of_ of [finished, planned]) {
+      const other = boardHtml("", of_);
+      expect(other, of_.day.iso).toContain(
+        fill(boardCopy.headingOtherDay, { date: of_.day.label }),
+      );
+      expect(other, of_.day.iso).not.toContain(`>${boardCopy.heading}<`);
+      expect(other, of_.day.iso).toContain(serviceDate.phases[of_.day.phase]);
+    }
   });
 
   /**
    * The same rule where only the ear reads: the table's caption is announced before the first
-   * row, so a finished day may not be introduced as "Today's rides" there either (Veri #49).
+   * row, so a day that is not the demo day may not be introduced as "Today's rides" there
+   * either (Veri #49).
+   *
+   * Both other phases, and the words rather than the constants. A finished day was the only one
+   * asserted, which left the one that has not started — the plan — able to be captioned "Today's
+   * rides" by any change that treated "not finished" as "today"; and asserting the constant
+   * against itself would pass whatever the constant said, including a demo-day caption that had
+   * quietly stopped saying "Today" at all.
    */
   it("captions the table with the day it is about, not with 'Today' (§9)", () => {
     expect(html).toContain(escaped(boardCopy.tableLabel));
-    const other = boardHtml("", finished);
-    expect(other).toContain(
-      escaped(fill(boardCopy.tableLabelOtherDay, { date: finished.day.label })),
-    );
-    expect(other).not.toContain(escaped(boardCopy.tableLabel));
-    expect(other).not.toMatch(/Today&#x27;s rides/);
+    expect(html).toMatch(/<caption[^>]*>Today&#x27;s rides,/);
+
+    for (const of_ of [finished, planned]) {
+      const other = boardHtml("", of_);
+      expect(other, of_.day.iso).toContain(
+        escaped(fill(boardCopy.tableLabelOtherDay, { date: of_.day.label })),
+      );
+      expect(other, of_.day.iso).toMatch(
+        new RegExp(`<caption[^>]*>Rides on ${of_.day.label},`),
+      );
+      expect(other, of_.day.iso).not.toContain(escaped(boardCopy.tableLabel));
+      expect(other, of_.day.iso).not.toMatch(/Today&#x27;s rides/);
+    }
   });
 
   it("stacks the groups with their counts, needs action first", () => {
@@ -341,12 +361,14 @@ describe("the drawer reads one child's day", () => {
   it("heads the rides with the day they are on, and says 'Today' only when it is", () => {
     expect(html).toContain(`>${escaped(drawer.ridesHeading)}</h3>`);
 
-    const ended = drawerHtml("C6", finished);
-    expect(ended).toContain(
-      `>${escaped(fill(drawer.ridesHeadingOtherDay, { date: finished.day.label }))}</h3>`,
-    );
-    expect(ended).not.toContain(escaped(drawer.ridesHeading));
-    expect(ended).not.toMatch(/Today&#x27;s/);
+    for (const of_ of [finished, planned]) {
+      const other = drawerHtml("C6", of_);
+      expect(other, of_.day.iso).toContain(
+        `>${escaped(fill(drawer.ridesHeadingOtherDay, { date: of_.day.label }))}</h3>`,
+      );
+      expect(other, of_.day.iso).not.toContain(escaped(drawer.ridesHeading));
+      expect(other, of_.day.iso).not.toMatch(/Today&#x27;s/);
+    }
   });
 
   it("holds both rides, each with its own state and its own next step", () => {

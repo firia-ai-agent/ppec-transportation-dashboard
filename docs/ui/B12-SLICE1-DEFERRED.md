@@ -54,7 +54,7 @@ slice 2 does not close until all of them are in.
 
 | Thing | § | What slice 2 has to land |
 |---|---|---|
-| Inbox (SURF-03) and Exceptions & Approvals (SURF-05) | §4.3, §4.5 | **slice 2, ahead.** Both surfaces, for real. Exceptions is also where B-08's F9 lands — the approval *decision* screen over `ops.change_request` / `ops.approval_request`, which DECISION-LEDGER row 63 dated to B-12 |
+| Inbox (SURF-03) and Exceptions & Approvals (SURF-05) | §4.3, §4.5 | **slice 2, ahead — this is P-04** (§2.1), and the rest of AT-13's CA-04 rides with it. Both surfaces, for real. Exceptions is also where B-08's F9 lands — the approval *decision* screen over `ops.change_request` / `ops.approval_request`, which DECISION-LEDGER row 63 dated to B-12 |
 | Writes: confirm handoff, **Override with reason**, snooze, approve | §4.2, §4.5 | **slice 2, ahead.** The drawer's actions stop being read-only. Override is the one that has to work end to end: the dialog takes a required reason (`copy.ts overrideHeading` / `overrideReasonLabel`), the write commits, and the row and the drawer both move. "The action is rendered and says it is not connected" was slice 1's honest placeholder, not a shape to keep |
 | A disabled Override that **looks** disabled, and says why in one line | §4.2, §9 | **half landed.** The disabled *treatment* is in (`src/ui/tokens.ts`, `today.module.css`): a disabled control no longer wears a live control's border, and `tokens.test.ts` holds it weaker than every usable tone. Override still has **no one-line reason of its own** — `LegDrawer.tsx` renders it under the *handoff's* reason — so that half is **slice 2, ahead**, and the line comes from `src/ui/copy.ts` (never inline prose, never a tooltip alone) |
 | 412 conflict toast and the merge view | §4.1 | **slice 2, ahead**, with the writes: there is nothing to conflict with until the board writes |
@@ -62,12 +62,42 @@ slice 2 does not close until all of them are in.
 | History, pending approvals and agent changes in the drawer, with real rows | §4.2 | **slice 2, ahead.** The drawer's three sections are empty-state prose today. Slice 2 fills **history** with real rows, and the pending-approval and agent-change rows come from the Exceptions work in the same slice |
 | Drawer **timeline rows** | §4.2 | **landed.** The day is a timeline of rows — time column, stops, icon + label state, no box — rather than two hairline cards, the dense treatment the board already uses (Vera's call, §5) |
 | **One service date on screen**, in the board's own header | §2, §6.1 | **landed, and it is not a switcher.** Vera's final call (§5): one date, the replayed demo day, labelled as the demo day, with nothing on screen offering another. The shell's duplicate — today's real date on every page — is gone, which is what the two "Service date" labels were. The board takes a service date (`src/domain/board/day.ts`) and other days are reached by the test-only date override and by nothing on screen or on a deployment (Veri #49) |
-| An **AT-13 `HELD_NO_RECEIVER` ride in the scenario** | PRD §6.6, l.1327 | **landed.** The scenario had the *family* for AT-13 — F2, no authorized receiving adult (`standard.ts:140`) — but no ride in the state. C2's afternoon on the finished day is now that ride: `ARRIVED_DROPOFF → HELD_NO_RECEIVER` by the system (CA-04, ledger row 47), with no automatic return because the machine's `noWildcardFrom` gives it no edge out but a staff one. The board, the drawer and AT-13's own check all read it |
-| A tighter, **mutation-proven** AT-10 e2e | PRD SURF-01 acceptance | **landed.** Slice 1's AT-10 line was a negative — `expect(page.getByText(/handed off to/i)).toHaveCount(0)` — which also passed on a board that rendered nothing. It now asserts positively on the finished day, where an arrival and a handoff are both on screen and told apart: C6's van arrived and no custody event was recorded, so the row reads "Arrived (vehicle)" and does **not** read as handed off |
+| An **AT-13 `HELD_NO_RECEIVER` ride in the scenario** | PRD §6.6, l.1327 | **landed — the board part of AT-13, and only that part** (§2.1). The scenario had the *family* for AT-13 — F2, no authorized receiving adult (`standard.ts:140`) — but no ride in the state. C2's afternoon is now that ride on the finished day and on the demo day: `ARRIVED_DROPOFF → HELD_NO_RECEIVER` by the system (CA-04, ledger row 47), with no automatic return because the machine's `noWildcardFrom` gives it no edge out but a staff one. The board, the drawer and AT-13's own check all read it. The rest of CA-04 — the staff task and the calls, from a real transition rather than from a fixture — is §2.1's row |
+| A tighter, **mutation-proven** AT-10 e2e | PRD SURF-01 acceptance | **landed.** Slice 1's AT-10 line was a negative — `expect(page.getByText(/handed off to/i)).toHaveCount(0)` — which also passed on a board that rendered nothing. It now asserts positively on the finished day, where an arrival and a handoff are both on screen and told apart: C6's van arrived and no custody event was recorded, so the row reads "Arrived (vehicle)" and does **not** read as handed off. On that day the same row is also in **Needs action** and counted by "Only needs action": the state is the arrival and nothing more, and the missing handoff is the last open thing about a ride whose van is back in the yard — under "On the way" it read as still happening, and the one view a coordinator closes a day from did not list it |
 | **Afternoon route data aligned with the scenario** | ADR-007, §3 below | **landed for the plan.** `src/fixtures/run-routes.ts` is one route per run per direction, built from the scenario's own stops; the afternoon is the morning reversed (`reverseRoute`) and `plannedEta` gives each stop its family's 10-minute window. No row says "Window pending" any more. The three **ADR-007 replay** routes were left as they were here, and **this PR regenerated them too** — §3.1 |
 | The three **ADR-007 replay routes**, regenerated against the scenario | ADR-007, §3.1, §5 | **landed in this PR.** The founder's call, and it was made: the three committed tracks are the three runs' own morning geometry now, read out of `run-routes.ts` rather than copied, so the plan and the replayed morning are one survey. What it cost and what is left are in §3.1 |
 | An unknown window reads **"Time not set yet"**, with an icon | COPY-GUIDE §5, §3 | **landed in this PR** (the copy pass, `src/ui/copy.ts` `etaText.pending`) — confirmed on the branch against `origin/main`, which still says "Window pending". Slice 2's geometry made the case unreachable in the committed scenario; the fallback is still there for a run with no geometry, and it now says the guide's own sentence, keeping its clock icon — never colour or absence alone (`TodayBoard.tsx` `WINDOW_PENDING`). **Nothing about it is left for slice 3**, and §6 no longer lists it |
 | A **named approver and a named verifier** on the seeded records | §4.2, COPY-GUIDE §5 | **slice 3, and that is a founder decision** — approved by Firia, 2026-10-16 10:21 PM ET (DECISION-LEDGER row 71). It is a **sequencing** call and not a deferral, on the same rule as ledger row 63: slice 3 sits inside B-12, B-12 does not close until it passes, and the item names its slice rather than a milestone. Slice 2 left both fixtures as they were (§3.3, §3.4): `approved_by` is still NULL in `seed.ts` and the ramp check still has no person on it, so the drawer cannot yet say "Verified 17 min ago by J.T." and truthfully mean it. Slice 3 puts the approver and the verifier in the seed |
+
+### 2.1 AT-13 is credited for the board part only
+
+What the console has landed is the half of CA-04 a **read-only board** can have: a leg that
+really ends `HELD_NO_RECEIVER`, derived by the leg machine one legal edge at a time, the row that
+says the child is waiting with the van and nobody on file can receive them, the step that says to
+call their contacts, and the rule said in full in the drawer — nothing returns them to the centre
+on its own. That is what the board, the drawer and this slice's checks prove, and it is what the
+AT-13 line on this page claims. Nothing more.
+
+The other half of CA-04 (PRD §6.6, l.1953; DECISION-LEDGER row 47) is **not** on the board and is
+not claimed by it:
+
+- **the staff task is raised** — a row somebody owns, in the inbox and in Exceptions & Approvals,
+  not a sentence in a cell;
+- **every authorized and emergency contact is actually called** — the notification path firing off
+  the transition, with the attempts recorded;
+- and both of them **from a real held transition rather than from a fixture.** Today the hold
+  comes out of recorded *acts* in `standard.ts` (`DEMO_DAY_RIDES`, `FINISHED_DAY_RIDES`) that the
+  machine turns into a state — honest about what it is, and still a day written down rather than a
+  day that happened. A write that moves a leg into the hold is what makes the task and the calls
+  consequences of it.
+
+**All three land in P-04 — the inbox (SURF-03), Exceptions & Approvals (SURF-05) and the writes**
+— which is the slice-2 row at the top of this table, and the scope BUILD-PLAN gives B-12 ("board,
+drawer, inbox, exceptions, map, SSE"). BUILD-PLAN §2 maps AT-13 to **B-02 and B-13**, never to the
+board alone, so no console slice closes it by itself: B-02 has the machine (it does), and B-13's
+ramp and dispatcher surfaces are where the ramp end of it is read. Until P-04, the honest claim
+for this page is the one above — the board shows the hold and asks for the call; it does not raise
+the task and does not place it.
 
 > **Slice 2 (docs/ui/B12-SLICE2-DEFERRED.md) answers §3.1, §3.2 and the service-date question in
 > §5.** The afternoon has committed geometry aligned to the scenario, the board carries one

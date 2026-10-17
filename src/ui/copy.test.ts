@@ -18,11 +18,13 @@ import {
   nav,
   needCategories,
   notFound,
+  onDay,
   places,
   pluralize,
   rampPreview,
   sentence,
   scenarioClock,
+  serviceDate,
   screenReader,
   search,
   securement,
@@ -250,6 +252,65 @@ describe("COPY-GUIDE strings, verbatim", () => {
     // The rule is not in here, which is the point: it is in `drawer.heldNoReturn`, said in full.
     expect(board.reasons.CHILD_HELD).not.toMatch(/return/i);
     expect(drawer.heldNoReturn).toMatch(/No automatic return/);
+  });
+
+  /**
+   * The row for a day that ended with a handoff nobody recorded. Two facts in the order a
+   * coordinator closing out the day needs them — the van is back, and the record is missing —
+   * and it says "recorded" rather than naming a state, because the state chip beside it already
+   * says what the van did and this line is about what no person did.
+   */
+  it("§5 SURF-01: the unrecorded-handoff row says the van is back and nobody recorded it", () => {
+    expect(board.reasons.HANDOFF_UNRECORDED).toBe(
+      "{child}'s van is back and nobody recorded who received them.",
+    );
+    expect(fill(board.reasons.HANDOFF_UNRECORDED, { child: "Zoe B." })).toBe(
+      "Zoe B.'s van is back and nobody recorded who received them.",
+    );
+    // It is not a handoff being claimed: the words never say one happened.
+    expect(board.reasons.HANDOFF_UNRECORDED).not.toMatch(/handed off/i);
+  });
+
+  /**
+   * "Today" is a claim about which day is on screen, and three headings make it: the board's
+   * own, the table's screen-reader caption, and the drawer's first section. One function says
+   * it for all three (`onDay`), so there is one rule to read and one place to break — and a day
+   * that is not the replayed demo day is named by its date in every one of them, whether it is
+   * a day that has finished or a day that has not started (Veri #49).
+   */
+  describe("§5: 'Today' is said on the demo day and on no other", () => {
+    const headings = [
+      ["board.heading", { today: board.heading, otherDay: board.headingOtherDay }],
+      ["board.tableLabel", { today: board.tableLabel, otherDay: board.tableLabelOtherDay }],
+      ["drawer.ridesHeading", { today: drawer.ridesHeading, otherDay: drawer.ridesHeadingOtherDay }],
+    ] as const;
+    const demoDay = { phase: "LIVE", label: "Wed, Oct 14" } as const;
+    const otherDays = [
+      { phase: "ENDED", label: "Tue, Oct 13" },
+      { phase: "PLANNED", label: "Thu, Oct 15" },
+    ] as const;
+
+    it("has a pair for every phase a day can be in, so no phase falls through", () => {
+      expect(Object.keys(serviceDate.phases).sort()).toEqual(["ENDED", "LIVE", "PLANNED"]);
+      expect([demoDay, ...otherDays].map((d) => d.phase).sort()).toEqual(
+        Object.keys(serviceDate.phases).sort(),
+      );
+    });
+
+    it.each(headings)("%s says 'Today' on the demo day", (key, words) => {
+      expect(onDay(words, demoDay), key).toBe(words.today);
+      expect(onDay(words, demoDay), key).toMatch(/^Today/);
+    });
+
+    it.each(headings)("%s names the date on a day that is not the demo day", (key, words) => {
+      expect(words.otherDay, key).toContain("{date}");
+      for (const day of otherDays) {
+        const said = onDay(words, day);
+        expect(said, `${key} on ${day.phase}`).toContain(day.label);
+        expect(said, `${key} on ${day.phase}`).not.toMatch(/today/i);
+        expect(said, `${key} on ${day.phase}`).not.toMatch(/\{\w+\}/);
+      }
+    });
   });
 
   /**
