@@ -606,7 +606,15 @@ export const whoami = {
  * is never a diagnosis.
  */
 export const rampPreview = {
-  heading: "Ramp check",
+  /**
+   * The PRD's own name for this screen, now that the rail links to it: PRD §14 calls the
+   * destination "Ramp iPad" in the navigation line (l.1055) and titles the surface "SURF-04
+   * Ramp iPad" (l.1061), and DESIGN-DIRECTION §2 repeats it ("Ramp iPad is its own full-screen
+   * route"). It was "Ramp check", which said the job rather than the surface; one name, in the
+   * rail and at the top of the page, is worth more than two good ones (src/ui/nav-items.ts
+   * reads this string for the rail label, so they cannot drift).
+   */
+  heading: "Ramp iPad",
   /** `{date}` is the site-timezone service date, "Tue, Oct 14" (§3). */
   subtitle: "{date} · afternoon rides",
   /** Says plainly that this surface records nothing, so nobody waits for a send that never happens. */

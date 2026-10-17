@@ -659,6 +659,12 @@ describe("no user-facing text outside copy.ts", () => {
 describe("copy.ts holds the words the surfaces used to hold", () => {
   it("the map preview's heading, intro and document title", () => {
     expect(mapPreview.heading).toBe("Map preview");
+    /*
+     * Still "Map preview", now that the rail links to it: PRD §14 names no map surface at all
+     * (the map lands inside SURF-01 at BUILD-PLAN-M2 P-03), and "Live map" would be the one
+     * false word on the screen — a client clock replays fixtures here. §1, honest about
+     * certainty. src/ui/nav-items.ts reads this string for the rail label.
+     */
     expect(mapPreview.documentTitle).toContain(mapPreview.heading);
     /*
      * The intro's whole job is to say what is and is not real. It used to do that in a

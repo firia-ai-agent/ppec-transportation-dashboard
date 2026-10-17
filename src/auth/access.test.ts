@@ -22,7 +22,7 @@ import {
   type Caller,
 } from "./access";
 import { canOpenMapPreview, canOpenRampPreview } from "@/domain/access/map-view";
-import { navItemsFor } from "@/ui/nav-items";
+import { navItems, navItemsFor } from "@/ui/nav-items";
 import { noAccess } from "@/ui/copy";
 
 /**
@@ -440,13 +440,41 @@ describe("where each role lives", () => {
   });
 
   it("offers each role only the nav items it can open", () => {
-    const console = ["/today", "/plan-preview", "/exceptions", "/setup", "/health"];
-    expect(navItemsFor("DIRECTOR").map((i) => i.href)).toEqual(console);
-    expect(navItemsFor("COORDINATOR").map((i) => i.href)).toEqual(console);
-    // The front desk's row opens no console destination, Plan routes included: deciding which
-    // van a child rides in is not their job (ARCHITECTURE §1).
-    expect(navItemsFor("FRONT_DESK")).toEqual([]);
+    /*
+     * The whole rail: §2's four console destinations, the two console previews between the
+     * board and the exceptions it raises, and the ramp iPad last (PRD §14 lists it after the
+     * console destinations because it is not one).
+     */
+    const everything = [
+      "/today",
+      "/plan-preview",
+      "/map-preview",
+      "/exceptions",
+      "/setup",
+      "/health",
+      "/ramp-preview",
+    ];
+    expect(navItemsFor("DIRECTOR").map((i) => i.href)).toEqual(everything);
+    expect(navItemsFor("COORDINATOR").map((i) => i.href)).toEqual(everything);
+    /*
+     * The front desk's row opens no console destination, Plan routes included: deciding which
+     * van a child rides in is not their job (ARCHITECTURE §1). What is left is their own
+     * surface, the ramp iPad (PRD §6.2), and the map preview, whose row is all staff because a
+     * person at the door needs to see where the vans are — src/domain/access/map-view.ts then
+     * withholds the family labels and the notification queue from them.
+     */
+    expect(navItemsFor("FRONT_DESK").map((i) => i.href)).toEqual(["/map-preview", "/ramp-preview"]);
     expect(navItemsFor(null)).toEqual([]);
+    /*
+     * And the rail is never wider than the table for any role: this compares the whole rail
+     * against `rolesWhoCanOpen` row by row, so an item added to nav-items.ts whose row omits a
+     * role fails here rather than on a screen.
+     */
+    for (const role of ROLES) {
+      const shown = navItemsFor(role).map((i) => i.href);
+      const allowed = navItems.filter((i) => rolesWhoCanOpen(i.href).includes(role)).map((i) => i.href);
+      expect(shown, role).toEqual(allowed);
+    }
     // ...and hiding is only ever the same answer the server gives, never a different one.
     for (const role of ROLES) {
       for (const item of navItemsFor(role)) {
