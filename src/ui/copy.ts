@@ -44,15 +44,20 @@ export const demoBanner = {
   ariaLabel: "DEMO",
 } as const;
 
-/** DESIGN-DIRECTION §2 nav labels. Exceptions carries a count badge once the live board lands. */
+/**
+ * DESIGN-DIRECTION §2 nav labels. Exceptions carries a count badge once the live board lands.
+ *
+ * Two landmark names, because there are two menus and never both at once: `landmarkLabel` is the
+ * left rail at 768 and up, `menuLabel` the bottom tab bar below it (Firia's final ruling,
+ * 2026-10-17 3:08 PM ET). "Open menu" and "Close menu" went with the hamburger: a tab bar is
+ * always on screen, so there is nothing to open.
+ */
 export const nav = {
   today: "Today",
   exceptions: "Exceptions & Approvals",
   setup: "Setup",
   health: "Health & ROI",
   landmarkLabel: "Main",
-  openMenu: "Open menu",
-  closeMenu: "Close menu",
   menuLabel: "Menu",
 } as const;
 
@@ -70,21 +75,29 @@ export const identity = {
 } as const;
 
 /**
- * COPY-GUIDE §5 header: freshness pills read "<adapter> · Simulated" until the live board
- * wires real ages.
+ * A one-line notice about something the app just did for you (§9.3, §9.5 `toast.notOnMenu`).
+ *
+ * `notOnMenu` is the answer to a typed URL for a page this person's menu does not carry: the
+ * page guard sends them to their own home and this says why, in place of the 403 card that used
+ * to be the end of the road (src/auth/page-guard.ts, src/ui/NoticeToast.tsx). It is a sentence
+ * for a person and not a change to what the server allows — the API still answers 403.
+ *
+ * No role name, no path and no status code: which page it was is not the point, and "your menu"
+ * is the thing a founder can act on.
  */
-export const adapters = {
-  sms: "SMS",
-  teams: "Teams",
-  gps: "GPS",
-  agent: "Agent",
-  /** Interim value, approved for build (DESIGN-DIRECTION §2); replaced by real ages later. */
-  simulatedValue: "Simulated",
-  separator: " · ",
-  groupLabel: "Adapter freshness",
-  /** Says out loud that no time on this screen is real, so the header never over-claims. */
-  interimNote: "Times are simulated until the live board is connected.",
+export const toast = {
+  notOnMenu: "Not on your menu",
+  dismiss: "Dismiss",
 } as const;
+
+/*
+ * The four per-adapter freshness pills ("SMS · Simulated", "Teams · Simulated", …), their group
+ * label and the "Times are simulated until the live board is connected." line under them are
+ * gone from the header — Vera's review, 2026-10-17 2:44 PM ET: **one** Simulated chip, the §7.1
+ * one in the DEMO bar (src/ui/ScreenSource.tsx), and no second or sixth thing saying it. The
+ * pill component went with them. When the live stream can carry real ages (§10) what lands is
+ * an age, which is a different claim and gets its own words then.
+ */
 
 /**
  * Ages, humanized (COPY-GUIDE §1 "durations as '6 min'", §3 "'2 min ago'"). Raw seconds never
@@ -132,7 +145,6 @@ export const screenReader = {
   state: "State: {label}",
   /** §7.1 */
   source: "Source: {label}",
-  freshness: "{adapter}: {value}",
 } as const;
 
 /**
@@ -333,8 +345,6 @@ export const board = {
     CHECK_VAN_AT_RAMP: "Check {child}'s van at the ramp.",
     NOTHING: "Nothing to do",
   },
-  /** §4.1 keyboard: j / k move, Enter opens. Said once, above the rows. */
-  keyboardHint: "Use J and K to move between rides, Enter to open one.",
   /** "Open Mia R., morning ride" — one opener per row, so two rows are two distinct buttons. */
   openRow: "Open {child}, {ride} ride",
 } as const;
@@ -393,8 +403,13 @@ export function onDay(words: { today: string; otherDay: string }, day: LabelledD
  * is wired the readout says the demo has not started and Start says honestly why it is inert.
  */
 export const scenarioClock = {
-  label: "Scenario clock",
-  notStarted: "Demo not started",
+  /**
+   * The readout itself, which now says what it is a readout of. It used to be "Demo not
+   * started" under a "Scenario clock" label — two lines, one of them a term from the build
+   * (Vera's review, 2026-10-17 2:44 PM ET). The label is gone and the readout carries the
+   * subject: "Demo day", then the state it is in.
+   */
+  notStarted: "Demo day · Not started",
   /**
    * COPY-GUIDE §3, "Buttons: verb + object, ≤3 words". It read "Start" — a verb with nothing
    * after it, sitting next to "Demo not started", so the one thing a founder is about to click

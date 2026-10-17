@@ -1,0 +1,80 @@
+/* The rail is the menu at 768 and up; this bar only exists below it (§2, Firia 3:08 PM ET). */
+.bar {
+  display: none;
+}
+
+.list {
+  display: flex;
+  align-items: stretch;
+}
+
+.item {
+  /* Equal tabs: four or two, they divide the window between them. */
+  flex: 1 1 0;
+  display: flex;
+  min-width: 0;
+}
+
+.tab {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  /* §9: ≥44 px target. The whole tab is the target, icon and label inside it. */
+  min-height: var(--layout-tab-bar-height);
+  padding: var(--space-2) var(--space-1);
+  /*
+   * The current tab's brand bar, reserved at every state: transparent here, painted below. A
+   * border that only exists on the current tab would move the other four by 3 px.
+   */
+  border-top: var(--border-current) solid transparent;
+  color: var(--color-ink-muted);
+  text-decoration: none;
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+}
+
+/*
+ * §9 / §3: the current page is never marked by colour alone. Three cues — the bar along the
+ * top, the weight of the label, and `aria-current="page"` for the ear.
+ */
+.tab[aria-current="page"] {
+  border-top-color: var(--color-brand);
+  color: var(--color-brand);
+  font-weight: var(--weight-semibold);
+}
+
+.label {
+  line-height: var(--leading-tight);
+  /* One line per tab: a label broken in half is the phone drawer's bug in a smaller box. */
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 767px) {
+  .bar {
+    display: block;
+    /*
+     * Fixed, not sticky: the menu is on screen while the board behind it scrolls, which is the
+     * whole point of a tab bar. Under the DEMO bar's z-index (20) — the bar above everything is
+     * NFR-09 — and above the page's own chrome.
+     */
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 15;
+    background: var(--color-surface);
+    border-top: var(--border-hairline) solid var(--color-border-strong);
+    /*
+     * The iPhone home bar. Padding rather than a margin, so the bar's fill still reaches the
+     * bottom edge of the screen and the tabs sit above the inset instead of under the gesture
+     * area. `0px`, with the unit, because `calc()` elsewhere needs a length even where the
+     * device reserves nothing.
+     */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}

@@ -145,8 +145,21 @@ export type EndpointRow = {
  * is not something a screen may print, and `no-internals.test.ts` holds that line by scanning
  * those two trees for the literal. The routes name their row through these constants.
  */
-/** Layout keys. A layout has no URL of its own, but it is a guard point and needs a row. */
-export const LAYOUT = { root: "layout:root", console: "layout:console" } as const;
+/**
+ * Layout keys. A layout has no URL of its own, but it is a guard point and needs a row.
+ *
+ * Four of them mount the console shell: the `(app)` group, and one per route folder for the
+ * three screens that are outside it (`/plan-routes`, `/live-map`, `/ramp-ipad`). Every one of
+ * those four asks for a session and nothing more — the role belongs to the page inside, so the
+ * refusal is rendered by the page that was asked for and can say who it is for.
+ */
+export const LAYOUT = {
+  root: "layout:root",
+  console: "layout:console",
+  planRoutes: "layout:plan-routes",
+  liveMap: "layout:live-map",
+  rampIpad: "layout:ramp-ipad",
+} as const;
 
 export const API = {
   auth: "/api/auth/[...nextauth]",
@@ -213,6 +226,34 @@ export const PAGES: readonly PageRow[] = [
     kind: "layout",
     file: "src/app/(app)/layout.tsx",
     path: LAYOUT.console,
+    access: { signedIn: true },
+  },
+  /**
+   * The same shell, on the three screens that are routes of their own outside that group. They
+   * rendered with no menu at all until 2026-10-17, which is how a founder walking production
+   * reached Plan routes and found the browser's Back button was the only way out of it.
+   *
+   * Each is a session check and nothing more, exactly as the group's row is: the page inside
+   * checks its own row — the two console roles for /plan-routes, every staff role for the other
+   * two — so no role gains or loses a screen by these three rows existing. That is the point of
+   * them being `signedIn`, and src/auth/guard-matrix.test.ts asks all four layouts directly.
+   */
+  {
+    kind: "layout",
+    file: "src/app/plan-routes/layout.tsx",
+    path: LAYOUT.planRoutes,
+    access: { signedIn: true },
+  },
+  {
+    kind: "layout",
+    file: "src/app/live-map/layout.tsx",
+    path: LAYOUT.liveMap,
+    access: { signedIn: true },
+  },
+  {
+    kind: "layout",
+    file: "src/app/ramp-ipad/layout.tsx",
+    path: LAYOUT.rampIpad,
     access: { signedIn: true },
   },
   /**
@@ -292,6 +333,27 @@ export const PAGES: readonly PageRow[] = [
     founderQuestion: true,
   },
   /**
+   * The refusal card itself, at an address (src/app/refusal-check/page.tsx). It reads nothing,
+   * renders nothing, and answers 403 to every session: its body is `forbidden()`.
+   *
+   * `signedIn` is the whole of its policy, and it is the narrowest row that still does the one
+   * job this route has. The card is the only screen in the app no staff role can reach — a
+   * wrong-role URL is a 307 to that person's own home now (§9.3) — so there was no way to look
+   * at it in a browser, and "the refusal has a frame around it" could be asserted from the
+   * source and nowhere else. Asking for a session first means a signed-out visitor is sent to
+   * sign-in here exactly as on every other page, rather than being told this address exists;
+   * everyone past that point is refused, so the row grants no access to anything.
+   *
+   * No label, because it is on no menu and is no role's home: it is in neither
+   * src/ui/nav-items.ts nor `HOME_ORDER`.
+   */
+  {
+    kind: "page",
+    file: "src/app/refusal-check/page.tsx",
+    path: "/refusal-check",
+    access: { signedIn: true },
+  },
+  /**
    * The live map (DESIGN-DIRECTION §5). Open to all staff; what each role actually sees on it is
    * the per-key matrix in src/domain/access/map-view.ts (the front-desk iPad gets the vans and
    * no family labels or notification queue).
@@ -324,10 +386,11 @@ export const PAGES: readonly PageRow[] = [
    * SURF-04, the ramp iPad: the front desk's own surface (PRD §6.2, ARCHITECTURE §1), and a
    * coordinator and a director both walk it.
    *
-   * OPEN QUESTION for the founder: This is also the front desk's *home* — they can open no
-   * console page, so `HOME_ORDER` below resolves their landing page to this one, which is where
-   * sign-in now puts them. The screen is a walk-through of SURF-04 and records nothing. Correct
-   * until SURF-04 is real?
+   * It was the front desk's home, and the open question on this row was whether that was right
+   * until SURF-04 is real. Firia answered it on 2026-10-17 at 3:08 PM ET — "Front desk gets two
+   * tabs, Live map (their home) and Ramp iPad" — so the question is closed and the flag is off
+   * the row. This is still their second tab, and the surface the PRD names them after; the
+   * screen is a walk-through of SURF-04 and records nothing.
    */
   {
     kind: "page",
@@ -335,7 +398,6 @@ export const PAGES: readonly PageRow[] = [
     path: "/ramp-ipad",
     access: { roles: ALL_STAFF },
     label: rampIpad.heading,
-    founderQuestion: true,
   },
   /* ── the three old addresses, kept as permanent redirects ── */
   /**
@@ -675,12 +737,16 @@ export function apiOutcome(caller: Caller, path: string): ApiOutcome {
 /* ───────────────────────────── where a role lives ───────────────────────────── */
 
 /**
- * The order a role's own pages are offered in: the nav order first (DESIGN-DIRECTION §2), then
- * the two surfaces that are not in the rail. The first entry a role may open is their home — so
- * the front desk, who has no console page, lands on the ramp check rather than on a refusal.
- * That landing page is the `/ramp-ipad` row's open question above.
+ * The order a role's own pages are offered in. The first entry a role may open is their home —
+ * so a director and a coordinator land on the board, and the front desk, who may open no
+ * console page, lands on a screen of their own rather than on a refusal.
+ *
+ * **The front desk's home is the live map**, Firia's final ruling of 2026-10-17 3:08 PM ET:
+ * "Front desk gets two tabs, Live map (their home) and Ramp iPad." That is why `/live-map` sits
+ * ahead of `/ramp-ipad` here — it used to be the other way round, and sign-in, `/` and every
+ * "send them home" redirect read this one list, so moving it moves all of them at once.
  */
-const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/plan-routes", "/ramp-ipad", "/live-map", "/whoami"] as const;
+const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/plan-routes", "/live-map", "/ramp-ipad", "/whoami"] as const;
 
 /** Where this caller is sent when they need somewhere to be: their own first page, or sign-in. */
 export function homePathFor(caller: Caller): string {

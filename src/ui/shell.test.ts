@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { adapters, demoBanner, login, nav, scenarioClock, unbuilt } from "./copy";
+import { demoBanner, login, nav, scenarioClock, unbuilt } from "./copy";
 import { DemoBanner } from "./DemoBanner";
 import { Placeholder } from "./Placeholder";
 import { ScenarioClock } from "./ScenarioClock";
@@ -13,7 +13,7 @@ import { color, contrastRatio } from "./tokens";
  * Shell contracts from Vera's review.
  *
  * The server components are rendered for real with `renderToStaticMarkup`. The rules that live
- * in CSS, and the client components that need a router (NavRail, MobileNav), are asserted by
+ * in CSS, and the client components that need a router (NavRail, TabBar), are asserted by
  * reading the source instead: there is no DOM or browser here (vitest runs in node, no jsdom),
  * so a source assertion proves the rule is written, not that the browser applies it. §10's
  * persona walk is still the thing that proves the latter.
@@ -118,13 +118,24 @@ describe("NFR-09 / §7.1: the source-mode chip sits next to the DEMO banner", ()
   it("every signed-in route is inside the layout that sits under that one bar", () => {
     // The (app) layout must not mount a bar of its own — one per screen, from the root.
     const appLayout = read(APP, "(app)", "layout.tsx");
-    expect(appLayout).toMatch(/<AppShell /);
+    expect(appLayout).toMatch(/<ConsoleShell /);
     expect(appLayout).not.toMatch(/DemoBanner|ScreenSource|SourceBadge/);
     // ...and it must actually wrap the signed-in pages, or they would render bare.
     const routes = readdirSync(path.join(APP, "(app)"), { withFileTypes: true })
       .filter((e) => e.isDirectory())
       .map((e) => e.name);
     expect(routes).toEqual(expect.arrayContaining(["today", "exceptions", "setup", "health"]));
+  });
+
+  /**
+   * The three screens that are routes of their own, outside that group. Their own layouts mount
+   * the same shell, and must not mount a bar either: the root layout's is the only one, and a
+   * second would be two "DEMO" bars and two Simulated chips on the screens a founder is shown.
+   */
+  it.each(["plan-routes", "live-map", "ramp-ipad"])("%s mounts the shell and no second bar", (route) => {
+    const layout = read(APP, route, "layout.tsx");
+    expect(layout).toMatch(/<ConsoleShell /);
+    expect(layout).not.toMatch(/DemoBanner|ScreenSource|SourceBadge/);
   });
 
   it("the outlined white chip still passes contrast on the violet bar", () => {
@@ -195,10 +206,54 @@ describe("§2 header: in demo mode no date in the chrome", () => {
     expect(shell).not.toMatch(/new Date\(|Intl\.DateTimeFormat|toLocaleDateString/);
     expect(shell).not.toMatch(/<time\b/);
   });
+});
 
-  it("carries the scenario clock as its only fact, which says the demo has not started", () => {
-    const facts = [...shell.matchAll(/<dt className=\{styles\.factLabel\}>\{([^}]+)\}/g)];
-    expect(facts.map((m) => m[1])).toEqual(["scenarioClock.label"]);
+/**
+ * ONE ROW (Vera's review, 2026-10-17 2:44 PM ET).
+ *
+ * The header was two: the site name, a "Scenario clock" label over its readout and the avatar
+ * above; four "<adapter> · Simulated" pills, the line "Times are simulated until the live board
+ * is connected." and global search below. What is left is one row — the site name, the demo
+ * day's readout with its Start, and the account — and the things that left it went somewhere
+ * better or nowhere at all.
+ */
+describe("§2 header: one row", () => {
+  const shell = read(UI, "AppShell.tsx");
+  const css = read(UI, "AppShell.module.css");
+
+  it("is a single flex row, not a column of two", () => {
+    const header = css.slice(css.indexOf(".header {"), css.indexOf(".siteName {"));
+    expect(header).toMatch(/display: flex/);
+    expect(header).not.toMatch(/flex-direction: column/);
+    // The two rows it used to be built from are gone, names and all.
+    expect(css).not.toMatch(/\.topRow|\.bottomRow/);
+    expect(shell).not.toMatch(/styles\.topRow|styles\.bottomRow/);
+  });
+
+  it("carries the readout and its Start, and no label above them", () => {
+    expect(shell).toMatch(/<ScenarioClock \/>/);
+    // "Scenario clock" was a term from the build; the readout says its own subject now.
+    expect(shell).not.toMatch(/scenarioClock\.label|factLabel/);
+    expect(scenarioClock.notStarted).toBe("Demo day · Not started");
+  });
+
+  it("mounts no adapter pill and no search box", () => {
+    expect(shell).not.toMatch(/FreshnessPill|SimulatedAdapterPill|adapters\./);
+    // Search moved into Today, under the board's own title — it searches those rows.
+    expect(shell).not.toMatch(/SearchField/);
+    expect(read(APP, "(app)", "today", "TodayBoard.tsx")).toMatch(/<SearchField \/>/);
+    // And the pill component itself is gone, so nothing can mount one again by accident.
+    expect(existsSync(path.join(UI, "FreshnessPill.tsx"))).toBe(false);
+  });
+
+  it("keeps one identity location, and keeps it at every width", () => {
+    expect(shell).toMatch(/<AvatarMenu displayName=\{displayName\} \/>/);
+    // It used to be `display: none` below 768, where the hamburger drawer carried identity.
+    const avatar = read(UI, "AvatarMenu.module.css");
+    const phone = avatar.slice(avatar.indexOf("@media (max-width: 767px)"));
+    expect(phone).not.toMatch(/\.menu \{[^}]*display: none/);
+    // Sign out rides inside it, which is what makes it reachable on a phone (Firia, 3:08 PM ET).
+    expect(read(UI, "AvatarMenu.tsx")).toMatch(/<SignOutButton \/>/);
   });
 });
 
@@ -206,8 +261,9 @@ describe("§2 scenario clock", () => {
   const component = read(UI, "ScenarioClock.tsx");
   const css = read(UI, "ScenarioClock.module.css");
 
-  it("reads 'Demo not started' and offers 'Start demo day' beside it", () => {
-    expect(scenarioClock.notStarted).toBe("Demo not started");
+  it("reads 'Demo day · Not started' and offers 'Start demo day' beside it", () => {
+    // The readout carries its own subject now that the "Scenario clock" label above it is gone.
+    expect(scenarioClock.notStarted).toBe("Demo day · Not started");
     // COPY-GUIDE §3: verb + object, ≤3 words — the button now says what it starts.
     expect(scenarioClock.start).toBe("Start demo day");
   });
@@ -265,10 +321,6 @@ describe("copy from the review", () => {
       expect(body.slice(0, -1).includes("."), body).toBe(false);
       expect(body.length).toBeLessThan(120);
     }
-  });
-
-  it("the header says plainly that no time on screen is real", () => {
-    expect(adapters.interimNote).toBe("Times are simulated until the live board is connected.");
   });
 
   it("an unbuilt page renders that heading and that one sentence", () => {

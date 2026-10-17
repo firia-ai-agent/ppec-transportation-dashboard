@@ -34,6 +34,14 @@ import { requirePage } from "@/auth/page-guard";
 
 export const metadata = { title: liveMap.documentTitle };
 
+/** The row a screen link sits in, and the ≥44 px target inside it (§9). */
+const LINK_ROW = { margin: 0, fontSize: "var(--body-console)" } as const;
+const TAP_TARGET = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: "var(--target-console)",
+} as const;
+
 /** The guard reads a session, so this route is never statically rendered. */
 export const dynamic = "force-dynamic";
 
@@ -80,12 +88,17 @@ export default async function LiveMapPage() {
         {liveMap.signedInOnly}
       </p>
       {/*
-        The ramp iPad is a sibling surface behind the same guard, and until the rail carried it
-        the only way to reach it was to know the URL. The two are walked in one sitting, so each
-        one says where the other is.
+        The ramp iPad is a sibling surface behind the same guard, and the two are walked in one
+        sitting, so each one says where the other is. They are both in the nav rail as well; this
+        is the in-page shortcut between the pair.
+
+        §9: ≥44 px of tappable height. These two were the line-height of their own text — 18 px,
+        which on a phone is a link you aim at and miss (the founder's 2026-10-17 walk).
       */}
-      <p style={{ margin: 0, fontSize: "var(--body-console)" }}>
-        <Link href="/ramp-ipad">{fill(liveMap.openScreen, { page: rampIpad.heading })}</Link>
+      <p style={LINK_ROW}>
+        <Link href="/ramp-ipad" style={TAP_TARGET}>
+          {fill(liveMap.openScreen, { page: rampIpad.heading })}
+        </Link>
       </p>
       {/*
         Plan routes is the third screen behind the same door, and it is the coordinator's and
@@ -94,8 +107,10 @@ export default async function LiveMapPage() {
         again on the server, like every other page.
       */}
       {canOpenPage(caller, "/plan-routes") ? (
-        <p style={{ margin: 0, fontSize: "var(--body-console)" }}>
-          <Link href="/plan-routes">{fill(liveMap.openScreen, { page: planRoutes.heading })}</Link>
+        <p style={LINK_ROW}>
+          <Link href="/plan-routes" style={TAP_TARGET}>
+            {fill(liveMap.openScreen, { page: planRoutes.heading })}
+          </Link>
         </p>
       ) : null}
       <LiveFleetMap viewer={viewer} />

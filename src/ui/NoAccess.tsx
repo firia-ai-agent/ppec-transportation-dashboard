@@ -26,6 +26,11 @@ import styles from "./NoAccess.module.css";
  * The DEMO bar and the one Simulated chip are above it, from the root layout, on this route as on
  * every other (§7, §7.1, NFR-09) — this card must not mount a second pair.
  *
+ * It is a card, not a page: every boundary that renders it is inside the app shell, so the menu,
+ * the header and Sign out are on screen around it and a refusal is not the dead end the
+ * founder's walk of production found (Vera's review, 2026-10-17). That is also why there is no
+ * `<main>` here — the shell's `#content` is the landmark, and two would be one too many.
+ *
  * It is rendered by a `forbidden.tsx` boundary, which is what makes the response a real 403
  * (src/auth/page-guard.ts calls `forbidden()`), and `path` is the page that was asked for. The
  * root boundary passes none.
@@ -41,7 +46,7 @@ export async function NoAccess({ path }: { path?: string }) {
   const home = homePathFor(caller);
   const noRole = caller.kind === "NO_ROLE";
   return (
-    <main className={styles.page}>
+    <div className={styles.page}>
       <div className={styles.card}>
         <p className={styles.icon}>
           <UserLock size={icon.nav} aria-hidden="true" />
@@ -53,6 +58,6 @@ export async function NoAccess({ path }: { path?: string }) {
           {fill(noAccess.back, { page: pageLabel(home) })}
         </Link>
       </div>
-    </main>
+    </div>
   );
 }
