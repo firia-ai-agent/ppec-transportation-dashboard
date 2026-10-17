@@ -8,7 +8,7 @@
  * in ./style.ts and is unit-tested there.
  *
  * Data comes in as a prop (src/fixtures/map.ts for the still-life preview, a simulated
- * run on /map-preview). The map is built **once** per mount and every later data change
+ * run on /live-map). The map is built **once** per mount and every later data change
  * is pushed into the five GeoJSON sources with `setData`, so a clock ticking four times
  * a second never rebuilds a MapLibre instance or re-fetches the style. This component
  * never reads the database and makes exactly one network request of its own: GET of the

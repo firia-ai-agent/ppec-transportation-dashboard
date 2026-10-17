@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { fill, phonePanel } from "@/ui/copy";
+import { approval as approvalCopy, fill, familyTexts } from "@/ui/copy";
 import { clockLabel } from "@/ui/service-date";
 import { approveAgentProposal, runAgentTurn, type ApprovalState, type TurnState } from "./actions";
 import styles from "./phone.module.css";
@@ -47,22 +47,22 @@ export function PhoneComposer({
   const turn = answered?.turn;
 
   return (
-    <section className={styles.composer} aria-label={fill(phonePanel.composerHeading, { adult: guardianName })}>
+    <section className={styles.composer} aria-label={fill(familyTexts.composerHeading, { adult: guardianName })}>
       <form action={submitTurn} className={styles.composerForm}>
         <input type="hidden" name="child" value={childKey} />
         <label className={styles.composerLabel} htmlFor="composer-text">
-          {fill(phonePanel.composerHeading, { adult: guardianName })}
+          {fill(familyTexts.composerHeading, { adult: guardianName })}
         </label>
         <textarea
           id="composer-text"
           name="text"
           className={styles.composerInput}
           rows={2}
-          defaultValue={fill(phonePanel.composerExample, { child: childFirstName })}
+          defaultValue={fill(familyTexts.composerExample, { child: childFirstName })}
         />
-        <p className={styles.composerHint}>{phonePanel.composerHint}</p>
+        <p className={styles.composerHint}>{familyTexts.composerHint}</p>
         <button type="submit" className={styles.primary} disabled={turnPending}>
-          {turnPending ? phonePanel.composerSending : fill(phonePanel.composerSend, { adult: guardianName })}
+          {turnPending ? familyTexts.composerSending : fill(familyTexts.composerSend, { adult: guardianName })}
         </button>
       </form>
 
@@ -70,66 +70,69 @@ export function PhoneComposer({
 
       {turn ? (
         <div className={styles.turn} data-verdict={turn.verdict} data-source={turn.source}>
-          <h3 className={styles.turnHeading}>{phonePanel.turnHeading}</h3>
+          <h3 className={styles.turnHeading}>{familyTexts.turnHeading}</h3>
           <p className={styles.turnSource}>
             {turn.source === "model" && turn.model
-              ? fill(phonePanel.answeredByModel, { model: turn.model })
-              : phonePanel.answeredByKeyword}
+              ? fill(familyTexts.answeredByModel, { model: turn.model })
+              : familyTexts.answeredByKeyword}
           </p>
 
           {turn.verdict === "BLOCK" ? (
             <>
-              <p className={styles.turnLead}>{phonePanel.blockedLead}</p>
-              <p className={styles.turnNote}>{phonePanel.nothingHappened}</p>
+              <p className={styles.turnLead}>{familyTexts.blockedLead}</p>
+              <p className={styles.turnNote}>{familyTexts.nothingHappened}</p>
             </>
           ) : null}
 
           {turn.verdict === "PROPOSAL" ? (
             <>
-              <p className={styles.turnLead}>{phonePanel.proposalLead}</p>
+              <p className={styles.turnLead}>{familyTexts.proposalLead}</p>
               {turn.dropoff && approval.status !== "approved" && !declined ? (
                 <>
                   <p className={styles.turnChange}>
-                    {fill(phonePanel.proposalChange, {
+                    {fill(familyTexts.proposalChange, {
                       child: childFirstName,
                       before: turn.dropoff.plannedWindowText ?? "",
                       // The plan writes a time in 24 hours; no screen prints one (COPY-GUIDE §3).
                       after: clockLabel(turn.dropoff.requestedHhmm),
                     })}
                   </p>
+                  {/* Vera's rule: the reassurance comes before either button, because the fear a
+                      coordinator brings to this card is that reading it already sent something. */}
+                  <p className={styles.turnNote}>{approvalCopy.nothingUntilApproved}</p>
                   <form action={submitApproval} className={styles.turnActions}>
                     <input type="hidden" name="child" value={childKey} />
                     <input type="hidden" name="text" value={answered?.text ?? ""} />
                     <button type="submit" className={styles.primary} disabled={approvalPending}>
-                      {phonePanel.approve}
+                      {approvalCopy.approveAndSend}
                     </button>
                     <button type="button" className={styles.secondary} onClick={() => setDeclined(true)}>
-                      {phonePanel.decline}
+                      {approvalCopy.dontSend}
                     </button>
                   </form>
                 </>
               ) : null}
-              {turn.dropoff === null ? <p className={styles.turnNote}>{phonePanel.proposalNoChange}</p> : null}
+              {turn.dropoff === null ? <p className={styles.turnNote}>{familyTexts.proposalNoChange}</p> : null}
             </>
           ) : null}
 
           {turn.verdict === "ALLOW" && turn.source === "keyword" ? (
-            <p className={styles.turnNote}>{phonePanel.nothingHappened}</p>
+            <p className={styles.turnNote}>{familyTexts.nothingHappened}</p>
           ) : null}
 
-          {declined ? <p className={styles.turnNote}>{phonePanel.declined}</p> : null}
+          {declined ? <p className={styles.turnNote}>{familyTexts.declined}</p> : null}
 
           {approval.status === "approved" ? (
             <div className={styles.approved}>
               <p className={styles.turnLead}>
-                {fill(phonePanel.approvedLead, {
+                {fill(familyTexts.approvedLead, {
                   child: childFirstName,
                   after: approval.applied.afterWindowText,
                 })}
               </p>
               {/* The board's own line for that ride, as it reads after the change. */}
               <p className={`${styles.boardLine} tabularNums`}>
-                {fill(phonePanel.approvedBoardLine, {
+                {fill(familyTexts.approvedBoardLine, {
                   child: approval.applied.childLabel,
                   van: approval.applied.vanLabel ?? "",
                   after: approval.applied.afterWindowText,
@@ -138,7 +141,7 @@ export function PhoneComposer({
               </p>
               {/* …and the family's confirmation, in the thread, in the outbox's own words. */}
               <p className={styles.bubble}>{approval.applied.reply.body}</p>
-              <p className={styles.turnNote}>{phonePanel.approvedReplyNote}</p>
+              <p className={styles.turnNote}>{familyTexts.approvedReplyNote}</p>
             </div>
           ) : null}
           {approval.status === "refused" ? <p className={styles.turnLead}>{approval.message}</p> : null}

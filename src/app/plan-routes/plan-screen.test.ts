@@ -72,7 +72,7 @@ describe("the route is behind the same door as the rest of the console", () => {
 
   it("guards on the server, through the shared guard and the one access table", () => {
     expect(page).not.toMatch(/^"use client"/m);
-    expect(page).toMatch(/requirePage\("\/plan-preview"\)/);
+    expect(page).toMatch(/requirePage\("\/plan-routes"\)/);
     expect(page).toMatch(/from "@\/auth\/page-guard"/);
     // A session read means the route can never be answered from a static render.
     expect(page).toMatch(/export const dynamic = "force-dynamic"/);
@@ -84,18 +84,18 @@ describe("the route is behind the same door as the rest of the console", () => {
   });
 
   it("is the two console roles', and not the front desk's", () => {
-    expect(pageOutcome({ kind: "ANONYMOUS" }, "/plan-preview")).toBe("SIGN_IN");
-    expect(pageOutcome({ kind: "STAFF", role: "DIRECTOR" }, "/plan-preview")).toBe("ALLOW");
-    expect(pageOutcome({ kind: "STAFF", role: "COORDINATOR" }, "/plan-preview")).toBe("ALLOW");
+    expect(pageOutcome({ kind: "ANONYMOUS" }, "/plan-routes")).toBe("SIGN_IN");
+    expect(pageOutcome({ kind: "STAFF", role: "DIRECTOR" }, "/plan-routes")).toBe("ALLOW");
+    expect(pageOutcome({ kind: "STAFF", role: "COORDINATOR" }, "/plan-routes")).toBe("ALLOW");
     // The ramp iPad is the front desk's surface; deciding which van a child rides in is not.
-    expect(pageOutcome({ kind: "STAFF", role: "FRONT_DESK" }, "/plan-preview")).toBe("NO_ACCESS");
+    expect(pageOutcome({ kind: "STAFF", role: "FRONT_DESK" }, "/plan-routes")).toBe("NO_ACCESS");
   });
 
-  it("is reachable from the map preview, so it is not URL-only", () => {
-    const mapPage = readFileSync(path.resolve(HERE, "..", "map-preview", "page.tsx"), "utf8");
-    expect(mapPage).toMatch(/href="\/plan-preview"/);
+  it("is reachable from the live map, so it is not URL-only", () => {
+    const mapPage = readFileSync(path.resolve(HERE, "..", "live-map", "page.tsx"), "utf8");
+    expect(mapPage).toMatch(/href="\/plan-routes"/);
     // ...and offered only to a role whose own row opens it, which is the table's answer again.
-    expect(mapPage).toMatch(/canOpenPage\(caller, "\/plan-preview"\)/);
+    expect(mapPage).toMatch(/canOpenPage\(caller, "\/plan-routes"\)/);
   });
 
   it("reads no database, calls no endpoint and loads no map tiles", () => {

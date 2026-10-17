@@ -86,7 +86,7 @@ describe("check 1, part 1: no route and no server action can put a message in th
     expect(sourceFiles).toEqual(
       expect.arrayContaining([
         "app/api/webhooks/sms/route.ts",
-        "app/(app)/phone-preview/actions.ts",
+        "app/(app)/family-texts/actions.ts",
         "modules/outbox/outbox.ts",
         "modules/agent/run/exec/followup.ts",
       ]),
@@ -118,7 +118,7 @@ describe("check 1, part 1: no route and no server action can put a message in th
   });
 
   it("the two phone-panel server actions write nothing at all", () => {
-    const actions = code("app/(app)/phone-preview/actions.ts");
+    const actions = code("app/(app)/family-texts/actions.ts");
     expect(QUEUES_A_MESSAGE.test(actions)).toBe(false);
     expect(SENDS_A_MESSAGE.test(actions)).toBe(false);
     expect(/INSERT\s+INTO|UPDATE\s+ops\./i.test(actions)).toBe(false);

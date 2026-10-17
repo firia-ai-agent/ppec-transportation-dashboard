@@ -1,20 +1,20 @@
 import { requirePage } from "@/auth/page-guard";
 import { getNeonDb } from "@/db/exec";
 import { demoDay } from "@/domain/board/day";
-import { phonePanel } from "@/ui/copy";
+import { familyTexts } from "@/ui/copy";
 import { Placeholder } from "@/ui/Placeholder";
 import { nav } from "@/ui/copy";
 import { PhoneComposer } from "./PhoneComposer";
 import { PhonePanel } from "./PhonePanel";
 import { phonesForDay, threadFor } from "./thread";
 
-export const metadata = { title: phonePanel.documentTitle };
+export const metadata = { title: familyTexts.documentTitle };
 
 /** The guard reads a session, so this route is never statically rendered. */
 export const dynamic = "force-dynamic";
 
 /**
- * /phone-preview — the parent phone panel (DESIGN-DIRECTION §6.3), where the founder reads the
+ * /family-texts — the parent phone panel (DESIGN-DIRECTION §6.3), where the founder reads the
  * text that went out. The screen is PhonePanel.tsx and the thread is chosen in thread.ts; this
  * file is the guard and the wiring.
  *
@@ -43,7 +43,7 @@ export default async function PhonePreviewPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const caller = await requirePage("/phone-preview");
+  const caller = await requirePage("/family-texts");
   const params = await searchParams;
   const asked = Array.isArray(params.child) ? params.child[0] : params.child;
 
@@ -51,7 +51,7 @@ export default async function PhonePreviewPage({
   const phones = phonesForDay(day);
   // A day with no family text has nothing to show and says so, rather than rendering an empty
   // phone that reads as "the text failed".
-  if (phones.length === 0) return <Placeholder page={nav.today} body={phonePanel.emptyDay} />;
+  if (phones.length === 0) return <Placeholder page={nav.today} body={familyTexts.emptyDay} />;
 
   const selected = phones.find((p) => p.childKey === asked) ?? phones[phones.length - 1];
   const thread = await threadFor(getNeonDb, {

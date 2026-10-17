@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { demoDay } from "@/domain/board/day";
 import { buildBoard } from "@/domain/board/board";
 import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
-import { drawer, fill, phonePanel, places, sourceMode } from "@/ui/copy";
+import { drawer, fill, familyTexts, places, sourceMode } from "@/ui/copy";
 import { outboundStates } from "@/ui/states";
 import { LegDrawer } from "../today/LegDrawer";
 import { PhonePanel } from "./PhonePanel";
@@ -49,13 +49,13 @@ describe("the phone panel reads like a text thread", () => {
   const html = panelHtml();
 
   it("names the adult, the child and the number the thread belongs to", () => {
-    expect(html).toContain(esc(phonePanel.heading));
+    expect(html).toContain(esc(familyTexts.heading));
     expect(html).toContain(noah.guardianName);
     expect(html).toContain(phoneLabel(noah));
     // The dialling form the fixture stores is not what a screen prints.
     expect(html).not.toContain(noah.phone);
     expect(html).toContain(
-      esc(fill(phonePanel.threadWho, {
+      esc(fill(familyTexts.threadWho, {
         adult: noah.guardianName,
         child: noah.childFirstName,
         relationship: noah.relationship,
@@ -70,7 +70,7 @@ describe("the phone panel reads like a text thread", () => {
   });
 
   it("carries the day the thread is from, and a real time under the bubble", () => {
-    expect(html).toContain(fill(phonePanel.dayLine, { date: day.label }));
+    expect(html).toContain(fill(familyTexts.dayLine, { date: day.label }));
     expect(html).toContain("4:08 PM");
   });
 
@@ -81,14 +81,14 @@ describe("the phone panel reads like a text thread", () => {
   });
 
   it("carries the §6.3 simulated-phone banner and the §7.1 record chip", () => {
-    expect(html).toContain(phonePanel.simulatedPhone);
+    expect(html).toContain(familyTexts.simulatedPhone);
     expect(html).toContain('data-token="src-sim"');
     expect(html).toContain(sourceMode.SIMULATED);
   });
 
   it("says the bubbles came from the scenario, and shows no delivery it cannot know", () => {
-    expect(html).toContain(esc(phonePanel.fromScenario));
-    expect(html).not.toContain(esc(phonePanel.fromLog));
+    expect(html).toContain(esc(familyTexts.fromScenario));
+    expect(html).not.toContain(esc(familyTexts.fromLog));
     for (const state of Object.values(outboundStates)) {
       expect(html, state.label).not.toContain(`>${state.label}<`);
     }
@@ -99,7 +99,7 @@ describe("the phone panel reads like a text thread", () => {
     for (const phone of phones) {
       expect(html).toContain(`?child=${phone.childKey}`);
       expect(html).toContain(
-        esc(fill(phonePanel.tab, { adult: phone.guardianName, child: phone.childFirstName })),
+        esc(fill(familyTexts.tab, { adult: phone.guardianName, child: phone.childFirstName })),
       );
     }
     expect(html.match(/aria-current="page"/g)).toHaveLength(1);
@@ -124,7 +124,7 @@ describe("the thread from the message log", () => {
   const html = panelHtml(logThread);
 
   it("says where the bubbles came from, and shows each one's delivery", () => {
-    expect(html).toContain(esc(phonePanel.fromLog));
+    expect(html).toContain(esc(familyTexts.fromLog));
     expect(html).toContain(outboundStates.DELIVERED.label);
     expect(html).toContain(outboundStates.BLOCKED_EGRESS.label);
   });
@@ -151,13 +151,13 @@ describe("the one click that gets there", () => {
   it("offers the family's thread from the child's drawer", () => {
     const html = drawerHtml("C2", true);
     expect(html).toContain(drawer.textsHeading);
-    expect(html).toContain("/phone-preview?child=C2");
+    expect(html).toContain("/family-texts?child=C2");
     expect(html).toContain(esc(fill(drawer.openTexts, { child: "Noah O." })));
   });
 
   it("says plainly that nothing was texted, rather than linking to an empty phone", () => {
     const html = drawerHtml("C1", false);
-    expect(html).not.toContain("/phone-preview");
+    expect(html).not.toContain("/family-texts");
     expect(html).toContain(esc(fill(drawer.noTexts, { child: "Mia R." })));
   });
 

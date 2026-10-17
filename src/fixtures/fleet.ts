@@ -1,5 +1,5 @@
 /**
- * Synthetic fleet and riders for the capacity solver and the ramp preview.
+ * Synthetic fleet and riders for the capacity solver and the ramp iPad.
  *
  * Everything here is fiction (PRD §18.1, MOCKS-AND-DEMO §1-2): no real children, families,
  * providers or addresses. Names are first name + last initial (COPY-GUIDE §3); stops are public
@@ -183,7 +183,7 @@ export const CRISIS_CAPABILITY: DailyCapability = {
   observedBy: "J.T.", observedAt: `${SERVICE_DATE}T15:02:00-04:00`,
 };
 
-/* ───────────────────────────── ramp preview ───────────────────────────── */
+/* ───────────────────────────── ramp iPad ───────────────────────────── */
 export type ArrivingVehicle = {
   vehicle: Vehicle;
   leg: Leg;
@@ -192,7 +192,7 @@ export type ArrivingVehicle = {
   /** Default configuration to offer on the checklist: what the manifest planned. */
   plannedLayoutId: string;
 };
-/** Afternoon arrivals for the ramp preview; simulated, in route order. */
+/** Afternoon arrivals for the ramp iPad; simulated, in route order. */
 export const ARRIVING_VEHICLES: ArrivingVehicle[] = [
   { vehicle: V1, leg: { ...ROUTE2_PM, children: [C6_AT_RAMP, C7, C8] }, arrivingAt: "2:52 PM", plannedLayoutId: V1_LAYOUT_1WC3A.id },
   { vehicle: V2, leg: { ...ROUTE2_PM, id: "LEG-R1-PM", manifestId: "MAN-R1-PM", children: [C2, C1, C4] ,

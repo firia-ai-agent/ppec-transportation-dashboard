@@ -26,9 +26,9 @@ import {
   type ApprovedDropoff,
   type DemoAgentTurn,
 } from "@/modules/demo/agent-turn";
-import { apiAccess, phonePanel } from "@/ui/copy";
+import { apiAccess, familyTexts } from "@/ui/copy";
 
-const PAGE = "/phone-preview";
+const PAGE = "/family-texts";
 
 /** What the panel renders after a turn: the turn itself, or the one sentence a refusal gets. */
 export type TurnState =
@@ -69,7 +69,7 @@ export async function runAgentTurn(_previous: TurnState, form: FormData): Promis
     const turn = await demoAgentTurn({ childKey, text, day: demoDay() });
     return { status: "answered", childKey, text, turn };
   } catch {
-    return { status: "refused", message: phonePanel.assistantUnavailable };
+    return { status: "refused", message: familyTexts.assistantUnavailable };
   }
 }
 

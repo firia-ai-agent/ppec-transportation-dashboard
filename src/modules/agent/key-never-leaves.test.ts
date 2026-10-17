@@ -397,11 +397,11 @@ const SERVER_ONLY = ["modules/agent/config.ts", "modules/agent/providers/remote.
 describe("check 3, part 3: the key cannot be in a client bundle, because the module is unreachable", () => {
   it("finds the client entry points it claims to walk", () => {
     expect(clientEntries).toEqual(
-      expect.arrayContaining(["app/(app)/phone-preview/PhoneComposer.tsx", "ui/NavRail.tsx"]),
+      expect.arrayContaining(["app/(app)/family-texts/PhoneComposer.tsx", "ui/NavRail.tsx"]),
     );
     // The import walk is real: the composer reaches the copy deck and its own action module.
-    const fromComposer = reachableFrom(["app/(app)/phone-preview/PhoneComposer.tsx"]);
-    expect(fromComposer.has("app/(app)/phone-preview/actions.ts")).toBe(true);
+    const fromComposer = reachableFrom(["app/(app)/family-texts/PhoneComposer.tsx"]);
+    expect(fromComposer.has("app/(app)/family-texts/actions.ts")).toBe(true);
     expect(fromComposer.has("ui/copy.ts")).toBe(true);
   });
 
@@ -409,8 +409,8 @@ describe("check 3, part 3: the key cannot be in a client bundle, because the mod
     // The composer is the only `"use client"` file with a route into the agent at all, and the
     // route is an action module. If that `"use server"` line ever went away, the walk below would
     // follow the import into the agent and fail — which is the guard.
-    expect(isServerAction("app/(app)/phone-preview/actions.ts")).toBe(true);
-    const onTheServer = reachableFrom(["app/(app)/phone-preview/actions.ts"]);
+    expect(isServerAction("app/(app)/family-texts/actions.ts")).toBe(true);
+    const onTheServer = reachableFrom(["app/(app)/family-texts/actions.ts"]);
     expect(onTheServer.has("modules/agent/config.ts")).toBe(true);
     expect(onTheServer.has("modules/agent/providers/remote.ts")).toBe(true);
   });

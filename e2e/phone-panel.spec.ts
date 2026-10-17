@@ -16,7 +16,7 @@
 import { expect, test } from "@playwright/test";
 import { demoDay } from "../src/domain/board/day";
 import { demoLateDropoffs } from "../src/modules/demo/late-dropoff";
-import { board as boardCopy, drawer, fill, phonePanel } from "../src/ui/copy";
+import { board as boardCopy, drawer, fill, familyTexts } from "../src/ui/copy";
 import {
   expectDemoBarPinned,
   expectNoInternalCodes,
@@ -53,7 +53,7 @@ test("from a child on the board to the text their family got", async ({ page }) 
   console.log("screenshot:", await shot(page, "today-drawer-texts"));
 
   await link.click();
-  await expect(page.getByRole("heading", { level: 1, name: phonePanel.heading })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: familyTexts.heading })).toBeVisible();
 
   // The thread: the adult who holds the phone, the child the texts are about, and the body.
   await expect(page.getByRole("heading", { level: 2 })).toContainText(noah.guardianName);
@@ -66,13 +66,13 @@ test("from a child on the board to the text their family got", async ({ page }) 
   expect(bubble).not.toContain(noah.childFirstName);
 
   // §6.3: the phone says it is simulated, and §7 / §7.1's bar and chip are the layout's own.
-  await expect(page.getByText(phonePanel.simulatedPhone)).toBeVisible();
+  await expect(page.getByText(familyTexts.simulatedPhone)).toBeVisible();
   await expectDemoBarPinned(page);
   await expectVioletOnlyOnDemoChrome(page);
   await expectNoInternalCodes(page);
 
   // With no database behind this check, the panel is honest about where the bubbles came from.
-  await expect(page.getByText(phonePanel.fromScenario)).toBeVisible();
+  await expect(page.getByText(familyTexts.fromScenario)).toBeVisible();
   console.log("screenshot:", await shot(page, "phone-panel"));
 });
 
@@ -87,27 +87,27 @@ test("from a child on the board to the text their family got", async ({ page }) 
  * deployment, which is an environment change and not a code one.
  */
 test("a staff-typed parent text reaches the assistant, and the answer says who gave it", async ({ page }) => {
-  await page.goto(`/phone-preview?child=${noah.childKey}`);
+  await page.goto(`/family-texts?child=${noah.childKey}`);
 
   const composer = page.getByRole("textbox", {
-    name: fill(phonePanel.composerHeading, { adult: noah.guardianName }),
+    name: fill(familyTexts.composerHeading, { adult: noah.guardianName }),
   });
-  await expect(composer).toHaveValue(fill(phonePanel.composerExample, { child: noah.childFirstName }));
+  await expect(composer).toHaveValue(fill(familyTexts.composerExample, { child: noah.childFirstName }));
 
-  await page.getByRole("button", { name: fill(phonePanel.composerSend, { adult: noah.guardianName }) }).click();
+  await page.getByRole("button", { name: fill(familyTexts.composerSend, { adult: noah.guardianName }) }).click();
 
-  await expect(page.getByRole("heading", { name: phonePanel.turnHeading })).toBeVisible();
-  await expect(page.getByText(phonePanel.answeredByKeyword)).toBeVisible();
-  await expect(page.getByText(phonePanel.nothingHappened)).toBeVisible();
+  await expect(page.getByRole("heading", { name: familyTexts.turnHeading })).toBeVisible();
+  await expect(page.getByText(familyTexts.answeredByKeyword)).toBeVisible();
+  await expect(page.getByText(familyTexts.nothingHappened)).toBeVisible();
   await expectNoInternalCodes(page);
   console.log("screenshot:", await shot(page, "phone-panel-agent"));
 });
 
 test("every family the day texted has its own thread, and no other", async ({ page }) => {
-  await page.goto("/phone-preview");
+  await page.goto("/family-texts");
   for (const text of texts) {
     const tab = page.getByRole("link", {
-      name: fill(phonePanel.tab, { adult: text.guardianName, child: text.childFirstName }),
+      name: fill(familyTexts.tab, { adult: text.guardianName, child: text.childFirstName }),
     });
     await expect(tab).toBeVisible();
     await tab.click();

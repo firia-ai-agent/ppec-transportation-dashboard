@@ -25,7 +25,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
 import { demoDay } from "@/domain/board/day";
 import { EVERY_MODEL_FAILED, demoAgentTurn } from "@/modules/demo/agent-turn";
-import { phonePanel } from "@/ui/copy";
+import { familyTexts } from "@/ui/copy";
 import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, loadAgentConfig } from "./config";
 import { TOOL_NAMES, toolDef } from "./tools";
 
@@ -164,17 +164,22 @@ describe("check 5, part 4: the words the panel uses are in copy.ts and are plain
   const vendorWords = [CONFIG.provider, CONFIG.model, CONFIG.backupModel, ...CONFIG.modelAllowList];
 
   it("the degraded sentence names no model, no vendor and no status code", () => {
-    const said = phonePanel.answeredByKeyword;
+    const said = familyTexts.answeredByKeyword;
     expect(said).toMatch(/^[A-Z].*\.$/s);
     for (const word of vendorWords) expect(said.toLowerCase()).not.toContain(word.toLowerCase());
     expect(said).not.toMatch(/\b\d{3}\b|rate.?limit|timeout|ECONN/i);
-    // It says the two things a coordinator needs: no model answered, and a person has it now.
-    expect(said.toLowerCase()).toContain("no model");
-    expect(said.toLowerCase()).toMatch(/keyword|person/);
+    /*
+     * It says the two things a coordinator needs, in Vera's words (2026-10-17): the model was not
+     * reached, and the keyword reader is what answered instead. The assertion is on the *meaning*
+     * rather than on one phrasing — "couldn't reach its model" and "no model was reachable" both
+     * pass — because the copy is Vera's to reword and this check is about what it must convey.
+     */
+    expect(said.toLowerCase()).toMatch(/could ?n.t reach its model|no model was reachable/);
+    expect(said.toLowerCase()).toContain("keyword");
   });
 
   it("the refusal sentence for a vendor that cannot be reached at all is prose too", () => {
-    const said = phonePanel.assistantUnavailable;
+    const said = familyTexts.assistantUnavailable;
     expect(said).toMatch(/^[A-Z].*\.$/s);
     for (const word of vendorWords) expect(said.toLowerCase()).not.toContain(word.toLowerCase());
     expect(said).not.toMatch(/\b\d{3}\b|undefined|Error/i);
@@ -204,10 +209,10 @@ describe("check 5, part 5: the server action answers with that sentence instead 
     const saved = process.env;
     process.env = { ...saved, ...env } as NodeJS.ProcessEnv;
     try {
-      const { runAgentTurn } = await import("@/app/(app)/phone-preview/actions");
+      const { runAgentTurn } = await import("@/app/(app)/family-texts/actions");
       const state = await runAgentTurn({ status: "idle" }, form(TEXT));
       expect(state.status).toBe("refused");
-      expect(state.status === "refused" ? state.message : "").toBe(phonePanel.assistantUnavailable);
+      expect(state.status === "refused" ? state.message : "").toBe(familyTexts.assistantUnavailable);
     } finally {
       process.env = saved;
     }
@@ -218,7 +223,7 @@ describe("check 5, part 5: the server action answers with that sentence instead 
     const saved = process.env;
     process.env = { ...saved, ...LIVE_ENV } as NodeJS.ProcessEnv;
     try {
-      const { runAgentTurn } = await import("@/app/(app)/phone-preview/actions");
+      const { runAgentTurn } = await import("@/app/(app)/family-texts/actions");
       const state = await runAgentTurn({ status: "idle" }, form(TEXT));
       expect(state.status).toBe("answered");
       if (state.status !== "answered") return;

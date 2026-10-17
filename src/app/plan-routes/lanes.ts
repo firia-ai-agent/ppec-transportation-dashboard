@@ -7,7 +7,7 @@
  * code — the three vocabularies the machine uses to talk to itself. The verdict is computed in
  * src/domain/solver; the sentence that says it is chosen here; neither is written here.
  */
-import { countable, fill, layoutName, pluralize, planRoutes, rampPreview, securement, sentence, vanName } from "@/ui/copy";
+import { countable, fill, layoutName, pluralize, planRoutes, rampIpad, securement, sentence, vanName } from "@/ui/copy";
 import { capabilityStates, legStates, reservationStates, type StateDescriptor } from "@/ui/states";
 import { clockLabel } from "@/ui/service-date";
 import { causeOfDeficit } from "@/domain/solver";
@@ -105,7 +105,7 @@ export function laneLines(lane: LanePlan): string[] {
     );
   }
   if (verdict.status === "VEHICLE_UNAVAILABLE") {
-    return [verdict.pendingReason ?? rampPreview.vehicleOut, planRoutes.laneBlocked];
+    return [verdict.pendingReason ?? rampIpad.vehicleOut, planRoutes.laneBlocked];
   }
   const deficit = verdict.deficit;
   const stop = lane.leg.stops.find((s) => s.k === deficit?.k)?.label;
@@ -278,7 +278,7 @@ export function stopLine(rider: PlanRider): string {
 export function needChips(child: Child, measured: boolean): string[] {
   const chips: string[] = [];
   if (child.mobility === "WC") {
-    chips.push(fill(rampPreview.usesWheelchair, { securement: securement[child.securement ?? "OTHER"] }));
+    chips.push(fill(rampIpad.usesWheelchair, { securement: securement[child.securement ?? "OTHER"] }));
     if (child.wcLengthCm !== undefined && child.wcWidthCm !== undefined) {
       chips.push(
         fill(measured ? planRoutes.chairMeasured : planRoutes.chairOnFile, {
@@ -288,8 +288,8 @@ export function needChips(child: Child, measured: boolean): string[] {
       );
     }
   }
-  if (child.tether) chips.push(rampPreview.needsAnchoredSeat);
-  if (child.escort) chips.push(rampPreview.escortRides);
+  if (child.tether) chips.push(rampIpad.needsAnchoredSeat);
+  if (child.escort) chips.push(rampIpad.escortRides);
   return chips;
 }
 

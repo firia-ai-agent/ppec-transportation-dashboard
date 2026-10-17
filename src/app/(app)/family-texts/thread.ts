@@ -18,14 +18,14 @@
  * outbox's own copy (src/ui/copy.ts `outboundSms`) — which is what makes the fallback honest
  * rather than a mock-up. What differs is what can be said about *delivery*: the log knows, the
  * replay does not, so a projected bubble carries no delivery state and the panel says why
- * (`phonePanel.fromScenario`).
+ * (`familyTexts.fromScenario`).
  */
 import type { Db } from "@/db/exec";
 import { formatClock } from "@/domain/eta/eta";
 import { demoLateDropoffs, type LateDropoff } from "@/modules/demo/late-dropoff";
 import { personaMailboxResponse, type PersonaMessage } from "@/modules/messaging/mailbox";
 import { normalizeE164 } from "@/modules/identity/phone";
-import { fill, phonePanel } from "@/ui/copy";
+import { fill, familyTexts } from "@/ui/copy";
 import { outboundStates } from "@/ui/states";
 import type { StateDescriptor } from "@/ui/states";
 
@@ -62,7 +62,7 @@ export function e164Of(dropoff: Pick<LateDropoff, "phone">): string {
 export function phoneLabel(dropoff: Pick<LateDropoff, "phone">): string {
   const digits = e164Of(dropoff).replace(/\D/g, "").slice(-10);
   if (digits.length !== 10) return dropoff.phone;
-  return fill(phonePanel.phoneFormat, {
+  return fill(familyTexts.phoneFormat, {
     area: digits.slice(0, 3),
     prefix: digits.slice(3, 6),
     line: digits.slice(6),

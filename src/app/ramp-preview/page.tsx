@@ -1,24 +1,27 @@
 /**
- * /ramp-preview — the SURF-04 ramp iPad on its own route, so the §4.4 checklist can be walked
- * on a tablet before the real surface exists. The screen itself is RampCheck.tsx; this file is
- * only its guard.
+ * /ramp-preview — gone, and still answering.
  *
- * Behind staff sign-in, for the same reason /map-preview is: a deployed preview URL is
- * guessable, and this page lists children by first name and last initial, the transport needs
- * derived from their intake, and which seat each of them is in. src/auth/caller.ts answers who
- * is asking and the access table (src/auth/access.ts) decides whether they may look — SURF-04
- * is the front desk's own surface, so every staff role is in and anonymous is not.
+ * This was the ramp iPad's address until Vera's review (2026-10-17) took "preview" out of every menu
+ * label and address: the word named how finished the build was, in a URL a founder reads out
+ * loud. The screen is at `/ramp-ipad` now, and this page is a permanent redirect (308) to it, so
+ * a bookmark, a demo link or a line in an older pull request still lands on the screen instead
+ * of the 404.
  *
- * The DEMO banner and the one NFR-09 source chip come from the root layout, on every route —
- * this page must not mount a second pair.
+ * Behind the same door as the destination, and that is the point of doing this in a page rather
+ * than in next.config.ts: the guard runs first, from the old address's own row in the one access
+ * table (src/auth/access.ts), which carries the same roles the destination's row does. Signed
+ * out is a redirect to sign-in; a role the row omits gets the no-access page and a 403
+ * (forbidden.tsx beside this file), never a redirect. A redirect is an answer, and an
+ * unguarded one would tell a caller who may not open the ramp iPad that it exists.
  */
+import { permanentRedirect } from "next/navigation";
+import { MOVED_PAGES } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
-import RampCheck from "./RampCheck";
 
 /** The guard reads a session, so this route is never statically rendered. */
 export const dynamic = "force-dynamic";
 
-export default async function RampPreviewPage() {
+export default async function MovedPage() {
   await requirePage("/ramp-preview");
-  return <RampCheck />;
+  permanentRedirect(MOVED_PAGES["/ramp-preview"]);
 }

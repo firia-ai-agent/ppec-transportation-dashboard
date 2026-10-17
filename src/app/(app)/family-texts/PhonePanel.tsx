@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { MessagesSquare } from "lucide-react";
 import type { LateDropoff } from "@/modules/demo/late-dropoff";
-import { fill, phonePanel, places } from "@/ui/copy";
+import { fill, familyTexts, places } from "@/ui/copy";
 import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
 import { icon } from "@/ui/tokens";
@@ -46,12 +46,12 @@ export function PhonePanel({
   return (
     <main className={styles.page}>
       <header className={styles.titleRow}>
-        <h1 className={styles.heading}>{phonePanel.heading}</h1>
-        <p className={styles.intro}>{phonePanel.intro}</p>
+        <h1 className={styles.heading}>{familyTexts.heading}</h1>
+        <p className={styles.intro}>{familyTexts.intro}</p>
       </header>
 
       {phones.length > 1 ? (
-        <nav className={styles.tabs} aria-label={phonePanel.pickPhone}>
+        <nav className={styles.tabs} aria-label={familyTexts.pickPhone}>
           {phones.map((phone) => (
             <Link
               key={phone.childKey}
@@ -59,7 +59,7 @@ export function PhonePanel({
               className={styles.tab}
               aria-current={phone.childKey === selected.childKey ? "page" : undefined}
             >
-              {fill(phonePanel.tab, { adult: phone.guardianName, child: phone.childFirstName })}
+              {fill(familyTexts.tab, { adult: phone.guardianName, child: phone.childFirstName })}
             </Link>
           ))}
         </nav>
@@ -67,42 +67,42 @@ export function PhonePanel({
 
       <div className={styles.columns}>
       {/* §6.3: an iPhone-shaped panel with no Apple marks — a frame, a notch bar, a thread. */}
-      <section className={styles.phone} aria-label={phonePanel.simulatedPhone}>
+      <section className={styles.phone} aria-label={familyTexts.simulatedPhone}>
         <div className={styles.simBanner}>
           <MessagesSquare size={icon.inline} aria-hidden="true" />
-          <span>{phonePanel.simulatedPhone}</span>
+          <span>{familyTexts.simulatedPhone}</span>
           {/* §7.1: a record carries its source. A phone is a record. */}
           <SourceBadge mode="SIMULATED" className={styles.simChip} />
         </div>
 
         <header className={styles.threadHeader}>
           <h2 className={styles.threadHeading}>
-            {fill(phonePanel.threadHeading, {
+            {fill(familyTexts.threadHeading, {
               adult: selected.guardianName,
               phone: phoneLabel(selected),
             })}
           </h2>
           <p className={styles.threadWho}>
-            {fill(phonePanel.threadWho, {
+            {fill(familyTexts.threadWho, {
               adult: selected.guardianName,
               child: selected.childFirstName,
               relationship: selected.relationship,
             })}
           </p>
           <p className={styles.threadRide}>
-            {fill(phonePanel.rideLine, {
+            {fill(familyTexts.rideLine, {
               child: selected.childFirstName,
               van: selected.vanLabel,
               provider: selected.providerName,
               place: selected.stopPlace,
             })}
           </p>
-          <p className={styles.threadDay}>{fill(phonePanel.dayLine, { date: dayLabel })}</p>
+          <p className={styles.threadDay}>{fill(familyTexts.dayLine, { date: dayLabel })}</p>
         </header>
 
         <ol className={styles.thread}>
           {thread.bubbles.length === 0 ? (
-            <li className={styles.empty}>{phonePanel.empty}</li>
+            <li className={styles.empty}>{familyTexts.empty}</li>
           ) : (
             thread.bubbles.map((bubble) => (
               <Bubble key={bubble.id} bubble={bubble} adult={selected.guardianName} />
@@ -112,7 +112,7 @@ export function PhonePanel({
 
         {/* Which of the two sources this thread is, in a sentence (see thread.ts). */}
         <p className={styles.source} data-source={thread.source}>
-          {thread.source === "log" ? phonePanel.fromLog : phonePanel.fromScenario}
+          {thread.source === "log" ? familyTexts.fromLog : familyTexts.fromScenario}
         </p>
       </section>
 
@@ -141,7 +141,7 @@ function Bubble({ bubble, adult }: { bubble: Bubble; adult: string }) {
       <p className={styles.bubbleWho}>{who}</p>
       <p className={styles.bubble}>{bubble.body}</p>
       <p className={`${styles.bubbleMeta} tabularNums`}>
-        <span className="srOnly">{fill(phonePanel.timeLabel, { time: bubble.timeLabel })}</span>
+        <span className="srOnly">{fill(familyTexts.timeLabel, { time: bubble.timeLabel })}</span>
         <span aria-hidden="true">{bubble.timeLabel}</span>
         {/* §6.3: the ticks under the bubble — Queued → Sent → Delivered, in §3's own words. */}
         {bubble.delivery ? <StateChip state={bubble.delivery} /> : null}

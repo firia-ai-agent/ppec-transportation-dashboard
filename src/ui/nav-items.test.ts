@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Flag, type LucideIcon } from "lucide-react";
 import { pageLabel } from "@/auth/access";
 import { isCurrent, navItems } from "./nav-items";
-import { nav, phonePanel, planRoutes } from "./copy";
+import { familyTexts, liveMap, nav, planRoutes, rampIpad } from "./copy";
 import { sourceModes, vocabularies } from "./states";
 
 /**
@@ -25,31 +25,53 @@ function stateIcons(): Map<LucideIcon, string> {
 }
 
 describe("nav icons", () => {
-  it("has the four §2 destinations, Plan routes and Family texts, in document order", () => {
+  it("has every destination this app has, in document order", () => {
     expect(navItems.map((i) => [i.href, i.label])).toEqual([
       ["/today", nav.today],
-      // The planning surface, between the board and the exceptions it raises. Not one of §2's
-      // four: it is a destination staff could previously only reach by typing the URL.
-      ["/plan-preview", planRoutes.heading],
-      // The persona-phone panel (§6.3), for the same reason: the text a family was sent was
-      // readable only by typing the URL.
-      ["/phone-preview", phonePanel.heading],
+      // The planning surface and the fleet pane, between the board and the exceptions it
+      // raises. Neither is one of §2's four: both were reachable only by typing the URL.
+      ["/plan-routes", planRoutes.heading],
+      ["/live-map", liveMap.heading],
       ["/exceptions", nav.exceptions],
+      // The persona-phone panel (§6.3), after the exceptions that send a coordinator to it: the
+      // text a family was sent was readable only by typing the URL.
+      ["/family-texts", familyTexts.heading],
       ["/setup", nav.setup],
       ["/health", nav.health],
+      // Last, where PRD §14 lists it: the ramp iPad is not a console destination (§2), but the
+      // front desk can open no console page, so the rail has to offer it.
+      ["/ramp-ipad", rampIpad.heading],
     ]);
   });
 
-  it("labels Plan routes with the words its own screen uses, not a second string", () => {
-    const plan = navItems.find((item) => item.href === "/plan-preview");
-    expect(plan?.label).toBe(planRoutes.heading);
-    expect(pageLabel("/plan-preview")).toBe(plan?.label);
+  it("labels the three surfaces §2 does not name with the words their own screens use", () => {
+    for (const href of ["/plan-routes", "/live-map", "/ramp-ipad"]) {
+      const item = navItems.find((i) => i.href === href);
+      expect(item, href).toBeDefined();
+      // The access table's label and the rail's label are the same string, which is the
+      // screen's own heading: there is no second copy of any of these names.
+      expect(pageLabel(href)).toBe(item?.label);
+      expect(item?.label.length).toBeGreaterThan(0);
+    }
+    expect(navItems.find((i) => i.href === "/plan-routes")?.label).toBe(planRoutes.heading);
+    expect(navItems.find((i) => i.href === "/live-map")?.label).toBe(liveMap.heading);
+    expect(navItems.find((i) => i.href === "/ramp-ipad")?.label).toBe(rampIpad.heading);
+  });
+
+  it("names the ramp iPad the way PRD §14 names it (l.1055, l.1061)", () => {
+    expect(rampIpad.heading).toBe("Ramp iPad");
+  });
+
+  it("every label is also the label the access table carries for that row", () => {
+    for (const item of navItems) {
+      expect(pageLabel(item.href), item.href).toBe(item.label);
+    }
   });
 
   it("labels Family texts with its own screen's heading too", () => {
-    const phone = navItems.find((item) => item.href === "/phone-preview");
-    expect(phone?.label).toBe(phonePanel.heading);
-    expect(pageLabel("/phone-preview")).toBe(phone?.label);
+    const phone = navItems.find((item) => item.href === "/family-texts");
+    expect(phone?.label).toBe(familyTexts.heading);
+    expect(pageLabel("/family-texts")).toBe(phone?.label);
   });
 
   it("gives Exceptions & Approvals the `flag` icon (Vera's answer, 2026-10-14)", () => {

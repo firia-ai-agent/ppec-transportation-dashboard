@@ -1,14 +1,45 @@
-import { Activity, Flag, LayoutDashboard, MessagesSquare, Route, Settings, type LucideIcon } from "lucide-react";
+import {
+  Activity,
+  Flag,
+  LayoutDashboard,
+  Map as MapIcon,
+  MessagesSquare,
+  Route,
+  Settings,
+  Tablet,
+  type LucideIcon,
+} from "lucide-react";
 import { canOpenPage } from "@/auth/access";
 import type { StaffRole } from "@/auth/core";
-import { nav, phonePanel, planRoutes } from "./copy";
+import { familyTexts, liveMap, nav, planRoutes, rampIpad } from "./copy";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon };
 
 /**
- * DESIGN-DIRECTION §2 / PRD §14: Today (board + drawer + inbox) · Exceptions & Approvals
- * (count badge once the live board lands) · Setup · Health & ROI. The ramp iPad is its own
- * full-screen route and deliberately not in this rail.
+ * THE RAIL — every destination this app has, and nothing a role cannot open.
+ *
+ * DESIGN-DIRECTION §2 / PRD §14 (l.1055) name four console destinations: Today (board + drawer
+ * + inbox) · Exceptions & Approvals (count badge once the live board lands) · Setup · Health &
+ * ROI. Three more screens are built and were reachable only by typing their URL, which is not a
+ * way anybody finds a screen, so they are in the rail too:
+ *
+ *  - **Plan routes** (`/plan-routes`) — the planning surface staff reach before the board has
+ *    anything on it (B-09 VEH-01…05, B-13). PRD §14 names no planning surface, so the label is
+ *    the heading of the screen itself.
+ *  - **Live map** (`/live-map`) — the fleet pane (DESIGN-DIRECTION §5). PRD §14 names no
+ *    map surface either: the map lands *inside* SURF-01 at BUILD-PLAN-M2 P-03, and this route is
+ *    where it is walked until then. The label is the screen's own heading. It was "Map preview",
+ *    which named the build rather than the screen, and Vera's review (2026-10-17) rules out
+ *    "preview" in any menu label or address; where the positions come from is said by the §7.1
+ *    "Simulated" chip in the DEMO bar, which the root layout renders on this route as on every
+ *    other, and by the screen's own `signedInOnly` line (COPY-GUIDE §1, honest about certainty).
+ *  - **Ramp iPad** (`/ramp-ipad`) — SURF-04, and the one of the three the PRD does name:
+ *    "Ramp iPad" in both the §14 navigation line and the §14 SURF-04 entry (l.1055, l.1061). It
+ *    is its own full-screen route (§2) and so renders no rail of its own; the rail still links
+ *    to it, because the front desk cannot open a console page and this is their surface.
+ *
+ * Every label is the heading of its own screen, read from src/ui/copy.ts — never a second
+ * string in `nav` — so the rail and the page cannot drift apart. nav-items.test.ts holds that.
  *
  * Icon rule (Vera's review): a nav icon must never be an icon §3 uses to mark a *state*, or
  * §7.1 uses for a source mode — otherwise "Exceptions" in the rail reads as a live alert and
@@ -19,29 +50,44 @@ export type NavItem = { href: string; label: string; icon: LucideIcon };
  *    person to pick up), not `octagon-alert`, which is the EXCEPTION and severity-RED state
  *    icon. `flag` carries no §3 or §7.1 meaning, so the rail cannot read as a live alert.
  *  - Setup uses `settings`, Health & ROI uses `activity`; neither appears in §3 or §7.1.
- *  - Plan routes uses `route`. Not `map`, `map-pin` or `navigation`: §3 and §7.1 give all three a
- *    meaning about *where a van is now*, and planning is about which van a child rides in.
- * nav-items.test.ts fails if any nav icon collides with a state or source-mode icon.
+ *  - Plan routes uses `route`. Not `map-pin` or `navigation`: §3 gives both a meaning about
+ *    *where a van is now*, and planning is about which van a child rides in.
+ *  - Live map uses `map`. §3 claims `map-pin` (At pickup) and `map-pin-check` (Arrived), and
+ *    §7.1 claims none of the family — but `map` itself is claimed by neither, and on the one
+ *    destination that *is* a map it cannot be mistaken for a van's state.
+ *  - Ramp iPad uses `tablet`, the surface the PRD names it after. No §3 or §7.1 meaning, and
+ *    nothing else in the rail is a device.
+ * nav-items.test.ts fails if any nav icon collides with a state or source-mode icon, or if two
+ * destinations share one.
  *
- * Plan routes is the fifth destination and not one of §2's four, because it is the planning
- * surface staff reach before the board has anything on it (B-09 VEH-01…05) — it was reachable
- * only by typing the URL or through the map preview, which is not a way anybody finds a screen.
- * Its label is the heading of the screen itself rather than a second string in `nav`, so the
- * rail and the page cannot drift apart.
+ * Order: §2's four destinations keep their document order, Plan routes and the live map sit
+ * between the board and the exceptions it raises (plan the day, then watch it move), Family
+ * texts follows the exceptions — an exception is what makes somebody want to read what the
+ * family was told — and the ramp iPad is last: PRD §14 lists it last, after the console
+ * destinations, because it is not one.
  *
- * Family texts is the sixth, and the same argument: the persona-phone panel (§6.3) is where the
- * text a family was actually sent is read, and it was reachable only by typing the URL. Its icon
- * is `messages-square` — a thread, two bubbles — which neither §3 nor §7.1 gives a meaning to;
- * `message-square` on its own is the §3 inbound-message mark, so the rail takes the plural one
- * and the state keeps the singular (nav-items.test.ts fails on the collision either way).
+ * Addresses: each one is the screen's own name, `/plan-routes`, `/live-map`, `/ramp-ipad`,
+ * `/family-texts`. They used to be `/plan-preview`, `/map-preview`, `/ramp-preview` and
+ * `/phone-preview` — a word about how finished the build is, in a URL a founder reads out loud.
+ * All four still answer, as permanent redirects behind the same rows of the access table
+ * (src/app/plan-preview/page.tsx and its three siblings), so a bookmark or a link in an old PR
+ * still lands on the screen.
+ *
+ * Family texts (`/family-texts`) is the persona-phone panel (§6.3), where the text a family was
+ * actually sent is read. Its icon is `messages-square` — a thread, two bubbles — which neither
+ * §3 nor §7.1 gives a meaning to; `message-square` on its own is the §3 inbound-message mark, so
+ * the rail takes the plural one and the state keeps the singular (nav-items.test.ts fails on the
+ * collision either way).
  */
 export const navItems: readonly NavItem[] = [
   { href: "/today", label: nav.today, icon: LayoutDashboard },
-  { href: "/plan-preview", label: planRoutes.heading, icon: Route },
-  { href: "/phone-preview", label: phonePanel.heading, icon: MessagesSquare },
+  { href: "/plan-routes", label: planRoutes.heading, icon: Route },
+  { href: "/live-map", label: liveMap.heading, icon: MapIcon },
   { href: "/exceptions", label: nav.exceptions, icon: Flag },
+  { href: "/family-texts", label: familyTexts.heading, icon: MessagesSquare },
   { href: "/setup", label: nav.setup, icon: Settings },
   { href: "/health", label: nav.health, icon: Activity },
+  { href: "/ramp-ipad", label: rampIpad.heading, icon: Tablet },
 ];
 
 /** The rail highlights the section, so /today/<child> still marks "Today" as current. */
@@ -50,9 +96,19 @@ export function isCurrent(pathname: string, href: string): boolean {
 }
 
 /**
- * The rail as one role sees it: the §2 destinations that role's row in the access table opens.
- * A front-desk iPad is left with no console destination at all, which is correct — their surface
- * is the ramp iPad (ARCHITECTURE §1) — and `null` (signed in, no membership anywhere) sees none.
+ * The rail as one role sees it: the destinations that role's row in the access table opens, and
+ * never one more. The filter *is* `canOpenPage`, so the rail cannot be wider than the table —
+ * there is no second list of roles here to fall out of step with it.
+ *
+ * What each role gets, and where the docs put them:
+ *  - DIRECTOR and COORDINATOR — the whole rail. ARCHITECTURE §1 gives the web console to the
+ *    coordinator and the director, PRD §6.2 gives them the attendance plan and the legs, and
+ *    both walk the ramp iPad too.
+ *  - FRONT_DESK — the ramp iPad (PRD §6.2, ARCHITECTURE §1: their own surface) and the live
+ *    map, whose row is all staff because a person at the door needs to see where the vans
+ *    are; the per-key matrix in src/domain/access/map-view.ts then withholds the family labels
+ *    and the notification queue from them. No console destination, which is correct.
+ *  - `null` (signed in, no membership anywhere) — nothing.
  *
  * This is a courtesy, not a guard. Every page checks the server again, and guard-matrix.test.ts
  * asks the server directly, with no browser involved, exactly because a hidden link is not a

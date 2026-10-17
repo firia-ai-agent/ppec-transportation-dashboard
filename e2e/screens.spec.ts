@@ -12,7 +12,7 @@
  * and is refused outright on any deployment.
  */
 import { expect, test, type Locator } from "@playwright/test";
-import { fleetMap, mapPreview, nav, planRoutes, rampPreview } from "../src/ui/copy";
+import { fill, fleetMap, liveMap, nav, planRoutes, rampIpad } from "../src/ui/copy";
 import { navItems } from "../src/ui/nav-items";
 import {
   boxOf,
@@ -71,18 +71,18 @@ for (const width of WIDTHS) {
       console.log("screenshot:", await shot(page, `today-${width}`));
     });
 
-    test("the map preview draws tiles and V1-V3, and keeps its chrome in the pane", async ({
+    test("the live map draws tiles and V1-V3, and keeps its chrome in the pane", async ({
       page,
     }) => {
-      await page.goto("/map-preview");
-      await expect(page.getByRole("heading", { level: 1, name: mapPreview.heading })).toBeVisible();
+      await page.goto("/live-map");
+      await expect(page.getByRole("heading", { level: 1, name: liveMap.heading })).toBeVisible();
       await expectDemoBarPinned(page);
 
-      const map = page.getByRole("region", { name: mapPreview.mapLabel });
+      const map = page.getByRole("region", { name: liveMap.mapLabel });
       await expect(map).toBeVisible();
 
       // Pause the clock first, so the map can reach idle and the screenshot is a still fleet.
-      await page.getByRole("button", { name: mapPreview.pause, exact: true }).click();
+      await page.getByRole("button", { name: liveMap.pause, exact: true }).click();
 
       /*
        * The blank-map check. A pane that drew nothing looks exactly like a pane that drew a
@@ -144,24 +144,27 @@ for (const width of WIDTHS) {
       const chosenSpeed = page.getByRole("button", { name: /^×10$/ });
       await expect(chosenSpeed).toHaveAttribute("aria-pressed", "true");
 
-      // The ramp check is one click away rather than URL-only.
-      await expect(page.getByRole("link", { name: mapPreview.openRampCheck })).toBeVisible();
+      // The ramp iPad is one click away rather than URL-only, and the link calls it what its
+      // own heading and the rail call it.
+      await expect(
+        page.getByRole("link", { name: fill(liveMap.openScreen, { page: rampIpad.heading }) }),
+      ).toBeVisible();
 
       await expectNoInternalCodes(page);
       // Let the last tiles settle, then take the picture.
       await page.waitForLoadState("networkidle");
-      console.log("screenshot:", await shot(page, `map-preview-${width}`));
+      console.log("screenshot:", await shot(page, `live-map-${width}`));
     });
 
-    test("the ramp check renders, and its sticky banner covers no row", async ({ page }) => {
-      await page.goto("/ramp-preview");
-      await expect(page.getByRole("heading", { level: 1, name: rampPreview.heading })).toBeVisible();
+    test("the ramp iPad renders, and its sticky banner covers no row", async ({ page }) => {
+      await page.goto("/ramp-ipad");
+      await expect(page.getByRole("heading", { level: 1, name: rampIpad.heading })).toBeVisible();
       await expectDemoBarPinned(page);
       await expectVioletOnlyOnDemoChrome(page);
-      console.log("screenshot:", await shot(page, `ramp-preview-${width}`));
+      console.log("screenshot:", await shot(page, `ramp-ipad-${width}`));
 
       // §9 / COPY-GUIDE: the selected answer is filled and announced, not outlined.
-      const notSure = page.getByRole("button", { name: rampPreview.answer.UNSURE }).first();
+      const notSure = page.getByRole("button", { name: rampIpad.answer.UNSURE }).first();
       await expect(notSure).toHaveAttribute("aria-pressed", "true");
       const chosenVehicle = page.getByRole("button", { name: /^V1 · / });
       await expect(chosenVehicle).toHaveAttribute("aria-pressed", "true");
@@ -181,9 +184,9 @@ for (const width of WIDTHS) {
       const bannerBox = await boxOf(banner);
 
       const rows: Array<[string, Locator]> = [
-        [rampPreview.liftRow, page.getByText(rampPreview.liftRow, { exact: true })],
+        [rampIpad.liftRow, page.getByText(rampIpad.liftRow, { exact: true })],
         ["Walking seat 2", page.getByText("Walking seat 2", { exact: true }).first()],
-        [rampPreview.ridersHeading, page.getByRole("heading", { name: rampPreview.ridersHeading })],
+        [rampIpad.ridersHeading, page.getByRole("heading", { name: rampIpad.ridersHeading })],
         // The last rider card is the one actually on screen at the bottom of the page, so it
         // is the row a banner that reserved nothing would still be sitting on.
         ["the last rider card", page.locator("#ramp-verdict").locator("xpath=preceding::div[contains(@style,'border-top')]").last()],
@@ -197,7 +200,7 @@ for (const width of WIDTHS) {
       }
 
       await expectNoInternalCodes(page);
-      console.log("screenshot:", await shot(page, `ramp-preview-${width}-bottom`));
+      console.log("screenshot:", await shot(page, `ramp-ipad-${width}-bottom`));
     });
 
     /**
@@ -211,7 +214,7 @@ for (const width of WIDTHS) {
      * in the window at the top of the page" asks.
      */
     test("Plan routes keeps the map beside the lanes, not below them", async ({ page }) => {
-      await page.goto("/plan-preview");
+      await page.goto("/plan-routes");
       await expect(
         page.getByRole("heading", { level: 1, name: planRoutes.heading }),
       ).toBeVisible();

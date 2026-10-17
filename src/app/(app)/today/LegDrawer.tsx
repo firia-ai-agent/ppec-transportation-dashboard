@@ -167,7 +167,7 @@ export function LegDrawer({
           */}
           <h3 className={styles.sectionHeading}>{drawer.textsHeading}</h3>
           {hasTexts ? (
-            <Link className={styles.drawerLink} href={`/phone-preview?child=${row.childKey}`}>
+            <Link className={styles.drawerLink} href={`/family-texts?child=${row.childKey}`}>
               <MessagesSquare size={icon.inline} aria-hidden="true" />
               {fill(drawer.openTexts, { child })}
             </Link>
