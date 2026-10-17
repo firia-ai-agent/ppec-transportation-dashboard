@@ -1,5 +1,9 @@
 import { requirePage } from "@/auth/page-guard";
 import { buildBoard, CLOCK_PARAM, requestedBoardDay } from "@/domain/board/board";
+import { siteOf } from "@/modules/plan/api";
+import { getDayReadiness } from "@/modules/plan/store";
+import { resolveDate, resolveLeg } from "@/modules/plan/when";
+import { StepStrip } from "./StepStrip";
 import { TodayBoard } from "./TodayBoard";
 
 /** The guard reads a session, so this route is never statically rendered. */
@@ -42,7 +46,7 @@ export default async function Page({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requirePage("/today");
+  const caller = await requirePage("/today");
 
   const params = await searchParams;
   const one = (value: string | string[] | undefined): string | undefined =>
@@ -56,5 +60,28 @@ export default async function Page({
     requestedBoardDay(one(params.date), one(params[CLOCK_PARAM]), process.env),
   );
 
-  return <TodayBoard board={board} query={query} />;
+  /*
+   * The order of the day, above the board (redesign spec §9.2): Van setup, Plan routes, Live map,
+   * each saying where it is and linking to the screen that moves it on. It reads the one shared
+   * readiness helper — the same object the board's banners and the server guards read — so the
+   * strip cannot say a plan is saved while Plan routes says it is not (§9.4).
+   *
+   * A day it cannot read is a strip that is not drawn, rather than a Today board that refuses to
+   * render: the steps are a guide to the day, and the board beneath them is the day itself.
+   */
+  const date = resolveDate(one(params.date));
+  const leg = resolveLeg(one(params.leg));
+  let readiness: Awaited<ReturnType<typeof getDayReadiness>> | null = null;
+  try {
+    readiness = await getDayReadiness(siteOf(caller), date, leg);
+  } catch {
+    readiness = null;
+  }
+
+  return (
+    <>
+      {readiness ? <StepStrip readiness={readiness} caller={caller} /> : null}
+      <TodayBoard board={board} query={query} />
+    </>
+  );
 }

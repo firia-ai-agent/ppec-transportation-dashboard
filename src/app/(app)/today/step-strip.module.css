@@ -1,0 +1,108 @@
+/*
+ * The Today step strip (redesign spec §9.2; DESIGN-DIRECTION §8 tokens, §9 targets).
+ *
+ * Three cards in one row at every width — at 390 px they stay in a row and stack their own
+ * contents, which is what the PNG shows. Violet never appears here: it is the DEMO bar's and the
+ * Simulated chip's alone.
+ */
+
+.strip {
+  display: block;
+}
+
+.list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+/* The first step that is not done: a ring as well as `aria-current="step"`. */
+.card[data-current="true"] {
+  box-shadow: inset 0 0 0 2px var(--color-brand);
+}
+
+/* A locked card sits on the page's own fill, so it reads as not yet reachable — with the word
+   "Locked" beside it doing the actual work (§0's rule 2). */
+.card[data-state="LOCKED"] {
+  background: var(--color-bg);
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--target-console);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-ink);
+  text-decoration: none;
+}
+
+.disc {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-pill);
+}
+
+.disc[data-tone="ok"] { color: var(--color-ok-fg); background: var(--color-ok-bg); }
+.disc[data-tone="warn"] { color: var(--color-warn-fg); background: var(--color-warn-bg); }
+.disc[data-tone="info"] { color: var(--color-info-fg); background: var(--color-info-bg); }
+.disc[data-tone="neutral"] { color: var(--color-neutral-fg); background: var(--color-neutral-bg); }
+
+.words {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.name {
+  font-weight: var(--weight-semibold);
+}
+
+.detail {
+  color: var(--color-ink-muted);
+  font-size: var(--text-12);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip {
+  margin-left: auto;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.chip[data-tone="ok"] { color: var(--color-ok-fg); background: var(--color-ok-bg); }
+.chip[data-tone="warn"] { color: var(--color-warn-fg); background: var(--color-warn-bg); }
+.chip[data-tone="info"] { color: var(--color-info-fg); background: var(--color-info-bg); }
+.chip[data-tone="neutral"] { color: var(--color-neutral-fg); background: var(--color-neutral-bg); }
+
+/* At 390 the three cards stay in one row and stack icon, name, detail and chip inside each. */
+@media (max-width: 767px) {
+  .link {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-3);
+  }
+
+  .chip {
+    margin-left: 0;
+  }
+}
