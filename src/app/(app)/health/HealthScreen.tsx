@@ -3,7 +3,13 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { Board, LegRow } from "@/domain/board/board";
-import { ridesBehind, type DayCounts, type RoiMetric, type RoiMetricKey } from "@/domain/health/metrics";
+import {
+  BASELINE_ROWS,
+  ridesBehind,
+  type DayCounts,
+  type RoiMetric,
+  type RoiMetricKey,
+} from "@/domain/health/metrics";
 import type { AdapterHealth, AdapterStatus } from "@/domain/health/adapters";
 import { board as boardCopy, fill, health, nav, serviceDate } from "@/ui/copy";
 import { StateChip } from "@/ui/StateChip";
@@ -47,6 +53,9 @@ import styles from "./health.module.css";
  *    where a reader starts trusting a trend nobody measured.
  *  - **No duplicate tile.** The numbers are four counts with four different drill-downs; the
  *    adapter panel below them is not a second row of counts.
+ *  - **What is not measured says so, in words.** `BaselineRows` puts hours saved and money
+ *    saved on the screen with no figure at all (PRD §17.4). They sit under the counted numbers
+ *    rather than among them, so the page still leads with what today was actually measured on.
  *
  * The DEMO bar and the one source chip come from the root layout, on every route, so this screen
  * must not mount a second pair — and it holds nothing violet of its own.
@@ -129,6 +138,14 @@ export function HealthScreen({
         </section>
       )}
 
+      {/*
+        After the counted numbers and the rides behind them, never before: the page leads with
+        what the demo day actually measures, and the two things it cannot measure come next.
+        Below the drill-down too, so opening a number does not push these two rows between a
+        tile and the rides it just opened.
+      */}
+      <BaselineRows />
+
       <section className={styles.panel} aria-labelledby="adapters-heading">
         <h2 id="adapters-heading" className={styles.panelHeading}>
           {health.adapterPanel.heading}
@@ -206,6 +223,53 @@ function Tile({
         </span>
       </button>
     </li>
+  );
+}
+
+/**
+ * Hours saved and money saved — the two rows with no number (PRD §17.3, §17.4).
+ *
+ * Below the counted numbers and in a panel of their own, never a fifth and sixth tile. A tile on
+ * this screen is a control that opens the rides behind a count; these open nothing, because
+ * there is nothing behind them yet, and a tile that cannot be clicked next to four that can is
+ * a worse lie than the missing figure.
+ *
+ * Where each row's value would go, the words "Not measured yet" are printed — not an em dash,
+ * not an empty cell, not a nought. A blank is read as a loading state and a nought is read as
+ * a result, and this is neither: it is a measurement nobody has taken.
+ */
+function BaselineRows() {
+  return (
+    <section className={styles.panel} aria-labelledby="baseline-heading">
+      <h2 id="baseline-heading" className={styles.panelHeading}>
+        {health.baseline.heading}
+      </h2>
+      <p className={styles.adapterIntro}>{health.baseline.intro}</p>
+      <table className={styles.table}>
+        <thead>
+          <tr>
+            <th scope="col">{health.baseline.columns.row}</th>
+            <th scope="col">{health.baseline.columns.when}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {BASELINE_ROWS.map((key) => (
+            <tr key={key} className={styles.row} data-baseline-row={key}>
+              <th scope="row" className={styles.baselineLabel}>
+                {health.baseline.rows[key].label}
+                {/*
+                  Said on the row itself and not only in the column heading, so a row read on
+                  its own — by a screen reader, or in a crop of a screenshot — still carries
+                  the fact that it has no number.
+                */}
+                <span className={styles.baselineNoNumber}>{health.baseline.noNumber}</span>
+              </th>
+              <td className={styles.baselineDetail}>{health.baseline.rows[key].detail}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   );
 }
 

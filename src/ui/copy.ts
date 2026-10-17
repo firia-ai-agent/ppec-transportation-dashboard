@@ -426,9 +426,10 @@ export const unbuilt = {
  *
  *  1. **A number says what it was counted over.** §4.6 asks for "baseline vs current, n,
  *     confidence note", and this build has no four-week baseline to compare against (§17.4 is
- *     the study that produces one). So there is no baseline column and no saving in dollars:
- *     every number below is today's own count, the cohort is named under it, and `sampleNote`
- *     ends on the sentence that keeps a screenshot honest.
+ *     the study that produces one). So every number below is today's own count, the cohort is
+ *     named under it, and `sampleNote` ends on the sentence that keeps a screenshot honest.
+ *     The two figures a baseline would produce — hours saved and money saved — are in
+ *     `baseline` instead: rows that say so, carrying no digit at all.
  *  2. **A mocked adapter never reads as a working one.** `allMockedIntro` is the first thing on
  *     the health panel, because a table of rows a reader skims is exactly where "everything is
  *     fine" gets inferred from nothing being red.
@@ -519,6 +520,54 @@ export const health = {
       one: "{child} has a ride that needs a person right now.",
       many: "{rides} need a person right now.",
       why: "A ride nothing in the system will close on its own, so it waits for somebody to act.",
+    },
+  },
+  /**
+   * The two savings that have no number — hours saved and money saved (PRD §17.3's reclaimed
+   * hours and NetCash, src/domain/health/metrics `BASELINE_ROWS`).
+   *
+   * They are on the screen, under the counted numbers and never among them, because the two
+   * ways of leaving them out are both worse than saying it. Printed from §17.3's parameter
+   * table they would be an assumption wearing a result's clothes — and §17.3's own conclusion
+   * is that single-center cash ROI is negative in every defensible scenario, so the assumption
+   * would not even flatter us. Left off the screen entirely they read as an oversight, and the
+   * first person to notice fills the gap with a guess of their own.
+   *
+   * So each row carries a label, the words "Not measured yet" where a figure would sit, and one
+   * sentence naming what has to happen first: §17.4's four-week baseline. No digit appears in
+   * any of these strings — "four" is a word here for exactly that reason, and
+   * health-screen.test.ts holds it — because a numeral in this block is the one thing a
+   * screenshot could crop into a claim.
+   */
+  baseline: {
+    /**
+     * Its own phrase, not the words inside the rows: "Not measured yet" is what stands where a
+     * figure would, and a heading that repeats it exactly makes the rows harder to count and
+     * harder to read aloud. It sits beside "Today, counted" and "What is actually running",
+     * and says the same kind of thing about its panel.
+     */
+    heading: "What is not measured yet",
+    /**
+     * Said before the two rows. "Here" is doing the work: the point is not that these are
+     * unknowable, it is that this centre has not been measured.
+     */
+    intro:
+      "Two savings people ask about are missing a number on purpose. Nobody has measured them at this center yet, so putting a figure here would be a guess, and a guess is the one thing a page like this must not print.",
+    /** What stands where a figure would, on every row. Words, never a dash or a blank cell. */
+    noNumber: "Not measured yet",
+    /** The column headings: the thing, and what would have to happen before it has a number. */
+    columns: { row: "What people ask for", when: "What it would take" },
+    rows: {
+      HOURS_SAVED: {
+        label: "Hours saved",
+        detail:
+          "Measured over the first four weeks of use: how long a change takes staff today, so the same change can be timed again afterwards.",
+      },
+      MONEY_SAVED: {
+        label: "Money saved",
+        detail:
+          "Measured over the first four weeks of use: what the center is paying today in extra hours and trips that did not need to happen.",
+      },
     },
   },
   /**

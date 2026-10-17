@@ -18,7 +18,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { buildBoard } from "../src/domain/board/board";
 import { adapterHealth } from "../src/domain/health/adapters";
-import { dayCounts, metricByKey } from "../src/domain/health/metrics";
+import { BASELINE_ROWS, dayCounts, metricByKey } from "../src/domain/health/metrics";
 import {
   adapterDoing,
   adapterName,
@@ -103,6 +103,40 @@ for (const width of WIDTHS) {
       await expectVioletOnlyOnDemoChrome(page);
       await expectNoInternalCodes(page);
       console.log("screenshot:", await shot(page, `health-numbers-${width}`));
+    });
+
+    /**
+     * Firia's ruling, in a real browser: hours saved and money saved are *on* the page, under
+     * the counted numbers, and neither carries a figure. A unit test can hold the copy; only
+     * this can hold what a founder's screenshot of the page would actually contain.
+     */
+    test("shows hours saved and money saved as rows with no number in them", async ({ page }) => {
+      await page.goto("/health");
+
+      const panel = page
+        .locator("section")
+        .filter({ has: page.getByRole("heading", { level: 2, name: health.baseline.heading }) });
+      await expect(panel).toBeVisible();
+      await expect(panel).toContainText(health.baseline.intro);
+
+      for (const key of BASELINE_ROWS) {
+        const row = panel.locator(`[data-baseline-row="${key}"]`);
+        await expect(row).toContainText(health.baseline.rows[key].label);
+        await expect(row).toContainText(health.baseline.rows[key].detail);
+        // Where a figure would be, words — and not one digit in the whole row as it renders.
+        await expect(row).toContainText(health.baseline.noNumber);
+        expect(await row.innerText(), key).not.toMatch(/\d/);
+      }
+
+      // Neither row is a control, so nothing here can be mistaken for a number that opens.
+      await expect(panel.getByRole("button")).toHaveCount(0);
+      // And the measured numbers still lead the page: the counted panel is above this one.
+      const counted = await numbersPanel(page).boundingBox();
+      const baseline = await panel.boundingBox();
+      expect(counted!.y).toBeLessThan(baseline!.y);
+
+      await expectNoInternalCodes(page);
+      console.log("screenshot:", await shot(page, `health-baseline-${width}`));
     });
 
     test("every number opens the rides behind it, and a ride opens the child's day", async ({

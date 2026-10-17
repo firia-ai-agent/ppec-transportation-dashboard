@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildBoard } from "@/domain/board/board";
 import { adapterHealth, type AdapterStatus } from "@/domain/health/adapters";
-import { dayCounts, metricByKey, type RoiMetric } from "@/domain/health/metrics";
+import {
+  BASELINE_ROWS,
+  dayCounts,
+  metricByKey,
+  type RoiMetric,
+} from "@/domain/health/metrics";
 import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
 import { countable, fill, health, nav, pluralize, serviceDate } from "@/ui/copy";
 import { pageOutcome, rolesWhoCanOpen } from "@/auth/access";
@@ -273,6 +278,95 @@ async function openPage() {
   const mod = await import("./page");
   return mod.default();
 }
+
+describe("hours saved and money saved: visible, and carrying no number (PRD §17.4)", () => {
+  /** Every string the two rows put on the screen, including the words under each label. */
+  const baselineText = [
+    health.baseline.heading,
+    health.baseline.intro,
+    health.baseline.noNumber,
+    ...Object.values(health.baseline.columns),
+    ...BASELINE_ROWS.flatMap((key) => [
+      health.baseline.rows[key].label,
+      health.baseline.rows[key].detail,
+    ]),
+  ];
+
+  it("has a row for each of the two, and no third row anybody could add a figure to", () => {
+    expect(BASELINE_ROWS).toEqual(["HOURS_SAVED", "MONEY_SAVED"]);
+    expect(health.baseline.rows.HOURS_SAVED.label).toBe("Hours saved");
+    expect(health.baseline.rows.MONEY_SAVED.label).toBe("Money saved");
+  });
+
+  /**
+   * The ruling this test exists for: no estimate, no assumption, no figure from §17.3's
+   * parameter table. A digit anywhere in these strings is the failure, because a digit is what
+   * a cropped screenshot turns into a claim — which is why "four weeks" is spelled.
+   */
+  it("renders no digit at all in either row", () => {
+    for (const text of baselineText) expect(text, text).not.toMatch(/\d/);
+  });
+
+  it("says what has to happen first, in both rows: the first four weeks of use", () => {
+    for (const key of BASELINE_ROWS) {
+      expect(health.baseline.rows[key].detail, key).toContain("first four weeks of use");
+    }
+  });
+
+  it("puts words where a figure would be, rather than a blank, a dash or a nought", () => {
+    expect(health.baseline.noNumber).toBe("Not measured yet");
+    expect(health.baseline.noNumber).not.toMatch(/^[\s\u2014\u2013-]*$/);
+  });
+
+  it("never writes 'ETA', a metric id or a state code in either row", () => {
+    for (const text of baselineText) {
+      expect(text, text).not.toMatch(/\bETA\b/);
+      expect(text, text).not.toMatch(/\bMET-\d+\b/);
+      expect(text, text).not.toMatch(/\b[A-Z][A-Z_]{4,}\b/);
+    }
+  });
+
+  it("is on the page for a coordinator, under the numbers the day was actually counted on", async () => {
+    mockedCaller.mockResolvedValue(staff("COORDINATOR"));
+    const html = renderToStaticMarkup(await openPage());
+
+    for (const key of BASELINE_ROWS) {
+      expect(html, key).toContain(`data-baseline-row="${key}"`);
+      expect(html, key).toContain(escapeHtml(health.baseline.rows[key].label));
+      expect(html, key).toContain(escapeHtml(health.baseline.rows[key].detail));
+    }
+    expect(html).toContain(escapeHtml(health.baseline.heading));
+    expect(html).toContain(escapeHtml(health.baseline.intro));
+    // Once per row, so neither reads as the only one without a number.
+    expect(html.match(new RegExp(health.baseline.noNumber, "g"))).toHaveLength(
+      BASELINE_ROWS.length,
+    );
+
+    // §17's measured numbers lead: the counted panel is above these rows on the page.
+    expect(html.indexOf(health.roiHeading)).toBeLessThan(html.indexOf(health.baseline.heading));
+
+    // Neither row is a control. The four tiles open their rides; there is nothing behind these.
+    expect(html.match(/aria-expanded="false"/g)).toHaveLength(COUNTS.metrics.length);
+  });
+
+  /**
+   * The rendered cells, not just the copy. A figure could still arrive through a template or a
+   * stray count, so the two rows are cut out of the markup and read for digits as they ship.
+   */
+  it("renders the two rows with no digit in the markup either", async () => {
+    mockedCaller.mockResolvedValue(staff("COORDINATOR"));
+    const html = renderToStaticMarkup(await openPage());
+    for (const key of BASELINE_ROWS) {
+      const start = html.indexOf(`data-baseline-row="${key}"`);
+      expect(start, key).toBeGreaterThan(-1);
+      const row = html.slice(start, html.indexOf("</tr>", start));
+      // The row's own `data-baseline-row` value and class hashes are not read text; what a
+      // person sees is what is between the tags.
+      const readable = row.replace(/<[^>]*>/g, " ");
+      expect(readable, `${key}: ${readable}`).not.toMatch(/\d/);
+    }
+  });
+});
 
 describe("the guard on /health", () => {
   it("is in the access table, and only the two console roles are in its row", () => {

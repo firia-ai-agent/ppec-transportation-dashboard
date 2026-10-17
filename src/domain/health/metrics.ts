@@ -22,10 +22,16 @@
  *  - `NEEDS_A_PERSON` is MET-05 (exception resolution; EOD unresolved), which on a board read
  *    mid-morning is the count of rides nothing will close on its own.
  *
- * What is deliberately *not* here: MET-01 coordination minutes, MET-02 chasing volume, MET-06
- * avoidable journeys, MET-09 preserved attendance and MET-10 operating cost. Every one of them
- * needs a measured baseline or an invoice (they are P2 in §17.1's own phase column), and a
+ * What is deliberately *not* counted here: MET-01 coordination minutes, MET-02 chasing volume,
+ * MET-06 avoidable journeys, MET-09 preserved attendance and MET-10 operating cost. Every one of
+ * them needs a measured baseline or an invoice (they are P2 in §17.1's own phase column), and a
  * screen that printed them from an assumption would be the one thing a ROI panel must not do.
+ *
+ * The two a founder asks for by name — hours saved and money saved — are not simply missing from
+ * the screen, though, because an absent row is read as an oversight and invites somebody to fill
+ * it in with a guess. They are `BASELINE_ROWS` below: rows with a label, no number at all, and
+ * the sentence that says when a number could exist (§17.4's four-week baseline). Saying "not
+ * measured yet" out loud is the claim this panel can defend; a figure would not be.
  *
  * Pure and deterministic: a `Board` in, counts out. No clock, no database, no network — the
  * board already fixed the instant.
@@ -45,6 +51,19 @@ export const ROI_METRICS = [
   "NEEDS_A_PERSON",
 ] as const;
 export type RoiMetricKey = (typeof ROI_METRICS)[number];
+
+/**
+ * The two savings this deployment cannot count, in the order they are asked for.
+ *
+ * `HOURS_SAVED` is §17.3's reclaimed hours, whose inputs are MET-01's per-change coordination
+ * minutes before and after; `MONEY_SAVED` is its NetCash, whose inputs are §17.2's payroll and
+ * invoice evidence and MET-10's operating cost. Both start from a measurement this build has
+ * never taken: §17.4's four-week baseline. So neither has a value field, here or anywhere — the
+ * type is a key and a reading order, the words are in `health.baseline`, and there is nothing in
+ * this module for a later change to quietly populate with an assumption.
+ */
+export const BASELINE_ROWS = ["HOURS_SAVED", "MONEY_SAVED"] as const;
+export type BaselineRowKey = (typeof BASELINE_ROWS)[number];
 
 export type RoiMetric = {
   key: RoiMetricKey;

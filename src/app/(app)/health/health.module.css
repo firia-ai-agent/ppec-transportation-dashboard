@@ -295,3 +295,30 @@
   max-width: 34ch;
   color: var(--color-ink);
 }
+
+/*
+ * Hours saved and money saved: the two rows with no number (PRD §17.4).
+ *
+ * The label is the row, and "Not measured yet" sits under it in the muted size the sample note
+ * uses — small, grey and present. It must not be styled as a number: the tile's `--text-32` on
+ * these words would read as a figure from across the room, which is exactly the misreading this
+ * panel exists to prevent. Nothing here is red or amber either; not having measured something
+ * is not a fault state.
+ */
+.baselineLabel {
+  display: grid;
+  gap: var(--space-1);
+  font-weight: var(--weight-medium);
+  min-width: 14ch;
+}
+
+.baselineNoNumber {
+  font-size: var(--text-12);
+  font-weight: var(--weight-regular);
+  color: var(--color-ink-muted);
+}
+
+.baselineDetail {
+  max-width: 62ch;
+  color: var(--color-ink);
+}
