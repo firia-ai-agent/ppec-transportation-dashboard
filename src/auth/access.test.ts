@@ -537,8 +537,9 @@ describe("the decision, cell by cell", () => {
     const callable = ENDPOINTS.filter(
       (row) => row.auth.kind === "session" && apiOutcome(callers.coordinator, row.path) === "ALLOW",
     ).map((row) => row.path);
-    // In table order: the demo reset, and the persona phone they already had.
-    expect(callable).toEqual([API.demoReset, API.simPhoneMessages]);
+    // In table order: the demo reset, plus the two they already had — the plan save (#58) and
+    // the persona phone.
+    expect(callable).toEqual([API.demoReset, API.planSave, API.simPhoneMessages]);
 
     // Their pages are untouched by it — the console's six, plus the shared and public ones.
     const pages = PAGES.filter((p) => p.kind === "page" && pageOutcome(callers.coordinator, p.path) === "ALLOW").map(
