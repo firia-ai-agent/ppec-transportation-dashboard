@@ -48,8 +48,8 @@ export const MAP_TOKENS = {
   truckStale: color["map-truck-stale"],
   /** `map-truck-crit` — GPS lost. */
   truckCrit: color["map-truck-crit"],
-  /** `map-route-2` / `map-route-3` — the second and third lines of {@link ROUTE_COLORS}. */
-  route2: color["map-route-2"],
+  /** `route-2` / `map-route-3` — the second and third lines of {@link ROUTE_COLORS}. */
+  route2: color["route-2"],
   route3: color["map-route-3"],
 } as const;
 

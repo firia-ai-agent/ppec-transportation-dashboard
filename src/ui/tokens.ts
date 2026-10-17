@@ -16,12 +16,14 @@
 /* ───────────────────────────── colour (§8) ───────────────────────────── */
 
 /**
- * OPEN QUESTION for the founder: The brief named a Faith Cloud / Teal / Teal Ink / Coral
- * palette, and no such tokens exist anywhere in this repo — DESIGN-DIRECTION §8 and the set
- * below define ink, ink-muted, bg, surface, border-strong, brand, the five tones and the demo
- * violet, and every surface reads those. Nothing is hardcoded around them (no-hex.test.ts holds
- * that), so if the brand palette is being adopted the hexes change here once and the whole app
- * follows. Is it, or is §8 the palette?
+ * ANSWERED, 2026-10-17 6:14 PM ET (Vera, founder-approved): the brand palette **is** being
+ * adopted — Teal `#0F766E` primary, Teal Ink `#134E4A` for headings, the tint `#E6F2F1` for a
+ * selected thing, Coral `#E8735A` for alert accents, and violet still only on DEMO/Simulated.
+ *
+ * The four are added below rather than written over `brand`, `info-*` and the rest: the rebuilt
+ * screens (Plan routes §1, Ramp iPad §2) read them, and recolouring `brand` itself would restyle
+ * every screen this PR did not rebuild. The frame PR (Rework 1) owns the sweep of tokens.ts;
+ * when it lands, `brand` becomes teal and these aliases collapse into it.
  */
 export const color = {
   ink: "#0F172A",
@@ -31,6 +33,26 @@ export const color = {
   "border-strong": "#64748B",
   brand: "#1D4ED8",
   focus: "#1D4ED8",
+
+  /**
+   * The brand palette (Vera, 2026-10-17 6:14 PM ET, founder-approved), read by the rebuilt
+   * Plan routes and Ramp iPad.
+   *
+   *  - `teal` is the primary: a primary button's fill, a selected tab's fill, the meter bar and
+   *    the dashed outline a van gets while it can take the child being dragged.
+   *  - `teal-ink` is a heading and the text on the tint.
+   *  - `teal-tint` is "this one is selected" — a fill, never the only cue (§0's rule 2).
+   *  - `coral` is an **alert accent only**: the rule down a won't-fit banner, the edge of a
+   *    column that is refusing a drop, the ring on an over count. It is 2.99:1 on white, which
+   *    is under even the 3:1 UI floor, so it is never text, never a chip's fill behind text and
+   *    never the only cue — the word, the icon and the crit tone beside it carry the meaning,
+   *    and this is the decoration that makes them findable. That is why it has no contrast row:
+   *    there is no pair it is required to pass, because nothing is read off it.
+   */
+  teal: "#0F766E",
+  "teal-ink": "#134E4A",
+  "teal-tint": "#E6F2F1",
+  coral: "#E8735A",
 
   "ok-fg": "#166534",
   "ok-bg": "#DCFCE7",
@@ -90,7 +112,14 @@ export const color = {
    * Not a status colour between them: green, amber and red are the truck tones above and the
    * five chip tones, and violet is the demo's. A van is not a state.
    */
-  "map-route-2": "#0F766E",
+  /**
+   * Van 2's route colour (Vera, 2026-10-17 6:14 PM ET). It replaces `map-route-2`, which was the
+   * same teal the palette now spends on "primary" — and a van is not an action. One van has one
+   * colour everywhere: the swatch on its board column, the number on its rider cards and its
+   * line on the map all read this through the shared van config (src/config/vans.ts). White
+   * text on it — the stop number a rider card carries — is 5.02:1.
+   */
+  "route-2": "#B45309",
   "map-route-3": "#9A3412",
 
   /**
@@ -156,8 +185,16 @@ export const contrastPairs: ReadonlyArray<{
   // Not §8 rows: the second and third route lines, held to the 3:1 UI floor on the white the
   // basemap's lightest fill is, and to 4.5:1 besides, because the stop number a line's own
   // circle carries is `surface` text sitting on it.
-  { fg: "map-route-2", bg: "surface", documented: 5.47, needs: 3 },
   { fg: "map-route-3", bg: "surface", documented: 7.31, needs: 3 },
+  // The brand palette (6:14 PM ET). Teal is text and a button fill both ways round; the tint is
+  // only ever behind Teal Ink; Van 2's route carries a white stop number.
+  { fg: "teal", bg: "surface", documented: 5.47, needs: 4.5 },
+  { fg: "teal", bg: "bg", documented: 5.23, needs: 4.5 },
+  { fg: "surface", bg: "teal", documented: 5.47, needs: 4.5 },
+  { fg: "teal-ink", bg: "surface", documented: 9.48, needs: 4.5 },
+  { fg: "teal-ink", bg: "teal-tint", documented: 8.27, needs: 4.5 },
+  { fg: "route-2", bg: "surface", documented: 5.02, needs: 3 },
+  { fg: "surface", bg: "route-2", documented: 5.02, needs: 4.5 },
 ];
 
 /** WCAG 2.1 relative luminance of a `#RRGGBB` string. */
@@ -220,6 +257,13 @@ export const layout = {
   railIcon: "64px",
   /** <768: hamburger drawer. */
   drawerWidth: "288px",
+  /**
+   * <768: the bottom tab bar (§9.2, Firia's 2026-10-17 3:08 PM ET ruling), which the frame PR
+   * draws. It is here so a screen can leave room for it — a board whose last rider card sits
+   * under the bar is a board that cannot be finished on a phone — without either PR guessing
+   * the other's number.
+   */
+  tabBarHeight: "64px",
   /** DEMO banner: 32 px full-width bar above everything (§7). */
   demoBannerHeight: "32px",
   /** Source-mode badge: 20 px high, 24 px on the ramp iPad (§7.1). */

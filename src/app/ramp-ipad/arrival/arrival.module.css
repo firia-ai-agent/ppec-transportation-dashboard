@@ -18,9 +18,11 @@
   gap: var(--space-4);
 }
 
+/* Headings are Teal Ink (Vera, 2026-10-17 6:14 PM ET), 9.48:1 on white. */
 .heading {
   font-size: var(--text-24);
   font-weight: var(--weight-semibold);
+  color: var(--color-teal-ink);
   margin: 0;
 }
 
@@ -47,8 +49,8 @@
 
 /* The van being counted: a fill, a weight and `aria-current` — three cues, not one colour. */
 .tab[aria-current="page"] {
-  background: var(--color-brand);
-  border-color: var(--color-brand);
+  background: var(--color-teal);
+  border-color: var(--color-teal);
   color: var(--color-surface);
 }
 
@@ -86,6 +88,7 @@
   margin: 0;
   font-size: var(--text-20);
   font-weight: var(--weight-semibold);
+  color: var(--color-teal-ink);
 }
 
 .driver {
@@ -177,8 +180,8 @@
 }
 
 .toggle[aria-pressed="true"] {
-  background: var(--color-brand);
-  border-color: var(--color-brand);
+  background: var(--color-teal);
+  border-color: var(--color-teal);
   color: var(--color-surface);
   font-weight: var(--weight-semibold);
 }
@@ -189,9 +192,9 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-3);
-  border: var(--border-hairline) solid var(--color-brand);
+  border: var(--border-hairline) solid var(--color-teal);
   border-radius: var(--radius-md);
-  background: var(--color-brand);
+  background: var(--color-teal);
   color: var(--color-surface);
   font: inherit;
   font-size: var(--text-20);
@@ -278,12 +281,16 @@
 
 /* ───────────────────────────── the shortfall banner ───────────────────────────── */
 
+/* "Mia R. won't fit · 1 car seat short", with Re-plan beside it (§2).
+   Coral is the rule down its edge — the alert accent — and the words and icon inside are the
+   crit pair, which is what is actually read. */
 .banner {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
+  border-left: 4px solid var(--color-coral);
   color: var(--color-crit-fg);
   background: var(--color-crit-bg);
 }
@@ -315,7 +322,7 @@
 }
 
 .emptyLink {
-  color: var(--color-brand);
+  color: var(--color-teal);
   font-weight: var(--weight-semibold);
 }
 
@@ -328,8 +335,10 @@
 }
 
 @media (max-width: 767px) {
+  /* Room for the frame's 64 px tab bar and the safe area below it (§9.2, Rework 1's PR). */
   .page {
     padding: var(--space-3);
+    padding-bottom: calc(var(--layout-tab-bar-height) + env(safe-area-inset-bottom, 0px) + var(--space-3));
   }
 
   .rider {
