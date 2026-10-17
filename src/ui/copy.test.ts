@@ -418,7 +418,7 @@ describe("COPY-GUIDE strings, verbatim", () => {
 
   it("says in plain words what each not-yet-built surface will do", () => {
     // What it must NOT say is covered by no-internals.test.ts: no build-step codes.
-    for (const body of [unbuilt.exceptions, unbuilt.setup, unbuilt.health]) {
+    for (const body of [unbuilt.exceptions, unbuilt.setup]) {
       expect(body).toMatch(/^[A-Z].*\.$/);
     }
     expect(unbuilt.tag).toBe("Not built yet");

@@ -256,9 +256,11 @@ describe("copy from the review", () => {
   });
 
   it("every unbuilt page says what it will do, in one plain sentence", () => {
-    // Today is not among them: the board is built, so there is no sentence promising it.
+    // Today and Health & ROI are not among them: both are built, so there is no sentence
+    // promising either — the one thing this table exists to prevent.
     expect(unbuilt).not.toHaveProperty("today");
-    for (const body of [unbuilt.exceptions, unbuilt.setup, unbuilt.health]) {
+    expect(unbuilt).not.toHaveProperty("health");
+    for (const body of [unbuilt.exceptions, unbuilt.setup]) {
       expect(body.endsWith("."), body).toBe(true);
       // One sentence: no full stop before the last character.
       expect(body.slice(0, -1).includes("."), body).toBe(false);
@@ -271,10 +273,10 @@ describe("copy from the review", () => {
   });
 
   it("an unbuilt page renders that heading and that one sentence", () => {
-    const html = renderToStaticMarkup(Placeholder({ page: nav.health, body: unbuilt.health }));
-    expect(html).toContain(escapeApostrophes("Health &amp; ROI isn't built yet"));
+    const html = renderToStaticMarkup(Placeholder({ page: nav.setup, body: unbuilt.setup }));
+    expect(html).toContain(escapeApostrophes("Setup isn't built yet"));
     expect(html).toContain(unbuilt.tag);
-    expect(html).toContain(escapeApostrophes(unbuilt.health));
+    expect(html).toContain(escapeApostrophes(unbuilt.setup));
     expect(html).not.toMatch(/\bB-\d+\b/);
   });
 });

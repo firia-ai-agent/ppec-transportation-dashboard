@@ -1,0 +1,274 @@
+/*
+ * SURF-06 Health & SURF-07 ROI (DESIGN-DIRECTION §4.6).
+ *
+ * Every colour, size and space is a custom property emitted from src/ui/tokens.ts: this file
+ * must never hold a literal (src/ui/no-hex.test.ts holds that line). §1 puts this surface at
+ * ops-health density rather than the board's 7 — four numbers read at a glance from across a
+ * room — so the tiles are allowed the space the board's rows are not.
+ *
+ * Nothing here is violet. D-5 reserves it for the DEMO bar, the Simulated chip and the demo
+ * controls, and a ROI panel is the single worst place for a colour that means "this is the
+ * demo" to start meaning "this is a result".
+ */
+
+.page {
+  display: grid;
+  gap: var(--space-5);
+  padding: var(--space-5);
+  padding-bottom: var(--space-8);
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--text-24);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+/* One date on screen, read and never changed — the same line the board carries (PRD §6.1). */
+.date {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--body-console);
+  color: var(--color-ink);
+  flex-wrap: wrap;
+}
+
+.dateLabel {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+/* Which kind of day this is: a fact about what is shown, so it takes no status colour (§3). */
+.phase {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  color: var(--color-ink-muted);
+  white-space: nowrap;
+}
+
+.intro {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--color-ink);
+}
+
+.panel {
+  position: relative;
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-neutral-bg);
+  border-radius: var(--radius-md);
+  /* So the watermark cannot bleed past the panel it belongs to. */
+  overflow: hidden;
+}
+
+.panelHeading {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-20);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+/*
+ * The one SYNTHETIC watermark (§4.6: "a diagonal SYNTHETIC watermark on every chart").
+ *
+ * Behind the numbers and across the whole panel, drawn in `neutral-bg` — the lightest token
+ * that is still a token — so it is legible in a screenshot and cannot be mistaken for a value.
+ * `pointer-events: none` because every number on top of it is a button: a watermark that ate a
+ * click would make the drill-down look broken. `aria-hidden` in the markup: the DEMO bar and
+ * the Simulated chip already say this to the ear, twice is enough.
+ */
+.watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 0;
+  margin: 0;
+  transform: translate(-50%, -50%) rotate(-24deg);
+  font-size: var(--text-32);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.35em;
+  color: var(--color-neutral-bg);
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+/*
+ * Four tiles, as wide as they need to be for a sentence and no wider. `auto-fit` rather than a
+ * fixed four, so the row folds to two and then to one instead of squeezing a sentence into a
+ * column narrower than it reads in.
+ */
+.tiles {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tile {
+  display: flex;
+}
+
+/*
+ * The whole tile is the control: the number *is* the way into the rides behind it. §9: ≥44 px
+ * target, a visible focus ring, and the hover is not the affordance — the chevron and the
+ * "Show the rides" line are in the markup whether or not a pointer is on it.
+ */
+.tileButton {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--target-console);
+  padding: var(--space-4);
+  text-align: left;
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.tileButton:hover {
+  background: var(--color-bg);
+}
+
+.tileButton[aria-expanded="true"] {
+  border-color: var(--color-brand);
+  /* A second cue beside the colour (§3): the open tile keeps a heavier edge. */
+  box-shadow: inset 0 0 0 var(--border-hairline) var(--color-brand);
+}
+
+.tileValue {
+  font-size: var(--text-32);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.tileLabel {
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink-muted);
+}
+
+.tileLine {
+  font-size: var(--body-console);
+  color: var(--color-ink);
+}
+
+.tileWhy {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.tileDrill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  color: var(--color-brand);
+}
+
+/* SURF-07: the cohort and the confidence note, under the numbers they qualify. */
+.sampleNote {
+  position: relative;
+  z-index: 1;
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.adapterIntro {
+  margin: 0 0 var(--space-4);
+  max-width: 68ch;
+  color: var(--color-ink);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table thead th {
+  padding: var(--space-3);
+  text-align: left;
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink-muted);
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.row {
+  border-top: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.row td,
+.row th {
+  padding: var(--space-3);
+  vertical-align: top;
+  text-align: left;
+  font-weight: var(--weight-regular);
+  font-size: var(--body-console);
+}
+
+.childCell {
+  white-space: nowrap;
+}
+
+/* The same opener the board uses, so one click learned on one screen works on the other. */
+.openRow {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-console);
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--color-brand);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  text-align: left;
+}
+
+.nextStep {
+  font-weight: var(--weight-medium);
+}
+
+.adapterName {
+  font-weight: var(--weight-medium);
+  min-width: 14ch;
+}
+
+.adapterDoing,
+.muted {
+  display: block;
+}
+
+.muted {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.adapterDegraded {
+  max-width: 34ch;
+  color: var(--color-ink);
+}

@@ -405,18 +405,182 @@ export const scenarioClock = {
  * says so in its heading and then says, in one plain sentence, what it will do. No ticket
  * codes: a build-step name means nothing to a coordinator (COPY-GUIDE §1).
  *
- * Today is not in here any more: the board is built, so a sentence promising it would be the
- * one thing this table exists to prevent — a screen saying something that is not true of it.
+ * Today is not in here any more, and nor is Health & ROI: both are built, so a sentence
+ * promising either would be the one thing this table exists to prevent — a screen saying
+ * something that is not true of it.
  */
 export const unbuilt = {
-  /** `{page}` is the nav label, so the heading reads "Health & ROI isn't built yet". */
+  /** `{page}` is the nav label, so the heading reads "Setup isn't built yet". */
   heading: "{page} isn't built yet",
   tag: "Not built yet",
   exceptions:
     "This page will list what needs action, who is handling it, and when it is due.",
   setup: "This page will hold the vans, their seat layouts, and the people allowed to receive a child.",
-  health:
-    "This page will show whether each part of the system is working, next to the time the demo says it saves.",
+} as const;
+
+/**
+ * Health & ROI — SURF-06 (what each part of the system is doing) and SURF-07 (today, counted),
+ * COPY-GUIDE §5, DESIGN-DIRECTION §4.6.
+ *
+ * Two rules shape every string here, and both are about not over-claiming.
+ *
+ *  1. **A number says what it was counted over.** §4.6 asks for "baseline vs current, n,
+ *     confidence note", and this build has no four-week baseline to compare against (§17.4 is
+ *     the study that produces one). So there is no baseline column and no saving in dollars:
+ *     every number below is today's own count, the cohort is named under it, and `sampleNote`
+ *     ends on the sentence that keeps a screenshot honest.
+ *  2. **A mocked adapter never reads as a working one.** `allMockedIntro` is the first thing on
+ *     the health panel, because a table of rows a reader skims is exactly where "everything is
+ *     fine" gets inferred from nothing being red.
+ *
+ * Each metric has three sentences rather than one. A count is a subject, and "1 rides need a
+ * person" is the kind of sentence that makes a reader distrust the number next to it — so the
+ * zero, the one and the many are written out, and `src/app/(app)/health/lines.ts` picks.
+ */
+export const health = {
+  /** <title> for the route, so the tab says which screen is open. */
+  documentTitle: "Health & ROI · PPEC transportation dashboard",
+  /**
+   * What the screen is, in the order it is read: the numbers, then the parts of the system.
+   * It promises the drill-down because the drill-down is the point — a number nobody can open
+   * is a number nobody can check.
+   */
+  intro:
+    "Today's rides, counted. Every number opens the rides it was counted from, and every ride opens the child's day.",
+  roiHeading: "Today, counted",
+  /**
+   * COPY-GUIDE §5: "Synthetic data, n = 28 children. Not a real result." The ride count is added
+   * because three of the four numbers are counted per ride and not per child, so the n a reader
+   * needs is both.
+   */
+  sampleNote: "Synthetic data, n = {children} children, {rides} rides. Not a real result.",
+  /** SURF-07: one diagonal watermark across the numbers, so a screenshot cannot lose it. */
+  watermark: "SYNTHETIC",
+  /** The control on each number. It opens the rides behind that number and nothing else. */
+  showRides: "Show the rides",
+  hideRides: "Hide the rides",
+  /** "Needs a person: 1 ride" — the heading of the list a number opens. */
+  ridesHeading: "{label}: {rides}",
+  /** A number that counted nothing still opens, and says so rather than showing an empty table. */
+  noRides: "Nothing was counted here today, so there is no ride to open.",
+  /** The columns of that list. Fewer than the board's: this is a way back to a child, not a board. */
+  rideColumns: {
+    child: "Child",
+    ride: "Ride",
+    state: "Ride state",
+    vehicle: "Van",
+    nextStep: "Next step",
+  },
+  /** Each row of the list opens the child's day in the same panel the board opens. */
+  openRide: "Open {child}, {ride}",
+  metrics: {
+    /**
+     * Whether the capacity check found every child a place. The ratio is the headline because
+     * the shortfall is the thing that cannot be allowed to hide inside a percentage.
+     */
+    CHILDREN_PLACED: {
+      label: "Children with a seat",
+      value: "{count} of {total}",
+      all: "Every child who rides with us has a seat on a van today.",
+      /** Said rather than counted: "0 of the 9 children" opens a sentence on a zero. */
+      none: "No child who rides with us has a seat on a van today.",
+      one: "One of the {total} children who ride with us has a seat on a van today.",
+      many: "{count} of the {total} children who ride with us have a seat on a van today.",
+      /** A day the scenario does not run at all: no child rides with us, so none is placed. */
+      nobody: "No child rides with us today.",
+      why: "A seat is a place the capacity check agreed to, for the needs that child's plan has approved.",
+    },
+    /** PRD §6.3: a van is checked before it carries a child, so this counts what is still unknown. */
+    VAN_UNCHECKED: {
+      label: "Waiting on a van check",
+      value: "{count} of {total}",
+      none: "Every van carrying a child today has been checked.",
+      one: "One ride is on a van nobody has checked today.",
+      many: "{rides} are on a van nobody has checked today.",
+      why: "A van is checked before it carries a child, so what it can take today is known rather than assumed.",
+    },
+    /** Measured against the window the family was first given, not against the plan on paper. */
+    ARRIVING_LATE: {
+      label: "Arriving later than planned",
+      value: "{count}",
+      none: "No ride is arriving later than planned.",
+      one: "{child}'s ride is arriving about {minutes} later than planned.",
+      many: "{rides} are arriving later than planned, the furthest by about {minutes}.",
+      why: "Measured against the arrival time the family was first given, not against the plan on paper.",
+    },
+    /** The board's own needs-action count: a ride nothing resolves on its own. */
+    NEEDS_A_PERSON: {
+      label: "Needs a person",
+      value: "{count}",
+      none: "No ride needs a person right now.",
+      one: "{child} has a ride that needs a person right now.",
+      many: "{rides} need a person right now.",
+      why: "A ride nothing in the system will close on its own, so it waits for somebody to act.",
+    },
+  },
+  /**
+   * SURF-06, the adapter panel. One row per part of the system: the mode it is in, what it is
+   * doing on today's data, and what a coordinator does when it stops working (PRD l.1200 puts
+   * the runbook in the on-duty coordinator's hands).
+   */
+  adapterPanel: {
+    heading: "What is actually running",
+    /**
+     * Said before the table, not after it. A reader who skims a table of rows with nothing red
+     * in it concludes that everything is working, and on this deployment that is false of every
+     * row — so the panel says it in words first.
+     */
+    allMockedIntro:
+      "Nothing in this list is live. Every part of it is simulated for the demo, so nothing below should be read as proof that the real one works.",
+    /** The same panel once something really is live: a reader has to go row by row. */
+    someLiveIntro:
+      "Some parts of this list are live and some are simulated. Each row says which it is.",
+    columns: {
+      adapter: "Part of the system",
+      mode: "Mode",
+      doing: "On today's data",
+      degraded: "If it stops working",
+    },
+    modes: { MOCK: "Mocked", LIVE: "Live" },
+    names: {
+      SMS: "Text messages to families",
+      MAPS: "Maps, van locations and travel times",
+      AGENT: "The assistant",
+    },
+    /** Why a row is mocked. One per reason, because the three reasons are not the same fact. */
+    mocked: {
+      NO_CARRIER_ADAPTER:
+        "One provider is connected and it writes to the demo phones. The carrier adapter in this build refuses every send, so no message can leave the building.",
+      REPLAYED_ROUTES:
+        "The vans drive recorded routes and their travel times come with them, so no map service is asked anything.",
+      NO_RUNNER:
+        "The assistant cannot be given a run on this build, so it answers nothing about today.",
+    },
+    /**
+     * What the row is doing on today's data, in numbers this screen computed. Two of the three
+     * have a second form for the count that would otherwise read as a gap: "and 0 were worth a
+     * text" is the sentence a reader checks twice, and "none was worth a text yet" is the same
+     * fact said once.
+     */
+    doing: {
+      SMS: "{considered} arrival changes were weighed up for a family so far today, and {sent} of them were worth a text.",
+      SMS_NONE_SENT:
+        "{considered} arrival changes were weighed up for a family so far today, and none was worth a text yet.",
+      MAPS: "{locating} of {vans} vans carrying children are sending their position. Arrival updates are paused for {paused} of them.",
+      MAPS_NONE_PAUSED:
+        "{locating} of {vans} vans carrying children are sending their position, and no arrival update is paused.",
+      AGENT_REFUSED:
+        "A live model call would be refused here by this deployment's own data check, before any request is built.",
+      AGENT_ALLOWED:
+        "This deployment's data check would allow a live model call, and nothing on this build makes one.",
+    },
+    /** COPY-GUIDE §5: the degraded instruction, in plain words, one thing to do. */
+    degraded: {
+      SMS: "Call families from the Contacts sheet and log the call.",
+      MAPS: "Arrival updates stop and staff set each ride's state by hand.",
+      AGENT: "Staff read the inbox and answer the family themselves.",
+    },
+  },
 } as const;
 
 /** Sign-in. §9: visible labels, errors in text next to the field with aria-describedby. */
@@ -758,6 +922,11 @@ export const countable = {
    * beside it already uses ("Wheelchair place · L-track").
    */
   wcPlace: { one: "wheelchair place", many: "wheelchair places" },
+  /** A child's one ride, which is what the board and the Health & ROI numbers both count. */
+  ride: { one: "ride", many: "rides" },
+  child: { one: "child", many: "children" },
+  /** A delay, in whole minutes: "about 1 minute later than planned", never "1 minutes". */
+  minute: { one: "minute", many: "minutes" },
 } as const;
 
 /** "1 wheelchair" / "2 wheelchairs" — a count never reaches the screen without its noun. */
