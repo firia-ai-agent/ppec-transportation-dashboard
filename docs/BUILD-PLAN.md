@@ -26,7 +26,7 @@ SOURCE: PRD §20 (B-01–B-16), §18.3 AT list, ADR-000…015. Status: Proposed 
 | B-10 | Telemetry ingest, replay, faults | Simulator + LocationIngest + faults | Rudy | AT-11 |
 | B-11 | Routing + ETA + hysteresis | OSRM fixtures + traffic model + ETA hysteresis | Rudy / Athena | AT-03 |
 | B-12 | Console + SSE | Board, drawer, inbox, exceptions, map, SSE (ADR-002) | Vera / Rudy | UI review |
-| B-13 | Ramp iPad, dispatcher form, setup | Same; vehicle config screens | Vera / Rudy | AT-04, AT-10, AT-13 |
+| B-13 | Ramp iPad, dispatcher form, setup | Same; vehicle config screens. The ramp iPad (SURF-04) is **built** — `/ramp-preview` on `main`. What is left — the **dispatcher form** and the **setup / vehicle-config screens** (`/setup` is a placeholder) — is sequenced at **step P-04** beside B-12 slice 4's writes, because both are the same surfaces that first write to the board (BUILD-PLAN-M2 §2) | Vera / Rudy | AT-04, AT-10, AT-13 |
 | B-14 | Metrics, ROI, health, EOD | Same, cohort SYNTHETIC | Rudy | AT-15/16 |
 | B-15 | Acceptance suite, demo reset/replay, evidence | Demo panel (MOCKS-AND-DEMO §6), Playwright suite, evidence export | Veri | 12-step demo |
 | B-16 | Security baseline | Auth.js+RBAC, secret scanning, log scrubber, dependency audit; MFA for Credentials, login rate limiting/lockout, server-side sign-out + absolute session cap (in scope for exit, not deferred; M1 Auth.js PR #6 ships the minimal login) | Veri | security checklist |
