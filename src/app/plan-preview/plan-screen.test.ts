@@ -224,9 +224,31 @@ describe("the screen's own rules", () => {
     expect(screen).toMatch(/aria-expanded=\{changesOpen\}/);
     expect(screen).toMatch(/\{planRoutes\.changeVan\}/);
     expect(screen).toMatch(/hidden=\{!changesOpen\}/);
-    expect(screen).toMatch(
-      /changing === lane\.id \|\| stage\.arrival === "CHANGED" \|\| stage\.arrival === "ASKED"/,
-    );
+    expect(screen).toMatch(/stage\.arrival === "CHANGED" \|\| stage\.arrival === "ASKED"/);
+  });
+
+  /**
+   * Veri's finding, 2026-10-17: the control closes the panel it says it opened, including the
+   * panel a van change forced open.
+   *
+   * The state used to be "which lane is open", so on a lane held open by its own van the press
+   * set it to "no lane" and the forced state put the panel straight back — the one control on
+   * the lane did nothing, on exactly the lane a coordinator is working on. A press is now an
+   * answer about that lane, and it beats the forced state; a van changing clears it, so the next
+   * step still opens itself. The clicks are in e2e/plan-routes.spec.ts (AT-05).
+   */
+  it("lets the control close a panel the van change opened", () => {
+    expect(screen).toMatch(/useState<\{ laneId: string; open: boolean \} \| null>\(null\)/);
+    // The coordinator's own answer about this lane first; the van's state only where there is none.
+    expect(screen).toMatch(/changing\?\.laneId === lane\.id\s*\?\s*changing\.open/);
+    // And the press is the opposite of what is on screen, rather than "forget which lane it was".
+    expect(screen).toMatch(/setChanging\(\{ laneId: lane\.id, open: !changesOpen \}\)/);
+    expect(screen).not.toMatch(/setChanging\(changesOpen \? null : lane\.id\)/);
+    // A new van hands the panel back to the rule that opens it, and so does a new fleet: the
+    // substitution and the scenario toggle are the two places the answer is dropped. Switching
+    // run is not one of them — the morning and the afternoon are the same three vans, and what
+    // the day knows about them does not change when a coordinator reads the other run.
+    expect(screen.match(/setChanging\(null\)/g)).toHaveLength(2);
   });
 
   /**

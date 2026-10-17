@@ -706,9 +706,24 @@ test.describe("Plan routes", () => {
     await expect(lane).toContainText(capabilityStates.CHANGED.label);
     await expect(lane).toContainText(solver.pending.substituted);
     // The van has changed, so the control the next step lives in opens itself.
-    await expect(
-      lane.getByRole("button", { name: copy.changeVan, exact: true }),
-    ).toHaveAttribute("aria-expanded", "true");
+    const changes = lane.getByRole("button", { name: copy.changeVan, exact: true });
+    const panel = changesPanel(page, laneId);
+    await expect(changes).toHaveAttribute("aria-expanded", "true");
+    await expect(panel).toBeVisible();
+    /*
+     * And a control that says it is open closes when it is pressed (Veri's finding, 2026-10-17).
+     * A panel held open by the van's own state used to ignore the press: the press cleared
+     * "which lane is open" and the forced state put it straight back, so the one control on the
+     * lane did nothing at all on exactly the lane a coordinator is working on.
+     */
+    await changes.click();
+    await expect(changes).toHaveAttribute("aria-expanded", "false");
+    await expect(panel).toBeHidden();
+    await expect(panel.getByText(copy.arrivalHeading, { exact: true })).toBeHidden();
+    // Open again, because the rest of VEH-05 is inside it.
+    await changes.click();
+    await expect(changes).toHaveAttribute("aria-expanded", "true");
+    await expect(panel).toBeVisible();
     // The picture is evidence, so frame the lane that changed rather than wherever the last
     // click left the page.
     await lane.getByRole("heading", { level: 3 }).scrollIntoViewIfNeeded();

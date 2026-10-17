@@ -172,8 +172,16 @@ export default function PlanRoutes() {
    * scenario change clears it, because a placement is about one fleet on one run.
    */
   const [pinned, setPinned] = useState<ManualPlacements>({});
-  /** The one lane whose "Change van or report" disclosure is open, if any. */
-  const [changing, setChanging] = useState<string | null>(null);
+  /**
+   * The one lane a coordinator has opened or closed the "Change van or report" panel on.
+   *
+   * `open` and not just the lane id, because the panel also opens itself while the van has
+   * changed — and with only "which lane is open" to go on, pressing the control on a lane that
+   * was forced open set it to "no lane" and the panel stayed exactly where it was (Veri's
+   * finding, 2026-10-17). An answer here beats the forced state, so the control always does what
+   * it says; a van changing afterwards clears it, because that panel is the van's business again.
+   */
+  const [changing, setChanging] = useState<{ laneId: string; open: boolean } | null>(null);
   const [over, setOver] = useState<string | null>(null);
   /** The rider the pointer is holding, so their row can show that it has been picked up. */
   const [held, setHeld] = useState<string | null>(null);
@@ -390,6 +398,9 @@ export default function PlanRoutes() {
       },
     }));
     setSubstituting(null);
+    // The van has changed, so the panel the next step lives in opens itself again — whatever a
+    // coordinator had done with it on the van it replaces.
+    setChanging(null);
     setNotice({
       text: fill(planRoutes.substituted, {
         vehicle: vanName(replacement.description),
@@ -673,8 +684,11 @@ export default function PlanRoutes() {
     const van = vanName(lane.vehicle.description);
     // The van's changes are folded away, and open themselves while the van has changed: that is
     // the half of VEH-05 where the next step — ask the provider, record the answer — is inside.
+    // A coordinator's own press on this lane's control is the last word either way.
     const changesOpen =
-      changing === lane.id || stage.arrival === "CHANGED" || stage.arrival === "ASKED";
+      changing?.laneId === lane.id
+        ? changing.open
+        : stage.arrival === "CHANGED" || stage.arrival === "ASKED";
 
     return (
       <section
@@ -776,7 +790,7 @@ export default function PlanRoutes() {
             className={styles.button}
             aria-expanded={changesOpen}
             aria-controls={changesId}
-            onClick={() => setChanging(changesOpen ? null : lane.id)}
+            onClick={() => setChanging({ laneId: lane.id, open: !changesOpen })}
           >
             {changesOpen ? (
               <ChevronDown size={icon.inline} aria-hidden="true" />
