@@ -492,6 +492,95 @@ describe("tryMove", () => {
   });
 });
 
+/**
+ * A re-plan keeps a coordinator's own placements, and it asks the same question a move asks.
+ *
+ * A pin is a move that was made a minute earlier, so the two cannot answer differently: a van
+ * that refuses Zoe B. when she is dragged into it has to refuse her when "Plan routes" is asked
+ * to plan around her being in it. `planAssignment` used to push a pinned rider into their lane
+ * with no check at all, which meant the one button on the screen could seat a chair in a van
+ * with nothing to hold it — and a van really can change under a placement between the drag and
+ * the press (a lift reported broken, a substitution, a chair measured larger at the ramp).
+ *
+ * Both paths call `canTake`, and these tests are over the mover and the planner rather than over
+ * `canTake` itself: asking the check directly passes whether or not anybody consults it.
+ */
+describe("a re-plan keeps only the placements the solver still agrees to", () => {
+  const input = inputFor("AM");
+  const empty: Assignment = Object.fromEntries(input.lanes.map((lane) => [lane.id, []]));
+
+  it("keeps a placement exactly when a move of the same child into the same van is allowed", () => {
+    for (const rider of input.riders) {
+      const token = rider.child.token;
+      for (const lane of input.lanes) {
+        const move = tryMove(input, empty, token, lane.id);
+        const kept = (planAssignment(input, { [token]: lane.id })[lane.id] ?? []).includes(token);
+        expect(kept, `${token} → ${lane.id}`).toBe(move.ok);
+      }
+    }
+  });
+
+  it("refuses to seat a pinned chair in a van whose securement does not hold it", () => {
+    // The same refusal as `tryMove(input, planned, "C6", "V2")`: L-track hardware, four-point
+    // chair. Delete the check inside `planAssignment` and this is the test that fails.
+    expect(tryMove(input, empty, "C6", "V2").ok).toBe(false);
+    const again = planAssignment(input, { C6: "V2" });
+    expect(again.V2).not.toContain("C6");
+    // Not dropped either: she is planned like anybody else, into the one van built for her.
+    expect(again.V1).toContain("C6");
+    expectEveryRiderFits(routePlan(input, again));
+  });
+
+  it("drops a placement the van can no longer take, and says why in the plan", () => {
+    // Zoe B. was dragged into V1, which is the only van with four-point straps. Then the
+    // provider sent a different van, and the one that arrived has none.
+    const pinned = { C6: "V1" };
+    expect(planAssignment(input, pinned).V1).toContain("C6");
+
+    const spare = vehicleByKey("V3");
+    const substitutedInput = inputFor(
+      "AM",
+      planLanes().map((lane) =>
+        lane.id === "V1"
+          ? { ...lane, vehicle: spare, capability: reportedByProvider(spare.id), driverName: "Omar T." }
+          : lane,
+      ),
+    );
+    const again = planAssignment(substitutedInput, pinned);
+    expect(again.V1).not.toContain("C6");
+    // She is in no van and the screen has a reason to show, rather than sitting in a van that
+    // cannot hold her chair while the lane quietly reads INFEASIBLE.
+    const plan = routePlan(substitutedInput, again);
+    expect(plan.unplaced.map((row) => row.rider.child.token)).toEqual(["C6"]);
+    expect(plan.unplaced[0].cause).toBe("NO_SECUREMENT");
+    expectEveryLaneSolved(plan);
+  });
+
+  it("still lets a coordinator take somebody out of a van, which no van has to agree to", () => {
+    // The one placement that is never checked, here for the same reason `tryMove` grants it
+    // without asking: a van carrying one fewer rider cannot break a constraint.
+    const again = planAssignment(input, { C6: null });
+    expect(Object.values(again).flat()).not.toContain("C6");
+    expect(tryMove(input, empty, "C6", null).ok).toBe(true);
+  });
+
+  it("never seats a pinned child the lane refuses, over every placement of the whole day", () => {
+    // One pin at a time, every child into every van: whatever comes back, each lane is still a
+    // lane the solver agrees with, and nobody is in a van that was asked and said no.
+    for (const rider of input.riders) {
+      for (const lane of input.lanes) {
+        const again = planAssignment(input, { [rider.child.token]: lane.id });
+        for (const planned of routePlan(input, again).lanes) {
+          expect(
+            ["FEASIBLE", "CAPABILITY_PENDING"],
+            `${rider.child.token} → ${lane.id} leaves ${planned.lane.id}`,
+          ).toContain(planned.verdict.status);
+        }
+      }
+    }
+  });
+});
+
 describe("no van at all", () => {
   it("says so plainly rather than inventing one", () => {
     const plan = planRoutes(inputFor("AM", []));

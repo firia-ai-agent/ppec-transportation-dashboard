@@ -398,6 +398,13 @@ function headlineDeficit(deficits: readonly Deficit[]): DeficitType | null {
  * Can this lane take this child on top of what it already carries? The answer is the solver's,
  * and when it is no, the cause separates "this van is not built for this child" from "this van
  * is full" — two refusals a coordinator does very different things about.
+ *
+ * **The one check.** Every way a child ends up in a van by somebody's decision rather than by
+ * the search asks this function and nothing else: `tryMove` for a drag or a Move menu, and
+ * `planAssignment` for the placements it is told to keep when the day is re-planned around them.
+ * A second copy of the rule — in the screen, or in an endpoint that saves what the screen sends
+ * — is a copy that can drift from this one, and the half that drifts is the half that lets a
+ * chair into a van with no hardware to hold it. There is one.
  */
 export function canTake(
   input: PlanInput,
@@ -595,25 +602,40 @@ export type ManualPlacements = Readonly<Record<string, string | null>>;
  * a child a coordinator has already placed stays where they were put, and the day is planned
  * around them. Planning used to start from nothing every time, so pressing the one button on the
  * screen silently undid every drag — the fix is here rather than in the screen because "keep
- * what a person decided and fill in the rest" is a property of the plan, not of a click. A
- * manual placement is checked like any other: the lane is solved with that rider aboard, so an
- * assignment this returns is still only placements the four constraints agreed with.
+ * what a person decided and fill in the rest" is a property of the plan, not of a click.
+ *
+ * A kept placement is asked exactly what a fresh move is asked: `canTake`, the same function
+ * `tryMove` calls, over the lanes as they are loaded at that point. It is the same question
+ * because it is the same decision — a pin is a move that was made a moment earlier, and the van
+ * can have changed since (a lift reported broken, a substitution, a chair measured larger at the
+ * ramp). A pin the solver refuses is not kept and not silently dropped either: that child goes
+ * back into the search like anybody else, so they land in a van that fits or are reported
+ * unplaced with a reason, and no path through this function can seat a child the four
+ * constraints did not agree to.
  */
 export function planAssignment(input: PlanInput, manual: ManualPlacements = {}): Assignment {
   const load = new Map<string, PlanRider[]>(input.lanes.map((lane) => [lane.id, []]));
+  const loadedSoFar = (): Assignment =>
+    Object.fromEntries(
+      [...load].map(([laneId, riders]) => [laneId, riders.map((rider) => rider.child.token)]),
+    );
   // Held back from the search: a child a person has placed, in the lane they placed them in, or
   // out of every lane. A placement naming a lane this plan does not have is not one of theirs —
-  // the scenario or the run changed under it — so that child is planned like anybody else.
+  // the scenario or the run changed under it — so that child is planned like anybody else, and
+  // so is one the lane can no longer take.
   const held = new Set<string>();
   for (const rider of input.riders) {
     const laneId = manual[rider.child.token];
     if (laneId === undefined) continue;
     if (laneId === null) {
+      // Out of every van, which is the one placement no van has to agree to: `tryMove` grants it
+      // without asking, because nothing can be broken by a van carrying one fewer rider.
       held.add(rider.child.token);
       continue;
     }
     const lane = load.get(laneId);
     if (!lane) continue;
+    if (!canTake(input, loadedSoFar(), laneId, rider.child.token).ok) continue;
     lane.push(rider);
     held.add(rider.child.token);
   }
@@ -687,6 +709,10 @@ export function withMove(assignment: Assignment, childToken: string, laneId: str
  *
  * `MoveResult["cause"]` is the solver's own `UnplacedCause`, which is what the screen's refusal
  * line is keyed by (src/ui/copy.ts `missing`), so no caller has to translate a verdict.
+ *
+ * The check it runs is `canTake`, and `planAssignment` runs the same one over the placements it
+ * is told to keep on a re-plan. One function, two callers: a screen and an endpoint that saves
+ * what the screen sent cannot answer this question differently from each other.
  *
  * Taking a child out of every van (`laneId` null) is always allowed: no constraint can be broken
  * by a van carrying one fewer rider, and a coordinator who wants somebody out of a van is not

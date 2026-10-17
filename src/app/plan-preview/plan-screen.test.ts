@@ -660,6 +660,32 @@ describe("re-planning around a coordinator's own placements", () => {
     expect(plan.unplaced[0].cause).toBe("NOT_IN_A_VAN");
   });
 
+  /**
+   * The placements go to the planner whole, and the screen checks none of them itself.
+   *
+   * A pin is re-asked on every re-plan, and the question is `canTake` — the same one `tryMove`
+   * asks for a drag (src/domain/solver/plan.ts). A second copy of that rule up here would be
+   * the copy that drifts: a van can change under a placement between the drag and the press,
+   * and the half that is behind would be the half seating a chair in a van with nothing to hold
+   * it. The behaviour is tested over a real plan in src/domain/solver/plan.test.ts; this is the
+   * part a reader of this screen can check at a glance, and it is the same shape as the one
+   * guarding the mover above.
+   */
+  it("hands its placements to the planner whole, and holds no check of its own", () => {
+    const screen = read("PlanRoutes.tsx");
+    const uses = screen
+      .split("\n")
+      .filter((line) => /\bpinned\b/.test(line) && !/^\s*(?:\/\/|\/?\*)/.test(line));
+    expect(uses.length).toBeGreaterThan(0);
+    for (const line of uses) {
+      expect(line, line).toMatch(
+        /useState<ManualPlacements>|planAssignment\(input, pinned\)|Object\.keys\(pinned\)\.length/,
+      );
+    }
+    // Nothing here solves a lane, asks a van a question, or edits an assignment by hand.
+    expect(screen).not.toMatch(/canTake|withMove|solveLane|feasible\(/);
+  });
+
   it("plans a child normally when the lane they were put in is not on this day", () => {
     const input = inputFor();
     const { token } = aMovableRider(input);
