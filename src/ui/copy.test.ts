@@ -12,6 +12,7 @@ import {
   etaText,
   fill,
   fleetMap,
+  layoutName,
   liveUpdates,
   login,
   mapPreview,
@@ -843,6 +844,27 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
     expect(planRoutes.needsCaption).toBe("From intake, not a diagnosis.");
     expect(planRoutes.waitingHeading).toBe("Waiting to be planned");
     expect(planRoutes.changeVan).toBe("Change van or report");
+  });
+
+  /**
+   * Vera's review, 2026-10-17: the setup line is a sentence, so the one setup with nothing to
+   * count says itself in words rather than carrying the button's label inside it. "Set up as No
+   * wheelchairs · 6 seats" is a label in a sentence's clothing, and lowercasing the "no" would
+   * only have hidden the seam — the label itself has no business in there.
+   */
+  it("says a van with no wheelchair place in plain words, not with the layout's label", () => {
+    expect(planRoutes.setUpNoWheelchairs).toBe("Set up with no wheelchair spaces");
+    // The label is still the label, on the button where it is read as one.
+    expect(layoutName("0WC/6A")).toBe("No wheelchairs · 6 seats");
+    // And no sentence is built by dropping that label into the "Set up as …" template, in
+    // either case: the capital mid-sentence and the lowercased patch of it are both out.
+    const built = fill(planRoutes.setUpAs, { layout: layoutName("0WC/6A") });
+    expect(planRoutes.setUpNoWheelchairs).not.toBe(built);
+    expect(planRoutes.setUpNoWheelchairs).not.toBe(built.toLowerCase());
+    expect(planRoutes.setUpNoWheelchairs).not.toMatch(/\bNo wheelchairs\b|\bno wheelchairs\b/);
+    // Still the "Set up …" line, and it counts nothing: the places line underneath does that.
+    expect(planRoutes.setUpNoWheelchairs).toMatch(/^Set up /);
+    expect(planRoutes.setUpNoWheelchairs).not.toMatch(/\d/);
   });
 
   /**

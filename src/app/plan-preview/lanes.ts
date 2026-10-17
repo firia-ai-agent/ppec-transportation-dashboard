@@ -195,8 +195,17 @@ export function equipmentChips(
   return chips;
 }
 
-/** "Set up as 1 wheelchair · 3 seats" — the configuration in words, never the shorthand. */
+/**
+ * "Set up as 1 wheelchair · 3 seats" — the configuration in words, never the shorthand.
+ *
+ * A configuration with no wheelchair place at all is a sentence of its own rather than the
+ * button's label dropped into this one (Vera's review, 2026-10-17): `layoutName` answers with
+ * "No wheelchairs · 6 seats", which reads as a label and put a capital in the middle of the
+ * lane's line. Read off the positions the van is built with, not off the code, so the sentence
+ * follows the configuration rather than how a provider wrote it down.
+ */
 export function setUpAsLine(layout: Layout): string {
+  if (!layout.positions.some(isWcPosition)) return planRoutes.setUpNoWheelchairs;
   return fill(planRoutes.setUpAs, { layout: layoutName(layout.code) });
 }
 

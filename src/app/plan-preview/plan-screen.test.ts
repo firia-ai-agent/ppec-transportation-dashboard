@@ -468,6 +468,24 @@ describe("the words a lane says", () => {
     expect(setUpAsLine(lane.layout)).not.toMatch(/\d+WC\/\d+A/);
   });
 
+  /**
+   * Vera's review, 2026-10-17: a van set up with no wheelchair place says so in a sentence of
+   * its own. The line used to be the layout button's label dropped into "Set up as …" — "Set up
+   * as No wheelchairs · 6 seats", a capital in the middle of the lane's own sentence — and the
+   * seat count it drops is the place line directly underneath it.
+   */
+  it("says a setup with no wheelchair place in plain words", () => {
+    const sedan = laneIn(planRoutes(inputFor()), "V4");
+    expect(sedan.layout.positions.some((position) => position.kind === "WC")).toBe(false);
+    expect(setUpAsLine(sedan.layout)).toBe("Set up with no wheelchair spaces");
+    // The three failures that line replaced, in one place: the label inside the sentence, the
+    // lowercased patch of the same thing, and the shorthand.
+    expect(setUpAsLine(sedan.layout)).not.toMatch(/[Nn]o wheelchairs/);
+    expect(setUpAsLine(sedan.layout)).not.toMatch(/\d+WC\/\d+A/);
+    // A van that does have a chair place still reads as a configuration, counts and all.
+    expect(setUpAsLine(laneIn(planRoutes(inputFor()), "V1").layout)).toMatch(/^Set up as \d/);
+  });
+
   it("writes a stop as the place and the time, in words a person says out loud", () => {
     const rider = planRiders("AM").find((r) => r.child.token === "C2");
     expect(stopLine(rider!)).toBe("Okeeheelee Park · 6:50 AM");
