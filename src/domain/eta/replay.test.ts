@@ -413,7 +413,7 @@ describe("the demo runs stay demonstrable", () => {
     );
   });
 
-  it("finishes every run inside the preview clock's loop", () => {
+  it("finishes every run inside the live map's scenario-clock loop", () => {
     for (const run of DEMO_RUNS) {
       expect(runReplay(run.spec).run.durationSeconds).toBeLessThanOrEqual(DEMO_RUN_SECONDS);
     }

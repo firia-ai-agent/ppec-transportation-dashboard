@@ -17,7 +17,7 @@
  * Pure: no clock, no database, no network.
  */
 import type { Assignment, DailyCapability, PlanInput, PlanLane, PlanRider } from "@/domain/solver";
-import { places, rampPreview } from "@/ui/copy";
+import { places, rampIpad } from "@/ui/copy";
 import { VEHICLES } from "@/modules/demo/fixtures/standard";
 import {
   asMeasured,
@@ -70,7 +70,7 @@ export function capabilityOf(stage: LaneStage): DailyCapability {
       return askedProvider(stage.vehicleKey);
     case "RAMP_CHECKED":
       return stage.rampLayoutId
-        ? checkedAtRamp(stage.vehicleKey, stage.rampLayoutId, rampPreview.observedBy)
+        ? checkedAtRamp(stage.vehicleKey, stage.rampLayoutId, rampIpad.observedBy)
         : reportedByProvider(stage.vehicleKey);
     default:
       return reportedByProvider(stage.vehicleKey);

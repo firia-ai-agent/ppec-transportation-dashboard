@@ -1,7 +1,7 @@
 /**
  * The four demo runs (src/fixtures/replays.ts).
  *
- * These fixtures drive both /map-preview and the replay tests, so the things the preview
+ * These fixtures drive both /live-map and the replay tests, so the things the live map
  * assumes about them are asserted here rather than left as a comment: that each run really
  * shows the fault its label claims, that the clock's loop length actually covers every run,
  * and that the unbound device stays invisible.
@@ -28,7 +28,7 @@ import {
 } from "./replays";
 
 describe("the demo run set", () => {
-  it("is the four runs the preview rail lists, each one once", () => {
+  it("is the four runs the live map's vehicle list holds, each one once", () => {
     expect(DEMO_RUNS.map((r) => r.spec)).toEqual([RUN_STALL, RUN_GPS_GAP, RUN_JITTER, RUN_UNBOUND]);
     expect(new Set(DEMO_RUNS.map((r) => r.spec.route.id)).size).toBe(DEMO_RUNS.length);
     expect(new Set(DEMO_RUNS.map((r) => r.spec.route.vehicleId)).size).toBe(DEMO_RUNS.length);
@@ -65,9 +65,9 @@ describe("the demo run set", () => {
   });
 });
 
-describe("DEMO_RUN_SECONDS is the preview clock's loop length", () => {
+describe("DEMO_RUN_SECONDS is the live map's scenario-clock loop length", () => {
   it("covers every run from end to end", () => {
-    // The preview clock wraps at DEMO_RUN_SECONDS. If any run were longer, its last stop
+    // The live map's scenario clock wraps at DEMO_RUN_SECONDS. If any run were longer, its last stop
     // would never be reached on screen — the loop would cut the truck off mid-route.
     for (const run of DEMO_RUNS) {
       const result = runReplay(run.spec);
@@ -80,7 +80,7 @@ describe("DEMO_RUN_SECONDS is the preview clock's loop length", () => {
 
   it("is no longer than it needs to be: the longest run reaches most of the way through", () => {
     // Guards the other direction — a loop several times the longest run would leave the
-    // preview sitting on four parked trucks for most of its cycle.
+    // live map sitting on four parked trucks for most of its cycle.
     const longest = Math.max(...DEMO_RUNS.map((r) => runReplay(r.spec).run.durationSeconds));
     expect(longest).toBeGreaterThan(DEMO_RUN_SECONDS / 2);
     expect(longest).toBeLessThanOrEqual(DEMO_RUN_SECONDS);

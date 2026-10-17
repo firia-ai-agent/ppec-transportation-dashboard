@@ -65,7 +65,7 @@ import {
   type ResolutionOption,
   type Unplaced,
 } from "@/domain/solver";
-import { board, fill, needCategories, places, planRoutes, rampPreview, vanName } from "@/ui/copy";
+import { board, fill, needCategories, places, planRoutes, rampIpad, vanName } from "@/ui/copy";
 import { DemoControls } from "@/ui/DemoControls";
 import { serviceDateLabel } from "@/ui/service-date";
 import { StateChip } from "@/ui/StateChip";
@@ -232,7 +232,7 @@ export default function PlanRoutes() {
 
   const placed = plan.lanes.reduce((n, lane) => n + lane.riders.length, 0);
   const decisionsOpen = needsADecision(plan.lanes, plan.unplaced);
-  /** What a save of this screen would send, as one string (src/app/plan-preview/save-plan.ts). */
+  /** What a save of this screen would send, as one string (src/app/plan-routes/save-plan.ts). */
   const fingerprint = useMemo(() => planFingerprint(day, assignment), [day, assignment]);
   /**
    * There is a plan to save, and it is not the one that was saved.

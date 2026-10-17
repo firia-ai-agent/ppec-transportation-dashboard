@@ -1,11 +1,8 @@
 /**
- * The 403 boundary for this page: what a signed-in person sees when Plan routes is not part of
- * their role. `forbidden()` in src/auth/page-guard.ts throws to here, so the response really is
- * a 403 rather than a 200 with an empty screen.
- *
- * One boundary per page, next to the page, because the card names who the page *is* for and that
- * answer is per page. The path below is this page's key in the access table (src/auth/access.ts),
- * which is where the sentence is generated from.
+ * The 403 boundary for the redirect at /plan-preview: a signed-in person whose role cannot open
+ * Plan routes sees the same no-access card here as at /plan-routes, rather than being bounced to a
+ * screen that would refuse them. The path below is this route's key in the access table
+ * (src/auth/access.ts), which is where the "who can open this" sentence is generated from.
  */
 import { NoAccess } from "@/ui/NoAccess";
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { truckTone, type Coord } from "@/components/map/style";
 import { DEMO_CENTER, MAP_FIXTURE } from "./map";
+import { FLEET } from "./fleet";
 
 /**
  * MOCKS-AND-DEMO.md §1: the center plus public landmarks only, no homes. The seed
@@ -80,5 +81,27 @@ describe("map fixtures", () => {
       expect(lat).toBeGreaterThan(26.5);
       expect(lat).toBeLessThan(26.7);
     }
+  });
+});
+
+/**
+ * The live map and the Today board are two screens showing one fleet, and a coordinator reads a
+ * van's name off the board and then looks for it on the map. The board's name is
+ * `vehicle.label` from src/fixtures/fleet.ts; the map's is `vehicle.id` here, printed through
+ * `fleetMap.vehicleRow` as "V1 · Convertible van". So the two files must agree about both parts,
+ * or the screen called "Live map" would show vans the board has never heard of.
+ */
+describe("the map's vans are the board's vans", () => {
+  it("uses the board's labels, and the board's words for what each van is", () => {
+    const board = new Map(FLEET.map((v) => [v.label, v.description]));
+    for (const vehicle of MAP_FIXTURE.vehicles) {
+      expect(board.has(vehicle.id), `${vehicle.id} is on the map and not in the fleet`).toBe(true);
+      expect({ id: vehicle.id, description: vehicle.description }).toEqual({
+        id: vehicle.id,
+        description: board.get(vehicle.id),
+      });
+    }
+    // Not vacuous: the fleet is four vans and the map draws them.
+    expect(MAP_FIXTURE.vehicles.length).toBeGreaterThanOrEqual(3);
   });
 });

@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { pageOutcome } from "@/auth/access";
-import { canOpenRampPreview } from "@/domain/access/map-view";
-import { rampPreview } from "@/ui/copy";
+import { canOpenRampIpad } from "@/domain/access/map-view";
+import { rampIpad } from "@/ui/copy";
 
 /**
  * The ramp check's screen contracts from Vera's review.
@@ -20,7 +20,7 @@ function read(file: string): string {
   return readFileSync(path.join(HERE, file), "utf8");
 }
 
-describe("the route is behind the same door as the map preview", () => {
+describe("the route is behind the same door as the live map", () => {
   const page = read("page.tsx");
   const screen = read("RampCheck.tsx");
 
@@ -28,7 +28,7 @@ describe("the route is behind the same door as the map preview", () => {
     expect(page).not.toMatch(/^"use client"/m);
     // The guard is the same one every page calls, keyed by this route's row in the table: it
     // redirects a signed-out visitor to sign-in and answers 403 for a role the row omits.
-    expect(page).toMatch(/requirePage\("\/ramp-preview"\)/);
+    expect(page).toMatch(/requirePage\("\/ramp-ipad"\)/);
     expect(page).toMatch(/from "@\/auth\/page-guard"/);
     // A session read means the route can never be answered from a static render.
     expect(page).toMatch(/export const dynamic = "force-dynamic"/);
@@ -40,19 +40,19 @@ describe("the route is behind the same door as the map preview", () => {
   });
 
   it("anonymous cannot reach it, which is the point of the guard", () => {
-    expect(canOpenRampPreview("ANONYMOUS")).toBe(false);
-    expect(canOpenRampPreview("FRONT_DESK")).toBe(true);
+    expect(canOpenRampIpad("ANONYMOUS")).toBe(false);
+    expect(canOpenRampIpad("FRONT_DESK")).toBe(true);
     // ...and the table, which is what the route actually enforces, says the same.
-    expect(pageOutcome({ kind: "ANONYMOUS" }, "/ramp-preview")).toBe("SIGN_IN");
-    expect(pageOutcome({ kind: "STAFF", role: "FRONT_DESK" }, "/ramp-preview")).toBe("ALLOW");
+    expect(pageOutcome({ kind: "ANONYMOUS" }, "/ramp-ipad")).toBe("SIGN_IN");
+    expect(pageOutcome({ kind: "STAFF", role: "FRONT_DESK" }, "/ramp-ipad")).toBe("ALLOW");
   });
 
-  it("is reachable from the map preview, so it is not URL-only", () => {
+  it("is reachable from the live map, so it is not URL-only", () => {
     const mapPage = readFileSync(
-      path.resolve(HERE, "..", "map-preview", "page.tsx"),
+      path.resolve(HERE, "..", "live-map", "page.tsx"),
       "utf8",
     );
-    expect(mapPage).toMatch(/href="\/ramp-preview"/);
+    expect(mapPage).toMatch(/href="\/ramp-ipad"/);
   });
 });
 
@@ -83,7 +83,7 @@ describe("a chosen answer is filled, not outlined", () => {
     // reaches all of them; the cards are their own markup and are asserted above.
     expect(screen).toMatch(/<BigButton\s+\/\/[^\n]*\n\s*key=\{candidate\.id\} label=\{layoutName\(candidate\.code\)\}/);
     expect(screen).toMatch(/<BigButton\s+key=\{option\} label=\{labels\[option\]\} pressed=\{value === option\}/);
-    expect(rampPreview.answer.UNSURE).toBe("Not sure");
+    expect(rampIpad.answer.UNSURE).toBe("Not sure");
   });
 });
 
@@ -107,9 +107,9 @@ describe("the sticky banner reserves its own height", () => {
     expect(screen).toMatch(/const \[bannerOpen, setBannerOpen\] = useState\(false\)/);
     expect(screen).toMatch(/\{bannerOpen && banner\.detail \?/);
     expect(screen).toMatch(/\{bannerOpen && result\.options\.length > 0 \?/);
-    expect(screen).toMatch(/label=\{bannerOpen \? rampPreview\.hideDetails : rampPreview\.showDetails\}/);
-    expect(rampPreview.showDetails).toBe("Show details");
-    expect(rampPreview.hideDetails).toBe("Hide details");
+    expect(screen).toMatch(/label=\{bannerOpen \? rampIpad\.hideDetails : rampIpad\.showDetails\}/);
+    expect(rampIpad.showDetails).toBe("Show details");
+    expect(rampIpad.hideDetails).toBe("Hide details");
   });
 
   it("stops the page being exactly the DEMO bar too tall", () => {

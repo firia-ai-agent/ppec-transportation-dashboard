@@ -32,7 +32,7 @@
  */
 import type { StaffRole } from "@/auth/core";
 import type { MapViewer } from "@/domain/access/map-view";
-import { fill, login, mapPreview, nav, noAccess, planRoutes, rampPreview, roleNames, whoami } from "@/ui/copy";
+import { fill, login, liveMap, nav, noAccess, planRoutes, rampIpad, roleNames, whoami } from "@/ui/copy";
 
 /** Most capable first. The order the `{who}` line and `mostCapable` read. */
 export const ROLE_LADDER = ["DIRECTOR", "COORDINATOR", "FRONT_DESK"] as const;
@@ -292,16 +292,16 @@ export const PAGES: readonly PageRow[] = [
     founderQuestion: true,
   },
   /**
-   * The developer map preview. Open to all staff; what each role actually sees on it is the
-   * per-key matrix in src/domain/access/map-view.ts (the front-desk iPad gets the vans and no
-   * family labels or notification queue).
+   * The live map (DESIGN-DIRECTION §5). Open to all staff; what each role actually sees on it is
+   * the per-key matrix in src/domain/access/map-view.ts (the front-desk iPad gets the vans and
+   * no family labels or notification queue).
    */
   {
     kind: "page",
-    file: "src/app/map-preview/page.tsx",
-    path: "/map-preview",
+    file: "src/app/live-map/page.tsx",
+    path: "/live-map",
     access: { roles: ALL_STAFF },
-    label: mapPreview.heading,
+    label: liveMap.heading,
   },
   /**
    * Plan routes (B-09 VEH-01…05, B-13): the coordinator's planning surface — a lane per van, the
@@ -315,8 +315,8 @@ export const PAGES: readonly PageRow[] = [
    */
   {
     kind: "page",
-    file: "src/app/plan-preview/page.tsx",
-    path: "/plan-preview",
+    file: "src/app/plan-routes/page.tsx",
+    path: "/plan-routes",
     access: { roles: CONSOLE },
     label: planRoutes.heading,
   },
@@ -326,17 +326,67 @@ export const PAGES: readonly PageRow[] = [
    *
    * OPEN QUESTION for the founder: This is also the front desk's *home* — they can open no
    * console page, so `HOME_ORDER` below resolves their landing page to this one, which is where
-   * sign-in now puts them. It is a developer preview route. Correct until SURF-04 is real?
+   * sign-in now puts them. The screen is a walk-through of SURF-04 and records nothing. Correct
+   * until SURF-04 is real?
    */
+  {
+    kind: "page",
+    file: "src/app/ramp-ipad/page.tsx",
+    path: "/ramp-ipad",
+    access: { roles: ALL_STAFF },
+    label: rampIpad.heading,
+    founderQuestion: true,
+  },
+  /* ── the three old addresses, kept as permanent redirects ── */
+  /**
+   * `/plan-preview`, `/map-preview` and `/ramp-preview` were the three screens' addresses until
+   * Vera's review (2026-10-17) took "preview" out of every menu label and address. A URL that
+   * has been read out loud in a demo, pasted into a pull request and bookmarked by the founder
+   * does not get to stop answering, so each one is still a page: it redirects permanently (308)
+   * to the screen's own address.
+   *
+   * Each redirect keeps the row its screen has, to the role — not `signedIn`, not public. A
+   * redirect is a tiny oracle: an open `/ramp-preview` would tell a front-desk caller that
+   * `/plan-routes` exists, and a public one would tell anyone with the URL that this app has a
+   * planning surface before they have signed in. So the old address refuses exactly what the new
+   * one refuses: signed out is sign-in, the wrong role is the no-access page and a 403 rendered
+   * by the boundary beside the redirect, and only a caller who could open the destination is
+   * ever sent to it. `access.test.ts` asserts the two rows carry the same roles, and
+   * `guard-matrix.test.ts` asks the server.
+   */
+  {
+    kind: "page",
+    file: "src/app/plan-preview/page.tsx",
+    path: "/plan-preview",
+    access: { roles: CONSOLE },
+    label: planRoutes.heading,
+  },
+  {
+    kind: "page",
+    file: "src/app/map-preview/page.tsx",
+    path: "/map-preview",
+    access: { roles: ALL_STAFF },
+    label: liveMap.heading,
+  },
   {
     kind: "page",
     file: "src/app/ramp-preview/page.tsx",
     path: "/ramp-preview",
     access: { roles: ALL_STAFF },
-    label: rampPreview.heading,
-    founderQuestion: true,
+    label: rampIpad.heading,
   },
 ];
+
+/**
+ * The old address → the screen's own address, for the three redirect pages above. One table, so
+ * a redirect cannot point somewhere the access table does not hold (`access.test.ts` checks
+ * both ends of every pair, and that the two rows are open to the same roles).
+ */
+export const MOVED_PAGES: Readonly<Record<string, string>> = {
+  "/plan-preview": "/plan-routes",
+  "/map-preview": "/live-map",
+  "/ramp-preview": "/ramp-ipad",
+};
 
 export const ENDPOINTS: readonly EndpointRow[] = [
   /**
@@ -628,9 +678,9 @@ export function apiOutcome(caller: Caller, path: string): ApiOutcome {
  * The order a role's own pages are offered in: the nav order first (DESIGN-DIRECTION §2), then
  * the two surfaces that are not in the rail. The first entry a role may open is their home — so
  * the front desk, who has no console page, lands on the ramp check rather than on a refusal.
- * That landing page is the `/ramp-preview` row's open question above.
+ * That landing page is the `/ramp-ipad` row's open question above.
  */
-const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/plan-preview", "/ramp-preview", "/map-preview", "/whoami"] as const;
+const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/plan-routes", "/ramp-ipad", "/live-map", "/whoami"] as const;
 
 /** Where this caller is sent when they need somewhere to be: their own first page, or sign-in. */
 export function homePathFor(caller: Caller): string {

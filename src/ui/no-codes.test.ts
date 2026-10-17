@@ -42,7 +42,7 @@ const PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   { name: "a surface / ADR / requirement / acceptance-test code", re: /\b(?:SURF|ADR|LOC|AT|NFR|FQ|ASM|EV)-\d+/g },
   // Section references into the specs: "PRD §7", "PRD l.1058", "DESIGN-DIRECTION §5.1".
   { name: "a reference into a spec document", re: /\b(?:PRD|COPY-GUIDE|DESIGN-DIRECTION|MOCKS)\b\s*(?:§|l\.)?/g },
-  // Fixture route ids. The screen says "Okeeheelee Park run" (mapPreview.routeName).
+  // Fixture route ids. The screen says "Okeeheelee Park run" (liveMap.routeName).
   { name: "a fixture route id", re: /\broute\d+(?:-[a-z]+)*\b/g },
   // Family / stop codes: the label a fixture hangs on a stop so the notification gate can say which
   // family it would text ("F1", "F8", "F27"). A vehicle card used to print them next to the stop
@@ -172,7 +172,7 @@ describe("the fixture words that are rendered as words", () => {
 
   it("the run a vehicle is on is named by its first stop, never by the fixture id", () => {
     // What the fault list prints. The ids are still ids — they just stay in the fixture file.
-    const named = FIXTURE_ROUTES.map((r) => copy.fill(copy.mapPreview.routeName, { stop: r.stops[0].name }));
+    const named = FIXTURE_ROUTES.map((r) => copy.fill(copy.liveMap.routeName, { stop: r.stops[0].name }));
     expect(named).toEqual([
       "Greenacres Branch Library run",
       "Palm Beach State College, Lake Worth run",
@@ -234,17 +234,20 @@ describe("a vehicle card names the stop, never the code behind it", () => {
 });
 
 describe("the strings the review fixed, verbatim", () => {
-  it("the map preview says what it is in one line", () => {
-    expect(copy.mapPreview.intro).toBe("Simulated vans on demo routes. Nothing here is live.");
+  it("the live map says what it is in one line, and says the data is simulated in the next", () => {
+    expect(copy.liveMap.intro).toBe("Where every van is, on the demo's own routes and clock.");
+    expect(copy.liveMap.signedInOnly).toBe(
+      "Staff sign-in only. The data below is simulated, and the roles still apply.",
+    );
   });
 
   it("the ramp check says where the answers go, in one line", () => {
-    expect(copy.rampPreview.localOnly).toBe("Nothing here is sent. Answers stay on this iPad.");
+    expect(copy.rampIpad.localOnly).toBe("Nothing here is sent. Answers stay on this iPad.");
   });
 
   it("a fault row names the run in words, with no reference trailing it", () => {
-    expect(copy.mapPreview.faultRow).toBe("{vehicle} · {route} · {fault}");
-    expect(copy.fill(copy.mapPreview.routeName, { stop: "Okeeheelee Park" })).toBe(
+    expect(copy.liveMap.faultRow).toBe("{vehicle} · {route} · {fault}");
+    expect(copy.fill(copy.liveMap.routeName, { stop: "Okeeheelee Park" })).toBe(
       "Okeeheelee Park run",
     );
   });
