@@ -374,6 +374,7 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/api/sim/phones/[number]/messages": "session:DIRECTOR+COORDINATOR",
       "action:agent-turn": "session:DIRECTOR+COORDINATOR",
       "action:agent-approval": "session:DIRECTOR+COORDINATOR",
+      "action:approval-decision": "session:DIRECTOR+COORDINATOR",
       "action:sign-in": "auth-endpoint",
       "action:sign-out": "public",
     });
@@ -381,7 +382,16 @@ describe("the policy itself, written out so a silent widening fails", () => {
 
   it("the site-scoped endpoints are the ones that take an id", () => {
     const scoped = ENDPOINTS.filter((e) => e.auth.kind === "session" && e.auth.siteScoped).map((e) => e.path);
-    expect(scoped).toEqual(["/api/demo/reset", "/api/sim/phones/[number]/messages"]);
+    /*
+     * Two routes and one action. The action is the odd one and is meant to be: it takes an
+     * *approval* id rather than a site id, reads the site off that row, and checks the caller's
+     * membership there — so another site's id is a uniform 404 like any other id-taking surface.
+     */
+    expect(scoped).toEqual([
+      "/api/demo/reset",
+      "/api/sim/phones/[number]/messages",
+      "action:approval-decision",
+    ]);
   });
 
   it("every row whose default is a guess is flagged for the founder, with the question in the file", () => {

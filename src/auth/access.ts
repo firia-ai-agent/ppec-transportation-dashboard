@@ -604,6 +604,29 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     auth: { kind: "session", roles: CONSOLE, siteScoped: false },
   },
   /**
+   * SURF-05's decision (PRD §18.2 steps 9–10, §11.2 human tier): a coordinator approves the text a
+   * family would get, or does not. Unlike the two phone-panel actions above, this one **writes** —
+   * it claims the decision, moves the ride and queues a message — so it is the first server action
+   * in this app that is `siteScoped`.
+   *
+   * The same roles as the screen it is on, which is what `approvals.approvalRoles()` reads: the
+   * page's own row rather than a list restated here, so the control a coordinator can see and the
+   * write they can make cannot come apart. Checked in the action, never inferred from the button
+   * having been rendered (the ID-swap rule).
+   *
+   * `siteScoped` is the tenant half, and the site is **not** a value the form carries: it comes off
+   * the approval row this id names, and the caller's membership at *that* site is what is checked
+   * (`requireSiteAccess`). So another site's approval id is a uniform 404, exactly as an id that
+   * exists nowhere — a 403 would confirm that the id is real.
+   */
+  {
+    kind: "action",
+    file: "src/app/(app)/exceptions/actions.ts",
+    path: "action:approval-decision",
+    methods: ["POST"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: true },
+  },
+  /**
    * The sign-in form's own action (ADR-004). It hands email and password to the credentials
    * provider and nothing else; it must run for a caller with no session.
    */

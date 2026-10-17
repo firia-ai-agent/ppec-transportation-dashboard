@@ -798,6 +798,45 @@ export const approval = {
   edit: "Edit",
   dontSend: "Don't send",
   draftFailed: "Couldn't draft a reply. Write one yourself or try again.",
+
+  /* ── the screen around the card (SURF-05, PRD §14 "Exceptions & Approvals") ── */
+
+  heading: "Exceptions & approvals",
+  documentTitle: "Exceptions & approvals · PPEC transportation",
+  intro: "What the assistant has asked a person to decide. Nothing here has been sent.",
+  /** A day with nothing waiting. Said as a fact about the day, not about the build. */
+  none: "Nothing is waiting for a decision.",
+  /** The card's own heading: whose ride, and which half of the day. */
+  cardHeading: "{child} · {ride} drop-off",
+  /** The reason the family gave, as a coordinator reads it — never the enum code (§2). */
+  reasons: {
+    PARENT_REQUEST: "A parent asked for this.",
+    ALTERNATE_RECEIVER: "A different adult is collecting the child.",
+    APPOINTMENT: "The family has an appointment.",
+    SCHEDULE_CONFLICT: "The family has a conflict at the usual time.",
+    OTHER: "The family asked for a change.",
+  },
+  /** The Edit control: the one thing a person may change, and it is not the words. */
+  editTimeLabel: "New drop-off time",
+  editHint: "Change the time and the text below changes with it. The words are ours, not yours to retype.",
+  editCancel: "Keep the time the assistant suggested",
+
+  /* ── what came back ── */
+
+  sent: "Approved. The family is being texted now.",
+  /** Approved with nobody to text: every contact is opted out or unauthorized (§6.4, outbox policy). */
+  sentToNobody: "Approved, and the ride is changed. Nobody on this family's file may be texted, so no message went out.",
+  declined: "Not sent. Nothing changed, and the family was not texted.",
+
+  /* ── the refusals, each one a sentence rather than a status code ── */
+
+  signInAgain: "Your sign-in has expired. Sign in again and the decision is still here.",
+  notYourRole: "Your role cannot decide this one. Ask a coordinator or the director.",
+  /** Another site's id and an id that exists nowhere read the same, on purpose. */
+  noSuchApproval: "That decision is not here any more.",
+  alreadyDecided: "Somebody decided this one already. Reload to see what they chose.",
+  planMoved: "This ride changed while you were reading, so the text would have been wrong. Nothing was sent — reload and decide again.",
+  notATime: "Write the time as a clock time, like 5:00 PM.",
 } as const;
 
 /**

@@ -179,6 +179,21 @@ function interrupt(error: unknown): { kind: "redirect"; to: string } | { kind: "
   return null;
 }
 
+/**
+ * The pages that read the database once a caller is allowed in, keyed by the caller they need to
+ * hold a membership for.
+ *
+ * Every other page in this app renders from the fixtures, so "allowed" and "rendered" are the same
+ * thing for them and the `getNeonDb` stub never fires. SURF-05 is the first that cannot be: a list
+ * of pending approvals is rows, and there is nowhere else for them to come from.
+ *
+ * So for those pages the stub firing **is** the assertion, and a stronger one than `rendered:
+ * true` would be: it proves the guard ran *before* the read (a refused caller below never reaches
+ * it and gets a 403 instead), and it proves the read is really there rather than quietly swallowed
+ * into an empty list — which is the exact bug Veri's S3 note was about on the phone panel.
+ */
+const READS_THE_DATABASE: ReadonlySet<string> = new Set(["/exceptions"]);
+
 /** Calls the page the way Next calls it, and says what happened. */
 async function openPage(file: string): Promise<{ rendered: true } | { rendered: false; interrupt: ReturnType<typeof interrupt> }> {
   const mod = (await import(/* @vite-ignore */ file)) as {
@@ -255,9 +270,19 @@ async function protectedPhrasesOf(page: { file: string; path: string }): Promise
   expect(subject, page.path).toBeDefined();
   const allowed = ROLE_LADDER.find((role) => rolesWhoCanOpen(page.path).includes(role));
   expect(allowed, page.path).toBeDefined();
+  /*
+   * A page that reads rows is rendered here with **no membership**, so it shows its own empty
+   * state rather than opening the stubbed database. That is the right subject for this check
+   * anyway: what a refusal must not leak is the page's own words — its heading, its intro, the
+   * sentence it shows when there is nothing waiting — and none of those depend on a row. The
+   * rows themselves are another family's data and are never in a 403 body under any reading.
+   */
+  const memberships = READS_THE_DATABASE.has(page.path)
+    ? []
+    : [{ siteId: SITE, role: allowed as Membership["role"] }];
   getCaller.mockResolvedValue({
     kind: "STAFF", role: allowed as Membership["role"], userId: "00000000-0000-7000-8000-0000000000d1",
-    displayName: "SYN Dana Director", memberships: [{ siteId: SITE, role: allowed as Membership["role"] }],
+    displayName: "SYN Dana Director", memberships,
   });
   const mod = (await import(/* @vite-ignore */ subject.file)) as { default: (p: unknown) => Promise<unknown> };
   const html = await toHtml(await mod.default({ searchParams: Promise.resolve({}), params: Promise.resolve({}) }));
@@ -352,6 +377,16 @@ describe("every page, for every role and for a signed-out visitor", () => {
       it(`${page.path} as ${who}`, async () => {
         getCaller.mockResolvedValue(caller);
         const expected = pageOutcome(caller, page.path);
+
+        /*
+         * A page that reads rows, opened by a caller who holds a membership: the read is expected,
+         * and the stub firing is what proves the guard ran in front of it. A caller with no
+         * membership reads nothing and falls through to the branches below like any other.
+         */
+        if (expected === "ALLOW" && READS_THE_DATABASE.has(page.path) && caller.memberships.length > 0) {
+          await expect(openPage(page.file)).rejects.toThrow(DB_OPENED);
+          return;
+        }
         const result = await openPage(page.file);
 
         if (page.path === "/") {
@@ -540,21 +575,38 @@ describe("the session endpoint, for every role and for a signed-out caller", () 
      * the rows out), and this is the line that would fail the day one of them became a session
      * surface without a guarded refusal to go with it.
      *
-     * The phone panel's two controls are the other kind: a session action, which is a POST
-     * endpoint with no URL of its own, so the role check cannot live in a route guard and lives
-     * in the action instead. The assertion below is that it *is* there — a session row whose file
-     * never asks who is calling would be a button that guards itself by being hidden.
+     * The other three are the other kind: a session action, which is a POST endpoint with no URL
+     * of its own, so the role check cannot live in a route guard and lives in the action's own
+     * code instead. The assertion below is that it *is* there — a session row whose file never
+     * asks who is calling would be a button that guards itself by being hidden.
      */
     const actions = ENDPOINTS.filter((row) => row.kind === "action");
     expect(actions.map((a) => [a.path, a.auth.kind])).toEqual([
       ["action:agent-turn", "session"],
       ["action:agent-approval", "session"],
+      ["action:approval-decision", "session"],
       ["action:sign-in", "auth-endpoint"],
       ["action:sign-out", "public"],
     ]);
     for (const action of actions.filter((a) => a.auth.kind === "session")) {
       const source = readFileSync(path.join(REPO, action.file), "utf8");
-      expect(source, action.file).toMatch(/canOpenPage\(await getCaller\(\)/);
+      // It asks who is calling, in its own code, rather than trusting that a button was rendered.
+      expect(source, action.file).toMatch(/await getCaller\(\)/);
+      /*
+       * And the roles it holds them to come from the one access table — in the action itself or in
+       * the module beside it that does the deciding. Two shapes, because a write needs more than a
+       * read: the phone panel's two controls ask `canOpenPage` directly, and SURF-05's decision
+       * delegates to `approvals.ts`, which reads the page's own row through `rolesWhoCanOpen` and
+       * then checks the caller's membership at the approval's own site.
+       */
+      const dir = path.dirname(path.join(REPO, action.file));
+      const beside = readdirSync(dir)
+        .filter((f) => f.endsWith(".ts") || f.endsWith(".tsx"))
+        .map((f) => readFileSync(path.join(dir, f), "utf8"))
+        .join("\n");
+      expect(beside, action.file).toMatch(/canOpenPage\(|rolesWhoCanOpen\(/);
+      // Never a role literal in the action: a list restated here is a list that can drift.
+      expect(source, action.file).not.toMatch(/"(DIRECTOR|COORDINATOR|FRONT_DESK)"/);
     }
   });
 });
