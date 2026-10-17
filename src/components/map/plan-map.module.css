@@ -21,8 +21,8 @@
 
 .canvasWrap {
   position: relative;
-  min-height: 320px;
-  height: clamp(320px, 42vh, 460px);
+  min-height: 360px;
+  height: clamp(360px, 46vh, 520px);
   border: var(--border-hairline) solid var(--color-border-strong);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -117,10 +117,14 @@
   cursor: pointer;
 }
 
-/* The empty state sits in the middle of the canvas: there is no line to cover. */
+/*
+ * The empty state, under the camera control at the top of the canvas rather than across the
+ * middle of it. There is no line to cover yet, but there *is* the centre — the one pin the map
+ * has before anybody is in a van — and a card over it would hide the only thing it can show.
+ */
 .empty {
   max-width: 28ch;
-  margin: auto;
+  margin: 0;
   padding: var(--space-3) var(--space-4);
   font-size: var(--body-console);
   line-height: var(--leading-normal);

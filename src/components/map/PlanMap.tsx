@@ -98,7 +98,7 @@ function fitTo(map: MapLibreMap, coords: readonly Coord[]): void {
     );
     return;
   }
-  const camera = map.cameraForBounds(bounds, { padding: 48 });
+  const camera = map.cameraForBounds(bounds, { padding: 56 });
   const target = camera?.center
     ? { center: toCoord(camera.center), zoom: camera.zoom }
     : { center: centerOfBounds(bounds) };
@@ -283,21 +283,21 @@ export default function PlanMap({ data, selectedLaneId, onSelect }: PlanMapProps
   }, [data, selectedLaneId, ready]);
 
   /*
-   * The camera follows the *selection* and not every edit: a coordinator moving a child between
-   * two lanes is reading the lanes, and a map that flew somewhere on each drop would be reading
-   * over their shoulder. Picking a van is the one action that means "show me this", so that is
-   * when the pane re-frames — on the van's own stops, or on the whole plan when none is picked.
+   * The camera re-frames on two things and no others: a van being picked, and the map going from
+   * nothing to something. Picking is the action that means "show me this", and the first plan is
+   * the moment there is anything to show — in between, a coordinator moving a child between two
+   * lanes is reading the lanes, and a pane that flew somewhere on every drop would be reading
+   * over their shoulder.
    */
-  const selectedRoute = data.routes.find((route) => route.laneId === selectedLaneId);
-  const selectedLine = selectedRoute?.line ?? [];
-  const selectedKey = selectedLine.length > 0 ? `${selectedLaneId}:${selectedLine.length}` : selectedLaneId;
+  const selectedLine = data.routes.find((route) => route.laneId === selectedLaneId)?.line ?? [];
+  const framing = `${selectedLaneId ?? ""}:${data.empty ? "empty" : "plan"}`;
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
     fitTo(map, selectedLine.length > 0 ? selectedLine : planMapCoords(data));
-    // Re-framed when the pick changes, not when the plan does.
+    // Re-framed when the pick or the emptiness changes, not when the plan is rearranged.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey, ready]);
+  }, [framing, ready]);
 
   const fitEverything = useCallback(() => {
     const map = mapRef.current;

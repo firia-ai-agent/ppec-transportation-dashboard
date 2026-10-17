@@ -23,9 +23,8 @@ import {
   asMeasured,
   askedProvider,
   checkedAtRamp,
-  DRIVERS,
+  driverFor,
   notCheckedYet,
-  RELIEF_DRIVERS,
   planLanes,
   planRiders,
   reportedByProvider,
@@ -145,26 +144,42 @@ export function planInputOf(day: PlanDay): PlanInput {
 }
 
 /**
+ * A lane as a *request* may describe it: the van on it, what has been said about that van, and
+ * the configuration anybody who saw it reported.
+ *
+ * Three fields and not four. A `LaneStage` also carries the driver's name, and that name stays
+ * on the screen: the solver's verdict does not depend on who is at the wheel, and what is saved
+ * is which child rides in which van — so sending a person's name would be putting it in a
+ * request body for nothing, which is the one thing TEST-SEC-02 asks a screen not to do. The
+ * server fills it back in from the day's own records (`driverFor`) for the lane it rebuilds.
+ */
+export type AskedLane = {
+  vehicleKey: string;
+  arrival: LaneStageState;
+  rampLayoutId?: string;
+};
+
+/**
  * A day as a *request* describes it, accepted only if every id in it belongs to this run.
  *
- * The save endpoint is handed the lanes, the vans on them, who is driving, what has been
- * reported and whose chair was measured — because the solver's answer depends on all five, and a
- * server that re-asked the question with its own defaults would be answering a different one
- * (a van substituted on screen can carry nobody until the provider reports, and a plan made
- * around that is not a plan the morning's defaults would allow).
+ * The save endpoint is handed the lanes, the vans on them, what has been reported and whose
+ * chair was measured — because the solver's answer depends on all four, and a server that
+ * re-asked the question with its own defaults would be answering a different one (a van
+ * substituted on screen can carry nobody until the provider reports, and a plan made around that
+ * is not a plan the morning's defaults would allow).
  *
  * Which means these are ids from outside, so each one is checked against the day rather than
  * used: the lanes are exactly the scenario's own, the van is one of the fleet's, a pinned
- * configuration is one that van is built with, the driver is somebody the day has on file, and a
- * measured chair belongs to a child on this run. Anything else is `null` — one answer, so the
- * caller cannot tell which id was wrong, or whether it exists somewhere they cannot see.
+ * configuration is one that van is built with, and a measured chair belongs to a child on this
+ * run. Anything else is `null` — one answer, so the caller cannot tell which id was wrong, or
+ * whether it exists somewhere they cannot see.
  *
  * `null` and not a throw: this is a request, and a bad id is a refusal rather than a fault.
  */
 export function readPlanDay(asked: {
   scenario: DemoScenario;
   direction: Direction;
-  stages: Readonly<Record<string, LaneStage>>;
+  stages: Readonly<Record<string, AskedLane>>;
   measured: readonly string[];
 }): PlanDay | null {
   const laneIds = planLanes(asked.scenario).map((lane) => lane.id);
@@ -173,15 +188,16 @@ export function readPlanDay(asked: {
   if (!laneIds.every((id) => named.includes(id))) return null;
 
   const fleet = new Set(VEHICLES.map((vehicle) => vehicle.key));
-  const drivers = new Set([...Object.values(DRIVERS), ...RELIEF_DRIVERS]);
+  const stages: Record<string, LaneStage> = {};
   for (const id of laneIds) {
-    const stage = asked.stages[id];
-    if (!fleet.has(stage.vehicleKey)) return null;
-    if (!drivers.has(stage.driverName)) return null;
-    if (stage.rampLayoutId !== undefined) {
-      const built = vehicleByKey(stage.vehicleKey).layouts.map((layout) => layout.id);
-      if (!built.includes(stage.rampLayoutId)) return null;
+    const asking = asked.stages[id];
+    if (!fleet.has(asking.vehicleKey)) return null;
+    if (asking.rampLayoutId !== undefined) {
+      const built = vehicleByKey(asking.vehicleKey).layouts.map((layout) => layout.id);
+      if (!built.includes(asking.rampLayoutId)) return null;
     }
+    // The driver is the day's own, never the request's: see `AskedLane`.
+    stages[id] = { ...asking, driverName: driverFor(asking.vehicleKey) };
   }
 
   const roster = new Set(planRiders(asked.direction).map((rider) => rider.child.token));
@@ -190,7 +206,7 @@ export function readPlanDay(asked: {
   return {
     scenario: asked.scenario,
     direction: asked.direction,
-    stages: asked.stages,
+    stages,
     measured: asked.measured,
   };
 }

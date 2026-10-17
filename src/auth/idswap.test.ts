@@ -361,15 +361,23 @@ describe("the same procedure, at the plan save endpoint", () => {
       measured: [] as string[],
     };
     const lanes = planInputOf(day).lanes.map((lane) => lane.id);
+    // The lanes as the wire carries them: ids only, with no person's name in the body.
+    const stages = Object.fromEntries(
+      Object.entries(day.stages).map(([laneId, stage]) => [
+        laneId,
+        { vehicleKey: stage.vehicleKey, arrival: stage.arrival },
+      ]),
+    );
     const empty = Object.fromEntries(lanes.map((id) => [id, [] as string[]]));
+    const asked = { ...day, stages };
     return {
       /** This run's own ids, in a plan the solver agreed with. */
-      ours: { ...day, assignment: planAssignment(planInputOf(day)) },
+      ours: { ...asked, assignment: planAssignment(planInputOf(day)) },
       /** A child this run does not drive — the swap. */
-      theirs: { ...day, assignment: { ...empty, [lanes[0]]: ["C12"] } },
+      theirs: { ...asked, assignment: { ...empty, [lanes[0]]: ["C12"] } },
       /** A van that is in the fleet and on no lane today — the other swap. */
-      otherVan: { ...day, assignment: { ...empty, V3: ["C7"] } },
-      empty: { ...day, assignment: empty },
+      otherVan: { ...asked, assignment: { ...empty, V3: ["C7"] } },
+      empty: { ...asked, assignment: empty },
     };
   }
 

@@ -12,19 +12,22 @@ export const dynamic = "force-dynamic";
 const noStore = { "cache-control": "no-store" };
 
 /** The run a plan is a plan of. Both methods name one. */
-const run = z.object({
+const run = z.strictObject({
   scenario: z.enum(DEMO_SCENARIOS),
   direction: z.enum(["AM", "PM"]),
 });
 
 /**
- * What the day knows about one lane's van. Bounded on purpose — every value is checked against
- * the day in `readPlanDay`, and these bounds are only so a huge or wrongly-typed body is a 400
- * before anything is looked up.
+ * What the day knows about one lane's van: the van, what has been said about it, and the
+ * configuration whoever saw it reported. Ids only — no person's name is accepted here, and the
+ * day's own records supply the driver (src/domain/plan/stages.ts `AskedLane`).
+ *
+ * Strict, and bounded: an unexpected field is a 400 rather than something quietly ignored, and
+ * the lengths are so a huge or wrongly-typed body is refused before any id is looked up. What
+ * each value *means* is still checked against the day in `readPlanDay`.
  */
-const stage = z.object({
+const stage = z.strictObject({
   vehicleKey: z.string().min(1).max(16),
-  driverName: z.string().min(1).max(64),
   arrival: z.enum(LANE_STAGES),
   rampLayoutId: z.string().min(1).max(64).optional(),
 });

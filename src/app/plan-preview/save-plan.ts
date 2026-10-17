@@ -18,10 +18,34 @@
  */
 import { API } from "@/auth/access";
 import type { Assignment } from "@/domain/solver";
-import type { PlanDay } from "@/domain/plan/stages";
+import type { AskedLane, PlanDay } from "@/domain/plan/stages";
 import { planRoutes } from "@/ui/copy";
 
 export type SaveOutcome = { ok: true } | { ok: false; reason: string };
+
+/**
+ * The lanes as the endpoint takes them: the van, what has been said about it, and the
+ * configuration the ramp pinned — and **not** the driver.
+ *
+ * Who is at the wheel changes nothing the solver decides and nothing that is saved, so the name
+ * stays on the screen rather than travelling in a request body. TEST-SEC-02 is the rule and
+ * e2e/plan-routes.spec.ts is where it is read off the wire: no person, place or family reaches
+ * a payload from this screen.
+ */
+function laneFacts(day: PlanDay): Record<string, AskedLane> {
+  return Object.fromEntries(
+    Object.entries(day.stages).map(([laneId, stage]) => [
+      laneId,
+      stage.rampLayoutId === undefined
+        ? { vehicleKey: stage.vehicleKey, arrival: stage.arrival }
+        : {
+            vehicleKey: stage.vehicleKey,
+            arrival: stage.arrival,
+            rampLayoutId: stage.rampLayoutId,
+          },
+    ]),
+  );
+}
 
 /** Send one run's plan to be checked and kept. */
 export async function savePlan(day: PlanDay, assignment: Assignment): Promise<SaveOutcome> {
@@ -33,7 +57,7 @@ export async function savePlan(day: PlanDay, assignment: Assignment): Promise<Sa
       body: JSON.stringify({
         scenario: day.scenario,
         direction: day.direction,
-        stages: day.stages,
+        stages: laneFacts(day),
         measured: day.measured,
         assignment,
       }),

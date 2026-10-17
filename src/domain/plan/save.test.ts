@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { checkPlan, placedCount, saveRefusalLine } from "./save";
 import { planInputOf, type PlanDay } from "./stages";
-import { initialStages, readPlanDay } from "./stages";
+import { initialStages, readPlanDay, type LaneStageState } from "./stages";
+import { driverFor } from "./day";
 import { planAssignment, tryMove, type Assignment } from "@/domain/solver";
 import { planRoutes, securement, vanName } from "@/ui/copy";
 
@@ -16,6 +17,16 @@ import { planRoutes, securement, vanName } from "@/ui/copy";
  */
 function dayOf(scenario: PlanDay["scenario"] = "EVERY_RIDER_FITS", direction: PlanDay["direction"] = "AM"): PlanDay {
   return { scenario, direction, stages: initialStages(scenario), measured: [] };
+}
+
+/** The lanes as a request may describe them: ids only, no person (`AskedLane`). */
+function asked(stages: Record<string, { vehicleKey: string; arrival: LaneStageState }>) {
+  return Object.fromEntries(
+    Object.entries(stages).map(([laneId, stage]) => [
+      laneId,
+      { vehicleKey: stage.vehicleKey, arrival: stage.arrival },
+    ]),
+  );
 }
 
 /** A plan the screen would have made: the planner's own, which the solver agreed with. */
@@ -209,40 +220,67 @@ describe("an id that is not this run's is refused, and the refusal confirms noth
     }
   });
 
-  it("refuses the day itself when the vans, drivers or configurations are not the day's", () => {
-    const stages = initialStages("EVERY_RIDER_FITS");
+  it("refuses the day itself when the vans, lanes or configurations are not the day's", () => {
+    const stages = asked(initialStages("EVERY_RIDER_FITS"));
     const laneId = Object.keys(stages)[0];
-    const asked = { scenario: "EVERY_RIDER_FITS" as const, direction: "AM" as const, measured: [] };
+    const day = { scenario: "EVERY_RIDER_FITS" as const, direction: "AM" as const, measured: [] };
 
     // The honest one is accepted, so the refusals below are about the swap and not the shape.
-    expect(readPlanDay({ ...asked, stages })).not.toBeNull();
+    expect(readPlanDay({ ...day, stages })).not.toBeNull();
 
     const swapped = [
       // A vehicle that is not in the fleet at all.
       { ...stages, [laneId]: { ...stages[laneId], vehicleKey: "V99" } },
-      // A driver nobody has on file: the only names this endpoint accepts are the day's own.
-      { ...stages, [laneId]: { ...stages[laneId], driverName: "Mallory X." } },
       // A configuration that van is not built with, pinned as though the ramp had seen it.
       {
         ...stages,
         [laneId]: { ...stages[laneId], arrival: "RAMP_CHECKED" as const, rampLayoutId: "L-nope" },
       },
       // A lane the scenario does not run.
-      { ...stages, V3: { vehicleKey: "V3", driverName: "Omar T.", arrival: "REPORTED" as const } },
+      { ...stages, V3: { vehicleKey: "V3", arrival: "REPORTED" as const } },
     ];
     for (const stagesSwapped of swapped) {
-      expect(readPlanDay({ ...asked, stages: stagesSwapped })).toBeNull();
+      expect(readPlanDay({ ...day, stages: stagesSwapped })).toBeNull();
     }
     // And a chair measured for somebody who is not on this run.
-    expect(readPlanDay({ ...asked, stages, measured: ["C12"] })).toBeNull();
+    expect(readPlanDay({ ...day, stages, measured: ["C12"] })).toBeNull();
+  });
+
+  /**
+   * Who is driving is not something a request may say.
+   *
+   * The name is on the screen and it changes nothing the solver decides, so it is not on the
+   * wire at all: the lane the server rebuilds takes its driver from the day's own records. A
+   * request that named one would be putting a person's name in a payload for nothing.
+   */
+  it("takes the driver from the day and not from the request", () => {
+    const stages = asked(initialStages("EVERY_RIDER_FITS"));
+    const read = readPlanDay({
+      scenario: "EVERY_RIDER_FITS",
+      direction: "AM",
+      stages,
+      measured: [],
+    });
+    expect(read).not.toBeNull();
+    if (!read) return;
+    for (const [laneId, stage] of Object.entries(read.stages)) {
+      expect({ laneId, driver: stage.driverName }).toEqual({
+        laneId,
+        driver: driverFor(stage.vehicleKey),
+      });
+    }
+    // Nothing a request carries is a person: the lane it describes is ids only.
+    for (const lane of Object.values(stages)) {
+      expect(Object.keys(lane).sort()).toEqual(["arrival", "vehicleKey"]);
+    }
   });
 
   it("accepts the day a coordinator actually worked: a substitution, a report, a measurement", () => {
-    const stages = initialStages("EVERY_RIDER_FITS");
+    const stages = asked(initialStages("EVERY_RIDER_FITS"));
     const laneId = Object.keys(stages)[0];
     const worked = {
       ...stages,
-      [laneId]: { vehicleKey: "V3", driverName: "Omar T.", arrival: "CHANGED" as const },
+      [laneId]: { vehicleKey: "V3", arrival: "CHANGED" as const },
     };
     const read = readPlanDay({
       scenario: "EVERY_RIDER_FITS",

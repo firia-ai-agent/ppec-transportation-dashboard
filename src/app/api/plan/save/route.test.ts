@@ -60,16 +60,29 @@ afterEach(async () => {
   clearSavedPlans();
 });
 
+/** The lanes as the endpoint takes them: ids only, with no person's name on the wire. */
+function asked(scenario: "EVERY_RIDER_FITS" | "ONE_RIDER_HAS_NO_VAN") {
+  return Object.fromEntries(
+    Object.entries(initialStages(scenario)).map(([laneId, stage]) => [
+      laneId,
+      { vehicleKey: stage.vehicleKey, arrival: stage.arrival },
+    ]),
+  );
+}
+
 const DAY = {
   scenario: "EVERY_RIDER_FITS" as const,
   direction: "AM" as const,
-  stages: initialStages("EVERY_RIDER_FITS"),
+  stages: asked("EVERY_RIDER_FITS"),
   measured: [] as string[],
 };
 
+/** The day as the solver sees it, which is what the endpoint rebuilds from the body above. */
+const INPUT = planInputOf({ ...DAY, stages: initialStages("EVERY_RIDER_FITS") });
+
 /** The plan the screen would send after pressing Plan routes once. */
 function plannedAssignment(): Assignment {
-  return planAssignment(planInputOf(DAY));
+  return planAssignment(INPUT);
 }
 
 async function post(body: unknown): Promise<Response> {
@@ -139,8 +152,8 @@ describe("saving a plan", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(body.placed).toBe(planInputOf(DAY).riders.length);
-    expect(body.riders).toBe(planInputOf(DAY).riders.length);
+    expect(body.placed).toBe(INPUT.riders.length);
+    expect(body.riders).toBe(INPUT.riders.length);
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
 
@@ -156,7 +169,7 @@ describe("saving a plan", () => {
 
   it("replaces the run's last plan rather than keeping two", async () => {
     await post({ ...DAY, assignment: plannedAssignment() });
-    const emptied = Object.fromEntries(planInputOf(DAY).lanes.map((lane) => [lane.id, []]));
+    const emptied = Object.fromEntries(INPUT.lanes.map((lane) => [lane.id, []]));
     await post({ ...DAY, assignment: emptied });
     const read = await (await get("?scenario=EVERY_RIDER_FITS&direction=AM")).json();
     expect(read.saved.assignment).toEqual(emptied);
@@ -171,7 +184,7 @@ describe("a refused move cannot be saved by posting it directly", () => {
    * in the same words, with nothing kept.
    */
   const scenario = "ONE_RIDER_HAS_NO_VAN" as const;
-  const stages = initialStages(scenario);
+  const stages = asked(scenario);
   const laneId = Object.keys(stages)[0];
   const forced = {
     scenario,
@@ -188,7 +201,12 @@ describe("a refused move cannot be saved by posting it directly", () => {
     expect(res.status).toBe(422);
     const body = await res.json();
     expect(body.ok).toBe(false);
-    const input = planInputOf({ scenario, direction: "AM", stages, measured: [] });
+    const input = planInputOf({
+      scenario,
+      direction: "AM",
+      stages: initialStages(scenario),
+      measured: [],
+    });
     const lane = input.lanes.find((l) => l.id === laneId);
     expect(body.error).toContain("Zoe B.");
     expect(body.error).toContain(vanName(lane?.vehicle.description ?? ""));
@@ -236,14 +254,6 @@ describe("an id swap over HTTP", () => {
       },
     ],
     [
-      "a driver the day does not have",
-      {
-        ...DAY,
-        stages: { ...DAY.stages, V1: { ...DAY.stages.V1, driverName: "Mallory X." } },
-        assignment: { V1: [], V2: [], V4: [] },
-      },
-    ],
-    [
       "a configuration that van is not built with",
       {
         ...DAY,
@@ -275,7 +285,20 @@ describe("an id swap over HTTP", () => {
   });
 
   it("is a 400 before any of that when the body or the query cannot be read at all", async () => {
-    for (const body of ["not json", {}, { ...DAY, assignment: "mine" }, { ...DAY, scenario: "OTHER_DAY" }]) {
+    const bodies: unknown[] = [
+      "not json",
+      {},
+      { ...DAY, assignment: "mine" },
+      { ...DAY, scenario: "OTHER_DAY" },
+      // A field this endpoint does not take. It is strict on purpose: the one that used to be
+      // here was a driver's name, and a name it ignored is a name that still travelled.
+      {
+        ...DAY,
+        stages: { ...DAY.stages, V1: { ...DAY.stages.V1, driverName: "Mallory X." } },
+        assignment: { V1: [], V2: [], V4: [] },
+      },
+    ];
+    for (const body of bodies) {
       const res = await post(body);
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({ ok: false, error: apiAccess.badRequest });

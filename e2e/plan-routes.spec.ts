@@ -12,7 +12,9 @@
  * playwright.config.ts), which grants a role and nothing else.
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { board, fill, nav, planRoutes as copy, securement, solver, vanName } from "../src/ui/copy";
+import { board, countable, fill, nav, planRoutes as copy, pluralize, securement, solver, vanName } from "../src/ui/copy";
+import { DEFAULT_MAP_STYLE_URL } from "../src/components/map/style";
+import { API } from "../src/auth/access";
 import { capabilityStates, reservationStates } from "../src/ui/states";
 import {
   boxOf,
@@ -53,6 +55,15 @@ const RECORD_ANSWER = namesProvider(copy.recordAnswer);
  * ends in "seats used" — which is why these are two patterns and not one with a flag.
  */
 const SEATS = /(?<!anchored )(\d+) of (\d+) seats? used/;
+
+/**
+ * Where a plan is saved. Named through the access table, which is where every endpoint path in
+ * this repo is written down (src/auth/access.ts) — a literal here would be a second copy of it.
+ */
+const SAVE_ENDPOINT = API.planSave;
+
+/** "the convertible van · 3 stops" on the row under the map, as a pattern over the count. */
+const STOP_COUNT = new RegExp(`· (\\d+) (?:${countable.stop.one}|${countable.stop.many})$`);
 const ANCHORED_SEATS = /(\d+) of (\d+) anchored seats? used/;
 
 type Lane = {
@@ -111,6 +122,54 @@ async function waitingNames(page: Page): Promise<string[]> {
 
 async function plan(page: Page): Promise<void> {
   await page.getByRole("button", { name: copy.plan, exact: true }).click();
+}
+
+/**
+ * The kerbs one lane drives, read off its own rider rows: "Okeeheelee Park · 6:50 AM", with the
+ * place taken and the window left alone. Distinct, because two children of one family board at
+ * one kerb and a van stops there once — which is also what the map draws.
+ */
+async function kerbsIn(page: Page, laneId: string): Promise<string[]> {
+  const rows = await laneOf(page, laneId).locator("[data-rider]").allInnerTexts();
+  const kerbs = rows.flatMap((row) => {
+    const found = /^(.+) · \d{1,2}:\d{2} (?:AM|PM)$/m.exec(row);
+    return found ? [found[1]] : [];
+  });
+  return [...new Set(kerbs)];
+}
+
+/**
+ * Move some child into some other van, stopping at the first move the solver allows.
+ *
+ * Which child can go where is the solver's answer over the plan it has just made, and this check
+ * is not the place to re-derive it: a hardcoded pair would be a copy of the planner's search and
+ * would go stale the moment the fixtures changed. A refusal changes nothing on the screen — that
+ * is what the refusal check above is for — so asking is free, and the first acceptance is the
+ * move a coordinator would have made.
+ */
+async function moveWhoeverFits(
+  page: Page,
+): Promise<{ child: string; kerb: string; from: string; to: string }> {
+  const all = await lanes(page);
+  for (const lane of all) {
+    for (const child of lane.riders) {
+      const row = laneOf(page, lane.id).locator(`[data-rider="${child}"]`);
+      const kerbs = /^(.+) · \d{1,2}:\d{2} (?:AM|PM)$/m.exec(await row.innerText());
+      for (const target of all.filter((l) => l.id !== lane.id)) {
+        await row.getByRole("button", { name: fill(copy.move, { child }), exact: true }).click();
+        await page
+          .getByRole("button", { name: fill(copy.moveTo, { vehicle: target.van }), exact: true })
+          .click();
+        const notice = (await page.locator("[data-notice]").innerText()).trim();
+        if (notice === fill(copy.moved, { child, vehicle: target.van })) {
+          return { child, kerb: kerbs?.[1] ?? "", from: lane.id, to: target.id };
+        }
+        // Refused: the line says which van and what is missing, and nothing moved.
+        expect(notice, `${child} into ${target.van}`).toMatch(/^Can’t put /);
+      }
+    }
+  }
+  throw new Error("no move the solver allowed");
 }
 
 /**
@@ -800,6 +859,221 @@ test.describe("Plan routes", () => {
     expect(await page.locator("[data-waiting]").count()).toBe(0);
   });
 
+  /**
+   * The map beside the lanes, and the plan being saved: the one walk a founder clicks through.
+   *
+   * MapLibre draws into a WebGL canvas, so none of this is readable from the DOM — a pane that
+   * drew nothing looks exactly like a pane that drew three routes. The pane publishes what
+   * MapLibre itself says is on screen when the tiles stop arriving (`data-routes-drawn`,
+   * `data-basemap-features`, src/components/map/PlanMap.tsx), and that is what is asserted:
+   * which vans have lines, and that there is a base map under them.
+   */
+  test("draws a route per van, follows a move, highlights one van, and saves the plan", async ({
+    page,
+  }) => {
+    const failures: string[] = [];
+    page.on("pageerror", (e) => failures.push(e.message));
+
+    await page.goto("/plan-preview");
+    await expect(page.getByRole("heading", { level: 1, name: copy.heading })).toBeVisible();
+
+    // The pane is a real map: a canvas of real size, with the licence text on it (ADR-008).
+    const map = page.getByRole("region", { name: copy.mapLabel });
+    await expect(map).toBeVisible();
+    const canvas = map.locator("canvas.maplibregl-canvas");
+    await expect(canvas).toBeVisible();
+    const size = await boxOf(canvas);
+    expect(size.width).toBeGreaterThan(240);
+    expect(size.height).toBeGreaterThan(240);
+    const pane = page.locator("[data-routes-drawn]");
+    await expect(page.locator(".maplibregl-ctrl-attrib")).toBeAttached();
+    // Neither tile notice is on screen: this is the drawn path, not the failure path.
+    await expect(page.getByText(copy.mapEmpty)).toBeVisible();
+
+    /*
+     * Nothing is planned until staff ask for it, so the map opens with the centre and no lines —
+     * and says which button draws them, rather than sitting there as an empty frame.
+     */
+    await expect(pane).toHaveAttribute("data-routes-drawn", "", { timeout: 60_000 });
+
+    await plan(page);
+    // One line per van, and the vans are the three lanes on the screen.
+    const laneIds = (await lanes(page)).map((lane) => lane.id);
+    await expect(pane).toHaveAttribute("data-routes-drawn", [...laneIds].sort().join(","), {
+      timeout: 60_000,
+    });
+    /*
+     * There is a base map under the lines. The number is lower than the fleet pane's bar (200)
+     * because this pane is a third of the width and half the height of that one — what is being
+     * asserted is that positron drew *something* real here, which is the difference between a
+     * map and the empty canvas MapLibre leaves behind when its tile worker fails to load.
+     */
+    await expect
+      .poll(async () => Number(await pane.getAttribute("data-basemap-features")), {
+        timeout: 60_000,
+        message: "no basemap features rendered: the tiles did not draw",
+      })
+      .toBeGreaterThan(50);
+    await expect(page.getByText(copy.mapEmpty)).toHaveCount(0);
+
+    /*
+     * §9: the map is never the only way to read it. One row per van, naming the van in words and
+     * counting the stops it drives — which is also how a move is read below, because a count is
+     * something a browser check can compare and a drawn line is not.
+     */
+    const vans = page.getByRole("list", { name: copy.mapVansHeading });
+    await expect(vans).toBeVisible();
+    const rows = vans.getByRole("listitem");
+    expect(await rows.count()).toBe(laneIds.length);
+    const rowOf = (laneId: string) => page.locator(`[data-van-line="${laneId}"]`);
+    const stopsOn = async (laneId: string): Promise<number> => {
+      const text = (await rowOf(laneId).innerText()).trim();
+      const count = STOP_COUNT.exec(text);
+      expect(count, `${laneId} does not say how many stops it drives: ${text}`).not.toBeNull();
+      return Number(count?.[1]);
+    };
+    for (const laneId of laneIds) {
+      const van = (await lanes(page)).find((lane) => lane.id === laneId)?.van ?? "";
+      const stops = await stopsOn(laneId);
+      expect(stops).toBeGreaterThan(0);
+      // The row is the van's own name and its stop count, with the noun on the number.
+      await expect(rowOf(laneId)).toHaveText(
+        fill(copy.mapVanRow, { vehicle: van, stops: pluralize(stops, countable.stop) }),
+      );
+    }
+
+    /*
+     * The map draws the lanes' own stops, which is checked as an invariant rather than as a
+     * number: every van's line has exactly as many stops as that van has distinct kerbs among
+     * its riders. Read off both sides of the screen — the kerb out of each rider's own row, the
+     * count out of the row under the map — so the two can only agree by being one answer.
+     */
+    const expectMapAgreesWithLanes = async (when: string) => {
+      for (const laneId of laneIds) {
+        const kerbs = await kerbsIn(page, laneId);
+        expect(
+          { when, laneId, stops: await stopsOn(laneId) },
+          `${laneId} draws a different number of stops than it carries`,
+        ).toEqual({ when, laneId, stops: kerbs.length });
+      }
+    };
+    await expectMapAgreesWithLanes("planned");
+
+    /* ── a move between lanes moves on the map ── */
+    const moved = await moveWhoeverFits(page);
+    expect((await lanes(page)).find((lane) => lane.id === moved.to)?.riders).toContain(moved.child);
+    expect((await lanes(page)).find((lane) => lane.id === moved.from)?.riders).not.toContain(
+      moved.child,
+    );
+    // The map followed, in the same render and from the same plan.
+    await expectMapAgreesWithLanes("after the move");
+    // And the van that gained a rider draws the kerb that rider is picked up at.
+    const gained = await kerbsIn(page, moved.to);
+    expect(gained).toContain(moved.kerb);
+    expect(await stopsOn(moved.to)).toBe(gained.length);
+
+    const to = (await lanes(page)).find((lane) => lane.id === moved.to);
+    if (!to) return;
+
+    /* ── selecting a lane highlights its route ── */
+    const lane = laneOf(page, to.id);
+    const show = lane.getByRole("button", { name: copy.showOnMap, exact: true });
+    await expect(show).toHaveAttribute("aria-pressed", "false");
+    await show.click();
+    // Said in three places and never in colour alone: the lane, its button, and the row under
+    // the map — which is the same one selection, however it was made.
+    await expect(lane).toHaveAttribute("data-selected", "true");
+    await expect(show).toHaveAttribute("aria-pressed", "true");
+    await expect(rowOf(to.id)).toHaveAttribute("aria-pressed", "true");
+    for (const other of laneIds.filter((id) => id !== to.id)) {
+      await expect(rowOf(other)).toHaveAttribute("aria-pressed", "false");
+      await expect(laneOf(page, other)).not.toHaveAttribute("data-selected", "true");
+    }
+    // Every line is still drawn: the others are dimmed, not removed.
+    await expect(pane).toHaveAttribute("data-routes-drawn", [...laneIds].sort().join(","));
+    // The camera flies to the van that was picked (600 ms, §5.1), so the picture is taken once
+    // the tiles for where it landed have arrived rather than halfway there.
+    await page.waitForLoadState("networkidle");
+    console.log("screenshot:", await shot(page, "plan-routes-map-selected"));
+
+    // And back to all three, from the control that says so.
+    await page.getByRole("button", { name: copy.mapShowAll, exact: true }).click();
+    await expect(show).toHaveAttribute("aria-pressed", "false");
+    await expect(lane).not.toHaveAttribute("data-selected", "true");
+
+    /* ── saving ── */
+    const save = page.getByRole("button", { name: copy.save, exact: true });
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(page.locator("[data-notice]")).toHaveText(copy.saved);
+    // Saving is not sending, and the saved line says so in the same breath.
+    expect(copy.saved).toContain("No family has been told");
+
+    await expectNoInternalCodes(page);
+    await expectNoVehicleCodes(page);
+    await expectVioletOnlyOnDemoChrome(page);
+    expect(failures, `page errors: ${failures.join("; ")}`).toEqual([]);
+    await page.waitForLoadState("networkidle");
+    console.log("screenshot:", await shot(page, "plan-routes-map-and-save"));
+  });
+
+  /**
+   * The refusal, over the wire. The screen will not send a plan it refused, so this is the plan
+   * arriving from something that is not the screen — the same request a `curl` would make — and
+   * it is refused by the solver on the server, in the sentence the screen would have shown.
+   */
+  test("a refused move cannot be saved by posting it straight to the endpoint", async ({
+    page,
+    request,
+  }) => {
+    await page.goto("/plan-preview");
+    // The scenario where no van has four-point straps, so this is the one move the screen
+    // refuses — read off the screen first, so the refusal below is the same verdict.
+    const toggle = page.locator('[data-demo-control="true"]');
+    await toggle.getByRole("button", { name: copy.demoScenario.ONE_RIDER_HAS_NO_VAN }).click();
+    await plan(page);
+    const group = page.locator("[data-unplaced]");
+    await expect(group).toContainText(CHAIR_CHILD);
+
+    const laneIds = (await lanes(page)).map((lane) => lane.id);
+    // The lanes as the endpoint takes them: the van on each and what has been said about it.
+    // No person: who is driving stays on the screen (src/app/plan-preview/save-plan.ts).
+    const stages = Object.fromEntries(
+      laneIds.map((id) => [id, { vehicleKey: id, arrival: "REPORTED" }]),
+    );
+    const forced = {
+      scenario: "ONE_RIDER_HAS_NO_VAN",
+      direction: "AM",
+      stages,
+      measured: [],
+      // The chair, in the van the screen just refused it for.
+      assignment: Object.fromEntries(laneIds.map((id, i) => [id, i === 0 ? ["C6"] : []])),
+    };
+
+    const refused = await request.post(SAVE_ENDPOINT, { data: forced });
+    expect(refused.status()).toBe(422);
+    const body = await refused.json();
+    expect(body.ok).toBe(false);
+    expect(body.error).toContain(CHAIR_CHILD);
+    // The same words the screen would have used, and no code in them.
+    expect(body.error).toMatch(/^Can’t put /);
+    expect(body.error).not.toMatch(/\bV\d\b|\bC\d\b/);
+
+    // Nothing was kept: the run still has no saved plan.
+    const read = await request.get(
+      `${SAVE_ENDPOINT}?scenario=ONE_RIDER_HAS_NO_VAN&direction=AM`,
+    );
+    expect(read.status()).toBe(200);
+    expect((await read.json()).saved).toBeNull();
+
+    // And the same request with another run's child in it is the uniform refusal instead.
+    const swapped = await request.post(SAVE_ENDPOINT, {
+      data: { ...forced, assignment: Object.fromEntries(laneIds.map((id, i) => [id, i === 0 ? ["C12"] : []])) },
+    });
+    expect(swapped.status()).toBe(404);
+    expect((await swapped.json()).error).toBe(copy.saveNotThisRun);
+  });
+
   test("TEST-SEC-02: no non-BAA call leaves the page, and no routing payload carries a token", async ({
     page,
   }) => {
@@ -830,17 +1104,42 @@ test.describe("Plan routes", () => {
     await plan(page);
     await page.getByRole("button", { name: copy.directionButton.PM, exact: true }).click();
     await plan(page);
+    // The save is the one request this screen makes on purpose, so it is in the walk.
+    await page.getByRole("button", { name: copy.save, exact: true }).click();
+    await expect(page.locator("[data-notice]")).toHaveText(copy.saved);
     await page.waitForLoadState("networkidle");
 
-    // No map, no routing provider, no geocoder: there is no *.googleapis.com request to make.
+    // No routing provider and no geocoder: there is no *.googleapis.com request to make.
     expect(seen.filter((r) => /googleapis\.com/i.test(r.url))).toEqual([]);
-    // And nothing left this origin at all, which is the stronger form of the same rule.
-    const offSite = seen.filter((r) => !r.url.startsWith("http://127.0.0.1:"));
-    expect(offSite.map((r) => r.url)).toEqual([]);
 
-    // No payload at all, so nothing can be in one: the plan is computed in the browser from
-    // the synthetic day, and the solver is pure.
-    expect(seen.filter((r) => r.body.length > 0).map((r) => `${r.method} ${r.url}`)).toEqual([]);
+    /*
+     * One host off this origin, and it is the base map's (ADR-008 / DESIGN-DIRECTION §5.1): the
+     * positron style, its glyphs, its sprites and its tiles. Asserted as a *host* rather than as
+     * an allowance for "anything that looks like tiles", so a second provider — a geocoder, an
+     * analytics beacon, a font CDN — fails this check the day it arrives.
+     */
+    const tileHost = new URL(DEFAULT_MAP_STYLE_URL).host;
+    const offSite = seen.filter((r) => !r.url.startsWith("http://127.0.0.1:"));
+    expect([...new Set(offSite.map((r) => new URL(r.url).host))]).toEqual([tileHost]);
+    // And the map asks the tile server for tiles: no body, so nothing of the day is in one.
+    expect(offSite.filter((r) => r.body.length > 0).map((r) => r.url)).toEqual([]);
+    expect(offSite.filter((r) => r.method !== "GET").map((r) => r.url)).toEqual([]);
+
+    /*
+     * The only payload on the page is the plan being saved, and it goes to this app's own origin.
+     * What it carries is the day's own ids — which lane holds which child token — and nothing a
+     * family could be identified by: no names, no places, no phone, no family code. The server
+     * re-asks the solver about those ids (src/domain/plan/save.ts); it is handed no sentence to
+     * repeat and no address to look up.
+     */
+    const bodies = seen.filter((r) => r.body.length > 0);
+    expect(bodies.map((r) => `${r.method} ${new URL(r.url).host}`)).toEqual([
+      `POST ${new URL(page.url()).host}`,
+    ]);
+    for (const payload of bodies.map((r) => r.body)) {
+      expect(payload).not.toMatch(/\bF\d{1,2}\b/);
+      expect(payload).not.toMatch(/\+1-561/);
+    }
 
     // Belt and braces: no child, place or vehicle name appears in any request we did make.
     const names = [CHAIR_CHILD, "Noah O.", "Okeeheelee Park", "PPEC center", "Omar T."];
