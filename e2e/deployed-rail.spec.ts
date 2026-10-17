@@ -29,12 +29,43 @@
  *
  * Read-only: it signs in, reads three pages and signs nothing, writes nothing, posts nothing.
  */
+import { execFileSync } from "node:child_process";
 import { expect, test, type Page } from "@playwright/test";
 import { DEMO_ACCOUNTS, DEMO_SHARED_PASSWORD } from "../src/auth/demo-accounts";
 import { nav } from "../src/ui/copy";
 
 /** The deployment to measure. Unset locally, so the whole file skips. */
 const DEPLOYED = process.env.E2E_DEPLOYED_URL?.replace(/\/$/, "");
+
+/**
+ * The commit the deployment is expected to be serving. Defaults to this checkout's `HEAD`,
+ * because that is the thing you are usually asking about: "does the build of *my* branch show
+ * the rail". `E2E_EXPECTED_COMMIT=` (empty) turns the check off, for measuring production from a
+ * branch checkout.
+ *
+ * This is the assertion that would have answered the founder's screenshot in one line. The rail
+ * that showed four items was correct *for the bundle it came from* — `/plan-routes` reached the
+ * rail in bf0d489, which reached production in a9b122e — so every check that compared the rail
+ * against the source tree agreed with itself while the screenshot disagreed with both. Naming
+ * the commit turns "the rail is wrong" into "this deployment is older than the rail".
+ */
+const EXPECTED_COMMIT =
+  process.env.E2E_EXPECTED_COMMIT ??
+  (() => {
+    try {
+      return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    } catch {
+      return "";
+    }
+  })();
+
+/** Filled by the first test and quoted in every later failure, so a failure dates itself. */
+let served = "unknown";
+
+async function deployedCommit(request: { get: (url: string) => Promise<{ json: () => Promise<{ commit?: string }> }> }): Promise<string> {
+  const health = await (await request.get(`${DEPLOYED}/api/health`)).json();
+  return health.commit ?? "unknown";
+}
 
 /**
  * The rail a DIRECTOR must get, in order: §2's four console destinations, with Plan routes and
@@ -66,12 +97,19 @@ async function signInAsDirector(page: Page): Promise<void> {
 test.describe("the deployed build, as the demo director", () => {
   test.skip(!DEPLOYED, "set E2E_DEPLOYED_URL to the preview or production URL to run this");
 
-  test("says which commit it is serving", async ({ request }) => {
+  test("says which commit it is serving, and is serving the one under test", async ({ request }) => {
     const health = await (await request.get(`${DEPLOYED}/api/health`)).json();
-    // Not an assertion about the value — the point is that the evidence is dated. A rail that is
-    // missing an item is only a code bug if the build that drew it contains the code.
-    console.log(`deployed: commit=${health.commit} branch=${health.branch} env=${health.environment}`);
+    served = health.commit ?? "unknown";
+    // The evidence is dated: a rail that is missing an item is only a code bug if the build that
+    // drew it contains the code.
+    console.log(`deployed: commit=${served} branch=${health.branch} env=${health.environment}`);
     expect(typeof health.commit, "the deployment does not report a commit").toBe("string");
+    if (EXPECTED_COMMIT) {
+      expect(
+        served,
+        `${DEPLOYED} is serving ${served}, not ${EXPECTED_COMMIT}: whatever its rail shows is that older build's rail, not this branch's`,
+      ).toBe(EXPECTED_COMMIT);
+    }
   });
 
   test("reports DIRECTOR for the session it just signed in with", async ({ page }) => {
@@ -88,6 +126,7 @@ test.describe("the deployed build, as the demo director", () => {
     page,
   }) => {
     await signInAsDirector(page);
+    if (served === "unknown") served = await deployedCommit(page.request);
 
     const rail = page.getByRole("navigation", { name: nav.landmarkLabel });
     await expect(rail).toBeVisible();
@@ -104,7 +143,10 @@ test.describe("the deployed build, as the demo director", () => {
         href: new URL((el as HTMLAnchorElement).href).pathname,
       })),
     );
-    expect(rendered).toEqual(DIRECTOR_RAIL.map((item) => ({ ...item })));
+    expect(
+      { commit: served, rail: rendered },
+      "the rail the deployment rendered is not the director's seven",
+    ).toEqual({ commit: served, rail: DIRECTOR_RAIL.map((item) => ({ ...item })) });
 
     // Nothing in the rail says "preview", in its words or in its address (Vera, 2026-10-17).
     for (const item of rendered) {
