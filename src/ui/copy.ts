@@ -1425,10 +1425,18 @@ export const solver = {
       detail:
         "Run {who} separately on {vehicle}. Everyone already on the vehicle stays where they are.",
     },
+    /**
+     * `{vehicle}` is `vanName` and `{description}` is `vanTitle` — the same van, mid-sentence in
+     * the label and standing at the head of its own sentence in the detail. Neither is the half
+     * of the fixture's label that is a key, and `{provider}` arrives with the synthetic marker
+     * already off it: this detail read "center van (SYN Greenacres center fleet) fits …" behind
+     * the ramp iPad's "Show details" on prod (Vera, 2026-10-17 2:48 PM ET).
+     */
     ALTERNATE_VEHICLE: {
       label: "Move to {vehicle}",
       detail: "{description} ({provider}) fits {who} as {layout}.",
     },
+    /** The same sentence, for a van from another operator. The same two display names. */
     ALTERNATE_PROVIDER: {
       label: "Move to {vehicle}",
       detail: "{description} ({provider}) fits {who} as {layout}.",
