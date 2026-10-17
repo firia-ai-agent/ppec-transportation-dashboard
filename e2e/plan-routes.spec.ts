@@ -104,6 +104,11 @@ async function openChanges(page: Page, laneId: string): Promise<void> {
   if ((await control.getAttribute("aria-expanded")) !== "true") await control.click();
 }
 
+/** The folded panel itself, so a test can ask whether it is on the screen rather than read a flag. */
+function changesPanel(page: Page, laneId: string): Locator {
+  return page.locator(`#lane-${laneId}-changes`);
+}
+
 /** The red group: a child planning could not place, the reason, and the options. */
 async function unplacedRows(page: Page): Promise<string[]> {
   const group = page.locator("[data-unplaced]");
@@ -610,10 +615,20 @@ test.describe("Plan routes", () => {
     const lane = laneOf(page, laneId);
 
     // What arrived is behind the lane's one disclosure, closed until somebody wants it (Vera's
-    // review, 2026-10-17) — and it is the control that says what it opens.
+    // review, 2026-10-17) — and it is the control that says what it opens. Closed means gone from
+    // the screen, not merely flagged: a `display` rule once kept the panel visible under `hidden`.
     const changes = lane.getByRole("button", { name: copy.changeVan, exact: true });
+    const panel = changesPanel(page, laneId);
     await expect(changes).toHaveAttribute("aria-expanded", "false");
+    await expect(panel).toBeHidden();
+    await expect(panel.getByText(copy.arrivalHeading, { exact: true })).toBeHidden();
+    await expect(panel.getByText(copy.substituteHeading, { exact: true })).toBeHidden();
+
     await openChanges(page, laneId);
+    await expect(changes).toHaveAttribute("aria-expanded", "true");
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText(copy.arrivalHeading, { exact: true })).toBeVisible();
+    await expect(panel.getByText(copy.substituteHeading, { exact: true })).toBeVisible();
 
     // Half one: nobody has reported on the van at all. That is the normal state of a morning,
     // and it is never read as a yes — the lane carries nobody's boarding.

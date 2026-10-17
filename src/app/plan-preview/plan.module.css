@@ -394,6 +394,11 @@
   border-left: var(--border-hairline) solid var(--color-border-strong);
 }
 
+/* A folded panel is folded away: `display` outranks the hidden attribute unless this says so. */
+.changes[hidden] {
+  display: none;
+}
+
 /* ───────────────────────────── children with no van ───────────────────────────── */
 
 /*
