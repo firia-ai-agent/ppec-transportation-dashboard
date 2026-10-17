@@ -179,6 +179,29 @@ describe("§2 icon rail, 768–1279", () => {
   });
 });
 
+/**
+ * Vera's final call on the date: one on screen, the replayed demo day, and the chrome is not
+ * where it lives. §2 asked the header for the service date, and for a while it answered with
+ * today's real date while the board answered with the seeded day — two dates, both labelled
+ * "Service date", one of them always wrong (docs/ui/B12-SLICE1-DEFERRED.md §5). In demo mode the
+ * header shows no date at all: the board's header carries the day, and the surfaces that have no
+ * day do not pretend to have one.
+ */
+describe("§2 header: in demo mode no date in the chrome", () => {
+  const shell = read(UI, "AppShell.tsx");
+
+  it("reads no clock and formats no date", () => {
+    expect(shell).not.toMatch(/serviceDate(Label|Iso)?\b/);
+    expect(shell).not.toMatch(/new Date\(|Intl\.DateTimeFormat|toLocaleDateString/);
+    expect(shell).not.toMatch(/<time\b/);
+  });
+
+  it("carries the scenario clock as its only fact, which says the demo has not started", () => {
+    const facts = [...shell.matchAll(/<dt className=\{styles\.factLabel\}>\{([^}]+)\}/g)];
+    expect(facts.map((m) => m[1])).toEqual(["scenarioClock.label"]);
+  });
+});
+
 describe("§2 scenario clock", () => {
   const component = read(UI, "ScenarioClock.tsx");
   const css = read(UI, "ScenarioClock.module.css");

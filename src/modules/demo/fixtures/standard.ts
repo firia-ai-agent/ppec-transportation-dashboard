@@ -322,6 +322,127 @@ export const THERAPY_SESSIONS: TherapySession[] = [
   { key: "A2", therapistKey: "T2", childKey: "C6", start: "14:15", end: "15:00" },
 ];
 
+/* ───────────────────────── what a finished day recorded (PRD §6.3) ───────────────────────── */
+
+/**
+ * Who received the child at the end of a ride.
+ *
+ * PRD §6.3: a handoff is a custody event naming the receiving adult, and the morning rule says
+ * who that is — "at center = ramp staff" for a morning ride, and for an afternoon ride the adult
+ * the family has on file with `can_receive_child` (PRD §6.4 RECEIVE_CHILD). It is a *kind* rather
+ * than a name because the name is the family's, and this fixture holds no name a screen has not
+ * already got: `receivingAdultOf` in src/domain/board/scenario.ts is the one place a receiving
+ * adult is named, from the family's own guardian.
+ */
+export type Receiver = "CENTER_STAFF" | "ADULT_ON_FILE";
+
+/**
+ * One ride, as a finished service day recorded it.
+ *
+ * Only acts, never states: a state is what the leg machine (src/domain/machines.ts) makes of
+ * these, one legal edge at a time, and a fixture that wrote "HELD_NO_RECEIVER" down would be
+ * claiming an outcome instead of recording the day that produced it. The distinction is the
+ * whole of AT-10 — a geofence arrival is a *vehicle* fact and can never be a child changing
+ * hands — so `dropoffArrived` sits here beside the person acts and does not stand in for one.
+ */
+export type RideRecord = {
+  childKey: string;
+  direction: "AM" | "PM";
+  /** The van left on its run (§6.3 MANIFEST_LOCKED → EN_ROUTE_PICKUP, by the provider). */
+  departed: boolean;
+  /** ASM-18: the geofence saw the van reach the child's stop. Not a person's act. */
+  pickupArrived: boolean;
+  /** Who reported the child aboard (§6.3 ARRIVED_PICKUP → BOARDED_REPORTED, by G or P). */
+  boardingReportedBy: "GUARDIAN" | "PROVIDER" | null;
+  /** Staff verified the boarding (§6.3 → BOARDED_VERIFIED, staff only — never the agent). */
+  boardingVerified: boolean;
+  /** ASM-18: the geofence saw the van reach the drop-off. Not a person's act either. */
+  dropoffArrived: boolean;
+  /** The custody event, or `null` when none was recorded — which is not the same as a refusal. */
+  receivedBy: Receiver | null;
+  /** Staff cancelled the ride before anyone boarded (§6.3 CANCELED_TRANSPORT, pre-boarding). */
+  canceledByStaff?: true;
+};
+
+/**
+ * The three rides a finished day did **not** close the ordinary way. Everything else on it ran:
+ * reported aboard, verified, driven, and received — by the ramp in the morning and by the adult
+ * on file in the afternoon.
+ *
+ *  - **C2's afternoon ride is AT-13.** F2 holds every scope except RECEIVE_CHILD (see
+ *    `NO_RECEIVER_SCOPES`), so when the van reached Noah O.'s stop there was nobody on file to
+ *    receive him and no custody event to record. The leg ends HELD_NO_RECEIVER: he waits with
+ *    the van, every authorized and emergency contact is called, a staff task is raised, and
+ *    **nothing returns him to the centre on its own** (PRD §6.6 CA-04, DECISION-LEDGER row 47).
+ *    The machine agrees it is a dead end — HELD_NO_RECEIVER is in `noWildcardFrom` and exits by
+ *    staff only — so a day that ends there stays there, which is what "no auto-return" looks
+ *    like on a board.
+ *  - **C6's afternoon ride is AT-10.** The van arrived and the handoff was never recorded. The
+ *    geofence fired; a person still has to receive the child; the board says "Arrived (vehicle)"
+ *    and asks for the handoff, and the one thing it must never say is that one happened.
+ *  - **R3's six rides never ran.** V4 is a sedan with two tether-capable seats and R3's three
+ *    children all ride in an anchored seat (PRD §7 constraint 3), so the capacity solver says
+ *    the van does not fit its riders. Staff cancelled transport and the families drove — the
+ *    AT-12 rule that a family is told only after staff have chosen.
+ */
+const FINISHED_DAY_EXCEPTIONS: Record<string, Partial<RideRecord>> = {
+  "C2/PM": { receivedBy: null },
+  "C6/PM": { receivedBy: null },
+  ...Object.fromEntries(
+    ["C1", "C4", "C5"].flatMap((childKey) =>
+      (["AM", "PM"] as const).map((direction) => [
+        `${childKey}/${direction}`,
+        {
+          departed: false,
+          pickupArrived: false,
+          boardingReportedBy: null,
+          boardingVerified: false,
+          dropoffArrived: false,
+          receivedBy: null,
+          canceledByStaff: true as const,
+        },
+      ]),
+    ),
+  ),
+};
+
+/** The ordinary outcome: aboard, verified, driven, and received at the end of the ride. */
+function ranAsPlanned(childKey: string, direction: "AM" | "PM"): RideRecord {
+  return {
+    childKey,
+    direction,
+    departed: true,
+    pickupArrived: true,
+    // At home or at the ramp, it is the driver who reports the child aboard (§6.3 G/P).
+    boardingReportedBy: "PROVIDER",
+    boardingVerified: true,
+    dropoffArrived: true,
+    receivedBy: direction === "AM" ? "CENTER_STAFF" : "ADULT_ON_FILE",
+  };
+}
+
+/**
+ * Every ride a finished service day recorded, in run order: the children who are on a run, both
+ * halves of their day, with the three exceptions above applied.
+ *
+ * The census children are not in here. They have no run — their family brings them — so there is
+ * no ride for a day to record, and inventing one would put a van in a story that has none.
+ */
+export const FINISHED_DAY_RIDES: RideRecord[] = RUNS.flatMap((run) =>
+  run.childKeys.flatMap((childKey) =>
+    (["AM", "PM"] as const).map((direction) => ({
+      ...ranAsPlanned(childKey, direction),
+      ...FINISHED_DAY_EXCEPTIONS[`${childKey}/${direction}`],
+    })),
+  ),
+);
+
+export const rideRecordFor = (
+  childKey: string,
+  direction: "AM" | "PM",
+): RideRecord | undefined =>
+  FINISHED_DAY_RIDES.find((r) => r.childKey === childKey && r.direction === direction);
+
 /* ───────────────────────── schedules (PRD l.1329: Mon–Fri + one date exception) ───────────────────────── */
 
 export const WEEKDAY_RRULE = "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR";

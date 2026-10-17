@@ -18,9 +18,12 @@ import {
   baseUrlRefusalReason,
   demoDataGuardRefusal,
   demoDataOnlyFromEnv,
+  endpointPathRefusalReason,
   forbiddenEndpointReason,
   loadAgentConfig,
+  requestUrlRefusalReason,
   vendorAttestationSchema,
+  vendorRequestUrl,
 } from "./config";
 
 /** The environment a confirmed demo deployment has: the agent's own var *and* the boot data class. */
@@ -169,6 +172,79 @@ describe("endpoint allow-list excludes Batch/Files/Code-Exec/Web-Fetch (PRD §11
 
   it("refuses an empty allow-list (there is no implicit default at call time)", () => {
     expect(agentConfigSchema.safeParse({ endpointAllowList: [] }).success).toBe(false);
+  });
+});
+
+/* ───────── the endpoint is a path and nothing that can name a host (S2) ───────── */
+
+/**
+ * Endpoints that smuggle a host past a check on the base URL. Every one is a string a deployment
+ * could put in `AGENT_ENDPOINT_ALLOW_LIST`, and every one changes where the Bearer key goes the
+ * moment it is joined onto an allow-listed origin — which is why the shape is a config-time
+ * refusal and not only a runtime one.
+ */
+const HOST_SMUGGLING_ENDPOINTS: [label: string, endpoint: string, reason: RegExp][] = [
+  ["userinfo, which turns the allow-listed origin into a username", "@evil.example/api/v1/chat", /plain absolute path/],
+  ["a bare host", "evil.example/api/v1/chat", /plain absolute path/],
+  ["an absolute https URL of its own", "https://evil.example/api/v1/chat", /plain absolute path/],
+  ["an absolute http URL of its own", "http://evil.example/api/v1/chat", /plain absolute path/],
+  ["a leading pair of backslashes", "\\\\evil.example/api/v1/chat", /plain absolute path/],
+  ["a scheme-relative authority", "//evil.example/api/v1/chat", /reads as a host/],
+  ["userinfo behind a scheme-relative authority", "//user:pass@openrouter.ai/api/v1/chat", /reads as a host/],
+  // A slash first, so "must begin with /" passes it — and then the URL parser folds the backslash
+  // to a slash for http(s), which makes it the scheme-relative case above.
+  ["a backslash the URL parser folds to a slash", "/\\evil.example/api/v1/chat", /could carry a host/],
+  ["a backslash further along the path", "/api\\evil.example/chat", /could carry a host/],
+  ["an @ further along the path", "/api@evil.example/chat", /could carry a host/],
+  ["a colon, which is a scheme or a port", "/api:8443/chat", /could carry a host/],
+  ["a percent escape, which the parser decodes", "/api/%2e%2e/chat", /could carry a host/],
+  ["a query string, which cuts the path short", "/api/v1/chat?token=x", /could carry a host/],
+  ["a fragment", "/api/v1/chat#x", /could carry a host/],
+  ["an empty segment", "/api//v1/chat", /empty path segment/],
+  ["a trailing slash, which is an empty segment too", "/api/v1/chat/", /empty path segment/],
+  ["a relative segment", "/api/../v1/chat", /relative path segment/],
+  ["a single-dot segment", "/api/./v1/chat", /relative path segment/],
+];
+
+describe("endpoint allow-list entries must be plain paths (S2)", () => {
+  it.each(HOST_SMUGGLING_ENDPOINTS)("refuses %s, at config time", (_label, endpoint, reason) => {
+    expect(endpointPathRefusalReason(endpoint)).toMatch(reason);
+    expect(() => loadAgentConfig({ AGENT_ENDPOINT_ALLOW_LIST: endpoint })).toThrow(AgentConfigError);
+    expect(() => loadAgentConfig({ AGENT_ENDPOINT_ALLOW_LIST: endpoint })).toThrow(/endpointAllowList/);
+    // An override is the other way in, and it goes through the same refinement.
+    expect(() => loadAgentConfig({}, { endpointAllowList: [endpoint] })).toThrow(AgentConfigError);
+  });
+
+  it("refuses an empty endpoint, which resolves to the base URL itself", () => {
+    // Not reachable through the env var — `asList` drops empty entries — so the schema is asked
+    // directly, which is also what a caller parsing a config object of its own hits.
+    expect(endpointPathRefusalReason("")).toMatch(/plain absolute path/);
+    expect(agentConfigSchema.safeParse({ endpointAllowList: [""] }).success).toBe(false);
+  });
+
+  it.each([
+    "/api/v1/chat/completions",
+    "/model/invoke",
+    "/model/invoke-stream",
+    "/v1/web_search",
+    "/v1/fine-tuning/jobs",
+  ])("accepts %s as a shape, whatever the family rule then says about it", (endpoint) => {
+    // Two different questions: this one is "can this string name a host", and the §11.2 families
+    // are "may this deployment call it at all". The last two entries are plain paths and still
+    // refused by `forbiddenEndpointReason`, which is the point of keeping them apart.
+    expect(endpointPathRefusalReason(endpoint)).toBeNull();
+  });
+
+  it("names the rule and never echoes the endpoint it was given", () => {
+    // The reason lands in a thrown error, and an endpoint can carry a token in a query string.
+    const withSecret = "/api/v1/chat?token=placeholder-not-a-key";
+    expect(endpointPathRefusalReason(withSecret)).not.toContain("placeholder-not-a-key");
+    try {
+      loadAgentConfig({ AGENT_ENDPOINT_ALLOW_LIST: withSecret });
+      expect.unreachable();
+    } catch (e) {
+      expect(String(e)).not.toContain("placeholder-not-a-key");
+    }
   });
 });
 
@@ -441,5 +517,93 @@ describe("base URL must be https and on the host allow-list", () => {
       loadAgentConfig({}, { baseUrl: "https://vendor-b.example", baseUrlHostAllowList: ["vendor-b.example"] })
         .baseUrl,
     ).toBe("https://vendor-b.example");
+  });
+});
+
+/* ───────── the destination of a *call*: built with the URL parser, then re-read (S2) ───────── */
+
+/**
+ * The subset of the endpoints above that still names a different destination *after* the URL
+ * parser has resolved it — the ones the check on the finished URL has to catch on its own. The
+ * `@` case is not among them: resolved rather than concatenated, it is a path segment on the
+ * allow-listed host, which is the next test.
+ */
+const DESTINATION_MOVING_ENDPOINTS: [label: string, endpoint: string, reason: RegExp][] = [
+  ["a scheme-relative authority", "//evil.example/api/v1/chat", /host evil\.example/],
+  ["a backslash the parser folds to a slash", "/\\evil.example/api/v1/chat", /host evil\.example/],
+  ["a leading pair of backslashes", "\\\\evil.example/api/v1/chat", /host evil\.example/],
+  ["an absolute URL of its own", "https://evil.example/api/v1/chat", /host evil\.example/],
+  ["plain http on the allow-listed host", "http://openrouter.ai/api/v1/chat", /scheme http is refused/],
+  ["a non-HTTP scheme", "ftp://openrouter.ai/api/v1/chat", /scheme ftp is refused/],
+  ["credentials behind the allow-listed host", "https://u:p@openrouter.ai/api/v1/chat", /userinfo/],
+];
+
+describe("vendorRequestUrl builds the URL and re-checks the finished one", () => {
+  const DEST = {
+    baseUrl: DEFAULT_BASE_URL,
+    baseUrlHostAllowList: [...DEFAULT_BASE_URL_HOST_ALLOW_LIST],
+  };
+  const ENDPOINT = DEFAULT_ENDPOINT_ALLOW_LIST[0];
+
+  it("joins an allow-listed origin and a plain path into the URL the call is sent to", () => {
+    const built = vendorRequestUrl(DEST, ENDPOINT);
+    expect(built.refusal).toBeNull();
+    expect(built.url).toBe(`${DEFAULT_BASE_URL}${ENDPOINT}`);
+  });
+
+  it("the parser decides the host, not the string: an @-endpoint stays on the allow-listed host", () => {
+    // This is the defect S2 names. Concatenated, the base URL becomes *userinfo*: the string
+    // "https://openrouter.ai" + "@evil.example/…" is a request to evil.example carrying the
+    // Bearer key, and nothing about the base URL changed to say so. Resolved by the parser, the
+    // same endpoint is an ordinary path segment on the host the deployment vetted.
+    const smuggled = "@evil.example/api/v1/chat/completions";
+    expect(new URL(`${DEFAULT_BASE_URL}${smuggled}`).host).toBe("evil.example");
+    const built = vendorRequestUrl(DEST, smuggled);
+    expect(new URL(built.url!).host).toBe(DEFAULT_BASE_URL_HOST_ALLOW_LIST[0]);
+  });
+
+  it.each(DESTINATION_MOVING_ENDPOINTS)("refuses %s, read off the built URL", (_label, endpoint, reason) => {
+    // Each of these resolves to a destination the deployment never vetted, and each is refused
+    // *here* — with `endpointPathRefusalReason` out of the way, which is what makes this a
+    // backstop and not a second opinion from the same check.
+    expect(endpointPathRefusalReason(endpoint)).not.toBeNull();
+    const built = vendorRequestUrl(DEST, endpoint);
+    expect(built.url).toBeNull();
+    expect(built.refusal).toMatch(reason);
+    expect(built.refusal).toContain("request URL");
+  });
+
+  it("keeps a path on the base URL as a prefix rather than discarding it", () => {
+    // A vendor that lives under a path is a config this module accepts, so resolving the endpoint
+    // against the bare origin would silently repoint it.
+    const under = { baseUrl: "https://vendor-c.example/v1", baseUrlHostAllowList: ["vendor-c.example"] };
+    expect(vendorRequestUrl(under, "/chat/completions").url).toBe("https://vendor-c.example/v1/chat/completions");
+    // And a trailing slash on the base URL does not double up.
+    const slashed = { baseUrl: "https://vendor-c.example/v1/", baseUrlHostAllowList: ["vendor-c.example"] };
+    expect(vendorRequestUrl(slashed, "/chat/completions").url).toBe("https://vendor-c.example/v1/chat/completions");
+  });
+
+  it("refuses rather than builds when the base URL is not a URL at all", () => {
+    const bad = { baseUrl: "openrouter.ai", baseUrlHostAllowList: ["openrouter.ai"] };
+    expect(vendorRequestUrl(bad, ENDPOINT)).toEqual({ url: null, refusal: "base URL is not an absolute URL" });
+  });
+
+  it("names the host and never the rest of the URL", () => {
+    const withSecret = "//openrouter.ai.evil.example/api?token=placeholder-not-a-key";
+    const built = vendorRequestUrl(DEST, withSecret);
+    expect(built.refusal).toContain("openrouter.ai.evil.example");
+    expect(built.refusal).not.toContain("placeholder-not-a-key");
+  });
+
+  it("is the same three rules as the base-URL check, applied to a finished URL", () => {
+    // One implementation, two callers: the base URL at parse time and the request URL on the way
+    // out. The label is what differs, so a log says which of the two was wrong.
+    const allow = ["openrouter.ai"];
+    expect(requestUrlRefusalReason(new URL(`${DEFAULT_BASE_URL}${ENDPOINT}`), allow)).toBeNull();
+    expect(requestUrlRefusalReason(new URL("http://openrouter.ai/x"), allow)).toMatch(/scheme/);
+    expect(requestUrlRefusalReason(new URL("https://u:p@openrouter.ai/x"), allow)).toMatch(/userinfo/);
+    expect(requestUrlRefusalReason(new URL("https://evil.example/x"), allow)).toMatch(/host allow-list/);
+    expect(requestUrlRefusalReason(new URL("https://evil.example/x"), allow)).toContain("request URL");
+    expect(baseUrlRefusalReason("https://evil.example", allow)).toContain("base URL");
   });
 });

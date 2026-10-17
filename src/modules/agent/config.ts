@@ -33,6 +33,15 @@
  *     path before a `Bearer` header exists — the base URL is the one knob that decides where the
  *     founder's key is sent, so an off-list host or a plain-http origin is a refusal, never a
  *     credential handed to a host nobody vetted.
+ *  4. **The base URL is only half of the destination.** An endpoint is joined onto it, so the host
+ *     that finally receives the key is a product of both: `"https://openrouter.ai"` plus the
+ *     endpoint `"@evil.example/…"` *is* a request to `evil.example` with `openrouter.ai` as a
+ *     username, and `"//evil.example/…"` or `"/\evil.example/…"` get there too. Three things
+ *     follow, and all three are in this module: an endpoint must be a plain absolute path
+ *     (`endpointPathRefusalReason`, enforced on every allow-list entry at parse time), the URL is
+ *     built with the URL parser and never by string concatenation (`vendorRequestUrl`), and the
+ *     scheme, userinfo and host are re-read off the **finished** URL
+ *     (`requestUrlRefusalReason`) — on the outbound path, immediately before the key is attached.
  *
  * The API key is referenced by *variable name* only (`apiKeyEnvVar`). This module never reads
  * its value, never requires it, and nothing here fails when it is absent — so boot, CI and
@@ -68,6 +77,52 @@ const FORBIDDEN_ENDPOINT_PATTERNS: readonly RegExp[] = [
 export function forbiddenEndpointReason(endpoint: string): string | null {
   const hit = FORBIDDEN_ENDPOINT_PATTERNS.find((re) => re.test(endpoint));
   return hit ? `endpoint matches excluded family ${String(hit)}` : null;
+}
+
+/**
+ * One path segment of an endpoint: RFC 3986 unreserved characters (`A-Z a-z 0-9 - . _ ~`), at
+ * least one of them. An allow-list, not a deny-list, on purpose — a deny-list of the characters
+ * that can carry a host has to be complete to be worth anything, and the list is longer than it
+ * looks: `@` (userinfo), `:` (a scheme, or a port), `\` (which the URL parser folds to `/`), `%`
+ * (an escape the parser decodes), `?` and `#` (which cut the path short).
+ */
+const ENDPOINT_SEGMENT = /^[A-Za-z0-9._~-]+$/;
+
+/**
+ * Why this endpoint is not a plain path, or null when it is one.
+ *
+ * The endpoint is the *second* half of the destination: it is joined onto `baseUrl`, so a value
+ * that can name a host moves the request off the allow-listed origin even though nothing about
+ * `baseUrl` changed. Three shapes do it, and none of them looks like a host at a glance:
+ *
+ *  - `@evil.example/…` — joined onto `https://openrouter.ai` it reads as userinfo plus a host, so
+ *    the allow-listed origin becomes a *username* sent to `evil.example`.
+ *  - `//evil.example/…` — scheme-relative: the parser replaces the whole authority.
+ *  - `/\evil.example/…` — begins with a slash, and the URL parser folds `\` to `/` for http(s),
+ *    which makes it the case above. A "must start with /" check passes it.
+ *
+ * So the rule is positive and narrow: an absolute path, then non-empty unreserved segments, and
+ * nothing else. `.` and `..` are refused with them — they are not a credential leak, but an
+ * endpoint that walks the path is not an endpoint this deployment configured either.
+ *
+ * Messages name the rule and never echo the value: this text ends up in a thrown error, and the
+ * caller that has the endpoint is the one that already knows it.
+ */
+export function endpointPathRefusalReason(endpoint: string): string | null {
+  if (endpoint.startsWith("//")) {
+    return "endpoint begins with //, which a URL parser reads as a host and not as a path";
+  }
+  if (!endpoint.startsWith("/")) {
+    return "endpoint is not a plain absolute path beginning with /";
+  }
+  for (const segment of endpoint.slice(1).split("/")) {
+    if (segment === "") return "endpoint has an empty path segment";
+    if (segment === "." || segment === "..") return "endpoint has a relative path segment";
+    if (!ENDPOINT_SEGMENT.test(segment)) {
+      return "endpoint has a path segment outside A-Z a-z 0-9 - . _ ~, which could carry a host";
+    }
+  }
+  return null;
 }
 
 /* ───────────────────────────────── models (the only slugs in src/) ───────────────────────────────── */
@@ -140,17 +195,75 @@ export function baseUrlRefusalReason(
   } catch {
     return "base URL is not an absolute URL";
   }
+  return destinationRefusalReason(parsed, hostAllowList, "base URL");
+}
+
+/**
+ * The same three refusals, read off the URL a call is *actually about to be sent to*. The base URL
+ * passing them is not the same claim: the endpoint is joined onto it, and the only way to know
+ * where the key is going is to ask the finished URL. One implementation of the rule, applied to
+ * both, so the two can never drift apart.
+ */
+export function requestUrlRefusalReason(
+  url: URL,
+  hostAllowList: readonly string[],
+): string | null {
+  return destinationRefusalReason(url, hostAllowList, "request URL");
+}
+
+/** The three facts a destination must have, whichever URL is being asked. `what` names it. */
+function destinationRefusalReason(
+  parsed: URL,
+  hostAllowList: readonly string[],
+  what: string,
+): string | null {
   if (parsed.protocol !== REQUIRED_BASE_URL_PROTOCOL) {
     const required = REQUIRED_BASE_URL_PROTOCOL.replace(":", "");
-    return `base URL scheme ${parsed.protocol.replace(":", "")} is refused: a vendor call must use ${required}`;
+    return `${what} scheme ${parsed.protocol.replace(":", "")} is refused: a vendor call must use ${required}`;
   }
   if (parsed.username !== "" || parsed.password !== "") {
-    return "base URL carries credentials in its userinfo, which no deployment may configure";
+    return `${what} carries credentials in its userinfo, which no vendor call may do`;
   }
   if (!hostAllowList.includes(parsed.host)) {
-    return `base URL host ${parsed.host} is not on the configured host allow-list`;
+    return `${what} host ${parsed.host} is not on the configured host allow-list`;
   }
   return null;
+}
+
+/** A built vendor URL, or the reason there is none. One of the two fields is always null. */
+export type VendorRequestUrl =
+  | { readonly url: string; readonly refusal: null }
+  | { readonly url: null; readonly refusal: string };
+
+/**
+ * The absolute URL for one vendor call: built with the URL parser from `baseUrl` and an endpoint,
+ * then re-checked with `requestUrlRefusalReason`.
+ *
+ * Built and not concatenated. `` `${baseUrl}${endpoint}` `` produces a *string* that nobody has
+ * looked at, and the shapes in `endpointPathRefusalReason` are exactly the ones that make such a
+ * string point somewhere else — so this takes the two pieces, resolves them the way the request
+ * will be resolved, and then asks the result where it is going. The deliberate order is: parse,
+ * **then** check, because a check on either half proves nothing about the join.
+ *
+ * It does *not* re-run `endpointPathRefusalReason`: that gate is the caller's, and keeping the two
+ * separate is what makes this one a real backstop rather than a second opinion from the same
+ * check. Either one alone refuses every host-moving endpoint; both are in the path.
+ */
+export function vendorRequestUrl(
+  config: Pick<AgentConfig, "baseUrl" | "baseUrlHostAllowList">,
+  endpoint: string,
+): VendorRequestUrl {
+  let built: URL;
+  try {
+    const base = new URL(config.baseUrl);
+    // The base URL's own path stays a prefix: resolving the endpoint against the origin alone
+    // would discard it, which would silently repoint a deployment whose vendor lives under a path.
+    built = new URL(`${base.pathname.replace(/\/$/, "")}${endpoint}`, base);
+  } catch {
+    return { url: null, refusal: "base URL is not an absolute URL" };
+  }
+  const refusal = requestUrlRefusalReason(built, config.baseUrlHostAllowList);
+  return refusal === null ? { url: built.href, refusal: null } : { url: null, refusal };
 }
 
 /** Hard ceiling on one vendor call. A hung request must become a keyword fallback, not a hung run. */
@@ -168,6 +281,14 @@ const endpointAllowList = z
   .nonempty()
   .refine((list) => list.every((e) => forbiddenEndpointReason(e) === null), {
     message: "endpoint allow-list may not contain Batch/Files/Code-Exec/Web-Fetch endpoints (PRD §11.2)",
+  })
+  // Refused here as well as on the outbound path, for the reason every other destination rule is:
+  // no deployment may boot into a shape where an allow-list entry is the thing that chooses the
+  // host. An entry is a path on the configured origin, and never a way to name another one.
+  .refine((list) => list.every((e) => endpointPathRefusalReason(e) === null), {
+    message:
+      "endpoint allow-list entries must be plain absolute paths: anything that can carry a host " +
+      "(@, a scheme, //, a backslash) would move the destination at call time",
   });
 
 /**

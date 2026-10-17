@@ -13,13 +13,22 @@
  * and the committed ADR-007 routes, so the board is deterministic and a screenshot of it is
  * evidence rather than a moment.
  *
- * KNOWN FIXTURE GAP (for Rudy, not invented around here): the committed routes in
- * src/fixtures/routes.ts were authored before the standard scenario and name stops S1–S4 with
- * family labels that disagree with it — route2 carries V1 but stops at S4 and S1, which belong
- * to another run's children. So a run is paired with the committed geometry of *its own
- * vehicle* and nothing else: where the geometry names a child's own stop the board shows that
- * stop's window, and where it does not the board says the window is pending rather than
- * borrowing another run's numbers.
+ * Two kinds of geometry, and they are not interchangeable:
+ *
+ *  - **the plan** — src/fixtures/run-routes.ts, which is each run's own children's own stops in
+ *    the scenario's own order, read out of the scenario so it cannot disagree with it. Every
+ *    ride's arrival window comes from here, which is how an afternoon ride has a window at nine
+ *    in the morning instead of the "Window pending" this board used to print on half its rows;
+ *  - **the replay** — the three committed ADR-007 routes in src/fixtures/routes.ts, one leg of
+ *    which is a real OSRM response, driven by the M5 simulator. They are the demo day's *live*
+ *    morning and nothing else. They were authored before the scenario and still name stops that
+ *    belong to another run's children (docs/ui/B12-SLICE1-DEFERRED.md §3.1), so they are read
+ *    for the one question they can answer about a van that is moving — where it is, how fresh
+ *    that is, and when it reaches the centre — and never for which child is at which kerb.
+ *
+ * Regenerating the replay routes against the scenario's own stops is still a change to committed
+ * routing data, and still the founder's call; until then the plan is the thing every row agrees
+ * with, and the live morning is the thing one day of it shows.
  */
 
 import type {
@@ -33,8 +42,18 @@ import type {
   WcPosition,
 } from "@/domain/solver";
 import { runReplay, type ReplayResult } from "@/domain/eta/replay";
+import { plannedEta, type StopEta } from "@/domain/eta/eta";
+import { trafficMultiplierAt } from "@/domain/eta/traffic";
+import {
+  freeFlowSecondsBetween,
+  measureRoute,
+  stopHoldSeconds,
+  type MeasuredRoute,
+} from "@/domain/location/route";
 import { DEMO_RUNS } from "@/fixtures/replays";
+import { runRoute } from "@/fixtures/run-routes";
 import { places } from "@/ui/copy";
+import { localTimeOn, type ServiceDay } from "./day";
 import {
   CHILDREN,
   EXTERNAL_PEOPLE,
@@ -284,6 +303,91 @@ export function capabilityFor(
     latchOk: true,
     unavailablePositionIds: [],
   };
+}
+
+/* ───────────────────── the plan's own windows (ADR-007 geometry, not replayed) ───────────────────── */
+
+const measuredCache = new Map<string, MeasuredRoute>();
+
+/** The committed geometry of one run in one direction, measured once per process. */
+export function measuredRunRoute(run: DemoRun, direction: Direction): MeasuredRoute {
+  const key = `${run.key}/${direction}`;
+  const cached = measuredCache.get(key);
+  if (cached) return cached;
+  const measured = measureRoute(runRoute(run.key, direction));
+  measuredCache.set(key, measured);
+  return measured;
+}
+
+/** The rider this run picks up or sets down at a stop of the committed route. */
+function riderAtStop(run: DemoRun, stopId: string): DemoChild {
+  const rider = run.childKeys.map(childByKey).find((child) => child.stopKey === stopId);
+  if (!rider) throw new Error(`run ${run.key}: nobody on it rides from ${stopId}`);
+  return rider;
+}
+
+/**
+ * When the run leaves, and the traffic it is planned against.
+ *
+ * Anchored on one promise and derived from the geometry after that: **the run's first family
+ * stop is served at the window that family holds**. In the morning that stop is where the run
+ * starts, so it leaves at the window itself; in the afternoon the run starts at the centre, so
+ * it leaves early enough to make the first drop on time. Every later stop then follows from the
+ * committed durations, which is what makes the plan and the route one thing rather than two
+ * numbers that have to be kept in step by hand (run-routes.test.ts holds them together).
+ */
+function plannedDeparture(
+  run: DemoRun,
+  direction: Direction,
+  day: ServiceDay,
+): { departureMs: number; trafficMultiplier: number } {
+  const measured = measuredRunRoute(run, direction);
+  const stops = measured.route.stops;
+  const first = stops.findIndex((stop) => stop.familyLabel !== undefined);
+  if (first < 0) throw new Error(`run ${run.key} ${direction}: no family stop to plan against`);
+
+  const targetMs = localTimeOn(day, plannedWindow(riderAtStop(run, stops[first].id), direction));
+  const trafficMultiplier = trafficMultiplierAt(targetMs);
+  let owedSeconds = freeFlowSecondsBetween(measured, 0, first) * trafficMultiplier;
+  // Dwell and service at the stops in between; the origin carries none (PRD §8).
+  for (let i = 1; i < first; i += 1) owedSeconds += stopHoldSeconds(stops[i]);
+  return { departureMs: targetMs - owedSeconds * 1000, trafficMultiplier };
+}
+
+const plannedCache = new Map<string, readonly StopEta[]>();
+
+/** Every stop's planned window on this run, on this service day (PRD §8, no vehicle yet). */
+export function plannedStops(
+  run: DemoRun,
+  direction: Direction,
+  day: ServiceDay,
+): readonly StopEta[] {
+  const key = `${run.key}/${direction}/${day.offsetDays}`;
+  const cached = plannedCache.get(key);
+  if (cached) return cached;
+  const measured = measuredRunRoute(run, direction);
+  const stops = plannedEta({ measured, ...plannedDeparture(run, direction, day) });
+  plannedCache.set(key, stops);
+  return stops;
+}
+
+/**
+ * The window one child's family holds for one ride, from the plan.
+ *
+ * This is the afternoon's answer, and it is why no row on this board says a child's window is
+ * still being worked out: the committed geometry of the run their van will drive says when it
+ * reaches their stop, and the family is given the 10-minute window that falls in (PRD §8).
+ * It is a plan and not an observation, so nothing comes back with it — a shift belongs to a
+ * recalculation against a real position, and there is no position in a plan.
+ */
+export function plannedWindowFor(
+  child: DemoChild,
+  run: DemoRun,
+  direction: Direction,
+  day: ServiceDay,
+): string | null {
+  if (child.stopKey === null) return null;
+  return plannedStops(run, direction, day).find((s) => s.stopId === child.stopKey)?.windowText ?? null;
 }
 
 /* ───────────────────── committed runs (ADR-007 geometry, replayed) ───────────────────── */

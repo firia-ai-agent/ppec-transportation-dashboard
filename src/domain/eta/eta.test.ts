@@ -6,6 +6,7 @@ import {
   formatClock,
   formatDelta,
   formatWindow,
+  plannedEta,
   uncertaintySeconds,
   UNCERTAINTY_FLOOR_SECONDS,
   UNCERTAINTY_FRACTION,
@@ -244,6 +245,52 @@ describe("computeEta (PRD §8 formula over ADR-007 fixtures)", () => {
       expect(stop.uncertaintySeconds).toBeGreaterThanOrEqual(300);
       expect(stop.windowEndMs! - stop.windowStartMs!).toBe(WINDOW_MINUTES * 60_000);
     }
+  });
+});
+
+/**
+ * The window a family holds before the van has moved (PRD §8). This is what every afternoon ride
+ * on the board is showing, so the two things that matter are that it is the same formula as a
+ * live calculation and that it never pretends to be one.
+ */
+describe("plannedEta (the plan's own windows)", () => {
+  const planned = plannedEta({ measured: R2, departureMs: T0, trafficMultiplier: 1 });
+
+  it("serves the origin at the departure itself, and gives it a window too", () => {
+    // computeEta cannot answer this: a vehicle at chainage 0 has already "passed" its first
+    // stop, and the first family of a morning run is exactly the one at chainage 0.
+    expect(planned[0].stopId).toBe(ROUTE_2.stops[0].id);
+    expect(planned[0].etaMs).toBe(T0);
+    expect(planned[0].windowText).toMatch(/^\d{1,2}:\d{2}(\s[AP]M)?–\d{1,2}:\d{2}\s[AP]M$/);
+  });
+
+  it("adds the committed drive time, then dwell and service at the stops in between", () => {
+    const [legA, legB] = ROUTE_2.legs;
+    expect(planned[1].etaMs).toBe(T0 + legA.durationSec * 1000);
+    expect(planned[2].etaMs).toBe(
+      T0 + (legA.durationSec + legB.durationSec + stopHoldSeconds(ROUTE_2.stops[1])) * 1000,
+    );
+    // The origin carries no dwell: a run begins at its departure, loaded.
+    expect(planned[1].dwellSeconds).toBe(0);
+  });
+
+  it("multiplies only the driving by traffic", () => {
+    const peak = plannedEta({ measured: R2, departureMs: T0, trafficMultiplier: 1.25 });
+    expect(peak[1].driveSeconds).toBeCloseTo(ROUTE_2.legs[0].durationSec * 1.25, 6);
+    expect(peak[2].dwellSeconds).toBe(stopHoldSeconds(ROUTE_2.stops[1]));
+  });
+
+  it("claims nothing a plan cannot know: every stop is pending, and no stop holds", () => {
+    for (const stop of planned) {
+      expect(stop.status).toBe("pending");
+      expect(stop.holdSeconds).toBe(0);
+      expect(stop.uncertaintySeconds).toBeGreaterThanOrEqual(UNCERTAINTY_FLOOR_SECONDS);
+      expect(stop.windowEndMs! - stop.windowStartMs!).toBe(WINDOW_MINUTES * 60_000);
+    }
+  });
+
+  it("is pure: the same plan is the same windows", () => {
+    expect(plannedEta({ measured: R2, departureMs: T0, trafficMultiplier: 1 })).toEqual(planned);
   });
 });
 

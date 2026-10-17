@@ -174,6 +174,12 @@ export const etaText = {
 export const board = {
   heading: "Today",
   /**
+   * The same board, another day. The §5 heading is "Today", and it may only say that on the day
+   * it is true of: a board showing the day before, with every ride on it finished, under a
+   * heading that said "Today" would be the one sentence on the screen that was false.
+   */
+  headingOtherDay: "Rides on {date}",
+  /**
    * The three ways this board can be empty, each one line and each ending in the one thing to
    * do about it. They are three strings and not one because they are not the same fact: a day
    * with no rides in it is not a search that matched nobody, and neither is a filter that is
@@ -222,6 +228,12 @@ export const board = {
   vanAndProvider: "{van} · {provider}",
   /** The vehicle is assigned but has sent nothing we may draw (an unlinked device, LOC-01). */
   noPosition: "No van location yet",
+  /**
+   * The same column on a day that is over. "No van location yet" promises one is coming, which
+   * is true of a van that has not left and false of a day whose vans are back in the yard: this
+   * slice keeps no position history, so the honest answer is that none was kept.
+   */
+  noPositionRecorded: "No position recorded",
   /** No window has been worked out for this ride yet — a state, so it gets an icon and a label. */
   windowPending: etaText.pending,
   /** §5.1: a stall is words and a clock, never a colour. */
@@ -233,11 +245,27 @@ export const board = {
   /** §1 "name the person": the adult on file is named, never called "a receiver on file". */
   receiverNamed: "{adult} receives",
   /**
+   * What fills the §3 handoff label, "Handed off to {receiver role}". §1 asks for a person and
+   * the afternoon has one — the adult on file, by name. A morning ride is received by the ramp,
+   * which the fixture gives no name (B12-SLICE1-DEFERRED §3.4: the ramp observation carries no
+   * person), so it is named as the place it happened rather than as a person who might not have
+   * been there.
+   */
+  receivedByRamp: "the ramp",
+  /**
    * Why a ride is in "Needs action", in the order the board ranks them. Each one names the
    * thing it is about — the child, or the van — because "this child" and "this van" are only
    * unambiguous next to the row they came from, and these are read in the drawer too.
    */
   reasons: {
+    /**
+     * The no-adult-at-home case (PRD §6.6 CA-04). Three facts in the order a coordinator needs
+     * them: where the child is, why nobody has taken them, and the one thing nobody should have
+     * to ask — that no van is going to quietly drive them back to the centre. The drawer says the same thing at
+     * length (`heldNoReturn`); the row says it because a board is where it is first read.
+     */
+    CHILD_HELD:
+      "{child} is waiting with the van. Nobody on file may receive them, and nothing brings them back on its own.",
     DOES_NOT_FIT: "{van} does not fit everyone on this run.",
     NO_RECEIVING_ADULT: "No adult on file may receive {child} at the end of the afternoon ride.",
     RIDE_STATE: "{child}'s ride needs a person to decide what happens next.",
@@ -253,6 +281,8 @@ export const board = {
    * it is the only one that is not a step.
    */
   nextSteps: {
+    /** CA-04's own instruction: every authorized and emergency contact, and then a record. */
+    CALL_CONTACTS: "Call {child}'s contacts and record who receives them.",
     MOVE_TO_FITTING_VAN: "Move {child} to a van that fits.",
     /** Closed with `sentence()`: "{child}" already ends in the last initial's full stop. */
     RECORD_RECEIVER: "Record who receives {child}",
@@ -273,6 +303,34 @@ export const board = {
   keyboardHint: "Use J and K to move between rides, Enter to open one.",
   /** "Open Mia R., morning ride" — one opener per row, so two rows are two distinct buttons. */
   openRow: "Open {child}, {ride} ride",
+} as const;
+
+/**
+ * The service date (§2 header, PRD §6.1).
+ *
+ * One date on screen, and it is the demo day: the chrome used to carry today's real date while
+ * the board carried the seeded day the scenario replays, both labelled "Service date" — two
+ * different days, the same words, and nothing on the screen to say which one a row belonged to.
+ * The board's own header now carries that one date, and the shell carries none, so in demo mode
+ * nothing on screen claims to be today.
+ *
+ * It is read rather than changed (Vera's final call): no switcher, no arrows. The day is the one
+ * the scenario replays, and a control offering another one would offer days this build does not
+ * replay — the chrome would be promising what the data cannot keep.
+ *
+ * The date says what kind of day it is, because that is the answer to the first question the
+ * board raises: "Demo day" is said plainly rather than "Today", since the demo clock has not
+ * started (the readout beside it says so) and the seeded day is the day being shown and not the
+ * day it is. The other two phases belong to a finished or an unstarted day, which the projection
+ * can still be asked for by URL; neither is a day the console offers a way to reach.
+ */
+export const serviceDate = {
+  groupLabel: "Service date",
+  phases: {
+    LIVE: "Demo day",
+    ENDED: "Day ended",
+    PLANNED: "Not started",
+  },
 } as const;
 
 /**
@@ -742,6 +800,14 @@ export const drawer = {
   amRide: "Morning ride",
   pmRide: "Afternoon ride",
   ridesHeading: "Today's rides",
+  /**
+   * "Okeeheelee Park → PPEC center" — a ride read as the two ends it has, in travel order. The
+   * morning collects a child at their own stop and sets them down at the centre; the afternoon
+   * is the reverse, which is also what the scenario's runs do (standard.ts `RUNS`). An arrow
+   * rather than "to", because the two rides of a day are read one under the other and the eye
+   * should be able to see the direction flip without reading a word.
+   */
+  rideFromTo: "{from} → {to}",
   needsHeading: "Approved needs",
   capabilityHeading: "Vehicle check",
   receiverHeading: "Who receives the child",
@@ -795,6 +861,14 @@ export const drawer = {
   handoffBlockedRamp: "Check {child}'s van at the ramp first.",
   handoffBlockedNotArrived: "Wait for {child}'s van to arrive.",
   handoffBlockedNoReceiver: "Record who receives {child} first.",
+  /**
+   * The fourth reason, and the only one that is about this build rather than about the day: the
+   * van is there, an adult is on file, and the write path is not connected yet (the caption below
+   * says so too). It is said on the button because that is where somebody about to click reads —
+   * a control that looked available and then did nothing would be the one dishonest thing on
+   * this panel.
+   */
+  handoffBlockedNotConnected: "Confirming a handoff isn't connected yet.",
   overrideWithReason: "Override for {child}, with reason",
   /** §5 override dialog. */
   overrideHeading: "Override ramp check",
