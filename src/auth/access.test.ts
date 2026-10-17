@@ -367,6 +367,10 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/refusal-check": "SIGNED_IN",
       "/today": "DIRECTOR+COORDINATOR",
       "/exceptions": "DIRECTOR+COORDINATOR",
+      // The founder's redesign (REDESIGN-SPEC §0, §9.2): the family thread, and the approvals
+      // queue inside it. Both mirror /exceptions — the two console roles, not the front desk.
+      "/family-texts": "DIRECTOR+COORDINATOR",
+      "/approvals": "DIRECTOR+COORDINATOR",
       "/setup": "DIRECTOR+COORDINATOR",
       "/health": "DIRECTOR+COORDINATOR",
       "/plan-routes": "DIRECTOR+COORDINATOR",
@@ -585,14 +589,22 @@ describe("where each role lives", () => {
 
   it("offers each role only the nav items it can open", () => {
     /*
-     * The whole menu, for a role whose row opens everything: the board, the planning surface,
-     * the live map and the ramp iPad. The three console destinations whose pages are not built
-     * — Exceptions & Approvals, Setup, Health & ROI — are off the *menu* (Firia, 2026-10-17
-     * 2:48 PM ET, the `inMenu` flag in src/ui/nav-items.ts) while their rows and their routes
-     * stay exactly as they are; `rolesWhoCanOpen` below is still asked about all seven.
-     * Addresses only — no "preview" in any of them.
+     * The whole menu, for a role whose row opens everything, in REDESIGN-SPEC §0's order: the
+     * day's four screens, then Family texts, then the two surfaces that are about the day
+     * rather than in it. Setup is the one destination off the *menu* (the `inMenu` flag in
+     * src/ui/nav-items.ts), because §0 moves van counts onto the ramp iPad rather than because
+     * the page is unfinished; its row and its route are untouched, and `rolesWhoCanOpen` below
+     * is still asked about every destination. Addresses only — no "preview" in any of them.
      */
-    const everything = ["/today", "/plan-routes", "/live-map", "/ramp-ipad"];
+    const everything = [
+      "/today",
+      "/plan-routes",
+      "/live-map",
+      "/ramp-ipad",
+      "/family-texts",
+      "/exceptions",
+      "/health",
+    ];
     expect(navItemsFor("DIRECTOR").map((i) => i.href)).toEqual(everything);
     expect(navItemsFor("COORDINATOR").map((i) => i.href)).toEqual(everything);
     /*

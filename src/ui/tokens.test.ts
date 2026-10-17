@@ -268,6 +268,9 @@ describe("token shape", () => {
    * already says "Simulated", and the colour stops meaning "this is the demo" and starts
    * meaning nothing.
    *
+   * The bar's own control joined on the founder's redesign (REDESIGN-SPEC §0): the demo's reset
+   * lives in the bar now, so it is inside the reservation by position as well as by rule.
+   *
    * The demo control joined the list on Vera's review, 2026-10-17, and it is the one addition
    * that *spends* the reservation on its own terms rather than borrowing it: the Plan routes
    * scenario toggle is not a coordinator's control, so it is painted as the demo it steers. It
@@ -277,10 +280,14 @@ describe("token shape", () => {
    * of these three custom properties, and the map's own copy of the token (style.ts, which is
    * JSON and cannot read a custom property) is held to the same rule by style.test.ts.
    */
-  it("spends that reservation on three elements: the bar, the chip and a demo control", () => {
+  it("spends that reservation on four elements: the bar, its control, the chip and a demo control", () => {
     const VIOLET_VARS = /--color-(?:demo-bg|demo-fg|src-sim)\b/;
     const allowed = new Set([
       path.join(SRC_ROOT, "ui", "DemoBanner.module.css"),
+      // The one control *in* the bar — "Restart demo day" — which wears the bar's own pair
+      // rather than the screen's action colour, for the same reason the demo control below
+      // does (REDESIGN-SPEC §0, and src/ui/DemoRestart.module.css says it in full).
+      path.join(SRC_ROOT, "ui", "DemoRestart.module.css"),
       path.join(SRC_ROOT, "ui", "SourceBadge.module.css"),
       path.join(SRC_ROOT, "ui", "DemoControls.module.css"),
     ]);

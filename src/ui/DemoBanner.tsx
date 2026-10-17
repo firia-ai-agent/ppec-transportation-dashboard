@@ -1,22 +1,29 @@
 import { FlaskConical } from "lucide-react";
+import { endpointRow, API } from "@/auth/access";
+import type { StaffRole } from "@/auth/core";
 import { demoBanner } from "./copy";
 import { icon } from "./tokens";
 import { isSyntheticDemo } from "@/lib/env";
+import { DemoRestart } from "./DemoRestart";
 import { ScreenSource } from "./ScreenSource";
 import styles from "./DemoBanner.module.css";
 
 /**
- * DESIGN-DIRECTION §7 / NFR-09: a 32 px full-width violet bar above everything, icon
- * `flask-conical`, text exactly "DEMO" (COPY-GUIDE §6), role="status" with aria-label
- * "DEMO" too (ledger row 40 covers the screen-reader label), announced once on load.
- * Not dismissible.
+ * DESIGN-DIRECTION §7 / NFR-09 / REDESIGN-SPEC §0: a 32 px full-width violet bar above
+ * everything, reading `DEMO · Synthetic data · [Simulated] ……… [Restart demo day]`. Icon
+ * `flask-conical`, text exactly "DEMO" (COPY-GUIDE §6), role="status" with aria-label "DEMO"
+ * too (ledger row 40 covers the screen-reader label), announced once on load. Not dismissible.
  *
- * The bar also carries the one screen-level source-mode chip (§7.1, NFR-09) in its trailing
- * cell — Vera's answer, 2026-10-14: the chip goes *next to* the banner as the small outlined
- * D-10 chip, and there is no second full-width strip under it. "DEMO" keeps its own centre
- * column, so the chip never pushes it off-centre or overlaps it; `role="status"` wraps the
- * DEMO text only, so a reader announces the banner and the chip as the two separate things
- * they are.
+ * The bar carries the one screen-level source-mode chip (§7.1, NFR-09) — Vera's answer,
+ * 2026-10-14: the chip goes *next to* the banner as the small outlined D-10 chip, and there is
+ * no second full-width strip under it. `role="status"` wraps the "DEMO" text only, so a reader
+ * announces the banner and the chip as the two separate things they are.
+ *
+ * **And it carries the demo's one control.** "Restart demo day" was "Start demo day" in the
+ * white app header, beside a readout of a state nothing set, and it did nothing — the control
+ * and the readout are both gone and this is the reset the app already has, in the bar the
+ * founder's mockups put it in (png/shell-flow-1440.png). The bar is the right home for it: it
+ * is the one piece of chrome that is about the *demo* rather than about the day.
  *
  * Rendered only while the environment is synthetic. P1 is synthetic by construction
  * (src/lib/env.ts refuses to start otherwise), so in practice it always renders; the guard
@@ -24,7 +31,7 @@ import styles from "./DemoBanner.module.css";
  * bar because in LIVE the bar itself becomes the slim neutral "LIVE" chip (§7) — there is no
  * violet banner left for a separate chip to sit beside.
  */
-export function DemoBanner() {
+export function DemoBanner({ role }: { role: StaffRole | null }) {
   if (!isSyntheticDemo()) return null;
   return (
     <div className={styles.banner}>
@@ -32,10 +39,31 @@ export function DemoBanner() {
         <FlaskConical size={icon.banner} aria-hidden="true" />
         <span className={styles.text}>{demoBanner.text}</span>
       </p>
-      {/* §7.1 / NFR-09: the single screen-level source chip, in the bar's trailing cell. */}
+      {/* What the demo is. Dropped below 768 (REDESIGN-SPEC §0) — the stylesheet says why. */}
+      <p className={styles.what}>{demoBanner.syntheticData}</p>
+      {/* §7.1 / NFR-09: the single screen-level source chip, beside the words. */}
       <div className={styles.source}>
         <ScreenSource />
       </div>
+      <div className={styles.spacer} />
+      {canRestartDemo(role) ? <DemoRestart /> : null}
     </div>
   );
+}
+
+/**
+ * Who sees the button, read from the one table that decides who the reset answers.
+ *
+ * REDESIGN-SPEC §0 says the control is hidden for the front desk, and the server refuses them
+ * (the reset's row is DIRECTOR, and `POST /api/demo/reset` answers 403 for every other role —
+ * src/app/api/demo/reset/route.test.ts). Those are the same fact, so this asks the table rather
+ * than keeping a list of its own: the front desk is excluded *because* the server excludes
+ * them, and a control that would answer 403 to the person looking at it is never drawn.
+ *
+ * Change who may reset, in the access table, and the bar follows on the same commit.
+ */
+export function canRestartDemo(role: StaffRole | null): boolean {
+  if (!role) return false;
+  const row = endpointRow(API.demoReset)?.auth;
+  return row?.kind === "session" && row.roles.includes(role);
 }

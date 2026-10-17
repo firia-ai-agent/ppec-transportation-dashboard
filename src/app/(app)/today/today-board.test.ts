@@ -15,6 +15,7 @@ import {
 } from "@/ui/copy";
 import { legStates, therapySessionStates } from "@/ui/states";
 import { clockLabel, demoDateIso, demoDateLabel } from "@/ui/service-date";
+import { stepsFor } from "@/ui/step-strip";
 import { TodayBoard } from "./TodayBoard";
 import { LegDrawer } from "./LegDrawer";
 import { nextStepCellText } from "./next-step";
@@ -53,8 +54,14 @@ const legOf = (key: string, direction: "AM" | "PM"): LegRow => {
   return leg;
 };
 
+/**
+ * The board as a director sees it, strip included: the strip lives under the board's own header
+ * now (REDESIGN-SPEC §9.2), so it is one of the board's props rather than a sibling of it.
+ */
 function boardHtml(query = "", of: typeof board = board): string {
-  return renderToStaticMarkup(createElement(TodayBoard, { board: of, query }));
+  return renderToStaticMarkup(
+    createElement(TodayBoard, { board: of, query, steps: stepsFor("DIRECTOR") }),
+  );
 }
 
 function drawerHtml(key: string, of: typeof board = board): string {

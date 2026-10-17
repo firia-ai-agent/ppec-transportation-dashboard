@@ -285,6 +285,33 @@ export const PAGES: readonly PageRow[] = [
     label: nav.exceptions,
   },
   /**
+   * Family texts (REDESIGN-SPEC §0, menu item 5): the day's outbound family messages and the
+   * replies to them. The two console roles, and the front desk is out — mirroring /exceptions,
+   * and for the same reason the map matrix already withholds family labels from the door
+   * (src/domain/access/map-view.ts): a person at the ramp is given the child in front of them,
+   * not the family's conversation.
+   */
+  {
+    kind: "page",
+    file: "src/app/(app)/family-texts/page.tsx",
+    path: "/family-texts",
+    access: { roles: CONSOLE },
+    label: nav.familyTexts,
+  },
+  /**
+   * Approvals — the "For you" half of Family texts, at an address of its own (REDESIGN-SPEC
+   * §9.2 keeps it off the menu and reachable from that page). Same roles as the page it is part
+   * of, and the same roles PRD l.774 gives the decision to: a front-desk approval is an
+   * expected 403 in BUILD-PLAN §4.
+   */
+  {
+    kind: "page",
+    file: "src/app/(app)/approvals/page.tsx",
+    path: "/approvals",
+    access: { roles: CONSOLE },
+    label: nav.approvals,
+  },
+  /**
    * Children/needs, providers/vehicles/layouts, contacts, therapists (PRD §14). PRD §6.2:
    * approved operational needs are a director approval, the roster is the coordinator's.
    *
@@ -318,15 +345,17 @@ export const PAGES: readonly PageRow[] = [
     founderQuestion: true,
   },
   /**
-   * A developer page that shows the signed-in person their own name and their own memberships,
-   * and nothing about anyone else.
+   * The account page: the signed-in person's own name and role, and nothing about anyone else.
+   * Inside the console frame since the founder's 2026-10-17 redesign — it was a route of its
+   * own with no menu on it — and on no role's menu: the account is reached from the identity
+   * menu in the header, which every screen carries.
    *
-   * OPEN QUESTION for the founder: Keep this developer page in the deployed app for all three
-   * roles, or drop it once the console is real?
+   * OPEN QUESTION for the founder: Keep this page in the deployed app for all three roles, or
+   * fold it into the identity menu once the console is real?
    */
   {
     kind: "page",
-    file: "src/app/whoami/page.tsx",
+    file: "src/app/(app)/whoami/page.tsx",
     path: "/whoami",
     access: { roles: ALL_STAFF },
     label: whoami.heading,

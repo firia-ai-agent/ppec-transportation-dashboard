@@ -73,12 +73,17 @@ function pathNamedBy(file: string): string | undefined {
 }
 
 describe("every forbidden.tsx renders the one shared framed component", () => {
-  it("found all twelve boundaries, one per guarded page and one at the root", () => {
+  it("found all fourteen boundaries, one per guarded page and one at the root", () => {
     expect(boundaries.map(rel)).toEqual([
+      "src/app/(app)/approvals/forbidden.tsx",
       "src/app/(app)/exceptions/forbidden.tsx",
+      "src/app/(app)/family-texts/forbidden.tsx",
       "src/app/(app)/health/forbidden.tsx",
       "src/app/(app)/setup/forbidden.tsx",
       "src/app/(app)/today/forbidden.tsx",
+      // The account page moved into the group with the founder's redesign: it was a route of
+      // its own, with no frame around either the page or its refusal.
+      "src/app/(app)/whoami/forbidden.tsx",
       "src/app/forbidden.tsx",
       "src/app/live-map/forbidden.tsx",
       "src/app/map-preview/forbidden.tsx",
@@ -86,7 +91,6 @@ describe("every forbidden.tsx renders the one shared framed component", () => {
       "src/app/plan-routes/forbidden.tsx",
       "src/app/ramp-ipad/forbidden.tsx",
       "src/app/ramp-preview/forbidden.tsx",
-      "src/app/whoami/forbidden.tsx",
     ]);
   });
 
@@ -150,7 +154,6 @@ describe("the card ends up inside exactly one frame", () => {
       "src/app/map-preview/forbidden.tsx",
       "src/app/plan-preview/forbidden.tsx",
       "src/app/ramp-preview/forbidden.tsx",
-      "src/app/whoami/forbidden.tsx",
     ]);
     for (const file of alone) expect(shellComesFromLayout(pathNamedBy(path.join(REPO, file)))).toBe(false);
   });

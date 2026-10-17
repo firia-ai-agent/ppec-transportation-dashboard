@@ -6,6 +6,9 @@
 .list {
   display: flex;
   align-items: stretch;
+  /* Above the scrim, so the four tabs beside "More" are still tappable while it is open. */
+  position: relative;
+  z-index: 2;
 }
 
 .item {
@@ -46,6 +49,81 @@
   background: var(--color-selected-bg);
   color: var(--color-ink-brand);
   font-weight: var(--weight-semibold);
+}
+
+/*
+ * The "More" tab is a button, not a link: it opens the sheet above the bar rather than going
+ * anywhere. It takes the same box as a tab so the five slots are five equal columns.
+ */
+button.tab {
+  border-inline: 0;
+  border-bottom: 0;
+  background: none;
+  cursor: pointer;
+}
+
+/*
+ * The sheet the "More" tab opens: the rest of this role's destinations, in the frame, above the
+ * bar. Not a side panel and not a drawer (Firia, 3:08 PM ET) — it sits on the menu it belongs
+ * to, the four tabs beside it stay on screen, and tapping any of them closes it.
+ */
+.sheet {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 100%;
+  z-index: 1;
+  background: var(--color-surface);
+  /* A hairline in the strong border tone rather than a shadow: no-hex.test.ts allows no colour
+     function anywhere but tokens.ts, and an edge the eye can find is what a shadow was for. */
+  border-top: var(--border-hairline) solid var(--color-border-strong);
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.sheetList {
+  display: flex;
+  flex-direction: column;
+}
+
+.sheetItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  /* §9: ≥44 px, and the whole row is the target. */
+  min-height: var(--target-console);
+  padding: var(--space-3) var(--space-5);
+  color: var(--color-ink);
+  text-decoration: none;
+  font-size: var(--text-16);
+  font-weight: var(--weight-medium);
+}
+
+.sheetItem[aria-current="page"] {
+  background: var(--color-selected-bg);
+  color: var(--color-ink-brand);
+  font-weight: var(--weight-semibold);
+}
+
+.sheetClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--target-console);
+  padding: var(--space-3) var(--space-5);
+  border: 0;
+  border-top: var(--border-hairline) solid var(--color-neutral-bg);
+  background: none;
+  color: var(--color-ink-muted);
+  font-size: var(--text-14);
+  cursor: pointer;
+}
+
+/* Tapping the page behind the sheet closes it. Under the sheet, over everything else. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
 }
 
 .label {

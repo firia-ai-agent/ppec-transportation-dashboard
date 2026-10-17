@@ -3,6 +3,7 @@ import {
   Flag,
   LayoutDashboard,
   Map as MapIcon,
+  MessageSquareText,
   Route,
   Settings,
   Tablet,
@@ -59,9 +60,12 @@ export type NavItem = {
  * string in `nav` — so the rail and the page cannot drift apart. nav-items.test.ts holds that.
  *
  * This list is every destination; the **menu** is the rows whose `inMenu` is true (`menuItems`
- * below). Firia's 2:48 PM ET ruling on 2026-10-17 took the three screens that are not built off
- * the menu, and the flag is where that lives: the routes, their rows in the access table and
- * their answers to a typed URL are all unchanged.
+ * below). Firia's 2:48 PM ET ruling on 2026-10-17 took three screens off the menu because each
+ * opened a page that said it was not built; the founder's 6:19 PM ET redesign put two of them
+ * back, with a rule that supersedes it — **nothing on the menu may 404 or dead-end** — and the
+ * screens behind them are a title and a line rather than an apology (src/ui/StubPage.tsx). The
+ * flag is still where this lives: a route, its row and its answer to a typed URL are unchanged
+ * either way.
  *
  * All seven render this list, and that is new as of 2026-10-17. The three screens above are
  * routes outside src/app/(app) and used to render no menu at all — §2 even says the ramp iPad is
@@ -86,13 +90,18 @@ export type NavItem = {
  *    destination that *is* a map it cannot be mistaken for a van's state.
  *  - Ramp iPad uses `tablet`, the surface the PRD names it after. No §3 or §7.1 meaning, and
  *    nothing else in the rail is a device.
+ *  - Family texts uses `message-square-text`, which is §0's own choice. §3 gives a meaning to
+ *    no icon in the message family and §7.1 to none at all, so a thread icon on the rail cannot
+ *    be read as a state of a ride.
  * nav-items.test.ts fails if any nav icon collides with a state or source-mode icon, or if two
  * destinations share one.
  *
- * Order: §2's four destinations keep their document order, Plan routes and the live map sit
- * between the board and the exceptions it raises (plan the day, then watch it move), and the
- * ramp iPad is last — PRD §14 lists it last, after the console destinations, because it is not
- * one.
+ * Order, and it is REDESIGN-SPEC §0's: Today · Plan routes · Live map · Ramp iPad · Family
+ * texts, which is the order of the day (plan it, watch it move, meet it at the door, answer the
+ * family), then the two surfaces that are about the day rather than in it. The ramp iPad moved
+ * up from last, where PRD §14 lists it: below 768 the bar carries five tabs and the rest go
+ * under "More" (src/ui/TabBar.tsx), so the order decides what a thumb reaches without a second
+ * tap — and the ramp iPad is one of the front desk's two destinations.
  *
  * Addresses: each one is the screen's own name, `/plan-routes`, `/live-map`, `/ramp-ipad`. The
  * three used to be `/plan-preview`, `/map-preview` and `/ramp-preview` — a word about how
@@ -104,23 +113,29 @@ export const navItems: readonly NavItem[] = [
   { href: "/today", label: nav.today, icon: LayoutDashboard, inMenu: true },
   { href: "/plan-routes", label: planRoutes.heading, icon: Route, inMenu: true },
   { href: "/live-map", label: liveMap.heading, icon: MapIcon, inMenu: true },
-  /*
-   * Off the menu until the screen behind it is a screen (Firia, 2026-10-17 2:48 PM ET). Each
-   * one says, in its own line, what brings it back — the flag is the whole mechanism, so
-   * turning one on is this word and nothing else.
-   */
-  // Returns when #61 (the late text and the agent's live path) merges: that PR is what fills it.
-  { href: "/exceptions", label: nav.exceptions, icon: Flag, inMenu: false },
-  // Returns with the equipment-counts redesign, which is what the page is for.
-  { href: "/setup", label: nav.setup, icon: Settings, inMenu: false },
-  /*
-   * Returns when #60 is on main. Checked on origin/main on 2026-10-17 at 3:20 PM ET: #60 is
-   * open, and `src/app/(app)/health/page.tsx` there still renders the `unbuilt` Placeholder, so
-   * the menu would be offering a page that says it is not built. On the merge, the page becomes
-   * the built one and this is `true`.
-   */
-  { href: "/health", label: nav.health, icon: Activity, inMenu: false },
   { href: "/ramp-ipad", label: rampIpad.heading, icon: Tablet, inMenu: true },
+  /*
+   * REDESIGN-SPEC §0's fifth menu item, and the one that was a 404 on production during the
+   * founder's walk. `message-square-text` is §0's own choice for it, and §3 and §7.1 claim no
+   * icon in that family.
+   */
+  { href: "/family-texts", label: nav.familyTexts, icon: MessageSquareText, inMenu: true },
+  /*
+   * On the menu, and this is the founder's 6:19 PM ET rule rather than a claim that the screens
+   * behind them are finished: **nothing on the menu may 404 or dead-end**. Each of these two is
+   * its own title and one line about what it will hold (src/ui/StubPage.tsx), which is a screen
+   * — the thing the 2:48 PM ET ruling was protecting the founder from was a menu item that
+   * opened an apology, and a title and a sentence is not one.
+   */
+  { href: "/exceptions", label: nav.exceptions, icon: Flag, inMenu: true },
+  { href: "/health", label: nav.health, icon: Activity, inMenu: true },
+  /*
+   * Setup is the one destination still off the menu, and §0 is why rather than the build: "van
+   * counts are set only on the Ramp iPad; Plan routes shows them read-only", so the screen this
+   * item opens is being taken apart rather than finished. The route, its row and its answer to
+   * a typed URL are untouched.
+   */
+  { href: "/setup", label: nav.setup, icon: Settings, inMenu: false },
 ];
 
 /**

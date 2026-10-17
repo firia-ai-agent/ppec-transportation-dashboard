@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { LAYOUT, PAGES, ROLE_LADDER, homePathFor } from "@/auth/access";
 import { layout } from "./tokens";
 import { navItems, navItemsFor } from "./nav-items";
+import { splitTabs, TAB_SLOTS } from "./TabBar";
 
 /**
  * ONE MENU, ON EVERY SCREEN IT LINKS TO.
@@ -198,13 +199,71 @@ describe("§2 bottom tab bar, <768", () => {
   });
 
   it("is on screen without being opened, and only below 768", () => {
-    // No `hidden`, no `aria-expanded`, no state: a tab bar has nothing to toggle.
+    /*
+     * The *bar* has nothing to toggle: no `hidden`, and the tabs are in the markup whatever
+     * state anything is in. What it does have, since the menu grew past five destinations, is a
+     * fifth slot that opens the rest (`splitTabs` below) — a tab, in the bar, opening a sheet
+     * over the page. That is not the hamburger coming back and the next test is what says so:
+     * the four destinations and the way to the others are on screen without a tap.
+     */
     const component = read(path.join(UI, "TabBar.tsx"));
-    expect(component).not.toMatch(/useState\(|aria-expanded|\shidden=/);
+    expect(component).not.toMatch(/\shidden=/);
     expect(css).toMatch(/\.bar \{\s*display: none/);
     expect(phone).toMatch(/\.bar \{[^}]*display: block/);
     expect(phone).toMatch(/\.bar \{[^}]*position: fixed/);
     expect(phone).toMatch(/\.bar \{[^}]*bottom: 0/);
+  });
+
+  /**
+   * FIVE SLOTS, AND "MORE" — REDESIGN-SPEC §9.2 ("five equal tabs") meeting §0's menu, which is
+   * seven destinations for a console role. Seven tabs at 390 px is 55 px each: under the §9
+   * target and unreadable with it. So four tabs and a fifth slot that opens the rest.
+   *
+   * What makes it not the deleted hamburger, stated as the rules it has to keep: the primary
+   * tabs are always on screen, the thing that opens is in the frame rather than a panel from
+   * the side, every row in it is a §9 target, and it closes on a selection, on Escape and on a
+   * tap outside. The browser check measures all of that (e2e/rework-frame.spec.ts); this is
+   * where the split itself is decided, so it is where the split is pinned down.
+   */
+  it("gives a role with more than five destinations four tabs and a More", () => {
+    expect(TAB_SLOTS).toBe(5);
+    const director = navItemsFor("DIRECTOR");
+    expect(director.length).toBeGreaterThan(TAB_SLOTS);
+    const split = splitTabs(director);
+    expect(split.tabs).toHaveLength(TAB_SLOTS - 1);
+    expect(split.tabs.length + split.overflow.length).toBe(director.length);
+    // Nothing is lost and nothing is repeated: the bar still offers the whole menu.
+    expect([...split.tabs, ...split.overflow]).toEqual(director);
+    // The four with a tab of their own are the first four of §0's order, the day's own order.
+    expect(split.tabs.map((i) => i.href)).toEqual([
+      "/today",
+      "/plan-routes",
+      "/live-map",
+      "/ramp-ipad",
+    ]);
+  });
+
+  it("gives a role with five or fewer every one as a tab, and no More at all", () => {
+    const frontDesk = navItemsFor("FRONT_DESK");
+    expect(frontDesk.length).toBeLessThanOrEqual(TAB_SLOTS);
+    expect(splitTabs(frontDesk)).toEqual({ tabs: frontDesk, overflow: [] });
+  });
+
+  it("the sheet closes the three ways anything that opens has to", () => {
+    const component = read(path.join(UI, "TabBar.tsx"));
+    // A selection: every link in it, and every tab beside it, closes on click.
+    expect(component).toMatch(/onClick=\{close\}/);
+    // Escape, from anywhere on the page, with the focus put back on the tab that opened it.
+    expect(component).toMatch(/event\.key !== "Escape"/);
+    expect(component).toMatch(/moreRef\.current\?\.focus\(\)/);
+    // A tap outside, which is what the scrim is.
+    expect(component).toMatch(/styles\.scrim/);
+    // And focus goes *into* it when it opens, so the next Tab is inside it (§9).
+    expect(component).toMatch(/sheetRef\.current\?\.querySelector\("a"\)\?\.focus\(\)/);
+    // Every row in it is a §9 target, and it is a sheet on the bar — not a drawer from the side.
+    expect(css).toMatch(/\.sheetItem \{[^}]*min-height: var\(--target-console\)/);
+    expect(css).toMatch(/\.sheet \{[^}]*bottom: 100%/);
+    expect(css).not.toMatch(/\.sheet \{[^}]*inset-inline-start: auto/);
   });
 
   it("gives every tab a §9 target, an icon and a label", () => {

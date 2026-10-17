@@ -70,13 +70,19 @@
   }
 
   /*
-   * The product's name yields the row to the things that do something: the demo readout, its
-   * Start, and the account. The screen's own <h1> is directly below this and says where you
-   * are; the DEMO bar above it says which build this is (see png/shell-flow-390.png, whose
-   * phone header carries the screen and the avatar and no product name).
+   * The product's name stays on a phone and gets smaller.
+   *
+   * It used to be `display: none` here, because the row also carried the demo readout and its
+   * "Start demo day" and there was no room for four things. Those two are gone — the demo's one
+   * control is the DEMO bar's now — and a header whose only content is a circle of initials is
+   * not a header: the mark at one end and the account at the other is the row the mockups draw
+   * (png/shell-flow-390.png), and it is what tells a person at 390 px that the thing above the
+   * screen is this app's chrome rather than part of the screen.
    */
   .siteName {
-    display: none;
+    font-size: var(--text-16);
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /*

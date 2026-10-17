@@ -348,8 +348,8 @@ describe("the harness itself works", () => {
     const paths = pageFiles.map((p) => p.path).sort();
     expect(paths).toEqual(
       [
-        "/", "/_not-found", "/exceptions", "/health", "/login", "/live-map", "/plan-routes",
-        "/ramp-ipad", "/setup", "/today", "/whoami",
+        "/", "/_not-found", "/approvals", "/exceptions", "/family-texts", "/health", "/login",
+        "/live-map", "/plan-routes", "/ramp-ipad", "/setup", "/today", "/whoami",
         // The refusal card at an address: a session, and then 403 for every one of them.
         "/refusal-check",
         // The three old addresses, which are pages too: a guard, then a permanent redirect.
@@ -451,10 +451,12 @@ describe("every page, for every role and for a signed-out visitor", () => {
    * line that says why. The page module is still the thing being called, so this is the
    * server's answer and not a rail's.
    */
-  it("the front desk is sent home from all four console pages, never shown a refusal", async () => {
+  it("the front desk is sent home from every console page, never shown a refusal", async () => {
     const home = withNotice(homePathFor(CALLERS.frontDesk), NOT_ON_YOUR_MENU);
     expect(home).toBe("/live-map?notice=not-on-your-menu");
-    for (const p of ["/today", "/exceptions", "/setup", "/health", "/plan-routes"]) {
+    for (const p of [
+      "/today", "/exceptions", "/setup", "/health", "/plan-routes", "/family-texts", "/approvals",
+    ]) {
       const page = pageFiles.find((f) => f.path === p) as { file: string; path: string };
       getCaller.mockResolvedValue(CALLERS.frontDesk);
       expect({ p, ...(await openPage(page.file)) }).toEqual({
@@ -465,13 +467,14 @@ describe("every page, for every role and for a signed-out visitor", () => {
 
   it("a signed-in person with no role anywhere is refused every staff page, body and all", async () => {
     const staffPages = pageFiles.filter((p) => pageOutcome(CALLERS.noRole, p.path) === "NO_ACCESS");
-    // Every page that asks for a role at all: the four console pages, the three screens that
-    // are routes outside that group (each with a shell of its own now), /whoami, and the three
-    // redirects that stand in front of those screens.
+    // Every page that asks for a role at all: the console pages (the founder's redesign adds
+    // Family texts and the approvals queue inside it), the three screens that are routes
+    // outside that group, the account page, and the three redirects standing in front of them.
     expect(staffPages.map((p) => p.path).sort()).toEqual(
       [
-        "/exceptions", "/health", "/live-map", "/map-preview", "/plan-preview", "/plan-routes",
-        "/ramp-ipad", "/ramp-preview", "/setup", "/today", "/whoami",
+        "/approvals", "/exceptions", "/family-texts", "/health", "/live-map", "/map-preview",
+        "/plan-preview", "/plan-routes", "/ramp-ipad", "/ramp-preview", "/setup", "/today",
+        "/whoami",
       ],
     );
     for (const page of staffPages) {

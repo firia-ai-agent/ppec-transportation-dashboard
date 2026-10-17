@@ -21,6 +21,8 @@ import {
 } from "@/domain/board/board";
 import { board as boardCopy, etaText, fill, onDay, screenReader, serviceDate } from "@/ui/copy";
 import { SearchField } from "@/ui/SearchField";
+import { StepStrip } from "@/ui/StepStrip";
+import type { StripStep } from "@/ui/step-strip";
 import { StateChip } from "@/ui/StateChip";
 import {
   capabilityStates,
@@ -56,7 +58,21 @@ import styles from "./today.module.css";
  * reachable by Tab and by its own button, so the hint was a sentence about a shortcut rather
  * than the only way to work the board.
  */
-export function TodayBoard({ board, query }: { board: Board; query: string }) {
+export function TodayBoard({
+  board,
+  query,
+  steps,
+}: {
+  board: Board;
+  query: string;
+  /**
+   * The day's three steps, already filtered to what this role may open (src/ui/step-strip.ts).
+   * Passed in rather than computed here because this is a client component and the access table
+   * is the server's answer, and rendered *inside* the header below because REDESIGN-SPEC §9.2
+   * puts the strip under the page header rather than above the whole screen.
+   */
+  steps: readonly StripStep[];
+}) {
   const { day } = board;
   const [onlyNeedsAction, setOnlyNeedsAction] = useState(false);
   const [openChild, setOpenChild] = useState<string | null>(null);
@@ -118,6 +134,9 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
           <span className={styles.phase}>{serviceDate.phases[day.phase]}</span>
         </p>
       </header>
+
+      {/* The order of the day, under the header and above the board (REDESIGN-SPEC §9.2). */}
+      <StepStrip steps={steps} />
 
       {/*
         Search, under the board's own title (Vera's review, 2026-10-17 2:44 PM ET). It used to

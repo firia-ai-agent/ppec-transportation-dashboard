@@ -1,6 +1,5 @@
 import { requirePage } from "@/auth/page-guard";
 import { buildBoard, CLOCK_PARAM, requestedBoardDay } from "@/domain/board/board";
-import { StepStrip } from "@/ui/StepStrip";
 import { stepsFor } from "@/ui/step-strip";
 import { TodayBoard } from "./TodayBoard";
 
@@ -61,10 +60,7 @@ export default async function Page({
   // The day's three steps, each a link to its screen — only where this role may open it.
   const steps = stepsFor(caller.kind === "STAFF" ? caller.role : null);
 
-  return (
-    <>
-      <StepStrip steps={steps} />
-      <TodayBoard board={board} query={query} />
-    </>
-  );
+  // The strip belongs under the board's own header (REDESIGN-SPEC §9.2), so it is handed to
+  // the board rather than rendered above everything: the board is what owns that header.
+  return <TodayBoard board={board} query={query} steps={steps} />;
 }

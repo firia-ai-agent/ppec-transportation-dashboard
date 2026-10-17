@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Atkinson_Hyperlegible_Next, JetBrains_Mono } from "next/font/google";
-import { DemoBanner } from "@/ui/DemoBanner";
+import { DemoBar } from "@/ui/DemoBar";
 import { app } from "@/ui/copy";
 import { tokenCss } from "@/ui/tokens";
 import "./globals.css";
@@ -32,9 +32,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <style>{tokenCss()}</style>
       </head>
       <body>
-        {/* §7 / §7.1 / NFR-09: the DEMO bar, carrying the source-mode chip next to it, above
-            everything and on every route including /login. */}
-        <DemoBanner />
+        {/* §7 / §7.1 / NFR-09: the DEMO bar, carrying the source-mode chip and the demo's one
+            control, above everything and on every route including /login. */}
+        <DemoBar />
         {children}
       </body>
     </html>
