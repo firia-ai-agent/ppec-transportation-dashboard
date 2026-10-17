@@ -304,10 +304,30 @@ describe("the plan's layers (one line per van)", () => {
     expect(line?.paint?.["line-color"]).toEqual(["get", "color"]);
   });
 
+  /**
+   * Vera's review, 2026-10-17: the name is repeated down the line, and a dimmed name is still
+   * readable.
+   *
+   * `line-center` wrote each van's name once, at the midpoint of its own route — and all three
+   * routes run to the centre, so the three names landed on each other in the middle of the pane
+   * and MapLibre dropped two of them. `line` plus a spacing writes the name again along the
+   * line, so the stretch a coordinator is reading has a name on it.
+   */
   it("writes the van's name along its own line, so colour is never the only cue", () => {
     const label = layer(PLAN_LAYER_IDS.routeLabel);
     expect(label?.layout?.["text-field"]).toEqual(["get", "van"]);
-    expect(label?.layout?.["symbol-placement"]).toBe("line-center");
+    expect(label?.layout?.["symbol-placement"]).toBe("line");
+    expect(label?.layout?.["symbol-spacing"]).toBe(250);
+    // Dimmed is quieter, not unreadable: the line itself carries the dimming, and a name that
+    // faded out would leave the other two routes told apart by colour alone (§3).
+    expect(label?.paint?.["text-opacity"]).toEqual([
+      "case",
+      ["boolean", ["get", "dimmed"], false],
+      0.7,
+      1,
+    ]);
+    const dimmedLine = layer(PLAN_LAYER_IDS.routeLine)?.paint?.["line-opacity"] as unknown[];
+    expect(Number(dimmedLine[2])).toBeLessThan(0.7);
   });
 
   it("numbers every stop inside its own disc, in the drive's order", () => {

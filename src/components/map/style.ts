@@ -582,9 +582,19 @@ export function planMapLayers(): StyleLayerLike[] {
         "text-field": ["get", "van"],
         "text-font": LABEL_FONT_BOLD,
         "text-size": 12,
-        // Along the line it names, in the middle of it, so the name and the line it belongs to
-        // cannot be mistaken for a neighbour's.
-        "symbol-placement": "line-center",
+        /*
+         * Along the line it names, repeated down it rather than written once in the middle
+         * (Vera's review, 2026-10-17).
+         *
+         * `line-center` puts one name at the midpoint of each route, and three routes that cross
+         * the centre of the pane put their three names on top of each other there — the one
+         * place every van's line goes. `line` writes the name again every `symbol-spacing`
+         * pixels, so whichever stretch of a line a coordinator is reading has the van's name on
+         * it, and MapLibre's own collision test keeps the copies off each other. 250 px is wide
+         * enough that a route is not a ribbon of its own name in a 40%-width pane.
+         */
+        "symbol-placement": "line",
+        "symbol-spacing": 250,
         "text-max-angle": 30,
         "text-max-width": 14,
       },
@@ -594,7 +604,13 @@ export function planMapLayers(): StyleLayerLike[] {
         "text-color": ["get", "color"],
         "text-halo-color": MAP_TOKENS.surface,
         "text-halo-width": LABEL_HALO_WIDTH,
-        "text-opacity": ["case", ["boolean", ["get", "dimmed"], false], 0.45, 1],
+        /*
+         * A dimmed van is still a van with a name: 0.45 took the names of the other two routes
+         * to the edge of readable on positron's land, which left their lines told apart by
+         * colour alone — the one cue §3 never allows on its own. The line underneath carries the
+         * dimming (0.3), so the name only has to say which line it is.
+         */
+        "text-opacity": ["case", ["boolean", ["get", "dimmed"], false], 0.7, 1],
       },
     },
     {
