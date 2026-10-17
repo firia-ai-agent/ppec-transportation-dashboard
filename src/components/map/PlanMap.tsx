@@ -306,36 +306,6 @@ export default function PlanMap({ data, selectedLaneId, onSelect }: PlanMapProps
 
   return (
     <div className={styles.pane}>
-      <div className={styles.canvasWrap}>
-        <div
-          ref={containerRef}
-          className={styles.canvas}
-          role="region"
-          aria-label={planRoutes.mapLabel}
-        />
-        <div className={styles.overlay}>
-          <button
-            type="button"
-            className={styles.button}
-            onClick={fitEverything}
-            disabled={!ready}
-          >
-            {planRoutes.mapFitAll}
-          </button>
-          {/* Nobody is in a van yet: the map has the centre on it and says what to press. */}
-          {data.empty && !error ? <p className={styles.empty}>{planRoutes.mapEmpty}</p> : null}
-          {error ? (
-            <p className={styles.notice} role="alert">
-              {error}
-              <br />
-              <button type="button" onClick={() => setAttempt((n) => n + 1)}>
-                {fleetMap.retry}
-              </button>
-            </p>
-          ) : null}
-        </div>
-      </div>
-
       {/*
         The van toggles sit **on** the map (the re-cut §1.2 mockup, 2026-10-17): chips along the
         top, one per van, each a swatch and the van's own name. The paragraph that used to sit
@@ -376,6 +346,36 @@ export default function PlanMap({ data, selectedLaneId, onSelect }: PlanMapProps
           </li>
         ))}
       </ul>
+      <div className={styles.canvasWrap}>
+        <div
+          ref={containerRef}
+          className={styles.canvas}
+          role="region"
+          aria-label={planRoutes.mapLabel}
+        />
+        <div className={styles.overlay}>
+          <button
+            type="button"
+            className={styles.button}
+            onClick={fitEverything}
+            disabled={!ready}
+          >
+            {planRoutes.mapFitAll}
+          </button>
+          {/* Nobody is in a van yet: the map has the centre on it and says what to press. */}
+          {data.empty && !error ? <p className={styles.empty}>{planRoutes.mapEmpty}</p> : null}
+          {error ? (
+            <p className={styles.notice} role="alert">
+              {error}
+              <br />
+              <button type="button" onClick={() => setAttempt((n) => n + 1)}>
+                {fleetMap.retry}
+              </button>
+            </p>
+          ) : null}
+        </div>
+      </div>
+
       {selectedLaneId !== null ? (
         <button type="button" className={styles.button} onClick={() => onSelect(null)}>
           {planRoutes.mapShowAll}

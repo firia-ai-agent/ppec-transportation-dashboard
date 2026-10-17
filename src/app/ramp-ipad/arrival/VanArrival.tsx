@@ -146,6 +146,11 @@ export default function VanArrival({
             aria-current={arrival.van.id === selected.van.id ? "page" : undefined}
             data-tab={arrival.van.id}
           >
+            <span
+              className={styles.tabSwatch}
+              style={{ background: `var(--color-${arrival.van.colourToken})` }}
+              aria-hidden="true"
+            />
             <span className={styles.tabName}>{arrival.van.name}</span>
             <span className={styles.tabTime}>{leavesLine(arrival.leavesMs)}</span>
           </a>

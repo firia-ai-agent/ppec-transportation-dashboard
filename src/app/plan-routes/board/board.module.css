@@ -283,12 +283,30 @@
   gap: var(--space-2);
 }
 
+/*
+ * A read-only count, and the way to the screen that sets it: the chip is a link to the ramp iPad
+ * on this van (Firia's rule 1 — the board reads counts and never writes them). It is not drawn
+ * as body-text link, because it is a number a coordinator reads at a glance: no underline until
+ * it is hovered or focused, when it needs to say it is a target.
+ */
 .meter {
   display: grid;
   grid-template-columns: 16px auto 1fr;
   align-items: center;
   gap: var(--space-2);
   color: var(--color-ink);
+  text-decoration: none;
+  border-radius: 4px;
+}
+
+a.meter:hover .meterValue,
+a.meter:focus-visible .meterValue {
+  text-decoration: underline;
+}
+
+a.meter:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
 }
 
 .meterValue {
@@ -676,11 +694,18 @@
     flex-direction: column;
   }
 
-  /* The map is a strip above the switcher, and the board shows the chosen column only. */
+  /*
+   * The map is a 200 px strip **below** the column, not above it (Vera's differences list, item
+   * 4): a phone opens on the switcher and the children, and a map that takes the first screen is
+   * a map that covers the rider cards. Capped and clipped, so the attribution inside it cannot
+   * push the strip past its own height.
+   */
   .map {
     flex: 0 0 200px;
     min-height: 200px;
-    order: -1;
+    max-height: 200px;
+    overflow: hidden;
+    order: 2;
   }
 
   .column[data-shown="false"] {
