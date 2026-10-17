@@ -36,6 +36,7 @@ import { serviceDateIso } from "@/ui/service-date";
 import type { attendanceState, capabilityState, legState } from "@/db/schema";
 import {
   childByKey,
+  demoDayRecordFor,
   rideRecordFor,
   THERAPISTS,
   THERAPY_SESSIONS,
@@ -434,11 +435,21 @@ function plannedEtaMs(run: DemoRun, stopId: string): number | null {
  * A day that has ended put every van through the ramp gate — a manifest cannot be locked and a
  * van cannot be released on an unchecked vehicle (PRD §6.3) — which is how the one run whose
  * riders do not fit got as far as being cancelled rather than quietly staying "pending".
+ *
+ * `recorded` is that same gate for a single ride: a ride the day has acts for was driven, and a
+ * van that was driven was checked first. It is what lets the demo day's one recorded ride (the
+ * AT-13 hold) walk past the capability edge while the afternoon rides around it, which nobody
+ * has reported on, stay honestly pending.
  */
-function solveRun(run: DemoRun, direction: Direction, day: ServiceDay): RunSolve {
+function solveRun(
+  run: DemoRun,
+  direction: Direction,
+  day: ServiceDay,
+  recorded: boolean,
+): RunSolve {
   const departed =
     day.phase === "LIVE" && direction === "AM" && frameFor(run, day.instantMs) !== null;
-  const checked = day.phase === "ENDED" || departed;
+  const checked = day.phase === "ENDED" || departed || recorded;
   const capability = capabilityFor(run, serviceDateIso(new Date(day.instantMs)), checked);
   const solve = feasible(solverVehicle(vehicleOf(run)), solverLeg(run, direction), capability);
   return { solve, capability: capability.state, departed };
@@ -504,17 +515,20 @@ function liveEtaView(run: DemoRun, frame: ReplayFrame): EtaView {
 /**
  * What the day recorded about this ride, in person acts.
  *
- * Only a day that has ended has any: the demo day is read twelve minutes into its morning runs,
- * when no child has been reported aboard yet, and a day that has not started has nothing to
- * record. So the live board stops at what the replay can see, which is the state it was already
- * in — and the finished day is the one with outcomes on it.
+ * A day that has ended recorded all of them, which is what makes it the day with outcomes on it.
+ * The demo day is read twelve minutes into its morning runs, so it records one — the AT-13 ride
+ * (`DEMO_DAY_RIDES`), on the board because a demo walk that cannot reach the hold and the
+ * no-auto-return rule does not show them at all (Vera, 2026-10-16). Every other ride on it stops
+ * at what the replay can see, which is the state it was already in; a day that has not started
+ * has nothing to record at all.
  */
 function dayRecordFor(
   child: DemoChild,
   direction: Direction,
   day: ServiceDay,
 ): RideRecord | undefined {
-  return day.phase === "ENDED" ? rideRecordFor(child.key, direction) : undefined;
+  if (day.phase === "ENDED") return rideRecordFor(child.key, direction);
+  return day.phase === "LIVE" ? demoDayRecordFor(child.key, direction) : undefined;
 }
 
 function reportedActs(child: DemoChild, record: RideRecord | undefined) {
@@ -583,10 +597,10 @@ function rideFor(child: DemoChild, direction: Direction, day: ServiceDay): RideV
 
   const vehicle = solverVehicle(vehicleOf(run));
   const dispatcher = dispatcherOf(vehicleOf(run));
-  const { solve, capability, departed } = solveRun(run, direction, day);
+  const record = dayRecordFor(child, direction, day);
+  const { solve, capability, departed } = solveRun(run, direction, day, record !== undefined);
   const frame = departed ? frameFor(run, day.instantMs) : null;
   const ownStop = stopLabel(child);
-  const record = dayRecordFor(child, direction, day);
   const acts = reportedActs(child, record);
   const { state, path } = rideStateFrom({
     assigned: true,

@@ -186,9 +186,13 @@ for (const width of WIDTHS) {
      * event was recorded, so the leg machine's only remaining edge was HELD_NO_RECEIVER. What
      * the board has to carry is the part a coordinator cannot be left to assume: he is waiting
      * with the van, and nothing is bringing him back on its own (PRD §6.6 CA-04).
+     *
+     * Walked on the **demo day**, with no `?date=` in the URL (Vera, 2026-10-16): the console
+     * has no date switcher, so a story that lived only on the day before the demo day was a
+     * story nobody on the walk could reach.
      */
     test("a ride that ends held, with no automatic return (AT-13)", async ({ page }) => {
-      await page.goto(`${FINISHED_URL}&q=Noah`);
+      await page.goto("/today?q=Noah");
 
       const held = page
         .getByRole("row")
@@ -220,15 +224,11 @@ for (const width of WIDTHS) {
       await expect(
         panel.getByText(fill(drawer.heldNoReturn, { child: NO_RECEIVER_CHILD })),
       ).toBeVisible();
-      // The morning of the same day is finished: one held ride is not a held day (AT-07).
-      await expect(
-        panel
-          .getByText(
-            fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": boardCopy.receivedByRamp }),
-            { exact: true },
-          )
-          .first(),
-      ).toBeVisible();
+      // The morning of the same child is its own ride, in its own state: one held ride is not a
+      // held day (AT-07). On the demo day that ride is still on the road, and nothing anywhere
+      // in the panel says this child was handed over.
+      await expect(panel.getByText(legStates.EN_ROUTE_PICKUP.label).first()).toBeVisible();
+      await expect(panel.getByText(/handed off/i)).toHaveCount(0);
       // Nothing on this screen can move it: the one action that would is unavailable, and says
       // which person has to answer first.
       await expect(
@@ -284,9 +284,11 @@ for (const width of WIDTHS) {
       }
       await expect(page.getByRole("navigation", { name: serviceDate.groupLabel })).toHaveCount(0);
 
-      // The live day has no finished ride on it at all: today is today only.
+      // Nothing on the live day has been handed over: no ride on it has a custody event, so no
+      // row may say one happened. The one outcome it does carry is the AT-13 hold, which is on
+      // this board on purpose and walked by the test above.
       await expect(page.getByText(/handed off/i)).toHaveCount(0);
-      await expect(page.getByText(legStates.HELD_NO_RECEIVER.label)).toHaveCount(0);
+      await expect(page.getByText(legStates.HELD_NO_RECEIVER.label).first()).toBeVisible();
       console.log("screenshot:", await shot(page, `today-one-date-${width}`));
     });
 
@@ -315,9 +317,7 @@ for (const width of WIDTHS) {
      */
     test("every row says what to do next, as a verb and a child's name", async ({ page }) => {
       await page.goto("/today");
-      const step = sentence(
-        fill(boardCopy.nextSteps.RECORD_RECEIVER, { child: NO_RECEIVER_CHILD }),
-      );
+      const step = sentence(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: NO_RECEIVER_CHILD }));
 
       if (width >= 1280) {
         await expect(page.getByText(step, { exact: true })).toBeVisible();
@@ -333,7 +333,7 @@ for (const width of WIDTHS) {
       } else {
         // §4.1 folds this column into the drawer below 1280, so that is where it has to be.
         await page.getByRole("button", { name: opener(NO_RECEIVER_CHILD, boardCopy.pmSpoken) }).click();
-        // Exact: the footer's disabled reason is the same instruction with "first" on the end.
+        // Exact: the panel carries other sentences about the same child and the same contacts.
         await expect(page.getByRole("dialog").getByText(step, { exact: true })).toBeVisible();
       }
     });
@@ -529,6 +529,41 @@ for (const width of WIDTHS) {
       );
       await expect(reason).toBeVisible();
       expect(await reason.evaluate((el) => getComputedStyle(el).color)).not.toBe(painted.color);
+
+      /*
+       * And the override has a reason of its own, under its own button (Vera, 2026-10-16): the
+       * line above belongs to the handoff, and standing alone beside this control it read as the
+       * child's missing receiver being what stops an override. This one says what does.
+       */
+      const ownReason = panel.getByText(drawer.overrideDisabled);
+      await expect(ownReason).toBeVisible();
+      const [override_, reasonBox] = [await boxOf(override), await boxOf(ownReason)];
+      expect(reasonBox.y, "the override's reason sits under its button").toBeGreaterThan(
+        override_.y,
+      );
+      expect(await ownReason.evaluate((el) => getComputedStyle(el).color)).not.toBe(painted.color);
+
+      /*
+       * Hovering it changes nothing. A pointer that lights a control up is an offer, and there
+       * is nothing here to accept: the fill, the text and the hairline stay exactly where the
+       * inert tokens put them, and the cursor keeps saying so.
+       */
+      await override.hover({ force: true });
+      const hovered = await override.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return {
+          color: s.color,
+          background: s.backgroundColor,
+          border: s.borderTopColor,
+          cursor: s.cursor,
+        };
+      });
+      expect(hovered).toEqual({
+        color: painted.color,
+        background: painted.background,
+        border: painted.border,
+        cursor: painted.cursor,
+      });
 
       console.log("screenshot:", await shot(page, `today-disabled-action-${width}`));
     });

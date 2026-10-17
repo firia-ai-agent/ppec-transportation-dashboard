@@ -153,8 +153,16 @@ export const etaText = {
   behind: "−{n} min",
   onTime: "On time",
   unknown: "Not known yet",
-  /** No window has been worked out for this ride yet. Never read as "no ride". */
-  pending: "Window pending",
+  /**
+   * No window has been worked out for this ride yet. Never read as "no ride".
+   *
+   * It said "Window pending" until this slice — a status written the way a queue writes one,
+   * which is how a coordinator ends up asking what a window is and what it is pending on. The
+   * sentence a person would say instead was already written down and waiting (COPY-GUIDE §5,
+   * docs/ui/B12-SLICE1-DEFERRED.md §2): the time is not set yet, and the clock beside it says
+   * which kind of fact that is.
+   */
+  pending: "Time not set yet",
   /** LOC-03: the last published window, with the pause spelled out. */
   paused: "{window} · ETA texts paused",
 } as const;
@@ -232,8 +240,12 @@ export const board = {
    * The same column on a day that is over. "No van location yet" promises one is coming, which
    * is true of a van that has not left and false of a day whose vans are back in the yard: this
    * slice keeps no position history, so the honest answer is that none was kept.
+   *
+   * It says "van location" rather than "position", because that is what the column is called
+   * and what a coordinator calls the thing: a position is the word the ingest path uses for a
+   * row it stored (COPY-GUIDE §1–§2).
    */
-  noPositionRecorded: "No position recorded",
+  noPositionRecorded: "No van location kept",
   /** No window has been worked out for this ride yet — a state, so it gets an icon and a label. */
   windowPending: etaText.pending,
   /** §5.1: a stall is words and a clock, never a colour. */
@@ -259,13 +271,16 @@ export const board = {
    */
   reasons: {
     /**
-     * The no-adult-at-home case (PRD §6.6 CA-04). Three facts in the order a coordinator needs
-     * them: where the child is, why nobody has taken them, and the one thing nobody should have
-     * to ask — that no van is going to quietly drive them back to the centre. The drawer says the same thing at
-     * length (`heldNoReturn`); the row says it because a board is where it is first read.
+     * The no-adult-at-home case (PRD §6.6 CA-04). Two facts, in the order a coordinator needs
+     * them: where the child is, and why nobody has taken them.
+     *
+     * It used to carry a third clause — that nothing brings the child back to the centre on its
+     * own — which is the most important sentence on this panel and the reason it is no longer
+     * here: a reason in a board cell is read at a glance over 56 rows, and a third clause put
+     * the one line a coordinator must not skim at the end of a line they skim. It is said in
+     * full in the drawer instead (`drawer.heldNoReturn`), which is where this row leads.
      */
-    CHILD_HELD:
-      "{child} is waiting with the van. Nobody on file may receive them, and nothing brings them back on its own.",
+    CHILD_HELD: "{child} is waiting with the van. No adult on file can receive them.",
     DOES_NOT_FIT: "{van} does not fit everyone on this run.",
     NO_RECEIVING_ADULT: "No adult on file may receive {child} at the end of the afternoon ride.",
     RIDE_STATE: "{child}'s ride needs a person to decide what happens next.",
@@ -839,8 +854,12 @@ export const drawer = {
   receiverOnFile: "{adult}, {child}'s {relationship}, may receive them.",
   receiverMissing:
     "Nobody on file may receive {child} yet. Agree who will, and record it, before the afternoon van leaves.",
-  /** PRD §6.6: a child is held, never driven back on their own. */
-  heldNoReturn: "If nobody is there, {child} waits with the van and staff are called. There is no automatic return.",
+  /**
+   * PRD §6.6: a child is held, never driven back on their own. Three short clauses rather than
+   * two long ones — where the child is, that people are being called, and the rule — because
+   * the rule is the part that must survive being read quickly, and it now ends the line.
+   */
+  heldNoReturn: "If nobody is there, {child} waits with the van while staff call. No automatic return.",
 
   noApprovals: "Nothing is waiting for a decision about {child} today.",
   noAgentChanges: "The assistant has not changed anything for {child} today.",
@@ -866,8 +885,19 @@ export const drawer = {
    * a control that looked available and then did nothing would be the one dishonest thing on
    * this panel.
    */
-  handoffBlockedNotConnected: "Confirming a handoff isn't connected yet.",
+  handoffBlockedNotConnected: "Handoff isn't connected yet.",
   overrideWithReason: "Override for {child}, with reason",
+  /**
+   * Why the *override* is unavailable, under the override's own button.
+   *
+   * The line above that button is the handoff's reason and belongs to the handoff — and it stood
+   * next to the override as well, so a reader had one sentence doing two jobs: on the day where
+   * everything the handoff asks for is satisfied it reads as a note about this build, and on
+   * every other day it reads as the child's missing receiver being what stops an override too.
+   * Neither is what is true of it. What is true is the plain thing, and it is the same for both
+   * controls: this slice reads the day and writes nothing.
+   */
+  overrideDisabled: "Overrides aren't connected yet.",
   /** §5 override dialog. */
   overrideHeading: "Override ramp check",
   overrideReasonLabel: "Reason (required)",

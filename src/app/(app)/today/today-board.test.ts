@@ -158,7 +158,7 @@ describe("the board renders the day", () => {
    * coordinator reading their own board already knows.
    */
   it("says the next step as a verb and a child's name, never as a role", () => {
-    expect(html).toContain(escaped(fill(boardCopy.nextSteps.RECORD_RECEIVER, { child: "Noah O." })));
+    expect(html).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
     expect(html).toContain(
       escaped(fill(boardCopy.nextSteps.ASK_ABOUT_VAN, { dispatcher: "Rae S.", child: "Mia R." })),
     );
@@ -228,15 +228,25 @@ describe("the board renders the day", () => {
     }
   });
 
-  /** AT-13 on the board: the ride that ended holding a child, and what it says about it. */
-  it("shows a ride that ended with nobody to receive the child (AT-13)", () => {
+  /**
+   * AT-13 on the board: the ride that ended holding a child, and what it says about it.
+   *
+   * On the demo day first, because that is the board a demo walk opens (`DEMO_DAY_RIDES`): the
+   * hold and the no-auto-return rule used to live only on a day reachable by a crafted URL, and
+   * a story the walk cannot reach is a story the demo does not tell (Vera, 2026-10-16).
+   */
+  it("shows the ride that ended with nobody to receive the child (AT-13)", () => {
+    const live = boardHtml("Noah");
+    expect(live).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+    expect(live).toContain(boardCopy.groups.NEEDS_ACTION);
+    expect(live).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
+    // It is the only ride on the live board with an outcome: nothing else on it is finished.
+    expect(live).not.toMatch(/handed off/i);
+
+    // And on the finished day, where the morning of the same child is finished too: one held
+    // ride is not a held day.
     const ended = boardHtml("Noah", finished);
     expect(ended).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
-    expect(ended).toContain(boardCopy.groups.NEEDS_ACTION);
-    expect(ended).toContain(
-      escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })),
-    );
-    // The morning of the same child is finished and says so: one held ride is not a held day.
     expect(ended).toContain(
       `State: ${fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": boardCopy.receivedByRamp })}`,
     );
@@ -430,15 +440,34 @@ describe("the one primary action, and why it is not available", () => {
     const html = drawerHtml("C2");
     expect(html).toContain(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
     expect(html).toContain(escaped(fill(drawer.receiverMissing, { child: "Noah O." })));
-    // The afternoon ride says why it needs a person, and the step that answers it.
-    expect(html).toContain(escaped(fill(boardCopy.reasons.NO_RECEIVING_ADULT, { child: "Noah O." })));
-    expect(html).toContain(escaped(fill(boardCopy.nextSteps.RECORD_RECEIVER, { child: "Noah O." })));
+    // The afternoon ride says why it needs a person, and the step that answers it. On the demo
+    // day that ride has ended holding him, so the reason is the hold itself (below).
+    expect(html).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
+    expect(html).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
     // PRD §6.6: a child is held with the van; nothing drives them back on their own.
     expect(html).toContain(escaped(fill(drawer.heldNoReturn, { child: "Noah O." })));
   });
 
   it("says out loud that this slice does not write (§1 honesty)", () => {
     expect(drawerHtml("C2")).toContain(drawer.readOnly);
+  });
+
+  /**
+   * Two disabled controls, two reasons, each under the button it is about (Vera, 2026-10-16).
+   * The handoff's reason was the only sentence beside the override as well, so it read as the
+   * child's missing receiver being what stops an override — which is not what stops it. What
+   * stops it is this build, and the override now says so under itself.
+   */
+  it("gives the override its own reason, under the override's own button", () => {
+    const html = drawerHtml("C2");
+    const button = html.indexOf(escaped(fill(drawer.overrideWithReason, { child: "Noah O." })));
+    const own = html.indexOf(escaped(drawer.overrideDisabled));
+    expect(button).toBeGreaterThan(-1);
+    expect(own).toBeGreaterThan(button);
+    // The handoff's reason is still there, and still above its own button.
+    const handoff = html.indexOf(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
+    expect(handoff).toBeGreaterThan(-1);
+    expect(handoff).toBeLessThan(button);
   });
 
   /**
@@ -456,16 +485,27 @@ describe("the one primary action, and why it is not available", () => {
     expect(html).not.toMatch(/<button[^>]*disabled[^>]*style=/);
   });
 
-  /** AT-13 in the drawer: the ride that ended held, and the rule about no automatic return. */
+  /**
+   * AT-13 in the drawer: the ride that ended held, and the rule about no automatic return. Read
+   * on the demo day, the board a walk opens, and on the finished day, where the same ride is one
+   * of a whole day of outcomes.
+   */
   describe("a ride that ended with nobody to receive the child (AT-13)", () => {
-    const held = drawerHtml("C2", finished);
+    const held = drawerHtml("C2");
 
     it("says the ride is held, on the afternoon row, and never that it was handed off", () => {
       expect(held).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
       expect(held).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
       expect(held).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
-      // The morning of the same day was received at the ramp, and says that instead.
-      expect(held).toContain(
+      // A hold is not a handoff, and the panel says nothing that could be read as one.
+      expect(held).not.toMatch(/handed off/i);
+    });
+
+    it("reads the same on the finished day, whose morning was received at the ramp", () => {
+      const ended = drawerHtml("C2", finished);
+      expect(ended).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+      expect(ended).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
+      expect(ended).toContain(
         `State: ${fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": boardCopy.receivedByRamp })}`,
       );
     });

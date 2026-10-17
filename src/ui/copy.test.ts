@@ -204,6 +204,67 @@ describe("COPY-GUIDE strings, verbatim", () => {
         expect(VERBS, blocked).toContain(blocked.split(" ")[0]);
       }
     });
+
+    /**
+     * The fourth reason is not one of those: there is nothing a coordinator could do to unblock
+     * it, so it names the thing that is missing instead — this build's write path. Both disabled
+     * controls say it the same way, each under its own button (Vera, 2026-10-16), and neither
+     * says it as an instruction it cannot keep.
+     */
+    it("says what is not connected yet, once per control and in the same words", () => {
+      expect(drawer.handoffBlockedNotConnected).toBe("Handoff isn't connected yet.");
+      expect(drawer.overrideDisabled).toBe("Overrides aren't connected yet.");
+      for (const line of [drawer.handoffBlockedNotConnected, drawer.overrideDisabled]) {
+        expect(line, line).toMatch(/isn't connected yet\.$|aren't connected yet\.$/);
+        // No placeholder: it is about the build, not about the child or the day.
+        expect(line, line).not.toMatch(/\{\w+\}/);
+      }
+    });
+
+    /** PRD §6.6 CA-04, in the one place it is said in full: the rule closes the line. */
+    it("ends the held-child line on the rule, so a quick read still gets it", () => {
+      expect(drawer.heldNoReturn).toBe(
+        "If nobody is there, {child} waits with the van while staff call. No automatic return.",
+      );
+      expect(fill(drawer.heldNoReturn, { child: "Noah O." })).toBe(
+        "If nobody is there, Noah O. waits with the van while staff call. No automatic return.",
+      );
+    });
+  });
+
+  /**
+   * The row's version of the same fact, and the column beside it. A reason in a board cell is
+   * read at a glance over 56 rows, so it carries the two facts a coordinator acts on — where the
+   * child is and why nobody has taken them — and leaves the rule to the drawer the row opens.
+   */
+  it("§5 SURF-01: the held row says where the child is and why, in two clauses", () => {
+    expect(board.reasons.CHILD_HELD).toBe(
+      "{child} is waiting with the van. No adult on file can receive them.",
+    );
+    // Two clauses in the template: the filled line splits into three, because "Noah O." carries
+    // a full stop of its own — which is the reason `sentence()` exists.
+    expect(board.reasons.CHILD_HELD.split(". ")).toHaveLength(2);
+    expect(fill(board.reasons.CHILD_HELD, { child: "Noah O." })).toBe(
+      "Noah O. is waiting with the van. No adult on file can receive them.",
+    );
+    // The rule is not in here, which is the point: it is in `drawer.heldNoReturn`, said in full.
+    expect(board.reasons.CHILD_HELD).not.toMatch(/return/i);
+    expect(drawer.heldNoReturn).toMatch(/No automatic return/);
+  });
+
+  /**
+   * The two columns that can only say what they do not have. Neither may read like a code or a
+   * database row: an unknown window is a time nobody has set yet, and a day whose vans are back
+   * in the yard kept no van location (COPY-GUIDE §1–§2, docs/ui/B12-SLICE1-DEFERRED.md §2).
+   */
+  it("§5 SURF-01: an unknown window and a missing location say so in plain words", () => {
+    expect(etaText.pending).toBe("Time not set yet");
+    expect(board.windowPending).toBe(etaText.pending);
+    expect(fleetMap.windowPending).toBe(etaText.pending);
+    expect(etaText.pending).not.toMatch(/pending/i);
+    expect(board.noPosition).toBe("No van location yet");
+    expect(board.noPositionRecorded).toBe("No van location kept");
+    expect(board.noPositionRecorded).not.toMatch(/position|recorded/i);
   });
 
   describe("§5: an empty state is one line that says what to do next", () => {

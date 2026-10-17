@@ -160,6 +160,14 @@ export function LegDrawer({
             <button type="button" className={styles.secondary} disabled>
               {fill(drawer.overrideWithReason, { child })}
             </button>
+            {/*
+              And the override's own reason, under its own button (Vera, 2026-10-16). The line
+              above belongs to the handoff; it was the only sentence beside this control too,
+              which read as the child's missing receiver being what stops an override — a thing
+              that is not true of it. Two disabled controls, two reasons, each under the button
+              it is about.
+            */}
+            <p className={styles.blockedReason}>{drawer.overrideDisabled}</p>
           </>
         )}
         <p className={styles.caption}>{drawer.readOnly}</p>

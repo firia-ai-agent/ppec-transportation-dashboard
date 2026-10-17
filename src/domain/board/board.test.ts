@@ -4,6 +4,7 @@ import { legState } from "@/db/schema";
 import {
   BOARD_CENSUS,
   CHILDREN,
+  DEMO_DAY_RIDES,
   FINISHED_DAY_RIDES,
   RUNS,
   type RideRecord,
@@ -260,13 +261,21 @@ describe("a geofence arrival is never a handoff (AT-10)", () => {
  */
 describe("a child with no adult on file to receive them (AT-13)", () => {
   const noReceiver = CHILDREN.filter((c) => !c.scopes.includes("RECEIVE_CHILD"));
+  /** The day after the demo day: the plan, where no ride has run and none has ended held. */
+  const planned = buildBoard(serviceDayFor(demoDay().nextIso));
 
   it("the scenario really does contain one, so this suite is about something", () => {
     expect(noReceiver.map((c) => c.key)).toEqual(["C2"]);
   });
 
+  /**
+   * Read on a day the ride has not run yet, which is where this reason belongs: the afternoon
+   * needs a person because nobody on file may receive the child, and the step is to record one.
+   * On the demo day the same ride has already ended holding him, and a held child outranks it
+   * (below) — the reason is the same fact one stage earlier.
+   */
   it("has the afternoon ride under needs action, with the reason and the step named", () => {
-    const leg = legOf("C2", "PM");
+    const leg = legIn(planned, "C2", "PM");
     expect(leg.group).toBe("NEEDS_ACTION");
     expect(leg.needsActionReasons).toContain("NO_RECEIVING_ADULT");
     expect(leg.nextStep).toBe("RECORD_RECEIVER");
@@ -290,22 +299,28 @@ describe("a child with no adult on file to receive them (AT-13)", () => {
       expect(row.receivingAdult?.name, row.childKey).toMatch(/^[A-Z][a-z]+ [A-Z]\.$/);
       expect(row.receivingAdult?.relationship, row.childKey).toMatch(/^(parent|grandparent)$/);
     }
-    for (const leg of board.legs) {
-      if (leg.key === "C2/PM") continue;
-      expect(leg.needsActionReasons, leg.key).not.toContain("NO_RECEIVING_ADULT");
+    // One child, one ride: no other row on either day carries a receiver-shaped reason.
+    for (const of_ of [board, planned]) {
+      for (const leg of of_.legs) {
+        if (leg.child.childKey === "C2") continue;
+        expect(leg.needsActionReasons, leg.key).not.toContain("NO_RECEIVING_ADULT");
+      }
     }
   });
 
   /**
    * The other half of AT-13, and the half the acceptance test is actually about: **a ride that
-   * ends there**. The demo scenario's finished day drove Noah O. home, nobody on file could
-   * receive him, and no custody event was recorded — so the leg machine's only remaining edge is
-   * HELD_NO_RECEIVER, by the system. Everything after that is the "no auto-return" rule:
-   * nothing moves the ride on, the board keeps asking for a person, and the only exit the
-   * machine has is a staff one.
+   * ends there**. The scenario drove Noah O. home, nobody on file could receive him, and no
+   * custody event was recorded — so the leg machine's only remaining edge is HELD_NO_RECEIVER,
+   * by the system. Everything after that is the "no auto-return" rule: nothing moves the ride
+   * on, the board keeps asking for a person, and the only exit the machine has is a staff one.
+   *
+   * Read on the **demo day**, because that is the board a demo walk opens (`DEMO_DAY_RIDES`,
+   * Vera 2026-10-16): a story only a crafted `?date=` could reach was a story the demo did not
+   * tell. The finished day records the same ride, and the suite below reads it there too.
    */
-  describe("and a ride that ends held, on the day that did it (AT-13)", () => {
-    const leg = legIn(finished, "C2", "PM");
+  describe("and a ride that ends held, on the day a walk opens (AT-13)", () => {
+    const leg = legOf("C2", "PM");
 
     it("ends HELD_NO_RECEIVER, by a walk the machine allowed one edge at a time", () => {
       expect(leg.ride.state).toBe("HELD_NO_RECEIVER");
@@ -353,17 +368,41 @@ describe("a child with no adult on file to receive them (AT-13)", () => {
       }
     });
 
-    it("is the one ride on that day that ended holding a child", () => {
-      const held = finished.legs.filter((l) => l.ride.state === "HELD_NO_RECEIVER");
-      expect(held.map((l) => l.key)).toEqual(["C2/PM"]);
-      // And it is the same child the scenario gives no authorized receiving adult — not a
-      // second case written into the finished day by hand.
-      expect(held[0].child.childKey).toBe(noReceiver[0].key);
+    it("is the one ride on either day that ended holding a child", () => {
+      for (const of_ of [board, finished]) {
+        const held = of_.legs.filter((l) => l.ride.state === "HELD_NO_RECEIVER");
+        expect(held.map((l) => l.key)).toEqual(["C2/PM"]);
+        // And it is the same child the scenario gives no authorized receiving adult — not a
+        // second case written into a day by hand.
+        expect(held[0].child.childKey).toBe(noReceiver[0].key);
+      }
     });
 
-    it("keeps the morning of the same child done: one held ride is not a held day (AT-07)", () => {
+    /**
+     * The fixture's half of the rule: the demo day records *acts*, so the hold on screen is the
+     * machine's conclusion and not a state somebody typed. A fixture that wrote
+     * "HELD_NO_RECEIVER" down would be claiming the outcome this suite exists to derive.
+     */
+    it("is written as acts, with no state and no custody event in it", () => {
+      expect(DEMO_DAY_RIDES.map((r) => `${r.childKey}/${r.direction}`)).toEqual(["C2/PM"]);
+      const [record] = DEMO_DAY_RIDES;
+      expect(record.receivedBy).toBeNull();
+      expect(record.dropoffArrived).toBe(true);
+      expect(record.boardingVerified).toBe(true);
+      expect(Object.keys(record)).not.toContain("state");
+    });
+
+    it("leaves the rest of the demo day where the replay has it: one outcome, not a finished day", () => {
+      // The one recorded ride is the hold and nothing else: no other row on the live board
+      // claims an outcome, so nothing on it says a child was received.
+      expect(board.legs.filter((l) => l.ride.receivedBy !== null)).toEqual([]);
+      expect(legOf("C2", "AM").ride.state).toBe("EN_ROUTE_PICKUP");
+    });
+
+    it("keeps the morning of the same child done on the finished day (AT-07)", () => {
       // The centre receives every child it is open for, and needs no family scope to do it —
       // which is why the same child's morning ends handed off and their afternoon does not.
+      expect(legIn(finished, "C2", "PM").ride.state).toBe("HELD_NO_RECEIVER");
       expect(legIn(finished, "C2", "AM").ride.state).toBe("COMPLETED_HANDOFF");
       expect(legIn(finished, "C2", "AM").ride.receivedBy).toBe("CENTER_STAFF");
     });
