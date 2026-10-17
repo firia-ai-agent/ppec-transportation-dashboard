@@ -5,16 +5,25 @@
  * providers or addresses. Names are first name + last initial (COPY-GUIDE §3); stops are public
  * landmarks, never a home. Interim fixtures until the seed slice (B-07) lands; the shapes match
  * ops.vehicle / vehicle_layout / layout_position / transport_profile so the seed can replace them.
+ *
+ * ## The names are not this file's to choose
+ *
+ * Every name on this page — the riders' and the vans' — is read out of the standard scenario
+ * (src/modules/demo/fixtures/names.ts over src/modules/demo/fixtures/standard.ts), which is the
+ * same source the Today board projects. It used to carry its own list, and the two drifted: the
+ * ramp check called C2 "Noah B." while the board called the same child "Noah O.", so a reviewer
+ * walking both screens in one sitting met two children with one token. The C-tokens are the
+ * scenario's own children, so the scenario is what gets to name them.
+ *
+ * What stays here is **capability**: which layouts a van converts to, what a position measures,
+ * and the chair dimensions the solver checks against them. Those are facts about the hardware,
+ * not names, and the ramp check's own stories (AT-04's larger chair, the step-6 two-seat crisis)
+ * are built out of them.
  */
 import type { AmbSeat, Child, DailyCapability, Layout, Leg, Vehicle, WcPosition } from "@/domain/solver";
+import { childName, vanName } from "@/modules/demo/fixtures/names";
 
 export const SERVICE_DATE = "2026-10-14";
-
-export const PROVIDERS = {
-  P1: { id: "P1", name: "Provider P1" },
-  P2: { id: "P2", name: "Provider P2" },
-  CENTER: { id: "CENTER", name: "Center" },
-} as const;
 
 function wc(id: string, securement: WcPosition["securement"], maxLengthCm: number, maxWidthCm: number): WcPosition {
   return { id, kind: "WC", securement, maxLengthCm, maxWidthCm };
@@ -50,51 +59,51 @@ export const V4_LAYOUT_0WC3A: Layout = {
 };
 
 export const V1: Vehicle = {
-  id: "V1", label: "V1", description: "Convertible van",
-  providerId: PROVIDERS.P1.id, providerName: PROVIDERS.P1.name, liftEquipped: true,
+  id: "V1", ...vanName("V1"), liftEquipped: true,
   layouts: [V1_LAYOUT_0WC6A, V1_LAYOUT_1WC3A, V1_LAYOUT_2WC1A],
 };
 /** Center-owned van, the AT-04 relief vehicle. */
 export const V2: Vehicle = {
-  id: "V2", label: "V2", description: "Center van",
-  providerId: PROVIDERS.CENTER.id, providerName: PROVIDERS.CENTER.name, liftEquipped: true,
+  id: "V2", ...vanName("V2"), liftEquipped: true,
   layouts: [V2_LAYOUT_1WC4A],
 };
 /** P1's substitute van (AT-05): different securement hardware and only one ambulatory seat. */
 export const V3: Vehicle = {
-  id: "V3", label: "V3", description: "Substitute van",
-  providerId: PROVIDERS.P1.id, providerName: PROVIDERS.P1.name, liftEquipped: true,
+  id: "V3", ...vanName("V3"), liftEquipped: true,
   layouts: [V3_LAYOUT_1WC1A],
 };
 export const V4: Vehicle = {
-  id: "V4", label: "V4", description: "Sedan",
-  providerId: PROVIDERS.P2.id, providerName: PROVIDERS.P2.name, liftEquipped: false,
+  id: "V4", ...vanName("V4"), liftEquipped: false,
   layouts: [V4_LAYOUT_0WC3A],
 };
 export const FLEET: Vehicle[] = [V1, V2, V3, V4];
 
 /* ───────────────────────────── riders (synthetic) ───────────────────────────── */
+/**
+ * The riders, by the scenario's own tokens. `childName` is the only place a name comes from, so
+ * the rider the ramp calls C6 is the child the board calls C6, by name as well as by token.
+ */
 /** C1: car seat, AM self-drop family. */
-export const C1: Child = { token: "C1", displayName: "Mia R.", mobility: "AMB", tether: true, escort: false };
+export const C1: Child = { token: "C1", displayName: childName("C1"), mobility: "AMB", tether: true, escort: false };
 /** C2: wheelchair, fixed chair, L-track securement, boards by lift. */
-export const C2: Child = { token: "C2", displayName: "Noah B.", mobility: "WC", securement: "L_TRACK", wcLengthCm: 110, wcWidthCm: 70, tether: false, escort: false };
+export const C2: Child = { token: "C2", displayName: childName("C2"), mobility: "WC", securement: "L_TRACK", wcLengthCm: 110, wcWidthCm: 70, tether: false, escort: false };
 /** C3: ambulatory. */
-export const C3: Child = { token: "C3", displayName: "Ava T.", mobility: "AMB", tether: false, escort: false };
+export const C3: Child = { token: "C3", displayName: childName("C3"), mobility: "AMB", tether: false, escort: false };
 /** C4: booster. */
-export const C4: Child = { token: "C4", displayName: "Sam P.", mobility: "AMB", tether: true, escort: false };
+export const C4: Child = { token: "C4", displayName: childName("C4"), mobility: "AMB", tether: true, escort: false };
 /** C5: car seat (same family as C4). */
-export const C5: Child = { token: "C5", displayName: "Zoe P.", mobility: "AMB", tether: true, escort: false };
+export const C5: Child = { token: "C5", displayName: childName("C5"), mobility: "AMB", tether: true, escort: false };
 /** C6: tilt wheelchair, nurse rides along (escort takes one ambulatory seat). Dimensions as planned. */
-export const C6: Child = { token: "C6", displayName: "Iris K.", mobility: "WC", securement: "L_TRACK", wcLengthCm: 118, wcWidthCm: 70, tether: false, escort: true };
+export const C6: Child = { token: "C6", displayName: childName("C6"), mobility: "WC", securement: "L_TRACK", wcLengthCm: 118, wcWidthCm: 70, tether: false, escort: true };
 /**
  * C6 as measured at the ramp (AT-04, unknown equipment at arrival): the chair that arrives with a
  * new headrest and tray is longer than the approved need said. Fits the center van, not V1.
  */
 export const C6_AT_RAMP: Child = { ...C6, wcLengthCm: 140, wcWidthCm: 72 };
 /** C7: vest (needs a tether-anchored seat). */
-export const C7: Child = { token: "C7", displayName: "Jonah W.", mobility: "AMB", tether: true, escort: false };
+export const C7: Child = { token: "C7", displayName: childName("C7"), mobility: "AMB", tether: true, escort: false };
 /** C8: ambulatory; shares C6's route and is the rider moved in demo step 6. */
-export const C8: Child = { token: "C8", displayName: "Leo B.", mobility: "AMB", tether: false, escort: false };
+export const C8: Child = { token: "C8", displayName: childName("C8"), mobility: "AMB", tether: false, escort: false };
 export const CHILDREN: Child[] = [C1, C2, C3, C4, C5, C6, C7, C8];
 
 /* ───────────────────────────── stops (public landmarks, MOCKS §1) ───────────────────────────── */

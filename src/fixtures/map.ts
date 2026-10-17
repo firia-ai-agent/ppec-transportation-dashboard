@@ -17,6 +17,7 @@
 
 import type { Coord } from "@/components/map/style";
 import { gpsBand } from "@/domain/location/freshness";
+import { vanName } from "@/modules/demo/fixtures/names";
 import { vanMarkerStateOf, vanMarkerWords, type VanMarkerState } from "@/ui/van-state";
 
 /** Only `SIMULATED` exists in P1 (MOCKS-AND-DEMO summary; ADR-015 synthetic-only). */
@@ -215,6 +216,19 @@ function markerOf(gpsAgeSeconds: number): MapVehicleMarker {
 }
 
 /**
+ * The van's name, from the one place the demo's names live: what it is and who runs it, exactly
+ * as the Today board says them (src/modules/demo/fixtures/names.ts).
+ *
+ * This list used to spell them out — "Convertible van", "Provider P1" — and the board, reading
+ * the scenario, said "convertible van" and "SYN Palm Lift Transport" about the same van. The map
+ * preview and the board are walked one after the other, so the van has one name on both.
+ */
+function namedVan(key: string): { description: string; owner: string } {
+  const name = vanName(key);
+  return { description: name.description, owner: name.providerName };
+}
+
+/**
  * V1–V4 (MOCKS §2), each parked on the last driven point of its route. The GPS ages
  * walk the four §3 freshness bands so the map shows all three truck tones at once.
  */
@@ -222,8 +236,7 @@ export const DEMO_VEHICLES: MapVehicleFixture[] = [
   {
     id: "V1",
     marker: markerOf(12),
-    description: "Convertible van",
-    owner: "Provider P1",
+    ...namedVan("V1"),
     stateLabel: "On the way to pickup",
     coord: R1_PLANNED[5],
     headingDeg: 2,
@@ -234,8 +247,7 @@ export const DEMO_VEHICLES: MapVehicleFixture[] = [
   {
     id: "V2",
     marker: markerOf(95),
-    description: "Center van",
-    owner: "Center",
+    ...namedVan("V2"),
     stateLabel: "In transit",
     coord: R3_PLANNED[4],
     headingDeg: 178,
@@ -246,8 +258,7 @@ export const DEMO_VEHICLES: MapVehicleFixture[] = [
   {
     id: "V3",
     marker: markerOf(245),
-    description: "Substitute van",
-    owner: "Provider P1",
+    ...namedVan("V3"),
     stateLabel: "In transit",
     coord: R2_PLANNED[4],
     headingDeg: 1,
@@ -258,8 +269,7 @@ export const DEMO_VEHICLES: MapVehicleFixture[] = [
   {
     id: "V4",
     marker: markerOf(720),
-    description: "Sedan",
-    owner: "Provider P2",
+    ...namedVan("V4"),
     stateLabel: "On the way to pickup",
     coord: R4_PLANNED[2],
     headingDeg: 272,

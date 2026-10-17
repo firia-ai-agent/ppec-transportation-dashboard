@@ -37,8 +37,10 @@ describe("children are named the way COPY-GUIDE §3 allows", () => {
       const initial = child.displayName.split(" ")[1];
       byFamily.set(initial, [...(byFamily.get(initial) ?? []), child.token]);
     }
-    // C4 and C5 are the one sibling pair the demo scenario needs (PRD §18.1).
-    expect(byFamily.get("P.")).toEqual(["C4", "C5"]);
+    // C4 and C5 are the one sibling pair the demo scenario needs (PRD §18.1) — F4's two
+    // children, who share a phone and now share their initial here too, because the names are
+    // the scenario's (src/modules/demo/fixtures/names.ts).
+    expect(byFamily.get("N.")).toEqual(["C4", "C5"]);
   });
 
   it("identifies a child by an opaque token, never by the name", () => {
@@ -57,10 +59,13 @@ describe("the rest of the fixture stays synthetic", () => {
     }
   });
 
-  it("vehicles and providers are coded, not real businesses", () => {
+  it("vehicles and providers are synthetic, not real businesses", () => {
     for (const vehicle of FLEET) {
       expect(vehicle.label).toMatch(/^V\d+$/);
-      expect(vehicle.providerName).toMatch(/^(?:Provider P\d+|Center)$/);
+      // The provider names are the scenario's own, and every one of them carries the SYN marker
+      // that says so (ADR-015). src/modules/demo/fixtures/names.test.ts holds them against the
+      // Today board's names; this only asks that nothing real got in.
+      expect(vehicle.providerName, vehicle.id).toMatch(/^SYN /);
     }
   });
 

@@ -701,7 +701,7 @@ export const rampPreview = {
   localOnly: "Nothing here is sent. Answers stay on this iPad.",
 
   arrivalsHeading: "Which vehicle is at the ramp?",
-  /** §5: the vehicle tile reads "V1 · Provider P1 · arriving 8:52 · 3 riders", over two lines. */
+  /** §5: the tile reads "V1 · SYN Palm Lift Transport · arriving 8:52 · 3 riders", over two lines. */
   vehicleTile: "{vehicle} · {provider}",
   vehicleTileDetail: "arriving {time} · {riders} riders",
 
@@ -887,10 +887,10 @@ export const fleetMap = {
   fitAll: "Fit all vehicles",
   retry: "Retry",
   vehiclesHeading: "Vehicles",
-  /** "V1 · Convertible van" — the id, then the vehicle in plain words. */
+  /** "V1 · convertible van" — the id, then the vehicle in the scenario's own plain words. */
   vehicleRow: "{id} · {description}",
   /**
-   * "Provider P1" — who runs the van, and nothing else.
+   * "SYN Palm Lift Transport" — who runs the van, and nothing else.
    *
    * It was "{owner} · {state}", with the §3 leg state after the owner. The van's state is a chip
    * of its own now (Vera's bar: the marker says the state as an icon and a word, and the list

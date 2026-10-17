@@ -52,6 +52,7 @@ import {
 import { DEMO_RUNS } from "@/fixtures/replays";
 import { runRoute } from "@/fixtures/run-routes";
 import { places } from "@/ui/copy";
+import { vanNameOf } from "@/modules/demo/fixtures/names";
 import { localTimeOn, type ServiceDay } from "./day";
 import {
   CHILDREN,
@@ -114,17 +115,13 @@ function solverPositions(vehicleKey: string, layout: DemoLayout): SolverLayout["
 }
 
 export function solverVehicle(vehicle: DemoVehicle): SolverVehicle {
-  const provider = PROVIDERS.find((p) => p.key === vehicle.providerKey);
-  if (!provider) throw new Error(`unknown provider ${vehicle.providerKey}`);
   // The fixture writes a vehicle as "V1 convertible van": the label and then what it is. The
-  // solver keeps them apart, because a tile shows the label and a sentence shows the words.
-  const [label, ...rest] = vehicle.label.split(" ");
+  // solver keeps them apart, because a tile shows the label and a sentence shows the words — and
+  // the split is `vanNameOf`, so the ramp check and the map preview call this van what the board
+  // calls it (src/modules/demo/fixtures/names.ts).
   return {
     id: vehicle.key,
-    label,
-    description: rest.join(" "),
-    providerId: provider.key,
-    providerName: provider.name,
+    ...vanNameOf(vehicle),
     liftEquipped: vehicle.liftEquipped,
     layouts: vehicle.layouts.map((l) => ({
       id: `${vehicle.key}/${l.code}`,
