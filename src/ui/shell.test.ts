@@ -348,8 +348,10 @@ describe("§8 primary action token", () => {
     expect(submit).toMatch(/color: var\(--color-surface\)/);
   });
 
-  it("that pair is the §8 row that passes AA (6.70:1)", () => {
-    expect(color.brand).toBe("#1D4ED8");
+  it("that pair is the §8 row that passes AA", () => {
+    // The brand is the founder's teal now (tokens.ts); the pair is checked as a *ratio* rather
+    // than as a hex, so the palette can be answered without this file having an opinion on it.
     expect(color.surface).toBe("#FFFFFF");
+    expect(contrastRatio(color.surface, color.brand)).toBeGreaterThanOrEqual(4.5);
   });
 });

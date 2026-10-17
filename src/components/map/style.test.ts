@@ -201,12 +201,12 @@ describe("our layers (DESIGN-DIRECTION §5.1, §8)", () => {
   it("draws planned route 4 px brand at 60% and driven route solid", () => {
     const layers = fleetMapLayers();
     const planned = layers.find((l) => l.id === MAP_LAYER_IDS.routePlanned)?.paint ?? {};
-    expect(planned["line-color"]).toBe("#1D4ED8");
+    expect(planned["line-color"]).toBe(MAP_TOKENS.route);
     expect(planned["line-width"]).toBe(4);
     expect(planned["line-opacity"]).toBe(0.6);
 
     const driven = layers.find((l) => l.id === MAP_LAYER_IDS.routeDriven)?.paint ?? {};
-    expect(driven["line-color"]).toBe("#1D4ED8");
+    expect(driven["line-color"]).toBe(MAP_TOKENS.route);
     expect(driven["line-opacity"]).toBe(1);
   });
 

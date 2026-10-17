@@ -341,7 +341,7 @@ describe("the screen's own rules", () => {
   it("marks a chosen answer with a fill and a check, never colour alone (§3)", () => {
     expect(screen).toMatch(/aria-pressed=\{pressed\}/);
     expect(screen).toMatch(/\{pressed \? <Check size=\{icon\.inline\}/);
-    expect(css).toMatch(/\.button\[aria-pressed="true"\] \{[^}]*background: var\(--color-brand\)/);
+    expect(css).toMatch(/\.button\[aria-pressed="true"\] \{[^}]*background: var\(--color-selected-bg\)/);
   });
 
   it("holds no colour of its own and no demo violet (D-5)", () => {

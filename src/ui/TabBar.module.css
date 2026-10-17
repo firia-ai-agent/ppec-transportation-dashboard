@@ -42,7 +42,9 @@
  */
 .tab[aria-current="page"] {
   border-top-color: var(--color-brand);
-  color: var(--color-brand);
+  /* The same tint the rail's current item takes, so "where I am" looks the same at both widths. */
+  background: var(--color-selected-bg);
+  color: var(--color-ink-brand);
   font-weight: var(--weight-semibold);
 }
 

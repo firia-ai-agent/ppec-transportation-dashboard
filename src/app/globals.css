@@ -34,6 +34,16 @@ ol {
   margin: 0;
 }
 
+/*
+ * The page title is the brand mark's own colour (founder's palette, 2026-10-17 6:19 PM ET):
+ * Teal Ink, which is the brand at reading weight — 9.48:1 on white, where the brand itself is
+ * 5.47:1. Only the h1: a screen has one title, and a page of teal headings is a page with no
+ * title on it.
+ */
+h1 {
+  color: var(--color-ink-brand);
+}
+
 ul,
 ol {
   padding: 0;

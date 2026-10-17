@@ -26,6 +26,8 @@
 }
 
 .siteName {
+  /* The brand mark, in the brand's own ink (founder's palette, 6:19 PM ET). */
+  color: var(--color-ink-brand);
   font-size: var(--text-20);
   font-weight: var(--weight-semibold);
   line-height: var(--leading-tight);

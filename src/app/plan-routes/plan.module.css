@@ -107,15 +107,18 @@
 }
 
 /*
- * A chosen answer is filled, not outlined — the same rule the ramp check follows: an outline in
- * the brand tone is the shape of the §9 focus ring, so "this is the answer" and "this is where
- * the keyboard is" would read as one signal. The check mark beside the label means the state is
- * never carried by colour alone (§3), and `aria-pressed` says the same thing out loud.
+ * A chosen answer is filled, not outlined — an outline *alone* in the brand tone is the shape of
+ * the §9 focus ring, so "this is the answer" and "this is where the keyboard is" would read as
+ * one signal. The fill is the one selection tint the app has (the selected tint behind Teal
+ * Ink, the founder's palette of 2026-10-17 6:19 PM ET), which is also what the current rail item and the
+ * current phone tab wear, so "this one" looks the same wherever it is said. The check mark beside
+ * the label means the state is never carried by colour alone (§3), and `aria-pressed` says the
+ * same thing out loud.
  */
 .button[aria-pressed="true"] {
-  background: var(--color-brand);
+  background: var(--color-selected-bg);
   border-color: var(--color-brand);
-  color: var(--color-surface);
+  color: var(--color-ink-brand);
   font-weight: var(--weight-semibold);
 }
 
