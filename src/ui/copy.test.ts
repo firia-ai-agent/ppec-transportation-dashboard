@@ -642,6 +642,41 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
     expect(Object.keys(planRoutes.missing).sort()).toEqual(Object.keys(planRoutes.reason).sort());
   });
 
+  /**
+   * Vera's review, 2026-10-17: the demo toggle names the two scenarios, not two dates. The
+   * labels it replaced ("A day everyone fits" / "A day one child has no van") read as a choice
+   * of day on a screen that replays exactly one, and the first thing beside them is that one
+   * day's date.
+   */
+  it("names the two demo scenarios by what happens, with no date in either label", () => {
+    expect(planRoutes.demoScenario.EVERY_RIDER_FITS).toBe("Normal day");
+    expect(planRoutes.demoScenario.ONE_RIDER_HAS_NO_VAN).toBe("A child can’t be placed");
+    for (const [key, label] of Object.entries(planRoutes.demoScenario)) {
+      // No weekday, no month, no number: a label with a date in it is a second day.
+      expect(label, key).not.toMatch(
+        /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b|\d/,
+      );
+      // "A day …" is the shape that was wrong, whatever follows it.
+      expect(label, key).not.toMatch(/^A day\b/);
+    }
+    // The legend says what the choice is, and says it is the demo's rather than the day's.
+    expect(planRoutes.demoScenarioLegend).toBe("Demo scenario");
+    // Each scenario still says what it is in a sentence, and both are the same service date.
+    expect(Object.keys(planRoutes.demoScenarioNote).sort()).toEqual(
+      Object.keys(planRoutes.demoScenario).sort(),
+    );
+    expect(planRoutes.demoScenarioNote.EVERY_RIDER_FITS).toBe(
+      "Three vans today: the convertible van, the center van and the sedan.",
+    );
+    expect(planRoutes.demoScenarioNote.ONE_RIDER_HAS_NO_VAN).toBe(
+      "The convertible van is off the road and a smaller van replaced it. No van today has four-point straps.",
+    );
+    // Each one names the vans the way the lanes name them, and neither names a provider's role.
+    for (const [key, note] of Object.entries(planRoutes.demoScenarioNote)) {
+      expect(note, key).not.toMatch(/\bthe provider\b|\bV\d\b/);
+    }
+  });
+
   it("a delta that is not known says so, and never prints a bare minus", () => {
     expect(etaText.unknown).toBe("Not known yet");
     expect(etaText.unknown).not.toMatch(/NaN/);

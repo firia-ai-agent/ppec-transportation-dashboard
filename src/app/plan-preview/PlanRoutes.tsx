@@ -17,11 +17,14 @@
  * the screen makes no network request of its own at all (TEST-SEC-02). Words come from
  * src/ui/copy.ts and colours and metrics from the tokens in src/ui/tokens.ts; the DEMO banner
  * and the one source chip come from the root layout, so this page must not mount a second pair.
+ *
+ * The one thing here wearing the demo violet is the scenario control in the header, and it is
+ * shared demo chrome (src/ui/DemoControls) rather than anything this screen styles itself.
  */
 import { useMemo, useRef, useState } from "react";
 import { Ban, Check } from "lucide-react";
 import {
-  DEMO_DAYS,
+  DEMO_SCENARIOS,
   PLAN_SERVICE_DATE,
   RELIEF_DRIVERS,
   asMeasured,
@@ -36,7 +39,7 @@ import {
   substituted,
   unapprovedNeeds,
   vehicleByKey,
-  type DemoDay,
+  type DemoScenario,
 } from "@/domain/plan/day";
 import {
   canTake,
@@ -54,6 +57,7 @@ import {
   type Unplaced,
 } from "@/domain/solver";
 import { board, fill, needCategories, places, planRoutes, rampPreview } from "@/ui/copy";
+import { DemoControls } from "@/ui/DemoControls";
 import { serviceDateLabel } from "@/ui/service-date";
 import { StateChip } from "@/ui/StateChip";
 import { icon } from "@/ui/tokens";
@@ -99,17 +103,17 @@ type LaneStage = {
  */
 const SERVICE_DATE_LABEL = serviceDateLabel(new Date(`${PLAN_SERVICE_DATE}T12:00:00Z`));
 
-function initialStages(day: DemoDay): Record<string, LaneStage> {
+function initialStages(scenario: DemoScenario): Record<string, LaneStage> {
   return Object.fromEntries(
-    planLanes(day).map((lane) => [
+    planLanes(scenario).map((lane) => [
       lane.id,
       { vehicleKey: lane.vehicle.id, driverName: lane.driverName, arrival: "REPORTED" as const },
     ]),
   );
 }
 
-function emptyAssignment(day: DemoDay): Assignment {
-  return Object.fromEntries(planLanes(day).map((lane) => [lane.id, []]));
+function emptyAssignment(scenario: DemoScenario): Assignment {
+  return Object.fromEntries(planLanes(scenario).map((lane) => [lane.id, []]));
 }
 
 /** The drop zone that is the group at the top of the screen: in no van at all. */
@@ -182,7 +186,7 @@ function Button({
 }
 
 export default function PlanRoutes() {
-  const [day, setDay] = useState<DemoDay>("EVERY_RIDER_FITS");
+  const [scenario, setScenario] = useState<DemoScenario>("EVERY_RIDER_FITS");
   const [direction, setDirection] = useState<Direction>("AM");
   const [stages, setStages] = useState<Record<string, LaneStage>>(() =>
     initialStages("EVERY_RIDER_FITS"),
@@ -205,8 +209,8 @@ export default function PlanRoutes() {
    */
   const gesture = useRef<Gesture | null>(null);
 
-  /** The day's vans before anything has been reported, planned or substituted. */
-  const baseLanes = useMemo(() => planLanes(day), [day]);
+  /** The scenario's vans before anything has been reported, planned or substituted. */
+  const baseLanes = useMemo(() => planLanes(scenario), [scenario]);
 
   const riders = useMemo<PlanRider[]>(
     () =>
@@ -255,19 +259,19 @@ export default function PlanRoutes() {
     // A plan belongs to one run: the morning's lanes are not the afternoon's, and carrying the
     // assignment across would show a plan nobody made for the run on screen.
     setDirection(next);
-    setAssignment(emptyAssignment(day));
+    setAssignment(emptyAssignment(scenario));
     setMoving(null);
     setNotice(null);
   };
 
   /**
-   * Switch which day the screen replays. A different fleet is a different plan, so everything
-   * the first day collected — the assignment, what each lane was reported as, the chair the ramp
-   * measured — is dropped rather than carried onto vans it was never about.
+   * Switch which scenario of the day the screen replays. A different fleet is a different plan,
+   * so everything the first one collected — the assignment, what each lane was reported as, the
+   * chair the ramp measured — is dropped rather than carried onto vans it was never about.
    */
-  const chooseDay = (next: DemoDay) => {
-    if (next === day) return;
-    setDay(next);
+  const chooseScenario = (next: DemoScenario) => {
+    if (next === scenario) return;
+    setScenario(next);
     setStages(initialStages(next));
     setAssignment(emptyAssignment(next));
     setMeasured([]);
@@ -593,7 +597,7 @@ export default function PlanRoutes() {
     const stage = stages[lane.id];
     const headingId = `lane-${lane.id}`;
     const state = laneState(lanePlan);
-    const spares = spareVehicleKeys(day).filter((key) => key !== stage.vehicleKey);
+    const spares = spareVehicleKeys(scenario).filter((key) => key !== stage.vehicleKey);
     const laneIndex = baseLanes.findIndex((l) => l.id === lane.id);
     const lastStop = lanePlan.leg.stops.length;
 
@@ -772,22 +776,27 @@ export default function PlanRoutes() {
           </span>
         </div>
         {/*
-          Which day the scenario replays. Two, because one of them never shows the group at the
-          top of the screen: on the ordinary day every child gets a van, so the reasons a child
-          has none — and the fact that no family has been told anything — can only be read on a
-          day where one child's equipment has no van to hold it.
+          Which scenario of the one demo day the screen replays. Two, because one of them never
+          shows the group at the top of the screen: in the normal scenario every child gets a van,
+          so the reasons a child has none — and the fact that no family has been told anything —
+          can only be read in the one where a child's equipment has no van to hold it.
+
+          It is the demo's control and not a coordinator's, so it is rendered as the demo (Vera's
+          review, 2026-10-17): shared chrome in the DEMO bar's own violet, outside this screen's
+          own action rows, which is also what keeps it from reading as one of the day's decisions.
+          The screen still replays the one service date either way, and the demo panel (B-15) is
+          where this control ends up — see docs/BUILD-PLAN-M2.md under P-11.
         */}
-        <div className={styles.actionRow} role="group" aria-label={planRoutes.demoDayLegend}>
-          {DEMO_DAYS.map((value) => (
-            <Button
-              key={value}
-              label={planRoutes.demoDay[value]}
-              pressed={day === value}
-              onClick={() => chooseDay(value)}
-            />
-          ))}
-        </div>
-        <p className={styles.note}>{planRoutes.demoDayNote[day]}</p>
+        <DemoControls
+          legend={planRoutes.demoScenarioLegend}
+          options={DEMO_SCENARIOS.map((value) => ({
+            value,
+            label: planRoutes.demoScenario[value],
+          }))}
+          value={scenario}
+          onChange={chooseScenario}
+          note={planRoutes.demoScenarioNote[scenario]}
+        />
         <div className={styles.actionRow} role="group" aria-label={planRoutes.directionLegend}>
           {(["AM", "PM"] as const).map((value) => (
             <Button

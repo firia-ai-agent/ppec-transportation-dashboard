@@ -3,6 +3,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { pageOutcome } from "@/auth/access";
 import {
+  DEMO_SCENARIOS,
+  PLAN_SERVICE_DATE,
   asMeasured,
   checkedAtRamp,
   notCheckedYet,
@@ -140,9 +142,45 @@ describe("the screen's own rules", () => {
   });
 
   it("holds no colour of its own and no demo violet (D-5)", () => {
-    // Every colour is a token custom property; the violet belongs to the DEMO bar and the
-    // Simulated chip, and the browser check measures that on the real screen too.
-    expect(css).not.toMatch(/#[0-9a-fA-F]{3}|rgb|demo-bg|src-sim/);
+    // Every colour is a token custom property; the violet belongs to the DEMO bar, the
+    // Simulated chip and the shared demo control, and the browser check measures that on the
+    // real screen too. This screen's own stylesheet never names it, including through the
+    // scenario toggle — that control brings its own (src/ui/DemoControls.module.css).
+    expect(css).not.toMatch(/#[0-9a-fA-F]{3}|rgb|demo-bg|demo-fg|src-sim/);
+  });
+
+  /**
+   * Vera's review, 2026-10-17: the scenario toggle is a demo control and has to look like one.
+   *
+   * It used to be two of the screen's own outlined buttons in the header, beside the run
+   * switcher and above "Plan routes" — so a switch that exists only to steer the demo sat among
+   * the day's real decisions. It now renders in the DEMO bar's own styling, which is shared
+   * chrome in src/ui rather than something this screen paints: a screen cannot grant itself the
+   * violet (src/ui/tokens.test.ts holds the reservation).
+   */
+  it("renders the scenario toggle as a demo control in the DEMO bar's styling", () => {
+    expect(screen).toMatch(/import \{ DemoControls \} from "@\/ui\/DemoControls"/);
+    expect(screen).toMatch(/<DemoControls[\s\S]{0,300}legend=\{planRoutes\.demoScenarioLegend\}/);
+    expect(screen).toMatch(/options=\{DEMO_SCENARIOS\.map\(/);
+    expect(screen).toMatch(/note=\{planRoutes\.demoScenarioNote\[scenario\]\}/);
+    // Not the screen's own button, and not the screen's own date-shaped words any more.
+    expect(screen).not.toMatch(/demoDay/);
+    expect(screen).not.toMatch(/styles\.actionRow[\s\S]{0,120}demoScenario/);
+  });
+
+  /**
+   * The other half of the same review: the screen replays one demo day. The toggle picks which
+   * run of that day is on screen, so the date beside the heading is a constant computed once —
+   * nothing maps a scenario to a date, and no scenario can be read as tomorrow.
+   */
+  it("replays one demo day under both scenarios", () => {
+    const dates = DEMO_SCENARIOS.flatMap((scenario) =>
+      planLanes(scenario).map((lane) => lane.capability.serviceDate),
+    );
+    expect([...new Set(dates)]).toEqual([PLAN_SERVICE_DATE]);
+    expect(screen.match(/serviceDateLabel\(/g)).toHaveLength(1);
+    expect(screen).toMatch(/const SERVICE_DATE_LABEL = serviceDateLabel\(/);
+    expect(screen).toMatch(/date: SERVICE_DATE_LABEL/);
   });
 
   it("keeps the DEMO bar's 32 px out of its own height", () => {

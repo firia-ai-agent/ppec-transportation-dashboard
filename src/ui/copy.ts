@@ -991,23 +991,32 @@ export const planRoutes = {
   /** The one primary action on the screen. */
   plan: "Plan routes",
   planAgain: "Plan routes again",
-  /* ── which day the demo replays ── */
+  /* ── which scenario the demo replays ── */
   /**
-   * The click-through needs both halves of the §9 story on one screen: the ordinary day where
-   * every child gets a van, and the day one child's equipment has no van to hold it, which is
-   * where the group at the top and the reasons in it are read. So the day is a choice, in
-   * plain words, and the ordinary one is what the screen opens on.
+   * The click-through needs both halves of the §9 story on one screen: the ordinary run where
+   * every child gets a van, and the run where one child's equipment has no van to hold it,
+   * which is where the group at the top and the reasons in it are read.
+   *
+   * Named by what happens, not by a date (Vera's review, 2026-10-17). The screen replays one
+   * service date and says so once, in the heading — the earlier labels ("A day everyone fits",
+   * "A day one child has no van") read as a second and a third day a coordinator could pick
+   * between, which is a calendar this screen does not have. These two say which scenario of the
+   * one day is on screen, and the normal one is what it opens on.
    */
-  demoDayLegend: "Which day?",
-  demoDay: {
-    EVERY_RIDER_FITS: "A day everyone fits",
-    ONE_RIDER_HAS_NO_VAN: "A day one child has no van",
+  demoScenarioLegend: "Demo scenario",
+  demoScenario: {
+    EVERY_RIDER_FITS: "Normal day",
+    ONE_RIDER_HAS_NO_VAN: "A child can’t be placed",
   },
-  demoDayNote: {
-    EVERY_RIDER_FITS:
-      "Three vans on the road today: the convertible van, the centre van and the sedan.",
+  /**
+   * What each scenario is, in one short sentence. Both were a line longer until Vera's review on
+   * 2026-10-17: a note on a demo control is read at a glance, so each one now says only the thing
+   * that is different about the fleet, and the vans in it are named the way the lanes name them.
+   */
+  demoScenarioNote: {
+    EVERY_RIDER_FITS: "Three vans today: the convertible van, the center van and the sedan.",
     ONE_RIDER_HAS_NO_VAN:
-      "The convertible van is off the road, and the provider sent the small substitute instead. No van left today holds four-point straps.",
+      "The convertible van is off the road and a smaller van replaced it. No van today has four-point straps.",
   },
   /** Said where the plan is read, like the ramp check's own line: this surface sends nothing. */
   localOnly: "Nothing here is sent. A coordinator approves a plan before anyone is told.",

@@ -17,6 +17,7 @@ import { capabilityStates, reservationStates } from "../src/ui/states";
 import {
   boxOf,
   expectDemoBarPinned,
+  expectDemoControlStyling,
   expectNoInternalCodes,
   expectVioletOnlyOnDemoChrome,
   shot,
@@ -509,24 +510,44 @@ test.describe("Plan routes", () => {
   /**
    * The same promise, reached by walking the screen rather than by driving a substitution.
    *
-   * The scenario's own day places all nine riders, so the group at the top — a child with no van,
-   * the reason, and the options — was only ever reachable by taking a van away in four clicks.
-   * The second demo day is that walk: the convertible van is off the road, the provider sent the
-   * small substitute, and no van left today holds four-point straps. The first day is untouched,
-   * which is what keeps the feasible-plan check above honest.
+   * The normal day places all nine riders, so the group at the top — a child with no van, the
+   * reason, and the options — was only ever reachable by taking a van away in four clicks. The
+   * second demo scenario is that walk, on the same service date: the convertible van is off the
+   * road, the provider sent the small substitute, and no van left today holds four-point straps.
+   * The normal scenario is untouched, which is what keeps the feasible-plan check above honest.
+   *
+   * The toggle itself is checked here too (Vera's review, 2026-10-17): it is labelled by what
+   * happens rather than by a date, it is painted as the demo control it is, and the one demo day
+   * the screen replays is the same date on both sides of it.
    */
-  test("AT-12: the demo day where one child cannot be placed shows the group and a reason", async ({
+  test("AT-12: the demo scenario where one child cannot be placed shows the group and a reason", async ({
     page,
   }) => {
     await page.goto("/plan-preview");
 
-    // The day is a choice on the screen, in plain words, and the ordinary day is the default.
-    const ordinary = page.getByRole("button", { name: copy.demoDay.EVERY_RIDER_FITS, exact: true });
+    // The scenario is a choice on the screen, in plain words, and the normal day is the default.
+    const toggle = page.locator('[data-demo-control="true"]');
+    await expect(toggle).toBeVisible();
+    const ordinary = toggle.getByRole("button", {
+      name: copy.demoScenario.EVERY_RIDER_FITS,
+      exact: true,
+    });
     await expect(ordinary).toHaveAttribute("aria-pressed", "true");
-    await page
-      .getByRole("button", { name: copy.demoDay.ONE_RIDER_HAS_NO_VAN, exact: true })
+    // It is a demo control and looks like one: the DEMO bar's own fill, not the screen's.
+    await expectDemoControlStyling(toggle);
+    // Named by the scenario, never by a date: the one date on the screen is the heading's.
+    const dateLabel = await page.locator("h1 + span").innerText();
+    for (const label of Object.values(copy.demoScenario)) {
+      await expect(toggle.getByRole("button", { name: label, exact: true })).toBeVisible();
+      expect(label, "a scenario label reads like a date").not.toMatch(/\d/);
+    }
+
+    await toggle
+      .getByRole("button", { name: copy.demoScenario.ONE_RIDER_HAS_NO_VAN, exact: true })
       .click();
-    await expect(page.getByText(copy.demoDayNote.ONE_RIDER_HAS_NO_VAN)).toBeVisible();
+    await expect(page.getByText(copy.demoScenarioNote.ONE_RIDER_HAS_NO_VAN)).toBeVisible();
+    // Still the one demo day: switching the scenario does not move the screen to another date.
+    expect(await page.locator("h1 + span").innerText()).toBe(dateLabel);
     await plan(page);
 
     // One child, named, with the missing hardware said in words — and everybody else in a van.
@@ -548,7 +569,7 @@ test.describe("Plan routes", () => {
     await expect(page.getByText(copy.nothingSent)).toBeVisible();
     await expectEquipmentFits(page);
     await expectNoInternalCodes(page);
-    console.log("screenshot:", await shot(page, "plan-routes-at12-demo-day"));
+    console.log("screenshot:", await shot(page, "plan-routes-at12-demo-scenario"));
 
     // Back to the ordinary day, and the plan it starts from is dropped rather than carried over.
     await ordinary.click();
