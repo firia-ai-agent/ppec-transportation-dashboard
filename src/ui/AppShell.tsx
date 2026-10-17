@@ -22,17 +22,35 @@ import styles from "./AppShell.module.css";
  * hover/focus); MobileNav handles <768 (hamburger drawer with nav + identity + Sign out). Both
  * are given the caller's role and offer only the destinations that role's row in the access
  * table opens — a courtesy on top of the per-page server guard, never instead of it.
+ *
+ * One shell, every signed-in screen. It used to wrap only the four routes inside src/app/(app),
+ * which left Plan routes, the live map and the ramp iPad with no menu at all: the founder's
+ * 2026-10-17 walk of production reached each of them and found the browser's Back button was
+ * the only way out. Each of those three now has a layout.tsx of its own mounting this shell
+ * through ConsoleShell.tsx, so the header, the nav, the identity and the scenario clock are the
+ * same objects on all seven destinations. (§2 calls the ramp iPad "its own full-screen route";
+ * that line is what the walk disproved, and a surface the front desk *lands* on is the last one
+ * that can afford to have no way off it.)
  */
 export function AppShell({
   displayName,
   role,
+  pageOwnsMain = false,
   children,
 }: {
   displayName: string;
   /** The caller's role, so the rail offers only the pages they can open. `null` shows none. */
   role: StaffRole | null;
+  /**
+   * True for a screen that renders its own `<main>` — the three that were built before this
+   * shell reached them. §9 allows one `main` landmark per page, so the shell hands them a plain
+   * wrapper that still carries `#content` for the skip link, and keeps its own padding off
+   * surfaces that already have their own (the ramp iPad is laid out edge to edge).
+   */
+  pageOwnsMain?: boolean;
   children: ReactNode;
 }) {
+  const Content = pageOwnsMain ? "div" : "main";
   return (
     <div className={styles.shell}>
       {/* §9 keyboard-only walk: the rail and header come before the board, so give it a bypass. */}
@@ -77,9 +95,9 @@ export function AppShell({
       </header>
       <div className={styles.body}>
         <NavRail role={role} />
-        <main id="content" className={styles.main}>
+        <Content id="content" className={pageOwnsMain ? styles.contentSlot : styles.main}>
           {children}
-        </main>
+        </Content>
       </div>
     </div>
   );

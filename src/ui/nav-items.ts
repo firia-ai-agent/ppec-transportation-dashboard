@@ -33,12 +33,18 @@ export type NavItem = { href: string; label: string; icon: LucideIcon };
  *    "Simulated" chip in the DEMO bar, which the root layout renders on this route as on every
  *    other, and by the screen's own `signedInOnly` line (COPY-GUIDE §1, honest about certainty).
  *  - **Ramp iPad** (`/ramp-ipad`) — SURF-04, and the one of the three the PRD does name:
- *    "Ramp iPad" in both the §14 navigation line and the §14 SURF-04 entry (l.1055, l.1061). It
- *    is its own full-screen route (§2) and so renders no rail of its own; the rail still links
- *    to it, because the front desk cannot open a console page and this is their surface.
+ *    "Ramp iPad" in both the §14 navigation line and the §14 SURF-04 entry (l.1055, l.1061). The
+ *    front desk cannot open a console page, so this is their surface and where they land.
  *
  * Every label is the heading of its own screen, read from src/ui/copy.ts — never a second
  * string in `nav` — so the rail and the page cannot drift apart. nav-items.test.ts holds that.
+ *
+ * All seven render this list, and that is new as of 2026-10-17. The three screens above are
+ * routes outside src/app/(app) and used to render no menu at all — §2 even says the ramp iPad is
+ * "its own full-screen route" — so a founder who clicked Plan routes on production had the
+ * browser's Back button and nothing else. Each of the three has a layout.tsx mounting the same
+ * shell now (src/ui/ConsoleShell.tsx), so this is the menu on every destination in it, and
+ * src/ui/one-menu.test.ts fails if a destination ever drops out of that set again.
  *
  * Icon rule (Vera's review): a nav icon must never be an icon §3 uses to mark a *state*, or
  * §7.1 uses for a source mode — otherwise "Exceptions" in the rail reads as a live alert and

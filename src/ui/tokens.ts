@@ -198,8 +198,6 @@ export const layout = {
   railWide: "232px",
   /** 768–1279: icon rail, labels on hover/focus. Width is not fixed by §2; 64 px keeps a 44 px target plus 8 px gutters. */
   railIcon: "64px",
-  /** <768: hamburger drawer. */
-  drawerWidth: "288px",
   /** DEMO banner: 32 px full-width bar above everything (§7). */
   demoBannerHeight: "32px",
   /** Source-mode badge: 20 px high, 24 px on the ramp iPad (§7.1). */
@@ -209,7 +207,13 @@ export const layout = {
   contentMaxWidth: "1440px",
 } as const;
 
-/** Breakpoints (§2). Exported for documentation; media queries live in CSS. */
+/**
+ * Breakpoints (§2). Exported for documentation; media queries live in CSS.
+ *
+ * §2's "<768: hamburger drawer" used to carry a 288 px width here. The drawer is anchored to the
+ * header and spans the viewport now (src/ui/MobileNav.module.css says why), so there is no
+ * drawer width left to tokenise and a token nothing reads is drift.
+ */
 export const breakpoint = { drawer: "768px", rail: "1280px" } as const;
 
 /** Minimum hit targets: ≥44 px console, ≥56 px ramp iPad (§9). */

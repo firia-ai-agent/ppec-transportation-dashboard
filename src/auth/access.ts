@@ -145,8 +145,21 @@ export type EndpointRow = {
  * is not something a screen may print, and `no-internals.test.ts` holds that line by scanning
  * those two trees for the literal. The routes name their row through these constants.
  */
-/** Layout keys. A layout has no URL of its own, but it is a guard point and needs a row. */
-export const LAYOUT = { root: "layout:root", console: "layout:console" } as const;
+/**
+ * Layout keys. A layout has no URL of its own, but it is a guard point and needs a row.
+ *
+ * Four of them mount the console shell: the `(app)` group, and one per route folder for the
+ * three screens that are outside it (`/plan-routes`, `/live-map`, `/ramp-ipad`). Every one of
+ * those four asks for a session and nothing more — the role belongs to the page inside, so the
+ * refusal is rendered by the page that was asked for and can say who it is for.
+ */
+export const LAYOUT = {
+  root: "layout:root",
+  console: "layout:console",
+  planRoutes: "layout:plan-routes",
+  liveMap: "layout:live-map",
+  rampIpad: "layout:ramp-ipad",
+} as const;
 
 export const API = {
   auth: "/api/auth/[...nextauth]",
@@ -212,6 +225,34 @@ export const PAGES: readonly PageRow[] = [
     kind: "layout",
     file: "src/app/(app)/layout.tsx",
     path: LAYOUT.console,
+    access: { signedIn: true },
+  },
+  /**
+   * The same shell, on the three screens that are routes of their own outside that group. They
+   * rendered with no menu at all until 2026-10-17, which is how a founder walking production
+   * reached Plan routes and found the browser's Back button was the only way out of it.
+   *
+   * Each is a session check and nothing more, exactly as the group's row is: the page inside
+   * checks its own row — the two console roles for /plan-routes, every staff role for the other
+   * two — so no role gains or loses a screen by these three rows existing. That is the point of
+   * them being `signedIn`, and src/auth/guard-matrix.test.ts asks all four layouts directly.
+   */
+  {
+    kind: "layout",
+    file: "src/app/plan-routes/layout.tsx",
+    path: LAYOUT.planRoutes,
+    access: { signedIn: true },
+  },
+  {
+    kind: "layout",
+    file: "src/app/live-map/layout.tsx",
+    path: LAYOUT.liveMap,
+    access: { signedIn: true },
+  },
+  {
+    kind: "layout",
+    file: "src/app/ramp-ipad/layout.tsx",
+    path: LAYOUT.rampIpad,
     access: { signedIn: true },
   },
   /**

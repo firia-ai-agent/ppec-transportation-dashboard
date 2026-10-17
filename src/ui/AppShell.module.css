@@ -90,6 +90,18 @@
   padding: var(--space-6) var(--space-5);
 }
 
+/*
+ * The content area for a screen that brings its own `<main>` and its own padding (Plan routes,
+ * the live map, the ramp iPad — all three built before this shell reached them). Same box in the
+ * layout as `.main`, no padding of its own: doubling it would reindent three finished screens.
+ */
+.contentSlot {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 @media (max-width: 767px) {
   .header {
     padding: var(--space-4);

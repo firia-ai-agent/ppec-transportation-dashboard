@@ -103,7 +103,14 @@ describe("the walk itself works", () => {
     expect(surfaceFiles.pages.length).toBeGreaterThanOrEqual(9);
     expect(surfaceFiles.routes.length).toBeGreaterThanOrEqual(8);
     expect(surfaceFiles.layouts).toEqual(
-      expect.arrayContaining(["src/app/layout.tsx", "src/app/(app)/layout.tsx"]),
+      expect.arrayContaining([
+        "src/app/layout.tsx",
+        "src/app/(app)/layout.tsx",
+        // The three screens outside that group carry the same shell from a layout of their own.
+        "src/app/plan-routes/layout.tsx",
+        "src/app/live-map/layout.tsx",
+        "src/app/ramp-ipad/layout.tsx",
+      ]),
     );
     expect(actionFiles).toEqual(expect.arrayContaining(["src/app/login/page.tsx", "src/ui/SignOutButton.tsx"]));
   });
@@ -228,11 +235,28 @@ describe("every guarded page calls the guard, with its own path", () => {
     },
   );
 
-  it("the console layout guards sign-in for everything inside it", () => {
-    const source = readFileSync(path.join(REPO, "src/app/(app)/layout.tsx"), "utf8");
-    expect(source).toContain("requirePage(LAYOUT.console)");
-    expect(source).toMatch(/export const dynamic = "force-dynamic"/);
-  });
+  /**
+   * Every layout that mounts the console shell guards sign-in for everything inside it, and
+   * names its own row to do it. Four of them: the `(app)` group, and one each for the three
+   * screens that are routes outside it (`/plan-routes`, `/live-map`, `/ramp-ipad`), which until
+   * 2026-10-17 rendered with no shell and so no menu at all.
+   *
+   * The row key is read from the table and the file from the row, so a layout that guards with
+   * someone else's key — or with no key — fails here rather than shipping.
+   */
+  const LAYOUT_KEYS = Object.fromEntries(Object.entries(LAYOUT).map(([key, path]) => [path, key]));
+
+  it.each(PAGES.filter((p) => p.kind === "layout" && p.path !== LAYOUT.root))(
+    "$file guards sign-in with its own row",
+    (row) => {
+      const source = readFileSync(path.join(REPO, row.file), "utf8");
+      expect(source).toContain(`requirePage(LAYOUT.${LAYOUT_KEYS[row.path]})`);
+      expect(source).toMatch(/export const dynamic = "force-dynamic"/);
+      // A session and nothing more: the role belongs to the page inside, so the refusal is
+      // rendered by the page that was asked for and can say who that page is for.
+      expect(row.access).toEqual({ signedIn: true });
+    },
+  );
 
   it("a public page holds no guard, and there are only four of them", () => {
     const publicPages = PAGES.filter((p) => "public" in p.access).map((p) => p.path);

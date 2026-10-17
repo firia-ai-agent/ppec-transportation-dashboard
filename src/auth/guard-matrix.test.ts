@@ -400,8 +400,9 @@ describe("every page, for every role and for a signed-out visitor", () => {
 
   it("a signed-in person with no role anywhere is refused every staff page, body and all", async () => {
     const staffPages = pageFiles.filter((p) => pageOutcome(CALLERS.noRole, p.path) === "NO_ACCESS");
-    // Every page that asks for a role at all: the four console pages, the three screens outside
-    // the console shell, /whoami, and the three redirects that stand in front of those screens.
+    // Every page that asks for a role at all: the four console pages, the three screens that
+    // are routes outside that group (each with a shell of its own now), /whoami, and the three
+    // redirects that stand in front of those screens.
     expect(staffPages.map((p) => p.path).sort()).toEqual(
       [
         "/exceptions", "/health", "/live-map", "/map-preview", "/plan-preview", "/plan-routes",
@@ -435,16 +436,32 @@ describe("every page, for every role and for a signed-out visitor", () => {
     expect(readFileSync(path.join(SRC, "auth", "page-guard.ts"), "utf8")).toMatch(/forbidden\(\)/);
   });
 
-  it("the console shell lets any session in and leaves the role to the page inside it", async () => {
-    const layout = path.join(APP, "(app)", "layout.tsx");
-    getCaller.mockResolvedValue(CALLERS.frontDesk);
-    expect(await openPage(layout)).toEqual({ rendered: true });
-    getCaller.mockResolvedValue(CALLERS.signedOut);
-    expect(await openPage(layout)).toEqual({
-      rendered: false,
-      interrupt: { kind: "redirect", to: "/login" },
-    });
-  });
+  /**
+   * The console shell, asked directly — and there are four layouts mounting it now: the `(app)`
+   * group, and one each for Plan routes, the live map and the ramp iPad, which are routes
+   * outside that group and rendered with no shell (and so no menu) until 2026-10-17.
+   *
+   * Every one of them must behave the same way: any session in, no session to sign-in, and the
+   * *role* left to the page inside. The front desk is the caller that proves the second half —
+   * they may not open /plan-routes, and the layout must still let them in so the refusal comes
+   * from the page and the no-access card can say who the page is for. The menu these layouts
+   * draw is a courtesy either way; src/ui/nav-items.ts filters it with this same table.
+   */
+  it.each([["(app)"], ["plan-routes"], ["live-map"], ["ramp-ipad"]])(
+    "the %s shell lets any session in and leaves the role to the page inside it",
+    async (dir) => {
+      const layout = path.join(APP, dir, "layout.tsx");
+      for (const caller of [CALLERS.director, CALLERS.coordinator, CALLERS.frontDesk, CALLERS.noRole]) {
+        getCaller.mockResolvedValue(caller);
+        expect({ dir, ...(await openPage(layout)) }).toEqual({ dir, rendered: true });
+      }
+      getCaller.mockResolvedValue(CALLERS.signedOut);
+      expect(await openPage(layout)).toEqual({
+        rendered: false,
+        interrupt: { kind: "redirect", to: "/login" },
+      });
+    },
+  );
 });
 
 /* ───────────────────────────── the endpoints ───────────────────────────── */

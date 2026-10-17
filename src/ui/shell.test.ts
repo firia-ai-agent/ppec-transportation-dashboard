@@ -118,13 +118,24 @@ describe("NFR-09 / §7.1: the source-mode chip sits next to the DEMO banner", ()
   it("every signed-in route is inside the layout that sits under that one bar", () => {
     // The (app) layout must not mount a bar of its own — one per screen, from the root.
     const appLayout = read(APP, "(app)", "layout.tsx");
-    expect(appLayout).toMatch(/<AppShell /);
+    expect(appLayout).toMatch(/<ConsoleShell /);
     expect(appLayout).not.toMatch(/DemoBanner|ScreenSource|SourceBadge/);
     // ...and it must actually wrap the signed-in pages, or they would render bare.
     const routes = readdirSync(path.join(APP, "(app)"), { withFileTypes: true })
       .filter((e) => e.isDirectory())
       .map((e) => e.name);
     expect(routes).toEqual(expect.arrayContaining(["today", "exceptions", "setup", "health"]));
+  });
+
+  /**
+   * The three screens that are routes of their own, outside that group. Their own layouts mount
+   * the same shell, and must not mount a bar either: the root layout's is the only one, and a
+   * second would be two "DEMO" bars and two Simulated chips on the screens a founder is shown.
+   */
+  it.each(["plan-routes", "live-map", "ramp-ipad"])("%s mounts the shell and no second bar", (route) => {
+    const layout = read(APP, route, "layout.tsx");
+    expect(layout).toMatch(/<ConsoleShell /);
+    expect(layout).not.toMatch(/DemoBanner|ScreenSource|SourceBadge/);
   });
 
   it("the outlined white chip still passes contrast on the violet bar", () => {
