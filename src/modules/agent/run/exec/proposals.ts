@@ -1,11 +1,11 @@
 /**
- * The `human`-tier half of §11.2: `propose_manifest_reallocation` and
- * `propose_contact_or_profile_change`.
+ * The `human`-tier half of §11.2: the three `propose_*` tools.
  *
  * | Tool | Precondition → effect |
  * |---|---|
  * | `propose_manifest_reallocation(infeasible_vehicle, legs, options, rationale)` | INFEASIBLE/substitution → RED exception + Teams card; **no mutation** |
  * | `propose_contact_or_profile_change(family, category, claim, source_msg)` | any phone/custody/equipment change → change request + exception |
+ * | `propose_dropoff_change(child, leg, requested_time, version, rationale)` | a requested transport change → approval request + exception; **no mutation** |
  *
  * These are not executors, and that is the point. The policy engine returns PROPOSAL for every
  * `human`-tier call (policy.ts step 11) and the loop never calls an executor for one — so there is
@@ -18,9 +18,11 @@
  * `args_hash` holds — so a human's decision and the exact call it would release are matched on one
  * column rather than by re-serializing arguments and hoping the key order agrees.
  *
- * What is still deferred: the Teams card (B-12) and the approval *surface* that would turn a
- * decision into an applied change. A `PROPOSED` row plus an approval request is the whole of the
- * agent's side of it.
+ * What is still deferred: the Teams card (B-12). The approval *surface* this file used to name as
+ * missing now exists for one of the three — `modules/approvals/decide.ts` decides a
+ * `DROPOFF_CHANGE` and moves the ride — and the other two stay on the board as tasks until their
+ * own cards land. A `PROPOSED` row plus an approval request is still the whole of the agent's
+ * side of it: nothing here mutates, whichever tool was called.
  */
 import type { Exec } from "@/db/exec";
 import { agentTasks } from "@/ui/copy";
@@ -28,9 +30,18 @@ import { raiseTask } from "./clarify";
 import { effectId, isUuid } from "./effects";
 import type { ExecutorDeps } from "./effects";
 
-/** `ops.task.category` for the two proposals. */
+/** `ops.task.category` for the three proposals. */
 export const REALLOCATION_TASK_CATEGORY = "INFEASIBLE";
 export const CHANGE_REQUEST_TASK_CATEGORY = "IDENTITY_CHANGE";
+export const DROPOFF_CHANGE_TASK_CATEGORY = "TRANSPORT_CHANGE";
+
+/**
+ * `proposal ->> 'kind'` for a drop-off change, and the key the approvals screen selects on
+ * (`modules/approvals/decide.ts`). A string rather than a table: `ops.approval_request.proposal`
+ * is one jsonb column shared by every `propose_*` tool, and the kind is how a reader knows which
+ * shape it is holding.
+ */
+export const DROPOFF_CHANGE_KIND = "DROPOFF_CHANGE";
 
 /** What the loop knows about a proposed call when it commits it. */
 export type ProposalInput = {
@@ -61,6 +72,8 @@ export function proposalWriter(_deps: ExecutorDeps): ProposalWriter {
         return contactOrProfileChange(tx, input);
       case "propose_manifest_reallocation":
         return manifestReallocation(tx, input);
+      case "propose_dropoff_change":
+        return dropoffChange(tx, input);
       default:
         return {};
     }
@@ -147,6 +160,62 @@ async function manifestReallocation(tx: Exec, input: ProposalInput): Promise<Rec
         infeasible_vehicle_token: input.args.infeasible_vehicle_token ?? null,
         leg_ids: input.args.leg_ids ?? [],
         options: input.args.options ?? [],
+        rationale_code: input.args.rationale_code ?? null,
+        approval_key: input.approvalKey,
+      }),
+      by,
+    ],
+  );
+  return { approval_request_id: approvalId, exception_task_id: taskId, mutated: false };
+}
+
+/**
+ * §11.2 human tier: a family asked for a different drop-off time.
+ *
+ * Writes an `ops.approval_request` whose proposal carries the leg, the child, the requested time
+ * and the plan version the model read the leg at — and an exception task so the request is on the
+ * Exceptions board whether or not anyone is looking at the approvals list. **Nothing moves**: the
+ * leg is not touched, no message is queued, and `mutated: false` says so in the call's result.
+ *
+ * `requested_dropoff_time` is copied straight out of the validated arguments and nowhere else.
+ * That is the point of the tool existing (founder, 2026-10-17): a time reaches this row because
+ * the model put it in a schema field, never because something read it out of a family's sentence.
+ *
+ * `plan_version_basis` rides along so the decision can be guarded on it. A leg whose plan has
+ * moved since the proposal was computed is a stale proposal, and applying it would overwrite a
+ * change somebody made in the meantime (AT-08, from the other side).
+ */
+async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<string, unknown>> {
+  const by = `agent:${input.runId}`;
+  const legId = String(input.args.leg_id ?? "");
+  const childToken = String(input.args.child_token ?? "");
+
+  const taskId = await raiseTask(tx, {
+    id: effectId(input.idempotencyKey, "exception"),
+    siteId: input.siteId,
+    category: DROPOFF_CHANGE_TASK_CATEGORY,
+    severity: "AMBER",
+    words: agentTasks.proposedDropoffChange,
+    by,
+    tripLegId: isUuid(legId) ? legId : null,
+    childToken: isUuid(childToken) ? childToken : null,
+  });
+
+  const approvalId = effectId(input.idempotencyKey, "approval");
+  await tx.query(
+    `INSERT INTO ops.approval_request (id, site_id, task_id, proposal, created_by, updated_by, source_mode)
+     VALUES ($1, $2, $3, $4::jsonb, $5, $5, 'SIMULATED')
+     ON CONFLICT (id) DO NOTHING`,
+    [
+      approvalId,
+      input.siteId,
+      taskId,
+      JSON.stringify({
+        kind: DROPOFF_CHANGE_KIND,
+        leg_id: isUuid(legId) ? legId : null,
+        child_token: isUuid(childToken) ? childToken : null,
+        requested_dropoff_time: input.args.requested_dropoff_time ?? null,
+        plan_version_basis: input.args.plan_version_basis ?? null,
         rationale_code: input.args.rationale_code ?? null,
         approval_key: input.approvalKey,
       }),

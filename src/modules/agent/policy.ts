@@ -421,6 +421,10 @@ const ROWS: readonly PolicyRow[] = [
   { tool: "record_capability_report", scopedArgs: ["vehicle_token", "source_message_id"], sendSubject: null, note: "an observation about a site vehicle; `parsed` holds codes, not ids" },
   { tool: "report_boarding", scopedArgs: ["leg_id"], sendSubject: null, note: "BOARDED_REPORTED on one leg" },
   { tool: "propose_manifest_reallocation", scopedArgs: ["infeasible_vehicle_token", "leg_ids", "options"], sendSubject: null, note: "proposes only; `options` nests the vehicles and legs it would move" },
+  // The time itself is not an object and is not scope-checked — it is a string on the leg's own
+  // service date, and the leg is what the family scope answers for. `sendSubject: null` because a
+  // proposal sends nothing: the family hears about this only if a person approves it.
+  { tool: "propose_dropoff_change", scopedArgs: ["child_token", "leg_id"], sendSubject: null, note: "proposes a new drop-off time on one leg of this family's; no mutation and no send" },
   { tool: "propose_contact_or_profile_change", scopedArgs: ["family_token", "source_message_id"], sendSubject: null, note: "proposes against this family only" },
   { tool: "escalate_exception", scopedArgs: ["leg_id"], sendSubject: null, note: "always allowed (§11.2), still scope-checked" },
   { tool: "close_task", scopedArgs: ["task_id", "evidence_ref"], sendSubject: null, note: "the evidence must be this run's own" },

@@ -1727,6 +1727,16 @@ export const agentTasks = {
     nextStep: "Verify the request with the family, then approve or reject the change request.",
     predicate: "change request approved or rejected by staff",
   },
+  /**
+   * §11.2 human tier, `propose_dropoff_change`: a family asked for a different drop-off time and
+   * the assistant has written it down for a person to decide. The time itself is on the card, not
+   * in this summary — the summary is what a board row says before anyone opens it.
+   */
+  proposedDropoffChange: {
+    summary: "A family asked to change a drop-off time",
+    nextStep: "Check the new time works for the van, then approve it or decline it.",
+    predicate: "the new time approved and the ride moved, or the request declined and recorded",
+  },
   /** §11.2 propose_manifest_reallocation: "RED exception + Teams card". */
   proposedReallocation: {
     summary: "A vehicle cannot take its runs and the agent has options to show you",

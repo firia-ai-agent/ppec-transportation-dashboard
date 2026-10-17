@@ -73,6 +73,17 @@ export const MODEL_UNAVAILABLE_CATEGORY = "ASSISTANT_UNAVAILABLE";
 export const LIVE_ALERT_STATES = ["OPEN", "IN_PROGRESS"] as const;
 
 /**
+ * The same list as a SQL literal.
+ *
+ * Inlined rather than bound as a parameter because the driver has to be told the element type of
+ * an enum array and `$n::task_state[]` does not survive the round trip through every backend this
+ * runs on. Safe to inline precisely because these are module constants declared one line above —
+ * no caller supplies them, so there is no value here that did not come from this file.
+ */
+const sqlEnumList = (values: readonly string[]) => values.map((v) => `'${v}'`).join(", ");
+const LIVE_ALERT_STATES_SQL = sqlEnumList(LIVE_ALERT_STATES);
+
+/**
  * Why no model answered, as a class.
  *
  * Four of them because four are actionable and distinguishable, and no more because the vendor's
@@ -228,8 +239,14 @@ type AlertSubject = {
  * whether a ride has happened (`TERMINAL_LEG_STATES`).
  */
 async function alertSubject(db: Exec, siteId: string, messageId: string): Promise<AlertSubject | null> {
-  const msg = await db.query<{ thread_id: string; counterparty_token: string | null; service_date: string }>(
-    `SELECT m.thread_id, t.counterparty_token, (m.received_at AT TIME ZONE 'America/New_York')::date::text AS service_date
+  const msg = await db.query<{
+    thread_id: string;
+    counterparty_token: string | null;
+    service_date: string;
+    received_at: Date;
+  }>(
+    `SELECT m.thread_id, t.counterparty_token, m.received_at,
+            (m.received_at AT TIME ZONE 'America/New_York')::date::text AS service_date
      FROM ops.message m
      JOIN ops.conversation_thread t ON t.id = m.thread_id AND t.site_id = m.site_id
      WHERE m.id = $1 AND m.site_id = $2`,
@@ -240,10 +257,14 @@ async function alertSubject(db: Exec, siteId: string, messageId: string): Promis
 
   const children = row.counterparty_token
     ? await db.query<{ child_token: string }>(
+        // Any live authorization is enough to say "this contact's child": which *scope* they
+        // hold decides what may be sent to them, and nothing is being sent here. The validity
+        // window is read against the message's own arrival time, as §6.4 requires everywhere.
         `SELECT DISTINCT child_token FROM ops.contact_authorization
-         WHERE site_id = $1 AND contact_token = $2 AND revoked_at IS NULL
+         WHERE site_id = $1 AND contact_token = $2
+           AND valid_from <= $3 AND (valid_to IS NULL OR valid_to > $3)
          ORDER BY child_token`,
-        [siteId, row.counterparty_token],
+        [siteId, row.counterparty_token, row.received_at],
       )
     : { rows: [] as { child_token: string }[] };
 
@@ -253,9 +274,9 @@ async function alertSubject(db: Exec, siteId: string, messageId: string): Promis
   const legs = await db.query<{ id: string }>(
     `SELECT id FROM ops.trip_leg
      WHERE site_id = $1 AND child_token = $2 AND service_date = $3
-     ORDER BY (state = ANY($4::leg_state[])) ASC, direction ASC
+     ORDER BY (state IN (${TERMINAL_LEG_STATES_SQL})) ASC, direction ASC
      LIMIT 1`,
-    [siteId, childToken, row.service_date, TERMINAL_LEG_STATES],
+    [siteId, childToken, row.service_date],
   );
   return { threadId: row.thread_id, childToken, tripLegId: legs.rows[0]?.id ?? null };
 }
@@ -267,7 +288,8 @@ const TERMINAL_LEG_STATES = [
   "CANCELED_ATTENDANCE",
   "NO_SHOW",
   "LEFT_BEHIND_CAPACITY",
-];
+] as const;
+const TERMINAL_LEG_STATES_SQL = sqlEnumList(TERMINAL_LEG_STATES);
 
 /** One alert, as the Exceptions board shows it. Every field is read from a row at display time. */
 export type AssistantAlert = {
@@ -322,9 +344,9 @@ export async function openAssistantAlerts(db: Exec, siteIds: readonly string[]):
      LEFT JOIN ops.trip_leg l ON l.id = t.trip_leg_id AND l.site_id = t.site_id
      WHERE t.site_id = ANY($1::uuid[])
        AND t.category = $2
-       AND t.state = ANY($3::task_state[])
+       AND t.state IN (${LIVE_ALERT_STATES_SQL})
      ORDER BY t.created_at, t.id`,
-    [siteIds, MODEL_UNAVAILABLE_CATEGORY, [...LIVE_ALERT_STATES]],
+    [siteIds, MODEL_UNAVAILABLE_CATEGORY],
   );
   return r.rows.map(toAlert);
 }
@@ -334,8 +356,8 @@ export async function assistantAlertCount(db: Exec, siteIds: readonly string[]):
   if (siteIds.length === 0) return 0;
   const r = await db.query<{ n: string }>(
     `SELECT count(*)::text AS n FROM ops.task
-     WHERE site_id = ANY($1::uuid[]) AND category = $2 AND state = ANY($3::task_state[])`,
-    [siteIds, MODEL_UNAVAILABLE_CATEGORY, [...LIVE_ALERT_STATES]],
+     WHERE site_id = ANY($1::uuid[]) AND category = $2 AND state IN (${LIVE_ALERT_STATES_SQL})`,
+    [siteIds, MODEL_UNAVAILABLE_CATEGORY],
   );
   return Number(r.rows[0]?.n ?? 0);
 }
@@ -397,6 +419,9 @@ function toAlert(row: AlertRow): AssistantAlert {
  * which is still true and still actionable, and the words for it are in `copy.ts` like the rest.
  */
 function fillCard(template: string, values: Record<string, string>): string {
-  const filled = { ...values, adult: values.adult === "" ? assistantUnavailable.unknownAdult : values.adult };
+  const filled: Record<string, string> = {
+    ...values,
+    adult: values.adult === "" ? assistantUnavailable.unknownAdult : values.adult,
+  };
   return template.replace(/\{(\w+)\}/g, (whole, key: string) => filled[key] ?? whole);
 }
