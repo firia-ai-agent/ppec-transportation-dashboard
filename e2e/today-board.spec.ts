@@ -69,11 +69,19 @@ for (const width of WIDTHS) {
       await expect(page.getByRole("heading", { level: 1, name: boardCopy.heading })).toBeVisible();
       await expectDemoBarPinned(page);
 
-      // §4.1: needs action is the first group, and every group header carries its count.
+      /*
+       * §4.1: the groups are stacked in their fixed order with their counts, needs action first
+       * wherever there is one. On this board there is none — it is read twelve minutes into the
+       * morning and every ride on it is either under way or still ahead of the clock (Vera,
+       * 2026-10-17) — so the first header is the next group down, and the absent group is absent
+       * rather than a header over nothing. The finished day is where the first-group rule is
+       * walked, below.
+       */
       const headers = page.locator("th[scope='colgroup']");
       const texts = await headers.allInnerTexts();
       expect(texts.length).toBeGreaterThan(1);
-      expect(texts[0]).toContain(boardCopy.groups.NEEDS_ACTION);
+      expect(texts[0]).toContain(boardCopy.groups.GETTING_READY);
+      expect(texts.join(" ")).not.toContain(boardCopy.groups.NEEDS_ACTION);
       for (const text of texts) expect(text).toMatch(/\(\d+\)$/);
 
       // One row per child and ride: the whole census, both halves of every day (AT-07).
@@ -286,8 +294,15 @@ for (const width of WIDTHS) {
       const headers = page.locator("th[scope='colgroup']");
       await expect(headers.first()).toContainText(boardCopy.groups.NEEDS_ACTION);
 
+      /*
+       * And the line that asks for the record, which is the half of this the demo day does not
+       * reach: the van is back, the ride ended with nobody recorded as receiving him, so the row
+       * asks a person to call his contacts and record who receives him (CA-04). At 07:42 the same
+       * row asks for nothing at all (Vera, 2026-10-17; the test below).
+       */
       const reason = fill(boardCopy.reasons.CHILD_HELD, { child: NO_RECEIVER_CHILD });
       const step = sentence(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: NO_RECEIVER_CHILD }));
+      expect(step).toContain("record who receives");
       if (width >= 1280) {
         await expect(page.getByText(step, { exact: true })).toBeVisible();
       }
@@ -307,12 +322,18 @@ for (const width of WIDTHS) {
       // The morning of the same child is its own ride, in its own state: one held ride is not a
       // held day (AT-07). On this day the morning was received by the ramp, which is the contrast
       // that makes the point — the same child, the same panel, two different endings.
+      //
+      // `.first()` because every state chip says its label twice on purpose: once for the ear
+      // ("State: Handed off to the ramp") and once for the eye (§9), which is two nodes to a
+      // text locator and a strict-mode violation to a bare one.
       await expect(
-        panel.getByText(
-          fill(legStates.COMPLETED_HANDOFF.label, {
-            "receiver role": boardCopy.receivedByRamp,
-          }),
-        ),
+        panel
+          .getByText(
+            fill(legStates.COMPLETED_HANDOFF.label, {
+              "receiver role": boardCopy.receivedByRamp,
+            }),
+          )
+          .first(),
       ).toBeVisible();
       // Nothing on this screen can move it: the one action that would is unavailable, and says
       // which person has to answer first.
@@ -331,15 +352,17 @@ for (const width of WIDTHS) {
     });
 
     /**
-     * And the demo walk's half of AT-13: the board it opens is read at 07:42, so it says the
-     * **rule** and claims no hold (Firia, 2026-10-17).
+     * And the demo walk's half of AT-13: the board it opens is read at 07:42, so that afternoon
+     * says **when it is** and nothing else (Vera, 2026-10-17).
      *
      * This is the test that would have caught the bug. The walk used to open on "Noah O. is being
      * held with the van" next to the same child's morning row reading "On the way to pickup" — a
-     * child set down at home before the van that collects him had finished its run. What is on
-     * the walk now is everything about CA-04 that is true at 07:42, and it is the part a
-     * coordinator can still act on: nobody on file may receive him, if nobody is there he waits
-     * with the van, nothing brings him back, and the step is to record who will receive him.
+     * child set down at home before the van that collects him had finished its run. The first fix
+     * left the row asking a coordinator to record a receiver for a van that leaves in eight hours,
+     * which is work nobody can close and a needs-action group nobody can clear; Vera's ruling
+     * takes the row down to its time. What a 07:42 board still carries about CA-04 is the part a
+     * coordinator can act on, and it is on the row and in the panel: nobody on file may receive
+     * him, and if nobody is there he waits with the van and nothing brings him back.
      */
     test("the day the walk opens says the receiver rule, and claims no hold (AT-13)", async ({
       page,
@@ -354,14 +377,30 @@ for (const width of WIDTHS) {
       ).toHaveCount(0);
       await expect(page.getByText(/handed off/i)).toHaveCount(0);
 
-      // The afternoon row is still the first thing on the board, and still asks for a person.
-      const headers = page.locator("th[scope='colgroup']");
-      await expect(headers.first()).toContainText(boardCopy.groups.NEEDS_ACTION);
-      const step = sentence(
+      /*
+       * The afternoon row says its own time, at the end of the ride that time is: "Drop-off 4:20
+       * PM", rather than the ten-minute window a van on the road publishes to a family.
+       */
+      const afternoon = page.getByRole("row").filter({
+        has: page.getByRole("button", { name: opener(NO_RECEIVER_CHILD, boardCopy.pmSpoken) }),
+      });
+      await expect(
+        afternoon.getByText(fill(boardCopy.dropoffAt, { time: "4:20 PM" }), { exact: true }),
+      ).toBeVisible();
+
+      // And nothing is asked of it: no needs-action group on the board, and no step on the row.
+      await expect(page.locator("th[scope='colgroup']").first()).not.toContainText(
+        boardCopy.groups.NEEDS_ACTION,
+      );
+      const record = sentence(
         fill(boardCopy.nextSteps.RECORD_RECEIVER, { child: NO_RECEIVER_CHILD }),
       );
+      await expect(page.getByText(record, { exact: true })).toHaveCount(0);
       if (width >= 1280) {
-        await expect(page.getByText(step, { exact: true })).toBeVisible();
+        await expect(afternoon.getByText(boardCopy.nextSteps.NOTHING)).toBeVisible();
+        // What the row does carry about him, all day and on both of his rows: who may receive
+        // him. `.first()` because a chip says its label for the ear and for the eye (§9).
+        await expect(afternoon.getByText(boardCopy.noReceiver).first()).toBeVisible();
       }
 
       // And the morning ride beside it is where the replay has it: on the road, as it should be
@@ -371,7 +410,8 @@ for (const width of WIDTHS) {
         .filter({ has: page.getByRole("button", { name: opener(NO_RECEIVER_CHILD) }) });
       await expect(morning.getByText(legStates.EN_ROUTE_PICKUP.label).first()).toBeVisible();
 
-      // The drawer says the rule, in the present tense, with no ride claimed to have ended.
+      // The drawer says the rule, in the present tense, with no ride claimed to have ended and
+      // nothing asked of the one that has not run.
       await page
         .getByRole("button", { name: opener(NO_RECEIVER_CHILD, boardCopy.pmSpoken) })
         .click();
@@ -384,7 +424,8 @@ for (const width of WIDTHS) {
       ).toBeVisible();
       await expect(
         panel.getByText(fill(boardCopy.reasons.NO_RECEIVING_ADULT, { child: NO_RECEIVER_CHILD })),
-      ).toBeVisible();
+      ).toHaveCount(0);
+      await expect(panel.getByText(record, { exact: true })).toHaveCount(0);
       await expect(panel.getByText(legStates.HELD_NO_RECEIVER.label)).toHaveCount(0);
 
       await expectNoInternalCodes(page);
@@ -463,14 +504,18 @@ for (const width of WIDTHS) {
      */
     test("every row says what to do next, as a verb and a child's name", async ({ page }) => {
       await page.goto("/today");
-      // The step this child's afternoon asks for at 07:42, which is before the ride: record who
-      // will receive him. After 4:20 PM the same row asks for his contacts instead (AT-13).
+      /*
+       * A step on the board a walk opens: this child's van has reported nothing all morning, and
+       * the person who can answer for it is named rather than called "the provider". It is the
+       * morning's step because the morning is the half of the day the clock has reached — nothing
+       * is asked of an afternoon that has not run (Vera, 2026-10-17).
+       */
       const step = sentence(
-        fill(boardCopy.nextSteps.RECORD_RECEIVER, { child: NO_RECEIVER_CHILD }),
+        fill(boardCopy.nextSteps.ASK_ABOUT_VAN, { dispatcher: "Rae S.", child: "Mia R." }),
       );
 
       if (width >= 1280) {
-        await expect(page.getByText(step, { exact: true })).toBeVisible();
+        await expect(page.getByText(step, { exact: true }).first()).toBeVisible();
         // The adult who receives a child is named on the row, not described.
         await expect(
           page.getByText(fill(boardCopy.receiverNamed, { adult: "Alma R." })).first(),
@@ -482,8 +527,8 @@ for (const width of WIDTHS) {
         }
       } else {
         // §4.1 folds this column into the drawer below 1280, so that is where it has to be.
-        await page.getByRole("button", { name: opener(NO_RECEIVER_CHILD, boardCopy.pmSpoken) }).click();
-        // Exact: the panel carries other sentences about the same child and the same contacts.
+        await page.getByRole("button", { name: opener("Mia R.") }).click();
+        // Exact: the panel carries other sentences about the same child and the same van.
         await expect(page.getByRole("dialog").getByText(step, { exact: true })).toBeVisible();
       }
     });
@@ -718,29 +763,35 @@ for (const width of WIDTHS) {
       console.log("screenshot:", await shot(page, `today-disabled-action-${width}`));
     });
 
-    test("the needs-action filter narrows the board and says how much of it is left", async ({
-      page,
-    }) => {
+    /**
+     * The filter on the board a walk opens, which is the board with nothing in that group.
+     *
+     * The count on the toggle is the measurement: a demo day read twelve minutes into its morning
+     * has no open work on it, because the one row that used to be in here was an afternoon the
+     * clock had not reached (Vera, 2026-10-17). So the filter empties the board, and the line it
+     * leaves says which kind of empty that is and how to undo it — not "no rides today", which
+     * would be false of a day with 56 of them. The filter *narrowing* a board is walked on the
+     * finished day, which has two rides needing a person (above).
+     */
+    test("the needs-action filter says plainly when nothing needs action", async ({ page }) => {
       await page.goto("/today");
       const toggle = page.getByRole("switch");
       await expect(toggle).toHaveAttribute("aria-checked", "false");
+      await expect(toggle).toContainText(
+        fill(boardCopy.groupHeading, { group: boardCopy.onlyNeedsAction, count: 0 }),
+      );
       await toggle.click();
       await expect(toggle).toHaveAttribute("aria-checked", "true");
 
-      /*
-       * One row, not one child: the ride that needs a person is the afternoon one, because
-       * that is the ride nobody on file may receive this child off (AT-13). The morning ride
-       * is on the road and needs nothing, so it is not in here.
-       */
+      await expect(page.getByText(boardCopy.emptyNeedsAction)).toBeVisible();
+      await expect(page.locator("table")).toHaveCount(0);
+      await expect(page.getByText(/No rides scheduled/)).toHaveCount(0);
+
+      // And it is a filter, not the day: turning it off brings the whole board back.
+      await toggle.click();
+      await expect(page.getByRole("button", { name: /^Open / })).toHaveCount(RIDES);
       await expect(
-        page.getByRole("button", { name: opener(NO_RECEIVER_CHILD, boardCopy.pmSpoken) }),
-      ).toBeVisible();
-      await expect(
-        page.getByRole("button", { name: opener(NO_RECEIVER_CHILD, boardCopy.amSpoken) }),
-      ).toHaveCount(0);
-      await expect(page.getByRole("button", { name: opener(RIDING_CHILD) })).toHaveCount(0);
-      await expect(
-        page.getByText(fill(boardCopy.showing, { shown: 1, total: RIDES })),
+        page.getByText(fill(boardCopy.showing, { shown: RIDES, total: RIDES })),
       ).toBeVisible();
 
       console.log("screenshot:", await shot(page, `today-needs-action-${width}`));

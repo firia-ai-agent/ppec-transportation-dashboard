@@ -254,6 +254,20 @@ export const board = {
   noPositionRecorded: "No van location kept",
   /** No window has been worked out for this ride yet — a state, so it gets an icon and a label. */
   windowPending: etaText.pending,
+  /**
+   * A ride the day's clock has not reached: the time the plan gives it, and which end of the ride
+   * that time is (Vera, 2026-10-17).
+   *
+   * This column's other answer is a **published** window — the ten minutes a family is told, kept
+   * against a van's real position and the §8 hysteresis. That is the right thing to say about a run
+   * in progress and an over-claim about a ride nothing has happened to: an afternoon read at 07:42
+   * has no van on the road for a window to have been recalculated from. So a ride still ahead of
+   * its day says the one time it does have — the plan's — and says which end of the ride it is,
+   * because 4:20 PM on an afternoon row is the moment this child is set down at their own stop and
+   * 7:10 AM on a morning row is the moment they are collected from it.
+   */
+  pickupAt: "Pickup {time}",
+  dropoffAt: "Drop-off {time}",
   /** §5.1: a stall is words and a clock, never a colour. */
   stopped: "Stopped {minutes} min",
   /** The therapy detail beside the "Therapy scheduled" chip: "9:30 AM · Tasha L." */
@@ -288,6 +302,16 @@ export const board = {
      */
     CHILD_HELD: "{child} is waiting with the van. No adult on file can receive them.",
     DOES_NOT_FIT: "{van} does not fit everyone on this run.",
+    /**
+     * TRP-02: nobody the family has on file may take this child at the end of the afternoon ride.
+     *
+     * Said once the day's clock is past that ride and nobody has been recorded as receiving him,
+     * and not before (Vera, 2026-10-17). It is written in the past tense's shape — "at the end of
+     * the afternoon ride" — because that is when it bites, and on a board read at 07:42 it put a
+     * row that nothing had happened to yet at the top of the day's work. The standing fact is said
+     * all day in the receiver column (`noReceiver`) and in the drawer's own sentence about it
+     * (`drawer.receiverMissing`), which is where a coordinator can still act on it.
+     */
     NO_RECEIVING_ADULT: "No adult on file may receive {child} at the end of the afternoon ride.",
     /**
      * The end of a day with a handoff missing from it: the van arrived, the day is over, and no
@@ -318,7 +342,13 @@ export const board = {
     /** CA-04's own instruction: every authorized and emergency contact, and then a record. */
     CALL_CONTACTS: "Call {child}'s contacts and record who receives them.",
     MOVE_TO_FITTING_VAN: "Move {child} to a van that fits.",
-    /** Closed with `sentence()`: "{child}" already ends in the last initial's full stop. */
+    /**
+     * Closed with `sentence()`: "{child}" already ends in the last initial's full stop.
+     *
+     * Asked for once the van is back and the ride has ended with nobody recorded as receiving the
+     * child — never of a ride the day has not reached, which has had nothing happen to it and so
+     * has nothing to record (Vera, 2026-10-17).
+     */
     RECORD_RECEIVER: "Record who receives {child}",
     DECIDE_RIDE: "Decide what happens to {child}'s ride.",
     FIND_VAN: "Find {child}'s van.",

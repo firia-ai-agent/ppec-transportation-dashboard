@@ -195,6 +195,16 @@ export type RideView = {
   path: readonly LegS[];
   /** "07:10" — the window this ride is planned for, site-local. */
   plannedWindow: string;
+  /**
+   * Whether the day's clock has got to this ride: the instant is at or past the window the plan
+   * gives this child's own stop.
+   *
+   * The one fact behind everything the board declines to say about a ride that has not happened
+   * yet (Vera / Firia, 2026-10-17) — a record to read (`dayRecordFor`), a receiver to ask for
+   * (`needsActionFor`), a dispatcher to chase (`nextStepFor`) — and the one the row's arrival cell
+   * reads to show the plan's own time instead of a window published off a van on the road.
+   */
+  reached: boolean;
   /** The child's own landmark stop, or null when they have none. */
   stop: string | null;
   vehicleLabel: string | null;
@@ -545,24 +555,31 @@ function liveEtaView(run: DemoRun, frame: ReplayFrame): EtaView {
  * afternoon on this board stops — at the vehicle check, scheduled and waiting — and the hold
  * appears when the clock reaches 4:20 PM and not a minute before.
  *
- * The row is no quieter for it. The afternoon it belongs to is still the board's one needs-action
- * row, because no adult on file may receive this child and that is true from 07:00 (TRP-02,
- * `needsActionFor`); what changes is that it asks for a receiver to be recorded instead of
- * announcing a hold that has not happened.
- *
- * The comparison is against the ride's *planned* window, not the replay, because the afternoon
- * has no replayed track to read a position off (`etaViewFor`): what the plan promised this child's
- * own stop is the only time the day has for it.
+ * The gate is the clock on every day and not only on the live one: a day that has ended is read
+ * after the last van is in, so every ride on it is behind that clock anyway, and saying the rule
+ * once here means a projection built for any other instant keeps it too.
  */
 function dayRecordFor(
   child: DemoChild,
   direction: Direction,
   day: ServiceDay,
 ): RideRecord | undefined {
-  if (day.phase === "ENDED") return rideRecordFor(child.key, direction);
-  if (day.phase !== "LIVE") return undefined;
-  if (day.instantMs < localTimeOn(day, plannedWindow(child, direction))) return undefined;
-  return demoDayRecordFor(child.key, direction);
+  if (day.phase === "PLANNED") return undefined;
+  if (!clockReached(child, direction, day)) return undefined;
+  return day.phase === "ENDED"
+    ? rideRecordFor(child.key, direction)
+    : demoDayRecordFor(child.key, direction);
+}
+
+/**
+ * Whether the day's clock has got to this ride (`RideView.reached`).
+ *
+ * The comparison is against the ride's *planned* window, not the replay, because an afternoon has
+ * no replayed track to read a position off (`etaViewFor`): what the plan promised this child's own
+ * stop is the only time the day has for it.
+ */
+function clockReached(child: DemoChild, direction: Direction, day: ServiceDay): boolean {
+  return day.instantMs >= localTimeOn(day, plannedWindow(child, direction));
 }
 
 function reportedActs(child: DemoChild, record: RideRecord | undefined) {
@@ -598,6 +615,7 @@ function rideFor(child: DemoChild, direction: Direction, day: ServiceDay): RideV
     direction,
     mode,
     plannedWindow: plannedWindow(child, direction),
+    reached: clockReached(child, direction, day),
     stop: stopLabel(child),
   };
 
@@ -718,8 +736,21 @@ function needsActionFor(
   if (ride.solver === "INFEASIBLE" || ride.solver === "VEHICLE_UNAVAILABLE") {
     reasons.push("DOES_NOT_FIT");
   }
+  /*
+   * TRP-02, once the day has got to the ride (Vera, 2026-10-17).
+   *
+   * That nobody on file may receive this child is true from 07:00 and the board says so all day —
+   * in the receiver column, on both of the child's rows, in the crit tone (AT-13: staff know
+   * before the van is at the kerb). What it may not do is make it the day's first piece of *work*
+   * before the ride it stops has happened: a board read twelve minutes into the morning opened on
+   * "Record who receives Noah O." about a van that leaves in eight hours, and a needs-action row
+   * nobody can close is how a coordinator learns to skim the group that must never be skimmed.
+   * Once the clock is past that afternoon with nobody recorded, it is the open thing it claims to
+   * be — and where the day recorded the acts, the hold above says it instead.
+   */
   if (
     !held &&
+    ride.reached &&
     ride.direction === "PM" &&
     ride.mode !== "FAMILY" &&
     receivingAdultOf(child) === null
@@ -762,20 +793,21 @@ const STEP_FOR_REASON: Readonly<Record<NeedsActionReason, NextStep>> = {
  * is whatever the ride's own state is waiting on, and "nothing" is a real answer: a van in
  * transit, a family driving their own child and a locked manifest are all waiting on nobody,
  * and a column that invented work for them would bury the rides that have some.
+ *
+ * A ride the day's clock has not reached is one of those: nothing has happened to it, so the
+ * honest answer is that there is nothing to do about it yet (Vera, 2026-10-17). That used to be
+ * said of a day that had not started and is true an hour at a time — the capability request goes
+ * out ninety minutes before the run (PRD §18.2 step 5), so a board read at 07:42 asking a
+ * dispatcher about an afternoon van was chasing an answer nobody had been asked for. A van that
+ * has *arrived* is a fact and outranks the clock: the two steps above read the state, not the plan.
  */
-function nextStepFor(
-  ride: RideView,
-  reasons: readonly NeedsActionReason[],
-  phase: DayPhase,
-): NextStep {
+function nextStepFor(ride: RideView, reasons: readonly NeedsActionReason[]): NextStep {
   if (reasons.length > 0) return STEP_FOR_REASON[reasons[0]];
   if (ride.mode === "FAMILY") return "NOTHING";
   if (ride.state === "ARRIVED_PICKUP") return "CONFIRM_BOARDING";
   if (ride.state === "ARRIVED_DROPOFF") return "CONFIRM_HANDOFF";
+  if (!ride.reached) return "NOTHING";
   if (ride.capability === "UNKNOWN" || ride.capability === "REQUESTED") {
-    // The capability request goes out ninety minutes before the run (PRD §18.2 step 5), so a day
-    // that has not started is not waiting on a dispatcher yet and must not say it is.
-    if (phase === "PLANNED") return "NOTHING";
     return ride.providerDispatcher === null ? "CHECK_VAN_AT_RAMP" : "ASK_ABOUT_VAN";
   }
   return "NOTHING";
@@ -814,7 +846,7 @@ function legFor(child: DemoChild, row: BoardRow, ride: RideView, phase: DayPhase
           ? "NOT_RIDING"
           : groupForState(ride.state),
     needsActionReasons,
-    nextStep: nextStepFor(ride, needsActionReasons, phase),
+    nextStep: nextStepFor(ride, needsActionReasons),
   };
 }
 
