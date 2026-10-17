@@ -32,6 +32,7 @@ import {
   solver,
   sourceMode,
   unbuilt,
+  vanName,
   whoami,
 } from "./copy";
 
@@ -741,18 +742,24 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
         .not.toMatch(/\.\.$/);
     }
 
-    // A refused move is one line, names the child, and says what the van is missing.
+    // A refused move is one line: the child first, because they are who was being moved, then
+    // the van by its own name and the one thing it is missing (Vera's review, 2026-10-17).
     expect(
       fill(planRoutes.refused, {
-        vehicle: "V3",
+        vehicle: vanName("substitute van"),
         child: "Zoe B.",
         missing: fill(planRoutes.missing.NO_SECUREMENT, { securement: securement.FOUR_POINT_STRAP }),
       }),
-    ).toBe("V3 can’t take Zoe B.: no four-point straps.");
+    ).toBe("Can’t put Zoe B. in the substitute van: no four-point straps.");
 
-    // AT-12: the family is told only after staff choose, said on the screen rather than implied.
-    expect(planRoutes.nothingSent).toBe("No family has been told anything. Staff choose first.");
-    expect(planRoutes.optionsNote).toMatch(/Nothing reaches the family before that/);
+    // AT-12: the family is told only after staff choose, said on the screen rather than implied,
+    // and said once — the second line making the same promise is gone, and so is `localOnly`.
+    expect(planRoutes.nothingSent).toBe("No family has been told. Staff choose first.");
+    expect(planRoutes.optionsNote).toBe(
+      "A coordinator picks one. The family hears nothing before that.",
+    );
+    expect(planRoutes).not.toHaveProperty("localOnly");
+    expect(planRoutes).not.toHaveProperty("needsApproval");
     // AT-04: nobody boards on a van that does not fit, or on one nobody has checked.
     expect(planRoutes.laneBlocked).toBe("Nobody boards until a coordinator approves.");
     expect(planRoutes.laneNeedsCheck).toBe("Nobody boards until this van is checked.");
@@ -762,6 +769,112 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
     );
     // Every cause the planner can report has words for both the reason and the refusal.
     expect(Object.keys(planRoutes.missing).sort()).toEqual(Object.keys(planRoutes.reason).sort());
+  });
+
+  /**
+   * Vera's review, 2026-10-17: no vehicle code reaches the Plan routes screen.
+   *
+   * "V1" is how the fixtures file a van and how the solver keys one, and it is not a thing a
+   * coordinator says out loud — a lane headed "V1 · convertible van" asks them to translate
+   * before they can act. A van has one name on the screen, written as it is said in the middle
+   * of a sentence, and the lane's heading capitalises it in CSS so there is no second string to
+   * drift from this one.
+   */
+  it("names a van by what it is, in one string, with no vehicle code in it", () => {
+    expect(vanName("convertible van")).toBe("the convertible van");
+    expect(vanName("sedan")).toBe("the sedan");
+    expect(vanName("convertible van")).not.toMatch(/\bV\d\b/);
+    // Every sentence on the screen that carries a van takes it from there, and none of them
+    // opens on it — a van's name opens with "the", and a sentence cannot.
+    for (const [key, line] of Object.entries({
+      refused: planRoutes.refused,
+      moved: planRoutes.moved,
+      moveTo: planRoutes.moveTo,
+      substituted: planRoutes.substituted,
+      substituteOption: planRoutes.substituteOption,
+      asked: planRoutes.asked,
+      answered: planRoutes.answered,
+    })) {
+      expect(line, key).toContain("{vehicle}");
+      if (key === "substituteOption") continue; // a button label, not a sentence
+      expect(line.startsWith("{vehicle}"), `${key} opens on the van`).toBe(false);
+    }
+    // The relief driver leads with the person, and names no van at all (§1).
+    expect(fill(planRoutes.substitutedDriver, { driver: "Gus M." })).toBe("Gus M. drives instead.");
+    // The provider is named wherever they are asked something, never called "the provider".
+    for (const [key, line] of Object.entries({
+      askProvider: planRoutes.askProvider,
+      recordAnswer: planRoutes.recordAnswer,
+      reported: planRoutes.arrival.REPORTED,
+    })) {
+      expect(line, key).toContain("{provider}");
+      expect(line, key).not.toMatch(/\bthe provider\b/);
+    }
+  });
+
+  /**
+   * The lines Vera shortened, verbatim. Each one replaced a sentence that said the verdict the
+   * chip beside it already said, or explained the screen to a reader who was looking at it.
+   */
+  it("the Plan routes lines the review rewrote", () => {
+    expect(planRoutes.plan).toBe("Plan routes");
+    expect(planRoutes).not.toHaveProperty("planAgain");
+    expect(fill(planRoutes.laneMissing, { stop: "Lantana Public Library", missing: "no free seat" })).toBe(
+      "At Lantana Public Library, this van has no free seat.",
+    );
+    expect(planRoutes.setUpChanges).toEqual({
+      BEFORE: "Convertible: planning picks the setup that fits the riders.",
+      PLANNED: "Set up this way to fit these riders.",
+      SEEN: "Set up as it arrived, so planning keeps it.",
+    });
+    expect(fill(planRoutes.dragNowhere, { child: "Zoe B." })).toBe(
+      "Zoe B. wasn’t moved. Drop them on a van.",
+    );
+    expect(fill(planRoutes.movedOut, { child: "Zoe B." })).toBe("Zoe B. is not in a van now.");
+    expect(planRoutes.missing.UNKNOWN_UNTIL_ARRIVAL).toBe("not checked yet");
+    expect(fill(planRoutes.optionsHeading, { child: "Zoe B." })).toBe("Options for Zoe B.");
+    expect(planRoutes.laneOptionsHeading).toBe("Options");
+    expect(planRoutes.mapPlaceholder).toBe("The route map isn’t built yet.");
+    // Said once over the lanes rather than under every rider card, so it is shorter than the
+    // ramp check's own copy of the same promise and deliberately not the same string.
+    expect(planRoutes.needsCaption).toBe("From intake, not a diagnosis.");
+    expect(planRoutes.waitingHeading).toBe("Waiting to be planned");
+    expect(planRoutes.changeVan).toBe("Change van or report");
+  });
+
+  /**
+   * Vera's review, 2026-10-17: the demo toggle names the two scenarios, not two dates. The
+   * labels it replaced ("A day everyone fits" / "A day one child has no van") read as a choice
+   * of day on a screen that replays exactly one, and the first thing beside them is that one
+   * day's date.
+   */
+  it("names the two demo scenarios by what happens, with no date in either label", () => {
+    expect(planRoutes.demoScenario.EVERY_RIDER_FITS).toBe("Normal day");
+    expect(planRoutes.demoScenario.ONE_RIDER_HAS_NO_VAN).toBe("A child can’t be placed");
+    for (const [key, label] of Object.entries(planRoutes.demoScenario)) {
+      // No weekday, no month, no number: a label with a date in it is a second day.
+      expect(label, key).not.toMatch(
+        /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b|\d/,
+      );
+      // "A day …" is the shape that was wrong, whatever follows it.
+      expect(label, key).not.toMatch(/^A day\b/);
+    }
+    // The legend says what the choice is, and says it is the demo's rather than the day's.
+    expect(planRoutes.demoScenarioLegend).toBe("Demo scenario");
+    // Each scenario still says what it is in a sentence, and both are the same service date.
+    expect(Object.keys(planRoutes.demoScenarioNote).sort()).toEqual(
+      Object.keys(planRoutes.demoScenario).sort(),
+    );
+    expect(planRoutes.demoScenarioNote.EVERY_RIDER_FITS).toBe(
+      "Three vans today: the convertible van, the center van and the sedan.",
+    );
+    expect(planRoutes.demoScenarioNote.ONE_RIDER_HAS_NO_VAN).toBe(
+      "The convertible van is off the road and a smaller van replaced it. No van today has four-point straps.",
+    );
+    // Each one names the vans the way the lanes name them, and neither names a provider's role.
+    for (const [key, note] of Object.entries(planRoutes.demoScenarioNote)) {
+      expect(note, key).not.toMatch(/\bthe provider\b|\bV\d\b/);
+    }
   });
 
   it("a delta that is not known says so, and never prints a bare minus", () => {
