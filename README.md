@@ -75,6 +75,9 @@ pnpm e2e e2e/today-board.spec.ts         # just the board's: today-board / arriv
 pnpm e2e e2e/screens.spec.ts             # today-* / live-map-* / ramp-ipad-* at both review widths
 pnpm e2e e2e/live-map.spec.ts            # artifacts/live-map.png
 pnpm e2e e2e/nav-rail.spec.ts            # the rail a role gets, read off the page: nav-rail-<role>.png
+pnpm e2e e2e/back-to-today.spec.ts       # the way back from the three screens with no rail
+E2E_DEMO_ROLE=FRONT_DESK pnpm e2e e2e/back-to-today.spec.ts   # ... and the other half: the front
+                                         # desk, whose rows do not open the board, is offered no link
 pnpm e2e e2e/moved-addresses.spec.ts     # /plan-preview, /map-preview, /ramp-preview still 308 to the screens
 ```
 
