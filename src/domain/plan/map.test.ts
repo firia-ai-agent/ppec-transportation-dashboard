@@ -22,7 +22,14 @@ function input(direction: "AM" | "PM" = "AM"): PlanInput {
   };
 }
 
-/** The assignment the scenario itself plans: each run's own children in its own van. */
+/**
+ * Each run's own children in its own van, as src/modules/demo/fixtures/standard.ts writes them.
+ *
+ * Used because it is *stable* geometry — those are the kerb pairs ADR-007 surveyed — and not
+ * because it is a feasibility claim: whether a van fits its riders is the solver's answer and is
+ * asserted where that is the question (src/domain/solver, src/domain/plan/save.test.ts). This
+ * module draws the plan it is handed.
+ */
 function scenarioAssignment(direction: "AM" | "PM" = "AM"): Assignment {
   const lanes = planLanes("EVERY_RIDER_FITS");
   const riders = new Set(planRiders(direction).map((rider) => rider.child.token));
