@@ -16,6 +16,7 @@
  */
 
 import type { Coord } from "@/components/map/style";
+import { PROVIDERS } from "./fleet";
 
 /** Only `SIMULATED` exists in P1 (MOCKS-AND-DEMO summary; ADR-015 synthetic-only). */
 export type MapSourceMode = "SIMULATED";
@@ -42,11 +43,11 @@ export interface MapVehicleStop {
 }
 
 export interface MapVehicleFixture {
-  /** Vehicle label used everywhere in the UI: "V1" … "V4" (MOCKS §2). */
+  /** The fixture's key for the vehicle, "V1" … "V4" (MOCKS §2). Never a marker label. */
   id: string;
-  /** Plain-words description for the accessible vehicle list. */
+  /** Plain words for the vehicle. The marker label and the vehicle list are built from this. */
   description: string;
-  /** Owner: a provider or the center. */
+  /** Who runs it: one of the scenario's providers, or the center's own fleet. */
   owner: string;
   /** Leg state label from DESIGN-DIRECTION §3 (icon + label, never colour alone). */
   stateLabel: string;
@@ -172,7 +173,7 @@ export const DEMO_VEHICLES: MapVehicleFixture[] = [
   {
     id: "V1",
     description: "Convertible van",
-    owner: "Provider P1",
+    owner: PROVIDERS.P1.name,
     stateLabel: "On the way to pickup",
     coord: R1_PLANNED[5],
     headingDeg: 2,
@@ -183,7 +184,7 @@ export const DEMO_VEHICLES: MapVehicleFixture[] = [
   {
     id: "V2",
     description: "Center van",
-    owner: "Center",
+    owner: PROVIDERS.CENTER.name,
     stateLabel: "In transit",
     coord: R3_PLANNED[4],
     headingDeg: 178,
@@ -194,7 +195,7 @@ export const DEMO_VEHICLES: MapVehicleFixture[] = [
   {
     id: "V3",
     description: "Substitute van",
-    owner: "Provider P1",
+    owner: PROVIDERS.P1.name,
     stateLabel: "In transit",
     coord: R2_PLANNED[4],
     headingDeg: 1,
@@ -205,7 +206,7 @@ export const DEMO_VEHICLES: MapVehicleFixture[] = [
   {
     id: "V4",
     description: "Sedan",
-    owner: "Provider P2",
+    owner: PROVIDERS.P2.name,
     stateLabel: "On the way to pickup",
     coord: R4_PLANNED[2],
     headingDeg: 272,

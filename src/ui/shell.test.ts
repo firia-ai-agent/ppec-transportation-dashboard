@@ -256,15 +256,32 @@ describe("copy from the review", () => {
     }
   });
 
-  it("every unbuilt page says what it will do, in one plain sentence", () => {
+  it("every unbuilt page says what it will do, in plain sentences", () => {
     // Today is not among them: the board is built, so there is no sentence promising it.
     expect(unbuilt).not.toHaveProperty("today");
     for (const body of [unbuilt.exceptions, unbuilt.setup, unbuilt.health]) {
       expect(body.endsWith("."), body).toBe(true);
-      // One sentence: no full stop before the last character.
-      expect(body.slice(0, -1).includes("."), body).toBe(false);
-      expect(body.length).toBeLessThan(120);
+      expect(body.length).toBeLessThan(160);
     }
+    // Two of the three are one sentence, because they promise one thing.
+    for (const body of [unbuilt.exceptions, unbuilt.setup]) {
+      expect(body.slice(0, -1).includes("."), body).toBe(false);
+    }
+  });
+
+  /**
+   * Health & ROI is the one that gets two (Vera's wording, 2026-10-17), because the page
+   * promises two different things and the single line that tried to carry both — "whether each
+   * part of the system is working, next to the time the demo says it saves" — named the demo as
+   * the thing being measured. What will be measured is the site's own first four weeks, in
+   * hours and dollars, and that is a second sentence rather than a longer first one.
+   */
+  it("the health page says what it will show and what it will measure, in two sentences", () => {
+    expect(unbuilt.health).toBe(
+      "This page will show whether each part of the system is working. Hours and dollars saved are measured over the first four weeks of use.",
+    );
+    expect(unbuilt.health.split(". ").length).toBe(2);
+    expect(unbuilt.health).not.toMatch(/demo/i);
   });
 
   it("the header says plainly that no time on screen is real", () => {

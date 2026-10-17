@@ -19,6 +19,7 @@ import {
   GPS_STALE_SECONDS,
   type GpsBand,
 } from "@/domain/location/freshness";
+import { vanTitle } from "@/ui/copy";
 import { color } from "@/ui/tokens";
 
 // ---------------------------------------------------------------------------
@@ -259,11 +260,20 @@ export function gpsShortLabel(ageSeconds: number): string {
 }
 
 /**
- * On-map vehicle label: "V1 · Live 12 s". Freshness is **never colour-only** (§5.1),
- * so the tone colour is always paired with this label.
+ * On-map vehicle label: "The center van · Live 12 s". Freshness is **never colour-only**
+ * (§5.1), so the tone colour is always paired with this label.
+ *
+ * It was "V1 · Live 12 s" (Vera's review, 2026-10-17). A marker is the one place on the whole
+ * screen with no room for a second line, so the code was the only thing it said about which van
+ * it is — and "V1" is the machine's handle on a van, not a name anybody says out loud. The van's
+ * own name is what Plan routes shows, so it is what the map shows too, through the same helper
+ * (`vanTitle` in src/ui/copy.ts): one name for a van, on both screens.
+ *
+ * `description` is the fixture's plain-words field for the vehicle ("center van"), which is the
+ * half of the fixture's label that is not the code.
  */
-export function vehicleMapLabel(id: string, ageSeconds: number): string {
-  return `${id} · ${gpsShortLabel(ageSeconds)}`;
+export function vehicleMapLabel(description: string, ageSeconds: number): string {
+  return `${vanTitle(description)} · ${gpsShortLabel(ageSeconds)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -573,6 +583,8 @@ export interface FeatureCollection<F> {
 
 export interface VehicleLike {
   id: string;
+  /** Plain words for the vehicle ("center van"); the marker label is built from this. */
+  description: string;
   coord: Coord;
   gpsAgeSeconds: number;
   /** Degrees clockwise from north; drives the §5.1 heading chevron. */
@@ -614,7 +626,7 @@ export function vehiclesGeoJson(
       properties: {
         id: v.id,
         tone: truckTone(v.gpsAgeSeconds),
-        label: vehicleMapLabel(v.id, v.gpsAgeSeconds),
+        label: vehicleMapLabel(v.description, v.gpsAgeSeconds),
         selected: v.id === selectedId,
         headingDeg: v.headingDeg ?? 0,
       },

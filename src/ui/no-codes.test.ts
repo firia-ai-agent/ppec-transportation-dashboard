@@ -236,9 +236,7 @@ describe("a vehicle card names the stop, never the code behind it", () => {
 describe("the strings the review fixed, verbatim", () => {
   it("the live map says what it is in one line, and says the data is simulated in the next", () => {
     expect(copy.liveMap.intro).toBe("Where every van is, on the demo's own routes and clock.");
-    expect(copy.liveMap.signedInOnly).toBe(
-      "Staff sign-in only. The data below is simulated, and the roles still apply.",
-    );
+    expect(copy.liveMap.allSimulated).toBe("Everything on this map is simulated.");
   });
 
   it("the ramp check says where the answers go, in one line", () => {

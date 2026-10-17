@@ -99,3 +99,35 @@ describe("a fault row names a run in words", () => {
     expect(liveMap.faultRow).not.toMatch(/\{provenance\}/);
   });
 });
+
+/**
+ * VERA'S WORDING ON THE PANE, 2026-10-17 — the half the copy test cannot see.
+ *
+ * src/ui/copy.test.ts pins the strings; what a string is *filled with* is decided here, in the
+ * markup, and that is where the two code leaks were. The faults section named a van "V4" two
+ * lines above a sentence about the same van, and the held-back count was interpolated into the
+ * middle of the intro paragraph, which is why the paragraph had to carry a number at all.
+ */
+describe("the pane names a van and counts a held-back text the way the copy says", () => {
+  const source = read(HERE, "LiveFleetMap.tsx");
+
+  it("names every van by its name, through the one helper, and never by its code", () => {
+    expect(source).toMatch(/function vanNameOf\(vehicleId: string\): string/);
+    expect(source).toMatch(/vanTitle\(VEHICLE_META\.get\(vehicleId\)\?\.description \?\? ""\)/);
+    // Both sentences in the faults section: the row, and the van with no marker at all.
+    expect(source.match(/vehicle: vanNameOf\(run\.result\.spec\.route\.vehicleId\)/g)).toHaveLength(2);
+    expect(source).not.toMatch(/vehicle: run\.result\.spec\.route\.vehicleId/);
+  });
+
+  it("asks for no second count on the unbound line, because the copy says one", () => {
+    expect(source).not.toMatch(/accepted:/);
+    expect(liveMap.unbound).not.toMatch(/\{accepted\}/);
+  });
+
+  it("puts the held-back count on its own line, not inside the intro sentence", () => {
+    expect(source).toMatch(/\{liveMap\.decisionsIntro\}/);
+    expect(source).not.toMatch(/fill\(liveMap\.decisionsIntro/);
+    expect(source).toMatch(/liveMap\.heldBack : liveMap\.heldBackPlural/);
+    expect(source).toMatch(/\{heldBackText\}/);
+  });
+});

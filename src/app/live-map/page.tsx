@@ -4,14 +4,17 @@
  * (attribution always visible, no violet on the map, positron with the §5.1 water override,
  * reduced-motion camera). With the M5 simulator wired in the trucks move: a client-side
  * scenario clock replays the deterministic runs in src/fixtures/replays.ts (PRD §18.2 steps
- * 7–8), and the vans carry the labels the board carries — V1, V2, V3 (src/fixtures/fleet.ts,
- * MOCKS §2), so the van a coordinator reads on the board is the van they find on the map.
+ * 7–8), and the vans are named the way Plan routes names them — "The center van", not "V1"
+ * (Vera's review, 2026-10-17). The code is still the key the fixtures join a run to a vehicle
+ * with; it is the accessible vehicle list beside the map, not a marker, that carries it, so the
+ * van a coordinator reads on the board is still findable here.
  *
  * It was `/map-preview` and is a permanent redirect there still (src/app/map-preview/page.tsx);
  * "preview" is out of every menu label and address (Vera's review, 2026-10-17).
  *
  * No database, no SSE, no server actions, no sending: everything on the page is Simulated by
- * construction (ADR-015 synthetic-only) and the notification list is *decisions* only.
+ * construction (ADR-015 synthetic-only), and the list under the map is what *would* be texted —
+ * the gate's decisions, with nothing queued and nothing sent.
  *
  * It is behind staff sign-in. A deployed URL is guessable, and this page draws a whole fleet,
  * every stop's family label and every notification decision — so the route is guarded exactly
@@ -77,7 +80,7 @@ export default async function LiveMapPage() {
           color: "var(--color-ink-muted)",
         }}
       >
-        {liveMap.signedInOnly}
+        {liveMap.allSimulated}
       </p>
       {/*
         The ramp iPad is a sibling surface behind the same guard, and until the rail carried it

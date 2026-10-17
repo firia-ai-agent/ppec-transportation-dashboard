@@ -33,8 +33,10 @@ import {
   sourceMode,
   unbuilt,
   vanName,
+  vanTitle,
   whoami,
 } from "./copy";
+import { DEMO_RUNS } from "@/fixtures/replays";
 
 /**
  * COPY-GUIDE.md is the source of truth for words. These assertions pin the strings the guide
@@ -672,14 +674,14 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
      * PRD §14 names no map surface at all (the map lands inside SURF-01 at BUILD-PLAN-M2 P-03),
      * so the name is the screen's own job — where every van is now. Where the positions come
      * from is the §7.1 "Simulated" chip's sentence, which the root layout renders on this route
-     * as on every other, and `signedInOnly` says it again in words; nothing on the screen claims
+     * as on every other, and `allSimulated` says it again in words; nothing on the screen claims
      * a live feed (§1, honest about certainty). src/ui/nav-items.ts reads this string for the
      * rail label, so the rail and the heading cannot drift.
      */
     expect(liveMap.heading).not.toMatch(/preview/i);
     expect(liveMap.documentTitle).toContain(liveMap.heading);
     /*
-     * The intro's job is to say what the screen is for; `signedInOnly` beneath it is what says
+     * The intro's job is to say what the screen is for; `allSimulated` beneath it is what says
      * the data is simulated. It used to be a paragraph of fixture provenance, which named the
      * build's own surface code and left the one sentence that matters at the end of six lines
      * nobody read; then one line ending "Nothing here is live", which was the honest half of a
@@ -688,7 +690,21 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
      */
     expect(liveMap.intro).toBe("Where every van is, on the demo's own routes and clock.");
     // The honesty did not move out of the copy, only off the title line.
-    expect(liveMap.signedInOnly).toMatch(/simulated/);
+    expect(liveMap.allSimulated).toMatch(/simulated/);
+  });
+
+  /**
+   * Vera's wording, 2026-10-17: the one thing a founder must not misread, in one sentence.
+   *
+   * The line it replaces said three things — "Staff sign-in only. The data below is simulated,
+   * and the roles still apply." — and two of them were about the build's own plumbing. That the
+   * route is guarded is proved by the guard (src/auth/guard-matrix.test.ts asks the server
+   * directly), and which role sees what is demonstrated by what the screen shows, so neither
+   * needed a sentence next to a map of somebody's real town.
+   */
+  it("says in one sentence that nothing on the map is a real van", () => {
+    expect(liveMap.allSimulated).toBe("Everything on this map is simulated.");
+    expect(liveMap).not.toHaveProperty("signedInOnly");
   });
 
   it("the motion line says what the markers do, not how they are animated", () => {
@@ -696,8 +712,90 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
     // what is happening on the screen (COPY-GUIDE §1).
     expect(liveMap.motionTweened).toBe("Vans follow their routes.");
     expect(liveMap.motionTweened).not.toMatch(/tween|geometry/i);
-    // The reduced-motion line still says what it is: the markers step instead of sliding.
-    expect(liveMap.motionReduced).toBe("Reduced motion: markers step, no tween");
+    // And the reduced-motion line is a sentence about vans now, not a label, a colon and two
+    // words out of the animation library (Vera's wording, 2026-10-17).
+    expect(liveMap.motionReduced).toBe("Reduced motion is on, so vans jump from point to point.");
+    expect(liveMap.motionReduced).not.toMatch(/tween|marker/i);
+  });
+
+  /**
+   * VERA'S WORDING, 2026-10-17 — the live map's own strings, verbatim.
+   *
+   * These are the lines a founder reads under the map while somebody talks over them, so each
+   * one is pinned as written rather than matched loosely. What they replaced, in every case,
+   * was the build describing itself: "Notification decisions" is the name of a step in the
+   * notify gate, "suppressions" is its outcome enum, and the unbound line spent four clauses on
+   * the ingest layer's vocabulary before it got to the fact that a van is missing from the map.
+   */
+  it("names the section under the map by what a family would receive", () => {
+    expect(liveMap.decisionsHeading).toBe("Texts the system would send");
+    expect(liveMap.decisionsHeading).not.toMatch(/notification|decision/i);
+  });
+
+  it("says what the rows are and that nothing is sent, in two short sentences", () => {
+    expect(liveMap.decisionsIntro).toBe(
+      "What would be texted to families, and why. Nothing is sent from this screen.",
+    );
+    // No count in the sentence any more: the held-back line below carries its own number.
+    expect(liveMap.decisionsIntro).not.toMatch(/\{/);
+    // And none of the five internal reasons a text can be held back.
+    expect(liveMap.decisionsIntro).not.toMatch(/threshold|cooldown|persist|stale|database/i);
+  });
+
+  it("counts the texts held back, with the noun on both sides of one", () => {
+    expect(liveMap.heldBack).toBe("{count} text held back");
+    expect(liveMap.heldBackPlural).toBe("{count} texts held back");
+    expect(fill(liveMap.heldBack, { count: 1 })).toBe("1 text held back");
+    expect(fill(liveMap.heldBackPlural, { count: 4 })).toBe("4 texts held back");
+    // The word the build uses for this is gone from the copy entirely.
+    expect(liveMap).not.toHaveProperty("suppression");
+    expect(liveMap).not.toHaveProperty("suppressionPlural");
+  });
+
+  it("says a van is off the map because its tracker is not linked to one", () => {
+    expect(liveMap.unbound).toBe(
+      "{vehicle}'s tracker isn't linked to a van, so it isn't on the map. {unbound} positions were received and set aside.",
+    );
+    /*
+     * Filled the way the screen fills it: the van's own name, and the count of points that were
+     * kept rather than thrown away. No "ETA" — §1 bars it from user-facing text and the line it
+     * replaced ended on it — no "binding", and no second count of "displayable" points, which
+     * is zero by definition for a van that has no position.
+     */
+    expect(fill(liveMap.unbound, { vehicle: vanTitle("Sedan"), unbound: 37 })).toBe(
+      "The sedan's tracker isn't linked to a van, so it isn't on the map. 37 positions were received and set aside.",
+    );
+    expect(liveMap.unbound).not.toMatch(/\bETA\b|binding|ingest|displayable|unbound points/i);
+    expect(liveMap.unbound).not.toMatch(/\{accepted\}/);
+  });
+
+  /**
+   * The four demo-run labels. They were the only user-facing words left in a fixture file
+   * (src/fixtures/replays.ts), which is the one place a copy review does not look.
+   */
+  it("holds the demo runs' fault labels, and the fixture reads them from here", () => {
+    expect(liveMap.fault).toEqual({
+      stall: "Stall 12 min",
+      gpsGap: "GPS gap 11 min · duplicate + out-of-order points",
+      jitter: "Jitter ±40 m",
+      unboundDevice: "Device not linked to a van",
+    });
+    expect(DEMO_RUNS.map((run) => run.faultLabel)).toEqual(Object.values(liveMap.fault));
+    // And the fixture holds no copy of its own for them.
+    const fixture = readFileSync(path.join(SRC, "fixtures", "replays.ts"), "utf8");
+    for (const label of Object.values(liveMap.fault)) expect(fixture).not.toContain(`"${label}"`);
+  });
+
+  /**
+   * PRD §14 names this screen "Ramp iPad" in the navigation line (l.1055) and titles SURF-04
+   * with it (l.1061). It landed in #59; this is the assertion that keeps it, from the copy side
+   * — src/ui/nav-items.test.ts holds the rail's half, and both read this one string.
+   */
+  it("calls the ramp screen by the PRD's name, in the rail and on the page", () => {
+    expect(rampIpad.heading).toBe("Ramp iPad");
+    expect(rampIpad.heading).not.toMatch(/check/i);
+    const screen = readFileSync(path.join(SRC, "app", "ramp-ipad", "RampCheck.tsx"), "utf8");
+    expect(screen).toMatch(/<h1[^>]*>\{rampIpad\.heading\}<\/h1>/);
   });
 
   it("the map pane's own wording, including the two tile notices", () => {

@@ -30,6 +30,8 @@ import {
   vehicleMapLabel,
   vehiclesGeoJson,
 } from "./style";
+import { DEMO_VEHICLES } from "@/fixtures/map";
+import { vanTitle } from "@/ui/copy";
 
 /**
  * A trimmed stand-in for the real OpenFreeMap positron style: one layer per override
@@ -331,8 +333,10 @@ describe("GPS freshness (DESIGN-DIRECTION §3, MOCKS §5)", () => {
     expect(gpsFreshnessLabel(95)).toBe("Last seen 1 min");
     expect(gpsFreshnessLabel(245)).toBe("Stale · 4 min · ETA texts paused");
     expect(gpsFreshnessLabel(720)).toBe("No signal · 12 min");
-    expect(vehicleMapLabel("V1", 12)).toBe("V1 · Live 12 s");
-    expect(vehicleMapLabel("V4", 720)).toBe("V4 · No signal 12 min");
+    // Vera's review, 2026-10-17: a marker says the van's name, never its code. The words are
+    // the Plan routes words (`vanTitle` in src/ui/copy.ts), so one van has one name.
+    expect(vehicleMapLabel("Convertible van", 12)).toBe("The convertible van · Live 12 s");
+    expect(vehicleMapLabel("Sedan", 720)).toBe("The sedan · No signal 12 min");
   });
 });
 
@@ -378,15 +382,15 @@ describe("GeoJSON builders", () => {
   it("tags each vehicle with its tone, label and selection", () => {
     const fc = vehiclesGeoJson(
       [
-        { id: "V1", coord: [-80.1, 26.6], gpsAgeSeconds: 12, headingDeg: 2 },
-        { id: "V4", coord: [-80.2, 26.7], gpsAgeSeconds: 720 },
+        { id: "V1", description: "Convertible van", coord: [-80.1, 26.6], gpsAgeSeconds: 12, headingDeg: 2 },
+        { id: "V4", description: "Sedan", coord: [-80.2, 26.7], gpsAgeSeconds: 720 },
       ],
       "V4",
     );
     expect(fc.features[0].properties).toEqual({
       id: "V1",
       tone: "ok",
-      label: "V1 · Live 12 s",
+      label: "The convertible van · Live 12 s",
       selected: false,
       headingDeg: 2,
     });
@@ -394,6 +398,32 @@ describe("GeoJSON builders", () => {
     expect(fc.features[1].properties.headingDeg).toBe(0);
     expect(fc.features[1].properties.tone).toBe("crit");
     expect(fc.features[1].properties.selected).toBe(true);
+  });
+
+  /**
+   * Vera's review, 2026-10-17: "the map markers show the vans' names, never V1..V4."
+   *
+   * A marker is the one label on this screen with no room for a second line, so whatever it
+   * says is the whole of what a founder learns about which van they are looking at — and "V1"
+   * is the fixture's key, not a name. This runs the real fleet through the real builder and
+   * reads the labels the layer will paint: every one of them opens with the van's own name, and
+   * no code survives anywhere in any of them.
+   */
+  it("labels every marker with the van's name and never with its code", () => {
+    const labels = vehiclesGeoJson(DEMO_VEHICLES, null).features.map((f) => f.properties.label);
+    expect(labels.length).toBe(DEMO_VEHICLES.length);
+    for (const [i, label] of labels.entries()) {
+      const [name] = label.split(" · ");
+      // The literal rule Vera wrote: a marker's name is not "V1".
+      expect(name).not.toMatch(/^V\d+$/);
+      // And the code is nowhere else in the label either — not after the name, not in the
+      // freshness half.
+      expect(label, label).not.toMatch(/\bV\d+\b/);
+      // It is the Plan routes name for that van, so the two screens call it the same thing.
+      expect(name).toBe(vanTitle(DEMO_VEHICLES[i].description));
+      // Freshness still rides along, because a tone is never the only cue (§5.1).
+      expect(label).toBe(vehicleMapLabel(DEMO_VEHICLES[i].description, DEMO_VEHICLES[i].gpsAgeSeconds));
+    }
   });
 
   it("splits planned and driven geometry", () => {

@@ -12,6 +12,7 @@
  */
 
 import type { ReplaySpec } from "@/domain/eta/replay";
+import { liveMap } from "@/ui/copy";
 import type { Route } from "@/domain/location/route";
 import { ROUTE_1, ROUTE_2, ROUTE_3 } from "./routes";
 
@@ -98,16 +99,17 @@ export interface DemoRun {
 
 /**
  * The runs the live map draws. `faultLabel` is the only one of these fields that reaches a
- * screen, so it is written the way the rest of the UI is written (COPY-GUIDE §1-§2): what was
- * injected, in plain words. The PRD step and acceptance test each run exists for stay in the
- * comments above their specs, where they are a note to the next engineer rather than something
- * a reviewer standing at the board has to decode.
+ * screen, which is why the four labels are no longer written here: they live with every other
+ * user-facing string, in src/ui/copy.ts (`liveMap.fault` — Vera, 2026-10-17), and this file
+ * says which run shows which fault. The PRD step and acceptance test each run exists for stay
+ * in the comments above their specs, where they are a note to the next engineer rather than
+ * something a reviewer standing at the board has to decode.
  */
 export const DEMO_RUNS: DemoRun[] = [
-  { spec: RUN_STALL, faultLabel: "Stall 12 min" },
-  { spec: RUN_GPS_GAP, faultLabel: "GPS gap 11 min · duplicate + out-of-order points" },
-  { spec: RUN_JITTER, faultLabel: "Jitter ±40 m" },
-  { spec: RUN_UNBOUND, faultLabel: "Device not linked to a van" },
+  { spec: RUN_STALL, faultLabel: liveMap.fault.stall },
+  { spec: RUN_GPS_GAP, faultLabel: liveMap.fault.gpsGap },
+  { spec: RUN_JITTER, faultLabel: liveMap.fault.jitter },
+  { spec: RUN_UNBOUND, faultLabel: liveMap.fault.unboundDevice },
 ];
 
 /**

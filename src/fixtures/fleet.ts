@@ -7,13 +7,32 @@
  * ops.vehicle / vehicle_layout / layout_position / transport_profile so the seed can replace them.
  */
 import type { AmbSeat, Child, DailyCapability, Layout, Leg, Vehicle, WcPosition } from "@/domain/solver";
+import { PROVIDERS as DEMO_PROVIDERS, providerDisplayName } from "@/modules/demo/fixtures/standard";
 
 export const SERVICE_DATE = "2026-10-14";
 
+/** A provider from the demo scenario, by key, as a screen names it. */
+const named = (key: string): string => {
+  const provider = DEMO_PROVIDERS.find((p) => p.key === key);
+  if (!provider) throw new Error(`unknown provider ${key}`);
+  return providerDisplayName(provider.name);
+};
+
+/**
+ * Who runs each van, by the name a person would say.
+ *
+ * These were "Provider P1" and "Provider P2" — the fixture's own keys with the word "Provider"
+ * in front of them, which is a label for a column and not a company. The ramp iPad prints one
+ * on every arriving-vehicle tile ("V1 · Provider P1") and the live map prints one on every
+ * vehicle card, so it was the most-rendered placeholder on two screens (Vera's review,
+ * 2026-10-17). The names now come from the scenario the Today board runs on
+ * (src/modules/demo/fixtures/standard.ts), so one van has one operator across all four screens,
+ * with the synthetic "SYN" marker off at the display boundary (`providerDisplayName`).
+ */
 export const PROVIDERS = {
-  P1: { id: "P1", name: "Provider P1" },
-  P2: { id: "P2", name: "Provider P2" },
-  CENTER: { id: "CENTER", name: "Center" },
+  P1: { id: "P1", name: named("P1") },
+  P2: { id: "P2", name: named("P2") },
+  CENTER: { id: "CENTER", name: named("CENTER") },
 } as const;
 
 function wc(id: string, securement: WcPosition["securement"], maxLengthCm: number, maxWidthCm: number): WcPosition {

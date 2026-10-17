@@ -54,6 +54,19 @@ export const nav = {
   openMenu: "Open menu",
   closeMenu: "Close menu",
   menuLabel: "Menu",
+  /**
+   * The way back from a screen that has no rail of its own (Firia, 2026-10-17).
+   *
+   * Plan routes, the live map and the ramp iPad are all full-screen routes outside the console
+   * layout, so there is nothing on them that returns to the board: a founder walking the three
+   * had to use the browser's Back button or retype the address. One link, rendered by one
+   * component (src/ui/BackToToday.tsx) on all three.
+   *
+   * `{page}` is the board's own label, which is also the board's row in the access table, so
+   * the link cannot call the destination something the destination does not call itself. The
+   * same shape as `liveMap.openScreen`, and for the same reason.
+   */
+  backTo: "Back to {page}",
 } as const;
 
 /** COPY-GUIDE §5: visible label "Search", placeholder "Child, route or vehicle". */
@@ -420,8 +433,15 @@ export const unbuilt = {
   exceptions:
     "This page will list what needs action, who is handling it, and when it is due.",
   setup: "This page will hold the vans, their seat layouts, and the people allowed to receive a child.",
+  /**
+   * Two sentences, because this page promises two different things and the one line that tried
+   * to carry both said neither: "next to the time the demo says it saves" named the demo as the
+   * thing being measured, when what the page will show is the site's own first four weeks
+   * (Vera's wording, 2026-10-17). The savings sentence also says what is counted — hours and
+   * dollars — and over what, so nobody reads a number here as a lifetime total.
+   */
   health:
-    "This page will show whether each part of the system is working, next to the time the demo says it saves.",
+    "This page will show whether each part of the system is working. Hours and dollars saved are measured over the first four weeks of use.",
 } as const;
 
 /** Sign-in. §9: visible labels, errors in text next to the field with aria-describedby. */
@@ -446,7 +466,7 @@ export const login = {
  * this route as on every other. That is the same division the whole app uses: the board is
  * called "Today" and the chip says the rides are simulated. The label used to be "Map preview",
  * which named the build rather than the screen, and Vera's review (2026-10-17) rules out
- * "preview" in any menu label or address. Nothing here claims the data is live: `signedInOnly`
+ * "preview" in any menu label or address. Nothing here claims the data is live: `allSimulated`
  * says it is simulated in words, `mapLabel` says it again to a screen reader, and every row the
  * pane draws is a fixture replay (src/fixtures/replays.ts).
  */
@@ -459,19 +479,33 @@ export const liveMap = {
    * own surface code and a paragraph of fixture provenance; neither means anything to the
    * people who stand in front of this screen, so both are gone (COPY-GUIDE §1–§2). It also used
    * to end "Nothing here is live", which was the honest half of a screen called "Map preview";
-   * the sentence below says where the vans are from, and `signedInOnly` says the data is
+   * the sentence below says where the vans are from, and `allSimulated` says the data is
    * simulated, so the screen never claims a live feed it does not have.
    */
   intro: "Where every van is, on the demo's own routes and clock.",
-  /** Said on the page itself: this surface is still behind staff sign-in, and still simulated. */
-  signedInOnly: "Staff sign-in only. The data below is simulated, and the roles still apply.",
+  /**
+   * Said on the page itself, so the one thing a founder must not misread is in the words and
+   * not only in the §7.1 chip: none of this is a real van.
+   *
+   * It used to read "Staff sign-in only. The data below is simulated, and the roles still
+   * apply." — three claims in one line, two of them about the build's own plumbing. A person
+   * reading a map of their own town needs the first and only the first (Vera's wording,
+   * 2026-10-17); that the route is guarded is proved by the guard, not by a sentence, and
+   * which role sees what is a thing the screen demonstrates by what it shows.
+   */
+  allSimulated: "Everything on this map is simulated.",
   clock: "Scenario clock {time} ET",
   pause: "Pause",
   play: "Play",
   restart: "Restart",
   /** Clock speed buttons (§6.2): ×1 / ×10 / ×60. */
   speed: "×{factor}",
-  motionReduced: "Reduced motion: markers step, no tween",
+  /**
+   * What the markers are doing when the viewer's OS asks for less motion. It said "Reduced
+   * motion: markers step, no tween" — a label, a colon and two words from the animation
+   * library. This says the same thing as a sentence about vans (Vera's wording, 2026-10-17).
+   */
+  motionReduced: "Reduced motion is on, so vans jump from point to point.",
   /**
    * What the markers are doing when motion is not reduced. It used to say "Tweened along route
    * geometry" — the implementation, in two words nobody outside this repo uses. The screen says
@@ -480,16 +514,31 @@ export const liveMap = {
   motionTweened: "Vans follow their routes.",
   mapLabel: "Fleet map: simulated vehicles near the PPEC center",
   centerLabel: places.center,
-  decisionsHeading: "Notification decisions",
   /**
-   * Says plainly that this step only *decides*. `{suppressed}` is `suppression` /
-   * `suppressionPlural`, so the sentence carries no bare count without its noun.
+   * The section under the map, named by what a family would actually receive. It was
+   * "Notification decisions" — the build's own word for the step, and a phrase no coordinator
+   * says out loud (Vera's wording, 2026-10-17). What the section lists is the texts this run
+   * would have sent, so that is what it is called.
    */
-  decisionsIntro:
-    "Decisions only — this step computes what would be sent, and why. Nothing is queued, nothing is sent, nothing is written to a database. {suppressed} so far this run (below threshold, not persisted, cooldown, stale GPS, or a stop already passed).",
-  suppression: "{count} suppression",
-  suppressionPlural: "{count} suppressions",
-  decisionsEmpty: "No notification decision yet.",
+  decisionsHeading: "Texts the system would send",
+  /**
+   * Two short sentences: what the rows are, and the promise that matters next to them. The
+   * paragraph here before it ran to three lines and spent them on the build — "nothing is
+   * queued, nothing is written to a database", then a parenthesis listing the five reasons a
+   * text can be held back by their internal names ("below threshold, not persisted, cooldown,
+   * stale GPS"). The count of held-back texts is its own line now (`heldBack`), so this
+   * sentence carries no number and the reasons stay where they are decided.
+   */
+  decisionsIntro: "What would be texted to families, and why. Nothing is sent from this screen.",
+  /** The held-back count, on its own line under `decisionsIntro`. Singular and plural. */
+  heldBack: "{count} text held back",
+  heldBackPlural: "{count} texts held back",
+  /**
+   * Not in Vera's list, and changed with it: the empty state said "No notification decision
+   * yet" under a heading that had just stopped using that phrase, which is the drift the
+   * headings above exist to prevent.
+   */
+  decisionsEmpty: "No text would have been sent yet.",
   decisionRow: "{time} ET · {vehicle} · {family} · {shift} · new pickup window {window}",
   faultsHeading: "Injected faults",
   /**
@@ -498,6 +547,18 @@ export const liveMap = {
    * a reviewer standing at the board reads a place name, not a file name.
    */
   faultRow: "{vehicle} · {route} · {fault}",
+  /**
+   * What each demo run is here to show, one line per run. These four lived in the fixture file
+   * next to the runs they describe (src/fixtures/replays.ts) — the only field in that file that
+   * reaches a screen, and so the only words in the app outside this one (Vera, 2026-10-17).
+   * `DEMO_RUNS` reads them from here now, keyed by the fault each run injects.
+   */
+  fault: {
+    stall: "Stall 12 min",
+    gpsGap: "GPS gap 11 min · duplicate + out-of-order points",
+    jitter: "Jitter ±40 m",
+    unboundDevice: "Device not linked to a van",
+  },
   /** A demo run, named by where it starts: "Okeeheelee Park run". */
   routeName: "{stop} run",
   /**
@@ -511,9 +572,21 @@ export const liveMap = {
    * the same headings for the rail.
    */
   openScreen: "Open {page}",
-  /** A device with no active binding has no position to show, so it is absent, not faint. */
+  /**
+   * A tracker that is not linked to a van has no position to show, so the van is absent from
+   * the map rather than drawn faintly — and this is the line that says so, because an absence
+   * explains itself to nobody.
+   *
+   * It read "{vehicle}'s device has no active binding: {unbound} points ingested and stored as
+   * unbound, {accepted} displayable. It has no marker, no row and no ETA." Six pieces of
+   * vocabulary from the ingest layer ("active binding", "ingested", "stored as unbound",
+   * "displayable"), and "ETA", which §1 bars from user-facing text. Vera's wording keeps the
+   * two facts a reviewer can act on: the tracker is not linked to a van, and the points it sent
+   * were kept rather than thrown away. `{vehicle}` is the van's own name, never its code
+   * (`vanTitle`), because this sentence is about a van with no marker to read the code off.
+   */
   unbound:
-    "{vehicle}'s device has no active binding: {unbound} points ingested and stored as unbound, {accepted} displayable. It has no marker, no row and no ETA.",
+    "{vehicle}'s tracker isn't linked to a van, so it isn't on the map. {unbound} positions were received and set aside.",
 } as const;
 
 /**
@@ -1390,7 +1463,26 @@ export const planRoutes = {
  * that is not the code.
  */
 export function vanName(description: string): string {
-  return fill(planRoutes.vanNamed, { description });
+  // Lower-cased, because this lands in the middle of a sentence and the fixtures disagree about
+  // the case they write a vehicle in: the scenario says "V1 convertible van" and the interim
+  // fleet fixture says "Convertible van", which gave "the Convertible van" on whichever screen
+  // read the second one. A van's kind is a common noun, so there is nothing here to capitalise.
+  return fill(planRoutes.vanNamed, { description: description.toLowerCase() });
+}
+
+/**
+ * The same van where its name stands alone rather than sitting in a sentence: "The center van".
+ *
+ * Plan routes gets this for free — a lane's heading is `vanName` with its first letter raised by
+ * the stylesheet (plan.module.css) — and the two places that cannot do it in CSS need it as a
+ * string: a MapLibre `text-field` on a map marker, and the live map's own sentences about a van
+ * that has no marker. So the words are the Plan routes words, capitalised here once, and a van
+ * is called the same thing on both screens (Vera, 2026-10-17: the map says the vans' names,
+ * never "V1").
+ */
+export function vanTitle(description: string): string {
+  const named = vanName(description);
+  return named.charAt(0).toUpperCase() + named.slice(1);
 }
 
 /**

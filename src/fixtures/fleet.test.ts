@@ -7,7 +7,8 @@
  * behaviour — src/domain/solver/solver.test.ts owns that.
  */
 import { describe, expect, it } from "vitest";
-import { ARRIVING_VEHICLES, CHILDREN, FLEET, SERVICE_DATE, STOPS } from "./fleet";
+import { ARRIVING_VEHICLES, CHILDREN, FLEET, PROVIDERS, SERVICE_DATE, STOPS } from "./fleet";
+import { PROVIDERS as DEMO_PROVIDERS } from "@/modules/demo/fixtures/standard";
 
 /** "Mia R." / "Zoe P." — one given name, then one initial and a period. Nothing more. */
 const FIRST_NAME_LAST_INITIAL = /^[A-Z][a-z]+ [A-Z]\.$/;
@@ -57,10 +58,30 @@ describe("the rest of the fixture stays synthetic", () => {
     }
   });
 
-  it("vehicles and providers are coded, not real businesses", () => {
+  it("a vehicle is still coded, and its operator is now a name rather than a column label", () => {
+    const names = Object.values(PROVIDERS).map((p) => p.name);
     for (const vehicle of FLEET) {
       expect(vehicle.label).toMatch(/^V\d+$/);
-      expect(vehicle.providerName).toMatch(/^(?:Provider P\d+|Center)$/);
+      // Vera's review, 2026-10-17: "Provider P1" was the fixture key with a column label in
+      // front of it, on every ramp tile and every vehicle card. The operator is one of the
+      // scenario's own providers now.
+      expect(names, vehicle.providerName).toContain(vehicle.providerName);
+      expect(vehicle.providerName).not.toMatch(/^Provider P\d+$/);
+    }
+  });
+
+  /**
+   * The operators are invented, and they are the *same* invented ones the Today board runs on:
+   * one van has one company across the board, Plan routes, the ramp iPad and the live map. The
+   * "SYN" marker stays in the fixture and in the seeded rows; it is off on screen, because it is
+   * a marker between engineers and the database (Vera's review, 2026-10-17).
+   */
+  it("names each operator from the demo scenario, with the synthetic marker off", () => {
+    const fromScenario = DEMO_PROVIDERS.map((p) => p.name);
+    for (const { id, name } of Object.values(PROVIDERS)) {
+      expect(name).not.toMatch(/^SYN /);
+      expect(fromScenario, name).toContain(`SYN ${name}`);
+      expect(DEMO_PROVIDERS.map((p) => p.key)).toContain(id);
     }
   });
 

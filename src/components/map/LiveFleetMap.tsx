@@ -32,7 +32,7 @@ import {
   type ReplayResult,
 } from "@/domain/eta/replay";
 import { measurePath, pathUpTo } from "@/domain/location/geo";
-import { fill, liveMap, sourceMode } from "@/ui/copy";
+import { fill, liveMap, sourceMode, vanTitle } from "@/ui/copy";
 import { routeGeometry, type Route } from "@/domain/location/route";
 import { icon } from "@/ui/tokens";
 import { DEMO_RUNS, DEMO_RUN_SECONDS, SCENARIO_START_MS } from "@/fixtures/replays";
@@ -107,6 +107,18 @@ interface RunView {
 }
 
 const VEHICLE_META = new Map(DEMO_VEHICLES.map((v) => [v.id, v]));
+
+/**
+ * A van as this screen names it: "The convertible van", the Plan routes words (`vanTitle`).
+ *
+ * Vera's review, 2026-10-17: the map says the vans' names and never "V1". The marker labels are
+ * built from the same helper one layer down (src/components/map/style.ts), so a marker and the
+ * sentence about the van that has no marker agree; the code stays in the fixtures, where it is
+ * the key that joins a run to a vehicle.
+ */
+function vanNameOf(vehicleId: string): string {
+  return vanTitle(VEHICLE_META.get(vehicleId)?.description ?? "");
+}
 
 function stopsOf(runs: RunView[]): MapStopFixture[] {
   const byId = new Map<string, MapStopFixture>();
@@ -294,8 +306,8 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
     (n, run) => n + run.frame.decisions.filter((d) => d.outcome === "SUPPRESS").length,
     0,
   );
-  const suppressedText = fill(
-    suppressed === 1 ? liveMap.suppression : liveMap.suppressionPlural,
+  const heldBackText = fill(
+    suppressed === 1 ? liveMap.heldBack : liveMap.heldBackPlural,
     { count: suppressed },
   );
 
@@ -344,9 +356,10 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
       {can("notificationDecisions") ? (
       <section style={{ display: "grid", gap: "var(--space-3)" }}>
         <h2 style={heading}>{liveMap.decisionsHeading}</h2>
-        <p style={{ ...meta, margin: 0, maxWidth: "70ch" }}>
-          {fill(liveMap.decisionsIntro, { suppressed: suppressedText })}
-        </p>
+        <p style={{ ...meta, margin: 0, maxWidth: "70ch" }}>{liveMap.decisionsIntro}</p>
+        {/* The count of texts this run held back: its own line, so the sentence above carries
+            no number and this one carries its noun (`heldBack` / `heldBackPlural`). */}
+        <p style={{ ...meta, margin: 0 }}>{heldBackText}</p>
         {decisions.length === 0 ? (
           <p style={{ ...meta, margin: 0 }}>{liveMap.decisionsEmpty}</p>
         ) : (
@@ -376,7 +389,7 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
           {runs.map((run) => (
             <li key={run.result.spec.route.id}>
               {fill(liveMap.faultRow, {
-                vehicle: run.result.spec.route.vehicleId,
+                vehicle: vanNameOf(run.result.spec.route.vehicleId),
                 route: run.routeLabel,
                 fault: run.faultLabel,
               })}
@@ -389,9 +402,8 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
             // LOC-01 / ADR-013: unbound points are stored with `bound=false` and never displayed.
             <p key={run.result.spec.route.id} style={{ ...meta, margin: 0, maxWidth: "70ch" }}>
               {fill(liveMap.unbound, {
-                vehicle: run.result.spec.route.vehicleId,
+                vehicle: vanNameOf(run.result.spec.route.vehicleId),
                 unbound: device?.counts.unbound ?? 0,
-                accepted: device?.counts.accepted ?? 0,
               })}
             </p>
           );
