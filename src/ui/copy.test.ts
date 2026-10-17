@@ -36,9 +36,14 @@ import {
   vanTitle,
   whoami,
 } from "./copy";
-import { DEMO_RUNS, RUN_GPS_GAP, RUN_JITTER } from "@/fixtures/replays";
+import { DEMO_RUNS, RUN_GPS_GAP, RUN_JITTER, RUN_STALL } from "@/fixtures/replays";
 import { DEMO_VEHICLES } from "@/fixtures/map";
-import { JITTER_METERS, type GpsGapFault, type JitterFault } from "@/domain/location/simulator";
+import {
+  JITTER_METERS,
+  type GpsGapFault,
+  type JitterFault,
+  type StallFault,
+} from "@/domain/location/simulator";
 
 /**
  * COPY-GUIDE.md is the source of truth for words. These assertions pin the strings the guide
@@ -123,8 +128,8 @@ describe("COPY-GUIDE strings, verbatim", () => {
         fill(step, {
           child: "Leo B.",
           dispatcher: "Hal B.",
-          provider: "SYN Palm Lift Transport",
-          van: "V1",
+          provider: "Palm Lift Transport",
+          van: "the convertible van",
         }),
       );
       expect(rendered.endsWith("."), rendered).toBe(true);
@@ -192,9 +197,9 @@ describe("COPY-GUIDE strings, verbatim", () => {
       expect(
         fill(drawer.capabilityReported, {
           dispatcher: "Hal B.",
-          provider: "SYN Palm Lift Transport",
+          provider: "Palm Lift Transport",
         }),
-      ).toBe("Reported by Hal B. at SYN Palm Lift Transport. Not checked at the ramp.");
+      ).toBe("Reported by Hal B. at Palm Lift Transport. Not checked at the ramp.");
     });
 
     it("has no sentence left that says 'this child' instead of naming one", () => {
@@ -377,9 +382,11 @@ describe("COPY-GUIDE strings, verbatim", () => {
     );
   });
 
-  it("§9: chips and badges announce themselves as 'State: …' and 'Source: …'", () => {
-    expect(fill(screenReader.state, { label: "Needs action" })).toBe("State: Needs action");
+  it("§7.1: a badge says what kind of source it is, and a chip is its label alone", () => {
     expect(fill(screenReader.source, { label: "Simulated" })).toBe("Source: Simulated");
+    // A state chip has no prefix of its own: "State: Reported by provider" was on the screen as
+    // text, and the §3 label already says what kind of thing it is (Vera, 2026-10-17 2:48 PM ET).
+    expect(screenReader).not.toHaveProperty("state");
   });
 
   it("§1: no exclamation marks, no emoji, sentence case bodies", () => {
@@ -777,7 +784,10 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
    */
   it("holds the demo runs' fault labels, and the fixture reads them from here", () => {
     expect(liveMap.fault).toEqual({
-      stall: "Stall 12 min",
+      // Veri's mutation check, 2026-10-17 3:27 PM ET: this was the literal "Stall 12 min", the
+      // one number on the list that could disagree with the run it describes. It is a
+      // placeholder now, like the two below it, filled from the fault's own duration.
+      stall: "Stall {minutes} min",
       // Vera, 2026-10-17: the fault's name in the simulator ("GPS gap", "Jitter") and a
       // tolerance notation ("±40 m") are not what a reviewer sees happen, so these two say the
       // symptom instead — and the number each of them names is a placeholder, filled by the
@@ -792,24 +802,32 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
   });
 
   /**
-   * The two labels that name a number take it from the run, not from this file.
+   * The three labels that name a number take it from the run, not from this file.
    *
    * Vera, 2026-10-17: "keep the minutes interpolated, not hardcoded". The number on the screen
-   * is the gap fault's own duration and the jitter fault's own radius, so a run whose gap is
-   * lengthened says the new length rather than keeping one the run stopped producing. Both
-   * halves are asserted: that the fixture fills the templates at all (no `{…}` survives to the
-   * screen), and that what it fills them with is the spec's own value.
+   * is the stall's own duration, the gap fault's own duration and the jitter fault's own radius,
+   * so a run whose stall is lengthened says the new length rather than keeping one the run
+   * stopped producing. Both halves are asserted: that the fixture fills the templates at all (no
+   * `{…}` survives to the screen), and that what it fills them with is the spec's own value.
+   *
+   * The stall joined them after Veri's mutation check (2026-10-17 3:27 PM ET) found its minutes
+   * written out in copy.ts, where no run could correct them.
    */
-  it("fills the gap and the wobble from the runs that produce them", () => {
+  it("fills the stall, the gap and the wobble from the runs that produce them", () => {
     const labels = DEMO_RUNS.map((run) => run.faultLabel);
     for (const label of labels) expect(label, label).not.toMatch(/\{\w+\}/);
 
+    const stall = RUN_STALL.faults?.find((f): f is StallFault => f.kind === "stall");
     const gap = RUN_GPS_GAP.faults?.find((f): f is GpsGapFault => f.kind === "gpsGap");
     const jitter = RUN_JITTER.faults?.find((f): f is JitterFault => f.kind === "jitter");
+    expect(stall, "RUN_STALL injects no stall").toBeDefined();
     expect(gap, "RUN_GPS_GAP injects no gap").toBeDefined();
     expect(jitter, "RUN_JITTER injects no jitter").toBeDefined();
 
     const byRun = new Map(DEMO_RUNS.map((run) => [run.spec, run.faultLabel]));
+    expect(byRun.get(RUN_STALL)).toBe(
+      fill(liveMap.fault.stall, { minutes: Math.round(stall!.durationSec / 60) }),
+    );
     expect(byRun.get(RUN_GPS_GAP)).toBe(
       fill(liveMap.fault.gpsGap, { minutes: Math.round(gap!.durationSec / 60) }),
     );
@@ -819,8 +837,9 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
       fill(liveMap.fault.jitter, { meters: jitter!.meters ?? JITTER_METERS }),
     );
 
-    // What the two sentences read as, with the numbers these runs carry today — the 660 s gap
-    // and the ±40 m wobble that replays.test.ts holds from the simulator's side.
+    // What the three read as, with the numbers these runs carry today — the PRD's 720 s stall,
+    // the 660 s gap and the ±40 m wobble that replays.test.ts holds from the simulator's side.
+    expect(byRun.get(RUN_STALL)).toBe("Stall 12 min");
     expect(byRun.get(RUN_GPS_GAP)).toBe("No GPS for 11 min, then repeated and out-of-order points");
     expect(byRun.get(RUN_JITTER)).toBe("Position wobbles up to 40 m");
   });
@@ -987,6 +1006,10 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
     expect(vanTitle("   ")).toBe(planRoutes.vanUnnamed);
     // The old answer, which is the shape of the bug: an article and then nothing.
     expect(vanTitle("")).not.toMatch(/^The\s*$/);
+    // And the mid-sentence form, which the board's reasons ask for: "a van", not "the ".
+    expect(vanName("")).toBe("a van");
+    expect(vanName("   ")).toBe("a van");
+    expect(vanName("")).not.toMatch(/^the\s*$/);
 
     // Every van the live map names, by the route the component itself takes.
     const meta = new Map(DEMO_VEHICLES.map((vehicle) => [vehicle.id, vehicle]));

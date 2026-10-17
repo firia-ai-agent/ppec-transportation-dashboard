@@ -13,7 +13,13 @@
 
 import type { ReplaySpec } from "@/domain/eta/replay";
 import { fill, liveMap } from "@/ui/copy";
-import { JITTER_METERS, type GpsGapFault, type JitterFault, type SimFault } from "@/domain/location/simulator";
+import {
+  JITTER_METERS,
+  type GpsGapFault,
+  type JitterFault,
+  type SimFault,
+  type StallFault,
+} from "@/domain/location/simulator";
 import type { Route } from "@/domain/location/route";
 import { ROUTE_1, ROUTE_2, ROUTE_3 } from "./routes";
 
@@ -104,14 +110,19 @@ function faultOf<T extends SimFault>(spec: ReplaySpec, kind: T["kind"]): T | und
 }
 
 /**
- * The two labels that carry a number, filled from the fault that produces it.
+ * The three labels that carry a number, filled from the fault that produces it.
  *
  * Vera, 2026-10-17: the numbers belong in the label, and the label is in src/ui/copy.ts — so
  * what is left here is where each number comes from. Reading them off the spec is the point: a
  * run whose gap is lengthened says the new length on the screen, instead of the screen keeping
  * a number the run stopped producing. `meters` is optional on the fault, and unset means the
  * simulator's own default, so the label says what the simulator will actually do.
+ *
+ * The stall was the exception until Veri's mutation check (2026-10-17 3:27 PM ET): its label
+ * held the literal "12", so the one run whose duration the PRD names was also the one run whose
+ * screen could disagree with it. It is read off `RUN_STALL` like the other two now.
  */
+const STALL_MINUTES = Math.round((faultOf<StallFault>(RUN_STALL, "stall")?.durationSec ?? 0) / 60);
 const GPS_GAP_MINUTES = Math.round((faultOf<GpsGapFault>(RUN_GPS_GAP, "gpsGap")?.durationSec ?? 0) / 60);
 const JITTER_RADIUS_M = faultOf<JitterFault>(RUN_JITTER, "jitter")?.meters ?? JITTER_METERS;
 
@@ -119,13 +130,13 @@ const JITTER_RADIUS_M = faultOf<JitterFault>(RUN_JITTER, "jitter")?.meters ?? JI
  * The runs the live map draws. `faultLabel` is the only one of these fields that reaches a
  * screen, which is why the four labels are no longer written here: they live with every other
  * user-facing string, in src/ui/copy.ts (`liveMap.fault` — Vera, 2026-10-17), and this file
- * says which run shows which fault and fills the two labels that name a number from the fault
+ * says which run shows which fault and fills the three labels that name a number from the fault
  * that produces it. The PRD step and acceptance test each run exists for stay in the comments
  * above their specs, where they are a note to the next engineer rather than something a
  * reviewer standing at the board has to decode.
  */
 export const DEMO_RUNS: DemoRun[] = [
-  { spec: RUN_STALL, faultLabel: liveMap.fault.stall },
+  { spec: RUN_STALL, faultLabel: fill(liveMap.fault.stall, { minutes: STALL_MINUTES }) },
   { spec: RUN_GPS_GAP, faultLabel: fill(liveMap.fault.gpsGap, { minutes: GPS_GAP_MINUTES }) },
   { spec: RUN_JITTER, faultLabel: fill(liveMap.fault.jitter, { meters: JITTER_RADIUS_M }) },
   { spec: RUN_UNBOUND, faultLabel: liveMap.fault.unboundDevice },

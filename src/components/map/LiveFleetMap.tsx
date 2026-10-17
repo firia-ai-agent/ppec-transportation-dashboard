@@ -125,6 +125,29 @@ function vanNameOf(vehicleId: string): string {
   return vanTitle(VEHICLE_META.get(vehicleId)?.description ?? "");
 }
 
+/**
+ * One notification-decision row, in words: when it was taken, which van it is about, whose
+ * window moved and where the window moved to.
+ *
+ * Exported because it is the one line on this screen built at render time out of a *decision*
+ * rather than out of a fixture, which is why the code leak survived here after the faults
+ * section was fixed: the row interpolated `vehicleId` and printed "V1" two sections below a
+ * sentence calling the same van "The convertible van" (Vera's prod walk, 2026-10-17 2:48 PM
+ * ET). A decision only exists once the scenario clock has run, and SSR never runs it, so
+ * src/ui/no-codes.test.ts asks this function with the replay's own decisions instead.
+ */
+export function decisionRowText(vehicleId: string, decision: NotificationDecision): string {
+  return fill(liveMap.decisionRow, {
+    time: formatClock(decision.atMs),
+    vehicle: vanNameOf(vehicleId),
+    // Both are optional on the decision; a NOTIFY row always carries them, and an empty string
+    // keeps the old render behaviour if one is ever missing.
+    family: decision.familyLabel ?? "",
+    shift: decision.shiftText,
+    window: decision.windowText ?? "",
+  });
+}
+
 function stopsOf(runs: RunView[]): MapStopFixture[] {
   const byId = new Map<string, MapStopFixture>();
   for (const run of runs) {
@@ -371,15 +394,7 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
           <ul style={{ ...meta, margin: 0, paddingLeft: "var(--space-6)" }}>
             {decisions.map(({ vehicleId, decision }) => (
               <li key={`${vehicleId}-${decision.stopId}-${decision.atMs}`}>
-                {fill(liveMap.decisionRow, {
-                  time: formatClock(decision.atMs),
-                  vehicle: vehicleId,
-                  // Both are optional on the decision; a NOTIFY row always carries them, and
-                  // an empty string keeps the old render behaviour if one is ever missing.
-                  family: decision.familyLabel ?? "",
-                  shift: decision.shiftText,
-                  window: decision.windowText ?? "",
-                })}
+                {decisionRowText(vehicleId, decision)}
               </li>
             ))}
           </ul>

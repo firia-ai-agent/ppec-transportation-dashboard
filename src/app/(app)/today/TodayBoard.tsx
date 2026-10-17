@@ -19,7 +19,7 @@ import {
   type LegRow,
   type RideView,
 } from "@/domain/board/board";
-import { board as boardCopy, etaText, fill, onDay, serviceDate } from "@/ui/copy";
+import { board as boardCopy, etaText, fill, onDay, serviceDate, vanTitle } from "@/ui/copy";
 import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
 import {
@@ -381,16 +381,23 @@ const RECEIVER_MISSING: StateDescriptor = {
 /**
  * The van and what is known about it today.
  *
- * The van's label and its capability chip, and not the provider's name: §1 puts the console at
+ * The van's name and its capability chip, and not the provider's name: §1 puts the console at
  * density 7, §4.1 caps a row at two lines, and a provider name is three or four words that
  * would take a third line on every row of a 56-row board. It is one keystroke away in the
  * drawer, and the §2 search still finds a child by their provider.
+ *
+ * The *name*, not the fixture key: this cell printed "V1" on every row of the board (Vera's
+ * prod walk, 2026-10-17 2:48 PM ET), which is the key that joins a run to a vehicle in
+ * src/modules/demo/fixtures/standard.ts and not a thing a coordinator says out loud. `vanTitle`
+ * is the one helper every screen asks for a van's standalone name, so the board, the live map's
+ * markers and Plan routes' lanes all call one van the same thing. The key is still searchable —
+ * `matchesQuery` keeps reading it (src/domain/board/board.ts) — it is just not on the screen.
  */
 function VanCell({ ride }: { ride: RideView }) {
-  if (ride.vehicleLabel === null) return <StateChip state={FAMILY_DRIVES} className={styles.cellChip} />;
+  if (ride.vehicleDescription === null) return <StateChip state={FAMILY_DRIVES} className={styles.cellChip} />;
   return (
     <span className={styles.van}>
-      <span className={styles.vanName}>{ride.vehicleLabel}</span>
+      <span className={styles.vanName}>{vanTitle(ride.vehicleDescription)}</span>
       <StateChip state={capabilityStates[ride.capability]} className={styles.cellChip} />
     </span>
   );

@@ -119,6 +119,25 @@ describe("the pane names a van and counts a held-back text the way the copy says
     expect(source).not.toMatch(/vehicle: run\.result\.spec\.route\.vehicleId/);
   });
 
+  /**
+   * The notification rows, which were still printing "V1" two sections below a sentence calling
+   * the same van "The convertible van" (Vera's prod walk, 2026-10-17 2:48 PM ET).
+   *
+   * A decision only exists once the scenario clock has moved, so there is no server render that
+   * reaches one: the row is built by `decisionRowText`, which src/ui/no-codes.test.ts calls with
+   * the replay's own decisions. What is read here is the other half — that the component uses it
+   * rather than interpolating the id itself again.
+   */
+  it("builds a notification row through the one exported helper, not out of the vehicle id", () => {
+    expect(source).toMatch(
+      /export function decisionRowText\(vehicleId: string, decision: NotificationDecision\): string/,
+    );
+    expect(source).toMatch(/vehicle: vanNameOf\(vehicleId\)/);
+    expect(source).toMatch(/\{decisionRowText\(vehicleId, decision\)\}/);
+    // The leak itself: the row filled the copy string with the key the fixtures join a run on.
+    expect(source).not.toMatch(/vehicle: vehicleId/);
+  });
+
   it("asks for no second count on the unbound line, because the copy says one", () => {
     expect(source).not.toMatch(/accepted:/);
     expect(liveMap.unbound).not.toMatch(/\{accepted\}/);

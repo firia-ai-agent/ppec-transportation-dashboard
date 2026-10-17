@@ -25,7 +25,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { MapFixture } from "@/fixtures/map";
-import { fill, fleetMap as copy } from "@/ui/copy";
+import { fill, fleetMap as copy, vanTitle } from "@/ui/copy";
 import styles from "./fleet-map.module.css";
 import {
   ATTRIBUTION_HTML,
@@ -326,9 +326,15 @@ export default function FleetMap({ fixture, label = copy.label }: FleetMapProps)
                   aria-pressed={selectedId === vehicle.id}
                   onClick={() => selectVehicle(vehicle.id, vehicle.coord)}
                 >
-                  <span className={styles.vehicleId}>
-                    {fill(copy.vehicleRow, { id: vehicle.id, description: vehicle.description })}
-                  </span>
+                  {/*
+                    A card is the §9 mirror of a marker, so it is titled the way the marker is:
+                    the van's own name (`vanTitle`, src/ui/copy.ts), through the same helper
+                    src/components/map/style.ts builds the `text-field` with. It read
+                    "V1 · Convertible van" — the fixture key, which joins a run to a vehicle and
+                    says nothing to a coordinator (Vera's prod walk, 2026-10-17 2:48 PM ET). The
+                    id is still the row's React key and the selection handle; it is not words.
+                  */}
+                  <span className={styles.vehicleId}>{vanTitle(vehicle.description)}</span>
                   <span className={styles.vehicleMeta}>
                     {fill(copy.vehicleMeta, { owner: vehicle.owner, state: vehicle.stateLabel })}
                   </span>

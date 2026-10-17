@@ -11,6 +11,7 @@ import {
   needCategories,
   onDay,
   places,
+  vanTitle,
 } from "@/ui/copy";
 import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
@@ -232,11 +233,18 @@ function Ride({ leg }: { leg: LegRow }) {
           )}
         </p>
         <StateChip state={legStates[ride.state]} values={stateValues(leg)} />
+        {/*
+          The van and who runs it, both by the names a person would say: "The center van ·
+          Greenacres center fleet". This line printed the fixture key and the fixture's own
+          synthetic marker — "V2 · SYN Greenacres center fleet" — on prod (Vera, 2026-10-17
+          2:48 PM ET). The marker comes off in src/domain/board/scenario.ts, at the one boundary
+          where a provider becomes words; the van's name is `vanTitle`, standing alone here.
+        */}
         <p className={styles.muted}>
-          {ride.vehicleLabel === null
+          {ride.vehicleDescription === null
             ? boardCopy.familyDrives
             : fill(boardCopy.vanAndProvider, {
-                van: ride.vehicleLabel,
+                van: vanTitle(ride.vehicleDescription),
                 provider: ride.providerName ?? "",
               })}
         </p>

@@ -12,7 +12,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
-import { demoBanner, fill, fleetMap, liveMap, sourceMode } from "../src/ui/copy";
+import { demoBanner, fleetMap, liveMap, sourceMode, vanTitle } from "../src/ui/copy";
 import { FLEET } from "../src/fixtures/fleet";
 
 const ARTIFACTS = path.resolve(__dirname, "..", "artifacts");
@@ -95,10 +95,12 @@ test("the live map renders the fleet map and saves a screenshot", async ({ page 
  *     mounts it (src/ui/ScreenSource.tsx). A second chip inside the page would be the screen
  *     arguing with itself about its own provenance — so the chip is inside the bar, and `main`
  *     holds none.
- *  2. **The board's own van names.** A coordinator reads "V1" on the Today board
- *     (`ride.vehicleLabel`) and has to find the same van here; the vehicle list is also the §9
- *     non-map way to read the fleet. The labels are taken from src/fixtures/fleet.ts, the
- *     board's own fixture, so a van renamed in one place and not the other fails here.
+ *  2. **The board's own van names.** A coordinator reads "The convertible van" on the Today
+ *     board and has to find the same van here; the vehicle list is also the §9 non-map way to
+ *     read the fleet. The names are built from src/fixtures/fleet.ts, the board's own fixture,
+ *     through the one helper every screen names a van with (`vanTitle`), so a van renamed in one
+ *     place and not the other fails here — and so does a card that goes back to printing the
+ *     fixture key, which is what "V1 · Convertible van" was (Vera's prod walk, 2026-10-17).
  */
 test("the live map carries the root layout's Simulated chip and the board's van names", async ({
   page,
@@ -126,21 +128,21 @@ test("the live map carries the root layout's Simulated chip and the board's van 
   // it to be published rather than reading an empty attribute off a map that is still drawing.
   await expect(map).toHaveAttribute("data-vehicles-drawn", /V\d/, { timeout: 60_000 });
   const drawn = (await map.getAttribute("data-vehicles-drawn")) ?? "";
+  // A card's title is its first span, and it is the van's own name — the same string the
+  // marker's `text-field` carries, built by the same helper (src/components/map/style.ts).
   const onScreen = await vehicles.getByRole("listitem").evaluateAll((items) =>
-    items.map((li) => (li.textContent ?? "").split("·")[0].trim()),
+    items.map((li) => li.querySelector("button > span")?.textContent?.trim() ?? ""),
   );
-  const board = FLEET.map((v) => v.label);
+  const named = new Map(FLEET.map((v) => [v.label, vanTitle(v.description)]));
   expect(onScreen.length, "no vans in the list beside the map").toBeGreaterThan(0);
-  for (const label of onScreen) expect(board, `"${label}" is not a van the board knows`).toContain(label);
-  // And each card reads "<van> · <what it is>", the same two parts the fixtures carry.
-  for (const vehicle of FLEET.filter((v) => onScreen.includes(v.label))) {
-    await expect(
-      page.getByRole("button", {
-        name: fill(fleetMap.vehicleRow, { id: vehicle.label, description: vehicle.description }),
-        exact: false,
-      }),
-    ).toBeVisible();
+  for (const name of onScreen) {
+    expect([...named.values()], `"${name}" is not a van the board knows`).toContain(name);
+    // And no card is back to naming a van by the key that joins it to a run in the fixtures.
+    expect(name, `"${name}" prints a fixture key`).not.toMatch(/\bV\d\b/);
   }
-  // The vans the map drew are the vans the list offers: no marker without a row, §9.
-  expect(drawn.split(",").filter(Boolean).sort()).toEqual([...onScreen].sort());
+  // The vans the map drew are the vans the list offers: no marker without a row, §9. The
+  // attribute carries ids, because that is the map's handle on a van rather than its name.
+  expect(
+    drawn.split(",").filter(Boolean).map((id) => named.get(id) ?? id).sort(),
+  ).toEqual([...onScreen].sort());
 });

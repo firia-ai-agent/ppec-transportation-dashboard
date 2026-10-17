@@ -6,7 +6,9 @@ import {
   CHILDREN,
   DEMO_DAY_RIDES,
   FINISHED_DAY_RIDES,
+  PROVIDERS,
   RUNS,
+  VEHICLES,
   type RideRecord,
 } from "@/modules/demo/fixtures/standard";
 import { board as boardCopy } from "@/ui/copy";
@@ -593,6 +595,46 @@ describe("the capacity solver answers for the van, and the board shows its answe
       // "V1 convertible van" is a label and then what it is; the tile shows the label alone.
       expect(vehicle.label).toBe(fixture.key);
     }
+  });
+
+  /**
+   * THE "SYN" MARKER COMES OFF HERE, AND NOWHERE ELSE.
+   *
+   * Every organisation name in the demo fixture carries it (ADR-015, standard.ts), and
+   * `solverVehicle` is the one boundary where a provider becomes words on a screen: the board,
+   * the drawer, Plan routes and the ramp iPad all read a van's operator out of this projection.
+   * So a marker that survives the projection reaches four screens at once.
+   *
+   * Veri's mutation check, 2026-10-17 3:27 PM ET: deleting the `providerDisplayName` call left
+   * every test in the repo green, which means nothing was asking. These three are the question,
+   * asked of the fixture's whole fleet rather than only the vans today's runs happen to use.
+   */
+  describe("a van's provider is named as a screen names it, never with the fixture's marker", () => {
+    it("has a fleet whose fixture names all carry the marker, so this is about something", () => {
+      expect(VEHICLES.length).toBeGreaterThan(3);
+      for (const vehicle of VEHICLES) {
+        const provider = PROVIDERS.find((p) => p.key === vehicle.providerKey);
+        expect(provider?.name, vehicle.key).toMatch(/^SYN /);
+      }
+    });
+
+    it("takes it off every one of them, and changes nothing else about the name", () => {
+      for (const vehicle of VEHICLES) {
+        const fixtureName = PROVIDERS.find((p) => p.key === vehicle.providerKey)!.name;
+        const { providerName } = solverVehicle(vehicle);
+        expect(providerName, vehicle.key).not.toMatch(/\bSYN\b/);
+        expect(providerName, vehicle.key).toBe(fixtureName.replace(/^SYN /, ""));
+        expect(providerName.length, vehicle.key).toBeGreaterThan(0);
+      }
+    });
+
+    it("so the three vans on today's board are three companies a person could ring", () => {
+      expect(RUNS.map((run) => solverVehicle(vehicleOf(run)).providerName)).toEqual([
+        "Palm Lift Transport",
+        "Greenacres center fleet",
+        "Coastal Car Service",
+      ]);
+    });
   });
 
   it("a rider who needs an anchored seat is passed to the solver as one (PRD §7 constraint 3)", () => {

@@ -17,7 +17,7 @@ import { feasible } from "@/domain/solver";
 import type { AlternateCandidate, Child, LayoutPosition, SolveResult } from "@/domain/solver";
 import { chairFitsPosition } from "@/domain/solver";
 import { ARRIVING_VEHICLES, SERVICE_DATE, fullyAvailable } from "@/fixtures/fleet";
-import { fill, layoutName, rampIpad, sentence } from "@/ui/copy";
+import { fill, layoutName, rampIpad, sentence, vanName, vanTitle } from "@/ui/copy";
 import { serviceDateLabel } from "@/ui/service-date";
 import { toneVars } from "@/ui/tokens";
 import type { Tone } from "@/ui/tokens";
@@ -338,8 +338,15 @@ export default function RampCheck() {
             >
               <strong style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-3)" }}>
                 {chosen ? <Icon name="check" /> : null}
+                {/*
+                  The van's name and its operator's, never the fixture's keys: the tile read
+                  "V1 · Provider P1" on prod (Vera's walk, 2026-10-17 2:48 PM ET). `vanTitle`
+                  because a tile's title is a name standing on its own, and `providerName` is
+                  already the company with the synthetic marker off it (src/fixtures/fleet.ts).
+                */}
                 {fill(rampIpad.vehicleTile, {
-                  vehicle: candidate.vehicle.label, provider: candidate.vehicle.providerName,
+                  vehicle: vanTitle(candidate.vehicle.description),
+                  provider: candidate.vehicle.providerName,
                 })}
               </strong>
               <span style={{
@@ -361,7 +368,9 @@ export default function RampCheck() {
         {/* Capability checklist */}
         <section style={{ ...CARD, flex: "1 1 420px" }} aria-labelledby="checklist-heading">
           <h2 id="checklist-heading" style={{ fontSize: "var(--text-20)", marginTop: 0 }}>
-            {fill(rampIpad.checklistHeading, { vehicle: vehicle.label })}
+            {/* "What can the convertible van carry today?" — the mid-sentence form of the same
+                name the tile above is titled with, because this one sits inside a question. */}
+            {fill(rampIpad.checklistHeading, { vehicle: vanName(vehicle.description) })}
           </h2>
           <p style={{ color: "var(--color-ink-muted)", marginTop: 0 }}>{rampIpad.checklistIntro}</p>
 

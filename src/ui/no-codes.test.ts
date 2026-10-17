@@ -1,8 +1,19 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import { createElement, type ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import * as copy from "./copy";
+import { capabilityStates } from "./states";
 import { renderedStrings } from "./no-internals.test";
+import { LegDrawer } from "@/app/(app)/today/LegDrawer";
+import { TodayBoard } from "@/app/(app)/today/TodayBoard";
+import PlanRoutes from "@/app/plan-routes/PlanRoutes";
+import RampCheck from "@/app/ramp-ipad/RampCheck";
+import LiveFleetMap, { decisionRowText } from "@/components/map/LiveFleetMap";
+import { buildBoard, demoDay, serviceDayFor } from "@/domain/board/board";
+import { runReplay } from "@/domain/eta/replay";
+import type { MapViewer } from "@/domain/access/map-view";
 import { DEMO_RUNS } from "@/fixtures/replays";
 import { FIXTURE_ROUTES } from "@/fixtures/routes";
 import { knownTemplates, renderTemplate, templatePlaceholders, UNKNOWN_STOP } from "@/modules/messaging/templates";
@@ -179,6 +190,148 @@ describe("the fixture words that are rendered as words", () => {
       "Okeeheelee Park run",
     ]);
     for (const label of named) expect(codesIn(label)).toEqual([]);
+  });
+});
+
+/**
+ * NOTHING A FIXTURE FILE SAID REACHES ANY OF THE FOUR SCREENS.
+ *
+ * Vera's prod walk, 2026-10-17 2:48 PM ET, found four strings still rendering: the synthetic
+ * marker the demo fixture puts on every organisation name ("SYN Palm Lift Transport", "SYN
+ * Greenacres center fleet"), a provider named by its fixture key with a column heading in front
+ * of it ("Provider P1"), a van named by its fixture key ("V1 · Convertible van", "What can V1
+ * carry today?"), and a state chip's screen-reader prefix leaking into the screen's own text
+ * ("State: Reported by provider").
+ *
+ * The three nets above cannot see any of them. Every one is *interpolated* at render time out of
+ * a fixture field or a chip's own markup, so there is no literal to scan and no copy string to
+ * pin: `providerDisplayName` strips the marker in src/domain/board/scenario.ts, `vanTitle` and
+ * `vanName` name a van in src/ui/copy.ts, and the chip renders one label in src/ui/StateChip.tsx
+ * — and each of those is one call that can be dropped without any existing test noticing (which
+ * is exactly what Veri's mutation check on 1047edc found, 3:27 PM ET).
+ *
+ * So this suite renders the four screens for real, from the demo seed, and reads the words off
+ * them. `renderToStaticMarkup` gives the server's own first paint: no effects run, which is why
+ * the live map's notification rows — which exist only once its scenario clock has moved — are
+ * asked of `decisionRowText` with the replay's own decisions instead.
+ */
+describe("the four screens, rendered from the seed, print nothing a fixture file said", () => {
+  /** What the walk found, each with the shape it would come back as. */
+  const FORBIDDEN: ReadonlyArray<{ name: string; re: RegExp }> = [
+    { name: "the fixture's synthetic marker", re: /\bSYN\b/g },
+    { name: "a provider named by its fixture key", re: /Provider P\d/g },
+    { name: "a van named by its fixture key", re: /\bV\d\b/g },
+    { name: "a state chip's screen-reader prefix", re: /State:/g },
+  ];
+
+  /**
+   * The words on a screen: every text node, with the markup between them replaced by a space so
+   * two neighbouring nodes cannot be read as one word. Attributes go with their tags — a `title`
+   * tooltip and a `data-` handle are not what a reader reads, and the map's own list of drawn
+   * vehicles is keyed by vehicle id on purpose (e2e/live-map.spec.ts).
+   */
+  function words(html: string): string {
+    return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  function render(element: ReactElement): string {
+    return words(renderToStaticMarkup(element));
+  }
+
+  /**
+   * Every screen, as one named page of words.
+   *
+   * The board is rendered on all three of its days, because a finished day and a day that has
+   * not started carry states — and reasons about a van — that today's rows do not; and the
+   * drawer is opened on every child, because that is the panel that names the van and the
+   * company together.
+   */
+  const SCREENS: Array<{ screen: string; text: string }> = [];
+
+  const DAYS = [demoDay().previousIso, demoDay().iso, demoDay().nextIso].filter(
+    (iso): iso is string => iso !== null,
+  );
+
+  for (const day of DAYS) {
+    const board = buildBoard(serviceDayFor(day));
+    SCREENS.push({
+      screen: `Today (${day})`,
+      text: render(createElement(TodayBoard, { board, query: "" })),
+    });
+    for (const row of board.rows) {
+      SCREENS.push({
+        screen: `Today drawer, ${row.childKey} (${day})`,
+        text: render(
+          createElement(LegDrawer, {
+            legs: board.legs.filter((leg) => leg.child.childKey === row.childKey),
+            day: board.day,
+            onClose: () => {},
+          }),
+        ),
+      });
+    }
+  }
+
+  SCREENS.push({ screen: "Plan routes", text: render(createElement(PlanRoutes)) });
+  SCREENS.push({ screen: "Ramp iPad", text: render(createElement(RampCheck)) });
+
+  // Every role the map draws something for: the sections a role may not see are absent from the
+  // markup rather than hidden, so each one is a different screen's worth of words.
+  const VIEWERS: MapViewer[] = ["DIRECTOR", "COORDINATOR", "FRONT_DESK"];
+  for (const viewer of VIEWERS) {
+    SCREENS.push({
+      screen: `Live map as ${viewer}`,
+      text: render(createElement(LiveFleetMap, { viewer })),
+    });
+  }
+
+  /**
+   * The live map's notification rows, which no server render can reach: a decision is produced
+   * by the scenario clock, and SSR never starts it. These are the real rows of the real runs.
+   */
+  const DECISIONS = DEMO_RUNS.flatMap((run) => {
+    const result = runReplay(run.spec);
+    return result.notifications.map((decision) =>
+      decisionRowText(result.spec.route.vehicleId, decision),
+    );
+  });
+  SCREENS.push({ screen: "Live map decision rows", text: DECISIONS.join(" ") });
+
+  it("renders all four of them, with words on every one", () => {
+    expect(SCREENS.map((s) => s.screen)).toContain("Plan routes");
+    expect(SCREENS.map((s) => s.screen)).toContain("Ramp iPad");
+    expect(SCREENS.map((s) => s.screen)).toContain("Live map as DIRECTOR");
+    expect(SCREENS.filter((s) => s.screen.startsWith("Today")).length).toBeGreaterThan(3);
+    for (const { screen, text } of SCREENS) {
+      expect(text.length, `${screen} rendered nothing`).toBeGreaterThan(40);
+    }
+    // Not a screen that drew no vans: the three surfaces that name one each name one.
+    expect(DECISIONS.length, "no run produced a notification row").toBeGreaterThan(0);
+  });
+
+  it("has screens that really do name vans and companies, so this is about something", () => {
+    const all = SCREENS.map((s) => s.text).join(" ");
+    // The names the four leaked strings were standing in for.
+    for (const name of [
+      copy.vanTitle("convertible van"),
+      copy.vanName("center van"),
+      "Palm Lift Transport",
+      "Greenacres center fleet",
+      "Coastal Car Service",
+    ]) {
+      expect(all, `nothing on any screen says "${name}"`).toContain(name);
+    }
+    // And the chip label whose prefix the walk read off three screens.
+    expect(all).toContain(capabilityStates.REPORTED.label);
+  });
+
+  it.each(FORBIDDEN)("no screen prints $name", ({ re }) => {
+    const offenders = SCREENS.flatMap(({ screen, text }) =>
+      [...text.matchAll(re)].map(
+        (m) => `${screen}: …${text.slice(Math.max(0, m.index - 60), m.index + 60)}…`,
+      ),
+    );
+    expect(offenders).toEqual([]);
   });
 });
 

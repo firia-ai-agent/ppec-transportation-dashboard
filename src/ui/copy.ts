@@ -128,9 +128,12 @@ export const sourceMode = {
 } as const;
 
 export const screenReader = {
-  /** §9: chips read "State: Needs action". */
-  state: "State: {label}",
-  /** §7.1 */
+  /**
+   * §7.1. There is no sibling for a state chip: a chip renders its §3 label once, with nothing
+   * in front of it, because "State: Reported by provider" was reaching the screen as text
+   * (Vera's prod walk, 2026-10-17 2:48 PM ET — src/ui/StateChip.tsx). A source mode is
+   * different: "Simulated" on its own says nothing about what is simulated.
+   */
   source: "Source: {label}",
   freshness: "{adapter}: {value}",
 } as const;
@@ -238,7 +241,14 @@ export const board = {
   pmSpoken: "afternoon",
   /** A ride the family drives themselves: there is no van to show, and that is not a gap. */
   familyDrives: "Family drives",
-  /** "V2 · SYN Greenacres center fleet" — the van, then who runs it. Drawer only (§4.1 density). */
+  /**
+   * "The center van · Greenacres center fleet" — the van, then who runs it. Drawer only
+   * (§4.1 density).
+   *
+   * Both halves are display names, not fixture keys: `{van}` is `vanTitle` and `{provider}` is
+   * the company with the synthetic marker already off it, because this line read
+   * "V2 · SYN Greenacres center fleet" on prod (Vera, 2026-10-17 2:48 PM ET).
+   */
   vanAndProvider: "{van} · {provider}",
   /** The vehicle is assigned but has sent nothing we may draw (an unlinked device, LOC-01). */
   noPosition: "No van location yet",
@@ -287,7 +297,13 @@ export const board = {
      * full in the drawer instead (`drawer.heldNoReturn`), which is where this row leads.
      */
     CHILD_HELD: "{child} is waiting with the van. No adult on file can receive them.",
-    DOES_NOT_FIT: "{van} does not fit everyone on this run.",
+    /**
+     * `{van}` is the van's name in the middle of a sentence ("the convertible van"), never its
+     * fixture key — "V1 does not fit everyone on this run." was on the board (Vera's prod walk,
+     * 2026-10-17 2:48 PM ET). Which is why the sentence turned round: a van's name is a common
+     * noun with an article in front of it, so it cannot open a sentence the way a code could.
+     */
+    DOES_NOT_FIT: "Not everyone on this run fits in {van}.",
     NO_RECEIVING_ADULT: "No adult on file may receive {child} at the end of the afternoon ride.",
     /**
      * The end of a day with a handoff missing from it: the van arrived, the day is over, and no
@@ -303,6 +319,7 @@ export const board = {
      */
     HANDOFF_UNRECORDED: "{child}'s van is back and nobody recorded who received them.",
     RIDE_STATE: "{child}'s ride needs a person to decide what happens next.",
+    /** `{van}` is the van's name, mid-sentence, like every other `{van}` on this board. */
     LOCATION_LOST: "Nothing has been heard from {van} for ten minutes.",
   },
   /**
@@ -541,7 +558,15 @@ export const liveMap = {
    * `DEMO_RUNS` reads them from here now, keyed by the fault each run injects.
    */
   fault: {
-    stall: "Stall 12 min",
+    /**
+     * `{minutes}` is the stall fault's own duration, read off the run's spec in
+     * src/fixtures/replays.ts — the same rule the two labels below already follow.
+     *
+     * It was the literal "Stall 12 min", which is the one number on this list that could drift
+     * from the run it describes: lengthening the stall left the screen saying twelve (Veri's
+     * mutation check on 1047edc, 2026-10-17 3:27 PM ET).
+     */
+    stall: "Stall {minutes} min",
     /**
      * What the run shows, in the order a reviewer watching it sees the two halves happen.
      *
@@ -722,10 +747,23 @@ export const rampIpad = {
   localOnly: "Nothing here is sent. Answers stay on this iPad.",
 
   arrivalsHeading: "Which vehicle is at the ramp?",
-  /** §5: the vehicle tile reads "V1 · Provider P1 · arriving 8:52 · 3 riders", over two lines. */
+  /**
+   * §5: the tile reads "The convertible van · Palm Lift Transport · arriving 2:52 PM · 3 riders",
+   * over two lines.
+   *
+   * Both names are display names. It read "V1 · Provider P1" — a fixture key and a column
+   * heading, on the most-rendered tile of the surface a ramp attendant actually holds (Vera's
+   * prod walk, 2026-10-17 2:48 PM ET). `{vehicle}` is `vanTitle`, because a tile's title is a
+   * name standing on its own.
+   */
   vehicleTile: "{vehicle} · {provider}",
   vehicleTileDetail: "arriving {time} · {riders} riders",
 
+  /**
+   * "What can the convertible van carry today?" — `{vehicle}` is `vanName`, the mid-sentence
+   * form, for the same reason: this heading said "What can V1 carry today?" on prod, and nobody
+   * at a ramp says "V1" out loud.
+   */
   checklistHeading: "What can {vehicle} carry today?",
   checklistIntro:
     "Unknown until arrival is normal. Anything left on “Not sure” keeps the run unchecked.",
@@ -908,9 +946,15 @@ export const fleetMap = {
   fitAll: "Fit all vehicles",
   retry: "Retry",
   vehiclesHeading: "Vehicles",
-  /** "V1 · Convertible van" — the id, then the vehicle in plain words. */
-  vehicleRow: "{id} · {description}",
-  /** "Provider P1 · In transit" */
+  /**
+   * "Palm Lift Transport · In transit" — who runs the van, then what it is doing.
+   *
+   * There is no row *label* string any more. The card's title was "{id} · {description}", which
+   * printed "V1 · Convertible van" (Vera's prod walk, 2026-10-17 2:48 PM ET): the code is the
+   * key that joins a run to a vehicle in the fixtures and means nothing to a coordinator. A card
+   * is the §9 mirror of a marker, so it is titled the same way the marker is — `vanTitle` in this
+   * file, the Plan routes words — and one van has one name on every screen.
+   */
   vehicleMeta: "{owner} · {state}",
   gps: "GPS: {age}",
   source: "Source: {label}",
@@ -1475,8 +1519,15 @@ export const planRoutes = {
  * and the browser check that reads a lane's name off the page. `description` is the solver's
  * plain-words field for a vehicle ("convertible van"), which is the half of the fixture's label
  * that is not the code.
+ *
+ * A van the fixtures named nothing is still a van, and the answer is `planRoutes.vanUnnamed`
+ * rather than the article with nothing after it — "the " — that an empty description used to
+ * build (Vera, 2026-10-17). The guard is here rather than in `vanTitle` because both forms can
+ * be asked for a van that has no description: the live map looks one up by vehicle id, and the
+ * board's reasons read one off a ride.
  */
 export function vanName(description: string): string {
+  if (description.trim() === "") return planRoutes.vanUnnamed.toLowerCase();
   // Lower-cased, because this lands in the middle of a sentence and the fixtures disagree about
   // the case they write a vehicle in: the scenario says "V1 convertible van" and the interim
   // fleet fixture says "Convertible van", which gave "the Convertible van" on whichever screen
@@ -1495,10 +1546,9 @@ export function vanName(description: string): string {
  * never "V1").
  */
 export function vanTitle(description: string): string {
-  // A van the fixtures named nothing is still a van, and never a blank name on the screen
-  // (Vera, 2026-10-17). Here rather than at the live map's call site because every surface that
-  // asks for a van's standalone name — the map's sentences and its marker labels — asks here.
-  if (description.trim() === "") return planRoutes.vanUnnamed;
+  // A van the fixtures named nothing is handled one layer down, in `vanName`, so the standalone
+  // form of "a van" is the capitalised `planRoutes.vanUnnamed` and not a second answer written
+  // here (Vera, 2026-10-17).
   const named = vanName(description);
   return named.charAt(0).toUpperCase() + named.slice(1);
 }

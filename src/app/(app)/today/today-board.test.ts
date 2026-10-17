@@ -34,6 +34,18 @@ function escaped(text: string): string {
   return text.replace(/'/g, "&#x27;");
 }
 
+/**
+ * A state as its chip renders it: the §3 label, alone inside its own span.
+ *
+ * The chip used to print the label twice — once prefixed "State: " for a screen reader, once
+ * `aria-hidden` for the eye — and the prefix was text on the screen, which a prod walk read off
+ * three screens (Vera, 2026-10-17 2:48 PM ET). One label now, so these assert the label *is* a
+ * span's whole content rather than merely appearing somewhere in the markup.
+ */
+function chip(label: string): string {
+  return `>${escaped(label)}</span>`;
+}
+
 const board = buildBoard();
 /** The day before, read after the last van is in: the one with outcomes on it (AT-10, AT-13). */
 const finished = buildBoard(serviceDayFor(demoDay().previousIso));
@@ -182,17 +194,19 @@ describe("the board renders the day", () => {
     expect(board.legs).toHaveLength(board.rows.length * 2);
   });
 
-  it("every state on screen is an icon plus a label, announced as a state (§3, §9)", () => {
-    // The chip writes "State: <label>" for a screen reader; the eye gets the icon and the label.
-    expect(html).toContain(`State: ${legStates.EN_ROUTE_PICKUP.label}`);
-    expect(html).toContain(`State: ${legStates.CAPABILITY_PENDING.label}`);
+  it("every state on screen is an icon plus a label (§3, §9)", () => {
+    expect(html).toContain(chip(legStates.EN_ROUTE_PICKUP.label));
+    expect(html).toContain(chip(legStates.CAPABILITY_PENDING.label));
     // The states that used to be bare words in a cell now carry an icon and a label too.
-    expect(html).toContain(`State: ${boardCopy.familyDrives}`);
-    expect(html).toContain(`State: ${boardCopy.noPosition}`);
-    expect(html).toContain(`State: ${boardCopy.noReceiver}`);
-    expect(html).toContain(`State: ${therapySessionStates.SCHEDULED.label}`);
-    expect(html).toContain(`State: ${fill(boardCopy.receiverNamed, { adult: "Alma R." })}`);
-    expect(html).toMatch(/State: Stopped \d+ min/);
+    expect(html).toContain(chip(boardCopy.familyDrives));
+    expect(html).toContain(chip(boardCopy.noPosition));
+    expect(html).toContain(chip(boardCopy.noReceiver));
+    expect(html).toContain(chip(therapySessionStates.SCHEDULED.label));
+    expect(html).toContain(chip(fill(boardCopy.receiverNamed, { adult: "Alma R." })));
+    expect(html).toMatch(/>Stopped \d+ min<\/span>/);
+    // And the label is all a chip says: "State:" is a column name, not a state, and it was on
+    // the screen as text until Vera's prod walk (2026-10-17 2:48 PM ET).
+    expect(html).not.toContain("State:");
     // One icon per chip, and there are several chips a row.
     expect(html.match(/class="lucide/g)?.length ?? 0).toBeGreaterThan(board.legs.length * 3);
   });
@@ -262,7 +276,7 @@ describe("the board renders the day", () => {
     // Zoe B.'s two rides on that day: a morning a person received, and an afternoon whose van
     // is at the kerb with no custody event recorded.
     const ended = boardHtml("Zoe", finished);
-    expect(ended).toContain(`State: ${legStates.ARRIVED_DROPOFF.label}`);
+    expect(ended).toContain(chip(legStates.ARRIVED_DROPOFF.label));
     expect(ended).toContain(
       escaped(fill(boardCopy.nextSteps.CONFIRM_HANDOFF, { child: "Zoe B." })),
     );
@@ -270,7 +284,7 @@ describe("the board renders the day", () => {
     // The §3 handoff label carries a placeholder, and it is filled: the morning ended at the
     // centre, so it says the ramp, and the afternoon names the adult on file (COPY-GUIDE §1).
     const handedOffTo = (who: string) =>
-      `State: ${fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": who })}`;
+      chip(fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": who }));
     expect(ended).toContain(handedOffTo(boardCopy.receivedByRamp));
     expect(boardHtml("Theo", finished)).toContain(handedOffTo("Lena V."));
     for (const html of [ended, boardHtml("Theo", finished)]) {
@@ -287,7 +301,7 @@ describe("the board renders the day", () => {
    */
   it("shows the ride that ended with nobody to receive the child (AT-13)", () => {
     const live = boardHtml("Noah");
-    expect(live).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+    expect(live).toContain(chip(legStates.HELD_NO_RECEIVER.label));
     expect(live).toContain(boardCopy.groups.NEEDS_ACTION);
     expect(live).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
     // It is the only ride on the live board with an outcome: nothing else on it is finished.
@@ -296,9 +310,9 @@ describe("the board renders the day", () => {
     // And on the finished day, where the morning of the same child is finished too: one held
     // ride is not a held day.
     const ended = boardHtml("Noah", finished);
-    expect(ended).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+    expect(ended).toContain(chip(legStates.HELD_NO_RECEIVER.label));
     expect(ended).toContain(
-      `State: ${fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": boardCopy.receivedByRamp })}`,
+      chip(fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": boardCopy.receivedByRamp })),
     );
   });
 
@@ -377,8 +391,8 @@ describe("the drawer reads one child's day", () => {
 
   it("holds both rides, each with its own state and its own next step", () => {
     for (const heading of [drawer.amRide, drawer.pmRide]) expect(html).toContain(heading);
-    expect(html).toContain(`State: ${legStates[legOf("C6", "AM").ride.state].label}`);
-    expect(html).toContain(`State: ${legStates[legOf("C6", "PM").ride.state].label}`);
+    expect(html).toContain(chip(legStates[legOf("C6", "AM").ride.state].label));
+    expect(html).toContain(chip(legStates[legOf("C6", "PM").ride.state].label));
     expect(html).toContain(escaped(nextStepCellText(legOf("C6", "PM"))));
   });
 
@@ -561,7 +575,7 @@ describe("the one primary action, and why it is not available", () => {
     const held = drawerHtml("C2");
 
     it("says the ride is held, on the afternoon row, and never that it was handed off", () => {
-      expect(held).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+      expect(held).toContain(chip(legStates.HELD_NO_RECEIVER.label));
       expect(held).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
       expect(held).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
       // A hold is not a handoff, and the panel says nothing that could be read as one.
@@ -570,10 +584,10 @@ describe("the one primary action, and why it is not available", () => {
 
     it("reads the same on the finished day, whose morning was received at the ramp", () => {
       const ended = drawerHtml("C2", finished);
-      expect(ended).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+      expect(ended).toContain(chip(legStates.HELD_NO_RECEIVER.label));
       expect(ended).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
       expect(ended).toContain(
-        `State: ${fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": boardCopy.receivedByRamp })}`,
+        chip(fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": boardCopy.receivedByRamp })),
       );
     });
 
