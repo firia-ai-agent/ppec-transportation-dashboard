@@ -2,8 +2,9 @@
 
 ```
 READER: Rudy (build), Veri (verify), Vera (taste), founder for the two rows marked as questions.
-DECISION IT SERVES: what the live board is, which acceptance tests it closes, and the one
-architectural difference a reviewer should not have to discover from the code.
+DECISION IT SERVES: what the live board is, how far it moves AT-03 and AT-11 (not to a pass:
+§3 and §5), and the one architectural difference a reviewer should not have to discover from
+the code.
 STATUS: Written with the slice. The "open" rows are questions, not decisions.
 SOURCE: PRD §8, §14 (SURF-01, SURF-02), §18.2 steps 7–8, §18.3 (AT-03, AT-10, AT-11,
 TEST-SEC-02), LOC-01/02/03, ASM-11/14/15, DESIGN-DIRECTION §2, §3, §4.1, §5, §5.1, §6.2, §9,
@@ -62,10 +63,16 @@ about a real morning, which is the same moment `event_log` becomes the source.
 
 ## 3. What is now proved on the surface, and where
 
+This table is the **surface** half, and for AT-03 and AT-11 that is not the whole test: both
+also ask for a message to leave the building, and nothing in this build sends one. **Both stay
+Partial on this branch** (docs/BUILD-PLAN-M2.md §4) — AT-03 until the traffic-delay text tells
+the downstream family its window moved, AT-11 until the 600 s dispatcher ping and the
+ten-minute staff call exist (LOC-03). §5 carries them as what this slice did not land.
+
 | Test | What the surface shows | Held by |
 |---|---|---|
-| **AT-03** | The gate opens **once** in the whole morning, for the stop **ahead** of the stall; the stop behind it holds no window and is told nothing. The moved window then holds instead of being re-rounded. On screen: the row's "Arriving" cell changes once, and one "Window updates" row names the place, the shift and the new window — labelled a decision, because nothing is sent | `src/domain/board/live.test.ts`, `e2e/live-map.spec.ts` ("one window moves, downstream, and the board says so once") |
-| **AT-11** | 180 s: the STALE badge and "ETA texts paused" **with the window still on the row** (§4.1: never hide data). 600 s: "No signal", the ride in Needs action, and "Find {child}'s van." Duplicate and out-of-order points are counted under the map — used, dropped, and why — rather than drawn | `live.test.ts`, `location/ingest.test.ts` (unchanged), `e2e/live-map.spec.ts` ("the stale badge, the paused texts, then the exception and the step") |
+| **AT-03** (Partial) | The gate opens **once** in the whole morning, for the stop **ahead** of the stall; the stop behind it holds no window and is told nothing. The moved window then holds instead of being re-rounded. On screen: the row's "Arriving" cell changes once, and one "Window updates" row names the place, the shift and the new window — labelled a decision, because nothing is sent. The test also asks for the damped window **SMS** to that family, and a decision reaches a screen and no outbox, so that half is not built | `src/domain/board/live.test.ts`, `e2e/live-map.spec.ts` ("one window moves, downstream, and the board says so once") |
+| **AT-11** (Partial) | 180 s: the STALE badge and "ETA texts paused" **with the window still on the row** (§4.1: never hide data). 600 s: "No signal", the ride in Needs action, and "Find {child}'s van." Duplicate and out-of-order points are counted under the map — used, dropped, and why — rather than drawn. LOC-03's other two answers at 600 s are not built: the **dispatcher ping** (no such template in `outboundSms.bodies`, nothing enqueues one) and the **staff call after 10 minutes** (no deadline on the location-loss exception) | `live.test.ts`, `location/ingest.test.ts` (unchanged), `e2e/live-map.spec.ts` ("the stale badge, the paused texts, then the exception and the step") |
 | **AT-10** | Still holding, now with a clock running: no tick of the morning puts "Handed off" on a van or a row, and the arrival the geofence does report says "Arrived (vehicle)" | `live.test.ts`, `e2e/live-map.spec.ts` ("a van that arrives is never a child handed over, however long the clock runs") |
 | **LOC-01** | The van whose device is not linked to it has no marker, no route and no stop list, and is named in words underneath the map with its unbound count | `live.test.ts`, `live-fixture.test.ts`, the e2e above |
 | **TEST-SEC-02** | Zero `*.googleapis.com`; every off-origin request is the one configured basemap host (ADR-008); nothing posts; no child, place, vehicle or token appears in any request, including the stream's own URL, which carries a clock speed and nothing else | `e2e/live-map.spec.ts` ("zero *.googleapis.com, and no token in anything that leaves") |
@@ -125,12 +132,27 @@ Three judgement calls inside that work, named rather than left to be found:
 
 ## 5. What this slice did **not** land
 
+- **The three messages AT-03 and AT-11 ask for**, which is why both are **Partial** and not
+  PASS (mock) on this branch:
+  - the **traffic-delay text to the downstream family** — the "one damped 10-min window SMS,
+    downstream only" of LOC-02 and ARCHITECTURE §6 step 7. The gate's decision is computed,
+    printed on the board and listed under the map, and then stops: nothing turns a NOTIFY into
+    an `ops.outbound_message`, so no family is told the window moved;
+  - the **dispatcher ping at 600 s** (LOC-03). `outboundSms.bodies` has no dispatcher template at
+    all, and the exception the board raises is a staff-facing one;
+  - the **staff call after 10 minutes** (LOC-03). The location-loss exception carries no deadline,
+    so nothing escalates if nobody acts on it.
+
+  The board's half of both tests is in §3 and is held by tests. These three are the rest of them,
+  and they are P-03's own: until they land, a merge moves where the work sits and not what is
+  proved (docs/BUILD-PLAN-M2.md §4).
 - **A named approver and a named verifier in the seed** (slice 1 §6, moved here from slice 2).
   Still not done: `approved_by` is NULL in `src/modules/demo/seed.ts` and the ramp observation
   still carries no person, so the drawer cannot say "Verified 17 min ago by J.T." and mean it.
   It is a seed and drawer change with nothing to do with the live map, and it is the one row of
-  slice 3's own list that is still open — **it belongs to whoever opens the next console PR**,
-  and it is small.
+  slice 3's **inherited** list that is still open — **it belongs to whoever opens the next console
+  PR**, and it is small. (The three messages above are open too; they are slice 3's own, not
+  inherited.)
 - **The U3 commit→screen measurement** (RISKS-AND-QUESTIONS). The stream exists now, so the
   measurement is possible; nothing in this slice measured it. NFR-01's p95 <3 s is therefore
   still unverified, and the §6.2 "<2 s with a 1 s row highlight" row-flash polish is not built.

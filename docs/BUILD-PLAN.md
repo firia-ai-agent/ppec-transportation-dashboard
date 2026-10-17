@@ -59,9 +59,12 @@ Mocked ATs pass as "PASS (mock)", not as PRD P1 pass (founder lock ADR-016).
 This table is the **map** — which milestone each test belongs to and which mock it leans on. Where
 each one actually **stands** is the 19-row table in docs/BUILD-PLAN-M2.md §4 (AT-01…AT-18 plus
 TEST-INF-01), kept there so there is one status per test and not two that can disagree. Two rows
-moved with the live map (P-03, B-12 slice 3): **AT-03** and **AT-11** are PASS (mock) on
-`team/ppe-live-map` — the domain was already held, and the board, the stream and the browser
-checks are what was missing — and they count on `main` when that branch merges. AT-03 and AT-11
+moved *forward* with the live map (P-03, B-12 slice 3) without closing: **AT-03** and **AT-11**
+are **Partial** on `team/ppe-live-map`, exactly as they are on `main`. The domain was already
+held and the board, the stream and the browser checks are what P-03 added; what neither test has
+is the message it also asks for — the damped window text to the downstream family (AT-03), and
+the 600 s dispatcher ping plus the staff call after ten minutes (AT-11, LOC-03). A gate decision
+reaches a screen and no outbox, so the merge will not change either status. AT-03 and AT-11
 also pick up a second mock each beyond the two named above: the live stream itself (ADR-002) and,
 for AT-03, the scenario clock the replay is walked on (B-10, docs/ui/B12-SLICE3-DEFERRED.md).
 
