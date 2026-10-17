@@ -102,7 +102,23 @@
   align-items: start;
 }
 
-/* §4.1 / D-6: the map takes the right of the screen once there is room for both. */
+/*
+ * §4.1 / D-6: the map takes the right of the screen once there is room for both.
+ *
+ * "Room for both" started at 1280, which left the review's other width — 1024, where the nav is
+ * the 64 px icon rail — with the map pane laid out *after* the lane column: three vans tall of
+ * scrolling before the pane that is supposed to be read beside them (Vera's review,
+ * 2026-10-17). At 1024 the rail and this page's own padding leave about 920 px, which is a
+ * 280 px map and still 600 px of lane, so both of the review's widths get two columns and the
+ * pane is in the window from the top of the page. Below 1024 the columns stack, and the pane is
+ * pinned directly under the header rather than under every lane (see .mapPane).
+ */
+@media (min-width: 1024px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 30%);
+  }
+}
+
 @media (min-width: 1280px) {
   .split {
     grid-template-columns: minmax(0, 1fr) minmax(320px, 34%);
@@ -133,6 +149,19 @@
   border-radius: var(--radius-md);
 }
 
+/*
+ * Narrower than two columns: the pane sits directly under the header rather than after the last
+ * lane, so the map is never three vans of scrolling away from the plan it belongs to. Static,
+ * because a pane that is above the lanes has nothing left to stick to. After the rule above on
+ * purpose — a media query adds no specificity, so the order is what makes this win.
+ */
+@media (max-width: 1023px) {
+  .mapPane {
+    order: -1;
+    position: static;
+  }
+}
+
 .mapBox {
   display: flex;
   align-items: center;
@@ -159,8 +188,7 @@
 }
 
 /* While a rider is being dragged over it. Not the only cue: the row says what happened after. */
-.lane[data-over="true"],
-.unplaced[data-over="true"] {
+.lane[data-over="true"] {
   border-color: var(--color-brand);
   background: var(--color-info-bg);
 }
@@ -175,6 +203,16 @@
 .laneTitle {
   font-size: var(--text-20);
   font-weight: var(--weight-semibold);
+}
+
+/*
+ * A van has one name on this screen and it is written the way it is said in a sentence — "the
+ * convertible van" (copy.ts `vanNamed`), because that is where most of them land. A heading is
+ * the one place that name starts a line, so the capital is here rather than in a second copy
+ * string that could drift from the first.
+ */
+.laneTitle::first-letter {
+  text-transform: uppercase;
 }
 
 .meta {
@@ -314,8 +352,46 @@
   font-weight: var(--weight-semibold);
 }
 
+/* ───────────────────────────── a lane's own changes ───────────────────────────── */
+
+/*
+ * What arrived and who is driving, behind the lane's one disclosure. Indented against a rule, so
+ * an open panel reads as belonging to the lane above it rather than as a fourth section of it.
+ */
+.changes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-left: var(--space-4);
+  border-left: var(--border-hairline) solid var(--color-border-strong);
+}
+
 /* ───────────────────────────── children with no van ───────────────────────────── */
 
+/*
+ * Both groups are one drop zone: a rider let go anywhere over them is a rider taken out of their
+ * van, whichever group happens to be on screen. The wrapper is what the pointer hit-test finds,
+ * so it is the thing that says it is being dragged over — and it says so with an outline, which
+ * cannot move the two sections inside it while a drag is in flight.
+ */
+.noVan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  border-radius: var(--radius-md);
+}
+
+.noVan[data-over="true"] {
+  outline: var(--border-hairline) solid var(--color-brand);
+  outline-offset: var(--space-2);
+  background: var(--color-info-bg);
+}
+
+/*
+ * The children planning could not place: the one group on this screen that is a problem, and the
+ * only one wearing the critical border. Vera's review, 2026-10-17 — the border used to be around
+ * the opening state too, which is the screen's *normal* first second.
+ */
 .unplaced {
   display: flex;
   flex-direction: column;
@@ -324,6 +400,30 @@
   background: var(--color-surface);
   border: var(--border-hairline) solid var(--color-crit-fg);
   border-radius: var(--radius-md);
+}
+
+/*
+ * Nobody has put these children in a van yet, which is not a failure: the same box as a lane,
+ * the ordinary border, and a list of names inside it.
+ */
+.waiting {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+/* One child: their name, and the keyboard's way to place them. Nothing else (§9). */
+.waitingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding: var(--space-2) 0;
 }
 
 .unplacedRow {

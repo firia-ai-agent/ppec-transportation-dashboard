@@ -84,6 +84,15 @@ docs/LINEAR.md (PASS rules, §18.2 evidence, Linear ids); DECISION-LEDGER rows 4
 Veri gates every step and Vera gates every step with a surface in it. The §18.2 evidence rules and
 "only Veri marks PASS" are docs/LINEAR.md's and are unchanged.
 
+**P-11 inherits the Plan routes demo scenario toggle.** `/plan-preview` carries its own two-button
+toggle — "Normal day" / "A child can’t be placed" — because the §9 walk needs both halves of the
+AT-12 story and the demo panel it belongs in does not exist yet (B-15 is "nothing at all yet", §1).
+It is a demo control, not a coordinator's: it is rendered in the DEMO bar's own violet so it reads as
+one (Vera's review, 2026-10-17), the screen still replays the one demo day either way, and nothing
+in the product reads it. **When P-11 builds the demo panel, the toggle moves into it** — one place
+where a demo is steered, beside Reset, Clock, Replay and Faults — and the screen is left with its
+own controls only. P-11 is not blocked by it and does not need to keep it where it is.
+
 ## 3. TEST-INF-01 — three restart runs on production, on separate days
 
 The drill itself is ARCHITECTURE §7: 50 jobs, 5 cancelled, crashes A–D (consumer mid-claim,

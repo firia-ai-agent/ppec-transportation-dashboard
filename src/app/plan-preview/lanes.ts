@@ -7,7 +7,7 @@
  * code — the three vocabularies the machine uses to talk to itself. The verdict is computed in
  * src/domain/solver; the sentence that says it is chosen here; neither is written here.
  */
-import { countable, fill, layoutName, pluralize, planRoutes, rampPreview, securement, sentence } from "@/ui/copy";
+import { countable, fill, layoutName, pluralize, planRoutes, rampPreview, securement, sentence, vanName } from "@/ui/copy";
 import { capabilityStates, legStates, reservationStates, type StateDescriptor } from "@/ui/states";
 import { clockLabel } from "@/ui/service-date";
 import { causeOfDeficit } from "@/domain/solver";
@@ -24,7 +24,16 @@ import type {
  */
 export const ARRIVAL_ANSWERS = ["NOT_CHECKED", "REPORTED", "RAMP_CHECKED"] as const;
 export type ArrivalAnswer = (typeof ARRIVAL_ANSWERS)[number];
-export const ARRIVAL_LABEL: Readonly<Record<ArrivalAnswer, string>> = planRoutes.arrival;
+
+/**
+ * One answer, labelled. "Reported by the provider" named a role where the day has a name on file
+ * (Vera's review, 2026-10-17; COPY-GUIDE §1 "name the person"), so the provider's own name goes
+ * on the button that records their report. The other two answers carry no placeholder and come
+ * back unchanged.
+ */
+export function arrivalLabel(answer: ArrivalAnswer, providerName: string): string {
+  return fill(planRoutes.arrival[answer], { provider: providerName });
+}
 
 /* ───────────────────────────── a lane's state ───────────────────────────── */
 
@@ -67,10 +76,13 @@ export function missingPhrase(cause: UnplacedCause, securementWords: string): st
   return fill(planRoutes.missing[cause], { securement: securementWords });
 }
 
-/** "V3 can’t take Zoe B.: no four-point straps." — one line, the child, the missing thing. */
+/**
+ * "Can’t put Zoe B. in the substitute van: no four-point straps." — one line, the child, the
+ * missing thing, and the van by name rather than by the code the fixtures file it under.
+ */
 export function refusalLine(vehicle: Vehicle, child: Child, cause: UnplacedCause): string {
   return fill(planRoutes.refused, {
-    vehicle: vehicle.label,
+    vehicle: vanName(vehicle.description),
     child: child.displayName,
     missing: missingPhrase(cause, securement[child.securement ?? "OTHER"]),
   });
@@ -96,10 +108,15 @@ export function laneLines(lane: LanePlan): string[] {
     return [verdict.pendingReason ?? rampPreview.vehicleOut, planRoutes.laneBlocked];
   }
   const deficit = verdict.deficit;
-  const stop = lane.leg.stops.find((s) => s.k === deficit?.k)?.label ?? lane.lane.vehicle.label;
+  const stop = lane.leg.stops.find((s) => s.k === deficit?.k)?.label;
   const cause = deficit ? causeOfDeficit(deficit.type) : "NO_VEHICLE";
+  const missing = missingPhrase(cause, chairSecurement(lane.riders));
   return [
-    fill(planRoutes.laneMissing, { stop, missing: missingPhrase(cause, chairSecurement(lane.riders)) }),
+    // A deficit the solver found at a stop says where; one it found about the van itself does
+    // not, because "At the sedan, this van has …" is not a place.
+    stop === undefined
+      ? fill(planRoutes.laneMissingAnywhere, { missing })
+      : fill(planRoutes.laneMissing, { stop, missing }),
     planRoutes.laneBlocked,
   ];
 }
@@ -127,18 +144,19 @@ export function unplacedState(cause: UnplacedCause): StateDescriptor {
  * The one plain sentence an unplaced child's row carries: "No van with a ramp for Noah O."
  *
  * It names the child, and it names the thing that is missing rather than the rule that was
- * broken. `vehicle` is only needed by the one reason that is about a particular van — the van
+ * broken. `vanLabel` is only needed by the one reason that is about a particular van — the van
  * that is the only fit and has not been reported on — and is the empty string otherwise, which
- * is why the reason table never interpolates it anywhere else.
+ * is why the reason table never interpolates it anywhere else. When it is needed it is the van's
+ * own name ("the center van"), because no code reaches this screen.
  */
-export function reasonLine(unplaced: Unplaced, vehicleLabel: string): string {
+export function reasonLine(unplaced: Unplaced, vanLabel: string): string {
   const child = unplaced.rider.child;
   // Closed with `sentence()`: a reason that ends on the child's name already ends in the full
   // stop their last initial carries, and the templates that do carry none of their own.
   return sentence(
     fill(planRoutes.reason[unplaced.cause], {
       child: child.displayName,
-      vehicle: vehicleLabel,
+      vehicle: vanLabel,
       securement: securement[child.securement ?? "OTHER"],
     }),
   );
@@ -151,18 +169,22 @@ function isWcPosition(position: Layout["positions"][number]): position is WcPosi
 }
 
 /**
- * What a van has today, as chips: its ramp, each wheelchair place with the hardware and the
- * footprint it accepts, then the seats and how many of them are anchored.
+ * What a van has today, as chips: its ramp, and each wheelchair place with the hardware and the
+ * footprint it accepts.
  *
  * Measured against the configuration the lane is planned as and the day's observation, so a
  * position reported out of service is not on the list — a van's equipment is what it has
  * *today*, not what it was built with.
+ *
+ * It used to end with two more chips, "3 seats" and "2 anchored seats", which are the second
+ * halves of the two place lines directly underneath it ("0 of 3 seats used") — the same numbers,
+ * twice, in two shapes (Vera's review, 2026-10-17). The lines say how full the van is and these
+ * say what it is built with, so the counts belong to the lines and the chips stop at the chairs.
  */
 export function equipmentChips(
   vehicle: Vehicle,
   layout: Layout,
   capability: DailyCapability,
-  places: { wc: number; amb: number; tether: number },
 ): string[] {
   const unusable = new Set([
     ...capability.unavailablePositionIds,
@@ -183,8 +205,6 @@ export function equipmentChips(
       }),
     );
   }
-  chips.push(pluralize(places.amb, countable.seat));
-  if (places.tether > 0) chips.push(pluralize(places.tether, countable.anchoredSeat));
   return chips;
 }
 
@@ -218,16 +238,25 @@ function seatLine(used: number, available: number, noun: { one: string; many: st
 }
 
 /**
- * The three place lines on a lane, used of available (Vera's review): wheelchair places, seats,
+ * The place lines on a lane, used of available (Vera's review): wheelchair places, seats,
  * anchored seats. An infeasible run can need more than the van has, so a line whose first number
  * is the larger one says so in words rather than leaving "4 of 3" looking like a slip.
+ *
+ * A kind of place the van does not have and nobody is using is left out entirely. "0 of 0
+ * wheelchair places used" is a true sentence about the sedan and it is not a fact — it says
+ * nothing a coordinator can act on, and it was on two of the three lanes (Vera's review,
+ * 2026-10-17). A van asked for a place it has none of still says so, because then the first
+ * number is not zero and the line is the whole reason the run does not fit.
  */
 export function seatLines(seats: LaneSeats): string[] {
-  return [
-    seatLine(seats.wcUsed, seats.wcAvailable, countable.wcPlace),
-    seatLine(seats.ambUsed, seats.ambAvailable, countable.seat),
-    seatLine(seats.tetherUsed, seats.tetherAvailable, countable.anchoredSeat),
+  const places: ReadonlyArray<{ used: number; available: number; noun: { one: string; many: string } }> = [
+    { used: seats.wcUsed, available: seats.wcAvailable, noun: countable.wcPlace },
+    { used: seats.ambUsed, available: seats.ambAvailable, noun: countable.seat },
+    { used: seats.tetherUsed, available: seats.tetherAvailable, noun: countable.anchoredSeat },
   ];
+  return places
+    .filter((place) => place.used > 0 || place.available > 0)
+    .map((place) => seatLine(place.used, place.available, place.noun));
 }
 
 /* ───────────────────────────── a rider's row ───────────────────────────── */

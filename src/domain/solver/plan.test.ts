@@ -27,6 +27,7 @@ import {
   planAssignment,
   planRoutes,
   routePlan,
+  tryMove,
   withMove,
   type Assignment,
   type Direction,
@@ -392,6 +393,102 @@ describe("moving a child between vans", () => {
     expect(check.ok).toBe(false);
     // The caller keeps the old assignment on a refusal, which is what the screen does.
     expect(routePlan(input, planned)).toEqual(before);
+  });
+});
+
+/**
+ * `tryMove`: one move, asked and answered (Veri's finding, 2026-10-17).
+ *
+ * The screen used to call `canTake` and then `withMove` as two steps, and deleting the first one
+ * — accepting every drag, putting a four-point chair in a van with L-track hardware — passed
+ * every test in this file. The tests above are the reason why: each asks `canTake` directly, so
+ * each one still passes when nothing *consults* it. These ask the mover instead, which is the
+ * thing the screen calls, so a mover that stopped asking has nowhere left to hide.
+ *
+ * The refusal carries no assignment at all. That is the type doing the work the comment used to
+ * do: a caller cannot apply a move it was not granted, because there is nothing there to apply.
+ */
+describe("tryMove", () => {
+  const input = inputFor("AM");
+  const planned: Assignment = planAssignment(input);
+
+  /** A rider the solver placed in one lane who a second lane would also take. */
+  function aMovableRider() {
+    const planToday = routePlan(input, planned);
+    const from = laneOf(planToday, "C3");
+    const target = planToday.lanes.find(
+      (lane) => lane.lane.id !== from && lane.seats.ambUsed < lane.seats.ambAvailable,
+    );
+    expect(target, "the planned day leaves a spare seat somewhere").toBeDefined();
+    return { token: "C3", from: from as string, to: target?.lane.id as string };
+  }
+
+  it("accepts a move the solver agrees with, and hands back the new assignment", () => {
+    const { token, from, to } = aMovableRider();
+    const result = tryMove(input, planned, token, to);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable: the move was accepted");
+    expect(result.assignment[to]).toContain(token);
+    expect(result.assignment[from]).not.toContain(token);
+    // Nobody else moved, and the whole roster is still placed.
+    expect(Object.values(result.assignment).flat().sort()).toEqual(
+      Object.values(planned).flat().sort(),
+    );
+    // Still a plan the four constraints agree with, which is the point of asking first.
+    expectEveryRiderFits(routePlan(input, result.assignment));
+    // Pure: the assignment it was given is not the assignment it returned.
+    expect(planned[from]).toContain(token);
+  });
+
+  /**
+   * The refusal, and the whole reason this function exists: Zoe B.'s chair is held by four-point
+   * straps and the centre van's wheelchair position is L-track hardware, so the van cannot take
+   * her. Remove the `canTake` call inside `tryMove` and this is the test that fails.
+   */
+  it("refuses a move the van cannot take, returns the reason, and moves nobody", () => {
+    const result = tryMove(input, planned, "C6", "V2");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("the centre van cannot hold a four-point chair");
+    expect(result.cause).toBe("NO_SECUREMENT");
+    // The refusal has no assignment in it at all, so there is nothing to apply by mistake.
+    expect(result).toEqual({ ok: false, cause: "NO_SECUREMENT" });
+    // And the assignment the caller holds is untouched: she is still in the van she was in.
+    expect(planned.V2).not.toContain("C6");
+    expect(Object.entries(planned).find(([, tokens]) => tokens.includes("C6"))?.[0]).toBe("V1");
+    expect(routePlan(input, planned).unplaced).toEqual([]);
+  });
+
+  it("gives the cause for every kind of refusal, in the solver's own words", () => {
+    // No wheelchair place and no lift at all, which is a different sentence from "full".
+    expect(tryMove(input, planned, "C2", "V4")).toEqual({ ok: false, cause: "NO_WC_PLACE" });
+    // A van nobody has checked is refused rather than guessed about.
+    const unchecked = inputFor(
+      "AM",
+      planLanes().map((lane) =>
+        lane.id === "V2" ? { ...lane, capability: notCheckedYet(lane.vehicle.id) } : lane,
+      ),
+    );
+    expect(tryMove(unchecked, planned, "C3", "V2")).toEqual({
+      ok: false,
+      cause: "UNKNOWN_UNTIL_ARRIVAL",
+    });
+    // A lane that is not on the road today, and a child who is not on the roster: neither is a
+    // move the screen can make, and neither is allowed to fall through as an accepted one.
+    expect(tryMove(input, planned, "C3", "V9")).toEqual({ ok: false, cause: "NO_VEHICLE" });
+    expect(tryMove(input, planned, "C99", "V4")).toEqual({ ok: false, cause: "NO_VEHICLE" });
+  });
+
+  it("always allows taking a child out of every van", () => {
+    const result = tryMove(input, planned, "C6", null);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable: taking a child out is always allowed");
+    expect(Object.values(result.assignment).flat()).not.toContain("C6");
+    // She is in no van, for the one reason that is not a capacity fact.
+    const out = routePlan(input, result.assignment);
+    expect(out.unplaced.find((u) => u.rider.child.token === "C6")?.cause).toBe("NOT_IN_A_VAN");
   });
 });
 

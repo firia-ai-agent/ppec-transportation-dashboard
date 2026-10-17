@@ -11,7 +11,7 @@
  * The output is a feasible layout, or a deficit {k, type, count} with ranked options that a human
  * approves. The solver assigns nothing, locks nothing, and never proposes removing a boarded child.
  */
-import { fill, layoutName, solver as copy } from "@/ui/copy";
+import { fill, layoutName, solver as copy, vanName } from "@/ui/copy";
 import { maxMatching } from "./matching";
 import type {
   AmbSeat, Child, DailyCapability, Deficit, DeficitType, Layout, LayoutAttempt, Leg,
@@ -308,8 +308,10 @@ function buildOptions(
   };
 
   if (movable.length > 0) {
+    // The van by name, never its code: an option is a sentence a coordinator reads, and these
+    // are read on Plan routes where no vehicle code appears at all (copy.ts `vanNamed`).
     add("SPLIT_RUN", `split:${tokens.join("+")}`, copy.options.SPLIT_RUN.label,
-      fill(copy.options.SPLIT_RUN.detail, { who, vehicle: vehicle.label }));
+      fill(copy.options.SPLIT_RUN.detail, { who, vehicle: vanName(vehicle.description) }));
   }
   if (riders.length > 0) {
     for (const candidate of alternates) {
@@ -322,7 +324,7 @@ function buildOptions(
       const sameProvider = candidate.vehicle.providerId === vehicle.providerId;
       const kind: OptionKind = sameProvider ? "ALTERNATE_VEHICLE" : "ALTERNATE_PROVIDER";
       add(kind, `${sameProvider ? "vehicle" : "provider"}:${candidate.vehicle.id}`,
-        fill(copy.options[kind].label, { vehicle: candidate.vehicle.label }),
+        fill(copy.options[kind].label, { vehicle: vanName(candidate.vehicle.description) }),
         fill(copy.options[kind].detail, {
           description: candidate.vehicle.description,
           provider: candidate.vehicle.providerName,

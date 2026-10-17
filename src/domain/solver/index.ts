@@ -22,6 +22,7 @@ export {
   ridersInOrder,
   routePlan,
   solveLane,
+  tryMove,
   withMove,
 } from "./plan";
 export type {
@@ -29,7 +30,9 @@ export type {
   Direction,
   LanePlan,
   LaneSeats,
+  ManualPlacements,
   MoveCheck,
+  MoveResult,
   PlanInput,
   PlanLane,
   PlanRider,
