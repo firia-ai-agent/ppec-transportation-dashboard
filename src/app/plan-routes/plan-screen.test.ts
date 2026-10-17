@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { pageOutcome } from "@/auth/access";
 import {
   DEMO_SCENARIOS,
@@ -13,6 +13,8 @@ import {
   reportedByProvider,
   spareVehicleKeys,
   vehicleByKey,
+  type DemoScenario,
+  type Direction,
 } from "@/domain/plan/day";
 import {
   canTake,
@@ -37,8 +39,12 @@ import {
   setUpChangeLine,
   stopLine,
   summaryLine,
+  savedLine,
+  showingSavedLine,
   unplacedState,
 } from "./lanes";
+import { loadSavedPlan, planFingerprint } from "./save-plan";
+import { initialStages, planInputOf, type PlanDay } from "@/domain/plan/stages";
 
 /**
  * The Plan routes screen's contracts.
@@ -98,9 +104,34 @@ describe("the route is behind the same door as the rest of the console", () => {
     expect(mapPage).toMatch(/canOpenPage\(caller, "\/plan-routes"\)/);
   });
 
-  it("reads no database, calls no endpoint and loads no map tiles", () => {
+  /**
+   * What the screen is allowed to reach, now that two things on it do reach the network.
+   *
+   * It used to reach nothing at all, and the rule was "no `fetch(`, no maplibre, no `@/db/`".
+   * Two of those three are still exactly true and the third has changed on purpose:
+   *  - the map pane is the shared MapLibre component (src/components/map/PlanMap.tsx), which
+   *    fetches the base-map style and its tiles from OpenFreeMap, exactly as /map-preview does
+   *    (ADR-008) — so the screen holds no map library of its own and no tile URL;
+   *  - saving goes through one thin module beside this one (save-plan.ts), which names the
+   *    endpoint through the access table — so the screen itself still writes no request;
+   *  - the database is still not reachable from here at all, and neither is a routing provider
+   *    or a geocoder: the plan is the solver's, computed in the browser from the fixtures.
+   *
+   * e2e/plan-routes.spec.ts is where the live form of this is checked: every request the real
+   * page makes, host by host, with the family names held out of all of them (TEST-SEC-02).
+   */
+  it("reads no database, and makes no request of its own but the save", () => {
     const screenAndHelpers = screen + read("lanes.ts");
     expect(screenAndHelpers).not.toMatch(/fetch\(|EventSource|maplibre|@\/db\//);
+    // The requests, in the one module that may make them, naming the endpoint through the
+    // table: the save, and the read-back of the plan a run already has (Veri's S1).
+    const save = read("save-plan.ts");
+    expect(save).toMatch(/fetch\(API\.planSave/);
+    expect(save).toMatch(/fetch\(`\$\{API\.planSave\}\?scenario=/);
+    expect(save).not.toMatch(/"\/api\//);
+    expect(save).not.toMatch(/@\/db\//);
+    // And the map arrives as the shared component rather than a second MapLibre mount here.
+    expect(screen).toMatch(/from "@\/components\/map\/PlanMap"/);
   });
 });
 
@@ -198,9 +229,31 @@ describe("the screen's own rules", () => {
     expect(screen).toMatch(/aria-expanded=\{changesOpen\}/);
     expect(screen).toMatch(/\{planRoutes\.changeVan\}/);
     expect(screen).toMatch(/hidden=\{!changesOpen\}/);
-    expect(screen).toMatch(
-      /changing === lane\.id \|\| stage\.arrival === "CHANGED" \|\| stage\.arrival === "ASKED"/,
-    );
+    expect(screen).toMatch(/stage\.arrival === "CHANGED" \|\| stage\.arrival === "ASKED"/);
+  });
+
+  /**
+   * Veri's finding, 2026-10-17: the control closes the panel it says it opened, including the
+   * panel a van change forced open.
+   *
+   * The state used to be "which lane is open", so on a lane held open by its own van the press
+   * set it to "no lane" and the forced state put the panel straight back — the one control on
+   * the lane did nothing, on exactly the lane a coordinator is working on. A press is now an
+   * answer about that lane, and it beats the forced state; a van changing clears it, so the next
+   * step still opens itself. The clicks are in e2e/plan-routes.spec.ts (AT-05).
+   */
+  it("lets the control close a panel the van change opened", () => {
+    expect(screen).toMatch(/useState<\{ laneId: string; open: boolean \} \| null>\(null\)/);
+    // The coordinator's own answer about this lane first; the van's state only where there is none.
+    expect(screen).toMatch(/changing\?\.laneId === lane\.id\s*\?\s*changing\.open/);
+    // And the press is the opposite of what is on screen, rather than "forget which lane it was".
+    expect(screen).toMatch(/setChanging\(\{ laneId: lane\.id, open: !changesOpen \}\)/);
+    expect(screen).not.toMatch(/setChanging\(changesOpen \? null : lane\.id\)/);
+    // A new van hands the panel back to the rule that opens it, and so does a new fleet: the
+    // substitution and the scenario toggle are the two places the answer is dropped. Switching
+    // run is not one of them — the morning and the afternoon are the same three vans, and what
+    // the day knows about them does not change when a coordinator reads the other run.
+    expect(screen.match(/setChanging\(null\)/g)).toHaveLength(2);
   });
 
   /**
@@ -253,12 +306,14 @@ describe("the screen's own rules", () => {
     expect(screen).not.toMatch(/canTake|withMove/);
     // And the assignment is only ever set from a move the solver granted.
     const assignments = screen.match(/setAssignment\(/g) ?? [];
-    expect(assignments).toHaveLength(4);
+    expect(assignments).toHaveLength(5);
     expect(screen).toMatch(/setAssignment\(result\.assignment\)/);
-    // The other three are the whole day, not one child: planning it, and emptying it when the
-    // run or the scenario changes.
+    // The other four are the whole day, not one child: planning it, emptying it when the run
+    // or the scenario changes, and putting back the plan the run already had — which the
+    // server re-checked with the same solver before it answered (Veri's S1).
     expect(screen).toMatch(/setAssignment\(planAssignment\(input, pinned\)\)/);
     expect(screen.match(/setAssignment\(emptyAssignment\(/g)).toHaveLength(2);
+    expect(screen).toMatch(/setAssignment\(saved\.assignment\)/);
   });
 
   /**
@@ -443,6 +498,27 @@ describe("the words a lane says", () => {
     // Never the provider's shorthand on a screen.
     expect(setUpAsLine(lane.layout)).toBe("Set up as 1 wheelchair · 3 seats");
     expect(setUpAsLine(lane.layout)).not.toMatch(/\d+WC\/\d+A/);
+  });
+
+  /**
+   * Vera's review, 2026-10-17: a van set up with no wheelchair place says so in a sentence of
+   * its own. The line used to be the layout button's label dropped into "Set up as …" — "Set up
+   * as No wheelchairs · 6 seats", a capital in the middle of the lane's own sentence — and the
+   * seat count it drops is the place line directly underneath it.
+   */
+  it("says a setup with no wheelchair place in plain words", () => {
+    const sedan = laneIn(planRoutes(inputFor()), "V4");
+    expect(sedan.layout.positions.some((position) => position.kind === "WC")).toBe(false);
+    // In the noun the lane counts in: the place lines underneath say "wheelchair place", so the
+    // line that says there are none says "places" too (Vera's review, 2026-10-17).
+    expect(setUpAsLine(sedan.layout)).toBe("Set up with no wheelchair places");
+    expect(setUpAsLine(sedan.layout)).not.toMatch(/\bspaces?\b/);
+    // The three failures that line replaced, in one place: the label inside the sentence, the
+    // lowercased patch of the same thing, and the shorthand.
+    expect(setUpAsLine(sedan.layout)).not.toMatch(/[Nn]o wheelchairs/);
+    expect(setUpAsLine(sedan.layout)).not.toMatch(/\d+WC\/\d+A/);
+    // A van that does have a chair place still reads as a configuration, counts and all.
+    expect(setUpAsLine(laneIn(planRoutes(inputFor()), "V1").layout)).toMatch(/^Set up as \d/);
   });
 
   it("writes a stop as the place and the time, in words a person says out loud", () => {
@@ -712,5 +788,429 @@ describe("the words beside a child with no van", () => {
 
   it("counts the plan in riders, not in rows", () => {
     expect(summaryLine(7, 9)).toBe("7 of 9 riders are in a van.");
+  });
+});
+
+
+/**
+ * Saving, as the screen reports it (Vera's review, 2026-10-17).
+ *
+ * Three facts a coordinator needs from the one control that leaves the browser: whether there is
+ * anything to save, whether what is on screen has been saved, and when the save happened. Two of
+ * them are pure functions, asserted here; the third is the button's own `disabled`, which is a
+ * rule in the source below and a real click in e2e/plan-routes.spec.ts.
+ */
+describe("what the screen says about saving", () => {
+  const DAY: PlanDay = {
+    scenario: "EVERY_RIDER_FITS",
+    direction: "AM",
+    stages: initialStages("EVERY_RIDER_FITS"),
+    measured: [],
+  };
+
+  /** The day's own plan, so the fingerprint is taken over a plan the solver agrees with. */
+  function planned(day: PlanDay = DAY) {
+    return planAssignment(planInputOf(day));
+  }
+
+  it("says a plan was saved at the time the server kept it, and that nobody was told", () => {
+    // The endpoint answers in UTC; the screen reads it out on the clock at the centre.
+    expect(savedLine("2026-10-17T17:24:03Z")).toBe(
+      "Plan saved at 1:24 PM. No family has been told.",
+    );
+    expect(savedLine("2026-10-17T20:05:00Z")).toBe(
+      "Plan saved at 4:05 PM. No family has been told.",
+    );
+    // Not a 24-hour clock, not an instant, and no placeholder left unfilled.
+    expect(savedLine("2026-10-17T17:24:03Z")).not.toMatch(/17:24|\{time\}|T\d|Z\b|UTC/);
+    // The promise the rest of the screen makes is in the same line, in the same words.
+    expect(savedLine("2026-10-17T17:24:03Z")).toContain(copy.nothingSent.split(".")[0]);
+  });
+
+  it("is the same plan, however the children got there", () => {
+    const assignment = planned();
+    // The same plan twice is the same fingerprint: nothing about the object's order counts.
+    expect(planFingerprint(DAY, { ...assignment })).toBe(planFingerprint(DAY, assignment));
+    // Including the order the riders were put in a van: a child dragged out and back is two
+    // changes and no difference, and must not leave the screen saying it has one.
+    const reversed = Object.fromEntries(
+      Object.entries(assignment).map(([laneId, tokens]) => [laneId, [...tokens].reverse()]),
+    );
+    expect(planFingerprint(DAY, reversed)).toBe(planFingerprint(DAY, assignment));
+    // And the lanes in the other order, which is the same day read from the other end.
+    const lanesBackwards = Object.fromEntries(Object.entries(assignment).reverse());
+    expect(planFingerprint(DAY, lanesBackwards)).toBe(planFingerprint(DAY, assignment));
+  });
+
+  it("differs the moment the plan does, in any of the things a save carries", () => {
+    const assignment = planned();
+    const base = planFingerprint(DAY, assignment);
+    const lane = Object.keys(assignment)[0];
+
+    // A child taken out of a van.
+    const oneFewer = { ...assignment, [lane]: assignment[lane].slice(1) };
+    expect(planFingerprint(DAY, oneFewer)).not.toBe(base);
+    // A child moved to another van: the same children, a different plan.
+    const moved = {
+      ...assignment,
+      [lane]: assignment[lane].slice(1),
+      [Object.keys(assignment)[1]]: [
+        ...assignment[Object.keys(assignment)[1]],
+        assignment[lane][0],
+      ],
+    };
+    expect(planFingerprint(DAY, moved)).not.toBe(base);
+    // The other run, and the other scenario: a plan belongs to one run of one fleet.
+    expect(planFingerprint({ ...DAY, direction: "PM" }, assignment)).not.toBe(base);
+    expect(
+      planFingerprint(
+        { ...DAY, scenario: "ONE_RIDER_HAS_NO_VAN", stages: initialStages("ONE_RIDER_HAS_NO_VAN") },
+        assignment,
+      ),
+    ).not.toBe(base);
+    // What the day knows about a van, which the solver re-reads and the request carries.
+    const substituted = {
+      ...DAY,
+      stages: {
+        ...DAY.stages,
+        [lane]: { ...DAY.stages[lane], vehicleKey: "V3", arrival: "CHANGED" as const },
+      },
+    };
+    expect(planFingerprint(substituted, assignment)).not.toBe(base);
+    // And a chair the ramp has measured (AT-04), which can change who fits.
+    expect(planFingerprint({ ...DAY, measured: ["C6"] }, assignment)).not.toBe(base);
+  });
+
+  /**
+   * The one thing a save does not carry: who is driving. A relief driver changes nothing the
+   * solver decides and nothing that is kept, so taking one may not turn a saved plan into an
+   * unsaved one.
+   */
+  it("is unchanged by a driver substitution, which is not part of the plan", () => {
+    const assignment = planned();
+    const lane = Object.keys(assignment)[0];
+    const relief = {
+      ...DAY,
+      stages: { ...DAY.stages, [lane]: { ...DAY.stages[lane], driverName: "Gus M." } },
+    };
+    expect(planFingerprint(relief, assignment)).toBe(planFingerprint(DAY, assignment));
+  });
+});
+
+/**
+ * The two rules the screen itself holds about saving, read off its source: vitest has no DOM, and
+ * the click that proves them is in e2e/plan-routes.spec.ts.
+ */
+describe("the save button's own rules", () => {
+  const screen = read("PlanRoutes.tsx");
+
+  it("cannot be pressed until somebody is in a van", () => {
+    expect(screen).toMatch(/disabled=\{saving \|\| placed === 0\}/);
+    // §4.2: the reason is readable rather than guessed at — the count is in the same row, and
+    // the pane says what to press.
+    expect(screen).toMatch(/summaryLine\(placed, riders\.length\)/);
+  });
+
+  it("says the screen is not saved by comparing it with what was, not by a flag", () => {
+    // The notice is the comparison, in the row with the button, and only when there is a plan.
+    expect(screen).toMatch(/const unsaved = placed > 0 && fingerprint !== savedPlan;/);
+    expect(screen).toMatch(/\{planRoutes\.unsaved\}/);
+    expect(screen).toMatch(/data-unsaved="true"/);
+    // A save records the plan it sent, not whatever is on screen when the answer arrives.
+    expect(screen).toMatch(/const sent = fingerprint;/);
+    expect(screen).toMatch(/if \(outcome\.ok\) setSavedPlan\(sent\);/);
+    // And the saved line is the server's time, through the one helper that formats it.
+    expect(screen).toMatch(/savedLine\(outcome\.savedAt\)/);
+    expect(screen).not.toMatch(/planRoutes\.saved\b/);
+  });
+});
+
+
+/**
+ * Reading a saved plan back, which is the fix for Veri's S1 (2026-10-17): a plan used to live
+ * only in this screen's state, so a reload lost it.
+ *
+ * The helper is the screen's whole knowledge of what a run already has, and the one rule it
+ * has to keep is that it never hands the screen something it cannot draw. Everything that is
+ * not a readable plan of the run that was asked for — a network that never answered, a body
+ * that is not JSON, a shape it cannot read, a child or a van from somewhere else — is the same
+ * answer: nothing saved, which is what the empty screen already says.
+ */
+describe("reading back the plan a run already has", () => {
+  const DAY: PlanDay = {
+    scenario: "EVERY_RIDER_FITS",
+    direction: "AM",
+    stages: initialStages("EVERY_RIDER_FITS"),
+    measured: [],
+  };
+  const SAVED_AT = "2026-10-17T17:24:03.000Z";
+
+  /** The lanes as they travel: ids only, because no person is on the wire either way. */
+  const asked = Object.fromEntries(
+    Object.entries(DAY.stages).map(([laneId, stage]) => [
+      laneId,
+      { vehicleKey: stage.vehicleKey, arrival: stage.arrival },
+    ]),
+  );
+
+  function body(over: Record<string, unknown> = {}) {
+    return {
+      ok: true,
+      saved: {
+        scenario: "EVERY_RIDER_FITS",
+        direction: "AM",
+        stages: asked,
+        measured: [],
+        assignment: planAssignment(planInputOf(DAY)),
+        savedAt: SAVED_AT,
+        ...over,
+      },
+    };
+  }
+
+  /**
+   * The runs a plan can belong to, other than the morning of the first fleet that every check
+   * above asks about: two fleets × two runs is the whole key a saved plan is filed under
+   * (src/modules/demo/plan-store.ts), and the afternoon is the half no test used to name.
+   */
+  const RUNS = [
+    { scenario: "EVERY_RIDER_FITS", direction: "PM" },
+    { scenario: "ONE_RIDER_HAS_NO_VAN", direction: "PM" },
+    { scenario: "ONE_RIDER_HAS_NO_VAN", direction: "AM" },
+  ] as const;
+
+  /** One run's day as the screen builds it, so the plan in an answer is a plan of that run. */
+  function dayOf(run: { scenario: DemoScenario; direction: Direction }): PlanDay {
+    return { ...run, stages: initialStages(run.scenario), measured: [] };
+  }
+
+  /** An answer keeping the planner's own plan of one day — the lanes as ids, as they travel. */
+  function savedBody(day: PlanDay) {
+    return {
+      ok: true,
+      saved: {
+        scenario: day.scenario,
+        direction: day.direction,
+        stages: Object.fromEntries(
+          Object.entries(day.stages).map(([laneId, stage]) => [
+            laneId,
+            { vehicleKey: stage.vehicleKey, arrival: stage.arrival },
+          ]),
+        ),
+        measured: day.measured,
+        assignment: planAssignment(planInputOf(day)),
+        savedAt: SAVED_AT,
+      },
+    };
+  }
+
+  /** The endpoint, answered by the test: vitest has no server and the shape is the contract. */
+  function answering(payload: unknown, init: { ok?: boolean } = {}) {
+    return vi.fn(async () =>
+      init.ok === false
+        ? new Response("{}", { status: 403 })
+        : new Response(JSON.stringify(payload), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+    );
+  }
+
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it("hands back the day and the plan, asked for by the run on screen", async () => {
+    const fetched = answering(body());
+    globalThis.fetch = fetched as unknown as typeof fetch;
+
+    const loaded = await loadSavedPlan("EVERY_RIDER_FITS", "AM");
+    expect(loaded?.savedAt).toBe(SAVED_AT);
+    expect(loaded?.assignment).toEqual(planAssignment(planInputOf(DAY)));
+    // The day comes back whole, with the driver filled in from the day's own records rather
+    // than from the answer — nobody's name travelled.
+    expect(loaded?.day.scenario).toBe("EVERY_RIDER_FITS");
+    expect(loaded?.day.direction).toBe("AM");
+    expect(loaded?.day.stages).toEqual(DAY.stages);
+    expect(loaded?.day.measured).toEqual([]);
+    // Asked of the run the screen is on, and not cached: a plan saved a moment ago is the point.
+    const [url, init] = fetched.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain("scenario=EVERY_RIDER_FITS");
+    expect(url).toContain("direction=AM");
+    expect(init.cache).toBe("no-store");
+  });
+
+  it("brings back what the plan was made against, not this morning's defaults", async () => {
+    const stages = { ...asked };
+    const laneId = Object.keys(stages)[0];
+    stages[laneId] = { ...stages[laneId], arrival: "ASKED" };
+    const day: PlanDay = {
+      ...DAY,
+      measured: ["C6"],
+      stages: { ...DAY.stages, [laneId]: { ...DAY.stages[laneId], arrival: "ASKED" } },
+    };
+    const assignment = planAssignment(planInputOf(day));
+    globalThis.fetch = answering(
+      body({ stages, measured: ["C6"], assignment }),
+    ) as unknown as typeof fetch;
+
+    const loaded = await loadSavedPlan("EVERY_RIDER_FITS", "AM");
+    expect(loaded?.day.stages[laneId].arrival).toBe("ASKED");
+    expect(loaded?.day.measured).toEqual(["C6"]);
+    expect(loaded?.assignment).toEqual(assignment);
+  });
+
+  it("is nothing saved when the run has none", async () => {
+    globalThis.fetch = answering({ ok: true, saved: null }) as unknown as typeof fetch;
+    expect(await loadSavedPlan("EVERY_RIDER_FITS", "AM")).toBeNull();
+  });
+
+  it("is nothing saved for a body it cannot read, whatever is wrong with it", async () => {
+    const bad: unknown[] = [
+      null,
+      "not an object",
+      {},
+      { ok: true },
+      { ok: true, saved: "a plan" },
+      // Everything there but the minute it was kept, which is the one thing the line says.
+      body({ savedAt: undefined }),
+      body({ savedAt: "the afternoon" }),
+      // Shapes: lanes that are not lanes, a measurement list that is not one, a plan that is not.
+      body({ stages: "every van" }),
+      body({ stages: { V1: { vehicleKey: 7, arrival: "REPORTED" } } }),
+      body({ stages: { ...asked, V1: { ...asked.V1, arrival: "ARRIVED_SOMEHOW" } } }),
+      body({ measured: "C6" }),
+      body({ measured: [7] }),
+      body({ assignment: ["C7"] }),
+      body({ assignment: { V1: "C7" } }),
+    ];
+    for (const payload of bad) {
+      globalThis.fetch = answering(payload) as unknown as typeof fetch;
+      expect(await loadSavedPlan("EVERY_RIDER_FITS", "AM"), JSON.stringify(payload)).toBeNull();
+    }
+  });
+
+  it("is nothing saved when the answer names a child, a van or a lane this run does not have", async () => {
+    const swaps = [
+      body({ assignment: { ...planAssignment(planInputOf(DAY)), "lane-x": ["C7"] } }),
+      body({ assignment: { V1: ["C999"], V2: [], V4: [] } }),
+      body({ stages: { ...asked, V1: { vehicleKey: "V99", arrival: "REPORTED" } } }),
+      body({ measured: ["C12"] }),
+      // A plan the solver will not agree with: the screen draws what the solver allows, and a
+      // plan it refuses is not something to put on the screen whatever a body says.
+      body({ assignment: { V1: ["C6", "C7", "C8", "C9"], V2: [], V4: [] } }),
+    ];
+    for (const payload of swaps) {
+      globalThis.fetch = answering(payload) as unknown as typeof fetch;
+      expect(await loadSavedPlan("EVERY_RIDER_FITS", "AM"), JSON.stringify(payload)).toBeNull();
+    }
+  });
+
+  it("is nothing saved when the request is refused or never arrives", async () => {
+    globalThis.fetch = answering(body(), { ok: false }) as unknown as typeof fetch;
+    expect(await loadSavedPlan("EVERY_RIDER_FITS", "AM")).toBeNull();
+
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error("the network is not a thing the screen can count on");
+    }) as unknown as typeof fetch;
+    expect(await loadSavedPlan("EVERY_RIDER_FITS", "AM")).toBeNull();
+  });
+
+  it("says what it is showing, with the minute the server kept it", () => {
+    expect(showingSavedLine(SAVED_AT)).toBe("Showing the plan saved at 1:24 PM.");
+    expect(showingSavedLine("2026-10-17T20:05:00Z")).toBe("Showing the plan saved at 4:05 PM.");
+    // The clock at the centre, not the instant and not a placeholder left unfilled.
+    expect(showingSavedLine(SAVED_AT)).not.toMatch(/17:24|\{time\}|T\d|Z\b|UTC/);
+  });
+
+  /**
+   * Veri's S1-2, 2026-10-17: **the run asked for is the run on screen.**
+   *
+   * Hard-wiring the read-back to the morning (`direction=AM`) passed every test this file had,
+   * because every one of them asked about `EVERY_RIDER_FITS/AM` — the one run a mutation to the
+   * morning cannot be told apart from. A plan belongs to one run of one fleet, so both halves
+   * of the key are asserted here, for the afternoon and for the second fleet.
+   */
+  it("asks about the run it was given — the afternoon, and the other fleet", async () => {
+    for (const run of RUNS) {
+      const fetched = answering(savedBody(dayOf(run)));
+      globalThis.fetch = fetched as unknown as typeof fetch;
+
+      const loaded = await loadSavedPlan(run.scenario, run.direction);
+      const [url] = fetched.mock.calls[0] as unknown as [string];
+      expect(url, JSON.stringify(run)).toContain(`scenario=${run.scenario}`);
+      expect(url, JSON.stringify(run)).toContain(`direction=${run.direction}`);
+      // And what comes back is that run's day, not whatever the answer claims to be about.
+      expect(loaded?.day.scenario).toBe(run.scenario);
+      expect(loaded?.day.direction).toBe(run.direction);
+      expect(loaded?.assignment).toEqual(planAssignment(planInputOf(dayOf(run))));
+    }
+  });
+
+  /**
+   * The same rule as behaviour rather than as a string in a URL: an endpoint that keeps one plan
+   * per run, with a plan saved for the afternoon and nothing for the morning.
+   *
+   * A screen asking the wrong way round gets the other run's answer, which is how a coordinator
+   * would meet this — an afternoon plan that does not come back after a reload, and a morning
+   * that shows a plan nobody made for it.
+   */
+  it("reads back the afternoon's plan, and the morning's nothing, from an endpoint that keeps both", async () => {
+    const perRun = Object.fromEntries(
+      RUNS.filter((run) => run.direction === "PM").map((run) => [
+        `${run.scenario}/${run.direction}`,
+        savedBody(dayOf(run)).saved,
+      ]),
+    );
+    globalThis.fetch = vi.fn(async (input: string) => {
+      const asked = new URL(input, "http://plan.test").searchParams;
+      const saved = perRun[`${asked.get("scenario")}/${asked.get("direction")}`] ?? null;
+      return new Response(JSON.stringify({ ok: true, saved }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    for (const scenario of ["EVERY_RIDER_FITS", "ONE_RIDER_HAS_NO_VAN"] as const) {
+      const afternoon = await loadSavedPlan(scenario, "PM");
+      expect(afternoon?.savedAt, scenario).toBe(SAVED_AT);
+      expect(afternoon?.day.direction, scenario).toBe("PM");
+      expect(afternoon?.assignment, scenario).toEqual(
+        planAssignment(planInputOf(dayOf({ scenario, direction: "PM" }))),
+      );
+      // The morning of the same fleet has nothing saved, and says so.
+      expect(await loadSavedPlan(scenario, "AM"), scenario).toBeNull();
+    }
+  });
+});
+
+/**
+ * The screen's own half of the read-back, read off its source: vitest has no DOM, and the
+ * reload that proves it is in e2e/plan-routes.spec.ts.
+ */
+describe("the read-back's rules on the screen", () => {
+  const screen = read("PlanRoutes.tsx");
+
+  it("asks for the run it is on, and again whenever the run changes", () => {
+    expect(screen).toMatch(/loadSavedPlan\(scenario, direction\)/);
+    expect(screen).toMatch(/\}, \[scenario, direction\]\);/);
+  });
+
+  it("puts back the whole day, and marks it saved rather than changed", () => {
+    expect(screen).toMatch(/setStages\(\{ \.\.\.saved\.day\.stages \}\);/);
+    expect(screen).toMatch(/setMeasured\(saved\.day\.measured\);/);
+    expect(screen).toMatch(/setAssignment\(saved\.assignment\);/);
+    expect(screen).toMatch(/setSavedPlan\(planFingerprint\(saved\.day, saved\.assignment\)\);/);
+    expect(screen).toMatch(/showingSavedLine\(saved\.savedAt\)/);
+    expect(screen).not.toMatch(/planRoutes\.showingSaved\b/);
+  });
+
+  it("takes nothing away from a coordinator who started before it answered", () => {
+    // The screen as the run opened, compared with the screen when the answer arrives.
+    expect(screen).toMatch(/const opened = onScreen\.current;/);
+    expect(screen).toMatch(/if \(dropped \|\| !saved \|\| onScreen\.current !== opened\) return;/);
+    // And a run switched again before the answer arrives drops it outright.
+    expect(screen).toMatch(/dropped = true;/);
   });
 });
