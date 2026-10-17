@@ -61,6 +61,21 @@ export const nav = {
   menuLabel: "Menu",
 } as const;
 
+/**
+ * The step strip under Today's header (REDESIGN-SPEC §9.2, §9.5). The three steps of the day, in
+ * order, each a link to the screen that does it. States (Done / Needed / Locked) are not shown yet:
+ * TODO(data-model): they are read from docs/DATA-MODEL.md once its van / day-counts / plan
+ * section is signed, and no screen decides them on its own before then.
+ */
+export const flow = {
+  stepsAria: "Today's steps",
+  steps: {
+    setup: "Van setup",
+    plan: "Plan routes",
+    live: "Live map",
+  },
+} as const;
+
 /** COPY-GUIDE §5: visible label "Search", placeholder "Child, route or vehicle". */
 export const search = {
   label: "Search",
