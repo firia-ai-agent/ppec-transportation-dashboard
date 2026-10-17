@@ -40,6 +40,7 @@ export const RESET_TABLES = [
   "ops.agent_tool_call", "ops.agent_run", "ops.agent_memory",
   "ops.eta_estimate", "ops.telemetry_point", "ops.device_binding", "ops.device",
   "ops.manifest_reservation", "ops.trip_leg", "ops.manifest",
+  "ops.plan_assignment", "ops.plan_run", "ops.vehicle_setup_day",
   "ops.vehicle_capability_day", "ops.layout_position", "ops.vehicle_layout", "ops.vehicle",
   "ops.dispatcher_link", "ops.provider",
   "ops.attendance_event", "ops.attendance_day", "ops.attendance_exception", "ops.attendance_plan",
