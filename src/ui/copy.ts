@@ -789,9 +789,18 @@ export const rampPreview = {
     "Nothing here is sent to a family. What the ramp finds goes to the plan; boarding records stay on this iPad.",
 
   arrivalsHeading: "Which vehicle is at the ramp?",
-  /** §5: the vehicle tile reads "V1 · Provider P1 · arriving 8:52 · 3 riders", over two lines. */
+  /**
+   * The vehicle tile, over two lines: the van as the Today board writes it and the provider who
+   * answers for it, then what it is, when it pulls away from the centre and how many it carries.
+   *
+   * The second line names the van in words as well, because the first line's label is the board's
+   * handle on it and this screen is the one place somebody is standing in front of the van.
+   * `{time}` used to be a hand-written arrival string in a fixture beside the screen; it is now
+   * the moment the plan has this run leaving the centre, which is the deadline a ramp check is
+   * actually against.
+   */
   vehicleTile: "{vehicle} · {provider}",
-  vehicleTileDetail: "arriving {time} · {riders} riders",
+  vehicleTileDetail: "{description} · leaves at {time} · {riders} riders",
 
   checklistHeading: "What can {vehicle} carry today?",
   checklistIntro:
@@ -844,6 +853,20 @@ export const rampPreview = {
   recordedLate: "Recorded late",
   /** §5 SURF-02, reused here: a transport need is never a diagnosis. */
   needsCaption: "Derived from intake, not a diagnosis.",
+  /**
+   * The chair, measured at the ramp rather than taken from the file.
+   *
+   * The one thing on this screen that is about a child's equipment and not the van's, and the
+   * lever the whole of "equipment found unknown at arrival" turns on: a chair that arrives with
+   * a new headrest and a tray is a chair the approved profile does not describe, and the plan
+   * has to be asked again about the chair that is here. The button is only offered for a child
+   * whose chair the day has a measurement for, and the line after it compares the two rather
+   * than asserting a difference.
+   */
+  measureChair: "Measure the chair",
+  measuredChip: "Measured {length} × {width} cm",
+  measuredDiffers: "Bigger than the {length} × {width} cm on file.",
+  measuredMatches: "The same size the file says.",
   confirmBoarding: "Confirm boarding & securement",
   confirmAgain: "Tap again to confirm",
   notOnVehicle: "Not on vehicle",

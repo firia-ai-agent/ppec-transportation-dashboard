@@ -7,6 +7,16 @@
  * solver (PRD §7) in the browser and the solver's verdict drives the banner. Approvals belong to a
  * coordinator (SURF-05), so this page proposes and records, and never assigns or approves.
  *
+ * The vans at the ramp, the children on them and the time each run leaves the centre are the demo
+ * scenario's own, through src/domain/plan/arrival.ts — the same day the Today board renders and
+ * the same day Plan routes plans. They used to be a second fixture written beside this screen
+ * (src/fixtures/fleet.ts), which named eight other children and could disagree with the plan
+ * every other screen reads; there is one day under all three now.
+ *
+ * And the check no longer stops here. What the ramp finds is re-planned on screen by the solver's
+ * own mover, and the result is a thing a coordinator can open: the two links under it carry the
+ * finding to Plan routes and to the board, where the same re-plan is shown and decided about.
+ *
  * Words come from src/ui/copy.ts and colours and metrics from the CSS custom properties
  * src/ui/tokens.ts emits in the root layout — this route holds neither its own copy nor its own
  * token table. The DEMO banner and the single NFR-09 source chip also come from the root layout,
@@ -16,14 +26,27 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { feasible } from "@/domain/solver";
 import type { AlternateCandidate, Child, LayoutPosition, SolveResult } from "@/domain/solver";
 import { chairFitsPosition } from "@/domain/solver";
-import { ARRIVING_VEHICLES, SERVICE_DATE, fullyAvailable } from "@/fixtures/fleet";
-import { fill, layoutName, rampPreview, sentence } from "@/ui/copy";
+import {
+  ARRIVAL_PARAM,
+  encodeFinding,
+  rampArrivals,
+  replanForArrival,
+} from "@/domain/plan/arrival";
+import {
+  MEASURED_AT_ARRIVAL,
+  PLAN_SERVICE_DATE,
+  reportedByProvider,
+} from "@/domain/plan/day";
+import { fill, layoutName, rampPreview, rampReplan, sentence, vanName } from "@/ui/copy";
+import { holdLines, moveLines, stayLines } from "@/ui/arrival-lines";
+import { StateChip } from "@/ui/StateChip";
 import { serviceDateLabel } from "@/ui/service-date";
 import { toneVars } from "@/ui/tokens";
 import type { Tone } from "@/ui/tokens";
 import {
-  ANSWER_LABEL, POSITION_ANSWER_LABEL, availableSummary, bannerCopy, defaultChecklist, isAmb, isWc,
-  layoutOf, needChips, needSummary, positionDetail, positionName, toCapability,
+  ANSWER_LABEL, POSITION_ANSWER_LABEL, availableSummary, bannerCopy, defaultChecklist,
+  findingOfChecklist, isAmb, isWc, layoutOf, needChips, needSummary, positionDetail, positionName,
+  toCapability,
 } from "./capability";
 import type { Answer, Checklist, PositionAnswer } from "./capability";
 import { Icon } from "./icons";
@@ -37,7 +60,7 @@ type Snack = { id: string; text: string; riderKey: string };
  * The service date the fixtures describe, as "Tue, Oct 14" (COPY-GUIDE §3). Read at noon UTC so
  * the site timezone (America/New_York) lands on the same calendar day the fixture names.
  */
-const SERVICE_DATE_LABEL = serviceDateLabel(new Date(`${SERVICE_DATE}T12:00:00Z`));
+const SERVICE_DATE_LABEL = serviceDateLabel(new Date(`${PLAN_SERVICE_DATE}T12:00:00Z`));
 
 /** §4.4: the checklist is 64 px toggle rows, and the vehicle tiles are big segmented tiles. */
 const CHECKLIST_ROW_HEIGHT = 64;
@@ -155,6 +178,14 @@ export default function RampCheck() {
   const [offline, setOffline] = useState(false);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [snack, setSnack] = useState<Snack | null>(null);
+  /**
+   * The chairs the ramp has measured itself, by child.
+   *
+   * Kept apart from the checklist on purpose: the §4.4 checklist is the *vehicle* check, and a
+   * chair is not part of the vehicle. It is the one finding on this screen about a child, and
+   * the one the plan has to be asked again about — see `rampPreview.measureChair`.
+   */
+  const [measuredChairs, setMeasuredChairs] = useState<readonly string[]>([]);
 
   /*
    * The feasibility banner is sticky, so while the page is scrolled it is pinned to the bottom
@@ -178,25 +209,57 @@ export default function RampCheck() {
   }, []);
 
 
-  const arrival = ARRIVING_VEHICLES[arrivalIndex];
+  // The day's own afternoon runs. Deterministic and pure, so it is read once per mount.
+  const arrivals = useMemo(() => rampArrivals(), []);
+  const arrival = arrivals[arrivalIndex];
   const { vehicle, leg } = arrival;
   const checklist = checklists[vehicle.id] ?? defaultChecklist(vehicle, arrival.plannedLayoutId);
   const layout = layoutOf(vehicle, checklist.layoutId);
 
   const result: SolveResult = useMemo(() => {
-    const capability = toCapability(vehicle, checklist, SERVICE_DATE);
-    const alternates: AlternateCandidate[] = ARRIVING_VEHICLES
+    const capability = toCapability(vehicle, checklist, PLAN_SERVICE_DATE);
+    const alternates: AlternateCandidate[] = arrivals
       .filter((other) => other.vehicle.id !== vehicle.id)
       .map((other) => ({
         vehicle: other.vehicle,
         leg: other.leg,
-        // Checked on this iPad if ramp staff have filled it in, otherwise what the provider reported.
+        // Checked on this iPad if ramp staff have filled it in, otherwise what the provider
+        // reported for today. A van nobody has said anything about still takes nobody (VEH-04).
         capability: checklists[other.vehicle.id]
-          ? toCapability(other.vehicle, checklists[other.vehicle.id], SERVICE_DATE)
-          : fullyAvailable(other.vehicle, { state: "REPORTED", observedLayoutId: other.plannedLayoutId }),
+          ? toCapability(other.vehicle, checklists[other.vehicle.id], PLAN_SERVICE_DATE)
+          : reportedByProvider(other.vehicle.id),
       }));
     return feasible(vehicle, leg, capability, { alternates });
-  }, [vehicle, leg, checklist, checklists]);
+  }, [arrivals, vehicle, leg, checklist, checklists]);
+
+  /**
+   * Is the vehicle check finished? Nothing is re-planned off a half-answered checklist.
+   *
+   * Not because an unanswered row is harmless — it is not, and the solver reads it as
+   * unavailable exactly as it should (PRD §7 l.797) — but because a screen that opened on "three
+   * children have no van" before anybody had touched a row would be shouting about the honest
+   * starting state of every morning.
+   */
+  const checkFinished =
+    checklist.lift !== "UNSURE" &&
+    checklist.latch !== "UNSURE" &&
+    layout.positions.every((p) => (checklist.positions[p.id] ?? "UNSURE") !== "UNSURE");
+
+  /** This check as a fact about the van, which is what the other two screens read. */
+  const finding = useMemo(
+    () => findingOfChecklist(arrival, checklist, measuredChairs),
+    [arrival, checklist, measuredChairs],
+  );
+
+  /**
+   * The day re-planned around this van, by the solver's own mover.
+   *
+   * Computed whether or not the check is finished, because the panel below needs to know that
+   * there is nothing to say as much as it needs to know what to say — but it is only *shown*
+   * once the check is finished.
+   */
+  const replan = useMemo(() => replanForArrival(finding), [finding]);
+  const findingCode = useMemo(() => encodeFinding(finding), [finding]);
 
   const need = useMemo(() => needSummary(leg), [leg]);
   const available = availableSummary(vehicle, checklist);
@@ -281,6 +344,8 @@ export default function RampCheck() {
 
   const savedOffline = queue.filter((entry) => entry.offline).length;
   const riders = [...leg.children];
+  /** The chairs this run carries that the ramp can measure for itself. */
+  const measurable = riders.filter((child) => MEASURED_AT_ARRIVAL[child.token] !== undefined);
   // Nobody boards until the check says the run fits: the solver blocks the manifest lock (PRD §9).
   const blockedReason = result.status === "FEASIBLE" ? null
     : result.status === "CAPABILITY_PENDING" ? rampPreview.blockedPending
@@ -320,7 +385,7 @@ export default function RampCheck() {
       <div style={{
         display: "flex", gap: "var(--space-5)", flexWrap: "wrap", marginBottom: "var(--space-5)",
       }}>
-        {ARRIVING_VEHICLES.map((candidate, index) => {
+        {arrivals.map((candidate, index) => {
           const chosen = index === arrivalIndex;
           return (
             <button
@@ -349,7 +414,9 @@ export default function RampCheck() {
                 color: chosen ? "var(--color-surface)" : "var(--color-ink-muted)",
               }}>
                 {fill(rampPreview.vehicleTileDetail, {
-                  time: candidate.arrivingAt, riders: candidate.leg.children.length,
+                  description: candidate.vehicle.description,
+                  time: candidate.leavesAt,
+                  riders: candidate.riders.length,
                 })}
               </span>
             </button>
@@ -361,7 +428,7 @@ export default function RampCheck() {
         {/* Capability checklist */}
         <section style={{ ...CARD, flex: "1 1 420px" }} aria-labelledby="checklist-heading">
           <h2 id="checklist-heading" style={{ fontSize: "var(--text-20)", marginTop: 0 }}>
-            {fill(rampPreview.checklistHeading, { vehicle: vehicle.label })}
+            {fill(rampPreview.checklistHeading, { vehicle: vanName(vehicle.description) })}
           </h2>
           <p style={{ color: "var(--color-ink-muted)", marginTop: 0 }}>{rampPreview.checklistIntro}</p>
 
@@ -542,6 +609,40 @@ export default function RampCheck() {
                     ))}
                   </div>
                   <p style={{ ...MUTED, margin: "0 0 var(--space-3)" }}>{rampPreview.needsCaption}</p>
+                  {/*
+                    The chair, measured here rather than taken from the file. Offered only for a
+                    child whose chair the day has a measurement for, and the line under it
+                    compares the two numbers instead of asserting that they differ.
+                  */}
+                  {measurable.includes(child) ? (
+                    <div style={{ margin: "0 0 var(--space-3)" }}>
+                      {measuredChairs.includes(child.token) ? (
+                        <>
+                          <Chip toneName="info" icon="check">
+                            {fill(rampPreview.measuredChip, {
+                              length: MEASURED_AT_ARRIVAL[child.token].wcLengthCm,
+                              width: MEASURED_AT_ARRIVAL[child.token].wcWidthCm,
+                            })}
+                          </Chip>
+                          <p style={{ ...MUTED, margin: "var(--space-3) 0 0" }}>
+                            {chairDiffers(child)
+                              ? fill(rampPreview.measuredDiffers, {
+                                  length: child.wcLengthCm ?? 0,
+                                  width: child.wcWidthCm ?? 0,
+                                })
+                              : rampPreview.measuredMatches}
+                          </p>
+                        </>
+                      ) : (
+                        <BigButton
+                          label={rampPreview.measureChair}
+                          onClick={() =>
+                            setMeasuredChairs((prev) => [...prev, child.token])
+                          }
+                        />
+                      )}
+                    </div>
+                  ) : null}
                   {action ? null : (
                     <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
                       <BigButton
@@ -582,6 +683,51 @@ export default function RampCheck() {
                 </div>
               );
             })}
+          </div>
+
+          {/*
+            What this check does to the afternoon: the solver's answer, on the screen that took
+            the check, and a link that hands the same answer to the two screens that decide
+            about it. Nothing in here is a decision — every line is a proposal, and the last
+            one says so.
+          */}
+          <div style={CARD} id="ramp-replan" aria-labelledby="replan-heading">
+            <h2 id="replan-heading" style={{ fontSize: "var(--text-20)", marginTop: 0 }}>
+              {rampReplan.heading}
+            </h2>
+            {!checkFinished ? (
+              <p style={{ ...MUTED, margin: 0 }}>{rampPreview.notCheckedDetail}</p>
+            ) : !replan.changed ? (
+              <>
+                <p style={{ margin: 0 }}>{rampReplan.nothingChanged}</p>
+                <p style={{ ...MUTED, margin: "var(--space-3) 0 0" }}>
+                  {rampReplan.nothingChangedDetail}
+                </p>
+              </>
+            ) : (
+              <>
+                <p style={{ margin: 0 }}>{rampReplan.changedDetail}</p>
+                <OutcomeGroup heading={rampReplan.heldHeading} lines={holdLines(replan)} />
+                <OutcomeGroup heading={rampReplan.movedHeading} lines={moveLines(replan)} />
+                <OutcomeGroup heading={rampReplan.staysHeading} lines={stayLines(replan)} />
+                <p style={{ ...MUTED, margin: "var(--space-5) 0 0" }}>{rampReplan.decides}</p>
+              </>
+            )}
+            {checkFinished ? (
+              <p style={{
+                display: "flex", gap: "var(--space-3)", flexWrap: "wrap",
+                margin: "var(--space-5) 0 0",
+              }}>
+                <OnwardLink
+                  href={`/plan-preview?${ARRIVAL_PARAM}=${encodeURIComponent(findingCode)}`}
+                  label={rampReplan.openPlan}
+                />
+                <OnwardLink
+                  href={`/today?${ARRIVAL_PARAM}=${encodeURIComponent(findingCode)}`}
+                  label={rampReplan.openBoard}
+                />
+              </p>
+            ) : null}
           </div>
 
           {queue.length > 0 ? (
@@ -674,6 +820,71 @@ export default function RampCheck() {
       </div>
     </main>
   );
+}
+
+/**
+ * One group of the re-plan: the children it is about, each on their own line, with the state
+ * chip where the day has one to show. Empty groups render nothing rather than a heading over
+ * nothing.
+ */
+function OutcomeGroup({
+  heading, lines,
+}: { heading: string; lines: ReturnType<typeof moveLines> }) {
+  if (lines.length === 0) return null;
+  return (
+    <div style={{ marginTop: "var(--space-5)" }}>
+      <h3 style={{ fontSize: "var(--body-ramp)", margin: "0 0 var(--space-3)" }}>{heading}</h3>
+      <ul style={{ margin: 0, paddingLeft: "var(--space-6)" }}>
+        {lines.map((line) => (
+          <li key={line.childToken} style={{ marginBottom: "var(--space-3)" }}>
+            {line.text}{" "}
+            {line.state ? <StateChip state={line.state} /> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * A link that hands this ramp check to another screen.
+ *
+ * A link and not a button: it goes somewhere, so it is the element that goes somewhere — which
+ * is also what lets a middle click open the plan beside the ramp, which is how somebody
+ * standing at a van with a coordinator on the phone would want to use it. Sized to the ramp's
+ * own target so it is tappable with a glove on.
+ */
+function OnwardLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: "var(--space-3)",
+        minHeight: "var(--target-ramp)", padding: "0 var(--space-5)",
+        borderRadius: "var(--radius-md)",
+        border: "var(--border-hairline) solid var(--color-border-strong)",
+        background: "var(--color-surface)", color: "var(--color-ink)",
+        fontSize: "var(--body-ramp)", fontWeight: "var(--weight-semibold)",
+        textDecoration: "none",
+      }}
+    >
+      <Icon name="check" />
+      {label}
+    </a>
+  );
+}
+
+/**
+ * Did the chair the ramp measured come out different from the approved profile?
+ *
+ * Asked rather than assumed: the screen says "bigger than the 128 × 70 cm on file" only when the
+ * two numbers actually differ, so the line stays true if a measurement is ever added that agrees
+ * with the file.
+ */
+function chairDiffers(child: Child): boolean {
+  const measured = MEASURED_AT_ARRIVAL[child.token];
+  if (!measured) return false;
+  return measured.wcLengthCm !== child.wcLengthCm || measured.wcWidthCm !== child.wcWidthCm;
 }
 
 /** A rider can only be placed where the four constraints allow (PRD §7). */
