@@ -280,6 +280,7 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/api/cron/sweep": "cron-secret",
       "/api/probe/delay": "cron-secret",
       "/api/demo/reset": "session:DIRECTOR",
+      "/api/plan/save": "session:DIRECTOR+COORDINATOR",
       "/api/queues/timer": "queue-callback",
       "/api/queues/outbox": "queue-callback",
       "/api/queues/agent": "queue-callback",

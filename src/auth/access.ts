@@ -154,6 +154,7 @@ export const API = {
   cronSweep: "/api/cron/sweep",
   probeDelay: "/api/probe/delay",
   demoReset: "/api/demo/reset",
+  planSave: "/api/plan/save",
   queueTimer: "/api/queues/timer",
   queueOutbox: "/api/queues/outbox",
   queueAgent: "/api/queues/agent",
@@ -401,6 +402,28 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     path: API.demoReset,
     methods: ["POST"],
     auth: { kind: "session", roles: ["DIRECTOR"], siteScoped: true },
+  },
+  /**
+   * Saving a plan from Plan routes (B-09): the one write the planning surface makes.
+   *
+   * The two console roles, exactly as the page itself — PRD §6.2 gives the attendance plan and
+   * the legs to coordinators, ARCHITECTURE §1 gives the console to the coordinator and the
+   * director, and the front desk's surface is the ramp iPad. A role that cannot open the screen
+   * cannot save from it either, and the row is the same set for both so the two cannot drift.
+   *
+   * Not site-scoped, because it takes no site id and no object id of ours: the body describes one
+   * run of the synthetic demo day, and every child and van id in it is checked against that day
+   * (src/domain/plan/stages.ts `readPlanDay`, src/domain/plan/save.ts `checkPlan`), with one
+   * uniform refusal for anything it does not have. It keeps nothing in the database — the demo's
+   * plan lives in the demo's own state (src/modules/demo/plan-store.ts) — so there is no row for
+   * a site id to scope.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/plan/save/route.ts",
+    path: API.planSave,
+    methods: ["GET", "POST"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: false },
   },
   /**
    * Queue trigger for topic ppec-timer (vercel.json). Invoked by the platform's queue with its

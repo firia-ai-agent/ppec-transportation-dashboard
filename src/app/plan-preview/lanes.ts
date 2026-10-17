@@ -7,7 +7,9 @@
  * code — the three vocabularies the machine uses to talk to itself. The verdict is computed in
  * src/domain/solver; the sentence that says it is chosen here; neither is written here.
  */
-import { countable, fill, layoutName, pluralize, planRoutes, rampPreview, securement, sentence, vanName } from "@/ui/copy";
+import { countable, fill, layoutName, pluralize, planRoutes, rampPreview, securement, sentence } from "@/ui/copy";
+import { missingPhrase } from "@/domain/plan/reasons";
+import type { ArrivalAnswer } from "@/domain/plan/stages";
 import { capabilityStates, legStates, reservationStates, type StateDescriptor } from "@/ui/states";
 import { clockLabel } from "@/ui/service-date";
 import { causeOfDeficit } from "@/domain/solver";
@@ -19,11 +21,12 @@ import type {
 /* ───────────────────────── what the day knows about the van ───────────────────────── */
 
 /**
- * The three answers a lane can carry about the van that is coming (VEH-02, VEH-04). "Not checked
- * yet" is first because it is the honest state of a morning, and it is never read as a yes.
+ * The answers a lane can carry about the van that is coming (VEH-02, VEH-04), re-exported from
+ * the module that turns one into a solver observation (src/domain/plan/stages.ts) — because the
+ * save endpoint is handed the same answer over HTTP and must read it the same way.
  */
-export const ARRIVAL_ANSWERS = ["NOT_CHECKED", "REPORTED", "RAMP_CHECKED"] as const;
-export type ArrivalAnswer = (typeof ARRIVAL_ANSWERS)[number];
+export { ARRIVAL_ANSWERS } from "@/domain/plan/stages";
+export type { ArrivalAnswer } from "@/domain/plan/stages";
 
 /**
  * One answer, labelled. "Reported by the provider" named a role where the day has a name on file
@@ -66,27 +69,11 @@ function chairSecurement(riders: readonly PlanRider[]): string {
 }
 
 /**
- * The thing that is missing, as a refusal or a lane line reads it: "no four-point straps".
- *
- * Keyed by the planner's cause rather than by the solver's deficit type, because a cause is
- * what a person can act on — "this van is full" and "this van is not built for this chair" are
- * two different conversations with the provider.
+ * The refusal, and the missing thing inside it. Both moved to src/domain/plan/reasons.ts when
+ * the save endpoint started saying the same sentence about the same verdict: one definition, so
+ * a refused drag and a refused save cannot word it differently.
  */
-export function missingPhrase(cause: UnplacedCause, securementWords: string): string {
-  return fill(planRoutes.missing[cause], { securement: securementWords });
-}
-
-/**
- * "Can’t put Zoe B. in the substitute van: no four-point straps." — one line, the child, the
- * missing thing, and the van by name rather than by the code the fixtures file it under.
- */
-export function refusalLine(vehicle: Vehicle, child: Child, cause: UnplacedCause): string {
-  return fill(planRoutes.refused, {
-    vehicle: vanName(vehicle.description),
-    child: child.displayName,
-    missing: missingPhrase(cause, securement[child.securement ?? "OTHER"]),
-  });
-}
+export { missingPhrase, refusalLine } from "@/domain/plan/reasons";
 
 /**
  * The sentence under a lane's chip. Three shapes, because they are three different facts:

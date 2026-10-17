@@ -98,9 +98,32 @@ describe("the route is behind the same door as the rest of the console", () => {
     expect(mapPage).toMatch(/canOpenPage\(caller, "\/plan-preview"\)/);
   });
 
-  it("reads no database, calls no endpoint and loads no map tiles", () => {
+  /**
+   * What the screen is allowed to reach, now that two things on it do reach the network.
+   *
+   * It used to reach nothing at all, and the rule was "no `fetch(`, no maplibre, no `@/db/`".
+   * Two of those three are still exactly true and the third has changed on purpose:
+   *  - the map pane is the shared MapLibre component (src/components/map/PlanMap.tsx), which
+   *    fetches the base-map style and its tiles from OpenFreeMap, exactly as /map-preview does
+   *    (ADR-008) — so the screen holds no map library of its own and no tile URL;
+   *  - saving goes through one thin module beside this one (save-plan.ts), which names the
+   *    endpoint through the access table — so the screen itself still writes no request;
+   *  - the database is still not reachable from here at all, and neither is a routing provider
+   *    or a geocoder: the plan is the solver's, computed in the browser from the fixtures.
+   *
+   * e2e/plan-routes.spec.ts is where the live form of this is checked: every request the real
+   * page makes, host by host, with the family names held out of all of them (TEST-SEC-02).
+   */
+  it("reads no database, and makes no request of its own but the save", () => {
     const screenAndHelpers = screen + read("lanes.ts");
     expect(screenAndHelpers).not.toMatch(/fetch\(|EventSource|maplibre|@\/db\//);
+    // The one request, in the one module that may make it, naming the endpoint through the table.
+    const save = read("save-plan.ts");
+    expect(save).toMatch(/fetch\(API\.planSave/);
+    expect(save).not.toMatch(/"\/api\//);
+    expect(save).not.toMatch(/@\/db\//);
+    // And the map arrives as the shared component rather than a second MapLibre mount here.
+    expect(screen).toMatch(/from "@\/components\/map\/PlanMap"/);
   });
 });
 

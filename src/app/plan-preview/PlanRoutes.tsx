@@ -5,8 +5,9 @@
  * One lane per van: what the van has today, how many places are taken, and the children in it
  * as stops in the order they are driven. Children in no van are at the top of the screen — a
  * plain list of names where nobody has placed them yet, and a group with a reason and the
- * options for each child planning could not place. The map's place is beside the lanes and says
- * what will be there; the live pane lands with live updates.
+ * options for each child planning could not place. Beside the lanes is the map, drawing each
+ * van's route from the same plan the lanes are drawn from, so a child moved between lanes moves
+ * on the map in the same render.
  *
  * Every verdict on this screen is the capacity solver's (src/domain/solver): "Plan routes" runs
  * the planner, a drag re-asks it, a substitution re-asks it, and an arrival report re-asks it.
@@ -19,8 +20,11 @@
  * "V1" is the machine's handle on it and a coordinator has to translate before they can act
  * (copy.ts `vanNamed`).
  *
- * Client state and fixtures only: no database, no API, no routing provider and no map tiles, so
- * the screen makes no network request of its own at all (TEST-SEC-02). Words come from
+ * Client state and fixtures: no database and no routing provider, so the plan on screen is the
+ * solver's own answer over the synthetic day and nothing is fetched to make it (TEST-SEC-02).
+ * Two things do reach the network and both are deliberate — the base map's tiles, from
+ * OpenFreeMap through the shared pane (ADR-008), and saving the plan, which is one request to
+ * this app's own endpoint and the one thing on the screen a server decides. Words come from
  * src/ui/copy.ts and colours and metrics from the tokens in src/ui/tokens.ts; the DEMO banner
  * and the one source chip come from the root layout, so this page must not mount a second pair.
  *
@@ -29,30 +33,29 @@
  */
 import { useMemo, useRef, useState } from "react";
 import { Ban, Check, ChevronDown, ChevronRight } from "lucide-react";
+import PlanMap from "@/components/map/PlanMap";
 import {
   DEMO_SCENARIOS,
   PLAN_SERVICE_DATE,
   RELIEF_DRIVERS,
-  asMeasured,
-  askedProvider,
-  checkedAtRamp,
   driverFor,
-  notCheckedYet,
-  planLanes,
-  planRiders,
-  reportedByProvider,
   spareVehicleKeys,
-  substituted,
   unapprovedNeeds,
   vehicleByKey,
   type DemoScenario,
 } from "@/domain/plan/day";
+import { planMap } from "@/domain/plan/map";
+import {
+  emptyAssignment,
+  initialStages,
+  planInputOf,
+  type LaneStage,
+} from "@/domain/plan/stages";
 import {
   planAssignment,
   routePlan,
   tryMove,
   type Assignment,
-  type DailyCapability,
   type Direction,
   type LanePlan,
   type ManualPlacements,
@@ -67,6 +70,7 @@ import { DemoControls } from "@/ui/DemoControls";
 import { serviceDateLabel } from "@/ui/service-date";
 import { StateChip } from "@/ui/StateChip";
 import { icon } from "@/ui/tokens";
+import { savePlan } from "./save-plan";
 import {
   ARRIVAL_ANSWERS,
   arrivalLabel,
@@ -88,22 +92,6 @@ import {
 import styles from "./plan.module.css";
 
 /**
- * What the day knows about one lane's van, as this screen lets staff change it.
- *
- * `CHANGED` and `ASKED` are not answers anybody taps: they are where a substitution puts the
- * lane, and where asking the provider again puts it — VEH-05's chain, substitution → unknown →
- * re-request → re-solve, is this field moving through its values.
- */
-type LaneStage = {
-  /** The van on this lane now, which is not always the van it started the day as (AT-05). */
-  vehicleKey: string;
-  driverName: string;
-  arrival: ArrivalAnswer | "CHANGED" | "ASKED";
-  /** The configuration the ramp saw, pinned at the moment it was recorded (ASM-17). */
-  rampLayoutId?: string;
-};
-
-/**
  * The service date the demo replays, as "Tue, Oct 14". Read at noon UTC so the site timezone
  * (America/New_York) lands on the calendar day the fixture names.
  *
@@ -111,19 +99,6 @@ type LaneStage = {
  * screen, and the screen never shows a second one (Vera's review, 2026-10-17).
  */
 const SERVICE_DATE_LABEL = serviceDateLabel(new Date(`${PLAN_SERVICE_DATE}T12:00:00Z`));
-
-function initialStages(scenario: DemoScenario): Record<string, LaneStage> {
-  return Object.fromEntries(
-    planLanes(scenario).map((lane) => [
-      lane.id,
-      { vehicleKey: lane.vehicle.id, driverName: lane.driverName, arrival: "REPORTED" as const },
-    ]),
-  );
-}
-
-function emptyAssignment(scenario: DemoScenario): Assignment {
-  return Object.fromEntries(planLanes(scenario).map((lane) => [lane.id, []]));
-}
 
 /** The drop zone that is the group at the top of the screen: in no van at all. */
 const NO_LANE = "none";
@@ -158,23 +133,6 @@ type Gesture = {
   /** True once the pointer has travelled far enough for this to be a drag. */
   dragging: boolean;
 };
-
-function capabilityOf(stage: LaneStage): DailyCapability {
-  switch (stage.arrival) {
-    case "NOT_CHECKED":
-      return notCheckedYet(stage.vehicleKey);
-    case "CHANGED":
-      return substituted(stage.vehicleKey);
-    case "ASKED":
-      return askedProvider(stage.vehicleKey);
-    case "RAMP_CHECKED":
-      return stage.rampLayoutId
-        ? checkedAtRamp(stage.vehicleKey, stage.rampLayoutId, rampPreview.observedBy)
-        : reportedByProvider(stage.vehicleKey);
-    default:
-      return reportedByProvider(stage.vehicleKey);
-  }
-}
 
 /** A button that can be the current answer, and says so with a check mark as well as a fill. */
 function Button({
@@ -220,45 +178,38 @@ export default function PlanRoutes() {
   const [held, setHeld] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; refused: boolean } | null>(null);
   /**
+   * The lane whose route is in front on the map, or null while all three are drawn at full
+   * strength. One selection, shared: the lane's own button, the list under the map and a click on
+   * the line itself all set this, so "which van am I looking at" has one answer on the screen.
+   */
+  const [selectedLane, setSelectedLane] = useState<string | null>(null);
+  /** True while the save is in flight, so the button is unavailable and says why. */
+  const [saving, setSaving] = useState(false);
+  /**
    * The gesture in progress. A ref and not state: it is read and written inside the pointer
    * handlers between renders, and a drag that waited for a render to know where it started
    * would drop the first few millimetres of every move.
    */
   const gesture = useRef<Gesture | null>(null);
 
-  /** The scenario's vans before anything has been reported, planned or substituted. */
-  const baseLanes = useMemo(() => planLanes(scenario), [scenario]);
-
-  const riders = useMemo<PlanRider[]>(
-    () =>
-      planRiders(direction).map((rider) =>
-        measured.includes(rider.child.token) ? asMeasured(rider) : rider,
-      ),
-    [direction, measured],
+  /**
+   * The day, as the solver is asked about it: the scenario's lanes with today's vans, drivers and
+   * reports on them, and the riders with the ramp's measurements where there are any.
+   *
+   * Built by src/domain/plan/stages.ts rather than here, because the save endpoint is handed the
+   * same four facts over HTTP and has to rebuild the same question before it re-checks a plan. A
+   * second copy of "a substituted van is unknown until the provider reports" would be a second
+   * answer, and then a plan this screen refused could be saved by a request.
+   */
+  const day = useMemo(
+    () => ({ scenario, direction, stages, measured }),
+    [scenario, direction, stages, measured],
   );
-
-  const lanes = useMemo<PlanLane[]>(
-    () =>
-      baseLanes.map((lane) => {
-        const stage = stages[lane.id];
-        // The scenario was just switched: its own stages arrive in the same render, and until
-        // they do the lane is exactly what the scenario hands over.
-        if (!stage) return lane;
-        return {
-          id: lane.id,
-          vehicle: vehicleByKey(stage.vehicleKey),
-          capability: capabilityOf(stage),
-          driverName: stage.driverName,
-        };
-      }),
-    [baseLanes, stages],
-  );
-
-  const input: PlanInput = useMemo(
-    () => ({ direction, centerLabel: places.center, lanes, riders }),
-    [direction, lanes, riders],
-  );
+  const input: PlanInput = useMemo(() => planInputOf(day), [day]);
+  const { lanes, riders } = input;
   const plan = useMemo(() => routePlan(input, assignment), [input, assignment]);
+  /** The same plan, as the map beside the lanes draws it (src/domain/plan/map.ts). */
+  const mapData = useMemo(() => planMap(plan), [plan]);
 
   const placed = plan.lanes.reduce((n, lane) => n + lane.riders.length, 0);
   const decisionsOpen = needsADecision(plan.lanes, plan.unplaced);
@@ -291,6 +242,26 @@ export default function PlanRoutes() {
     );
   };
 
+  /**
+   * Save the plan. The one request this screen makes, and the one thing on it the server decides:
+   * the endpoint re-asks the solver about every child in the plan before it keeps it, so what
+   * comes back is "kept" or the refusal for the move it would not allow — and a plan a coordinator
+   * could not make by dragging cannot be saved by a request either.
+   *
+   * It is not sending. The saved line says so, because a plan that notifies nobody is exactly
+   * what this screen promises everywhere else (AT-12).
+   */
+  const save = async () => {
+    setSaving(true);
+    const outcome = await savePlan(day, assignment);
+    setSaving(false);
+    setNotice(
+      outcome.ok
+        ? { text: planRoutes.saved, refused: false }
+        : { text: outcome.reason, refused: true },
+    );
+  };
+
   const chooseDirection = (next: Direction) => {
     if (next === direction) return;
     // A plan belongs to one run: the morning's lanes are not the afternoon's, and carrying the
@@ -299,6 +270,7 @@ export default function PlanRoutes() {
     setAssignment(emptyAssignment(scenario));
     setPinned({});
     setMoving(null);
+    setSelectedLane(null);
     setNotice(null);
   };
 
@@ -317,6 +289,7 @@ export default function PlanRoutes() {
     setMoving(null);
     setSubstituting(null);
     setChanging(null);
+    setSelectedLane(null);
     setNotice(null);
   };
 
@@ -670,7 +643,8 @@ export default function PlanRoutes() {
     const changesId = `lane-${lane.id}-changes`;
     const state = laneState(lanePlan);
     const spares = spareVehicleKeys(scenario).filter((key) => key !== stage.vehicleKey);
-    const laneIndex = baseLanes.findIndex((l) => l.id === lane.id);
+    const laneIndex = lanes.findIndex((l) => l.id === lane.id);
+    const shownOnMap = selectedLane === lane.id;
     const lastStop = lanePlan.leg.stops.length;
     const van = vanName(lane.vehicle.description);
     // The van's changes are folded away, and open themselves while the van has changed: that is
@@ -686,6 +660,7 @@ export default function PlanRoutes() {
         data-lane={lane.id}
         data-van={van}
         data-verdict={verdict.status}
+        data-selected={shownOnMap ? "true" : undefined}
         {...dropZone(lane.id)}
       >
         <div className={styles.laneTitleRow}>
@@ -693,6 +668,16 @@ export default function PlanRoutes() {
             {van}
           </h3>
           <StateChip state={state} />
+          {/*
+            Selecting the lane is selecting its route: the line on the map comes forward and the
+            other vans dim. The same state the list under the map sets, and said here in words
+            with a check mark, so it is never only a colour on a line (§3, §9).
+          */}
+          <Button
+            label={planRoutes.showOnMap}
+            pressed={shownOnMap}
+            onClick={() => setSelectedLane(shownOnMap ? null : lane.id)}
+          />
         </div>
         <p className={styles.meta}>
           {fill(planRoutes.vanMeta, {
@@ -912,6 +897,20 @@ export default function PlanRoutes() {
           <button type="button" className={styles.primary} onClick={runPlan}>
             {planRoutes.plan}
           </button>
+          {/*
+            The second action, and the only one that leaves the browser. Unavailable while it is
+            in flight and saying so in its own label, because §4.2 asks for the reason a control
+            cannot be used to be readable rather than guessed at.
+          */}
+          <button
+            type="button"
+            className={styles.secondary}
+            onClick={save}
+            disabled={saving}
+            data-save="true"
+          >
+            {saving ? planRoutes.saving : planRoutes.save}
+          </button>
           <span className={styles.meta}>{summaryLine(placed, riders.length)}</span>
         </div>
         {decisionsOpen ? <p className={styles.reason}>{planRoutes.nothingSent}</p> : null}
@@ -986,15 +985,17 @@ export default function PlanRoutes() {
           {plan.lanes.map((lanePlan) => laneSection(lanePlan))}
         </div>
 
-        {/* The map's place on the screen. The live pane lands with live updates; until then this
-            says what will be here rather than drawing an empty frame. */}
+        {/*
+          The map, beside the lanes (§4.1 / D-6). It draws the plan the lanes are drawn from — the
+          same `RoutePlan`, in the same render — so a child moved between lanes moves on the map
+          too, and there is no second copy of the day to keep in step. The pane and its MapLibre
+          instance are src/components/map/PlanMap.tsx, the same stack /map-preview uses.
+        */}
         <aside className={styles.mapPane} aria-labelledby="map-heading">
           <h2 id="map-heading" className={styles.sectionHeading}>
             {planRoutes.mapHeading}
           </h2>
-          <div className={styles.mapBox}>
-            <span>{planRoutes.mapPlaceholder}</span>
-          </div>
+          <PlanMap data={mapData} selectedLaneId={selectedLane} onSelect={setSelectedLane} />
         </aside>
       </div>
     </main>

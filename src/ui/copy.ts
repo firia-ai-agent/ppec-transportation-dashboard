@@ -758,6 +758,8 @@ export const countable = {
    * beside it already uses ("Wheelchair place · L-track").
    */
   wcPlace: { one: "wheelchair place", many: "wheelchair places" },
+  /** The kerbs on one van's run, as the route map's list beside it counts them. */
+  stop: { one: "stop", many: "stops" },
 } as const;
 
 /** "1 wheelchair" / "2 wheelchairs" — a count never reaches the screen without its noun. */
@@ -1344,8 +1346,61 @@ export const planRoutes = {
 
   /* ── the map, beside the lanes ── */
   mapHeading: "Map",
-  /** Says what it is rather than promising when: "arrives with live updates" is a date we owe. */
-  mapPlaceholder: "The route map isn’t built yet.",
+  /**
+   * On a lane: bring that van's route forward on the map.
+   *
+   * On the lane rather than only under the map, because a coordinator reading a van is already
+   * looking at the lane — and it is pressed, with a check mark, so "this is the van on the map"
+   * is a word and a mark before it is a thicker line (§3).
+   */
+  showOnMap: "Show on the map",
+  /** The §9 accessible name of the map region, which says what the map is of. */
+  mapLabel: "The day’s routes",
+  /**
+   * What the lines are, said once over the map rather than on each one.
+   *
+   * The second sentence is the honest half: the demo's roads are the eight stretches its own
+   * runs drive (ADR-007), and a coordinator who moves a child makes a pair of kerbs nobody
+   * surveyed. Those stretches are drawn as the straight line between the two stops, and saying
+   * so is cheaper than letting a reviewer believe a road was measured.
+   */
+  mapNote:
+    "Each van’s stops, in the order it drives them. Between two stops with no surveyed road, the line is straight.",
+  /** The group of buttons that pick one van's route out of the three. */
+  mapVansHeading: "Show one van’s route",
+  /** "the center van · 3 stops" on the button that brings that van's line forward. */
+  mapVanRow: "{vehicle} · {stops}",
+  /** Back to all three lines at full strength. */
+  mapShowAll: "Show every van",
+  /** The camera control: back out until every van's line is in the pane. */
+  mapFitAll: "Fit every van",
+  /** Nobody is in a van, so there is no route to draw and the map says what to press. */
+  mapEmpty: "No routes yet. Press Plan routes.",
+
+  /* ── saving the plan ── */
+  /**
+   * Saving is its own step, and it is not sending.
+   *
+   * The screen plans in the browser; this is the one thing on it that asks the server, and the
+   * server re-asks the solver about every child in the plan before it keeps it, so a move the
+   * screen refused cannot be saved by a request that skips the screen. So the saved
+   * line says what was kept and repeats the promise the rest of the screen makes — a plan is
+   * not a message, and no family has heard anything.
+   */
+  save: "Save plan",
+  saving: "Saving…",
+  saved: "Plan saved. No family has been told.",
+  /**
+   * The save did not reach the server, or the server answered something this screen cannot
+   * read. It says what to do and claims nothing about what was kept.
+   */
+  saveFailed: "The plan wasn’t saved. Try again.",
+  /**
+   * A plan naming a child or a van that is not on this run. One answer for all of them — a
+   * child at another site, a van on no lane today, an id that matches nothing — so the response
+   * cannot be used to find out which of the three it was.
+   */
+  saveNotThisRun: "That plan names a child or a van that isn’t on this run.",
 } as const;
 
 /**
@@ -1371,6 +1426,8 @@ export function vanName(description: string): string {
 export const apiAccess = {
   signIn: "Sign in to continue.",
   notYourRole: "This isn't part of your role.",
+  /** A body or a query this endpoint cannot read at all. Says nothing about what it wanted. */
+  badRequest: "That request couldn't be read.",
 } as const;
 
 /**
