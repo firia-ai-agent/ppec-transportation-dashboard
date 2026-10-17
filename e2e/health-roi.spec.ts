@@ -71,9 +71,13 @@ for (const width of WIDTHS) {
       await expect(page.getByRole("heading", { level: 1, name: nav.health })).toBeVisible();
       await expectDemoBarPinned(page);
 
-      // The day the numbers are about, named once, and said to be the demo day.
+      // The day the numbers are about, named once, and said to be the demo day. Exact, because
+      // the header's scenario-clock control reads "Start demo day" and a loose match picks up
+      // both (the same fix main made on the board's walk, f3ab8b6).
       await expect(page.getByText(serviceDate.groupLabel)).toBeVisible();
-      await expect(page.getByText(serviceDate.phases[BOARD.day.phase])).toBeVisible();
+      await expect(
+        page.getByText(serviceDate.phases[BOARD.day.phase], { exact: true }),
+      ).toBeVisible();
 
       // Four numbers and no fifth, each a control carrying its own value, label and sentence.
       const tiles = numbersPanel(page).getByRole("button");
@@ -126,6 +130,12 @@ for (const width of WIDTHS) {
         // Where a figure would be, words — and not one digit in the whole row as it renders.
         await expect(row).toContainText(health.baseline.noNumber);
         expect(await row.innerText(), key).not.toMatch(/\d/);
+        // The third place a figure could sit, after the page and the drill-down: a tooltip.
+        // `innerText` cannot see one, so the row and everything in it are asked directly.
+        const titles = await row.locator("[title], [aria-label], [aria-describedby]").count();
+        expect(titles, key).toBe(0);
+        expect(await row.getAttribute("title"), key).toBeNull();
+        expect(await row.getAttribute("aria-label"), key).toBeNull();
       }
 
       // Neither row is a control, so nothing here can be mistaken for a number that opens.
