@@ -445,6 +445,28 @@ describe("the words a lane says", () => {
     expect(setUpAsLine(lane.layout)).not.toMatch(/\d+WC\/\d+A/);
   });
 
+  /**
+   * Vera, 2026-10-17: the setup line for a van with nowhere to put a chair is its own clause.
+   *
+   * "Set up as No wheelchairs · 6 seats" is the layout button's label dropped into a sentence,
+   * and the capital in the middle of it is the giveaway: nobody says "set up as no wheelchairs".
+   * That configuration is also the one a ramp check that found the wrong van produces, so it is
+   * read in a hurry — and the seat count still follows, because it is the half a coordinator is
+   * about to act on.
+   */
+  it("says a van with no place for a chair has none, in words, and still counts its seats", () => {
+    const convertible = vehicleByKey("V1");
+    const noPlaces = convertible.layouts.find((l) => l.code === "0WC/6A");
+    expect(setUpAsLine(noPlaces!)).toBe("Set up with no wheelchair spaces · 6 seats");
+    // Not the general template, which would read "as No wheelchairs" here.
+    expect(setUpAsLine(noPlaces!)).not.toMatch(/\bas No\b/);
+    expect(setUpAsLine(noPlaces!)).not.toMatch(/\d+WC\/\d+A/);
+    // Every other configuration keeps the general template, which reads as a sentence already.
+    for (const layout of convertible.layouts.filter((l) => l.code !== "0WC/6A")) {
+      expect(setUpAsLine(layout), layout.code).toMatch(/^Set up as /);
+    }
+  });
+
   it("writes a stop as the place and the time, in words a person says out loud", () => {
     const rider = planRiders("AM").find((r) => r.child.token === "C2");
     expect(stopLine(rider!)).toBe("Okeeheelee Park · 6:50 AM");

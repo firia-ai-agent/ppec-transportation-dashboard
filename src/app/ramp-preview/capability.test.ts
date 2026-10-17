@@ -8,8 +8,12 @@ import {
 import { layoutName } from "@/ui/copy";
 import type { Checklist } from "./capability";
 import {
-  availableSummary, bannerCopy, defaultChecklist, needChips, needSummary, positionLabel, toCapability,
+  availableSummary, bannerCopy, defaultChecklist, findingOfChecklist, needChips, needSummary,
+  positionLabel, toCapability,
 } from "./capability";
+import {
+  arrivedAsPlanned, decodeFinding, encodeFinding, observedCapability, rampArrivals,
+} from "@/domain/plan/arrival";
 
 const crisisChecklist: Checklist = {
   layoutId: V1_LAYOUT_1WC3A.id, lift: "YES", latch: "YES",
@@ -143,5 +147,73 @@ describe("seat layouts in words (Vera's review)", () => {
       expect(banner.detail).toBe(`Checked as ${layoutName(V1_LAYOUT_1WC3A.code)}.`);
       expect(banner.detail).not.toMatch(/WC\//);
     }
+  });
+});
+
+/**
+ * The checklist as the finding the other two screens read.
+ *
+ * The whole of the join between the ramp iPad and the plan goes through this one function, so
+ * it is checked over the *demo day's* own vans and children (src/domain/plan/arrival.ts), which
+ * is what the iPad now shows — not the fleet fixtures the solver's own unit tests use.
+ */
+describe("checklist to a finding the plan and the board can read", () => {
+  const arrival = rampArrivals()[0];
+  const planned = defaultChecklist(arrival.vehicle, arrival.plannedLayoutId);
+  const answered: Checklist = {
+    ...planned,
+    lift: "YES",
+    latch: "YES",
+    positions: Object.fromEntries(Object.keys(planned.positions).map((id) => [id, "FREE"])),
+  };
+
+  it("a van answered as arriving exactly as planned has nothing to report", () => {
+    expect(findingOfChecklist(arrival, answered)).toEqual(
+      arrivedAsPlanned(arrival),
+    );
+  });
+
+  it("names the places by where they are in the configuration, not by their ids", () => {
+    const ids = Object.keys(planned.positions);
+    const finding = findingOfChecklist(arrival, {
+      ...answered,
+      positions: { ...answered.positions, [ids[2]]: "OUT", [ids[3]]: "UNSURE" },
+    });
+    expect(finding.outOfService).toEqual([3]);
+    expect(finding.unanswered).toEqual([4]);
+    // And the observation it produces names the ids again, so nothing is lost in the round trip.
+    expect(observedCapability(finding).unavailablePositionIds).toEqual([ids[2]]);
+    expect(observedCapability(finding).unknownPositionIds).toEqual([ids[3]]);
+  });
+
+  it("a checklist nobody has touched reports every place unanswered, and never as free", () => {
+    const finding = findingOfChecklist(arrival, planned);
+    expect(finding.unanswered).toHaveLength(Object.keys(planned.positions).length);
+    expect(finding.outOfService).toEqual([]);
+    expect(finding.liftOk).toBeNull();
+    expect(finding.latchOk).toBeNull();
+  });
+
+  it("carries the configuration the ramp actually chose, not the one the manifest planned", () => {
+    const other = arrival.vehicle.layouts.find((l) => l.id !== arrival.plannedLayoutId);
+    const finding = findingOfChecklist(
+      arrival,
+      defaultChecklist(arrival.vehicle, other!.id),
+    );
+    expect(finding.layoutCode).toBe(other!.code);
+  });
+
+  it("only measures a chair that was in front of the ramp", () => {
+    const onThisVan = arrival.riders[0].child.token;
+    const finding = findingOfChecklist(arrival, answered, [onThisVan, "C2"]);
+    expect(finding.measured).toEqual([onThisVan]);
+  });
+
+  it("is the same finding a link carries, so the plan re-plans what the iPad showed", () => {
+    const finding = findingOfChecklist(arrival, {
+      ...answered,
+      positions: { ...answered.positions, [Object.keys(planned.positions)[2]]: "OUT" },
+    });
+    expect(decodeFinding(encodeFinding(finding))).toEqual(finding);
   });
 });

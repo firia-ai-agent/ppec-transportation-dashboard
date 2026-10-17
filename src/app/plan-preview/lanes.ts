@@ -6,8 +6,14 @@
  * src/ui/states.ts, so a coordinator never reads a deficit type, a capability state or a layout
  * code — the three vocabularies the machine uses to talk to itself. The verdict is computed in
  * src/domain/solver; the sentence that says it is chosen here; neither is written here.
+ *
+ * Three of these helpers are no longer only this screen's: "why has this child no van", the
+ * chip that goes with it and the phrase for the thing that is missing are now read by the ramp
+ * iPad and the Today board too, so they live in src/ui/arrival-lines.ts and are re-exported
+ * here. One wording, three screens — see that file for why.
  */
 import { countable, fill, layoutName, pluralize, planRoutes, rampPreview, securement, sentence, vanName } from "@/ui/copy";
+import { missingPhrase, reasonLine, unplacedState } from "@/ui/arrival-lines";
 import { capabilityStates, legStates, reservationStates, type StateDescriptor } from "@/ui/states";
 import { clockLabel } from "@/ui/service-date";
 import { causeOfDeficit } from "@/domain/solver";
@@ -15,6 +21,8 @@ import type {
   Child, DailyCapability, LanePlan, LaneSeats, Layout, PlanRider, SolveResult, Unplaced,
   UnplacedCause, Vehicle, WcPosition,
 } from "@/domain/solver";
+
+export { missingPhrase, reasonLine, unplacedState };
 
 /* ───────────────────────── what the day knows about the van ───────────────────────── */
 
@@ -66,17 +74,6 @@ function chairSecurement(riders: readonly PlanRider[]): string {
 }
 
 /**
- * The thing that is missing, as a refusal or a lane line reads it: "no four-point straps".
- *
- * Keyed by the planner's cause rather than by the solver's deficit type, because a cause is
- * what a person can act on — "this van is full" and "this van is not built for this chair" are
- * two different conversations with the provider.
- */
-export function missingPhrase(cause: UnplacedCause, securementWords: string): string {
-  return fill(planRoutes.missing[cause], { securement: securementWords });
-}
-
-/**
  * "Can’t put Zoe B. in the substitute van: no four-point straps." — one line, the child, the
  * missing thing, and the van by name rather than by the code the fixtures file it under.
  */
@@ -122,45 +119,6 @@ export function laneLines(lane: LanePlan): string[] {
 }
 
 /* ───────────────────────── a child with no van ───────────────────────── */
-
-/** The §3 chip beside an unplaced child: what kind of "no van" this is. */
-export function unplacedState(cause: UnplacedCause): StateDescriptor {
-  switch (cause) {
-    case "UNKNOWN_UNTIL_ARRIVAL":
-      return capabilityStates.UNKNOWN;
-    case "VANS_FULL":
-    case "NO_SEAT":
-      return legStates.LEFT_BEHIND_CAPACITY;
-    case "NOT_IN_A_VAN":
-      return legStates.SCHEDULED;
-    case "NO_VEHICLE":
-      return capabilityStates.UNAVAILABLE;
-    default:
-      return reservationStates.INFEASIBLE;
-  }
-}
-
-/**
- * The one plain sentence an unplaced child's row carries: "No van with a ramp for Noah O."
- *
- * It names the child, and it names the thing that is missing rather than the rule that was
- * broken. `vanLabel` is only needed by the one reason that is about a particular van — the van
- * that is the only fit and has not been reported on — and is the empty string otherwise, which
- * is why the reason table never interpolates it anywhere else. When it is needed it is the van's
- * own name ("the center van"), because no code reaches this screen.
- */
-export function reasonLine(unplaced: Unplaced, vanLabel: string): string {
-  const child = unplaced.rider.child;
-  // Closed with `sentence()`: a reason that ends on the child's name already ends in the full
-  // stop their last initial carries, and the templates that do carry none of their own.
-  return sentence(
-    fill(planRoutes.reason[unplaced.cause], {
-      child: child.displayName,
-      vehicle: vanLabel,
-      securement: securement[child.securement ?? "OTHER"],
-    }),
-  );
-}
 
 /* ───────────────────────────── the van itself ───────────────────────────── */
 
@@ -208,9 +166,22 @@ export function equipmentChips(
   return chips;
 }
 
-/** "Set up as 1 wheelchair · 3 seats" — the configuration in words, never the shorthand. */
+/**
+ * "Set up as 1 wheelchair · 3 seats" — the configuration in words, never the shorthand.
+ *
+ * A van with no place for a chair says so in its own clause instead, because the general
+ * template reads "Set up as No wheelchairs · 6 seats" there, and the seat count still follows
+ * it: that setup is the one a ramp check that found the wrong van produces, and "6 seats" is
+ * the half of it a coordinator is about to act on.
+ */
 export function setUpAsLine(layout: Layout): string {
-  return fill(planRoutes.setUpAs, { layout: layoutName(layout.code) });
+  const places = layout.positions.filter(isWcPosition).length;
+  if (places > 0) return fill(planRoutes.setUpAs, { layout: layoutName(layout.code) });
+  const seats = pluralize(
+    layout.positions.length - places,
+    countable.seat,
+  );
+  return `${planRoutes.setUpNoWcPlaces}${rampPreview.layout.separator}${seats}`;
 }
 
 /**

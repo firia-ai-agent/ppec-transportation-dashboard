@@ -9,6 +9,7 @@ import type {
   AmbSeat, Child, DailyCapability, Layout, LayoutPosition, Leg, SolveResult, Vehicle, WcPosition,
 } from "@/domain/solver";
 import { onboardByStop } from "@/domain/solver";
+import type { RampArrival, RampFinding } from "@/domain/plan/arrival";
 import { countable, fill, layoutName, pluralize, rampPreview, securement } from "@/ui/copy";
 import type { Tone } from "@/ui/tokens";
 
@@ -60,6 +61,44 @@ export function toCapability(vehicle: Vehicle, checklist: Checklist, serviceDate
     unavailablePositionIds: ids.filter((id) => checklist.positions[id] === "OUT"),
     unknownPositionIds: ids.filter((id) => (checklist.positions[id] ?? "UNSURE") === "UNSURE"),
     observedBy: rampPreview.observedBy,
+  };
+}
+
+/**
+ * The checklist as a finding about the van, which is the shape the plan and the board read
+ * (src/domain/plan/arrival.ts).
+ *
+ * The two differ in one way on purpose: a checklist is keyed by the solver's position ids,
+ * because that is what the rows on screen are built from, and a finding names places by their
+ * 1-based position in the configuration that arrived. The ids belong to a projection and would
+ * pin a finding to it; an ordinal survives a trip through a URL, which is how one screen hands
+ * a ramp check to another. `toCapability` above is the same conversion for the solver's own
+ * benefit — this one is for the two screens that were not in the room.
+ *
+ * `measured` is the ramp's other kind of finding: a chair measured at arrival rather than
+ * anything about the van. It is passed in rather than read off the checklist because the
+ * checklist is the §4.4 vehicle check and a chair is not part of the vehicle.
+ */
+export function findingOfChecklist(
+  arrival: RampArrival,
+  checklist: Checklist,
+  measured: readonly string[] = [],
+): RampFinding {
+  const layout = layoutOf(arrival.vehicle, checklist.layoutId);
+  const ordinalsAnswered = (answer: PositionAnswer) =>
+    layout.positions.flatMap((position, index) =>
+      (checklist.positions[position.id] ?? "UNSURE") === answer ? [index + 1] : [],
+    );
+  const riders = new Set(arrival.riders.map((rider) => rider.child.token));
+  return {
+    laneId: arrival.laneId,
+    layoutCode: layout.code,
+    outOfService: ordinalsAnswered("OUT"),
+    unanswered: ordinalsAnswered("UNSURE"),
+    liftOk: checklist.lift === "UNSURE" ? null : checklist.lift === "YES",
+    latchOk: checklist.latch === "UNSURE" ? null : checklist.latch === "YES",
+    // A chair the ramp did not have in front of it is not a measurement: only this run's riders.
+    measured: measured.filter((token) => riders.has(token)),
   };
 }
 

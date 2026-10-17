@@ -776,8 +776,17 @@ export const rampPreview = {
   heading: "Ramp check",
   /** `{date}` is the site-timezone service date, "Tue, Oct 14" (§3). */
   subtitle: "{date} · afternoon rides",
-  /** Says plainly that this surface records nothing, so nobody waits for a send that never happens. */
-  localOnly: "Nothing here is sent. Answers stay on this iPad.",
+  /**
+   * What leaves this iPad and what does not, in one line, so nobody waits for a send that never
+   * happens — and nobody believes a check nobody else can see.
+   *
+   * It used to read "Nothing here is sent. Answers stay on this iPad.", which was true of a
+   * surface that recorded onto itself and is not true of this one: what the ramp finds about the
+   * van now reaches the plan and the board, where a coordinator decides about it. The boarding
+   * records really do stay here, so that half of the sentence stays.
+   */
+  localOnly:
+    "Nothing here is sent to a family. What the ramp finds goes to the plan; boarding records stay on this iPad.",
 
   arrivalsHeading: "Which vehicle is at the ramp?",
   /** §5: the vehicle tile reads "V1 · Provider P1 · arriving 8:52 · 3 riders", over two lines. */
@@ -898,6 +907,58 @@ export const rampPreview = {
 
   /** Who the observation is attributed to when ramp staff answer the checklist themselves. */
   observedBy: "Ramp staff",
+} as const;
+
+/**
+ * What one ramp check does to the afternoon, in the words the three screens that show it read:
+ * the ramp iPad that took the check, the plan a coordinator decides from (SURF-05) and the
+ * Today board (SURF-01).
+ *
+ * One block rather than three, because the screens are three views of one fact and a move that
+ * read "moves to the center van" on the iPad and "reassigned to V2" on the board would be two
+ * different events to the person holding both. The sentences name a child and a van and nothing
+ * else: no place ids, no configuration shorthand, no verdict word the solver uses to talk to
+ * itself (the chip beside a hold carries the state, through src/ui/states.ts).
+ *
+ * Every line here is about a *proposal*. PRD §9 l.865 gives the afternoon's ramp check to
+ * centre staff and the decision that follows to a coordinator, so nothing on these screens
+ * locks a manifest or tells a family, and `decides` says so wherever the outcome is shown.
+ */
+export const rampReplan = {
+  /* ── on the ramp iPad, under the checklist ── */
+  heading: "What this does to the afternoon",
+  /** The check agreed with the plan: the only new fact is that somebody has seen the van. */
+  nothingChanged: "Every child on this van keeps their seat.",
+  nothingChangedDetail: "Nobody has to move. The afternoon now has a checked van behind it.",
+  /** The run as it was planned does not fit the van that arrived, before anybody boards. */
+  changedDetail: "The van that arrived doesn’t fit the run it was planned for.",
+  staysHeading: "Still on this van",
+  movedHeading: "Moving to another van",
+  heldHeading: "No van this afternoon",
+  /** "Owen C. moves to the center van." */
+  moved: "{child} moves to {vehicle}.",
+  stays: "{child} keeps their seat.",
+  /** §9: ramp staff propose, a coordinator decides, and no family hears anything before that. */
+  decides: "A coordinator decides. No family has been told.",
+  /** The two screens this result can be opened on, as links that carry it. */
+  openPlan: "Open this on Plan routes",
+  openBoard: "Open this on the Today board",
+
+  /* ── on Plan routes and the Today board ── */
+  /** The banner that says why this screen is not showing the plan it opened on. */
+  bannerHeading: "A ramp check changed this afternoon",
+  /** "The convertible van was checked at the ramp, and the afternoon is re-planned around it." */
+  banner: "{vehicle} was checked at the ramp, and the afternoon is re-planned around it.",
+  bannerNothing: "{vehicle} was checked at the ramp and arrived as planned.",
+  bannerCount: "{moved} moving to another van, {held} with no van.",
+  backToRamp: "Back to the ramp check",
+  clear: "Show the plan without it",
+
+  /* ── the note on one board row ── */
+  rowLabel: "Ramp check",
+  rowMoved: "Moving to {vehicle} after the ramp check.",
+  rowHeld: "No van after the ramp check.",
+  rowChecked: "Ramp staff have checked this van.",
 } as const;
 
 /** Securement hardware in plain words, keyed by the ops.securement enum. */
@@ -1329,6 +1390,16 @@ export const planRoutes = {
   seatsUsed: "{used} of {places} used",
   seatsOver: "{line} · more than this van has",
   setUpAs: "Set up as {layout}",
+  /**
+   * The same line for a van that arrived with no place for a chair at all.
+   *
+   * "Set up as No wheelchairs · 6 seats" is what the layout button reads glued into a sentence,
+   * and it is not a sentence: the capital in the middle is the button's, and "as no wheelchairs"
+   * is not how anybody says it. A van with nowhere to put a chair is also the one setup a
+   * coordinator has to read in a hurry — it is what a ramp check that found the wrong van looks
+   * like — so it gets its own clause, and keeps the seat count after it (Vera, 2026-10-17).
+   */
+  setUpNoWcPlaces: "Set up with no wheelchair spaces",
   /**
    * Why the line above is not the same line all day on a van that can be re-seated.
    *

@@ -238,8 +238,21 @@ describe("the strings the review fixed, verbatim", () => {
     expect(copy.mapPreview.intro).toBe("Simulated vans on demo routes. Nothing here is live.");
   });
 
+  /**
+   * The line still says where the answers go, and it no longer says they stay here.
+   *
+   * It read "Nothing here is sent. Answers stay on this iPad." for as long as the ramp iPad was
+   * a surface that recorded onto itself. It is not one any more: what the ramp finds about the
+   * van reaches the plan and the board, where a coordinator decides about it. So the sentence
+   * splits the two halves of the truth rather than keeping the half that stopped being true —
+   * the boarding records really do stay on the iPad, and nothing on the screen is sent to a
+   * family either way.
+   */
   it("the ramp check says where the answers go, in one line", () => {
-    expect(copy.rampPreview.localOnly).toBe("Nothing here is sent. Answers stay on this iPad.");
+    expect(copy.rampPreview.localOnly).toBe(
+      "Nothing here is sent to a family. What the ramp finds goes to the plan; boarding records stay on this iPad.",
+    );
+    expect(copy.rampPreview.localOnly.split("\n")).toHaveLength(1);
   });
 
   it("a fault row names the run in words, with no reference trailing it", () => {

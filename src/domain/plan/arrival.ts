@@ -32,7 +32,7 @@
  */
 import { formatClock } from "@/domain/eta/eta";
 import { demoDay, type ServiceDay } from "@/domain/board/day";
-import { plannedStops } from "@/domain/board/scenario";
+import { plannedStops, solverLeg } from "@/domain/board/scenario";
 import {
   ridersInOrder,
   routePlan,
@@ -42,6 +42,7 @@ import {
   type DailyCapability,
   type Direction,
   type Layout,
+  type Leg,
   type PlanInput,
   type PlanLane,
   type PlanRider,
@@ -82,6 +83,17 @@ export type RampArrival = {
   vehicle: Vehicle;
   /** The run's riders, in the order the van drives them. */
   riders: readonly PlanRider[];
+  /**
+   * The run itself, as the solver reads a manifest: the riders and the stops they board and
+   * alight at, in order.
+   *
+   * The ramp iPad asks `feasible()` about the van in front of it, which is a question about a
+   * *run* and not about a list of children — the four constraints are checked per stop, so the
+   * order of the stops is part of the question. It comes from the scenario's own run
+   * (src/domain/board/scenario.ts `solverLeg`), which is the manifest the board renders, so the
+   * iPad cannot be asking about a different afternoon than the one it links to.
+   */
+  leg: Leg;
   /** The configuration the manifest planned (ASM-17), which is what the checklist opens on. */
   plannedLayoutId: string;
   /** When this van is due to pull away from the centre, epoch ms. */
@@ -116,6 +128,7 @@ export function rampArrivals(
       laneId: lane.id,
       vehicle: lane.vehicle,
       riders: ridersInOrder(riders.filter((rider) => run.childKeys.includes(rider.child.token))),
+      leg: solverLeg(run, direction),
       plannedLayoutId: layoutByCode(lane.vehicle, run.layoutCode).id,
       leavesMs,
       leavesAt: formatClock(leavesMs),
