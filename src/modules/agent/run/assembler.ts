@@ -57,6 +57,7 @@ import { serviceDateIso } from "@/ui/service-date";
 import { familyScope, type FamilyScope } from "../policy";
 import type { AssembleInput, AssembledContext, ContextAssembler, TierFacts } from "./context";
 import { tierPrompt } from "./context";
+import { demoPairsFor, demoTokenForId, scopeTokens, type ScopeTokenPair, type ScopeTokens } from "./scope-tokens";
 
 /** How many thread messages reach T3. §11.1 says "last N"; this is N. */
 export const THREAD_MESSAGES_IN_CONTEXT = 5;
@@ -113,35 +114,57 @@ export function dbContextAssembler(
     const serviceDate = serviceDateIso(new Date(message.received_at));
     const childRows = await childProfiles(db, thread.family_group_id, message.site_id);
     const children = childRows.map((c) => c.child_token);
-    /**
-     * The §11.1 token mapping for the people this thread can be about: the operational display
-     * name of each of this family's children, mapped to that child's token (B-07's vault is not
-     * wired, so `ops.child_profile.display_name` is where a demo deployment's names live). Only
-     * this family's, because a thread naming another family's child is AT-09 evidence and must
-     * reach the policy engine as written rather than be quietly resolved to a token.
-     */
-    const familyNames: RosterEntry[] = childRows.flatMap((c) =>
-      c.display_name ? rosterFromDisplayName(c.display_name, c.child_token) : [],
-    );
     const legs = await legRows(db, children, message.site_id, serviceDate);
     const scopes = await authorizationScopes(db, thread.counterparty_token, message.site_id);
-    const profiles = await profileFacts(db, children, message.site_id);
     const bodies = await threadBodies(db, thread.id, message.site_id, limit);
     const messageIds = await threadMessageIds(db, thread.id, message.site_id, limit);
+    const vehicles = await runVehicleTokens(db, legs.map((l) => l.id), message.site_id);
+
+    /**
+     * The one dictionary this run reads both ways (`run/scope-tokens.ts`): every id below gets the
+     * short label the model already sees in T3, and a tool call naming one of those labels is
+     * resolved back to the id before the policy engine judges it (`run/loop.ts`). Built from this
+     * run's own rows, so a token for another family's child resolves to nothing and is refused.
+     *
+     * The stable entities — family, children, legs, vehicles, providers — come from the demo id
+     * function run backwards. The thread and the messages cannot: their ids are written at ingest
+     * rather than seeded, so they are numbered here, in the order the tiers list them, which is
+     * the order the model reads them in.
+     */
+    const familyToken = demoTokenForId(thread.family_group_id) ?? thread.family_group_id;
+    const tokens: ScopeTokens = scopeTokens([
+      ...demoPairsFor([thread.family_group_id, ...children, ...legs.map((l) => l.id), ...vehicles]),
+      { token: `TH-${familyToken}`, id: thread.id },
+      ...messageIds.map((id, i): ScopeTokenPair => ({ token: `MSG-${i + 1}`, id })),
+    ]);
+    const t = tokens.tokenFor;
+
+    /**
+     * The §11.1 token mapping for the people this thread can be about: the operational display
+     * name of each of this family's children, mapped to **the same token the rest of the prompt
+     * uses for that child** (B-07's vault is not wired, so `ops.child_profile.display_name` is
+     * where a demo deployment's names live). Only this family's, because a thread naming another
+     * family's child is AT-09 evidence and must reach the policy engine as written rather than be
+     * quietly resolved to a token.
+     */
+    const familyNames: RosterEntry[] = childRows.flatMap((c) =>
+      c.display_name ? rosterFromDisplayName(c.display_name, t(c.child_token)) : [],
+    );
+    const profiles = await profileFacts(db, children, message.site_id);
 
     const facts: TierFacts = {
       t1: [
         `site=${message.site_id}`,
-        `family=${thread.family_group_id}`,
-        `children=${children.join(",") || "none"}`,
-        ...profiles,
+        `family=${t(thread.family_group_id)}`,
+        `children=${children.map(t).join(",") || "none"}`,
+        ...profiles.map((fact) => fact.replace(/child=(\S+)/, (_, id: string) => `child=${t(id)}`)),
         `contact_scopes=${scopes.join(",") || "none"}`,
       ].join(" "),
       t2: [
         `service_date=${serviceDate}`,
-        `thread=${thread.id} state=${thread.state}`,
+        `thread=${t(thread.id)} state=${thread.state}`,
         ...legs.map(
-          (l) => `leg=${l.id} child=${l.child_token} part=${l.direction} state=${l.state} version=${l.plan_version}`,
+          (l) => `leg=${t(l.id)} child=${t(l.child_token)} part=${l.direction} state=${l.state} version=${l.plan_version}`,
         ),
       ].join(" "),
       t3: bodies.map((body) => tokenizeNames(body, familyNames)),
@@ -153,12 +176,13 @@ export function dbContextAssembler(
       [...children, ...legs.map((l) => l.id), thread.id, ...messageIds, thread.counterparty_token],
       // `shared` is the site's own non-family objects this run could legitimately name: the vans
       // its legs are manifested on. Minimum necessary — not the whole fleet.
-      await runVehicleTokens(db, legs.map((l) => l.id), message.site_id),
+      vehicles,
       message.site_id,
     );
 
     return {
       prompt: tierPrompt(facts, input),
+      tokens,
       policy: {
         scope,
         sendableSubjects: await sendableSubjects(db, {
