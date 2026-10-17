@@ -40,7 +40,24 @@ const planKey = (date: string, direction: Direction): Key => `${date}/${directio
 
 type State = { setups: SetupRow[]; plans: Map<Key, SavedPlan> };
 
-const STATE: State = { setups: [], plans: new Map() };
+/**
+ * The state hangs off `globalThis`, and that is not a shortcut.
+ *
+ * Next bundles a server component and a route handler separately, so a module-level `const` is
+ * **not** one object between them: the board's page would read its own copy and the save endpoint
+ * would write another, and a save would vanish on the next render — which is exactly the fault
+ * this fallback is standing in for. One well-known key, so both bundles reach the same object.
+ *
+ * It is still one process's memory, which is why no deployment uses this path (store.ts).
+ */
+const KEY = "__ppecPlanBoardMemoryStore";
+type Holder = typeof globalThis & { [KEY]?: State };
+
+function state(): State {
+  const holder = globalThis as Holder;
+  holder[KEY] ??= { setups: [], plans: new Map() };
+  return holder[KEY];
+}
 
 /**
  * Yesterday's confirmed setup for every van, which is what the seed writes and what the default
@@ -55,11 +72,11 @@ function seedYesterday(date: string): void {
   const yesterday = dayBefore(date);
   for (const van of VANS) {
     const vehicleId = vehicleIdOf(van.vehicleKey);
-    const already = STATE.setups.some(
+    const already = state().setups.some(
       (row) => row.vehicleId === vehicleId && row.serviceDate === yesterday,
     );
     if (already) continue;
-    STATE.setups.push({
+    state().setups.push({
       vehicleId,
       serviceDate: yesterday,
       setup: van.defaultSetup,
@@ -72,15 +89,15 @@ function seedYesterday(date: string): void {
 
 /** Forget everything. Used by the demo reset and by tests that want a fresh process. */
 export function clearMemoryPlanStore(): void {
-  STATE.setups = [];
-  STATE.plans.clear();
+  state().setups = [];
+  state().plans.clear();
 }
 
 export function memoryPlanStore(): PlanStore {
   return {
     async setupRows(_siteId, date, vehicleIds) {
       seedYesterday(date);
-      return STATE.setups
+      return state().setups
         .filter((row) => vehicleIds.includes(row.vehicleId) && row.serviceDate <= date)
         .sort((a, b) => b.serviceDate.localeCompare(a.serviceDate));
     },
@@ -96,8 +113,8 @@ export function memoryPlanStore(): PlanStore {
         setBy: staffLabel(input.setBy),
         setAt: input.now.toISOString(),
       };
-      STATE.setups = [
-        ...STATE.setups.filter(
+      state().setups = [
+        ...state().setups.filter(
           (r) => !(r.vehicleId === row.vehicleId && r.serviceDate === row.serviceDate),
         ),
         row,
@@ -105,12 +122,12 @@ export function memoryPlanStore(): PlanStore {
     },
 
     async loadPlan(_siteId, date, direction) {
-      return STATE.plans.get(planKey(date, direction)) ?? null;
+      return state().plans.get(planKey(date, direction)) ?? null;
     },
 
     async savePlan(_siteId, input: SavePlanInput): Promise<SavePlanOutcome> {
       const key = planKey(input.date, input.direction);
-      const existing = STATE.plans.get(key);
+      const existing = state().plans.get(key);
       if (existing && existing.version !== input.version) {
         return {
           ok: false,
@@ -134,7 +151,7 @@ export function memoryPlanStore(): PlanStore {
           ]),
         ),
       };
-      STATE.plans.set(key, saved);
+      state().plans.set(key, saved);
       return { ok: true, version: saved.version, savedAt: saved.savedAt };
     },
 

@@ -12,7 +12,7 @@
  * and is refused outright on any deployment.
  */
 import { expect, test, type Locator } from "@playwright/test";
-import { fill, fleetMap, liveMap, nav, planRoutes, rampIpad } from "../src/ui/copy";
+import { fill, fleetMap, liveMap, nav, planBoard, rampIpad } from "../src/ui/copy";
 import { navItems } from "../src/ui/nav-items";
 import {
   boxOf,
@@ -216,14 +216,14 @@ for (const width of WIDTHS) {
     test("Plan routes keeps the map beside the lanes, not below them", async ({ page }) => {
       await page.goto("/plan-routes");
       await expect(
-        page.getByRole("heading", { level: 1, name: planRoutes.heading }),
+        page.getByRole("heading", { level: 1, name: planBoard.heading }),
       ).toBeVisible();
       await expectDemoBarPinned(page);
       await expectVioletOnlyOnDemoChrome(page);
 
-      // An <aside> is a complementary landmark, named by the "Map" heading inside it.
-      const map = page.getByRole("complementary", { name: planRoutes.mapHeading });
-      const column = page.locator("[data-lane]").first();
+      // An <aside> is a complementary landmark, named by the board's own two words for it.
+      const map = page.getByRole("complementary", { name: planBoard.mapLabel });
+      const column = page.locator("[data-van]").first();
       await expect(map).toBeVisible();
       const mapBox = await boxOf(map);
       const laneBox = await boxOf(column);

@@ -12,6 +12,7 @@ import {
   etaText,
   fill,
   fleetMap,
+  flow,
   layoutName,
   liveUpdates,
   login,
@@ -856,10 +857,14 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
     expect(planRoutes.missing.UNKNOWN_UNTIL_ARRIVAL).toBe("not checked yet");
     expect(fill(planRoutes.optionsHeading, { child: "Zoe B." })).toBe("Options for Zoe B.");
     expect(planRoutes.laneOptionsHeading).toBe("Options");
-    // The pane said the map was not built yet until the map landed; what is left of that line
-    // is the empty state, which says what to press rather than what is missing.
+    // The pane said the map was not built yet until the map landed; what is left of that line is
+    // the empty state. It named a button — "Press Plan routes" — that the redesigned board does
+    // not have (its first step is Auto-plan, §1.2), and it told a coordinator to press the screen
+    // they were already standing on, so it is now the §9.5 string every other screen uses for a
+    // leg with nothing planned.
     expect(planRoutes).not.toHaveProperty("mapPlaceholder");
-    expect(planRoutes.mapEmpty).toBe("No routes yet. Press Plan routes.");
+    expect(planRoutes.mapEmpty).toBe("No routes yet");
+    expect(planRoutes.mapEmpty).toBe(flow.empty.noRoutes);
     // Said once over the lanes rather than under every rider card, so it is shorter than the
     // ramp check's own copy of the same promise and deliberately not the same string.
     expect(planRoutes.needsCaption).toBe("From intake, not a diagnosis.");

@@ -466,12 +466,11 @@ export const ENDPOINTS: readonly EndpointRow[] = [
    * director, and the front desk's surface is the ramp iPad. A role that cannot open the screen
    * cannot save from it either, and the row is the same set for both so the two cannot drift.
    *
-   * Not site-scoped, because it takes no site id and no object id of ours: the body describes one
-   * run of the synthetic demo day, and every child and van id in it is checked against that day
-   * (src/domain/plan/stages.ts `readPlanDay`, src/domain/plan/save.ts `checkPlan`), with one
-   * uniform refusal for anything it does not have. It keeps nothing in the database — the demo's
-   * plan lives in the demo's own state (src/modules/demo/plan-store.ts) — so there is no row for
-   * a site id to scope.
+   * Not site-scoped, because it takes no site id: the site is the caller's own membership, the
+   * way the demo reset resolves one when the request does not name it. Every child and van id in
+   * the body is still checked against the day (src/domain/plan/board.ts `namesOnlyThisDay` and
+   * `checkPlan`), with one uniform refusal for anything it does not have — and what it keeps is
+   * `ops.plan_run` / `ops.plan_assignment`, which carry that site id on every row.
    */
   {
     kind: "route",

@@ -1433,7 +1433,13 @@ export const planRoutes = {
    */
   mapFitAll: "Zoom to show every route",
   /** Nobody is in a van, so there is no route to draw and the map says what to press. */
-  mapEmpty: "No routes yet. Press Plan routes.",
+  /**
+   * The map with nothing to draw. Four words, and the §9.5 string every other screen uses for the
+   * same state — it used to end "Press Plan routes", which named a button the redesigned board no
+   * longer has (its first step is Auto-plan, §1.2) and told a coordinator to press the screen they
+   * were already on.
+   */
+  mapEmpty: "No routes yet",
 
   /* ── saving the plan ── */
   /**
@@ -1490,6 +1496,17 @@ export const equipment = {
   carSeats: "Car seats",
   oxygen: "Oxygen",
   lift: "Lift",
+  /**
+   * The same four things as one *child's* need rather than a van's counter: a card's icons are
+   * announced with these, so a chair icon is never the only way to know a child rides in one
+   * (§0's copy rule 2, WCAG AA).
+   */
+  need: {
+    wheelchair: "Wheelchair",
+    carSeat: "Car seat",
+    oxygen: "Oxygen",
+    nurse: "Nurse",
+  },
 } as const;
 
 /**
@@ -1529,6 +1546,12 @@ export const planBoard = {
   saveFailed: "Couldn’t save · Retry",
   /** Somebody else saved while this board was open (§1.3, a version mismatch). */
   changedBy: "Changed by {name} · Reload",
+  /**
+   * The same chip when the server has no name to give — a plan saved by a session with no user
+   * behind it, which is what the browser check signs in as. §1.5 only writes the named form, and
+   * a board that filled the name in with a guess would be naming the wrong person.
+   */
+  changedAnon: "Someone else saved · Reload",
   /** A van is over its own counts and the save asks first (§1.3 "Over capacity"). */
   overConfirm: "{van} is over. Save anyway?",
   overChip: "Full",
@@ -1575,6 +1598,12 @@ export const planBoard = {
   wontFit: "{child} won’t fit",
   apply: "Apply",
   cancel: "Cancel",
+  /**
+   * The two stepper buttons are a − and a +, which explain themselves on the canvas (§0's rule 4)
+   * and need a word for a screen reader: "Car seats fewer", "Car seats more".
+   */
+  fewer: "fewer",
+  more: "more",
   /** A meter's own label for a screen reader: "4 of 6 seats". */
   meterSr: "{used} of {total} {thing}",
   mapLabel: "Route map",
