@@ -1,0 +1,19 @@
+/*
+ * The rail's count. `crit-fg` on `crit-bg` is the §8 contrast pair already documented for the
+ * RED severity (src/ui/tokens.ts), so the badge needs no new colour and no new row in that table.
+ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--space-5);
+  padding: 0 var(--space-1);
+  margin-left: auto;
+  background: var(--color-crit-bg);
+  color: var(--color-crit-fg);
+  border: var(--border-hairline) solid var(--color-crit-fg);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  line-height: 1.6;
+}

@@ -425,3 +425,37 @@ function fillCard(template: string, values: Record<string, string>): string {
   };
   return template.replace(/\{(\w+)\}/g, (whole, key: string) => filled[key] ?? whole);
 }
+
+/** One message of the thread an alert points at, as the thread panel shows it. */
+export type AlertThreadMessage = {
+  readonly id: string;
+  readonly at: string;
+  /** The family's words, from `ops.message.body_tokenized`. Never a paraphrase. */
+  readonly body: string;
+};
+
+/**
+ * The family's side of one thread, oldest first, for the panel behind "Open text".
+ *
+ * Inbound only. An alert exists precisely because nothing was sent in reply, so there is no
+ * outbound half worth rendering here — and rendering one would mean re-rendering outbound
+ * templates, which is `messaging/mailbox.ts`'s job and not this card's.
+ *
+ * Site-scoped on the caller's own memberships, like every other read in this file: a thread id
+ * from another tenant returns nothing rather than "forbidden", because a 403 on an id is an
+ * existence oracle.
+ */
+export async function alertThreadMessages(
+  db: Exec,
+  a: { threadId: string; siteIds: readonly string[] },
+): Promise<AlertThreadMessage[]> {
+  if (a.siteIds.length === 0) return [];
+  const r = await db.query<{ id: string; received_at: Date; body_tokenized: string }>(
+    `SELECT id, received_at, body_tokenized
+     FROM ops.message
+     WHERE thread_id = $1 AND site_id = ANY($2::uuid[]) AND direction = 'IN' AND is_own_echo = false
+     ORDER BY received_at, id`,
+    [a.threadId, a.siteIds],
+  );
+  return r.rows.map((m) => ({ id: m.id, at: new Date(m.received_at).toISOString(), body: m.body_tokenized }));
+}

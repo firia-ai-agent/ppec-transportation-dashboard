@@ -26,11 +26,18 @@ import styles from "./AppShell.module.css";
 export function AppShell({
   displayName,
   role,
+  alertCount = 0,
   children,
 }: {
   displayName: string;
   /** The caller's role, so the rail offers only the pages they can open. `null` shows none. */
   role: StaffRole | null;
+  /**
+   * How many family texts are waiting for a person (`agent/staff-alert.ts`). Rendered as a count
+   * beside Exceptions & Approvals and nowhere else; 0 renders nothing at all. The server decides
+   * it — a role that may not open that page is handed 0 rather than a number it must then hide.
+   */
+  alertCount?: number;
   children: ReactNode;
 }) {
   return (
@@ -41,7 +48,7 @@ export function AppShell({
       </a>
       <header className={styles.header}>
         <div className={styles.topRow}>
-          <MobileNav role={role} identity={<p>{displayName}</p>} signOut={<SignOutButton />} />
+          <MobileNav role={role} alertCount={alertCount} identity={<p>{displayName}</p>} signOut={<SignOutButton />} />
           <span className={styles.siteName}>{app.siteName}</span>
           <dl className={styles.facts}>
             {/*
@@ -76,7 +83,7 @@ export function AppShell({
         </div>
       </header>
       <div className={styles.body}>
-        <NavRail role={role} />
+        <NavRail role={role} alertCount={alertCount} />
         <main id="content" className={styles.main}>
           {children}
         </main>

@@ -9,6 +9,7 @@ import type { StaffRole } from "@/auth/core";
 import { nav } from "./copy";
 import { icon } from "./tokens";
 import { isCurrent, navItemsFor } from "./nav-items";
+import { NavBadge } from "./NavBadge";
 import styles from "./MobileNav.module.css";
 
 /**
@@ -25,10 +26,13 @@ export function MobileNav({
   role,
   identity,
   signOut,
+  alertCount = 0,
 }: {
   role: StaffRole | null;
   identity: ReactNode;
   signOut: ReactNode;
+  /** The same count the rail shows, so the drawer is not the one width that hides it. */
+  alertCount?: number;
 }) {
   const pathname = usePathname();
   // Same list the rail shows, filtered by the same table (src/auth/access.ts).
@@ -79,6 +83,8 @@ export function MobileNav({
                   >
                     <Icon size={icon.nav} aria-hidden="true" />
                     <span>{item.label}</span>
+                    {/* The same count the rail carries: the drawer is a width, not a lesser nav. */}
+                    {item.href === "/exceptions" ? <NavBadge count={alertCount} /> : null}
                   </Link>
                 </li>
               );

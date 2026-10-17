@@ -1951,11 +1951,26 @@ export const assistantUnavailable = {
    * The count beside "Exceptions & Approvals" in the rail. A number, with its own words for a
    * screen reader — §9, and Vera's rule that a badge may never be colour alone.
    */
-  badgeLabel: "{count} need a person",
+  badgeLabel: "{count} waiting for a person",
   /** Shown once a staff member has opened the alert: it stays on the board, marked as taken. */
   openedBy: "Being handled",
   /** The empty state, so a board with no alert does not read as a board that lost them. */
   none: "No texts are waiting for a person.",
+  /**
+   * The board could not be read at all. Distinct from `none` on purpose: "nothing is waiting" is
+   * a claim about the families, and saying it when the truth is "we could not read the board"
+   * tells a coordinator something false about their own day.
+   */
+  unreadable: "We couldn't read the board just now, so this list may be incomplete. Try again in a moment.",
+  /** The thread panel "Open text" and "Reply" lead to. */
+  threadHeading: "The text thread",
+  /**
+   * Said under the thread, because the reply box is not built yet and a button that looked like
+   * one would be worse than saying so. The answer goes out the way it always has until then.
+   */
+  noReplyBox: "There's no reply box here yet. Answer this family from the center's phone.",
+  /** One line under the card list, so the rule is on screen and not only in a commit message. */
+  rule: "When the assistant can't reach its model, it does nothing and tells you. It never guesses.",
   /**
    * The `ops.task` row the alert *is*. Same summary / next step / predicate shape as every other
    * task on this board (`agentTasks` above), and like them it carries no family prose: the
