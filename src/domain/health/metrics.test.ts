@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildBoard, serviceDayFor } from "@/domain/board/board";
 import { demoDay } from "@/domain/board/day";
 import { BOARD_CENSUS } from "@/modules/demo/fixtures/standard";
-import { ROI_METRICS, dayCounts, metricByKey, ridesBehind } from "./metrics";
+import { BASELINE_ROWS, ROI_METRICS, dayCounts, metricByKey, ridesBehind } from "./metrics";
 
 /**
  * SURF-07's numbers, over the committed demo day and over the finished day before it.
@@ -24,6 +24,34 @@ const FINISHED = buildBoard(serviceDayFor(demoDay().previousIso));
 describe("the four numbers", () => {
   it("counts every metric exactly once, in the order they are read", () => {
     expect(dayCounts(LIVE).metrics.map((m) => m.key)).toEqual([...ROI_METRICS]);
+  });
+
+  /**
+   * The ceiling, and the reason it is a test rather than a convention.
+   *
+   * Every other assertion on this screen — the tile count, the drill-down count, the number of
+   * `aria-expanded` controls — is written against `ROI_METRICS.length`, so a fifth number added
+   * to the list would make all of them agree with it on the way past. The thing that must not
+   * happen is a fifth number, and nothing above would notice one. §4.6 asks for a panel a
+   * person reads at a glance; the glance is what the ceiling protects.
+   */
+  it("is at most four, on the board as on the screen", () => {
+    expect(ROI_METRICS.length).toBeLessThanOrEqual(4);
+    expect(new Set(ROI_METRICS).size).toBe(ROI_METRICS.length);
+    for (const board of [LIVE, FINISHED]) {
+      expect(dayCounts(board).metrics.length).toBeLessThanOrEqual(4);
+    }
+  });
+
+  /**
+   * Four numbers and two rows with no number: the whole screen, and no sixth place a figure
+   * could appear from. The two sets never overlap, so "hours saved" can never arrive as a
+   * counted headline by being added to both lists.
+   */
+  it("keeps the counted numbers and the unmeasured rows apart", () => {
+    for (const key of BASELINE_ROWS) {
+      expect(ROI_METRICS as readonly string[], key).not.toContain(key);
+    }
   });
 
   it("names the cohort it counted over: the board's own children and rides", () => {

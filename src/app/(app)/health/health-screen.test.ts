@@ -366,6 +366,61 @@ describe("hours saved and money saved: visible, and carrying no number (PRD §17
       expect(readable, `${key}: ${readable}`).not.toMatch(/\d/);
     }
   });
+
+  /**
+   * The third place a figure could hide, after the page and the drill-down: an attribute. The
+   * test above strips tags before reading, so a `title="about 6 hours a week"` or an
+   * `aria-label` carrying a figure would pass it and still be read out — by a pointer hovering
+   * the row, and by a screen reader instead of the visible text.
+   *
+   * So the row's attributes are read on their own, from the other end: rather than hunting for
+   * a digit in each value, the test names every attribute the row is allowed to carry. Three,
+   * and none of them is spoken — `scope` on the header cell, the CSS module's hashed `class`
+   * (whose hash is digits, which is why reading values for digits is the wrong net here), and
+   * the `data-baseline-row` key this test finds the row by. A tooltip, an `aria-label` or any
+   * other way of attaching words to the row is a new attribute, and a new attribute fails.
+   */
+  it("hangs no tooltip and no spoken attribute off either row", async () => {
+    const INERT = new Set(["scope", "class", "data-baseline-row"]);
+    mockedCaller.mockResolvedValue(staff("COORDINATOR"));
+    const html = renderToStaticMarkup(await openPage());
+    for (const key of BASELINE_ROWS) {
+      const start = html.indexOf(`data-baseline-row="${key}"`);
+      const row = html.slice(start, html.indexOf("</tr>", start));
+      // No tooltip: neither the native one nor the described-by kind the header's Start uses.
+      expect(row, key).not.toMatch(/\stitle=/);
+      expect(row, key).not.toMatch(/aria-describedby=/);
+      expect(row, key).not.toMatch(/role="tooltip"/);
+      const attributes = [...row.matchAll(/\s([a-zA-Z-]+)="[^"]*"/g)].map(([, name]) => name);
+      expect(attributes.length, key).toBeGreaterThan(0);
+      for (const name of attributes) expect(INERT, `${key}: ${name}`).toContain(name);
+    }
+  });
+
+  /**
+   * The drill-down is the one part of this screen that renders rides, and a ride carries times
+   * and counts. Neither savings row may open one: the panel is keyed by the metric it was
+   * counted from, and a figure reached from "Hours saved" would be the claim in two clicks
+   * that the row refuses in one.
+   *
+   * Two nets, because the screen is a client component and this test renders it once. There is
+   * no control inside either row to click — no button, no link, no `aria-expanded` — and
+   * neither row's key is among the four the drill-down can be opened on, which is what the
+   * open-metric state is read from.
+   */
+  it("puts no control inside either row, so neither opens a drill-down", async () => {
+    mockedCaller.mockResolvedValue(staff("COORDINATOR"));
+    const html = renderToStaticMarkup(await openPage());
+    for (const key of BASELINE_ROWS) {
+      const start = html.indexOf(`data-baseline-row="${key}"`);
+      const row = html.slice(start, html.indexOf("</tr>", start));
+      expect(row, key).not.toMatch(/<button\b/);
+      expect(row, key).not.toMatch(/<a\b/);
+      expect(row, key).not.toMatch(/aria-expanded=/);
+      // And it is not one of the four a number can be opened on.
+      expect(COUNTS.metrics.map((m) => m.key), key).not.toContain(key);
+    }
+  });
 });
 
 describe("the guard on /health", () => {

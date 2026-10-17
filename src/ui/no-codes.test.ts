@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import * as copy from "./copy";
 import { renderedStrings } from "./no-internals.test";
+import { gpsFreshnessStates } from "./states";
 import { DEMO_RUNS } from "@/fixtures/replays";
 import { FIXTURE_ROUTES } from "@/fixtures/routes";
 import { knownTemplates, renderTemplate, templatePlaceholders, UNKNOWN_STOP } from "@/modules/messaging/templates";
@@ -53,6 +54,18 @@ const PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
 ];
 
 const SRC = path.resolve(__dirname, "..");
+
+/**
+ * Every string in a copy namespace, with the path that named it, so a failure says which entry
+ * is at fault rather than only that one of several hundred is.
+ */
+function walkStrings(value: unknown, at = ""): Array<[string, string]> {
+  if (typeof value === "string") return [[at, value]];
+  if (value === null || typeof value !== "object") return [];
+  return Object.entries(value).flatMap(([key, child]) =>
+    walkStrings(child, at === "" ? key : `${at}.${key}`),
+  );
+}
 
 /** Everywhere a literal can reach a screen without passing through copy.ts. */
 const SCANNED_DIRS = ["ui", "app", "components"].map((d) => path.join(SRC, d));
@@ -316,6 +329,99 @@ describe("no internal codes in an outbound family SMS", () => {
       const body = renderTemplate(t, vars(t, { stopLabel: "NEW-STOP" }));
       expect(body, t).toContain(UNKNOWN_STOP);
       expect(tokensIn(body), t).toEqual([]);
+    }
+  });
+});
+
+/**
+ * "ETA" is a staff word, and this is the line it may not cross (Veri's gate, COPY-GUIDE §1).
+ *
+ * LOC-03 pauses the arrival texts when a van's GPS goes stale, and a coordinator has to be told
+ * — not that a number is missing, but that the family is no longer hearing from us. The phrase
+ * for that is "Stale · 4 min · ETA texts paused", and it is written in two places and read on
+ * three staff surfaces: the §3 freshness chip (src/ui/states.ts `gpsFreshnessStates.STALE`), the
+ * board row and the child drawer (`etaText.paused`), and the map's stop rows
+ * (`fleetMap.windowPaused`).
+ *
+ * A family reads none of those. What a family reads is an SMS, and "ETA" there is the acronym
+ * for a thing they never asked about, attached to a pause they cannot act on: the sentence a
+ * parent needs is the one about their child's van, in the words they would use. So the phrase
+ * stops at the console, and the two halves of that are tested — nothing a family receives says
+ * it, and the staff strings that do say it are listed, so a fourth cannot appear unnoticed and
+ * least of all in the family table.
+ */
+describe("'ETA texts paused' is a staff sentence and stays on the staff screens", () => {
+  /** Everything the outbound table can put in front of a family: bodies, reasons, places. */
+  const familyStrings = walkStrings(copy.outboundSms);
+
+  /**
+   * The rendered article, with every reason code and every place name substituted in. Only the
+   * vars a template permits are passed: the outbox refuses the rest outright (Veri #12), so a
+   * body rendered with a var it does not take is not a body a family could ever receive.
+   */
+  const familyBodies = (): string[] => {
+    const SAMPLE_VALUES: Record<string, string> = {
+      stopLabel: "OKEE-PARK", eta: "08:12", etaEnd: "08:22", sessionStart: "13:30",
+      legDate: "2026-10-14", date: "2026-10-14", reasonCode: "WEATHER",
+    };
+    const out: string[] = [];
+    for (const t of knownTemplates()) {
+      const allowed = Object.keys(TEMPLATE_VARS[t]);
+      const base = Object.fromEntries(allowed.map((v) => [v, SAMPLE_VALUES[v] ?? ""]));
+      const reasons = allowed.includes("reasonCode")
+        ? Object.keys(copy.outboundSms.reasons[t as keyof typeof copy.outboundSms.reasons] ?? {})
+        : [];
+      const stops = allowed.includes("stopLabel") ? Object.keys(copy.outboundSms.stops) : [];
+      for (const reasonCode of reasons.length > 0 ? reasons : [null]) {
+        for (const stopLabel of stops.length > 0 ? stops : [null]) {
+          out.push(renderTemplate(t, {
+            ...base,
+            ...(reasonCode === null ? {} : { reasonCode }),
+            ...(stopLabel === null ? {} : { stopLabel }),
+          }));
+        }
+      }
+    }
+    return out;
+  };
+
+  it("no outbound family string says 'ETA', in the table or once rendered", () => {
+    expect(familyStrings.length).toBeGreaterThan(0);
+    for (const [path, text] of familyStrings) {
+      expect(text, `${path}: ${text}`).not.toMatch(/\bETA\b/);
+      expect(text, `${path}: ${text}`).not.toMatch(/texts paused/i);
+    }
+    const bodies = familyBodies();
+    expect(bodies.length).toBeGreaterThan(0);
+    for (const body of bodies) {
+      expect(body, body).not.toMatch(/\bETA\b/);
+      expect(body, body).not.toMatch(/texts paused/i);
+    }
+  });
+
+  /**
+   * The other half: the staff strings that do say it, named. A fourth one appearing anywhere in
+   * the copy module fails this, which is how a new family sentence carrying the phrase is
+   * caught — it would be a fourth entry here long before anybody rendered it.
+   */
+  it("the only strings that say it are the three staff ones, and the §3 chip", () => {
+    const saying = walkStrings(copy)
+      .filter(([, text]) => /\bETA\b/.test(text))
+      .map(([path]) => path)
+      .sort();
+    expect(saying).toEqual(["etaText.paused", "fleetMap.windowPaused", "liveMap.unbound"]);
+    expect(copy.etaText.paused).toBe("{window} · ETA texts paused");
+    expect(gpsFreshnessStates.STALE.label).toBe("Stale · {age} · ETA texts paused");
+  });
+
+  /** And it reaches the board row and the child drawer, which is where it is meant to be read. */
+  it("is rendered by the board row and the child drawer, and by nothing a family opens", () => {
+    const staffFiles = [
+      path.join(SRC, "app", "(app)", "today", "TodayBoard.tsx"),
+      path.join(SRC, "app", "(app)", "today", "LegDrawer.tsx"),
+    ];
+    for (const file of staffFiles) {
+      expect(readFileSync(file, "utf8"), file).toContain("etaText.paused");
     }
   });
 });
