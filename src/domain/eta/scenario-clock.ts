@@ -48,10 +48,18 @@ export function instantAt(tick: number): number {
   return SCENARIO_START_MS + scenarioSecondsAt(tick) * 1000;
 }
 
-/** Inside the run, and not before the start: the range a stream may walk. */
-export function clampTick(tick: number): number {
+/**
+ * Inside the run, and not before the start: the range a caller may walk.
+ *
+ * `lastTick` is the end of that range, and it is an argument because the runs are not the only
+ * thing a tick can be inside. A stream walks the committed replays and holds at their last tick
+ * (`LAST_TICK`, the default). The board walks a *service day*, which carries an afternoon the
+ * replays have no track for and ends hours after the vans are in (`DAY_LAST_TICK` in
+ * src/domain/board/day.ts) — the same ticks, counted to the end of a longer thing.
+ */
+export function clampTick(tick: number, lastTick: number = LAST_TICK): number {
   if (!Number.isFinite(tick)) return 0;
-  return Math.max(0, Math.min(LAST_TICK, Math.floor(tick)));
+  return Math.max(0, Math.min(lastTick, Math.floor(tick)));
 }
 
 /**
@@ -87,15 +95,22 @@ export function normalizeSpeed(raw: string | number | undefined | null): ClockSp
 }
 
 /**
- * The tick a client says it already has, from the SSE `Last-Event-ID` header (or the `?since=`
- * form, for a caller that reconnects by hand). `null` means "send me the board first".
+ * The tick a caller named — the SSE `Last-Event-ID` header a reconnect resumes from (or the
+ * `?since=` form, for a caller that reconnects by hand), and the `?tick=` a browser check moves
+ * the board's own clock with. `null` means "there is no tick here": the caller gets whatever the
+ * default is for the thing it is asking, a full snapshot or the board's own instant.
  *
- * A value that is not a tick number is `null` for the same reason as above: the client then
- * gets a full snapshot, which is correct and merely larger.
+ * A value that is not a tick number is `null` for the same reason as the speed above: the client
+ * then gets an answer that is correct and merely not the one it mistyped.
+ *
+ * `lastTick` is the end of the range it is read into, as in `clampTick`.
  */
-export function parseLastTick(raw: string | null | undefined): number | null {
+export function parseLastTick(
+  raw: string | null | undefined,
+  lastTick: number = LAST_TICK,
+): number | null {
   if (raw === null || raw === undefined || raw.trim() === "") return null;
   const value = Number(raw);
   if (!Number.isFinite(value) || value < 0) return null;
-  return clampTick(value);
+  return clampTick(value, lastTick);
 }

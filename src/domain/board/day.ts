@@ -20,6 +20,12 @@
  * date through `requestedServiceDay`, so on any deployment a `?date=` is not a day the board
  * can be moved to, it is a parameter nothing reads (Veri #49).
  *
+ * The demo day can also be read at an *instant* other than its own, on the scenario clock
+ * (`demoDayAtTick`, src/domain/eta/scenario-clock.ts) — which is how AT-13's browser check walks
+ * the day past Noah O.'s 4:20 PM drop-off and sees the ride that ends holding him. That is the
+ * same test path and the same four gates, by calling the same function (`requestedScenarioTick`):
+ * no deployment has a clock control, production included.
+ *
  * Pure: the instants are whole-day offsets from the scenario's own start (`SCENARIO_START_MS`),
  * so nothing here reads a clock and every date in range is as deterministic as the demo day. The
  * range is bounded at a fortnight each way for exactly that reason: whole-day arithmetic is only
@@ -27,7 +33,12 @@
  * Wednesday stays inside EDT.
  */
 
-import { clampTick, instantAt, tickAtScenarioSeconds } from "@/domain/eta/scenario-clock";
+import {
+  clampTick,
+  instantAt,
+  parseLastTick,
+  tickAtScenarioSeconds,
+} from "@/domain/eta/scenario-clock";
 import { SCENARIO_START_MS } from "@/fixtures/replays";
 import { serviceDateIso, serviceDateLabel, SITE_TIME_ZONE } from "@/ui/service-date";
 
@@ -204,21 +215,87 @@ export function requestedServiceDay(
   return dateOverrideAllowed(env) ? serviceDayFor(dateIso) : demoDay();
 }
 
-/** The tick the board's own instant falls on, so the live stream starts where the page did. */
+/** The tick the board's own instant falls on, so a walked clock starts where the page did. */
 export const BOARD_SCENARIO_TICK = tickAtScenarioSeconds(BOARD_SCENARIO_SECONDS);
+
+/**
+ * The last tick the demo day has: MOCKS-AND-DEMO §7 step 12 closes the day at 17:30, which is
+ * also the instant a day that has *ended* is read at, so the clock's end and the finished day's
+ * instant are the same time of day said twice.
+ *
+ * Deliberately longer than the committed replays, which cover the morning only (`LAST_TICK` is
+ * 08:47). A service day is not its GPS tracks: the plan has an afternoon on it, and the one ride
+ * AT-13 is about ends at 4:20 PM — seven hours after the last point any van recorded. A clock
+ * that stopped where the tracks stop could not reach the ride it exists to reach.
+ */
+export const DAY_LAST_TICK = tickAtScenarioSeconds(
+  (DAY_ENDED_LOCAL_MINUTE - SCENARIO_START_LOCAL_MINUTE) * 60,
+);
 
 /**
  * The demo day read at a tick of the scenario clock rather than at the fixed board instant.
  *
- * This is the one thing the live board needs that the three phases cannot give it: the same
- * service day, read *later*. The day is still the demo day in every other respect — its date,
- * its label, its LIVE phase, the runs it schedules — so a board built from it is the board a
- * coordinator is already looking at, a few minutes further into the morning.
+ * This is the one thing the three day phases cannot give: the same service day, read *later*.
+ * The day is still the demo day in every other respect — its date, its label, its LIVE phase,
+ * the runs it schedules — so a board built from it is the board a coordinator is already looking
+ * at, further into its own day.
  *
- * The clock holds at the last tick of the committed runs (`LAST_TICK`): the morning ends, and
- * a console that silently looped back to 07:30 would be claiming a day that is not happening.
+ * The clock holds at the end of the day (`DAY_LAST_TICK`) rather than looping: a console that
+ * silently restarted the morning would be claiming a day that is not happening.
  */
 export function demoDayAtTick(tick: number): ServiceDay {
   const day = demoDay();
-  return { ...day, instantMs: instantAt(clampTick(tick)) };
+  return { ...day, instantMs: instantAt(clampTick(tick, DAY_LAST_TICK)) };
+}
+
+/** The tick a site-local wall clock on the demo day falls on — "16:25" as an instant. */
+export function demoDayTickAt(hhmm: string): number {
+  return tickAtScenarioSeconds((localTimeOn(demoDay(), hhmm) - SCENARIO_START_MS) / 1000);
+}
+
+/** The one parameter that moves the clock, named once so a test can build the URL by name. */
+export const CLOCK_PARAM = "tick";
+
+/**
+ * The tick the board is read at: its own, unless this shell is a test shell that asked for the
+ * override and the request named another one.
+ *
+ * **The same four gates as the date**, by calling `dateOverrideAllowed` rather than restating
+ * it: a clock a request can move is a stronger thing than a date it can move — it decides which
+ * rides have happened, so a crafted link could put a hold, an exception or a cleared board in
+ * front of a coordinator reading what they believe is now. There is no clock control on any
+ * deployment, production included, for the same reason `?date=` reads nothing there: `VERCEL_ENV`
+ * is set on every one of them and the first gate refuses. On a local synthetic demo shell that
+ * asked for the override by name, `?tick=` is how AT-13's browser check walks the day past 4:20
+ * PM (e2e/today-board.spec.ts).
+ *
+ * A tick that is not a tick — a word, a negative, a number past the end of the day — is the
+ * board's own instant or the end of the day rather than an error, exactly as `?date=` outside
+ * the range is the demo day: this value arrives from outside, and a board that refuses to
+ * render is a worse answer than the day it was always going to show.
+ */
+export function requestedScenarioTick(
+  tickRaw: string | undefined | null,
+  env: Record<string, string | undefined>,
+): number {
+  if (!dateOverrideAllowed(env)) return BOARD_SCENARIO_TICK;
+  return parseLastTick(tickRaw, DAY_LAST_TICK) ?? BOARD_SCENARIO_TICK;
+}
+
+/**
+ * The day the board is built for: the day the request may ask for, read at the tick it may ask
+ * for. The only way either of those reaches the projection.
+ *
+ * The clock belongs to the demo day alone, because it is the only day with a scenario on it. A
+ * day that has ended is read after the last van is in and a day that has not started is read at
+ * its start — both of those *are* their instant, and a tick that moved them would be inventing a
+ * phase the day does not have.
+ */
+export function requestedBoardDay(
+  dateIso: string | undefined | null,
+  tickRaw: string | undefined | null,
+  env: Record<string, string | undefined>,
+): ServiceDay {
+  const day = requestedServiceDay(dateIso, env);
+  return day.phase === "LIVE" ? demoDayAtTick(requestedScenarioTick(tickRaw, env)) : day;
 }
