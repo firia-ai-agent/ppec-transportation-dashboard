@@ -21,7 +21,15 @@ import { API, canOpenPage, homePathFor } from "../src/auth/access";
 import type { StaffRole } from "../src/auth/core";
 import { nav, toast, unbuilt } from "../src/ui/copy";
 import { navItems, navItemsFor } from "../src/ui/nav-items";
-import { expectDemoBarPinned, expectNoInternalCodes, expectOneSimulatedChip, shot } from "./helpers";
+import {
+  boxOf,
+  expectDemoBarPinned,
+  expectHeaderIsOneRow,
+  expectNoInternalCodes,
+  expectOneSimulatedChip,
+  overlaps,
+  shot,
+} from "./helpers";
 
 const ROLE = (process.env.E2E_DEMO_ROLE ?? "DIRECTOR") as StaffRole;
 
@@ -41,8 +49,18 @@ const REFUSED = navItems
   .filter((item) => !canOpenPage({ kind: "STAFF", role: ROLE }, item.href))
   .map((item) => item.href);
 
-/** The sentence an unbuilt page leads with, less the page name it fills in. */
-const NOT_BUILT = unbuilt.heading.replace("{page}", "").trim();
+/**
+ * The three pages that are off the menu, in the words they put on the screen: each one's
+ * heading ("Health & ROI isn't built yet") and the sentence under it. Written as the whole
+ * heading rather than the "isn't built yet" fragment on purpose — a built screen may honestly
+ * say that about one *part* of itself (Plan routes says it of the route map), and this test is
+ * about a menu item opening a page that is nothing but a placeholder.
+ */
+const UNBUILT_SCREENS = [
+  [unbuilt.heading.replace("{page}", nav.exceptions), unbuilt.exceptions],
+  [unbuilt.heading.replace("{page}", nav.setup), unbuilt.setup],
+  [unbuilt.heading.replace("{page}", nav.health), unbuilt.health],
+].flat();
 
 /** The menu, whichever shape this width draws it in. */
 function menuOn(page: Page, width: number) {
@@ -61,11 +79,13 @@ for (const width of [1280, 390] as const) {
         await page.goto(item.href);
         await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
         const text = await page.locator("body").innerText();
-        // The placeholder's own words, and the sentences the three unbuilt pages carry.
-        expect(text, `${item.label} opens a page that says it is not built`).not.toContain(NOT_BUILT);
-        for (const body of [unbuilt.exceptions, unbuilt.setup, unbuilt.health]) {
-          expect(text, `${item.label} is an unbuilt page`).not.toContain(body);
+        for (const words of UNBUILT_SCREENS) {
+          expect(text, `${item.label} opens a page that says it is not built`).not.toContain(words);
         }
+        // Whatever it says, the <h1> is the screen's own name and not a placeholder's.
+        expect(await page.getByRole("heading", { level: 1 }).first().innerText()).not.toContain(
+          unbuilt.heading.replace("{page}", item.label),
+        );
         await expect(menuOn(page, width)).toBeVisible();
       }
     });
@@ -79,8 +99,13 @@ for (const width of [1280, 390] as const) {
         expect(new URL(page.url()).pathname, `typing ${href}`).toBe(HOME);
         await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
-        // The one line that says why you are somewhere else (§9.5 toast.notOnMenu).
-        await expect(page.getByText(toast.notOnMenu)).toBeVisible();
+        // The one line that says why you are somewhere else (§9.5 toast.notOnMenu)...
+        const notice = page.locator("[data-notice]");
+        await expect(notice).toBeVisible();
+        await expect(notice).toContainText(toast.notOnMenu);
+        // ...beside the chrome rather than on top of it: it explains the header, so it must
+        // not be covering the header (which is where a fixed one landed at 390 px).
+        expect(overlaps(await boxOf(notice), await boxOf(page.locator("header").first()))).toBe(false);
         // And no 403 card: not its heading, not the code, not the word.
         const text = await page.locator("body").innerText();
         expect(text).not.toContain("isn't part of your role");
@@ -92,6 +117,7 @@ for (const width of [1280, 390] as const) {
         await expect(menu.getByRole("link")).toHaveCount(MENU.length);
         await expectDemoBarPinned(page);
         await expectOneSimulatedChip(page);
+        await expectHeaderIsOneRow(page);
         await expectNoInternalCodes(page);
         console.log(
           "screenshot:",

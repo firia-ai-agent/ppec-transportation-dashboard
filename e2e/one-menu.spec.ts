@@ -30,6 +30,7 @@ import { navItemsFor, type NavItem } from "../src/ui/nav-items";
 import {
   boxOf,
   expectDemoBarPinned,
+  expectHeaderIsOneRow,
   expectNoInternalCodes,
   expectOneSimulatedChip,
   overlaps,
@@ -101,6 +102,8 @@ test.describe(`the menu on every screen, as ${ROLE}`, () => {
         // The one bar and the one Simulated chip, from the root layout: not two of either.
         await expectDemoBarPinned(page);
         await expectOneSimulatedChip(page);
+        // And the header under them is one row (Vera, 2:44 PM ET).
+        await expectHeaderIsOneRow(page);
         await expectNoInternalCodes(page);
         console.log("screenshot:", await shot(page, `one-menu-${ROLE.toLowerCase()}-${slug(href)}-1280`));
 
@@ -177,6 +180,8 @@ test.describe(`the menu on every screen, as ${ROLE}`, () => {
         // The one bar and the one Simulated chip, at phone width too (Vera, 2:44 PM ET).
         await expectDemoBarPinned(page);
         await expectOneSimulatedChip(page);
+        // One row on a phone as well, which is where it is tightest.
+        await expectHeaderIsOneRow(page);
 
         /*
          * Nothing hides behind the bar. Scrolled to the bottom of the page, every box with
@@ -201,18 +206,23 @@ test.describe(`the menu on every screen, as ${ROLE}`, () => {
         expect(covered, "the tab bar is sitting on top of the page's own content").toEqual([]);
         await page.evaluate(() => window.scrollTo(0, 0));
 
+        await expectNoInternalCodes(page);
+        console.log("screenshot:", await shot(page, `one-menu-${ROLE.toLowerCase()}-${slug(href)}-390`));
+
         // The account is still reachable on a phone: the name in the header, Sign out inside it.
         const account = page.locator("header details").first();
         await expect(account, "no account menu in the header at 390").toBeVisible();
         await account.locator("summary").click();
         const signOut = page.getByRole("button", { name: identity.signOut });
         await expect(signOut).toBeVisible();
+        // The name is in the panel it opens, which is where a 390 px row leaves room for it.
+        await expect(
+          page.getByText(identity.signedInAs.split("{")[0].trim(), { exact: false }),
+        ).toBeVisible();
         expect((await boxOf(signOut)).height).toBeGreaterThanOrEqual(TARGET);
         // ...and it does not open on top of the menu it shares the screen with.
         expect(overlaps(await boxOf(signOut), barNow)).toBe(false);
-
-        await expectNoInternalCodes(page);
-        console.log("screenshot:", await shot(page, `one-menu-${ROLE.toLowerCase()}-${slug(href)}-390`));
+        await account.locator("summary").click();
 
         // And the way out works with a tap, not with the browser's Back button.
         const target = elsewhere(href);

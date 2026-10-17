@@ -4,9 +4,15 @@
   gap: var(--space-3);
 }
 
+/*
+ * One line, at every width. The header is one row (Vera, 2026-10-17 2:44 PM ET) and at 390 px
+ * it is a tight one: a readout that wraps takes the row with it and pushes the account pill
+ * onto a second line.
+ */
 .readout {
   font-size: var(--text-14);
   font-weight: var(--weight-medium);
+  white-space: nowrap;
 }
 
 .control {
@@ -19,6 +25,7 @@
 .start {
   min-height: var(--target-console);
   padding: 0 var(--space-4);
+  white-space: nowrap;
   border: var(--border-hairline) solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-surface);
@@ -58,6 +65,17 @@
 .start:focus-visible + .tooltip,
 .control:hover .tooltip {
   opacity: 1;
+}
+
+/* The same row on a phone, with the gap a phone can spare rather than a desk's. */
+@media (max-width: 767px) {
+  .row {
+    gap: var(--space-2);
+  }
+
+  .start {
+    padding: 0 var(--space-3);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

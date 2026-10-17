@@ -76,9 +76,15 @@ pnpm e2e e2e/screens.spec.ts             # today-* / live-map-* / ramp-ipad-* at
 pnpm e2e e2e/live-map.spec.ts            # artifacts/live-map.png
 pnpm e2e e2e/nav-rail.spec.ts            # the rail a role gets, read off the page: nav-rail-<role>.png
 E2E_DEMO_ROLE=FRONT_DESK pnpm e2e e2e/one-menu.spec.ts
-                                         # the menu on the three screens that had none, at 1280 and 390:
-                                         # one-menu-<role>-<screen>-<width>.png. One run is one role, so
-                                         # the three roles are three runs (DIRECTOR is the default).
+                                         # the menu on the three screens that had none: the left rail at
+                                         # 1280 and the bottom tab bar at 390, one-menu-<role>-<screen>-
+                                         # <width>.png. One run is one role, so the three roles are three
+                                         # runs (DIRECTOR is the default).
+E2E_DEMO_ROLE=FRONT_DESK pnpm e2e e2e/role-pages.spec.ts
+                                         # every menu item opens a built screen, and a page that is not on
+                                         # this role's menu lands on their home with "Not on your menu"
+                                         # while the API still answers 403: not-on-menu-<role>-<page>-
+                                         # <width>.png. Only the front desk has a page to be refused.
 pnpm e2e e2e/moved-addresses.spec.ts     # /plan-preview, /map-preview, /ramp-preview still 308 to the screens
 ```
 

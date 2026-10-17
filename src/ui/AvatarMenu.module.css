@@ -78,7 +78,16 @@
     padding: 0 var(--space-2);
   }
 
+  /*
+   * Initials only in the row, the name in the panel.
+   *
+   * The header is one row at 390 px and the row is full: the demo readout, "Start demo day" and
+   * this. With the name in the pill the three measure more than the window and the account is
+   * cut off at the right edge — which is how png/shell-flow-390.png draws it too, as a circle
+   * of initials. One tap opens "Signed in as {name}" and Sign out under it, so the name is a
+   * tap away rather than a scroll away.
+   */
   .name {
-    max-width: 8ch;
+    display: none;
   }
 }

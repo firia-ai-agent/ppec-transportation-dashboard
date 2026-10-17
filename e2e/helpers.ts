@@ -170,6 +170,54 @@ export async function expectOneSimulatedChip(page: Page): Promise<void> {
   expect(seen.bodyText, "the 'Times are simulated' line is back").not.toMatch(/[Tt]imes are simulated/);
 }
 
+/**
+ * THE HEADER IS ONE ROW — Vera's review, 2026-10-17 2:44 PM ET.
+ *
+ * It was two: the site name, the scenario clock and the avatar above, four "· Simulated" pills,
+ * their note and global search below. "One row" is a fact about boxes, so it is measured as
+ * one: every visible child of the header overlaps every other one vertically, which is only
+ * true of things side by side, and the whole header is no taller than a single row of 44 px
+ * targets with its padding. At 390 px, where the row is tightest, this is the assertion that
+ * fails when a readout or a button wraps and pushes the account onto a second line.
+ */
+export async function expectHeaderIsOneRow(page: Page): Promise<void> {
+  const header = await page.evaluate(() => {
+    const el = document.querySelector("header");
+    if (!el) return null;
+    const boxes = Array.from(el.children)
+      .map((child) => child.getBoundingClientRect())
+      .filter((r) => r.width > 0 && r.height > 0);
+    return {
+      height: el.getBoundingClientRect().height,
+      tops: boxes.map((r) => Math.round(r.top)),
+      bottoms: boxes.map((r) => Math.round(r.bottom)),
+    };
+  });
+  expect(header, "there is no header on this screen").not.toBeNull();
+  const { height, tops, bottoms } = header as { height: number; tops: number[]; bottoms: number[] };
+  expect(tops.length, "the header has nothing in it").toBeGreaterThan(1);
+  expect(
+    Math.max(...tops) < Math.min(...bottoms),
+    `the header is stacked, not in a row: tops ${tops.join()} bottoms ${bottoms.join()}`,
+  ).toBe(true);
+  expect(height, `the header is ${height}px tall, which is more than one row`).toBeLessThanOrEqual(80);
+  /*
+   * ...and the row fits the window. One row that runs off the right-hand edge is how the
+   * account pill went missing at 390 px: present, laid out, and half of it off the screen.
+   */
+  const overflowing = await page.evaluate(() => {
+    const el = document.querySelector("header");
+    if (!el) return [];
+    return Array.from(el.querySelectorAll("*"))
+      .filter((child) => {
+        const r = child.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.right > window.innerWidth + 1;
+      })
+      .map((child) => `${child.tagName.toLowerCase()}: ${(child.textContent ?? "").trim().slice(0, 30)}`);
+  });
+  expect(overflowing, "the header runs off the right-hand edge of the window").toEqual([]);
+}
+
 /** Every page: the one DEMO bar, and it is on screen at the bottom of the page too (NFR-09). */
 export async function expectDemoBarPinned(page: Page): Promise<void> {
   const bar = page.getByRole("status", { name: demoBanner.ariaLabel });
