@@ -35,6 +35,22 @@ import { dateOverrideAllowed } from "@/domain/board/day";
 
 export const metadata = { title: liveMap.documentTitle };
 
+/**
+ * §9: a link is a target too (Vera's prod walk item 4).
+ *
+ * An inline anchor's box is its one line of text — about 20 px tall — and these two are the only
+ * way to reach the sibling screens behind this door, so at phone width they were the easiest
+ * thing here to miss with a thumb. Laid out as targets instead: 44 px of height and of width
+ * whatever the words are, with the text centred in what is left. Measured at 390 px in
+ * e2e/live-map.spec.ts, alongside the demo controls under the map.
+ */
+const screenLink: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: "var(--target-console)",
+  minWidth: "var(--target-console)",
+};
+
 /** The guard reads a session, so this route is never statically rendered. */
 export const dynamic = "force-dynamic";
 
@@ -86,7 +102,9 @@ export default async function LiveMapPage() {
         one says where the other is.
       */}
       <p style={{ margin: 0, fontSize: "var(--body-console)" }}>
-        <Link href="/ramp-ipad">{fill(liveMap.openScreen, { page: rampIpad.heading })}</Link>
+        <Link href="/ramp-ipad" style={screenLink}>
+          {fill(liveMap.openScreen, { page: rampIpad.heading })}
+        </Link>
       </p>
       {/*
         Plan routes is the third screen behind the same door, and it is the coordinator's and
@@ -96,7 +114,9 @@ export default async function LiveMapPage() {
       */}
       {canOpenPage(caller, "/plan-routes") ? (
         <p style={{ margin: 0, fontSize: "var(--body-console)" }}>
-          <Link href="/plan-routes">{fill(liveMap.openScreen, { page: planRoutes.heading })}</Link>
+          <Link href="/plan-routes" style={screenLink}>
+            {fill(liveMap.openScreen, { page: planRoutes.heading })}
+          </Link>
         </p>
       ) : null}
       {/*

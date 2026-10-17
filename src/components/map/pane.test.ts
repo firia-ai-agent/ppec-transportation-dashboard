@@ -5,13 +5,14 @@ import { liveMap } from "@/ui/copy";
 import { target } from "@/ui/tokens";
 
 /**
- * The map pane's screen contracts from Vera's review: the zoom buttons are a real target, the
- * attribution is pinned inside the pane where a narrow window cannot clip it, and the chosen
- * clock speed is filled rather than outlined.
+ * The map pane's screen contracts from Vera's reviews: the zoom buttons are a real target, the
+ * attribution is pinned inside the pane where a narrow window cannot clip it, and the clock
+ * controls are one named demo control whose buttons — and the screen's two links — are targets
+ * a thumb can hit.
  *
  * These are CSS and markup rules, and vitest has no browser to apply them in, so they are read
- * from the source here and *measured* in e2e/screens.spec.ts, which takes the real bounding
- * boxes at 1024 and 1280.
+ * from the source here and *measured* in the browser: e2e/screens.spec.ts takes the real
+ * bounding boxes at 1024 and 1280, and e2e/live-map.spec.ts takes them at 390.
  */
 const HERE = __dirname;
 
@@ -81,25 +82,85 @@ describe("ADR-008 / §5.1: the attribution is never clipped and never covered", 
   });
 });
 
-describe("the running clock speed is filled, not outlined", () => {
+/**
+ * Vera's prod walk item 4 / Veri S3: the five clock buttons are one named demo control.
+ *
+ * They were this file's own outlined buttons — pause, ×1, ×10, ×60, restart — loose in the row
+ * beside the clock readout, with the running speed filled in the *screen's* brand pair and no
+ * name on the group at all. Two things were wrong with that at once: a control that only steers
+ * the demo was wearing the clothes a coordinator's own decisions wear (D-5), and a reviewer
+ * reading five unlabelled buttons has to guess which clock they move.
+ *
+ * So the group is the shared demo control now (src/ui/DemoControls), which is also where the
+ * fill, the check mark and the §9 target live — asserted below where they are, not copied here.
+ */
+describe("the clock controls are one labelled demo control", () => {
   const source = read(HERE, "LiveFleetMap.tsx");
+  const control = read(HERE, "..", "..", "ui", "DemoControls.tsx");
+  const controlCss = read(HERE, "..", "..", "ui", "DemoControls.module.css");
 
-  it("uses the §8 brand pair that passes AA, and says so to a screen reader", () => {
-    expect(source).toMatch(/const pressed: React\.CSSProperties = \{[^}]*background: "var\(--color-brand\)"/s);
-    expect(source).toMatch(/const pressed: React\.CSSProperties = \{[^}]*color: "var\(--color-surface\)"/s);
-    expect(source).toMatch(/aria-pressed=\{speed === option\}/);
+  it("renders them in the DEMO bar's styling rather than the screen's own", () => {
+    expect(source).toMatch(/import \{ DemoControls \} from "@\/ui\/DemoControls"/);
+    expect(source).toMatch(/<DemoControls[\s\S]{0,200}legend=\{liveMap\.demoSpeedLegend\}/);
+    // No second copy of the buttons: the brand-filled pair this file used to paint is gone.
+    expect(source).not.toMatch(/const pressed: React\.CSSProperties/);
+    expect(source).not.toMatch(/--color-brand/);
   });
 
-  it("carries a check mark too, so the state is never colour alone (§3)", () => {
-    expect(source).toMatch(/\{speed === option \? <Check size=\{icon\.inline\} aria-hidden="true" \/> : null\}/);
+  it("names the group on screen and to a screen reader, in one string", () => {
+    expect(liveMap.demoSpeedLegend).toBe("Demo speed");
+    // The visible label and the group's accessible name are the same element (§9).
+    expect(control).toMatch(/<p id=\{legendId\} className=\{styles\.legend\}/);
+    expect(control).toMatch(/role="group" aria-labelledby=\{legendId\}/);
   });
 
-  it("no longer marks the choice with an outline, which reads as a focus ring", () => {
-    const pressedRule = source.slice(
-      source.indexOf("const pressed: React.CSSProperties"),
-      source.indexOf("const meta: React.CSSProperties"),
+  it("holds all five in that one group: the three speeds, pause and restart", () => {
+    expect(source).toMatch(/options=\{SPEEDS\.map\(/);
+    expect(source).toMatch(/label: fill\(liveMap\.speed, \{ factor \}\)/);
+    expect(source).toMatch(/label: playing \? liveMap\.pause : liveMap\.play/);
+    expect(source).toMatch(/label: liveMap\.restart/);
+    // Pause and restart choose nothing, so they carry no pressed state; the speed does.
+    expect(control).toMatch(/aria-pressed=\{option\.value === value\}/);
+  });
+
+  it("still fills the running speed and marks it with a check, never colour alone (§3)", () => {
+    expect(control).toMatch(/option\.value === value \? <Check size=\{icon\.inline\}/);
+    expect(controlCss).toMatch(
+      /\.button\[aria-pressed="true"\] \{[^}]*background: var\(--color-demo-fg\)/s,
     );
-    expect(pressedRule).not.toMatch(/boxShadow/);
+    // An outline in a brand tone is the shape of the §9 focus ring; a fill is not.
+    expect(controlCss).not.toMatch(/box-shadow/);
+  });
+
+  it("§9: every button in it is a 44 px target in both directions", () => {
+    expect(target.console).toBe("44px");
+    const rule = /\.button \{[^}]*\}/s.exec(controlCss)?.[0] ?? "";
+    expect(rule).toMatch(/min-height: var\(--target-console\)/);
+    // "×1" is two characters: padding alone leaves a target a thumb misses at phone width.
+    expect(rule).toMatch(/min-width: var\(--target-console\)/);
+  });
+});
+
+/**
+ * The other half of the same item: the two links out of this screen.
+ *
+ * They are the only way to reach the sibling surfaces behind this door, and an inline anchor's
+ * box is its line of text — so at 390 px they were a 20 px target. Measured in the browser by
+ * e2e/live-map.spec.ts; this is the rule that makes the measurement pass.
+ */
+describe("§9: the live map's two links are targets, not lines of text", () => {
+  const page = read(HERE, "..", "..", "app", "live-map", "page.tsx");
+
+  it("lays both out at the console target", () => {
+    expect(page).toMatch(
+      /const screenLink: React\.CSSProperties = \{[^}]*minHeight: "var\(--target-console\)"/s,
+    );
+    expect(page).toMatch(
+      /const screenLink: React\.CSSProperties = \{[^}]*minWidth: "var\(--target-console\)"/s,
+    );
+    for (const href of ["/ramp-ipad", "/plan-routes"]) {
+      expect(page, href).toMatch(new RegExp(`href="${href}" style=\\{screenLink\\}`));
+    }
   });
 });
 

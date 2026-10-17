@@ -554,6 +554,17 @@ export const liveMap = {
   /** Said on the page itself: this surface is still behind staff sign-in, and still simulated. */
   signedInOnly: "Staff sign-in only. The data below is simulated, and the roles still apply.",
   clock: "Scenario clock {time} ET",
+  /**
+   * What the five clock buttons are, said once above them (Vera's prod walk item 4, Veri S3).
+   *
+   * They were a loose row beside the clock readout with no name on them at all: pause, three
+   * multipliers and a restart, which a reviewer could read as something about the fleet rather
+   * than about the demo's own clock. This is the group's visible label *and* its accessible
+   * name (`aria-labelledby` in src/ui/DemoControls.tsx), so the eye and a screen reader get the
+   * same sentence, and the group renders in the DEMO bar's styling for the same reason the plan
+   * screen's scenario toggle does — steering the demo is not one of the day's decisions.
+   */
+  demoSpeedLegend: "Demo speed",
   pause: "Pause",
   play: "Play",
   restart: "Restart",

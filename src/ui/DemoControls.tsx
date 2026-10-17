@@ -12,17 +12,23 @@
  * It is one group of buttons and nothing else — no state of its own, no copy of its own. The
  * words come from the caller's own entry in src/ui/copy.ts, and the demo panel (B-15) is where
  * this control, and the others like it, end up; see docs/BUILD-PLAN-M2.md under the P-11 step.
+ *
+ * A group may also carry `actions`: buttons that *do* something to the demo rather than choose
+ * one of its states — the live map's Pause and Restart (Vera's prod walk item 4). They sit in
+ * the same labelled group as the options, in the same clothes, because a reviewer reading
+ * "Demo speed" is looking at one set of controls and not at three.
  */
 import { useId } from "react";
 import { Check, FlaskConical } from "lucide-react";
 import { icon } from "./tokens";
 import styles from "./DemoControls.module.css";
 
-export function DemoControls<T extends string>({
+export function DemoControls<T extends string | number>({
   legend,
   options,
   value,
   onChange,
+  actions,
   note,
 }: {
   /** What the choice is, shown in the bar and read as the group's name. */
@@ -30,6 +36,11 @@ export function DemoControls<T extends string>({
   options: ReadonlyArray<{ value: T; label: string }>;
   value: T;
   onChange: (value: T) => void;
+  /**
+   * Buttons in the same group that are not part of the choice, so they carry no pressed state:
+   * a pause that toggles its own label, a restart that happens once.
+   */
+  actions?: ReadonlyArray<{ label: string; onClick: () => void }>;
   /** One sentence about the option on screen, if there is one worth saying. */
   note?: string;
 }) {
@@ -53,6 +64,21 @@ export function DemoControls<T extends string>({
           >
             {option.value === value ? <Check size={icon.inline} aria-hidden="true" /> : null}
             {option.label}
+          </button>
+        ))}
+        {/*
+          Keyed by position, not by label: a pause button renames itself to "Play" when it is
+          pressed, and a key that moved with the label would remount the button a keyboard user
+          is standing on and drop their focus (§9).
+        */}
+        {actions?.map((action, i) => (
+          <button
+            key={i}
+            type="button"
+            className={styles.button}
+            onClick={action.onClick}
+          >
+            {action.label}
           </button>
         ))}
       </div>

@@ -40,12 +40,21 @@
   flex-wrap: wrap;
 }
 
-/* Outlined on the violet, filled only while it is the scenario on screen. */
+/*
+ * Outlined on the violet, filled only while it is the scenario on screen.
+ *
+ * §9 both ways round: the height is the console target, and so is the width, because the live
+ * map's speeds are two characters ("×1") and padding alone leaves a target a thumb misses at
+ * phone width. The label is centred in whatever is left (e2e/live-map.spec.ts measures all
+ * five buttons at 390 px).
+ */
 .button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
   min-height: var(--target-console);
+  min-width: var(--target-console);
   padding: 0 var(--space-4);
   border-radius: var(--radius-md);
   border: var(--border-hairline) solid var(--color-demo-fg);

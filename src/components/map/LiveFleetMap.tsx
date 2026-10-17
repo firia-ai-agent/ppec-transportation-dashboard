@@ -18,7 +18,6 @@
  * matrix in that file is the one place the answer is written down.
  */
 
-import { Check } from "lucide-react";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { canSeeMapData, type MapViewer } from "@/domain/access/map-view";
 import FleetMap from "./FleetMap";
@@ -34,7 +33,7 @@ import {
 import { measurePath, pathUpTo } from "@/domain/location/geo";
 import { fill, liveMap, sourceMode } from "@/ui/copy";
 import { routeGeometry, type Route } from "@/domain/location/route";
-import { icon } from "@/ui/tokens";
+import { DemoControls } from "@/ui/DemoControls";
 import { vanMarkerStateOf, vanMarkerWords } from "@/ui/van-state";
 import { DEMO_RUNS, DEMO_RUN_SECONDS, SCENARIO_START_MS } from "@/fixtures/replays";
 import {
@@ -48,7 +47,8 @@ import {
 
 /** §6.2 clock speeds. ×10 by default: a 25-minute run plays in two and a half. */
 const SPEEDS = [1, 10, 60] as const;
-const DEFAULT_SPEED = 10;
+type Speed = (typeof SPEEDS)[number];
+const DEFAULT_SPEED: Speed = 10;
 /** Wall-clock tick. 4 Hz is smooth enough for a tween between 5 s points. */
 const TICK_MS = 250;
 
@@ -207,38 +207,14 @@ function vehiclesOf(
  * Inline styles read the design tokens as the CSS custom properties the root layout emits
  * (src/ui/tokens.ts → `tokenCss()`), never as hexes: tokens.ts is the only file under src/
  * allowed to hold a colour literal, and src/ui/no-hex.test.ts enforces it.
- */
-const button: React.CSSProperties = {
-  minHeight: "var(--target-console)",
-  padding: "0 var(--space-4)",
-  fontSize: "var(--body-console)",
-  fontWeight: "var(--weight-semibold)",
-  lineHeight: "var(--leading-tight)",
-  color: "var(--color-ink)",
-  background: "var(--color-surface)",
-  border: "var(--border-hairline) solid var(--color-border-strong)",
-  borderRadius: "var(--radius-md)",
-  cursor: "pointer",
-};
-
-/**
- * The chosen speed, filled rather than outlined.
  *
- * An outline in the brand tone is the same shape as the §9 focus ring, so "which speed is
- * running" and "where is my keyboard" read as the same signal. A filled button is a different
- * shape of answer: brand ink carrying surface-white text, the §8 pair that passes AA at 6.70:1,
- * with a check mark beside the label so the state is never colour alone (§3).
+ * The clock buttons are not among them any more. They were this file's own outlined buttons
+ * with the running speed filled in the brand pair, sitting in the row beside the clock readout
+ * — the screen's own clothes, for five controls that only steer the demo, and with no name on
+ * the group at all. They are now one labelled group in the DEMO bar's styling (src/ui/
+ * DemoControls), which is where the fill, the check mark and the 44 px target live, and which
+ * the plan screen's scenario toggle already wears (Vera's prod walk item 4, Veri S3).
  */
-const pressed: React.CSSProperties = {
-  ...button,
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-  color: "var(--color-surface)",
-  background: "var(--color-brand)",
-  borderColor: "var(--color-brand)",
-};
-
 const meta: React.CSSProperties = {
   fontSize: "var(--body-console)",
   lineHeight: "var(--leading-normal)",
@@ -274,7 +250,9 @@ export default function LiveFleetMap({ viewer, clockMayMove = false }: LiveFleet
   const can = (key: Parameters<typeof canSeeMapData>[1]) => canSeeMapData(viewer, key);
   const reduced = useReducedMotion();
   const [playing, setPlaying] = useState(true);
-  const [speed, setSpeed] = useState<number>(DEFAULT_SPEED);
+  // Typed as one of §6.2's three, so the demo control's option list and this state are the
+  // same set by construction rather than by agreement.
+  const [speed, setSpeed] = useState<Speed>(DEFAULT_SPEED);
   const { simSeconds, restart } = useSimClock(playing, speed, reduced);
 
   // One replay per run, computed once: the clock only reads frames out of them.
@@ -340,36 +318,39 @@ export default function LiveFleetMap({ viewer, clockMayMove = false }: LiveFleet
         }}
       >
         <span style={heading}>{fill(liveMap.clock, { time: formatClock(nowMs) })}</span>
-        {/* §6.2: the clock is a demo control, so only the role that holds them gets it — and
-            only in a shell where the clock may be moved at all, which no deployment is (Veri;
-            `clockMayMove` above). The clock itself keeps running for everyone: the readout
-            beside these buttons is not a control. */}
-        {can("clockControls") && clockMayMove ? (
-          <>
-            <button type="button" style={button} onClick={() => setPlaying((p) => !p)}>
-              {playing ? liveMap.pause : liveMap.play}
-            </button>
-            {SPEEDS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                style={speed === option ? pressed : button}
-                aria-pressed={speed === option}
-                onClick={() => setSpeed(option)}
-              >
-                {speed === option ? <Check size={icon.inline} aria-hidden="true" /> : null}
-                {fill(liveMap.speed, { factor: option })}
-              </button>
-            ))}
-            <button type="button" style={button} onClick={restart}>
-              {liveMap.restart}
-            </button>
-          </>
-        ) : null}
+        {/* The clock readout and what the markers are doing: two sentences about the screen,
+            and neither one a control. The controls are the group below. */}
         <span style={meta}>
           {reduced ? liveMap.motionReduced : liveMap.motionTweened}
         </span>
       </div>
+
+      {/*
+        §6.2: the clock is a demo control, so only the role that holds them gets it — and only in
+        a shell where the clock may be moved at all, which no deployment is (Veri; `clockMayMove`
+        above). The clock itself keeps running for everyone; what is gated is steering it.
+
+        One group, one visible name ("Demo speed"), in the DEMO bar's own clothes: the five
+        buttons are pause, the three §6.2 multipliers and a restart, and the chosen multiplier is
+        the one with a pressed state. `aria-labelledby` inside DemoControls makes the same words
+        the group's accessible name, so a screen reader is told what these five are before it
+        reads "×10".
+      */}
+      {can("clockControls") && clockMayMove ? (
+        <DemoControls
+          legend={liveMap.demoSpeedLegend}
+          options={SPEEDS.map((factor) => ({
+            value: factor,
+            label: fill(liveMap.speed, { factor }),
+          }))}
+          value={speed}
+          onChange={setSpeed}
+          actions={[
+            { label: playing ? liveMap.pause : liveMap.play, onClick: () => setPlaying((p) => !p) },
+            { label: liveMap.restart, onClick: restart },
+          ]}
+        />
+      ) : null}
 
       <FleetMap fixture={fixture} label={liveMap.mapLabel} />
 

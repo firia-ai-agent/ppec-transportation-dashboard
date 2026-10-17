@@ -36,6 +36,8 @@ import {
   fleetMap,
   liveMap,
   liveUpdates,
+  planRoutes,
+  rampIpad,
   serviceDate,
   sourceMode,
 } from "../src/ui/copy";
@@ -44,6 +46,7 @@ import { gpsFreshnessStates, legStates } from "../src/ui/states";
 import {
   boxOf,
   expectDemoBarPinned,
+  expectDemoControlStyling,
   expectNoInternalCodes,
   expectVioletOnlyOnDemoChrome,
   overlaps,
@@ -750,5 +753,87 @@ test.describe("Vera's bar: what a van's marker says", () => {
     await expect(page.locator('[class*="leaflet"]')).toHaveCount(0);
     await expect(page.locator('img[src*="marker-icon"]')).toHaveCount(0);
     console.log("screenshot:", await shot(page, "today-live-one-day"));
+  });
+});
+
+/**
+ * The live map on a phone: the demo controls are a named group, and everything you can press is
+ * a target (Vera's prod walk item 4, Veri S3; §9's ≥44 px console target).
+ *
+ * 390 px is the narrowest width this console is walked at, and it is where the screen's two
+ * failures showed: the five clock buttons were loose in the row beside the clock readout with no
+ * name on the group, and the two links out to the sibling screens were inline text — a 20 px
+ * line, which is the one thing on the page a thumb cannot reliably hit. Measured rather than
+ * eyeballed, because both are box sizes, and taken at this width because this is where the §9
+ * floor actually binds: at 1440 the same buttons have a whole row to spread into.
+ */
+test.describe("at 390px, on a phone", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("names the demo controls and makes every control and link a 44 px target", async ({
+    page,
+  }) => {
+    await page.goto("/live-map");
+    await expect(page.getByRole("heading", { level: 1, name: liveMap.heading })).toBeVisible();
+
+    /*
+     * The group, by its accessible name: `aria-labelledby` points at the visible label, so one
+     * locator proves both halves of the ruling — the group is named "Demo speed", and the words
+     * a screen reader is given are the words on the screen (src/ui/DemoControls.tsx).
+     */
+    const group = page.getByRole("group", { name: liveMap.demoSpeedLegend });
+    await expect(group).toBeVisible();
+    await expect(page.getByText(liveMap.demoSpeedLegend, { exact: true })).toBeVisible();
+
+    /*
+     * And it is demo chrome, not the screen's own — measured, not read off the markup, because
+     * what the ruling is about is what a reviewer sees: the bar's violet fill, the bar's ink,
+     * and the chosen multiplier inverting that pair with a check mark beside it. It is the same
+     * helper the plan screen's scenario toggle is held to (e2e/plan-routes.spec.ts).
+     */
+    const bar = page.locator('[data-demo-control="true"]');
+    await expect(bar).toHaveCount(1);
+    await expect(bar).toContainText(liveMap.demoSpeedLegend);
+    await expectDemoControlStyling(bar);
+
+    /*
+     * All five controls, inside that one group: pause, the three §6.2 multipliers, restart. The
+     * names come from copy.ts, so a renamed button fails here rather than silently dropping out
+     * of the check.
+     */
+    const controls = [
+      liveMap.pause,
+      ...[1, 10, 60].map((factor) => fill(liveMap.speed, { factor })),
+      liveMap.restart,
+    ];
+    for (const name of controls) {
+      const control = group.getByRole("button", { name, exact: true });
+      await expect(control, `${name} is not in the Demo speed group`).toBeVisible();
+      const box = await boxOf(control);
+      expect(box.width, `${name} is ${box.width}px wide`).toBeGreaterThanOrEqual(44);
+      expect(box.height, `${name} is ${box.height}px tall`).toBeGreaterThanOrEqual(44);
+    }
+    // Nothing is left outside it: the five are the whole set of clock controls on the page.
+    await expect(group.getByRole("button")).toHaveCount(controls.length);
+
+    /*
+     * The page's own two links — the only way to reach the ramp iPad and the planning screen
+     * from here, and a 20 px line of text until this item. The DIRECTOR role this run signs in
+     * as opens both (src/auth/access.ts), so both are on screen to be measured.
+     */
+    for (const screen of [rampIpad.heading, planRoutes.heading]) {
+      const link = page.getByRole("link", {
+        name: fill(liveMap.openScreen, { page: screen }),
+        exact: true,
+      });
+      await expect(link).toBeVisible();
+      const box = await boxOf(link);
+      expect(box.width, `the ${screen} link is ${box.width}px wide`).toBeGreaterThanOrEqual(44);
+      expect(box.height, `the ${screen} link is ${box.height}px tall`).toBeGreaterThanOrEqual(44);
+    }
+
+    // The violet is still spent on the bar, the chip and this control, measured at this width.
+    await expectVioletOnlyOnDemoChrome(page);
+    console.log("screenshot:", await shot(page, "live-map-390"));
   });
 });
