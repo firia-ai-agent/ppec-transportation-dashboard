@@ -27,14 +27,16 @@ every one of them is decided by the solver rather than by an inbox.
 
 **Slice 2 landed in two parts**, built in parallel and merged together: **Plan routes** — the
 solver's own screen, §1.1 — and **the board's sharpening**, the rows this page had promised slice 2
-since it was written, which are written up in `docs/ui/B12-SLICE2-DEFERRED.md`. Slice 2 does not
-close until the rows §2 still marks "slice 2, ahead" are in.
+since it was written, which are written up in `docs/ui/B12-SLICE2-DEFERRED.md`. **No row on this
+page is marked "slice 2, ahead" any more**: every row in §2 is either landed, or placed in the
+slice that owns the surface it reads — slice 3 for the two seeded names, **P-04** for the filter
+chips and the drawer's real history (BUILD-PLAN-M2.md:73). Both parts of slice 2 are in.
 
 | Slice | What it is | State |
 |---|---|---|
 | 1 | The Today board (SURF-01) and the child drawer (SURF-02), read-only, over the seeded scenario | **landed** — this page's §1 |
-| 2 | **Plan routes** (B-09 VEH-01…05, B-13 UI-04): the lanes screen, the feasible-plan check, AT-04, AT-05, AT-12 — **and** the board's sharpening: the fixture and taste items this page already promised slice 2 | **both parts landed** — §1.1 and `docs/ui/B12-SLICE2-DEFERRED.md`; §2 marks which rows they closed and which are still ahead |
-| 3 | Live updates (SSE) and the live map pane — AT-03 and AT-11 — and the seeded approver and verifier §2 moved here | sequenced — the two seeded names by the founder's own call (Firia, 2026-10-16 10:21 PM ET; DECISION-LEDGER row 71) |
+| 2 | **Plan routes** (B-09 VEH-01…05, B-13 UI-04): the lanes screen, the feasible-plan check, AT-04, AT-05, AT-12 — **and** the board's sharpening: the fixture and taste items this page already promised slice 2 | **both parts landed** — §1.1 and `docs/ui/B12-SLICE2-DEFERRED.md`; §2 marks which rows they closed and which slice owns the two they did not |
+| 3 | Live updates (SSE) and the live map pane — AT-03 and AT-11 — the seeded approver and verifier §2 moved here, and the **OSRM re-probe** of the eight committed legs (§6) | sequenced — the two seeded names and the re-probe are **Firia's calls, within founder locks** (slice naming delegated, DECISION-LEDGER row 63): Firia, 2026-10-16 10:21 PM ET (row 71) and 2026-10-17 5:43 AM ET |
 | 4 | Inbox, Exceptions & Approvals, the board's writes, and the extras that wait on them — **this is P-04** (BUILD-PLAN-M2) | sequenced |
 
 ## 1. What slice 1 is
@@ -115,23 +117,25 @@ already ends in the full stop their last initial carries. It is one sentence now
 ## 2. Slice 2's other part — the board's sharpening, and what is still ahead
 
 These are the rows this page has promised since it was written: each sharpens what slice 1
-shipped. Slice 2's board part closed most of them and moved two to slice 3; the rows still marked
-**slice 2, ahead** are ahead of us, not parked, and slice 2 does not close until they are in. The
+shipped. Slice 2's board part closed every row below but two: the seeded approver and the seeded
+verifier are slice 3's, and the provider/vehicle/AM-PM filter chips moved to **P-04** — together
+with the drawer's real history, which §7 already carried — because the rows they display come from
+slice 4's surfaces (BUILD-PLAN-M2.md:73). **Nothing here is marked "slice 2, ahead" any more.** The
 rows that are slice 4's — the surfaces and the writes — are in §7, where the slice that owns them
 is.
 
 | Thing | § | State, and what is left |
 |---|---|---|
-| A disabled Override that **looks** disabled, and says why in one line | §4.2, §9 | **half landed.** The disabled *treatment* is in (`src/ui/tokens.ts`, `today.module.css`): a disabled control no longer wears a live control's border, and `tokens.test.ts` holds it weaker than every usable tone. Override still has **no one-line reason of its own** — `LegDrawer.tsx` renders it under the *handoff's* reason — so that half is **slice 2, ahead**, and the line comes from `src/ui/copy.ts` (never inline prose, never a tooltip alone) |
-| Provider / vehicle / AM-PM filter chips with counts | §4.1 | **slice 2, ahead.** Slice 1 shipped the "Only needs action" toggle and the §2 search; slice 2 adds the chips and their counts |
+| A disabled Override that **looks** disabled, and says why in one line | §4.2, §9 | **landed, both halves.** The disabled *treatment* is in (`src/ui/tokens.ts`, `today.module.css`): a disabled control no longer wears a live control's border, and `tokens.test.ts` holds it weaker than every usable tone. And Override has **its own one-line reason** now, under its own button: `src/app/(app)/today/LegDrawer.tsx:188` renders `drawer.overrideDisabled` — "Overrides aren't connected yet." from `src/ui/copy.ts` (never inline prose, never a tooltip alone). It used to borrow the sentence above it, which is the *handoff's* reason and read as the child's missing receiver being what stops an override; two controls, two reasons, each under the button it is about (Vera, 2026-10-16; `docs/ui/B12-SLICE2-DEFERRED.md` §4) |
+| Provider / vehicle / AM-PM filter chips with counts | §4.1 | **moved to P-04 — B-12 slice 4** (BUILD-PLAN-M2.md:73), which is a placement and not a deferral. Slice 1 shipped the "Only needs action" toggle and the §2 search; the chips go to the step whose surfaces produce the rows they display, and the row is restated in §7 with the rest of P-04's scope |
 | Drawer **timeline rows** | §4.2 | **landed.** The day is a timeline of rows — time column, stops, icon + label state, no box — rather than two hairline cards, the dense treatment the board already uses (Vera's call, §5) |
 | **One service date on screen**, in the board's own header | §2, §6.1 | **landed, and it is not a switcher** — this is the answer to the "date switcher" this page asked for. Vera's final call (§5): one date, the replayed demo day, labelled as the demo day, with nothing on screen offering another. The shell's duplicate — today's real date on every page — is gone, which is what the two "Service date" labels were. The board takes a service date (`src/domain/board/day.ts`) and other days are reached by the test-only date override and by nothing on screen or on a deployment (Veri #49) |
 | An **AT-13 `HELD_NO_RECEIVER` ride in the scenario** | PRD §6.6, l.1327 | **landed — the board part of AT-13, and only that part** (§2.1). The scenario had the *family* for AT-13 — F2, no authorized receiving adult (`standard.ts:140`) — but no ride in the state. C2's afternoon is now that ride on the finished day and on the demo day: `ARRIVED_DROPOFF → HELD_NO_RECEIVER` by the system (CA-04, ledger row 47), with no automatic return because the machine's `noWildcardFrom` gives it no edge out but a staff one. The board, the drawer and AT-13's own check all read it. The rest of CA-04 — the staff task and the calls, from a real transition rather than from a fixture — is §2.1's row |
 | A tighter, **mutation-proven** AT-10 e2e | PRD SURF-01 acceptance | **landed.** Slice 1's AT-10 line was a negative — `expect(page.getByText(/handed off to/i)).toHaveCount(0)` — which also passed on a board that rendered nothing. It now asserts positively on the finished day, where an arrival and a handoff are both on screen and told apart: C6's van arrived and no custody event was recorded, so the row reads "Arrived (vehicle)" and does **not** read as handed off. On that day the same row is also in **Needs action** and counted by "Only needs action": the state is the arrival and nothing more, and the missing handoff is the last open thing about a ride whose van is back in the yard — under "On the way" it read as still happening, and the one view a coordinator closes a day from did not list it |
 | **Afternoon route data aligned with the scenario** | ADR-007, §3 below | **landed for the plan.** `src/fixtures/run-routes.ts` is one route per run per direction, built from the scenario's own stops; the afternoon is the morning reversed (`reverseRoute`) and `plannedEta` gives each stop its family's 10-minute window. No row says "Window pending" any more. The three **ADR-007 replay** routes were left as they were here, and **this PR regenerated them too** — §3.1 |
-| The three **ADR-007 replay routes**, regenerated against the scenario | ADR-007, §3.1, §5 | **landed in this PR.** The founder's call, and it was made: the three committed tracks are the three runs' own morning geometry now, read out of `run-routes.ts` rather than copied, so the plan and the replayed morning are one survey. What it cost and what is left are in §3.1 |
+| The three **ADR-007 replay routes**, regenerated against the scenario | ADR-007, §3.1, §5 | **landed in this PR.** Firia's call, within founder locks (DECISION-LEDGER rows 63, 71), and it was made: the three committed tracks are the three runs' own morning geometry now, read out of `run-routes.ts` rather than copied, so the plan and the replayed morning are one survey. What it cost and what is left are in §3.1 |
 | An unknown window reads **"Time not set yet"**, with an icon | COPY-GUIDE §5, §3 | **landed in this PR** (the copy pass, `src/ui/copy.ts` `etaText.pending`) — confirmed on the branch against `origin/main`, which still says "Window pending". Slice 2's geometry made the case unreachable in the committed scenario; the fallback is still there for a run with no geometry, and it now says the guide's own sentence, keeping its clock icon — never colour or absence alone (`TodayBoard.tsx` `WINDOW_PENDING`). **Nothing about it is left for slice 3**, and §6 no longer lists it |
-| A **named approver and a named verifier** on the seeded records | §4.2, COPY-GUIDE §5 | **slice 3, and that is a founder decision** — approved by Firia, 2026-10-16 10:21 PM ET (DECISION-LEDGER row 71). It is a **sequencing** call and not a deferral, on the same rule as ledger row 63: slice 3 sits inside B-12, B-12 does not close until it passes, and the item names its slice rather than a milestone. Slice 2 left both fixtures as they were (§3.3, §3.4): `approved_by` is still NULL in `seed.ts` and the ramp check still has no person on it, so the drawer cannot yet say "Verified 17 min ago by J.T." and truthfully mean it. Slice 3 puts the approver and the verifier in the seed |
+| A **named approver and a named verifier** on the seeded records | §4.2, COPY-GUIDE §5 | **slice 3, and that is Firia's call, within founder locks** — Firia, 2026-10-16 10:21 PM ET (DECISION-LEDGER row 71; slice naming delegated, row 63). It is a **sequencing** call and not a deferral, on the same rule as ledger row 63: slice 3 sits inside B-12, B-12 does not close until it passes, and the item names its slice rather than a milestone. Slice 2 left both fixtures as they were (§3.3, §3.4): `approved_by` is still NULL in `seed.ts` and the ramp check still has no person on it, so the drawer cannot yet say "Verified 17 min ago by J.T." and truthfully mean it. Slice 3 puts the approver and the verifier in the seed |
 
 ### 2.1 AT-13 is credited for the board part only
 
@@ -176,8 +180,8 @@ call; it does not raise the task and does not place it.
 
 Slice 1 did not work around any of these, and neither does slice 2: each is fixed at the
 fixture, which is where the wrong fact is. The two about geometry are **closed** — the second by
-slice 2, the first by this PR — and the two about a person's name are **slice 3's**, by the
-founder's call. The state of each is the first thing its row says.
+slice 2, the first by this PR — and the two about a person's name are **slice 3's**, by Firia's
+call within founder locks. The state of each is the first thing its row says.
 
 1. **The committed routes and the standard scenario disagree.** `src/fixtures/routes.ts` was
    authored before `src/modules/demo/fixtures/standard.ts`: `route2` carries V1 but stops at S4
@@ -189,7 +193,7 @@ founder's call. The state of each is the first thing its row says.
    geometry — each run's own children's own stops, in `manifestFor`'s order — and every window on
    the board now comes from it.
 
-   **Closed in this PR**, on the founder's call (§5): the three replay tracks are the three runs'
+   **Closed in this PR**, on Firia's call within founder locks (§5): the three replay tracks are the three runs'
    own morning geometry. `routes.ts` surveys nothing of its own any more — it spreads
    `runRoute("R3"|"R1"|"R2", "AM")` and adds the fixture id the demo CLI names (`--track=route2`),
    so `route1` is V4's run, `route2` is V1's (the longest, which is what the §18.2 step 7 stall
@@ -220,8 +224,8 @@ founder's call. The state of each is the first thing its row says.
      keeping a fourth route belonging to no run, which is the thing this change removes. It stays
      committed as the **provenance of the speed** every derived duration is divided by
      (`src/fixtures/survey.ts` `PROBE_SPEED_MPS`, asserted in `routes.test.ts`). Re-probing the
-     scenario's eight legs against OSRM is a dev-time job (ADR-007) and is **the open item §5
-     carries forward**.
+     scenario's eight legs against OSRM is a dev-time job (ADR-007) and is **slice 3's** — Firia,
+     2026-10-17 5:43 AM ET; the last row of §6.
 
    One disagreement is left and it is a **clock**, not a road: the replay starts at 07:30 ET
    (`SCENARIO_START_MS`) because all four trucks must share one traffic band and `am-peak` begins
@@ -236,7 +240,7 @@ founder's call. The state of each is the first thing its row says.
    is the fallback, which says "Time not set yet" as of this PR (§2).
 3. **A seeded transport profile has no named approver** (`approved_by` is NULL by design in
    `seed.ts`), so the drawer shows the approved version and no approver. §4.2 asks for both.
-   **Unchanged by slice 2; sequenced to slice 3** — the founder's call, Firia 2026-10-16
+   **Unchanged by slice 2; sequenced to slice 3** — Firia's call within founder locks, 2026-10-16
    10:21 PM ET (DECISION-LEDGER row 71), and a slice rather than a deferral. Slice 3 names the
    approver in the seed — a synthetic staff name, from the same fixture the rest of the screen's
    people come from.
@@ -247,8 +251,8 @@ founder's call. The state of each is the first thing its row says.
    displayable position, so it cannot have skipped the check), and no person is attached to it.
    So slice 1's drawer says "Checked at the ramp before this run." where COPY-GUIDE §5 asks for
    "Verified 17 min ago by J.T.". Inventing a verifier *in the view* would make the sentence read
-   right and the screen wrong. **Unchanged by slice 2; sequenced to slice 3** on the same founder
-   call as §3.3 (Firia, 2026-10-16 10:21 PM ET; ledger row 71). Slice 3 puts the verifier in the
+   right and the screen wrong. **Unchanged by slice 2; sequenced to slice 3** on the same call
+   as §3.3 (Firia, 2026-10-16 10:21 PM ET, within founder locks; ledger row 71). Slice 3 puts the verifier in the
    fixture as a seeded capability report with a person on it, and the view reads what the day
    recorded. Slice 2 made it visible in one more place: a morning handoff says "Handed off to
    the ramp" rather than naming the person who received the child, for the same reason.
@@ -272,9 +276,9 @@ lock (D-5's violet reservation is kept, not traded — see the last row).
 
 ## 5. The calls still to carry, and who makes them
 
-Taste calls are Vera's and wait on no founder; the two rows that are the founder's say so by
-name. Each is answered by something a slice is building, so the answer lands with the code
-rather than ahead of it.
+Taste calls are Vera's and wait on no founder; the rows that are Firia's — made within the founder
+locks, under row 63's delegation — say so by name and date. Each is answered by something a slice
+is building, so the answer lands with the code rather than ahead of it.
 
 **The two service dates are answered.** The row that was here — the header's real date against
 the board's seeded day, both labelled "Service date" — is closed, and so is the **date switcher**
@@ -290,8 +294,9 @@ as a URL anyone can type (Veri #49: a `?date=` the server read on a deployment w
 without the control). The demo-controls dock (§6.1) is what eventually gives the app a scenario
 clock; nothing on this page waits on it.
 
-**The replay routes are answered, and the two seeded names have their slice.** Both were the
-founder's to make and both were made on 2026-10-16 (DECISION-LEDGER row 71). The three replay
+**The replay routes are answered, and the two seeded names have their slice.** Both were Firia's
+to make, within founder locks (slice naming delegated, ledger row 63), and both were made on
+2026-10-16 (DECISION-LEDGER row 71). The three replay
 routes were to be regenerated against the scenario — so the committed routing data changed in
 this PR, and §3.1 says exactly what changed and what it cost. The seeded approver and verifier
 land in **slice 3** (Firia, 10:21 PM ET), which is a sequence and not a deferral: they are §6's,
@@ -299,11 +304,14 @@ inside B-12, and B-12 does not close until slice 3 passes.
 
 Still open:
 
-- **Rudy / founder: re-probing the eight committed legs against OSRM** (§3.1). Every leg in the
-  demo is now `DERIVED` and **Unverified** — hand-authored along public roads, with durations
-  divided out of the one probe that was run. ADR-007 always said these get replaced by real OSRM
-  responses "when the fixtures are regenerated"; doing it needs the public demo server, so it is a
-  dev-time job and not something a test or a runtime may do. Worth a probe run before the demo?
+- ~~**Rudy / founder: re-probing the eight committed legs against OSRM** (§3.1).~~ **Answered: it
+  is slice 3's** — Firia, 2026-10-17 5:43 AM ET, within founder locks (slice naming delegated,
+  ledger row 63), and a sequence rather than a deferral on row 63's own rule. Every leg in the demo
+  is `DERIVED` and **Unverified** — hand-authored along public roads, with durations divided out of
+  the one probe that was run. ADR-007 always said these get replaced by real OSRM responses "when
+  the fixtures are regenerated"; doing it needs the public demo server, so it is a **dev-time job**
+  and not something a test or a runtime may do, and it runs **before the evidence package** (P-11's
+  export, P-12's signing) so no AT is signed over geometry nobody probed. The row is §6's.
 - **Rudy: the live morning's clock** (§3.1). The replays start at 07:30 ET so the four trucks
   share one traffic band, and the plan departs at the first family's window (06:45), so a live row
   publishes a centre arrival an hour after the planned row's window. The honest fix is the same
@@ -329,14 +337,15 @@ Still open:
   the board reading whatever it has reached. Does the clock subsume this fixture, or stay beside
   it as the "yesterday" the board can look back at?
 
-## 6. Slice 3 — live updates, the live map, and the two seeded names
+## 6. Slice 3 — live updates, the live map, the two seeded names, and the OSRM re-probe
 
 | Thing | § | What slice 3 has to land |
 |---|---|---|
 | Live updates, reconnect delta, the amber "paused" bar over 15 s | §2, §4.1 | the SSE stream (ADR-002), and with it the U3 commit→screen measurement RISKS-AND-QUESTIONS has open. AT-11's duplicate, out-of-order and location-loss bands are read here |
 | The map pane beside the rows, row-hover ↔ marker highlight, fly-to | §4.1, §5 | the split pane at ≥1280 px that D-6 (ledger row 34) decided. The pane itself already exists at `/map-preview`, and Plan routes already holds its place on screen (§1.1) — slice 3 puts the live map in both, and with it AT-03's delay on a real route |
 | Header adapter pills showing real ages instead of "· Simulated" | §2, §10 | the ages come from the same stream; the pills' **violet is already gone** (§4), so only the text is interim |
-| A **named approver and a named verifier** in the seed | §4.2, COPY-GUIDE §5 | **the founder's call, 2026-10-16 10:21 PM ET** (Firia; DECISION-LEDGER row 71): both land here, and that is a *sequence* rather than a deferral — B-12 does not close until slice 3 passes. `seed.ts` names the approver on the transport profile (`approved_by`), and the ramp observation becomes a seeded capability report with a person on it, so the drawer can say "Verified 17 min ago by J.T." and mean it (§3.3, §3.4) |
+| A **named approver and a named verifier** in the seed | §4.2, COPY-GUIDE §5 | **Firia's call, 2026-10-16 10:21 PM ET**, within founder locks (DECISION-LEDGER row 71; slice naming delegated, row 63): both land here, and that is a *sequence* rather than a deferral — B-12 does not close until slice 3 passes. `seed.ts` names the approver on the transport profile (`approved_by`), and the ramp observation becomes a seeded capability report with a person on it, so the drawer can say "Verified 17 min ago by J.T." and mean it (§3.3, §3.4) |
+| The **OSRM re-probe of the eight committed legs** — every one `DERIVED` and **Unverified** today | ADR-007, §3.1, §5 | the eight legs the three replay tracks are built from, probed against the public OSRM demo server, so a committed leg is survey-grade again and `PROBE_SPEED_MPS` (`src/fixtures/survey.ts`) stops being the provenance of every duration in the demo. A **dev-time job** and never a test or a runtime (ADR-007), run **before the evidence package** (P-11's export and P-12's signing), so no AT is signed over geometry nobody probed. **Firia's call, 2026-10-17 5:43 AM ET**, within founder locks (slice naming delegated, ledger row 63) |
 
 > **"Time not set yet" is done and has left this table.** It was listed here when slice 2 moved
 > it; it landed with this PR's copy pass (§2), so the fallback says the guide's own sentence with
@@ -355,7 +364,8 @@ are its scope as that step states it.
 | Inbox (SURF-03) and Exceptions & Approvals (SURF-05) | §4.3, §4.5 | both surfaces, for real, and the rest of AT-13's CA-04 rides with them (§2.1). Exceptions is also where B-08's F9 lands — the approval *decision* screen over `ops.change_request` / `ops.approval_request`, which DECISION-LEDGER row 63 dated to B-12 |
 | Writes: confirm handoff, **Override with reason**, snooze, approve | §4.2, §4.5 | the drawer's actions stop being read-only. Override is the one that has to work end to end: the dialog takes a required reason (`copy.ts overrideHeading` / `overrideReasonLabel`), the write commits, and the row and the drawer both move. "The action is rendered and says it is not connected" was slice 1's honest placeholder, not a shape to keep |
 | 412 conflict toast and the merge view | §4.1 | with the writes: there is nothing to conflict with until the board writes |
-| History, pending approvals and agent changes in the drawer, with real rows | §4.2 | the drawer's three sections are empty-state prose today. Slice 4 fills **history** with real rows, and the pending-approval and agent-change rows come from the Exceptions work in the same slice |
+| **Real drawer history**, with pending approvals and agent changes | §4.2 | the drawer's three sections are empty-state prose today. Slice 4 fills **history** with real rows, and the pending-approval and agent-change rows come from the Exceptions work in the same slice. **Named in P-04's own scope** (BUILD-PLAN-M2.md:73), moved there from this page's slice-2 list because the rows it displays come from this step's surfaces |
+| **Provider / vehicle / AM-PM filter chips with counts** | §4.1 | the chips and their counts, beside slice 1's "Only needs action" toggle and the §2 search. **Named in P-04's own scope** (BUILD-PLAN-M2.md:73), moved there from §2's slice-2 list on the same reason as the drawer's history: the rows they display come from this step's surfaces |
 
 ---
 
