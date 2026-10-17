@@ -58,12 +58,18 @@
 import type { Exec } from "@/db/exec";
 import { assistantUnavailable } from "@/ui/copy";
 import { childFirstName, guardianShortName } from "@/modules/identity/display-name";
-import { GatewayError } from "./gateway";
+import { type DemoDataGuardCode, DATA_MODE_ENV_VAR } from "./config";
+import { type GatewayOutcome, GatewayError } from "./gateway";
 import { effectId } from "./run/exec/effects";
 import { ProviderError } from "./providers/provider";
 import {
   RemoteApiKeyMissing,
+  RemoteBaseUrlRefused,
+  RemoteDemoDataGuardRefused,
+  RemoteEndpointRefused,
+  RemoteModelRefused,
   RemoteProviderUnavailable,
+  RemoteRequestUrlRefused,
 } from "./providers/remote";
 
 /** `ops.task.category` for a model this deployment could not reach. */
@@ -84,60 +90,173 @@ const sqlEnumList = (values: readonly string[]) => values.map((v) => `'${v}'`).j
 const LIVE_ALERT_STATES_SQL = sqlEnumList(LIVE_ALERT_STATES);
 
 /**
- * Why no model answered, as a class.
+ * Why no model answered, as a stable class.
  *
- * Four of them because four are actionable and distinguishable, and no more because the vendor's
- * own words are not something we store: `no_key` is a deployment that has not been given a key,
- * `rate_limited` is a 429 on every model in the chain, `timeout` is our own request deadline, and
- * `provider_error` is everything else a vendor can do (a 500, a dead socket, a body that is not
- * the shape it claims). The class goes in the server log and in the task locator. None of them
- * reaches the card: a coordinator's next move is the same for all four.
+ * Three groups, and the grouping is what a reader of a log line has to be able to act on:
+ *
+ *  - **the vendor was reached and failed** — `rate_limited` (429 on every model in the chain),
+ *    `timeout` (our own request deadline), `provider_error` (a 500, a dead socket, a body that is
+ *    not the shape it claims);
+ *  - **we never got as far as calling** — `no_key`, and the three demo-data guard conditions, one
+ *    class each so a log line names the condition rather than "configuration";
+ *  - **the call was refused on the way out** — `destination_refused`: the endpoint, the base URL,
+ *    the built request URL or the model chain was not one this deployment may use. A **stop**,
+ *    kept distinct from everything above it (see `Unavailable.stop`).
+ *
+ * None of them reaches the card. A coordinator's next move is the same for every one of them —
+ * read the text and answer the family — so the class lives in the server log and in the task
+ * locator, and `ui/copy.ts` has one sentence for all of them.
  */
-export type UnavailableReason = "no_key" | "rate_limited" | "timeout" | "provider_error";
+export type UnavailableReason =
+  | "no_key"
+  | "rate_limited"
+  | "timeout"
+  | "provider_error"
+  | "guard_demo_data_only"
+  | "guard_data_class"
+  | "guard_data_mode"
+  | "config_refused"
+  | "destination_refused";
+
+/** The three guard conditions, by the `config.DemoDataGuardCode` each one reports. */
+const GUARD_REASONS: Readonly<Record<DemoDataGuardCode, UnavailableReason>> = {
+  DEMO_DATA_ONLY_UNCONFIRMED: "guard_demo_data_only",
+  DATA_CLASS_NOT_SYNTHETIC: "guard_data_class",
+  DATA_MODE_NOT_SYNTHETIC: "guard_data_mode",
+};
+
+/** What is wrong with each guard var, in the house style: one lowercase clause, and no value. */
+const GUARD_DETAIL: Readonly<Record<DemoDataGuardCode, string>> = {
+  DEMO_DATA_ONLY_UNCONFIRMED: "not confirmed",
+  DATA_CLASS_NOT_SYNTHETIC: "not SYNTHETIC",
+  DATA_MODE_NOT_SYNTHETIC: "not SYNTHETIC",
+};
 
 /**
- * Is this error "the model is unavailable", and if so which kind? `null` for anything else.
+ * What a model outage *was*, in the two forms a caller needs.
  *
- * **Deliberately two classes wide, and the narrowness is the design.** Only these mean "we asked
- * for a model turn and no model answered":
- *
- *  - `RemoteApiKeyMissing` — there is no key to call with;
- *  - `RemoteProviderUnavailable` — every model in the chain was tried and every one failed;
- *  - a gateway `PROVIDER_ERROR` whose cause is **not** a `ProviderError` at all, i.e. a raw
- *    transport failure from an adapter that does not classify its own errors.
- *
- * Everything else an adapter can throw is a **refusal or a stop**, not an outage, and must not put
- * a card in front of a coordinator:
- *
- *  - `RemoteEndpointRefused`, `RemoteBaseUrlRefused`, `RemoteRequestUrlRefused`,
- *    `RemoteModelRefused` — somebody repointed the vendor, or an allow-list was edited.
- *    `providers/remote.ts` says it plainly about the URL check: "a key that nearly went to the
- *    wrong host is a stop, not a fallback". A staff alert would be the wrong answer twice over —
- *    it is not a coordinator's job, and "reply to this family yourself" is not the fix.
- *  - `RemoteProviderNotEnabled` without a missing key — a deployment that has not confirmed demo
- *    data. The fix is a setting, not a person reading a text.
- *  - every `ProviderError` from a non-vendor adapter: a scripted provider running out of
- *    responses is a harness condition, and it used to raise a card in suites that had nothing to
- *    do with this (`run/exec/clarify.test.ts`, `run/exec/staff.test.ts`), which is exactly how a
- *    false positive looks from the outside.
- *
- * And a policy block, a prompt leak, a free-text refusal and an invalid-argument rejection are all
- * the agent working correctly and refusing something. None is a reason to say the assistant is
- * down; they have their own tasks (`run/tasks.ts`).
+ * `reason` is the stable class, for the task locator and for a test to assert on. `detail` is the
+ * log line's parenthetical, and the only place an env var **name** appears — never a value,
+ * because `apiKeyEnvVar` names a secret and "names only" is a rule a reader can check at a glance.
  */
-export function modelUnavailableReason(err: unknown): UnavailableReason | null {
-  // Thrown straight at a caller that holds the adapter, with no gateway in between.
-  if (err instanceof RemoteApiKeyMissing) return "no_key";
-  if (err instanceof RemoteProviderUnavailable) return chainReason(err);
+export type Unavailable = {
+  readonly reason: UnavailableReason;
+  readonly detail: string;
+  /**
+   * True when this is a **stop** rather than an outage: the key was about to go somewhere this
+   * deployment has not vetted, or to a model off the allow-list.
+   *
+   * It still raises the alert — the family's text needs a person whatever went wrong upstream, and
+   * that is the founder's rule of 2026-10-17 — but the run's reason string says "stop", so nobody
+   * reads a misrouted key as a flaky vendor and waits for it to clear. Nothing is retried either
+   * way: the run fails, here as everywhere else in this file.
+   */
+  readonly stop: boolean;
+};
 
-  if (!(err instanceof GatewayError) || err.outcome !== "PROVIDER_ERROR") return null;
-  const cause = err.cause;
-  if (cause instanceof RemoteApiKeyMissing) return "no_key";
-  if (cause instanceof RemoteProviderUnavailable) return chainReason(cause);
-  // A classed provider error that is neither of those is a refusal; see the list above.
-  if (cause instanceof ProviderError) return null;
+/**
+ * Is this error "the assistant could not reach a model", and if so which kind? `null` otherwise.
+ *
+ * Six classes answer yes, and the list is deliberately closed:
+ *
+ *  - `RemoteDemoDataGuardRefused` — one of the three §2.5A conditions does not hold. **This is the
+ *    case that put the preview in "couldn't reach its model"**: that deployment has the key and
+ *    `APP_DATA_CLASS` but no `AGENT_DEMO_DATA_ONLY`, so the guard's first condition refuses every
+ *    call. It is a *wiring-time* refusal, which commit a8dc0f5 had classed as a stop raising no
+ *    card — and the founder's rule wins over that: the parent's text is sitting there either way,
+ *    so it needs a person either way.
+ *  - `RemoteApiKeyMissing` — there is no key to call with. Same reasoning.
+ *  - `RemoteProviderUnavailable` — every model in the chain was tried and every one failed.
+ *  - `RemoteEndpointRefused`, `RemoteBaseUrlRefused`, `RemoteRequestUrlRefused`,
+ *    `RemoteModelRefused` — `destination_refused`, with `stop: true`. `providers/remote.ts` is
+ *    right that "a key that nearly went to the wrong host is a stop, not a fallback": nothing
+ *    degrades and nothing is retried. But a stop is not a reason to leave a family unanswered, so
+ *    it raises the same alert and says `stop` in the run's reason.
+ *  - a gateway `PROVIDER_ERROR` whose cause is **not** a `ProviderError` at all: a raw transport
+ *    failure from an adapter that does not classify its own errors.
+ *
+ * Everything else is `null`, and the two groups that matters for are worth naming:
+ *
+ *  - a plain `ProviderError` from a non-vendor adapter — a scripted provider running out of
+ *    responses is a harness condition, and it used to raise a card in suites with nothing to do
+ *    with this (`run/exec/clarify.test.ts`, `run/exec/staff.test.ts`);
+ *  - every other gateway outcome — a policy block, a prompt leak, a free-text refusal, an
+ *    invalid-argument rejection. Those are the agent working correctly and refusing something,
+ *    and they have their own tasks (`run/tasks.ts`).
+ */
+export function modelUnavailable(err: unknown): Unavailable | null {
+  // Thrown straight at a caller holding the adapter, with no gateway in between — which is what a
+  // *wiring-time* refusal is: `remoteProvider()` throws before a gateway exists at all.
+  const direct = fromProviderError(err);
+  if (direct) return direct;
+
+  if (!(err instanceof GatewayError)) return null;
+  if (err.outcome !== "PROVIDER_ERROR") return GATEWAY_CONFIG_REFUSALS[err.outcome] ?? null;
+
+  const cause = fromProviderError(err.cause);
+  if (cause) return cause;
+  // A classed provider error that is none of the six is not an outage; see the list above.
+  if (err.cause instanceof ProviderError) return null;
   // Anything else got as far as trying and failed in a way nobody classified.
-  return "provider_error";
+  return { reason: "provider_error", detail: "provider error", stop: false };
+}
+
+/**
+ * The two gateway outcomes that are "this deployment is not configured to make this call" rather
+ * than "the model answered and we refused it" — so no model was reached, and the family's text is
+ * still sitting there needing a person.
+ *
+ * `REJECTED_ATTESTATION` is the one a PHI-mode deployment hits **first**, before the adapter's own
+ * demo-data guard ever runs: `dataMode === "PHI"` demands a `vendorAttestation` and a vendor with
+ * no BAA cannot produce one (gateway.ts step 2). Without this entry, the third guard condition
+ * would raise a card in a test where the provider is handed its own config, and raise nothing on a
+ * real deployment where the gateway and the provider share one — which is exactly the kind of gap
+ * a passing test hides.
+ *
+ * `REJECTED_ENDPOINT` is the same fact as `RemoteEndpointRefused` seen one layer up, so it carries
+ * the same reason and the same `stop`.
+ *
+ * Every *other* outcome stays `null` on purpose: a prompt leak, free text, multiple calls, invalid
+ * arguments and an unknown tool are all the model having answered and the gateway refusing the
+ * answer, and our own rate limits are our own budget. None of those means the assistant could not
+ * be reached.
+ */
+const GATEWAY_CONFIG_REFUSALS: Partial<Record<GatewayOutcome, Unavailable>> = {
+  REJECTED_ATTESTATION: {
+    reason: "config_refused",
+    detail: `config: $${DATA_MODE_ENV_VAR} requires a vendor attestation this vendor cannot give`,
+    stop: false,
+  },
+  REJECTED_ENDPOINT: {
+    reason: "destination_refused",
+    detail: "destination refused: endpoint not allow-listed",
+    stop: true,
+  },
+};
+
+/** The six adapter errors that mean "no model answered", or null for anything else. */
+function fromProviderError(err: unknown): Unavailable | null {
+  if (err instanceof RemoteDemoDataGuardRefused) {
+    return {
+      reason: GUARD_REASONS[err.failure.code],
+      detail: `guard: $${err.failure.envVar} ${GUARD_DETAIL[err.failure.code]}`,
+      stop: false,
+    };
+  }
+  if (err instanceof RemoteApiKeyMissing) {
+    return { reason: "no_key", detail: `missing key: $${err.apiKeyEnvVar}`, stop: false };
+  }
+  if (err instanceof RemoteProviderUnavailable) return chainUnavailable(err);
+  if (err instanceof RemoteEndpointRefused) return destination("endpoint");
+  if (err instanceof RemoteBaseUrlRefused) return destination("base URL");
+  if (err instanceof RemoteRequestUrlRefused) return destination("request URL");
+  if (err instanceof RemoteModelRefused) return destination("model");
+  return null;
+}
+
+/** A refusal on the way out: which check, and nothing about the value it refused. */
+function destination(what: string): Unavailable {
+  return { reason: "destination_refused", detail: `destination refused: ${what} not allow-listed`, stop: true };
 }
 
 /**
@@ -145,31 +264,33 @@ export function modelUnavailableReason(err: unknown): UnavailableReason | null {
  * error's message. "Every model timed out" and "every model 429ed" are the two an on-call would
  * act on differently; a mixed chain is neither, and says so.
  */
-function chainReason(err: RemoteProviderUnavailable): UnavailableReason {
+function chainUnavailable(err: RemoteProviderUnavailable): Unavailable {
   const failures = new Set(err.attempts.map((a) => a.failure));
   if (failures.size === 1) {
     const only = [...failures][0];
-    if (only === "timeout") return "timeout";
-    if (only === "rate_limited") return "rate_limited";
+    if (only === "timeout") return { reason: "timeout", detail: "timeout", stop: false };
+    if (only === "rate_limited") return { reason: "rate_limited", detail: "rate limited on every model", stop: false };
   }
-  return "provider_error";
+  return { reason: "provider_error", detail: "provider error on every model", stop: false };
 }
 
 /**
  * The one line a model outage writes to the server log.
  *
- * Non-secret by construction: a fixed prefix, one of four reason classes, and the fact that a
- * person was told. It names no key, no env var *value*, no prompt, no family text, no child and
- * no phone number — the things it would be most tempting to add are exactly the things that must
- * never be in a log line about a message we could not read.
+ * Non-secret by construction: a fixed prefix, the reason's own `detail` — a stable phrase plus at
+ * most an env var **name** — and the fact that a person was told. It names no key, no env var
+ * *value*, no prompt, no family text, no child and no phone number. The things it would be most
+ * tempting to add are exactly the things that must never be in a log line about a message we
+ * could not read, and `model-unavailable.test.ts` asserts the stub key string appears in no log
+ * output at all.
  */
-export function modelUnavailableLogLine(reason: UnavailableReason): string {
-  return `agent: model unavailable (${reason}); staff alert raised`;
+export function modelUnavailableLogLine(u: Unavailable): string {
+  return `agent: model unavailable (${u.detail}); staff alert raised`;
 }
 
 /** Log it, once, through the same `console` seam the queue routes use. */
-export function logModelUnavailable(reason: UnavailableReason): void {
-  console.warn(modelUnavailableLogLine(reason));
+export function logModelUnavailable(u: Unavailable): void {
+  console.warn(modelUnavailableLogLine(u));
 }
 
 /**

@@ -30,6 +30,13 @@
  * rather than what does.
  *
  * When the assembler's sources land, this function returns the deps and the route does not change.
+ *
+ * **One thing to get right when it does:** build the gateway's provider through
+ * `run/provider-choice.liveProviderOrRefusal`, not `providers/remote.remoteProvider` directly.
+ * The adapter refuses at wiring time when the demo-data guard does not hold or there is no key,
+ * and a throw *here* escapes the run — so the parent's text would be left with nobody told, which
+ * is the founder's 2026-10-17 rule broken by a construction order. `liveProviderOrRefusal` turns
+ * that refusal into a refused *turn*, so the loop raises the one staff alert and stops.
  */
 import type { RunDeps } from "./loop";
 

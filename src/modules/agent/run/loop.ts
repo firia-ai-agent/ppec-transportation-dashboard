@@ -57,8 +57,9 @@ import {
   toolCalls,
 } from "./store";
 import {
+  type Unavailable,
   logModelUnavailable,
-  modelUnavailableReason,
+  modelUnavailable,
   raiseModelUnavailableAlert,
 } from "../staff-alert";
 import { policyTaskIds, writePolicyTasks } from "./tasks";
@@ -252,7 +253,7 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
       // alert: no proposal, no ride change, nothing sent, and one card on the Exceptions board
       // holding the family's own words (`agent/staff-alert.ts`). Everything else below is the
       // agent refusing something correctly and already has its own task (`run/tasks.ts`).
-      const unavailable = modelUnavailableReason(e);
+      const unavailable = modelUnavailable(e);
       if (unavailable) return modelDown(deps, run, unavailable, steps, actor);
       // A refusal (leaking prompt, free text, unknown tool, invalid args, rate limit) is already a
       // row in the gateway's audit log, and nothing was executed. The run stops there.
@@ -603,6 +604,12 @@ async function fail(deps: RunDeps, run: RunRow, reason: string, steps: number): 
  * dead vendor fails as it always has; giving those their own card is named in this change's PR
  * body as a gap rather than guessed at here.
  *
+ * **Every** reason `staff-alert.modelUnavailable` recognises comes here, including the ones that
+ * refuse before a request is built: the three demo-data guard conditions, a missing key, and a
+ * destination the deployment may not send to. A wiring-time refusal used to escape the run
+ * entirely (there was no model turn to catch), which left the parent's text with nobody told —
+ * `run/provider-choice.ts` is what turns it into a refused turn so it lands here.
+ *
  * A failed alert write does not change the outcome. On a preview the database is read-only
  * (`db/read-only.ts`) and this INSERT is refused — and the right behaviour there is still "the
  * run sent nothing and proposed nothing", which is what failing the run says. The reason string
@@ -611,18 +618,18 @@ async function fail(deps: RunDeps, run: RunRow, reason: string, steps: number): 
 async function modelDown(
   deps: RunDeps,
   run: RunRow,
-  reason: "no_key" | "rate_limited" | "timeout" | "provider_error",
+  unavailable: Unavailable,
   steps: number,
   actor: string,
 ): Promise<RunResult> {
-  logModelUnavailable(reason);
+  logModelUnavailable(unavailable);
   let raised = "staff alert raised";
   if (run.trigger.type === "msg.inbound") {
     try {
       await raiseModelUnavailableAlert(deps.db, {
         siteId: run.trigger.siteId,
         messageId: run.trigger.id,
-        reason,
+        reason: unavailable.reason,
         by: actor,
       });
     } catch (e) {
@@ -631,7 +638,10 @@ async function modelDown(
   } else {
     raised = "no staff alert: this trigger carries no family message";
   }
-  return fail(deps, run, `model unavailable (${reason}); ${raised}`, steps);
+  // `stop` is said out loud on the run row: a misrouted key is not a flaky vendor, and whoever
+  // reads this must not wait for it to clear. The alert is raised either way.
+  const kind = unavailable.stop ? "stop" : "model unavailable";
+  return fail(deps, run, `${kind} (${unavailable.detail}); ${raised}`, steps);
 }
 
 /**

@@ -43,31 +43,41 @@ import { CHILDREN, FAMILIES, synLegalName } from "@/modules/demo/fixtures/standa
 import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
 import { type AgentScenario, seedAgentScenario } from "@/test/agent-state";
-import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, loadAgentConfig } from "./config";
+import {
+  type AgentConfig,
+  DATA_MODE_ENV_VAR,
+  DEMO_DATA_ONLY_ENV_VAR,
+  DEMO_DATA_ONLY_REQUIRED_VALUE,
+  demoDataGuardFailure,
+  loadAgentConfig,
+} from "./config";
 import type { PolicyContext } from "./policy";
 import { GatewayError } from "./gateway";
 import { type LlmProvider, ProviderError } from "./providers/provider";
 import {
   RemoteApiKeyMissing,
   RemoteBaseUrlRefused,
+  RemoteDemoDataGuardRefused,
   RemoteEndpointRefused,
   RemoteModelRefused,
   RemoteProviderNotEnabled,
   RemoteProviderUnavailable,
   RemoteRequestUrlRefused,
-  remoteProvider,
+  liveCallRefusalReason,
 } from "./providers/remote";
 import type { TierFacts } from "./run/context";
 import { type LiveHarness, liveHarness } from "./run/exec/live-harness";
 import type { Trigger } from "./run/triggers";
 import {
+  type Unavailable,
   MODEL_UNAVAILABLE_CATEGORY,
   assistantAlertCount,
+  modelUnavailable,
   modelUnavailableLogLine,
-  modelUnavailableReason,
   openAlert,
   openAssistantAlerts,
 } from "./staff-alert";
+import { liveProviderOrRefusal } from "./run/provider-choice";
 
 /* ───────────────────────────── the family, and what they wrote ───────────────────────────── */
 
@@ -154,20 +164,43 @@ const policy = (): PolicyContext => ({
 });
 
 /**
- * A harness whose provider is the **real** live adapter over the stubbed `fetch`, reading the
- * mutable `env` above. Nothing about the failure is faked at the seam under test: the adapter
- * decides it cannot reach a model, exactly as it would in production.
+ * A harness whose provider comes from the **real** seam a deployment uses — `liveProviderOrRefusal`
+ * over the real adapter over the stubbed `fetch`, reading the mutable `env` above.
  *
- * `eager` builds the adapter **now**, while the key is still there, and hands the same instance
- * to every drive. That is the (a) case: `providers/remote.ts` re-checks the key *per call* and
- * not only at wiring time, so an adapter that was wired on a configured deployment and is asked
- * to take a turn after the key has gone refuses from inside `invoke` — which is the path that
- * reaches the run loop and therefore the one that can raise a card.
+ * Nothing about the failure is faked at the seam under test. For a vendor that is reachable but
+ * failing, the adapter is built and `fetch` decides. For a deployment that may not call at all —
+ * no key, or a demo-data guard condition that does not hold — `remoteProvider()` refuses at
+ * wiring time exactly as it does in production, and `liveProviderOrRefusal` turns that into a
+ * provider that raises the same classed error when asked for a turn. That is the whole point of
+ * this follow-up: a wiring-time refusal used to escape the run, so the parent's text was left
+ * with nobody told.
+ *
+ * `providerEnv` is what the *adapter* reads, separately from the config the gateway holds, which
+ * is how a single guard condition can be failed without also changing the gateway's own gates.
+ * Where the two cannot be separated in production — `dataMode`, which the gateway checks first —
+ * there is a test below that uses one config for both.
  */
-function harnessWithLiveAdapter(opts: { timeoutMs?: number; eager?: boolean } = {}): LiveHarness {
-  const config = loadAgentConfig(DEMO_ENV, { requestTimeoutMs: opts.timeoutMs ?? 10_000 });
-  const eager = opts.eager ? remoteProvider(config, env) : null;
-  const provider = (): LlmProvider => eager ?? remoteProvider(config, env);
+function harnessWithLiveAdapter(
+  opts: {
+    timeoutMs?: number;
+    eager?: boolean;
+    providerEnv?: Record<string, string | undefined>;
+    /**
+     * A config the loader did **not** produce. The destination checks are only reachable this
+     * way, and `providers/remote.ts` says why they are re-checked at all: "config refuses such a
+     * value at parse time; this is the re-check on the path that leaves the building, because a
+     * caller can hold a config object this file did not parse".
+     */
+    tamper?: (config: AgentConfig) => AgentConfig;
+  } = {},
+): LiveHarness {
+  const parsed = loadAgentConfig(opts.providerEnv ?? DEMO_ENV, {
+    requestTimeoutMs: opts.timeoutMs ?? 10_000,
+  });
+  const config = opts.tamper ? opts.tamper(parsed) : parsed;
+  const read = () => opts.providerEnv ?? env;
+  const eager = opts.eager ? liveProviderOrRefusal(config, read()) : null;
+  const provider = (): LlmProvider => eager ?? liveProviderOrRefusal(config, read());
   return liveHarness({ db, script: [], facts: facts(), policy: policy(), now: () => now, provider });
 }
 
@@ -203,7 +236,7 @@ const alerts = () => openAssistantAlerts(db, [sc.siteId]);
  * Written once and called from all three cases on purpose: the founder's rule is one rule, and a
  * case that quietly asserted less than the others would be the hole it leaks through.
  */
-async function expectNeedsAPersonAndNothingElse(reason: string, legWord: string) {
+async function expectNeedsAPersonAndNothingElse(expected: Unavailable, legWord: string) {
   // 1. Exactly one alert, and it is a RED `ops.task` of the one category.
   const rows = await db.query<{ id: string; category: string; severity: string; state: string; summary: string; next_step: string; completion_predicate: string; completion_evidence: { locator?: Record<string, unknown> } | null }>(
     "SELECT id, category, severity, state, summary, next_step, completion_predicate, completion_evidence FROM ops.task ORDER BY id",
@@ -223,7 +256,7 @@ async function expectNeedsAPersonAndNothingElse(reason: string, legWord: string)
   expect(task.completion_evidence?.locator).toMatchObject({
     message_id: sc.messageId,
     thread_id: sc.threadId,
-    reason_class: reason,
+    reason_class: expected.reason,
   });
   expect(JSON.stringify(task)).not.toContain(THEIR_WORDS);
 
@@ -247,15 +280,27 @@ async function expectNeedsAPersonAndNothingElse(reason: string, legWord: string)
     acknowledgments: 0,
   });
 
-  // 4. The log line names the reason class and no secret.
+  // 4. Exactly one log line, naming the condition, with no secret VALUE in it.
   expect(warn).toHaveBeenCalledTimes(1);
   const logged = String(warn.mock.calls[0][0]);
-  expect(logged).toBe(modelUnavailableLogLine(reason as never));
-  expect(logged).toContain(reason);
-  for (const secret of [PLACEHOLDER_KEY, "OPENROUTER_API_KEY", THEIR_WORDS, CHILD.firstName, GUARDIAN.firstName]) {
-    expect(logged, secret).not.toContain(secret);
+  expect(logged).toBe(modelUnavailableLogLine(expected));
+  expect(logged).toContain(expected.detail);
+
+  // An env var NAME is allowed and is the point — a deployment review needs to know which var to
+  // look at. A VALUE never is, and the stub key is the one that would matter: it must appear in
+  // no log output at all, from any call, not only in the line we just read.
+  const everythingLogged = warn.mock.calls.map((c: unknown[]) => c.map(String).join(" ")).join("\n");
+  for (const secret of [PLACEHOLDER_KEY, THEIR_WORDS, CHILD.firstName, GUARDIAN.firstName]) {
+    expect(everythingLogged, secret).not.toContain(secret);
   }
 }
+
+/** The classifier's own answer for an error, so a test states the reason once. */
+const outage = (reason: Unavailable["reason"], detail: string, stop = false): Unavailable => ({
+  reason,
+  detail,
+  stop,
+});
 
 /* ───────────────────────────────────── (a) no key ───────────────────────────────────── */
 
@@ -272,10 +317,13 @@ describe("(a) the deployment has no key: one staff alert, and nothing else", () 
     const run = await h.start(trigger());
 
     expect(run.state).toBe("FAILED");
-    expect(run.reason).toContain("model unavailable (no_key)");
+    expect(run.reason).toContain("model unavailable (missing key: $OPENROUTER_API_KEY)");
     expect(run.reason).toContain("staff alert raised");
     expect(fetchMock).not.toHaveBeenCalled();
-    await expectNeedsAPersonAndNothingElse("no_key", assistantUnavailable.legWord.PM);
+    await expectNeedsAPersonAndNothingElse(
+      outage("no_key", "missing key: $OPENROUTER_API_KEY"),
+      assistantUnavailable.legWord.PM,
+    );
     expect(await legs()).toEqual(before);
     // No message was ever handed to the provider that would send one.
     expect(h.provider.sent).toEqual([]);
@@ -293,10 +341,13 @@ describe("(b) every model fails: one staff alert, and nothing else", () => {
     const run = await h.start(trigger());
 
     expect(run.state).toBe("FAILED");
-    expect(run.reason).toContain("model unavailable (rate_limited)");
+    expect(run.reason).toContain("model unavailable (rate limited on every model)");
     // Both models were really tried; the chain ended in a refusal, not in a parser.
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    await expectNeedsAPersonAndNothingElse("rate_limited", assistantUnavailable.legWord.PM);
+    await expectNeedsAPersonAndNothingElse(
+      outage("rate_limited", "rate limited on every model"),
+      assistantUnavailable.legWord.PM,
+    );
     expect(await legs()).toEqual(before);
     expect(h.provider.sent).toEqual([]);
   });
@@ -309,9 +360,12 @@ describe("(b) every model fails: one staff alert, and nothing else", () => {
     const run = await h.start(trigger());
 
     expect(run.state).toBe("FAILED");
-    expect(run.reason).toContain("model unavailable (provider_error)");
+    expect(run.reason).toContain("model unavailable (provider error on every model)");
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    await expectNeedsAPersonAndNothingElse("provider_error", assistantUnavailable.legWord.PM);
+    await expectNeedsAPersonAndNothingElse(
+      outage("provider_error", "provider error on every model"),
+      assistantUnavailable.legWord.PM,
+    );
     expect(await legs()).toEqual(before);
     expect(h.provider.sent).toEqual([]);
   });
@@ -340,67 +394,258 @@ describe("(c) the vendor never answers: one staff alert, and nothing else", () =
     expect(run.state).toBe("FAILED");
     expect(run.reason).toContain("model unavailable (timeout)");
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    await expectNeedsAPersonAndNothingElse("timeout", assistantUnavailable.legWord.PM);
+    await expectNeedsAPersonAndNothingElse(outage("timeout", "timeout"), assistantUnavailable.legWord.PM);
     expect(await legs()).toEqual(before);
     expect(h.provider.sent).toEqual([]);
   });
 });
 
-/* ───────────── what is NOT an outage: a refusal, a stop, and a scripted provider ───────────── */
+/* ────────── (d) the demo-data guard: a wiring-time refusal is the same staff alert ────────── */
 
-describe("only a model that could not answer raises a card", () => {
-  /**
-   * The narrowness of `modelUnavailableReason` is load-bearing, so it is pinned directly. Each of
-   * these is an adapter saying "no" for a reason that is not an outage, and a card for any of them
-   * would be the wrong answer twice over: it is not a coordinator's job, and "reply to this family
-   * yourself" is not the fix.
-   */
+/**
+ * The guard (`config.demoDataGuardFailure`) refuses a live call unless all three hold:
+ * `AGENT_DEMO_DATA_ONLY === "true"` exactly, `APP_DATA_CLASS === "SYNTHETIC"`, and the agent's own
+ * `AGENT_DATA_MODE === "SYNTHETIC"`. **Nothing here weakens it and no test sets a var on the
+ * deployment** — each case builds an env *object* the adapter reads, which is how a deployment
+ * that is missing one of the three behaves.
+ *
+ * This is the case that matters in practice. The deployed project has `OPENROUTER_API_KEY` and
+ * `APP_DATA_CLASS` but no `AGENT_DEMO_DATA_ONLY` on preview or production (checked by env var
+ * *name* only), so the first condition refuses every live call — the likeliest cause of "the
+ * assistant couldn't reach its model". Before this change that refusal happened at *wiring* time,
+ * before a gateway existed, so the run loop's catch never ran and the parent's text was left with
+ * nobody told. Now it is a refused turn, and the outcome is the one the founder's rule requires.
+ */
+describe("(d) the demo-data guard refuses: one staff alert, and nothing else", () => {
   it.each([
-    ["an endpoint off the allow-list", new RemoteEndpointRefused("endpoint /v1/files refused")],
-    ["a base URL nobody vetted", new RemoteBaseUrlRefused("base URL is not https")],
-    ["a URL that moved the host", new RemoteRequestUrlRefused("request URL host is not allow-listed")],
-    ["a model off the allow-list", new RemoteModelRefused("model vendor-b/x not on the list")],
-    ["no demo-data confirmation", new RemoteProviderNotEnabled("set $AGENT_DEMO_DATA_ONLY")],
-    ["a scripted provider running out", new ProviderError("fake provider script exhausted")],
-  ])("%s is a refusal, not an outage", (_label, err) => {
-    expect(modelUnavailableReason(err)).toBeNull();
-    // ...and the same through the gateway, which is how the run loop actually sees it.
-    expect(modelUnavailableReason(new GatewayError("PROVIDER_ERROR", "refused", { cause: err }))).toBeNull();
+    [
+      "AGENT_DEMO_DATA_ONLY missing",
+      { [DATA_CLASS_ENV_VAR]: SYNTHETIC_DATA_CLASS, OPENROUTER_API_KEY: PLACEHOLDER_KEY },
+      "guard_demo_data_only",
+      "guard: $AGENT_DEMO_DATA_ONLY not confirmed",
+    ],
+    [
+      // Fail-shut is exact-match: "TRUE" is not "true". A guard that accepted a truthy-looking
+      // value would be no guard, and a deployment that typed it this way must still be refused.
+      'AGENT_DEMO_DATA_ONLY="TRUE" (wrong case)',
+      {
+        [DEMO_DATA_ONLY_ENV_VAR]: "TRUE",
+        [DATA_CLASS_ENV_VAR]: SYNTHETIC_DATA_CLASS,
+        OPENROUTER_API_KEY: PLACEHOLDER_KEY,
+      },
+      "guard_demo_data_only",
+      "guard: $AGENT_DEMO_DATA_ONLY not confirmed",
+    ],
+    [
+      "APP_DATA_CLASS not SYNTHETIC",
+      {
+        [DEMO_DATA_ONLY_ENV_VAR]: DEMO_DATA_ONLY_REQUIRED_VALUE,
+        [DATA_CLASS_ENV_VAR]: "PHI",
+        OPENROUTER_API_KEY: PLACEHOLDER_KEY,
+      },
+      "guard_data_class",
+      "guard: $APP_DATA_CLASS not SYNTHETIC",
+    ],
+    [
+      "AGENT_DATA_MODE is PHI",
+      {
+        [DEMO_DATA_ONLY_ENV_VAR]: DEMO_DATA_ONLY_REQUIRED_VALUE,
+        [DATA_CLASS_ENV_VAR]: SYNTHETIC_DATA_CLASS,
+        [DATA_MODE_ENV_VAR]: "PHI",
+        OPENROUTER_API_KEY: PLACEHOLDER_KEY,
+      },
+      "guard_data_mode",
+      `guard: $${DATA_MODE_ENV_VAR} not SYNTHETIC`,
+    ],
+  ])("%s raises the needs-a-person alert and nothing else", async (_label, providerEnv, reason, detail) => {
+    const before = await legs();
+    const h = harnessWithLiveAdapter({ providerEnv });
+
+    const run = await h.start(trigger());
+
+    expect(run.state).toBe("FAILED");
+    expect(run.reason).toContain(`model unavailable (${detail})`);
+    expect(run.reason).toContain("staff alert raised");
+    // The guard refuses before a key is read, a body is built or a URL exists.
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await expectNeedsAPersonAndNothingElse(
+      outage(reason as Unavailable["reason"], detail),
+      assistantUnavailable.legWord.PM,
+    );
+    expect(await legs()).toEqual(before);
+    expect(h.provider.sent).toEqual([]);
   });
 
-  it("every other gateway outcome is the agent refusing correctly, and raises no card", () => {
+  it("the guard is still the guard: it refuses even with a key present", () => {
+    // The point of the three conditions is that a key is not permission. Asserted against the
+    // adapter's own refusal so this test cannot pass by the harness being lenient.
+    const withKeyButNoConfirmation = {
+      [DATA_CLASS_ENV_VAR]: SYNTHETIC_DATA_CLASS,
+      OPENROUTER_API_KEY: PLACEHOLDER_KEY,
+    };
+    const refusal = liveCallRefusalReason(loadAgentConfig(withKeyButNoConfirmation), withKeyButNoConfirmation);
+    expect(refusal).toContain(DEMO_DATA_ONLY_ENV_VAR);
+    // ...and it is the guard talking, not the key check, which would name the key's var instead.
+    expect(refusal).not.toContain("OPENROUTER_API_KEY");
+  });
+});
+
+/* ───────── a destination refusal is a stop — and still leaves the text with staff ───────── */
+
+describe("a stop still leaves the family's text in front of staff", () => {
+  it("a base URL off the allow-list raises the card and says stop, not model unavailable", async () => {
+    const before = await legs();
+    // An origin nobody vetted. `remoteProvider()` refuses this at wiring time too, and
+    // `liveProviderOrRefusal` carries it to the turn so the text is not lost with it.
+    const providerEnv = { ...DEMO_ENV, OPENROUTER_API_KEY: PLACEHOLDER_KEY };
+    const h = harnessWithLiveAdapter({
+      providerEnv,
+      tamper: (c) => ({ ...c, baseUrl: "https://evil.example" }),
+    });
+
+    const run = await h.start(trigger());
+
+    expect(run.state).toBe("FAILED");
+    // "stop", so nobody reads a misrouted key as a flaky vendor and waits for it to clear.
+    expect(run.reason).toContain("stop (destination refused: base URL not allow-listed)");
+    expect(run.reason).not.toContain("model unavailable");
+    expect(run.reason).toContain("staff alert raised");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await expectNeedsAPersonAndNothingElse(
+      outage("destination_refused", "destination refused: base URL not allow-listed", true),
+      assistantUnavailable.legWord.PM,
+    );
+    expect(await legs()).toEqual(before);
+    expect(h.provider.sent).toEqual([]);
+  });
+});
+
+/* ─────────────────── the classifier: what is an outage, a stop, and neither ─────────────────── */
+
+describe("the classifier, pinned directly", () => {
+  const attempt = (failure: "timeout" | "rate_limited" | "http_error") =>
+    ({ model: "m", status: null, ok: false, failure }) as const;
+
+  /** Both ways the run loop can see an error: raw, and wrapped by the gateway. */
+  const bothWays = (err: unknown) => [
+    modelUnavailable(err),
+    modelUnavailable(new GatewayError("PROVIDER_ERROR", "refused", { cause: err })),
+  ];
+
+  it("is null for the adapter refusals that carry no condition to act on", () => {
+    for (const [label, err] of [
+      // A scripted provider running out of responses is a harness condition. It used to raise a
+      // card in run/exec/clarify.test.ts and staff.test.ts — suites with nothing to do with this.
+      ["a scripted provider running out", new ProviderError("fake provider script exhausted")],
+      // The base class on its own carries no condition, so there is nothing to name in a log line.
+      ["a bare not-enabled refusal", new RemoteProviderNotEnabled("something unspecified")],
+    ] as const) {
+      for (const got of bothWays(err)) expect(got, label).toBeNull();
+    }
+  });
+
+  it("is null for a loose error, and an outage only once a gateway says it came from the vendor", () => {
+    // An `Error` on its own says nothing about a model — it could be a bug anywhere. The same
+    // error wrapped in PROVIDER_ERROR does: the gateway only reaches that outcome from the line
+    // that called `provider.invoke`, so an unclassified failure there is a vendor we could not
+    // reach. That asymmetry is deliberate, and it is why `cause` exists on GatewayError.
+    expect(modelUnavailable(new Error("boom"))).toBeNull();
+    expect(modelUnavailable(new GatewayError("PROVIDER_ERROR", "x", { cause: new Error("boom") }))).toEqual(
+      outage("provider_error", "provider error"),
+    );
+  });
+
+  it("is null for every gateway outcome that means the model answered and we refused the answer", () => {
     for (const outcome of [
       "REJECTED_FREE_TEXT",
       "REJECTED_PROMPT_LEAK",
       "REJECTED_INVALID_ARGS",
-      "REJECTED_RATE_LIMIT",
+      "REJECTED_MULTIPLE_CALLS",
       "REJECTED_UNKNOWN_TOOL",
+      // Our own budget, not the vendor's health: a capped run can be re-driven.
+      "REJECTED_RATE_LIMIT",
+      "REJECTED_PROMPT_TOO_LARGE",
+      "ACCEPTED",
     ] as const) {
-      expect(modelUnavailableReason(new GatewayError(outcome, outcome)), outcome).toBeNull();
+      expect(modelUnavailable(new GatewayError(outcome, outcome)), outcome).toBeNull();
     }
   });
 
-  it("the two classes that do mean an outage still do, with and without a gateway", () => {
-    const noKey = new RemoteApiKeyMissing("$OPENROUTER_API_KEY is not set in this environment");
-    expect(modelUnavailableReason(noKey)).toBe("no_key");
-    expect(modelUnavailableReason(new GatewayError("PROVIDER_ERROR", "x", { cause: noKey }))).toBe("no_key");
+  it("names each demo-data guard condition by its env var, and never by a value", () => {
+    for (const [providerEnv, reason, detail] of [
+      [{ [DATA_CLASS_ENV_VAR]: SYNTHETIC_DATA_CLASS }, "guard_demo_data_only", "guard: $AGENT_DEMO_DATA_ONLY not confirmed"],
+      [{ ...DEMO_ENV, [DATA_CLASS_ENV_VAR]: "PHI" }, "guard_data_class", "guard: $APP_DATA_CLASS not SYNTHETIC"],
+      [{ ...DEMO_ENV, [DATA_MODE_ENV_VAR]: "PHI" }, "guard_data_mode", `guard: $${DATA_MODE_ENV_VAR} not SYNTHETIC`],
+    ] as const) {
+      const config = loadAgentConfig(providerEnv);
+      const refusal = liveCallRefusalReason(config, providerEnv);
+      expect(refusal, reason).not.toBeNull();
+      // Built the way the adapter builds it, so the test cannot agree with itself about the code.
+      const err = new RemoteDemoDataGuardRefused(demoDataGuardFailure(config, providerEnv)!);
+      for (const got of bothWays(err)) {
+        expect(got, reason).toEqual({ reason, detail, stop: false });
+        expect(got!.detail).not.toContain(PLACEHOLDER_KEY);
+      }
+    }
+  });
 
-    const attempt = (failure: "timeout" | "rate_limited" | "http_error") =>
-      ({ model: "m", status: null, ok: false, failure }) as const;
-    expect(modelUnavailableReason(new RemoteProviderUnavailable("x", [attempt("timeout"), attempt("timeout")]))).toBe(
-      "timeout",
+  it("is an outage for a missing key, naming the var the deployment configured", () => {
+    const err = new RemoteApiKeyMissing("$OPENROUTER_API_KEY is not set in this environment", "OPENROUTER_API_KEY");
+    for (const got of bothWays(err)) {
+      expect(got).toEqual({ reason: "no_key", detail: "missing key: $OPENROUTER_API_KEY", stop: false });
+    }
+  });
+
+  it("reads an exhausted chain off its recorded attempts", () => {
+    expect(modelUnavailable(new RemoteProviderUnavailable("x", [attempt("timeout"), attempt("timeout")]))).toEqual(
+      outage("timeout", "timeout"),
     );
     expect(
-      modelUnavailableReason(new RemoteProviderUnavailable("x", [attempt("rate_limited"), attempt("rate_limited")])),
-    ).toBe("rate_limited");
+      modelUnavailable(new RemoteProviderUnavailable("x", [attempt("rate_limited"), attempt("rate_limited")])),
+    ).toEqual(outage("rate_limited", "rate limited on every model"));
     // A mixed chain is neither of the two an on-call would act on differently.
-    expect(
-      modelUnavailableReason(new RemoteProviderUnavailable("x", [attempt("timeout"), attempt("http_error")])),
-    ).toBe("provider_error");
-    // And an unclassified transport failure from any adapter is an outage.
-    expect(modelUnavailableReason(new GatewayError("PROVIDER_ERROR", "x", { cause: new TypeError("fetch failed") }))).toBe(
-      "provider_error",
+    expect(modelUnavailable(new RemoteProviderUnavailable("x", [attempt("timeout"), attempt("http_error")]))).toEqual(
+      outage("provider_error", "provider error on every model"),
     );
+    // And an unclassified transport failure from any adapter is an outage.
+    expect(modelUnavailable(new GatewayError("PROVIDER_ERROR", "x", { cause: new TypeError("fetch failed") }))).toEqual(
+      outage("provider_error", "provider error"),
+    );
+  });
+
+  /**
+   * The four destination checks are a **stop** — `providers/remote.ts` is right that "a key that
+   * nearly went to the wrong host is a stop, not a fallback", and nothing here retries or
+   * degrades. What changed in this follow-up is that a stop no longer swallows the family's text:
+   * it raises the same card, and says `stop` so nobody waits for it to clear.
+   */
+  it.each([
+    ["an endpoint off the allow-list", new RemoteEndpointRefused("endpoint /v1/files refused"), "endpoint"],
+    ["a base URL nobody vetted", new RemoteBaseUrlRefused("base URL is not https"), "base URL"],
+    ["a URL that moved the host", new RemoteRequestUrlRefused("request URL host is not allow-listed"), "request URL"],
+    ["a model off the allow-list", new RemoteModelRefused("model vendor-b/x not on the list"), "model"],
+  ])("%s is a stop that still raises the card", (_label, err, what) => {
+    for (const got of bothWays(err)) {
+      expect(got).toEqual({
+        reason: "destination_refused",
+        detail: `destination refused: ${what} not allow-listed`,
+        stop: true,
+      });
+    }
+  });
+
+  it("a PHI-mode deployment is refused by the gateway's attestation gate, and that is an outage too", () => {
+    // The gate a PHI deployment hits *first*, before the adapter's own guard runs. Without this,
+    // the third guard condition would be covered only in a test that hands the provider its own
+    // config, and a real PHI deployment would lose the family's text.
+    const got = modelUnavailable(new GatewayError("REJECTED_ATTESTATION", "data mode PHI requires vendorAttestation"));
+    expect(got).toEqual({
+      reason: "config_refused",
+      detail: `config: $${DATA_MODE_ENV_VAR} requires a vendor attestation this vendor cannot give`,
+      stop: false,
+    });
   });
 });
 

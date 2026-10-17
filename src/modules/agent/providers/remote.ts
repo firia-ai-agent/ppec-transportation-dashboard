@@ -51,10 +51,10 @@
  * The AWS/Bedrock swap (ARCHITECTURE §10) is a new `baseUrl`, `model` and `modelAllowList` in
  * config plus `vendorAttestation`; nothing in this file names a vendor, a model or a host.
  */
-import type { AgentConfig } from "../config";
+import type { AgentConfig, DemoDataGuardFailure } from "../config";
 import {
   baseUrlRefusalReason,
-  demoDataGuardRefusal,
+  demoDataGuardFailure,
   endpointPathRefusalReason,
   forbiddenEndpointReason,
   vendorRequestUrl,
@@ -70,6 +70,21 @@ import {
 export class RemoteProviderNotEnabled extends ProviderError {}
 
 /**
+ * The §2.5A demo-data guard refused: one of `AGENT_DEMO_DATA_ONLY`, `APP_DATA_CLASS` or
+ * `AGENT_DATA_MODE` does not hold (`config.demoDataGuardFailure`).
+ *
+ * It carries the structured failure rather than only the sentence, because the caller has to say
+ * **which** condition refused — in a log line, and on the staff alert the founder's 2026-10-17
+ * rule requires — and re-deriving that by matching this error's message is how it breaks on the
+ * first rewording. `failure.envVar` is a name; no value of any of the three ever leaves here.
+ */
+export class RemoteDemoDataGuardRefused extends RemoteProviderNotEnabled {
+  constructor(readonly failure: DemoDataGuardFailure) {
+    super(failure.message);
+  }
+}
+
+/**
  * The narrower half of the above: the environment is otherwise fine and `$<apiKeyEnvVar>` is not
  * set. A subclass rather than a flag, so every existing `instanceof RemoteProviderNotEnabled`
  * still catches it, and so the one caller that needs to tell the two apart can.
@@ -80,7 +95,15 @@ export class RemoteProviderNotEnabled extends ProviderError {}
  * 2026-10-17 rule is a **staff alert**: somebody has to answer the family by hand right now.
  * `agent/staff-alert.ts` reads this class to say which.
  */
-export class RemoteApiKeyMissing extends RemoteProviderNotEnabled {}
+export class RemoteApiKeyMissing extends RemoteProviderNotEnabled {
+  constructor(
+    message: string,
+    /** The env var NAME that is unset. The value is not read here and never will be. */
+    readonly apiKeyEnvVar: string,
+  ) {
+    super(message);
+  }
+}
 
 /** The call named an endpoint this deployment may not POST to (PRD §11.2 allow-list). */
 export class RemoteEndpointRefused extends ProviderError {}
@@ -167,8 +190,8 @@ function liveCallRefusal(
   config: AgentConfig,
   env: Record<string, string | undefined>,
 ): ProviderError | null {
-  const guard = demoDataGuardRefusal(config, env);
-  if (guard) return new RemoteProviderNotEnabled(guard);
+  const guard = demoDataGuardFailure(config, env);
+  if (guard) return new RemoteDemoDataGuardRefused(guard);
 
   const destination = baseUrlRefusalReason(config.baseUrl, config.baseUrlHostAllowList);
   if (destination) return new RemoteBaseUrlRefused(destination);
@@ -176,6 +199,7 @@ function liveCallRefusal(
   if ((env[config.apiKeyEnvVar] ?? "").trim() === "") {
     return new RemoteApiKeyMissing(
       `remote provider ${config.provider} is not configured: $${config.apiKeyEnvVar} is not set in this environment`,
+      config.apiKeyEnvVar,
     );
   }
   return null;
