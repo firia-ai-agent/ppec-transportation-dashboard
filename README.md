@@ -87,5 +87,11 @@ shows:
 E2E_DEPLOYED_URL=https://<the-preview-or-prod-url> pnpm e2e e2e/deployed-rail.spec.ts
 ```
 It prints the commit the deployment reports (`/api/health`), so a failure says which build it
-measured — the four-item rail in the founder's screenshot was a build, not a bug.
+measured. **Why the founder's screenshot showed four items is unproven** (Veri, 2026-10-17):
+nobody re-read that rail on the deployment while the screenshot was fresh, and the image carries
+no commit, no URL and no timestamp, so the candidates were never separated and some of them no
+longer can be — a tab open since before `/plan-routes` reached the rail in production at 4:36 AM
+ET, an old per-deployment URL serving its own commit, or a screenshot taken well before it was
+posted. All three fit the image and none of them is a bug in `navItems`. The commit this spec
+prints is what separates them, which is why the next short rail is answerable in one run.
 Each screenshot's name is in the `console.log("screenshot:", …)` line of the test that takes it, and `artifacts/` is wiped by nothing — a stale PNG is one no spec writes any more, so regenerate into an empty directory (`rm -rf artifacts && pnpm e2e`) when the set itself is under review. That also clears the other evidence kept there, `artifacts/at-10-mutation.txt`, which is a separate run (docs/ui/B12-SLICE2-DEFERRED.md §6). The board's checks read the finished day through the test-only date override (`E2E_DATE_OVERRIDE=1`, set by `playwright.config.ts`; `src/domain/board/day.ts`), which no deployment has.
