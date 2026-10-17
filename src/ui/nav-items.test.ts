@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Flag, type LucideIcon } from "lucide-react";
+import { pageLabel } from "@/auth/access";
 import { isCurrent, navItems } from "./nav-items";
-import { nav } from "./copy";
+import { nav, planRoutes } from "./copy";
 import { sourceModes, vocabularies } from "./states";
 
 /**
@@ -24,13 +25,22 @@ function stateIcons(): Map<LucideIcon, string> {
 }
 
 describe("nav icons", () => {
-  it("has the four §2 destinations, in document order", () => {
+  it("has the four §2 destinations and Plan routes, in document order", () => {
     expect(navItems.map((i) => [i.href, i.label])).toEqual([
       ["/today", nav.today],
+      // The planning surface, between the board and the exceptions it raises. Not one of §2's
+      // four: it is a destination staff could previously only reach by typing the URL.
+      ["/plan-preview", planRoutes.heading],
       ["/exceptions", nav.exceptions],
       ["/setup", nav.setup],
       ["/health", nav.health],
     ]);
+  });
+
+  it("labels Plan routes with the words its own screen uses, not a second string", () => {
+    const plan = navItems.find((item) => item.href === "/plan-preview");
+    expect(plan?.label).toBe(planRoutes.heading);
+    expect(pageLabel("/plan-preview")).toBe(plan?.label);
   });
 
   it("gives Exceptions & Approvals the `flag` icon (Vera's answer, 2026-10-14)", () => {

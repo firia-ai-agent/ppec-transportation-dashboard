@@ -22,8 +22,11 @@ import type {
 const DEFICIT_ORDER: DeficitType[] = [
   "WC_POSITION", "WC_SECUREMENT", "WC_FOOTPRINT", "AMBULATORY_SEAT", "TETHER_SEAT", "LIFT",
 ];
-/** PRD §7 l.799 / §9 l.880 offer order. */
-const OPTION_RANK: Record<OptionKind, number> = {
+/**
+ * PRD §7 l.799 / §9 l.880 offer order. Exported because the planner (./plan.ts) offers the same
+ * set to a rider who has no van at all, and two orders for one option set would be one too many.
+ */
+export const OPTION_RANK: Record<OptionKind, number> = {
   SPLIT_RUN: 1, ALTERNATE_VEHICLE: 2, ALTERNATE_PROVIDER: 3, FAMILY_TRANSPORT: 4, DELAY: 5, CANCEL: 6,
 };
 /** No observation exists yet for these capability states, so nothing can be solved. */

@@ -1,28 +1,41 @@
 # B-12 — what slice 1 landed, and the slice every open item lands in
 
 ```
-READER: Rudy (build), Veri (verify), Vera (taste). DECISION IT SERVES: what slices 2 and 3 have
-to pick up, so nothing on this page is discovered twice.
-STATUS: Written with slice 1, re-cut when B-12 was split into three. Nothing here is parked.
-SOURCE: PRD §14 (SURF-01, SURF-02, SURF-03, SURF-05), DESIGN-DIRECTION §4.1, §4.2, §4.3, §4.5,
-§5, §9, §10, COPY-GUIDE §5, MOCKS-AND-DEMO §1, §5, ADR-002, ADR-007, ADR-013, ADR-015.
+READER: Rudy (build), Veri (verify), Vera (taste). DECISION IT SERVES: what each remaining slice
+has to pick up, so nothing on this page is discovered twice.
+STATUS: Written with slice 1; re-cut on 2026-10-16 when Plan routes became slice 2 and the four
+slices below took their order. Nothing here is parked.
+SOURCE: PRD §6.1, §6.3, §6.6 (CA-04), §7, §8, §9, §14 (SURF-01…SURF-05), §18.1–§18.2,
+VEH-01…05, DESIGN-DIRECTION §2, §3, §4.1, §4.2, §4.3, §4.5, §5, §8, §9, §10, COPY-GUIDE §1, §5,
+MOCKS-AND-DEMO §1, §5–§7, ADR-002, ADR-007, ADR-013, ADR-015, DECISION-LEDGER row 47.
 ```
 
 **Nothing in B-12 is parked.** B-12 is **one founder-approved build step** (PPE-21, BUILD-PLAN
-B-12). The team split it into three slices so it could be reviewed in pieces — that split is the
-team's own, inside an approval the founder has already given, and it needs no second sign-off
-(Firia, 2026-10-16 3:14 PM ET). The split is a review boundary, not a scope cut: **B-12 closes only
-when slices 2 and 3 pass**, and every open item below names the slice it lands in. The file keeps
+B-12). The team split it into slices so it could be reviewed in pieces, and re-ordered them when
+the solver's own screen turned out to be what the demo stands on — both are the team's own calls,
+inside an approval the founder has already given, and neither needs a second sign-off (Firia,
+2026-10-16 3:14 PM ET). The split is a review boundary, not a scope cut: **B-12 closes only when
+slices 2, 3 and 4 pass**, and every open item below names the slice it lands in. The file keeps
 its old name so existing links still resolve; the word in it does not describe anything on the page.
 
 Same rule as B-08 (DECISION-LEDGER row 63): an item whose slice nobody can name does not get to
 stay on the page as a shrug.
 
+The order was re-cut on 2026-10-16: the capacity solver's own screen comes before the surfaces
+that read it, because B-09's VEH requirements and AT-04/05/12 are what the demo turns on, and
+every one of them is decided by the solver rather than by an inbox.
+
+**Slice 2 landed in two parts**, built in parallel and merged together: **Plan routes** — the
+solver's own screen, §1.1 — and **the board's sharpening**, the rows this page had promised slice 2
+since it was written, which are written up in `docs/ui/B12-SLICE2-DEFERRED.md`. Slice 2 does not
+close until the rows §2 still marks "slice 2, ahead" are in.
+
 | Slice | What it is | State |
 |---|---|---|
 | 1 | The Today board (SURF-01) and the child drawer (SURF-02), read-only, over the seeded scenario | **landed** — this page's §1 |
-| 2 | Inbox, Exceptions & Approvals, the writes, and every fixture and taste item below | **in progress** — the first part landed (docs/ui/B12-SLICE2-DEFERRED.md); §2 marks which rows it closed |
-| 3 | Live updates (SSE), the map pane, and the seeded approver and verifier | sequenced — the two seeded names by the founder's own call (Firia, 2026-10-16 10:21 PM ET; DECISION-LEDGER row 71) |
+| 2 | **Plan routes** (B-09 VEH-01…05, B-13 UI-04): the lanes screen, the feasible-plan check, AT-04, AT-05, AT-12 — **and** the board's sharpening: the fixture and taste items this page already promised slice 2 | **both parts landed** — §1.1 and `docs/ui/B12-SLICE2-DEFERRED.md`; §2 marks which rows they closed and which are still ahead |
+| 3 | Live updates (SSE) and the live map pane — AT-03 and AT-11 — and the seeded approver and verifier §2 moved here | sequenced — the two seeded names by the founder's own call (Firia, 2026-10-16 10:21 PM ET; DECISION-LEDGER row 71) |
+| 4 | Inbox, Exceptions & Approvals, the board's writes, and the extras that wait on them — **this is P-04** (BUILD-PLAN-M2) | sequenced |
 
 ## 1. What slice 1 is
 
@@ -45,23 +58,74 @@ one day.
 | The drawer | `src/app/(app)/today/LegDrawer.tsx` |
 | The words of a next step and a needs-action reason, shared by both | `src/app/(app)/today/next-step.ts` |
 
-## 2. Slice 2 — the surfaces, the writes, and the sharpening
+## 1.1 What slice 2 landed: Plan routes
 
-Everything in this table lands before B-12 closes. Slice 2 is being built in parts; the rows
-marked **landed** are closed by its first part and written up in
-`docs/ui/B12-SLICE2-DEFERRED.md`. A row still marked "slice 2" is ahead of us, not parked —
-slice 2 does not close until all of them are in.
+The coordinator's planning screen, at `/plan-preview`, behind the two console roles (PRD §6.2
+gives the plan and the legs to coordinators; the front desk's surface is the ramp iPad). One lane
+per van: what the van has today, places needed against places free, and the children in it as
+stops in the order they are driven, with the map's place beside the lanes and one primary button —
+**Plan routes** — that runs the solver and fills them.
 
-| Thing | § | What slice 2 has to land |
+Every verdict on it is the capacity solver's. The planner is a real extension of
+`src/domain/solver`, not a second implementation: `plan.ts` searches an assignment over the fleet
+and `feasible()` checks every placement, so a child is in a van only because the four PRD §7
+constraints held with them aboard, at every stop. A plan is never a commitment — nothing is
+assigned, locked or sent, and the screen says so.
+
+| Thing | File |
+|---|---|
+| The planner over the fleet: lanes, unplaced children with causes, the §9 option set | `src/domain/solver/plan.ts` |
+| The day it plans, projected from the demo scenario (vans, drivers, riders, the spare van, the chair the ramp measures) | `src/domain/plan/day.ts` |
+| The screen | `src/app/plan-preview/PlanRoutes.tsx`, `plan.module.css` |
+| The verdicts as words and §3 state chips | `src/app/plan-preview/lanes.ts` |
+| The words | `src/ui/copy.ts` (`planRoutes`) |
+| Unit checks over the real scenario | `src/domain/solver/plan.test.ts`, `src/app/plan-preview/plan-screen.test.ts` |
+| Browser checks and screenshots | `e2e/plan-routes.spec.ts` → `artifacts/plan-routes-*.png` |
+
+What it answers, in the PRD's own terms:
+
+| Requirement | What the screen does |
+|---|---|
+| VEH-01 | plans against approved needs only; a reported-but-unapproved item is on the rider's row, muted, reading "not used for planning" |
+| VEH-02 / VEH-04 | each lane answers "Not checked yet / Reported by the provider / Checked at the ramp". Unknown is never read as a yes: the lane carries nobody and says "Nobody boards until this van is checked" |
+| VEH-03 | feasibility per stop sequence over the layouts of every van, for the morning and the afternoon run |
+| VEH-05 | **Different van today** swaps the vehicle and the driver, the lane goes to "Changed", **Ask the provider** → **Record the provider's answer** re-solves it. A driver substitution alone changes no verdict, which is the point of keeping them separate |
+| AT-04 | the chair measured at the ramp is larger than the file says → the planned run reads "Doesn't fit" *before* anyone boards, the child stays on the run (nobody is quietly removed), and every way out carries "Needs a coordinator's approval" |
+| AT-05 | the substitution chain above, with V3 — the scenario's own substitute van |
+| AT-12 | a child no van fits is in the group at the top with one plain line — "No van with four-point straps for Zoe B." — the ranked options beside it, and "No family has been told anything. Staff choose first." on screen while anyone is without a van |
+| TEST-SEC-02 | the screen makes no network request of its own at all: no map tiles, no routing provider, no API. The browser check records every request the page makes and asserts that none leaves the origin, none carries a body, and no child, place or vehicle name reaches one |
+| UI-04 / §4.1 / §3 | one primary action; every state is an icon plus a §3 label; a drag is never the only way to move a child (**Move** names the lanes in words); the demo violet is still only the DEMO bar and the Simulated chip, measured on the real screen |
+
+Two things on it are deliberately not finished here. The map is a **placeholder with its own
+words** — the live pane is slice 3, and an empty frame would have read as a broken map — and the
+options a coordinator chooses are *listed*, not *decided*: the approval decision screen is
+slice 4's (SURF-05), and a button here that recorded an approval would be inventing the surface
+that owns it.
+
+One thing the day did not have before: **drivers**. The scenario names families, children,
+therapists and provider dispatchers, and nobody at the wheel — and a substitution that changes
+the van changes the person driving it, so a lane has to say who. Four synthetic names (first name
+plus last initial, ADR-015 / ledger row 31) live with the rest of the day's fiction in
+`src/domain/plan/day.ts`, never in the view.
+
+One copy fix came with it, in `copy.ts`: the cancel option's sentence used to print
+"Cancel today's ride for Leo B.. Attendance…" wherever it was listed, because a child's label
+already ends in the full stop their last initial carries. It is one sentence now.
+
+## 2. Slice 2's other part — the board's sharpening, and what is still ahead
+
+These are the rows this page has promised since it was written: each sharpens what slice 1
+shipped. Slice 2's board part closed most of them and moved two to slice 3; the rows still marked
+**slice 2, ahead** are ahead of us, not parked, and slice 2 does not close until they are in. The
+rows that are slice 4's — the surfaces and the writes — are in §7, where the slice that owns them
+is.
+
+| Thing | § | State, and what is left |
 |---|---|---|
-| Inbox (SURF-03) and Exceptions & Approvals (SURF-05) | §4.3, §4.5 | **slice 2, ahead — this is P-04** (§2.1), and the rest of AT-13's CA-04 rides with it. Both surfaces, for real. Exceptions is also where B-08's F9 lands — the approval *decision* screen over `ops.change_request` / `ops.approval_request`, which DECISION-LEDGER row 63 dated to B-12 |
-| Writes: confirm handoff, **Override with reason**, snooze, approve | §4.2, §4.5 | **slice 2, ahead.** The drawer's actions stop being read-only. Override is the one that has to work end to end: the dialog takes a required reason (`copy.ts overrideHeading` / `overrideReasonLabel`), the write commits, and the row and the drawer both move. "The action is rendered and says it is not connected" was slice 1's honest placeholder, not a shape to keep |
 | A disabled Override that **looks** disabled, and says why in one line | §4.2, §9 | **half landed.** The disabled *treatment* is in (`src/ui/tokens.ts`, `today.module.css`): a disabled control no longer wears a live control's border, and `tokens.test.ts` holds it weaker than every usable tone. Override still has **no one-line reason of its own** — `LegDrawer.tsx` renders it under the *handoff's* reason — so that half is **slice 2, ahead**, and the line comes from `src/ui/copy.ts` (never inline prose, never a tooltip alone) |
-| 412 conflict toast and the merge view | §4.1 | **slice 2, ahead**, with the writes: there is nothing to conflict with until the board writes |
 | Provider / vehicle / AM-PM filter chips with counts | §4.1 | **slice 2, ahead.** Slice 1 shipped the "Only needs action" toggle and the §2 search; slice 2 adds the chips and their counts |
-| History, pending approvals and agent changes in the drawer, with real rows | §4.2 | **slice 2, ahead.** The drawer's three sections are empty-state prose today. Slice 2 fills **history** with real rows, and the pending-approval and agent-change rows come from the Exceptions work in the same slice |
 | Drawer **timeline rows** | §4.2 | **landed.** The day is a timeline of rows — time column, stops, icon + label state, no box — rather than two hairline cards, the dense treatment the board already uses (Vera's call, §5) |
-| **One service date on screen**, in the board's own header | §2, §6.1 | **landed, and it is not a switcher.** Vera's final call (§5): one date, the replayed demo day, labelled as the demo day, with nothing on screen offering another. The shell's duplicate — today's real date on every page — is gone, which is what the two "Service date" labels were. The board takes a service date (`src/domain/board/day.ts`) and other days are reached by the test-only date override and by nothing on screen or on a deployment (Veri #49) |
+| **One service date on screen**, in the board's own header | §2, §6.1 | **landed, and it is not a switcher** — this is the answer to the "date switcher" this page asked for. Vera's final call (§5): one date, the replayed demo day, labelled as the demo day, with nothing on screen offering another. The shell's duplicate — today's real date on every page — is gone, which is what the two "Service date" labels were. The board takes a service date (`src/domain/board/day.ts`) and other days are reached by the test-only date override and by nothing on screen or on a deployment (Veri #49) |
 | An **AT-13 `HELD_NO_RECEIVER` ride in the scenario** | PRD §6.6, l.1327 | **landed — the board part of AT-13, and only that part** (§2.1). The scenario had the *family* for AT-13 — F2, no authorized receiving adult (`standard.ts:140`) — but no ride in the state. C2's afternoon is now that ride on the finished day and on the demo day: `ARRIVED_DROPOFF → HELD_NO_RECEIVER` by the system (CA-04, ledger row 47), with no automatic return because the machine's `noWildcardFrom` gives it no edge out but a staff one. The board, the drawer and AT-13's own check all read it. The rest of CA-04 — the staff task and the calls, from a real transition rather than from a fixture — is §2.1's row |
 | A tighter, **mutation-proven** AT-10 e2e | PRD SURF-01 acceptance | **landed.** Slice 1's AT-10 line was a negative — `expect(page.getByText(/handed off to/i)).toHaveCount(0)` — which also passed on a board that rendered nothing. It now asserts positively on the finished day, where an arrival and a handoff are both on screen and told apart: C6's van arrived and no custody event was recorded, so the row reads "Arrived (vehicle)" and does **not** read as handed off. On that day the same row is also in **Needs action** and counted by "Only needs action": the state is the arrival and nothing more, and the missing handoff is the last open thing about a ride whose van is back in the yard — under "On the way" it read as still happening, and the one view a coordinator closes a day from did not list it |
 | **Afternoon route data aligned with the scenario** | ADR-007, §3 below | **landed for the plan.** `src/fixtures/run-routes.ts` is one route per run per direction, built from the scenario's own stops; the afternoon is the morning reversed (`reverseRoute`) and `plannedEta` gives each stop its family's 10-minute window. No row says "Window pending" any more. The three **ADR-007 replay** routes were left as they were here, and **this PR regenerated them too** — §3.1 |
@@ -91,22 +155,22 @@ not claimed by it:
   day that happened. A write that moves a leg into the hold is what makes the task and the calls
   consequences of it.
 
-**All three land in P-04 — the inbox (SURF-03), Exceptions & Approvals (SURF-05) and the writes**
-— which is the slice-2 row at the top of this table, and the scope BUILD-PLAN gives B-12 ("board,
-drawer, inbox, exceptions, map, SSE"). BUILD-PLAN §2 maps AT-13 to **B-02 and B-13**, never to the
-board alone, so no console slice closes it by itself: B-02 has the machine (it does), and B-13's
-ramp and dispatcher surfaces are where the ramp end of it is read. Until P-04, the honest claim
-for this page is the one above — the board shows the hold and asks for the call; it does not raise
-the task and does not place it.
+**All three land in P-04 — B-12 slice 4: the inbox (SURF-03), Exceptions & Approvals (SURF-05)
+and the board's writes** (BUILD-PLAN-M2 §2), which is §7 of this page, and the scope BUILD-PLAN
+gives B-12 ("board, drawer, inbox, exceptions, map, SSE"). BUILD-PLAN §2 maps AT-13 to **B-02 and
+B-13**, never to the board alone, so no console slice closes it by itself: B-02 has the machine
+(it does), and B-13's ramp and dispatcher surfaces are where the ramp end of it is read. Until
+P-04, the honest claim for this page is the one above — the board shows the hold and asks for the
+call; it does not raise the task and does not place it.
 
-> **Slice 2 (docs/ui/B12-SLICE2-DEFERRED.md) answers §3.1, §3.2 and the service-date question in
-> §5.** The afternoon has committed geometry aligned to the scenario, the board carries one
-> service date in its own header — the replayed demo day, labelled as the demo day, with no
-> switcher beside it — and the day before the demo day carries the rides that *ended*, which is
-> where AT-13's held ride and AT-10's arrived-but-not-handed-over van live. That day is reached
-> by the test-only date override and by nothing on screen: it is where those two acceptance
-> tests are read, and no deployment can be asked for it (Veri #49).
-> The rows below are left as they were written, so the two slices can be read in order.
+> **The board part of slice 2 (`docs/ui/B12-SLICE2-DEFERRED.md`) answers §3.1, §3.2 and the
+> service-date question in §5.** The afternoon has committed geometry aligned to the scenario, the
+> board carries one service date in its own header — the replayed demo day, labelled as the demo
+> day, with no switcher beside it — and the day before the demo day carries the rides that
+> *ended*, which is where AT-13's held ride and AT-10's arrived-but-not-handed-over van live. That
+> day is reached by the test-only date override and by nothing on screen: it is where those two
+> acceptance tests are read, and no deployment can be asked for it (Veri #49). The rows above are
+> left as they were written, so the parts can be read in order.
 
 ## 3. Known gaps in the fixtures — the slice each one closes in
 
@@ -189,11 +253,12 @@ founder's call. The state of each is the first thing its row says.
    recorded. Slice 2 made it visible in one more place: a morning handoff says "Handed off to
    the ramp" rather than naming the person who received the child, for the same reason.
 
-## 4. Deviations from the design direction — each one Vera's call, in slice 2
+## 4. Deviations from the design direction — each one Vera's call
 
 These five are where slice 1 departed from DESIGN-DIRECTION or COPY-GUIDE. Each is a **taste
 call, and Vera makes it** — the outcome is either "fixed in slice 2" or "accepted, and the
-direction is updated to match" — and recorded on this page when slice 2 lands. **No founder
+direction is updated to match" — and recorded on this page when the slice that answers it lands.
+Four of the five are slice 2's; the fifth waits on the surface that owns the answer, and says so. **No founder
 decision is needed for any of them**: they sit inside B-12's approval, and none touches a founder
 lock (D-5's violet reservation is kept, not traded — see the last row).
 
@@ -202,17 +267,18 @@ lock (D-5's violet reservation is kept, not traded — see the last row).
 | §4.1 | row carries "provider/vehicle + capability chip" | the van's label and the capability chip on the row; the provider's name in the drawer's ride card | a provider name is three or four words and would take a third line on every row of a 56-row board, against the §4.1 two-line cap and the §1 density dial. The §2 search still finds a child by their provider | keep two lines, or spend a third — §5 |
 | COPY-GUIDE §5 | four group headers | five: "Getting ready" is added | the guide's four were written for a mid-morning board where every ride has started. A ride that is planned but has not left is neither "on the way" nor "not riding today" | keep the fifth header (and amend the guide), or fold it into one of the four — §5 |
 | §4.1 | row is one child's day, one AM/PM chip and one state chip | **one row per child and ride**: a child's morning and afternoon are two rows, grouped independently | the earlier cut had to pick which of a child's two rides "the row" was about, and then the other one was not on the board at all — a morning van on the road hid an afternoon nobody had reported on. AT-07 is the rule that the two rides are separate things; the board is now shaped like the rule. Rows stay dense (48 px, two lines) and the row count is 56, which is what the surface is for | expected to be accepted and written into §4.1, since AT-07 is the rule it follows |
-| §4.1 | row ends in a "next-action owner avatar+name" | a **next step**: a sentence that opens with a verb and names the child — "Record who receives Noah O." | there was no owner to name in slice 1 (no task rows, no assignment), and the only honest alternative was the role — "Coordinator", which is the one fact a coordinator reading their own board already has. A step says what to do | slice 2 brings the Exceptions surface, which owns assignment — so Vera decides there whether the avatar returns beside the step, replaces it, or stays out |
+| §4.1 | row ends in a "next-action owner avatar+name" | a **next step**: a sentence that opens with a verb and names the child — "Record who receives Noah O." | there was no owner to name in slice 1 (no task rows, no assignment), and the only honest alternative was the role — "Coordinator", which is the one fact a coordinator reading their own board already has. A step says what to do | slice 4 brings the Exceptions surface, which owns assignment — so Vera decides there whether the avatar returns beside the step, replaces it, or stays out. The step stays as it is until then |
 | §2 | header adapter pills in the `src-sim` tone (Vera's interim, 2026-10-14) | the same interim pills, outlined, in `ink-muted` | D-5 reserves the violet for the DEMO bar and the Simulated chip. Four more violet chips in the header, beside a bar that already says "DEMO" and a chip that already says "Simulated", spend the reservation and the colour stops meaning "this is the demo". The §2/§10 *text* is untouched and waits on the live stream; `src/ui/tokens.test.ts` and `e2e/helpers.ts` hold the colour rule from both sides (stylesheets, and the computed colour of every element the browser lays out) | the **colour** is settled by D-5 (ledger row 33) and is not reopened. The **text** changes in slice 3, when the stream gives the pills real ages |
 
-## 5. The calls slice 2 has to carry, and who makes them
+## 5. The calls still to carry, and who makes them
 
 Taste calls are Vera's and wait on no founder; the two rows that are the founder's say so by
-name. Each is answered by something slice 2 is building, so the answer lands with the code
+name. Each is answered by something a slice is building, so the answer lands with the code
 rather than ahead of it.
 
 **The two service dates are answered.** The row that was here — the header's real date against
-the board's seeded day, both labelled "Service date" — is closed. Vera's final call, 2026-10-16:
+the board's seeded day, both labelled "Service date" — is closed, and so is the **date switcher**
+this page asked for in §2. Vera's final call, 2026-10-16:
 
 > One date on screen: the replayed demo day, labelled as the demo day. In demo mode the header doesn't show today's real date. No date switcher.
 
@@ -263,12 +329,12 @@ Still open:
   the board reading whatever it has reached. Does the clock subsume this fixture, or stay beside
   it as the "yesterday" the board can look back at?
 
-## 6. Slice 3 — live updates, the map, and the two seeded names
+## 6. Slice 3 — live updates, the live map, and the two seeded names
 
 | Thing | § | What slice 3 has to land |
 |---|---|---|
-| Live updates, reconnect delta, the amber "paused" bar over 15 s | §2, §4.1 | the SSE stream (ADR-002), and with it the U3 commit→screen measurement RISKS-AND-QUESTIONS has open |
-| The map pane beside the rows, row-hover ↔ marker highlight, fly-to | §4.1, §5 | the split pane at ≥1280 px that D-6 (ledger row 34) decided. The pane itself already exists at `/map-preview` |
+| Live updates, reconnect delta, the amber "paused" bar over 15 s | §2, §4.1 | the SSE stream (ADR-002), and with it the U3 commit→screen measurement RISKS-AND-QUESTIONS has open. AT-11's duplicate, out-of-order and location-loss bands are read here |
+| The map pane beside the rows, row-hover ↔ marker highlight, fly-to | §4.1, §5 | the split pane at ≥1280 px that D-6 (ledger row 34) decided. The pane itself already exists at `/map-preview`, and Plan routes already holds its place on screen (§1.1) — slice 3 puts the live map in both, and with it AT-03's delay on a real route |
 | Header adapter pills showing real ages instead of "· Simulated" | §2, §10 | the ages come from the same stream; the pills' **violet is already gone** (§4), so only the text is interim |
 | A **named approver and a named verifier** in the seed | §4.2, COPY-GUIDE §5 | **the founder's call, 2026-10-16 10:21 PM ET** (Firia; DECISION-LEDGER row 71): both land here, and that is a *sequence* rather than a deferral — B-12 does not close until slice 3 passes. `seed.ts` names the approver on the transport profile (`approved_by`), and the ramp observation becomes a seeded capability report with a person on it, so the drawer can say "Verified 17 min ago by J.T." and mean it (§3.3, §3.4) |
 
@@ -277,8 +343,22 @@ Still open:
 > its clock icon and nothing about it is slice 3's. A row on this page for something already on
 > screen is the same shrug §1 refuses.
 
+## 7. Slice 4 — the surfaces that read the plan, and the board's writes
+
+Last, because each of them is about acting on a decision the first three slices make visible, and
+none of them is what the demo turns on. This slice is **P-04** in BUILD-PLAN-M2 §2 — "B-12 slice 4
+— Inbox (SURF-03), Exceptions & Approvals (SURF-05) and the board's writes" — and the rows below
+are its scope as that step states it.
+
+| Thing | § | What slice 4 has to land |
+|---|---|---|
+| Inbox (SURF-03) and Exceptions & Approvals (SURF-05) | §4.3, §4.5 | both surfaces, for real, and the rest of AT-13's CA-04 rides with them (§2.1). Exceptions is also where B-08's F9 lands — the approval *decision* screen over `ops.change_request` / `ops.approval_request`, which DECISION-LEDGER row 63 dated to B-12 |
+| Writes: confirm handoff, **Override with reason**, snooze, approve | §4.2, §4.5 | the drawer's actions stop being read-only. Override is the one that has to work end to end: the dialog takes a required reason (`copy.ts overrideHeading` / `overrideReasonLabel`), the write commits, and the row and the drawer both move. "The action is rendered and says it is not connected" was slice 1's honest placeholder, not a shape to keep |
+| 412 conflict toast and the merge view | §4.1 | with the writes: there is nothing to conflict with until the board writes |
+| History, pending approvals and agent changes in the drawer, with real rows | §4.2 | the drawer's three sections are empty-state prose today. Slice 4 fills **history** with real rows, and the pending-approval and agent-change rows come from the Exceptions work in the same slice |
+
 ---
 
-**B-12 closes when slices 2 and 3 pass** — not when slice 1 looks good. Nothing on this page is
-somebody's "later": every row names its slice, and both slices are inside the step the founder
-already approved.
+**B-12 closes when slices 2, 3 and 4 pass** — not when slice 1 looks good, and not when Plan
+routes does. Nothing on this page is somebody's "later": every row names its slice, and all of
+them are inside the step the founder already approved.
