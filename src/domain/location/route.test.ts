@@ -5,6 +5,7 @@ import {
   legAtDistance,
   measureRoute,
   nextStopIndex,
+  reverseRoute,
   routeGeometry,
   stopHoldSeconds,
   type Route,
@@ -134,5 +135,54 @@ describe("freeFlowSecondsBetween (ADR-007 committed durations only)", () => {
 
   it("throws for a stop index that is not on the route", () => {
     expect(() => freeFlowSecondsBetween(measured, 0, 9)).toThrow(/no stop 9/);
+  });
+});
+
+/**
+ * The afternoon of a morning run (`reverseRoute`). The demo scenario's afternoon is its morning
+ * reversed — everyone boards at the centre and is set down in the reverse of the pickup order —
+ * so the geometry is one survey read backwards rather than a second one that could drift from it.
+ */
+describe("reverseRoute", () => {
+  const back = reverseRoute(ROUTE, { id: "test-route-pm" });
+
+  it("keeps the vehicle and its device, and takes the new id", () => {
+    expect(back.id).toBe("test-route-pm");
+    expect(back.vehicleId).toBe(ROUTE.vehicleId);
+    expect(back.deviceId).toBe(ROUTE.deviceId);
+    expect(back.sourceMode).toBe(ROUTE.sourceMode);
+  });
+
+  it("visits the same stops in the opposite order, with their own labels and service times", () => {
+    expect(back.stops.map((s) => s.id)).toEqual(["C", "B", "A"]);
+    expect(back.stops.map((s) => s.familyLabel)).toEqual([undefined, "F2", "F1"]);
+    expect(back.stops.map((s) => s.serviceSeconds)).toEqual([0, 480, 0]);
+  });
+
+  it("chains its legs stop to stop the other way, with each geometry reversed", () => {
+    expect(back.legs.map((l) => [l.fromStopId, l.toStopId])).toEqual([
+      ["C", "B"],
+      ["B", "A"],
+    ]);
+    back.legs.forEach((leg, i) => {
+      expect(leg.fromStopId).toBe(back.stops[i].id);
+      expect(leg.toStopId).toBe(back.stops[i + 1].id);
+      expect(leg.geometry[0]).toEqual(back.stops[i].coord);
+    });
+    expect(back.legs[0].geometry).toEqual([...ROUTE.legs[1].geometry].reverse());
+  });
+
+  it("is as long and as slow one way as the other, and leaves the original alone", () => {
+    const there = measureRoute(ROUTE);
+    const andBack = measureRoute(back);
+    expect(andBack.path.totalM).toBeCloseTo(there.path.totalM, 6);
+    expect(andBack.freeFlowSec).toBeCloseTo(there.freeFlowSec, 6);
+    expect(ROUTE.stops.map((s) => s.id)).toEqual(["A", "B", "C"]);
+    expect(ROUTE.legs[0].geometry[0]).toEqual([-80.145, 26.6]);
+  });
+
+  it("reversing twice is the route it started as", () => {
+    const again = reverseRoute(back, { id: ROUTE.id });
+    expect(again).toEqual(ROUTE);
   });
 });

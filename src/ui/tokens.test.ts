@@ -32,8 +32,8 @@ function walkSrc(dir: string = SRC_ROOT): string[] {
  * WCAG 2.1 AA, or that drifts from the published ratio, fails the build.
  */
 describe("§8 contrast", () => {
-  it("covers every colour pair the doc lists", () => {
-    expect(contrastPairs).toHaveLength(26);
+  it("covers every colour pair the doc lists, plus the inactive-control pair", () => {
+    expect(contrastPairs).toHaveLength(27);
   });
 
   it.each(contrastPairs)(
@@ -84,6 +84,9 @@ describe("token shape", () => {
         "crit-fg",
         "demo-bg",
         "demo-fg",
+        "disabled-bg",
+        "disabled-border",
+        "disabled-fg",
         "focus",
         "info-bg",
         "info-fg",
@@ -161,6 +164,54 @@ describe("token shape", () => {
       (f) => f !== path.join(SRC_ROOT, "ui", "tokens.ts") && readFileSync(f, "utf8").includes(VIOLET),
     );
     expect(offenders.map((f) => path.relative(SRC_ROOT, f))).toEqual([]);
+  });
+
+  /**
+   * §4.2 asks for one primary action and says the reason it is unavailable goes beside it in
+   * text. It did not say the button has to *look* unavailable, and the drawer's "Override with
+   * reason" was proof that it needs saying: `ink-muted` text in a `border-strong` box on
+   * `surface` is 7.58:1 inside a crisp outline, which is exactly what an enabled secondary
+   * button looks like. These are the tokens that make the difference visible before a click.
+   */
+  describe("an unavailable control looks unavailable", () => {
+    it("is weaker than every tone a usable chip or button takes", () => {
+      const disabled = contrastRatio(color["disabled-fg"], color["disabled-bg"]);
+      expect(disabled).toBeGreaterThanOrEqual(3);
+      for (const tone of tones) {
+        expect(
+          contrastRatio(color[`${tone}-fg`], color[`${tone}-bg`]),
+          `a disabled control must read weaker than the ${tone} tone`,
+        ).toBeGreaterThan(disabled);
+      }
+      // And weaker than the one it replaces: ink-muted on the surface it used to sit on.
+      expect(contrastRatio(color["ink-muted"], color.surface)).toBeGreaterThan(disabled);
+    });
+
+    it("has a hairline that reads as switched off, not as an outline", () => {
+      // WCAG 2.1 exempts an inactive component from 1.4.11, which is what this is for: a border
+      // that still met 3:1 would draw the eye to a control nobody can use.
+      const inert = contrastRatio(color["disabled-border"], color["disabled-bg"]);
+      expect(inert).toBeLessThan(contrastRatio(color["border-strong"], color.surface));
+      expect(inert).toBeLessThan(3);
+    });
+
+    it("is what the drawer's two unavailable buttons actually read", () => {
+      // Both of them, from the stylesheet: a rule that only dressed one of the pair would leave
+      // the override looking like the live control on the screen (§4.2).
+      const css = readFileSync(
+        path.join(SRC_ROOT, "app", "(app)", "today", "today.module.css"),
+        "utf8",
+      );
+      for (const rule of [".primary:disabled", ".secondary:disabled"]) {
+        const block = new RegExp(`\\${rule} \\{[^}]*\\}`).exec(css)?.[0] ?? "";
+        expect(block, rule).toMatch(/background: var\(--color-disabled-bg\)/);
+        expect(block, rule).toMatch(/color: var\(--color-disabled-fg\)/);
+        expect(block, rule).toMatch(/--color-disabled-border/);
+        expect(block, rule).toMatch(/cursor: not-allowed/);
+      }
+      // The brand colour is the one action a surface can take, so a dead button never wears it.
+      expect(/\.primary:disabled \{[^}]*\}/.exec(css)?.[0]).not.toMatch(/--color-brand/);
+    });
   });
 
   it("reserves the demo violet for demo and simulation only", () => {

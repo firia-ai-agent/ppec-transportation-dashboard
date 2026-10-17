@@ -33,22 +33,26 @@ import { frameAt, type ReplayFrame } from "@/domain/eta/replay";
 import { feasible, type SolveResult, type SolveStatus } from "@/domain/solver";
 import { gpsFreshnessFor, type GpsFreshness } from "@/ui/states";
 import { serviceDateIso } from "@/ui/service-date";
-import { SCENARIO_START_MS } from "@/fixtures/replays";
 import type { attendanceState, capabilityState, legState } from "@/db/schema";
 import {
   childByKey,
+  rideRecordFor,
   THERAPISTS,
   THERAPY_SESSIONS,
   type Child as DemoChild,
   type Need,
+  type Receiver,
+  type RideRecord,
   type Run as DemoRun,
 } from "@/modules/demo/fixtures/standard";
+import { demoDay, type DayPhase, type ServiceDay } from "./day";
 import {
   boardChildren,
   capabilityFor,
   CENTER_STOP_ID,
   dispatcherOf,
   plannedWindow,
+  plannedWindowFor,
   receivingAdultOf,
   replayForVehicle,
   runOfChild,
@@ -65,20 +69,11 @@ type AttendanceS = (typeof attendanceState.enumValues)[number];
 type CapabilityS = (typeof capabilityState.enumValues)[number];
 
 /**
- * How far into the committed demo runs the board is read.
- *
- * The replays start at 07:30 ET (`SCENARIO_START_MS`) and 12 minutes in is the instant where
- * the day has something to say in each of the three shapes the modules can produce: one run is
- * standing in the PRD §18.2 step 7 stall and its window has moved, one is inside the step 8 GPS
- * gap and so its texts are paused (LOC-03), and one has no displayable position at all because
- * its device is not bound to it (LOC-01, ADR-013). A fixed instant also makes the board a thing
- * a screenshot can be evidence of.
+ * Which day, and the instant it is read at, are ./day.ts — re-exported here because the board is
+ * what every caller asks for them through.
  */
-export const BOARD_SCENARIO_SECONDS = 720;
-
-export function boardInstantMs(): number {
-  return SCENARIO_START_MS + BOARD_SCENARIO_SECONDS * 1000;
-}
+export { BOARD_SCENARIO_SECONDS, boardInstantMs, demoDay, serviceDayFor } from "./day";
+export type { DayPhase, ServiceDay } from "./day";
 
 /* ───────────────────────────── groups (COPY-GUIDE §5 SURF-01) ───────────────────────────── */
 
@@ -130,6 +125,12 @@ export function groupForState(state: LegS): BoardGroup {
 
 /** Why this row is in "Needs action". Codes, so the words stay in the copy module. */
 export const NEEDS_ACTION_REASONS = [
+  /**
+   * AT-13 / PRD §6.6 CA-04: the ride ended at the child's stop with nobody on file to receive
+   * them. They are waiting with the van, every contact is being called, and **nothing returns
+   * them to the centre on its own** — so this outranks every other reason a row can have.
+   */
+  "CHILD_HELD",
   /** The solver says the riders do not fit the vehicle as it was observed (PRD §7). */
   "DOES_NOT_FIT",
   /** No adult on file is allowed to receive this child at the end of the ride (TRP-02, PRD §6.6). */
@@ -150,6 +151,8 @@ export type NeedsActionReason = (typeof NEEDS_ACTION_REASONS)[number];
  * with a verb and names the child: "Record who receives Noah O.", not "Coordinator".
  */
 export const NEXT_STEPS = [
+  /** CA-04's own step: call every authorized and emergency contact for a child being held. */
+  "CALL_CONTACTS",
   "MOVE_TO_FITTING_VAN",
   "RECORD_RECEIVER",
   "DECIDE_RIDE",
@@ -200,6 +203,12 @@ export type RideView = {
   gpsFreshness: GpsFreshness | null;
   /** §5.1: "Stopped 3 min" — seconds the vehicle has not moved. */
   stoppedSeconds: number;
+  /**
+   * Who received the child, when the day recorded a custody event (§6.3). The §3 handoff label
+   * is "Handed off to {receiver role}", and this is what fills it: the adult the family has on
+   * file, by name, or the centre's own ramp for a morning ride that ended there.
+   */
+  receivedBy: Receiver | null;
 };
 
 export type NeedView = {
@@ -247,6 +256,8 @@ export type LegRow = {
 export type BoardGroupView = { group: BoardGroup; legs: readonly LegRow[] };
 
 export type Board = {
+  /** The service day these rows are about, and the instant they were read at. */
+  day: ServiceDay;
   nowMs: number;
   /** One per child, in fixture order: what the drawer reads. */
   rows: readonly BoardRow[];
@@ -259,15 +270,43 @@ export type Board = {
 
 /* ───────────────────────────── the leg machine, walked ───────────────────────────── */
 
-/** What today has observed about one ride, which is all the machine is allowed to move on. */
+/**
+ * What the day has observed about one ride, which is all the machine is allowed to move on.
+ *
+ * Two kinds of fact, kept apart on purpose. A **vehicle** fact is something a device or a
+ * geofence produced — it departed, it reached a kerb, it reached the drop-off — and a **person**
+ * fact is something somebody did and signed: reported the child aboard, verified it, received
+ * the child. AT-10 is the rule that the first kind never stands in for the second, and the only
+ * place a projection could break it is here, so here is where the two are named differently.
+ */
 export type RideFacts = {
   assigned: boolean;
   capability: CapabilityS;
   solver: SolveStatus | null;
+  /* ── vehicle facts (the replay, LOC-01/ASM-18) ── */
   departed: boolean;
   pickupArrived: boolean;
   dropoffArrived: boolean;
+  /* ── person facts (what the day recorded) ── */
+  /** §6.3: a guardian or the provider reported the child aboard. */
+  boardingReported: boolean;
+  /** §6.3: staff verified that boarding. Never the agent (§11.2). */
+  boardingVerified: boolean;
+  /** §6.3: a custody event naming the adult who received the child. */
+  custodyEvent: boolean;
+  /** TRP-02: is there an adult on file allowed to receive this child at all? */
+  receivingAdultOnFile: boolean;
+  /** §6.3: staff cancelled the ride before anyone boarded. */
+  canceledByStaff: boolean;
 };
+
+/** A ride nobody has reported anything about yet: every person fact is absent. */
+export const NOTHING_REPORTED = {
+  boardingReported: false,
+  boardingVerified: false,
+  custodyEvent: false,
+  canceledByStaff: false,
+} as const;
 
 /**
  * The ride's state, reached one legal edge at a time.
@@ -302,6 +341,16 @@ export function rideStateFrom(facts: RideFacts): { state: LegS; path: LegS[] } {
 
   // PRD §6.3: only staff may verify, and only a FEASIBLE solve may lock a manifest.
   step("CAPABILITY_VERIFIED", "S");
+  /*
+   * Staff called it off before anyone boarded — which on this scenario's finished day is what
+   * happened to the run whose van the solver says does not fit its riders: the check was done,
+   * the van was short a tethered seat, and the families drove (AT-12: a family is told only
+   * after staff have chosen). A cancellation is a decision, so it is a person's fact too.
+   */
+  if (facts.canceledByStaff) {
+    step("CANCELED_TRANSPORT", "S");
+    return { state, path };
+  }
   if (facts.solver !== "FEASIBLE") return { state, path };
   step("MANIFEST_LOCKED", "Y");
 
@@ -311,13 +360,44 @@ export function rideStateFrom(facts: RideFacts): { state: LegS; path: LegS[] } {
   step("ARRIVED_PICKUP", "Y");
 
   /*
-   * And it stops here. Boarding is a person's act, reported at the vehicle and verified at the
-   * ramp (PRD §6.3 ARRIVED_PICKUP → BOARDED_REPORTED by a guardian or the provider), and a
-   * geofence is not a person: AT-10 is exactly the rule that a vehicle reaching a place may
-   * never be read as a child changing hands. The replay can see a vehicle arrive and nothing
-   * else, so the board shows the arrival and says no more than that.
+   * AT-10 lives on this line. Boarding is a person's act, reported at the vehicle and verified
+   * by staff (PRD §6.3 ARRIVED_PICKUP → BOARDED_REPORTED by a guardian or the provider), and a
+   * geofence is not a person: a vehicle reaching a place may never be read as a child changing
+   * hands. A day the replay can see and nobody has reported on stops here — the board shows the
+   * arrival and says no more than that — and no amount of further *vehicle* facts moves it,
+   * because the next edge needs a name on a report.
    */
-  void facts.dropoffArrived;
+  if (!facts.boardingReported) return { state, path };
+  step("BOARDED_REPORTED", "P");
+  if (!facts.boardingVerified) return { state, path };
+  step("BOARDED_VERIFIED", "S");
+  step("IN_TRANSIT", "Y");
+
+  // ASM-18: the geofence may say the van is at the drop-off, and that is all it may say.
+  if (!facts.dropoffArrived) return { state, path };
+  step("ARRIVED_DROPOFF", "Y");
+
+  /*
+   * The two ways a ride that got there ends, and the difference between them is a person.
+   *
+   * With a custody event naming the adult who received the child, the ride is done (§6.3
+   * ARRIVED_DROPOFF → COMPLETED_HANDOFF, by staff or the guardian — never by Y, which is why a
+   * geofence cannot reach it even here). Without one, and with nobody on file who may receive
+   * the child, the only edge left is the one AT-13 is about: HELD_NO_RECEIVER by the system —
+   * the child waits with the van, every contact is called, a staff task is raised, and there is
+   * **no automatic return to the centre** (PRD §6.6 CA-04, DECISION-LEDGER row 47). The machine
+   * holds that last part for us: HELD_NO_RECEIVER is in `noWildcardFrom` and its only exit is
+   * by staff, so a ride that ends there stays there however long the board is left open.
+   *
+   * And if a custody event is simply missing while an adult *is* on file, the ride stays at the
+   * arrival and asks for the handoff. That is the ordinary case, and it is the one that proves
+   * the rule: the van is there, the board says so, and nothing says the child was received.
+   */
+  if (facts.custodyEvent) {
+    step("COMPLETED_HANDOFF", "S");
+    return { state, path };
+  }
+  if (!facts.receivingAdultOnFile) step("HELD_NO_RECEIVER", "Y");
   return { state, path };
 }
 
@@ -346,17 +426,36 @@ function plannedEtaMs(run: DemoRun, stopId: string): number | null {
   return first.stops.find((s) => s.stopId === stopId)?.etaMs ?? null;
 }
 
-function solveRun(run: DemoRun, direction: Direction, nowMs: number): RunSolve {
-  const departed = direction === "AM" && frameFor(run, nowMs) !== null;
-  const capability = capabilityFor(run, serviceDateIso(new Date(nowMs)), departed);
+/**
+ * The vehicle half of one ride: has it left, and has anybody checked the van today.
+ *
+ * Only the demo day has a replayed run, and only its morning: a van is "on the road" because the
+ * committed geometry says where it is at this instant, not because the clock says it ought to be.
+ * A day that has ended put every van through the ramp gate — a manifest cannot be locked and a
+ * van cannot be released on an unchecked vehicle (PRD §6.3) — which is how the one run whose
+ * riders do not fit got as far as being cancelled rather than quietly staying "pending".
+ */
+function solveRun(run: DemoRun, direction: Direction, day: ServiceDay): RunSolve {
+  const departed =
+    day.phase === "LIVE" && direction === "AM" && frameFor(run, day.instantMs) !== null;
+  const checked = day.phase === "ENDED" || departed;
+  const capability = capabilityFor(run, serviceDateIso(new Date(day.instantMs)), checked);
   const solve = feasible(solverVehicle(vehicleOf(run)), solverLeg(run, direction), capability);
   return { solve, capability: capability.state, departed };
 }
 
 /**
- * The arrival the board shows for an AM ride: the vehicle reaching the centre, which is where
- * every morning run ends and the one stop every committed route has in common. A PM ride has no
- * committed geometry in this slice, so its window is honestly pending rather than borrowed.
+ * The arrival the board shows.
+ *
+ * Two answers, and the row can tell them apart. While a van is actually on the road the window
+ * is the *published* one — recalculated against its real position, damped by the §8 hysteresis,
+ * and shown with the shift today has put on it. Otherwise the window is the one the **plan**
+ * gives this child's own stop, from the committed geometry of the run their van will drive
+ * (`plannedWindowFor`), and it comes with no shift because nothing has moved it yet.
+ *
+ * That second answer is the afternoon's. It used to be "Window pending" on every PM row of the
+ * board, which told a coordinator the arrival had not been worked out when the route it will be
+ * driven on was committed weeks ago.
  */
 type EtaView = Pick<
   RideView,
@@ -373,11 +472,21 @@ const NO_ETA: EtaView = {
   stoppedSeconds: 0,
 };
 
-function etaViewFor(run: DemoRun, direction: Direction, nowMs: number): EtaView {
-  if (direction !== "AM") return NO_ETA;
-  const frame = frameFor(run, nowMs);
-  if (!frame) return NO_ETA;
+function etaViewFor(
+  child: DemoChild,
+  run: DemoRun,
+  direction: Direction,
+  day: ServiceDay,
+): EtaView {
+  const live = day.phase === "LIVE" && direction === "AM" ? frameFor(run, day.instantMs) : null;
+  if (!live) {
+    return { ...NO_ETA, windowText: plannedWindowFor(child, run, direction, day) };
+  }
+  return liveEtaView(run, live);
+}
 
+/** The window a van on the road is publishing, and how far today has moved it. */
+function liveEtaView(run: DemoRun, frame: ReplayFrame): EtaView {
   const centre = frame.stops.find((s) => s.stopId === CENTER_STOP_ID);
   const planned = plannedEtaMs(run, CENTER_STOP_ID);
   const age = frame.gpsAgeSeconds;
@@ -392,7 +501,49 @@ function etaViewFor(run: DemoRun, direction: Direction, nowMs: number): EtaView 
   };
 }
 
-function rideFor(child: DemoChild, direction: Direction, nowMs: number): RideView {
+/**
+ * What the day recorded about this ride, in person acts.
+ *
+ * Only a day that has ended has any: the demo day is read twelve minutes into its morning runs,
+ * when no child has been reported aboard yet, and a day that has not started has nothing to
+ * record. So the live board stops at what the replay can see, which is the state it was already
+ * in — and the finished day is the one with outcomes on it.
+ */
+function dayRecordFor(
+  child: DemoChild,
+  direction: Direction,
+  day: ServiceDay,
+): RideRecord | undefined {
+  return day.phase === "ENDED" ? rideRecordFor(child.key, direction) : undefined;
+}
+
+function reportedActs(child: DemoChild, record: RideRecord | undefined) {
+  if (!record) return NOTHING_REPORTED;
+  /*
+   * PRD §6.3: a handoff is "a custody event naming receiving adult **with can_receive_child**".
+   * A record claiming the family's adult received a child whose family holds no such scope is
+   * not a weaker handoff, it is an impossible one (TRP-02) — so it is refused here rather than
+   * rendered. The morning's "the ramp received them" is a different claim and needs no scope:
+   * the centre receives every child it is open for.
+   */
+  if (record.receivedBy === "ADULT_ON_FILE" && receivingAdultOf(child) === null) {
+    throw new Error(
+      `${child.key}/${record.direction}: a custody event names an adult ${child.familyKey} does not have`,
+    );
+  }
+  return {
+    boardingReported: record.boardingReportedBy !== null,
+    boardingVerified: record.boardingVerified,
+    custodyEvent: record.receivedBy !== null,
+    canceledByStaff: record.canceledByStaff === true,
+    // ASM-18 again: the arrivals the day logged are geofence facts, and stay that kind of fact.
+    departed: record.departed,
+    pickupArrived: record.pickupArrived,
+    dropoffArrived: record.dropoffArrived,
+  };
+}
+
+function rideFor(child: DemoChild, direction: Direction, day: ServiceDay): RideView {
   const mode = direction === "AM" ? child.amMode : child.pmMode;
   const run = runOfChild(child.key);
   const base = {
@@ -410,6 +561,8 @@ function rideFor(child: DemoChild, direction: Direction, nowMs: number): RideVie
       departed: false,
       pickupArrived: false,
       dropoffArrived: false,
+      receivingAdultOnFile: receivingAdultOf(child) !== null,
+      ...NOTHING_REPORTED,
     });
     return {
       ...base,
@@ -423,15 +576,18 @@ function rideFor(child: DemoChild, direction: Direction, nowMs: number): RideVie
       capability: "UNKNOWN",
       solver: null,
       solverPendingReason: null,
+      receivedBy: null,
       ...NO_ETA,
     };
   }
 
   const vehicle = solverVehicle(vehicleOf(run));
   const dispatcher = dispatcherOf(vehicleOf(run));
-  const { solve, capability, departed } = solveRun(run, direction, nowMs);
-  const frame = direction === "AM" ? frameFor(run, nowMs) : null;
+  const { solve, capability, departed } = solveRun(run, direction, day);
+  const frame = departed ? frameFor(run, day.instantMs) : null;
   const ownStop = stopLabel(child);
+  const record = dayRecordFor(child, direction, day);
+  const acts = reportedActs(child, record);
   const { state, path } = rideStateFrom({
     assigned: true,
     capability,
@@ -442,6 +598,9 @@ function rideFor(child: DemoChild, direction: Direction, nowMs: number): RideVie
       frame?.stops.some((s) => s.stopName === ownStop && s.status === "arrived") ?? false,
     dropoffArrived:
       frame?.stops.some((s) => s.stopId === CENTER_STOP_ID && s.status === "arrived") ?? false,
+    receivingAdultOnFile: receivingAdultOf(child) !== null,
+    // Last, so a day that recorded its own arrival says so rather than the live frame.
+    ...acts,
   });
 
   return {
@@ -456,7 +615,8 @@ function rideFor(child: DemoChild, direction: Direction, nowMs: number): RideVie
     capability,
     solver: solve.status,
     solverPendingReason: solve.pendingReason,
-    ...etaViewFor(run, direction, nowMs),
+    receivedBy: record?.receivedBy ?? null,
+    ...etaViewFor(child, run, direction, day),
   };
 }
 
@@ -478,24 +638,44 @@ function attendanceFor(child: DemoChild): AttendanceS {
  * ends away from the centre, because that is the ride it stops.
  */
 function needsActionFor(child: DemoChild, ride: RideView): NeedsActionReason[] {
+  /*
+   * A ride that is over needs nothing. The seating question a cancelled ride would otherwise
+   * raise was answered by cancelling it, and a handed-off child is not waiting on anybody — so
+   * the machine's own terminal list is what decides, rather than a second list here that could
+   * disagree with it. Note which state is *not* in that list: HELD_NO_RECEIVER is not terminal,
+   * because a child waiting with a van is the most open thing on the board (PRD §6.6).
+   */
+  if (LEG.terminal.includes(ride.state)) return [];
+
   const reasons: NeedsActionReason[] = [];
+  /*
+   * A held child is one fact, said once. "Nobody on file may receive them" and "this ride needs
+   * a person to decide what happens next" are both true of a ride that ended holding a child,
+   * and stacking all three on the row would make the one sentence that matters the third one
+   * read. What is *not* folded in is the van going quiet underneath it (below): a child waiting
+   * in a van nobody can locate is a different and worse fact.
+   */
+  const held = ride.state === "HELD_NO_RECEIVER";
+  if (held) reasons.push("CHILD_HELD");
   if (ride.solver === "INFEASIBLE" || ride.solver === "VEHICLE_UNAVAILABLE") {
     reasons.push("DOES_NOT_FIT");
   }
   if (
+    !held &&
     ride.direction === "PM" &&
     ride.mode !== "FAMILY" &&
     receivingAdultOf(child) === null
   ) {
     reasons.push("NO_RECEIVING_ADULT");
   }
-  if (groupForState(ride.state) === "NEEDS_ACTION") reasons.push("RIDE_STATE");
+  if (!held && groupForState(ride.state) === "NEEDS_ACTION") reasons.push("RIDE_STATE");
   if (ride.gpsFreshness === "LOST") reasons.push("LOCATION_LOST");
   return reasons;
 }
 
 /** The step each needs-action reason asks for, keyed by the reason the board ranks first. */
 const STEP_FOR_REASON: Readonly<Record<NeedsActionReason, NextStep>> = {
+  CHILD_HELD: "CALL_CONTACTS",
   DOES_NOT_FIT: "MOVE_TO_FITTING_VAN",
   NO_RECEIVING_ADULT: "RECORD_RECEIVER",
   RIDE_STATE: "DECIDE_RIDE",
@@ -510,19 +690,26 @@ const STEP_FOR_REASON: Readonly<Record<NeedsActionReason, NextStep>> = {
  * transit, a family driving their own child and a locked manifest are all waiting on nobody,
  * and a column that invented work for them would bury the rides that have some.
  */
-function nextStepFor(ride: RideView, reasons: readonly NeedsActionReason[]): NextStep {
+function nextStepFor(
+  ride: RideView,
+  reasons: readonly NeedsActionReason[],
+  phase: DayPhase,
+): NextStep {
   if (reasons.length > 0) return STEP_FOR_REASON[reasons[0]];
   if (ride.mode === "FAMILY") return "NOTHING";
   if (ride.state === "ARRIVED_PICKUP") return "CONFIRM_BOARDING";
   if (ride.state === "ARRIVED_DROPOFF") return "CONFIRM_HANDOFF";
   if (ride.capability === "UNKNOWN" || ride.capability === "REQUESTED") {
+    // The capability request goes out ninety minutes before the run (PRD §18.2 step 5), so a day
+    // that has not started is not waiting on a dispatcher yet and must not say it is.
+    if (phase === "PLANNED") return "NOTHING";
     return ride.providerDispatcher === null ? "CHECK_VAN_AT_RAMP" : "ASK_ABOUT_VAN";
   }
   return "NOTHING";
 }
 
-function rowFor(child: DemoChild, nowMs: number, therapy: BoardRow["therapy"]): BoardRow {
-  const rides: RideView[] = [rideFor(child, "AM", nowMs), rideFor(child, "PM", nowMs)];
+function rowFor(child: DemoChild, day: ServiceDay, therapy: BoardRow["therapy"]): BoardRow {
+  const rides: RideView[] = [rideFor(child, "AM", day), rideFor(child, "PM", day)];
   return {
     childKey: child.key,
     childLabel: child.label,
@@ -541,7 +728,7 @@ function rowFor(child: DemoChild, nowMs: number, therapy: BoardRow["therapy"]): 
 }
 
 /** One row of the board: this child, this ride, and what it is waiting for. */
-function legFor(child: DemoChild, row: BoardRow, ride: RideView): LegRow {
+function legFor(child: DemoChild, row: BoardRow, ride: RideView, phase: DayPhase): LegRow {
   const needsActionReasons = needsActionFor(child, ride);
   return {
     key: `${row.childKey}/${ride.direction}`,
@@ -554,7 +741,7 @@ function legFor(child: DemoChild, row: BoardRow, ride: RideView): LegRow {
           ? "NOT_RIDING"
           : groupForState(ride.state),
     needsActionReasons,
-    nextStep: nextStepFor(ride, needsActionReasons),
+    nextStep: nextStepFor(ride, needsActionReasons, phase),
   };
 }
 
@@ -578,18 +765,28 @@ function therapyByChild(): Map<string, BoardRow["therapy"]> {
   return out;
 }
 
-export function buildBoard(nowMs: number = boardInstantMs()): Board {
+/**
+ * The board for one service day (defaulting to the demo day).
+ *
+ * A day the scenario does not run at all — a weekend — has no rows rather than empty ones: PRD
+ * §18.1 schedules the runs Mon–Fri, and a board that showed 28 children with nothing against
+ * their names would be inventing a day. The screen says which kind of nothing it is
+ * (COPY-GUIDE §5 "No rides scheduled for {date}").
+ */
+export function buildBoard(day: ServiceDay = demoDay()): Board {
   const therapy = therapyByChild();
-  const rows = boardChildren.map((child) => rowFor(child, nowMs, therapy.get(child.key) ?? null));
-  const legs = boardChildren.flatMap((child, i) =>
-    rows[i].rides.map((ride) => legFor(child, rows[i], ride)),
+  const children = day.scheduled ? boardChildren : [];
+  const rows = children.map((child) => rowFor(child, day, therapy.get(child.key) ?? null));
+  const legs = children.flatMap((child, i) =>
+    rows[i].rides.map((ride) => legFor(child, rows[i], ride, day.phase)),
   );
   const groups = BOARD_GROUPS.map((group) => ({
     group,
     legs: legs.filter((l) => l.group === group),
   })).filter((g) => g.legs.length > 0);
   return {
-    nowMs,
+    day,
+    nowMs: day.instantMs,
     rows,
     legs,
     groups,

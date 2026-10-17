@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { StaffRole } from "@/auth/core";
-import { adapters, app, board, scenarioClock } from "./copy";
+import { adapters, app, scenarioClock } from "./copy";
 import { AvatarMenu } from "./AvatarMenu";
 import { MobileNav } from "./MobileNav";
 import { NavRail } from "./NavRail";
@@ -8,15 +8,15 @@ import { ScenarioClock } from "./ScenarioClock";
 import { SearchField } from "./SearchField";
 import { SignOutButton } from "./SignOutButton";
 import { SimulatedAdapterPill } from "./FreshnessPill";
-import { serviceDateIso, serviceDateLabel } from "./service-date";
 import styles from "./AppShell.module.css";
 
 /**
  * DESIGN-DIRECTION §2 global shell. The DEMO banner and the source-mode badge are rendered by
  * the root layout, so they also cover /login (§7, §7.1, NFR-09); the header sits directly
- * beneath them, carrying — in §2's order — the site name, the service date, the scenario
- * clock, the per-adapter freshness pills and global search, with one identity location, the
- * avatar menu, top right.
+ * beneath them, carrying — in §2's order — the site name, the scenario clock, the per-adapter
+ * freshness pills and global search, with one identity location, the avatar menu, top right.
+ * §2's service date is not in here: it belongs to the board, which is the thing that has a day
+ * (see the note below, and docs/ui/B12-SLICE1-DEFERRED.md §5).
  *
  * Nav: NavRail handles ≥1280 (232 px, labelled) and 768–1279 (icon rail, label on
  * hover/focus); MobileNav handles <768 (hamburger drawer with nav + identity + Sign out). Both
@@ -44,14 +44,14 @@ export function AppShell({
           <MobileNav role={role} identity={<p>{displayName}</p>} signOut={<SignOutButton />} />
           <span className={styles.siteName}>{app.siteName}</span>
           <dl className={styles.facts}>
-            <div className={styles.fact}>
-              <dt className={styles.factLabel}>{board.dateLabel}</dt>
-              <dd className={styles.factValue}>
-                <time dateTime={serviceDateIso()} className="tabularNums">
-                  {serviceDateLabel()}
-                </time>
-              </dd>
-            </div>
+            {/*
+              §2 asks the header for the service date, and the board's own header is where it now
+              is: it is a property of the day on screen. In demo mode the chrome shows no date —
+              it used to carry today's real date while the board carried the seeded day the
+              scenario replays, both labelled "Service date", one of them always wrong
+              (docs/ui/B12-SLICE1-DEFERRED.md §5). The surfaces that have no day do not pretend
+              to have one.
+            */}
             <div className={styles.fact}>
               <dt className={styles.factLabel}>{scenarioClock.label}</dt>
               {/* The demo clock is wired by the demo-controls dock (§6.1); until then it says so. */}

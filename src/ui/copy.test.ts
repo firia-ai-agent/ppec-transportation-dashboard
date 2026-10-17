@@ -88,6 +88,7 @@ describe("COPY-GUIDE strings, verbatim", () => {
     "Record",
     "Decide",
     "Find",
+    "Call",
     "Confirm",
     "Ask",
     "Check",

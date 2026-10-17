@@ -3,13 +3,13 @@
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import type { BoardRow, LegRow, NeedView, RideView } from "@/domain/board/board";
-import { board as boardCopy, drawer, etaText, fill, needCategories } from "@/ui/copy";
+import { board as boardCopy, drawer, etaText, fill, needCategories, places } from "@/ui/copy";
 import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
 import { capabilityStates, legStates, needItemStates, profileStates } from "@/ui/states";
 import { clockLabel } from "@/ui/service-date";
 import { icon } from "@/ui/tokens";
-import { needsActionReasonText, nextStepText } from "./next-step";
+import { needsActionReasonText, nextStepText, stateValues } from "./next-step";
 import styles from "./today.module.css";
 
 /**
@@ -73,11 +73,15 @@ export function LegDrawer({
       <div className={styles.drawerBody}>
         <section className={styles.section}>
           <h3 className={styles.sectionHeading}>{drawer.ridesHeading}</h3>
-          <ul className={styles.rideCards}>
+          {/*
+            The day in order, morning then afternoon: an ordered list, because that is what it
+            is — two rides read one after the other, and the order is the information.
+          */}
+          <ol className={styles.timeline}>
             {legs.map((leg) => (
               <Ride key={leg.key} leg={leg} />
             ))}
-          </ul>
+          </ol>
         </section>
 
         <section className={styles.section}>
@@ -165,49 +169,83 @@ export function LegDrawer({
 }
 
 /**
- * One of the child's two rides: its state, its van, its window, its stop — and, where the ride
- * needs a person, why it does and the one step that answers it. The row carries the same step
- * in its "Next step" column at 1280 and hands that column to this panel below it (§4.1), so
- * this is where it has to be for the narrow widths to keep it.
+ * One of the child's two rides, as a row of the day rather than as a card.
+ *
+ * The time it is planned for, where it runs between, and what state it is in — an icon and a
+ * label like every other state on this screen (§3). The box is gone: a card draws a border
+ * around a thing to say "this is a thing", and these two are halves of one day, which is what a
+ * reader is here to see. Two rows under each other with the times in a column read as a day;
+ * two bordered cards read as two records that happen to be adjacent.
+ *
+ * Underneath, the facts the row's own columns hand to this panel below 1280 (§4.1): the van and
+ * who runs it, the window the family holds, and — where the ride needs a person — why it does
+ * and the one step that answers it.
  */
 function Ride({ leg }: { leg: LegRow }) {
   const { ride } = leg;
   const step = nextStepText(leg);
+  const reasons = needsActionReasonText(leg);
   return (
-    <li className={styles.rideCard}>
-      <p className={styles.rideCardTitle}>
-        <span>{ride.direction === "AM" ? drawer.amRide : drawer.pmRide}</span>{" "}
-        <span className="tabularNums">{clockLabel(ride.plannedWindow)}</span>
-      </p>
-      <StateChip state={legStates[ride.state]} />
-      {/* The van and who runs it — the half of §4.1's "provider/vehicle" the board's dense row
-          leaves to the drawer. */}
-      {ride.vehicleLabel === null ? (
-        <p className={styles.muted}>{boardCopy.familyDrives}</p>
-      ) : (
+    <li className={styles.ride}>
+      {/*
+        The plan's own time for this ride, in the column that makes the two read as a day. The
+        eye gets "6:50 AM" (COPY-GUIDE §3); `dateTime` keeps the 24-hour form the plan is written
+        in, which is the one a machine can read.
+      */}
+      <time dateTime={ride.plannedWindow} className={`${styles.rideTime} tabularNums`}>
+        {clockLabel(ride.plannedWindow)}
+      </time>
+      <div className={styles.rideBody}>
+        <p className={styles.rideTitle}>
+          <span>{ride.direction === "AM" ? drawer.amRide : drawer.pmRide}</span>
+          {ride.stop === null ? null : (
+            <>
+              <span aria-hidden="true"> · </span>
+              <span className={styles.muted}>{ends(ride)}</span>
+            </>
+          )}
+        </p>
+        <StateChip state={legStates[ride.state]} values={stateValues(leg)} />
         <p className={styles.muted}>
-          {fill(boardCopy.vanAndProvider, {
-            van: ride.vehicleLabel,
-            provider: ride.providerName ?? "",
-          })}
+          {ride.vehicleLabel === null
+            ? boardCopy.familyDrives
+            : fill(boardCopy.vanAndProvider, {
+                van: ride.vehicleLabel,
+                provider: ride.providerName ?? "",
+              })}
         </p>
-      )}
-      <p className={styles.muted}>
-        {ride.windowText === null
-          ? etaText.pending
-          : ride.etaPaused
-            ? fill(etaText.paused, { window: ride.windowText })
-            : ride.windowText}
-      </p>
-      {ride.stop === null ? null : <p className={styles.muted}>{ride.stop}</p>}
-      {needsActionReasonText(leg).map((reason) => (
-        <p key={reason} className={styles.blockedReason}>
-          {reason}
-        </p>
-      ))}
-      {step === null ? null : <p className={styles.nextStep}>{step}</p>}
+        {/*
+          The published window, and only when a van on the road is publishing one: on a ride
+          nobody has moved yet it is the plan's own time, which the row already carries in its
+          time column, and printing "6:50 AM … 6:50–7:00 AM" twice says nothing the second time.
+        */}
+        {ride.windowText === null || (ride.deltaSeconds === null && !ride.etaPaused) ? null : (
+          <p className={`${styles.muted} tabularNums`}>
+            {ride.etaPaused ? fill(etaText.paused, { window: ride.windowText }) : ride.windowText}
+          </p>
+        )}
+        {reasons.map((reason) => (
+          <p key={reason} className={styles.blockedReason}>
+            {reason}
+          </p>
+        ))}
+        {step === null ? null : <p className={styles.nextStep}>{step}</p>}
+      </div>
     </li>
   );
+}
+
+/**
+ * Where the ride runs between, in travel order: a morning collects the child at their own stop
+ * and sets them down at the centre, and an afternoon is the reverse. The centre is named and
+ * never addressed (COPY-GUIDE §7), and the child's stop is the public landmark the scenario
+ * gives it — no home ever appears on a screen.
+ */
+function ends(ride: RideView): string {
+  const stop = ride.stop ?? places.center;
+  return ride.direction === "AM"
+    ? fill(drawer.rideFromTo, { from: stop, to: places.center })
+    : fill(drawer.rideFromTo, { from: places.center, to: stop });
 }
 
 function Need({ need }: { need: NeedView }) {
@@ -265,11 +303,25 @@ function handoffBlocker(row: BoardRow, am: RideView, pm: RideView): string | nul
   if (row.receivingAdult === null && pm.mode !== "FAMILY") {
     return fill(drawer.handoffBlockedNoReceiver, { child });
   }
-  if (am.capability !== "VERIFIED" && am.mode !== "FAMILY") {
+  // The ride a handoff would be confirmed for is the one whose van is actually at the drop-off;
+  // with neither there, the morning is what the panel is waiting on.
+  const ride = row.rides.find(waitingForAHandoff) ?? am;
+  if (ride.capability !== "VERIFIED" && ride.mode !== "FAMILY") {
     return fill(drawer.handoffBlockedRamp, { child });
   }
-  if (am.state !== "ARRIVED_DROPOFF" && am.state !== "HELD_NO_RECEIVER") {
+  if (!waitingForAHandoff(ride)) {
     return fill(drawer.handoffBlockedNotArrived, { child });
   }
-  return null;
+  // Everything the day could ask for is satisfied — and this slice still does not write. Said on
+  // the button rather than discovered by clicking it.
+  return drawer.handoffBlockedNotConnected;
+}
+
+/**
+ * A ride whose van is at the drop-off and whose child has not been received: the arrival and the
+ * hold, and nothing else. A handed-off ride is not waiting for a handoff, and a van still on the
+ * road has nothing to confirm (AT-10: the arrival is what a geofence may say, and all of it).
+ */
+function waitingForAHandoff(ride: RideView): boolean {
+  return ride.state === "ARRIVED_DROPOFF" || ride.state === "HELD_NO_RECEIVER";
 }
