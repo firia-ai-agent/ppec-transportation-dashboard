@@ -3,7 +3,14 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
-import { buildBoard, demoDay, serviceDayFor, type LegRow } from "@/domain/board/board";
+import {
+  buildBoard,
+  demoDay,
+  demoDayAtTick,
+  demoDayTickAt,
+  serviceDayFor,
+  type LegRow,
+} from "@/domain/board/board";
 import {
   board as boardCopy,
   drawer,
@@ -12,7 +19,8 @@ import {
   places,
   serviceDate,
 } from "@/ui/copy";
-import { legStates, therapySessionStates } from "@/ui/states";
+import { freshnessConfig } from "@/config/live";
+import { gpsFreshnessLabel, legStates, therapySessionStates } from "@/ui/states";
 import { clockLabel } from "@/ui/service-date";
 import { TodayBoard } from "./TodayBoard";
 import { LegDrawer } from "./LegDrawer";
@@ -113,10 +121,14 @@ describe("the board renders the day", () => {
    * line that decides which is the one asserted here, because a page component is not something
    * a unit test can render.
    */
-  it("reads the request's date through the gate, never through the projection", () => {
+  it("reads the request's date and tick through the gate, never through the projection", () => {
     const page = readFileSync(path.join(__dirname, "page.tsx"), "utf8");
-    expect(page).toContain("requestedServiceDay(one(params.date), process.env)");
+    expect(page).toContain("requestedBoardDay(one(params.date), one(params[CLOCK_PARAM])");
+    expect(page).toContain("process.env");
+    // Neither the projection nor the clock may be reached around the gate.
     expect(page).not.toMatch(/serviceDayFor\s*\(/);
+    expect(page).not.toMatch(/demoDayAtTick\s*\(/);
+    expect(page).not.toMatch(/requestedServiceDay\s*\(/);
   });
 
   /**
@@ -355,6 +367,69 @@ describe("the board renders the day", () => {
     expect(live).toContain("Drop-off 4:20 PM");
     // And who may receive him, which is the one thing a 07:42 board can be acted on for.
     expect(live).toContain(`State: ${boardCopy.noReceiver}`);
+  });
+
+  /**
+   * And the demo day *walked* to the ride, which is the half of AT-13 the demo day itself can
+   * now reach (Founder, 2026-10-17): the same day, the same board, read at 4:25 PM.
+   *
+   * This is the ride ending in front of a coordinator rather than in yesterday's records — the
+   * van is back at Noah O.'s stop, nobody on file may receive him and no custody event was
+   * recorded, so the row carries the hold, the group that must never be skimmed carries the
+   * row, and the step asks a person to call his contacts and record who receives him. PRD §6.6
+   * CA-04 is the part that is not on the row and is in the panel below: nothing returns him to
+   * the centre on its own.
+   */
+  it("shows the hold once the clock is past the ride, on the demo day itself (AT-13)", () => {
+    const walked = boardHtml("Noah", buildBoard(demoDayAtTick(demoDayTickAt("16:25"))));
+    expect(walked).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+    expect(walked).toContain(boardCopy.groups.NEEDS_ACTION);
+    expect(walked).toContain(
+      escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })),
+    );
+    // The window the row showed as a time before the ride ("Drop-off 4:20 PM") is the window the
+    // ride was driven to, now that the day has been there.
+    expect(walked).toContain("4:20–4:30 PM");
+    // Still the demo day, and still "Today": a walked clock is another instant on this day, not
+    // another day. A board that renamed itself as it walked would be claiming a date it is not.
+    expect(walked).toContain(`>${boardCopy.heading}<`);
+    expect(walked).toContain(serviceDate.phases.LIVE);
+    expect(walked).toMatch(/datetime="2026-10-14"/i);
+    // And nothing claims he was handed over, at any instant of the day: there is no edge from a
+    // hold to a handoff without a person (AT-10's rule, on AT-13's ride).
+    expect(walked).not.toMatch(/handed off to/i);
+  });
+
+  /**
+   * What else a day walked past the committed replays says, said on purpose.
+   *
+   * The replays are the morning (they end at 08:47) and the afternoon has no track at all, so at
+   * 4:25 PM the last point any van recorded is hours old. The board does not pretend otherwise
+   * and does not quietly stop counting either: the morning row says "No signal" with the age on
+   * it and asks for the van to be found, which is LOC-03 applied to the data the fixture has.
+   * Suppressing that because the run "ought to be over" would be the board deciding a van is
+   * fine on no evidence — the one thing a location rule exists to prevent.
+   */
+  it("says a van has gone quiet when the clock is hours past its last point (LOC-03)", () => {
+    const walked = buildBoard(demoDayAtTick(demoDayTickAt("16:25")));
+    const morning = legsIn(walked, "C2").find((l) => l.ride.direction === "AM")!;
+    expect(morning.ride.gpsFreshness).toBe("LOST");
+    expect(morning.ride.gpsAgeSeconds).toBeGreaterThan(freshnessConfig.lostSeconds);
+    const html = boardHtml("Noah", walked);
+    expect(html).toContain(`State: ${gpsFreshnessLabel(morning.ride.gpsAgeSeconds!)}`);
+    expect(html).toContain(escaped(fill(boardCopy.nextSteps.FIND_VAN, { child: "Noah O." })));
+  });
+
+  /** The panel the held row opens, where CA-04 is said in full. */
+  it("says there is no automatic return, in the panel the hold opens (CA-04)", () => {
+    const walked = buildBoard(demoDayAtTick(demoDayTickAt("16:25")));
+    const panel = drawerHtml("C2", walked);
+    expect(panel).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
+    expect(panel).toContain(escaped(fill(drawer.heldNoReturn, { child: "Noah O." })));
+    expect(panel).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
+    expect(panel).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
+    // The one action that would move it is unavailable, and says who has to answer first.
+    expect(panel).toContain(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
   });
 
   it("filters to one child's two rides when the shell's search box carried a name in", () => {

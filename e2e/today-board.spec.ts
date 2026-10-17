@@ -16,7 +16,7 @@
 import { expect, test } from "@playwright/test";
 import { board as boardCopy, drawer, fill, sentence, serviceDate } from "../src/ui/copy";
 import { legStates } from "../src/ui/states";
-import { demoDay, serviceDayFor } from "../src/domain/board/day";
+import { CLOCK_PARAM, demoDay, demoDayTickAt, serviceDayFor } from "../src/domain/board/day";
 import {
   boxOf,
   expectDemoBarPinned,
@@ -50,6 +50,18 @@ const RIDING_CHILD = "Zoe B.";
  */
 const FINISHED = serviceDayFor(demoDay().previousIso);
 const FINISHED_URL = `/today?date=${FINISHED.iso}`;
+
+/** Noah O.'s afternoon drop-off, which the demo day's own clock opens eight hours short of. */
+const DROPOFF_TIME = "4:20 PM";
+
+/**
+ * The demo day, walked to 4:25 PM — five minutes past that drop-off, so the ride has happened.
+ *
+ * The same test path as the date above and the same four gates (`requestedBoardDay` in
+ * src/domain/board/day.ts): a tick is read only on a local synthetic demo shell that asked for
+ * the override by name, so there is no clock control on any deployment, production included.
+ */
+const PAST_DROPOFF_URL = `/today?${CLOCK_PARAM}=${demoDayTickAt("16:25")}`;
 
 /** The 28 children of the standard scenario, each with a morning row and an afternoon row. */
 const RIDES = 56;
@@ -270,15 +282,16 @@ for (const width of WIDTHS) {
      * the board has to carry is the part a coordinator cannot be left to assume: he is waiting
      * with the van, and nothing is bringing him back on its own (PRD §6.6 CA-04).
      *
-     * Walked on the **finished day**, because the hold is now derived from the clock (Firia,
+     * Walked on the **finished day**, because the hold is derived from the clock (Firia,
      * 2026-10-17; `dayRecordFor` in src/domain/board/board.ts). Noah O.'s afternoon window is
      * 4:20 PM and the demo day is read at 07:42, so a board that showed the hold there was
-     * claiming a ride had ended while the van collecting him was still on the road. It is shown
-     * on a day whose clock is past the ride, and this build has no way to make the demo day's
-     * clock reach 4:20 PM: `INSTANT_MINUTE.LIVE` in src/domain/board/day.ts is a constant, the
-     * committed replays cover the morning only, and `ops.scenario_clock` is seeded paused with
-     * nothing reading it. A walking clock is B-10's (docs/ui/B12-SLICE2-DEFERRED.md §5) — until
-     * it lands, the test below is the half of AT-13 the demo walk itself still reaches.
+     * claiming a ride had ended while the van collecting him was still on the road.
+     *
+     * Kept now that the demo day's own clock can be walked past the drop-off too (the test
+     * further down), because the two days are not the same assertion: here the hold is a
+     * *record* a finished day holds, read with every other outcome of that day beside it — the
+     * same child's morning handed off at the ramp two rows up, which is the contrast that makes
+     * one held ride visibly not a held day (AT-07).
      */
     test("a ride that ends held, with no automatic return (AT-13)", async ({ page }) => {
       await page.goto(`${FINISHED_URL}&q=Noah`);
@@ -432,6 +445,98 @@ for (const width of WIDTHS) {
 
       await expectNoInternalCodes(page);
       console.log("screenshot:", await shot(page, `today-receiver-rule-before-ride-${width}`));
+    });
+
+    /**
+     * AT-13 walked on the demo day itself: the ride that is ahead of the clock at 07:42, and the
+     * same ride once the clock is past it (Founder, 2026-10-17).
+     *
+     * This is the half that had no way to be checked in a browser until the scenario clock
+     * landed. Noah O.'s afternoon is planned for 4:20 PM; the board opens at 07:42, so the row
+     * says when the ride is and nothing more. Move the day past the drop-off and the same row is
+     * the ride AT-13 is about: the van reached his stop, nobody on file may receive him, no
+     * custody event was recorded, and the leg machine's only remaining edge is the hold. The
+     * board then has to carry the part a coordinator must never be left to assume — he is
+     * waiting with the van and nothing is bringing him back (PRD §6.6 CA-04).
+     *
+     * The clock is moved the only way it can be: `?tick=`, read through `requestedBoardDay` and
+     * the four gates of `dateOverrideAllowed`, which playwright.config.ts opens for this run with
+     * `E2E_DATE_OVERRIDE=1` and which no deployment has — the same path and the same gate as
+     * `?date=` above (src/domain/board/day.test.ts has one test per gate).
+     */
+    test("a ride the clock walks past ends held, with no automatic return (AT-13)", async ({
+      page,
+    }) => {
+      const afternoonRow = () =>
+        page.getByRole("row").filter({
+          has: page.getByRole("button", { name: opener(NO_RECEIVER_CHILD, boardCopy.pmSpoken) }),
+        });
+
+      // 07:42, the board the walk opens: the afternoon is a time and nothing else.
+      await page.goto("/today?q=Noah");
+      await expect(
+        afternoonRow().getByText(fill(boardCopy.dropoffAt, { time: DROPOFF_TIME }), {
+          exact: true,
+        }),
+      ).toBeVisible();
+      await expect(page.getByText(legStates.HELD_NO_RECEIVER.label)).toHaveCount(0);
+      // No published window on that row either: nothing has driven it yet, so there is nothing
+      // to publish — the plan's own time is the whole of what the row can say.
+      await expect(afternoonRow().getByText(/\d{1,2}:\d{2}–\d{1,2}:\d{2} [AP]M/)).toHaveCount(0);
+
+      // Now walk the day past the drop-off, through the gated clock.
+      await page.goto(`${PAST_DROPOFF_URL}&q=Noah`);
+
+      // Still the demo day, read later: the same date, the same label, the same phase. A board
+      // that renamed itself as it walked would be showing a day that is not the one it names.
+      const dates = page.locator("time[datetime]");
+      await expect(dates).toHaveCount(1);
+      await expect(dates).toHaveAttribute("datetime", demoDay().iso);
+      await expect(page.getByText(serviceDate.phases.LIVE)).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: boardCopy.heading })).toBeVisible();
+
+      // The van is back at his stop with nobody recorded as receiving him: the ride is held, in
+      // the group that is read first, and the step asks a person to call his contacts and record
+      // who receives him. Nothing on the row claims a handoff — there is no edge to one without
+      // a person, however late the clock gets (AT-10's rule, on AT-13's ride).
+      const held = afternoonRow();
+      await expect(held.getByText(legStates.HELD_NO_RECEIVER.label).first()).toBeVisible();
+      await expect(held.getByText(/handed off/i)).toHaveCount(0);
+      await expect(page.locator("th[scope='colgroup']").first()).toContainText(
+        boardCopy.groups.NEEDS_ACTION,
+      );
+      const step = sentence(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: NO_RECEIVER_CHILD }));
+      expect(step).toContain("record who receives");
+      if (width >= 1280) {
+        await expect(held.getByText(step, { exact: true })).toBeVisible();
+      }
+
+      // And CA-04 in full, in the panel the row opens: he waits with the van while staff call,
+      // and no automatic return. The one action that would move it is unavailable, and says
+      // which person has to answer first.
+      await page
+        .getByRole("button", { name: opener(NO_RECEIVER_CHILD, boardCopy.pmSpoken) })
+        .click();
+      const panel = page.getByRole("dialog");
+      await expect(panel.getByText(legStates.HELD_NO_RECEIVER.label).first()).toBeVisible();
+      await expect(
+        panel.getByText(fill(boardCopy.reasons.CHILD_HELD, { child: NO_RECEIVER_CHILD })).first(),
+      ).toBeVisible();
+      await expect(panel.getByText(step).first()).toBeVisible();
+      await expect(
+        panel.getByText(fill(drawer.heldNoReturn, { child: NO_RECEIVER_CHILD })),
+      ).toBeVisible();
+      await expect(
+        panel.getByRole("button", {
+          name: fill(drawer.confirmHandoff, { child: NO_RECEIVER_CHILD }),
+        }),
+      ).toBeDisabled();
+      await expect(
+        panel.getByText(fill(drawer.handoffBlockedNoReceiver, { child: NO_RECEIVER_CHILD })),
+      ).toBeVisible();
+
+      await expectNoInternalCodes(page);
+      console.log("screenshot:", await shot(page, `today-clock-past-dropoff-${width}`));
     });
 
     /**

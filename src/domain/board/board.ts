@@ -75,8 +75,12 @@ type CapabilityS = (typeof capabilityState.enumValues)[number];
  */
 export {
   BOARD_SCENARIO_SECONDS,
+  CLOCK_PARAM,
   boardInstantMs,
   demoDay,
+  demoDayAtTick,
+  demoDayTickAt,
+  requestedBoardDay,
   requestedServiceDay,
   serviceDayFor,
 } from "./day";
