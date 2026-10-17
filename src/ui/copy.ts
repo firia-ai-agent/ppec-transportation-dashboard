@@ -411,7 +411,6 @@ export const scenarioClock = {
 export const unbuilt = {
   /** `{page}` is the nav label, so the heading reads "Health & ROI isn't built yet". */
   heading: "{page} isn't built yet",
-  tag: "Not built yet",
   exceptions:
     "This page will list what needs action, who is handling it, and when it is due.",
   setup: "This page will hold the vans, their seat layouts, and the people allowed to receive a child.",

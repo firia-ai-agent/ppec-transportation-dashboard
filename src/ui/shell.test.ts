@@ -273,9 +273,16 @@ describe("copy from the review", () => {
   it("an unbuilt page renders that heading and that one sentence", () => {
     const html = renderToStaticMarkup(Placeholder({ page: nav.health, body: unbuilt.health }));
     expect(html).toContain(escapeApostrophes("Health &amp; ROI isn't built yet"));
-    expect(html).toContain(unbuilt.tag);
     expect(html).toContain(escapeApostrophes(unbuilt.health));
     expect(html).not.toMatch(/\bB-\d+\b/);
+  });
+
+  it("says 'not built' once — the heading, and no chip repeating it", () => {
+    const html = renderToStaticMarkup(Placeholder({ page: nav.health, body: unbuilt.health }));
+    expect(html).not.toMatch(/Not built yet/i);
+    expect(html.match(/built yet/g)).toHaveLength(1);
+    // One heading, one sentence, and nothing else in the frame.
+    expect(html.match(/<(?:h1|p|span)\b/g)).toEqual(["<h1", "<p"]);
   });
 });
 

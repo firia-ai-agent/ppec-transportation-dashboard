@@ -421,7 +421,12 @@ describe("COPY-GUIDE strings, verbatim", () => {
     for (const body of [unbuilt.exceptions, unbuilt.setup, unbuilt.health]) {
       expect(body).toMatch(/^[A-Z].*\.$/);
     }
-    expect(unbuilt.tag).toBe("Not built yet");
+    /*
+     * And it says it once. The heading is the whole claim; the "Not built yet" chip that used
+     * to sit beside it was the same sentence a second time (Placeholder.tsx), so the key is
+     * gone and this is what stops it coming back as a string nobody renders.
+     */
+    expect(unbuilt).not.toHaveProperty("tag");
   });
 
   it("§5 SURF-04: the ramp strings the guide fixes verbatim", () => {
