@@ -21,7 +21,7 @@ import {
 } from "./tools";
 
 describe("§11.2 tool catalog", () => {
-  it("has all 15 tools, each with a tier and an effect", () => {
+  it("has all 16 tools, each with a tier and an effect", () => {
     expect(TOOL_NAMES).toHaveLength(TOOL_COUNT);
     expect(TOOL_NAMES).toEqual([
       "resolve_sender",
@@ -36,6 +36,7 @@ describe("§11.2 tool catalog", () => {
       "report_boarding",
       "propose_manifest_reallocation",
       "propose_contact_or_profile_change",
+      "propose_dropoff_change",
       "escalate_exception",
       "close_task",
       "summarize_thread_for_staff",
@@ -48,10 +49,16 @@ describe("§11.2 tool catalog", () => {
     }
   });
 
-  it("marks exactly the two propose_* rows as human tier, and they propose rather than mutate", () => {
+  it("marks exactly the three propose_* rows as human tier, and they propose rather than mutate", () => {
     const human = TOOL_NAMES.filter((n) => TOOL_REGISTRY[n].tier === "human");
-    expect(human).toEqual(["propose_manifest_reallocation", "propose_contact_or_profile_change"]);
+    expect(human).toEqual([
+      "propose_manifest_reallocation",
+      "propose_contact_or_profile_change",
+      "propose_dropoff_change",
+    ]);
     for (const n of human) expect(TOOL_REGISTRY[n].effect).toBe("propose");
+    // And the naming rule holds the other way too: a `human`-tier tool is a `propose_*` one.
+    expect(human.every((n) => n.startsWith("propose_"))).toBe(true);
   });
 
   it("says where every sending tool's copy comes from, and nothing else's", () => {

@@ -1828,6 +1828,17 @@ export const agentTasks = {
     nextStep: "Verify the request with the family, then approve or reject the change request.",
     predicate: "change request approved or rejected by staff",
   },
+  /**
+   * §11.2 human tier, `propose_dropoff_change`: a family asked for a different drop-off and the
+   * agent has drafted the text that would tell them it is done. AMBER rather than RED — nothing
+   * is broken, a person simply has to say yes — and the next step names both answers, because
+   * "don't send" is a real outcome and not a failure to act.
+   */
+  proposedDropoffChange: {
+    summary: "A family asked for a different drop-off, and there is a text ready to send",
+    nextStep: "Read the text the family would get, then approve and send it, or don't send it.",
+    predicate: "the drop-off approved and the family told, or the request declined",
+  },
   /** §11.2 propose_manifest_reallocation: "RED exception + Teams card". */
   proposedReallocation: {
     summary: "A vehicle cannot take its runs and the agent has options to show you",

@@ -57,18 +57,19 @@ export function liveProposalWriter(deps: ExecutorDeps): ProposalWriter {
 
 /**
  * Catalog tools with no live executor. **Empty as of slice 4**: all thirteen `auto`-tier tools act
- * on real state, and the two `human`-tier ones write proposals instead, which is what §11.2 gives
- * them. The constant stays because the *rule* it stands for does — a tool absent from
+ * on real state, and the three `human`-tier ones write proposals instead, which is what §11.2
+ * gives them. The constant stays because the *rule* it stands for does — a tool absent from
  * `liveExecutors` fails its step shut with `NO_EXECUTOR` rather than letting a stub answer "done",
- * and the sixteenth tool has to be placed in one of these three groups deliberately
+ * and the next tool has to be placed in one of these three groups deliberately
  * (`unaccountedTools`).
  */
 export const SEQUENCED_EXECUTORS: readonly string[] = [];
 
-/** The two `human`-tier tools: §11.2 gives them a proposal, never an effect (policy.ts step 11). */
+/** The three `human`-tier tools: §11.2 gives them a proposal, never an effect (policy.ts step 11). */
 export const PROPOSAL_ONLY_TOOLS: readonly string[] = [
   "propose_manifest_reallocation",
   "propose_contact_or_profile_change",
+  "propose_dropoff_change",
 ];
 
 /**
