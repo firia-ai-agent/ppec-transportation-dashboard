@@ -46,7 +46,7 @@ SOURCE: PRD §20 (B-01–B-16), §18.3 AT list, ADR-000…015. Status: Proposed 
 | AT-10 geofence ≠ handoff | B-10, B-13 | GPS |
 | AT-11 duplicate/out-of-order + loss | B-10 | GPS |
 | AT-12 no feasible vehicle | B-09 | vehicles |
-| AT-13 no receiving adult | B-02, B-13 | — |
+| AT-13 no receiving adult | B-02, **B-12** (the board half, and the clock-driven check that walks the demo day past the 4:20 PM drop-off — founder, ledger row 72), B-13 | — |
 | AT-14 therapist ≤10 min + ack | B-03, B-06 | Teams |
 | AT-15 ROI drill-down | B-14 | — |
 | AT-16 EOD blocks close | B-14 | — |

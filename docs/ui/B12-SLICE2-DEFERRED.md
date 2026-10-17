@@ -15,7 +15,7 @@ Five things, and the first two are the same change seen from different ends.
 
 | # | Change | Where |
 |---|---|---|
-| 1 | A ride that **ends** HELD_NO_RECEIVER, with no automatic return (AT-13) — recorded on the demo day as well as the finished one (§4), and read on whichever of them the clock has carried past the ride (§5) | `src/modules/demo/fixtures/standard.ts` (`DEMO_DAY_RIDES`, what a finished day recorded), `src/domain/board/board.ts` (`rideStateFrom`, `dayRecordFor`) |
+| 1 | A ride that **ends** HELD_NO_RECEIVER, with no automatic return (AT-13) — recorded on the demo day as well as the finished one (§4), and read on whichever of them the clock has carried past the ride (§5). The demo day can now be **walked** past it, which is where AT-13's browser check reads the hold (ledger row 72) | `src/modules/demo/fixtures/standard.ts` (`DEMO_DAY_RIDES`, what a finished day recorded), `src/domain/board/board.ts` (`rideStateFrom`, `dayRecordFor`), `src/domain/board/day.ts` + `src/domain/eta/scenario-clock.ts` (`demoDayAtTick`, `requestedScenarioTick`), `e2e/today-board.spec.ts` |
 | 2 | AT-10 tightened: an arrival and a handoff on one board, told apart | `src/domain/board/board.ts`, `e2e/today-board.spec.ts`, `src/domain/board/board.test.ts` |
 | 3 | A disabled control that looks disabled | `src/ui/tokens.ts`, `src/app/(app)/today/today.module.css` |
 | 4 | Afternoon arrival windows, from geometry aligned to the scenario | `src/fixtures/run-routes.ts`, `src/domain/eta/eta.ts` (`plannedEta`), `src/domain/location/route.ts` (`reverseRoute`) |
@@ -91,7 +91,7 @@ with nothing on screen offering another.
 | **No date switcher.** One date on screen, in the **board's** header, read and not changed | Vera's final call, 2026-10-16. The date belongs to the day on screen, and the only day this build replays is the demo day: arrows offering a fortnight each way advertised days the demo does not have, and put a coordinator one stray click from a board that is not today. The shell carries no date either — it is rendered by a layout, which cannot read a day, so a date up there could only be today's real date (the contradiction slice 1 flagged) |
 | The finished day stays reachable, as a **test-only** override rather than as a URL anyone can type (Veri #49) | It is where AT-10 is *proved* — an arrival and a handoff on one board, told apart — which does not exist on a board twelve minutes into a morning, so deleting the parameter with the switcher would have deleted browser checks of an acceptance test to remove a control that is already gone. But a `?date=` the server read on every deployment *was* the switcher, minus the control: a link in a chat message and a coordinator is reading a finished day. So the route reads the date through `requestedServiceDay`, behind the four gates of `dateOverrideAllowed` — `VERCEL_ENV` unset, `APP_DATA_CLASS=SYNTHETIC`, `DEMO_MODE=1`, `E2E_DATE_OVERRIDE=1` — the same shape as the browser check's synthetic session, and the first of them holds on no deployment we own. `day.test.ts` walks every way the gate closes; `today-board.test.ts` holds that nothing in the console links to another day and that the route reads the date nowhere else |
 | The drawer's first heading names the day too ("Rides on Tue, Oct 13"), and the table's screen-reader caption with it | COPY-GUIDE §5's "Today's rides" may only be said on the day it is true of, the same rule the board's heading keeps. The drawer is the sharper case: it opens *over* the header that carries the date, so a panel of a child's finished rides headed "Today's rides" is read with nothing on screen to correct it. The caption is the same falsehood where only the ear can catch it (Veri #49) |
-| **The AT-13 hold is on the demo day too** (`DEMO_DAY_RIDES`, Vera 2026-10-16) — **but read off the clock** (Firia, 2026-10-17; §5) | A held child and the rule that nothing brings them back were reachable only by typing a date into the URL, which means the demo walk never showed them — and they are the hardest thing on this board to infer and the worst to learn late. The demo day records that one ride's acts and the machine makes the state as it does everywhere else, and the clock decides when any of it is read. At 07:42 that afternoon says its own time and nothing else — "Drop-off 4:20 PM", no reason, no step, and no needs-action row, so `/today` opens on "Needs action (0)" (Vera, 2026-10-17) — while the missing receiving adult stays on both of Noah O.'s rows in the receiver column and the CA-04 rule stays in his panel. The hold, and the line that asks for the record, are what those acts become once the instant is past 4:20 PM: on the finished day today, and on the demo day itself the moment a clock walks it (B-10) |
+| **The AT-13 hold is on the demo day too** (`DEMO_DAY_RIDES`, Vera 2026-10-16) — **but read off the clock** (Firia, 2026-10-17; §5) | A held child and the rule that nothing brings them back were reachable only by typing a date into the URL, which means the demo walk never showed them — and they are the hardest thing on this board to infer and the worst to learn late. The demo day records that one ride's acts and the machine makes the state as it does everywhere else, and the clock decides when any of it is read. At 07:42 that afternoon says its own time and nothing else — "Drop-off 4:20 PM", no reason, no step, and no needs-action row, so `/today` opens on "Needs action (0)" (Vera, 2026-10-17) — while the missing receiving adult stays on both of Noah O.'s rows in the receiver column and the CA-04 rule stays in his panel. The hold, and the line that asks for the record, are what those acts become once the instant is past 4:20 PM: on the finished day, and — since the scenario clock landed in this slice (founder, ledger row 72) — on the demo day itself, walked there with `?tick=` through the date override's own four gates |
 | The heading says "Today" only on the demo day; other days read "Rides on Tue, Oct 13" | COPY-GUIDE §5 fixes "Today" as the SURF-01 heading, and a board of finished rides under it would be the one false sentence on the screen |
 | The live day is labelled "Demo day", not "Today" | The demo clock has not started (the readout beside it says so), so the seeded day is the day being *shown*, not the day it is |
 | `plannedEta` is a new function rather than `computeEta` with a vehicle at chainage 0 | `computeEta` reports the origin as *passed* — correct for a van standing at its first stop, and wrong for a plan, where the first family is exactly the one at chainage 0 and still needs a window |
@@ -102,7 +102,7 @@ with nothing on screen offering another.
 ## 5. Open questions
 
 - ~~**Vera / Rudy: the hold is ahead of the board's own clock.**~~ **Answered: the hold waits for
-  the clock** (Firia, 2026-10-17). The demo day is read twelve minutes into its morning runs and
+  the clock — and the clock now walks** (Firia, 2026-10-17; founder, ledger row 72). The demo day is read twelve minutes into its morning runs and
   the AT-13 ride's window is 4:20 PM, so Noah O.'s afternoon read "Held: no adult to receive"
   while his morning row was still "On the way to pickup" beside it — a child dropped at home
   before the van that collects him had finished its run. `dayRecordFor`
@@ -120,16 +120,25 @@ with nothing on screen offering another.
   rows, in the crit tone), and if nobody is there he waits with the van and nothing brings him
   back (CA-04). The ride's own time replaces the published window because a ten-minute window is
   kept against a van's real position and there is no van in motion on a ride nothing has happened
-  to. The ended ride itself is read on the finished day, which is where the browser check walks
-  it — the van back, nobody recorded as receiving him, and the line that asks for both the call
-  and the record — because
-  **nothing in this build can advance the demo day's clock to 4:20 PM**: `INSTANT_MINUTE.LIVE` in
-  `src/domain/board/day.ts` is a constant, the committed replays are the morning only, and
-  `ops.scenario_clock` is seeded paused with no code reading it and no control over it. A clock
-  that walks the day — the last question on this page — is what puts the hold itself back on the
-  walk, and that is B-10's. `board.test.ts` holds both ends: nothing ahead of its day's clock is
-  ever held, and the same demo-day record *is* held once the instant is past 4:20 PM, so the day
-  a clock lands the walk arrives at CA-04 rather than at a board that quietly dropped it.
+  to. The ended ride itself is read on the finished day, which is where the browser check walked
+  it first — the van back, nobody recorded as receiving him, and the line that asks for both the
+  call and the record.
+
+  **And on the demo day itself, now that the clock has landed in this slice** (founder, 2026-10-17
+  8:46 AM ET, DECISION-LEDGER row 72 — the clock-driven check stays in B-12 rather than moving to
+  B-10, because what it proves is the board; the clock it walks on is B-10's and is reused, not
+  rebuilt). `demoDayAtTick` reads the demo day at an instant on the scenario clock, `?tick=` on
+  /today reaches it through the same four gates as `?date=` (`requestedScenarioTick` calls
+  `dateOverrideAllowed`, so no deployment has a clock control, production included), and
+  `e2e/today-board.spec.ts` walks the one board from 07:42 — "Drop-off 4:20 PM", nothing asked —
+  to 4:25 PM, where the same row is the hold, the step asks a person to call his contacts and
+  record who receives him, and the panel says there is no automatic return. The walk arrives at
+  CA-04 rather than at a board that quietly dropped it, and nothing about AT-13 is waiting on a
+  B-10 row. `board.test.ts` and `today-board.test.ts` hold both ends underneath it: nothing ahead
+  of its day's clock is ever held, and the same demo-day record *is* held once the instant is
+  past 4:20 PM. One consequence is asserted rather than hidden — the committed replays end at
+  08:47, so a board walked to 4:25 PM says every van's last point is hours old ("No signal",
+  "Find the van"), which is LOC-03 reading the data the fixture has.
 - **Vera:** the drawer's rides are timeline rows now — time column, stops, icon + label state, no
   box. The van, the reason and the step still sit under each row because §4.1 folds those columns
   into this panel below 1280. Is that the right amount, or should the narrow-width extras be
@@ -145,7 +154,11 @@ with nothing on screen offering another.
 - **Rudy:** the finished day is a fixture in `standard.ts`, not something `demo reset` seeds. When
   the scenario clock lands (§6.1 dock), the honest version is the clock walking the real day and
   the board reading whatever it has reached. Does the clock subsume this fixture, or stay beside
-  it as the "yesterday" the board can look back at?
+  it as the "yesterday" the board can look back at? **Half-answered:** the board reads the demo
+  day at a tick now (above), and the finished-day check was **kept** beside the walked one — the
+  two are different assertions, a record a finished day holds versus a ride ending in front of a
+  coordinator. What is still open is the rest of it: a clock that *runs* (the §6.1 dock control
+  says "Demo not started" and is connected to nothing), and whether `demo reset` seeds yesterday.
 
 ## 6. Evidence, and the commands that regenerate it
 
@@ -157,14 +170,15 @@ into `artifacts/`, which is gitignored — the evidence is regenerated, never co
 ```
 pnpm e2e                           # the whole set: builds the app, starts it, walks every screen
 pnpm e2e e2e/today-board.spec.ts   # the board's own: today-board / arrival-not-handoff /
-                                   # held-no-receiver / one-date / drawer / disabled-action /
+                                   # held-no-receiver / receiver-rule-before-ride /
+                                   # clock-past-dropoff / one-date / drawer / disabled-action /
                                    # needs-action, each at 1024 and 1280
 rm -rf artifacts && pnpm e2e       # when the set itself is under review, so no stale PNG survives
 ```
 
 `pnpm e2e` needs no database and no credentials: `playwright.config.ts` starts the app with the
-test-only synthetic session and `E2E_DATE_OVERRIDE=1`, which is also the only way a check can
-reach the finished day (§4). Each file's name is in the `console.log("screenshot:", …)` line of
+test-only synthetic session and `E2E_DATE_OVERRIDE=1`, which is the only way a check can reach
+the finished day (§4) **or move the board's clock** — one variable, one gate, both parameters. Each file's name is in the `console.log("screenshot:", …)` line of
 the test that takes it.
 
 **The AT-10 mutation** (`artifacts/at-10-mutation.txt`): the rule is that a vehicle arriving is
