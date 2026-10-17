@@ -125,6 +125,61 @@ describe("projectToPath (how 'how far along' survives jitter)", () => {
     expect(projectToPath(path, offsetByMeters(JOG[0], 0, -200)).alongM).toBe(0);
     expect(projectToPath(path, offsetByMeters(JOG[2], 0, 200)).alongM).toBeCloseTo(path.totalM, 6);
   });
+
+  /**
+   * A route that drives one stretch twice — up Jog Rd, turn round, back down it — which is the
+   * shape of a real run that collects a child at a stop and leaves the way it came (R1's morning
+   * at the Lantana library, src/fixtures/run-routes.ts). One position on the shared road then has
+   * two chainages, and only the vehicle's own history says which it is.
+   */
+  describe("a road the route drives twice", () => {
+    const thereAndBack = measurePath([...JOG, ...[...JOG].reverse().slice(1)]);
+    const turnM = path.totalM;
+    const half = turnM * 0.5;
+    /** The same spot on the tarmac, as a chainage on the way up and on the way back. */
+    const outbound = half;
+    const inbound = turnM * 2 - half;
+    const spot = pointAtDistance(thereAndBack, outbound);
+
+    it("is genuinely ambiguous when nothing says where the vehicle was", () => {
+      // Both passes are the same tarmac, so both are "on the road" and which one comes back is
+      // a matter of floating-point luck — the ambiguity this hint exists to resolve.
+      const blind = projectToPath(thereAndBack, spot);
+      expect(blind.offsetM).toBeLessThan(1);
+      expect(Math.min(Math.abs(blind.alongM - outbound), Math.abs(blind.alongM - inbound))).
+        toBeLessThan(1);
+    });
+
+    it("reads a vehicle on the way back as being on the way back", () => {
+      // Without the hint this point is "half way up", and the ETA gains the whole loop.
+      const projection = projectToPath(thereAndBack, spot, { nearM: inbound - 50 });
+      expect(projection.alongM).toBeCloseTo(inbound, 0);
+      expect(projection.offsetM).toBeLessThan(1);
+    });
+
+    it("prefers the pass ahead of the vehicle, not merely the nearest chainage", () => {
+      // Just past the turn, the two passes are nearly equidistant: a van that has turned round
+      // is on the way back, and reading it as still climbing would run the ETA up the road again.
+      expect(projectToPath(thereAndBack, spot, { nearM: outbound + 10 }).alongM).toBeCloseTo(
+        inbound,
+        0,
+      );
+    });
+
+    it("still follows a vehicle that is genuinely behind where it was", () => {
+      // A tie-break and nothing more: where the road is driven once, the position decides, and a
+      // hint from further down the route does not pin the answer forward.
+      const target = path.totalM * 0.3;
+      const on = pointAtDistance(path, target);
+      expect(projectToPath(path, on, { nearM: path.totalM }).alongM).toBeCloseTo(target, 0);
+    });
+
+    it("changes nothing on a route that never doubles back", () => {
+      const target = path.totalM * 0.3;
+      const on = pointAtDistance(path, target);
+      expect(projectToPath(path, on, { nearM: 0 })).toEqual(projectToPath(path, on));
+    });
+  });
 });
 
 describe("headingAtDistance", () => {

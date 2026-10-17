@@ -4,11 +4,14 @@ import { serviceDate } from "@/ui/copy";
 import { serviceDateIso, serviceDateLabel } from "@/ui/service-date";
 import {
   BOARD_SCENARIO_SECONDS,
+  DATE_OVERRIDE_ENV_VAR,
   DEMO_SERVICE_DATE,
   DAY_RANGE_DAYS,
   boardInstantMs,
+  dateOverrideAllowed,
   demoDay,
   localTimeOn,
+  requestedServiceDay,
   serviceDayFor,
 } from "./day";
 
@@ -65,7 +68,53 @@ describe("the phase of a day decides when it is read", () => {
   });
 });
 
-describe("which days a URL can reach", () => {
+/**
+ * Veri #49: the console has no date switcher, so a request may not be one either. The finished
+ * day is still where AT-10 and AT-13 are proved in a browser, so the override stays — behind
+ * four gates, one of which (`VERCEL_ENV` unset) cannot hold on any deployment we own.
+ */
+describe("the date override is a test path and nothing a deployment has", () => {
+  /** A local browser-check shell: every gate open. */
+  const TEST_SHELL = {
+    APP_DATA_CLASS: "SYNTHETIC",
+    DEMO_MODE: "1",
+    [DATE_OVERRIDE_ENV_VAR]: "1",
+  } as const;
+
+  const yesterday = demoDay().previousIso!;
+
+  it("reads the day a test shell asks for", () => {
+    expect(dateOverrideAllowed(TEST_SHELL)).toBe(true);
+    const day = requestedServiceDay(yesterday, TEST_SHELL);
+    expect(day.iso).toBe(yesterday);
+    expect(day.phase).toBe("ENDED");
+  });
+
+  it.each([
+    ["a deployment, where the platform sets VERCEL_ENV", { VERCEL_ENV: "production" }],
+    ["a preview, which is a deployment too", { VERCEL_ENV: "preview" }],
+    ["real data (ADR-015)", { APP_DATA_CLASS: "LIVE" }],
+    ["no data class at all", { APP_DATA_CLASS: undefined }],
+    ["the demo switch off (ADR-014)", { DEMO_MODE: "0" }],
+    ["the demo switch unset", { DEMO_MODE: undefined }],
+    ["an ordinary local shell that did not ask", { [DATE_OVERRIDE_ENV_VAR]: undefined }],
+    ["an override asked for by any other value", { [DATE_OVERRIDE_ENV_VAR]: "true" }],
+  ])("is the demo day on %s", (_why, override) => {
+    const env = { ...TEST_SHELL, ...override };
+    expect(dateOverrideAllowed(env)).toBe(false);
+    // Whatever was asked for, and however well-formed: one day is reachable.
+    for (const asked of [yesterday, demoDay().nextIso, "2026-10-17", "nonsense"]) {
+      expect(requestedServiceDay(asked, env).iso).toBe(DEMO_SERVICE_DATE);
+    }
+  });
+
+  it("an empty environment is the demo day, so a forgotten variable cannot open it", () => {
+    expect(dateOverrideAllowed({})).toBe(false);
+    expect(requestedServiceDay(yesterday, {}).iso).toBe(DEMO_SERVICE_DATE);
+  });
+});
+
+describe("which days the override can reach", () => {
   it("walks whole days, and the arrows stop at the end of the range", () => {
     let day = demoDay();
     for (let i = 0; i < DAY_RANGE_DAYS; i += 1) {

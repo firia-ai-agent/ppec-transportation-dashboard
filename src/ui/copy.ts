@@ -153,8 +153,16 @@ export const etaText = {
   behind: "−{n} min",
   onTime: "On time",
   unknown: "Not known yet",
-  /** No window has been worked out for this ride yet. Never read as "no ride". */
-  pending: "Window pending",
+  /**
+   * No window has been worked out for this ride yet. Never read as "no ride".
+   *
+   * It said "Window pending" until this slice — a status written the way a queue writes one,
+   * which is how a coordinator ends up asking what a window is and what it is pending on. The
+   * sentence a person would say instead was already written down and waiting (COPY-GUIDE §5,
+   * docs/ui/B12-SLICE1-DEFERRED.md §2): the time is not set yet, and the clock beside it says
+   * which kind of fact that is.
+   */
+  pending: "Time not set yet",
   /** LOC-03: the last published window, with the pause spelled out. */
   paused: "{window} · ETA texts paused",
 } as const;
@@ -217,6 +225,12 @@ export const board = {
     source: "Source",
   },
   tableLabel: "Today's rides, one row for each child's morning and afternoon",
+  /**
+   * The same table on another day. "Today's rides" is read out by a screen reader before the
+   * first row, so on a finished day it is the heading's falsehood said again where only the ear
+   * can catch it — and the ear is the one reader who cannot see the date beside it.
+   */
+  tableLabelOtherDay: "Rides on {date}, one row for each child's morning and afternoon",
   am: "AM",
   pm: "PM",
   /** The ride in words, for the ear and for the row opener's accessible name. */
@@ -232,8 +246,12 @@ export const board = {
    * The same column on a day that is over. "No van location yet" promises one is coming, which
    * is true of a van that has not left and false of a day whose vans are back in the yard: this
    * slice keeps no position history, so the honest answer is that none was kept.
+   *
+   * It says "van location" rather than "position", because that is what the column is called
+   * and what a coordinator calls the thing: a position is the word the ingest path uses for a
+   * row it stored (COPY-GUIDE §1–§2).
    */
-  noPositionRecorded: "No position recorded",
+  noPositionRecorded: "No van location kept",
   /** No window has been worked out for this ride yet — a state, so it gets an icon and a label. */
   windowPending: etaText.pending,
   /** §5.1: a stall is words and a clock, never a colour. */
@@ -259,15 +277,31 @@ export const board = {
    */
   reasons: {
     /**
-     * The no-adult-at-home case (PRD §6.6 CA-04). Three facts in the order a coordinator needs
-     * them: where the child is, why nobody has taken them, and the one thing nobody should have
-     * to ask — that no van is going to quietly drive them back to the centre. The drawer says the same thing at
-     * length (`heldNoReturn`); the row says it because a board is where it is first read.
+     * The no-adult-at-home case (PRD §6.6 CA-04). Two facts, in the order a coordinator needs
+     * them: where the child is, and why nobody has taken them.
+     *
+     * It used to carry a third clause — that nothing brings the child back to the centre on its
+     * own — which is the most important sentence on this panel and the reason it is no longer
+     * here: a reason in a board cell is read at a glance over 56 rows, and a third clause put
+     * the one line a coordinator must not skim at the end of a line they skim. It is said in
+     * full in the drawer instead (`drawer.heldNoReturn`), which is where this row leads.
      */
-    CHILD_HELD:
-      "{child} is waiting with the van. Nobody on file may receive them, and nothing brings them back on its own.",
+    CHILD_HELD: "{child} is waiting with the van. No adult on file can receive them.",
     DOES_NOT_FIT: "{van} does not fit everyone on this run.",
     NO_RECEIVING_ADULT: "No adult on file may receive {child} at the end of the afternoon ride.",
+    /**
+     * The end of a day with a handoff missing from it: the van arrived, the day is over, and no
+     * custody event was ever recorded. It names the vehicle's fact and then what is missing, in
+     * that order, because the first half is the one a coordinator can see for themselves on the
+     * row — the state chip beside it says "Arrived (vehicle)" — and the second is the one only
+     * this line says.
+     *
+     * It is a *reason*, not a state: the row still says the van arrived and nothing more, which
+     * is the rule about arrivals and handoffs. What changed is where the row sits, because a day
+     * whose vans are back in the yard has nobody left to record the handoff unless a person is
+     * asked to.
+     */
+    HANDOFF_UNRECORDED: "{child}'s van is back and nobody recorded who received them.",
     RIDE_STATE: "{child}'s ride needs a person to decide what happens next.",
     LOCATION_LOST: "Nothing has been heard from {van} for ten minutes.",
   },
@@ -332,6 +366,27 @@ export const serviceDate = {
     PLANNED: "Not started",
   },
 } as const;
+
+/** The day a heading is about: its phase, and the date it is labelled by (src/domain/board/day.ts). */
+export type LabelledDay = { phase: keyof typeof serviceDate.phases; label: string };
+
+/**
+ * A heading that may only say "Today" on the day that is true of (Veri #49).
+ *
+ * Three places read one day and name it — the board's own heading, the table's screen-reader
+ * caption, and the drawer's first section heading — and each carried the same ternary beside it.
+ * Three copies of one rule is three places it can be broken, and the two hardest to catch by
+ * looking are in there: the caption only the ear hears, and a panel that covers the header
+ * carrying the date, so a day that is *not* the demo day could be introduced as "Today's rides"
+ * with nothing on screen to correct it.
+ *
+ * So the rule is here, once, and it is the narrow one: the words that say "Today" are used on
+ * the live demo day and on no other phase. A finished day and a day that has not started are
+ * both named by their date, because neither of them is today.
+ */
+export function onDay(words: { today: string; otherDay: string }, day: LabelledDay): string {
+  return day.phase === "LIVE" ? words.today : fill(words.otherDay, { date: day.label });
+}
 
 /**
  * Scenario clock in the header (§2). The demo-controls dock (§6.1) owns the clock; until it
@@ -805,7 +860,14 @@ export const drawer = {
    */
   amRide: "Morning ride",
   pmRide: "Afternoon ride",
+  /**
+   * §4.2's first section heading, and it may only say "Today" on the day that is true of — the
+   * same rule the board's own heading keeps (`board.headingOtherDay`). A panel of a child's
+   * finished rides headed "Today's rides" is a false sentence a reader meets *inside* the day
+   * they asked for, with the date they asked for on the header behind it (Veri #49).
+   */
   ridesHeading: "Today's rides",
+  ridesHeadingOtherDay: "Rides on {date}",
   /**
    * "Okeeheelee Park → PPEC center" — a ride read as the two ends it has, in travel order. The
    * morning collects a child at their own stop and sets them down at the centre; the afternoon
@@ -847,8 +909,12 @@ export const drawer = {
   receiverOnFile: "{adult}, {child}'s {relationship}, may receive them.",
   receiverMissing:
     "Nobody on file may receive {child} yet. Agree who will, and record it, before the afternoon van leaves.",
-  /** PRD §6.6: a child is held, never driven back on their own. */
-  heldNoReturn: "If nobody is there, {child} waits with the van and staff are called. There is no automatic return.",
+  /**
+   * PRD §6.6: a child is held, never driven back on their own. Three short clauses rather than
+   * two long ones — where the child is, that people are being called, and the rule — because
+   * the rule is the part that must survive being read quickly, and it now ends the line.
+   */
+  heldNoReturn: "If nobody is there, {child} waits with the van while staff call. No automatic return.",
 
   noApprovals: "Nothing is waiting for a decision about {child} today.",
   noAgentChanges: "The assistant has not changed anything for {child} today.",
@@ -874,8 +940,19 @@ export const drawer = {
    * a control that looked available and then did nothing would be the one dishonest thing on
    * this panel.
    */
-  handoffBlockedNotConnected: "Confirming a handoff isn't connected yet.",
+  handoffBlockedNotConnected: "Handoff isn't connected yet.",
   overrideWithReason: "Override for {child}, with reason",
+  /**
+   * Why the *override* is unavailable, under the override's own button.
+   *
+   * The line above that button is the handoff's reason and belongs to the handoff — and it stood
+   * next to the override as well, so a reader had one sentence doing two jobs: on the day where
+   * everything the handoff asks for is satisfied it reads as a note about this build, and on
+   * every other day it reads as the child's missing receiver being what stops an override too.
+   * Neither is what is true of it. What is true is the plain thing, and it is the same for both
+   * controls: this slice reads the day and writes nothing.
+   */
+  overrideDisabled: "Overrides aren't connected yet.",
   /** §5 override dialog. */
   overrideHeading: "Override ramp check",
   overrideReasonLabel: "Reason (required)",

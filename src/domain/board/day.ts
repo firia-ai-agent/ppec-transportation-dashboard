@@ -15,6 +15,11 @@
  * after it has not started, so it is the plan and nothing more. Three phases, one rule each, and
  * the board says which it is looking at.
  *
+ * Only one of those three is a day a request may ask for: the demo day. The other two are a test
+ * and review path, behind the four gates in `dateOverrideAllowed` below — `/today` reads the
+ * date through `requestedServiceDay`, so on any deployment a `?date=` is not a day the board
+ * can be moved to, it is a parameter nothing reads (Veri #49).
+ *
  * Pure: the instants are whole-day offsets from the scenario's own start (`SCENARIO_START_MS`),
  * so nothing here reads a clock and every date in range is as deterministic as the demo day. The
  * range is bounded at a fortnight each way for exactly that reason: whole-day arithmetic is only
@@ -49,7 +54,7 @@ const DAY_ENDED_LOCAL_MINUTE = 17 * 60 + 30;
 /** MOCKS-AND-DEMO §6 "clock = 06:00 today": a day that has not started is read at its start. */
 const DAY_NOT_STARTED_LOCAL_MINUTE = 6 * 60;
 
-/** The widest a crafted `?date=` may reach, in days each way (see the daylight-saving note). */
+/** The widest the test-only date override may reach, in days each way (daylight-saving note). */
 export const DAY_RANGE_DAYS = 14;
 
 /** The seeded day the scenario's runs are replayed on — the board's default, and its "live" day. */
@@ -63,7 +68,7 @@ export const DEMO_SERVICE_DATE = serviceDateIso(new Date(SCENARIO_START_MS));
 export type DayPhase = "ENDED" | "LIVE" | "PLANNED";
 
 export type ServiceDay = {
-  /** "2026-10-14", the `?date=` value and the `<time dateTime>`. */
+  /** "2026-10-14", the `<time dateTime>` and what the date override names a day by. */
   iso: string;
   /** "Wed, Oct 14" — the format COPY-GUIDE §5 uses. */
   label: string;
@@ -135,12 +140,15 @@ export function demoDay(): ServiceDay {
 }
 
 /**
- * The service day a `?date=` asks for.
+ * The service day a date names — the projection itself, with no gate on it: a test, a browser
+ * check and `board.test.ts` all build a finished or an unstarted day through here.
  *
- * Anything that is not a date in range comes back as the demo day rather than as an error: a URL
- * is typed by hand and pasted into chats, and a board that refuses to render is a worse answer
- * than the day it was always going to show. A date that *is* in range and simply has no runs is
- * a different thing — the board renders it and says the day is empty (COPY-GUIDE §5).
+ * Anything that is not a date in range comes back as the demo day rather than as an error: this
+ * value reaches the projection from outside it, and a board that refuses to render is a worse
+ * answer than the day it was always going to show. A date that *is* in range and simply has no
+ * runs is a different thing — the board renders it and says the day is empty (COPY-GUIDE §5).
+ *
+ * A request never reaches this function; `requestedServiceDay` is what `/today` calls.
  */
 export function serviceDayFor(dateIso: string | undefined | null): ServiceDay {
   if (!dateIso || !/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) return demoDay();
@@ -154,4 +162,43 @@ export function serviceDayFor(dateIso: string | undefined | null): ServiceDay {
 /** The instant the board reads the demo day at. */
 export function boardInstantMs(): number {
   return demoDay().instantMs;
+}
+
+/** The one variable that opens the date override, named once so a test can set it by name. */
+export const DATE_OVERRIDE_ENV_VAR = "E2E_DATE_OVERRIDE";
+
+/**
+ * Whether anything outside this build may ask the board for a day other than the demo day.
+ *
+ * The console has no date switcher (Vera's final call) and `?date=` was still read on every
+ * deployment, which made it a switcher without a control: a URL in a chat message, or a crafted
+ * link, and a coordinator is reading a day that is not today under a heading that says so in
+ * small type (Veri #49). The parameter stays, because the finished day is where AT-10 and AT-13
+ * are *proved* in a browser, and it is now a test-only path — four gates, the same shape as the
+ * browser check's synthetic session (`src/domain/access/map-view.ts demoSessionRole`), one of
+ * which cannot hold on any deployment we own:
+ *
+ *  1. `VERCEL_ENV` is unset — a local or CI shell, never a preview and never production, where
+ *     the platform always sets it;
+ *  2. `APP_DATA_CLASS=SYNTHETIC` — the ADR-015 data class, so there is no real day to look at;
+ *  3. `DEMO_MODE=1` — the ADR-014 demo switch;
+ *  4. `E2E_DATE_OVERRIDE=1` — said explicitly, so a local `pnpm dev` is the demo day too unless
+ *     it is asked for. playwright.config.ts sets it for the browser check and nothing else does.
+ */
+export function dateOverrideAllowed(env: Record<string, string | undefined>): boolean {
+  if (env.VERCEL_ENV !== undefined) return false;
+  if (env.APP_DATA_CLASS !== "SYNTHETIC") return false;
+  if (env.DEMO_MODE !== "1") return false;
+  return env[DATE_OVERRIDE_ENV_VAR] === "1";
+}
+
+/**
+ * The day a request gets: the demo day, unless this shell is a test shell that asked for the
+ * override (above). The only way a date from outside may reach the projection.
+ */
+export function requestedServiceDay(
+  dateIso: string | undefined | null,
+  env: Record<string, string | undefined>,
+): ServiceDay {
+  return dateOverrideAllowed(env) ? serviceDayFor(dateIso) : demoDay();
 }

@@ -14,16 +14,17 @@ import { displayablePosition } from "@/domain/location/ingest";
 import { runReplay } from "@/domain/eta/replay";
 import { GPS_LOST_SECONDS, GPS_STALE_SECONDS } from "@/domain/location/freshness";
 import { trafficBandAt } from "@/domain/eta/traffic";
-import { ROUTE_1 } from "./routes";
+import { CHILDREN, RUNS } from "@/modules/demo/fixtures/standard";
+import { ROUTE_1, ROUTE_2 } from "./routes";
 import {
   DEMO_RUNS,
   DEMO_RUN_SECONDS,
-  ROUTE_1_UNBOUND,
   RUN_GPS_GAP,
   RUN_JITTER,
   RUN_STALL,
   RUN_UNBOUND,
   SCENARIO_START_MS,
+  SUBSTITUTE_ROUTE,
 } from "./replays";
 
 describe("the demo run set", () => {
@@ -142,25 +143,71 @@ describe("each run shows the fault its label claims", () => {
   });
 
   it("the unbound device is ingested, stored and displayed nowhere (LOC-01, ADR-013)", () => {
-    expect(RUN_UNBOUND.route).toBe(ROUTE_1_UNBOUND);
+    expect(RUN_UNBOUND.route).toBe(ROUTE_1);
     const result = runReplay(RUN_UNBOUND);
-    const device = result.ingest.devices[ROUTE_1_UNBOUND.deviceId];
+    const device = result.ingest.devices[ROUTE_1.deviceId];
     expect(device.counts.unbound).toBeGreaterThan(0);
     expect(device.counts.accepted).toBe(0);
     expect(result.accepted).toEqual([]);
-    expect(displayablePosition(result.ingest, ROUTE_1_UNBOUND.deviceId)).toBeUndefined();
+    expect(displayablePosition(result.ingest, ROUTE_1.deviceId)).toBeUndefined();
     // No position at all is a location loss, not a fresh reading.
     expect(result.exceptions).toHaveLength(1);
     expect(result.notifications).toEqual([]);
   });
 });
 
-describe("ROUTE_1_UNBOUND", () => {
-  it("is route 1's geometry under its own vehicle, device and id", () => {
-    expect(ROUTE_1_UNBOUND.stops).toBe(ROUTE_1.stops);
-    expect(ROUTE_1_UNBOUND.legs).toBe(ROUTE_1.legs);
-    expect(ROUTE_1_UNBOUND.id).not.toBe(ROUTE_1.id);
-    expect(ROUTE_1_UNBOUND.vehicleId).not.toBe(ROUTE_1.vehicleId);
-    expect(ROUTE_1_UNBOUND.deviceId).not.toBe(ROUTE_1.deviceId);
+describe("SUBSTITUTE_ROUTE", () => {
+  it("is route 2's geometry — the run V3 would take over — under V3's own device", () => {
+    expect(SUBSTITUTE_ROUTE.stops).toBe(ROUTE_2.stops);
+    expect(SUBSTITUTE_ROUTE.legs).toBe(ROUTE_2.legs);
+    expect(SUBSTITUTE_ROUTE.id).not.toBe(ROUTE_2.id);
+    expect(SUBSTITUTE_ROUTE.vehicleId).toBe("V3");
+    expect(SUBSTITUTE_ROUTE.deviceId).toBe("DEV-V3");
+  });
+
+  it("belongs to the one van the scenario puts on no run", () => {
+    expect(RUNS.map((r) => r.vehicleKey)).not.toContain(SUBSTITUTE_ROUTE.vehicleId);
+  });
+});
+
+/**
+ * The tracks are the scenario's own runs now (src/fixtures/routes.ts), so a van on a demo run
+ * reaches its own riders' kerbs and the §8 notification decisions name the families who ride from
+ * them. These are the two consequences the board and the demo script depend on.
+ */
+describe("a demo run is the run the scenario planned", () => {
+  it("texts the family that rides from the stop, and never another run's", () => {
+    for (const run of DEMO_RUNS) {
+      const result = runReplay(run.spec);
+      for (const decision of result.decisions) {
+        if (decision.stopId === "CENTER") {
+          expect(decision.familyLabel, run.spec.route.id).toBeUndefined();
+          continue;
+        }
+        const riders = CHILDREN.filter((c) => c.stopKey === decision.stopId);
+        expect(riders.length, `${run.spec.route.id} ${decision.stopId}`).toBeGreaterThan(0);
+        expect(decision.familyLabel).toBe(riders[0].familyKey);
+      }
+    }
+  });
+
+  it("damps the stall into a downstream family's window and leaves the served stop alone (AT-03)", () => {
+    const result = runReplay(RUN_STALL);
+    const stallAtMs = SCENARIO_START_MS + 120 * 1000;
+    const notified = result.notifications.filter((d) => d.atMs > stallAtMs);
+    expect(notified.length).toBeGreaterThan(0);
+    for (const decision of notified) {
+      // ASM-14: ten minutes of shift, about a stop that is still ahead and ≥10 min away.
+      expect(Math.abs(decision.shiftSeconds)).toBeGreaterThanOrEqual(600);
+      expect(decision.windowText).toBeDefined();
+    }
+    // Downstream only: the run's first pickup is its own origin, so it can never be notified.
+    const origin = RUN_STALL.route.stops[0].id;
+    expect(result.notifications.map((d) => d.stopId)).not.toContain(origin);
+    expect(
+      result.decisions
+        .filter((d) => d.stopId === origin)
+        .every((d) => d.outcome === "SUPPRESS" && d.reason === "arrived"),
+    ).toBe(true);
   });
 });
