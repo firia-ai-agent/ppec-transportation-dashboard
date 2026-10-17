@@ -87,7 +87,7 @@ flowchart LR
     FT[Family texts / For you]
     HEALTH[Today ▸ Health]
   end
-  FD -->|PUT /api/vans/:id/setup state=CHECKED (#66)| VSD
+  FD -->|"PUT /api/vans/:id/setup state=CHECKED (#66)"| VSD
   VSD --> FIT --> BOARD
   VSD --> RAMP
   TP --> NF --> FIT
