@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { pageOutcome } from "@/auth/access";
 import {
@@ -22,7 +24,14 @@ import {
   type PlanInput,
   type RoutePlan,
 } from "@/domain/solver";
-import { places, planRoutes as copy, securement } from "@/ui/copy";
+import {
+  RAMP_DIRECTION,
+  decodeFinding,
+  observedCapability,
+  replanForArrival,
+  type RampFinding,
+} from "@/domain/plan/arrival";
+import { places, planRoutes as copy, rampReplan as copyRamp, securement } from "@/ui/copy";
 import { capabilityStates, reservationStates } from "@/ui/states";
 import {
   equipmentChips,
@@ -39,6 +48,7 @@ import {
   summaryLine,
   unplacedState,
 } from "./lanes";
+import PlanRoutes from "./PlanRoutes";
 
 /**
  * The Plan routes screen's contracts.
@@ -734,5 +744,150 @@ describe("the words beside a child with no van", () => {
 
   it("counts the plan in riders, not in rows", () => {
     expect(summaryLine(7, 9)).toBe("7 of 9 riders are in a van.");
+  });
+});
+
+/**
+ * A ramp check the screen was handed (`?arrival=`), which is the join the planning surface was
+ * missing: the ramp iPad used to record onto itself, and this screen never heard about it.
+ *
+ * The re-plan itself is the solver's and is checked in src/domain/plan/arrival.test.ts; the
+ * sentences are checked in src/ui/arrival-lines.test.ts. What is checked here is what this
+ * screen does with one: which run it opens on, what the checked lane carries, where the children
+ * are, and that a parameter it cannot read changes nothing at all.
+ */
+describe("the screen opens on a ramp check when a link carries one", () => {
+  const page = read("page.tsx");
+  const screen = read("PlanRoutes.tsx");
+
+  it("decodes the parameter with the module that wrote it, and refuses the rest", () => {
+    expect(page).toMatch(/decodeFinding\(/);
+    expect(page).toMatch(/ARRIVAL_PARAM/);
+    // An unreadable parameter answers null, so the screen opens on the plan it always opens on.
+    expect(decodeFinding("V9~1WC/3A")).toBeNull();
+    expect(decodeFinding(undefined)).toBeNull();
+  });
+
+  it("opens on the afternoon, which is the run a ramp check is about", () => {
+    expect(RAMP_DIRECTION).toBe("PM");
+    expect(screen).toMatch(/useState<Direction>\(opened\?\.direction \?\? "AM"\)/);
+  });
+
+  it("keeps the whole observation on the checked lane, not just its configuration", () => {
+    const finding: RampFinding = {
+      laneId: "V1",
+      layoutCode: "1WC/3A",
+      outOfService: [3, 4],
+      unanswered: [],
+      liftOk: true,
+      latchOk: true,
+      measured: [],
+    };
+    const observed = observedCapability(finding);
+    expect(observed.state).toBe("VERIFIED");
+    expect(observed.unavailablePositionIds).toHaveLength(2);
+    // Dropping those two and keeping the configuration would re-plan the day as if the van
+    // were fine, which is the one thing this screen must not do with a check it was handed.
+    expect(screen).toMatch(/rampCapability: observedCapability\(arrival\)/);
+    expect(screen).toMatch(/if \(stage\.rampCapability\) return stage\.rampCapability;/);
+  });
+
+  it("answering the arrival question here replaces what the iPad handed over", () => {
+    // A coordinator pressing the button on this screen knows a van was checked and does not
+    // know which places were out of service, so the richer observation goes rather than lingers.
+    expect(screen).toMatch(/rampCapability: undefined/);
+  });
+
+  it("puts the children where the solver's own mover put them, and nowhere else", () => {
+    const replan = replanForArrival({
+      laneId: "V1",
+      layoutCode: "1WC/3A",
+      outOfService: [3, 4],
+      unanswered: [],
+      liftOk: true,
+      latchOk: true,
+      measured: [],
+    });
+    // Every rider is in a lane the solver agreed to, or in the plan's own unplaced list.
+    const plan = routePlan(replan.input, replan.after);
+    for (const lane of plan.lanes) {
+      if (lane.lane.id === "V4") continue; // the scenario's own infeasible run
+      expect(lane.verdict.status, lane.lane.id).toBe("FEASIBLE");
+    }
+    expect(screen).toMatch(/useState<Assignment>\(\s*\(\) => opened\?\.assignment/);
+  });
+
+  it("treats the re-plan as a placement a person is accountable for", () => {
+    // So the next press of "Plan routes" plans around it rather than over it, which is the rule
+    // the screen already follows for a coordinator's own drag.
+    expect(screen).toMatch(/pinned: Object\.fromEntries\(/);
+    expect(screen).toMatch(/useState<ManualPlacements>\(\(\) => opened\?\.pinned \?\? \{\}\)/);
+  });
+
+  it("carries the chairs the ramp measured, so the plan asks about the chair that arrived", () => {
+    expect(screen).toMatch(/useState<readonly string\[\]>\(\(\) => opened\?\.measured \?\? \[\]\)/);
+  });
+
+  it("says why the plan on screen is not the plan the route opens on, and offers that plan", () => {
+    expect(screen).toMatch(/arrivalBannerLines\(opened\.replan\)/);
+    expect(screen).toMatch(/href="\/plan-preview"/);
+    expect(screen).toMatch(/href="\/ramp-preview"/);
+    expect(copyRamp.clear).toBe("Show the plan without it");
+  });
+
+  it("is informational chrome, not an alarm: the fact is the banner, the news is the lines", () => {
+    const css = read("plan.module.css");
+    const arrival = css.slice(css.indexOf(".arrival {"));
+    expect(arrival).toMatch(/background: var\(--color-info-bg\)/);
+    expect(arrival).not.toMatch(/--color-crit-bg|--color-warn-bg/);
+    // The first line opens on a van name written for mid-sentence use, like a lane heading.
+    expect(arrival).toMatch(/::first-letter/);
+  });
+});
+
+/**
+ * The same screen, rendered.
+ *
+ * The suite above reads the rules out of the source because the screen's behaviour is in its
+ * state and vitest has no DOM. A server render is still worth one pass: it proves the component
+ * takes a finding without falling over, that the banner and the re-planned lanes are in the
+ * first paint rather than appearing after an effect, and that no code the machine talks to
+ * itself with reaches the markup.
+ */
+describe("the screen, rendered on a ramp check", () => {
+  const finding: RampFinding = {
+    laneId: "V1",
+    layoutCode: "1WC/3A",
+    outOfService: [3, 4],
+    unanswered: [],
+    liftOk: true,
+    latchOk: true,
+    measured: [],
+  };
+  const html = renderToStaticMarkup(createElement(PlanRoutes, { arrival: finding }));
+
+  it("shows the banner, and the two children the solver moved, on first paint", () => {
+    expect(html).toContain(copyRamp.bannerHeading);
+    expect(html).toContain("the convertible van was checked at the ramp");
+    for (const name of ["Owen C.", "Ivy H.", "Zoe B."]) expect(html, name).toContain(name);
+  });
+
+  it("names the vans in words, with no lane key or configuration shorthand in sight", () => {
+    expect(html).toContain("convertible van");
+    expect(html).toContain("center van");
+    expect(html).not.toMatch(/\d+WC\/\d+A/);
+    expect(html).not.toMatch(/·[A-Z]\d\b/);
+  });
+
+  it("renders the ordinary plan when no finding came with the request", () => {
+    const plain = renderToStaticMarkup(createElement(PlanRoutes, {}));
+    expect(plain).not.toContain(copyRamp.bannerHeading);
+    // And the morning, which is the run this screen has always opened on.
+    expect(plain).toContain(copy.directionButton.AM);
+  });
+
+  it("mounts no second DEMO bar and no second source chip", () => {
+    expect(html).not.toContain('aria-label="DEMO"');
+    expect(html.match(/Simulated/g) ?? []).toHaveLength(0);
   });
 });

@@ -48,6 +48,13 @@ import {
   type DemoScenario,
 } from "@/domain/plan/day";
 import {
+  RAMP_DIRECTION,
+  observedCapability,
+  replanForArrival,
+  type RampFinding,
+} from "@/domain/plan/arrival";
+import { arrivalBannerLines } from "@/ui/arrival-lines";
+import {
   planAssignment,
   routePlan,
   tryMove,
@@ -62,7 +69,7 @@ import {
   type ResolutionOption,
   type Unplaced,
 } from "@/domain/solver";
-import { board, fill, needCategories, places, planRoutes, rampPreview, vanName } from "@/ui/copy";
+import { board, fill, needCategories, places, planRoutes, rampPreview, rampReplan, vanName } from "@/ui/copy";
 import { DemoControls } from "@/ui/DemoControls";
 import { serviceDateLabel } from "@/ui/service-date";
 import { StateChip } from "@/ui/StateChip";
@@ -101,6 +108,17 @@ type LaneStage = {
   arrival: ArrivalAnswer | "CHANGED" | "ASKED";
   /** The configuration the ramp saw, pinned at the moment it was recorded (ASM-17). */
   rampLayoutId?: string;
+  /**
+   * The whole observation, when it came from a ramp check this screen was handed rather than
+   * from the button on this screen.
+   *
+   * The button records what a coordinator can see from here — a van was checked, in the
+   * configuration the lane is planned as — and nothing more, because that is all it knows. A
+   * check that arrived from the ramp knows more than that: which places are out of service,
+   * which nobody could answer for, whether the lift came down. Dropping those and keeping only
+   * the configuration would quietly re-plan the day as if the van were fine.
+   */
+  rampCapability?: DailyCapability;
 };
 
 /**
@@ -168,6 +186,7 @@ function capabilityOf(stage: LaneStage): DailyCapability {
     case "ASKED":
       return askedProvider(stage.vehicleKey);
     case "RAMP_CHECKED":
+      if (stage.rampCapability) return stage.rampCapability;
       return stage.rampLayoutId
         ? checkedAtRamp(stage.vehicleKey, stage.rampLayoutId, rampPreview.observedBy)
         : reportedByProvider(stage.vehicleKey);
@@ -194,17 +213,60 @@ function Button({
   );
 }
 
-export default function PlanRoutes() {
+/**
+ * A ramp check this screen was handed, as the state it opens in.
+ *
+ * `null` when there is none, which is every ordinary visit. When there is one, the screen opens
+ * on the afternoon — the run a ramp check is about (PRD §9 l.865) — with the checked van's
+ * observation on its lane, the chairs the ramp measured measured, and the children in the vans
+ * the solver's own mover put them in. Everything after that is the screen a coordinator already
+ * knows: they can drag somebody else, substitute a van, or clear the check and read the plan
+ * without it.
+ *
+ * Computed once rather than held in state: the same finding always produces the same re-plan
+ * (src/domain/plan/arrival.ts is pure), so there is nothing to keep in sync, and a screenshot of
+ * the link is evidence of what it shows.
+ */
+function openedOn(arrival: RampFinding | null) {
+  if (!arrival) return null;
+  const replan = replanForArrival(arrival, RAMP_DIRECTION);
+  const stages = initialStages("EVERY_RIDER_FITS");
+  return {
+    replan,
+    direction: RAMP_DIRECTION,
+    stages: {
+      ...stages,
+      [arrival.laneId]: {
+        ...stages[arrival.laneId],
+        arrival: "RAMP_CHECKED" as const,
+        rampLayoutId: observedCapability(arrival).observedLayoutId ?? undefined,
+        rampCapability: observedCapability(arrival),
+      },
+    },
+    assignment: replan.after,
+    measured: arrival.measured,
+    /** The re-plan is a placement a person is accountable for, so planning plans around it. */
+    pinned: Object.fromEntries(
+      Object.entries(replan.after).flatMap(([laneId, tokens]) =>
+        tokens.map((token) => [token, laneId] as const),
+      ),
+    ) as ManualPlacements,
+  };
+}
+
+export default function PlanRoutes({ arrival = null }: { arrival?: RampFinding | null }) {
+  /** The ramp check the URL carried, if it carried a readable one, as this screen's first state. */
+  const opened = useMemo(() => openedOn(arrival), [arrival]);
   const [scenario, setScenario] = useState<DemoScenario>("EVERY_RIDER_FITS");
-  const [direction, setDirection] = useState<Direction>("AM");
-  const [stages, setStages] = useState<Record<string, LaneStage>>(() =>
-    initialStages("EVERY_RIDER_FITS"),
+  const [direction, setDirection] = useState<Direction>(opened?.direction ?? "AM");
+  const [stages, setStages] = useState<Record<string, LaneStage>>(
+    () => opened?.stages ?? initialStages("EVERY_RIDER_FITS"),
   );
-  const [assignment, setAssignment] = useState<Assignment>(() =>
-    emptyAssignment("EVERY_RIDER_FITS"),
+  const [assignment, setAssignment] = useState<Assignment>(
+    () => opened?.assignment ?? emptyAssignment("EVERY_RIDER_FITS"),
   );
-  /** Children whose chair the ramp has measured, which is AT-04's whole lever. */
-  const [measured, setMeasured] = useState<readonly string[]>([]);
+  /** Children whose chair the ramp has measured, which is the arrival check's whole lever. */
+  const [measured, setMeasured] = useState<readonly string[]>(() => opened?.measured ?? []);
   const [moving, setMoving] = useState<string | null>(null);
   const [substituting, setSubstituting] = useState<string | null>(null);
   /**
@@ -212,7 +274,7 @@ export default function PlanRoutes() {
    * of over them (Vera's review, 2026-10-17). Every accepted move writes here; a run or a
    * scenario change clears it, because a placement is about one fleet on one run.
    */
-  const [pinned, setPinned] = useState<ManualPlacements>({});
+  const [pinned, setPinned] = useState<ManualPlacements>(() => opened?.pinned ?? {});
   /** The one lane whose "Change van or report" disclosure is open, if any. */
   const [changing, setChanging] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
@@ -373,6 +435,9 @@ export default function PlanRoutes() {
         // The ramp reports the configuration the van arrived in, which is the one the lane is
         // planned as; from here on it pins the solver's layout search.
         rampLayoutId: answer === "RAMP_CHECKED" ? lanePlan.layout.id : undefined,
+        // Answering here replaces whatever the iPad handed over: this is a coordinator saying
+        // what they know, and they do not know which places were out of service.
+        rampCapability: undefined,
       },
     }));
     setNotice(null);
@@ -914,6 +979,37 @@ export default function PlanRoutes() {
           </button>
           <span className={styles.meta}>{summaryLine(placed, riders.length)}</span>
         </div>
+        {/*
+          A ramp check the iPad handed this screen: why the plan on screen is not the plan this
+          route opens on. It says what the check did and how many children it is about — the
+          names are in the lanes and the group above them, which is where somebody acting on one
+          of them is already looking — and it offers the plan without it, because a coordinator
+          reading a proposal has to be able to see what it is a proposal against.
+        */}
+        {opened ? (
+          <section
+            className={styles.arrival}
+            data-arrival="true"
+            aria-labelledby="arrival-heading"
+          >
+            <h2 id="arrival-heading" className={styles.arrivalHeading}>
+              {rampReplan.bannerHeading}
+            </h2>
+            {arrivalBannerLines(opened.replan).map((line) => (
+              <p key={line} className={styles.arrivalLine}>
+                {line}
+              </p>
+            ))}
+            <p className={styles.actionRow}>
+              <a href="/plan-preview" className={styles.button}>
+                {rampReplan.clear}
+              </a>
+              <a href="/ramp-preview" className={styles.button}>
+                {rampReplan.backToRamp}
+              </a>
+            </p>
+          </section>
+        ) : null}
         {decisionsOpen ? <p className={styles.reason}>{planRoutes.nothingSent}</p> : null}
         {/*
           One line for what just happened: a move, or the refusal and what was missing. A

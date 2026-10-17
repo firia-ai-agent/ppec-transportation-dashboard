@@ -10,10 +10,18 @@
  * decides whether they may look; a role the row omits gets the no-access page and a 403
  * (forbidden.tsx beside this file).
  *
+ * The one thing a request may carry here is a ramp check (`?arrival=`), which is how the ramp
+ * iPad hands this screen a van it has just looked at: the parameter is decoded by the domain
+ * module that produced it and answers `null` for anything this day cannot be about — a van on no
+ * lane, a configuration that van is not built with, a place it does not have, a child who is not
+ * riding it. An unreadable one is a parameter nothing reads, exactly as the board's `?date=` is,
+ * so the screen opens on the plan it always opens on.
+ *
  * The DEMO banner and the one NFR-09 source chip come from the root layout, on every route —
  * this page must not mount a second pair.
  */
 import { requirePage } from "@/auth/page-guard";
+import { ARRIVAL_PARAM, decodeFinding } from "@/domain/plan/arrival";
 import { planRoutes } from "@/ui/copy";
 import PlanRoutes from "./PlanRoutes";
 
@@ -22,7 +30,15 @@ export const metadata = { title: planRoutes.documentTitle };
 /** The guard reads a session, so this route is never statically rendered. */
 export const dynamic = "force-dynamic";
 
-export default async function PlanPreviewPage() {
+export default async function PlanPreviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   await requirePage("/plan-preview");
-  return <PlanRoutes />;
+
+  const params = await searchParams;
+  const one = params[ARRIVAL_PARAM];
+
+  return <PlanRoutes arrival={decodeFinding(Array.isArray(one) ? one[0] : one)} />;
 }

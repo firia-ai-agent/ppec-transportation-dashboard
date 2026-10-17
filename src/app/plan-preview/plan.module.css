@@ -477,3 +477,37 @@
   border-color: var(--color-crit-fg);
   font-weight: var(--weight-medium);
 }
+
+/*
+ * A ramp check this screen was handed (`?arrival=`): the one thing on the page that explains
+ * why the plan on screen is not the plan the route opens on.
+ *
+ * Informational, not an alarm: the §8 info pair rather than warn or crit, because the check
+ * itself is a fact and whether it is bad news is in the lines underneath. The first line opens
+ * on the van's name, which copy.ts writes for mid-sentence use, so the capital comes from here
+ * exactly as a lane heading's does — one string per van, not two.
+ */
+.arrival {
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  background: var(--color-info-bg);
+  color: var(--color-info-fg);
+  border: var(--border-hairline) solid var(--color-info-fg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.arrivalHeading {
+  margin: 0;
+  font-size: var(--text-16);
+  font-weight: var(--weight-semibold);
+}
+
+.arrivalLine {
+  margin: 0;
+}
+
+.arrivalLine:first-of-type::first-letter {
+  text-transform: uppercase;
+}
