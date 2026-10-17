@@ -43,13 +43,26 @@ test.describe(`the rail as ${ROLE}`, () => {
     if (ROLE === "DIRECTOR") {
       expect(EXPECTED.map((item) => item.href)).toEqual([
         "/today",
-        "/plan-preview",
-        "/map-preview",
+        "/plan-routes",
+        "/live-map",
         "/exceptions",
         "/setup",
         "/health",
-        "/ramp-preview",
+        "/ramp-ipad",
       ]);
+    }
+
+    /*
+     * Vera's review (2026-10-17): no "preview" in any menu label or address. Read off the
+     * rendered rail rather than off `navItems`, because the label a founder reads is the DOM's,
+     * and the href they copy out of the address bar is the DOM's too.
+     */
+    const rendered = await links.evaluateAll((els) =>
+      els.map((el) => ({ label: el.getAttribute("aria-label") ?? "", href: el.getAttribute("href") ?? "" })),
+    );
+    for (const item of rendered) {
+      expect(item.label, `rail label "${item.label}"`).not.toMatch(/preview/i);
+      expect(item.href, `rail address "${item.href}"`).not.toMatch(/preview/i);
     }
 
     await expectDemoBarPinned(page);

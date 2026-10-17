@@ -10,7 +10,7 @@ Written 2026-10-14 for M5; supersedes the earlier Proposed OSM-raster version of
 > `NEXT_PUBLIC_MAP_TILE_URL`, which this ADR keeps. Everything else here is Proposed under the
 > ledger's own rule, "All other decisions in docs/adr are Proposed unless labeled otherwise":
 > the `positron` choice, the §5.1 style overrides and dropping the `react-map-gl` wrapper. The
-> stack described here is built and running behind /map-preview; what is pending is the
+> stack described here is built and running behind /live-map; what is pending is the
 > founder's sign-off on those details, not the code.
 
 ## Decision

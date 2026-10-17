@@ -14,7 +14,7 @@ import {
   fleetMap,
   liveUpdates,
   login,
-  mapPreview,
+  liveMap,
   nav,
   needCategories,
   notFound,
@@ -22,7 +22,7 @@ import {
   places,
   planRoutes,
   pluralize,
-  rampPreview,
+  rampIpad,
   sentence,
   scenarioClock,
   serviceDate,
@@ -430,30 +430,30 @@ describe("COPY-GUIDE strings, verbatim", () => {
   });
 
   it("§5 SURF-04: the ramp strings the guide fixes verbatim", () => {
-    expect(rampPreview.offlinePill).toBe(
+    expect(rampIpad.offlinePill).toBe(
       "Offline · {count} saved on this iPad. They'll send when Wi-Fi is back.",
     );
-    expect(fill(rampPreview.offlinePill, { count: 3 })).toBe(
+    expect(fill(rampIpad.offlinePill, { count: 3 })).toBe(
       "Offline · 3 saved on this iPad. They'll send when Wi-Fi is back.",
     );
     // §5: "Boarding confirmed for Leo B." — one period, not two, after the last initial.
-    expect(sentence(fill(rampPreview.snackBoarded, { child: "Leo B." }))).toBe(
+    expect(sentence(fill(rampIpad.snackBoarded, { child: "Leo B." }))).toBe(
       "Boarding confirmed for Leo B.",
     );
-    expect(sentence(fill(rampPreview.snackLeftEarly, { child: "Mia R." }))).toBe(
+    expect(sentence(fill(rampIpad.snackLeftEarly, { child: "Mia R." }))).toBe(
       "Mia R. marked left early.",
     );
-    expect(rampPreview.recordedLate).toBe("Recorded late");
-    expect(rampPreview.whoPickedUp).toBe("Who picked up?");
-    expect(rampPreview.liftRow).toBe("Lift works?");
-    expect(rampPreview.latchRow).toBe("Car-seat anchors (LATCH)");
-    expect(Object.values(rampPreview.answer)).toEqual(["Yes", "No", "Not sure"]);
+    expect(rampIpad.recordedLate).toBe("Recorded late");
+    expect(rampIpad.whoPickedUp).toBe("Who picked up?");
+    expect(rampIpad.liftRow).toBe("Lift works?");
+    expect(rampIpad.latchRow).toBe("Car-seat anchors (LATCH)");
+    expect(Object.values(rampIpad.answer)).toEqual(["Yes", "No", "Not sure"]);
     // §5 SURF-02, reused on the rider card: a transport need is never a diagnosis.
-    expect(rampPreview.needsCaption).toBe("Derived from intake, not a diagnosis.");
+    expect(rampIpad.needsCaption).toBe("Derived from intake, not a diagnosis.");
   });
 
   it("§5 SURF-04: no free-text names in the pickup role list", () => {
-    expect(rampPreview.pickupRoles).toEqual([
+    expect(rampIpad.pickupRoles).toEqual([
       "Parent or guardian",
       "Approved adult on the pickup list",
       "PPEC staff",
@@ -664,32 +664,40 @@ describe("no user-facing text outside copy.ts", () => {
 /* ─────────── the strings that move was for, pinned where they landed ─────────── */
 
 describe("copy.ts holds the words the surfaces used to hold", () => {
-  it("the map preview's heading, intro and document title", () => {
-    expect(mapPreview.heading).toBe("Map preview");
+  it("the live map's heading, intro and document title", () => {
+    expect(liveMap.heading).toBe("Live map");
     /*
-     * Still "Map preview", now that the rail links to it: PRD §14 names no map surface at all
-     * (the map lands inside SURF-01 at BUILD-PLAN-M2 P-03), and "Live map" would be the one
-     * false word on the screen — a client clock replays fixtures here. §1, honest about
-     * certainty. src/ui/nav-items.ts reads this string for the rail label.
+     * "Live map", not "Map preview": Vera's review (2026-10-17) rules out "preview" in any menu
+     * label or address, and the word named how finished the build was rather than the screen.
+     * PRD §14 names no map surface at all (the map lands inside SURF-01 at BUILD-PLAN-M2 P-03),
+     * so the name is the screen's own job — where every van is now. Where the positions come
+     * from is the §7.1 "Simulated" chip's sentence, which the root layout renders on this route
+     * as on every other, and `signedInOnly` says it again in words; nothing on the screen claims
+     * a live feed (§1, honest about certainty). src/ui/nav-items.ts reads this string for the
+     * rail label, so the rail and the heading cannot drift.
      */
-    expect(mapPreview.documentTitle).toContain(mapPreview.heading);
+    expect(liveMap.heading).not.toMatch(/preview/i);
+    expect(liveMap.documentTitle).toContain(liveMap.heading);
     /*
-     * The intro's whole job is to say what is and is not real. It used to do that in a
-     * paragraph of fixture provenance, which named the build's own surface code and left the
-     * one sentence that matters at the end of six lines nobody read. Two sentences now, and
-     * src/ui/no-codes.test.ts holds the exact wording (Vera's review).
+     * The intro's job is to say what the screen is for; `signedInOnly` beneath it is what says
+     * the data is simulated. It used to be a paragraph of fixture provenance, which named the
+     * build's own surface code and left the one sentence that matters at the end of six lines
+     * nobody read; then one line ending "Nothing here is live", which was the honest half of a
+     * screen called "Map preview" and would now argue with its own title. src/ui/no-codes.test.ts
+     * holds the exact wording (Vera's review).
      */
-    expect(mapPreview.intro).toBe("Simulated vans on demo routes. Nothing here is live.");
-    expect(mapPreview.intro).toMatch(/Nothing here is live/);
+    expect(liveMap.intro).toBe("Where every van is, on the demo's own routes and clock.");
+    // The honesty did not move out of the copy, only off the title line.
+    expect(liveMap.signedInOnly).toMatch(/simulated/);
   });
 
   it("the motion line says what the markers do, not how they are animated", () => {
     // "Tweened along route geometry" named the implementation; the line a reviewer reads now says
     // what is happening on the screen (COPY-GUIDE §1).
-    expect(mapPreview.motionTweened).toBe("Vans follow their routes.");
-    expect(mapPreview.motionTweened).not.toMatch(/tween|geometry/i);
+    expect(liveMap.motionTweened).toBe("Vans follow their routes.");
+    expect(liveMap.motionTweened).not.toMatch(/tween|geometry/i);
     // The reduced-motion line still says what it is: the markers step instead of sliding.
-    expect(mapPreview.motionReduced).toBe("Reduced motion: markers step, no tween");
+    expect(liveMap.motionReduced).toBe("Reduced motion: markers step, no tween");
   });
 
   it("the map pane's own wording, including the two tile notices", () => {
@@ -916,13 +924,13 @@ function allStrings(): Array<[string, string]> {
     fleetMap,
     liveUpdates,
     login,
-    mapPreview,
+    liveMap,
     nav,
     needCategories,
     notFound,
     places,
     planRoutes,
-    rampPreview,
+    rampIpad,
     scenarioClock,
     search,
     securement,

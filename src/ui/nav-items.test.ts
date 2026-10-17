@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Flag, type LucideIcon } from "lucide-react";
 import { pageLabel } from "@/auth/access";
 import { isCurrent, navItems } from "./nav-items";
-import { mapPreview, nav, planRoutes, rampPreview } from "./copy";
+import { liveMap, nav, planRoutes, rampIpad } from "./copy";
 import { sourceModes, vocabularies } from "./states";
 
 /**
@@ -30,19 +30,19 @@ describe("nav icons", () => {
       ["/today", nav.today],
       // The planning surface and the fleet pane, between the board and the exceptions it
       // raises. Neither is one of §2's four: both were reachable only by typing the URL.
-      ["/plan-preview", planRoutes.heading],
-      ["/map-preview", mapPreview.heading],
+      ["/plan-routes", planRoutes.heading],
+      ["/live-map", liveMap.heading],
       ["/exceptions", nav.exceptions],
       ["/setup", nav.setup],
       ["/health", nav.health],
       // Last, where PRD §14 lists it: the ramp iPad is not a console destination (§2), but the
       // front desk can open no console page, so the rail has to offer it.
-      ["/ramp-preview", rampPreview.heading],
+      ["/ramp-ipad", rampIpad.heading],
     ]);
   });
 
   it("labels the three surfaces §2 does not name with the words their own screens use", () => {
-    for (const href of ["/plan-preview", "/map-preview", "/ramp-preview"]) {
+    for (const href of ["/plan-routes", "/live-map", "/ramp-ipad"]) {
       const item = navItems.find((i) => i.href === href);
       expect(item, href).toBeDefined();
       // The access table's label and the rail's label are the same string, which is the
@@ -50,13 +50,13 @@ describe("nav icons", () => {
       expect(pageLabel(href)).toBe(item?.label);
       expect(item?.label.length).toBeGreaterThan(0);
     }
-    expect(navItems.find((i) => i.href === "/plan-preview")?.label).toBe(planRoutes.heading);
-    expect(navItems.find((i) => i.href === "/map-preview")?.label).toBe(mapPreview.heading);
-    expect(navItems.find((i) => i.href === "/ramp-preview")?.label).toBe(rampPreview.heading);
+    expect(navItems.find((i) => i.href === "/plan-routes")?.label).toBe(planRoutes.heading);
+    expect(navItems.find((i) => i.href === "/live-map")?.label).toBe(liveMap.heading);
+    expect(navItems.find((i) => i.href === "/ramp-ipad")?.label).toBe(rampIpad.heading);
   });
 
   it("names the ramp iPad the way PRD §14 names it (l.1055, l.1061)", () => {
-    expect(rampPreview.heading).toBe("Ramp iPad");
+    expect(rampIpad.heading).toBe("Ramp iPad");
   });
 
   it("every label is also the label the access table carries for that row", () => {

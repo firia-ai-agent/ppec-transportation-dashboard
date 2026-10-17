@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { canOpenPage } from "@/auth/access";
 import type { StaffRole } from "@/auth/core";
-import { mapPreview, nav, planRoutes, rampPreview } from "./copy";
+import { liveMap, nav, planRoutes, rampIpad } from "./copy";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon };
 
@@ -22,15 +22,17 @@ export type NavItem = { href: string; label: string; icon: LucideIcon };
  * ROI. Three more screens are built and were reachable only by typing their URL, which is not a
  * way anybody finds a screen, so they are in the rail too:
  *
- *  - **Plan routes** (`/plan-preview`) — the planning surface staff reach before the board has
+ *  - **Plan routes** (`/plan-routes`) — the planning surface staff reach before the board has
  *    anything on it (B-09 VEH-01…05, B-13). PRD §14 names no planning surface, so the label is
  *    the heading of the screen itself.
- *  - **Map preview** (`/map-preview`) — the fleet pane (DESIGN-DIRECTION §5). PRD §14 names no
+ *  - **Live map** (`/live-map`) — the fleet pane (DESIGN-DIRECTION §5). PRD §14 names no
  *    map surface either: the map lands *inside* SURF-01 at BUILD-PLAN-M2 P-03, and this route is
- *    where it is walked until then. The label is the screen's own heading and stays "Map
- *    preview" rather than "Live map", because nothing on this route is live — a client clock
- *    replays the fixtures in src/fixtures/replays.ts (COPY-GUIDE §1, honest about certainty).
- *  - **Ramp iPad** (`/ramp-preview`) — SURF-04, and the one of the three the PRD does name:
+ *    where it is walked until then. The label is the screen's own heading. It was "Map preview",
+ *    which named the build rather than the screen, and Vera's review (2026-10-17) rules out
+ *    "preview" in any menu label or address; where the positions come from is said by the §7.1
+ *    "Simulated" chip in the DEMO bar, which the root layout renders on this route as on every
+ *    other, and by the screen's own `signedInOnly` line (COPY-GUIDE §1, honest about certainty).
+ *  - **Ramp iPad** (`/ramp-ipad`) — SURF-04, and the one of the three the PRD does name:
  *    "Ramp iPad" in both the §14 navigation line and the §14 SURF-04 entry (l.1055, l.1061). It
  *    is its own full-screen route (§2) and so renders no rail of its own; the rail still links
  *    to it, because the front desk cannot open a console page and this is their surface.
@@ -49,7 +51,7 @@ export type NavItem = { href: string; label: string; icon: LucideIcon };
  *  - Setup uses `settings`, Health & ROI uses `activity`; neither appears in §3 or §7.1.
  *  - Plan routes uses `route`. Not `map-pin` or `navigation`: §3 gives both a meaning about
  *    *where a van is now*, and planning is about which van a child rides in.
- *  - Map preview uses `map`. §3 claims `map-pin` (At pickup) and `map-pin-check` (Arrived), and
+ *  - Live map uses `map`. §3 claims `map-pin` (At pickup) and `map-pin-check` (Arrived), and
  *    §7.1 claims none of the family — but `map` itself is claimed by neither, and on the one
  *    destination that *is* a map it cannot be mistaken for a van's state.
  *  - Ramp iPad uses `tablet`, the surface the PRD names it after. No §3 or §7.1 meaning, and
@@ -57,18 +59,25 @@ export type NavItem = { href: string; label: string; icon: LucideIcon };
  * nav-items.test.ts fails if any nav icon collides with a state or source-mode icon, or if two
  * destinations share one.
  *
- * Order: §2's four destinations keep their document order, the two console previews sit between
- * the board and the exceptions it raises (plan the day, then watch it move), and the ramp iPad
- * is last — PRD §14 lists it last, after the console destinations, because it is not one.
+ * Order: §2's four destinations keep their document order, Plan routes and the live map sit
+ * between the board and the exceptions it raises (plan the day, then watch it move), and the
+ * ramp iPad is last — PRD §14 lists it last, after the console destinations, because it is not
+ * one.
+ *
+ * Addresses: each one is the screen's own name, `/plan-routes`, `/live-map`, `/ramp-ipad`. The
+ * three used to be `/plan-preview`, `/map-preview` and `/ramp-preview` — a word about how
+ * finished the build is, in a URL a founder reads out loud. Those three still answer, as
+ * permanent redirects behind the same rows of the access table (src/app/plan-preview/page.tsx
+ * and its two siblings), so a bookmark or a link in an old PR still lands on the screen.
  */
 export const navItems: readonly NavItem[] = [
   { href: "/today", label: nav.today, icon: LayoutDashboard },
-  { href: "/plan-preview", label: planRoutes.heading, icon: Route },
-  { href: "/map-preview", label: mapPreview.heading, icon: MapIcon },
+  { href: "/plan-routes", label: planRoutes.heading, icon: Route },
+  { href: "/live-map", label: liveMap.heading, icon: MapIcon },
   { href: "/exceptions", label: nav.exceptions, icon: Flag },
   { href: "/setup", label: nav.setup, icon: Settings },
   { href: "/health", label: nav.health, icon: Activity },
-  { href: "/ramp-preview", label: rampPreview.heading, icon: Tablet },
+  { href: "/ramp-ipad", label: rampIpad.heading, icon: Tablet },
 ];
 
 /** The rail highlights the section, so /today/<child> still marks "Today" as current. */
@@ -85,8 +94,8 @@ export function isCurrent(pathname: string, href: string): boolean {
  *  - DIRECTOR and COORDINATOR — the whole rail. ARCHITECTURE §1 gives the web console to the
  *    coordinator and the director, PRD §6.2 gives them the attendance plan and the legs, and
  *    both walk the ramp iPad too.
- *  - FRONT_DESK — the ramp iPad (PRD §6.2, ARCHITECTURE §1: their own surface) and the map
- *    preview, whose row is all staff because a person at the door needs to see where the vans
+ *  - FRONT_DESK — the ramp iPad (PRD §6.2, ARCHITECTURE §1: their own surface) and the live
+ *    map, whose row is all staff because a person at the door needs to see where the vans
  *    are; the per-key matrix in src/domain/access/map-view.ts then withholds the family labels
  *    and the notification queue from them. No console destination, which is correct.
  *  - `null` (signed in, no membership anywhere) — nothing.
