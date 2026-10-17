@@ -28,11 +28,18 @@ import styles from "./AppShell.module.css";
 export function AppShell({
   displayName,
   role,
+  clockMayMove = false,
   children,
 }: {
   displayName: string;
   /** The caller's role, so the rail offers only the pages they can open. `null` shows none. */
   role: StaffRole | null;
+  /**
+   * Whether this shell may carry a clock control at all (Veri). Decided by the console layout
+   * from the environment — the date override's own gate — and never by a role: on a deployment
+   * nobody gets one, and the readout beside it is not a control.
+   */
+  clockMayMove?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -58,7 +65,7 @@ export function AppShell({
               <dt className={styles.factLabel}>{scenarioClock.label}</dt>
               {/* The demo clock is wired by the demo-controls dock (§6.1); until then it says so. */}
               <dd className={styles.factValue}>
-                <ScenarioClock />
+                <ScenarioClock mayMove={clockMayMove} />
               </dd>
             </div>
           </dl>

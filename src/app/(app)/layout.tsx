@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { LAYOUT } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
+import { dateOverrideAllowed } from "@/domain/board/day";
 import { AppShell } from "@/ui/AppShell";
 import { LiveStreamProvider } from "@/ui/LiveStream";
 
@@ -32,7 +33,17 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const caller = await requirePage(LAYOUT.console);
   return (
     <LiveStreamProvider>
-      <AppShell displayName={caller.displayName ?? ""} role={caller.kind === "STAFF" ? caller.role : null}>
+      <AppShell
+        displayName={caller.displayName ?? ""}
+        role={caller.kind === "STAFF" ? caller.role : null}
+        /*
+         * Whether this shell may carry a clock control (Veri): the date override's own gate,
+         * read here because the shell is a server component and the clock is a client one. No
+         * deployment we own passes it, so no deployment has a control that moves the scenario
+         * clock — the header's readout stays, because reading a clock moves nothing.
+         */
+        clockMayMove={dateOverrideAllowed(process.env)}
+      >
         {children}
       </AppShell>
     </LiveStreamProvider>

@@ -20,6 +20,11 @@
  * date through `requestedServiceDay`, so on any deployment a `?date=` is not a day the board
  * can be moved to, it is a parameter nothing reads (Veri #49).
  *
+ * The **clock** is behind the same four gates, and through the same helper: `requestedClockSpeed`
+ * is `requestedServiceDay` for §6.2's clock speeds. Moving the clock and moving the day are the
+ * same kind of act — asking the console for a morning other than the one it is replaying at the
+ * speed of a day — so they are one gate rather than two that could drift apart (Veri).
+ *
  * Pure: the instants are whole-day offsets from the scenario's own start (`SCENARIO_START_MS`),
  * so nothing here reads a clock and every date in range is as deterministic as the demo day. The
  * range is bounded at a fortnight each way for exactly that reason: whole-day arithmetic is only
@@ -27,7 +32,14 @@
  * Wednesday stays inside EDT.
  */
 
-import { clampTick, instantAt, tickAtScenarioSeconds } from "@/domain/eta/scenario-clock";
+import { liveStreamConfig } from "@/config/live";
+import {
+  clampTick,
+  instantAt,
+  normalizeSpeed,
+  tickAtScenarioSeconds,
+  type ClockSpeed,
+} from "@/domain/eta/scenario-clock";
 import { SCENARIO_START_MS } from "@/fixtures/replays";
 import { serviceDateIso, serviceDateLabel, SITE_TIME_ZONE } from "@/ui/service-date";
 
@@ -221,4 +233,28 @@ export function requestedServiceDay(
   env: Record<string, string | undefined>,
 ): ServiceDay {
   return dateOverrideAllowed(env) ? serviceDayFor(dateIso) : demoDay();
+}
+
+/**
+ * The speed the scenario clock runs at for a request: ×1, unless this shell is the same test
+ * shell that may move the day (Veri).
+ *
+ * **The gate is `dateOverrideAllowed` itself**, called rather than copied, so there is exactly
+ * one list of gates in this build and the clock cannot drift away from the date by someone
+ * editing one of two copies. The clock is the same kind of act as the date: §6.2's ×10 and ×60
+ * exist so a browser check can reach the 180 s badge, the 600 s exception and the one damped
+ * window inside a test, and a console that read `?speed=` on a deployment would be a demo
+ * instrument on a coordinator's screen — a morning running ten times over, with every age and
+ * every window on it true of a day that is not passing at that rate.
+ *
+ * A speed outside the gate is not an error, for the same reason a date outside it is not: it is
+ * the console's own ×1 (`liveStreamConfig.defaultSpeed`). A URL is typed by hand and pasted into
+ * chats, and a board that refused to render would be a worse answer than the speed it was always
+ * going to run at.
+ */
+export function requestedClockSpeed(
+  raw: string | number | undefined | null,
+  env: Record<string, string | undefined>,
+): ClockSpeed {
+  return dateOverrideAllowed(env) ? normalizeSpeed(raw) : liveStreamConfig.defaultSpeed;
 }

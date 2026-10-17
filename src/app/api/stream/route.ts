@@ -22,7 +22,8 @@
 import { API, mapViewerOf } from "@/auth/access";
 import { requireApiSession } from "@/auth/api-guard";
 import { liveStreamConfig } from "@/config/live";
-import { normalizeSpeed, parseLastTick, tickIntervalMs } from "@/domain/eta/scenario-clock";
+import { requestedClockSpeed } from "@/domain/board/day";
+import { parseLastTick, tickIntervalMs } from "@/domain/eta/scenario-clock";
 import { advance, openStream, streamExpired } from "@/modules/realtime/live-board-stream";
 import { encodeFrame, encodeRetry, LAST_EVENT_ID_HEADER, SSE_HEADERS } from "@/modules/realtime/sse";
 
@@ -46,10 +47,12 @@ export async function GET(request: Request): Promise<Response> {
   );
   /*
    * §6.2's clock speeds. ×1 on the console — the demo day runs at the speed of a day — and the
-   * faster two are the review and test path, the way `?date=` is: they only change how long we
+   * faster two are the review and test path, behind the *same gate* `?date=` is behind
+   * (`requestedClockSpeed` → `dateOverrideAllowed`, src/domain/board/day.ts): a subscriber on
+   * any deployment is walked at ×1 whatever it asked for. They only ever change how long we
    * wait between ticks, never what a tick contains (PRD §8).
    */
-  const speed = normalizeSpeed(url.searchParams.get("speed"));
+  const speed = requestedClockSpeed(url.searchParams.get("speed"), process.env);
 
   /*
    * What this subscriber may see. The same matrix the map preview reads

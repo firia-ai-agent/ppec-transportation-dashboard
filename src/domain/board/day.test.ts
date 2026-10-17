@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { liveStreamConfig } from "@/config/live";
 import { SCENARIO_START_MS } from "@/fixtures/replays";
 import { serviceDate } from "@/ui/copy";
 import { serviceDateIso, serviceDateLabel } from "@/ui/service-date";
@@ -11,6 +14,7 @@ import {
   dateOverrideAllowed,
   demoDay,
   localTimeOn,
+  requestedClockSpeed,
   requestedServiceDay,
   serviceDayFor,
 } from "./day";
@@ -111,6 +115,111 @@ describe("the date override is a test path and nothing a deployment has", () => 
   it("an empty environment is the demo day, so a forgotten variable cannot open it", () => {
     expect(dateOverrideAllowed({})).toBe(false);
     expect(requestedServiceDay(yesterday, {}).iso).toBe(DEMO_SERVICE_DATE);
+  });
+});
+
+/**
+ * Veri: the scenario clock may be moved only under **exactly** the same gates as the date, and
+ * through the same helper rather than a second copy of the list.
+ *
+ * §6.2's ×10 and ×60 exist so a browser check can reach the 180 s badge, the 600 s exception and
+ * the one damped window inside a test. A console that read `?speed=` on a deployment would be a
+ * demo instrument on a coordinator's screen: a morning running ten times over, every age and
+ * every window on it true of a day that is not passing at that rate. So it is one gate for both,
+ * and the first of its four conditions cannot hold on any deployment we own.
+ */
+describe("the scenario clock moves only under the date's own gates", () => {
+  const TEST_SHELL = {
+    APP_DATA_CLASS: "SYNTHETIC",
+    DEMO_MODE: "1",
+    [DATE_OVERRIDE_ENV_VAR]: "1",
+  } as const;
+
+  const CONSOLE_SPEED = liveStreamConfig.defaultSpeed;
+  const yesterday = demoDay().previousIso!;
+
+  it("runs the demo day at the console's own ×1 by default, open gate or not", () => {
+    expect(CONSOLE_SPEED).toBe(1);
+    expect(requestedClockSpeed(undefined, TEST_SHELL)).toBe(CONSOLE_SPEED);
+    expect(requestedClockSpeed(undefined, {})).toBe(CONSOLE_SPEED);
+  });
+
+  it("lets a test shell ask for the §6.2 speeds", () => {
+    expect(dateOverrideAllowed(TEST_SHELL)).toBe(true);
+    for (const speed of liveStreamConfig.speeds) {
+      expect(requestedClockSpeed(String(speed), TEST_SHELL)).toBe(speed);
+    }
+    // A speed that is not one of the three falls back rather than failing, like a bad `?date=`.
+    for (const asked of ["1000", "-1", "fast", ""]) {
+      expect(requestedClockSpeed(asked, TEST_SHELL)).toBe(CONSOLE_SPEED);
+    }
+  });
+
+  /**
+   * One row per gate, each closed on its own with the other three left open — so a gate that
+   * stopped being read fails here by itself rather than hiding behind the next one. The first
+   * two rows are the deployments: `VERCEL_ENV` is set by the platform on preview and on
+   * production, which is why **no deployment has a clock to move**.
+   */
+  it.each([
+    ["production, where the platform sets VERCEL_ENV", { VERCEL_ENV: "production" }],
+    ["a preview, which is a deployment too", { VERCEL_ENV: "preview" }],
+    ["real data (ADR-015)", { APP_DATA_CLASS: "LIVE" }],
+    ["no data class at all", { APP_DATA_CLASS: undefined }],
+    ["the demo switch off (ADR-014)", { DEMO_MODE: "0" }],
+    ["the demo switch unset", { DEMO_MODE: undefined }],
+    ["an ordinary local shell that did not ask", { [DATE_OVERRIDE_ENV_VAR]: undefined }],
+    ["an override asked for by any other value", { [DATE_OVERRIDE_ENV_VAR]: "true" }],
+  ])("is ×1 on %s, whatever speed was asked for", (_why, closed) => {
+    const env = { ...TEST_SHELL, ...closed };
+    expect(dateOverrideAllowed(env)).toBe(false);
+    for (const asked of [10, 60, "10", "60", "1000"]) {
+      expect(requestedClockSpeed(asked, env)).toBe(CONSOLE_SPEED);
+    }
+  });
+
+  it("is the same gate as the date's, not a second list that could drift", () => {
+    // Every combination of the four gates: the day moves exactly when the clock does.
+    for (const vercel of [undefined, "production"]) {
+      for (const dataClass of [undefined, "SYNTHETIC"]) {
+        for (const demo of [undefined, "1"]) {
+          for (const asked of [undefined, "1"]) {
+            const env = {
+              VERCEL_ENV: vercel,
+              APP_DATA_CLASS: dataClass,
+              DEMO_MODE: demo,
+              [DATE_OVERRIDE_ENV_VAR]: asked,
+            };
+            const dayMoved = requestedServiceDay(yesterday, env).iso !== DEMO_SERVICE_DATE;
+            const clockMoved = requestedClockSpeed(60, env) !== CONSOLE_SPEED;
+            expect({ env, dayMoved, clockMoved }).toEqual({
+              env,
+              dayMoved: dateOverrideAllowed(env),
+              clockMoved: dateOverrideAllowed(env),
+            });
+          }
+        }
+      }
+    }
+  });
+
+  /**
+   * And the gate is *reached*: a surface that called `normalizeSpeed` itself would be the second
+   * copy of the rule this requirement is about, and it would pass every assertion above.
+   */
+  it("is how every surface reads a speed: none of them normalizes one itself", () => {
+    const SRC = path.resolve(__dirname, "..", "..");
+    const readers = [
+      path.join(SRC, "app", "(app)", "today", "page.tsx"),
+      path.join(SRC, "app", "api", "stream", "route.ts"),
+    ];
+    for (const file of readers) {
+      const source = readFileSync(file, "utf8");
+      expect(source, `${file} reads the speed through the gate`).toMatch(
+        /requestedClockSpeed\([\s\S]*?process\.env\)/,
+      );
+      expect(source, `${file} normalizes a speed of its own`).not.toMatch(/normalizeSpeed\(/);
+    }
   });
 });
 

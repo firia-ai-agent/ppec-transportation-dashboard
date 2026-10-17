@@ -3,6 +3,7 @@ import path from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { DATE_OVERRIDE_ENV_VAR, dateOverrideAllowed } from "@/domain/board/day";
 import { adapters, demoBanner, login, nav, scenarioClock, unbuilt } from "./copy";
 import { DemoBanner } from "./DemoBanner";
 import { Placeholder } from "./Placeholder";
@@ -119,7 +120,7 @@ describe("NFR-09 / §7.1: the source-mode chip sits next to the DEMO banner", ()
   it("every signed-in route is inside the layout that sits under that one bar", () => {
     // The (app) layout must not mount a bar of its own — one per screen, from the root.
     const appLayout = read(APP, "(app)", "layout.tsx");
-    expect(appLayout).toMatch(/<AppShell /);
+    expect(appLayout).toMatch(/<AppShell[\s>]/);
     expect(appLayout).not.toMatch(/DemoBanner|ScreenSource|SourceBadge/);
     // ...and it must actually wrap the signed-in pages, or they would render bare.
     const routes = readdirSync(path.join(APP, "(app)"), { withFileTypes: true })
@@ -229,7 +230,7 @@ describe("§2 scenario clock", () => {
     expect(css).toMatch(/\.start:focus \+ \.tooltip/);
   });
 
-  it("renders a focusable, inert Start whose note is tied to it", () => {
+  it("renders a focusable, inert Start whose note is tied to it, where it renders one", () => {
     /*
      * Through `createElement`, not by calling it: the clock reads the live board's context now
      * (the readout is the tick the stream is walking), so it is a component with a hook in it
@@ -237,7 +238,7 @@ describe("§2 scenario clock", () => {
      * also the honest case this assertion is about — a surface with no stream has no scenario
      * time to show and says "Demo not started".
      */
-    const html = renderToStaticMarkup(createElement(ScenarioClock));
+    const html = renderToStaticMarkup(createElement(ScenarioClock, { mayMove: true }));
     expect(html).toContain(scenarioClock.notStarted);
     expect(html).toContain(scenarioClock.start);
     expect(html).toContain(escapeApostrophes(scenarioClock.startUnavailable));
@@ -248,6 +249,93 @@ describe("§2 scenario clock", () => {
     const describedBy = /aria-describedby="([^"]+)"/.exec(html)?.[1];
     expect(describedBy).toBeTruthy();
     expect(html).toContain(`id="${describedBy}" role="tooltip"`);
+  });
+});
+
+/**
+ * Veri: no deployment carries a control that moves the scenario clock — preview or production,
+ * whoever is signed in.
+ *
+ * The gate is the date override's own (`dateOverrideAllowed`, src/domain/board/day.ts), read by
+ * the console layout and handed to the shell, so there is one list of gates in the build rather
+ * than one for the day and one for the clock. One test per gate below, each closing a single
+ * condition with the other three left open, so a gate that stopped being read fails on its own
+ * line. The *readout* is in every case still there: reading a clock moves nothing.
+ */
+describe("§6.2 / Veri: a clock control only where the clock may be moved", () => {
+  const TEST_SHELL = {
+    APP_DATA_CLASS: "SYNTHETIC",
+    DEMO_MODE: "1",
+    [DATE_OVERRIDE_ENV_VAR]: "1",
+  } as const;
+
+  const clockHtml = (env: Record<string, string | undefined>): string =>
+    renderToStaticMarkup(
+      createElement(ScenarioClock, { mayMove: dateOverrideAllowed(env) }),
+    );
+
+  it("offers Start in a local test shell, where the demo dock will live", () => {
+    const html = clockHtml(TEST_SHELL);
+    expect(html).toContain(scenarioClock.start);
+    expect(html).toContain(scenarioClock.notStarted);
+  });
+
+  it.each([
+    ["production, where the platform sets VERCEL_ENV", { VERCEL_ENV: "production" }],
+    ["a preview, which is a deployment too", { VERCEL_ENV: "preview" }],
+    ["real data (ADR-015)", { APP_DATA_CLASS: "LIVE" }],
+    ["no data class at all", { APP_DATA_CLASS: undefined }],
+    ["the demo switch off (ADR-014)", { DEMO_MODE: "0" }],
+    ["the demo switch unset", { DEMO_MODE: undefined }],
+    ["an ordinary local shell that did not ask", { [DATE_OVERRIDE_ENV_VAR]: undefined }],
+    ["an override asked for by any other value", { [DATE_OVERRIDE_ENV_VAR]: "true" }],
+  ])("has no clock control on %s, and still reads the clock", (_why, closed) => {
+    const html = clockHtml({ ...TEST_SHELL, ...closed });
+    // No control of any kind: not a disabled one, not a tooltip promising one.
+    expect(html).not.toContain(scenarioClock.start);
+    expect(html).not.toContain(escapeApostrophes(scenarioClock.startUnavailable));
+    expect(html).not.toMatch(/<button/);
+    expect(html).not.toMatch(/role="tooltip"/);
+    // The readout is not a control and is still here.
+    expect(html).toContain(scenarioClock.notStarted);
+  });
+
+  it("an empty environment has no control either, so a forgotten variable cannot open one", () => {
+    expect(clockHtml({})).not.toMatch(/<button/);
+  });
+
+  /**
+   * And the gate is read where it can be: the clock is a client component, so it takes the
+   * answer as a prop and never reads an environment of its own — a `process.env` in there would
+   * be a second gate, evaluated in the browser bundle, where every value is whatever the build
+   * inlined.
+   */
+  it("is decided on the server and handed down, never read in the component", () => {
+    const clock = read(UI, "ScenarioClock.tsx");
+    expect(clock).not.toMatch(/process\.env/);
+    expect(clock).toMatch(/mayMove/);
+    expect(read(UI, "AppShell.tsx")).toMatch(/<ScenarioClock mayMove=\{clockMayMove\} \/>/);
+
+    for (const file of [
+      path.join(APP, "(app)", "layout.tsx"),
+      path.join(APP, "map-preview", "page.tsx"),
+    ]) {
+      const source = readFileSync(file, "utf8");
+      expect(source, `${file} reads the date override's own gate`).toMatch(
+        /dateOverrideAllowed\(process\.env\)/,
+      );
+    }
+  });
+
+  /**
+   * The preview's dock is the other place with clock controls, and it needs **both**: the role
+   * matrix says who holds the demo controls, and the gate says whether this shell may move a
+   * clock at all.
+   */
+  it("the map preview's own play, pause and speed need the gate as well as the role", () => {
+    const preview = read(UI, "..", "components", "map", "LiveFleetMap.tsx");
+    expect(preview).toMatch(/can\("clockControls"\) && clockMayMove/);
+    expect(preview).not.toMatch(/process\.env\.(VERCEL_ENV|DEMO_MODE|APP_DATA_CLASS)/);
   });
 });
 

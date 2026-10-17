@@ -79,6 +79,7 @@ export {
   boardInstantMs,
   demoDay,
   demoDayAtTick,
+  requestedClockSpeed,
   requestedServiceDay,
   serviceDayFor,
 } from "./day";

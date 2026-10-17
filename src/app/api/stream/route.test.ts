@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StaffRole } from "@/auth/core";
 import { apiAccess } from "@/ui/copy";
-import { BOARD_SCENARIO_TICK } from "@/domain/board/day";
+import { BOARD_SCENARIO_TICK, DATE_OVERRIDE_ENV_VAR } from "@/domain/board/day";
 import { snapshotFor } from "@/domain/board/live";
 import { LIVE_EVENT, SSE_CONTENT_TYPE } from "@/modules/realtime/sse";
 
@@ -84,13 +84,33 @@ async function read(
   return { raw, frames };
 }
 
+/**
+ * A local test shell, which is the only kind that may ask this route for a faster clock
+ * (`requestedClockSpeed` → `dateOverrideAllowed`, src/domain/board/day.ts). The checks below
+ * that read a delta use `?speed=60` to reach one in milliseconds instead of five seconds, and
+ * off a test shell that parameter is ignored — which is the point, and has its own tests at the
+ * bottom of this file.
+ */
+const TEST_SHELL: Readonly<Record<string, string>> = {
+  APP_DATA_CLASS: "SYNTHETIC",
+  DEMO_MODE: "1",
+  [DATE_OVERRIDE_ENV_VAR]: "1",
+};
+
+function shell(env: Record<string, string | undefined>): void {
+  vi.stubEnv("VERCEL_ENV", undefined);
+  for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
+  shell(TEST_SHELL);
 });
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
 });
 
 describe("who may subscribe", () => {
@@ -289,5 +309,74 @@ describe("a site id in the query buys nothing (BUILD-PLAN §4)", () => {
     const mine = await read(await open(), 1);
     const theirs = await read(await open("?site=00000000-0000-0000-0000-00000000beef"), 1);
     expect(theirs.frames[0].data).toEqual(mine.frames[0].data);
+  });
+});
+
+/**
+ * Veri: a subscriber may only move the scenario clock under the same gates as the date, so no
+ * deployment is walked faster than the day it is replaying.
+ *
+ * Asserted as the thing a subscriber would actually notice — how soon a **delta** arrives. At
+ * ×60 a tick is 83 ms, so one lands inside the window below several times over; at the console's
+ * own ×1 a tick is five seconds and the window closes with the snapshot and nothing after it.
+ * One row per gate, each closed on its own with the other three left open.
+ */
+describe("the clock speed is gated exactly as the date is", () => {
+  /** Long enough for ~5 ticks at ×60 and nowhere near the first tick at ×1. */
+  const WINDOW_MS = 400;
+
+  /** Every frame that arrives within `ms` of real time — including none at all. */
+  async function framesWithin(
+    response: Response,
+    ms: number,
+  ): Promise<Array<{ event: string }>> {
+    const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+    const decoder = new TextDecoder();
+    const frames: Array<{ event: string }> = [];
+    const deadline = Date.now() + ms;
+    try {
+      for (;;) {
+        const left = deadline - Date.now();
+        if (left <= 0) break;
+        const next = await Promise.race([
+          reader.read(),
+          new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), left)),
+        ]);
+        if (next === "timeout") break;
+        if (next.done) break;
+        for (const block of decoder.decode(next.value, { stream: true }).split("\n\n")) {
+          const event = /^event: (.+)$/m.exec(block);
+          if (event) frames.push({ event: event[1] });
+        }
+      }
+    } finally {
+      await reader.cancel();
+    }
+    return frames;
+  }
+
+  it("walks a test shell at the ×60 it asked for", async () => {
+    signedIn("COORDINATOR");
+    const frames = await framesWithin(await open("?speed=60"), WINDOW_MS);
+    expect(frames.filter((f) => f.event === LIVE_EVENT.delta).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ["production, where the platform sets VERCEL_ENV", { VERCEL_ENV: "production" }],
+    ["a preview, which is a deployment too", { VERCEL_ENV: "preview" }],
+    ["real data (ADR-015)", { APP_DATA_CLASS: "LIVE" }],
+    ["no data class at all", { APP_DATA_CLASS: undefined }],
+    ["the demo switch off (ADR-014)", { DEMO_MODE: "0" }],
+    ["the demo switch unset", { DEMO_MODE: undefined }],
+    ["an ordinary local shell that did not ask", { [DATE_OVERRIDE_ENV_VAR]: undefined }],
+    ["an override asked for by any other value", { [DATE_OVERRIDE_ENV_VAR]: "true" }],
+  ])("walks %s at ×1, whatever speed it asked for", async (_why, closed) => {
+    shell({ ...TEST_SHELL, ...closed });
+    signedIn("COORDINATOR");
+    const frames = await framesWithin(await open("?speed=60"), WINDOW_MS);
+    // The board still arrives — the clock is gated, the stream is not.
+    expect(frames.some((f) => f.event === LIVE_EVENT.snapshot)).toBe(true);
+    // And nothing has moved yet, because at ×1 the next tick is five seconds away.
+    expect(frames.filter((f) => f.event === LIVE_EVENT.delta)).toEqual([]);
   });
 });

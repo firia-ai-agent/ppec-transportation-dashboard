@@ -24,6 +24,7 @@ import LiveFleetMap from "@/components/map/LiveFleetMap";
 import { mapPreview } from "@/ui/copy";
 import { canOpenPage, mapViewerOf } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
+import { dateOverrideAllowed } from "@/domain/board/day";
 
 export const metadata = { title: mapPreview.documentTitle };
 
@@ -91,7 +92,12 @@ export default async function MapPreviewPage() {
           <Link href="/plan-preview">{mapPreview.openPlanRoutes}</Link>
         </p>
       ) : null}
-      <LiveFleetMap viewer={viewer} />
+      {/*
+        Whether this shell may carry a clock control (Veri): the date override's own gate, read
+        here on the server. On any deployment the preview's trucks still move — that is what the
+        page is for — and nobody, director included, gets play, pause, speed or restart.
+      */}
+      <LiveFleetMap viewer={viewer} clockMayMove={dateOverrideAllowed(process.env)} />
     </main>
   );
 }

@@ -1,8 +1,12 @@
 import { mapViewerOf } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
-import { BOARD_SCENARIO_TICK, buildBoard, requestedServiceDay } from "@/domain/board/board";
+import {
+  BOARD_SCENARIO_TICK,
+  buildBoard,
+  requestedClockSpeed,
+  requestedServiceDay,
+} from "@/domain/board/board";
 import { snapshotFor } from "@/domain/board/live";
-import { normalizeSpeed } from "@/domain/eta/scenario-clock";
 import { TodayBoard } from "./TodayBoard";
 import { streamsLiveUpdates } from "./live-view";
 
@@ -70,9 +74,10 @@ export default async function Page({
    * role may hold is the map-view matrix's, in one place, applied before the payload is built.
    */
   const initialSnapshot = live ? snapshotFor(mapViewerOf(caller), BOARD_SCENARIO_TICK) : null;
-  // §6.2's clock speeds, the review and test path — the same shape as `?date=`: anything that
-  // is not one of the three offered speeds is the console's own (`normalizeSpeed`).
-  const speed = normalizeSpeed(one(params.speed));
+  // §6.2's clock speeds, the review and test path — and read through the *same gate* as the
+  // date, not a second one of its own (Veri): off a test shell, and on every deployment, the
+  // clock is the console's own ×1 whatever `?speed=` says.
+  const speed = requestedClockSpeed(one(params.speed), process.env);
 
   return (
     <TodayBoard

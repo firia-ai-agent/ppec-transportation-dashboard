@@ -238,9 +238,20 @@ const heading: React.CSSProperties = {
 export interface LiveFleetMapProps {
   /** The signed-in role, from the route's own guard. */
   viewer: MapViewer;
+  /**
+   * Whether this shell may carry a clock control at all (Veri): the date override's own gate,
+   * read on the server by the route and handed down, because this is a client component.
+   *
+   * Two conditions, not one, and they answer different questions: the role matrix says *who*
+   * holds the demo controls (`clockControls`, a director), and this says whether the shell they
+   * are in is one where a clock may be moved. No deployment we own passes the second, so a
+   * director on a preview or in production gets the clock *running* and no control over it —
+   * which is the same answer the console's own header gives (src/ui/ScenarioClock.tsx).
+   */
+  clockMayMove?: boolean;
 }
 
-export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
+export default function LiveFleetMap({ viewer, clockMayMove = false }: LiveFleetMapProps) {
   const can = (key: Parameters<typeof canSeeMapData>[1]) => canSeeMapData(viewer, key);
   const reduced = useReducedMotion();
   const [playing, setPlaying] = useState(true);
@@ -310,9 +321,11 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
         }}
       >
         <span style={heading}>{fill(mapPreview.clock, { time: formatClock(nowMs) })}</span>
-        {/* §6.2: the clock is a demo control, so only the role that holds them gets it. The
-            clock itself keeps running for everyone — the readout above is not a control. */}
-        {can("clockControls") ? (
+        {/* §6.2: the clock is a demo control, so only the role that holds them gets it — and
+            only in a shell where the clock may be moved at all, which no deployment is (Veri;
+            `clockMayMove` above). The clock itself keeps running for everyone: the readout
+            beside these buttons is not a control. */}
+        {can("clockControls") && clockMayMove ? (
           <>
             <button type="button" style={button} onClick={() => setPlaying((p) => !p)}>
               {playing ? mapPreview.pause : mapPreview.play}
