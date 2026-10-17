@@ -220,6 +220,18 @@ test.describe.serial("§1.7: the board a coordinator plans on", () => {
     );
   });
 
+  test("§9.6 #7: a deep link restores the leg and the van it names", async ({ page }) => {
+    await openBoard(page);
+    const vanTwo = vans(page).nth(1);
+    const id = await vanTwo.getAttribute("data-van");
+    await page.goto(`/plan-routes?date=${DAY}&leg=pm&van=${id}`);
+    // The leg is the one in the address…
+    await expect(page.locator('[data-leg="PM"]')).toHaveAttribute("aria-current", "page");
+    // …and the van it names is the one the board opens on.
+    await expect(page.locator(`[data-van="${id}"]`)).toHaveAttribute("data-selected", "true");
+    await expect(page.locator("[data-selected]")).toHaveCount(1);
+  });
+
   test("§9.3 at 390: one column at a time, with Move to… instead of a cross-column drag", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openBoard(page);

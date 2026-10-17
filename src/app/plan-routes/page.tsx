@@ -23,7 +23,7 @@
 import { requirePage } from "@/auth/page-guard";
 import { loadBoard, planStore } from "@/modules/plan/store";
 import { siteOf } from "@/modules/plan/api";
-import { resolveDate, resolveLeg } from "@/modules/plan/when";
+import { resolveDate, resolveLeg, VAN_PARAM } from "@/modules/plan/when";
 import { flow, planBoard } from "@/ui/copy";
 import PlanBoard from "./board/PlanBoard";
 import styles from "./board/board.module.css";
@@ -45,6 +45,9 @@ export default async function PlanRoutesPage({
 
   const date = resolveDate(one(params.date));
   const leg = resolveLeg(one(params.leg) ?? one(params.direction));
+  // `?van=` is how the ramp iPad hands a leg back ("Re-plan") and how the board's own
+  // "Check vans" round trip returns: the van it names is the one the board opens on (§9.3).
+  const van = one(params[VAN_PARAM]);
 
   /*
    * The read is in the try and the rendering is not: a component's own render errors do not reach
@@ -70,5 +73,5 @@ export default async function PlanRoutesPage({
     );
   }
 
-  return <PlanBoard view={view} />;
+  return <PlanBoard view={view} selectedVanId={van ?? null} />;
 }

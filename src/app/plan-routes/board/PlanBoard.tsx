@@ -70,7 +70,18 @@ const TOAST_MS = 4000;
 /** This screen's own address, which its leg links point back at with a different `?leg=`. */
 const BOARD_PATH = "/plan-routes";
 
-export default function PlanBoard({ view }: { view: BoardView }) {
+export default function PlanBoard({
+  view,
+  selectedVanId = null,
+}: {
+  view: BoardView;
+  /**
+   * The van the address names (§9.3's `?van=`), which is where the ramp's Re-plan and the
+   * board's own "Check vans" round trip come back to: that column is ringed, its route is the one
+   * in front on the map, and on a phone it is the column already on screen.
+   */
+  selectedVanId?: string | null;
+}) {
   /* ── the plan, and the setups a coordinator has applied on top of the day ── */
   const [plan, setPlan] = useState<BoardPlan>(view.plan);
   const [setups, setSetups] = useState<Record<string, VanSetup>>({});
@@ -85,7 +96,7 @@ export default function PlanBoard({ view }: { view: BoardView }) {
   const [openSetup, setOpenSetup] = useState<string | null>(null);
   const [lifted, setLifted] = useState<BoardRider | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
-  const [shownColumn, setShownColumn] = useState<string>(UNASSIGNED_ID);
+  const [shownColumn, setShownColumn] = useState<string>(selectedVanId ?? UNASSIGNED_ID);
   const [leaveTo, setLeaveTo] = useState<string | null>(null);
 
   /** The day with whatever a coordinator has applied in the setup popover. */
@@ -417,6 +428,7 @@ export default function PlanBoard({ view }: { view: BoardView }) {
                 minutes={map.routes.find((route) => route.laneId === van.id)?.minutes ?? 0}
                 reject={lifted ? rejects[van.id] : undefined}
                 hovered={hovered === van.id}
+                selected={selectedVanId === van.id}
                 shown={shownColumn === van.id}
                 columns={columns}
                 onMove={applyMove}
@@ -443,7 +455,7 @@ export default function PlanBoard({ view }: { view: BoardView }) {
             moved between columns moves on the map rather than in a copy kept in step by hand.
           */}
           <aside className={styles.map} aria-label={planBoard.mapLabel}>
-            <PlanMap data={map} selectedLaneId={hovered} onSelect={() => undefined} />
+            <PlanMap data={map} selectedLaneId={hovered ?? selectedVanId} onSelect={() => undefined} />
           </aside>
         </div>
 

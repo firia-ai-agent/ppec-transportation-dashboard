@@ -33,6 +33,7 @@ export function VanColumn({
   minutes,
   reject,
   hovered,
+  selected,
   shown,
   columns,
   onMove,
@@ -48,6 +49,8 @@ export function VanColumn({
   /** Why this van cannot take the child being held, or null when it can, or undefined when none is. */
   reject: RejectReason | null | undefined;
   hovered: boolean;
+  /** This is the van the address names (§9.3's `?van=`): ringed, and first on a phone. */
+  selected: boolean;
   shown: boolean;
   columns: readonly { id: string | null; name: string }[];
   onMove: (childToken: string, vanId: string | null) => void;
@@ -72,6 +75,7 @@ export function VanColumn({
       data-role="van"
       data-van={van.id}
       data-shown={shown ? "true" : "false"}
+      data-selected={selected ? "true" : undefined}
       data-fit={reject === undefined ? undefined : reject === null ? "yes" : "no"}
       data-reject={reject && (hovered || pointerOver) ? "hover" : undefined}
       aria-label={van.name}
