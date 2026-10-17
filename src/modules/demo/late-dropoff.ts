@@ -52,7 +52,7 @@ import {
   type DueEtaNotice,
 } from "@/modules/messaging/eta-notice";
 import { renderTemplate } from "@/modules/messaging/templates";
-import { withoutSynPrefix } from "@/ui/copy";
+import { providerDisplayName } from "@/ui/copy";
 
 /** The run whose afternoon is replayed, and the direction. Noah's run; see the file header. */
 export const LATE_RUN_KEY = "R2";
@@ -198,7 +198,7 @@ export function demoLateDropoffs(
       phone: guardian.phone,
       stopPlace: stopByKey(decision.stopId).label,
       vanLabel: vehicle.label,
-      providerName: withoutSynPrefix(provider.name),
+      providerName: providerDisplayName(provider.name),
       atMs: decision.atMs,
       windowText: decision.windowText ?? "",
       delayMinutes: lateMinutesFor(decision.shiftSeconds),

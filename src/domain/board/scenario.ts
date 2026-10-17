@@ -51,7 +51,7 @@ import {
 } from "@/domain/location/route";
 import { DEMO_RUNS } from "@/fixtures/replays";
 import { runRoute } from "@/fixtures/run-routes";
-import { places } from "@/ui/copy";
+import { places, providerDisplayName } from "@/ui/copy";
 import { localTimeOn, type ServiceDay } from "./day";
 import {
   CHILDREN,
@@ -124,7 +124,9 @@ export function solverVehicle(vehicle: DemoVehicle): SolverVehicle {
     label,
     description: rest.join(" "),
     providerId: provider.key,
-    providerName: provider.name,
+    // Display-ready, because this is the fleet the board, the drawer and Plan routes read: the
+    // `SYN ` marker belongs in the fixture row and on no screen (copy.providerDisplayName).
+    providerName: providerDisplayName(provider.name),
     liftEquipped: vehicle.liftEquipped,
     layouts: vehicle.layouts.map((l) => ({
       id: `${vehicle.key}/${l.code}`,

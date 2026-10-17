@@ -42,6 +42,23 @@ export function withoutSynPrefix(name: string): string {
   return name.startsWith(SYN_PREFIX) ? name.slice(SYN_PREFIX.length) : name;
 }
 
+/**
+ * A provider's name as a screen says it — the one call every provider-display site makes.
+ *
+ * `withoutSynPrefix` is the general rule, and a provider is the case it kept being forgotten for:
+ * the fixtures module stripped at the vehicle (src/fixtures/fleet.ts) and the demo scenario's
+ * `solverVehicle` did not, so the drawer's "{van} · {provider}" line and Plan routes' "Ask …"
+ * buttons printed "SYN Palm Lift Transport" at a founder (Vera's review, 2026-10-17 14:40 ET)
+ * while the test that was meant to catch it read the *other* fixture list and passed.
+ *
+ * One named seam, so "is this name display-ready?" is a grep rather than a reading of each
+ * projection: every provider name a screen reads goes through here, and `no-codes.test.ts` walks
+ * the demo path as well as the fixture one.
+ */
+export function providerDisplayName(name: string): string {
+  return withoutSynPrefix(name);
+}
+
 /** The ADR-015 marker every synthetic row's name carries. Data only; never rendered. */
 export const SYN_PREFIX = "SYN ";
 
@@ -721,8 +738,6 @@ export const familyTexts = {
    * built yet", which told a founder about the build rather than about the day.
    */
   emptyDay: "No family texts today.",
-  /** The way back to the child this thread is about. */
-  backToBoard: "Open the board",
   /**
    * The live pair at the bottom of the thread: what a coordinator just typed as the family, and
    * what the assistant answered once a person approved it (`LiveBubbles.tsx`).
@@ -749,8 +764,14 @@ export const familyTexts = {
 
   /** The card that appears under the thread: what the assistant did with the text. */
   turnHeading: "What the assistant did",
-  /** Who answered. The model is named by its id, because that is the thing a reviewer checks. */
-  answeredByModel: "Answered by the model this deployment is set to use: {model}.",
+  /**
+   * Who answered. Vera's wording (2026-10-17 14:40 ET): a staff screen says "the assistant",
+   * because that is who a coordinator thinks they are reading. It used to name the model by its
+   * id — "claude-…" — which is a deployment setting, not a fact about this reply: it tells a
+   * coordinator nothing they can act on and reads as a leaked config value on a screen a founder
+   * demos. The id stays where a reviewer actually checks it, in the run's server-side record.
+   */
+  answeredByModel: "Answered by the assistant.",
   /**
    * The model could not be reached and the keyword reader answered instead. Vera's wording
    * (2026-10-17): plain, and it says which reader ran, because "the assistant is degraded" tells

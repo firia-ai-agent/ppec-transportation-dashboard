@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { demoDay } from "@/domain/board/day";
 import { buildBoard } from "@/domain/board/board";
 import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
-import { drawer, fill, familyTexts, places, sourceMode } from "@/ui/copy";
+import { drawer, fill, familyTexts, places, sourceMode, SYN_PREFIX } from "@/ui/copy";
 import { outboundStates } from "@/ui/states";
 import { LegDrawer } from "../today/LegDrawer";
 import { PhonePanel } from "./PhonePanel";
@@ -89,6 +89,28 @@ describe("the phone panel reads like a text thread", () => {
     expect(html).toContain(noah.vanLabel);
     expect(html).toContain(noah.providerName);
     expect(html).toContain(noah.stopPlace);
+    // The provider is a company, not a marked row: the ride line says "Greenacres center fleet"
+    // (copy.providerDisplayName), and the ADR-015 marker is nowhere on the screen at all.
+    expect(noah.providerName).not.toContain(SYN_PREFIX);
+    expect(html).not.toContain(SYN_PREFIX);
+  });
+
+  /**
+   * NO BACK-TO-BOARD LINK (Vera's review, 2026-10-17 14:40 ET).
+   *
+   * The panel used to carry one, because it was reachable only by typing its URL and a person who
+   * got here had no way out. The rail is on every page now (PR #64) and `/family-texts` is a row
+   * in it (nav-items.ts), so a second way back is a second control saying what the menu already
+   * says — and "Open the board" beside a thread reads as an action about the thread.
+   *
+   * Asserted as the absence of the control rather than of one phrasing: any link out of this
+   * panel to the board would fail this, whatever its words, and the copy entry is gone too so
+   * there is nothing left to re-mount it from.
+   */
+  it("carries no way back to the board: the rail is on every page now", () => {
+    expect(html).not.toMatch(/href="\/today/);
+    expect(html).not.toContain("Open the board");
+    expect(familyTexts).not.toHaveProperty("backToBoard");
   });
 
   it("carries the day the thread is from, and a real time under the bubble", () => {

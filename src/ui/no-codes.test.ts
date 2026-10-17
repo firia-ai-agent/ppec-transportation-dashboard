@@ -6,7 +6,8 @@ import { renderedStrings } from "./no-internals.test";
 import { DEMO_RUNS } from "@/fixtures/replays";
 import { FIXTURE_ROUTES } from "@/fixtures/routes";
 import { FLEET } from "@/fixtures/fleet";
-import { PROVIDERS } from "@/modules/demo/fixtures/standard";
+import { PROVIDERS, VEHICLES } from "@/modules/demo/fixtures/standard";
+import { solverVehicle } from "@/domain/board/scenario";
 import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
 import { knownTemplates, renderTemplate, templatePlaceholders, UNKNOWN_STOP } from "@/modules/messaging/templates";
 import { TEMPLATE_VARS } from "@/modules/outbox/outbox";
@@ -214,6 +215,27 @@ describe("the SYN marker is in the data and on no screen", () => {
     // And the phone panel's own ride line, which reads the fixtures directly.
     for (const drop of demoLateDropoffs()) {
       expect(drop.providerName, drop.childKey).not.toContain(copy.SYN_PREFIX);
+    }
+  });
+
+  /**
+   * The demo scenario's *own* fleet, which is a second projection and was the one that leaked.
+   *
+   * `FLEET` above is `src/fixtures/fleet.ts`, which strips at the vehicle. The board, the leg
+   * drawer and Plan routes do not read it: they read `solverVehicle` over the demo fixtures
+   * (board.ts → `providerName`, plan/day.ts → `lane.vehicle.providerName`), and that one passed
+   * `provider.name` through untouched. So the drawer's "{van} · {provider}" line and the "Ask …"
+   * buttons printed "SYN Palm Lift Transport" while the test above read the other list and
+   * passed. Walking both projections is the point: one of them is always the one on screen.
+   */
+  it("no provider name on the demo scenario's own fleet carries it either", () => {
+    expect(VEHICLES.length).toBeGreaterThan(0);
+    for (const vehicle of VEHICLES) {
+      const name = solverVehicle(vehicle).providerName;
+      expect(name, vehicle.label).not.toContain(copy.SYN_PREFIX);
+      expect(codesIn(name), name).toEqual([]);
+      // Still a name, not an empty string a stripper could have produced.
+      expect(name.length, vehicle.label).toBeGreaterThan(0);
     }
   });
 

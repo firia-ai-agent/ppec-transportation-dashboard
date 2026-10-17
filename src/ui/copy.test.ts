@@ -119,7 +119,7 @@ describe("COPY-GUIDE strings, verbatim", () => {
         fill(step, {
           child: "Leo B.",
           dispatcher: "Hal B.",
-          provider: "SYN Palm Lift Transport",
+          provider: "Palm Lift Transport",
           van: "V1",
         }),
       );
@@ -184,13 +184,19 @@ describe("COPY-GUIDE strings, verbatim", () => {
       ).toBe("Alma R., Mia R.'s parent, may receive them.");
     });
 
+    /*
+     * The provider sample is display-ready, because that is what the caller passes: `LegDrawer`
+     * fills this from `ride.providerName`, which the board takes through
+     * `copy.providerDisplayName`. Feeding the marked fixture name here would make this test agree
+     * with a projection no screen reads (see no-codes.test.ts).
+     */
     it("names the dispatcher whose report a capability is", () => {
       expect(
         fill(drawer.capabilityReported, {
           dispatcher: "Hal B.",
-          provider: "SYN Palm Lift Transport",
+          provider: "Palm Lift Transport",
         }),
-      ).toBe("Reported by Hal B. at SYN Palm Lift Transport. Not checked at the ramp.");
+      ).toBe("Reported by Hal B. at Palm Lift Transport. Not checked at the ramp.");
     });
 
     it("has no sentence left that says 'this child' instead of naming one", () => {

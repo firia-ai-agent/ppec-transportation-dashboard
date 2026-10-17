@@ -184,6 +184,30 @@ describe("check 5, part 4: the words the panel uses are in copy.ts and are plain
     expect(said.toLowerCase()).toContain("keyword");
   });
 
+  /**
+   * THE MODEL ID IS NOT A FACT A COORDINATOR CAN USE (Vera's review, 2026-10-17 14:40 ET).
+   *
+   * `answeredByModel` used to read "Answered by the model this deployment is set to use:
+   * claude-…", and the id is a deployment setting rather than anything about *this* reply: a
+   * coordinator cannot act on it, and on the screen a founder demos it reads as leaked config.
+   * So the sentence names the assistant, and the id stays in the run's server-side record where
+   * a reviewer actually checks it.
+   *
+   * Both halves are asserted, because dropping the word alone would not be the fix: the copy must
+   * carry no `{model}` placeholder either, or the next caller re-introduces the value by filling
+   * it. `PhoneComposer` correspondingly stops reading `turn.model` at all.
+   */
+  it("the sentence naming who answered names the assistant, never the model", () => {
+    const said = familyTexts.answeredByModel;
+    expect(said).toBe("Answered by the assistant.");
+    expect(said).toMatch(/^[A-Z].*\.$/s);
+    expect(said.toLowerCase()).toContain("assistant");
+    for (const word of vendorWords) expect(said.toLowerCase()).not.toContain(word.toLowerCase());
+    // No placeholder at all, so there is no way to put a model id back through `fill`.
+    expect(said).not.toMatch(/\{\w+\}/);
+    expect(said.toLowerCase()).not.toContain("model");
+  });
+
   it("the refusal sentence for a vendor that cannot be reached at all is prose too", () => {
     const said = familyTexts.assistantUnavailable;
     expect(said).toMatch(/^[A-Z].*\.$/s);

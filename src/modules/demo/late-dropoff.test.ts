@@ -4,6 +4,7 @@ import { formatClock24 } from "@/domain/eta/eta";
 import { NOTIFY_MIN_LEAD_SECONDS } from "@/domain/eta/notify-gate";
 import { childByKey, stopByKey, RUNS } from "@/modules/demo/fixtures/standard";
 import { etaNoticeThresholds } from "@/modules/messaging/eta-notice";
+import { UNKNOWN_STOP } from "@/modules/messaging/templates";
 import {
   demoLateDropoffFor,
   demoLateDropoffs,
@@ -102,6 +103,63 @@ describe("what the family reads, and what staff read beside it", () => {
     expect(text.body).toContain("[DEMO]");
   });
 
+  /**
+   * THE CLOCK AND THE PLACE A PARENT READS (Vera's review, 2026-10-17 14:40 ET).
+   *
+   * The vars this text is rendered from are deliberately developer-facing: `etaNoticeVars` fills
+   * `eta` from `formatClock24` ("16:30") and `stopLabel` from the stop's `smsToken`
+   * ("OKEE-PARK"), because the outbox only permits constrained values and a place name is not
+   * one. `renderTemplate`'s per-var display rules are the single seam that turns those two into
+   * words, and nothing held that the seam was still there for *this* text.
+   *
+   * What was asserted above is not enough on its own. "about N minutes late" is the half of the
+   * sentence with no clock and no place in it, and comparing the body against `text.windowText`
+   * compares it against the panel's *own* 12-hour string — so the day the 24-hour clock reached a
+   * family, that assertion would have failed on a string neither half of the app owns, and read
+   * as a window bug rather than as a parent being sent "New drop-off 16:30 at OKEE-PARK".
+   *
+   * So: the sentence itself, exactly as a parent reads it, and then each of the two raw values
+   * named and barred. The time is a 10-minute window rather than the single "4:30 PM" of Vera's
+   * note because PRD §8 fixes the notified time as a window and never minute precision — the
+   * 12-hour clock and the AM/PM are the part under review, and both ends carry them.
+   */
+  it("reads the 12-hour clock and the stop's display name, never the vars behind them", () => {
+    const text = noah();
+    const stop = stopByKey(childByKey("C2").stopKey!);
+
+    // The sentence, whole: the clock a board shows and the place a family can stand in.
+    expect(text.body).toContain("New drop-off 4:30–4:40 PM at Okeeheelee Park.");
+    // …and the place by the name the fixture gives it, so renaming the stop moves this with it.
+    expect(stop.label).toBe("Okeeheelee Park");
+    expect(text.body).toContain(`at ${stop.label}.`);
+
+    for (const notice of dueEtaNotices(day)) {
+      const body = demoLateDropoffFor(notice.childKey, day)!.body;
+      const { decision } = notice;
+
+      // 1. The 24-hour clock the vars carry. Named, not inferred: this is the exact string
+      //    `etaNoticeVars` puts in `eta`, and "16:30" must not survive into the body.
+      expect(formatClock24(decision.windowStartMs!), notice.childKey).toMatch(/^\d{2}:\d{2}$/);
+      expect(body).not.toContain(formatClock24(decision.windowStartMs!));
+      expect(body).not.toContain(formatClock24(decision.windowEndMs!));
+      // No hour of 13–23 anywhere in it, so a *different* 24-hour value cannot slip in either.
+      expect(body, notice.childKey).not.toMatch(/\b(?:1[3-9]|2[0-3]):\d{2}/);
+
+      // 2. The stop token the vars carry, and the shape of a stop code in general.
+      expect(notice.stopToken, notice.childKey).toMatch(/^[A-Z][A-Z-]+$/);
+      expect(body).not.toContain(notice.stopToken);
+      expect(body, notice.childKey).not.toMatch(/\b[A-Z]{3,}-[A-Z]{3,}\b/);
+      // The place is there under its own name, and it is not the fallback for a token with no copy.
+      expect(body).toContain(stopByKey(childByKey(notice.childKey).stopKey!).label);
+      expect(body, notice.childKey).not.toContain(UNKNOWN_STOP);
+
+      // 3. The clock a parent reads, in the one shape COPY-GUIDE §3 writes: 12-hour, AM/PM said.
+      expect(body, notice.childKey).toMatch(
+        /New drop-off (?:around )?(?:1[0-2]|[1-9]):[0-5]\d(?:(?: [AP]M)?–(?:1[0-2]|[1-9]):[0-5]\d)? [AP]M at /,
+      );
+    }
+  });
+
   it("names nobody and nothing internal in the body (Veri #12, COPY-GUIDE §2)", () => {
     for (const text of demoLateDropoffs(day)) {
       expect(text.body).not.toContain(text.childFirstName);
@@ -122,7 +180,9 @@ describe("what the family reads, and what staff read beside it", () => {
     // A fiction number from the MOCKS §3 block, and the one this family is reachable on.
     expect(text.phone).toMatch(/^\+1-561-555-01\d\d$/);
     expect(text.vanLabel).toBe("V2 center van");
-    expect(text.providerName).toBe("SYN Greenacres center fleet");
+    // Display-ready: the provider is the company a coordinator names out loud, and the ADR-015
+    // `SYN ` marker stays in the fixture row it came from (copy.providerDisplayName).
+    expect(text.providerName).toBe("Greenacres center fleet");
   });
 
   it("is on the run the scenario puts that child on", () => {

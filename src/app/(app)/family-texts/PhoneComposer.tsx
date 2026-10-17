@@ -51,9 +51,15 @@ export function PhoneComposer({
 
   const answered = turnState.status === "answered" ? turnState : null;
   const turn = answered?.turn;
+  /*
+   * Which reader answered — and only that. The model's id is deliberately not read here: Vera's
+   * review (2026-10-17 14:40 ET) rules it off a staff screen, and the way to keep it off is for
+   * the render path not to touch `turn.model` at all rather than for the copy to stop having a
+   * `{model}` placeholder. The id is still on the turn, for the server-side record.
+   */
   const sourceLine =
-    turn?.source === "model" && turn.model
-      ? fill(familyTexts.answeredByModel, { model: turn.model })
+    turn?.source === "model"
+      ? familyTexts.answeredByModel
       : modelReachKind === "model"
         ? familyTexts.answeredByKeyword
         : null;
