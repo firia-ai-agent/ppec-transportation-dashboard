@@ -266,7 +266,7 @@ export function vendorRequestUrl(
   return refusal === null ? { url: built.href, refusal: null } : { url: null, refusal };
 }
 
-/** Hard ceiling on one vendor call. A hung request must become a keyword fallback, not a hung run. */
+/** Hard ceiling on one vendor call. A hung request must become a staff alert, not a hung run. */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 
 /**
@@ -315,7 +315,7 @@ export const agentConfigSchema = z.object({
   provider: z.string().min(1).default("openrouter"),
   /** Primary model id. Founder 2026-10-15: the free Gemma endpoint, demo data only (MODEL_PRIMARY). */
   model: z.string().min(1).default(MODEL_PRIMARY),
-  /** Tried when the primary 429s or errors, before the keyword fallback (MODEL_BACKUP). */
+  /** Tried when the primary 429s or errors. The last attempt there is (MODEL_BACKUP). */
   backupModel: z.string().min(1).default(MODEL_BACKUP),
   /** Model ids this deployment may call. `model` and `backupModel` must both be on it. */
   modelAllowList: z.array(z.string().min(1)).nonempty().default([...DEFAULT_MODEL_ALLOW_LIST]),

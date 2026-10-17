@@ -102,8 +102,16 @@ export class GatewayError extends Error {
   constructor(
     readonly outcome: GatewayOutcome,
     message: string,
+    /**
+     * The error underneath, on the one outcome that has one: `PROVIDER_ERROR` wraps whatever the
+     * adapter threw. Carried because the *class* of a vendor failure is what the caller acts on —
+     * a missing key, a 429 on every model, a timeout — and re-deriving it by reading this
+     * message would be string-matching on a sentence (`agent/staff-alert.ts`). The message itself
+     * stays what it was: reason classes and status codes, never the vendor's own text.
+     */
+    options?: { cause?: unknown },
   ) {
-    super(message);
+    super(message, options);
     this.name = "GatewayError";
   }
 }
@@ -163,10 +171,10 @@ export function createGateway(
     base: Omit<AgentAuditRecord, "outcome" | "responseHash" | "tool" | "tier">,
     outcome: GatewayOutcome,
     message: string,
-    extra: Partial<Pick<AgentAuditRecord, "responseHash" | "tool">> = {},
+    extra: Partial<Pick<AgentAuditRecord, "responseHash" | "tool">> & { cause?: unknown } = {},
   ): never {
     record({ ...base, outcome, responseHash: extra.responseHash ?? null, tool: extra.tool ?? null, tier: null });
-    throw new GatewayError(outcome, message);
+    throw new GatewayError(outcome, message, { cause: extra.cause });
   }
 
   return {
@@ -268,7 +276,10 @@ export function createGateway(
           promptHash,
         });
       } catch (e) {
-        reject(audited, "PROVIDER_ERROR", e instanceof Error ? e.message : String(e));
+        // `cause` carries the adapter's own classed error out to the run loop, which is what
+        // decides between "the model is down, tell a person" and any other refusal. Nothing of
+        // the vendor's text goes in the audit row — that is still the message alone.
+        reject(audited, "PROVIDER_ERROR", e instanceof Error ? e.message : String(e), { cause: e });
       }
 
       // 7. JSON-schema tool calls only. The response is hashed before it is inspected, so even a

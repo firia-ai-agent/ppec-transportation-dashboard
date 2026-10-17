@@ -259,14 +259,15 @@ describe("live path: the tiers do not depend on which provider answered", () => 
     );
   });
 
-  it("the keyword fallback's own call is auto tier and sends nothing", async () => {
-    // A degraded run must not land in the approval queue, and must not send either. It escalates.
+  it("a vendor that 429s on both models produces no call to judge at all", async () => {
+    // The founder's 2026-10-17 rule, from the tier side: there is no degraded tool call to decide
+    // a tier for, because nothing answered. The turn is refused with PROVIDER_ERROR, which is what
+    // the run loop turns into one staff alert — see `agent/model-unavailable.test.ts`.
     fetchMock.mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
     const gateway = createGateway(remoteProvider(DEMO, KEY_ENV), DEMO);
-    const accepted = await gateway.complete({ runId: "RUN-KW", prompt: PROMPT });
-    expect(accepted.call).toMatchObject({ tool: "escalate_exception", tier: "auto" });
-    const decision = evaluate({ tool: accepted.call.tool, args: accepted.call.args }, ctx());
-    expect(decision.verdict).toBe("ALLOW");
-    expect(decisionSends(decision)).toBe(false);
+    await expect(gateway.complete({ runId: "RUN-DOWN", prompt: PROMPT })).rejects.toMatchObject({
+      outcome: "PROVIDER_ERROR",
+    });
+    expect(gateway.auditLog.at(-1)).toMatchObject({ outcome: "PROVIDER_ERROR", tool: null, tier: null });
   });
 });

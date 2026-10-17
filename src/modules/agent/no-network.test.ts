@@ -20,7 +20,7 @@
  * else may do either. The dynamic half is unchanged for every other provider, and for the live one
  * it proves the thing that matters most — the demo-data guard refuses **without touching fetch**.
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import cassetteJson from "./fixtures/recorded-standard.json";
@@ -113,13 +113,15 @@ describe("VERI-5: the agent module contains no way to reach the network", () => 
         "providers/fake.ts",
         "providers/recorded.ts",
         "providers/remote.ts",
-        "providers/keyword.ts",
         "providers/provider.ts",
       ]),
     );
     expect(code("config.ts")).toContain("endpointAllowList");
     // The scan reads code, not prose: every file here discusses HTTP at length and must still pass.
-    expect(readFileSync(path.join(AGENT_DIR, "providers/keyword.ts"), "utf8")).toContain("LLM down");
+    expect(code("providers/remote.ts")).toContain("fetch(url");
+    // And providers/keyword.ts is not on the list because it is gone — the founder's 2026-10-17
+    // rule deleted it, and `no-keyword-fallback.test.ts` is what keeps it gone.
+    expect(existsSync(path.join(AGENT_DIR, "providers/keyword.ts"))).toBe(false);
   });
 
   it.each(NETWORK_PATTERNS.map((p) => [p.what, p.pattern] as const))(
@@ -290,16 +292,17 @@ describe("VERI-5: driving both providers with fetch stubbed to throw", () => {
     expect(attempted).not.toHaveBeenCalled();
   });
 
-  it("VERI-5 a fully wired live provider does attempt the call, and degrades when it cannot", async () => {
+  it("VERI-5 a fully wired live provider does attempt the call, and refuses when it cannot", async () => {
     // The honest other half: once both gates are open the adapter is *supposed* to reach the
-    // network. With the stub throwing — which is what an unreachable vendor looks like — the
-    // §18.1 keyword fallback answers instead, and the run ends in a staff triage item rather
-    // than an exception nobody sees.
+    // network. With the stub throwing — which is what an unreachable vendor looks like — there is
+    // nothing to degrade to any more (founder, 2026-10-17): the gateway refuses the turn with
+    // PROVIDER_ERROR and the caller raises one staff alert (`agent/staff-alert.ts`).
     const demo = loadAgentConfig(DEMO_ENV);
     const provider = remoteProvider(demo, { ...DEMO_ENV, OPENROUTER_API_KEY: "placeholder-not-a-key" });
     const gateway = createGateway(provider, demo);
-    const result = await gateway.complete({ runId: "RUN-REMOTE", prompt: PROMPT });
-    expect(result.call.tool).toBe("escalate_exception");
+    await expect(gateway.complete({ runId: "RUN-REMOTE", prompt: PROMPT })).rejects.toMatchObject({
+      outcome: "PROVIDER_ERROR",
+    });
     expect(attempted).toHaveBeenCalledTimes(2); // primary, then backup
     expect(provider.attempts.map((a) => a.failure)).toEqual(["network_error", "network_error"]);
     // And the refusal path still logs no prompt and no key.
