@@ -1473,6 +1473,25 @@ export const planRoutes = {
    * cannot be used to find out which of the three it was.
    */
   saveNotThisRun: "That plan names a child or a van that isn’t on this run.",
+  /**
+   * What the screen found when it opened a run: the plan last saved for it, and the minute it
+   * was kept (Veri's S1, 2026-10-17 — a saved plan used to be gone on reload).
+   *
+   * Said as what is in front of them rather than as what just happened, because nothing just
+   * happened: a coordinator who reloads the page is reading a plan, not making one. It claims
+   * nothing about where the plan was kept, and nothing about anyone having been told.
+   */
+  showingSaved: "Showing the plan saved at {time}.",
+  /**
+   * Saving an empty screen over a plan that is already saved, refused.
+   *
+   * There is one way to reach it and it is not the button — the button cannot be pressed with
+   * nobody in a van — so this is a request that skipped the screen, or a second tab a
+   * coordinator never planned in. Either way, emptying a run is not a plan of it, and a plan
+   * somebody made is not something to lose to one. It says what to do instead.
+   */
+  saveNothingPlaced:
+    "There is already a saved plan. Put at least one child in a van before saving over it.",
 } as const;
 
 /**

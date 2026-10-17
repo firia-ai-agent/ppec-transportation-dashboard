@@ -56,6 +56,16 @@ const SAVED_LINE = (() => {
   return new RegExp(`^${escape(before)}\\d{1,2}:\\d{2} (?:AM|PM)${escape(after)}$`);
 })();
 
+/**
+ * The line a reloaded page shows: "Showing the plan saved at 1:24 PM." Same shape as the saved
+ * line and for the same reason — the minute is the server's and the test reads it back.
+ */
+const SHOWING_LINE = (() => {
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const [before, after] = copy.showingSaved.split("{time}");
+  return new RegExp(`^${escape(before)}\\d{1,2}:\\d{2} (?:AM|PM)${escape(after)}$`);
+})();
+
 /** The minute an instant is, on the clock at the centre — the same conversion the screen makes. */
 function siteClock(iso: string): string {
   return new Intl.DateTimeFormat("en-US", {
@@ -1136,6 +1146,100 @@ test.describe("Plan routes", () => {
     expect(failures, `page errors: ${failures.join("; ")}`).toEqual([]);
     await page.waitForLoadState("networkidle");
     console.log("screenshot:", await shot(page, "plan-routes-map-and-save"));
+  });
+
+  /**
+   * Veri's S1, 2026-10-17: **a saved plan survives a reload.**
+   *
+   * The plan used to live in this screen's React state and nowhere else, so pressing Save and
+   * then reloading — or opening the screen in a second tab — showed an empty day and a
+   * coordinator's work was gone. The endpoint had been keeping the plan all along; the screen
+   * now asks for it when it opens a run.
+   *
+   * Read off the real page rather than off the endpoint, because the endpoint answering is not
+   * the fix: the fix is the same children in the same vans, and a screen that says it is
+   * showing a saved plan rather than claiming to hold unsaved changes.
+   */
+  test("a saved plan is still there after a reload, and in a second tab", async ({ page }) => {
+    await page.goto("/plan-routes");
+    await plan(page);
+
+    // A move first, so what is saved is a plan somebody made and not just the planner's own
+    // answer — a read-back that quietly replanned would pass without it.
+    const moved = await moveWhoeverFits(page);
+    const before = await lanes(page);
+    expect(before.find((lane) => lane.id === moved.to)?.riders).toContain(moved.child);
+
+    await page.getByRole("button", { name: copy.save, exact: true }).click();
+    await expect(page.locator("[data-notice]")).toHaveText(SAVED_LINE);
+    const kept = await page.request.get(`${SAVE_ENDPOINT}?scenario=EVERY_RIDER_FITS&direction=AM`);
+    const savedAt: string = (await kept.json()).saved.savedAt;
+
+    /* ── the reload ── */
+    await page.reload();
+    await expect(page.locator("[data-lane]").first()).toBeVisible();
+
+    // The same children, in the same vans, in the same lanes.
+    const after = await lanes(page);
+    expect(after.map((lane) => ({ id: lane.id, van: lane.van, riders: [...lane.riders].sort() })))
+      .toEqual(before.map((lane) => ({ id: lane.id, van: lane.van, riders: [...lane.riders].sort() })));
+    expect(after.find((lane) => lane.id === moved.to)?.riders).toContain(moved.child);
+    expect(after.find((lane) => lane.id === moved.from)?.riders).not.toContain(moved.child);
+    // Nobody is waiting to be planned who was in a van a moment ago.
+    expect(await waitingNames(page)).not.toContain(moved.child);
+
+    // And the screen says what it is showing, with the minute the server kept it — not a save
+    // it is claiming to have just made, and not a change it has not been told about.
+    await expect(page.locator("[data-notice]")).toHaveText(SHOWING_LINE);
+    await expect(page.locator("[data-notice]")).toHaveText(
+      fill(copy.showingSaved, { time: siteClock(savedAt) }),
+    );
+    await expect(page.locator("[data-unsaved]")).toHaveCount(0);
+    // The map is drawn from the restored plan too, so the picture matches the lanes.
+    const drawn = after.filter((lane) => lane.riders.length > 0).map((lane) => lane.id);
+    await expect(page.locator("[data-routes-drawn]")).toHaveAttribute(
+      "data-routes-drawn",
+      [...drawn].sort().join(","),
+      { timeout: 60_000 },
+    );
+
+    /* ── a second page in the same browser, which never saw the save ── */
+    const second = await page.context().newPage();
+    await second.goto("/plan-routes");
+    await expect(second.locator("[data-lane]").first()).toBeVisible();
+    await expect(second.locator("[data-notice]")).toHaveText(SHOWING_LINE);
+    await expect(second.locator("[data-unsaved]")).toHaveCount(0);
+    expect(
+      (await lanes(second)).map((lane) => ({ id: lane.id, riders: [...lane.riders].sort() })),
+    ).toEqual(after.map((lane) => ({ id: lane.id, riders: [...lane.riders].sort() })));
+
+    // The restored screen is still a screen: no code, no key, no violet off the demo chrome.
+    await expectNoInternalCodes(second);
+    await expectNoVehicleCodes(second);
+    await expectVioletOnlyOnDemoChrome(second);
+    await second.waitForLoadState("networkidle");
+    console.log("screenshot:", await shot(second, "plan-routes-saved-after-reload"));
+    await second.close();
+
+    /*
+     * And the plan is not lost to an empty screen either: a request that places nobody is
+     * refused while this run has a plan, so a second tab cannot wipe the first one's work.
+     */
+    const emptied = await page.request.post(SAVE_ENDPOINT, {
+      data: {
+        scenario: "EVERY_RIDER_FITS",
+        direction: "AM",
+        stages: Object.fromEntries(
+          after.map((lane) => [lane.id, { vehicleKey: lane.id, arrival: "REPORTED" }]),
+        ),
+        measured: [],
+        assignment: Object.fromEntries(after.map((lane) => [lane.id, []])),
+      },
+    });
+    expect(emptied.status()).toBe(409);
+    expect((await emptied.json()).error).toBe(copy.saveNothingPlaced);
+    const still = await page.request.get(`${SAVE_ENDPOINT}?scenario=EVERY_RIDER_FITS&direction=AM`);
+    expect((await still.json()).saved.savedAt).toBe(savedAt);
   });
 
   /**

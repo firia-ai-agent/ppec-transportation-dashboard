@@ -1,5 +1,5 @@
 /**
- * The screen's one request: saving the plan.
+ * The screen's two requests: saving the plan, and reading back the one already saved.
  *
  * Everything else on Plan routes is computed in the browser from the synthetic day, so this is
  * the only place the screen talks to the server at all — and it is deliberately thin. The
@@ -18,7 +18,15 @@
  */
 import { API } from "@/auth/access";
 import type { Assignment } from "@/domain/solver";
-import type { AskedLane, PlanDay } from "@/domain/plan/stages";
+import {
+  LANE_STAGES,
+  planInputOf,
+  readPlanDay,
+  type AskedLane,
+  type PlanDay,
+} from "@/domain/plan/stages";
+import { checkPlan } from "@/domain/plan/save";
+import type { DemoScenario, Direction } from "@/domain/plan/day";
 import { planRoutes } from "@/ui/copy";
 
 /**
@@ -136,4 +144,107 @@ function refusalIn(payload: unknown): string | null {
   if (typeof payload !== "object" || payload === null) return null;
   const error = (payload as { error?: unknown }).error;
   return typeof error === "string" && error.length > 0 ? error : null;
+}
+
+
+/* ───────────────────────────── reading one back ───────────────────────────── */
+
+/**
+ * The plan a run already has, in the shape the screen puts back on itself.
+ *
+ * `day` and not just the assignment: who fits in which van depends on what each lane's van was
+ * reported as and whose chair the ramp had measured, so the screen restores all four facts or
+ * it would be drawing a saved plan against this morning's defaults.
+ */
+export type LoadedPlan = { day: PlanDay; assignment: Assignment; savedAt: string };
+
+/**
+ * Read back the plan saved for one run, or `null` when there is none to read.
+ *
+ * Veri's S1, 2026-10-17: a coordinator saved a plan, reloaded the page, and the plan was gone —
+ * it lived in this screen's state and nowhere a second page could see it. The endpoint has
+ * always kept one (src/modules/demo/plan-store.ts); this is the screen finally asking.
+ *
+ * Everything that is not a plan this screen can draw is the same answer — nothing saved. A
+ * network that never answered, a body that is not JSON, a shape this module cannot read, and a
+ * plan naming a van or a child this run does not have all return `null`, because the screen's
+ * one use for this is "do I have something to show instead of an empty day", and a half-read
+ * answer is not something to show. Nothing here is reported to a coordinator: not finding a
+ * saved plan is the ordinary case, and it is what the screen already looks like.
+ *
+ * The ids are re-checked rather than trusted, by the same two functions the endpoint used
+ * (`readPlanDay`, then `checkPlan`): this is a body arriving from outside the module that draws
+ * it, and a lane id or a child token that is not this run's would be put straight into the
+ * state the whole screen renders from.
+ */
+export async function loadSavedPlan(
+  scenario: DemoScenario,
+  direction: Direction,
+): Promise<LoadedPlan | null> {
+  let payload: unknown;
+  try {
+    const response = await fetch(`${API.planSave}?scenario=${scenario}&direction=${direction}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    payload = await response.json().catch(() => null);
+  } catch {
+    return null;
+  }
+  return planIn(payload, scenario, direction);
+}
+
+/** The answer's `saved`, read as a plan of this run — or `null` for anything else. */
+function planIn(payload: unknown, scenario: DemoScenario, direction: Direction): LoadedPlan | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const saved = (payload as { saved?: unknown }).saved;
+  if (typeof saved !== "object" || saved === null) return null;
+  const { stages, measured, assignment, savedAt } = saved as Record<string, unknown>;
+  if (typeof savedAt !== "string" || Number.isNaN(new Date(savedAt).getTime())) return null;
+  const lanes = lanesIn(stages);
+  const tokens = tokensIn(measured);
+  const plan = assignmentIn(assignment);
+  if (!lanes || !tokens || !plan) return null;
+
+  // The run the screen asked about, and never whatever the answer says it is about.
+  const day = readPlanDay({ scenario, direction, stages: lanes, measured: tokens });
+  if (!day) return null;
+  const checked = checkPlan(planInputOf(day), plan);
+  return checked.ok ? { day, assignment: checked.assignment, savedAt } : null;
+}
+
+function lanesIn(value: unknown): Record<string, AskedLane> | null {
+  if (typeof value !== "object" || value === null) return null;
+  const lanes: Record<string, AskedLane> = {};
+  for (const [laneId, lane] of Object.entries(value)) {
+    if (typeof lane !== "object" || lane === null) return null;
+    const { vehicleKey, arrival, rampLayoutId } = lane as Record<string, unknown>;
+    if (typeof vehicleKey !== "string" || typeof arrival !== "string") return null;
+    if (rampLayoutId !== undefined && typeof rampLayoutId !== "string") return null;
+    // `arrival` is one of the day's own states or this is not a lane: `readPlanDay` reads the
+    // ids, and the cast is narrowed by the same list the endpoint validates against.
+    if (!(LANE_STAGES as readonly string[]).includes(arrival)) return null;
+    lanes[laneId] = {
+      vehicleKey,
+      arrival: arrival as AskedLane["arrival"],
+      ...(rampLayoutId === undefined ? {} : { rampLayoutId }),
+    };
+  }
+  return lanes;
+}
+
+function tokensIn(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.some((token) => typeof token !== "string")) return null;
+  return value as string[];
+}
+
+function assignmentIn(value: unknown): Assignment | null {
+  if (typeof value !== "object" || value === null) return null;
+  const lanes: Array<[string, string[]]> = [];
+  for (const [laneId, inLane] of Object.entries(value)) {
+    const tokens = tokensIn(inLane);
+    if (!tokens) return null;
+    lanes.push([laneId, tokens]);
+  }
+  return Object.fromEntries(lanes);
 }

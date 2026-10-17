@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { pageOutcome } from "@/auth/access";
 import {
   DEMO_SCENARIOS,
@@ -38,9 +38,10 @@ import {
   stopLine,
   summaryLine,
   savedLine,
+  showingSavedLine,
   unplacedState,
 } from "./lanes";
-import { planFingerprint } from "./save-plan";
+import { loadSavedPlan, planFingerprint } from "./save-plan";
 import { initialStages, planInputOf, type PlanDay } from "@/domain/plan/stages";
 
 /**
@@ -120,9 +121,11 @@ describe("the route is behind the same door as the rest of the console", () => {
   it("reads no database, and makes no request of its own but the save", () => {
     const screenAndHelpers = screen + read("lanes.ts");
     expect(screenAndHelpers).not.toMatch(/fetch\(|EventSource|maplibre|@\/db\//);
-    // The one request, in the one module that may make it, naming the endpoint through the table.
+    // The requests, in the one module that may make them, naming the endpoint through the
+    // table: the save, and the read-back of the plan a run already has (Veri's S1).
     const save = read("save-plan.ts");
     expect(save).toMatch(/fetch\(API\.planSave/);
+    expect(save).toMatch(/fetch\(`\$\{API\.planSave\}\?scenario=/);
     expect(save).not.toMatch(/"\/api\//);
     expect(save).not.toMatch(/@\/db\//);
     // And the map arrives as the shared component rather than a second MapLibre mount here.
@@ -301,12 +304,14 @@ describe("the screen's own rules", () => {
     expect(screen).not.toMatch(/canTake|withMove/);
     // And the assignment is only ever set from a move the solver granted.
     const assignments = screen.match(/setAssignment\(/g) ?? [];
-    expect(assignments).toHaveLength(4);
+    expect(assignments).toHaveLength(5);
     expect(screen).toMatch(/setAssignment\(result\.assignment\)/);
-    // The other three are the whole day, not one child: planning it, and emptying it when the
-    // run or the scenario changes.
+    // The other four are the whole day, not one child: planning it, emptying it when the run
+    // or the scenario changes, and putting back the plan the run already had — which the
+    // server re-checked with the same solver before it answered (Veri's S1).
     expect(screen).toMatch(/setAssignment\(planAssignment\(input, pinned\)\)/);
     expect(screen.match(/setAssignment\(emptyAssignment\(/g)).toHaveLength(2);
+    expect(screen).toMatch(/setAssignment\(saved\.assignment\)/);
   });
 
   /**
@@ -915,5 +920,199 @@ describe("the save button's own rules", () => {
     // And the saved line is the server's time, through the one helper that formats it.
     expect(screen).toMatch(/savedLine\(outcome\.savedAt\)/);
     expect(screen).not.toMatch(/planRoutes\.saved\b/);
+  });
+});
+
+
+/**
+ * Reading a saved plan back, which is the fix for Veri's S1 (2026-10-17): a plan used to live
+ * only in this screen's state, so a reload lost it.
+ *
+ * The helper is the screen's whole knowledge of what a run already has, and the one rule it
+ * has to keep is that it never hands the screen something it cannot draw. Everything that is
+ * not a readable plan of the run that was asked for — a network that never answered, a body
+ * that is not JSON, a shape it cannot read, a child or a van from somewhere else — is the same
+ * answer: nothing saved, which is what the empty screen already says.
+ */
+describe("reading back the plan a run already has", () => {
+  const DAY: PlanDay = {
+    scenario: "EVERY_RIDER_FITS",
+    direction: "AM",
+    stages: initialStages("EVERY_RIDER_FITS"),
+    measured: [],
+  };
+  const SAVED_AT = "2026-10-17T17:24:03.000Z";
+
+  /** The lanes as they travel: ids only, because no person is on the wire either way. */
+  const asked = Object.fromEntries(
+    Object.entries(DAY.stages).map(([laneId, stage]) => [
+      laneId,
+      { vehicleKey: stage.vehicleKey, arrival: stage.arrival },
+    ]),
+  );
+
+  function body(over: Record<string, unknown> = {}) {
+    return {
+      ok: true,
+      saved: {
+        scenario: "EVERY_RIDER_FITS",
+        direction: "AM",
+        stages: asked,
+        measured: [],
+        assignment: planAssignment(planInputOf(DAY)),
+        savedAt: SAVED_AT,
+        ...over,
+      },
+    };
+  }
+
+  /** The endpoint, answered by the test: vitest has no server and the shape is the contract. */
+  function answering(payload: unknown, init: { ok?: boolean } = {}) {
+    return vi.fn(async () =>
+      init.ok === false
+        ? new Response("{}", { status: 403 })
+        : new Response(JSON.stringify(payload), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+    );
+  }
+
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it("hands back the day and the plan, asked for by the run on screen", async () => {
+    const fetched = answering(body());
+    globalThis.fetch = fetched as unknown as typeof fetch;
+
+    const loaded = await loadSavedPlan("EVERY_RIDER_FITS", "AM");
+    expect(loaded?.savedAt).toBe(SAVED_AT);
+    expect(loaded?.assignment).toEqual(planAssignment(planInputOf(DAY)));
+    // The day comes back whole, with the driver filled in from the day's own records rather
+    // than from the answer — nobody's name travelled.
+    expect(loaded?.day.scenario).toBe("EVERY_RIDER_FITS");
+    expect(loaded?.day.direction).toBe("AM");
+    expect(loaded?.day.stages).toEqual(DAY.stages);
+    expect(loaded?.day.measured).toEqual([]);
+    // Asked of the run the screen is on, and not cached: a plan saved a moment ago is the point.
+    const [url, init] = fetched.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain("scenario=EVERY_RIDER_FITS");
+    expect(url).toContain("direction=AM");
+    expect(init.cache).toBe("no-store");
+  });
+
+  it("brings back what the plan was made against, not this morning's defaults", async () => {
+    const stages = { ...asked };
+    const laneId = Object.keys(stages)[0];
+    stages[laneId] = { ...stages[laneId], arrival: "ASKED" };
+    const day: PlanDay = {
+      ...DAY,
+      measured: ["C6"],
+      stages: { ...DAY.stages, [laneId]: { ...DAY.stages[laneId], arrival: "ASKED" } },
+    };
+    const assignment = planAssignment(planInputOf(day));
+    globalThis.fetch = answering(
+      body({ stages, measured: ["C6"], assignment }),
+    ) as unknown as typeof fetch;
+
+    const loaded = await loadSavedPlan("EVERY_RIDER_FITS", "AM");
+    expect(loaded?.day.stages[laneId].arrival).toBe("ASKED");
+    expect(loaded?.day.measured).toEqual(["C6"]);
+    expect(loaded?.assignment).toEqual(assignment);
+  });
+
+  it("is nothing saved when the run has none", async () => {
+    globalThis.fetch = answering({ ok: true, saved: null }) as unknown as typeof fetch;
+    expect(await loadSavedPlan("EVERY_RIDER_FITS", "AM")).toBeNull();
+  });
+
+  it("is nothing saved for a body it cannot read, whatever is wrong with it", async () => {
+    const bad: unknown[] = [
+      null,
+      "not an object",
+      {},
+      { ok: true },
+      { ok: true, saved: "a plan" },
+      // Everything there but the minute it was kept, which is the one thing the line says.
+      body({ savedAt: undefined }),
+      body({ savedAt: "the afternoon" }),
+      // Shapes: lanes that are not lanes, a measurement list that is not one, a plan that is not.
+      body({ stages: "every van" }),
+      body({ stages: { V1: { vehicleKey: 7, arrival: "REPORTED" } } }),
+      body({ stages: { ...asked, V1: { ...asked.V1, arrival: "ARRIVED_SOMEHOW" } } }),
+      body({ measured: "C6" }),
+      body({ measured: [7] }),
+      body({ assignment: ["C7"] }),
+      body({ assignment: { V1: "C7" } }),
+    ];
+    for (const payload of bad) {
+      globalThis.fetch = answering(payload) as unknown as typeof fetch;
+      expect(await loadSavedPlan("EVERY_RIDER_FITS", "AM"), JSON.stringify(payload)).toBeNull();
+    }
+  });
+
+  it("is nothing saved when the answer names a child, a van or a lane this run does not have", async () => {
+    const swaps = [
+      body({ assignment: { ...planAssignment(planInputOf(DAY)), "lane-x": ["C7"] } }),
+      body({ assignment: { V1: ["C999"], V2: [], V4: [] } }),
+      body({ stages: { ...asked, V1: { vehicleKey: "V99", arrival: "REPORTED" } } }),
+      body({ measured: ["C12"] }),
+      // A plan the solver will not agree with: the screen draws what the solver allows, and a
+      // plan it refuses is not something to put on the screen whatever a body says.
+      body({ assignment: { V1: ["C6", "C7", "C8", "C9"], V2: [], V4: [] } }),
+    ];
+    for (const payload of swaps) {
+      globalThis.fetch = answering(payload) as unknown as typeof fetch;
+      expect(await loadSavedPlan("EVERY_RIDER_FITS", "AM"), JSON.stringify(payload)).toBeNull();
+    }
+  });
+
+  it("is nothing saved when the request is refused or never arrives", async () => {
+    globalThis.fetch = answering(body(), { ok: false }) as unknown as typeof fetch;
+    expect(await loadSavedPlan("EVERY_RIDER_FITS", "AM")).toBeNull();
+
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error("the network is not a thing the screen can count on");
+    }) as unknown as typeof fetch;
+    expect(await loadSavedPlan("EVERY_RIDER_FITS", "AM")).toBeNull();
+  });
+
+  it("says what it is showing, with the minute the server kept it", () => {
+    expect(showingSavedLine(SAVED_AT)).toBe("Showing the plan saved at 1:24 PM.");
+    expect(showingSavedLine("2026-10-17T20:05:00Z")).toBe("Showing the plan saved at 4:05 PM.");
+    // The clock at the centre, not the instant and not a placeholder left unfilled.
+    expect(showingSavedLine(SAVED_AT)).not.toMatch(/17:24|\{time\}|T\d|Z\b|UTC/);
+  });
+});
+
+/**
+ * The screen's own half of the read-back, read off its source: vitest has no DOM, and the
+ * reload that proves it is in e2e/plan-routes.spec.ts.
+ */
+describe("the read-back's rules on the screen", () => {
+  const screen = read("PlanRoutes.tsx");
+
+  it("asks for the run it is on, and again whenever the run changes", () => {
+    expect(screen).toMatch(/loadSavedPlan\(scenario, direction\)/);
+    expect(screen).toMatch(/\}, \[scenario, direction\]\);/);
+  });
+
+  it("puts back the whole day, and marks it saved rather than changed", () => {
+    expect(screen).toMatch(/setStages\(\{ \.\.\.saved\.day\.stages \}\);/);
+    expect(screen).toMatch(/setMeasured\(saved\.day\.measured\);/);
+    expect(screen).toMatch(/setAssignment\(saved\.assignment\);/);
+    expect(screen).toMatch(/setSavedPlan\(planFingerprint\(saved\.day, saved\.assignment\)\);/);
+    expect(screen).toMatch(/showingSavedLine\(saved\.savedAt\)/);
+    expect(screen).not.toMatch(/planRoutes\.showingSaved\b/);
+  });
+
+  it("takes nothing away from a coordinator who started before it answered", () => {
+    // The screen as the run opened, compared with the screen when the answer arrives.
+    expect(screen).toMatch(/const opened = onScreen\.current;/);
+    expect(screen).toMatch(/if \(dropped \|\| !saved \|\| onScreen\.current !== opened\) return;/);
+    // And a run switched again before the answer arrives drops it outright.
+    expect(screen).toMatch(/dropped = true;/);
   });
 });

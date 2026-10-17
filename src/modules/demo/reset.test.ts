@@ -132,6 +132,8 @@ describe("POST /api/demo/reset gating (ADR-014, ADR-015)", () => {
     putSavedPlan({
       scenario: "EVERY_RIDER_FITS",
       direction: "AM",
+      stages: { V1: { vehicleKey: "V1", arrival: "REPORTED" } },
+      measured: [],
       assignment: { V1: ["C7"] },
       savedAt: "2026-10-14T11:02:00.000Z",
     });

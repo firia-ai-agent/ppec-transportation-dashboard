@@ -31,7 +31,7 @@
  * The one thing here wearing the demo violet is the scenario control in the header, and it is
  * shared demo chrome (src/ui/DemoControls) rather than anything this screen styles itself.
  */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Ban, Check, ChevronDown, ChevronRight } from "lucide-react";
 import PlanMap from "@/components/map/PlanMap";
 import {
@@ -70,7 +70,7 @@ import { DemoControls } from "@/ui/DemoControls";
 import { serviceDateLabel } from "@/ui/service-date";
 import { StateChip } from "@/ui/StateChip";
 import { icon } from "@/ui/tokens";
-import { planFingerprint, savePlan } from "./save-plan";
+import { loadSavedPlan, planFingerprint, savePlan } from "./save-plan";
 import {
   ARRIVAL_ANSWERS,
   arrivalLabel,
@@ -85,6 +85,7 @@ import {
   seatLines,
   setUpAsLine,
   setUpChangeLine,
+  showingSavedLine,
   stopLine,
   summaryLine,
   unplacedState,
@@ -196,12 +197,16 @@ export default function PlanRoutes() {
   const [saving, setSaving] = useState(false);
   /**
    * The plan the server last kept, as the fingerprint of the request that kept it — so the
-   * screen can say that what is on it now is not that (Vera's review, 2026-10-17). Null until a
-   * save comes back: nothing has been kept for this run.
+   * screen can say that what is on it now is not that (Vera's review, 2026-10-17). Null while
+   * this screen knows of nothing kept for the run in front of it.
+   *
+   * Two things set it: a save that came back, and a plan read back when the run was opened
+   * (`restore` below). The second is why a reload no longer loses a plan and no longer claims
+   * the restored one is unsaved (Veri's S1, 2026-10-17).
    *
    * A run or a scenario change leaves it alone. Both empty the screen, which is the state where
-   * there is nothing to save and nothing is said; and the plan kept for the morning is still the
-   * plan kept for the morning when a coordinator comes back to it.
+   * there is nothing to save and nothing is said; and the read-back for the run being opened
+   * sets it again for whatever that run has.
    */
   const [savedPlan, setSavedPlan] = useState<string | null>(null);
   /**
@@ -241,6 +246,52 @@ export default function PlanRoutes() {
    * anything, and Save plan is unavailable there — so the notice needs both halves.
    */
   const unsaved = placed > 0 && fingerprint !== savedPlan;
+
+  /**
+   * The plan on screen, where an answer that arrives later can read it.
+   *
+   * Declared before the read-back below so it is already this render's when that effect runs:
+   * React runs passive effects in the order they are written.
+   */
+  const onScreen = useRef(fingerprint);
+  useEffect(() => {
+    onScreen.current = fingerprint;
+  }, [fingerprint]);
+
+  /**
+   * What this run already has, put back on the screen when the run is opened (Veri's S1,
+   * 2026-10-17).
+   *
+   * A plan used to live only here, so a reload — or a second tab — showed an empty day and a
+   * coordinator's work was gone. The endpoint had kept it all along; this asks. It runs on
+   * mount and again whenever the run changes, because a plan belongs to one run of one fleet
+   * and the morning's is not the afternoon's.
+   *
+   * All four facts come back together (`LoadedPlan`), because the saved assignment is only a
+   * plan of the day it was made against. And it is set as *saved*, not as a change: the screen
+   * is showing the kept plan, so the row beside Save plan must not claim it is ahead of it.
+   *
+   * Nothing is taken away from anybody. The read-back only lands on a screen nobody has touched
+   * since the run opened — a coordinator who started dragging while it was in flight keeps what
+   * they did, and the answer is dropped — and a run switched again before it arrives is dropped
+   * by the cleanup. Not finding a plan is silent: that is the ordinary case, and the empty
+   * screen already says it.
+   */
+  useEffect(() => {
+    const opened = onScreen.current;
+    let dropped = false;
+    void loadSavedPlan(scenario, direction).then((saved) => {
+      if (dropped || !saved || onScreen.current !== opened) return;
+      setStages({ ...saved.day.stages });
+      setMeasured(saved.day.measured);
+      setAssignment(saved.assignment);
+      setSavedPlan(planFingerprint(saved.day, saved.assignment));
+      setNotice({ text: showingSavedLine(saved.savedAt), refused: false });
+    });
+    return () => {
+      dropped = true;
+    };
+  }, [scenario, direction]);
 
   /**
    * The two groups of children in no van, which are two different facts (Vera's review).

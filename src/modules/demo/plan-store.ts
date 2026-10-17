@@ -12,13 +12,17 @@
  * that no screen reads and no migration asked for, so the demo's plan stays in the demo's state:
  * this map, keyed by the run it is a plan of, for the life of this process.
  *
- * What that costs, said out loud rather than discovered: the deployment is serverless, so a
- * plan saved on one instance is not readable from another, and a redeploy forgets every plan.
- * That is the right trade for a plan that notifies nobody and locks nothing — the save's whole
- * job is to prove the check (src/domain/plan/save.ts) runs on the server as well as in the
- * browser. It is also why the screen says "Plan saved at 1:24 PM" about the save it just made
- * and never "last saved at …" about a plan it found here: a plan read back from another instance
- * is a plan this process never kept.
+ * **Read back, within this server's memory, for this session.** The screen asks for the run's
+ * saved plan when it opens one, so a coordinator who reloads the page gets their children back
+ * in their vans instead of an empty screen (Veri's S1, 2026-10-17) — which is why this map keeps
+ * everything the screen needs to rebuild the plan and not just the assignment: the lanes as the
+ * request described them, the chairs the ramp had measured, and the minute it was kept.
+ *
+ * What that still costs, said out loud rather than discovered: the deployment is serverless, so
+ * a reload that lands on another instance finds nothing here, and a redeploy forgets every plan.
+ * This is memory for a session and not a record, and the database save on the board work is what
+ * replaces it. Until then the screen says what is true of what it found — "Showing the plan saved
+ * at 1:24 PM" — and nothing about where it was kept.
  *
  * No identity in the key, either: the browser-test session is a role with no user id
  * (src/auth/caller.ts) and the demo has one centre, so the plan belongs to the run and not to a
@@ -26,10 +30,27 @@
  */
 import type { Assignment } from "@/domain/solver";
 import type { DemoScenario, Direction } from "@/domain/plan/day";
+import type { AskedLane } from "@/domain/plan/stages";
 
+/**
+ * A plan, as everything needed to put it back on the screen that made it.
+ *
+ * The assignment on its own is not the plan: who fits in which van depends on what each lane's
+ * van was reported as and whose chair the ramp had measured, so a screen handed only the
+ * assignment would be drawing a plan the solver no longer agrees with. These are the same four
+ * facts the POST took and checked against the day (`readPlanDay`), kept as they were checked.
+ *
+ * Lanes as `AskedLane` and not `LaneStage`: no person travels either way. Who is driving is the
+ * day's own record on both sides of the wire (src/domain/plan/stages.ts), so the name is never
+ * in a request body and never in this answer.
+ */
 export type SavedPlan = {
   scenario: DemoScenario;
   direction: Direction;
+  /** The lanes as the request described them and the day accepted them — ids only, no driver. */
+  stages: Readonly<Record<string, AskedLane>>;
+  /** Child tokens whose chair the ramp had measured when the plan was kept (AT-04). */
+  measured: readonly string[];
   /** The plan as the solver re-checked it, lane by lane (`checkPlan`). */
   assignment: Assignment;
   /** When it was kept, ISO. Answered by the POST, so the screen can say the minute it saved at. */

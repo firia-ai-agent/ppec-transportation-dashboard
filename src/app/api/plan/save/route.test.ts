@@ -85,6 +85,19 @@ function plannedAssignment(): Assignment {
   return planAssignment(INPUT);
 }
 
+/** The same plan with one child taken out of their van: a second save of the same run. */
+function oneFewer(): Assignment {
+  const assignment = plannedAssignment();
+  const laneId = INPUT.lanes.map((lane) => lane.id).find((id) => assignment[id]?.length > 0);
+  if (!laneId) throw new Error("the planned day has nobody to take out");
+  return { ...assignment, [laneId]: assignment[laneId].slice(1) };
+}
+
+/** Every lane of the run, with only the ones named here carrying anybody. */
+function emptyBut(assignment: Assignment): Assignment {
+  return Object.fromEntries(INPUT.lanes.map((lane) => [lane.id, assignment[lane.id] ?? []]));
+}
+
 async function post(body: unknown): Promise<Response> {
   const { POST } = await import("./route");
   return POST(
@@ -125,6 +138,28 @@ describe("the guard in front of it", () => {
       // Not a page, no role key, no status code in the words, and no child or van named.
       expect(text).not.toMatch(/[<>]|DIRECTOR|COORDINATOR|FRONT_DESK|\b(400|401|403|404|422)\b/);
       expect(text).not.toMatch(/Mia|Zoe|\bV\d\b|\bC\d\b/);
+    }
+  });
+
+  it("is the same two roles on the read-back, and the front desk may not read one either", async () => {
+    getCaller.mockResolvedValue(CALLERS.coordinator);
+    await post({ ...DAY, assignment: plannedAssignment() });
+
+    for (const who of ["director", "coordinator"] as const) {
+      getCaller.mockResolvedValue(CALLERS[who]);
+      const res = await get("?scenario=EVERY_RIDER_FITS&direction=AM");
+      expect({ who, status: res.status }).toEqual({ who, status: 200 });
+      expect((await res.json()).saved.assignment).toEqual(plannedAssignment());
+    }
+
+    const refused = { frontDesk: 403, noRole: 403, signedOut: 401 } as const;
+    for (const [who, status] of Object.entries(refused)) {
+      getCaller.mockResolvedValue(CALLERS[who as keyof typeof CALLERS]);
+      const res = await get("?scenario=EVERY_RIDER_FITS&direction=AM");
+      const text = await res.text();
+      expect({ who, status: res.status }).toEqual({ who, status });
+      // The refusal carries no plan at all: not the children, not the vans, not the minute.
+      expect(text).not.toMatch(/assignment|savedAt|\bC\d\b|\bV\d\b/);
     }
   });
 
@@ -177,10 +212,98 @@ describe("saving a plan", () => {
 
   it("replaces the run's last plan rather than keeping two", async () => {
     await post({ ...DAY, assignment: plannedAssignment() });
-    const emptied = Object.fromEntries(INPUT.lanes.map((lane) => [lane.id, []]));
-    await post({ ...DAY, assignment: emptied });
+    const fewer = oneFewer();
+    await post({ ...DAY, assignment: fewer });
     const read = await (await get("?scenario=EVERY_RIDER_FITS&direction=AM")).json();
-    expect(read.saved.assignment).toEqual(emptied);
+    expect(read.saved.assignment).toEqual(fewer);
+  });
+
+  /**
+   * The read-back Veri's S1 is about (2026-10-17): the screen opens a run and asks what it
+   * already has, so the answer has to be enough to draw the plan with. The assignment alone is
+   * not — who fits in which van depends on what each lane's van was reported as and whose chair
+   * the ramp measured — so the day the plan was made against comes back with it.
+   */
+  it("reads back the day the plan was made against, not just the assignment", async () => {
+    const measured = { ...DAY, measured: ["C6"] };
+    // Planned against the day the request describes, measured chair and all — which is the
+    // point: the same assignment read back against the morning's defaults is a different plan.
+    const assignment = planAssignment(
+      planInputOf({ ...measured, stages: initialStages("EVERY_RIDER_FITS") }),
+    );
+    expect((await post({ ...measured, assignment })).status).toBe(200);
+
+    const read = await (await get("?scenario=EVERY_RIDER_FITS&direction=AM")).json();
+    expect(read.saved.scenario).toBe("EVERY_RIDER_FITS");
+    expect(read.saved.direction).toBe("AM");
+    expect(read.saved.stages).toEqual(measured.stages);
+    expect(read.saved.measured).toEqual(["C6"]);
+    expect(read.saved.assignment).toEqual(assignment);
+    expect(read.saved.savedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect((await get("?scenario=EVERY_RIDER_FITS&direction=AM")).headers.get("cache-control")).toBe(
+      "no-store",
+    );
+  });
+
+  it("reports a lane as it was reported, so a substituted van comes back substituted", async () => {
+    const laneId = INPUT.lanes[0].id;
+    const stages = { ...asked("EVERY_RIDER_FITS") };
+    stages[laneId] = { vehicleKey: stages[laneId].vehicleKey, arrival: "ASKED" };
+    // Nobody can be in a lane whose van is unknown, so the plan is the rest of the day.
+    const assignment = { ...plannedAssignment(), [laneId]: [] };
+    const placedElsewhere = Object.values(assignment).flat().sort();
+    const body = { ...DAY, stages, assignment: emptyBut(assignment) };
+    expect((await post(body)).status).toBe(200);
+    const read = await (await get("?scenario=EVERY_RIDER_FITS&direction=AM")).json();
+    expect(read.saved.stages[laneId]).toEqual({ vehicleKey: stages[laneId].vehicleKey, arrival: "ASKED" });
+    expect(read.saved.assignment[laneId]).toEqual([]);
+    expect(Object.values(read.saved.assignment).flat().sort()).toEqual(placedElsewhere);
+  });
+
+  it("names nobody in the answer: who is driving is the day's record, not the plan's", async () => {
+    await post({ ...DAY, assignment: plannedAssignment() });
+    const text = await (await get("?scenario=EVERY_RIDER_FITS&direction=AM")).text();
+    expect(text).not.toMatch(/driverName|Gus M\.|Mallory/);
+  });
+});
+
+/**
+ * Veri's S1, the other half: the read-back means a second page can POST for a run it has not
+ * planned yet, and an empty screen arriving a moment later must not take a real plan away.
+ *
+ * The button cannot be pressed with nobody in a van, so no coordinator reaches this on purpose
+ * — which is exactly why the server holds the rule too: the refusal is for a request that
+ * skipped the screen.
+ */
+describe("an empty plan does not overwrite one somebody made", () => {
+  const emptied = () => Object.fromEntries(INPUT.lanes.map((lane) => [lane.id, [] as string[]]));
+
+  it("is a 409 with the line that says what to do instead, and the plan is untouched", async () => {
+    await post({ ...DAY, assignment: plannedAssignment() });
+    const before = await (await get("?scenario=EVERY_RIDER_FITS&direction=AM")).json();
+
+    const res = await post({ ...DAY, assignment: emptied() });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body).toEqual({ ok: false, error: planRoutes.saveNothingPlaced });
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    // No code, no status, no van and no child in the sentence a coordinator would read.
+    expect(JSON.stringify(body)).not.toMatch(/\bV\d\b|\bC\d\b|\b409\b|ETA|SYN/);
+
+    // And the plan is exactly the one that was there: same children, same minute.
+    const after = await (await get("?scenario=EVERY_RIDER_FITS&direction=AM")).json();
+    expect(after.saved).toEqual(before.saved);
+  });
+
+  it("still saves an empty run that has nothing saved, which overwrites nothing", async () => {
+    const res = await post({ ...DAY, assignment: emptied() });
+    expect(res.status).toBe(200);
+    expect((await res.json()).placed).toBe(0);
+  });
+
+  it("refuses per run: the afternoon's empty save is not stopped by the morning's plan", async () => {
+    await post({ ...DAY, assignment: plannedAssignment() });
+    expect((await post({ ...DAY, direction: "PM", assignment: emptied() })).status).toBe(200);
   });
 });
 

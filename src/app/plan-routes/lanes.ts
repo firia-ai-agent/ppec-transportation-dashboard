@@ -307,6 +307,18 @@ export function savedLine(savedAt: string): string {
   return fill(planRoutes.saved, { time: siteTimeLabel(new Date(savedAt)) });
 }
 
+/**
+ * "Showing the plan saved at 1:24 PM."
+ *
+ * The line for a plan the screen *found* rather than one it just made: a coordinator who
+ * reloads gets their children back in their vans, and this says the plan in front of them is
+ * the saved one and when it was saved. Same clock as {@link savedLine} and for the same reason
+ * — the instant is the server's record, read out at the centre.
+ */
+export function showingSavedLine(savedAt: string): string {
+  return fill(planRoutes.showingSaved, { time: siteTimeLabel(new Date(savedAt)) });
+}
+
 /** Is there anything on this plan a coordinator still has to decide? */
 export function needsADecision(lanes: readonly LanePlan[], unplaced: readonly Unplaced[]): boolean {
   return (

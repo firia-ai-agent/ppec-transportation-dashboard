@@ -55,12 +55,17 @@ const body = run.extend({
  * is re-checked like any other, and the refusal that comes back is the sentence the screen would
  * have shown for that same verdict.
  *
- * Four answers, and three of them are 4xx:
+ * Five answers, and four of them are 4xx:
  *  - 400, a body this endpoint cannot read at all;
  *  - 404, a plan naming a child, a van or a configuration this run does not have — one uniform
  *    refusal, so the answer cannot be used to find out which of them existed somewhere else;
+ *  - 409, nobody in any van and this run already has a saved plan: an empty screen does not
+ *    overwrite a plan somebody made;
  *  - 422, every id is this run's own and the solver says no, with the van and the child named;
  *  - 200, the plan as the solver re-checked it, kept in the demo's own state.
+ *
+ * The GET is the other half of that state: the screen asks for the run's saved plan when it
+ * opens one, so a reload shows the plan rather than an empty day (Veri's S1, 2026-10-17).
  */
 export async function POST(req: Request) {
   const guard = await requireApiSession(API.planSave);
@@ -79,6 +84,25 @@ export async function POST(req: Request) {
     );
   }
 
+  /*
+   * An empty screen is not a plan, and it may not be saved over one that is.
+   *
+   * The button cannot be pressed with nobody in a van, so this request did not come from the
+   * screen a coordinator is looking at — a second tab opened before the read-back arrived, or
+   * something that is not the screen at all. Either way the run already has a plan somebody
+   * made, and replacing it with nothing is the one overwrite nobody asked for (Veri's S1).
+   * Checked before the solver is asked, because there is nothing in an empty plan to ask about.
+   */
+  if (
+    placedCount(parsed.data.assignment) === 0 &&
+    getSavedPlan(day.scenario, day.direction) !== null
+  ) {
+    return Response.json(
+      { ok: false, error: planRoutes.saveNothingPlaced },
+      { status: 409, headers: noStore },
+    );
+  }
+
   const input = planInputOf(day);
   const checked = checkPlan(input, parsed.data.assignment);
   if (!checked.ok) {
@@ -93,6 +117,11 @@ export async function POST(req: Request) {
   const saved = putSavedPlan({
     scenario: day.scenario,
     direction: day.direction,
+    // The lanes and the measurements exactly as this request described them and the day
+    // accepted them, because the plan is only a plan of the day it was made against: a screen
+    // handed the assignment alone would redraw it against the morning's defaults.
+    stages: parsed.data.stages,
+    measured: parsed.data.measured,
     assignment: checked.assignment,
     savedAt: new Date().toISOString(),
   });

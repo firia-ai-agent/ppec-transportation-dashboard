@@ -891,6 +891,52 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
   });
 
   /**
+   * Veri's S1, 2026-10-17: a saved plan used to be gone on reload, so the screen now reads one
+   * back — and these are the two lines that act arrived with.
+   *
+   * One says what is in front of a coordinator who has just opened the run, and the other
+   * refuses to lose a plan somebody made to an empty screen. Both are said as a fact about the
+   * plan and what to do about it, with nothing about a request, a server or where a plan is
+   * kept: none of that is a coordinator's business, and the second line is read by one.
+   */
+  it("the read-back: what is on screen, and the refusal to save nothing over it", () => {
+    expect(planRoutes.showingSaved).toBe("Showing the plan saved at {time}.");
+    expect(fill(planRoutes.showingSaved, { time: "1:24 PM" })).toBe(
+      "Showing the plan saved at 1:24 PM.",
+    );
+    expect(planRoutes.saveNothingPlaced).toBe(
+      "There is already a saved plan. Put at least one child in a van before saving over it.",
+    );
+    // The refusal says what to do next, in the words the screen uses for a van all through.
+    expect(planRoutes.saveNothingPlaced).toContain("Put at least one child in a van");
+    // Neither is about the machinery: no request, no endpoint, no status, no storage.
+    for (const line of [planRoutes.showingSaved, planRoutes.saveNothingPlaced]) {
+      expect(line, line).not.toMatch(/server|request|endpoint|HTTP|409|reload|cache|memory/i);
+    }
+  });
+
+  /**
+   * Vera's screenshots at 1440 and 390: nothing new on this screen may show the machine's own
+   * handles. A van is "the convertible van" and never "V1", a child is a first name and never
+   * a token, nothing says "ETA" where a real time belongs, and the synthetic marking is the
+   * DEMO bar's job and not a word in a sentence.
+   */
+  it("the lines the read-back added carry no code, key, id or 'ETA'", () => {
+    const added = [planRoutes.showingSaved, planRoutes.saveNothingPlaced];
+    for (const line of added) {
+      // Van codes and vehicle keys, ride and child ids, and the layout ids behind a ramp check.
+      expect(line, line).not.toMatch(/\bV\d+\b|\bC\d+\b|\bL-\w+\b|\bvehicleKey\b|\blaneId\b/);
+      // The synthetic marking, which is the DEMO bar's and never a sentence's.
+      expect(line, line).not.toMatch(/\bSYN\b|Provider P\d/);
+      // The word the copy guide bans outright, and the enum shapes a screen must never show.
+      expect(line, line).not.toMatch(/\bETA\b/);
+      expect(line, line).not.toMatch(/\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/);
+      // Said in plain words: no placeholder left but the time, and no bracketed machinery.
+      expect(line.replace("{time}", ""), line).not.toMatch(/[{}<>]/);
+    }
+  });
+
+  /**
    * Vera's review, 2026-10-17: the three lines over and under the map, in a coordinator's words.
    *
    * The note said "no surveyed road", which is a fact about our data and not about the day — what
