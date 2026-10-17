@@ -94,14 +94,26 @@ describe("check 1, part 1: no route and no server action can put a message in th
   });
 
   it("every caller of the egress door is a domain module, and none of them is a route", () => {
-    // The door itself, the four §11.2 executors that are allowed through it, the ETA sweeper and
-    // the fixed-copy HELP answer. Each one composes from a template id and codes; none of them
-    // takes copy from a caller. If this list grows, the thing that grew has to be read.
+    /*
+     * The door itself, the four §11.2 executors that are allowed through it, the ETA sweeper, the
+     * fixed-copy HELP answer, and SURF-05's approval decision. Each one composes from a template id
+     * and codes; none of them takes copy from a caller. If this list grows, the thing that grew has
+     * to be read.
+     *
+     * `modules/approvals/decide.ts` is the newest and is the reason this list is worth having. It
+     * is what a coordinator's "Approve and send" runs, and it is a **module** rather than the
+     * screen's own file precisely because of the assertion on the next line: a decision model that
+     * queued from under `src/app/` would have been the first exception to "no server action may put
+     * a message in the outbox", and the first exception is how a rule stops being one. The copy it
+     * sends is the template id and the vars the agent's proposal row already carried, plus one
+     * clock time a coordinator may edit — regex-checked, and a var no template will render as prose.
+     */
     expect(queueingFiles.sort()).toEqual([
       "modules/agent/run/exec/capability.ts",
       "modules/agent/run/exec/clarify.ts",
       "modules/agent/run/exec/followup.ts",
       "modules/agent/run/exec/therapist.ts",
+      "modules/approvals/decide.ts",
       "modules/messaging/eta-notice.ts",
       "modules/messaging/inbound.ts",
       "modules/outbox/outbox.ts",

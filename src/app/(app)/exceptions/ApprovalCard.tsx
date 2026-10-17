@@ -7,7 +7,7 @@
  *
  *  - **the exact text comes first.** Not a description of the change, not a diff of two times —
  *    the words the family's phone will show, in a bubble, rendered by the outbox's own renderer
- *    (`approvals.bodyOf`). What a coordinator is deciding *is* that sentence, so that sentence is
+ *    (`modules/approvals/decide.bodyOf`). What a coordinator is deciding *is* that sentence, so that sentence is
  *    what the screen leads with.
  *  - **"The family hears nothing until you approve" sits above both buttons**, because the fear a
  *    person brings to this screen is that reading it already sent something.
@@ -31,7 +31,7 @@ import { useActionState, useState } from "react";
 import { approval as approvalCopy, board, fill } from "@/ui/copy";
 import { clockLabel } from "@/ui/service-date";
 import { decideApprovalAction, type DecisionState } from "./actions";
-import type { PendingApproval } from "./approvals";
+import type { PendingApproval } from "@/modules/approvals/decide";
 import styles from "./approvals.module.css";
 
 export function ApprovalCard({ item, bodyFor }: {

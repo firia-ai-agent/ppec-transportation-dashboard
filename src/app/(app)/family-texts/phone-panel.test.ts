@@ -8,6 +8,8 @@ import { drawer, fill, familyTexts, places, sourceMode } from "@/ui/copy";
 import { outboundStates } from "@/ui/states";
 import { LegDrawer } from "../today/LegDrawer";
 import { PhonePanel } from "./PhonePanel";
+import { LiveTurnContext, type LiveTurn } from "./live-turn";
+import phoneStyles from "./phone.module.css";
 import { e164Of, faultLine, phoneLabel, threadFor, type Thread } from "./thread";
 
 /**
@@ -40,9 +42,29 @@ const scenarioThread: Thread = {
 /** React escapes an apostrophe in text; the copy has several, so compare on the escaped form. */
 const esc = (text: string): string => text.replace(/'/g, "&#x27;");
 
+/**
+ * An idle turn, which is what the panel has before anybody types. The provider is mounted by the
+ * page in production (`page.tsx`), so every render of the panel has one above it — and the thread's
+ * live half reads it rather than guessing (`live-turn.ts`).
+ */
+const IDLE: LiveTurn = {
+  turnState: { status: "idle" },
+  submitTurn: () => {},
+  turnPending: false,
+  approval: { status: "idle" },
+  submitApproval: () => {},
+  approvalPending: false,
+  declined: false,
+  decline: () => {},
+};
+
 const panelHtml = (thread: Thread = scenarioThread): string =>
   renderToStaticMarkup(
-    createElement(PhonePanel, { phones, selected: noah, thread, dayLabel: day.label }),
+    createElement(
+      LiveTurnContext.Provider,
+      { value: IDLE },
+      createElement(PhonePanel, { phones, selected: noah, thread, dayLabel: day.label }),
+    ),
   );
 
 describe("the phone panel reads like a text thread", () => {
@@ -241,5 +263,95 @@ describe("a message log that cannot be read says so", () => {
     // Still useful: the class of the fault and the host it was about.
     expect(line).toContain("Error:");
     expect(line).toContain("db.example.internal");
+  });
+});
+
+/**
+ * THE ASSISTANT'S REPLY LANDS IN THE THREAD (demo item 2c; PRD §18.2 steps 9–10).
+ *
+ * A coordinator types a text as the family and the assistant answers. "What did we say to them" is
+ * a question a person asks of the *thread* — so the pair renders inside the phone frame, under the
+ * bubbles already there, and not in a card beside it. `LiveTurn.tsx` is how one turn reaches two
+ * places; this is the assertion that it reaches the right one.
+ *
+ * Rendered through `LiveTurnProvider` with a turn in it, because the whole point is placement: what
+ * is read off the markup is which element the bubbles are inside.
+ */
+describe("the turn a coordinator drives appears in the thread", () => {
+  const typed = "Can Noah be dropped at grandma's at 5?";
+  const reply = "PPEC: Your child's van on October 14 changed. New drop-off around 5:00 PM at Okeeheelee Park.";
+
+  /** The frame's own markup: everything from the phone section's open tag onwards. */
+  const phoneFrame = (html: string): string => {
+    const open = html.indexOf(`class="${phoneStyles.phone}"`);
+    expect(open, "the phone frame is in the markup").toBeGreaterThan(-1);
+    return html.slice(open);
+  };
+
+  /** A turn, as the provider would hand it over. Only the two fields the thread reads matter. */
+  const turnValue = (typed: string | null, reply: string | null): LiveTurn => ({
+    turnState: typed === null
+      ? { status: "idle" }
+      : { status: "answered", childKey: noah.childKey, text: typed, turn: {} as never },
+    submitTurn: () => {},
+    turnPending: false,
+    approval: reply === null
+      ? { status: "idle" }
+      : { status: "approved", applied: { reply: { body: reply } } as never },
+    submitApproval: () => {},
+    approvalPending: false,
+    declined: false,
+    decline: () => {},
+  });
+
+  /** The panel, rendered inside a turn. The composer is not the subject here; placement is. */
+  const withTurn = (typed: string | null, reply: string | null): string =>
+    renderToStaticMarkup(
+      createElement(
+        LiveTurnContext.Provider,
+        { value: turnValue(typed, reply) },
+        createElement(PhonePanel, {
+          phones,
+          selected: noah,
+          thread: scenarioThread,
+          dayLabel: day.label,
+          composer: null,
+        }),
+      ),
+    );
+
+  it("renders the family's text and the reply as bubbles, inside the phone frame", () => {
+    const html = withTurn(typed, reply);
+
+    // Both bubbles are present, and both are inside the frame rather than beside it.
+    const frame = phoneFrame(html);
+    expect(frame).toContain(esc(typed));
+    expect(frame).toContain(esc(reply));
+    // Under the logged bubble, not above it: the conversation continues, it does not restart.
+    expect(frame.indexOf(esc(noah.body))).toBeLessThan(frame.indexOf(esc(typed)));
+    // The family's side and the centre's side, each labelled, so neither reads as the other.
+    expect(frame).toContain(esc(noah.guardianName));
+    expect(frame).toContain(esc(places.center));
+  });
+
+  /**
+   * §11.2: a proposal is not a message. A thread that showed the draft before a person approved it
+   * would be showing a family a text nobody had agreed to send.
+   */
+  it("shows the family's text but no reply until a person has approved one", () => {
+    const html = withTurn(typed, null);
+    expect(html).toContain(esc(typed));
+    expect(html).not.toContain(esc(reply));
+  });
+
+  /** And neither live bubble claims a time or a delivery state, because nothing was sent. */
+  it("says why this session's bubbles carry no time and no delivery", () => {
+    const html = withTurn(typed, reply);
+    expect(html).toContain(esc(familyTexts.liveNote));
+  });
+
+  it("renders nothing at all before a turn has been driven", () => {
+    const html = withTurn(null, null);
+    expect(html).not.toContain(esc(familyTexts.liveNote));
   });
 });

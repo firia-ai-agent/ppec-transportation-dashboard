@@ -31,7 +31,7 @@ import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { TEST_NOW } from "@/test/clock";
 import { seedPersona, seedStaff } from "@/test/messaging";
 import { freshDb, ORG, SITE } from "@/test/pglite";
-import { APPROVALS_PAGE, approvalRoles, decideApproval, pendingApprovals } from "./approvals";
+import { APPROVALS_PAGE, approvalRoles, decideApproval, pendingApprovals } from "./decide";
 
 let pg: PGlite;
 let db: Db;

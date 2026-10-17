@@ -11,22 +11,23 @@
  * `{status, body}`: the role check, the tenant check, the decision race, the version guard and the
  * queued text. This file is the thin part — read the form, run it, turn a status into the sentence
  * the screen shows. That split is what lets the guards be tested against a real database with no
- * Next request at all (`approvals.test.ts`).
+ * Next request at all (`modules/approvals/decide.test.ts`).
  *
  * `revalidatePath` on success because an approved proposal leaves the list: the next render of
  * this screen must not offer a decision somebody has already made.
  */
 import { revalidatePath } from "next/cache";
+import { canOpenPage } from "@/auth/access";
 import { getCaller } from "@/auth/caller";
 import { getNeonDb } from "@/db/exec";
-import { vercelQueueOutboxTransport } from "@/modules/outbox/transport";
-import { approval as approvalCopy } from "@/ui/copy";
 import {
   APPROVALS_PAGE,
   type ApprovalDecision,
   type DecideError,
   decideApproval,
-} from "./approvals";
+} from "@/modules/approvals/decide";
+import { vercelQueueOutboxTransport } from "@/modules/outbox/transport";
+import { approval as approvalCopy } from "@/ui/copy";
 
 /** What the screen renders after a decision: what happened, or the one sentence a refusal gets. */
 export type DecisionState =
@@ -52,7 +53,20 @@ export async function decideApprovalAction(
   _previous: DecisionState,
   form: FormData,
 ): Promise<DecisionState> {
+  /*
+   * The role, in the action's own code, before anything else happens: a server action is a POST
+   * endpoint with no URL of its own, so there is no route guard in front of it and hiding a button
+   * is not a guard. Read from the one access table, for the page this control is on.
+   *
+   * `decideApproval` checks it again, together with the caller's membership at the approval's own
+   * site — the check that cannot be done here, because the site is a property of the row and not
+   * of the request. Two checks, and neither is redundant: this one refuses a role outright, that
+   * one refuses a role at the wrong tenant.
+   */
   const caller = await getCaller();
+  if (!canOpenPage(caller, APPROVALS_PAGE)) {
+    return { status: "refused", message: approvalCopy.notYourRole };
+  }
   const approvalId = String(form.get("approval") ?? "");
   const decision = String(form.get("decision") ?? "");
   if (!approvalId || (decision !== "APPROVED" && decision !== "DECLINED")) return { status: "idle" };

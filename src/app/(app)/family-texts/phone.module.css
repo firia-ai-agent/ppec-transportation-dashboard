@@ -153,6 +153,29 @@
   list-style: none;
 }
 
+/*
+ * This session's own bubbles, below the logged thread and inside the same frame.
+ *
+ * A hairline above them, and nothing else: the pair is part of the conversation, so it must not
+ * look like a different component — but a reader needs to see where the message log stops and this
+ * session starts, because only one of the two has delivery under it.
+ */
+.liveThread {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: var(--space-4);
+  border-top: var(--border-hairline) solid var(--color-border-strong);
+  list-style: none;
+}
+
+.liveNote {
+  margin: 0;
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+  line-height: var(--leading-normal);
+}
+
 .bubbleRow {
   display: grid;
   gap: var(--space-1);

@@ -36,6 +36,16 @@
  *
  * Never throws for an authorization problem. Like `modules/demo/reset.ts`, it answers
  * `{status, body}` and the server action maps it, so the screen always has something to say.
+ *
+ * ## Why this is a module and not the screen's own file
+ *
+ * Because it queues a message, and `free-text-egress.test.ts` holds a rule about that: **no route
+ * and no server action may put a message in the outbox.** Every caller of `enqueue` is a domain
+ * module that composes from a template id and codes, and none of them takes copy from a caller —
+ * which is what makes "no free text to a family" structural rather than a habit. A decision model
+ * that queued from under `src/app/` would have been the first exception to that rule, and the
+ * first exception is how a rule stops being one. So it lives here, the screen's action is the thin
+ * part that maps a status to a sentence, and the invariant holds for everything.
  */
 import { Forbidden, SiteNotFound, Unauthenticated, requireSiteAccess, type StaffRole } from "@/auth/core";
 import { rolesWhoCanOpen } from "@/auth/access";

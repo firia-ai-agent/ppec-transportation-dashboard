@@ -5,6 +5,7 @@ import { fill, familyTexts, places } from "@/ui/copy";
 import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
 import { icon } from "@/ui/tokens";
+import { LiveBubbles } from "./LiveBubbles";
 import { phoneLabel, type Bubble, type Thread } from "./thread";
 import styles from "./phone.module.css";
 
@@ -109,6 +110,9 @@ export function PhonePanel({
             ))
           )}
         </ol>
+
+        {/* …and this session's own pair, continuing the same conversation. */}
+        <LiveBubbles adult={selected.guardianName} />
 
         {/*
           Which of the three sources this thread is, in a sentence (see thread.ts). Three, not two:

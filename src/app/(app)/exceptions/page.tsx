@@ -2,7 +2,7 @@ import { requirePage } from "@/auth/page-guard";
 import { getNeonDb } from "@/db/exec";
 import { approval as approvalCopy } from "@/ui/copy";
 import { ApprovalCard } from "./ApprovalCard";
-import { bodyOf, pendingApprovals, type PendingApproval } from "./approvals";
+import { bodyOf, pendingApprovals, type PendingApproval } from "@/modules/approvals/decide";
 import styles from "./approvals.module.css";
 
 export const metadata = { title: approvalCopy.documentTitle };
@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
  * session read (`getCaller`, which re-reads `ops.site_membership` on every request — ADR-004), so
  * the list is the tenant boundary itself rather than a filter applied after the fact, and this
  * page adds no membership query of its own. The decision then re-checks the site off the
- * approval's own row (`approvals.decideApproval`), because a list is not a permission.
+ * approval's own row (`modules/approvals/decide.ts`), because a list is not a permission.
  *
  * Server-side role guard first, before anything is rendered: /exceptions is in the access table
  * (src/auth/access.ts) and a role that is not in its row gets the no-access page and a 403

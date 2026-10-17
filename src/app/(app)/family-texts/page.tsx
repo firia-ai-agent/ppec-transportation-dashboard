@@ -5,6 +5,7 @@ import { modelReach } from "@/modules/agent/run/deps";
 import { familyTexts } from "@/ui/copy";
 import { Placeholder } from "@/ui/Placeholder";
 import { nav } from "@/ui/copy";
+import { LiveTurnProvider } from "./LiveTurnProvider";
 import { PhoneComposer } from "./PhoneComposer";
 import { PhonePanel } from "./PhonePanel";
 import { phonesForDay, threadFor } from "./thread";
@@ -61,7 +62,13 @@ export default async function PhonePreviewPage({
     userId: caller.kind === "STAFF" ? caller.userId : undefined,
   });
 
+  /*
+   * One turn, two places (`live-turn.ts`): the bubbles it produces belong *in* the thread, inside
+   * the phone frame, and the controls that produce it belong beside the phone (§6.3). The provider
+   * is mounted here, above both, and wraps the server-rendered panel untouched.
+   */
   return (
+    <LiveTurnProvider>
     <PhonePanel
       phones={phones}
       selected={selected}
@@ -76,5 +83,6 @@ export default async function PhonePreviewPage({
         />
       }
     />
+    </LiveTurnProvider>
   );
 }

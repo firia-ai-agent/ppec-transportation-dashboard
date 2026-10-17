@@ -590,22 +590,9 @@ describe("the session endpoint, for every role and for a signed-out caller", () 
     ]);
     for (const action of actions.filter((a) => a.auth.kind === "session")) {
       const source = readFileSync(path.join(REPO, action.file), "utf8");
-      // It asks who is calling, in its own code, rather than trusting that a button was rendered.
-      expect(source, action.file).toMatch(/await getCaller\(\)/);
-      /*
-       * And the roles it holds them to come from the one access table — in the action itself or in
-       * the module beside it that does the deciding. Two shapes, because a write needs more than a
-       * read: the phone panel's two controls ask `canOpenPage` directly, and SURF-05's decision
-       * delegates to `approvals.ts`, which reads the page's own row through `rolesWhoCanOpen` and
-       * then checks the caller's membership at the approval's own site.
-       */
-      const dir = path.dirname(path.join(REPO, action.file));
-      const beside = readdirSync(dir)
-        .filter((f) => f.endsWith(".ts") || f.endsWith(".tsx"))
-        .map((f) => readFileSync(path.join(dir, f), "utf8"))
-        .join("\n");
-      expect(beside, action.file).toMatch(/canOpenPage\(|rolesWhoCanOpen\(/);
-      // Never a role literal in the action: a list restated here is a list that can drift.
+      expect(source, action.file).toMatch(/canOpenPage\(await getCaller\(\)|canOpenPage\(caller/);
+      // Never a role literal in an action: a list restated there is a list that can drift from
+      // the table. The roles come from the row, by path.
       expect(source, action.file).not.toMatch(/"(DIRECTOR|COORDINATOR|FRONT_DESK)"/);
     }
   });

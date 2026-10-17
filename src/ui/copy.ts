@@ -723,6 +723,16 @@ export const familyTexts = {
   emptyDay: "No family texts today.",
   /** The way back to the child this thread is about. */
   backToBoard: "Open the board",
+  /**
+   * The live pair at the bottom of the thread: what a coordinator just typed as the family, and
+   * what the assistant answered once a person approved it (`LiveBubbles.tsx`).
+   *
+   * `liveNote` is the one thing that keeps the thread honest. The bubbles above it are rows from
+   * the message log with real times and §3 delivery ticks; these two have neither, and a reader who
+   * was not told why would reasonably assume the screen had simply lost them.
+   */
+  liveHeading: "This session",
+  liveNote: "From this session, on the simulated phone. Nothing was sent, so there is no time or delivery under them.",
 
   /* ── the assistant half (PRD §18.2 steps 9–10): a parent's text, and what came back ── */
 

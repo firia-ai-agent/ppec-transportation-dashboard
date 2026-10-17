@@ -1,9 +1,8 @@
 "use client";
 
-import { useActionState, useState } from "react";
 import { approval as approvalCopy, fill, familyTexts } from "@/ui/copy";
 import { clockLabel } from "@/ui/service-date";
-import { approveAgentProposal, runAgentTurn, type ApprovalState, type TurnState } from "./actions";
+import { useLiveTurn } from "./live-turn";
 import styles from "./phone.module.css";
 
 /**
@@ -42,14 +41,13 @@ export function PhoneComposer({
    */
   modelReachKind: "model" | "keyword" | "unavailable";
 }) {
-  const [turnState, submitTurn, turnPending] = useActionState<TurnState, FormData>(runAgentTurn, {
-    status: "idle",
-  });
-  const [approval, submitApproval, approvalPending] = useActionState<ApprovalState, FormData>(
-    approveAgentProposal,
-    { status: "idle" },
-  );
-  const [declined, setDeclined] = useState(false);
+  /*
+   * The turn is the panel's, not this component's: the bubbles inside the phone frame render the
+   * same answer (`LiveTurn.tsx`), so the thread and these controls cannot disagree about what the
+   * assistant did.
+   */
+  const { turnState, submitTurn, turnPending, approval, submitApproval, approvalPending, declined, decline } =
+    useLiveTurn();
 
   const answered = turnState.status === "answered" ? turnState : null;
   const turn = answered?.turn;
@@ -126,7 +124,7 @@ export function PhoneComposer({
                     <button type="submit" className={styles.primary} disabled={approvalPending}>
                       {approvalCopy.approveAndSend}
                     </button>
-                    <button type="button" className={styles.secondary} onClick={() => setDeclined(true)}>
+                    <button type="button" className={styles.secondary} onClick={decline}>
                       {approvalCopy.dontSend}
                     </button>
                   </form>
