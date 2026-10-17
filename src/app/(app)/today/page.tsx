@@ -1,5 +1,7 @@
 import { requirePage } from "@/auth/page-guard";
 import { buildBoard, requestedServiceDay } from "@/domain/board/board";
+import { ARRIVAL_PARAM, decodeFinding, replanForArrival } from "@/domain/plan/arrival";
+import { screenArrival } from "@/ui/arrival-lines";
 import { TodayBoard } from "./TodayBoard";
 
 /** The guard reads a session, so this route is never statically rendered. */
@@ -27,6 +29,16 @@ export const dynamic = "force-dynamic";
  * ride on it has an outcome (AT-13's held ride, AT-10's arrival that is not a handoff), which is
  * what the browser checks walk (`dateOverrideAllowed` in src/domain/board/day.ts).
  *
+ * The other parameter a request may carry is a ramp check (`?arrival=`), which is how the ramp
+ * iPad hands this board a van it has just looked at: the board does not re-plan — it shows a
+ * day — so what reaches it is the *outcome* the solver produced and not the planner, as a note
+ * on each ride the check was about. It is read through the module that wrote it, which answers
+ * null for anything this day cannot be about, so an unreadable one is a parameter nothing reads.
+ *
+ * A note is all it is. PRD §9 l.865 gives the decision after a ramp check to a coordinator, so
+ * the ride's own state is still the leg machine's over the day's recorded facts — a proposal
+ * never overwrites what the day observed.
+ *
  * What is not here yet, and is not faked in its absence: live updates, the map pane beside the
  * rows, the inbox and the exceptions table. Each lands in its own change.
  */
@@ -47,5 +59,10 @@ export default async function Page({
   const query = one(params.q) ?? "";
   const board = buildBoard(requestedServiceDay(one(params.date), process.env));
 
-  return <TodayBoard board={board} query={query} />;
+  // The ramp check, if the link carried a readable one. Re-planned here, on the server, because
+  // the same finding always produces the same re-plan and the board's rows are computed here too.
+  const finding = decodeFinding(one(params[ARRIVAL_PARAM]));
+  const arrival = finding ? screenArrival(replanForArrival(finding)) : null;
+
+  return <TodayBoard board={board} query={query} arrival={arrival} />;
 }

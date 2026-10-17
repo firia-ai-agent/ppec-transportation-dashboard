@@ -26,7 +26,7 @@ import {
   type StateDescriptor,
 } from "./states";
 import { vehicleByKey } from "@/domain/plan/day";
-import type { ArrivalReplan, RideChange } from "@/domain/plan/arrival";
+import { boardArrival, type ArrivalReplan, type BoardArrival, type RideChange } from "@/domain/plan/arrival";
 import type { Unplaced, UnplacedCause } from "@/domain/solver";
 
 /* ───────────────────────── why a child has no van ───────────────────────── */
@@ -171,6 +171,24 @@ export function arrivalBannerLines(replan: ArrivalReplan): string[] {
       held: replan.holds.length,
     }),
   ];
+}
+
+/**
+ * One ramp check in the shape a *screen* takes it: what it did to each ride, and the lines that
+ * say why the screen is not showing the day it opened on.
+ *
+ * It exists so the two screens that are handed a check take one prop rather than two, and so the
+ * banner is written once: the Today board is rendered on the server from a day the domain
+ * computed, and a client component that re-derived the banner from the changes map would be a
+ * second count of the same thing.
+ */
+export type ScreenArrival = {
+  board: BoardArrival;
+  lines: readonly string[];
+};
+
+export function screenArrival(replan: ArrivalReplan): ScreenArrival {
+  return { board: boardArrival(replan), lines: arrivalBannerLines(replan) };
 }
 
 /** What one board row says the ramp check did to that ride. */

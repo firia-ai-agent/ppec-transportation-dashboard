@@ -19,7 +19,13 @@ import {
   type LegRow,
   type RideView,
 } from "@/domain/board/board";
-import { board as boardCopy, etaText, fill, onDay, serviceDate } from "@/ui/copy";
+import type { RideChange } from "@/domain/plan/arrival";
+import { board as boardCopy, etaText, fill, onDay, rampReplan, serviceDate } from "@/ui/copy";
+import {
+  rideChangeLine,
+  rideChangeState,
+  type ScreenArrival,
+} from "@/ui/arrival-lines";
 import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
 import {
@@ -52,7 +58,23 @@ import styles from "./today.module.css";
  * Keyboard (§4.1): J and K move between rides and Enter opens one, which is also what the row's
  * own button does, so nothing here is keyboard-only or mouse-only.
  */
-export function TodayBoard({ board, query }: { board: Board; query: string }) {
+export function TodayBoard({
+  board,
+  query,
+  arrival = null,
+}: {
+  board: Board;
+  query: string;
+  /**
+   * One ramp check the request carried, already re-planned on the server.
+   *
+   * A note and nothing more: the ride's own state stays the leg machine's over what the day
+   * recorded, because a ramp check is a proposal a coordinator decides about (PRD §9 l.865) and
+   * a board that moved a row into a van nobody has approved would be reporting a decision
+   * nobody made.
+   */
+  arrival?: ScreenArrival | null;
+}) {
   const { day } = board;
   const [onlyNeedsAction, setOnlyNeedsAction] = useState(false);
   const [openChild, setOpenChild] = useState<string | null>(null);
@@ -108,6 +130,27 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
           <span className={styles.phase}>{serviceDate.phases[day.phase]}</span>
         </p>
       </header>
+
+      {/*
+        A ramp check this board was handed: why some rows carry a note they did not have a
+        minute ago. Two lines at most — what the check did, and how many children it is about —
+        with the names on the rows themselves, which is where somebody acting on one is looking.
+      */}
+      {arrival ? (
+        <section className={styles.arrival} data-arrival="true" aria-labelledby="arrival-heading">
+          <h2 id="arrival-heading" className={styles.arrivalHeading}>
+            {rampReplan.bannerHeading}
+          </h2>
+          {arrival.lines.map((line) => (
+            <p key={line} className={styles.arrivalLine}>
+              {line}
+            </p>
+          ))}
+          <p className={styles.arrivalLine}>
+            <a href="/today">{rampReplan.clear}</a>
+          </p>
+        </section>
+      ) : null}
 
       <div className={styles.filters}>
         <button
@@ -198,6 +241,13 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
                     register={registerRow(order.indexOf(leg))}
                     onMove={focusRow}
                     onOpen={() => setOpenChild(leg.child.childKey)}
+                    // Only the ride the check was about: a ramp check is about one run in one
+                    // direction, and the morning of the same child never heard about it.
+                    change={
+                      arrival && leg.ride.direction === arrival.board.direction
+                        ? arrival.board.changes.get(leg.child.childKey) ?? null
+                        : null
+                    }
                   />
                 ))}
               </tbody>
@@ -244,6 +294,7 @@ function Row({
   register,
   onMove,
   onOpen,
+  change = null,
 }: {
   leg: LegRow;
   /** Which kind of day this row is on: a finished day has no live van to locate. */
@@ -252,6 +303,8 @@ function Row({
   register: (el: HTMLButtonElement | null) => void;
   onMove: (index: number) => void;
   onOpen: () => void;
+  /** What a ramp check proposes for this ride, when one was handed to the board. */
+  change?: RideChange | null;
 }) {
   const { child, ride } = leg;
   const opener = fill(boardCopy.openRow, {
@@ -295,6 +348,20 @@ function Row({
       </td>
       <td>
         <VanCell ride={ride} />
+        {/*
+          What a ramp check proposes for this ride, labelled as the ramp check so it is never
+          read as the ride's own recorded state — which is the chip in the cell to the left, and
+          is still the leg machine's over what the day observed.
+        */}
+        {change ? (
+          <span className={styles.rampNote}>
+            <span className={styles.rampNoteLabel}>{rampReplan.rowLabel}</span>{" "}
+            {rideChangeLine(change)}{" "}
+            {rideChangeState(change) ? (
+              <StateChip state={rideChangeState(change)!} className={styles.cellChip} />
+            ) : null}
+          </span>
+        ) : null}
       </td>
       <td>
         <LocationCell ride={ride} phase={phase} />

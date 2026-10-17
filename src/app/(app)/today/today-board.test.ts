@@ -13,6 +13,13 @@ import {
   serviceDate,
 } from "@/ui/copy";
 import { legStates, therapySessionStates } from "@/ui/states";
+import {
+  decodeFinding,
+  replanForArrival,
+  type RampFinding,
+} from "@/domain/plan/arrival";
+import { screenArrival } from "@/ui/arrival-lines";
+import { rampReplan } from "@/ui/copy";
 import { clockLabel } from "@/ui/service-date";
 import { TodayBoard } from "./TodayBoard";
 import { LegDrawer } from "./LegDrawer";
@@ -579,5 +586,113 @@ describe("the one primary action, and why it is not available", () => {
       // No automatic return, and no handoff either: the only exit is a person's.
       expect(held).toContain(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
     });
+  });
+});
+
+/**
+ * A ramp check the board was handed (`?arrival=`), which closes the loop the ramp iPad opened:
+ * the iPad used to record onto itself, and this board never heard about the van.
+ *
+ * The re-plan is the solver's (src/domain/plan/arrival.test.ts) and the sentences are
+ * src/ui/arrival-lines.test.ts's. What is checked here is what the *board* does with one: whose
+ * rows get a note, whose do not, and the one thing it must not do — move a ride into a van
+ * nobody has approved, or let a proposal overwrite what the day recorded.
+ */
+describe("a ramp check, on the board", () => {
+  const finding: RampFinding = {
+    laneId: "V1",
+    layoutCode: "1WC/3A",
+    outOfService: [3, 4],
+    unanswered: [],
+    liftOk: true,
+    latchOk: true,
+    measured: [],
+  };
+  const arrival = screenArrival(replanForArrival(finding));
+  const html = renderToStaticMarkup(
+    createElement(TodayBoard, { board, query: "", arrival }),
+  );
+
+  it("says why some rows carry a note they did not have a minute ago", () => {
+    expect(html).toContain(escaped(rampReplan.bannerHeading));
+    expect(html).toContain("convertible van was checked at the ramp");
+  });
+
+  it("notes the move on the ride it is about, labelled as the ramp check", () => {
+    expect(html).toContain(escaped(rampReplan.rowLabel));
+    expect(html).toContain(escaped("Moving to the center van after the ramp check."));
+  });
+
+  it("says somebody has now seen the van, for a ride nobody had to move", () => {
+    expect(arrival.board.changes.get("C6")).toEqual({ kind: "CHECKED", laneId: "V1" });
+    expect(html).toContain(escaped(rampReplan.rowChecked));
+  });
+
+  it("leaves the ride's own state to the leg machine: a proposal is not an observation", () => {
+    // Every row's state chip is still the one the board computed from what the day recorded.
+    for (const leg of board.legs) {
+      expect(html, leg.key).toContain(escaped(legStates[leg.ride.state].label));
+    }
+    // And the van cell still names the van the day has the ride on.
+    for (const leg of board.legs.filter((l) => l.ride.vehicleLabel !== null)) {
+      expect(html, leg.key).toContain(leg.ride.vehicleLabel!);
+    }
+  });
+
+  it("is about one run: the morning of the same child hears nothing", () => {
+    const owenAm = legOf("C7", "AM");
+    const owenPm = legOf("C7", "PM");
+    expect(arrival.board.direction).toBe("PM");
+    expect(owenAm.ride.direction).toBe("AM");
+    expect(owenPm.ride.direction).toBe("PM");
+    // Only one of the child's two rows can carry a note, and the check says which.
+    const notes = html.match(new RegExp(escaped(rampReplan.rowLabel), "g")) ?? [];
+    expect(notes).toHaveLength(arrival.board.changes.size);
+  });
+
+  it("touches nobody on another van: their ride did not change", () => {
+    expect(arrival.board.changes.has("C2")).toBe(false);
+    expect(arrival.board.changes.has("C1")).toBe(false);
+  });
+
+  it("offers the board without it, so a note is readable against the plain day", () => {
+    expect(html).toContain(escaped(rampReplan.clear));
+    expect(html).toContain('href="/today"');
+  });
+
+  it("changes nothing at all when no check came with the request", () => {
+    expect(boardHtml()).not.toContain(escaped(rampReplan.bannerHeading));
+    expect(boardHtml()).not.toContain(escaped(rampReplan.rowLabel));
+  });
+
+  it("is informational chrome, not an alarm", () => {
+    const css = readFileSync(path.join(__dirname, "today.module.css"), "utf8");
+    const section = css.slice(css.indexOf(".arrival {"));
+    expect(section).toMatch(/background: var\(--color-info-bg\)/);
+    expect(section).not.toMatch(/--color-crit-bg/);
+  });
+});
+
+/**
+ * The page's own half: the parameter is read through the module that wrote it, and anything this
+ * day cannot be about is a parameter nothing reads — the same rule the date override follows.
+ */
+describe("the parameter the board reads a ramp check from", () => {
+  const page = readFileSync(path.join(__dirname, "page.tsx"), "utf8");
+
+  it("decodes it with the module that encoded it, and re-plans on the server", () => {
+    expect(page).toMatch(/decodeFinding\(one\(params\[ARRIVAL_PARAM\]\)\)/);
+    expect(page).toMatch(/screenArrival\(replanForArrival\(finding\)\)/);
+  });
+
+  it("answers nothing for a van on no lane, or a place a van does not have", () => {
+    expect(decodeFinding("V9~1WC/3A")).toBeNull();
+    expect(decodeFinding("V1~1WC/3A~out=9")).toBeNull();
+    expect(decodeFinding("not a finding")).toBeNull();
+    expect(decodeFinding(undefined)).toBeNull();
+  });
+
+  it("still guards the route before anything is rendered", () => {
+    expect(page).toMatch(/requirePage\("\/today"\)/);
   });
 });
