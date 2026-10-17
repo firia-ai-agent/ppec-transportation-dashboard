@@ -45,6 +45,7 @@
 import { execFileSync } from "node:child_process";
 import { expect, test, type Page } from "@playwright/test";
 import { DEMO_ACCOUNTS, DEMO_SHARED_PASSWORD } from "../src/auth/demo-accounts";
+import { personDisplayName } from "../src/modules/demo/fixtures/standard";
 import { nav } from "../src/ui/copy";
 
 /** The deployment to measure. Unset locally, so the whole file skips. */
@@ -132,7 +133,9 @@ test.describe("the deployed build, as the demo director", () => {
     // The role filter is the first thing to rule out when a rail is short: a session that is
     // not a director would correctly be shown a shorter rail.
     expect(words).toContain("DIRECTOR");
-    expect(words).toContain(DIRECTOR.name);
+    // The screens name the person, not the stored column: "Dana", not "SYN Dana Director".
+    expect(words).toContain(personDisplayName(DIRECTOR.name));
+    expect(words).not.toContain("SYN");
   });
 
   test("renders every one of the director's seven destinations, and clips none of them", async ({

@@ -1,7 +1,11 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { DEMO_ACCOUNTS } from "@/auth/demo-accounts";
+import { personDisplayName } from "@/modules/demo/fixtures/standard";
+import { AppShell } from "./AppShell";
 import { adapters, demoBanner, login, nav, scenarioClock, unbuilt } from "./copy";
 import { DemoBanner } from "./DemoBanner";
 import { Placeholder } from "./Placeholder";
@@ -24,6 +28,20 @@ const APP = path.resolve(UI, "..", "app");
 function read(...parts: string[]): string {
   return readFileSync(path.join(...parts), "utf8");
 }
+
+/*
+ * The shell's Sign out form calls `signOut` from @/auth, and next-auth cannot be loaded in a
+ * vitest worker (it imports `next/server`). The button is not what this file measures, so the
+ * one function behind it is stubbed; everything else in the shell is the real component.
+ */
+vi.mock("@/auth", () => ({ signOut: async () => {} }));
+
+/*
+ * The nav rail and the hamburger drawer read the current path from the app router, which only
+ * exists in a browser; outside one `usePathname` is null and the rail's `isCurrent` throws. A
+ * path is named here so the shell renders the way a signed-in /today does.
+ */
+vi.mock("next/navigation", () => ({ usePathname: () => "/today" }));
 
 /** React escapes `'` in text nodes, so a copy string has to be escaped to be found in markup. */
 function escapeApostrophes(text: string): string {
@@ -316,5 +334,69 @@ describe("§8 primary action token", () => {
   it("that pair is the §8 row that passes AA (6.70:1)", () => {
     expect(color.brand).toBe("#1D4ED8");
     expect(color.surface).toBe("#FFFFFF");
+  });
+});
+
+/**
+ * §2 identity: the header names a person.
+ *
+ * Vera's taste check, 2026-10-17: the account chip read "SYN Dana Director" — the synthetic
+ * marker, the person and the role, three facts a database column keeps, where the one identity
+ * location on screen needs one. The stored name does not change (the seed, `getActiveUser` and
+ * /login all still read it whole, and auth.test.ts holds that); it is shortened at the display
+ * boundary by `personDisplayName`, which reuses the provider names' own marker strip.
+ *
+ * The shell is rendered for real, from `DEMO_ACCOUNTS`, for each of the three roles — so a
+ * dropped call at either identity location (the avatar menu ≥768, the drawer under it) fails
+ * here rather than waiting for the next screenshot.
+ */
+describe("§2 identity: the header shows the person's first name, not the stored name", () => {
+  function shellFor(account: (typeof DEMO_ACCOUNTS)[number]): string {
+    // `children` is one of the shell's own props, so it travels in the props object rather than
+    // as a third argument; the page inside the shell is not what these tests read.
+    const props: ComponentProps<typeof AppShell> = {
+      displayName: account.name,
+      role: account.role,
+      children: null,
+    };
+    return renderToStaticMarkup(createElement(AppShell, props));
+  }
+
+  for (const account of DEMO_ACCOUNTS) {
+    const first = personDisplayName(account.name);
+
+    it(`greets the ${account.role} as ${first}`, () => {
+      const html = shellFor(account);
+      expect(html).toContain(first);
+      // "Signed in as Dana" too: both identity locations read the same shortened name.
+      expect(html).toContain(`Signed in as ${first}`);
+    });
+
+    it(`shows the ${account.role} no synthetic marker and no role word`, () => {
+      const html = shellFor(account);
+      expect(html).not.toMatch(/\bSYN\b/);
+      expect(html).not.toContain(account.name);
+      // The last word of the stored name is the role, which the chip was also printing.
+      const roleWord = account.name.split(" ").at(-1) as string;
+      expect(html).not.toContain(roleWord);
+    });
+  }
+
+  it("still gives the avatar the person's own initial", () => {
+    // Two words in, the avatar read "SD" — the marker's letter and the person's.
+    const html = shellFor(DEMO_ACCOUNTS[0]);
+    expect(html).toContain(">D</span>");
+  });
+
+  it("takes the marker off and keeps the first name, and nothing else", () => {
+    expect(personDisplayName("SYN Dana Director")).toBe("Dana");
+    expect(personDisplayName("SYN Casey Coordinator")).toBe("Casey");
+    expect(personDisplayName("SYN Frankie FrontDesk")).toBe("Frankie");
+    // A name with no marker and no role is already the answer.
+    expect(personDisplayName("Dana")).toBe("Dana");
+    // "SYN" is a prefix, not a word to delete: a person called Synthia keeps her name.
+    expect(personDisplayName("Synthia Director")).toBe("Synthia");
+    expect(personDisplayName("  SYN Dana Director  ")).toBe("Dana");
+    expect(personDisplayName("")).toBe("");
   });
 });

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { StaffRole } from "@/auth/core";
+import { personDisplayName } from "@/modules/demo/fixtures/standard";
 import { adapters, app, scenarioClock } from "./copy";
 import { AvatarMenu } from "./AvatarMenu";
 import { MobileNav } from "./MobileNav";
@@ -33,6 +34,14 @@ export function AppShell({
   role: StaffRole | null;
   children: ReactNode;
 }) {
+  /*
+   * Vera's taste check, 2026-10-17: the stored account name is "SYN Dana Director" — the
+   * synthetic marker, the person and the role, in one column — and the header greets a person.
+   * `personDisplayName` is the one display boundary that turns it into "Dana", for both identity
+   * locations below (the avatar menu ≥768, the drawer under it), so the two can never disagree.
+   * Nothing about the stored name changes: auth, the seed and /login still read it whole.
+   */
+  const person = personDisplayName(displayName);
   return (
     <div className={styles.shell}>
       {/* §9 keyboard-only walk: the rail and header come before the board, so give it a bypass. */}
@@ -41,7 +50,7 @@ export function AppShell({
       </a>
       <header className={styles.header}>
         <div className={styles.topRow}>
-          <MobileNav role={role} identity={<p>{displayName}</p>} signOut={<SignOutButton />} />
+          <MobileNav role={role} identity={<p>{person}</p>} signOut={<SignOutButton />} />
           <span className={styles.siteName}>{app.siteName}</span>
           <dl className={styles.facts}>
             {/*
@@ -61,7 +70,7 @@ export function AppShell({
             </div>
           </dl>
           <div className={styles.spacer} />
-          <AvatarMenu displayName={displayName} />
+          <AvatarMenu displayName={person} />
         </div>
         <div className={styles.bottomRow}>
           <section className={styles.adapters} aria-label={adapters.groupLabel}>

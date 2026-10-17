@@ -1,4 +1,5 @@
 import { requirePage } from "@/auth/page-guard";
+import { personDisplayName } from "@/modules/demo/fixtures/standard";
 import { SignOutButton } from "@/ui/SignOutButton";
 import { fill, whoami } from "@/ui/copy";
 
@@ -19,7 +20,8 @@ export default async function WhoAmI() {
   return (
     <main style={{ padding: 24 }}>
       <h1>{whoami.heading}</h1>
-      <p>{caller.displayName}</p>
+      {/* The same first name the header shows (`personDisplayName`), not the stored column. */}
+      <p>{personDisplayName(caller.displayName ?? "")}</p>
       <ul>
         {caller.memberships.map((m) => (
           <li key={m.siteId}>{fill(whoami.membership, { role: m.role, siteId: m.siteId })}</li>

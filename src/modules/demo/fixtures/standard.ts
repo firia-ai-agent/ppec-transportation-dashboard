@@ -120,6 +120,19 @@ const SYN_MARKER = /^SYN /;
  */
 export const providerDisplayName = (name: string): string => name.replace(SYN_MARKER, "");
 
+/**
+ * A signed-in person as a screen names them: their first name, and nothing else.
+ *
+ * Vera's taste check, 2026-10-17: the account chip read "SYN Dana Director", which is three
+ * facts a database keeps — the synthetic marker, the person, the role — where a header needs
+ * one. The marker comes off through `providerDisplayName`, so there is a single place that
+ * knows what the marker looks like, and then only the first word is left: "Dana". The stored
+ * name is untouched (seed, auth and /login all still read "SYN Dana Director"); this is the
+ * display boundary, the same arrangement the provider names use.
+ */
+export const personDisplayName = (name: string): string =>
+  providerDisplayName(name.trim()).split(/\s+/)[0] ?? "";
+
 /* ───────────────────────────── geography (MOCKS §1) ───────────────────────────── */
 
 export const CENTER_STOP: Stop = { key: "CENTER", label: "PPEC center, 2216 Jog Rd", lat: 26.645352, lng: -80.145541, smsToken: "CENTER" };
