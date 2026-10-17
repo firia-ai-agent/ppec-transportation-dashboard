@@ -15,8 +15,28 @@ import { BOARD_SCENARIO_TICK } from "@/domain/board/day";
 import { snapshotFor } from "@/domain/board/live";
 import { LIVE_EVENT, SSE_CONTENT_TYPE } from "@/modules/realtime/sse";
 
-const mocks = vi.hoisted(() => ({ getCaller: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getCaller: vi.fn(), openStream: vi.fn() }));
 vi.mock("@/auth/caller", () => ({ getCaller: mocks.getCaller }));
+
+/**
+ * The board walker, wrapped rather than replaced.
+ *
+ * `openStream` is the first thing on this route that *reads the morning* — it builds the
+ * snapshot a subscriber would be handed. Spying on it is how "the session is checked before
+ * anything is streamed" becomes an assertion instead of a reading of the code: a refused
+ * caller must leave this function uncalled, and the real one still runs for everybody else, so
+ * every other test in this file is unaffected.
+ */
+vi.mock("@/modules/realtime/live-board-stream", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/modules/realtime/live-board-stream")>();
+  return {
+    ...actual,
+    openStream: (...args: Parameters<typeof actual.openStream>) => {
+      mocks.openStream(...args);
+      return actual.openStream(...args);
+    },
+  };
+});
 
 function signedIn(role: StaffRole | null) {
   mocks.getCaller.mockResolvedValue(
@@ -98,6 +118,88 @@ describe("who may subscribe", () => {
       await (response.body as ReadableStream).cancel();
     });
   }
+});
+
+/**
+ * Veri's gate: the session is checked **before anything is streamed**, and a caller without one
+ * is sent zero events.
+ *
+ * "401" on its own is not the whole requirement. A route that refused with the right status
+ * while still opening the walk, or that answered with a stream whose first frame happened to be
+ * an error, would pass a status assertion and fail the rule — the point of the gate is that an
+ * unauthenticated request learns nothing about the morning. So each refusal is asserted three
+ * ways: the status, the body (one JSON sentence, with no SSE framing anywhere in it), and the
+ * board walker left untouched.
+ */
+describe("the session is checked before anything is streamed", () => {
+  /** Everything an SSE body is made of. None of it may appear in a refusal. */
+  const SSE_FRAMING = [/^retry:/m, /^id:/m, /^event:/m, /^data:/m];
+
+  /** The whole refusal body, read to completion — a refusal is never a connection that stays open. */
+  async function refusalBody(response: Response): Promise<string> {
+    return response.text();
+  }
+
+  async function expectZeroEvents(response: Response, expected: { status: number; error: string }) {
+    expect(response.status).toBe(expected.status);
+    // Not a stream: the content type is JSON, and `EventSource` would reject it as one.
+    expect(response.headers.get("content-type")).toMatch(/application\/json/);
+    expect(response.headers.get("content-type")).not.toContain(SSE_CONTENT_TYPE);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+
+    const body = await refusalBody(response);
+    expect(JSON.parse(body)).toEqual({ ok: false, error: expected.error });
+    // Zero events, by the only definition that matters: nothing in the body is a frame.
+    for (const pattern of SSE_FRAMING) expect(body).not.toMatch(pattern);
+    for (const event of Object.values(LIVE_EVENT)) expect(body).not.toContain(event);
+    // And the walk was never opened, so there was no board to leak in the first place.
+    expect(mocks.openStream).not.toHaveBeenCalled();
+  }
+
+  it("sends a signed-out caller 401 and not one event", async () => {
+    signedIn(null);
+    await expectZeroEvents(await open(), { status: 401, error: apiAccess.signIn });
+  });
+
+  it("refuses before it reads the clock speed or the resume point a caller crafted", async () => {
+    // Everything this route would otherwise read off the request — a resume point, a speed, a
+    // site id — handed over at once. None of it buys a frame, because none of it is read.
+    signedIn(null);
+    const response = await open(`?speed=60&since=${BOARD_SCENARIO_TICK}&site=00000000-0000-0000-0000-00000000beef`, {
+      "last-event-id": String(BOARD_SCENARIO_TICK),
+    });
+    await expectZeroEvents(response, { status: 401, error: apiAccess.signIn });
+  });
+
+  it("sends a signed-in caller who is not on the board's row 403 and not one event", async () => {
+    signedIn("FRONT_DESK");
+    await expectZeroEvents(await open(), { status: 403, error: apiAccess.notYourRole });
+  });
+
+  /**
+   * The other half of "before streaming anything": a refused request leaves no clock running.
+   *
+   * The walk is a `setInterval` opened inside the response body's `start`, so a route that
+   * built the stream and *then* refused would leave a timer ticking over the morning for a
+   * caller who was turned away. Counted rather than described, with an allowed caller beside it
+   * so the count means something.
+   */
+  it("leaves no clock running for a request it refused", async () => {
+    vi.useFakeTimers();
+    try {
+      signedIn(null);
+      expect((await open()).status).toBe(401);
+      expect(vi.getTimerCount()).toBe(0);
+
+      signedIn("DIRECTOR");
+      const allowed = await open();
+      expect(allowed.status).toBe(200);
+      expect(vi.getTimerCount()).toBe(1);
+      await (allowed.body as ReadableStream).cancel();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("the first bytes", () => {
