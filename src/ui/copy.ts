@@ -1158,6 +1158,17 @@ export const planRoutes = {
   seatsOver: "{line} · more than this van has",
   setUpAs: "Set up as {layout}",
   /**
+   * The same line for a van set up with no chairs in mind, written as a sentence of its own.
+   *
+   * `layoutName` is a *label*: it opens on a capital because it is read on a button ("No
+   * wheelchairs · 6 seats"), and dropping that label into `setUpAs` made the lane say "Set up as
+   * No wheelchairs · 6 seats" — a label wearing a sentence, with a capital in the middle of it
+   * (Vera's review, 2026-10-17). Lowercasing the "no" only hid the seam. So the one setup that
+   * has nothing to count says itself in plain words instead, and the seat count it drops is the
+   * place line directly underneath ("0 of 6 seats used").
+   */
+  setUpNoWheelchairs: "Set up with no wheelchair spaces",
+  /**
    * Why the line above is not the same line all day on a van that can be re-seated.
    *
    * A convertible van has several configurations (V1 is built as 6 seats, as 1 wheelchair place
