@@ -37,7 +37,7 @@ import {
   PLAN_SERVICE_DATE,
   reportedByProvider,
 } from "@/domain/plan/day";
-import { fill, layoutName, rampIpad, rampReplan, sentence, vanName } from "@/ui/copy";
+import { fill, layoutName, rampIpad, rampReplan, sentence, vanName, vanTitle } from "@/ui/copy";
 import { holdLines, moveLines, stayLines } from "@/ui/arrival-lines";
 import { StateChip } from "@/ui/StateChip";
 import { serviceDateLabel } from "@/ui/service-date";
@@ -403,8 +403,16 @@ export default function RampCheck() {
             >
               <strong style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-3)" }}>
                 {chosen ? <Icon name="check" /> : null}
+                {/*
+                  The van's name and its operator's, never the fixture's keys: the tile read
+                  "V1 · SYN Palm Lift Transport" on prod (Vera's walk, 2026-10-17 2:48 PM ET).
+                  `vanTitle` because a tile's title is a name standing on its own, and
+                  `providerName` is already the company with the synthetic marker off it
+                  (src/domain/board/scenario.ts).
+                */}
                 {fill(rampIpad.vehicleTile, {
-                  vehicle: candidate.vehicle.label, provider: candidate.vehicle.providerName,
+                  vehicle: vanTitle(candidate.vehicle.description),
+                  provider: candidate.vehicle.providerName,
                 })}
               </strong>
               <span style={{
@@ -413,8 +421,9 @@ export default function RampCheck() {
                 // filled card the detail line rides the same surface-white as the title.
                 color: chosen ? "var(--color-surface)" : "var(--color-ink-muted)",
               }}>
+                {/* The title above says the van's name, so this line says the two facts a
+                    ramp check is against and does not name it a second time. */}
                 {fill(rampIpad.vehicleTileDetail, {
-                  description: candidate.vehicle.description,
                   time: candidate.leavesAt,
                   riders: candidate.riders.length,
                 })}

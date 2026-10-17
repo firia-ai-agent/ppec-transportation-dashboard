@@ -11,7 +11,7 @@
  * The output is a feasible layout, or a deficit {k, type, count} with ranked options that a human
  * approves. The solver assigns nothing, locks nothing, and never proposes removing a boarded child.
  */
-import { fill, layoutName, solver as copy, vanName } from "@/ui/copy";
+import { fill, layoutName, solver as copy, vanName, vanTitle } from "@/ui/copy";
 import { maxMatching } from "./matching";
 import type {
   AmbSeat, Child, DailyCapability, Deficit, DeficitType, Layout, LayoutAttempt, Leg,
@@ -326,7 +326,12 @@ function buildOptions(
       add(kind, `${sameProvider ? "vehicle" : "provider"}:${candidate.vehicle.id}`,
         fill(copy.options[kind].label, { vehicle: vanName(candidate.vehicle.description) }),
         fill(copy.options[kind].detail, {
-          description: candidate.vehicle.description,
+          // The van's name, standing at the head of its own sentence, and never the half of
+          // the fixture's label that is a key: this detail read "center van (SYN Greenacres
+          // center fleet) fits …" behind the ramp iPad's "Show details" (Vera, 2026-10-17).
+          // The provider arrives with the synthetic marker already off it, at the one boundary
+          // where a provider becomes words (src/domain/board/scenario.ts).
+          description: vanTitle(candidate.vehicle.description),
           provider: candidate.vehicle.providerName,
           who,
           // Words, not the provider's shorthand: a coordinator reads this option

@@ -72,12 +72,14 @@ import { legStates, type StateDescriptor } from "./states";
  *  - Health & ROI (src/app/(app)/health/lines.ts and the cells HealthScreen renders around it),
  *    including the rides behind each number, which is where the drill-down names a van.
  *
- * Not in scope here, and deliberately: the child drawer (src/app/(app)/today/LegDrawer.tsx),
- * which the board and this screen share and which prints the van's label beside its provider on
- * purpose — "V2 · SYN Greenacres center fleet", a §4.1 density decision documented at
- * `board.vanAndProvider` — and the board's own van column, which is that same decision. Both are
- * the board's surface and neither is a sentence; if they are to change, they change for the
- * board, not quietly here.
+ * The child drawer (src/app/(app)/today/LegDrawer.tsx) and the board's own van column used to be
+ * out of scope here, on the grounds that printing the van's key beside its provider was a §4.1
+ * density decision rather than a leak. Vera's prod walk settled it the other way (2026-10-17
+ * 2:48 PM ET): the drawer the Health screen opens read "V4 · SYN Coastal Car Service" and the
+ * board's column read "V2" on every row, and a density argument does not make a key readable.
+ * Both say the van's name now, through the same `vanTitle` every other screen uses — and because
+ * both are *rendered* rather than returned as strings, the net over them is the markup one in
+ * src/ui/rendered-no-codes.test.ts.
  */
 const PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   /** The key the scenario files a van under: "V1" … "V4". The name is "the convertible van". */

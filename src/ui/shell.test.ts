@@ -118,7 +118,9 @@ describe("NFR-09 / §7.1: the source-mode chip sits next to the DEMO banner", ()
   it("every signed-in route is inside the layout that sits under that one bar", () => {
     // The (app) layout must not mount a bar of its own — one per screen, from the root.
     const appLayout = read(APP, "(app)", "layout.tsx");
-    expect(appLayout).toMatch(/<AppShell /);
+    // `<AppShell ` or `<AppShell\n`: the props moved onto their own lines when the header's
+    // name started going through a display helper, and which is not what this asserts.
+    expect(appLayout).toMatch(/<AppShell[\s>]/);
     expect(appLayout).not.toMatch(/DemoBanner|ScreenSource|SourceBadge/);
     // ...and it must actually wrap the signed-in pages, or they would render bare.
     const routes = readdirSync(path.join(APP, "(app)"), { withFileTypes: true })

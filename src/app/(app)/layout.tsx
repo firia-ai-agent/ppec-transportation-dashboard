@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { LAYOUT } from "@/auth/access";
+import { accountFirstName } from "@/auth/demo-accounts";
 import { requirePage } from "@/auth/page-guard";
 import { AppShell } from "@/ui/AppShell";
 
@@ -20,11 +21,20 @@ export const dynamic = "force-dynamic";
  * The DEMO bar and the one source-mode chip are **not** here: they come from the root layout
  * (src/app/layout.tsx), which puts them above every route, signed in or not (§7, §7.1,
  * NFR-09). shell.test.ts holds that line.
+ *
+ * The name in the header is the person's first name. The session carries the account's stored
+ * name, which for the demo accounts is "SYN Dana Director" — a marker, a first name and a role,
+ * and all three were in the header of every console page (Vera's prod walk, 2026-10-17 2:48 PM
+ * ET). `accountFirstName` is the display helper; the stored name, the seed and /login are
+ * untouched, and this is the one place the session's name becomes words on a screen.
  */
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const caller = await requirePage(LAYOUT.console);
   return (
-    <AppShell displayName={caller.displayName ?? ""} role={caller.kind === "STAFF" ? caller.role : null}>
+    <AppShell
+      displayName={accountFirstName(caller.displayName ?? "")}
+      role={caller.kind === "STAFF" ? caller.role : null}
+    >
       {children}
     </AppShell>
   );

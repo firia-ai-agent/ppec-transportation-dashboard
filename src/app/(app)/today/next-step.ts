@@ -1,5 +1,5 @@
 import type { LegRow } from "@/domain/board/board";
-import { board as boardCopy, fill, sentence } from "@/ui/copy";
+import { board as boardCopy, fill, sentence, vanName } from "@/ui/copy";
 
 /**
  * The words a ride's next step and its needs-action reasons are read as — written once, because
@@ -11,13 +11,19 @@ import { board as boardCopy, fill, sentence } from "@/ui/copy";
  * (COPY-GUIDE §1 "name the person"). The centre's own fleet has nobody on file to name, so that
  * step names the fleet rather than inventing somebody to call — which is why there are two
  * codes for one question.
+ *
+ * The van is named the same way, and that is what `{van}` is: "the convertible van", the Plan
+ * routes words (`vanName`). It used to be `vehicleLabel`, the fixture key, so the board said
+ * "V1 does not fit everyone on this run." (Vera's prod walk, 2026-10-17 2:48 PM ET). Every
+ * `{van}` on this board sits inside a sentence, so it takes the mid-sentence form; `vanTitle` is
+ * the same name where it stands alone, as it does in the drawer's van line.
  */
 function values(leg: LegRow): Record<string, string> {
   return {
     child: leg.child.childLabel,
     dispatcher: leg.ride.providerDispatcher ?? "",
     provider: leg.ride.providerName ?? "",
-    van: leg.ride.vehicleLabel ?? "",
+    van: vanName(leg.ride.vehicleDescription ?? ""),
   };
 }
 

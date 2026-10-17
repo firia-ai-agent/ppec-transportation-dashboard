@@ -294,7 +294,13 @@ export const board = {
      * full in the drawer instead (`drawer.heldNoReturn`), which is where this row leads.
      */
     CHILD_HELD: "{child} is waiting with the van. No adult on file can receive them.",
-    DOES_NOT_FIT: "{van} does not fit everyone on this run.",
+    /**
+     * `{van}` is the van's name in the middle of a sentence ("the convertible van"), never its
+     * fixture key — "V1 does not fit everyone on this run." was on the board (Vera's prod walk,
+     * 2026-10-17 2:48 PM ET). Which is why the sentence turned round: a van's name is a common
+     * noun with an article in front of it, so it cannot open a sentence the way a code could.
+     */
+    DOES_NOT_FIT: "Not everyone on this run fits in {van}.",
     NO_RECEIVING_ADULT: "No adult on file may receive {child} at the end of the afternoon ride.",
     /**
      * The end of a day with a handoff missing from it: the van arrived, the day is over, and no
@@ -310,6 +316,7 @@ export const board = {
      */
     HANDOFF_UNRECORDED: "{child}'s van is back and nobody recorded who received them.",
     RIDE_STATE: "{child}'s ride needs a person to decide what happens next.",
+    /** `{van}` is the van's name, mid-sentence, like every other `{van}` on this board. */
     LOCATION_LOST: "Nothing has been heard from {van} for ten minutes.",
   },
   /**

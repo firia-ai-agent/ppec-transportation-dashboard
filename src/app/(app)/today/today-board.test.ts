@@ -11,6 +11,7 @@ import {
   needCategories,
   places,
   serviceDate,
+  vanTitle,
 } from "@/ui/copy";
 import { legStates, therapySessionStates } from "@/ui/states";
 import {
@@ -637,9 +638,11 @@ describe("a ramp check, on the board", () => {
     for (const leg of board.legs) {
       expect(html, leg.key).toContain(escaped(legStates[leg.ride.state].label));
     }
-    // And the van cell still names the van the day has the ride on.
-    for (const leg of board.legs.filter((l) => l.ride.vehicleLabel !== null)) {
-      expect(html, leg.key).toContain(leg.ride.vehicleLabel!);
+    // And the van cell still names the van the day has the ride on — by its name, which is
+    // what that column says now (Vera, 2026-10-17: never "V2").
+    for (const leg of board.legs.filter((l) => l.ride.vehicleDescription !== null)) {
+      expect(html, leg.key).toContain(vanTitle(leg.ride.vehicleDescription!));
+      expect(html, leg.key).not.toContain(`>${leg.ride.vehicleLabel}<`);
     }
   });
 
