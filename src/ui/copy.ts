@@ -395,7 +395,13 @@ export function onDay(words: { today: string; otherDay: string }, day: LabelledD
 export const scenarioClock = {
   label: "Scenario clock",
   notStarted: "Demo not started",
-  start: "Start",
+  /**
+   * COPY-GUIDE §3, "Buttons: verb + object, ≤3 words". It read "Start" — a verb with nothing
+   * after it, sitting next to "Demo not started", so the one thing a founder is about to click
+   * did not say what it starts. COPY-GUIDE §5 sketches this control as "[Start]"; that line
+   * predates §3's button rule and is the shorter of the two, so the rule wins.
+   */
+  start: "Start demo day",
   /** Shown on hover and on focus; the button stays focusable so this can be read (§9). */
   startUnavailable: "Demo controls aren't connected yet.",
 } as const;

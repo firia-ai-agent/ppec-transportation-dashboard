@@ -206,9 +206,10 @@ describe("§2 scenario clock", () => {
   const component = read(UI, "ScenarioClock.tsx");
   const css = read(UI, "ScenarioClock.module.css");
 
-  it("reads 'Demo not started' and offers Start beside it", () => {
+  it("reads 'Demo not started' and offers 'Start demo day' beside it", () => {
     expect(scenarioClock.notStarted).toBe("Demo not started");
-    expect(scenarioClock.start).toBe("Start");
+    // COPY-GUIDE §3: verb + object, ≤3 words — the button now says what it starts.
+    expect(scenarioClock.start).toBe("Start demo day");
   });
 
   it("says honestly why Start does nothing", () => {

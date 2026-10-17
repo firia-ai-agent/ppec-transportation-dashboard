@@ -470,7 +470,9 @@ describe("COPY-GUIDE strings, verbatim", () => {
 
   it("§1: the scenario clock says the demo has not started, and why Start is inert", () => {
     expect(scenarioClock.notStarted).toBe("Demo not started");
-    expect(scenarioClock.start).toBe("Start");
+    // §3: verb + object, ≤3 words. "Start" alone did not say what it starts.
+    expect(scenarioClock.start).toBe("Start demo day");
+    expect(scenarioClock.start.split(" ").length).toBeLessThanOrEqual(3);
     expect(scenarioClock.startUnavailable).toBe("Demo controls aren't connected yet.");
   });
 });
