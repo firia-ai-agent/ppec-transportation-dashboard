@@ -12,12 +12,15 @@ import { expect, test, type Page } from "@playwright/test";
 import { flow } from "../src/ui/copy";
 import { expectNoInternalCodes, shot } from "./helpers";
 
+/** This walk's own day, for the reason the board's spec has one: one server, several walks. */
+const DAY = "2026-11-04";
+
 const strip = (page: Page) => page.getByRole("navigation", { name: flow.steps.aria });
 const step = (page: Page, key: "setup" | "plan" | "live") => page.locator(`[data-day-step="${key}"]`);
 
 test.describe.serial("§9.2: the three steps of the day", () => {
   test("says where the day is, with a word on every card", async ({ page }) => {
-    await page.goto("/today");
+    await page.goto(`/today?date=${DAY}&leg=pm`);
     await expect(strip(page)).toBeVisible();
     await expect(page.locator("[data-day-step]")).toHaveCount(3);
 
@@ -33,19 +36,19 @@ test.describe.serial("§9.2: the three steps of the day", () => {
   });
 
   test("a step is a link to the screen that moves it on", async ({ page }) => {
-    await page.goto("/today");
+    await page.goto(`/today?date=${DAY}&leg=pm`);
     await step(page, "plan").getByRole("link").click();
-    await expect(page).toHaveURL(/\/plan-routes\?date=\d{4}-\d{2}-\d{2}&leg=(am|pm)/);
+    await expect(page).toHaveURL(new RegExp(`/plan-routes\\?date=${DAY}&leg=pm`));
   });
 
   test("§9.6 #5: the order flips once a plan is saved", async ({ page }) => {
-    await page.goto("/plan-routes");
+    await page.goto(`/plan-routes?date=${DAY}&leg=pm`);
     await expect(page.locator("[data-van]")).toHaveCount(3);
     await page.locator("[data-auto-plan]").click();
     await page.locator("[data-save]").click();
     await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
 
-    await page.goto("/today");
+    await page.goto(`/today?date=${DAY}&leg=pm`);
     await expect(step(page, "plan")).toContainText(/^Plan routesSaved \d{1,2}:\d{2} (AM|PM)Done$/);
     // With a plan saved, the live map is no longer locked — it is waiting for a van to move.
     await expect(step(page, "live")).toContainText(flow.live.detailNeeded);
@@ -54,18 +57,18 @@ test.describe.serial("§9.2: the three steps of the day", () => {
   });
 
   test("§9.6 #5: confirming a van on the ramp moves the first step too", async ({ page }) => {
-    await page.goto("/ramp-ipad");
+    await page.goto(`/ramp-ipad?date=${DAY}`);
     await page.locator("[data-confirm]").click();
     await expect(page.locator("[data-confirm]")).toContainText(/Checked/);
 
-    await page.goto("/today");
+    await page.goto(`/today?date=${DAY}&leg=pm`);
     await expect(step(page, "setup")).toContainText("1/3 checked");
     await expect(step(page, "setup")).toContainText(flow.state.needed);
   });
 
   test("at 390 the three cards stay in one row", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/today");
+    await page.goto(`/today?date=${DAY}&leg=pm`);
     const boxes = await Promise.all(
       (await page.locator("[data-day-step]").all()).map((card) => card.boundingBox()),
     );

@@ -33,7 +33,17 @@ import {
 /** The two children of the synthetic day who ride in their own chair. */
 const [NOAH, ZOE] = ["Noah O.", "Zoe B."];
 
-const BOARD = "/plan-routes";
+/**
+ * The day this walk plans.
+ *
+ * Its own, and not today's, because the board is a **stateful** screen and the browser check
+ * reuses one server: a van confirmed by the ramp spec or a plan saved by another walk would
+ * change what this one opens on. A date is a URL parameter (§9.3), and a day nobody has touched
+ * reads the same way every run — yesterday's van setup, no plan saved — which is exactly the
+ * state a founder sees after "Start demo day".
+ */
+const DAY = "2026-11-02";
+const BOARD = `/plan-routes?date=${DAY}&leg=pm`;
 
 /** §1.7 #6: nothing internal reaches the words — the regex the spec writes out. */
 const INTERNAL = /\b[A-Z]\d\b|\d+WC\/|[A-Z]{3,}-[A-Z]{3,}|\b\d{2}:\d{2}\b/;

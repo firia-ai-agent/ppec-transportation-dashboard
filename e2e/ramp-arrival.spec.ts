@@ -18,7 +18,9 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { planBoard, vanArrival } from "../src/ui/copy";
 import { expectDemoBarPinned, expectNoInternalCodes, expectVioletOnlyOnDemoChrome, shot } from "./helpers";
 
-const RAMP = "/ramp-ipad";
+/** This walk's own day, for the reason the board's spec has one: one server, several walks. */
+const DAY = "2026-11-03";
+const RAMP = `/ramp-ipad?date=${DAY}`;
 
 /** The child on the afternoon's first van who needs a car seat (the synthetic day's own). */
 const CAR_SEAT_CHILD = "Mia R.";
@@ -30,7 +32,7 @@ const fewer = (page: Page, key: string): Locator => stepper(page, key).getByRole
 const openTab = (page: Page): Locator => page.locator('[data-tab][aria-current="page"]');
 
 async function planTheDay(page: Page): Promise<void> {
-  await page.goto("/plan-routes");
+  await page.goto(`/plan-routes?date=${DAY}&leg=pm`);
   await expect(page.locator("[data-van]")).toHaveCount(3);
   if ((await page.locator("[data-unassigned-count]").innerText()) !== "0") {
     await page.locator("[data-auto-plan]").click();
@@ -104,7 +106,7 @@ test.describe.serial("§2: what is on the van that just arrived", () => {
     await expect(page.locator("[data-confirm]")).toHaveText(planBoard.checked);
 
     // The coordinator's board now reads this van as checked, with the counts the ramp gave it.
-    await page.goto("/plan-routes?leg=pm");
+    await page.goto(`/plan-routes?date=${DAY}&leg=pm`);
     const column = page.locator("[data-van]").filter({ hasText: vanName }).first();
     await expect(column.locator("[data-checked]")).toHaveText(planBoard.checked);
     await expect(column.locator('[data-counter="seats"]')).toContainText(`/${seats}`);
