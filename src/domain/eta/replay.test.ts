@@ -11,12 +11,13 @@
 import { describe, expect, it } from "vitest";
 import {
   DEMO_RUNS,
-  ROUTE_1_UNBOUND,
+  DEMO_RUN_SECONDS,
   RUN_GPS_GAP,
   RUN_JITTER,
   RUN_STALL,
   RUN_UNBOUND,
   SCENARIO_START_MS,
+  SUBSTITUTE_ROUTE,
 } from "@/fixtures/replays";
 import { ROUTE_1, ROUTE_2 } from "@/fixtures/routes";
 import { GPS_LOST_SECONDS, GPS_STALE_SECONDS } from "@/domain/location/freshness";
@@ -38,8 +39,26 @@ const stall = runReplay(RUN_STALL);
 const gap = runReplay(RUN_GPS_GAP);
 const jitter = runReplay(RUN_JITTER);
 
+/**
+ * The stall run is R1's morning (src/fixtures/routes.ts): Palm Beach State College, the Lantana
+ * library, Boynton Beach Mall, the centre. Named here by what they are to the run, so an
+ * assertion reads as a claim about the demo rather than about a fixture id.
+ */
+const ORIGIN = RUN_STALL.route.stops[0].id;
+const NEXT_PICKUP = RUN_STALL.route.stops[1].id;
+const LAST_PICKUP = RUN_STALL.route.stops[2].id;
+
 function notifiedWindows(result: ReplayResult, stopId: string): string[] {
   return result.calcs.map((c) => c.publishedWindows[stopId] ?? "—");
+}
+
+/** The windows a stop's family was given over the run, in order, without the repeats. */
+function publishedWindowRun(result: ReplayResult, stopId: string): string[] {
+  const windows: string[] = [];
+  for (const window of notifiedWindows(result, stopId)) {
+    if (window !== "—" && window !== windows[windows.length - 1]) windows.push(window);
+  }
+  return windows;
 }
 
 describe("AT-03 · a replayed stall moves one window, for downstream families only", () => {
@@ -49,29 +68,41 @@ describe("AT-03 · a replayed stall moves one window, for downstream families on
 
   it("sends it to the downstream family, with a damped 10-minute window", () => {
     const [decision] = stall.notifications;
-    expect(decision.stopId).toBe("S1");
-    expect(decision.familyLabel).toBe("F2");
+    // The run's third pickup: the one still more than ten minutes away when the stall matures
+    // (ASM-14), and F7 is the family who rides from Boynton Beach Mall in the scenario.
+    expect(decision.stopId).toBe(LAST_PICKUP);
+    expect(decision.familyLabel).toBe("F7");
     expect(decision.shiftText).toBe("+12 min");
-    expect(decision.windowText).toBe("7:50–8:00 AM");
+    expect(decision.windowText).toBe("8:10–8:20 AM");
     expect(decision.windowEndMs! - decision.windowStartMs!).toBe(600_000);
     // Damped: it arrives minutes into the stall, not on the first slipped calculation.
     expect(sec(decision.atMs)).toBeGreaterThan(600);
   });
 
   it("never notifies about the stop the vehicle has already left", () => {
-    const upstream = stall.decisions.filter((d) => d.stopId === "S4");
+    const upstream = stall.decisions.filter((d) => d.stopId === ORIGIN);
     expect(upstream.length).toBeGreaterThan(0);
     expect(upstream.every((d) => d.outcome === "SUPPRESS")).toBe(true);
-    expect(stall.notifications.map((d) => d.stopId)).not.toContain("S4");
+    expect(stall.notifications.map((d) => d.stopId)).not.toContain(ORIGIN);
+  });
+
+  it("never notifies about a stop closer than ten minutes, however far the ETA slips", () => {
+    // ASM-14's lead rule, which the regenerated geometry makes visible: the stall lands on the
+    // first leg, so the next pickup is minutes away throughout and is never texted — the family
+    // the van is about to reach is the one a text cannot help.
+    const close = stall.decisions.filter((d) => d.stopId === NEXT_PICKUP);
+    expect(close.length).toBeGreaterThan(0);
+    expect(close.some((d) => d.reason === "too-close")).toBe(true);
+    expect(stall.notifications.map((d) => d.stopId)).not.toContain(NEXT_PICKUP);
   });
 
   it("notifies no family about the center drop", () => {
     expect(stall.notifications.map((d) => d.stopId)).not.toContain("CENTER");
   });
 
-  it("publishes exactly one new window for S1: before the stall, and after it", () => {
-    const windows = new Set(notifiedWindows(stall, "S1").filter((w) => w !== "—"));
-    expect([...windows]).toEqual(["7:40–7:50 AM", "7:50–8:00 AM"]);
+  it("publishes exactly one new window for the downstream stop: before the stall, and after it", () => {
+    const windows = new Set(notifiedWindows(stall, LAST_PICKUP).filter((w) => w !== "—"));
+    expect([...windows]).toEqual(["7:50–8:00 AM", "8:10–8:20 AM"]);
   });
 
   it("recomputes on the ASM-11 triggers, including while the vehicle stands still", () => {
@@ -104,7 +135,7 @@ describe("AT-03 · an injected traffic band also moves the window, by itself", (
   it("predicts a later arrival than the same run without the fault", () => {
     const plain = runReplay({ ...RUN_STALL, faults: [] });
     const firstDrive = (r: ReplayResult) =>
-      r.calcs[0].snapshot.stops.find((s) => s.stopId === "S1")!.driveSeconds!;
+      r.calcs[0].snapshot.stops.find((s) => s.stopId === "CENTER")!.driveSeconds!;
     // The whole difference is the ×1.5 fault on the committed leg duration.
     expect(firstDrive(slow) / firstDrive(plain)).toBeCloseTo(1.5, 6);
     expect(firstDrive(slow) - firstDrive(plain)).toBeGreaterThan(400);
@@ -119,7 +150,10 @@ describe("AT-03 · jitter moves the marker and not the ETA text", () => {
   });
 
   it("publishes the same window as the run without jitter", () => {
-    expect(notifiedWindows(jitter, "CENTER")).toEqual(notifiedWindows(clean, "CENTER"));
+    // The windows a family holds, in order, with the repeats a recalculation leaves behind
+    // dropped: jitter moves the ASM-11 position triggers, so the two runs recompute a different
+    // number of times, and "the same window" is a claim about the text and not about the count.
+    expect(publishedWindowRun(jitter, "CENTER")).toEqual(publishedWindowRun(clean, "CENTER"));
   });
 
   it("does move the reported positions, by up to 40 m", () => {
@@ -130,15 +164,51 @@ describe("AT-03 · jitter moves the marker and not the ETA text", () => {
     expect(Math.max(...offsets)).toBeLessThan(60);
   });
 
-  it("keeps the ETA within a few seconds of the clean run at every calculation", () => {
-    const etaOf = (r: ReplayResult, i: number) =>
-      r.calcs[i].snapshot.stops.find((s) => s.stopId === "CENTER")?.etaMs;
-    for (let i = 0; i < Math.min(jitter.calcs.length, clean.calcs.length); i += 1) {
-      const a = etaOf(jitter, i);
-      const b = etaOf(clean, i);
+  /**
+   * Compared calculation by calculation at the instants the two runs *share*. Jitter moves the
+   * ASM-11 position triggers around, so the two runs do not recompute in lockstep — and comparing
+   * the nth calculation of one against the nth of the other compares two different moments of the
+   * drive, which is a measurement artefact rather than an ETA that moved.
+   */
+  it("keeps the ETA within a few seconds of the clean run at every shared calculation", () => {
+    const etaOf = (r: ReplayResult, atMs: number) =>
+      r.calcs.find((c) => c.atMs === atMs)?.snapshot.stops.find((s) => s.stopId === "CENTER")
+        ?.etaMs;
+    let compared = 0;
+    for (const calc of clean.calcs) {
+      const a = etaOf(jitter, calc.atMs);
+      const b = etaOf(clean, calc.atMs);
       if (a === undefined || b === undefined) continue;
-      expect(Math.abs(a - b)).toBeLessThan(30_000);
+      compared += 1;
+      expect(Math.abs(a - b), `at +${Math.round(calc.simSeconds)} s`).toBeLessThan(30_000);
     }
+    // The shared instants are the initial calculation, the stop completions and the 5-minute
+    // periods; a run that had drifted into sharing almost none would make this vacuous.
+    expect(compared).toBeGreaterThanOrEqual(10);
+  });
+
+  /**
+   * The ambiguity the regenerated geometry brought with it: R1's morning collects a child at the
+   * Lantana library and leaves the way it came, so one stretch of Lantana Rd is driven twice and
+   * a position on it has two chainages, kilometres apart. Projected without the hint
+   * (`projectToPath`'s `nearM`), a ±40 m wobble flips between them and the ETA moves by the time
+   * it takes to drive the loop again.
+   */
+  it("never reads a position as being on the pass of the road the van already drove", () => {
+    const worstBackwards = (result: ReplayResult) =>
+      result.calcs.reduce(
+        (worst, calc, i) =>
+          i === 0 ? worst : Math.max(worst, result.calcs[i - 1].alongM - calc.alongM),
+        0,
+      );
+    // A run whose positions are where the simulator put them never goes backwards at all.
+    for (const result of [clean, stall, gap]) {
+      expect(worstBackwards(result), result.spec.route.id).toBe(0);
+    }
+    // Under the ±40 m fault it can wobble at a turnaround, where the two passes of the road are
+    // a few hundred metres apart in chainage — never the 3.5 km back to the Lantana Rd pass,
+    // which is the reading that moved the ETA by nine minutes.
+    expect(worstBackwards(jitter)).toBeLessThan(500);
   });
 });
 
@@ -157,7 +227,7 @@ describe("AT-03 · replay is deterministic", () => {
   it("changes the positions but not the published windows when the seed changes", () => {
     const other = runReplay({ ...RUN_JITTER, seed: 1234 });
     expect(other.accepted).not.toEqual(jitter.accepted);
-    expect(notifiedWindows(other, "CENTER")).toEqual(notifiedWindows(jitter, "CENTER"));
+    expect(publishedWindowRun(other, "CENTER")).toEqual(publishedWindowRun(jitter, "CENTER"));
   });
 });
 
@@ -220,7 +290,8 @@ describe("AT-11 · location loss: 180 s stale, 600 s exception", () => {
 describe("AT-10 · a geofence never completes a handoff", () => {
   it("records ARRIVED_PICKUP at the pickup and ARRIVED_DROPOFF at the center", () => {
     expect(stall.arrivals.map((a) => `${a.stopId}:${a.state}`)).toEqual([
-      "S1:ARRIVED_PICKUP",
+      `${NEXT_PICKUP}:ARRIVED_PICKUP`,
+      `${LAST_PICKUP}:ARRIVED_PICKUP`,
       "CENTER:ARRIVED_DROPOFF",
     ]);
   });
@@ -244,7 +315,7 @@ describe("LOC-01 · an unbound device is stored and displayed nowhere", () => {
   const unbound = runReplay(RUN_UNBOUND);
 
   it("ingests every point as unbound and accepts none", () => {
-    const device = unbound.ingest.devices[ROUTE_1_UNBOUND.deviceId];
+    const device = unbound.ingest.devices[ROUTE_1.deviceId];
     expect(device.counts.accepted).toBe(0);
     expect(device.counts.unbound).toBe(unbound.run.points.length);
     expect(device.latest).toBeUndefined();
@@ -288,10 +359,10 @@ describe("frames (what the map pane reads)", () => {
 
   it("shows the published window, not the raw ETA, and only for pending stops", () => {
     const frame = frameAt(stall, START + 900_000);
-    const s1 = frame.stops.find((s) => s.stopId === "S1")!;
-    expect(s1.status).toBe("pending");
-    expect(s1.windowText).toBe("7:50–8:00 AM");
-    expect(frame.stops.find((s) => s.stopId === "S4")!.status).toBe("passed");
+    const ahead = frame.stops.find((s) => s.stopId === LAST_PICKUP)!;
+    expect(ahead.status).toBe("pending");
+    expect(ahead.windowText).toBe("8:10–8:20 AM");
+    expect(frame.stops.find((s) => s.stopId === ORIGIN)!.status).toBe("passed");
   });
 
   it("carries the decisions made so far, and no later ones", () => {
@@ -323,14 +394,16 @@ describe("the demo runs stay demonstrable", () => {
     );
   });
 
-  it("uses the three committed fixture routes and one unbound device", () => {
+  it("uses the three committed fixture routes and the reserve van's own device", () => {
     expect(DEMO_RUNS.map((r) => r.spec.route.id)).toEqual([
       "route2",
       "route3",
+      "route2-substitute",
       "route1",
-      "route1-unbound",
     ]);
-    expect(ROUTE_1_UNBOUND.deviceId).not.toBe(ROUTE_1.deviceId);
+    expect(SUBSTITUTE_ROUTE.deviceId).not.toBe(ROUTE_2.deviceId);
+    // One device per vehicle (ADR-013), so the four runs are four devices.
+    expect(new Set(DEMO_RUNS.map((r) => r.spec.route.deviceId)).size).toBe(DEMO_RUNS.length);
   });
 
   it("starts every run on the same scenario clock, inside one traffic band", () => {
@@ -342,7 +415,7 @@ describe("the demo runs stay demonstrable", () => {
 
   it("finishes every run inside the preview clock's loop", () => {
     for (const run of DEMO_RUNS) {
-      expect(runReplay(run.spec).run.durationSeconds).toBeLessThanOrEqual(2700);
+      expect(runReplay(run.spec).run.durationSeconds).toBeLessThanOrEqual(DEMO_RUN_SECONDS);
     }
   });
 

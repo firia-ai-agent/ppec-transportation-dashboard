@@ -6,14 +6,14 @@
  * docs/adr/ADR-007-routing-fixtures.md (geometry *and* durations committed; runtime never calls
  * OSRM), docs/ui/B12-SLICE1-DEFERRED.md §3.1–§3.2 (the gap this file closes).
  *
- * ## Why this is a second route file
+ * ## The one survey
  *
- * src/fixtures/routes.ts holds the three committed ADR-007 routes the M5 simulator replays, one
- * of whose legs is a real OSRM response (route1, `OSRM_FIXTURE`). Those three were authored
- * before the standard scenario and name stops that in the scenario belong to another run's
- * children, which is why the board could tell a coordinator a child's afternoon window was
- * "pending": there was no committed geometry for an afternoon at all, and the morning's geometry
- * did not name the children's own stops.
+ * This is the whole of the demo's committed geometry. src/fixtures/routes.ts used to hold a
+ * second, older set — three routes authored before the standard scenario, naming stops that in
+ * the scenario belong to another run's children — and it now names three *tracks* over the routes
+ * below rather than surveying its own (docs/ui/B12-SLICE1-DEFERRED.md §3.1). So the plan a
+ * coordinator reads and the morning the simulator drives are one geometry, and the question
+ * "which of the two is this row about" has stopped existing.
  *
  * This file is that geometry, taken from the scenario rather than from beside it: every stop,
  * every family label, every service time and the order of the stops are **read out of
@@ -27,11 +27,12 @@
  *
  * Every leg is `DERIVED` — hand-authored along public roads (mostly S Jog Rd, Lake Worth Rd,
  * Lantana Rd, Congress Ave and SR-7), `distanceM` measured by `measurePath` and `durationSec` =
- * distance ÷ `PROBE_SPEED_MPS`, the mean speed of the one committed OSRM response. Unverified,
- * exactly like the `DERIVED` legs next door, and replaceable by real OSRM responses when the
- * fixtures are regenerated. What they are *not* is invented: the test re-measures every
- * polyline and re-derives every duration, and then checks that the arrival each one implies is
- * the arrival the scenario's own plan promises the family.
+ * distance ÷ `PROBE_SPEED_MPS`, the mean speed of the one committed OSRM response
+ * (src/fixtures/survey.ts). Unverified, and replaceable by real OSRM responses when the fixtures
+ * are regenerated at dev time — which is now the only way a survey-grade leg gets in here, since
+ * the one probe that was run measures a road no run drives. What they are *not* is invented: the
+ * test re-measures every polyline and re-derives every duration, and then checks that the arrival
+ * each one implies is the arrival the scenario's own plan promises the family.
  *
  * Nothing here touches the database, the network or a clock.
  */
@@ -46,7 +47,7 @@ import {
   type Run,
   type Child,
 } from "@/modules/demo/fixtures/standard";
-import { CENTER_COORD, PROBE_SPEED_MPS, WHEELCHAIR_SERVICE_SECONDS } from "./routes";
+import { CENTER_COORD, PROBE_SPEED_MPS, WHEELCHAIR_SERVICE_SECONDS } from "./survey";
 
 /** The stop id the committed routes give the centre, shared with src/fixtures/routes.ts. */
 export const CENTER_STOP_ID = "CENTER";

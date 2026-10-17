@@ -45,7 +45,8 @@ Previews are read-only against that one database: the app opens every preview tr
 pnpm install
 APP_DATA_CLASS=SYNTHETIC pnpm dev     # boot refuses any other data class (ADR-015)
 pnpm typecheck && pnpm lint && pnpm test && pnpm seed:lint
-pnpm e2e                              # browser check: see "Map" below
+pnpm e2e                              # browser check, and the one command that regenerates
+                                      # every screenshot in artifacts/ — see "Browser check" below
 ```
 Health: `GET /api/health` returns the deployed commit, environment, data class and the Postgres role the deployment logs in as (`dbRole`, from `SELECT current_user` — the role name only, never a credential, URL or host; `null` when the query cannot be made). Infra state: `INFRA-BASELINE.md`, `DATABASES.md`, `INFRA-TEMP.md`.
 
@@ -64,7 +65,14 @@ APP_DATA_CLASS=SYNTHETIC DEMO_MODE=1 pnpm dev   # then sign in and open http://l
 ```
 
 ### Browser check
-`pnpm e2e` builds the app, starts it, loads `/map-preview` in Chromium and writes `artifacts/map-preview.png` (gitignored) for a design review. It needs no database and no credentials. Playwright specs live in `e2e/`, away from `src/`, so vitest never picks them up.
+`pnpm e2e` builds the app, starts it, walks the screens in Chromium and writes every screenshot a design review reads into `artifacts/` (gitignored). It needs no database and no credentials — the server is started with the test-only synthetic session (`playwright.config.ts`), which grants a role and nothing else. Playwright specs live in `e2e/`, away from `src/`, so vitest never picks them up.
+
+**Regenerating the screenshot set** — one command, from the repo root, and it is the whole set:
 ```
-pnpm e2e
+pnpm e2e                                 # the full set: builds, starts the app, writes artifacts/*.png
+pnpm e2e e2e/today-board.spec.ts         # just the board's: today-board / arrival-not-handoff / held-no-receiver /
+                                         # one-date / drawer / disabled-action / needs-action, each at 1024 and 1280
+pnpm e2e e2e/screens.spec.ts             # today-* / map-preview-* / ramp-preview-* at both review widths
+pnpm e2e e2e/map-preview.spec.ts         # artifacts/map-preview.png
 ```
+Each screenshot's name is in the `console.log("screenshot:", …)` line of the test that takes it, and `artifacts/` is wiped by nothing — a stale PNG is one no spec writes any more, so regenerate into an empty directory (`rm -rf artifacts && pnpm e2e`) when the set itself is under review. That also clears the other evidence kept there, `artifacts/at-10-mutation.txt`, which is a separate run (docs/ui/B12-SLICE2-DEFERRED.md §6). The board's checks read the finished day through the test-only date override (`E2E_DATE_OVERRIDE=1`, set by `playwright.config.ts`; `src/domain/board/day.ts`), which no deployment has.

@@ -13,22 +13,21 @@
  * and the committed ADR-007 routes, so the board is deterministic and a screenshot of it is
  * evidence rather than a moment.
  *
- * Two kinds of geometry, and they are not interchangeable:
+ * One geometry, read two ways:
  *
  *  - **the plan** — src/fixtures/run-routes.ts, which is each run's own children's own stops in
  *    the scenario's own order, read out of the scenario so it cannot disagree with it. Every
  *    ride's arrival window comes from here, which is how an afternoon ride has a window at nine
  *    in the morning instead of the "Window pending" this board used to print on half its rows;
- *  - **the replay** — the three committed ADR-007 routes in src/fixtures/routes.ts, one leg of
- *    which is a real OSRM response, driven by the M5 simulator. They are the demo day's *live*
- *    morning and nothing else. They were authored before the scenario and still name stops that
- *    belong to another run's children (docs/ui/B12-SLICE1-DEFERRED.md §3.1), so they are read
- *    for the one question they can answer about a van that is moving — where it is, how fresh
- *    that is, and when it reaches the centre — and never for which child is at which kerb.
+ *  - **the replay** — the three committed ADR-007 tracks in src/fixtures/routes.ts, driven by the
+ *    M5 simulator. They are the demo day's *live* morning: where a van is, how fresh that is,
+ *    when it reaches the centre, and which of its riders' kerbs it has already made.
  *
- * Regenerating the replay routes against the scenario's own stops is still a change to committed
- * routing data, and still the founder's call; until then the plan is the thing every row agrees
- * with, and the live morning is the thing one day of it shows.
+ * Those two used to be different surveys, which is why this file once read the replay for the van
+ * and never for the child: the committed routes were authored before the scenario and named stops
+ * belonging to another run's children (docs/ui/B12-SLICE1-DEFERRED.md §3.1). The tracks are the
+ * runs' own morning geometry now, so a live row and a planned row are about the same road, and a
+ * van's arrival at a stop is an arrival at a *named child's* stop.
  */
 
 import type {

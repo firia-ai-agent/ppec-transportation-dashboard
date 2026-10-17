@@ -168,9 +168,9 @@ describe("computeEta (PRD §8 formula over ADR-007 fixtures)", () => {
 
   it("adds dwell + service for every intermediate stop still ahead (ASM-12)", () => {
     const snapshot = computeEta({ ...base, alongM: 0 });
-    const center = snapshot.stops[2];
-    expect(center.dwellSeconds).toBe(stopHoldSeconds(ROUTE_2.stops[1]));
-    expect(center.driveSeconds).toBeCloseTo(
+    const third = snapshot.stops[2];
+    expect(third.dwellSeconds).toBe(stopHoldSeconds(ROUTE_2.stops[1]));
+    expect(third.driveSeconds).toBeCloseTo(
       ROUTE_2.legs[0].durationSec + ROUTE_2.legs[1].durationSec,
       6,
     );
@@ -193,7 +193,7 @@ describe("computeEta (PRD §8 formula over ADR-007 fixtures)", () => {
     const snapshot = computeEta({
       ...base,
       alongM: R2.stopDistanceM[1],
-      arrivalsMs: { S1: T0 },
+      arrivalsMs: { [ROUTE_2.stops[1].id]: T0 },
     });
     expect(snapshot.stops[1].status).toBe("arrived");
     expect(snapshot.stops[1].etaMs).toBeUndefined();
@@ -202,7 +202,7 @@ describe("computeEta (PRD §8 formula over ADR-007 fixtures)", () => {
 
   it("shrinks the dwell still owed while the vehicle stands at a stop, so the ETA holds", () => {
     const alongM = R2.stopDistanceM[1];
-    const arrivalsMs = { S1: T0 };
+    const arrivalsMs = { [ROUTE_2.stops[1].id]: T0 };
     const atArrival = computeEta({ ...base, alongM, arrivalsMs }).stops[2];
     const twoMinLater = computeEta({ ...base, alongM, nowMs: T0 + 120_000, arrivalsMs }).stops[2];
     expect(twoMinLater.dwellSeconds).toBeCloseTo(atArrival.dwellSeconds! - 120, 6);
@@ -228,9 +228,9 @@ describe("computeEta (PRD §8 formula over ADR-007 fixtures)", () => {
       trafficMultiplier: 1,
       runStartMs: T0,
     });
-    const center = snapshot.stops[1];
-    expect(center.holdSeconds).toBeCloseTo(1800 - ROUTE_1.legs[0].durationSec, 6);
-    expect(center.etaMs).toBe(T0 + 1800 * 1000);
+    const windowedStop = snapshot.stops[1];
+    expect(windowedStop.holdSeconds).toBeCloseTo(1800 - ROUTE_1.legs[0].durationSec, 6);
+    expect(windowedStop.etaMs).toBe(T0 + 1800 * 1000);
   });
 
   it("is pure: the same input always gives the same snapshot", () => {

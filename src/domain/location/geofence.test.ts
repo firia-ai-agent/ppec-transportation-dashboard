@@ -15,7 +15,9 @@ import type { StoredPoint } from "./ingest";
 
 const T0 = Date.UTC(2026, 9, 14, 11, 30, 0);
 const STOPS = ROUTE_2.stops;
-const S1 = STOPS[1];
+/** A mid-run pickup on the committed track, and the centre it ends at — by position, not by id. */
+const PICKUP = STOPS[1];
+const CENTRE = STOPS[STOPS.length - 1];
 
 let sequence = 0;
 function at(
@@ -56,64 +58,64 @@ describe("ASM-18 geofence rule: 100 m and <2 m/s for ≥20 s", () => {
 
   it("fires once the 20 s condition is met, not on the first slow point", () => {
     const { arrivals } = feed([
-      at(S1.coord, 0),
-      at(S1.coord, 10),
-      at(S1.coord, 15),
-      at(S1.coord, 20),
+      at(PICKUP.coord, 0),
+      at(PICKUP.coord, 10),
+      at(PICKUP.coord, 15),
+      at(PICKUP.coord, 20),
     ]);
-    expect(arrivals).toEqual(["S1:ARRIVED_PICKUP"]);
+    expect(arrivals).toEqual([`${PICKUP.id}:ARRIVED_PICKUP`]);
   });
 
   it("does not fire before 20 s have passed", () => {
-    expect(feed([at(S1.coord, 0), at(S1.coord, 15)]).arrivals).toEqual([]);
+    expect(feed([at(PICKUP.coord, 0), at(PICKUP.coord, 15)]).arrivals).toEqual([]);
   });
 
   it("does not fire for a vehicle driving past at speed", () => {
     expect(
-      feed([at(S1.coord, 0, 12), at(S1.coord, 20, 12), at(S1.coord, 40, 12)]).arrivals,
+      feed([at(PICKUP.coord, 0, 12), at(PICKUP.coord, 20, 12), at(PICKUP.coord, 40, 12)]).arrivals,
     ).toEqual([]);
   });
 
   it("does not fire outside 100 m", () => {
-    const far = offsetByMeters(S1.coord, 150, 0);
+    const far = offsetByMeters(PICKUP.coord, 150, 0);
     expect(feed([at(far, 0), at(far, 30)]).arrivals).toEqual([]);
   });
 
   it("fires inside 100 m", () => {
-    const near = offsetByMeters(S1.coord, 80, 0);
-    expect(feed([at(near, 0), at(near, 25)]).arrivals).toEqual(["S1:ARRIVED_PICKUP"]);
+    const near = offsetByMeters(PICKUP.coord, 80, 0);
+    expect(feed([at(near, 0), at(near, 25)]).arrivals).toEqual([`${PICKUP.id}:ARRIVED_PICKUP`]);
   });
 
   it("restarts the streak when the vehicle leaves the geofence", () => {
-    const far = offsetByMeters(S1.coord, 300, 0);
+    const far = offsetByMeters(PICKUP.coord, 300, 0);
     const { arrivals } = feed([
-      at(S1.coord, 0),
-      at(S1.coord, 15),
+      at(PICKUP.coord, 0),
+      at(PICKUP.coord, 15),
       at(far, 20, 12),
-      at(S1.coord, 25),
-      at(S1.coord, 35),
+      at(PICKUP.coord, 25),
+      at(PICKUP.coord, 35),
     ]);
     expect(arrivals).toEqual([]);
   });
 
   it("fires once per stop, not once per point", () => {
     const { arrivals } = feed([
-      at(S1.coord, 0),
-      at(S1.coord, 25),
-      at(S1.coord, 50),
-      at(S1.coord, 75),
+      at(PICKUP.coord, 0),
+      at(PICKUP.coord, 25),
+      at(PICKUP.coord, 50),
+      at(PICKUP.coord, 75),
     ]);
-    expect(arrivals).toEqual(["S1:ARRIVED_PICKUP"]);
+    expect(arrivals).toEqual([`${PICKUP.id}:ARRIVED_PICKUP`]);
   });
 
   it("reports which stop, when, and how far out", () => {
-    const near = offsetByMeters(S1.coord, 50, 0);
+    const near = offsetByMeters(PICKUP.coord, 50, 0);
     const step = geofenceStep(
-      { candidateSinceMs: { S1: T0 }, arrived: [] },
+      { candidateSinceMs: { [PICKUP.id]: T0 }, arrived: [] },
       STOPS,
       at(near, 25),
     );
-    expect(step.arrival).toMatchObject({ stopId: "S1", state: "ARRIVED_PICKUP", atMs: T0 + 25_000 });
+    expect(step.arrival).toMatchObject({ stopId: PICKUP.id, state: "ARRIVED_PICKUP", atMs: T0 + 25_000 });
     expect(step.arrival?.distanceM).toBeCloseTo(50, 0);
   });
 });
@@ -127,9 +129,8 @@ describe("AT-10: geofence sets ARRIVED_* only, never COMPLETED_HANDOFF", () => {
   });
 
   it("produces ARRIVED_DROPOFF at the center and never a handoff", () => {
-    const center = STOPS[2];
     let state = emptyGeofenceState();
-    const results = [at(center.coord, 0), at(center.coord, 30)].map((point) => {
+    const results = [at(CENTRE.coord, 0), at(CENTRE.coord, 30)].map((point) => {
       const step = geofenceStep(state, STOPS, point);
       state = step.state;
       return step.arrival;
