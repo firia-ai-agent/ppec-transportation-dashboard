@@ -75,6 +75,7 @@ type CapabilityS = (typeof capabilityState.enumValues)[number];
  */
 export {
   BOARD_SCENARIO_SECONDS,
+  BOARD_SCENARIO_TICK,
   CLOCK_PARAM,
   boardInstantMs,
   demoDay,
