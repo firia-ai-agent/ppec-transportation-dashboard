@@ -34,7 +34,7 @@ close until the rows §2 still marks "slice 2, ahead" are in.
 |---|---|---|
 | 1 | The Today board (SURF-01) and the child drawer (SURF-02), read-only, over the seeded scenario | **landed** — this page's §1 |
 | 2 | **Plan routes** (B-09 VEH-01…05, B-13 UI-04): the lanes screen, the feasible-plan check, AT-04, AT-05, AT-12 — **and** the board's sharpening: the fixture and taste items this page already promised slice 2 | **both parts landed** — §1.1 and `docs/ui/B12-SLICE2-DEFERRED.md`; §2 marks which rows they closed and which are still ahead |
-| 3 | Live updates (SSE) and the live map pane — AT-03 and AT-11 — and the two fixture names §2 moved here | sequenced |
+| 3 | Live updates (SSE) and the live map pane — AT-03 and AT-11 — and the two fixture names §2 moved here | **landed on `team/ppe-live-map`** — `docs/ui/B12-SLICE3-DEFERRED.md`. One of the two moved items is in (the unknown window's wording); the named approver and verifier in the seed is **still open** and is the whole of what slice 3 owes |
 | 4 | Inbox, Exceptions & Approvals, the board's writes, and the extras that wait on them | sequenced |
 
 ## 1. What slice 1 is
@@ -242,13 +242,17 @@ Still open:
 
 ## 6. Slice 3 — live updates, the live map, and the two fixture names
 
+**Landed on `team/ppe-live-map`**, with one row still open. What it built, what it proves and the
+one difference from ADR-002 are `docs/ui/B12-SLICE3-DEFERRED.md`; the state of each row below is
+in its own cell now.
+
 | Thing | § | What slice 3 has to land |
 |---|---|---|
-| Live updates, reconnect delta, the amber "paused" bar over 15 s | §2, §4.1 | the SSE stream (ADR-002), and with it the U3 commit→screen measurement RISKS-AND-QUESTIONS has open. AT-11's duplicate, out-of-order and location-loss bands are read here |
-| The map pane beside the rows, row-hover ↔ marker highlight, fly-to | §4.1, §5 | the split pane at ≥1280 px that D-6 (ledger row 34) decided. The pane itself already exists at `/map-preview`, and Plan routes already holds its place on screen (§1.1) — slice 3 puts the live map in both, and with it AT-03's delay on a real route |
-| Header adapter pills showing real ages instead of "· Simulated" | §2, §10 | the ages come from the same stream; the pills' **violet is already gone** (§4), so only the text is interim |
-| A **named approver and a named verifier** in the seed | §4.2, COPY-GUIDE §5 | moved here from slice 2 (§2, §3.3, §3.4), which left both fixtures as they were |
-| An unknown window reads **"Time not set yet"**, with an icon | COPY-GUIDE §5, §3 | moved here from slice 2 (§2): the case is unreachable in the committed scenario, and the fallback's wording is all that is left |
+| Live updates, reconnect delta, the amber "paused" bar over 15 s | §2, §4.1 | **in** — `GET /api/stream`, a snapshot then deltas, a reconnect that resumes rather than restarts, and the §2 bar past 15 s with every row left readable underneath it. AT-11's duplicate, out-of-order and location-loss bands are read on the board. **The U3 commit→screen measurement is still not taken**: the stream exists, so it is now possible, and NFR-01's p95 <3 s stays unverified until somebody measures it |
+| The map pane beside the rows, row-hover ↔ marker highlight, fly-to | §4.1, §5 | **in** — the split pane at ≥1280 px that D-6 (ledger row 34) decided, folding under the rows below it; hover rings the marker, opening a ride flies to it, and clicking a marker opens that van's ride. AT-03's delay is on the board's own rows |
+| Header adapter pills showing real ages instead of "· Simulated" | §2, §10 | **in for GPS**, which is the only adapter with an age: the pill carries the fleet's freshest position in the §3 band vocabulary, from the board's own stream, and the scenario clock reads the tick the board is walking. SMS, Teams and Agent still say "Simulated", which is still the whole truth about them |
+| A **named approver and a named verifier** in the seed | §4.2, COPY-GUIDE §5 | **still open.** Moved here from slice 2 (§2, §3.3, §3.4) and not built by slice 3 either: `approved_by` is still NULL in `seed.ts` and the ramp observation still carries no person, so the drawer cannot say "Verified 17 min ago by J.T." and mean it. It is a seed and drawer change with nothing to do with the live map, and it belongs to whoever opens the next console PR |
+| An unknown window reads **"Time not set yet"**, with an icon | COPY-GUIDE §5, §3 | **in** — `etaText.pending` is the fact rather than our state name, with the §3 clock icon it always had. The case stays unreachable in the committed scenario, so this is a fallback's wording |
 
 ## 7. Slice 4 — the surfaces that read the plan, and the board's writes
 

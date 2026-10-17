@@ -56,6 +56,15 @@ SOURCE: PRD §20 (B-01–B-16), §18.3 AT list, ADR-000…015. Status: Proposed 
 | TEST-SEC-01/02 | B-08 | egress log |
 Mocked ATs pass as "PASS (mock)", not as PRD P1 pass (founder lock ADR-016).
 
+This table is the **map** — which milestone each test belongs to and which mock it leans on. Where
+each one actually **stands** is the 19-row table in docs/BUILD-PLAN-M2.md §4 (AT-01…AT-18 plus
+TEST-INF-01), kept there so there is one status per test and not two that can disagree. Two rows
+moved with the live map (P-03, B-12 slice 3): **AT-03** and **AT-11** are PASS (mock) on
+`team/ppe-live-map` — the domain was already held, and the board, the stream and the browser
+checks are what was missing — and they count on `main` when that branch merges. AT-03 and AT-11
+also pick up a second mock each beyond the two named above: the live stream itself (ADR-002) and,
+for AT-03, the scenario clock the replay is walked on (B-10, docs/ui/B12-SLICE3-DEFERRED.md).
+
 ## 3. Linear structure (to create after approval; nothing created yet)
 - Team: existing Firia team. Project: **PPEC transportation dashboard – P1 POC**.
 - Milestones = B-01…B-16 above.
