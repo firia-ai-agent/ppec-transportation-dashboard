@@ -12,7 +12,8 @@
  * and is refused outright on any deployment.
  */
 import { expect, test, type Locator } from "@playwright/test";
-import { fill, fleetMap, liveMap, nav, planRoutes, rampIpad } from "../src/ui/copy";
+import { fill, fleetMap, liveMap, nav, planRoutes, rampIpad, vanTitle } from "../src/ui/copy";
+import { V1 } from "../src/fixtures/fleet";
 import { navItems } from "../src/ui/nav-items";
 import {
   boxOf,
@@ -28,6 +29,16 @@ import {
 const WIDTHS = [1024, 1280] as const;
 
 const VIEWPORT = { height: 900 };
+
+/**
+ * The first van, as both screens name it: "The convertible van".
+ *
+ * Its card on the live map and its tile on the ramp iPad were found by the fixture key they
+ * printed — `/^V1 · /` — and neither prints one now (Vera's prod walk, 2026-10-17 2:48 PM ET).
+ * Built from the fixture through the one helper every screen names a van with, so this spec
+ * cannot drift from the screens it measures.
+ */
+const V1_NAME = vanTitle(V1.description);
 
 for (const width of WIDTHS) {
   test.describe(`at ${width}px`, () => {
@@ -125,10 +136,10 @@ for (const width of WIDTHS) {
 
       /*
        * Nothing the pane floats over the map may reach the vehicle list beside it. The list is
-       * the §9 non-map way to read the fleet, so a control sitting on the V1 card takes away
-       * the alternative as well as the card.
+       * the §9 non-map way to read the fleet, so a control sitting on the first van's card
+       * takes away the alternative as well as the card.
        */
-      const v1Card = page.getByRole("button", { name: /^V1 · / });
+      const v1Card = page.getByRole("button", { name: new RegExp(`^${V1_NAME}`) });
       const v1Box = await boxOf(v1Card);
       const chrome: Array<[string, Locator]> = [
         ["Fit all vehicles", page.getByRole("button", { name: fleetMap.fitAll })],
@@ -137,7 +148,7 @@ for (const width of WIDTHS) {
       ];
       for (const [name, locator] of chrome) {
         const box = await boxOf(locator);
-        expect(overlaps(box, v1Box), `${name} overlaps the V1 card`).toBe(false);
+        expect(overlaps(box, v1Box), `${name} overlaps the ${V1_NAME} card`).toBe(false);
       }
 
       // §6.2: the running speed is filled and says so, rather than wearing a focus-ring outline.
@@ -166,7 +177,7 @@ for (const width of WIDTHS) {
       // §9 / COPY-GUIDE: the selected answer is filled and announced, not outlined.
       const notSure = page.getByRole("button", { name: rampIpad.answer.UNSURE }).first();
       await expect(notSure).toHaveAttribute("aria-pressed", "true");
-      const chosenVehicle = page.getByRole("button", { name: /^V1 · / });
+      const chosenVehicle = page.getByRole("button", { name: new RegExp(`^${V1_NAME} · `) });
       await expect(chosenVehicle).toHaveAttribute("aria-pressed", "true");
       // The setup buttons say what the layout is, never the provider's shorthand.
       await expect(page.getByRole("button", { name: "1 wheelchair · 3 seats" })).toBeVisible();

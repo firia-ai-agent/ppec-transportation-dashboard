@@ -116,11 +116,13 @@ async function plan(page: Page): Promise<void> {
 /**
  * No vehicle code anywhere in the planning surface (Vera's review, 2026-10-17).
  *
- * "V1" is how the fixtures file a van and how the solver keys one. The live map and the ramp
- * iPad print it on purpose — a device, a marker and a manifest are all identified by it — and a
- * coordinator deciding which van a child rides in reads the van's name instead, so this is a
- * rule about this screen and lives here rather than in e2e/helpers.ts. Read off the rendered
- * text, so an interpolated code has nowhere to hide.
+ * "V1" is how the fixtures file a van and how the solver keys one, and a coordinator deciding
+ * which van a child rides in reads the van's name instead. This screen got there first; Vera's
+ * prod walk (2026-10-17 2:48 PM ET) found the board, the live map and the ramp iPad still
+ * printing the key, and src/ui/no-codes.test.ts now asks all four screens the same question off
+ * their rendered view models. This stays here because it is measured in the browser, on the one
+ * screen whose own `<main>` is the whole planning surface. Read off the rendered text, so an
+ * interpolated code has nowhere to hide.
  *
  * The planning surface is the screen's own `<main>`, by role rather than by id: /plan-routes is
  * its own route outside the console shell (src/app/plan-routes/page.tsx renders the screen and

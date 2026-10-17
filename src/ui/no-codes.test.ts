@@ -7,11 +7,18 @@ import * as copy from "./copy";
 import { capabilityStates } from "./states";
 import { renderedStrings } from "./no-internals.test";
 import { LegDrawer } from "@/app/(app)/today/LegDrawer";
+import { needsActionReasonText, nextStepCellText } from "@/app/(app)/today/next-step";
 import { TodayBoard } from "@/app/(app)/today/TodayBoard";
 import PlanRoutes from "@/app/plan-routes/PlanRoutes";
 import RampCheck from "@/app/ramp-ipad/RampCheck";
 import LiveFleetMap, { decisionRowText } from "@/components/map/LiveFleetMap";
-import { buildBoard, demoDay, serviceDayFor } from "@/domain/board/board";
+import {
+  NEEDS_ACTION_REASONS,
+  NEXT_STEPS,
+  buildBoard,
+  demoDay,
+  serviceDayFor,
+} from "@/domain/board/board";
 import { runReplay } from "@/domain/eta/replay";
 import type { MapViewer } from "@/domain/access/map-view";
 import { DEMO_RUNS } from "@/fixtures/replays";
@@ -272,6 +279,23 @@ describe("the four screens, rendered from the seed, print nothing a fixture file
     }
   }
 
+  /**
+   * Every reason and every next step a row can carry, on every real ride.
+   *
+   * The three days above do not reach all of them — nothing in the demo scenario fails to fit,
+   * and nothing has been silent for ten minutes — and two of the reasons name the van (`{van}`
+   * in `board.reasons`). So each code is asked of each real leg, with that leg's own van, by the
+   * same two functions the row and the drawer read (src/app/(app)/today/next-step.ts). Without
+   * this, the board's one remaining `{van}` fill could go back to the fixture key unnoticed.
+   */
+  const RIDE_SENTENCES = buildBoard().legs.flatMap((leg) => [
+    ...NEEDS_ACTION_REASONS.flatMap((reason) =>
+      needsActionReasonText({ ...leg, needsActionReasons: [reason] }),
+    ),
+    ...NEXT_STEPS.map((step) => nextStepCellText({ ...leg, nextStep: step })),
+  ]);
+  SCREENS.push({ screen: "Today's reasons and next steps", text: RIDE_SENTENCES.join(" ") });
+
   SCREENS.push({ screen: "Plan routes", text: render(createElement(PlanRoutes)) });
   SCREENS.push({ screen: "Ramp iPad", text: render(createElement(RampCheck)) });
 
@@ -307,6 +331,10 @@ describe("the four screens, rendered from the seed, print nothing a fixture file
     }
     // Not a screen that drew no vans: the three surfaces that name one each name one.
     expect(DECISIONS.length, "no run produced a notification row").toBeGreaterThan(0);
+    // And every reason and step is on the page of words, for every ride on the board.
+    expect(RIDE_SENTENCES.length).toBeGreaterThan(
+      (NEEDS_ACTION_REASONS.length + NEXT_STEPS.length - 1) * 2,
+    );
   });
 
   it("has screens that really do name vans and companies, so this is about something", () => {
@@ -323,6 +351,13 @@ describe("the four screens, rendered from the seed, print nothing a fixture file
     }
     // And the chip label whose prefix the walk read off three screens.
     expect(all).toContain(capabilityStates.REPORTED.label);
+    // The two reasons that name a van really are among the sentences, really naming one.
+    const sentences = SCREENS.find((s) => s.screen === "Today's reasons and next steps")!.text;
+    for (const reason of ["DOES_NOT_FIT", "LOCATION_LOST"] as const) {
+      const words = copy.fill(copy.board.reasons[reason], { van: copy.vanName("convertible van") });
+      expect(words).not.toMatch(/\{\w+\}/);
+      expect(sentences, reason).toContain(words);
+    }
   });
 
   it.each(FORBIDDEN)("no screen prints $name", ({ re }) => {
