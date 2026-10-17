@@ -11,7 +11,7 @@ import {
   type RoiMetricKey,
 } from "@/domain/health/metrics";
 import type { AdapterHealth, AdapterStatus } from "@/domain/health/adapters";
-import { board as boardCopy, fill, health, nav, serviceDate } from "@/ui/copy";
+import { board as boardCopy, fill, health, nav, serviceDate, vanName } from "@/ui/copy";
 import { StateChip } from "@/ui/StateChip";
 import { legStates } from "@/ui/states";
 import { icon } from "@/ui/tokens";
@@ -320,7 +320,18 @@ function RideList({
               <td>
                 <StateChip state={legStates[leg.ride.state]} values={stateValues(leg)} />
               </td>
-              <td>{leg.ride.vehicleLabel ?? boardCopy.familyDrives}</td>
+              {/*
+                The van by what it is — "the convertible van" — and never `vehicleLabel`, which
+                is "V1": the key the scenario files the van under, and the one thing in this
+                column a reader standing at the screen can do nothing with. `vanName` is the
+                same string every other screen names a van with, and the capital on it is the
+                stylesheet's, exactly as a lane heading takes one.
+              */}
+              <td className={styles.vanCell}>
+                {leg.ride.vehicleDescription === null
+                  ? boardCopy.familyDrives
+                  : vanName(leg.ride.vehicleDescription)}
+              </td>
               <td className={styles.nextStep}>{nextStepCellText(leg)}</td>
             </tr>
           );

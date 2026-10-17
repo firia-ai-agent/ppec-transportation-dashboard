@@ -9,7 +9,7 @@ import {
   type RoiMetric,
 } from "@/domain/health/metrics";
 import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
-import { countable, fill, health, nav, pluralize, serviceDate } from "@/ui/copy";
+import { countable, fill, health, nav, pluralize, serviceDate, sourceMode } from "@/ui/copy";
 import { pageOutcome, rolesWhoCanOpen } from "@/auth/access";
 import {
   adapterDegraded,
@@ -199,10 +199,21 @@ describe("the adapter panel never reads as 'all fine'", () => {
     }
   });
 
-  it("says the word 'Mocked' on every row, so the colour is never the only cue (§3)", () => {
+  it("says the word 'Simulated' on every row, so the colour is never the only cue (§3)", () => {
     for (const row of panel.rows) {
       expect(adapterModeChip(row).label).toBe(health.adapterPanel.modes.MOCK);
     }
+  });
+
+  /**
+   * And it is the word the DEMO bar's source chip has been saying on every screen all afternoon
+   * (§7.1), not a second one for the same fact: the chip said "Simulated" while this panel said
+   * "Mocked", which asked a reader to work out whether the two were about the same thing. Pinned
+   * to the chip's own string rather than to a literal, so the two cannot drift apart again.
+   */
+  it("says it in the source chip's word, not in a second word for the same fact", () => {
+    expect(health.adapterPanel.modes.MOCK).toBe(sourceMode.SIMULATED);
+    expect(health.adapterPanel.modes.MOCK).not.toMatch(/mock/i);
   });
 
   it("takes the live chip only when a row really is live", () => {
@@ -461,7 +472,7 @@ describe("the guard on /health", () => {
     );
 
     // SURF-06: the panel says nothing is live before it shows a row, and every row's mode chip
-    // says "Mocked" in words — never a green tone and never a bare colour (§3).
+    // says "Simulated" in words — never a green tone and never a bare colour (§3).
     expect(html).toContain(escapeHtml(health.adapterPanel.allMockedIntro));
     expect(html).not.toContain(health.adapterPanel.someLiveIntro);
     expect(html.match(/data-tone="ok"/g)).toBeNull();

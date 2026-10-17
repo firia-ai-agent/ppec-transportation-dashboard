@@ -598,7 +598,15 @@ export const health = {
       doing: "On today's data",
       degraded: "If it stops working",
     },
-    modes: { MOCK: "Mocked", LIVE: "Live" },
+    /**
+     * The mode chip's two words. A mocked row says **"Simulated"** — the same word the §7.1
+     * source chip has been saying in the DEMO bar on every screen — rather than "Mocked",
+     * which asked a reader to learn a second word for a fact they had already learnt. It was
+     * the wrong word to learn, too: a mock is one part of the build standing in for another,
+     * which is a sentence about the code, and what this row has to say is that the thing in
+     * front of them is not the real one.
+     */
+    modes: { MOCK: "Simulated", LIVE: "Live" },
     names: {
       SMS: "Text messages to families",
       MAPS: "Maps, van locations and travel times",

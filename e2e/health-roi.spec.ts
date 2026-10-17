@@ -8,8 +8,8 @@
  *
  * Measured rather than eyeballed, with the screenshots landing in artifacts/ so a design review
  * has the picture beside the assertion: one SYNTHETIC watermark and not two, four numbers and no
- * fifth, no chart, and an adapter panel where every row says "Mocked" in words and nothing wears
- * the green "ok" tone.
+ * fifth, no chart, and an adapter panel where every row says "Simulated" in words and nothing
+ * wears the green "ok" tone.
  *
  * No database and no credentials: the server runs with the test-only synthetic session (see
  * playwright.config.ts and src/domain/access/map-view.ts), which grants a role and nothing else
@@ -224,7 +224,7 @@ for (const width of WIDTHS) {
       );
       expect(introBox.y, "the panel's own warning is under the first row").toBeLessThan(firstRow.y);
 
-      // One row per part of the system, each saying "Mocked" in words, what it is doing on
+      // One row per part of the system, each saying "Simulated" in words, what it is doing on
       // today's data, and the one thing a coordinator does when it stops.
       for (const row of ADAPTERS.rows) {
         const line = page.getByRole("row").filter({ hasText: adapterName(row.key) }).first();
