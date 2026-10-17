@@ -76,6 +76,33 @@ test("from a child on the board to the text their family got", async ({ page }) 
   console.log("screenshot:", await shot(page, "phone-panel"));
 });
 
+/**
+ * The assistant half (PRD §18.2 steps 9–10). The browser check runs with no model key — the
+ * synthetic session has no secrets of any kind — so what it walks is the **degraded** path, and
+ * the thing worth asserting is exactly that: the panel says a keyword reader answered, says that
+ * nothing changed and nothing was sent, and never dresses the fallback up as a model answer.
+ *
+ * The model path and the approval that follows it are held by `agent-turn.test.ts`, which drives
+ * the same seam with a scripted provider; walking them in a browser needs the key on the
+ * deployment, which is an environment change and not a code one.
+ */
+test("a staff-typed parent text reaches the assistant, and the answer says who gave it", async ({ page }) => {
+  await page.goto(`/phone-preview?child=${noah.childKey}`);
+
+  const composer = page.getByRole("textbox", {
+    name: fill(phonePanel.composerHeading, { adult: noah.guardianName }),
+  });
+  await expect(composer).toHaveValue(fill(phonePanel.composerExample, { child: noah.childFirstName }));
+
+  await page.getByRole("button", { name: fill(phonePanel.composerSend, { adult: noah.guardianName }) }).click();
+
+  await expect(page.getByRole("heading", { name: phonePanel.turnHeading })).toBeVisible();
+  await expect(page.getByText(phonePanel.answeredByKeyword)).toBeVisible();
+  await expect(page.getByText(phonePanel.nothingHappened)).toBeVisible();
+  await expectNoInternalCodes(page);
+  console.log("screenshot:", await shot(page, "phone-panel-agent"));
+});
+
 test("every family the day texted has its own thread, and no other", async ({ page }) => {
   await page.goto("/phone-preview");
   for (const text of texts) {

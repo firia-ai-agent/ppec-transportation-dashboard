@@ -287,6 +287,8 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/api/queues/delay-probe": "queue-callback",
       "/api/webhooks/sms": "signature-webhook",
       "/api/sim/phones/[number]/messages": "session:DIRECTOR+COORDINATOR",
+      "action:agent-turn": "session:DIRECTOR+COORDINATOR",
+      "action:agent-approval": "session:DIRECTOR+COORDINATOR",
       "action:sign-in": "auth-endpoint",
       "action:sign-out": "public",
     });

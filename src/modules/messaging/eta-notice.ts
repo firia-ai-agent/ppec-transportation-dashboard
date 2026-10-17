@@ -42,7 +42,7 @@ import {
   type NotifyThresholds,
 } from "@/domain/eta/notify-gate";
 import { isDemoMode, isSyntheticDemo } from "@/lib/env";
-import { demoLegId } from "@/modules/demo/seed";
+import { demoLegId } from "@/modules/demo/fixtures/standard";
 import { enqueue, type OutboxTransport } from "@/modules/outbox/outbox";
 import { FAMILY_SMS, authorizedContactsForChild } from "@/modules/outbox/policy";
 

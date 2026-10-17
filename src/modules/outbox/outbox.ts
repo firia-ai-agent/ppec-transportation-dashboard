@@ -49,7 +49,7 @@ const COLS = "id, site_id, purpose, recipient_token, recipient_rule, channel, te
  * see TEMPLATE_VARS below), but each one is still child data: it says a particular child's van, stop or
  * session. Any message using one must therefore carry a child reference.
  */
-export const CHILD_TEMPLATES = new Set(["pickup.eta", "dropoff.eta", "dropoff.late", "leg.canceled", "leg.changed", "therapist.absence_alert", "therapist.late_alert", "child.not_received"]);
+export const CHILD_TEMPLATES = new Set(["pickup.eta", "dropoff.eta", "dropoff.late", "leg.canceled", "leg.changed", "dropoff.changed", "therapist.absence_alert", "therapist.late_alert", "child.not_received"]);
 /**
  * Veri #12 review: free text is banned from outbound vars. A staff-typed "reason" or "text" can carry a child's
  * name, and matching values against a name list misses nicknames and typos, so outbound vars carry only fixed
@@ -98,6 +98,7 @@ export const TEMPLATE_VARS: Readonly<Record<string, Readonly<Record<string, VarR
   "dropoff.late": { eta: clockTime, etaEnd: clockTime, stopLabel: stopToken, delayMinutes: lateMinutes },
   "leg.canceled": { legDate: calendarDay, reasonCode: oneOf(LEG_CANCEL_REASON_CODES) },
   "leg.changed": { legDate: calendarDay, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
+  "dropoff.changed": { legDate: calendarDay, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
   "therapist.absence_alert": { sessionStart: clockTime },
   "therapist.late_alert": { sessionStart: clockTime, eta: clockTime },
   "child.not_received": { stopLabel: stopToken, eta: clockTime },

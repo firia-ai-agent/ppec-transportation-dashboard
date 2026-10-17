@@ -520,6 +520,31 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     auth: { kind: "session", roles: CONSOLE, siteScoped: true },
   },
   /**
+   * The phone panel's two controls (PRD §18.2 steps 9–10): run one agent turn over a staff-typed
+   * family text, and apply the proposal it comes back with. Server actions, so they are POST
+   * endpoints with no URL of their own and need a row each.
+   *
+   * The same roles as the page they are on, and checked in the action itself rather than inferred
+   * from the fact that the button was rendered: hiding a control is not a guard (the ID-swap
+   * rule). Neither writes to the database — the turn is the §11.1 seam over the fixtures and the
+   * approval computes what the change would be — but both would be a way to spend a model call,
+   * so neither is open.
+   */
+  {
+    kind: "action",
+    file: "src/app/(app)/phone-preview/actions.ts",
+    path: "action:agent-turn",
+    methods: ["POST"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: false },
+  },
+  {
+    kind: "action",
+    file: "src/app/(app)/phone-preview/actions.ts",
+    path: "action:agent-approval",
+    methods: ["POST"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: false },
+  },
+  /**
    * The sign-in form's own action (ADR-004). It hands email and password to the credentials
    * provider and nothing else; it must run for a caller with no session.
    */

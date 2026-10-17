@@ -19,11 +19,17 @@ const BUILD_AND_BOOT_ENTRIES = [
   "src/instrumentation.ts",
   "next.config.ts",
 ];
-/** The only files allowed to import the seed. */
+/**
+ * The only files allowed to import the seed: the two deliberate entry points, and the suites that
+ * seed a real scenario to test against one. A *test* importing it cannot wipe a deployment — it
+ * runs against PGlite — and the rule this file exists for is about the build and boot graph,
+ * which the first test above is what actually holds.
+ */
 const ALLOWED_SEED_IMPORTERS = [
   "src/modules/demo/reset.ts",
   "scripts/demo-reset.ts",
   "src/modules/demo/seed.test.ts",
+  "src/modules/messaging/eta-notice-sweep.test.ts",
 ];
 
 const SRC_RE = /\.(ts|tsx|mjs|js)$/;

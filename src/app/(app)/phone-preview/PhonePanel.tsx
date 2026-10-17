@@ -65,6 +65,7 @@ export function PhonePanel({
         </nav>
       ) : null}
 
+      <div className={styles.columns}>
       {/* §6.3: an iPhone-shaped panel with no Apple marks — a frame, a notch bar, a thread. */}
       <section className={styles.phone} aria-label={phonePanel.simulatedPhone}>
         <div className={styles.simBanner}>
@@ -109,13 +110,19 @@ export function PhonePanel({
           )}
         </ol>
 
-        {composer}
-
         {/* Which of the two sources this thread is, in a sentence (see thread.ts). */}
         <p className={styles.source} data-source={thread.source}>
           {thread.source === "log" ? phonePanel.fromLog : phonePanel.fromScenario}
         </p>
       </section>
+
+      {/*
+        The assistant's side, beside the phone rather than inside it: the thread is the family's
+        and this is the centre's. Typing happens here because a coordinator is standing in for the
+        family, and the composer says whose phone it is writing from.
+      */}
+      {composer}
+      </div>
     </main>
   );
 }

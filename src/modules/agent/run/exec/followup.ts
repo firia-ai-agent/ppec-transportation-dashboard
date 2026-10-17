@@ -106,7 +106,7 @@ type AudienceRule =
 const AUDIENCE_RULES: Readonly<Record<Audience, AudienceRule>> = {
   GUARDIAN_OF_CHILD: {
     kind: "outbox",
-    templates: ["leg.canceled", "leg.changed", "pickup.eta", "dropoff.eta", "generic.notice"],
+    templates: ["leg.canceled", "leg.changed", "dropoff.changed", "pickup.eta", "dropoff.eta", "generic.notice"],
     // One definition of "how a family is reached" (outbox/policy.ts `FAMILY_SMS`), shared with the
     // deterministic ETA notice: the same purpose on the same channel under the same rule.
     channel: FAMILY_SMS.channel,
@@ -143,7 +143,7 @@ const AUDIENCE_RULES: Readonly<Record<Audience, AudienceRule>> = {
  * about a ride that is happening, which every authorized contact is entitled to (§10.1 "Fan-out
  * 1:1 broadcast").
  */
-const DECISION_TEMPLATES: ReadonlySet<string> = new Set(["leg.canceled", "leg.changed"]);
+const DECISION_TEMPLATES: ReadonlySet<string> = new Set(["leg.canceled", "leg.changed", "dropoff.changed"]);
 
 /** What the subject resolved to: who gets it, and the child reference the message carries. */
 type Resolved = {

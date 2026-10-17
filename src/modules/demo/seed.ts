@@ -18,7 +18,7 @@ import type { Db, Exec } from "@/db/exec";
 import {
   CHILDREN, DATE_EXCEPTION, EXTERNAL_PEOPLE, FAMILIES, KIND, PROVIDERS, RUNS, SCENARIO_NAME,
   SCENARIO_START_LOCAL, STOPS, THERAPISTS, THERAPY_SESSIONS, VEHICLES, WEEKDAY_RRULE,
-  demoId, synLegalLastName, synLegalName, type AuthScope, type Child,
+  demoChildToken, demoId, demoLegId, synLegalLastName, synLegalName, type AuthScope, type Child,
 } from "./fixtures/standard";
 
 export class SeedRefused extends Error {}
@@ -118,7 +118,7 @@ const idx = <T extends { key: string }>(xs: readonly T[], key: string) => {
 
 const familyId = (key: string) => demoId(KIND.family, idx(FAMILIES, key) + 1);
 const contactId = (familyKey: string) => demoId(KIND.contact, idx(FAMILIES, familyKey) + 1);
-const childId = (key: string) => demoId(KIND.child, idx(CHILDREN, key) + 1);
+const childId = demoChildToken;
 const profileId = (key: string) => demoId(KIND.profile, idx(CHILDREN, key) + 1);
 const personId = (key: string) => demoId(KIND.person, idx(EXTERNAL_PEOPLE, key) + 1);
 const therapistId = (key: string) => demoId(KIND.therapist, idx(THERAPISTS, key) + 1);
@@ -128,21 +128,7 @@ const vehicleId = (key: string) => demoId(KIND.vehicle, idx(VEHICLES, key) + 1);
 const stopId = (childKey: string) => demoId(KIND.stop, idx(CHILDREN, childKey) + 1);
 const CENTER_STOP_ID = demoId(KIND.stop, 0xc0);
 const SPARE_STOP_ID = demoId(KIND.stop, 0xc1);
-const legId = (childKey: string, dir: "AM" | "PM") => demoId(KIND.leg, idx(CHILDREN, childKey) * 2 + (dir === "AM" ? 1 : 2));
-
-/**
- * The two seeded ids a *scenario* caller has to be able to name, exported because the ids are
- * deterministic on purpose (file header: "Ids are deterministic so a reset is idempotent").
- *
- * The deterministic ETA notice is the caller: the demo day's replay says which *fixture child* a
- * family should be texted about (`C2`, the afternoon, Okeeheelee Park), and the row it has to
- * queue against is this child's leg. Re-deriving that id anywhere else would be a second
- * definition of "which row is C2's afternoon", which is the one thing these helpers prevent.
- * Everything else about the leg — its site, its service date, its plan version, whether it is
- * still being driven — is read from the row itself and never assumed.
- */
-export const demoChildToken = (childKey: string): string => childId(childKey);
-export const demoLegId = (childKey: string, direction: "AM" | "PM"): string => legId(childKey, direction);
+const legId = demoLegId;
 const manifestId = (runKey: string, dir: "AM" | "PM") => demoId(KIND.manifest, idx(RUNS, runKey) * 2 + (dir === "AM" ? 1 : 2));
 
 type LayoutRef = { id: string; code: string; vehicleKey: string; positions: { id: string; kind: "WC" | "AMB" }[] };

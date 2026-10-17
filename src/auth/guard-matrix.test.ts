@@ -502,19 +502,30 @@ describe("the session endpoint, for every role and for a signed-out caller", () 
     }
   });
 
-  it("the two server actions take no session, so neither has a cell to deny", () => {
+  it("the two auth actions take no session; every other action is role-gated in its own code", () => {
     /*
      * Sign-in must run for someone who has no session by definition, and sign-out must keep
      * working for someone whose role was just removed — so neither is role-gated and there is no
      * refusal of theirs to assert a body for. The access table says so (access.test.ts writes
      * the rows out), and this is the line that would fail the day one of them became a session
      * surface without a guarded refusal to go with it.
+     *
+     * The phone panel's two controls are the other kind: a session action, which is a POST
+     * endpoint with no URL of its own, so the role check cannot live in a route guard and lives
+     * in the action instead. The assertion below is that it *is* there — a session row whose file
+     * never asks who is calling would be a button that guards itself by being hidden.
      */
     const actions = ENDPOINTS.filter((row) => row.kind === "action");
     expect(actions.map((a) => [a.path, a.auth.kind])).toEqual([
+      ["action:agent-turn", "session"],
+      ["action:agent-approval", "session"],
       ["action:sign-in", "auth-endpoint"],
       ["action:sign-out", "public"],
     ]);
+    for (const action of actions.filter((a) => a.auth.kind === "session")) {
+      const source = readFileSync(path.join(REPO, action.file), "utf8");
+      expect(source, action.file).toMatch(/canOpenPage\(await getCaller\(\)/);
+    }
   });
 });
 

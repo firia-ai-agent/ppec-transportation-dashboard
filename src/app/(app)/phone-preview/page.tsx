@@ -4,6 +4,7 @@ import { demoDay } from "@/domain/board/day";
 import { phonePanel } from "@/ui/copy";
 import { Placeholder } from "@/ui/Placeholder";
 import { nav } from "@/ui/copy";
+import { PhoneComposer } from "./PhoneComposer";
 import { PhonePanel } from "./PhonePanel";
 import { phonesForDay, threadFor } from "./thread";
 
@@ -60,6 +61,18 @@ export default async function PhonePreviewPage({
   });
 
   return (
-    <PhonePanel phones={phones} selected={selected} thread={thread} dayLabel={day.label} />
+    <PhonePanel
+      phones={phones}
+      selected={selected}
+      thread={thread}
+      dayLabel={day.label}
+      composer={
+        <PhoneComposer
+          childKey={selected.childKey}
+          childFirstName={selected.childFirstName}
+          guardianName={selected.guardianName}
+        />
+      }
+    />
   );
 }

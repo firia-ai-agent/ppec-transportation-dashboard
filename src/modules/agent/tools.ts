@@ -66,7 +66,7 @@ const staffProse = z.string().min(1).max(600);
  * a body or a var rule — the outbox stays the single source of both.
  */
 export const FOLLOWUP_TEMPLATE_FAMILIES: Readonly<Record<string, readonly string[]>> = {
-  confirmation: ["leg.canceled", "leg.changed"],
+  confirmation: ["leg.canceled", "leg.changed", "dropoff.changed"],
   eta_delay: ["pickup.eta", "dropoff.eta"],
   absence_to_therapist: ["therapist.absence_alert"],
   // No dedicated reminder body exists yet (B-05): the late alert and the fixed-copy notice carry

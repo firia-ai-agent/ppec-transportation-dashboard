@@ -656,6 +656,42 @@ export const phonePanel = {
   emptyDay: "The demo day sends no family texts.",
   /** The way back to the child this thread is about. */
   backToBoard: "Open the board",
+
+  /* ── the assistant half (PRD §18.2 steps 9–10): a parent's text, and what came back ── */
+
+  /**
+   * The composer. It is staff typing *as the family*, on a simulated phone, so the label says so
+   * — a coordinator must never be in doubt about which side of the thread they are writing on.
+   */
+  composerHeading: "Send a text as {adult}",
+  composerLabel: "Message",
+  composerHint: "This is the simulated family phone. Nothing is sent to anybody.",
+  composerExample: "Can {child} be dropped at grandma's at 5?",
+  composerSend: "Send as {adult}",
+  composerSending: "Sending…",
+
+  /** The card that appears under the thread: what the assistant did with the text. */
+  turnHeading: "What the assistant did",
+  /** Who answered. The model is named by its id, because that is the thing a reviewer checks. */
+  answeredByModel: "Answered by the model this deployment is set to use: {model}.",
+  answeredByKeyword:
+    "No model was reachable, so the keyword reader handled it and raised it for a person. Nothing was decided by a model.",
+  /** §11.2: a human-tier call is a proposal. It changed nothing and sent nothing. */
+  proposalLead: "The assistant proposes this. It has changed nothing and sent nothing.",
+  proposalChange: "Move {child}'s afternoon drop-off from {before} to around {after}, at the same stop.",
+  proposalNoChange: "The assistant has raised this for a person to read.",
+  approve: "Approve the new drop-off",
+  decline: "Decline",
+  declined: "Declined. Nothing changed, and the family was not texted.",
+  /** After approval: what changed, and why the reply needed no second decision. */
+  approvedLead: "Approved. {child}'s afternoon drop-off now reads {after}.",
+  approvedBoardLine: "{child} · afternoon · {van} · {after} at {place}",
+  approvedReplyNote:
+    "The confirmation below went out on the assistant's own authority: it is one of the messages we allow, filled in with a time and a place. Free text to a family still needs a person.",
+  /** A turn the gateway or the policy engine refused. */
+  blockedLead: "The assistant's answer was refused before anything happened.",
+  /** Said under a refusal and under the keyword card alike: the rule, in plain words. */
+  nothingHappened: "No ride changed and no message was sent.",
 } as const;
 
 export const rampPreview = {
@@ -1539,6 +1575,14 @@ export const outboundSms = {
       "PPEC: Got it. Your child's van on {legDate} is canceled. {reasonCode} {optOut} {demoTag}",
     "leg.changed":
       "PPEC: Your child's van on {legDate} changed. New pickup {eta} at {stopLabel}. {optOut} {demoTag}",
+    /**
+     * The afternoon's version of the line above. `leg.changed` says "New pickup", which is the
+     * morning: a family whose *drop-off* moved and is told about a pickup has been told about the
+     * wrong half of the day. Same vars, same rules, one word of difference — and the word is the
+     * whole point (COPY-GUIDE §1: say the thing that happened).
+     */
+    "dropoff.changed":
+      "PPEC: Your child's van on {legDate} changed. New drop-off {eta} at {stopLabel}. {optOut} {demoTag}",
     "therapist.absence_alert":
       "PPEC: A child is not coming in today. The {sessionStart} session is affected. {optOut} {demoTag}",
     "therapist.late_alert":
