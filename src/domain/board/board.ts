@@ -36,6 +36,7 @@ import { serviceDateIso } from "@/ui/service-date";
 import type { attendanceState, capabilityState, legState } from "@/db/schema";
 import {
   childByKey,
+  demoDayRecordFor,
   rideRecordFor,
   THERAPISTS,
   THERAPY_SESSIONS,
@@ -78,6 +79,7 @@ export {
   boardInstantMs,
   demoDay,
   demoDayAtTick,
+  requestedServiceDay,
   serviceDayFor,
 } from "./day";
 export type { DayPhase, ServiceDay } from "./day";
@@ -142,6 +144,14 @@ export const NEEDS_ACTION_REASONS = [
   "DOES_NOT_FIT",
   /** No adult on file is allowed to receive this child at the end of the ride (TRP-02, PRD §6.6). */
   "NO_RECEIVING_ADULT",
+  /**
+   * AT-10 at the end of a day: the van reached the drop-off, the day is over, and no custody
+   * event was ever recorded. The *state* is still the arrival and nothing more — that is the
+   * rule, and this reason does not touch it — but on a day whose vans are back in the yard the
+   * missing handoff is the last open thing about that ride, and a row that sat under "On the
+   * way" said the opposite: that it was still happening and would resolve itself.
+   */
+  "HANDOFF_UNRECORDED",
   /** The ride's own state is one of the §3 crit states. */
   "RIDE_STATE",
   /** LOC-03: nothing has been heard from the vehicle for ten minutes. */
@@ -441,11 +451,21 @@ function plannedEtaMs(run: DemoRun, stopId: string): number | null {
  * A day that has ended put every van through the ramp gate — a manifest cannot be locked and a
  * van cannot be released on an unchecked vehicle (PRD §6.3) — which is how the one run whose
  * riders do not fit got as far as being cancelled rather than quietly staying "pending".
+ *
+ * `recorded` is that same gate for a single ride: a ride the day has acts for was driven, and a
+ * van that was driven was checked first. It is what lets the demo day's one recorded ride (the
+ * AT-13 hold) walk past the capability edge while the afternoon rides around it, which nobody
+ * has reported on, stay honestly pending.
  */
-function solveRun(run: DemoRun, direction: Direction, day: ServiceDay): RunSolve {
+function solveRun(
+  run: DemoRun,
+  direction: Direction,
+  day: ServiceDay,
+  recorded: boolean,
+): RunSolve {
   const departed =
     day.phase === "LIVE" && direction === "AM" && frameFor(run, day.instantMs) !== null;
-  const checked = day.phase === "ENDED" || departed;
+  const checked = day.phase === "ENDED" || departed || recorded;
   const capability = capabilityFor(run, serviceDateIso(new Date(day.instantMs)), checked);
   const solve = feasible(solverVehicle(vehicleOf(run)), solverLeg(run, direction), capability);
   return { solve, capability: capability.state, departed };
@@ -511,17 +531,20 @@ function liveEtaView(run: DemoRun, frame: ReplayFrame): EtaView {
 /**
  * What the day recorded about this ride, in person acts.
  *
- * Only a day that has ended has any: the demo day is read twelve minutes into its morning runs,
- * when no child has been reported aboard yet, and a day that has not started has nothing to
- * record. So the live board stops at what the replay can see, which is the state it was already
- * in — and the finished day is the one with outcomes on it.
+ * A day that has ended recorded all of them, which is what makes it the day with outcomes on it.
+ * The demo day is read twelve minutes into its morning runs, so it records one — the AT-13 ride
+ * (`DEMO_DAY_RIDES`), on the board because a demo walk that cannot reach the hold and the
+ * no-auto-return rule does not show them at all (Vera, 2026-10-16). Every other ride on it stops
+ * at what the replay can see, which is the state it was already in; a day that has not started
+ * has nothing to record at all.
  */
 function dayRecordFor(
   child: DemoChild,
   direction: Direction,
   day: ServiceDay,
 ): RideRecord | undefined {
-  return day.phase === "ENDED" ? rideRecordFor(child.key, direction) : undefined;
+  if (day.phase === "ENDED") return rideRecordFor(child.key, direction);
+  return day.phase === "LIVE" ? demoDayRecordFor(child.key, direction) : undefined;
 }
 
 function reportedActs(child: DemoChild, record: RideRecord | undefined) {
@@ -590,17 +613,19 @@ function rideFor(child: DemoChild, direction: Direction, day: ServiceDay): RideV
 
   const vehicle = solverVehicle(vehicleOf(run));
   const dispatcher = dispatcherOf(vehicleOf(run));
-  const { solve, capability, departed } = solveRun(run, direction, day);
+  const record = dayRecordFor(child, direction, day);
+  const { solve, capability, departed } = solveRun(run, direction, day, record !== undefined);
   const frame = departed ? frameFor(run, day.instantMs) : null;
   const ownStop = stopLabel(child);
-  const record = dayRecordFor(child, direction, day);
   const acts = reportedActs(child, record);
   const { state, path } = rideStateFrom({
     assigned: true,
     capability,
     solver: solve.status,
     departed,
-    // The child's own stop, only when the committed geometry actually names it.
+    // The child's own stop — which the committed geometry now names, because the replayed track
+    // is this run's own morning (src/fixtures/routes.ts). It used to be another run's road, so
+    // this could only ever be false and a van's arrival at a kerb was unreadable here.
     pickupArrived:
       frame?.stops.some((s) => s.stopName === ownStop && s.status === "arrived") ?? false,
     dropoffArrived:
@@ -643,8 +668,16 @@ function attendanceFor(child: DemoChild): AttendanceS {
  * (TRP-02 / PRD §6.6: the scenario's F2 family holds every scope except RECEIVE_CHILD, and
  * staff have to know before the van is at the kerb) — but the step belongs to the ride that
  * ends away from the centre, because that is the ride it stops.
+ *
+ * The day's own phase is an argument too, for one reason only (`HANDOFF_UNRECORDED`): the same
+ * ride state is a handoff about to happen on a board read mid-morning and a handoff nobody
+ * recorded on a board read after the last van is in.
  */
-function needsActionFor(child: DemoChild, ride: RideView): NeedsActionReason[] {
+function needsActionFor(
+  child: DemoChild,
+  ride: RideView,
+  phase: DayPhase,
+): NeedsActionReason[] {
   /*
    * A ride that is over needs nothing. The seating question a cancelled ride would otherwise
    * raise was answered by cancelling it, and a handed-off child is not waiting on anybody — so
@@ -675,6 +708,19 @@ function needsActionFor(child: DemoChild, ride: RideView): NeedsActionReason[] {
   ) {
     reasons.push("NO_RECEIVING_ADULT");
   }
+  /*
+   * A van that arrived and a day that is over, with no custody event between them (AT-10).
+   *
+   * The ride's state stays what the machine made of it — ARRIVED_DROPOFF, "Arrived (vehicle)",
+   * which is the arrival and not a handoff — and the day is what makes it a thing to do: on the
+   * live board an arrival minutes old is a handoff about to be recorded at the kerb, so the row
+   * belongs under "On the way" and its step asks for it. Once the vans are in, nobody is going
+   * to record it unless this board says so, and a row left under "On the way" on a finished day
+   * both reads as still happening and is invisible to "Only needs action" — which is where a
+   * coordinator closing out a day looks. The phase is why this is a reason here and not an edge
+   * in the machine: nothing about the ride changed, only what is still open about it.
+   */
+  if (phase === "ENDED" && ride.state === "ARRIVED_DROPOFF") reasons.push("HANDOFF_UNRECORDED");
   if (!held && groupForState(ride.state) === "NEEDS_ACTION") reasons.push("RIDE_STATE");
   if (ride.gpsFreshness === "LOST") reasons.push("LOCATION_LOST");
   return reasons;
@@ -685,6 +731,8 @@ const STEP_FOR_REASON: Readonly<Record<NeedsActionReason, NextStep>> = {
   CHILD_HELD: "CALL_CONTACTS",
   DOES_NOT_FIT: "MOVE_TO_FITTING_VAN",
   NO_RECEIVING_ADULT: "RECORD_RECEIVER",
+  /** The same step the arrival asks for mid-morning: a person records who received the child. */
+  HANDOFF_UNRECORDED: "CONFIRM_HANDOFF",
   RIDE_STATE: "DECIDE_RIDE",
   LOCATION_LOST: "FIND_VAN",
 };
@@ -736,7 +784,7 @@ function rowFor(child: DemoChild, day: ServiceDay, therapy: BoardRow["therapy"])
 
 /** One row of the board: this child, this ride, and what it is waiting for. */
 function legFor(child: DemoChild, row: BoardRow, ride: RideView, phase: DayPhase): LegRow {
-  const needsActionReasons = needsActionFor(child, ride);
+  const needsActionReasons = needsActionFor(child, ride, phase);
   return {
     key: `${row.childKey}/${ride.direction}`,
     child: row,

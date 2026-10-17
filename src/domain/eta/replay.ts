@@ -231,9 +231,13 @@ export function runReplay(spec: ReplaySpec): ReplayResult {
       const stored = step.outcome.point;
       accepted.push(stored);
       latestAccepted = stored;
-      // The ETA engine sees the *projected* position, so ±40 m of jitter becomes a few
-      // metres of chainage and never a different road (DESIGN-DIRECTION §5.1).
-      latestAlongM = projectToPath(run.measured.path, [stored.lon, stored.lat]).alongM;
+      // The ETA engine sees the *projected* position, so ±40 m of jitter becomes a few metres
+      // of chainage and never a different road (DESIGN-DIRECTION §5.1) — and never a second
+      // pass of the same road, which is what `nearM` is for: a run that leaves a stop the way
+      // it came drives one stretch twice, and "how far along" has to be the pass the van is on.
+      latestAlongM = projectToPath(run.measured.path, [stored.lon, stored.lat], {
+        nearM: latestAlongM,
+      }).alongM;
 
       const geo = geofenceStep(geofence, spec.route.stops, stored);
       geofence = geo.state;

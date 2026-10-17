@@ -443,6 +443,38 @@ export const rideRecordFor = (
 ): RideRecord | undefined =>
   FINISHED_DAY_RIDES.find((r) => r.childKey === childKey && r.direction === direction);
 
+/**
+ * The one ride the **demo day** has an outcome for: C2's afternoon, AT-13.
+ *
+ * Vera's call, 2026-10-16. The hold and the rule that goes with it — a child waits with the van
+ * and nothing brings them back on its own (PRD §6.6 CA-04) — are the hardest thing on this board
+ * to infer and the worst thing to find out late, and until now they existed only on the day
+ * *before* the demo day, which the console offers no way to reach (slice 2 took the date switcher
+ * out). A story the demo walk cannot reach is a story the demo does not tell, so this ride is on
+ * the day the walk opens.
+ *
+ * Acts, never a state, exactly like the finished day's records: the leg machine in
+ * src/domain/board/board.ts makes HELD_NO_RECEIVER out of them one legal edge at a time, so this
+ * fixture cannot claim an outcome the domain would refuse. F2 holds every scope except
+ * RECEIVE_CHILD (`NO_RECEIVER_SCOPES`), so the afternoon van reached Noah O.'s stop with nobody
+ * on file to receive him and no custody event to record.
+ *
+ * What it *is* ahead of is the board's own clock: the demo day is read twelve minutes into its
+ * morning runs (`BOARD_SCENARIO_SECONDS`) and this ride's window is 4:20 PM, so the hold is on
+ * screen before the ride it belongs to would have run, and Noah's morning row is still on the
+ * road beside it. That is the price of showing an ended ride on a board read mid-morning, and it
+ * is paid here, in one ride, rather than by faking a whole finished day. The honest version is
+ * the scenario clock walking the day and the board reading whatever it has reached
+ * (docs/ui/B12-SLICE2-DEFERRED.md §5).
+ */
+export const DEMO_DAY_RIDES: RideRecord[] = [{ ...ranAsPlanned("C2", "PM"), receivedBy: null }];
+
+export const demoDayRecordFor = (
+  childKey: string,
+  direction: "AM" | "PM",
+): RideRecord | undefined =>
+  DEMO_DAY_RIDES.find((r) => r.childKey === childKey && r.direction === direction);
+
 /* ───────────────────────── schedules (PRD l.1329: Mon–Fri + one date exception) ───────────────────────── */
 
 export const WEEKDAY_RRULE = "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR";

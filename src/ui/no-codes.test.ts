@@ -174,9 +174,9 @@ describe("the fixture words that are rendered as words", () => {
     // What the fault list prints. The ids are still ids — they just stay in the fixture file.
     const named = FIXTURE_ROUTES.map((r) => copy.fill(copy.mapPreview.routeName, { stop: r.stops[0].name }));
     expect(named).toEqual([
+      "Greenacres Branch Library run",
+      "Palm Beach State College, Lake Worth run",
       "Okeeheelee Park run",
-      "John Prince Park run",
-      "Greenacres City Hall run",
     ]);
     for (const label of named) expect(codesIn(label)).toEqual([]);
   });

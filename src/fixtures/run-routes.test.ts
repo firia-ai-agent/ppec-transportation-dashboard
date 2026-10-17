@@ -7,7 +7,7 @@ import { manifestFor, plannedStops, plannedWindow } from "@/domain/board/scenari
 import { demoDay, localTimeOn } from "@/domain/board/day";
 import { CHILDREN, RUNS, STOPS, childByKey } from "@/modules/demo/fixtures/standard";
 import { places } from "@/ui/copy";
-import { PROBE_SPEED_MPS, WHEELCHAIR_SERVICE_SECONDS } from "./routes";
+import { PROBE_SPEED_MPS, WHEELCHAIR_SERVICE_SECONDS } from "./survey";
 import { CENTER_STOP_ID, RUN_ROUTES, runRoute } from "./run-routes";
 
 /**

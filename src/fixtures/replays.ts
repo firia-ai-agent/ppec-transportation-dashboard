@@ -24,15 +24,21 @@ import { ROUTE_1, ROUTE_2, ROUTE_3 } from "./routes";
 export const SCENARIO_START_MS = Date.UTC(2026, 9, 14, 11, 30, 0);
 
 /**
- * V4's device, on route1's geometry but with no active binding. Its points are stored
- * `bound=false` and displayed nowhere (LOC-01, ADR-013) — the preview proves that by
- * counting them in words instead of drawing a truck.
+ * The reserve van's road: route2's geometry — R1's morning — under V3's own device.
+ *
+ * V3 is on no run in the scenario (`RUNS` in src/modules/demo/fixtures/standard.ts): it is the
+ * substitute the day holds back, and R1 is the run it is held back *for* — the §7 step 6 ramp
+ * report of {1WC, 1AMB} is V3's own layout, and ARCHITECTURE §'s substitution writes V3's
+ * capability for the date. So the one road a V3 replay can drive without contradicting a run is
+ * the run it would take over, and the jitter fault rides on it.
+ *
+ * A fourth *route* rather than a fourth run: the geometry is route2's, so the two cannot drift.
  */
-export const ROUTE_1_UNBOUND: Route = {
-  ...ROUTE_1,
-  id: "route1-unbound",
-  vehicleId: "V4",
-  deviceId: "DEV-V4",
+export const SUBSTITUTE_ROUTE: Route = {
+  ...ROUTE_2,
+  id: "route2-substitute",
+  vehicleId: "V3",
+  deviceId: "DEV-V3",
 };
 
 /** PRD §18.2 step 7: the replayed stall on route2 (`--track=route2`). */
@@ -41,7 +47,8 @@ export const RUN_STALL: ReplaySpec = {
   startAtMs: SCENARIO_START_MS,
   seed: 7,
   // PRD's own demo invocation is `delay:720s@00:09`; the stall lands at 00:02 here so
-  // the shift matures while S1 is still more than 10 minutes away (ASM-14).
+  // the shift matures while a family stop ahead — Boynton Beach Mall, R1's third pickup — is
+  // still more than ten minutes away (ASM-14), and the one already served is not touched.
   faults: [{ kind: "stall", atSimSeconds: 120, durationSec: 720 }],
 };
 
@@ -62,15 +69,22 @@ export const RUN_GPS_GAP: ReplaySpec = {
 
 /** AT-03's other half: ±40 m of jitter must move the marker and not the ETA text. */
 export const RUN_JITTER: ReplaySpec = {
-  route: ROUTE_1,
+  route: SUBSTITUTE_ROUTE,
   startAtMs: SCENARIO_START_MS,
   seed: 42,
   faults: [{ kind: "jitter", atSimSeconds: 0, meters: 40 }],
 };
 
-/** LOC-01: an unbound device. Ingested, stored `bound=false`, displayed nowhere. */
+/**
+ * LOC-01: an unbound device. Ingested, stored `bound=false`, displayed nowhere.
+ *
+ * V4's own device on V4's own run (route1 is R3's morning), because that is what the board is
+ * reading when it says this van has no position: not a van that is somewhere else, a van whose
+ * device is not linked to it (ADR-013). The preview proves it by counting the points in words
+ * instead of drawing a truck.
+ */
 export const RUN_UNBOUND: ReplaySpec = {
-  route: ROUTE_1_UNBOUND,
+  route: ROUTE_1,
   startAtMs: SCENARIO_START_MS,
   seed: 99,
   faults: [{ kind: "unboundDevice" }],
@@ -96,5 +110,12 @@ export const DEMO_RUNS: DemoRun[] = [
   { spec: RUN_UNBOUND, faultLabel: "Device not linked to a van" },
 ];
 
-/** Longest run in the set, in simulated seconds — the preview clock's loop length. */
-export const DEMO_RUN_SECONDS = 2700;
+/**
+ * Longest run in the set, in simulated seconds — the preview clock's loop length.
+ *
+ * It grew with the geometry: the tracks are the scenario's own runs now, and R1's morning
+ * (route2, the stall) is a ≈32 km run across half the county rather than the 10 km the older
+ * fixture drove. replays.test.ts holds the loop from both sides — long enough that every run
+ * reaches its last stop on screen, and not so long that the preview sits on parked trucks.
+ */
+export const DEMO_RUN_SECONDS = 4620;

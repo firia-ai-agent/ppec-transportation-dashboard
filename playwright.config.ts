@@ -2,8 +2,10 @@ import { randomBytes } from "node:crypto";
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Browser checks (`pnpm e2e`). One spec today: /map-preview loads, draws the map, and a
- * screenshot of it lands in artifacts/ for a design review.
+ * Browser checks (`pnpm e2e`). Three specs: the Today board and its drawer, the map preview,
+ * and the screen set a design review reads at both review widths. Every screenshot they take
+ * lands in artifacts/ (gitignored) — `pnpm e2e` is the command that regenerates the whole set,
+ * and README "Browser check" lists what it writes.
  *
  * It starts the app itself, so there is nothing to remember before running it, and it builds
  * first rather than using `next dev`. That is not fussiness: under the dev server MapLibre's
@@ -51,6 +53,13 @@ export default defineConfig({
       DEMO_MODE: "1",
       // The role the browser check signs in as.
       E2E_DEMO_ROLE: process.env.E2E_DEMO_ROLE ?? "DIRECTOR",
+      /*
+       * Opens the board's date override (`dateOverrideAllowed` in src/domain/board/day.ts), so
+       * the AT-10 and AT-13 checks can read the finished day. Gated the same way as the session
+       * above and refused outright whenever `VERCEL_ENV` is set, so no deployment has it: the
+       * console has no date switcher, and `?date=` is read here and nowhere else.
+       */
+      E2E_DATE_OVERRIDE: "1",
       /*
        * Auth.js wants a secret in its module scope even on a route that never reads a
        * session. Generated per run and thrown away: there is no account to sign into here,
