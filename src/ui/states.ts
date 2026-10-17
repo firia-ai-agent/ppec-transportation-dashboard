@@ -97,7 +97,8 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { freshnessConfig } from "@/config/live";
-import { fill } from "./copy";
+import { fill, vanMarker } from "./copy";
+import type { VanMarkerState } from "./van-state";
 import { humanizeAge } from "./age";
 import type { LucideIcon } from "lucide-react";
 import type { ColorToken, Tone } from "./tokens";
@@ -323,6 +324,30 @@ export function gpsFreshnessLabel(ageSeconds: number): string {
     age: humanizeAge(ageSeconds),
   });
 }
+
+/* ─────────── what a van's marker says about the van (Vera's bar) ─────────── */
+
+/**
+ * The four states a marker can be in, as an icon and a label (§3's own rule, applied to the map
+ * pane): on the way, late by so many minutes, stopped, or last seen at a time.
+ *
+ * Not one of the §3 vocabularies above and deliberately not in `vocabularies` below: those are
+ * database enums and this is not one — it is read at a tick from a freshness band, a stall and
+ * the board's own lateness (src/ui/van-state.ts, which decides *which* of the four a van is in
+ * and holds the same copy templates these labels are).
+ *
+ * The tones are the third cue and nothing more. `LATE` is amber *and says "Late 8 min"*, which
+ * is the whole of Vera's "lateness never by colour alone"; `STOPPED` stays neutral because §5.1
+ * asks for a stall to be words and a clock rather than a colour; `NO_FIX` is neutral too,
+ * because the alarm about a van nobody has heard from belongs to the row that says so in a
+ * sentence, and the marker's job is to say where it was last seen.
+ */
+export const vanMarkerStates: Vocabulary<VanMarkerState> = {
+  ON_THE_WAY: { icon: Navigation, label: vanMarker.onTheWay, tone: "info" },
+  LATE: { icon: ClockAlert, label: vanMarker.late, tone: "warn" },
+  STOPPED: { icon: CirclePause, label: vanMarker.stopped, tone: "neutral" },
+  NO_FIX: { icon: LocateOff, label: vanMarker.lastSeen, tone: "neutral" },
+};
 
 /* ───────────────────── source-mode badge (§7.1, D-10) ───────────────────── */
 

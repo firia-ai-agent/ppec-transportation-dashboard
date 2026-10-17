@@ -34,6 +34,25 @@ describe("§9: the zoom buttons are a real target", () => {
   });
 });
 
+/**
+ * The blank-map failure mode, as a rule rather than as a browser check that notices it later.
+ *
+ * MapLibre puts `.maplibregl-map` on the same div our own class is on, and its stylesheet sets
+ * `position: relative` there. Two single-class selectors are equal specificity, so a bare
+ * `.canvas { position: absolute }` wins or loses on the order the bundler happens to emit the
+ * two stylesheets in — and when it loses, the div is a static block with absolutely positioned
+ * children, collapses to zero height, and the pane shows a map nobody can see.
+ */
+describe("the map fills the pane whatever order the stylesheets land in", () => {
+  const css = read(HERE, "fleet-map.module.css");
+
+  it("positions the canvas with a rule a vendor class cannot outrank", () => {
+    expect(css).toMatch(/\.canvasWrap > \.canvas \{[^}]*position: absolute;[^}]*inset: 0;/s);
+    // Not the bare one-class form, which `.maplibregl-map` ties with.
+    expect(css).not.toMatch(/^\.canvas \{/m);
+  });
+});
+
 describe("ADR-008 / §5.1: the attribution is never clipped and never covered", () => {
   const css = read(HERE, "fleet-map.module.css");
 

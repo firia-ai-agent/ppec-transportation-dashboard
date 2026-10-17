@@ -93,6 +93,36 @@ read from.
 | **The three other adapter pills still say "Simulated"** | There is no SMS, Teams or agent age to print yet. §10's switch is for the adapter that has one |
 | **The payload is filtered by role before it is written**, using the map preview's own matrix (`src/domain/access/map-view.ts`) | That matrix already answers "which of this data may this role hold" — the family labels, the stop windows, the notification decisions and the demo internals. `/today` is open to both console roles, so in practice a coordinator is not sent the dropped-point counts or the unlinked van. Filtering in the payload rather than in the component is the rule the preview already states: a role that may not see something never receives it, which is the only version a browser cannot undo |
 
+## 4.1 Vera's bar for this screen, and Veri's two gates (2026-10-17)
+
+Five things asked for on the live map screen, and two gate requirements asked for before it.
+Each row says what landed and where it is held.
+
+| Asked for | What is on the screen now | Held by |
+|---|---|---|
+| **The marker says the van's name plus its state, as an icon and a word** — "On the way", "Late 8 min", "Stopped"; lateness never by colour alone | Four marker states in one place (`src/ui/van-state.ts`): on the way, late by so many minutes, stopped for so many, or last seen at a time. The canvas label is "V1 · On the way · Live 12 s" — name, state, and the freshness of the point it is drawn at; the glyph on the disc is that state's own picture (a chevron, a clock, a pause, an empty ring), built as raw RGBA from the §8 tokens because a WebGL marker cannot render a lucide component. The van list beside the canvas carries the same state as a `StateChip`, filled from the *same string*, so a screen reader and a greyscale print get the icon-and-word form | `src/ui/van-state.test.ts`, `src/components/map/style.test.ts`, `live-fixture.test.ts`, `e2e/live-map.spec.ts` ("names the van and says its state", "says lateness in words") |
+| **Clicking a van opens the existing drawer** (`LegDrawer`) with stops in pickup order, no separate popup | A marker click opens the first ride on that van in the board's own drawer, which now has a second section: the van's stops, numbered, in the order the committed run calls at them, each with the window the family holds or the arrival instead. There is no `Popup` anywhere in the map pane, and a test fails if one appears | `today-board.test.ts` ("the van's run, in the drawer"), the e2e above ("opens the board's own drawer") |
+| **A van with no GPS fix shows "Last seen 7:31 AM" faded at its last known position, never an invented one** | Past the 600 s band the marker stays at the last position anybody reported — the snapshot reads frames untweened, so the coordinate *is* that point — drawn at 45% with an empty-ring glyph, labelled with the clock time of that point. A van that has never had a displayable position is a different case and stays off the map entirely (LOC-01) | `live.test.ts` ("leaves a van with no fix where it was seen"), `live-fixture.test.ts`, the e2e above ("leaves a van with no fix faded where it was last seen") |
+| **Only the demo day's clock, the DEMO bar and the Simulated chip on top, no date control** | Unchanged where it was already true (one `<time>`, "Demo day", no switcher) and now asserted as an absence on the whole rendered surface — no field, no picker, no option list, no link to another day, no arrows — with the violet measured on the real screen as painting the bar and the chip and nothing else | `today-board.test.ts` ("carries the demo day and offers no control"), the e2e above ("shows one day — the demo day") |
+| **Faith palette tokens only; violet only on the DEMO bar and the Simulated chip; quiet base map; no default blue pins or stock Leaflet** | Every colour added here is a §8 token read through `MAP_TOKENS` or a CSS custom property, including the glyphs' ink and white, which are parsed from the tokens rather than written as bytes. **The named Faith palette still does not exist in this repo** — `src/ui/tokens.ts` has carried that open question for the founder since §8 was written, and this change did not invent hexes to answer it. Nothing Leaflet is in the build at all | `src/ui/no-hex.test.ts`, `style.test.ts` ("never uses the demo violet"), `e2e/helpers.ts` `expectVioletOnlyOnDemoChrome`, the e2e above |
+| **Veri: `GET /api/stream` checks the session before streaming anything** — 401 and zero events | The guard was already first; what was missing was the proof. Each refusal is now asserted three ways: the status, a body with no SSE framing in it, and the board walker left uncalled — plus no timer left running. And over real HTTP against a second server started without the synthetic session, because the configured browser server cannot be anonymous | `src/app/api/stream/route.test.ts`, `e2e/stream-guard.spec.ts` |
+| **Veri: the scenario clock moves only under the same gates as `dateOverrideAllowed`; no clock control on any deployment** | `requestedClockSpeed` calls that helper — one list of gates, not two — and /today and the stream read `?speed=` through it. The header's Start and the preview's play/pause/speed/restart render only where the gate is open, and `VERCEL_ENV` is set on every deployment, so production and preview have the readout and no control | `day.test.ts`, `shell.test.ts`, `route.test.ts` — one test per gate at each level |
+
+Three judgement calls inside that work, named rather than left to be found:
+
+- **A faded marker, but not faded words.** "Faded at its last known position" is the disc and the
+  glyph at 45%; the label drops to `ink-muted` (7.58:1 on white) instead. A 45% label is a fact we
+  would have decided to hide, which §4.1 forbids and §8's contrast floor would fail — and "Last
+  seen 7:31 AM" is the whole of what that marker has to say.
+- **Stopped beats late.** A van can be both, and the §18.2 step 7 stall is the *cause* of the
+  lateness beside it. "Stopped 3 min" is the more specific and the more actionable, and it is what
+  §5.1 asks a stall to be: words and a clock.
+- **Lateness comes from the board's rows, so /map-preview has none.** The marker's minutes are the
+  worst shift on the rides that van is carrying, read off the rows so the map and the "Arriving"
+  cells cannot disagree. The preview has no rows — it is the §5.1 motion preview — so a van there
+  is on its way, stopped, or last seen at a time, and its lateness evidence stays the gate's own
+  decision list under the map.
+
 ## 5. What this slice did **not** land
 
 - **A named approver and a named verifier in the seed** (slice 1 §6, moved here from slice 2).
@@ -104,8 +134,9 @@ read from.
 - **The U3 commit→screen measurement** (RISKS-AND-QUESTIONS). The stream exists now, so the
   measurement is possible; nothing in this slice measured it. NFR-01's p95 <3 s is therefore
   still unverified, and the §6.2 "<2 s with a 1 s row highlight" row-flash polish is not built.
-- **The demo dock's clock controls** (§6.1): Start is still inert and still says so. Play, pause,
-  speed and jump-to belong to the demo panel, which is B-15's.
+- **The demo dock's clock controls** (§6.1): Start is still inert and still says so — and now
+  only renders at all on a local test shell (Veri's gate above), so no deployment carries one.
+  Play, pause, speed and jump-to belong to the demo panel, which is B-15's.
 - **Any write.** Confirm handoff, Override, snooze and approve are slice 4's, and the drawer still
   says so.
 

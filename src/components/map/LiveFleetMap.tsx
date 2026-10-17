@@ -35,6 +35,7 @@ import { measurePath, pathUpTo } from "@/domain/location/geo";
 import { fill, mapPreview, sourceMode } from "@/ui/copy";
 import { routeGeometry, type Route } from "@/domain/location/route";
 import { icon } from "@/ui/tokens";
+import { vanMarkerStateOf, vanMarkerWords } from "@/ui/van-state";
 import { DEMO_RUNS, DEMO_RUN_SECONDS, SCENARIO_START_MS } from "@/fixtures/replays";
 import {
   DEMO_CENTER,
@@ -158,8 +159,26 @@ function vehiclesOf(
   return runs.map((run) => {
     const route = run.result.spec.route;
     const meta = VEHICLE_META.get(route.vehicleId);
+    const age = run.frame.gpsAgeSeconds ?? 0;
+    /*
+     * The marker's state, from this frame (Vera's bar; src/ui/van-state.ts).
+     *
+     * `lateSeconds: null` here and nowhere else: lateness is read off the **board's rows**, so
+     * that a marker and the "Arriving" cell of a ride on that van cannot disagree — and this
+     * surface has no rows. It is the §5.1 motion preview, and the lateness evidence it does
+     * carry is the gate's own decision list under the map. So a van here is on its way, stopped,
+     * or last seen at a time, and "Late 8 min" belongs to the board.
+     */
+    const motion = {
+      band: run.frame.band,
+      gpsAgeSeconds: age,
+      stoppedSeconds: run.frame.stoppedSeconds,
+      lateSeconds: null,
+      lastFixMs: run.frame.nowMs - age * 1000,
+    };
     return {
       id: route.vehicleId,
+      marker: { state: vanMarkerStateOf(motion), label: vanMarkerWords(motion) },
       description: meta?.description ?? "Vehicle",
       owner: meta?.owner ?? "Provider",
       stateLabel: legStateLabel(run.frame),

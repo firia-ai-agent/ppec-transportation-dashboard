@@ -27,9 +27,16 @@ import {
   truckTone,
   type Coord,
   type StyleLike,
-  vehicleMapLabel,
+  gpsShortLabel,
+  lateClockImage,
+  markerGlyphImages,
+  rgbOf,
+  FADED_OPACITY,
+  MARKER_GLYPH_IDS,
+  ROTATING_MARKER_STATES,
   vehiclesGeoJson,
 } from "./style";
+import { vanMarkerMapLabel } from "@/ui/van-state";
 
 /**
  * A trimmed stand-in for the real OpenFreeMap positron style: one layer per override
@@ -236,7 +243,7 @@ describe("our layers (DESIGN-DIRECTION §5.1, §8)", () => {
       MAP_LAYER_IDS.centerPin,
       MAP_LAYER_IDS.centerLabel,
       MAP_LAYER_IDS.vehicleCircle,
-      MAP_LAYER_IDS.vehicleHeading,
+      MAP_LAYER_IDS.vehicleState,
       MAP_LAYER_IDS.vehicleLabel,
     ]);
   });
@@ -257,14 +264,74 @@ describe("our layers (DESIGN-DIRECTION §5.1, §8)", () => {
   });
 });
 
-describe("heading marker (DESIGN-DIRECTION §5.1 'Markers')", () => {
-  it("rotates to the vehicle's heading, aligned to the map", () => {
-    const layer = fleetMapLayers().find((l) => l.id === MAP_LAYER_IDS.vehicleHeading);
+describe("the marker's state glyph (DESIGN-DIRECTION §5.1 'Markers'; Vera's bar)", () => {
+  it("draws the glyph of the state the van is in, aligned to the map", () => {
+    const layer = fleetMapLayers().find((l) => l.id === MAP_LAYER_IDS.vehicleState);
     expect(layer?.layout).toMatchObject({
-      "icon-image": HEADING_ICON_ID,
-      "icon-rotate": ["get", "headingDeg"],
+      "icon-image": ["get", "glyph"],
       "icon-rotation-alignment": "map",
     });
+  });
+
+  it("turns it to the heading only for the state that has a direction to show", () => {
+    const layer = fleetMapLayers().find((l) => l.id === MAP_LAYER_IDS.vehicleState);
+    // A van on its way points down the road; a clock, a pause and an empty ring do not rotate.
+    expect(layer?.layout?.["icon-rotate"]).toEqual([
+      "case",
+      ["boolean", ["get", "rotates"], false],
+      ["get", "headingDeg"],
+      0,
+    ]);
+    expect(ROTATING_MARKER_STATES).toEqual(["ON_THE_WAY"]);
+    expect(MARKER_GLYPH_IDS.ON_THE_WAY).toBe(HEADING_ICON_ID);
+  });
+
+  it("has one glyph per state, and no two of them are the same picture", () => {
+    const images = markerGlyphImages(18);
+    expect(images.map((i) => i.id)).toEqual(Object.values(MARKER_GLYPH_IDS));
+    const seen = images.map((i) => i.image.data.join(","));
+    expect(new Set(seen).size).toBe(images.length);
+    for (const { image } of images) {
+      expect(image.width).toBe(18);
+      expect(image.data).toHaveLength(18 * 18 * 4);
+      // Something is actually drawn: a glyph of all-transparent pixels is an invisible state.
+      expect([...image.data].some((byte, i) => i % 4 === 3 && byte > 0)).toBe(true);
+    }
+  });
+
+  it("builds its colours from the §8 tokens rather than from literals of its own", () => {
+    expect(rgbOf(MAP_TOKENS.ink)).toEqual([15, 23, 42]);
+    expect(rgbOf(MAP_TOKENS.surface)).toEqual([255, 255, 255]);
+    // The clock's face is the surface token and its ring is ink: tokens, not hexes (no-hex).
+    const clock = lateClockImage(18);
+    const pixel = (x: number, y: number) => {
+      const i = (y * 18 + x) * 4;
+      return [clock.data[i], clock.data[i + 1], clock.data[i + 2], clock.data[i + 3]];
+    };
+    expect(pixel(0, 0)[3]).toBe(0);
+    // The hands meet at the middle of an 18 px face, which is the pixel either side of 8.5.
+    expect(pixel(9, 9).slice(0, 3)).toEqual(rgbOf(MAP_TOKENS.ink));
+    // …and the face itself is the surface token, a few pixels off the hands and inside the ring.
+    expect(pixel(5, 11).slice(0, 3)).toEqual(rgbOf(MAP_TOKENS.surface));
+  });
+
+  it("fades a van with no fix, and never its words (§4.1, §8)", () => {
+    const circle = fleetMapLayers().find((l) => l.id === MAP_LAYER_IDS.vehicleCircle)?.paint ?? {};
+    const glyph = fleetMapLayers().find((l) => l.id === MAP_LAYER_IDS.vehicleState)?.paint ?? {};
+    const label = fleetMapLayers().find((l) => l.id === MAP_LAYER_IDS.vehicleLabel)?.paint ?? {};
+    const faded = ["case", ["boolean", ["get", "faded"], false], FADED_OPACITY, 1];
+    expect(circle["circle-opacity"]).toEqual(faded);
+    expect(circle["circle-stroke-opacity"]).toEqual(faded);
+    expect(glyph["icon-opacity"]).toEqual(faded);
+    // The label is not faded out: it drops to the AA-passing muted ink and keeps its halo.
+    expect(JSON.stringify(label["text-color"])).not.toContain(String(FADED_OPACITY));
+    expect(label["text-color"]).toEqual([
+      "case",
+      ["boolean", ["get", "faded"], false],
+      MAP_TOKENS.inkMuted,
+      MAP_TOKENS.ink,
+    ]);
+    expect(label).not.toHaveProperty("text-opacity");
   });
 
   it("builds a square RGBA chevron with a white body and an ink edge", () => {
@@ -331,8 +398,11 @@ describe("GPS freshness (DESIGN-DIRECTION §3, MOCKS §5)", () => {
     expect(gpsFreshnessLabel(95)).toBe("Last seen 1 min");
     expect(gpsFreshnessLabel(245)).toBe("Stale · 4 min · ETA texts paused");
     expect(gpsFreshnessLabel(720)).toBe("No signal · 12 min");
-    expect(vehicleMapLabel("V1", 12)).toBe("V1 · Live 12 s");
-    expect(vehicleMapLabel("V4", 720)).toBe("V4 · No signal 12 min");
+    // And the marker's own label carries the band beside the van's state, so the disc's colour
+    // is never the only thing saying how old the position is (Vera's bar kept §5.1's rule).
+    expect(
+      vanMarkerMapLabel("V1", { state: "ON_THE_WAY", label: "On the way" }, gpsShortLabel(12)),
+    ).toBe("V1 · On the way · Live 12 s");
   });
 });
 
@@ -378,18 +448,39 @@ describe("GeoJSON builders", () => {
   it("tags each vehicle with its tone, label and selection", () => {
     const fc = vehiclesGeoJson(
       [
-        { id: "V1", coord: [-80.1, 26.6], gpsAgeSeconds: 12, headingDeg: 2 },
-        { id: "V4", coord: [-80.2, 26.7], gpsAgeSeconds: 720 },
+        {
+          id: "V1",
+          coord: [-80.1, 26.6],
+          gpsAgeSeconds: 12,
+          headingDeg: 2,
+          marker: { state: "ON_THE_WAY" as const, label: "On the way" },
+        },
+        {
+          id: "V4",
+          coord: [-80.2, 26.7],
+          gpsAgeSeconds: 720,
+          marker: { state: "NO_FIX" as const, label: "Last seen 7:31 AM" },
+        },
       ],
       "V4",
     );
     expect(fc.features[0].properties).toEqual({
       id: "V1",
       tone: "ok",
-      label: "V1 · Live 12 s",
+      label: "V1 · On the way · Live 12 s",
       selected: false,
       headingDeg: 2,
+      state: "ON_THE_WAY",
+      glyph: MARKER_GLYPH_IDS.ON_THE_WAY,
+      rotates: true,
+      faded: false,
     });
+    // A van with no fix: its own words are a time, so the freshness is not said twice — and it
+    // is the one that is drawn faded, at the last place it was seen.
+    expect(fc.features[1].properties.label).toBe("V4 · Last seen 7:31 AM");
+    expect(fc.features[1].properties.faded).toBe(true);
+    expect(fc.features[1].properties.rotates).toBe(false);
+    expect(fc.features[1].properties.glyph).toBe(MARKER_GLYPH_IDS.NO_FIX);
     // A vehicle with no heading yet points north rather than breaking the layer.
     expect(fc.features[1].properties.headingDeg).toBe(0);
     expect(fc.features[1].properties.tone).toBe("crit");

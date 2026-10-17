@@ -16,6 +16,8 @@
  */
 
 import type { Coord } from "@/components/map/style";
+import { gpsBand } from "@/domain/location/freshness";
+import { vanMarkerStateOf, vanMarkerWords, type VanMarkerState } from "@/ui/van-state";
 
 /** Only `SIMULATED` exists in P1 (MOCKS-AND-DEMO summary; ADR-015 synthetic-only). */
 export type MapSourceMode = "SIMULATED";
@@ -41,9 +43,26 @@ export interface MapVehicleStop {
   windowText?: string;
 }
 
+/**
+ * What the marker says about the van (Vera's bar): the state as one word-or-phrase, and the key
+ * the pane draws its icon and its tone from.
+ *
+ * Decided by the caller, not by the pane, because the facts it is read from are the caller's:
+ * the freshness band, the stall and — on the board — how late the rides on this van are
+ * (src/ui/van-state.ts `vanMarkerStateOf`). The pane is handed the answer so that the label on
+ * the canvas and the chip in the list beside it are the same string.
+ */
+export interface MapVehicleMarker {
+  state: VanMarkerState;
+  /** "On the way", "Late 8 min", "Stopped 3 min", "Last seen 7:31 AM". */
+  label: string;
+}
+
 export interface MapVehicleFixture {
   /** Vehicle label used everywhere in the UI: "V1" … "V4" (MOCKS §2). */
   id: string;
+  /** Vera's bar: the van's state, as an icon key and a word. */
+  marker: MapVehicleMarker;
   /** Plain-words description for the accessible vehicle list. */
   description: string;
   /** Owner: a provider or the center. */
@@ -165,12 +184,44 @@ export const DEMO_ROUTES: MapRouteFixture[] = [
 ];
 
 /**
+ * The instant this still life is read at: 7:42 ET on the seeded day, the same minute the board
+ * reads the demo day at.
+ *
+ * A still life has no clock, and the marker's words for a van with no fix are a *time* ("Last
+ * seen 7:31 AM"), so the one it is read at is written down. It makes the four markers below as
+ * deterministic as their coordinates: V4's age of 720 s is past the 600 s band, so its label is
+ * 7:30 — the minute its last point was reported — on every run of every test.
+ */
+export const MAP_FIXTURE_NOW_MS = Date.UTC(2026, 9, 14, 11, 42, 0);
+
+/**
+ * The marker for a still-life van: its state and that state's words, from the one fact this
+ * fixture has about it — how old its position is.
+ *
+ * The same pure helper both live surfaces use (src/ui/van-state.ts), so a reviewer walking the
+ * still life is reading the labels the board and the preview would produce. A parked fixture has
+ * no stall and no rides, so it has no stall seconds and no lateness to give it: V4 is the van
+ * whose position has aged out, and it is the only one of the four that is not "On the way".
+ */
+function markerOf(gpsAgeSeconds: number): MapVehicleMarker {
+  const motion = {
+    band: gpsBand(gpsAgeSeconds),
+    gpsAgeSeconds,
+    stoppedSeconds: 0,
+    lateSeconds: null,
+    lastFixMs: MAP_FIXTURE_NOW_MS - gpsAgeSeconds * 1000,
+  };
+  return { state: vanMarkerStateOf(motion), label: vanMarkerWords(motion) };
+}
+
+/**
  * V1–V4 (MOCKS §2), each parked on the last driven point of its route. The GPS ages
  * walk the four §3 freshness bands so the map shows all three truck tones at once.
  */
 export const DEMO_VEHICLES: MapVehicleFixture[] = [
   {
     id: "V1",
+    marker: markerOf(12),
     description: "Convertible van",
     owner: "Provider P1",
     stateLabel: "On the way to pickup",
@@ -182,6 +233,7 @@ export const DEMO_VEHICLES: MapVehicleFixture[] = [
   },
   {
     id: "V2",
+    marker: markerOf(95),
     description: "Center van",
     owner: "Center",
     stateLabel: "In transit",
@@ -193,6 +245,7 @@ export const DEMO_VEHICLES: MapVehicleFixture[] = [
   },
   {
     id: "V3",
+    marker: markerOf(245),
     description: "Substitute van",
     owner: "Provider P1",
     stateLabel: "In transit",
@@ -204,6 +257,7 @@ export const DEMO_VEHICLES: MapVehicleFixture[] = [
   },
   {
     id: "V4",
+    marker: markerOf(720),
     description: "Sedan",
     owner: "Provider P2",
     stateLabel: "On the way to pickup",

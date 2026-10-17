@@ -601,6 +601,33 @@
   font-weight: var(--weight-medium);
 }
 
+/*
+ * The van's stops, in pickup order (Vera's bar). The same spine as the rides above it — a
+ * hairline down the left with the list hanging off it — because it is the same kind of thing: a
+ * sequence where the order is the information. Numbered, since "first, then, then" is exactly
+ * what pickup order means, and the numerals are the browser's own.
+ */
+.vanStops {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+  margin: 0;
+  padding: 0 0 0 var(--space-5);
+  border-left: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.vanStop {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.vanStopName {
+  color: var(--color-ink);
+  font-weight: var(--weight-medium);
+}
+
 .needs {
   display: grid;
   gap: var(--space-3);

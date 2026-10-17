@@ -25,8 +25,11 @@ import {
 } from "maplibre-gl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { MapFixture } from "@/fixtures/map";
+import type { MapFixture, MapVehicleMarker } from "@/fixtures/map";
 import { fill, fleetMap as copy } from "@/ui/copy";
+import { StateChip } from "@/ui/StateChip";
+import { vanMarkerStates, type StateDescriptor } from "@/ui/states";
+import { stopWindowText } from "@/ui/van-state";
 import styles from "./fleet-map.module.css";
 import {
   ATTRIBUTION_HTML,
@@ -37,8 +40,7 @@ import {
   drivenRoutesGeoJson,
   fleetMapLayers,
   gpsFreshnessLabel,
-  HEADING_ICON_ID,
-  headingChevronImage,
+  markerGlyphImages,
   MAP_LAYER_IDS,
   MAP_SOURCE_IDS,
   MAP_WORKER_URL,
@@ -75,27 +77,29 @@ function applyCameraMove(map: MapLibreMap, move: CameraMove): void {
   map.flyTo({ center: move.center, zoom: move.zoom, duration: move.duration });
 }
 
-/**
- * What a stop's ETA cell says. Arrivals read "Arrived (vehicle)" — never "Handed off",
- * because a geofence cannot complete a handoff (AT-10, SURF-01 l.1058). A stale vehicle
- * shows its last published window with the pause spelled out (LOC-03).
+/*
+ * What a stop's ETA cell says is `stopWindowText` in src/ui/van-state.ts now: the child's drawer
+ * lists the van's stops too (Vera's bar: a marker opens the drawer, not a popup), and importing
+ * this module into that panel would have pulled MapLibre into something that draws no map.
  */
-export function stopWindowText(
-  status: "arrived" | "passed" | "pending",
-  windowText?: string,
-  etaTextSuppressed?: boolean,
-): string {
-  if (status === "arrived") return copy.arrived;
-  if (status === "passed") return copy.passed;
-  if (!windowText) return copy.windowPending;
-  return etaTextSuppressed ? fill(copy.windowPaused, { window: windowText }) : windowText;
-}
 
 const TONE_CLASS = {
   ok: styles.toneOk,
   stale: styles.toneStale,
   crit: styles.toneCrit,
 } as const;
+
+/**
+ * The van's state as a chip: the icon and tone from the state, the **words from the marker
+ * itself**.
+ *
+ * Not `fill`ed again from the template — handed the very string the label on the canvas carries
+ * (`vehicle.marker.label`), so the two renderings of one state cannot differ by a rounding or by
+ * a stale minute. src/ui/van-state.ts is where that string is composed, for both.
+ */
+function markerChip(marker: MapVehicleMarker): StateDescriptor {
+  return { ...vanMarkerStates[marker.state], label: marker.label };
+}
 
 export interface FleetMapProps {
   fixture: MapFixture;
@@ -213,9 +217,12 @@ export default function FleetMap({
       map.on("load", () => {
         if (!map) return;
         const data = dataRef.current;
-        // The §5.1 heading chevron is raw RGBA from a pure builder, so it needs no
-        // sprite from the tile server and no glyph coverage.
-        if (!map.hasImage(HEADING_ICON_ID)) map.addImage(HEADING_ICON_ID, headingChevronImage());
+        // The marker glyphs are raw RGBA from pure builders, so they need no sprite from the
+        // tile server and no glyph coverage: the §5.1 heading chevron, and one per marker state
+        // (Vera's bar — a clock, a pause, an empty ring).
+        for (const { id, image } of markerGlyphImages()) {
+          if (!map.hasImage(id)) map.addImage(id, image);
+        }
         map.addSource(MAP_SOURCE_IDS.routesPlanned, {
           type: "geojson",
           data: plannedRoutesGeoJson(data.routes) as never,
@@ -265,12 +272,31 @@ export default function FleetMap({
         const ours = new Set<string>(Object.values(MAP_LAYER_IDS));
         const rendered = map.queryRenderedFeatures();
         const basemap = rendered.filter((f) => !ours.has(String(f.layer?.id ?? "")));
-        const vehicles = map
+        const drawn = map
           .queryRenderedFeatures({ layers: [MAP_LAYER_IDS.vehicleCircle] })
-          .map((f) => String(f.properties?.id ?? ""))
-          .filter((id) => id.length > 0);
+          .map((f) => ({
+            id: String(f.properties?.id ?? ""),
+            state: String(f.properties?.state ?? ""),
+            faded: Boolean(f.properties?.faded),
+          }))
+          .filter((v) => v.id.length > 0);
+        const vehicles = [...new Set(drawn.map((v) => v.id))].sort();
         container.dataset.basemapFeatures = String(basemap.length);
-        container.dataset.vehiclesDrawn = [...new Set(vehicles)].sort().join(",");
+        container.dataset.vehiclesDrawn = vehicles.join(",");
+        /*
+         * What each marker is *saying*, published for the same reason as the count above: the
+         * label and the glyph are inside the WebGL canvas, so "V2's marker says it was last seen
+         * at 7:31 AM, and is drawn faded" is invisible to the DOM and a browser check could only
+         * assert that something was drawn. Read off the rendered features, not off the props, so
+         * it is the marker on the screen that is being described (Vera's bar; e2e/live-map.spec).
+         */
+        const byId = new Map(drawn.map((v) => [v.id, v]));
+        container.dataset.vehicleStates = vehicles
+          .map((id) => `${id}=${byId.get(id)?.state ?? ""}`)
+          .join(",");
+        container.dataset.fadedVehicles = vehicles
+          .filter((id) => byId.get(id)?.faded)
+          .join(",");
       });
     })();
 
@@ -404,23 +430,26 @@ export default function FleetMap({
                   type="button"
                   className={styles.vehicleButton}
                   aria-pressed={selectedId === vehicle.id}
+                  data-van={vehicle.id}
+                  data-van-state={vehicle.marker.state}
                   onClick={() => selectVehicle(vehicle.id)}
                 >
                   <span className={styles.vehicleId}>
                     {fill(copy.vehicleRow, { id: vehicle.id, description: vehicle.description })}
                   </span>
+                  {/*
+                    The marker's own state, as an icon and the same words the label on the canvas
+                    carries (Vera's bar): the chip is how "state as icon" is kept on a surface
+                    that can render a real icon, and it is what a screen reader and a greyscale
+                    print get. The §3 leg label is not repeated beside it — one van, one state.
+                  */}
+                  <StateChip state={markerChip(vehicle.marker)} />
                   <span className={styles.vehicleMeta}>
-                    {fill(copy.vehicleMeta, { owner: vehicle.owner, state: vehicle.stateLabel })}
+                    {fill(copy.vehicleOwner, { owner: vehicle.owner })}
                   </span>
                   <span className={`${styles.freshness} ${TONE_CLASS[tone]}`}>
                     {fill(copy.gps, { age: gpsFreshnessLabel(vehicle.gpsAgeSeconds) })}
                   </span>
-                  {vehicle.stoppedSeconds !== undefined && vehicle.stoppedSeconds >= 60 ? (
-                    <span className={styles.vehicleMeta}>
-                      {/* DESIGN-DIRECTION §5.1: a stall is words and a clock, not a colour. */}
-                      {fill(copy.stopped, { minutes: Math.floor(vehicle.stoppedSeconds / 60) })}
-                    </span>
-                  ) : null}
                   {vehicle.exceptionRaised ? (
                     <span className={`${styles.freshness} ${styles.toneCrit}`}>
                       {copy.locationLost}

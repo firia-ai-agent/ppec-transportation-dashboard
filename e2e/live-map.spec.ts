@@ -17,9 +17,16 @@
  * playwright.config.ts), and the board it renders is the committed demo day.
  */
 import { expect, test, type Page } from "@playwright/test";
-import { board as boardCopy, fill, liveUpdates } from "../src/ui/copy";
+import { board as boardCopy, fill, liveUpdates, serviceDate } from "../src/ui/copy";
 import { gpsFreshnessStates, legStates } from "../src/ui/states";
-import { boxOf, expectDemoBarPinned, expectNoInternalCodes, overlaps, shot } from "./helpers";
+import {
+  boxOf,
+  expectDemoBarPinned,
+  expectNoInternalCodes,
+  expectVioletOnlyOnDemoChrome,
+  overlaps,
+  shot,
+} from "./helpers";
 
 /** ×10: a scenario minute every six seconds. Fast enough to watch, slow enough to read. */
 const TENX = "/today?speed=10";
@@ -356,5 +363,235 @@ test.describe("the live board", () => {
     }
 
     console.log("screenshot:", await shot(page, "today-live-egress"));
+  });
+});
+
+/**
+ * Vera's bar for this screen, in the browser (2026-10-17).
+ *
+ * Four things, and each of them is about what the screen *says* rather than about what the data
+ * is: the marker carries the van's name and its state in words, clicking a van opens the board's
+ * own drawer with the van's stops in pickup order, a van with no fix stays where it was last
+ * seen and says when that was, and there is one day on screen with the DEMO bar and the
+ * Simulated chip above it and no control that would change it.
+ *
+ * Three of the four are *inside a WebGL canvas*, where the DOM can see nothing at all — so the
+ * pane publishes what it drew (`data-vehicle-states`, `data-faded-vehicles`, read off the
+ * rendered features on `idle`, see src/components/map/FleetMap.tsx) and these read that. The
+ * words are then asserted twice over, on the canvas's own published state and on the van list
+ * beside it, which is the same marker's DOM half.
+ */
+test.describe("Vera's bar: what a van's marker says", () => {
+  /** The four states a marker can be in (src/ui/van-state.ts). */
+  const STATES = ["ON_THE_WAY", "LATE", "STOPPED", "NO_FIX"];
+  /** The words for them. "Stopped 3 min" and "Late 8 min" carry §5.1's clock. */
+  const WORDS = String.raw`On the way|Late \d+ min|Stopped \d+ min|Last seen \d{1,2}:\d{2} [AP]M`;
+  /**
+   * What follows "State: " on the chip's own line — the screen-reader copy, which is the half
+   * §9 is about and the proof that the state is a chip with an icon rather than a bare word
+   * (src/ui/StateChip.tsx writes the label twice, once for the ear and once for the eye).
+   */
+  const WORDS_ANNOUNCED = new RegExp(`^(${WORDS})$`);
+
+  /** The van's own button in the list beside the canvas: the marker, in the DOM. */
+  const vanRow = (page: Page, van: string) => page.locator(`button[data-van="${van}"]`);
+
+  /**
+   * Everything a marker is saying, read in **one** pass over the DOM.
+   *
+   * The clock is running while these checks look, and a van walks through its states as the
+   * morning goes: the §18.2 step 7 stall starts and ends, the step 8 gap opens and closes. Read
+   * in two steps — the pane's published attribute, then the van's row — the clock can move
+   * between them and the second step is about a different instant than the first. One
+   * `evaluate` is one instant, and every assertion below is made against it.
+   */
+  const atOneInstant = (page: Page) =>
+    page.evaluate(() => {
+      const pane = document.querySelector<HTMLElement>("[data-vehicles-drawn]");
+      const rows = [...document.querySelectorAll<HTMLElement>("button[data-van]")];
+      return {
+        drawn: (pane?.dataset.vehiclesDrawn ?? "").split(",").filter(Boolean),
+        faded: (pane?.dataset.fadedVehicles ?? "").split(",").filter(Boolean),
+        /** `V1=STOPPED,V2=ON_THE_WAY` — what the canvas says it drew, per van. */
+        states: pane?.dataset.vehicleStates ?? "",
+        /** The same vans' rows in the list beside it, as text. */
+        words: Object.fromEntries(rows.map((row) => [row.dataset.van ?? "", row.innerText])) as
+          Record<string, string>,
+        /** And the state each of those rows was rendered for. */
+        rowStates: Object.fromEntries(
+          rows.map((row) => [row.dataset.van ?? "", row.dataset.vanState ?? ""]),
+        ) as Record<string, string>,
+      };
+    });
+
+  test("names the van and says its state, as an icon and a word", async ({ page }) => {
+    await page.goto("/today");
+    const pane = paneOf(page);
+    await expect(pane).toHaveAttribute("data-vehicles-drawn", /V/, { timeout: 60_000 });
+
+    const now = await atOneInstant(page);
+    const states = Object.fromEntries(
+      [...now.states.matchAll(/([^,=]+)=([A-Z_]+)/g)].map((m) => [m[1], m[2]]),
+    );
+    const vans = Object.keys(states);
+    expect(vans.length).toBeGreaterThan(0);
+
+    for (const van of vans) {
+      // On the canvas: one of the four states, and never an empty marker.
+      expect(STATES, `${van} is drawn in state ${states[van]}`).toContain(states[van]);
+
+      /*
+       * In the DOM: the van's name, and the same state as a chip — which is an icon plus a
+       * label, announced "State: …" for the ear (src/ui/StateChip.tsx). That is the whole of
+       * "as icon and word", on the half of the marker a screen reader can reach.
+       */
+      expect(now.rowStates[van], `${van}'s row and its marker disagree`).toBe(states[van]);
+      expect(now.words[van]).toContain(van);
+      const announced = /State: ([^\n]+)/.exec(now.words[van] ?? "")?.[1] ?? "";
+      expect(announced, `${van}'s chip announces nothing a reader could use`).toMatch(
+        WORDS_ANNOUNCED,
+      );
+      // …and the eye gets the same words, which is the other half of the chip.
+      expect(now.words[van]).toContain(announced);
+    }
+    console.log("screenshot:", await shot(page, "today-live-marker-states"));
+  });
+
+  test("says lateness in words, so it is never the colour alone", async ({ page }) => {
+    // ×10: the §18.2 step 7 stall matures, the gate moves the downstream window, and the van's
+    // own rides fall behind the plan — which is when a marker starts saying how late it is. It
+    // then catches up again, so the state is a window in the morning rather than an end state,
+    // and it is asserted at one instant (see `atOneInstant`).
+    await page.goto(TENX);
+    await expect(paneOf(page)).toHaveAttribute("data-vehicles-drawn", /V/, { timeout: 60_000 });
+
+    await expect
+      .poll(
+        async () => {
+          const now = await atOneInstant(page);
+          const late = [...now.states.matchAll(/([^,=]+)=LATE/g)].map((m) => m[1]);
+          if (late.length === 0) return null;
+          // The minutes are in the words on the marker's own row, not only in its tone.
+          return late.every((van) => /Late \d+ min/.test(now.words[van] ?? "")) ? late : null;
+        },
+        { timeout: 90_000, intervals: [100] },
+      )
+      .not.toBeNull();
+    console.log("screenshot:", await shot(page, "today-live-marker-late"));
+  });
+
+  test("opens the board's own drawer, with the van's stops in pickup order", async ({ page }) => {
+    await page.goto("/today");
+    const pane = paneOf(page);
+    await expect(pane).toHaveAttribute("data-vehicles-drawn", /V/, { timeout: 60_000 });
+    const van = (await paneOf(page).getAttribute("data-vehicles-drawn"))?.split(",")[0] as string;
+
+    /*
+     * Selecting the van the way the marker does: the canvas click and this button are the same
+     * callback in the pane (`selectVehicle` in src/components/map/FleetMap.tsx), which is also
+     * what §9 is about — the map is never the only way to reach anything.
+     */
+    await vanRow(page, van).click();
+
+    // The board's own drawer, not a popup: the dialog opens, and the canvas has none.
+    const drawerPanel = page.getByRole("dialog");
+    await expect(drawerPanel).toBeVisible();
+    await expect(page.locator(".maplibregl-popup")).toHaveCount(0);
+
+    // The van's stops are in it, in the order the van calls at them.
+    const stops = drawerPanel.locator(`ol[data-van="${van}"] li[data-stop]`);
+    expect(await stops.count()).toBeGreaterThan(1);
+    const names = await stops.allInnerTexts();
+    expect(names.every((text) => text.trim().length > 0)).toBe(true);
+    // The camera went to that van too, so the two halves of the screen agree.
+    await expect(pane).toHaveAttribute("data-camera-vehicle", van);
+    await expectNoInternalCodes(page);
+    console.log("screenshot:", await shot(page, "today-live-van-drawer"));
+  });
+
+  test("leaves a van with no fix faded where it was last seen, and says when", async ({ page }) => {
+    /*
+     * ×10 rather than ×60, and everything read in **one** pass over the DOM.
+     *
+     * The gap is about a scenario minute wide — the van's positions stop arriving, its age walks
+     * past 600 s, and then the committed run starts reporting again, which is itself part of the
+     * fixture. Read in two steps (the pane's attribute, then the van's row) the clock can move
+     * between them and the second step is about a van that has its signal back; at ×10 the
+     * window is seconds wide and one `evaluate` is one instant.
+     */
+    await page.goto(TENX);
+    await expect(paneOf(page)).toHaveAttribute("data-vehicles-drawn", /V/, { timeout: 60_000 });
+
+    /** The pane's own account of what it drew, and the words beside it, at one instant. */
+    const atOneInstant = () =>
+      page.evaluate(() => {
+        const pane = document.querySelector<HTMLElement>("[data-vehicles-drawn]");
+        const rows = [...document.querySelectorAll<HTMLElement>("button[data-van]")];
+        return {
+          drawn: (pane?.dataset.vehiclesDrawn ?? "").split(",").filter(Boolean),
+          faded: (pane?.dataset.fadedVehicles ?? "").split(",").filter(Boolean),
+          states: pane?.dataset.vehicleStates ?? "",
+          words: Object.fromEntries(
+            rows.map((row) => [row.dataset.van ?? "", row.innerText]),
+          ) as Record<string, string>,
+        };
+      });
+
+    await expect
+      .poll(
+        async () => {
+          const now = await atOneInstant();
+          if (now.faded.length === 0) return null;
+          const consistent = now.faded.every(
+            (van) =>
+              // Still on the map, at the last position anybody reported — a van nobody has
+              // heard from is neither moved along its route nor taken off the map…
+              now.drawn.includes(van) &&
+              now.states.includes(`${van}=NO_FIX`) &&
+              // …and its words are a clock time rather than an age.
+              /Last seen \d{1,2}:\d{2} [AP]M/.test(now.words[van] ?? ""),
+          );
+          return consistent ? now.faded : null;
+        },
+        { timeout: 90_000, intervals: [100] },
+      )
+      .not.toBeNull();
+
+    // The van whose device is not linked to it is a different case and stays off the map
+    // altogether (LOC-01): there is no last known position for it to be faded at.
+    const drawn = (await paneOf(page).getAttribute("data-vehicles-drawn")) ?? "";
+    expect(drawn.split(",")).not.toContain(UNLINKED_VAN);
+    console.log("screenshot:", await shot(page, "today-live-marker-no-fix"));
+  });
+
+  test("shows one day — the demo day — with the DEMO bar and the Simulated chip over it", async ({
+    page,
+  }) => {
+    await page.goto("/today");
+    await expect(paneOf(page)).toBeVisible();
+
+    // §7 / §7.1 / NFR-09: the bar is pinned at the top and carries the Simulated chip…
+    await expectDemoBarPinned(page);
+    // …and the demo violet paints those two things and nothing else on this screen (D-5).
+    await expectVioletOnlyOnDemoChrome(page);
+
+    // One date, and it says which kind of day it is.
+    await expect(page.locator("time")).toHaveCount(1);
+    await expect(page.getByText(serviceDate.phases.LIVE)).toBeVisible();
+
+    // The clock on screen is the scenario clock, reading the tick the board is being walked on.
+    const clock = page.getByRole("banner").getByText(/^\d{1,2}:\d{2} [AP]M$/);
+    await expect(clock.first()).toBeVisible({ timeout: 60_000 });
+
+    // And nothing offers another day: no field, no picker, no option list, no link, no arrows.
+    await expect(page.locator('input[type="date"]')).toHaveCount(0);
+    await expect(page.locator("select")).toHaveCount(0);
+    await expect(page.locator('a[href*="date="]')).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Previous day|Next day/ })).toHaveCount(0);
+
+    // Nor is there any stock map chrome: no Leaflet, and no default blue pin anywhere.
+    await expect(page.locator('[class*="leaflet"]')).toHaveCount(0);
+    await expect(page.locator('img[src*="marker-icon"]')).toHaveCount(0);
+    console.log("screenshot:", await shot(page, "today-live-one-day"));
   });
 });

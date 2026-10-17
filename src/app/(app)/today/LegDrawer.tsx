@@ -12,9 +12,11 @@ import {
   onDay,
   places,
 } from "@/ui/copy";
+import type { LiveVehicle } from "@/domain/board/live";
 import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
 import { capabilityStates, legStates, needItemStates, profileStates } from "@/ui/states";
+import { stopWindowText } from "@/ui/van-state";
 import { clockLabel } from "@/ui/service-date";
 import { icon } from "@/ui/tokens";
 import { needsActionReasonText, nextStepText, stateValues } from "./next-step";
@@ -42,12 +44,22 @@ import styles from "./today.module.css";
 export function LegDrawer({
   legs,
   day,
+  van = null,
   onClose,
 }: {
   /** The child's rides, as rows of the board — so the panel and the rows cannot disagree. */
   legs: readonly LegRow[];
   /** The day those rides are on: the panel's first heading may only say "Today" when it is. */
   day: ServiceDay;
+  /**
+   * The van the open ride is on, at this tick, or `null` when there is no live one — a ride the
+   * family drives, a van with no displayable position, or a day the scenario is not replaying.
+   *
+   * It is what makes this panel the thing a marker opens (Vera's bar): the van's stops, in the
+   * order it calls at them, instead of a popup over the canvas. Taken from the live snapshot, so
+   * a panel left open walks the morning with the board behind it.
+   */
+  van?: LiveVehicle | null;
   onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
@@ -95,12 +107,53 @@ export function LegDrawer({
             The day in order, morning then afternoon: an ordered list, because that is what it
             is — two rides read one after the other, and the order is the information.
           */}
-          <ol className={styles.timeline}>
+          {/* `data-rides`: the panel has a second ordered list now — the van's stops below — and
+              a check that means "the child's two rides" has to be able to say which. */}
+          <ol className={styles.timeline} data-rides>
             {legs.map((leg) => (
               <Ride key={leg.key} leg={leg} />
             ))}
           </ol>
         </section>
+
+        {/*
+          The van's run, in pickup order (Vera's bar).
+
+          This is the panel a marker opens: clicking a van on the map opens the first ride on it
+          *here*, rather than in a popup over the canvas, because a popup would be a second
+          design for a thing the console already has — and a worse one, since it would cover the
+          map it is anchored to and could not hold the child's day around it.
+
+          Second section, directly under the rides: a coordinator who arrived by clicking a van
+          is asking what that van is doing next, and the stops answer it in the order the van
+          calls at them. The order is the committed route's own (src/domain/board/live.ts reads
+          it off the run), so this list is the run and not a sorting of it.
+        */}
+        {van === null ? null : (
+          <section className={styles.section}>
+            <h3 className={styles.sectionHeading}>
+              {fill(drawer.vanStopsHeading, { van: van.id })}
+            </h3>
+            {van.stops.length === 0 ? (
+              <p className={styles.muted}>{fill(drawer.vanStopsEmpty, { van: van.id })}</p>
+            ) : (
+              <>
+                <p className={styles.caption}>{drawer.vanStopsCaption}</p>
+                <ol className={styles.vanStops} data-van={van.id}>
+                  {van.stops.map((stop) => (
+                    <li key={stop.stopId} className={styles.vanStop} data-stop={stop.stopId}>
+                      {/* The place, never the family code (COPY-GUIDE §1–§2). */}
+                      <span className={styles.vanStopName}>{stop.name}</span>
+                      <span className={`${styles.muted} tabularNums`}>
+                        {stopWindowText(stop.status, stop.windowText, van.etaTextSuppressed)}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            )}
+          </section>
+        )}
 
         <section className={styles.section}>
           <h3 className={styles.sectionHeading}>{drawer.needsHeading}</h3>

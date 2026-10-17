@@ -105,6 +105,25 @@ export interface LiveVehicle {
   headingDeg: number;
   gpsAgeSeconds: number;
   band: GpsBand;
+  /**
+   * When the position this van is drawn at was actually reported, epoch ms.
+   *
+   * The marker's own words for a van past the 600 s band are "Last seen 7:31 AM" (Vera's bar),
+   * and this is where that time comes from: the instant of the last *displayable* point, which
+   * is also the point the marker is drawn at. Never a projection — a van nobody has heard from
+   * is left where it was seen, not carried forward along its route.
+   */
+  lastFixMs: number;
+  /**
+   * The worst shift on this van's rides at this tick, seconds (+ late), or `null` when no ride
+   * on it publishes one.
+   *
+   * Read off the board's own rows rather than computed here, so the marker and the "Arriving"
+   * cells of the rides on that van cannot disagree about how late it is. The worst of them,
+   * because a van is one thing on a map and the question it answers there is how far behind the
+   * run is — not how far behind one child's ride is.
+   */
+  lateSeconds: number | null;
   /** Chainage driven so far, metres — the driven line's length, not its geometry. */
   drivenM: number;
   stoppedSeconds: number;
@@ -292,6 +311,11 @@ function fleetAt(nowMs: number): {
       headingDeg: frame.headingDeg,
       gpsAgeSeconds: age,
       band: frame.band,
+      // The instant the drawn point was reported. `frameAt` is called with `tween: false`, so
+      // the coordinate above *is* that point and this is its own timestamp.
+      lastFixMs: Number.isFinite(age) ? nowMs - age * 1000 : nowMs,
+      // Filled in by `liveSnapshotAt` from the board's rows, which are built from the same tick.
+      lateSeconds: null,
       drivenM: frame.drivenM,
       stoppedSeconds: frame.stoppedSeconds,
       etaTextSuppressed: frame.etaTextSuppressed,
@@ -388,6 +412,24 @@ export function deltaFor(viewer: MapViewer, fromTick: number, toTick: number): L
   return liveDelta(snapshotFor(viewer, fromTick), snapshotFor(viewer, toTick));
 }
 
+/**
+ * How late a van's run is, from the rides on it: the worst shift any of them publishes.
+ *
+ * The marker says "Late 8 min" with this number (Vera's bar), and it is read off the rows rather
+ * than recomputed so that the map and the "Arriving" cells beside it are the same fact. `null`
+ * when no ride on this van has a shift — a run nobody has moved yet is not a run that is on time.
+ */
+function worstShiftOn(legs: readonly LegRow[], vanId: string): number | null {
+  let worst: number | null = null;
+  for (const leg of legs) {
+    if (leg.ride.vehicleLabel !== vanId) continue;
+    const shift = leg.ride.deltaSeconds;
+    if (shift === null || !Number.isFinite(shift)) continue;
+    if (worst === null || shift > worst) worst = shift;
+  }
+  return worst;
+}
+
 /** The whole live board at a tick of the scenario clock. */
 export function liveSnapshotAt(tick: number): LiveSnapshot {
   const day = demoDayAtTick(tick);
@@ -399,7 +441,10 @@ export function liveSnapshotAt(tick: number): LiveSnapshot {
     nowMs: day.instantMs,
     clockText: formatClock(day.instantMs),
     rides: board.legs.map(liveRideOf),
-    vehicles: fleet.vehicles,
+    vehicles: fleet.vehicles.map((vehicle) => ({
+      ...vehicle,
+      lateSeconds: worstShiftOn(board.legs, vehicle.id),
+    })),
     silent: fleet.silent,
     routes: fleet.routes,
     notifications: fleet.notifications,

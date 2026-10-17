@@ -19,7 +19,9 @@ import {
   GPS_STALE_SECONDS,
   type GpsBand,
 } from "@/domain/location/freshness";
+import type { MapVehicleMarker } from "@/fixtures/map";
 import { color } from "@/ui/tokens";
+import { vanMarkerMapLabel, type VanMarkerState } from "@/ui/van-state";
 
 // ---------------------------------------------------------------------------
 // Tokens (DESIGN-DIRECTION §8)
@@ -258,13 +260,14 @@ export function gpsShortLabel(ageSeconds: number): string {
   }
 }
 
-/**
- * On-map vehicle label: "V1 · Live 12 s". Freshness is **never colour-only** (§5.1),
- * so the tone colour is always paired with this label.
+/*
+ * The on-map label is composed in src/ui/van-state.ts now (`vanMarkerMapLabel`), because it says
+ * two things rather than one: Vera's bar put the van's **state** on the marker in words, and the
+ * freshness this file is about rides beside it — "V1 · On the way · Live 12 s". The §5.1 rule
+ * that the tone is never alone is therefore kept twice over: the disc's colour is the freshness
+ * band and `gpsShortLabel` prints that band on the label, except on a van with no fix, whose
+ * state words are a time and whose freshness has nothing left to add.
  */
-export function vehicleMapLabel(id: string, ageSeconds: number): string {
-  return `${id} · ${gpsShortLabel(ageSeconds)}`;
-}
 
 // ---------------------------------------------------------------------------
 // Our layers (DESIGN-DIRECTION §5.1 "Our layers (on top, in order)")
@@ -286,15 +289,47 @@ export const MAP_LAYER_IDS = {
   centerPin: "ppec-center-pin",
   centerLabel: "ppec-center-label",
   vehicleCircle: "ppec-vehicle-circle",
-  vehicleHeading: "ppec-vehicle-heading",
+  /**
+   * The marker's state glyph. It was `ppec-vehicle-heading` and drew one chevron for every van;
+   * it now draws the glyph of whichever of the four states the van is in, and turns it to the
+   * heading only for the one that has a direction (Vera's bar).
+   */
+  vehicleState: "ppec-vehicle-state",
   vehicleLabel: "ppec-vehicle-label",
 } as const;
+
+/** How much of a faded marker is left: enough to place the van, little enough to read as old. */
+export const FADED_OPACITY = 0.45;
 
 /** Image id of the heading chevron, registered with `map.addImage` by FleetMap. */
 export const HEADING_ICON_ID = "ppec-heading-chevron";
 
 /** Side of the heading-chevron image, in px (device pixels at `icon-size` 1). */
 export const HEADING_ICON_SIZE = 18;
+
+/**
+ * One image id per marker state (Vera's bar): the **icon** half of "state as icon and word".
+ *
+ * A MapLibre marker is drawn into a WebGL canvas, so it cannot render a lucide component the way
+ * the list beside it does; an icon here is an image registered with `map.addImage`, built as raw
+ * RGBA by the pure builders below. The same four states, the same words, two renderings — the
+ * chip in the DOM uses `vanMarkerStates` in src/ui/states.ts.
+ *
+ * `ON_THE_WAY` keeps the §5.1 heading chevron, rotated to the van's heading, because a van that
+ * is simply on its way is best read as the direction it is going. The other three are not
+ * rotated: a clock, a pause and a ring have no heading, and for a van that has stopped or has
+ * not been heard from, which way it was last pointing is not the thing to read first (the driven
+ * line behind it still shows where it came from).
+ */
+export const MARKER_GLYPH_IDS: Readonly<Record<VanMarkerState, string>> = {
+  ON_THE_WAY: HEADING_ICON_ID,
+  LATE: "ppec-glyph-late",
+  STOPPED: "ppec-glyph-stopped",
+  NO_FIX: "ppec-glyph-no-fix",
+};
+
+/** The states whose glyph is turned to the van's heading. */
+export const ROTATING_MARKER_STATES: readonly VanMarkerState[] = ["ON_THE_WAY"];
 
 /**
  * The §5.1 marker polish, minus the font problem: a white chevron with a thin ink edge,
@@ -305,22 +340,9 @@ export const HEADING_ICON_SIZE = 18;
  * Pure: returns the `{width, height, data}` shape `map.addImage` accepts. Row 0 is the
  * top of the image, which is the direction `icon-rotate: 0` points (north).
  */
-export function headingChevronImage(size = HEADING_ICON_SIZE): {
-  width: number;
-  height: number;
-  data: Uint8Array;
-} {
-  const data = new Uint8Array(size * size * 4);
+export function headingChevronImage(size = HEADING_ICON_SIZE): GlyphImage {
+  const glyph = blankGlyph(size);
   const mid = (size - 1) / 2;
-  const put = (x: number, y: number, rgb: [number, number, number], alpha: number): void => {
-    const i = (y * size + x) * 4;
-    data[i] = rgb[0];
-    data[i + 1] = rgb[1];
-    data[i + 2] = rgb[2];
-    data[i + 3] = alpha;
-  };
-  const ink: [number, number, number] = [15, 23, 42]; // MAP_TOKENS.ink
-  const white: [number, number, number] = [255, 255, 255];
 
   for (let y = 0; y < size; y += 1) {
     // A triangle pointing up: its half-width grows with y.
@@ -329,11 +351,117 @@ export function headingChevronImage(size = HEADING_ICON_SIZE): {
       const dx = Math.abs(x - mid);
       if (dx > halfWidth + 1) continue;
       // The outer pixel of each row is the ink edge, the rest is the white body.
-      if (dx > halfWidth - 1) put(x, y, ink, 255);
-      else put(x, y, white, 255);
+      if (dx > halfWidth - 1) glyph.put(x, y, INK);
+      else glyph.put(x, y, WHITE);
     }
   }
-  return { width: size, height: size, data };
+  return glyph.image();
+}
+
+/**
+ * The other three marker glyphs, on one shape so they read as a set: a white face with a thin
+ * ink ring, and what is drawn inside it is the state.
+ *
+ *  - **Late** — a clock: two hands on the face. The marker says "Late 8 min" beside it, which is
+ *    Vera's rule that lateness is never carried by a colour; the amber disc under it is third.
+ *  - **Stopped** — two bars, the shape every pause control in the world has.
+ *  - **No fix** — nothing inside. An empty ring is the honest glyph for "this is where the van
+ *    was last seen": there is no current position to draw a direction or a state from, and the
+ *    label says the time instead.
+ *
+ * All three are pure and built from {@link MAP_TOKENS}, so nothing here holds a colour of its
+ * own (src/ui/tokens.ts is the only file under src/ allowed a literal, and no-hex.test.ts holds
+ * that line).
+ */
+export function lateClockImage(size = HEADING_ICON_SIZE): GlyphImage {
+  const glyph = discGlyph(size);
+  const mid = (size - 1) / 2;
+  const radius = mid - 0.5;
+  // The long hand to twelve and the short one to three: the least ambiguous clock face there is.
+  for (let step = 0; step <= radius * 0.62; step += 0.5) glyph.stroke(mid, mid - step, INK);
+  for (let step = 0; step <= radius * 0.42; step += 0.5) glyph.stroke(mid + step, mid, INK);
+  return glyph.image();
+}
+
+export function stoppedBarsImage(size = HEADING_ICON_SIZE): GlyphImage {
+  const glyph = discGlyph(size);
+  const mid = (size - 1) / 2;
+  const half = (mid - 0.5) * 0.42;
+  for (const x of [mid - half, mid + half]) {
+    for (let y = mid - half; y <= mid + half; y += 0.5) glyph.stroke(x, y, INK);
+  }
+  return glyph.image();
+}
+
+export function noFixRingImage(size = HEADING_ICON_SIZE): GlyphImage {
+  return discGlyph(size).image();
+}
+
+/** Every marker glyph with the id it is registered under, for the pane's one `addImage` loop. */
+export function markerGlyphImages(size = HEADING_ICON_SIZE): Array<{ id: string; image: GlyphImage }> {
+  return [
+    { id: MARKER_GLYPH_IDS.ON_THE_WAY, image: headingChevronImage(size) },
+    { id: MARKER_GLYPH_IDS.LATE, image: lateClockImage(size) },
+    { id: MARKER_GLYPH_IDS.STOPPED, image: stoppedBarsImage(size) },
+    { id: MARKER_GLYPH_IDS.NO_FIX, image: noFixRingImage(size) },
+  ];
+}
+
+/** The `{width, height, data}` shape `map.addImage` accepts. Row 0 is the top of the image. */
+export interface GlyphImage {
+  width: number;
+  height: number;
+  data: Uint8Array;
+}
+
+/** `#RRGGBB` as the three channels a raw-RGBA buffer wants. */
+export function rgbOf(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  return [
+    parseInt(h.slice(0, 2), 16),
+    parseInt(h.slice(2, 4), 16),
+    parseInt(h.slice(4, 6), 16),
+  ];
+}
+
+const INK = rgbOf(MAP_TOKENS.ink);
+const WHITE = rgbOf(MAP_TOKENS.surface);
+
+/** A transparent square with a pixel setter and a half-pixel stroke, for the glyph builders. */
+function blankGlyph(size: number) {
+  const data = new Uint8Array(size * size * 4);
+  const put = (x: number, y: number, rgb: [number, number, number], alpha = 255): void => {
+    if (x < 0 || y < 0 || x >= size || y >= size) return;
+    const i = (Math.round(y) * size + Math.round(x)) * 4;
+    data[i] = rgb[0];
+    data[i + 1] = rgb[1];
+    data[i + 2] = rgb[2];
+    data[i + 3] = alpha;
+  };
+  return {
+    put,
+    /** A 2 px mark, so a hand or a bar survives at 18 px. */
+    stroke: (x: number, y: number, rgb: [number, number, number]): void => {
+      put(x, y, rgb);
+      put(x + 1, y, rgb);
+    },
+    image: (): GlyphImage => ({ width: size, height: size, data }),
+  };
+}
+
+/** The shared face: white, with a thin ink ring. */
+function discGlyph(size: number) {
+  const glyph = blankGlyph(size);
+  const mid = (size - 1) / 2;
+  const radius = mid - 0.5;
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const distance = Math.hypot(x - mid, y - mid);
+      if (distance > radius) continue;
+      glyph.put(x, y, distance > radius - 1.8 ? INK : WHITE);
+    }
+  }
+  return glyph;
 }
 
 /** The font stack OpenFreeMap serves from its glyphs endpoint. */
@@ -445,24 +573,38 @@ export function fleetMapLayers(): StyleLayerLike[] {
           MAP_TOKENS.truckStale,
           MAP_TOKENS.truckOk,
         ],
+        /*
+         * Vera's bar: a van with no current fix is **faded**, at the last place it was actually
+         * seen. The disc and its glyph go to 45%; the label does not (see the label layer), and
+         * that split is deliberate — a faded dot reads as "this is old", and faded *words* read
+         * as unreadable, which §8's contrast floor and §4.1's "never hide data" both forbid.
+         */
+        "circle-opacity": ["case", ["boolean", ["get", "faded"], false], FADED_OPACITY, 1],
         // 2 px white halo: keeps ≥3:1 against every positron fill (§8).
         "circle-stroke-width": 2,
         "circle-stroke-color": MAP_TOKENS.surface,
+        "circle-stroke-opacity": ["case", ["boolean", ["get", "faded"], false], FADED_OPACITY, 1],
       },
     },
     {
-      // DESIGN-DIRECTION §5.1 "Markers": rotated to heading, aligned to the map so it
-      // keeps pointing down the road when the map is rotated.
-      id: MAP_LAYER_IDS.vehicleHeading,
+      /*
+       * DESIGN-DIRECTION §5.1 "Markers", and the icon half of Vera's "state as icon and word":
+       * one glyph per marker state, aligned to the map and rotated to the heading for the one
+       * state that has a direction worth reading (`ROTATING_MARKER_STATES`).
+       */
+      id: MAP_LAYER_IDS.vehicleState,
       type: "symbol",
       source: MAP_SOURCE_IDS.vehicles,
       layout: {
-        "icon-image": HEADING_ICON_ID,
+        "icon-image": ["get", "glyph"],
         "icon-size": 0.8,
-        "icon-rotate": ["get", "headingDeg"],
+        "icon-rotate": ["case", ["boolean", ["get", "rotates"], false], ["get", "headingDeg"], 0],
         "icon-rotation-alignment": "map",
         "icon-allow-overlap": true,
         "icon-ignore-placement": true,
+      },
+      paint: {
+        "icon-opacity": ["case", ["boolean", ["get", "faded"], false], FADED_OPACITY, 1],
       },
     },
     {
@@ -479,7 +621,18 @@ export function fleetMapLayers(): StyleLayerLike[] {
         "text-max-width": 14,
       },
       paint: {
-        "text-color": MAP_TOKENS.ink,
+        /*
+         * A faded van's words are the one thing on the marker that is **not** faded out: they
+         * drop to the §8 ink-muted tone, which is 7.58:1 on white and still reads at a glance.
+         * "Last seen 7:31 AM" is the whole of what that marker has to say, and a 45% label would
+         * be a fact we had decided to hide.
+         */
+        "text-color": [
+          "case",
+          ["boolean", ["get", "faded"], false],
+          MAP_TOKENS.inkMuted,
+          MAP_TOKENS.ink,
+        ],
         "text-halo-color": MAP_TOKENS.surface,
         "text-halo-width": LABEL_HALO_WIDTH,
       },
@@ -577,6 +730,8 @@ export interface VehicleLike {
   gpsAgeSeconds: number;
   /** Degrees clockwise from north; drives the §5.1 heading chevron. */
   headingDeg?: number;
+  /** Vera's bar: the state the marker shows, as an icon key and the words beside the van's name. */
+  marker: MapVehicleMarker;
 }
 
 export interface StopLike {
@@ -604,6 +759,10 @@ export function vehiclesGeoJson(
     label: string;
     selected: boolean;
     headingDeg: number;
+    state: VanMarkerState;
+    glyph: string;
+    rotates: boolean;
+    faded: boolean;
   }>
 > {
   return {
@@ -614,9 +773,15 @@ export function vehiclesGeoJson(
       properties: {
         id: v.id,
         tone: truckTone(v.gpsAgeSeconds),
-        label: vehicleMapLabel(v.id, v.gpsAgeSeconds),
+        // The van's name, its state in words, and the freshness of the point it is drawn at
+        // (Vera's bar; src/ui/van-state.ts composes it, so the canvas and the list agree).
+        label: vanMarkerMapLabel(v.id, v.marker, gpsShortLabel(v.gpsAgeSeconds)),
         selected: v.id === selectedId,
         headingDeg: v.headingDeg ?? 0,
+        state: v.marker.state,
+        glyph: MARKER_GLYPH_IDS[v.marker.state],
+        rotates: ROTATING_MARKER_STATES.includes(v.marker.state),
+        faded: v.marker.state === "NO_FIX",
       },
     })),
   };

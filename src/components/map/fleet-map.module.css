@@ -51,7 +51,19 @@
   background: var(--color-osm-bg);
 }
 
-.canvas {
+/*
+ * The map's own element, filling the pane.
+ *
+ * Written as a descendant pair rather than as a bare `.canvas`, and that is load-bearing:
+ * MapLibre puts its own `.maplibregl-map` class on this same div and its stylesheet sets
+ * `position: relative` on it. Two single-class selectors are equal specificity, so which one
+ * wins is decided by the order the two stylesheets happen to land in — and when the vendor sheet
+ * lands last the div becomes a static block, collapses to **zero height**, and the pane draws a
+ * map nobody can see (the browser checks catch it as a region that is "hidden" while the canvas
+ * behind it reports a full set of features). A rule that cannot be outranked by a vendor class
+ * is the fix; the bundler's ordering is not something a layout should depend on.
+ */
+.canvasWrap > .canvas {
   position: absolute;
   inset: 0;
 }

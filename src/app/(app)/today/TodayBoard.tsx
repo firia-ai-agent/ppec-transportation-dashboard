@@ -273,7 +273,19 @@ export function TodayBoard({
       </div>
 
       {openLegs.length > 0 ? (
-        <LegDrawer legs={openLegs} day={day} onClose={() => setOpenChild(null)} />
+        /*
+         * The van of the open ride, from the tick the board is on (Vera's bar): the drawer lists
+         * its stops in pickup order, which is what a click on a marker opens instead of a popup
+         * over the canvas. `null` when that van has no live position — a ride the family drives,
+         * an unlinked device (LOC-01), or a day the scenario is not replaying — and the section
+         * is then absent rather than empty.
+         */
+        <LegDrawer
+          legs={openLegs}
+          day={day}
+          van={snapshot?.vehicles.find((v) => v.id === openVan) ?? null}
+          onClose={() => setOpenChild(null)}
+        />
       ) : null}
     </div>
   );

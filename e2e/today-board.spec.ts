@@ -453,7 +453,9 @@ for (const width of WIDTHS) {
        * they are rows and not cards: a time column, where the ride runs between, and the state
        * as an icon and a label, morning above afternoon.
        */
-      const rides = panel.locator("ol > li");
+      // The rides list by name: the panel also lists the van's stops in pickup order when the
+      // ride is on a live van (Vera's bar), and that is a different ordered list.
+      const rides = panel.locator("ol[data-rides] > li");
       await expect(rides).toHaveCount(2);
       for (const heading of [drawer.amRide, drawer.pmRide]) {
         await expect(panel.getByText(heading, { exact: true })).toBeVisible();

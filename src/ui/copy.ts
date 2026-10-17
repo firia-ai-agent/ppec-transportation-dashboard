@@ -394,6 +394,40 @@ export const board = {
 } as const;
 
 /**
+ * What a van's marker says about the van (Vera's bar for the live map screen, 2026-10-17).
+ *
+ * The marker used to be labelled with its GPS freshness alone — "V1 · Live 12 s" — which answers
+ * "is this position worth believing" and not "what is this van doing". These are the four things
+ * a coordinator is actually asking, in the words they would use, and each one is paired with an
+ * icon in src/ui/states.ts (`vanMarkerStates`) so the state is never carried by a colour: a late
+ * van says "Late 8 min" on the marker itself, and the amber it is drawn in is the third cue.
+ *
+ * `lastSeen` is a **clock time** rather than an age on purpose. A van with no current fix is not
+ * a van whose position is four minutes old; it is a van whose last known position is where it
+ * was last seen, and the honest label for a dot that is not moving any more is the time it
+ * stopped moving. The §3 bands keep their own wording ("Stale · 4 min") for the ages that are
+ * still ages.
+ */
+export const vanMarker = {
+  onTheWay: "On the way",
+  /** The worst shift on this van's rides, in whole minutes — never a colour on its own. */
+  late: "Late {minutes} min",
+  /** §5.1: a stall is words and a clock. The board's own row says this too (`board.stopped`). */
+  stopped: board.stopped,
+  lastSeen: "Last seen {time}",
+  /**
+   * A van that has never had a position we may draw. Unreachable on the map by construction —
+   * such a van is absent from it and named underneath instead (`board.mapSilent`) — and written
+   * down so that the one case the words cannot describe still has words rather than a blank.
+   */
+  neverSeen: "Not seen yet",
+  /** "V2 · Last seen 7:31 AM" — the van, then what it is doing. */
+  mapLabel: "{van} · {state}",
+  /** "V1 · On the way · Live 12 s" — and how fresh the position it is drawn at is. */
+  mapLabelAged: "{van} · {state} · {age}",
+} as const;
+
+/**
  * The service date (§2 header, PRD §6.1).
  *
  * One date on screen, and it is the demo day: the chrome used to carry today's real date while
@@ -855,12 +889,22 @@ export const fleetMap = {
   vehiclesHeading: "Vehicles",
   /** "V1 · Convertible van" — the id, then the vehicle in plain words. */
   vehicleRow: "{id} · {description}",
-  /** "Provider P1 · In transit" */
-  vehicleMeta: "{owner} · {state}",
+  /**
+   * "Provider P1" — who runs the van, and nothing else.
+   *
+   * It was "{owner} · {state}", with the §3 leg state after the owner. The van's state is a chip
+   * of its own now (Vera's bar: the marker says the state as an icon and a word, and the list
+   * beside the canvas says the same), and a row carrying both would have said "In transit" next
+   * to a marker that says "Stopped 3 min" — the same van, two vocabularies, one of them stale.
+   */
+  vehicleOwner: "{owner}",
   gps: "GPS: {age}",
   source: "Source: {label}",
-  /** §5.1: a stall is words and a clock, never a colour. */
-  stopped: "Stopped {minutes} min",
+  /*
+   * The stall used to be a line of its own here ("Stopped {minutes} min"). It is the marker's
+   * own state now (`vanMarker.stopped`, which is the board row's string too), so the van's row
+   * in this list says it once, in the chip, instead of twice in two places.
+   */
   /** LOC-03: the 600 s band, said out loud rather than shown only in red. */
   locationLost: "Location lost · dispatcher pinged",
   /** A stop the vehicle reached. Never "Handed off": a geofence cannot complete a handoff. */
@@ -930,6 +974,18 @@ export const drawer = {
    * should be able to see the direction flip without reading a word.
    */
   rideFromTo: "{from} → {to}",
+  /**
+   * The van's run, in the drawer (Vera's bar: clicking a van opens this panel, and there is no
+   * popup design on the map at all).
+   *
+   * Headed with the van, because the panel is about a child and this one section is about the
+   * vehicle they are on; and the caption says what the order is, since an ordered list of place
+   * names is only useful if a reader knows it is the order the van calls at them in.
+   */
+  vanStopsHeading: "{van}'s stops",
+  vanStopsCaption: "In the order the van calls at them.",
+  /** The van is on the road and the run has no stop list yet — said rather than left blank. */
+  vanStopsEmpty: "Nothing is known about {van}'s stops yet.",
   needsHeading: "Approved needs",
   capabilityHeading: "Vehicle check",
   receiverHeading: "Who receives the child",

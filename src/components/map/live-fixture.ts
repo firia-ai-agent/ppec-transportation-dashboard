@@ -16,8 +16,16 @@
 
 import type { LiveSnapshot } from "@/domain/board/live";
 import { measurePath, pathUpTo } from "@/domain/location/geo";
-import { DEMO_CENTER, type MapFixture, type MapRouteFixture, type MapStopFixture, type MapVehicleFixture } from "@/fixtures/map";
+import {
+  DEMO_CENTER,
+  type MapFixture,
+  type MapRouteFixture,
+  type MapStopFixture,
+  type MapVehicleFixture,
+  type MapVehicleMarker,
+} from "@/fixtures/map";
 import { places, sourceMode } from "@/ui/copy";
+import { vanMarkerStateOf, vanMarkerWords } from "@/ui/van-state";
 
 /** The whole fleet is a few miles across; 11 shows the centre and every landmark at once. */
 export const BOARD_MAP_ZOOM = 11;
@@ -68,9 +76,28 @@ function routesOf(snapshot: LiveSnapshot): MapRouteFixture[] {
   return out;
 }
 
+/**
+ * What this van's marker says (Vera's bar), from the tick's own facts: the freshness band, the
+ * stall, how late the rides on it are, and when it was last seen.
+ *
+ * Every one of those is on the snapshot, decided by src/domain/board at the tick — this only
+ * chooses which of them the marker leads with (src/ui/van-state.ts).
+ */
+function markerOf(vehicle: LiveSnapshot["vehicles"][number]): MapVehicleMarker {
+  const motion = {
+    band: vehicle.band,
+    gpsAgeSeconds: vehicle.gpsAgeSeconds,
+    stoppedSeconds: vehicle.stoppedSeconds,
+    lateSeconds: vehicle.lateSeconds,
+    lastFixMs: vehicle.lastFixMs,
+  };
+  return { state: vanMarkerStateOf(motion), label: vanMarkerWords(motion) };
+}
+
 function vehiclesOf(snapshot: LiveSnapshot): MapVehicleFixture[] {
   return snapshot.vehicles.map((vehicle) => ({
     id: vehicle.id,
+    marker: markerOf(vehicle),
     description: vehicle.description,
     owner: vehicle.owner,
     stateLabel: vehicle.stateLabel,

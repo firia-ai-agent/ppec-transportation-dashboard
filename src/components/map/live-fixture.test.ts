@@ -7,9 +7,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { BOARD_SCENARIO_TICK } from "@/domain/board/day";
-import { liveSnapshotAt } from "@/domain/board/live";
+import { liveSnapshotAt, type LiveVehicle } from "@/domain/board/live";
+import { formatClock } from "@/domain/eta/eta";
+import { tickAtScenarioSeconds } from "@/domain/eta/scenario-clock";
 import { distanceM, measurePath } from "@/domain/location/geo";
 import { places, sourceMode } from "@/ui/copy";
+import { VAN_MARKER_STATES, VAN_STALL_SECONDS, vanMarkerWords } from "@/ui/van-state";
 import { BOARD_MAP_ZOOM, mapFixtureFrom } from "./live-fixture";
 
 const snapshot = liveSnapshotAt(BOARD_SCENARIO_TICK);
@@ -55,6 +58,61 @@ describe("what the pane is given", () => {
         expect(stop.windowText).toMatch(/^\d{1,2}:\d{2}–\d{1,2}:\d{2} [AP]M$/);
       }
     }
+  });
+});
+
+/**
+ * Vera's bar, at the seam where a snapshot becomes a pane: every marker carries the van's state
+ * as a word, the words come from the tick's own facts, and a van with no fix is faded at the
+ * place it was last seen rather than left out or moved.
+ */
+describe("what each marker says", () => {
+  it("gives every van a state and the words for it", () => {
+    expect(fixture.vehicles.length).toBeGreaterThan(0);
+    for (const vehicle of fixture.vehicles) {
+      expect(VAN_MARKER_STATES).toContain(vehicle.marker.state);
+      expect(vehicle.marker.label.length).toBeGreaterThan(0);
+      // The words are the state's own, filled from this van's numbers and nothing else.
+      const van = snapshot.vehicles.find((v) => v.id === vehicle.id) as LiveVehicle;
+      expect(vehicle.marker.label).toBe(
+        vanMarkerWords({
+          band: van.band,
+          gpsAgeSeconds: van.gpsAgeSeconds,
+          stoppedSeconds: van.stoppedSeconds,
+          lateSeconds: van.lateSeconds,
+          lastFixMs: van.lastFixMs,
+        }),
+      );
+    }
+  });
+
+  it("says the stall on the van that is standing still at this tick (§5.1)", () => {
+    const stalled = snapshot.vehicles.find((v) => v.stoppedSeconds >= VAN_STALL_SECONDS);
+    expect(stalled, "no van is stalled at the board's instant").toBeDefined();
+    const marker = fixture.vehicles.find((v) => v.id === (stalled as LiveVehicle).id);
+    expect(marker?.marker.state).toBe("STOPPED");
+    expect(marker?.marker.label).toMatch(/^Stopped \d+ min$/);
+  });
+
+  /**
+   * Later in the morning, inside the §18.2 step 8 gap: the marker is still on the map, at the
+   * last position anybody reported, and its words are the time of that position. The geometry
+   * assertion is the one that matters — "never an invented position" is a claim about a
+   * coordinate, not about a label.
+   */
+  it("fades a van with no fix at the place it was last seen, never at a guess", () => {
+    const seenSnapshot = liveSnapshotAt(tickAtScenarioSeconds(600));
+    const lostSnapshot = liveSnapshotAt(tickAtScenarioSeconds(780));
+    const lostVan = lostSnapshot.vehicles.find((v) => v.band === "lost") as LiveVehicle;
+    expect(lostVan, "no van has lost its signal by this tick").toBeDefined();
+
+    const marker = mapFixtureFrom(lostSnapshot).vehicles.find((v) => v.id === lostVan.id);
+    expect(marker?.marker.state).toBe("NO_FIX");
+    expect(marker?.marker.label).toBe(`Last seen ${formatClock(lostVan.lastFixMs)}`);
+
+    // The same coordinate it had while it was still being seen: nothing moved it.
+    const before = mapFixtureFrom(seenSnapshot).vehicles.find((v) => v.id === lostVan.id);
+    expect(marker?.coord).toEqual(before?.coord);
   });
 });
 

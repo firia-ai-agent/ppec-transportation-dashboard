@@ -1,9 +1,12 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
-import { buildBoard, demoDay, serviceDayFor, type LegRow } from "@/domain/board/board";
+import { BOARD_SCENARIO_TICK, buildBoard, demoDay, serviceDayFor, type LegRow } from "@/domain/board/board";
+import { liveSnapshotAt, type LiveVehicle } from "@/domain/board/live";
+import { replayForVehicle } from "@/domain/board/scenario";
+import { stopWindowText } from "@/ui/van-state";
 import {
   board as boardCopy,
   drawer,
@@ -113,6 +116,39 @@ describe("the board renders the day", () => {
     const page = readFileSync(path.join(__dirname, "page.tsx"), "utf8");
     expect(page).toContain("requestedServiceDay(one(params.date), process.env)");
     expect(page).not.toMatch(/serviceDayFor\s*\(/);
+  });
+
+  /**
+   * Vera's bar, item 4: the live map screen carries the demo day's clock and nothing that could
+   * move it or the day.
+   *
+   * The date is a `<time>` and a phase word; the clock is the §2 header's readout, which is a
+   * reading and not a control (src/ui/ScenarioClock.tsx, and the gate on it in shell.test.ts).
+   * What this asserts is the absence: no field, no picker, no option list, no arrow, no link to
+   * another day anywhere on the board — including the map pane, which is rendered here with a
+   * live snapshot so the whole surface is in the markup.
+   */
+  it("carries the demo day and offers no control over the day or the clock", () => {
+    const live = renderToStaticMarkup(
+      createElement(TodayBoard, {
+        board,
+        query: "",
+        speed: 1,
+        initialSnapshot: liveSnapshotAt(BOARD_SCENARIO_TICK),
+      }),
+    );
+    // One date, the demo day, said as a fact.
+    expect(live.match(/<time/g)).toHaveLength(1);
+    expect(live).toContain(serviceDate.phases.LIVE);
+    // Nothing that sets one.
+    expect(live).not.toMatch(/<input/);
+    expect(live).not.toMatch(/<select/);
+    expect(live).not.toMatch(/type="date"/);
+    expect(live).not.toMatch(/\bdate=\d{4}-\d{2}-\d{2}/);
+    expect(live).not.toMatch(/Previous day|Next day|Change the day/);
+    // And no clock control: no speed, no play, no pause, no jump-to on this surface.
+    expect(live).not.toMatch(/speed=/);
+    expect(live).not.toMatch(/>(Play|Pause|Restart|Start)</);
   });
 
   /**
@@ -587,5 +623,83 @@ describe("the one primary action, and why it is not available", () => {
       // No automatic return, and no handoff either: the only exit is a person's.
       expect(held).toContain(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
     });
+  });
+});
+
+/**
+ * The drawer is what a van on the map opens (Vera's bar).
+ *
+ * Clicking a marker opens *this* panel — the one the board already has — rather than a popup
+ * over the canvas, and the panel then holds the one thing a reader who arrived that way is
+ * asking for: the van's stops, in the order it calls at them.
+ */
+describe("the van's run, in the drawer", () => {
+  const snapshot = liveSnapshotAt(BOARD_SCENARIO_TICK);
+
+  /** A child whose morning ride is on a van the snapshot is drawing, and that van. */
+  function childOnAVan(): { legs: LegRow[]; van: LiveVehicle } {
+    for (const van of snapshot.vehicles) {
+      if (van.stops.length === 0) continue;
+      const leg = board.legs.find((l) => l.ride.vehicleLabel === van.id);
+      if (leg) return { legs: legsOf(leg.child.childKey), van };
+    }
+    throw new Error("no child on a van with stops at the board's instant");
+  }
+
+  const { legs, van } = childOnAVan();
+  const html = renderToStaticMarkup(
+    createElement(LegDrawer, { legs, day: board.day, van, onClose: () => {} }),
+  );
+
+  it("heads the section with the van and says what the order is", () => {
+    expect(html).toContain(escaped(fill(drawer.vanStopsHeading, { van: van.id })));
+    expect(html).toContain(drawer.vanStopsCaption);
+  });
+
+  /**
+   * Pickup order, asserted against the **committed route** rather than against the snapshot it
+   * was rendered from: the order is the run's own (the ADR-007 geometry the scenario drives), so
+   * this fails if the panel ever sorts the stops by name, by window or by anything else.
+   */
+  it("lists the stops in the order the van calls at them", () => {
+    const route = (replayForVehicle(van.id) as { spec: { route: { stops: Array<{ id: string }> } } })
+      .spec.route;
+    const rendered = [...html.matchAll(/data-stop="([^"]+)"/g)].map((m) => m[1]);
+    expect(rendered.length).toBeGreaterThan(1);
+    const expected = route.stops.map((stop) => stop.id).filter((id) => rendered.includes(id));
+    expect(rendered).toEqual(expected);
+    // And it is a numbered list, because "first, then, then" is what pickup order means.
+    expect(html).toMatch(/<ol[^>]*data-van=/);
+  });
+
+  it("says each stop as a place and what is known about it, never as a code", () => {
+    for (const stop of van.stops) {
+      expect(html).toContain(stop.name);
+      expect(html).toContain(escaped(stopWindowText(stop.status, stop.windowText, van.etaTextSuppressed)));
+      // The family code is a key between engineers (COPY-GUIDE §1–§2).
+      if (stop.familyLabel) expect(html).not.toContain(`>${stop.familyLabel}<`);
+    }
+  });
+
+  it("has no section at all for a ride with no live van, rather than an empty one", () => {
+    const withoutVan = renderToStaticMarkup(
+      createElement(LegDrawer, { legs, day: board.day, van: null, onClose: () => {} }),
+    );
+    expect(withoutVan).not.toContain(drawer.vanStopsCaption);
+    expect(withoutVan).not.toMatch(/data-stop=/);
+  });
+
+  /**
+   * And there is no second design for any of this: the pane draws no popup, so a click on a
+   * marker has nowhere else to go. Asserted on the source of every map module, because a
+   * `maplibregl.Popup` is the thing that would quietly become one.
+   */
+  it("draws no popup anywhere in the map pane", () => {
+    const mapDir = path.join(__dirname, "..", "..", "..", "components", "map");
+    for (const file of readdirSync(mapDir).filter((f) => !f.includes(".test."))) {
+      const source = readFileSync(path.join(mapDir, file), "utf8");
+      expect(source, `${file} draws a popup`).not.toMatch(/\bPopup\b/);
+      expect(source, `${file} draws a popup`).not.toMatch(/maplibregl-popup/);
+    }
   });
 });

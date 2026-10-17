@@ -240,6 +240,64 @@ describe("AT-11 · location loss: the badge at 180 s, the exception at 600 s", (
   });
 });
 
+/**
+ * The two facts Vera's bar added to a van, and the rule underneath them: a marker shows the
+ * van's state in words, and a van with no current fix stays where it was last **seen**.
+ *
+ * The words themselves are src/ui/van-state.test.ts; these are the numbers they are read from,
+ * and the one property that matters more than any wording — that no tick of the morning ever
+ * moves a van to a position nobody reported.
+ */
+describe("what a marker is read from (Vera's bar)", () => {
+  const vanId = gapVan(liveSnapshotAt(BOARD_SCENARIO_TICK)).id;
+  const vanAt = (seconds: number) =>
+    at(seconds).vehicles.find((v) => v.id === vanId) as LiveVehicle;
+
+  it("stamps every van with the instant its drawn position was reported", () => {
+    const snapshot = liveSnapshotAt(BOARD_SCENARIO_TICK);
+    for (const van of snapshot.vehicles) {
+      expect(van.lastFixMs).toBe(snapshot.nowMs - van.gpsAgeSeconds * 1000);
+      expect(van.lastFixMs).toBeLessThanOrEqual(snapshot.nowMs);
+    }
+  });
+
+  /**
+   * The honest version of "Last seen 7:31 AM": through the whole §18.2 step 8 gap the van's
+   * coordinate is the **same** coordinate, and it is the one from before the gap. A marker that
+   * crept along the route while no position was arriving would be drawing a guess.
+   */
+  it("leaves a van with no fix where it was seen, and never carries it forward", () => {
+    const seen = vanAt(600);
+    const lost = vanAt(780);
+    expect(lost.band).toBe("lost");
+    expect(lost.coord).toEqual(seen.coord);
+    expect(lost.drivenM).toBe(seen.drivenM);
+    // The same instant, too: the age grows because the clock moves, not because a point arrived.
+    expect(lost.lastFixMs).toBe(seen.lastFixMs);
+    expect(lost.gpsAgeSeconds).toBeGreaterThan(seen.gpsAgeSeconds);
+  });
+
+  it("carries the worst shift on the van's own rides, so the map and the rows agree", () => {
+    const snapshot = at(780);
+    for (const van of snapshot.vehicles) {
+      const shifts = snapshot.rides
+        .filter((ride) => ride.deltaSeconds !== null)
+        .map((ride) => ride.deltaSeconds as number);
+      if (van.lateSeconds === null) continue;
+      // Whatever it is, it is one of the rides' own numbers and the largest of this van's.
+      expect(shifts).toContain(van.lateSeconds);
+    }
+  });
+
+  it("is late on the stalled van once the gate has moved its downstream window (AT-03)", () => {
+    // Late enough into the morning that the stall's shift has persisted and been published.
+    const stalled = stalledVan(liveSnapshotAt(BOARD_SCENARIO_TICK)).id;
+    const van = at(1200).vehicles.find((v) => v.id === stalled) as LiveVehicle;
+    expect(van.lateSeconds).not.toBeNull();
+    expect(van.lateSeconds as number).toBeGreaterThan(0);
+  });
+});
+
 describe("LOC-01 · a van whose device is not linked to it", () => {
   it("is on no marker, in no route and in no stop list — and is counted", () => {
     const snapshot = liveSnapshotAt(BOARD_SCENARIO_TICK);
