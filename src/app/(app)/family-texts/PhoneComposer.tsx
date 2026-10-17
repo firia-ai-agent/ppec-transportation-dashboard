@@ -51,6 +51,12 @@ export function PhoneComposer({
 
   const answered = turnState.status === "answered" ? turnState : null;
   const turn = answered?.turn;
+  const sourceLine =
+    turn?.source === "model" && turn.model
+      ? fill(familyTexts.answeredByModel, { model: turn.model })
+      : modelReachKind === "model"
+        ? familyTexts.answeredByKeyword
+        : null;
 
   return (
     <section className={styles.composer} aria-label={fill(familyTexts.composerHeading, { adult: guardianName })}>
@@ -89,11 +95,14 @@ export function PhoneComposer({
       {turn ? (
         <div className={styles.turn} data-verdict={turn.verdict} data-source={turn.source}>
           <h3 className={styles.turnHeading}>{familyTexts.turnHeading}</h3>
-          <p className={styles.turnSource}>
-            {turn.source === "model" && turn.model
-              ? fill(familyTexts.answeredByModel, { model: turn.model })
-              : familyTexts.answeredByKeyword}
-          </p>
+          {/*
+            Who answered — said once. When no model is reachable at all, the notice above the
+            composer has already said so, and a card that repeated the sentence would read as two
+            different failures. What is left for the card is the case the notice cannot know: a
+            deployment whose model *is* reachable, where this particular call still fell through to
+            the keyword reader (a 429, a timeout, a dropped connection — providers/remote.ts).
+          */}
+          {sourceLine ? <p className={styles.turnSource}>{sourceLine}</p> : null}
 
           {turn.verdict === "BLOCK" ? (
             <>

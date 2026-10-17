@@ -46,6 +46,9 @@ test.describe(`the rail as ${ROLE}`, () => {
         "/plan-routes",
         "/live-map",
         "/exceptions",
+        // Family texts sits after the exceptions, because an exception is what makes somebody
+        // want to read what the family was told.
+        "/family-texts",
         "/setup",
         "/health",
         "/ramp-ipad",

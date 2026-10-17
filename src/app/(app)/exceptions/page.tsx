@@ -1,6 +1,7 @@
 import { requirePage } from "@/auth/page-guard";
 import { getNeonDb } from "@/db/exec";
-import { approval as approvalCopy } from "@/ui/copy";
+import { approval as approvalCopy, nav } from "@/ui/copy";
+import { decideApprovalAction } from "./actions";
 import { ApprovalCard } from "./ApprovalCard";
 import { bodyOf, pendingApprovals, type PendingApproval } from "@/modules/approvals/decide";
 import styles from "./approvals.module.css";
@@ -47,7 +48,8 @@ export default async function Page() {
   return (
     <main className={styles.page}>
       <header className={styles.titleRow}>
-        <h1 className={styles.heading}>{approvalCopy.heading}</h1>
+        {/* The rail's own words for this destination, so the screen has one name. */}
+        <h1 className={styles.heading}>{nav.exceptions}</h1>
         <p className={styles.intro}>{approvalCopy.intro}</p>
       </header>
 
@@ -56,7 +58,7 @@ export default async function Page() {
       ) : (
         <ol className={styles.list}>
           {items.map((item) => (
-            <ApprovalCard key={item.id} item={item} bodyFor={bodiesFor(item)} />
+            <ApprovalCard key={item.id} item={item} bodyFor={bodiesFor(item)} decide={decideApprovalAction} />
           ))}
         </ol>
       )}

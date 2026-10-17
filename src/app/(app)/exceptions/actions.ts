@@ -36,6 +36,14 @@ export type DecisionState =
   | { readonly status: "decided"; readonly decision: ApprovalDecision; readonly text: string; readonly queued: number };
 
 /**
+ * The action's own shape, named here so the card can take it as a prop without writing an arrow
+ * type of its own: `copy.test.ts` scans every `.tsx` for JSX text nodes, and a
+ * `=> Promise<DecisionState>` in a component's props reads to that scanner as markup. A `.ts`
+ * module is not scanned that way, so the type lives where it belongs anyway — beside the action.
+ */
+export type DecideAction = (previous: DecisionState, form: FormData) => Promise<DecisionState>;
+
+/**
  * The words for each refusal. Codes stay in the model and never reach a screen (COPY-GUIDE §2):
  * this is the one place they become sentences, and every one of them says what happened and what
  * the person reading it can do.

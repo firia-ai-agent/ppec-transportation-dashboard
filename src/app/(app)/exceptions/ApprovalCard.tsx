@@ -30,19 +30,31 @@
 import { useActionState, useState } from "react";
 import { approval as approvalCopy, board, fill } from "@/ui/copy";
 import { clockLabel } from "@/ui/service-date";
-import { decideApprovalAction, type DecisionState } from "./actions";
+import type { DecideAction, DecisionState } from "./actions";
 import type { PendingApproval } from "@/modules/approvals/decide";
 import styles from "./approvals.module.css";
 
-export function ApprovalCard({ item, bodyFor }: {
+type ApprovalCardProps = {
   item: PendingApproval;
   /**
    * The body for a given time, rendered on the server and handed down as a map, so the client
    * never carries the outbox's copy or its renderer and the screen cannot drift from the send.
    */
   bodyFor: Readonly<Record<string, string>>;
-}) {
-  const [state, submit, pending] = useActionState<DecisionState, FormData>(decideApprovalAction, {
+  /**
+   * The decision, handed in by the page rather than imported here.
+   *
+   * A server action is a reference, and passing one down is the idiomatic shape — but there is a
+   * second reason: importing `./actions` for the *function* would drag Auth.js and `next/server`
+   * in behind it, which a card that only renders words has no business pulling, and which stops
+   * this component from being renderable in a test at all (`approval-card.test.ts`). The type
+   * comes from there; the function comes from the page.
+   */
+  decide: DecideAction;
+};
+
+export function ApprovalCard({ item, bodyFor, decide }: ApprovalCardProps) {
+  const [state, submit, pending] = useActionState<DecisionState, FormData>(decide, {
     status: "idle",
   });
   const [editing, setEditing] = useState(false);

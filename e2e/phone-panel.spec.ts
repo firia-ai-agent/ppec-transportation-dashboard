@@ -97,8 +97,29 @@ test("a staff-typed parent text reaches the assistant, and the answer says who g
   await page.getByRole("button", { name: fill(familyTexts.composerSend, { adult: noah.guardianName }) }).click();
 
   await expect(page.getByRole("heading", { name: familyTexts.turnHeading })).toBeVisible();
-  await expect(page.getByText(familyTexts.answeredByKeyword)).toBeVisible();
   await expect(page.getByText(familyTexts.nothingHappened)).toBeVisible();
+
+  /*
+   * Which reader answered, said **once** (Vera's review, 2026-10-17). This deployment can reach no
+   * model at all, so the notice above the composer carries the sentence and the turn card does not
+   * repeat it — a screen that said it twice would read as two different failures. The count is the
+   * assertion, not just the presence.
+   */
+  await expect(page.getByText(familyTexts.answeredByKeyword)).toHaveCount(1);
+  await expect(page.getByText(familyTexts.answeredByKeyword)).toBeVisible();
+
+  /*
+   * And the text a coordinator typed is now **in the thread**, under the bubbles already there,
+   * inside the phone frame (demo item 2c). Not beside it: "what did we say to them" is a question
+   * a person asks of the thread. There is no reply bubble, and there should not be — the keyword
+   * reader raised this for a person and §11.2 says a proposal is not a message.
+   */
+  const typed = fill(familyTexts.composerExample, { child: noah.childFirstName });
+  const frame = page.getByLabel(familyTexts.simulatedPhone);
+  await expect(frame.getByText(typed, { exact: false })).toBeVisible();
+  // …and it says why these two carry no time and no delivery, unlike the rows above them.
+  await expect(frame.getByText(familyTexts.liveNote)).toBeVisible();
+
   await expectNoInternalCodes(page);
   console.log("screenshot:", await shot(page, "phone-panel-agent"));
 });

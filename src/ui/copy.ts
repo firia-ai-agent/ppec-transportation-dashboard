@@ -811,8 +811,13 @@ export const approval = {
 
   /* ── the screen around the card (SURF-05, PRD §14 "Exceptions & Approvals") ── */
 
-  heading: "Exceptions & approvals",
-  documentTitle: "Exceptions & approvals · PPEC transportation",
+  /**
+   * The screen's `<title>`. Its **heading** is `nav.exceptions`, not a string of its own: the rail
+   * already names this destination, and a page whose h1 said "Exceptions & approvals" under a rail
+   * that said "Exceptions & Approvals" is one screen with two names (nav-items.ts keeps every other
+   * destination's label and heading as one string for exactly this reason).
+   */
+  documentTitle: "Exceptions & Approvals · PPEC transportation",
   intro: "What the assistant has asked a person to decide. Nothing here has been sent.",
   /** A day with nothing waiting. Said as a fact about the day, not about the build. */
   none: "Nothing is waiting for a decision.",
