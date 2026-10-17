@@ -463,7 +463,12 @@ export const health = {
   ridesHeading: "{label}: {rides}",
   /** A number that counted nothing still opens, and says so rather than showing an empty table. */
   noRides: "Nothing was counted here today, so there is no ride to open.",
-  /** The columns of that list. Fewer than the board's: this is a way back to a child, not a board. */
+  /**
+   * The columns of that list. Fewer than the board's: this is a way back to a child, not a
+   * board. There is no opener string here either — the row's button is announced with the
+   * board's own `board.openRow`, because it is the same control doing the same thing, and a
+   * click learned on one screen has to work on the other.
+   */
   rideColumns: {
     child: "Child",
     ride: "Ride",
@@ -471,8 +476,6 @@ export const health = {
     vehicle: "Van",
     nextStep: "Next step",
   },
-  /** Each row of the list opens the child's day in the same panel the board opens. */
-  openRide: "Open {child}, {ride}",
   metrics: {
     /**
      * Whether the capacity check found every child a place. The ratio is the headline because

@@ -237,7 +237,8 @@ function RideList({
       <tbody>
         {rides.map((leg) => {
           const spoken = leg.ride.direction === "AM" ? boardCopy.amSpoken : boardCopy.pmSpoken;
-          const opener = fill(health.openRide, { child: leg.child.childLabel, ride: spoken });
+          // The board's own opener, not a second one: the same control, announced the same way.
+          const opener = fill(boardCopy.openRow, { child: leg.child.childLabel, ride: spoken });
           return (
             <tr key={leg.key} className={styles.row}>
               <th scope="row" className={styles.childCell}>

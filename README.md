@@ -73,6 +73,9 @@ pnpm e2e                                 # the full set: builds, starts the app,
 pnpm e2e e2e/today-board.spec.ts         # just the board's: today-board / arrival-not-handoff / held-no-receiver /
                                          # one-date / drawer / disabled-action / needs-action, each at 1024 and 1280
 pnpm e2e e2e/screens.spec.ts             # today-* / map-preview-* / ramp-preview-* at both review widths
+pnpm e2e e2e/plan-routes.spec.ts         # the planning screen's set, at both review widths
+pnpm e2e e2e/health-roi.spec.ts          # health-numbers / health-rides-behind / health-ride-drawer /
+                                         # health-adapters, each at 1024 and 1280
 pnpm e2e e2e/map-preview.spec.ts         # artifacts/map-preview.png
 ```
 Each screenshot's name is in the `console.log("screenshot:", …)` line of the test that takes it, and `artifacts/` is wiped by nothing — a stale PNG is one no spec writes any more, so regenerate into an empty directory (`rm -rf artifacts && pnpm e2e`) when the set itself is under review. That also clears the other evidence kept there, `artifacts/at-10-mutation.txt`, which is a separate run (docs/ui/B12-SLICE2-DEFERRED.md §6). The board's checks read the finished day through the test-only date override (`E2E_DATE_OVERRIDE=1`, set by `playwright.config.ts`; `src/domain/board/day.ts`), which no deployment has.

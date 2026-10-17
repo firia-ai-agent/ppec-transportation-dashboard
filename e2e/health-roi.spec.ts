@@ -134,8 +134,10 @@ for (const width of WIDTHS) {
       if ((await tile.getAttribute("aria-expanded")) !== "true") await tile.click();
       await expect(tile).toHaveAttribute("aria-expanded", "true");
       const child = OPEN_RIDE.children[0];
+      // Announced with the board's own opener string, which is the assertion: the same control
+      // on two screens has to say the same thing.
       const opener = page.getByRole("button", {
-        name: fill(health.openRide, { child, ride: boardCopy.pmSpoken }),
+        name: fill(boardCopy.openRow, { child, ride: boardCopy.pmSpoken }),
       });
       await expect(opener).toBeVisible();
       console.log("screenshot:", await shot(page, `health-rides-behind-${width}`));
