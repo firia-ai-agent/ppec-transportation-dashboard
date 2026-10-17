@@ -9,6 +9,7 @@ SOURCE: PRD §20 (B-01–B-16), §18.3 AT list, ADR-000…015. Status: Proposed 
 - Same 16 PRD backlog items, re-scoped for Vercel+Neon and mocks. Live-integration work (Twilio, Teams SDK, Traccar, Amazon/Google routing, HIPAA AWS account) becomes a seam + mock now and a real adapter later.
 - Critical path: B-01 → B-02 → B-03 (timers, TEST-INF-01) → B-08 (agent) → B-15 (acceptance). B-12 console runs in parallel from B-03.
 - No effort numbers here: the PRD's ED estimates assume the live-integration scope and AWS, so they don't carry over (Unverified until Rudy re-estimates).
+- **The order of the remaining work is docs/BUILD-PLAN-M2.md** — steps P-01…P-12, the TEST-INF-01 run schedule, and where every AT stands today. This page stays the B-01…B-16 scope map; that one sequences it. (The word *slice* belongs to a B-item's own parts — B-12 slice 2, B-08 slice 7 — never to a P-step.)
 
 ## 1. Milestones
 | ID | PRD scope | This POC scope | Owner | Gate |
