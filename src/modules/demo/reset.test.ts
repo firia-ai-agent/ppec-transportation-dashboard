@@ -3,7 +3,8 @@ import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { freshDb, ORG, SITE } from "@/test/pglite";
 import { BOARD_CENSUS } from "./fixtures/standard";
-import { PREVIEW_REFUSAL, demoControlsGate, handleDemoReset } from "./reset";
+import { DEMO_RESET_REFUSAL } from "./refusal";
+import { PREVIEW_REFUSAL, RESET_ROLES, demoControlsGate, handleDemoReset } from "./reset";
 
 const SITE_B = "00000000-0000-7000-8000-0000000000b1";
 const USERS = {
@@ -51,13 +52,33 @@ describe("POST /api/demo/reset gating (ADR-014, ADR-015)", () => {
   it("refuses on a preview deployment, even for a DIRECTOR, before touching the DB", async () => {
     // A preview is served production's DATABASE_URL (DECISION-LEDGER #43): a reset there would wipe
     // the real demo data, so this gate is checked ahead of the flags and the role.
-    expect(demoControlsGate({ ...env, VERCEL_ENV: "preview" })).toEqual({ allowed: false, status: 403, reason: PREVIEW_REFUSAL });
+    expect(demoControlsGate({ ...env, VERCEL_ENV: "preview" })).toEqual({
+      allowed: false,
+      status: 403,
+      reason: PREVIEW_REFUSAL,
+      // The one refusal that is expected rather than wrong, named so a surface can act on it
+      // without reading the sentence (./refusal.ts, src/ui/demo-day.ts, ledger row 72).
+      refusal: DEMO_RESET_REFUSAL.readOnlyDb,
+    });
     expect(demoControlsGate({ VERCEL_ENV: "preview" }).status).toBe(403);
     for (const siteId of [SITE, SITE_B, undefined]) {
       const r = await handleDemoReset(db, { ...env, VERCEL_ENV: "preview" }, { userId: USERS.DIRECTOR, siteId, now: NOW });
-      expect({ siteId, status: r.status, body: r.body }).toEqual({ siteId, status: 403, body: { ok: false, error: PREVIEW_REFUSAL } });
+      expect({ siteId, status: r.status, body: r.body }).toEqual({
+        siteId,
+        status: 403,
+        body: { ok: false, error: PREVIEW_REFUSAL, refusal: DEMO_RESET_REFUSAL.readOnlyDb },
+      });
     }
     expect(await childCount()).toBe(0);
+  });
+
+  it("no other refusal carries a code: a flag or a role is not 'by design' to the caller", async () => {
+    for (const gate of [demoControlsGate({ APP_DATA_CLASS: "SYNTHETIC" }), demoControlsGate({ DEMO_MODE: "1" })]) {
+      expect(gate.allowed).toBe(false);
+      expect(gate.allowed === false && gate.refusal).toBeUndefined();
+    }
+    const refused = await handleDemoReset(db, env, { userId: USERS.FRONT_DESK, siteId: SITE, now: NOW });
+    expect(Object.keys(refused.body).sort()).toEqual(["error", "ok"]);
   });
 
   it("runs as before on production and off Vercel entirely", async () => {
@@ -88,10 +109,35 @@ describe("POST /api/demo/reset gating (ADR-014, ADR-015)", () => {
     expect(await childCount()).toBe(0);
   });
 
-  it("is DIRECTOR only: a member with the wrong role gets 403, a non-member gets the uniform 404", async () => {
+  /**
+   * The three roles, against a real database, with the rows counted after each one — the half a
+   * hidden button cannot claim. Founder's final ruling, 2026-10-17 14:44 ET (DECISION-LEDGER row
+   * 72): the director and the coordinator may reset the demo, the front desk may not.
+   */
+  it("the director and the coordinator each get 200 and a seeded site; the front desk gets 403", async () => {
+    for (const role of ["DIRECTOR", "COORDINATOR"] as const) {
+      // Naming no site: each resolves their own, from the roles the access table opens this to.
+      const r = await handleDemoReset(db, env, { userId: USERS[role], now: NOW });
+      expect({ role, status: r.status }).toEqual({ role, status: 200 });
+      expect({ role, children: await childCount() }).toEqual({ role, children: BOARD_CENSUS });
+      expect({ role, siteId: r.status === 200 ? r.body.siteId : null }).toEqual({ role, siteId: SITE });
+    }
+
+    // And the roles come from the one row, not from a list written out in here.
+    expect([...RESET_ROLES]).toEqual(["DIRECTOR", "COORDINATOR"]);
+
+    for (const siteId of [SITE, undefined]) {
+      const r = await handleDemoReset(db, env, { userId: USERS.FRONT_DESK, siteId, now: NOW });
+      expect({ siteId, status: r.status }).toEqual({ siteId, status: 403 });
+      // The refusal does not say which role would have worked.
+      expect(JSON.stringify(r.body)).not.toMatch(/DIRECTOR|COORDINATOR|FRONT_DESK/);
+    }
+  }, 180_000);
+
+  it("a member with the wrong role gets 403, and a non-member gets the uniform 404", async () => {
     // Same site, role not allowed → 403 (BUILD-PLAN §4). It is their site either way, so there
     // is nothing about its existence left to hide.
-    for (const userId of [USERS.COORDINATOR, USERS.FRONT_DESK]) {
+    for (const userId of [USERS.FRONT_DESK]) {
       for (const siteId of [SITE, undefined]) {
         const r = await handleDemoReset(db, env, { userId, siteId, now: NOW });
         expect({ userId, siteId, status: r.status }).toEqual({ userId, siteId, status: 403 });
@@ -143,10 +189,21 @@ describe("POST /api/demo/reset gating (ADR-014, ADR-015)", () => {
     expect(await childCount()).toBe(0);
   });
 
+  it("asks which site for a coordinator at two sites, and never guesses one", async () => {
+    // One role per site is the schema's own rule (site_membership's primary key), so "more than
+    // one allowed membership" always means more than one *site* — the only thing worth asking.
+    await db.query("INSERT INTO ops.site_membership (user_id,site_id,role) VALUES ($1,$2,'COORDINATOR')", [USERS.COORDINATOR, SITE_B]);
+    const r = await handleDemoReset(db, env, { userId: USERS.COORDINATOR, now: NOW });
+    expect(r.status).toBe(400);
+    expect(await childCount()).toBe(0);
+  });
+
   it("says nothing about tickets, roles it did not grant, or secrets", async () => {
     const bodies: string[] = [];
+    // The front desk, because every one of these must be a *refusal*: a coordinator now resets
+    // the demo (ledger row 72), so the third case would be a 200 and prove nothing.
     for (const e of [{ ...env, DEMO_MODE: "0" }, { ...env, APP_DATA_CLASS: "REAL" }, env]) {
-      bodies.push(JSON.stringify((await handleDemoReset(db, e, { userId: USERS.COORDINATOR, siteId: SITE, now: NOW })).body));
+      bodies.push(JSON.stringify((await handleDemoReset(db, e, { userId: USERS.FRONT_DESK, siteId: SITE, now: NOW })).body));
     }
     for (const b of bodies) {
       expect(b).not.toMatch(/PPE-|B-15|\bticket\b/i);

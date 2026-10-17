@@ -19,12 +19,16 @@
  * screen. `useSyncExternalStore` is React's own answer to that, and it gives the server render
  * the one snapshot a server has: not started.
  *
- * **No server state, by design.** Starting the clock writes nothing and asks nothing: it is the
- * instant the synthetic day is read at, and the day is already committed in the fixtures
- * (ADR-015 synthetic-only). That is what makes Start work on a Vercel preview, where the demo
+ * **No server state in here, by design.** This module writes nothing and asks nothing: a tick is
+ * the instant the synthetic day is read at, and the day is already committed in the fixtures
+ * (ADR-015 synthetic-only). That is what lets the clock run on a Vercel preview, where the demo
  * reset endpoint refuses because the database is read-only there (DECISION-LEDGER #43,
- * `demoControlsGate` in src/modules/demo/reset.ts). Resetting the **data** is a different thing
- * with a different control, and this one does not pretend to do it.
+ * `demoControlsGate` in src/modules/demo/reset.ts).
+ *
+ * Resetting the **data** is the other half of the header's one button, and it is not in here:
+ * the press calls `POST /api/demo/reset` first and then starts this clock, in that order, and
+ * src/ui/demo-day.ts is where those two are put together. The split is what makes the preview
+ * answer possible — the data refuses, the clock still runs.
  *
  * Not the map's clock: /live-map animates the committed replays on their own loop, with §6.2's
  * play/pause and speeds beside it (src/components/map/LiveFleetMap.tsx). That pane is its own
@@ -106,13 +110,29 @@ export function startDemoClock(): void {
 }
 
 /**
- * What the Reset button does: the readout says the demo has not started again, and every surface
- * reading this clock is back at the instant the server rendered. No stored data is touched,
- * because none was written.
+ * Back to "Demo not started": every surface reading this clock is at the instant the server
+ * rendered, and nothing is advancing it. No stored data is touched — this module writes none.
+ *
+ * Not a control of its own any more: the header has one button, and it restarts (below). This is
+ * the half of a restart that puts the clock back.
  */
 export function resetDemoClock(): void {
   stopTimer();
   publish(NOT_STARTED);
+}
+
+/**
+ * What the header's button does to the clock, on either press: the day back to the instant the
+ * page was rendered at, then running from there.
+ *
+ * One function rather than two presses, because the demo day it belongs to is restarted the same
+ * way — `POST /api/demo/reset` puts the data back to the start of the day and then the clock runs
+ * (founder's final ruling, 2026-10-17 14:44 ET). A `startDemoClock` on a running clock is
+ * deliberately *not* a restart, so the second press needs this and not that.
+ */
+export function restartDemoClock(): void {
+  resetDemoClock();
+  startDemoClock();
 }
 
 export function demoClockSnapshot(): DemoClock {

@@ -32,8 +32,8 @@ function walkSrc(dir: string = SRC_ROOT): string[] {
  * WCAG 2.1 AA, or that drifts from the published ratio, fails the build.
  */
 describe("§8 contrast", () => {
-  it("covers every colour pair the doc lists, plus the inactive-control and demo-control pairs", () => {
-    expect(contrastPairs).toHaveLength(28);
+  it("covers every colour pair the doc lists, plus the inactive-control, demo-control and danger-button pairs", () => {
+    expect(contrastPairs).toHaveLength(29);
   });
 
   it.each(contrastPairs)(

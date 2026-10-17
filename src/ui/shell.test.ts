@@ -2,13 +2,23 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { adapters, demoBanner, login, nav, scenarioClock, unbuilt } from "./copy";
 import { DemoBanner } from "./DemoBanner";
 import { Placeholder } from "./Placeholder";
 import { ScenarioClock } from "./ScenarioClock";
 import { SourceBadge } from "./SourceBadge";
 import { color, contrastRatio } from "./tokens";
+import { API, rolesWhoCanCall } from "@/auth/access";
+import type { StaffRole } from "@/auth/core";
+
+/*
+ * The scenario clock calls `router.refresh()` after a reset, so it needs the app router — which
+ * is mounted by the framework and not by `renderToStaticMarkup`. The stub is the router and
+ * nothing else: what this file renders for is the markup each role gets, and the refresh itself
+ * is asserted where the order is, in demo-day.test.ts.
+ */
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => {} }) }));
 
 /**
  * Shell contracts from Vera's review.
@@ -207,12 +217,15 @@ describe("§2 scenario clock", () => {
   const component = read(UI, "ScenarioClock.tsx");
   const css = read(UI, "ScenarioClock.module.css");
 
+  /** What one role's shell actually renders for this control. */
+  const markup = (role: StaffRole | null) => renderToStaticMarkup(createElement(ScenarioClock, { role }));
+
   it("reads 'Demo not started' and offers 'Start demo day' beside it", () => {
     expect(scenarioClock.notStarted).toBe("Demo not started");
     // COPY-GUIDE §3: verb + object, ≤3 words — the button says what it starts.
     expect(scenarioClock.start).toBe("Start demo day");
-    // …and the same button, once the day is running, says what it undoes.
-    expect(scenarioClock.reset).toBe("Reset demo day");
+    // …and the same button, once the day is running, says what it does the second time.
+    expect(scenarioClock.restart).toBe("Restart demo day");
   });
 
   /**
@@ -220,12 +233,20 @@ describe("§2 scenario clock", () => {
    * happened: it was rendered `aria-disabled` with no handler and a tooltip saying the demo
    * controls were not connected. None of that may come back — a button that looks like a button
    * does its job, and an explanation on hover is no explanation on a phone.
+   *
+   * It is wired to the whole press now, not only the clock: `startDemoDay` resets the demo's
+   * data and then starts the clock (founder's final ruling, 2026-10-17 14:44 ET, ledger row 72).
    */
-  it("is wired to the demo clock, with nothing left that makes it inert", () => {
-    expect(component).toMatch(/onClick=\{clock\.running \? resetDemoClock : startDemoClock\}/);
-    // The attribute, not the word: the file's own comment says what it used to be rendered as.
+  it("is wired to the reset and the clock, with nothing left that makes it inert", () => {
+    expect(component).toMatch(/startDemoDay\(\{/);
+    expect(component).toMatch(/reset: postDemoReset/);
+    expect(component).toMatch(/startClock: restartDemoClock/);
+    // On success the screens are re-rendered over the rows the reset just replaced.
+    expect(component).toMatch(/refresh: \(\) => router\.refresh\(\)/);
+    // Never rendered inert: the one `disabled` in the file is the pending press, and there is
+    // no `aria-disabled` and no tooltip anywhere — on a phone a hover explains nothing.
+    expect([...component.matchAll(/\sdisabled=\{([^}]*)\}/g)].map((m) => m[1])).toEqual(["pending"]);
     expect(component).not.toMatch(/aria-disabled=/);
-    expect(component).not.toMatch(/\sdisabled[=\s/>]/);
     expect(component).not.toMatch(/role="tooltip"/);
     expect(css).not.toMatch(/tooltip/);
     expect(css).not.toMatch(/not-allowed/);
@@ -243,13 +264,75 @@ describe("§2 scenario clock", () => {
    * not started. That is also the hydration contract — the first client render must match this.
    */
   it("renders the readout and a live Start", () => {
-    const html = renderToStaticMarkup(createElement(ScenarioClock));
+    const html = markup("DIRECTOR");
     expect(html).toContain(scenarioClock.notStarted);
     expect(html).toContain(scenarioClock.start);
-    expect(html).not.toContain(scenarioClock.reset);
+    expect(html).not.toContain(scenarioClock.restart);
     expect(html).not.toMatch(/aria-disabled/);
     expect(html).not.toMatch(/\sdisabled[=\s/>]/);
     expect(html).not.toMatch(/tabindex="-1"/i);
+    // Nothing has been pressed, so there is no answer line and no dialog on the page.
+    expect(html).not.toContain(scenarioClock.confirmTitle);
+    expect(html).not.toContain(scenarioClock.previewOnly);
+    expect(html).not.toContain(scenarioClock.failed);
+  });
+
+  /**
+   * Founder's final ruling (2026-10-17 14:44 ET, ledger row 72): only the director and the
+   * coordinator may use it, and **the front desk does not see the button at all** — not a
+   * disabled one, which is the inert control the 14:40 report was about. The roles are read from
+   * the endpoint's own row, so this cannot drift from the server's answer; the server refuses
+   * their POST regardless (guard-matrix.test.ts), and hiding is only the courtesy on top.
+   */
+  it("offers the control to the roles the reset endpoint names, and to no one else", () => {
+    expect([...rolesWhoCanCall(API.demoReset)]).toEqual(["DIRECTOR", "COORDINATOR"]);
+
+    for (const role of rolesWhoCanCall(API.demoReset)) {
+      const html = markup(role);
+      expect(html, role).toContain(scenarioClock.start);
+      expect(html, role).toContain("<button");
+    }
+
+    // The front desk, and a signed-in person holding no role at all: the readout, no control.
+    for (const role of ["FRONT_DESK", null] as const) {
+      const html = markup(role);
+      expect(html, String(role)).toContain(scenarioClock.notStarted);
+      expect(html, String(role)).not.toContain("<button");
+      expect(html, String(role)).not.toContain(scenarioClock.start);
+      // Not an inert one either: no disabled attribute, no aria-disabled, nothing to click.
+      expect(html, String(role)).not.toMatch(/disabled/);
+    }
+  });
+
+  /**
+   * The second press asks first, and the dialog is the founder's wording (ledger row 72). The
+   * markup is read off the source because the dialog only exists after a click, which needs a
+   * DOM; e2e/scenario-clock.spec.ts opens it with a real mouse, cancels, and restarts.
+   */
+  it("asks before a restart, with Cancel focused and Restart in the critical ink", () => {
+    expect(component).toMatch(/onClick=\{clock\.running \? \(\) => setConfirming\(true\) : run\}/);
+    expect(component).toMatch(/role="dialog"/);
+    expect(component).toMatch(/aria-modal="true"/);
+    // Cancel takes the focus when it opens, so the quiet keypress is the harmless one (§9).
+    expect(component).toMatch(/if \(confirming\) cancelRef\.current\?\.focus\(\)/);
+    expect(component).toMatch(/ref=\{cancelRef\}/);
+    // Escape is Cancel, and Cancel does nothing but close.
+    expect(component).toMatch(/event\.key === "Escape"/);
+
+    const danger = css.slice(css.indexOf(".danger"));
+    expect(danger).toMatch(/background: var\(--color-crit-fg\)/);
+    expect(danger).toMatch(/color: var\(--color-surface\)/);
+    // That inversion is a §8 row this build computes: 8.31:1 (tokens.test.ts).
+    expect(contrastRatio(color.surface, color["crit-fg"])).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("says in one line what a press came back with, and only then", () => {
+    // The two answers are different sentences, and the failure is the one in critical ink.
+    expect(component).toMatch(/\{note\.text\}/);
+    expect(component).toMatch(/role="status"/);
+    const note = css.slice(css.indexOf(".note {"));
+    expect(note).toMatch(/color: var\(--color-ink-muted\)/);
+    expect(note).toMatch(/\.note\[data-scenario-clock="error"\]/);
   });
 });
 

@@ -472,12 +472,41 @@ describe("COPY-GUIDE strings, verbatim", () => {
     expect(scenarioClock.notStarted).toBe("Demo not started");
     // §3: verb + object, ≤3 words. "Start" alone did not say what it starts.
     expect(scenarioClock.start).toBe("Start demo day");
-    expect(scenarioClock.reset).toBe("Reset demo day");
-    for (const label of [scenarioClock.start, scenarioClock.reset]) {
+    expect(scenarioClock.restart).toBe("Restart demo day");
+    for (const label of [scenarioClock.start, scenarioClock.restart]) {
       expect(label.split(" ").length).toBeLessThanOrEqual(3);
     }
     // The note that explained why Start did nothing is gone, because Start does something.
     expect(scenarioClock).not.toHaveProperty("startUnavailable");
+    // And so is "Reset demo day": the second press restarts the day, data and clock (row 72).
+    expect(scenarioClock).not.toHaveProperty("reset");
+  });
+
+  /**
+   * The founder's final ruling, 2026-10-17 14:44 ET (DECISION-LEDGER row 72), word for word. The
+   * press resets the demo's data and then starts the clock, so the control has a confirm, a
+   * pending state, and two different answers — and each of those strings was dictated.
+   */
+  it("row 72: the confirm, the pending labels and the two answers a press comes back with", () => {
+    expect(scenarioClock.confirmTitle).toBe("Restart the demo day?");
+    expect(scenarioClock.confirmBody).toBe("Anything changed since the start will be lost.");
+    expect(scenarioClock.confirmRestart).toBe("Restart");
+    expect(scenarioClock.confirmCancel).toBe("Cancel");
+    // The preview answer names what did not work and what did, in that order, and nothing else.
+    expect(scenarioClock.previewOnly).toBe("Restart works on the live site only. The clock has started.");
+    // A real failure, and it is a different sentence: one thing to try, no code, no endpoint.
+    expect(scenarioClock.failed).toBe("Couldn't reset the demo. Try again.");
+    expect(scenarioClock.failed).not.toBe(scenarioClock.previewOnly);
+    // Present tense while the data goes back, so the press is felt (§1).
+    expect(scenarioClock.starting).toBe("Starting…");
+    expect(scenarioClock.restarting).toBe("Restarting…");
+    for (const label of [scenarioClock.starting, scenarioClock.restarting]) {
+      expect(label.endsWith("\u2026")).toBe(true); // the character, not three dots
+    }
+    // §2/§1: no flag, no environment variable, no status code, no endpoint on any of them.
+    for (const line of [scenarioClock.previewOnly, scenarioClock.failed, scenarioClock.confirmBody]) {
+      expect(line).not.toMatch(/DEMO_MODE|VERCEL|APP_DATA_CLASS|DATABASE|\bapi\b|40\d|50\d/);
+    }
   });
 });
 
@@ -910,7 +939,9 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
 
   it("the demo-reset answers an operator reads", () => {
     expect(demoReset.previewRefusal).toMatch(/^Refusing: preview deployments/);
-    expect(demoReset.directorOnly).toBe("Only a director can reset the demo.");
+    // Row 72 opened the reset to the coordinator as well, so the refusal names both roles.
+    expect(demoReset.roleRefused).toBe("Only a director or coordinator can reset the demo.");
+    expect(demoReset).not.toHaveProperty("directorOnly");
   });
 });
 

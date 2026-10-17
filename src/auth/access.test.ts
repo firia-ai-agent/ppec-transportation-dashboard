@@ -18,6 +18,7 @@ import {
   mostCapable,
   pageLabel,
   pageOutcome,
+  rolesWhoCanCall,
   rolesWhoCanOpen,
   whoCanOpenLine,
   type Caller,
@@ -362,7 +363,8 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/api/health": "public",
       "/api/cron/sweep": "cron-secret",
       "/api/probe/delay": "cron-secret",
-      "/api/demo/reset": "session:DIRECTOR",
+      // Row 72: the coordinator too, so the one source for both halves is this row.
+      "/api/demo/reset": "session:DIRECTOR+COORDINATOR",
       "/api/queues/timer": "queue-callback",
       "/api/queues/outbox": "queue-callback",
       "/api/queues/agent": "queue-callback",
@@ -505,11 +507,66 @@ describe("the decision, cell by cell", () => {
     expect(apiOutcome(callers.signedOut, API.simPhoneMessages)).toBe("UNAUTHENTICATED");
   });
 
-  it("the demo reset is the director's alone", () => {
+  /**
+   * Founder's final ruling, 2026-10-17 14:44 ET (DECISION-LEDGER row 72): the demo reset is the
+   * director's **and the coordinator's** — the header's "Start demo day" puts the day's data back
+   * and then starts the clock, and a coordinator runs the demo day. ADR-014 said DIRECTOR alone
+   * until that ruling. The front desk is still refused: their surface is the ramp iPad (PRD
+   * §1.1), and the refusal is the server's, not a hidden button (guard-matrix.test.ts).
+   */
+  it("the demo reset is the console roles', and the front desk is refused", () => {
     expect(apiOutcome(callers.director, API.demoReset)).toBe("ALLOW");
-    expect(apiOutcome(callers.coordinator, API.demoReset)).toBe("FORBIDDEN");
+    expect(apiOutcome(callers.coordinator, API.demoReset)).toBe("ALLOW");
     expect(apiOutcome(callers.frontDesk, API.demoReset)).toBe("FORBIDDEN");
     expect(apiOutcome(callers.signedOut, API.demoReset)).toBe("UNAUTHENTICATED");
+    // The roles a surface or a module may read, straight off the row: one source, no restating.
+    expect([...rolesWhoCanCall(API.demoReset)]).toEqual(["DIRECTOR", "COORDINATOR"]);
+    // Nothing a session route does not exist for: a non-session path has no roles to hand out.
+    expect(rolesWhoCanCall(API.cronSweep)).toEqual([]);
+    expect(rolesWhoCanCall("/api/not-in-the-table")).toEqual([]);
+  });
+
+  /**
+   * What row 72 cost, measured: the coordinator gained **one** cell, and it is the reset. A
+   * ruling about one button must not quietly widen a role anywhere else, so both halves of their
+   * access are written out here — every session endpoint they may call, and every page they may
+   * open — and a second widening fails this line before it reaches a review.
+   */
+  it("row 72 gave the coordinator the reset endpoint and nothing else", () => {
+    const callable = ENDPOINTS.filter(
+      (row) => row.auth.kind === "session" && apiOutcome(callers.coordinator, row.path) === "ALLOW",
+    ).map((row) => row.path);
+    // In table order: the demo reset, and the persona phone they already had.
+    expect(callable).toEqual([API.demoReset, API.simPhoneMessages]);
+
+    // Their pages are untouched by it — the console's six, plus the shared and public ones.
+    const pages = PAGES.filter((p) => p.kind === "page" && pageOutcome(callers.coordinator, p.path) === "ALLOW").map(
+      (p) => p.path,
+    );
+    expect(pages).toEqual([
+      "/",
+      "/login",
+      "/_not-found",
+      "/today",
+      "/exceptions",
+      "/setup",
+      "/health",
+      "/whoami",
+      "/live-map",
+      "/plan-routes",
+      "/ramp-ipad",
+      // The three redirects to the screens above, which are pages with rows of their own.
+      "/plan-preview",
+      "/map-preview",
+      "/ramp-preview",
+    ]);
+
+    // And the front desk gained nothing at all: no session endpoint is theirs.
+    expect(
+      ENDPOINTS.filter(
+        (row) => row.auth.kind === "session" && apiOutcome(callers.frontDesk, row.path) === "ALLOW",
+      ),
+    ).toEqual([]);
   });
 });
 

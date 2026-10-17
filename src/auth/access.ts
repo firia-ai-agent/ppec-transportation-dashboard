@@ -441,16 +441,24 @@ export const ENDPOINTS: readonly EndpointRow[] = [
   },
   /**
    * ADR-014 / ARCHITECTURE §2: the demo endpoints answer only with DEMO_MODE=1 and
-   * APP_DATA_CLASS=SYNTHETIC and a DIRECTOR caller, and never from a preview deployment (ledger
+   * APP_DATA_CLASS=SYNTHETIC and a console caller, and never from a preview deployment (ledger
    * #43). The site comes from the caller's own membership, so another site's id is a uniform
    * not-found (BUILD-PLAN §4).
+   *
+   * `CONSOLE` — the director **and** the coordinator — by the founder's final ruling
+   * (2026-10-17 14:44 ET, DECISION-LEDGER row 72): the header's "Start demo day" puts the day's
+   * data back and then starts the clock, and a coordinator runs the demo day. ADR-014 said
+   * DIRECTOR; this row is the one place that changes, and `RESET_ROLES` in
+   * src/modules/demo/reset.ts reads it from here (`rolesWhoCanCall`) rather than restating it.
+   * The front desk is not in it — their surface is the ramp iPad (PRD §1.1) — and the site half
+   * is unchanged: still `requireSiteAccess` at the site being reset.
    */
   {
     kind: "route",
     file: "src/app/api/demo/reset/route.ts",
     path: API.demoReset,
     methods: ["POST"],
-    auth: { kind: "session", roles: ["DIRECTOR"], siteScoped: true },
+    auth: { kind: "session", roles: CONSOLE, siteScoped: true },
   },
   /**
    * Queue trigger for topic ppec-timer (vercel.json). Invoked by the platform's queue with its
@@ -591,6 +599,20 @@ export function pageRow(path: string): PageRow | undefined {
 
 export function endpointRow(path: string): EndpointRow | undefined {
   return ENDPOINTS.find((e) => e.path === path);
+}
+
+/**
+ * The roles an **endpoint** is open to, read off its row. Empty for a route that takes no
+ * session at all (a cron secret, a queue callback, a signature webhook, Auth.js) and for a path
+ * with no row, because neither is a thing a role can be given.
+ *
+ * Here so that a module which needs the list — `RESET_ROLES` in src/modules/demo/reset.ts, and
+ * the header control that offers the reset only to a role that may call it — reads the table
+ * instead of writing the roles down a second time. The table stays the one source.
+ */
+export function rolesWhoCanCall(path: string): readonly StaffRole[] {
+  const auth = endpointRow(path)?.auth;
+  return auth?.kind === "session" ? auth.roles : [];
 }
 
 /** The roles a page is open to. `ALL_STAFF` for a public page: anyone may open it. */
