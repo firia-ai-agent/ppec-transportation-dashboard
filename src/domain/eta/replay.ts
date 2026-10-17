@@ -8,7 +8,7 @@
  *
  * Deterministic and pure: given a {@link ReplaySpec} this returns the whole run —
  * points, arrivals, recalculations, notification **decisions** and location-loss
- * exceptions — with no clock, no network, no database and no sending. The /map-preview
+ * exceptions — with no clock, no network, no database and no sending. The /live-map
  * clock then reads frames out of the result; it does not drive the engine.
  */
 

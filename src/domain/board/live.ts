@@ -264,7 +264,7 @@ function stopsOf(frame: ReplayFrame, route: Route): LiveStop[] {
  * `tween: false`. The live board shows where a van has actually been seen, which on the
  * console is the honest answer: an interpolated position is a drawing convenience, and this
  * snapshot is also what the row's GPS age and the published window are read from. (The §5.1
- * tween still happens where it belongs — on /map-preview's own clock, which asks the same
+ * tween still happens where it belongs — on /live-map's own clock, which asks the same
  * engine for a tweened frame.)
  */
 function fleetAt(nowMs: number): {

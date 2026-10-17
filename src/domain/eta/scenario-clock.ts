@@ -6,7 +6,7 @@
  * ×1/×10/×60 speeds), ADR-002 (the stream that walks it).
  *
  * This is B-10 work rather than B-12's: it is the clock the *replay* is read on, and the live
- * surface is one of its callers. /map-preview has had a clock of its own since M5 — a React
+ * surface is one of its callers. /live-map has had a clock of its own since M5 — a React
  * interval that increments a second counter — and the live board needs the same walk on the
  * server, where there is no component to hold it. So the walk is a pure function of a tick
  * number here, and both sides read frames out of the deterministic replay at the instant a

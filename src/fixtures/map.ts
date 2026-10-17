@@ -5,7 +5,7 @@
  * never a home) and §2 (vehicles V1–V4); docs/PRD-v1.0.txt §18.1.
  *
  * Nothing here touches the database: these are literals, read by the client map and
- * by /map-preview. Coordinates for the center and the landmark stops are the
+ * by /live-map. Coordinates for the center and the landmark stops are the
  * MOCKS §1 values (US Census / Photon geocodes). The route polylines are
  * hand-authored approximations that follow public roads (mostly S Jog Rd, the
  * north–south road the center sits on); they are **not** survey data and not an OSRM
@@ -78,7 +78,7 @@ export interface MapVehicleFixture {
   routeId: string;
   sourceMode: MapSourceMode;
   /**
-   * Live fields, set by the simulated runs on /map-preview and absent from the static
+   * Live fields, set by the simulated runs on /live-map and absent from the static
    * fixture below. They are what turns the still-life into a moving fleet.
    */
   stops?: MapVehicleStop[];

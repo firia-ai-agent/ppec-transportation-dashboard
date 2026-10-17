@@ -55,7 +55,7 @@ export async function GET(request: Request): Promise<Response> {
   const speed = requestedClockSpeed(url.searchParams.get("speed"), process.env);
 
   /*
-   * What this subscriber may see. The same matrix the map preview reads
+   * What this subscriber may see. The same matrix the live map reads
    * (src/domain/access/map-view.ts), applied to the payload rather than to the markup: the two
    * console roles differ by the fault internals, and a coordinator's browser is never sent them.
    */

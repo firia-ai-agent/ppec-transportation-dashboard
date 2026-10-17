@@ -62,7 +62,7 @@ import {
   type ResolutionOption,
   type Unplaced,
 } from "@/domain/solver";
-import { board, fill, needCategories, places, planRoutes, rampPreview, vanName } from "@/ui/copy";
+import { board, fill, needCategories, places, planRoutes, rampIpad, vanName } from "@/ui/copy";
 import { DemoControls } from "@/ui/DemoControls";
 import { serviceDateLabel } from "@/ui/service-date";
 import { StateChip } from "@/ui/StateChip";
@@ -169,7 +169,7 @@ function capabilityOf(stage: LaneStage): DailyCapability {
       return askedProvider(stage.vehicleKey);
     case "RAMP_CHECKED":
       return stage.rampLayoutId
-        ? checkedAtRamp(stage.vehicleKey, stage.rampLayoutId, rampPreview.observedBy)
+        ? checkedAtRamp(stage.vehicleKey, stage.rampLayoutId, rampIpad.observedBy)
         : reportedByProvider(stage.vehicleKey);
     default:
       return reportedByProvider(stage.vehicleKey);

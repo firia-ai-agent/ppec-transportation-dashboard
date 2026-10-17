@@ -208,9 +208,10 @@ describe("§2 scenario clock", () => {
   const component = read(UI, "ScenarioClock.tsx");
   const css = read(UI, "ScenarioClock.module.css");
 
-  it("reads 'Demo not started' and offers Start beside it", () => {
+  it("reads 'Demo not started' and offers 'Start demo day' beside it", () => {
     expect(scenarioClock.notStarted).toBe("Demo not started");
-    expect(scenarioClock.start).toBe("Start");
+    // COPY-GUIDE §3: verb + object, ≤3 words — the button now says what it starts.
+    expect(scenarioClock.start).toBe("Start demo day");
   });
 
   it("says honestly why Start does nothing", () => {
@@ -318,7 +319,7 @@ describe("§6.2 / Veri: a clock control only where the clock may be moved", () =
 
     for (const file of [
       path.join(APP, "(app)", "layout.tsx"),
-      path.join(APP, "map-preview", "page.tsx"),
+      path.join(APP, "live-map", "page.tsx"),
     ]) {
       const source = readFileSync(file, "utf8");
       expect(source, `${file} reads the date override's own gate`).toMatch(
@@ -328,14 +329,14 @@ describe("§6.2 / Veri: a clock control only where the clock may be moved", () =
   });
 
   /**
-   * The preview's dock is the other place with clock controls, and it needs **both**: the role
+   * The live map's dock is the other place with clock controls, and it needs **both**: the role
    * matrix says who holds the demo controls, and the gate says whether this shell may move a
    * clock at all.
    */
-  it("the map preview's own play, pause and speed need the gate as well as the role", () => {
-    const preview = read(UI, "..", "components", "map", "LiveFleetMap.tsx");
-    expect(preview).toMatch(/can\("clockControls"\) && clockMayMove/);
-    expect(preview).not.toMatch(/process\.env\.(VERCEL_ENV|DEMO_MODE|APP_DATA_CLASS)/);
+  it("the live map's own play, pause and speed need the gate as well as the role", () => {
+    const pane = read(UI, "..", "components", "map", "LiveFleetMap.tsx");
+    expect(pane).toMatch(/can\("clockControls"\) && clockMayMove/);
+    expect(pane).not.toMatch(/process\.env\.(VERCEL_ENV|DEMO_MODE|APP_DATA_CLASS)/);
   });
 });
 
@@ -369,9 +370,16 @@ describe("copy from the review", () => {
   it("an unbuilt page renders that heading and that one sentence", () => {
     const html = renderToStaticMarkup(Placeholder({ page: nav.health, body: unbuilt.health }));
     expect(html).toContain(escapeApostrophes("Health &amp; ROI isn't built yet"));
-    expect(html).toContain(unbuilt.tag);
     expect(html).toContain(escapeApostrophes(unbuilt.health));
     expect(html).not.toMatch(/\bB-\d+\b/);
+  });
+
+  it("says 'not built' once — the heading, and no chip repeating it", () => {
+    const html = renderToStaticMarkup(Placeholder({ page: nav.health, body: unbuilt.health }));
+    expect(html).not.toMatch(/Not built yet/i);
+    expect(html.match(/built yet/g)).toHaveLength(1);
+    // One heading, one sentence, and nothing else in the frame.
+    expect(html.match(/<(?:h1|p|span)\b/g)).toEqual(["<h1", "<p"]);
   });
 });
 

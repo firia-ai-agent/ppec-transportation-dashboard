@@ -60,7 +60,7 @@ one day.
 
 ## 1.1 What slice 2 landed: Plan routes
 
-The coordinator's planning screen, at `/plan-preview`, behind the two console roles (PRD §6.2
+The coordinator's planning screen, at `/plan-routes`, behind the two console roles (PRD §6.2
 gives the plan and the legs to coordinators; the front desk's surface is the ramp iPad). One lane
 per van: what the van has today, places needed against places free, and the children in it as
 stops in the order they are driven, with the map's place beside the lanes and one primary button —
@@ -76,10 +76,10 @@ assigned, locked or sent, and the screen says so.
 |---|---|
 | The planner over the fleet: lanes, unplaced children with causes, the §9 option set | `src/domain/solver/plan.ts` |
 | The day it plans, projected from the demo scenario (vans, drivers, riders, the spare van, the chair the ramp measures) | `src/domain/plan/day.ts` |
-| The screen | `src/app/plan-preview/PlanRoutes.tsx`, `plan.module.css` |
-| The verdicts as words and §3 state chips | `src/app/plan-preview/lanes.ts` |
+| The screen | `src/app/plan-routes/PlanRoutes.tsx`, `plan.module.css` |
+| The verdicts as words and §3 state chips | `src/app/plan-routes/lanes.ts` |
 | The words | `src/ui/copy.ts` (`planRoutes`) |
-| Unit checks over the real scenario | `src/domain/solver/plan.test.ts`, `src/app/plan-preview/plan-screen.test.ts` |
+| Unit checks over the real scenario | `src/domain/solver/plan.test.ts`, `src/app/plan-routes/plan-screen.test.ts` |
 | Browser checks and screenshots | `e2e/plan-routes.spec.ts` → `artifacts/plan-routes-*.png` |
 
 What it answers, in the PRD's own terms:
@@ -338,7 +338,7 @@ in its own cell now.
 | Thing | § | What slice 3 has to land |
 |---|---|---|
 | Live updates, reconnect delta, the amber "paused" bar over 15 s | §2, §4.1 | **in** — `GET /api/stream`, the SSE stream ADR-002 asks for: a snapshot then deltas, a reconnect that resumes rather than restarts, and the §2 bar past 15 s with every row left readable underneath it. AT-11's duplicate, out-of-order and location-loss bands are read on the board. **The U3 commit→screen measurement is still not taken**: the stream exists, so it is now possible, and NFR-01's p95 <3 s stays unverified until somebody measures it |
-| The map pane beside the rows, row-hover ↔ marker highlight, fly-to | §4.1, §5 | **in** — the split pane at ≥1280 px that D-6 (ledger row 34) decided, folding under the rows below it; hover rings the marker, opening a ride flies to it, and clicking a marker opens that van's ride. The pane itself already existed at `/map-preview`, and Plan routes already held its place on screen (§1.1); this slice put the live map on the board, and with it AT-03's delay on the board's own rows |
+| The map pane beside the rows, row-hover ↔ marker highlight, fly-to | §4.1, §5 | **in** — the split pane at ≥1280 px that D-6 (ledger row 34) decided, folding under the rows below it; hover rings the marker, opening a ride flies to it, and clicking a marker opens that van's ride. The pane itself already existed at `/live-map`, and Plan routes already held its place on screen (§1.1); this slice put the live map on the board, and with it AT-03's delay on the board's own rows |
 | Header adapter pills showing real ages instead of "· Simulated" | §2, §10 | **in for GPS**, which is the only adapter with an age: the pill carries the fleet's freshest position in the §3 band vocabulary, from the board's own stream, and the scenario clock reads the tick the board is walking. The pills' **violet is already gone** (§4). SMS, Teams and Agent still say "Simulated", which is still the whole truth about them |
 | A **named approver and a named verifier** in the seed | §4.2, COPY-GUIDE §5 | **still open**, and sequenced rather than deferred — **the founder's call, 2026-10-16 10:21 PM ET** (Firia; DECISION-LEDGER row 71): both land in slice 3, and B-12 does not close until they do. Moved here from slice 2 (§2, §3.3, §3.4) and not built by slice 3 either: `approved_by` is still NULL in `seed.ts` and the ramp observation still carries no person, so the drawer cannot say "Verified 17 min ago by J.T." and mean it. What it takes: `seed.ts` names the approver on the transport profile (`approved_by`), and the ramp observation becomes a seeded capability report with a person on it. It is a seed and drawer change with nothing to do with the live map, and it belongs to whoever opens the next console PR |
 | An unknown window reads **"Time not set yet"**, with an icon | COPY-GUIDE §5, §3 | **in** — `etaText.pending` is the fact rather than our state name, with the §3 clock icon it always had. The case stays unreachable in the committed scenario, so this is a fallback's wording |

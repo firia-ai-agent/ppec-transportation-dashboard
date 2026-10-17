@@ -1,12 +1,12 @@
 /**
- * Who may open the developer preview routes — /map-preview and /ramp-preview — and what the
- * map preview shows them once they are in.
+ * Who may open the two screens outside the console shell — /live-map and /ramp-ipad — and what
+ * the live map shows them once they are in.
  *
  * SOURCE: ADR-004 (Credentials provider, roles re-read from the DB per request, the session
  * carries only a user id), ADR-014/ADR-015 (the demo flags), DECISION-LEDGER row 57 (the three
  * synthetic staff accounts and what each of them is for).
  *
- * The preview used to be open to anyone with the URL, which is survivable on a laptop and not
+ * The live map used to be open to anyone with the URL, which is survivable on a laptop and not
  * survivable on a deployed preview: the deployed URL is guessable and the page draws a whole
  * fleet, every stop's family label and every notification decision. So it is a protected route
  * now — *whether* a role may open it is one row in the one access table (src/auth/access.ts),
@@ -84,17 +84,17 @@ export function canSeeMapData(viewer: MapViewer, key: MapDataKey): boolean {
 }
 
 /** A viewer may open the page at all iff there is some map data for them to see. */
-export function canOpenMapPreview(viewer: MapViewer): boolean {
+export function canOpenLiveMap(viewer: MapViewer): boolean {
   return MAP_DATA_BY_ROLE[viewer].length > 0;
 }
 
 /**
- * Who may open /ramp-preview. The ramp iPad is the front desk's own surface and a coordinator
+ * Who may open /ramp-ipad. The ramp iPad is the front desk's own surface and a coordinator
  * and a director both walk it, so every staff role is in — and anonymous is not, for the same
- * reason the map preview keeps its guard: the deployed URL is guessable, and the page lists
+ * reason the live map keeps its guard: the deployed URL is guessable, and the page lists
  * children by name, their transport needs and which seat each of them is in.
  */
-export function canOpenRampPreview(viewer: MapViewer): boolean {
+export function canOpenRampIpad(viewer: MapViewer): boolean {
   return viewer !== "ANONYMOUS";
 }
 

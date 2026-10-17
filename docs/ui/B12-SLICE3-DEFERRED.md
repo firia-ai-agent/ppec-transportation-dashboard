@@ -83,8 +83,8 @@ ten-minute staff call exist (LOC-03). §5 carries them as what this slice did no
 | **LOC-01** | The van whose device is not linked to it has no marker, no route and no stop list, and is named in words underneath the map with its unbound count | `live.test.ts`, `live-fixture.test.ts`, the e2e above |
 | **TEST-SEC-02** | Zero `*.googleapis.com`; every off-origin request is the one configured basemap host (ADR-008); nothing posts; no child, place, vehicle or token appears in any request, including the stream's own URL, which carries a clock speed and nothing else | `e2e/live-map.spec.ts` ("zero *.googleapis.com, and no token in anything that leaves") |
 
-The existing `/map-preview` is unchanged and still the place the §5.1 motion rules (tween, stall
-label, jitter) are reviewed: the console board reads **where a van was last seen**, not an
+The map on its own route is unchanged and still the place the §5.1 motion rules (tween, stall
+label, jitter) are reviewed — at `/live-map` since #59 took "preview" out of every address: the console board reads **where a van was last seen**, not an
 interpolated position, because the same snapshot is what its GPS ages and published windows are
 read from.
 
@@ -95,7 +95,7 @@ read from.
 | **The page arrives with the board *and* the first snapshot**, computed on the server at the same tick | A board that waited for a connection would flash empty, and a stream that never connects would leave a surface with no map at all. The server-rendered snapshot is ~15 KB of JSON and makes the first paint the whole screen; the stream then only ever *updates* |
 | **One subscription per tab, in the shell** rather than in the board | The §2 header ages its own GPS pill off the same snapshot the rows use. Two connections would drift apart within a minute, and the chrome would be contradicting the rows underneath it |
 | **The console runs the demo day at ×1**; `?speed=` is the review and test path | A board that ran the morning at ×10 by default would be a demo instrument on a coordinator's screen. The faster speeds are the same shape as `?date=`: typed in a URL, named in §6.2, and they change only how long we *wait* between ticks — never what a tick contains (PRD §8) |
-| **The clock holds at the end of the committed runs** instead of looping | A console that quietly restarted the morning would be claiming a day that is not happening. `/map-preview` loops, because it is a preview of the motion rules |
+| **The clock holds at the end of the committed runs** instead of looping | A console that quietly restarted the morning would be claiming a day that is not happening. `/live-map` loops, because that screen is the motion rules on their own |
 | **Only the demo day streams.** A finished day (`?date=`) and an unstarted one open nothing | Neither has a van on the road, so a stream on either could only ever contradict the page — and it keeps AT-13's and AT-10's finished-day checks reading exactly the board slice 2 left them |
 | **Rows are regrouped on the client after a merge** | A van going quiet moves its rides into Needs action (LOC-03 → `LOCATION_LOST`). A row left under "On the way" while it says "Nothing has been heard from V2 for ten minutes" would contradict itself. The grouping is the same function the server uses, and `live-view.test.ts` holds the two outputs identical for an un-merged board |
 | **A delta that does not fit is refused, and the connection is rebuilt** | Applying it would leave the board a mixture of two instants. A redraw is cheap; a half-applied board is not |
@@ -130,9 +130,9 @@ Three judgement calls inside that work, named rather than left to be found:
 - **Stopped beats late.** A van can be both, and the §18.2 step 7 stall is the *cause* of the
   lateness beside it. "Stopped 3 min" is the more specific and the more actionable, and it is what
   §5.1 asks a stall to be: words and a clock.
-- **Lateness comes from the board's rows, so /map-preview has none.** The marker's minutes are the
+- **Lateness comes from the board's rows, so `/live-map` has none.** The marker's minutes are the
   worst shift on the rides that van is carrying, read off the rows so the map and the "Arriving"
-  cells cannot disagree. The preview has no rows — it is the §5.1 motion preview — so a van there
+  cells cannot disagree. That screen has no rows — it is the §5.1 motion rules on their own — so a van there
   is on its way, stopped, or last seen at a time, and its lateness evidence stays the gate's own
   decision list under the map.
 

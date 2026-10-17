@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { mapPreview } from "@/ui/copy";
+import { liveMap } from "@/ui/copy";
 import { target } from "@/ui/tokens";
 
 /**
@@ -108,13 +108,13 @@ describe("a fault row names a run in words", () => {
 
   it("builds the name from the fixture's first stop, not from a table of ids", () => {
     expect(source).toMatch(/function routeLabelOf\(route: Route\): string/);
-    expect(source).toMatch(/fill\(mapPreview\.routeName, \{ stop: route\.stops\[0\]\?\.name \?\? "" \}\)/);
+    expect(source).toMatch(/fill\(liveMap\.routeName, \{ stop: route\.stops\[0\]\?\.name \?\? "" \}\)/);
   });
 
   it("prints that name, and no reference, in the row", () => {
     expect(source).toMatch(/route: run\.routeLabel/);
     expect(source).not.toMatch(/route: run\.result\.spec\.route\.id/);
     expect(source).not.toMatch(/provenance/);
-    expect(mapPreview.faultRow).not.toMatch(/\{provenance\}/);
+    expect(liveMap.faultRow).not.toMatch(/\{provenance\}/);
   });
 });

@@ -336,7 +336,7 @@ for (const width of WIDTHS) {
       await expect(dates).toHaveText(demoDay().label);
       await expect(dates).toHaveAttribute("datetime", demoDay().iso);
       await expect(page.getByText(serviceDate.groupLabel)).toBeVisible();
-      await expect(page.getByText(serviceDate.phases.LIVE)).toBeVisible();
+      await expect(page.getByText(serviceDate.phases.LIVE, { exact: true })).toBeVisible();
 
       // Today's real date is nowhere on the screen — not in the board, not in the chrome.
       const realToday = new Intl.DateTimeFormat("en-US", {

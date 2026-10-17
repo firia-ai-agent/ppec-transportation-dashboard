@@ -8,7 +8,7 @@
  * in ./style.ts and is unit-tested there.
  *
  * Data comes in as a prop (src/fixtures/map.ts for the still-life preview, a simulated
- * run on /map-preview). The map is built **once** per mount and every later data change
+ * run on /live-map). The map is built **once** per mount and every later data change
  * is pushed into the five GeoJSON sources with `setData`, so a clock ticking four times
  * a second never rebuilds a MapLibre instance or re-fetches the style. This component
  * never reads the database and makes exactly one network request of its own: GET of the
@@ -110,7 +110,7 @@ export interface FleetMapProps {
    * Supplying it also means "the camera follows this": the pane flies to the van when the id
    * changes, and never when its position merely moves, so a ticking clock does not drag the
    * map around under the pointer. Left `undefined`, the pane keeps its own selection, which
-   * is what /map-preview uses.
+   * is what /live-map uses.
    */
   selectedVehicleId?: string | null;
   onSelectVehicle?: (id: string) => void;
@@ -120,7 +120,7 @@ export interface FleetMapProps {
    */
   highlightVehicleId?: string | null;
   /**
-   * Where the vehicle list goes: beside the canvas (a pane that owns a page, /map-preview) or
+   * Where the vehicle list goes: beside the canvas (a pane that owns a page, /live-map) or
    * under it (a pane that is one column of a split, the board). The caller decides because a
    * media query cannot — the question is the width of this pane's column, not of the window.
    */
