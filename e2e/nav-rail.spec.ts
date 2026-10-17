@@ -41,9 +41,9 @@ test.describe(`the rail as ${ROLE}`, () => {
 
     /*
      * The director is the role in the screenshot, so say out loud what they should be getting.
-     * Four, not seven, since Firia's 2:48 PM ET ruling on 2026-10-17: the menu lists only
-     * screens that work, and Exceptions & Approvals, Setup and Health & ROI are each still a
-     * page that says it is not built (src/ui/nav-items.ts carries the flag and the reason).
+     * REDESIGN-SPEC §0's menu, in §0's order: nothing on it 404s and nothing on it opens an
+     * apology, so the two surfaces whose data is not built are on it as a title and a line
+     * (src/ui/nav-items.ts carries the flag and the reason; Setup is the one that is off).
      */
     if (ROLE === "DIRECTOR") {
       expect(EXPECTED.map((item) => item.href)).toEqual([
@@ -51,6 +51,9 @@ test.describe(`the rail as ${ROLE}`, () => {
         "/plan-routes",
         "/live-map",
         "/ramp-ipad",
+        "/family-texts",
+        "/exceptions",
+        "/health",
       ]);
     }
 

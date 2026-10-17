@@ -35,10 +35,17 @@ export default async function WhoAmI() {
   const caller = await requirePage("/whoami");
   const role = caller.kind === "STAFF" ? roleNames[caller.role].one : null;
   const name = shortName(caller.displayName ?? "");
+  /*
+   * "Dana M. · Director" — unless the two are the same word, which is the browser-test session:
+   * it has no user row behind it, so its whole display name *is* the role's own title
+   * (src/auth/caller.ts). "Director · Director" would be the one sentence on this page that
+   * says nothing, so the name is said once.
+   */
+  const line = role && name && name !== role ? `${name}${whoami.separator}${role}` : name || role;
   return (
     <div className={styles.page}>
       <h1 className={styles.heading}>{whoami.heading}</h1>
-      <p className={styles.identity}>{role ? `${name}${whoami.separator}${role}` : name}</p>
+      <p className={styles.identity}>{line}</p>
       <SignOutButton />
     </div>
   );

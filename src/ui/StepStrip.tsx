@@ -1,9 +1,28 @@
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Map as MapIcon, Route, Tablet, type LucideIcon } from "lucide-react";
 import { flow } from "./copy";
-import type { StripStep } from "./step-strip";
+import type { StepKey, StripStep } from "./step-strip";
 import { icon } from "./tokens";
 import styles from "./StepStrip.module.css";
+
+/**
+ * Each step wears its *destination's* icon — the same one the menu gives that screen
+ * (src/ui/nav-items.ts): the ramp iPad's tablet, Plan routes' route, the live map's map. Not a
+ * state icon, and that is the point. REDESIGN-SPEC §9.2 draws a `circle-check` / `circle-alert`
+ * / `lock` in the disc, which says Done / Needed / Locked — and none of those three is a thing
+ * this build can know yet (TODO(data-model)). An icon that *looked* like a state would be the
+ * strip claiming one. The destination's own icon says the true thing instead: this card opens
+ * that screen.
+ *
+ * Here rather than beside the steps themselves because the steps cross the server/client
+ * boundary and a component is a function; the two rails build their icons on this side for the
+ * same reason (src/ui/NavRail.tsx).
+ */
+const STEP_ICONS: Readonly<Record<StepKey, LucideIcon>> = {
+  setup: Tablet,
+  plan: Route,
+  live: MapIcon,
+};
 
 /**
  * TODAY'S STEP STRIP (REDESIGN-SPEC §9.2, and png/shell-flow-1440.png / -390.png).
@@ -31,7 +50,7 @@ export function StepStrip({ steps }: { steps: readonly StripStep[] }) {
     <nav aria-label={flow.stepsAria} className={styles.strip}>
       <ol className={styles.list}>
         {steps.map((step) => {
-          const StepIcon = step.icon;
+          const StepIcon = STEP_ICONS[step.key];
           const body = (
             <>
               <span className={styles.disc} aria-hidden="true">

@@ -1,4 +1,3 @@
-import { Map as MapIcon, Route, Tablet, type LucideIcon } from "lucide-react";
 import { canOpenPage } from "@/auth/access";
 import type { StaffRole } from "@/auth/core";
 import { flow } from "./copy";
@@ -10,22 +9,21 @@ import { flow } from "./copy";
  * are wired from docs/DATA-MODEL.md once it is signed).
  */
 export type StepKey = keyof typeof flow.steps;
-export type StepItem = { key: StepKey; label: string; href: string; icon: LucideIcon };
+export type StepItem = { key: StepKey; label: string; href: string };
 export type StripStep = StepItem & { linked: boolean };
 
 /**
- * Each step wears its *destination's* icon — the same one the menu gives that screen
- * (src/ui/nav-items.ts): the ramp iPad's tablet, Plan routes' route, the live map's map. Not a
- * state icon, and that is the point. REDESIGN-SPEC §9.2 draws a `circle-check` / `circle-alert`
- * / `lock` in the disc, which says Done / Needed / Locked — and none of those three is a thing
- * this build can know yet (TODO(data-model)). An icon that *looked* like a state would be the
- * strip claiming one. The destination's own icon says the true thing instead: this card opens
- * that screen.
+ * Words and addresses only — no icon, and that is a boundary rather than a preference. These
+ * are computed on the server (src/app/(app)/today/page.tsx, which is where the access table's
+ * answer lives) and handed to a client component, and a React component is a function: a
+ * `LucideIcon` in this object is "Functions cannot be passed directly to Client Components" on
+ * every render of the board. The strip picks the icon for a step's `key` on its own side
+ * (src/ui/StepStrip.tsx), exactly as the two rails build their icons from `navItems` there.
  */
 export const stepItems: readonly StepItem[] = [
-  { key: "setup", label: flow.steps.setup, href: "/ramp-ipad", icon: Tablet },
-  { key: "plan", label: flow.steps.plan, href: "/plan-routes", icon: Route },
-  { key: "live", label: flow.steps.live, href: "/live-map", icon: MapIcon },
+  { key: "setup", label: flow.steps.setup, href: "/ramp-ipad" },
+  { key: "plan", label: flow.steps.plan, href: "/plan-routes" },
+  { key: "live", label: flow.steps.live, href: "/live-map" },
 ];
 
 /**
