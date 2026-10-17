@@ -14,7 +14,7 @@
  * and is refused outright on any deployment. The board it renders is the committed demo day.
  */
 import { expect, test } from "@playwright/test";
-import { board as boardCopy, drawer, fill, sentence, serviceDate } from "../src/ui/copy";
+import { flow, board as boardCopy, drawer, fill, sentence, serviceDate } from "../src/ui/copy";
 import { legStates } from "../src/ui/states";
 import { demoDay, serviceDayFor } from "../src/domain/board/day";
 import {
@@ -349,8 +349,21 @@ for (const width of WIDTHS) {
         await expect(page.getByText(realToday)).toHaveCount(0);
       }
 
-      // No switcher: no control, link or arrow that reaches another service date.
-      await expect(page.locator("a[href*='date=']")).toHaveCount(0);
+      /*
+       * No switcher: no control, link or arrow on the *board* that reaches another service date.
+       *
+       * The step strip above it (redesign spec §9.2) does carry `?date=` on each of its three
+       * cards, and that is the opposite of a switcher: it is how Van setup, Plan routes and Live
+       * map open on the day a person is already looking at (§9.3's deep-link rule). So the count
+       * is of date links outside it.
+       */
+      const dateLinksOutsideTheStrip = await page.evaluate((label) => {
+        const strip = document.querySelector(`nav[aria-label="${label}"]`);
+        return Array.from(document.querySelectorAll("a[href*='date=']")).filter(
+          (link) => !strip?.contains(link),
+        ).length;
+      }, flow.steps.aria);
+      expect(dateLinksOutsideTheStrip).toBe(0);
       for (const name of [/previous day/i, /next day/i]) {
         await expect(page.getByRole("link", { name })).toHaveCount(0);
         await expect(page.getByRole("button", { name })).toHaveCount(0);

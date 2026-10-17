@@ -1044,17 +1044,24 @@ export const solver = {
    * sentence of detail a coordinator can act on. Every one of them needs a human.
    */
   options: {
+    /*
+     * These three named a van with `vanName(vehicle.description)` ("the convertible van"), the
+     * copy helper the rebuild removed: a van has one name and it comes from its slot
+     * (src/config/vans.ts `vanNameOf`). The solver's own vehicles are not always one of the
+     * centre's numbered vans, so the options say "another van" rather than guessing a number.
+     * Nothing renders these today — the two screens that did were rebuilt (§1, §2).
+     */
     SPLIT_RUN: {
       label: "Split the run",
       detail:
-        "Run {who} separately on {vehicle}. Everyone already on the vehicle stays where they are.",
+        "Run {who} separately on another van. Everyone already on the vehicle stays where they are.",
     },
     ALTERNATE_VEHICLE: {
-      label: "Move to {vehicle}",
+      label: "Move to another van",
       detail: "{description} ({provider}) fits {who} as {layout}.",
     },
     ALTERNATE_PROVIDER: {
-      label: "Move to {vehicle}",
+      label: "Move to another van",
       detail: "{description} ({provider}) fits {who} as {layout}.",
     },
     FAMILY_TRANSPORT: {
@@ -1166,7 +1173,6 @@ export const planRoutes = {
    * center van"). A lane's heading is the same string with its first letter capitalised by the
    * stylesheet, so there is one name for a van and not two.
    */
-  vanNamed: "the {description}",
   vanMeta: "{provider} · {driver} driving",
   equipmentHeading: "What this van has",
   equipment: {
@@ -1433,7 +1439,13 @@ export const planRoutes = {
    */
   mapFitAll: "Zoom to show every route",
   /** Nobody is in a van, so there is no route to draw and the map says what to press. */
-  mapEmpty: "No routes yet. Press Plan routes.",
+  /**
+   * The map with nothing to draw. Four words, and the §9.5 string every other screen uses for the
+   * same state — it used to end "Press Plan routes", which named a button the redesigned board no
+   * longer has (its first step is Auto-plan, §1.2) and told a coordinator to press the screen they
+   * were already on.
+   */
+  mapEmpty: "No routes yet",
 
   /* ── saving the plan ── */
   /**
@@ -1473,39 +1485,266 @@ export const planRoutes = {
    * cannot be used to find out which of the three it was.
    */
   saveNotThisRun: "That plan names a child or a van that isn’t on this run.",
-  /**
-   * What the screen found when it opened a run: the plan last saved for it, and the minute it
-   * was kept (Veri's S1, 2026-10-17 — a saved plan used to be gone on reload).
-   *
-   * Said as what is in front of them rather than as what just happened, because nothing just
-   * happened: a coordinator who reloads the page is reading a plan, not making one. It claims
-   * nothing about where the plan was kept, and nothing about anyone having been told.
-   */
-  showingSaved: "Showing the plan saved at {time}.",
-  /**
-   * Saving an empty screen over a plan that is already saved, refused.
-   *
-   * There is one way to reach it and it is not the button — the button cannot be pressed with
-   * nobody in a van — so this is a request that skipped the screen, or a second tab a
-   * coordinator never planned in. Either way, emptying a run is not a plan of it, and a plan
-   * somebody made is not something to lose to one. It says what to do instead.
-   */
-  saveNothingPlaced:
-    "There is already a saved plan. Put at least one child in a van before saving over it.",
 } as const;
 
 /**
- * A van as the Plan routes screen names it: "the convertible van".
+ * The equipment every screen counts in, in one place: the plan board's meters and steppers, and
+ * the ramp iPad's steppers (redesign spec §0's vocabulary table).
  *
- * Here rather than in the screen's own helpers because three layers need it and none of them may
- * invent it — the screen's lanes and notices, the planner's option labels (src/domain/solver),
- * and the browser check that reads a lane's name off the page. `description` is the solver's
- * plain-words field for a vehicle ("convertible van"), which is the half of the fixture's label
- * that is not the code.
+ * One word per thing, shared, because the front desk and the coordinator are counting the same
+ * four things and a van that reads "Car seats" on one screen and "Car seats on board" on the
+ * other is two vocabularies for one van. The list and the order live in src/config/equipment.ts;
+ * these are the words for it.
  */
-export function vanName(description: string): string {
-  return fill(planRoutes.vanNamed, { description });
-}
+export const equipment = {
+  seats: "Seats",
+  wheelchair: "Wheelchair",
+  carSeats: "Car seats",
+  oxygen: "Oxygen",
+  lift: "Lift",
+  /**
+   * The same four things as one *child's* need rather than a van's counter: a card's icons are
+   * announced with these, so a chair icon is never the only way to know a child rides in one
+   * (§0's copy rule 2, WCAG AA).
+   */
+  need: {
+    wheelchair: "Wheelchair",
+    carSeat: "Car seat",
+    oxygen: "Oxygen",
+    nurse: "Nurse",
+  },
+} as const;
+
+/**
+ * The plan board (redesign spec §1.5), which replaces the visible parts of `planRoutes` above.
+ *
+ * The rules this block is written to, from §0: labels are one to three words, a state is an icon
+ * plus a word so it never relies on colour, numbers are big and words are small ("4/6", not
+ * "4 of 6 seats used"), nothing explains a control that can explain itself, and every person and
+ * van is named ("Marco D." drives "Van 1"). The whole `#drag` state comes to about 95 visible
+ * words, most of them names and places — #58's screen had 607.
+ */
+export const planBoard = {
+  heading: "Plan routes",
+  /** <title> for the route, so the tab says which screen is open. */
+  documentTitle: "Plan routes · PPEC transportation dashboard",
+  /** The two legs of the day, as the segmented control says them. */
+  morning: "Morning",
+  afternoon: "Afternoon",
+  /** "10 of 12 placed" — the one count in the toolbar. */
+  placed: "{n} of {total} placed",
+  unassigned: "Unassigned",
+  /** The whole Unassigned list once nobody is left in it (§1.3 "All placed"). */
+  allPlaced: "All placed",
+  familyDrives: "Family drives",
+  absent: "Absent",
+  /** Every van on the board is "Van {n}": one generic van, numbered (conflict C1). */
+  vanName: "Van {n}",
+  /** The driver row's chip: the ramp confirmed this van today, or it did not. */
+  checked: "Checked",
+  notChecked: "Not checked",
+  autoPlan: "Auto-plan",
+  save: "Save",
+  saving: "Saving…",
+  /** "Saved 2:41 PM" — the server's own instant, in centre time. */
+  saved: "Saved {time}",
+  notSaved: "Not saved",
+  saveFailed: "Couldn’t save · Retry",
+  /** Somebody else saved while this board was open (§1.3, a version mismatch). */
+  changedBy: "Changed by {name} · Reload",
+  /**
+   * The same chip when the server has no name to give — a plan saved by a session with no user
+   * behind it, which is what the browser check signs in as. §1.5 only writes the named form, and
+   * a board that filled the name in with a guess would be naming the wrong person.
+   */
+  changedAnon: "Someone else saved · Reload",
+  /** A van is over its own counts and the save asks first (§1.3 "Over capacity"). */
+  overConfirm: "{van} is over. Save anyway?",
+  overChip: "Full",
+  undo: "Undo",
+  /** The dashed target inside an empty van column. */
+  dropHere: "Drop here",
+  addVan: "Add van",
+  stops: "{n} stops",
+  minutes: "{n} min",
+  /** The toast a drop leaves behind: "Mia R. → Van 2". */
+  moved: "{child} → {van}",
+  moveTo: "Move to…",
+  /**
+   * Why a van cannot take this child — one word on the column's chip, keyed by the fit rule's own
+   * reason (src/config/equipment.ts), so a screen never has to translate a verdict.
+   */
+  reject: {
+    SEAT: "Full",
+    WHEELCHAIR: "Wheelchair",
+    CAR_SEAT: "Car seat",
+    OXYGEN: "Oxygen",
+    LIFT: "Lift",
+  },
+  /** Announced when a drop is refused, so the refusal is not only a colour and a shape. */
+  rejectSr: "{child} won’t fit {van}: no {thing}",
+  /** The thing a refusal names, in the words a sentence needs rather than a chip. */
+  rejectThing: {
+    SEAT: "seat",
+    WHEELCHAIR: "wheelchair spot",
+    CAR_SEAT: "car seat",
+    OXYGEN: "oxygen mount",
+    LIFT: "lift",
+  },
+  /**
+   * The one line an unconfirmed van's column carries (Firia/Veri, 2026-10-17 6:00 PM ET): no
+   * button, no "yesterday", no carry-over — the van is planned on the shared config's defaults
+   * until the front desk confirms it at the ramp.
+   */
+  usingDefault: "Using default setup",
+  /** "Seats 4/6" — a read-only count chip on a van column, one per counter (§1.2, 5:55 PM ET). */
+  countChip: "{thing} {used}/{total}",
+  /** Where a count chip goes when it is tapped: the ramp, on this van. */
+  openRamp: "Count {van} at the ramp",
+  seats: equipment.seats,
+  wheelchair: equipment.wheelchair,
+  carSeats: equipment.carSeats,
+  oxygen: equipment.oxygen,
+  lift: equipment.lift,
+  fits: "{child} fits",
+  wontFit: "{child} won’t fit",
+  /**
+   * The two stepper buttons are a − and a +, which explain themselves on the canvas (§0's rule 4)
+   * and need a word for a screen reader: "Car seats fewer", "Car seats more".
+   */
+  fewer: "fewer",
+  more: "more",
+  /** A meter's own label for a screen reader: "4 of 6 seats". */
+  meterSr: "{used} of {total} {thing}",
+  mapLabel: "Route map",
+  /** The one column a phone shows at a time is chosen here (§9.3 at 390 px). */
+  columnSwitcher: "Which column?",
+} as const;
+
+/**
+ * The ramp iPad's van arrival (redesign spec §2): four steppers, a lift toggle, Confirm, and the
+ * riders beside them.
+ *
+ * Every string is three or four words. What it replaces is the §4.4 checklist's own vocabulary —
+ * the layout picker, the per-place Free / Out / Not sure answers, the LATCH row and the slot
+ * matrix — all of which §2 removes in favour of counting what is on board.
+ */
+export const vanArrival = {
+  /** The screen's own name, which the rail reads too — one string, so they cannot drift. */
+  heading: rampIpad.heading,
+  documentTitle: "Ramp iPad · PPEC transportation dashboard",
+  /** The card over the steppers: "What’s on Van 1?" */
+  whatsOn: "What’s on {van}?",
+  seats: equipment.seats,
+  wheelchair: equipment.wheelchair,
+  carSeats: equipment.carSeats,
+  oxygen: equipment.oxygen,
+  liftWorks: "Lift works",
+  yes: "Yes",
+  no: "No",
+  /**
+   * Under a counter that is not what this van usually carries: the shared config's default.
+   *
+   * Deliberately **not** called "Planned" (Firia's rule 1, 2026-10-17 5:48 PM ET): nothing plans
+   * counts any more, so a number differing from the van's default is a difference from the
+   * default and is named as one.
+   */
+  differsFrom: "Default {n}",
+  /** The van tabs, in the order they leave the centre. */
+  leaves: "Leaves {time}",
+  ridersHeading: "Riders",
+  fits: "Fits",
+  /** The crit banner: "Mia R. won’t fit" over "1 car seat short". */
+  wontFit: "{child} won’t fit",
+  short: "{n} {thing} short",
+  /** The lift is not a number, so its shortfall is said rather than counted. */
+  noLift: "No lift",
+  /**
+   * What a van is short of, counted: "1 car seat short", "2 seats short". Pairs rather than an
+   * "+s" rule, for the same reason `countable` above keeps them — a noun that does not pluralise
+   * with an s has somewhere to go.
+   */
+  shortThing: {
+    SEAT: { one: "seat", many: "seats" },
+    WHEELCHAIR: { one: "wheelchair spot", many: "wheelchair spots" },
+    CAR_SEAT: { one: "car seat", many: "car seats" },
+    OXYGEN: { one: "oxygen mount", many: "oxygen mounts" },
+    LIFT: { one: "lift", many: "lifts" },
+  },
+  replan: "Re-plan",
+  confirm: "Confirm {van}",
+  /** Said back once the write landed, so Confirm is not the only evidence of it. */
+  confirmed: "Checked",
+  /** Said once every van has been confirmed today (§9.3). */
+  allChecked: "All vans checked",
+  /** No plan saved yet, so there is nobody to list beside the steppers (§9.3). */
+  noRidersPlanned: "No riders planned",
+  /** Who an observation is attributed to when the front desk counts a van themselves. */
+  observedBy: "Ramp staff",
+  /** A counter's own label for a screen reader, since the numbers are the big part. */
+  counterSr: "{thing}: {n}",
+} as const;
+
+/**
+ * The order of the day, and what a screen says when the step before it is missing (redesign spec
+ * §9.5, binding interim rules of 2026-10-17 3:00 PM ET).
+ *
+ * One block, because the step strip, every empty state and the server guards read the same
+ * readiness object (src/domain/day/readiness.ts) and must say the same thing about it. No string
+ * here is longer than six words, every state has a word as well as an icon, and the times are
+ * 12-hour in centre time.
+ */
+export const flow = {
+  steps: {
+    aria: "Today’s steps",
+    setup: "Van setup",
+    plan: planBoard.heading,
+    live: liveMap.heading,
+  },
+  state: { done: "Done", needed: "Needed", locked: "Locked", running: "Running" },
+  setup: {
+    /** "1/3 checked" — how many vans the ramp has confirmed today. */
+    detail: "{checked}/{total} checked",
+  },
+  plan: {
+    detailSaved: "Saved {time}",
+    detailNone: "Not saved",
+    detailNotStarted: "Start the day first",
+  },
+  live: {
+    detailLocked: "Plan first",
+    detailNeeded: "Not started",
+    detailRunning: "{n} vans out",
+    notStartedChip: "Not started",
+  },
+  empty: {
+    noRoutes: "No routes yet",
+    /** "9 riders · Morning" */
+    ridersLeg: "{n} riders · {leg}",
+    noRiders: "No riders today",
+    noRidersPlanned: vanArrival.noRidersPlanned,
+    noVans: "No vans yet",
+    allChecked: vanArrival.allChecked,
+  },
+  banner: {
+    /** One line, one wording, on the board and in the step strip (6:00 PM ET ruling). */
+    usingDefault: planBoard.usingDefault,
+    notStarted: "Day not started",
+  },
+  action: {
+    planRoutes: planBoard.heading,
+    checkVans: "Check vans",
+    startDemo: "Start demo day",
+  },
+  leave: { title: "Leave without saving?", stay: "Stay", leave: "Leave" },
+  error: { load: "Couldn’t load · Retry" },
+} as const;
+
+/*
+ * `vanName(description)` — "the convertible van" — is gone with the screens that printed it.
+ * A van has one name now and it comes from its slot: `vanNameOf` in src/config/vans.ts, which is
+ * the single van-name helper the whole app uses (Firia's rule 6, 2026-10-17 5:48 PM ET).
+ */
 
 /**
  * The JSON refusals an endpoint hands back when the caller may not run it (src/auth/api-guard.ts).
@@ -1519,6 +1758,12 @@ export const apiAccess = {
   notYourRole: "This isn't part of your role.",
   /** A body or a query this endpoint cannot read at all. Says nothing about what it wanted. */
   badRequest: "That request couldn't be read.",
+  /**
+   * The database could not be reached, so there is no answer to give. Says that and nothing
+   * about why: a connection error is not something a caller can act on, and the screen that
+   * reads this shows its own "Couldn't load · Retry" inside the module (§9.3).
+   */
+  unavailable: "That couldn't be loaded. Try again.",
 } as const;
 
 /**

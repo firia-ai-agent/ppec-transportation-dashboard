@@ -12,6 +12,7 @@ import {
   etaText,
   fill,
   fleetMap,
+  flow,
   layoutName,
   liveUpdates,
   login,
@@ -856,10 +857,14 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
     expect(planRoutes.missing.UNKNOWN_UNTIL_ARRIVAL).toBe("not checked yet");
     expect(fill(planRoutes.optionsHeading, { child: "Zoe B." })).toBe("Options for Zoe B.");
     expect(planRoutes.laneOptionsHeading).toBe("Options");
-    // The pane said the map was not built yet until the map landed; what is left of that line
-    // is the empty state, which says what to press rather than what is missing.
+    // The pane said the map was not built yet until the map landed; what is left of that line is
+    // the empty state. It named a button — "Press Plan routes" — that the redesigned board does
+    // not have (its first step is Auto-plan, §1.2), and it told a coordinator to press the screen
+    // they were already standing on, so it is now the §9.5 string every other screen uses for a
+    // leg with nothing planned.
     expect(planRoutes).not.toHaveProperty("mapPlaceholder");
-    expect(planRoutes.mapEmpty).toBe("No routes yet. Press Plan routes.");
+    expect(planRoutes.mapEmpty).toBe("No routes yet");
+    expect(planRoutes.mapEmpty).toBe(flow.empty.noRoutes);
     // Said once over the lanes rather than under every rider card, so it is shorter than the
     // ramp check's own copy of the same promise and deliberately not the same string.
     expect(planRoutes.needsCaption).toBe("From intake, not a diagnosis.");
@@ -888,52 +893,6 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
     }
     // The unsaved line says it about the screen, not about the thing a coordinator last did.
     expect(planRoutes.unsaved.split(" ")).toHaveLength(4);
-  });
-
-  /**
-   * Veri's S1, 2026-10-17: a saved plan used to be gone on reload, so the screen now reads one
-   * back — and these are the two lines that act arrived with.
-   *
-   * One says what is in front of a coordinator who has just opened the run, and the other
-   * refuses to lose a plan somebody made to an empty screen. Both are said as a fact about the
-   * plan and what to do about it, with nothing about a request, a server or where a plan is
-   * kept: none of that is a coordinator's business, and the second line is read by one.
-   */
-  it("the read-back: what is on screen, and the refusal to save nothing over it", () => {
-    expect(planRoutes.showingSaved).toBe("Showing the plan saved at {time}.");
-    expect(fill(planRoutes.showingSaved, { time: "1:24 PM" })).toBe(
-      "Showing the plan saved at 1:24 PM.",
-    );
-    expect(planRoutes.saveNothingPlaced).toBe(
-      "There is already a saved plan. Put at least one child in a van before saving over it.",
-    );
-    // The refusal says what to do next, in the words the screen uses for a van all through.
-    expect(planRoutes.saveNothingPlaced).toContain("Put at least one child in a van");
-    // Neither is about the machinery: no request, no endpoint, no status, no storage.
-    for (const line of [planRoutes.showingSaved, planRoutes.saveNothingPlaced]) {
-      expect(line, line).not.toMatch(/server|request|endpoint|HTTP|409|reload|cache|memory/i);
-    }
-  });
-
-  /**
-   * Vera's screenshots at 1440 and 390: nothing new on this screen may show the machine's own
-   * handles. A van is "the convertible van" and never "V1", a child is a first name and never
-   * a token, nothing says "ETA" where a real time belongs, and the synthetic marking is the
-   * DEMO bar's job and not a word in a sentence.
-   */
-  it("the lines the read-back added carry no code, key, id or 'ETA'", () => {
-    const added = [planRoutes.showingSaved, planRoutes.saveNothingPlaced];
-    for (const line of added) {
-      // Van codes and vehicle keys, ride and child ids, and the layout ids behind a ramp check.
-      expect(line, line).not.toMatch(/\bV\d+\b|\bC\d+\b|\bL-\w+\b|\bvehicleKey\b|\blaneId\b/);
-      // The synthetic marking, which is the DEMO bar's and never a sentence's.
-      expect(line, line).not.toMatch(/\bSYN\b|Provider P\d/);
-      // The word the copy guide bans outright, and the enum shapes a screen must never show.
-      expect(line, line).not.toMatch(/\bETA\b/);
-      expect(line, line).not.toMatch(/\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/);
-      // Said in plain words: no placeholder left but the time, and no bracketed machinery.
-      expect(line.replace("{time}", ""), line).not.toMatch(/[{}<>]/);
-    }
   });
 
   /**

@@ -11,8 +11,16 @@
  * (Amazon Location, ADR-007). Times are ET, the project clock (DECISION-LEDGER).
  */
 
-/** Times in this project are America/New_York unless stated (DECISION-LEDGER header). */
-export const PROJECT_TIME_ZONE = "America/New_York";
+/**
+ * Times in this project are the centre's, unless stated (DECISION-LEDGER header).
+ *
+ * The zone is declared once, in src/config/site.ts: this module used to hold a second copy of
+ * the string as `PROJECT_TIME_ZONE` beside `SITE_TIME_ZONE` in src/ui/service-date.ts, and two
+ * constants with one value are one rename away from two values (Firia's rule 6).
+ */
+import { SITE_TIME_ZONE } from "@/config/site";
+
+export { SITE_TIME_ZONE };
 
 export interface TrafficBand {
   id: string;
@@ -35,7 +43,7 @@ export const TRAFFIC_BANDS: TrafficBand[] = [
 ];
 
 const HOUR_MINUTE = new Intl.DateTimeFormat("en-US", {
-  timeZone: PROJECT_TIME_ZONE,
+  timeZone: SITE_TIME_ZONE,
   hour: "2-digit",
   minute: "2-digit",
   hourCycle: "h23",

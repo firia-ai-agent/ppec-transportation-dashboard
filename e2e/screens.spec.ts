@@ -12,7 +12,7 @@
  * and is refused outright on any deployment.
  */
 import { expect, test, type Locator } from "@playwright/test";
-import { fill, fleetMap, liveMap, nav, planRoutes, rampIpad } from "../src/ui/copy";
+import { fill, fleetMap, liveMap, nav, planBoard, rampIpad } from "../src/ui/copy";
 import { navItems } from "../src/ui/nav-items";
 import {
   boxOf,
@@ -156,48 +156,27 @@ for (const width of WIDTHS) {
       console.log("screenshot:", await shot(page, `live-map-${width}`));
     });
 
-    test("the ramp iPad renders, and its sticky banner covers no row", async ({ page }) => {
+    /**
+     * The ramp iPad at both review widths: the van arrival (redesign spec §2), which replaced the
+     * §4.4 checklist — the layout picker, the per-place Free / Out / Not sure answers, the LATCH
+     * row and the slot matrix are gone, so what this test reads is the card a front desk actually
+     * taps: four steppers, a lift switch and one Confirm, each at the ramp's own 56 px target.
+     */
+    test("the ramp iPad renders its steppers at a ramp-sized target", async ({ page }) => {
       await page.goto("/ramp-ipad");
       await expect(page.getByRole("heading", { level: 1, name: rampIpad.heading })).toBeVisible();
       await expectDemoBarPinned(page);
       await expectVioletOnlyOnDemoChrome(page);
       console.log("screenshot:", await shot(page, `ramp-ipad-${width}`));
 
-      // §9 / COPY-GUIDE: the selected answer is filled and announced, not outlined.
-      const notSure = page.getByRole("button", { name: rampIpad.answer.UNSURE }).first();
-      await expect(notSure).toHaveAttribute("aria-pressed", "true");
-      const chosenVehicle = page.getByRole("button", { name: /^V1 · / });
-      await expect(chosenVehicle).toHaveAttribute("aria-pressed", "true");
-      // The setup buttons say what the layout is, never the provider's shorthand.
-      await expect(page.getByRole("button", { name: "1 wheelchair · 3 seats" })).toBeVisible();
-      await expect(page.getByText(/\d+WC\/\d+A/)).toHaveCount(0);
-
-      /*
-       * The sticky verdict banner used to be pinned over the lift row, the second walking seat
-       * and the top of the rider list, with no way to scroll them clear. The page now reserves
-       * its height, so at the bottom of the page the banner sits below everything.
-       */
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await page.waitForTimeout(500);
-      const banner = page.locator("#ramp-verdict");
-      await expect(banner).toBeVisible();
-      const bannerBox = await boxOf(banner);
-
-      const rows: Array<[string, Locator]> = [
-        [rampIpad.liftRow, page.getByText(rampIpad.liftRow, { exact: true })],
-        ["Walking seat 2", page.getByText("Walking seat 2", { exact: true }).first()],
-        [rampIpad.ridersHeading, page.getByRole("heading", { name: rampIpad.ridersHeading })],
-        // The last rider card is the one actually on screen at the bottom of the page, so it
-        // is the row a banner that reserved nothing would still be sitting on.
-        ["the last rider card", page.locator("#ramp-verdict").locator("xpath=preceding::div[contains(@style,'border-top')]").last()],
-      ];
-      for (const [name, locator] of rows) {
-        const box = await boxOf(locator);
-        expect(
-          overlaps(box, bannerBox),
-          `the verdict banner covers "${name}": ${JSON.stringify(box)} vs ${JSON.stringify(bannerBox)}`,
-        ).toBe(false);
+      // Every counter is one of the four the whole app counts in (src/config/equipment.ts).
+      await expect(page.locator("[data-stepper]")).toHaveCount(5);
+      for (const button of await page.locator("[data-stepper] button").all()) {
+        const box = await boxOf(button);
+        expect(box.height, "a ramp control is at least 56 px").toBeGreaterThanOrEqual(56);
       }
+      // The provider's shorthand for a layout is not on this screen at all any more.
+      await expect(page.getByText(/\d+WC\/\d+A/)).toHaveCount(0);
 
       await expectNoInternalCodes(page);
       console.log("screenshot:", await shot(page, `ramp-ipad-${width}-bottom`));
@@ -216,14 +195,14 @@ for (const width of WIDTHS) {
     test("Plan routes keeps the map beside the lanes, not below them", async ({ page }) => {
       await page.goto("/plan-routes");
       await expect(
-        page.getByRole("heading", { level: 1, name: planRoutes.heading }),
+        page.getByRole("heading", { level: 1, name: planBoard.heading }),
       ).toBeVisible();
       await expectDemoBarPinned(page);
       await expectVioletOnlyOnDemoChrome(page);
 
-      // An <aside> is a complementary landmark, named by the "Map" heading inside it.
-      const map = page.getByRole("complementary", { name: planRoutes.mapHeading });
-      const column = page.locator("[data-lane]").first();
+      // An <aside> is a complementary landmark, named by the board's own two words for it.
+      const map = page.getByRole("complementary", { name: planBoard.mapLabel });
+      const column = page.locator("[data-van]").first();
       await expect(map).toBeVisible();
       const mapBox = await boxOf(map);
       const laneBox = await boxOf(column);

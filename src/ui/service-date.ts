@@ -1,8 +1,13 @@
 /**
  * The site's operational "service date". PRD §6.1: service dates are calendar dates in the
- * site's timezone (America/New_York), not instants.
+ * site's timezone, not instants.
+ *
+ * The zone itself is configuration and is declared once, in src/config/site.ts — it used to be
+ * written here *and* as `PROJECT_TIME_ZONE` in src/domain/eta/traffic.ts (Firia's rule 6).
  */
-export const SITE_TIME_ZONE = "America/New_York";
+import { SITE_TIME_ZONE } from "@/config/site";
+
+export { SITE_TIME_ZONE };
 
 /** "Tue, Oct 14" — the format COPY-GUIDE §5 uses in the board's empty state. */
 export function serviceDateLabel(now: Date = new Date()): string {

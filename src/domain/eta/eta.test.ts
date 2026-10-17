@@ -55,7 +55,7 @@ describe("window text (PRD §8: a 10-minute window, never minute precision)", ()
    * 2026-11-01 is the autumn fall-back: at 2:00 AM EDT the local clock goes back to
    * 1:00 AM EST, so 1:00–1:59 AM happens twice. Pinned by UTC instants, so these assertions
    * hold whatever TZ the test runner is started with — ET is the project clock
-   * (PROJECT_TIME_ZONE), not the machine's.
+   * (SITE_TIME_ZONE), not the machine's.
    */
   describe("the DST fall-back hour (2026-11-01, America/New_York)", () => {
     /** 1:50 AM EDT = 05:50 UTC; ten minutes later is 1:00 AM EST = 06:00 UTC. */

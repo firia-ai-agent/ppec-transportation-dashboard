@@ -2,11 +2,15 @@
  * The plan as something a map can draw: one line per van, the stops in the order the van drives
  * them, and the centre at the end of the morning or the start of the afternoon.
  *
- * Read off the solver's own answer and nothing else. The input is the `RoutePlan`
- * (src/domain/solver/plan.ts) the lanes beside the map are rendered from — the same object, in
- * the same render — so the line a van carries on the map and the stop list inside its lane
- * cannot disagree about what that van is doing. A child moved between lanes changes the plan,
- * and the map is a second reading of the same change rather than a copy kept in step by hand.
+ * Read off the board's own columns and nothing else: each van, the stops it drives, and the
+ * number the column prints beside each one — so the line a van carries on the map and the list
+ * inside its column cannot disagree. A child dragged between columns changes the plan, and the
+ * map is a second reading of the same change rather than a copy kept in step by hand.
+ *
+ * It takes stops rather than a `RoutePlan` (Firia's rule 2, 2026-10-17 5:48 PM ET): the capacity
+ * solver makes no placement decision anywhere in the rebuild, so the map is not drawn off one of
+ * its verdicts either. Ordering the stops of a van somebody has already been put in is the
+ * board's own arithmetic (src/domain/plan/board.ts `ridersInVan`).
  *
  * The geometry is the committed survey (ADR-007): src/fixtures/run-routes.ts holds the eight
  * roads the scenario's own runs drive, and this module asks for the pair it needs in the
@@ -20,11 +24,12 @@
  * `[lng, lat]` (src/domain/location/geo.ts), which is the order GeoJSON wants, so the component
  * that hands it to MapLibre has nothing to convert.
  */
-import type { Coord } from "@/domain/location/geo";
-import type { Direction, RoutePlan } from "@/domain/solver";
+import { distanceM, type Coord } from "@/domain/location/geo";
+import type { Direction } from "@/domain/day/leg";
 import { CENTER_STOP_ID, committedLeg } from "@/fixtures/run-routes";
+import { PROBE_SPEED_MPS } from "@/fixtures/survey";
 import { CENTER_STOP, STOPS } from "@/modules/demo/fixtures/standard";
-import { places, vanName } from "@/ui/copy";
+import { places } from "@/ui/copy";
 
 /** The centre, as the plan names it and as the survey places it. */
 export const PLAN_CENTER_LABEL: string = places.center;
@@ -62,12 +67,19 @@ export type PlanMapSegment = {
   geometry: Coord[];
   /** True when this stretch is the committed road; false when it is the line between two stops. */
   surveyed: boolean;
+  /**
+   * How long this stretch takes. The survey's own measured duration where it has the pair, and
+   * the straight line at the survey's own probe speed where it does not — the same speed the
+   * committed durations were measured at (src/fixtures/survey.ts), so a rearranged plan is
+   * timed on one number rather than on a guess invented here. The van's footer reads the sum.
+   */
+  durationSec: number;
 };
 
 export type PlanMapRoute = {
   /** The lane this is the route of, so selecting a lane and selecting a line are one thing. */
   laneId: string;
-  /** "the convertible van" — the name the lanes use, which is the label on the line. */
+  /** "Van 2" — the one name this van has (src/config/vans.ts `vanNameOf`). */
   vanName: string;
   /** Which of the route colours this van has; the palette lives in src/ui/tokens.ts. */
   colorIndex: number;
@@ -75,6 +87,8 @@ export type PlanMapRoute = {
   /** The van's own stops, centre excluded: the centre is one pin for every van. */
   stops: PlanMapStop[];
   segments: PlanMapSegment[];
+  /** The whole line's driving time, rounded to minutes: what the van's footer says (§1.2). */
+  minutes: number;
   /** Every segment's geometry, end to end, with the shared vertex not repeated. */
   line: Coord[];
   /** True when every stretch of this line is the committed road. */
@@ -105,8 +119,14 @@ function segmentBetween(
   to: { key: string; coord: Coord },
 ): PlanMapSegment {
   const leg = committedLeg(from.key, to.key);
-  if (leg && leg.geometry.length >= 2) return { geometry: leg.geometry, surveyed: true };
-  return { geometry: [from.coord, to.coord], surveyed: false };
+  if (leg && leg.geometry.length >= 2) {
+    return { geometry: leg.geometry, surveyed: true, durationSec: leg.durationSec };
+  }
+  return {
+    geometry: [from.coord, to.coord],
+    surveyed: false,
+    durationSec: distanceM(from.coord, to.coord) / PROBE_SPEED_MPS,
+  };
 }
 
 /** Segments joined end to end, dropping the vertex each pair shares. */
@@ -122,72 +142,77 @@ function joined(segments: readonly PlanMapSegment[]): Coord[] {
   return line;
 }
 
-/** One place a lane stops at, with the lane's own stop number for it. */
-type LanePlace = { key: string; coord: Coord; label: string; isCenter: boolean; k: number };
+/** One place a van stops at, with the number its column prints beside that stop. */
+type LanePlace = { key: string; coord: Coord; label: string; k: number };
 
 /**
- * The places one lane drives, in manifest order, with the consecutive repeats collapsed — each
- * carrying the lane's own stop number (`k`) for it.
+ * One van as the map is handed it: its id, its name, and the stops it drives in order.
  *
- * The number is the manifest's and not a count of what was drawn (Vera's review, 2026-10-17).
- * The lane beside the map prints `k` down its stop list, and the centre is one of those rows — so
- * a map that numbered its own discs from one disagreed with the list it sits next to: every
- * afternoon stop was one lower, because the afternoon's `k` 1 is the centre and the centre is
- * never a disc.
- *
- * Two children of one family board at the same kerb (the scenario's siblings do), and the
- * manifest carries one stop per child, so a van really does have two rows at one place. The map
- * draws the place once — two circles on the same coordinate are one circle with a smudge — and
- * the disc takes the last of the rows it covers, so the number on the map is never lower than a
- * row of the list that place accounts for.
+ * Two children at one kerb are **one** stop here — the board collapses them before it asks
+ * (src/domain/plan/board.ts `stopNumbers`), because two discs on one coordinate are one disc
+ * with a smudge, and the number on the disc is the number on their cards.
  */
-function placesOf(plan: RoutePlan, laneIndex: number): LanePlace[] {
-  const lanePlan = plan.lanes[laneIndex];
-  const stops = lanePlan.leg.stops;
-  const lastK = stops.length;
-  const out: LanePlace[] = [];
-  for (const stop of stops) {
-    const isCenter = plan.direction === "AM" ? stop.k === lastK : stop.k === 1;
+export type PlanMapVan = {
+  laneId: string;
+  vanName: string;
+  stops: readonly { order: number; label: string }[];
+};
+
+/**
+ * The places one van drives, centre included, in the order it drives them: the morning ends at
+ * the centre and the afternoon starts there (PRD §8).
+ *
+ * A stop the fixtures place nowhere is dropped rather than drawn at a guessed coordinate.
+ */
+function placesOf(direction: Direction, van: PlanMapVan): LanePlace[] {
+  const stops: LanePlace[] = [];
+  for (const stop of van.stops) {
     const place = placeOf(stop.label);
     if (!place) continue;
-    const previous = out[out.length - 1];
+    const previous = stops[stops.length - 1];
     if (previous && previous.key === place.key) {
-      // One circle for the kerb, numbered with the last row of the list it stands for.
-      previous.k = stop.k;
+      previous.k = stop.order;
       continue;
     }
-    out.push({ ...place, label: stop.label, isCenter, k: stop.k });
+    stops.push({ ...place, label: stop.label, k: stop.order });
   }
-  return out;
+  if (stops.length === 0) return [];
+  const centre: LanePlace = {
+    key: CENTER_STOP_ID,
+    coord: PLAN_CENTER_COORD,
+    label: PLAN_CENTER_LABEL,
+    k: 0,
+  };
+  return direction === "AM" ? [...stops, centre] : [centre, ...stops];
 }
 
 /**
  * The whole plan, drawable.
  *
- * A lane with nobody in it still gets a route — with no stops and no line — so the list beside
- * the map names every van the day has rather than only the ones that happen to be loaded. Its
- * colour is its lane's position, so a van keeps the same colour while children move in and out
- * of it.
+ * A van with nobody in it still gets a route — with no stops and no line — so the map names every
+ * van the day has rather than only the ones that happen to be loaded. Its colour is its position
+ * in the day's van order, so a van keeps the same colour while children move in and out of it.
  */
-export function planMap(plan: RoutePlan): PlanMapData {
-  const routes = plan.lanes.map((lanePlan, laneIndex) => {
-    const stops = placesOf(plan, laneIndex);
-    const segments = stops.slice(0, -1).map((stop, i) => segmentBetween(stop, stops[i + 1]));
+export function planMap(direction: Direction, vans: readonly PlanMapVan[]): PlanMapData {
+  const routes = vans.map((van, index) => {
+    const driven = placesOf(direction, van);
+    const segments = driven.slice(0, -1).map((stop, i) => segmentBetween(stop, driven[i + 1]));
     return {
-      laneId: lanePlan.lane.id,
-      vanName: vanName(lanePlan.lane.vehicle.description),
-      colorIndex: laneIndex,
-      riderCount: lanePlan.riders.length,
-      stops: stops
-        .filter((stop) => !stop.isCenter)
-        .map((stop) => ({ order: stop.k, label: stop.label, coord: stop.coord })),
+      laneId: van.laneId,
+      vanName: van.vanName,
+      colorIndex: index,
+      riderCount: van.stops.length,
+      stops: driven
+        .filter((place) => place.key !== CENTER_STOP_ID)
+        .map((place) => ({ order: place.k, label: place.label, coord: place.coord })),
       segments,
+      minutes: Math.round(segments.reduce((sec, segment) => sec + segment.durationSec, 0) / 60),
       line: joined(segments),
       surveyed: segments.every((segment) => segment.surveyed),
     };
   });
   return {
-    direction: plan.direction,
+    direction,
     center: PLAN_CENTER_COORD,
     centerLabel: PLAN_CENTER_LABEL,
     routes,

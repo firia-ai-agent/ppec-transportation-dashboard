@@ -146,7 +146,9 @@ describe("one shared demo-accounts config", () => {
   it("carries the role icon, and no password of its own per account", () => {
     for (const account of DEMO_ACCOUNTS) {
       expect(account.icon).toMatch(/^[a-z-]+$/);
-      expect(Object.keys(account)).toEqual(["id", "email", "name", "role", "icon"]);
+      // `label` is the staff-visible name ("Dana M."), which the plan board and the ramp iPad
+      // print where `name` may not go: it carries the synthetic marker (src/auth/demo-accounts.ts).
+      expect(Object.keys(account)).toEqual(["id", "email", "name", "role", "icon", "label"]);
     }
   });
 

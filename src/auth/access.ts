@@ -154,7 +154,12 @@ export const API = {
   cronSweep: "/api/cron/sweep",
   probeDelay: "/api/probe/delay",
   demoReset: "/api/demo/reset",
+  /** The plan board: the day it reads, the plan it saves, and one van's setup. */
+  planBoard: "/api/plan",
   planSave: "/api/plan/save",
+  vanSetup: "/api/vans/[id]/setup",
+  /** The three steps of the day, for a screen refreshing after a save or a Confirm (§9.4). */
+  dayReadiness: "/api/day/readiness",
   queueTimer: "/api/queues/timer",
   queueOutbox: "/api/queues/outbox",
   queueAgent: "/api/queues/agent",
@@ -461,19 +466,66 @@ export const ENDPOINTS: readonly EndpointRow[] = [
    * director, and the front desk's surface is the ramp iPad. A role that cannot open the screen
    * cannot save from it either, and the row is the same set for both so the two cannot drift.
    *
-   * Not site-scoped, because it takes no site id and no object id of ours: the body describes one
-   * run of the synthetic demo day, and every child and van id in it is checked against that day
-   * (src/domain/plan/stages.ts `readPlanDay`, src/domain/plan/save.ts `checkPlan`), with one
-   * uniform refusal for anything it does not have. It keeps nothing in the database — the demo's
-   * plan lives in the demo's own state (src/modules/demo/plan-store.ts) — so there is no row for
-   * a site id to scope.
+   * Not site-scoped, because it takes no site id: the site is the caller's own membership, the
+   * way the demo reset resolves one when the request does not name it. Every child and van id in
+   * the body is still checked against the day (src/domain/plan/board.ts `namesOnlyThisDay` and
+   * `checkPlan`), with one uniform refusal for anything it does not have — and what it keeps is
+   * `ops.plan_run` / `ops.plan_assignment`, which carry that site id on every row.
    */
   {
     kind: "route",
     file: "src/app/api/plan/save/route.ts",
     path: API.planSave,
-    methods: ["GET", "POST"],
+    methods: ["POST"],
     auth: { kind: "session", roles: CONSOLE, siteScoped: false },
+  },
+  /**
+   * The board itself (redesign spec §1.6): the vans and the setups they are planned against, the
+   * riders of the leg, the saved plan and its version. The two console roles, exactly as the page
+   * — a role that cannot open Plan routes cannot read its day either.
+   *
+   * Not site-scoped: it takes no site id. The site is the caller's own membership, the same way
+   * the demo reset resolves it when the request does not name one.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/plan/route.ts",
+    path: API.planBoard,
+    methods: ["GET"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: false },
+  },
+  /**
+   * One van's setup for one day — the counters the front desk sets at arrival and a coordinator
+   * can plan with (§1.6, §2).
+   *
+   * **All three roles**, which is the one endpoint on this screen that is wider than the console:
+   * counting what is on a van is the front desk's own job (PRD §6.2, ARCHITECTURE §1), and it is
+   * the whole of §2's Confirm. What a role may *write* differs and the route enforces it: the
+   * front desk may only confirm what arrived (`CHECKED`), never plan a van they are not looking
+   * at. §1.6 writes this as a `PUT`; it is a POST here, like every other write in this app, so
+   * the shared guard and the one `methods` vocabulary stay as they are.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/vans/[id]/setup/route.ts",
+    path: API.vanSetup,
+    methods: ["POST"],
+    auth: { kind: "session", roles: ALL_STAFF, siteScoped: false },
+  },
+  /**
+   * The three steps of the day (§9.4), for a screen that has just saved or confirmed something
+   * and needs the strip and the banners to agree with it again.
+   *
+   * All three roles, because both surfaces that read it are: the console's step strip and the
+   * ramp iPad's "All vans checked". It is a read of counts — how many vans are confirmed, whether
+   * a plan is saved — and names no child.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/day/readiness/route.ts",
+    path: API.dayReadiness,
+    methods: ["GET"],
+    auth: { kind: "session", roles: ALL_STAFF, siteScoped: false },
   },
   /**
    * Queue trigger for topic ppec-timer (vercel.json). Invoked by the platform's queue with its
