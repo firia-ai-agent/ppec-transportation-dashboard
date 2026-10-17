@@ -1,0 +1,171 @@
+/**
+ * The stream endpoint, as a `curl` would meet it.
+ *
+ * src/modules/realtime/sse.test.ts holds the protocol; this holds the HTTP answer: who is
+ * refused, what the first bytes are, that a reconnect is resumed rather than restarted, and
+ * that a site id in the query buys nothing (BUILD-PLAN §4's ID-swap row for an SSE subscribe).
+ *
+ * The session reader is mocked — there is no cookie jar here — and there is no database at all,
+ * because this route reads none: the morning it streams is the committed replay.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { StaffRole } from "@/auth/core";
+import { apiAccess } from "@/ui/copy";
+import { BOARD_SCENARIO_TICK } from "@/domain/board/day";
+import { liveSnapshotAt } from "@/domain/board/live";
+import { LIVE_EVENT, SSE_CONTENT_TYPE } from "@/modules/realtime/sse";
+
+const mocks = vi.hoisted(() => ({ getCaller: vi.fn() }));
+vi.mock("@/auth/caller", () => ({ getCaller: mocks.getCaller }));
+
+function signedIn(role: StaffRole | null) {
+  mocks.getCaller.mockResolvedValue(
+    role
+      ? { kind: "STAFF", role, userId: "u-1", memberships: [] }
+      : { kind: "ANONYMOUS", memberships: [] },
+  );
+}
+
+async function open(query = "", headers: Record<string, string> = {}): Promise<Response> {
+  const { GET } = await import("./route");
+  return GET(new Request(`https://example.test/api/stream${query}`, { headers }));
+}
+
+/**
+ * The first `n` events off a live stream, parsed. The response never ends on its own, so the
+ * body is read until we have what we asked for and then cancelled — which is also what a
+ * browser does when the board is closed.
+ */
+async function read(
+  response: Response,
+  n: number,
+): Promise<{ raw: string; frames: Array<{ id?: string; event: string; data: unknown }> }> {
+  const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  let raw = "";
+  const frames: Array<{ id?: string; event: string; data: unknown }> = [];
+  try {
+    while (frames.length < n) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      raw += decoder.decode(value, { stream: true });
+      frames.length = 0;
+      for (const block of raw.split("\n\n")) {
+        const event = /^event: (.+)$/m.exec(block);
+        const data = /^data: (.+)$/m.exec(block);
+        if (!event || !data) continue;
+        const id = /^id: (.+)$/m.exec(block);
+        frames.push({ id: id?.[1], event: event[1], data: JSON.parse(data[1]) });
+      }
+    }
+  } finally {
+    await reader.cancel();
+  }
+  return { raw, frames };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.useRealTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("who may subscribe", () => {
+  it("401 with no session", async () => {
+    signedIn(null);
+    const response = await open();
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: apiAccess.signIn });
+  });
+
+  it("403 for the front desk, whose surface is the ramp iPad", async () => {
+    signedIn("FRONT_DESK");
+    const response = await open();
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: apiAccess.notYourRole });
+  });
+
+  for (const role of ["DIRECTOR", "COORDINATOR"] as const) {
+    it(`streams to a ${role.toLowerCase()}`, async () => {
+      signedIn(role);
+      const response = await open();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain(SSE_CONTENT_TYPE);
+      expect(response.headers.get("cache-control")).toContain("no-store");
+      await (response.body as ReadableStream).cancel();
+    });
+  }
+});
+
+describe("the first bytes", () => {
+  it("are the reconnect delay and the whole board at the page's own instant", async () => {
+    signedIn("COORDINATOR");
+    const { raw, frames } = await read(await open(), 1);
+    expect(raw.startsWith("retry: ")).toBe(true);
+    expect(frames[0].event).toBe(LIVE_EVENT.snapshot);
+    expect(frames[0].id).toBe(String(BOARD_SCENARIO_TICK));
+    expect(frames[0].data).toEqual(JSON.parse(JSON.stringify(liveSnapshotAt(BOARD_SCENARIO_TICK))));
+  });
+
+  it("carry no snapshot when the client says which tick it already holds", async () => {
+    signedIn("COORDINATOR");
+    // ×60, so the first delta arrives in well under a second of real time. An `idle` frame may
+    // land first — a timer that fires a millisecond early is a tick that has not happened yet —
+    // and that is the point of `idle`: it says "alive, nothing moved" without a resume point.
+    const { frames } = await read(
+      await open("?speed=60", { "last-event-id": String(BOARD_SCENARIO_TICK) }),
+      3,
+    );
+    expect(frames.some((frame) => frame.event === LIVE_EVENT.snapshot)).toBe(false);
+    const delta = frames.find((frame) => frame.event === LIVE_EVENT.delta);
+    expect(delta?.data).toMatchObject({ fromTick: BOARD_SCENARIO_TICK });
+  });
+
+  it("accept the same resume point as a query, for a caller that reconnects by hand", async () => {
+    signedIn("COORDINATOR");
+    const { frames } = await read(await open(`?speed=60&since=${BOARD_SCENARIO_TICK + 6}`), 3);
+    const delta = frames.find((frame) => frame.event === LIVE_EVENT.delta);
+    expect(delta?.data).toMatchObject({ fromTick: BOARD_SCENARIO_TICK + 6 });
+  });
+
+  it("send the whole board when the resume point is not a tick", async () => {
+    signedIn("COORDINATOR");
+    const { frames } = await read(await open("", { "last-event-id": "later" }), 1);
+    expect(frames[0].event).toBe(LIVE_EVENT.snapshot);
+  });
+});
+
+describe("the stream keeps walking the morning", () => {
+  it("sends monotone ids and no duplicate tick", async () => {
+    signedIn("DIRECTOR");
+    const { frames } = await read(await open("?speed=60"), 4);
+    const ids = frames.filter((f) => f.id !== undefined).map((f) => Number(f.id));
+    expect(ids.length).toBeGreaterThan(1);
+    for (let i = 1; i < ids.length; i += 1) expect(ids[i]).toBeGreaterThan(ids[i - 1]);
+  });
+
+  it("chains its deltas, so a client can apply them one after another", async () => {
+    signedIn("DIRECTOR");
+    const { frames } = await read(await open("?speed=60"), 4);
+    const deltas = frames.filter((f) => f.event === LIVE_EVENT.delta) as Array<{
+      data: { fromTick: number; tick: number };
+    }>;
+    expect(deltas.length).toBeGreaterThan(1);
+    for (let i = 1; i < deltas.length; i += 1) {
+      expect(deltas[i].data.fromTick).toBe(deltas[i - 1].data.tick);
+    }
+    expect(deltas[0].data.fromTick).toBe(BOARD_SCENARIO_TICK);
+  });
+});
+
+describe("a site id in the query buys nothing (BUILD-PLAN §4)", () => {
+  it("streams the caller's own board, whatever site is asked for", async () => {
+    signedIn("COORDINATOR");
+    const mine = await read(await open(), 1);
+    const theirs = await read(await open("?site=00000000-0000-0000-0000-00000000beef"), 1);
+    expect(theirs.frames[0].data).toEqual(mine.frames[0].data);
+  });
+});

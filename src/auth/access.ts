@@ -160,6 +160,7 @@ export const API = {
   queueDelayProbe: "/api/queues/delay-probe",
   smsWebhook: "/api/webhooks/sms",
   simPhoneMessages: "/api/sim/phones/[number]/messages",
+  stream: "/api/stream",
 } as const;
 
 export const PAGES: readonly PageRow[] = [
@@ -497,6 +498,25 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     path: API.simPhoneMessages,
     methods: ["GET"],
     auth: { kind: "session", roles: CONSOLE, siteScoped: true },
+  },
+  /**
+   * The live board stream (ADR-002, PRD §14 SURF-01). The board's own data, so the board's own
+   * roles: the two console ones, and not the front desk, whose surface is the ramp iPad —
+   * exactly the `/today` row above, because this is that page's updates and nothing else.
+   *
+   * Not site-scoped, and that is the whole answer rather than a gap: the stream takes no site
+   * id at all. It carries the seeded site's demo day, computed from committed fixtures, so a
+   * site id in the query changes nothing — which is the answer BUILD-PLAN §4's ID-swap row
+   * asks for ("SSE subscribe with other site id in query ⇒ stream scoped to session site").
+   * When the board's facts come from `ops.event_log` (slice 4's writes), the site this caller
+   * is a member of becomes the tail's filter and this row becomes `siteScoped: true`.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/stream/route.ts",
+    path: API.stream,
+    methods: ["GET"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: false },
   },
   /**
    * The sign-in form's own action (ADR-004). It hands email and password to the credentials
