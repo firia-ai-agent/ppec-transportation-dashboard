@@ -21,7 +21,12 @@ import type { Assignment } from "@/domain/solver";
 import type { AskedLane, PlanDay } from "@/domain/plan/stages";
 import { planRoutes } from "@/ui/copy";
 
-export type SaveOutcome = { ok: true } | { ok: false; reason: string };
+/**
+ * What came back. A kept plan carries the instant the server wrote it down, which is the one
+ * thing on this screen only the server can know — the saved line reads that minute out
+ * (`savedLine`), so a coordinator who saves twice can tell the two apart.
+ */
+export type SaveOutcome = { ok: true; savedAt: string } | { ok: false; reason: string };
 
 /**
  * The lanes as the endpoint takes them: the van, what has been said about it, and the
@@ -47,6 +52,51 @@ function laneFacts(day: PlanDay): Record<string, AskedLane> {
   );
 }
 
+/**
+ * The request body, which is also the definition of "the plan on screen" for
+ * {@link planFingerprint}: one shape, so what is compared is exactly what would be sent.
+ */
+function requestBody(day: PlanDay, assignment: Assignment) {
+  return {
+    scenario: day.scenario,
+    direction: day.direction,
+    stages: laneFacts(day),
+    measured: day.measured,
+    assignment,
+  };
+}
+
+/**
+ * The plan on screen as one string, so it can be compared with the one last saved.
+ *
+ * Vera's review, 2026-10-17: the screen must say when it holds something the server has not been
+ * told about. "Something changed" is not a flag a handler can set honestly — a child dragged out
+ * and back is two changes and no difference — so the screen compares instead, and this is the
+ * comparison: every fact the request carries, written down in an order that does not depend on
+ * which one a coordinator touched first.
+ *
+ * What it deliberately leaves out is what the request leaves out: who is driving. A relief
+ * driver changes nothing that is saved (see {@link laneFacts}), so taking one does not make a
+ * saved plan unsaved. Each lane's riders are sorted for the same reason: a plan is who is in
+ * which van, not the order they were put there.
+ */
+export function planFingerprint(day: PlanDay, assignment: Assignment): string {
+  const body = requestBody(day, assignment);
+  const lanes = Object.entries(body.stages)
+    .map(([id, lane]) => `${id}:${lane.vehicleKey}:${lane.arrival}:${lane.rampLayoutId ?? ""}`)
+    .sort();
+  const vans = Object.entries(body.assignment)
+    .map(([id, tokens]) => `${id}:${[...tokens].sort().join(",")}`)
+    .sort();
+  return [
+    body.scenario,
+    body.direction,
+    [...body.measured].sort().join(","),
+    lanes.join(";"),
+    vans.join(";"),
+  ].join("|");
+}
+
 /** Send one run's plan to be checked and kept. */
 export async function savePlan(day: PlanDay, assignment: Assignment): Promise<SaveOutcome> {
   let payload: unknown;
@@ -54,16 +104,11 @@ export async function savePlan(day: PlanDay, assignment: Assignment): Promise<Sa
     const response = await fetch(API.planSave, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        scenario: day.scenario,
-        direction: day.direction,
-        stages: laneFacts(day),
-        measured: day.measured,
-        assignment,
-      }),
+      body: JSON.stringify(requestBody(day, assignment)),
     });
     payload = await response.json().catch(() => null);
-    if (response.ok && isSaved(payload)) return { ok: true };
+    const savedAt = response.ok ? savedAtIn(payload) : null;
+    if (savedAt) return { ok: true, savedAt };
   } catch {
     return { ok: false, reason: planRoutes.saveFailed };
   }
@@ -71,8 +116,19 @@ export async function savePlan(day: PlanDay, assignment: Assignment): Promise<Sa
   return { ok: false, reason: refusal ?? planRoutes.saveFailed };
 }
 
-function isSaved(payload: unknown): boolean {
-  return typeof payload === "object" && payload !== null && (payload as { ok?: unknown }).ok === true;
+/**
+ * The instant a kept plan was kept, or `null` for a body that does not say it was kept — which
+ * includes a body that says it was but cannot say when.
+ *
+ * An answer with no readable time is not a saved answer this screen can report: the one line it
+ * would print is "Plan saved at …", and filling that from the browser's own clock would be the
+ * screen inventing the record. So it falls through to the one sentence that claims nothing.
+ */
+function savedAtIn(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const { ok, savedAt } = payload as { ok?: unknown; savedAt?: unknown };
+  if (ok !== true || typeof savedAt !== "string") return null;
+  return Number.isNaN(new Date(savedAt).getTime()) ? null : savedAt;
 }
 
 /** The plain sentence a refusal carries, when the body has one to show. */

@@ -45,6 +45,27 @@ function namesProvider(template: string): RegExp {
   return new RegExp(`^${escaped.replace("\\{provider\\}", "\\S.+")}$`);
 }
 
+/**
+ * The saved line, with whatever minute the server kept the plan at: "Plan saved at 1:24 PM. No
+ * family has been told." The time is the server's own record and the test cannot know it in
+ * advance, so the shape is asserted here and the minute itself is read back off the endpoint.
+ */
+const SAVED_LINE = (() => {
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const [before, after] = copy.saved.split("{time}");
+  return new RegExp(`^${escape(before)}\\d{1,2}:\\d{2} (?:AM|PM)${escape(after)}$`);
+})();
+
+/** The minute an instant is, on the clock at the centre — the same conversion the screen makes. */
+function siteClock(iso: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(new Date(iso));
+}
+
 const REPORTED = namesProvider(copy.arrival.REPORTED);
 const ASK_PROVIDER = namesProvider(copy.askProvider);
 const RECORD_ANSWER = namesProvider(copy.recordAnswer);
@@ -833,9 +854,19 @@ test.describe("Plan routes", () => {
     );
     expect(await waitingNames(page)).not.toContain(CHAIR_CHILD);
     await expect(page.locator("[data-waiting]")).not.toContainText(securement.FOUR_POINT_STRAP);
+    /*
+     * And there is nothing to save yet, so the one control that leaves the browser cannot be
+     * pressed and nothing claims to be unsaved (Vera's review, 2026-10-17): nobody is in a van,
+     * which the row with the button says in the count beside it.
+     */
+    await expect(page.getByRole("button", { name: copy.save, exact: true })).toBeDisabled();
+    await expect(page.locator("[data-unsaved]")).toHaveCount(0);
     console.log("screenshot:", await shot(page, "plan-routes-at12-before-planning"));
 
     await plan(page);
+    // One press, and both are true the other way round: there is a plan, and it is not saved.
+    await expect(page.getByRole("button", { name: copy.save, exact: true })).toBeEnabled();
+    await expect(page.locator("[data-unsaved]")).toHaveText(copy.unsaved);
 
     // One child, named, with the missing hardware said in words — and everybody else in a van.
     const group = page.locator("[data-unplaced]");
@@ -1018,11 +1049,31 @@ test.describe("Plan routes", () => {
 
     /* ── saving ── */
     const save = page.getByRole("button", { name: copy.save, exact: true });
+    const unsaved = page.locator("[data-unsaved]");
     await expect(save).toBeEnabled();
+    // There is a plan on the screen and the server has not been told about it, which the row
+    // with the button says in words (Vera's review, 2026-10-17).
+    await expect(unsaved).toHaveText(copy.unsaved);
+
     await save.click();
-    await expect(page.locator("[data-notice]")).toHaveText(copy.saved);
+    // The minute the server kept it at, read out on the clock at the centre — not the browser's
+    // local time, and not a time the screen made up: the endpoint's own record says the same.
+    await expect(page.locator("[data-notice]")).toHaveText(SAVED_LINE);
+    const kept = await page.request.get(
+      `${SAVE_ENDPOINT}?scenario=EVERY_RIDER_FITS&direction=AM`,
+    );
+    const savedAt: string = (await kept.json()).saved.savedAt;
+    await expect(page.locator("[data-notice]")).toHaveText(
+      fill(copy.saved, { time: siteClock(savedAt) }),
+    );
     // Saving is not sending, and the saved line says so in the same breath.
     expect(copy.saved).toContain("No family has been told");
+    // Saved is saved: the notice beside the button is gone until something changes again.
+    await expect(unsaved).toHaveCount(0);
+
+    // And one more move makes it true again, because the screen now differs from what was kept.
+    await moveWhoeverFits(page);
+    await expect(unsaved).toHaveText(copy.unsaved);
 
     await expectNoInternalCodes(page);
     await expectNoVehicleCodes(page);
@@ -1121,7 +1172,7 @@ test.describe("Plan routes", () => {
     await plan(page);
     // The save is the one request this screen makes on purpose, so it is in the walk.
     await page.getByRole("button", { name: copy.save, exact: true }).click();
-    await expect(page.locator("[data-notice]")).toHaveText(copy.saved);
+    await expect(page.locator("[data-notice]")).toHaveText(SAVED_LINE);
     await page.waitForLoadState("networkidle");
 
     // No routing provider and no geocoder: there is no *.googleapis.com request to make.

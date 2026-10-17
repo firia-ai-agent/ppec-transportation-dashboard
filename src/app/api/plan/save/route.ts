@@ -97,7 +97,14 @@ export async function POST(req: Request) {
     savedAt: new Date().toISOString(),
   });
   return Response.json(
-    { ok: true, placed: placedCount(saved.assignment), riders: input.riders.length },
+    {
+      ok: true,
+      placed: placedCount(saved.assignment),
+      riders: input.riders.length,
+      // When it was kept, so the screen can say it rather than date the save by its own clock:
+      // the server is the one that knows, and a browser's clock is nobody's record.
+      savedAt: saved.savedAt,
+    },
     { status: 200, headers: noStore },
   );
 }

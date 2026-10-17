@@ -37,8 +37,11 @@ import {
   setUpChangeLine,
   stopLine,
   summaryLine,
+  savedLine,
   unplacedState,
 } from "./lanes";
+import { planFingerprint } from "./save-plan";
+import { initialStages, planInputOf, type PlanDay } from "@/domain/plan/stages";
 
 /**
  * The Plan routes screen's contracts.
@@ -756,5 +759,139 @@ describe("the words beside a child with no van", () => {
 
   it("counts the plan in riders, not in rows", () => {
     expect(summaryLine(7, 9)).toBe("7 of 9 riders are in a van.");
+  });
+});
+
+
+/**
+ * Saving, as the screen reports it (Vera's review, 2026-10-17).
+ *
+ * Three facts a coordinator needs from the one control that leaves the browser: whether there is
+ * anything to save, whether what is on screen has been saved, and when the save happened. Two of
+ * them are pure functions, asserted here; the third is the button's own `disabled`, which is a
+ * rule in the source below and a real click in e2e/plan-routes.spec.ts.
+ */
+describe("what the screen says about saving", () => {
+  const DAY: PlanDay = {
+    scenario: "EVERY_RIDER_FITS",
+    direction: "AM",
+    stages: initialStages("EVERY_RIDER_FITS"),
+    measured: [],
+  };
+
+  /** The day's own plan, so the fingerprint is taken over a plan the solver agrees with. */
+  function planned(day: PlanDay = DAY) {
+    return planAssignment(planInputOf(day));
+  }
+
+  it("says a plan was saved at the time the server kept it, and that nobody was told", () => {
+    // The endpoint answers in UTC; the screen reads it out on the clock at the centre.
+    expect(savedLine("2026-10-17T17:24:03Z")).toBe(
+      "Plan saved at 1:24 PM. No family has been told.",
+    );
+    expect(savedLine("2026-10-17T20:05:00Z")).toBe(
+      "Plan saved at 4:05 PM. No family has been told.",
+    );
+    // Not a 24-hour clock, not an instant, and no placeholder left unfilled.
+    expect(savedLine("2026-10-17T17:24:03Z")).not.toMatch(/17:24|\{time\}|T\d|Z\b|UTC/);
+    // The promise the rest of the screen makes is in the same line, in the same words.
+    expect(savedLine("2026-10-17T17:24:03Z")).toContain(copy.nothingSent.split(".")[0]);
+  });
+
+  it("is the same plan, however the children got there", () => {
+    const assignment = planned();
+    // The same plan twice is the same fingerprint: nothing about the object's order counts.
+    expect(planFingerprint(DAY, { ...assignment })).toBe(planFingerprint(DAY, assignment));
+    // Including the order the riders were put in a van: a child dragged out and back is two
+    // changes and no difference, and must not leave the screen saying it has one.
+    const reversed = Object.fromEntries(
+      Object.entries(assignment).map(([laneId, tokens]) => [laneId, [...tokens].reverse()]),
+    );
+    expect(planFingerprint(DAY, reversed)).toBe(planFingerprint(DAY, assignment));
+    // And the lanes in the other order, which is the same day read from the other end.
+    const lanesBackwards = Object.fromEntries(Object.entries(assignment).reverse());
+    expect(planFingerprint(DAY, lanesBackwards)).toBe(planFingerprint(DAY, assignment));
+  });
+
+  it("differs the moment the plan does, in any of the things a save carries", () => {
+    const assignment = planned();
+    const base = planFingerprint(DAY, assignment);
+    const lane = Object.keys(assignment)[0];
+
+    // A child taken out of a van.
+    const oneFewer = { ...assignment, [lane]: assignment[lane].slice(1) };
+    expect(planFingerprint(DAY, oneFewer)).not.toBe(base);
+    // A child moved to another van: the same children, a different plan.
+    const moved = {
+      ...assignment,
+      [lane]: assignment[lane].slice(1),
+      [Object.keys(assignment)[1]]: [
+        ...assignment[Object.keys(assignment)[1]],
+        assignment[lane][0],
+      ],
+    };
+    expect(planFingerprint(DAY, moved)).not.toBe(base);
+    // The other run, and the other scenario: a plan belongs to one run of one fleet.
+    expect(planFingerprint({ ...DAY, direction: "PM" }, assignment)).not.toBe(base);
+    expect(
+      planFingerprint(
+        { ...DAY, scenario: "ONE_RIDER_HAS_NO_VAN", stages: initialStages("ONE_RIDER_HAS_NO_VAN") },
+        assignment,
+      ),
+    ).not.toBe(base);
+    // What the day knows about a van, which the solver re-reads and the request carries.
+    const substituted = {
+      ...DAY,
+      stages: {
+        ...DAY.stages,
+        [lane]: { ...DAY.stages[lane], vehicleKey: "V3", arrival: "CHANGED" as const },
+      },
+    };
+    expect(planFingerprint(substituted, assignment)).not.toBe(base);
+    // And a chair the ramp has measured (AT-04), which can change who fits.
+    expect(planFingerprint({ ...DAY, measured: ["C6"] }, assignment)).not.toBe(base);
+  });
+
+  /**
+   * The one thing a save does not carry: who is driving. A relief driver changes nothing the
+   * solver decides and nothing that is kept, so taking one may not turn a saved plan into an
+   * unsaved one.
+   */
+  it("is unchanged by a driver substitution, which is not part of the plan", () => {
+    const assignment = planned();
+    const lane = Object.keys(assignment)[0];
+    const relief = {
+      ...DAY,
+      stages: { ...DAY.stages, [lane]: { ...DAY.stages[lane], driverName: "Gus M." } },
+    };
+    expect(planFingerprint(relief, assignment)).toBe(planFingerprint(DAY, assignment));
+  });
+});
+
+/**
+ * The two rules the screen itself holds about saving, read off its source: vitest has no DOM, and
+ * the click that proves them is in e2e/plan-routes.spec.ts.
+ */
+describe("the save button's own rules", () => {
+  const screen = read("PlanRoutes.tsx");
+
+  it("cannot be pressed until somebody is in a van", () => {
+    expect(screen).toMatch(/disabled=\{saving \|\| placed === 0\}/);
+    // §4.2: the reason is readable rather than guessed at — the count is in the same row, and
+    // the pane says what to press.
+    expect(screen).toMatch(/summaryLine\(placed, riders\.length\)/);
+  });
+
+  it("says the screen is not saved by comparing it with what was, not by a flag", () => {
+    // The notice is the comparison, in the row with the button, and only when there is a plan.
+    expect(screen).toMatch(/const unsaved = placed > 0 && fingerprint !== savedPlan;/);
+    expect(screen).toMatch(/\{planRoutes\.unsaved\}/);
+    expect(screen).toMatch(/data-unsaved="true"/);
+    // A save records the plan it sent, not whatever is on screen when the answer arrives.
+    expect(screen).toMatch(/const sent = fingerprint;/);
+    expect(screen).toMatch(/if \(outcome\.ok\) setSavedPlan\(sent\);/);
+    // And the saved line is the server's time, through the one helper that formats it.
+    expect(screen).toMatch(/savedLine\(outcome\.savedAt\)/);
+    expect(screen).not.toMatch(/planRoutes\.saved\b/);
   });
 });

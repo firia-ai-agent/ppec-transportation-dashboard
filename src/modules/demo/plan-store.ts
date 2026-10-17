@@ -16,7 +16,9 @@
  * plan saved on one instance is not readable from another, and a redeploy forgets every plan.
  * That is the right trade for a plan that notifies nobody and locks nothing — the save's whole
  * job is to prove the check (src/domain/plan/save.ts) runs on the server as well as in the
- * browser — and it is the reason the screen reports "Plan saved" and never "last saved at …".
+ * browser. It is also why the screen says "Plan saved at 1:24 PM" about the save it just made
+ * and never "last saved at …" about a plan it found here: a plan read back from another instance
+ * is a plan this process never kept.
  *
  * No identity in the key, either: the browser-test session is a role with no user id
  * (src/auth/caller.ts) and the demo has one centre, so the plan belongs to the run and not to a
@@ -30,7 +32,7 @@ export type SavedPlan = {
   direction: Direction;
   /** The plan as the solver re-checked it, lane by lane (`checkPlan`). */
   assignment: Assignment;
-  /** When it was kept, ISO. Read back by the endpoint's GET; no screen prints it. */
+  /** When it was kept, ISO. Answered by the POST, so the screen can say the minute it saved at. */
   savedAt: string;
 };
 

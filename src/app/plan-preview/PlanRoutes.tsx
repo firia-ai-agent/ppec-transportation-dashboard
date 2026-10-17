@@ -70,7 +70,7 @@ import { DemoControls } from "@/ui/DemoControls";
 import { serviceDateLabel } from "@/ui/service-date";
 import { StateChip } from "@/ui/StateChip";
 import { icon } from "@/ui/tokens";
-import { savePlan } from "./save-plan";
+import { planFingerprint, savePlan } from "./save-plan";
 import {
   ARRIVAL_ANSWERS,
   arrivalLabel,
@@ -81,6 +81,7 @@ import {
   needsADecision,
   reasonLine,
   refusalLine,
+  savedLine,
   seatLines,
   setUpAsLine,
   setUpChangeLine,
@@ -186,6 +187,16 @@ export default function PlanRoutes() {
   /** True while the save is in flight, so the button is unavailable and says why. */
   const [saving, setSaving] = useState(false);
   /**
+   * The plan the server last kept, as the fingerprint of the request that kept it — so the
+   * screen can say that what is on it now is not that (Vera's review, 2026-10-17). Null until a
+   * save comes back: nothing has been kept for this run.
+   *
+   * A run or a scenario change leaves it alone. Both empty the screen, which is the state where
+   * there is nothing to save and nothing is said; and the plan kept for the morning is still the
+   * plan kept for the morning when a coordinator comes back to it.
+   */
+  const [savedPlan, setSavedPlan] = useState<string | null>(null);
+  /**
    * The gesture in progress. A ref and not state: it is read and written inside the pointer
    * handlers between renders, and a drag that waited for a render to know where it started
    * would drop the first few millimetres of every move.
@@ -213,6 +224,15 @@ export default function PlanRoutes() {
 
   const placed = plan.lanes.reduce((n, lane) => n + lane.riders.length, 0);
   const decisionsOpen = needsADecision(plan.lanes, plan.unplaced);
+  /** What a save of this screen would send, as one string (src/app/plan-preview/save-plan.ts). */
+  const fingerprint = useMemo(() => planFingerprint(day, assignment), [day, assignment]);
+  /**
+   * There is a plan to save, and it is not the one that was saved.
+   *
+   * Nobody in a van is not an unsaved change — it is the screen before it has been asked
+   * anything, and Save plan is unavailable there — so the notice needs both halves.
+   */
+  const unsaved = placed > 0 && fingerprint !== savedPlan;
 
   /**
    * The two groups of children in no van, which are two different facts (Vera's review).
@@ -252,12 +272,16 @@ export default function PlanRoutes() {
    * what this screen promises everywhere else (AT-12).
    */
   const save = async () => {
+    // The plan as it is being sent, so a child moved while the request is in flight leaves the
+    // screen saying what is true: this is not what was saved.
+    const sent = fingerprint;
     setSaving(true);
     const outcome = await savePlan(day, assignment);
     setSaving(false);
+    if (outcome.ok) setSavedPlan(sent);
     setNotice(
       outcome.ok
-        ? { text: planRoutes.saved, refused: false }
+        ? { text: savedLine(outcome.savedAt), refused: false }
         : { text: outcome.reason, refused: true },
     );
   };
@@ -906,11 +930,26 @@ export default function PlanRoutes() {
             type="button"
             className={styles.secondary}
             onClick={save}
-            disabled={saving}
+            disabled={saving || placed === 0}
             data-save="true"
           >
             {saving ? planRoutes.saving : planRoutes.save}
           </button>
+          {/*
+            Beside the button, and only when it is true: the screen holds a plan the server has
+            not been told about. Words rather than a dot or a colour, because this is a fact
+            about the plan and not one of the §3 states (Vera's review, 2026-10-17).
+          */}
+          {unsaved ? (
+            <span className={styles.unsaved} data-unsaved="true">
+              {planRoutes.unsaved}
+            </span>
+          ) : null}
+          {/*
+            And the count, which is §4.2's readable reason for the one control that is
+            unavailable before anything is planned: with nobody in a van there is no plan to
+            save, and this says so in the same row as the button.
+          */}
           <span className={styles.meta}>{summaryLine(placed, riders.length)}</span>
         </div>
         {decisionsOpen ? <p className={styles.reason}>{planRoutes.nothingSent}</p> : null}

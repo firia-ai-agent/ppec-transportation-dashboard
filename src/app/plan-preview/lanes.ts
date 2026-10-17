@@ -11,7 +11,7 @@ import { countable, fill, layoutName, pluralize, planRoutes, rampPreview, secure
 import { missingPhrase } from "@/domain/plan/reasons";
 import type { ArrivalAnswer } from "@/domain/plan/stages";
 import { capabilityStates, legStates, reservationStates, type StateDescriptor } from "@/ui/states";
-import { clockLabel } from "@/ui/service-date";
+import { clockLabel, siteTimeLabel } from "@/ui/service-date";
 import { causeOfDeficit } from "@/domain/solver";
 import type {
   Child, DailyCapability, LanePlan, LaneSeats, Layout, PlanRider, SolveResult, Unplaced,
@@ -294,6 +294,17 @@ export function needChips(child: Child, measured: boolean): string[] {
 /** "7 of 9 riders are in a van." */
 export function summaryLine(planned: number, total: number): string {
   return fill(planRoutes.summary, { planned, total });
+}
+
+/**
+ * "Plan saved at 1:24 PM. No family has been told."
+ *
+ * The time is the server's own record of when it kept the plan (`savedAt`, ISO), read out in the
+ * site's timezone — not the browser's local time, and not this screen's clock, because the save
+ * is the one thing on the screen a server decides and the record of it is the server's.
+ */
+export function savedLine(savedAt: string): string {
+  return fill(planRoutes.saved, { time: siteTimeLabel(new Date(savedAt)) });
 }
 
 /** Is there anything on this plan a coordinator still has to decide? */

@@ -847,6 +847,29 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
   });
 
   /**
+   * Vera's review, 2026-10-17: the two things the save row says.
+   *
+   * "Plan saved." alone left a coordinator who had saved twice with no way to tell which save
+   * the line was about, and nothing on the screen said when what was in front of them had last
+   * been kept — so one line carries the minute and the other says the screen is ahead of it.
+   */
+  it("the save row: a time on the saved line, and the words for an unsaved change", () => {
+    expect(planRoutes.saved).toBe("Plan saved at {time}. No family has been told.");
+    expect(fill(planRoutes.saved, { time: "1:24 PM" })).toBe(
+      "Plan saved at 1:24 PM. No family has been told.",
+    );
+    expect(planRoutes.unsaved).toBe("Changes not saved yet.");
+    // Saving is still not sending, and the saved line says both in one breath.
+    expect(planRoutes.saved).toContain("No family has been told");
+    // Neither line is about the request, the endpoint or what a server did.
+    for (const line of [planRoutes.saved, planRoutes.unsaved]) {
+      expect(line, line).not.toMatch(/server|request|endpoint|HTTP|200\b/i);
+    }
+    // The unsaved line says it about the screen, not about the thing a coordinator last did.
+    expect(planRoutes.unsaved.split(" ")).toHaveLength(4);
+  });
+
+  /**
    * Vera's review, 2026-10-17: the three lines over and under the map, in a coordinator's words.
    *
    * The note said "no surveyed road", which is a fact about our data and not about the day — what

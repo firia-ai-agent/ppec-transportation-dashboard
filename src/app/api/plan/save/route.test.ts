@@ -155,6 +155,14 @@ describe("saving a plan", () => {
     expect(body.placed).toBe(INPUT.riders.length);
     expect(body.riders).toBe(INPUT.riders.length);
     expect(res.headers.get("cache-control")).toBe("no-store");
+    /*
+     * And when it kept it, which is the half the screen prints (Vera's review, 2026-10-17): the
+     * saved line reads a real minute, and the only clock that knows it is this one. It is the
+     * same instant the run reads back, in UTC, for the screen to put on the centre's clock.
+     */
+    expect(body.savedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    const read = await (await get("?scenario=EVERY_RIDER_FITS&direction=AM")).json();
+    expect(read.saved.savedAt).toBe(body.savedAt);
   });
 
   it("reads back the plan it kept, for that run and no other", async () => {

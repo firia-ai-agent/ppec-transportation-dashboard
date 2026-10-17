@@ -1415,7 +1415,21 @@ export const planRoutes = {
    */
   save: "Save plan",
   saving: "Saving…",
-  saved: "Plan saved. No family has been told.",
+  /**
+   * What was kept, and when — the minute the server wrote it down, in the site's own timezone
+   * (`siteTimeLabel`). "Plan saved." alone left a coordinator who saved twice with no way to
+   * tell which of the two the line was about (Vera's review, 2026-10-17); a real time is the
+   * shortest honest answer, and the promise it carries is the one the rest of the screen makes.
+   */
+  saved: "Plan saved at {time}. No family has been told.",
+  /**
+   * Beside Save plan, whenever what is on screen is not what was last saved.
+   *
+   * Said in the row with the button rather than in the one line that answers a drag, because it
+   * is not an answer to anything a coordinator just did — it is the state of the plan in front
+   * of them, and it stays until they save it.
+   */
+  unsaved: "Changes not saved yet.",
   /**
    * The save did not reach the server, or the server answered something this screen cannot
    * read. It says what to do and claims nothing about what was kept.

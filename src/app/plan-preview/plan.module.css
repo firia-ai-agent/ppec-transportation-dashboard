@@ -247,6 +247,18 @@
   color: var(--color-ink-muted);
 }
 
+/*
+ * Beside Save plan: the screen holds a plan the server has not been told about.
+ *
+ * The screen's own ink and a little weight, and no colour of its own — it is a fact about the
+ * plan rather than one of the §3 states, and the row it sits in is read left to right: the
+ * button, then this, then how much of the day is in a van.
+ */
+.unsaved {
+  color: var(--color-ink);
+  font-weight: var(--weight-medium);
+}
+
 .chips {
   display: flex;
   gap: var(--space-2);
