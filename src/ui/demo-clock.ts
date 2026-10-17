@@ -19,11 +19,15 @@
  * screen. `useSyncExternalStore` is React's own answer to that, and it gives the server render
  * the one snapshot a server has: not started.
  *
- * **No server state in here, by design.** This module writes nothing and asks nothing: a tick is
- * the instant the synthetic day is read at, and the day is already committed in the fixtures
- * (ADR-015 synthetic-only). That is what lets the clock run on a Vercel preview, where the demo
- * reset endpoint refuses because the database is read-only there (DECISION-LEDGER #43,
- * `demoControlsGate` in src/modules/demo/reset.ts).
+ * **No server state in here, by design.** This module asks the server nothing and writes it
+ * nothing: a tick is the instant the synthetic day is read at, and the day is already committed
+ * in the fixtures (ADR-015 synthetic-only). That is what lets the clock run on a Vercel preview,
+ * where the demo reset endpoint refuses because the database is read-only there
+ * (DECISION-LEDGER #43, `demoControlsGate` in src/modules/demo/reset.ts).
+ *
+ * The one thing it does keep is **that the day was started**, in this tab's `sessionStorage`
+ * under `DEMO_CLOCK_KEY` — two numbers, written on the press and read back by `resumeDemoClock`
+ * after a reload. No cookie, no row, nothing a preview could refuse. The reason is below.
  *
  * Resetting the **data** is the other half of the header's one button, and it is not in here:
  * the press calls `POST /api/demo/reset` first and then starts this clock, in that order, and
@@ -40,7 +44,7 @@ import { useSyncExternalStore } from "react";
 import { liveStreamConfig } from "@/config/live";
 import { BOARD_SCENARIO_TICK, DAY_LAST_TICK } from "@/domain/board/day";
 import { formatClock } from "@/domain/eta/eta";
-import { clampTick, instantAt, tickIntervalMs } from "@/domain/eta/scenario-clock";
+import { clampTick, instantAt, tickIntervalMs, ticksElapsed } from "@/domain/eta/scenario-clock";
 import { scenarioClock } from "./copy";
 
 /**
@@ -70,6 +74,90 @@ export type DemoClock = {
  * them back to 7:30 and an empty board.
  */
 export const NOT_STARTED: DemoClock = { running: false, tick: BOARD_SCENARIO_TICK };
+
+/**
+ * Where the browser remembers that the day was started: one key, `sessionStorage`, this tab.
+ *
+ * SOURCE: the founder's 2026-10-17 14:44 ET ruling has exactly two presses — the first resets
+ * with no confirm, and after that the button says "Restart demo day" and asks first. A reload
+ * used to undo that: the store above is module state, so a refresh (or a second tab) came back
+ * to "Demo not started", and the next press threw away everything changed since the start with
+ * nothing asked. So the *fact* of the start is remembered, and the clock is rebuilt from it.
+ *
+ * `sessionStorage` and not a cookie, a row or a server call, because the clock itself is none of
+ * those (see the header of this file): a tick is an instant the committed fixtures are read at,
+ * so the whole record is two numbers, and the demo has to keep working on a Vercel preview where
+ * the database refuses to be written. Per tab, which is what a demo wants — a second tab opened
+ * to show someone the "before" is a fresh day, and closing the browser ends the demo.
+ */
+export const DEMO_CLOCK_KEY = "ppec-demo-clock";
+
+/**
+ * The start, as two numbers: when it happened in wall time, and the tick the day started from.
+ * Everything else a reload needs — the tick it has reached now, whether it is running — is
+ * computed from these and §6.2's speed, so there is nothing stored that can go stale.
+ */
+export type DemoClockStart = {
+  /** `Date.now()` at the press. */
+  readonly startedAtMs: number;
+  /** The tick the day was put back to, which is where it began walking. */
+  readonly startTick: number;
+};
+
+/**
+ * The tab's storage, or `null` where there is none to have: the server render, and a browser
+ * that refuses it (Safari's private mode, a third-party frame, a quota already full). Reading
+ * the property is what throws in those browsers, so the guard is a `try` and not a `typeof`.
+ */
+function store(): Storage | null {
+  try {
+    return typeof window === "undefined" ? null : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** The remembered start, or `null` — which is "the demo has not started", the same as no key. */
+export function readDemoStart(): DemoClockStart | null {
+  const raw = (() => {
+    try {
+      return store()?.getItem(DEMO_CLOCK_KEY) ?? null;
+    } catch {
+      return null;
+    }
+  })();
+  if (raw === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== "object") return null;
+    const { startedAtMs, startTick } = parsed as Partial<DemoClockStart>;
+    if (typeof startedAtMs !== "number" || !Number.isFinite(startedAtMs)) return null;
+    if (typeof startTick !== "number" || !Number.isFinite(startTick)) return null;
+    return { startedAtMs, startTick };
+  } catch {
+    // Anything that is not the record we wrote — half a string, a value from an older build,
+    // something another tool put under the key. Not started, and never an exception into a
+    // render: a demo whose header throws is worse than one that asks for another press.
+    return null;
+  }
+}
+
+function writeDemoStart(start: DemoClockStart): void {
+  try {
+    store()?.setItem(DEMO_CLOCK_KEY, JSON.stringify(start));
+  } catch {
+    // Out of quota, or a browser that will not keep it. The clock in this tab still runs; only
+    // the reload forgets, which is where this began.
+  }
+}
+
+function forgetDemoStart(): void {
+  try {
+    store()?.removeItem(DEMO_CLOCK_KEY);
+  } catch {
+    // As above: nothing to put back.
+  }
+}
 
 let state: DemoClock = NOT_STARTED;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -101,23 +189,33 @@ function step(): void {
   publish({ running: true, tick: next });
 }
 
-/** What the Start button does. Starting an already-running clock is not a restart. */
-export function startDemoClock(): void {
-  if (state.running) return;
-  publish({ running: true, tick: state.tick });
+/**
+ * Running, from a tick: the one place the interval is created, so a press and a reload cannot
+ * end up walking the day at two different speeds or with two timers on it.
+ */
+function runFrom(tick: number): void {
+  publish({ running: true, tick });
   stopTimer();
   timer = setInterval(step, tickIntervalMs(DEMO_CLOCK_SPEED));
 }
 
+/** What the Start button does. Starting an already-running clock is not a restart. */
+export function startDemoClock(): void {
+  if (state.running) return;
+  runFrom(state.tick);
+}
+
 /**
  * Back to "Demo not started": every surface reading this clock is at the instant the server
- * rendered, and nothing is advancing it. No stored data is touched — this module writes none.
+ * rendered, and nothing is advancing it. No row and no demo data is touched — the only thing
+ * it clears is this tab's record of the start, so a reload agrees with the header.
  *
  * Not a control of its own any more: the header has one button, and it restarts (below). This is
  * the half of a restart that puts the clock back.
  */
 export function resetDemoClock(): void {
   stopTimer();
+  forgetDemoStart();
   publish(NOT_STARTED);
 }
 
@@ -133,6 +231,40 @@ export function resetDemoClock(): void {
 export function restartDemoClock(): void {
   resetDemoClock();
   startDemoClock();
+  // Last, and only here: this is the one function a press reaches, and `startDemoDay` calls it
+  // on exactly the two answers that start a clock — the reset ran, or a preview refused it by
+  // design. A failure never gets this far, so a failed press leaves no record to resume from.
+  // A restart overwrites the previous one, because the day it is now running is this one.
+  writeDemoStart({ startedAtMs: Date.now(), startTick: state.tick });
+}
+
+/**
+ * What a reload does: if this tab started a demo day, put the clock back where that day has got
+ * to by now and keep it walking. No record, or one we cannot read, and nothing happens — the
+ * header says the demo has not started, which is the truth for a tab that never pressed Start.
+ *
+ * The tick is computed, not stored: the start tick plus the ticks §6.2's speed has had time for
+ * since the press, clamped to the end of the service day. So a page left open over lunch comes
+ * back holding at 5:30 PM like `step` does, rather than resuming in the middle of a morning that
+ * is hours gone.
+ *
+ * Client only, from an effect — never during a render. The server has one snapshot it can give
+ * (`NOT_STARTED`, which is what `useDemoClock`'s server snapshot returns) and the first client
+ * render has to match it, so the resume happens after hydration and publishes to the readers.
+ *
+ * Already running — a second mount of the header on a client navigation — is a no-op: the clock
+ * in memory is the live one, and recomputing it from storage would be the same tick anyway.
+ */
+export function resumeDemoClock(): void {
+  if (state.running) return;
+  const start = readDemoStart();
+  if (start === null) return;
+  const tick = clampTick(
+    clampTick(start.startTick, DAY_LAST_TICK) +
+      ticksElapsed(Date.now() - start.startedAtMs, DEMO_CLOCK_SPEED),
+    DAY_LAST_TICK,
+  );
+  runFrom(tick);
 }
 
 export function demoClockSnapshot(): DemoClock {

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { API, rolesWhoCanCall } from "@/auth/access";
 import type { StaffRole } from "@/auth/core";
 import { scenarioClock } from "./copy";
-import { demoClockReadout, restartDemoClock, useDemoClock } from "./demo-clock";
+import { demoClockReadout, restartDemoClock, resumeDemoClock, useDemoClock } from "./demo-clock";
 import { postDemoReset, startDemoDay } from "./demo-day";
 import styles from "./ScenarioClock.module.css";
 
@@ -39,6 +39,11 @@ import styles from "./ScenarioClock.module.css";
  * read-only (DECISION-LEDGER #43): the clock still starts and one line says the reset is the
  * live site's. A real failure says so instead, and starts nothing.
  *
+ * **A reload keeps the day.** The start is remembered in this tab's `sessionStorage`, and on load
+ * the clock resumes at the tick it would have reached (`resumeDemoClock`), so a refresh still
+ * offers "Restart demo day" and its confirm. The no-confirm press is the first one of the tab,
+ * not the first one since the last refresh — which is what it was, and what lost the demo.
+ *
  * No live region on the readout: it changes every half-second while the day runs, and a screen
  * reader reading each one would talk over the board. The line beneath it is a `status`, because
  * it appears in answer to a press and is the only thing on this control that has to be heard.
@@ -53,6 +58,17 @@ export function ScenarioClock({ role }: { role: StaffRole | null }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const bodyId = useId();
+
+  /*
+   * A reload lands here. The store is module state, so a refresh came back to "Demo not started"
+   * and the next press was a first press: it reset the day with no confirm and took everything
+   * changed since the start with it. The start is remembered in this tab's `sessionStorage`
+   * instead (`resumeDemoClock`), and this is where it is read: in an effect, after hydration, so
+   * the first client render is still the server's "not started" and nothing mismatches.
+   */
+  useEffect(() => {
+    resumeDemoClock();
+  }, []);
 
   // §9: the dialog takes the focus when it opens, and the quiet keypress — Enter, Escape — is
   // the harmless one. Cancel is what the founder's ruling puts the focus on.

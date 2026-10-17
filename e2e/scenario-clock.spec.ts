@@ -18,6 +18,11 @@
  *    says the reset is the live site's;
  *  - the reset failed → nothing starts, and the line says so.
  *
+ * And one case no unit test can reach at all: the **reload**. The clock is a module store, so a
+ * refresh used to come back to "Demo not started" and the next press was an unguarded first
+ * press, taking the demo with it. The start is remembered in the tab's `sessionStorage` now, and
+ * the last test below refreshes a real page to read what comes back.
+ *
  * Who the endpoint lets in is not stubbed anywhere: src/auth/idswap.test.ts and
  * src/auth/guard-matrix.test.ts call the real handler, role by role, against a real database,
  * and e2e/demo-control-roles.spec.ts reads the control off the screen for the role this run is
@@ -242,4 +247,61 @@ test("a real failure starts nothing, and says so in one sentence", async ({ page
   await expect(page.locator("body")).not.toContainText("nope");
   await expect(page.locator("body")).not.toContainText("500");
   console.log("screenshot:", await shot(page, "scenario-clock-failure"));
+});
+
+test("a reload keeps the day running, and the press after it still asks first", async ({ page }) => {
+  const resetCalls = await answerTheReset(page, { status: 200, body: { ok: true } });
+  await page.goto("/today");
+
+  const readout = readoutOf(page);
+  await page.getByRole("button", { name: scenarioClock.start, exact: true }).click();
+  await expect.poll(resetCalls).toBe(1);
+  await expect(readout).toHaveText(CLOCK_TIME);
+  const started = await text(readout);
+
+  // Let the day get somewhere, so "it came back where it had got to" is a visible difference.
+  await expect
+    .poll(async () => await text(readout), { timeout: 30_000, intervals: [500] })
+    .not.toBe(started);
+
+  // The founder refreshes the page — or opens the console again on the same tab.
+  await page.reload();
+
+  // The day is still running, and it resumed where it had got to rather than at the start.
+  await expect(readout).toHaveText(CLOCK_TIME);
+  const resumed = await text(readout);
+  expect(minutesOf(resumed)).toBeGreaterThan(minutesOf(started));
+  // The reload reset nothing by itself: the only POST is still the press before it.
+  expect(resetCalls()).toBe(1);
+  // …and it keeps walking from there, on one clock.
+  await expect
+    .poll(async () => await text(readout), { timeout: 30_000, intervals: [500] })
+    .not.toBe(resumed);
+
+  // The gap this closes: the button is the restart, not the unguarded first press.
+  const restart = page.getByRole("button", { name: scenarioClock.restart, exact: true });
+  await expect(restart).toBeVisible();
+  await expect(page.getByRole("button", { name: scenarioClock.start, exact: true })).toHaveCount(0);
+
+  // So the press after a reload asks, in the founder's words, with Cancel holding the focus.
+  await restart.click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: scenarioClock.confirmTitle })).toBeVisible();
+  await expect(dialog.getByText(scenarioClock.confirmBody, { exact: true })).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: scenarioClock.confirmCancel, exact: true }),
+  ).toBeFocused();
+  // Nothing has gone back yet: the question is asked before the demo data is touched.
+  expect(resetCalls()).toBe(1);
+  console.log("screenshot:", await shot(page, "scenario-clock-confirm-after-reload"));
+
+  // Answered, it is the whole press again — the data back, then the clock.
+  await dialog.getByRole("button", { name: scenarioClock.confirmRestart, exact: true }).click();
+  await expect.poll(resetCalls).toBe(2);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(readout).toHaveText(CLOCK_TIME);
+  // Still the demo, and still honest about it after a refresh.
+  await expectDemoBarPinned(page);
+  await expectNoInternalCodes(page);
 });
