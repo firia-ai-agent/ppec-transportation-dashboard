@@ -196,9 +196,19 @@ export default function RampCheck({ role }: { role: StaffRole | null }) {
    * so the page has to: `main` carries a bottom padding equal to the banner's height, measured
    * rather than guessed, because the banner grows a line every time the solver adds an option
    * and a hard-coded number would be wrong on the first run that doesn't fit.
+   *
+   * And the banner is capped, at `--layout-ramp-verdict-max-height`: with "Show details" open
+   * on a 390 × 844 phone it grew to about 1054 px, taller than the window it is pinned to, so
+   * there was no tap target on the screen left to reach — the onward links under the re-plan
+   * panel included (Veri's review of 53423de, 2026-10-17). Past the cap it scrolls itself, and
+   * the verdict line stays at the top of it where it is always the first thing read.
+   *
+   * The measured height is published as `--ramp-verdict-height` and the padding is `calc()` over
+   * it, so the number lives in one place; until the first measurement the padding falls back to
+   * the cap, which is the most the bar can ever need.
    */
   const bannerRef = useRef<HTMLDivElement | null>(null);
-  const [bannerHeight, setBannerHeight] = useState(0);
+  const [bannerHeight, setBannerHeight] = useState<number | null>(null);
   /** Collapsed to the verdict line by default; the reason and the options are one tap away. */
   const [bannerOpen, setBannerOpen] = useState(false);
   useEffect(() => {
@@ -360,8 +370,12 @@ export default function RampCheck({ role }: { role: StaffRole | null }) {
       minHeight: "calc(100vh - var(--layout-demo-banner-height))",
       fontSize: "var(--body-ramp)", padding: "var(--space-5)",
       // Room under the content for the sticky banner to be pinned over, instead of over a row.
-      paddingBottom: `calc(var(--space-5) + ${bannerHeight}px)`,
-    }}>
+      // The bar's own height, once it has one; the cap it can never exceed until then.
+      "--ramp-verdict-height": bannerHeight === null
+        ? "var(--layout-ramp-verdict-max-height)"
+        : `${bannerHeight}px`,
+      paddingBottom: "calc(var(--space-5) + var(--ramp-verdict-height))",
+    } as React.CSSProperties}>
       {/* The DEMO bar and the one source chip ride in the root layout, on every route. */}
       <div style={{
         display: "flex", alignItems: "center", gap: "var(--space-4)", flexWrap: "wrap",
@@ -759,6 +773,14 @@ export default function RampCheck({ role }: { role: StaffRole | null }) {
         position: "sticky", bottom: 0, marginTop: "var(--space-5)", background: bannerVars.bg,
         color: bannerVars.fg, border: `var(--border-hairline) solid ${bannerVars.fg}`,
         borderRadius: "var(--radius-md)", padding: "var(--space-5)",
+        // Never taller than its share of the window, however many options the solver ranked:
+        // the rest is scrolled inside the bar, and the page keeps the room it reserved above.
+        maxHeight: "var(--layout-ramp-verdict-max-height)",
+        overflowY: "auto",
+        // A flick that reaches the end of the bar stops there instead of scrolling the check
+        // behind it, which on a phone is the difference between reading the options and losing
+        // your place in the checklist.
+        overscrollBehavior: "contain",
       }}>
         <div style={{
           display: "flex", gap: "var(--space-4)", alignItems: "center", flexWrap: "wrap",

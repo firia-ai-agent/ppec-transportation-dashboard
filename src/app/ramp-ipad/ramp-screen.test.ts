@@ -9,6 +9,7 @@ import { ARRIVAL_PARAM, rampArrivals } from "@/domain/plan/arrival";
 import { MEASURED_AT_ARRIVAL } from "@/domain/plan/day";
 import { boardChildren } from "@/domain/board/scenario";
 import { demoBanner, rampIpad, rampReplan } from "@/ui/copy";
+import { layout } from "@/ui/tokens";
 import { onwardLinks } from "./onward";
 import RampCheck from "./RampCheck";
 
@@ -105,7 +106,28 @@ describe("the sticky banner reserves its own height", () => {
   });
 
   it("pads the page by that height, so no row ends up underneath it", () => {
-    expect(screen).toMatch(/paddingBottom: `calc\(var\(--space-5\) \+ \$\{bannerHeight\}px\)`/);
+    // The measured height is published as a custom property and the padding is calc() over it,
+    // so the number is written once.
+    expect(screen).toMatch(/"--ramp-verdict-height": bannerHeight === null/);
+    expect(screen).toMatch(
+      /paddingBottom: "calc\(var\(--space-5\) \+ var\(--ramp-verdict-height\)\)"/,
+    );
+  });
+
+  /**
+   * §4.4 on a phone: the bar grows a line per ranked option, and with "Show details" open on a
+   * 390 × 844 screen it reached about 1054 px — taller than the window it is pinned to, which
+   * leaves nothing on the screen reachable (Veri's review of 53423de). The cap is a token, so
+   * the bar's ceiling and the room the page reserves for it are one number.
+   */
+  it("caps its own height and scrolls inside itself past the cap", () => {
+    expect(screen).toMatch(/maxHeight: "var\(--layout-ramp-verdict-max-height\)"/);
+    expect(screen).toMatch(/overflowY: "auto"/);
+    expect(layout.rampVerdictMaxHeight).toBe("40vh");
+    // Before the first measurement the page reserves the most the bar could take, which is
+    // that same cap: there is no second number anywhere.
+    expect(screen).toContain('"var(--layout-ramp-verdict-max-height)"');
+    expect(screen).not.toMatch(/maxHeight: "\d/);
   });
 
   it("collapses to the verdict line, so it covers one row rather than four", () => {

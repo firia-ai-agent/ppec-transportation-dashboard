@@ -207,6 +207,19 @@ export const layout = {
   sourceBadgeHeightRamp: "24px",
   headerHeight: "64px",
   contentMaxWidth: "1440px",
+  /**
+   * The tallest the ramp iPad's sticky verdict bar may grow (§4.4).
+   *
+   * The bar carries the verdict, the reason behind it and every §9 option the solver ranked, so
+   * it grows a line per option — and with "Show details" open on a 390 × 844 phone it reached
+   * about 1054 px, taller than the window it was pinned to, which left no tap target on the
+   * screen reachable at all (Veri's review of 53423de, 2026-10-17). Capped in viewport units
+   * rather than pixels because what matters is how much of the *window* a pinned bar may take;
+   * two fifths leaves the majority of the screen to the check itself, and the bar scrolls
+   * internally for the rest. The screen reserves this much room under its content for the bar
+   * to be pinned over, so one number answers both halves and neither is written twice.
+   */
+  rampVerdictMaxHeight: "40vh",
 } as const;
 
 /** Breakpoints (§2). Exported for documentation; media queries live in CSS. */

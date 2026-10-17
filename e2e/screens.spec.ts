@@ -12,7 +12,8 @@
  * and is refused outright on any deployment.
  */
 import { expect, test, type Locator } from "@playwright/test";
-import { fill, fleetMap, liveMap, nav, planRoutes, rampIpad } from "../src/ui/copy";
+import { rampArrivals } from "../src/domain/plan/arrival";
+import { fill, fleetMap, liveMap, nav, planRoutes, rampIpad, vanTitle } from "../src/ui/copy";
 import { navItems } from "../src/ui/nav-items";
 import {
   boxOf,
@@ -166,8 +167,13 @@ for (const width of WIDTHS) {
       // §9 / COPY-GUIDE: the selected answer is filled and announced, not outlined.
       const notSure = page.getByRole("button", { name: rampIpad.answer.UNSURE }).first();
       await expect(notSure).toHaveAttribute("aria-pressed", "true");
-      const chosenVehicle = page.getByRole("button", { name: /^V1 · / });
+      // The tile the screen opens on, found by the van's *name* — the tiles read
+      // "V1 · SYN Palm Lift Transport" until Vera's review (2026-10-17) took both keys off them.
+      const firstVan = vanTitle(rampArrivals()[0].vehicle.description);
+      const chosenVehicle = page.getByRole("button", { name: new RegExp(`^${firstVan} · `) });
       await expect(chosenVehicle).toHaveAttribute("aria-pressed", "true");
+      // And no van key or synthetic marker is on any of them.
+      await expect(page.getByText(/\bV\d\b|\bSYN\b/)).toHaveCount(0);
       // The setup buttons say what the layout is, never the provider's shorthand.
       await expect(page.getByRole("button", { name: "1 wheelchair · 3 seats" })).toBeVisible();
       await expect(page.getByText(/\d+WC\/\d+A/)).toHaveCount(0);
