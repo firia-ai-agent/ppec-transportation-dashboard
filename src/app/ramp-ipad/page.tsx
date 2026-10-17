@@ -13,12 +13,23 @@
  * this page must not mount a second pair.
  */
 import { requirePage } from "@/auth/page-guard";
+import BackToToday from "@/ui/BackToToday";
 import RampCheck from "./RampCheck";
 
 /** The guard reads a session, so this route is never statically rendered. */
 export const dynamic = "force-dynamic";
 
 export default async function RampIpadPage() {
-  await requirePage("/ramp-ipad");
-  return <RampCheck />;
+  const caller = await requirePage("/ramp-ipad");
+  return (
+    <>
+      {/*
+        The one way back to the board, on all three rail-less screens (src/ui/BackToToday.tsx).
+        The front desk, whose surface this is, gets no link: the board is not their page, and
+        `canOpenPage` is what decides that rather than a second opinion written here.
+      */}
+      <BackToToday caller={caller} />
+      <RampCheck />
+    </>
+  );
 }
