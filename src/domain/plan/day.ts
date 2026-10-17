@@ -14,7 +14,14 @@
  * the MOCKS §1 public landmarks and never a home.
  */
 import { solverChild, solverVehicle, plannedWindow, stopLabel } from "@/domain/board/scenario";
-import type { DailyCapability, PlanLane, PlanRider, Vehicle } from "@/domain/solver";
+import type {
+  Assignment,
+  DailyCapability,
+  Layout,
+  PlanLane,
+  PlanRider,
+  Vehicle,
+} from "@/domain/solver";
 import { SERVICE_DATE } from "@/fixtures/fleet";
 import {
   CHILDREN,
@@ -162,16 +169,45 @@ export function reportedByProvider(vehicleId: string): DailyCapability {
   };
 }
 
-/** Ramp staff have seen the van and the configuration it arrived in (ASM-17 pins it here). */
-export function checkedAtRamp(vehicleId: string, layoutId: string, observedBy: string): DailyCapability {
+/**
+ * What else the ramp can find, beyond the configuration the van arrived in.
+ *
+ * Every field defaults to the easy case — the lift works, the anchors work, every place is
+ * free — because that is what a van that arrives as planned looks like, and the ramp check only
+ * has to say the things that are *not* that. A place nobody answered for is in
+ * `unknownPositionIds` and is never counted as free (PRD §7 l.797), which is the whole of
+ * "unknown until arrival" in one field.
+ */
+export type RampFindings = {
+  liftOk?: boolean | null;
+  latchOk?: boolean | null;
+  unavailablePositionIds?: readonly string[];
+  unknownPositionIds?: readonly string[];
+};
+
+/**
+ * Ramp staff have seen the van and the configuration it arrived in (ASM-17 pins it here), and
+ * whatever else they found: a lift that will not come down, anchors nobody could check, places
+ * out of service.
+ *
+ * Those extras are the difference between a check that confirms the plan and a check that
+ * changes it (AT-04), so they belong to the observation rather than to the screen that took it.
+ */
+export function checkedAtRamp(
+  vehicleId: string,
+  layoutId: string,
+  observedBy: string,
+  findings: RampFindings = {},
+): DailyCapability {
   return {
     vehicleId,
     serviceDate: PLAN_SERVICE_DATE,
     state: "VERIFIED",
     observedLayoutId: layoutId,
-    liftOk: true,
-    latchOk: true,
-    unavailablePositionIds: [],
+    liftOk: findings.liftOk ?? true,
+    latchOk: findings.latchOk ?? true,
+    unavailablePositionIds: [...(findings.unavailablePositionIds ?? [])],
+    unknownPositionIds: [...(findings.unknownPositionIds ?? [])],
     observedAt: `${PLAN_SERVICE_DATE}T07:05:00-04:00`,
     observedBy,
   };
@@ -287,4 +323,26 @@ export function planLanes(scenario: DemoScenario = "EVERY_RIDER_FITS"): PlanLane
     capability: reportedByProvider(key),
     driverName: driverFor(key),
   }));
+}
+
+/**
+ * The van the day's own runs put each child in, as an assignment.
+ *
+ * Not a plan this module searched: it is the scenario's three runs (standard.ts `RUNS`), which
+ * is what the Today board already shows and what the families were told. Anything that re-plans
+ * part of the day starts here, so a move is a change from the van a coordinator is looking at
+ * rather than from whatever a fresh search happened to pick.
+ */
+export function plannedAssignment(direction: Direction): Assignment {
+  const planned = new Set(planRiders(direction).map((rider) => rider.child.token));
+  return Object.fromEntries(
+    RUNS.map((run) => [run.vehicleKey, run.childKeys.filter((key) => planned.has(key))]),
+  );
+}
+
+/** One configuration of a van by the code the fixtures and the ramp buttons name it with. */
+export function layoutByCode(vehicle: Vehicle, code: string): Layout {
+  const layout = vehicle.layouts.find((l) => l.code === code);
+  if (!layout) throw new Error(`vehicle ${vehicle.id} has no configuration ${code}`);
+  return layout;
 }
