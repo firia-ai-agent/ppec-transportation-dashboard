@@ -6,10 +6,23 @@
  * The founder screenshotted prod signed in as SYN Dana Director and the rail showed four items:
  * Today · Exceptions & Approvals · Setup · Health & ROI, with no Plan routes. Every unit test
  * passed, and nav-rail.spec.ts passed, because both of them read the same `navItems` list the
- * app reads — a list that was already correct in the commit prod reported. What neither could
- * see is the thing that was actually wrong: the *bundle a deployment is serving* is whatever
- * commit was built, and a screenshot carries no commit. The cause was measured by signing in to
- * the deployment and reading its rail, so that is what this file does.
+ * app reads — a list that was already correct in the commit prod reported.
+ *
+ * **Why that screenshot showed four items is unproven.** Nobody re-read the rail on the
+ * deployment while the screenshot was fresh, and the image carries no commit, no URL and no
+ * timestamp, so the candidates were never separated and some of them no longer can be:
+ *
+ *  - a tab open since before `/plan-routes` reached the rail in production at 4:36 AM ET, still
+ *    showing the bundle it loaded then;
+ *  - an old per-deployment URL (a Vercel preview or an immutable deployment address), which
+ *    serves its own commit for as long as it exists and is not the production alias;
+ *  - a screenshot taken well before it was posted, of a production build that predated the rail.
+ *
+ * All three are consistent with the image, and none of them is a bug in `navItems`. What *is*
+ * measurable is the rendered rail on a named deployment, so that is what this file measures:
+ * it signs in, reads the rail off the DOM, and reports the commit it read it from. That makes
+ * the next screenshot answerable in one run instead of arguable — and it is a guard, not a
+ * diagnosis: it fails when a deployment's rail is actually short, whatever the cause.
  *
  * So, deliberately:
  *  - it runs against a **deployment**, named by `E2E_DEPLOYED_URL` (the Vercel preview URL for
@@ -43,11 +56,11 @@ const DEPLOYED = process.env.E2E_DEPLOYED_URL?.replace(/\/$/, "");
  * the rail". `E2E_EXPECTED_COMMIT=` (empty) turns the check off, for measuring production from a
  * branch checkout.
  *
- * This is the assertion that would have answered the founder's screenshot in one line. The rail
- * that showed four items was correct *for the bundle it came from* — `/plan-routes` reached the
- * rail in bf0d489, which reached production in a9b122e — so every check that compared the rail
- * against the source tree agreed with itself while the screenshot disagreed with both. Naming
- * the commit turns "the rail is wrong" into "this deployment is older than the rail".
+ * This is the assertion that would have *separated* the candidates above. `/plan-routes` reached
+ * the rail in bf0d489 and reached production in a9b122e, so a rail read off a build older than
+ * a9b122e is that build's correct rail and a rail read off a newer one is a real bug — and only
+ * the commit tells the two apart. Naming it turns "the rail is wrong" into either "this
+ * deployment is older than the rail" or a failure worth chasing.
  */
 const EXPECTED_COMMIT =
   process.env.E2E_EXPECTED_COMMIT ??
