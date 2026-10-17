@@ -32,8 +32,8 @@ function walkSrc(dir: string = SRC_ROOT): string[] {
  * WCAG 2.1 AA, or that drifts from the published ratio, fails the build.
  */
 describe("§8 contrast", () => {
-  it("covers every colour pair the doc lists, plus the inactive-control pair", () => {
-    expect(contrastPairs).toHaveLength(27);
+  it("covers every colour pair the doc lists, plus the inactive-control and demo-control pairs", () => {
+    expect(contrastPairs).toHaveLength(28);
   });
 
   it.each(contrastPairs)(
@@ -140,11 +140,11 @@ describe("token shape", () => {
 
   it("is the only file that holds the demo violet, and every screen reads it from here", () => {
     /*
-     * D-10 / §3: #6D28D9 is reserved for the DEMO bar and the Simulated badge, and it is
-     * on-spec on both. What must not happen is a second copy of it: a hex pasted into a
-     * component drifts the moment this table is corrected, and then the bar and the chip are
-     * two different violets. no-hex.test.ts bars every hex outside this file; this names the
-     * one that matters and checks the two surfaces that use it take it from the token.
+     * D-10 / §3: #6D28D9 is reserved for the DEMO bar, the Simulated badge and a demo-only
+     * control, and it is on-spec on all three. What must not happen is a second copy of it: a
+     * hex pasted into a component drifts the moment this table is corrected, and then the bar
+     * and the chip are two different violets. no-hex.test.ts bars every hex outside this file;
+     * this names the one that matters and checks the surfaces that use it take it from the token.
      */
     const VIOLET = "#6D28D9";
     expect(color["demo-bg"]).toBe(VIOLET);
@@ -159,6 +159,20 @@ describe("token shape", () => {
     expect(read("SourceBadge.module.css")).toMatch(
       /\.badge\[data-token="src-sim"\] \{[^}]*color: var\(--color-src-sim\)/,
     );
+    // And the demo control, which is the bar's own pair — one way round for its text, the
+    // other for the option it is set to (Vera's review, 2026-10-17).
+    const control = read("DemoControls.module.css");
+    expect(control).toMatch(/\.bar \{[^}]*background: var\(--color-demo-bg\)/);
+    expect(control).toMatch(/\.bar \{[^}]*color: var\(--color-demo-fg\)/);
+    const pressed = /\.button\[aria-pressed="true"\] \{[^}]*\}/.exec(control)?.[0] ?? "";
+    expect(pressed).toMatch(/background: var\(--color-demo-fg\)/);
+    expect(pressed).toMatch(/color: var\(--color-demo-bg\)/);
+    // §9: a ring that would be a smudge on the violet is not a ring. It is the bar's own ink.
+    expect(control).toMatch(
+      /\.button:focus-visible \{[^}]*outline: var\(--focus-width\) solid var\(--color-demo-fg\)/,
+    );
+    // The screen's one action colour never reaches a demo control: this is not a decision.
+    expect(control).not.toMatch(/--color-brand/);
     // Neither carries the literal, nor does anything else under src/ but this file.
     const offenders = walkSrc().filter(
       (f) => f !== path.join(SRC_ROOT, "ui", "tokens.ts") && readFileSync(f, "utf8").includes(VIOLET),
@@ -223,22 +237,29 @@ describe("token shape", () => {
   });
 
   /**
-   * D-5, as a rule about *screens* rather than about the palette: the violet appears on two
-   * things, the DEMO bar and the Simulated source chip, and on nothing else. The test above
-   * keeps a second violet out of the token table; this keeps the one violet off a third
-   * element, which is the way the reservation actually gets spent — four header pills in the
-   * src-sim tone beside a bar that already says "DEMO" and a chip that already says
-   * "Simulated", and the colour stops meaning "this is the demo" and starts meaning nothing.
+   * D-5, as a rule about *screens* rather than about the palette: the violet appears on the
+   * DEMO bar, the Simulated source chip and a control that is itself part of the demo, and on
+   * nothing else. The test above keeps a second violet out of the token table; this keeps the
+   * one violet off a fourth element, which is the way the reservation actually gets spent —
+   * four header pills in the src-sim tone beside a bar that already says "DEMO" and a chip that
+   * already says "Simulated", and the colour stops meaning "this is the demo" and starts
+   * meaning nothing.
+   *
+   * The demo control joined the list on Vera's review, 2026-10-17, and it is the one addition
+   * that *spends* the reservation on its own terms rather than borrowing it: the Plan routes
+   * scenario toggle is not a coordinator's control, so it is painted as the demo it steers. It
+   * is shared chrome in src/ui for that reason — a screen cannot opt itself in.
    *
    * Read from the stylesheets on purpose: nothing can paint itself violet without naming one
    * of these three custom properties, and the map's own copy of the token (style.ts, which is
    * JSON and cannot read a custom property) is held to the same rule by style.test.ts.
    */
-  it("spends that reservation on two elements: the bar and the chip", () => {
+  it("spends that reservation on three elements: the bar, the chip and a demo control", () => {
     const VIOLET_VARS = /--color-(?:demo-bg|demo-fg|src-sim)\b/;
     const allowed = new Set([
       path.join(SRC_ROOT, "ui", "DemoBanner.module.css"),
       path.join(SRC_ROOT, "ui", "SourceBadge.module.css"),
+      path.join(SRC_ROOT, "ui", "DemoControls.module.css"),
     ]);
     const stylesheets = walkSrc().filter((f) => f.endsWith(".css") && !allowed.has(f));
     expect(stylesheets.length).toBeGreaterThan(10);

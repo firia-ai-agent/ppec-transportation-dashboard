@@ -61,18 +61,23 @@ export async function expectNoInternalCodes(page: Page): Promise<void> {
 }
 
 /**
- * D-5, measured on the real screen: the demo violet paints two things and nothing else.
+ * D-5, measured on the real screen: the demo violet paints three things and nothing else.
  *
  * The source assertions (src/ui/tokens.test.ts) keep the token out of every stylesheet but the
- * bar's and the chip's. This is the other half, and the half that cannot be argued with: it
- * reads the *computed* colour of every element the browser laid out and asks where the violet
- * ended up. Anything violet has to be inside the DEMO bar or inside a Simulated source chip —
- * which is the whole of the reservation, and is why the violet still means "this is the demo"
- * when a coordinator sees it.
+ * bar's, the chip's and the demo control's. This is the other half, and the half that cannot be
+ * argued with: it reads the *computed* colour of every element the browser laid out and asks
+ * where the violet ended up. Anything violet has to be inside the DEMO bar, inside a Simulated
+ * source chip, or inside a control that is itself part of the demo (`[data-demo-control]`,
+ * src/ui/DemoControls) — which is the whole of the reservation, and is why the violet still
+ * means "this is the demo" when a coordinator sees it.
  */
+/** `--color-demo-bg` / `--color-src-sim` as the browser computes it. */
+export const DEMO_VIOLET = "rgb(109, 40, 217)";
+/** `--color-demo-fg`: the bar's ink, and the fill of the option a demo control is set to. */
+export const DEMO_INK = "rgb(255, 255, 255)";
+
 export async function expectVioletOnlyOnDemoChrome(page: Page): Promise<void> {
-  const strays = await page.evaluate(() => {
-    const VIOLET = "rgb(109, 40, 217)";
+  const strays = await page.evaluate((VIOLET) => {
     const describe = (el: Element): string =>
       `${el.tagName.toLowerCase()}${el.className ? `.${String(el.className).split(" ")[0]}` : ""}`;
     return Array.from(document.querySelectorAll("*"))
@@ -94,12 +99,44 @@ export async function expectVioletOnlyOnDemoChrome(page: Page): Promise<void> {
         // The bar: the element that holds the "DEMO" status, and everything under it.
         const bar = document.querySelector('[role="status"][aria-label="DEMO"]')?.parentElement;
         if (bar?.contains(el)) return false;
+        // A demo-only control, which wears the bar's fill on purpose (Vera, 2026-10-17).
+        if (el.closest("[data-demo-control]") !== null) return false;
         // The §7.1 source chip, wherever it is: a screen, a row, a drawer header.
         return el.closest('[data-token="src-sim"]') === null;
       })
       .map(describe);
+  }, DEMO_VIOLET);
+  expect(
+    strays,
+    `the demo violet is painting something that is not the DEMO bar, the Simulated chip or a demo control`,
+  ).toEqual([]);
+}
+
+/**
+ * A demo-only control reads as the demo and not as the screen (Vera's review, 2026-10-17).
+ *
+ * Measured rather than asserted from the markup: the point of the change is what a coordinator
+ * sees, so this reads the computed fill and ink of the control and of the option it is set to.
+ * The fill is the DEMO bar's violet, and the chosen option inverts it — which is also why it
+ * still reads with the colour off (§3: the check mark is the other cue, and `aria-pressed` the
+ * third).
+ */
+export async function expectDemoControlStyling(control: Locator): Promise<void> {
+  const bar = await control.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { background: s.backgroundColor, ink: s.color };
   });
-  expect(strays, `the demo violet is painting something that is not the DEMO bar or the Simulated chip`).toEqual([]);
+  expect(bar.background, "a demo control takes the DEMO bar's fill").toBe(DEMO_VIOLET);
+  expect(bar.ink, "a demo control takes the DEMO bar's ink").toBe(DEMO_INK);
+
+  const chosen = control.locator('button[aria-pressed="true"]');
+  await expect(chosen).toHaveCount(1);
+  const option = await chosen.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { background: s.backgroundColor, ink: s.color };
+  });
+  expect(option.background, "the chosen option inverts the pair").toBe(DEMO_INK);
+  expect(option.ink, "the chosen option inverts the pair").toBe(DEMO_VIOLET);
 }
 
 /** Every page: the one DEMO bar, and it is on screen at the bottom of the page too (NFR-09). */
