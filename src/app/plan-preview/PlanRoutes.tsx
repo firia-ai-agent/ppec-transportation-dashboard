@@ -48,10 +48,9 @@ import {
   type DemoScenario,
 } from "@/domain/plan/day";
 import {
-  canTake,
   planAssignment,
   routePlan,
-  withMove,
+  tryMove,
   type Assignment,
   type DailyCapability,
   type Direction,
@@ -328,34 +327,39 @@ export default function PlanRoutes() {
    *
    * An accepted move is remembered as this coordinator's own placement, so the next press of
    * "Plan routes" plans around it rather than over it. A refusal records nothing: nothing moved.
+   *
+   * Every move on the screen comes through here — the drag's release and the Move menu's buttons
+   * both call it — and this is the only place the assignment is set from a move. The decision
+   * itself is `tryMove`'s (src/domain/solver), which either hands back the new assignment or a
+   * refusal and no assignment at all: Veri's finding, 2026-10-17, was that asking the solver and
+   * editing the assignment were two steps here, and dropping the first one passed every test.
+   * There is nothing left to drop — a refusal has nothing in it to assign.
    */
   const move = (childToken: string, laneId: string | null) => {
     setMoving(null);
     const rider = riders.find((r) => r.child.token === childToken);
     if (!rider) return;
-    if (laneId === null) {
-      setAssignment(withMove(assignment, childToken, null));
-      setPinned((prev) => ({ ...prev, [childToken]: null }));
-      setNotice({
-        text: fill(planRoutes.movedOut, { child: rider.child.displayName }),
-        refused: false,
-      });
+    const lane = laneId === null ? null : lanes.find((l) => l.id === laneId);
+    if (laneId !== null && !lane) return;
+
+    const result = tryMove(input, assignment, childToken, laneId);
+    if (!result.ok) {
+      // The van that refused, by name, and the one thing it is missing. Only a lane can refuse —
+      // taking a child out of every van is always allowed — so `lane` is set on this branch.
+      if (lane) {
+        setNotice({ text: refusalLine(lane.vehicle, rider.child, result.cause), refused: true });
+      }
       return;
     }
-    const lane = lanes.find((l) => l.id === laneId);
-    if (!lane) return;
-    const check = canTake(input, assignment, laneId, childToken);
-    if (!check.ok) {
-      setNotice({ text: refusalLine(lane.vehicle, rider.child, check.cause), refused: true });
-      return;
-    }
-    setAssignment(withMove(assignment, childToken, laneId));
+    setAssignment(result.assignment);
     setPinned((prev) => ({ ...prev, [childToken]: laneId }));
     setNotice({
-      text: fill(planRoutes.moved, {
-        child: rider.child.displayName,
-        vehicle: vanName(lane.vehicle.description),
-      }),
+      text: lane
+        ? fill(planRoutes.moved, {
+            child: rider.child.displayName,
+            vehicle: vanName(lane.vehicle.description),
+          })
+        : fill(planRoutes.movedOut, { child: rider.child.displayName }),
       refused: false,
     });
   };

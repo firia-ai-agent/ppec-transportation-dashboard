@@ -664,8 +664,8 @@ export function planRoutes(input: PlanInput): RoutePlan {
 /**
  * The assignment with one child moved into one lane, or out of every lane when `laneId` is null.
  *
- * Pure: the caller decides whether the move is allowed (`canTake`) and keeps the old assignment
- * if it is not, so a refused drag changes nothing at all.
+ * Pure, and it asks nothing: this is the edit, not the decision. `tryMove` below is what a
+ * caller moving a child should reach for — it is the one that asks the solver first.
  */
 export function withMove(assignment: Assignment, childToken: string, laneId: string | null): Assignment {
   const next: Record<string, readonly string[]> = Object.fromEntries(
@@ -673,6 +673,42 @@ export function withMove(assignment: Assignment, childToken: string, laneId: str
   );
   if (laneId !== null) next[laneId] = [...(next[laneId] ?? []), childToken];
   return next;
+}
+
+/**
+ * One move, asked and answered: the new assignment, or a refusal with the reason.
+ *
+ * Veri's finding, 2026-10-17: the screen's move handler called `canTake` and then `withMove` as
+ * two separate steps, and deleting the first one — accepting every drag, putting a chair in a van
+ * with no hardware to hold it — passed every test there was. The check and the edit are one
+ * decision, so they are one function, and the only way to get a new assignment out of it is to
+ * have been allowed one. A caller that forgets to ask no longer type-checks: there is no
+ * assignment on the refusal branch to use.
+ *
+ * `MoveResult["cause"]` is the solver's own `UnplacedCause`, which is what the screen's refusal
+ * line is keyed by (src/ui/copy.ts `missing`), so no caller has to translate a verdict.
+ *
+ * Taking a child out of every van (`laneId` null) is always allowed: no constraint can be broken
+ * by a van carrying one fewer rider, and a coordinator who wants somebody out of a van is not
+ * asking the solver's permission. It is still the same call, so one path does both.
+ */
+export type MoveResult =
+  | { ok: true; assignment: Assignment }
+  | { ok: false; cause: UnplacedCause };
+
+export function tryMove(
+  input: PlanInput,
+  assignment: Assignment,
+  childToken: string,
+  laneId: string | null,
+): MoveResult {
+  if (!input.riders.some((rider) => rider.child.token === childToken)) {
+    return { ok: false, cause: "NO_VEHICLE" };
+  }
+  if (laneId === null) return { ok: true, assignment: withMove(assignment, childToken, null) };
+  const check = canTake(input, assignment, laneId, childToken);
+  if (!check.ok) return { ok: false, cause: check.cause };
+  return { ok: true, assignment: withMove(assignment, childToken, laneId) };
 }
 
 /** Every rider in the plan, placed or not — the roster the screen counts against. */

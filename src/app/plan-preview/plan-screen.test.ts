@@ -131,9 +131,15 @@ describe("the screen's own rules", () => {
    */
   it("plans around the children a coordinator placed by hand", () => {
     expect(screen).toMatch(/planAssignment\(input, pinned\)/);
-    // Every accepted move records where it put them; a refusal falls out above this line.
-    expect(screen).toMatch(/setPinned\(\(prev\) => \(\{ \.\.\.prev, \[childToken\]: laneId \}\)\)/);
-    expect(screen).toMatch(/setPinned\(\(prev\) => \(\{ \.\.\.prev, \[childToken\]: null \}\)\)/);
+    /*
+     * Every accepted move records where it put them, and exactly once: `laneId` is the lane the
+     * solver granted, or null for a child taken out of every van, so one line records both. It
+     * was two lines until the move handler became a single call to `tryMove` — and a refusal
+     * never reaches either, because it returns above them with no assignment to record.
+     */
+    const pinned = screen.match(/setPinned\(\(prev\) => \(\{ \.\.\.prev, \[childToken\]: laneId \}\)\)/g);
+    expect(pinned, "an accepted move records the lane it was granted").toHaveLength(1);
+    expect(screen).not.toMatch(/setPinned[\s\S]{0,60}\[childToken\]: null/);
     // A placement is about one fleet on one run, so a change of either drops it.
     const dropped = screen.match(/setPinned\(\{\}\)/g);
     expect(dropped, "the run switcher and the scenario toggle both clear it").toHaveLength(2);
@@ -224,6 +230,35 @@ describe("the screen's own rules", () => {
     expect(screen).toMatch(/draggable/);
     expect(screen).toMatch(/const moveMenu = /);
     expect(screen).toMatch(/planRoutes\.moveTo/);
+  });
+
+  /**
+   * Veri's finding, 2026-10-17: every move goes through the solver, and the screen has no way
+   * left to skip it.
+   *
+   * The handler used to ask `canTake` and then call `withMove` as two separate steps, so the
+   * check was one deletable line — and deleting it passed every test in the suite. Both are gone
+   * from this file: the one mover is `tryMove`, which answers with the new assignment or with a
+   * refusal that has no assignment in it, and the assignment is set from nothing else. The
+   * behaviour is tested over a real plan in src/domain/solver/plan.test.ts and in the browser;
+   * this is the part a reader of this screen can check at a glance.
+   */
+  it("moves a child only through tryMove, which is the check and the edit at once", () => {
+    expect(screen).toMatch(/tryMove\(input, assignment, childToken, laneId\)/);
+    // The drag's release and the Move menu both call the one handler, and it is the one above.
+    expect(screen).toMatch(/move\(current\.childToken, zone\)/);
+    expect(screen).toMatch(/onClick=\{\(\) => move\(token, lane\.id\)\}/);
+    expect(screen).toMatch(/onClick=\{\(\) => move\(token, null\)\}/);
+    // Nothing here asks the solver and then decides for itself what to do about the answer.
+    expect(screen).not.toMatch(/canTake|withMove/);
+    // And the assignment is only ever set from a move the solver granted.
+    const assignments = screen.match(/setAssignment\(/g) ?? [];
+    expect(assignments).toHaveLength(4);
+    expect(screen).toMatch(/setAssignment\(result\.assignment\)/);
+    // The other three are the whole day, not one child: planning it, and emptying it when the
+    // run or the scenario changes.
+    expect(screen).toMatch(/setAssignment\(planAssignment\(input, pinned\)\)/);
+    expect(screen.match(/setAssignment\(emptyAssignment\(/g)).toHaveLength(2);
   });
 
   /**

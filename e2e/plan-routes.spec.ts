@@ -356,8 +356,11 @@ test.describe("Plan routes", () => {
       .first()
       .click();
 
-    // One line, the child first, then the van by name and the one thing that is missing.
+    // One line, the child first, then the van by name and the one thing that is missing. The
+    // keyboard's way in goes through the same mover as the drag (`tryMove`), so the refusal is
+    // read here the same three ways: the notice, the lane she stayed in, and every verdict.
     const notice = page.locator("[data-notice]");
+    await expect(notice).toBeVisible();
     await expect(notice).toHaveAttribute("data-refused", "true");
     await expect(notice).toHaveText(
       fill(copy.refused, {
@@ -461,7 +464,17 @@ test.describe("Plan routes", () => {
       expect(other, "there is a second van to drop her on").toBeDefined();
       await dragRider(page, CHAIR_CHILD, laneTarget(page, other?.id ?? ""));
 
-      // One line: the child by name, then the van by name and the one thing that is missing.
+      /*
+       * One line, on screen, and it is a refusal: the child by name, then the van by name and
+       * the one thing that is missing.
+       *
+       * Tightened for Veri's finding, 2026-10-17. The refusal is the whole check here, so it is
+       * read three independent ways — the notice says so, the rider is still in the lane she was
+       * planned into, and every lane is still a fit. A mover that stopped asking the solver
+       * (`tryMove`, src/domain/solver) fails all three: she lands in a van whose securement
+       * cannot hold her chair, so that lane's own verdict turns INFEASIBLE on screen.
+       */
+      await expect(notice).toBeVisible();
       await expect(notice).toHaveAttribute("data-refused", "true");
       await expect(notice).toHaveText(
         fill(copy.refused, {
@@ -472,9 +485,20 @@ test.describe("Plan routes", () => {
       );
       // And the assignment did not change at all: a refused drag moves nobody.
       const afterRefusal = await lanes(page);
-      expect(afterRefusal.find((lane) => lane.id === home?.id)?.riders).toContain(CHAIR_CHILD);
-      expect(afterRefusal.find((lane) => lane.id === other?.id)?.riders).not.toContain(CHAIR_CHILD);
+      expect(
+        afterRefusal.find((lane) => lane.id === home?.id)?.riders,
+        `${CHAIR_CHILD} left the van she was planned into`,
+      ).toContain(CHAIR_CHILD);
+      expect(
+        afterRefusal.find((lane) => lane.id === other?.id)?.riders,
+        `the van that refused ${CHAIR_CHILD} took her anyway`,
+      ).not.toContain(CHAIR_CHILD);
       expect(afterRefusal.map((lane) => lane.riders)).toEqual(planned.map((lane) => lane.riders));
+      // Nothing the lanes say about themselves changed either, verdicts and seat counts alike.
+      for (const lane of afterRefusal) expect(lane.verdict, lane.id).toBe("FEASIBLE");
+      expect(afterRefusal.map((lane) => SEATS.exec(lane.text)?.[0])).toEqual(
+        planned.map((lane) => SEATS.exec(lane.text)?.[0]),
+      );
       console.log("screenshot:", await shot(page, "plan-routes-mouse-refused"));
 
       /* ── accepted: a walking rider into the van that still has a seat ── */
