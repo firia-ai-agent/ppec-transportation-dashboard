@@ -260,6 +260,7 @@ describe("no internal codes in an outbound family SMS", () => {
   const SAMPLE: Record<string, string> = {
     stopLabel: "OKEE-PARK", eta: "08:12", etaEnd: "08:22",
     sessionStart: "13:30", legDate: "2026-10-14", date: "2026-10-14", reasonCode: "WEATHER",
+    delayMinutes: "15",
   };
   const vars = (t: string, over: Record<string, string> = {}): Record<string, string> => ({
     ...Object.fromEntries(Object.keys(TEMPLATE_VARS[t]).map((v) => [v, SAMPLE[v]])),

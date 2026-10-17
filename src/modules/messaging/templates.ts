@@ -102,7 +102,7 @@ function timeWindow(start: string, end: string): string | null {
 }
 
 /**
- * How an `eta` reads. On the three templates that permit `etaEnd` it is an estimate, so a window is
+ * How an `eta` reads. On the templates that permit `etaEnd` it is an estimate, so a window is
  * rendered when both ends are present and the single time is hedged ("around 8:15 AM") when only one
  * is; on the templates with no `etaEnd` var the time is a recorded fact ("at 8:12 AM"), not a guess.
  *
@@ -147,6 +147,9 @@ const FORMAT: Readonly<Record<string, (value: string, templateId: string, vars: 
   date: calendarDay,
   reasonCode: (value, templateId) => REASON_COPY[templateId]?.[value] ?? null,
   stopLabel: (value) => STOP_NAMES[value] ?? UNKNOWN_STOP,
+  // Minutes as digits, already bounded to 1–240 by the var rule. Nothing to word: "about 15
+  // minutes late" is the body's sentence, and this is the number in it.
+  delayMinutes: (value) => (/^\d{1,3}$/.test(value) ? value : null),
 };
 
 const PLACEHOLDER = /\{(\w+)\}/g;

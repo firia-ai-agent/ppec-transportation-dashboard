@@ -16,6 +16,7 @@ const SAMPLE: Record<string, string> = {
   sessionStart: "13:30",
   legDate: "2026-10-14",
   date: "2026-10-14",
+  delayMinutes: "15",
 };
 const sampleVars = (templateId: string, reasonCode = "WEATHER"): Record<string, string> =>
   Object.fromEntries(Object.keys(TEMPLATE_VARS[templateId]).map((v) => [v, v === "reasonCode" ? reasonCode : SAMPLE[v]]));

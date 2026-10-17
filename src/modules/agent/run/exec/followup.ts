@@ -32,6 +32,7 @@
  */
 import type { Exec } from "@/db/exec";
 import { CHILD_TEMPLATES, enqueue } from "@/modules/outbox/outbox";
+import { FAMILY_SMS, authorizedContactsForChild } from "@/modules/outbox/policy";
 import { agentStaffNotice, agentTasks, fill } from "@/ui/copy";
 import type { ToolExecution, ToolExecutor } from "../executors";
 import { triggerLabel } from "../triggers";
@@ -106,9 +107,11 @@ const AUDIENCE_RULES: Readonly<Record<Audience, AudienceRule>> = {
   GUARDIAN_OF_CHILD: {
     kind: "outbox",
     templates: ["leg.canceled", "leg.changed", "pickup.eta", "dropoff.eta", "generic.notice"],
-    channel: "SMS_1TO1",
-    purpose: "TRANSPORT_UPDATE",
-    recipientRule: "guardian_of_child",
+    // One definition of "how a family is reached" (outbox/policy.ts `FAMILY_SMS`), shared with the
+    // deterministic ETA notice: the same purpose on the same channel under the same rule.
+    channel: FAMILY_SMS.channel,
+    purpose: FAMILY_SMS.purpose,
+    recipientRule: FAMILY_SMS.recipientRule,
   },
   THERAPIST_OF_SESSION: {
     kind: "outbox",
@@ -315,15 +318,12 @@ async function resolveGuardian(
   );
   if (!child.rows[0]) return { error: "NOT_FOUND", detail: { object: "child_profile" } };
 
-  const contacts = await deps.db.query<{ contact_token: string }>(
-    `SELECT DISTINCT contact_token FROM ops.contact_authorization
-     WHERE site_id = $1 AND child_token = $2 AND channel = 'SMS_1TO1'
-       AND scope = 'RECEIVE_TRANSPORT_UPDATES'
-       AND valid_from <= now() AND (valid_to IS NULL OR valid_to > now())
-     ORDER BY contact_token`,
-    [a.siteId, a.subject],
-  );
-  const authorized = contacts.rows.map((r) => r.contact_token);
+  // §6.4, read through the one shared query (outbox/policy.ts): the same authorization the
+  // drainer re-checks per contact at send time.
+  const authorized = await authorizedContactsForChild(deps.db, {
+    siteId: a.siteId,
+    childToken: a.subject,
+  });
   if (authorized.length === 0) {
     return { error: "NO_AUTHORIZED_CONTACT", detail: { object: "contact_authorization" }, childToken: a.subject };
   }

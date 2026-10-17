@@ -1457,6 +1457,22 @@ export const outboundSms = {
       "PPEC: Your child's van is on the way to {stopLabel}. Pickup {eta}. {optOut} {demoTag}",
     "dropoff.eta":
       "PPEC: Your child's van home is on the way to {stopLabel}. Arrival {eta}. {optOut} {demoTag}",
+    /**
+     * The one text PRD §18.2 step 7 sends: a van that has lost time, and the new 10-minute
+     * window for the families still ahead of it.
+     *
+     * Why it is its own body rather than `dropoff.eta` with a later time in it: a family reading
+     * "Arrival 4:30–4:40 PM" has no way to tell that it moved, and the whole point of the damped
+     * notification is that something changed enough to be worth telling them about. So the news
+     * comes first, in minutes a person can act on ("about 15 minutes late"), and the window after
+     * it — and the lateness is hedged with "about" because it is an estimate, while the window is
+     * the §8 10-minute one and never a promised minute.
+     *
+     * No child's name, like every other body here (Veri #12): the drawer and the thread panel name
+     * the child on a staff screen, a family's phone says "your child".
+     */
+    "dropoff.late":
+      "PPEC: Your child's van home is running about {delayMinutes} minutes late. New drop-off {eta} at {stopLabel}. {optOut} {demoTag}",
     "leg.canceled":
       "PPEC: Got it. Your child's van on {legDate} is canceled. {reasonCode} {optOut} {demoTag}",
     "leg.changed":

@@ -31,6 +31,41 @@ export const NOTIFY_ESCALATION_SECONDS = 900;
 /** ASM-14: an improvement is only worth a text at 15 minutes. */
 export const NOTIFY_IMPROVEMENT_SECONDS = 900;
 
+/**
+ * The gate's thresholds, as one value a caller can hand it.
+ *
+ * ASM-14 fixes the numbers and the constants above are those numbers — but *what counts as late
+ * enough to text a family about* is an operational setting, not a law of the domain, and the demo
+ * has to be able to say so without a code change (B-05/B-06: "ETA threshold → deterministic →
+ * template"). So the gate takes an optional set of thresholds, the defaults are ASM-14's, and the
+ * one place a deployment's numbers are read from the environment is
+ * `src/modules/messaging/eta-notice.ts` (`loadEtaNoticeConfig`) — this module still reads nothing.
+ */
+export type NotifyThresholds = {
+  /** Seconds of shift against the last notified ETA that make a text worth sending. */
+  readonly shiftSeconds: number;
+  /** How many consecutive calculations that shift must hold for. */
+  readonly consecutiveCalcs: number;
+  /** Never notify about a stop closer than this. */
+  readonly minLeadSeconds: number;
+  /** At most one notification per stop per this long… */
+  readonly cooldownSeconds: number;
+  /** …unless the ETA has slipped a further this much. */
+  readonly escalationSeconds: number;
+  /** How much earlier an arrival has to get before it is worth a text. */
+  readonly improvementSeconds: number;
+};
+
+/** ASM-14's own numbers: what the gate uses when a caller names none. */
+export const ASM14_THRESHOLDS: NotifyThresholds = {
+  shiftSeconds: NOTIFY_SHIFT_SECONDS,
+  consecutiveCalcs: NOTIFY_CONSECUTIVE_CALCS,
+  minLeadSeconds: NOTIFY_MIN_LEAD_SECONDS,
+  cooldownSeconds: NOTIFY_COOLDOWN_SECONDS,
+  escalationSeconds: NOTIFY_ESCALATION_SECONDS,
+  improvementSeconds: NOTIFY_IMPROVEMENT_SECONDS,
+};
+
 export type DecisionOutcome = "NOTIFY" | "SUPPRESS";
 
 export type SuppressReason =
@@ -115,6 +150,8 @@ export interface GateInput {
    * `freshnessOf(...).etaTextSuppressed`. Suppresses before any other rule.
    */
   etaTextSuppressed: boolean;
+  /** The operator's thresholds for this run. ASM-14's own numbers when absent. */
+  thresholds?: NotifyThresholds;
 }
 
 /**
@@ -128,6 +165,7 @@ export function evaluateStop(
   input: GateInput,
 ): { state: GateState; decision: NotificationDecision } {
   const { stop, nowMs, etaTextSuppressed } = input;
+  const limits = input.thresholds ?? ASM14_THRESHOLDS;
   const prior = stopState(state, stop.stopId);
 
   const base = {
@@ -189,7 +227,7 @@ export function evaluateStop(
   const withShift = { ...base, shiftSeconds, shiftText };
 
   const threshold =
-    shiftSeconds < 0 ? NOTIFY_IMPROVEMENT_SECONDS : NOTIFY_SHIFT_SECONDS;
+    shiftSeconds < 0 ? limits.improvementSeconds : limits.shiftSeconds;
   const material = Math.abs(shiftSeconds) >= threshold;
 
   // Persistence is counted whether or not the other rules pass, so a shift that is
@@ -208,15 +246,15 @@ export function evaluateStop(
       shiftSeconds < 0 ? "improvement-too-small" : "below-threshold",
     );
   }
-  if (pendingCalcs < NOTIFY_CONSECUTIVE_CALCS) return suppressCounted("not-persisted");
-  if ((etaMs - nowMs) / 1000 < NOTIFY_MIN_LEAD_SECONDS) return suppressCounted("too-close");
+  if (pendingCalcs < limits.consecutiveCalcs) return suppressCounted("not-persisted");
+  if ((etaMs - nowMs) / 1000 < limits.minLeadSeconds) return suppressCounted("too-close");
 
   if (prior.lastNotifiedAtMs !== undefined) {
     const sinceLast = (nowMs - prior.lastNotifiedAtMs) / 1000;
     const escalated =
       Math.abs(shiftSeconds) >=
-      (prior.lastNotifiedShiftSeconds ?? 0) + NOTIFY_ESCALATION_SECONDS;
-    if (sinceLast < NOTIFY_COOLDOWN_SECONDS && !escalated) return suppressCounted("cooldown");
+      (prior.lastNotifiedShiftSeconds ?? 0) + limits.escalationSeconds;
+    if (sinceLast < limits.cooldownSeconds && !escalated) return suppressCounted("cooldown");
   }
 
   // A 10-minute window that rounds to the same text tells the family nothing new.
