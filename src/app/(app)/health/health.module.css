@@ -227,6 +227,28 @@
   color: var(--color-ink);
 }
 
+/*
+ * A table wider than the phone it is on, scrolled sideways rather than clipped.
+ *
+ * The panel hides its overflow so the §4.6 watermark cannot bleed past it, which at 390 px cut
+ * the last columns off the rides table and the adapter table with no way to reach them (Vera's
+ * review of 53423de, 2026-10-17). This is the scroll container; it is focusable, because an
+ * area that scrolls has to be operable from a keyboard (§9), and it carries the §9 focus ring
+ * when it is — the ring is never removed, here or anywhere.
+ *
+ * `overscroll-behavior-x: contain` keeps a sideways flick inside the table instead of handing
+ * it to the page, which on a phone is what stops reading a row from navigating backwards.
+ */
+.scroller {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.scroller:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;

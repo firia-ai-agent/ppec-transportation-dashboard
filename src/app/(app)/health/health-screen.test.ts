@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildBoard } from "@/domain/board/board";
@@ -505,3 +507,52 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#x27;");
 }
+
+
+/**
+ * The two wide tables at 390 px, which is a phone held in portrait.
+ *
+ * The panel hides its own overflow so the §4.6 watermark cannot bleed past it, and that clipped
+ * the columns that did not fit: the van and the next step off the rides table, the runbook line
+ * off the adapter table, with nothing a reader could do to reach them (Vera's review of
+ * 53423de, 2026-10-17). Both tables sit in a scroll region now.
+ *
+ * That the browser really scrolls it is e2e/health-roi.spec.ts's job — it measures the box at
+ * 390 × 844 with a number open. What is held here is the part a screen reader and a keyboard
+ * depend on: there is one wrapper and not two, it is a named region, and it is focusable.
+ */
+describe("a table wider than the phone scrolls instead of being clipped", () => {
+  const screen = readFileSync(path.resolve(__dirname, "HealthScreen.tsx"), "utf8");
+  const css = readFileSync(path.resolve(__dirname, "health.module.css"), "utf8");
+
+  it("scrolls sideways, and keeps the §9 focus ring on the thing that scrolls", () => {
+    expect(css).toMatch(/\.scroller \{[^}]*overflow-x: auto/);
+    expect(css).toMatch(/\.scroller:focus-visible \{[^}]*outline: var\(--focus-width\)/);
+    // The panel still hides its overflow — that is what the watermark needs — so the region
+    // inside it is the thing that scrolls.
+    expect(css).toMatch(/\.panel \{[^}]*overflow: hidden/);
+  });
+
+  it("wraps both tables in the one region, named from copy.ts", () => {
+    expect(screen).toMatch(/function ScrollableTable\(/);
+    // Twice: the rides behind a number, and the adapter panel. The two-column baseline table
+    // fits a phone and is left alone.
+    expect(screen.match(/<ScrollableTable name=/g) ?? []).toHaveLength(2);
+    expect(screen).toContain("name={ridesHeading(open)}");
+    expect(screen).toContain("name={health.adapterPanel.heading}");
+    expect(screen).toMatch(/aria-label=\{fill\(health\.tableScroll, \{ table: name \}\)\}/);
+    expect(screen).toMatch(/role="region"/);
+    expect(screen).toMatch(/tabIndex=\{0\}/);
+  });
+
+  it("says what the region is and what it does, in plain words", async () => {
+    mockedCaller.mockResolvedValue(staff("DIRECTOR"));
+    const html = renderToStaticMarkup(await openPage());
+    const named = fill(health.tableScroll, { table: health.adapterPanel.heading });
+    expect(html).toContain(`aria-label="${escapeHtml(named)}"`);
+    expect(html).toContain('tabindex="0"');
+    expect(named).toBe("What is actually running. Scroll sideways to see every column.");
+    // No code and no jargon in the one line a screen reader reads on landing there.
+    expect(named).not.toMatch(/\bETA\b|overflow|scrollable|x-axis/i);
+  });
+});

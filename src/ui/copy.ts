@@ -481,6 +481,21 @@ export const health = {
   hideRides: "Hide the rides",
   /** "Needs a person: 1 ride" — the heading of the list a number opens. */
   ridesHeading: "{label}: {rides}",
+  /**
+   * The accessible name of a table that is wider than the screen it is on.
+   *
+   * At 390 px — a phone held in portrait, which is what a director opens this screen on away
+   * from their desk — the five-column rides table and the four-column adapter table are wider
+   * than the panel, and the panel clips what does not fit (§4.6's watermark needs the overflow
+   * hidden). So there were columns on this screen that no amount of scrolling reached: the van
+   * and the next step on one table, the runbook line on the other (Vera's review of 53423de,
+   * 2026-10-17). They scroll sideways now, inside a region a keyboard can reach and focus,
+   * which is what makes a scrollable area operable without a mouse (§9) — and a region a
+   * screen reader lands in has to say what it is and what it does, which is this.
+   *
+   * `{table}` is the table's own heading, never a second name written for this line.
+   */
+  tableScroll: "{table}. Scroll sideways to see every column.",
   /** A number that counted nothing still opens, and says so rather than showing an empty table. */
   noRides: "Nothing was counted here today, so there is no ride to open.",
   /**

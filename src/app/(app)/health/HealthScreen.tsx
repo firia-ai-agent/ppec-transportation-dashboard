@@ -133,7 +133,9 @@ export function HealthScreen({
           {openRides.length === 0 ? (
             <p className={styles.muted}>{health.noRides}</p>
           ) : (
-            <RideList rides={openRides} onOpen={setOpenChild} />
+            <ScrollableTable name={ridesHeading(open)}>
+              <RideList rides={openRides} onOpen={setOpenChild} />
+            </ScrollableTable>
           )}
         </section>
       )}
@@ -160,26 +162,56 @@ export function HealthScreen({
             ? health.adapterPanel.allMockedIntro
             : health.adapterPanel.someLiveIntro}
         </p>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th scope="col">{health.adapterPanel.columns.adapter}</th>
-              <th scope="col">{health.adapterPanel.columns.mode}</th>
-              <th scope="col">{health.adapterPanel.columns.doing}</th>
-              <th scope="col">{health.adapterPanel.columns.degraded}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {adapters.rows.map((row) => (
-              <AdapterRow key={row.key} row={row} />
-            ))}
-          </tbody>
-        </table>
+        <ScrollableTable name={health.adapterPanel.heading}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th scope="col">{health.adapterPanel.columns.adapter}</th>
+                <th scope="col">{health.adapterPanel.columns.mode}</th>
+                <th scope="col">{health.adapterPanel.columns.doing}</th>
+                <th scope="col">{health.adapterPanel.columns.degraded}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {adapters.rows.map((row) => (
+                <AdapterRow key={row.key} row={row} />
+              ))}
+            </tbody>
+          </table>
+        </ScrollableTable>
       </section>
 
       {drawerLegs.length > 0 ? (
         <LegDrawer legs={drawerLegs} day={day} onClose={() => setOpenChild(null)} />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * A table that may be wider than the screen, in a region that scrolls sideways.
+ *
+ * One wrapper for both tables on this screen, so there is one answer to "what happens to the
+ * columns that do not fit" and not two. The panel hides its own overflow — the §4.6 watermark
+ * must not bleed past it — so at 390 px the rides table's last two columns and the adapter
+ * table's runbook column were simply cut off, with nothing a reader could do about it (Vera's
+ * review of 53423de, 2026-10-17).
+ *
+ * A region rather than a plain div, focusable rather than mouse-only: §9 asks that anything
+ * which scrolls can be scrolled from a keyboard, and `tabIndex` plus `role="region"` is what
+ * makes the browser treat this box as a place to stand. It is named out of copy.ts, by the
+ * table's own heading, so the ear gets the same name the eye does and no second string is
+ * written for it.
+ */
+function ScrollableTable({ name, children }: { name: string; children: React.ReactNode }) {
+  return (
+    <div
+      className={styles.scroller}
+      role="region"
+      aria-label={fill(health.tableScroll, { table: name })}
+      tabIndex={0}
+    >
+      {children}
     </div>
   );
 }

@@ -243,3 +243,95 @@ for (const width of WIDTHS) {
     });
   });
 }
+
+/**
+ * Health & ROI on a phone, which is where the two wide tables stopped having last columns.
+ *
+ * The panels hide their own overflow — §4.6's SYNTHETIC watermark must not bleed past the
+ * numbers it belongs to — and at 390 px that quietly clipped the rides table's van and next-step
+ * columns and the adapter table's runbook column: they were laid out off the right of the panel
+ * and there was nothing a reader could do to see them (Vera's review of 53423de, 2026-10-17).
+ *
+ * Both tables sit in a scroll region now, and this is the half only a browser can answer: the
+ * region really is wider than its box, scrolling it really does bring the last column into the
+ * window, the page itself still does not scroll sideways, and a keyboard can reach the region
+ * that scrolls.
+ */
+test.describe("at 390 × 844, a phone in portrait", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  /** The last column of each table: the first thing a clipped table loses. */
+  const LAST_COLUMN = {
+    rides: health.rideColumns.nextStep,
+    adapters: health.adapterPanel.columns.degraded,
+  } as const;
+
+  test("both wide tables scroll sideways, and no column is left off the screen", async ({
+    page,
+  }) => {
+    await page.goto("/health");
+    await expect(page.getByRole("heading", { level: 1, name: nav.health })).toBeVisible();
+
+    // A number open, so the rides table is on the screen beside the adapter one.
+    await tileFor(page, metricLabel(OPEN_RIDE.key)).click();
+    await expect(page.getByRole("heading", { name: ridesHeading(OPEN_RIDE) })).toBeVisible();
+
+    const regions = [
+      { name: ridesHeading(OPEN_RIDE), column: LAST_COLUMN.rides },
+      { name: health.adapterPanel.heading, column: LAST_COLUMN.adapters },
+    ];
+
+    for (const { name, column } of regions) {
+      const region = page.getByRole("region", {
+        name: fill(health.tableScroll, { table: name }),
+      });
+      await expect(region, name).toBeVisible();
+
+      // It is the thing that scrolls: wider inside than out, and allowed to scroll sideways.
+      const measured = await region.evaluate((el) => ({
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
+        overflowX: getComputedStyle(el).overflowX,
+        focusable: el.tabIndex >= 0,
+      }));
+      expect(measured.overflowX, name).toBe("auto");
+      expect(measured.focusable, `${name} can be reached from a keyboard`).toBe(true);
+      expect(
+        measured.scrollWidth,
+        `${name} is ${measured.scrollWidth}px of table in a ${measured.clientWidth}px box`,
+      ).toBeGreaterThan(measured.clientWidth);
+
+      // §9: whatever scrolls is operable from a keyboard, so the region takes focus.
+      await region.focus();
+      await expect(region, `${name} holds focus`).toBeFocused();
+
+      // Scrolled to the end, the last column's heading is inside the window — which is the
+      // whole claim: nothing is clipped off the screen any more.
+      await region.evaluate((el) => el.scrollTo({ left: el.scrollWidth }));
+      const heading = region.getByRole("columnheader", { name: column });
+      await expect(heading, column).toBeVisible();
+      const box = await boxOf(heading);
+      const regionBox = await boxOf(region);
+      expect(box.x, `${column} starts off the left of its region`).toBeGreaterThanOrEqual(
+        regionBox.x - 1,
+      );
+      expect(
+        box.x + box.width,
+        `${column} runs off the right of the 390px window`,
+      ).toBeLessThanOrEqual(390 + 1);
+    }
+
+    // And the page itself still does not scroll sideways: one scroller, inside the panel.
+    const page390 = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(page390.scrollWidth, "the page itself scrolls sideways").toBeLessThanOrEqual(
+      page390.clientWidth + 1,
+    );
+
+    await expectDemoBarPinned(page);
+    await expectNoInternalCodes(page);
+    console.log("screenshot:", await shot(page, "health-tables-390"));
+  });
+});
