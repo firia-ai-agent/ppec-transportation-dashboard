@@ -87,8 +87,7 @@
 }
 
 .searchEcho,
-.showing,
-.hint {
+.showing {
   font-size: var(--text-12);
   color: var(--color-ink-muted);
 }

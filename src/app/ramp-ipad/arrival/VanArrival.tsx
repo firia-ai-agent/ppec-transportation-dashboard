@@ -133,7 +133,7 @@ export default function VanArrival({
   }
 
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
       <h1 className={styles.heading}>{vanArrival.heading}</h1>
 
       {/* The vans at the centre this afternoon, in the order they leave. */}
@@ -301,6 +301,6 @@ export default function VanArrival({
           </ul>
         </section>
       </div>
-    </div>
+    </main>
   );
 }

@@ -11,9 +11,15 @@
  * dashed outline **and** a ring; the current leg is a pressed button with a check mark.
  */
 
+/*
+ * The board fills the shell's content slot (src/ui/AppShell.tsx `contentSlot`), which is already
+ * the window less the DEMO bar, the header and — on a phone — the tab bar and its safe area. So
+ * this grows to fill rather than measuring the viewport itself: two elements each claiming
+ * `100vh` is how a page ends up one header taller than the screen.
+ */
 .page {
-  /* The DEMO bar (§7) owns the top 32 px of every screen; a full 100vh would push it off. */
-  min-height: calc(100vh - var(--layout-demo-banner-height));
+  flex: 1 1 auto;
+  min-height: 0;
   padding: var(--space-5);
   background: var(--color-bg);
   color: var(--color-ink);
@@ -677,13 +683,12 @@ a.meter:focus-visible {
 
 @media (max-width: 767px) {
   /*
-   * The phone layout leaves the bottom 64 px to the frame's tab bar plus the device's safe area
-   * (§9.2, Firia's 3:08 PM ET ruling, built in the Rework 1 PR). This screen does not draw the
-   * bar and must not sit under it: the last rider card has to be reachable.
+   * The room for the tab bar is the shell's (`.body` in AppShell.module.css pads by the bar plus
+   * the safe area), so this only sets its own gutters — padding it twice would leave a 128 px
+   * gap under the last rider card.
    */
   .page {
     padding: var(--space-3);
-    padding-bottom: calc(var(--layout-tab-bar-height) + env(safe-area-inset-bottom, 0px) + var(--space-3));
   }
 
   .switcher {

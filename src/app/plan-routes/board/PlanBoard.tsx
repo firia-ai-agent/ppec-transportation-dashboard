@@ -298,7 +298,7 @@ export default function PlanBoard({
   const banner = boardBanner(view.readiness, firstUncheckedHref(day, day.date, day.direction));
 
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -465,7 +465,7 @@ export default function PlanBoard({
           </div>
         </div>
       ) : null}
-    </div>
+    </main>
   );
 }
 

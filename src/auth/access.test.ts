@@ -103,7 +103,14 @@ describe("the walk itself works", () => {
     expect(surfaceFiles.pages.length).toBeGreaterThanOrEqual(9);
     expect(surfaceFiles.routes.length).toBeGreaterThanOrEqual(8);
     expect(surfaceFiles.layouts).toEqual(
-      expect.arrayContaining(["src/app/layout.tsx", "src/app/(app)/layout.tsx"]),
+      expect.arrayContaining([
+        "src/app/layout.tsx",
+        "src/app/(app)/layout.tsx",
+        // The three screens outside that group carry the same shell from a layout of their own.
+        "src/app/plan-routes/layout.tsx",
+        "src/app/live-map/layout.tsx",
+        "src/app/ramp-ipad/layout.tsx",
+      ]),
     );
     expect(actionFiles).toEqual(expect.arrayContaining(["src/app/login/page.tsx", "src/ui/SignOutButton.tsx"]));
   });
@@ -228,11 +235,28 @@ describe("every guarded page calls the guard, with its own path", () => {
     },
   );
 
-  it("the console layout guards sign-in for everything inside it", () => {
-    const source = readFileSync(path.join(REPO, "src/app/(app)/layout.tsx"), "utf8");
-    expect(source).toContain("requirePage(LAYOUT.console)");
-    expect(source).toMatch(/export const dynamic = "force-dynamic"/);
-  });
+  /**
+   * Every layout that mounts the console shell guards sign-in for everything inside it, and
+   * names its own row to do it. Four of them: the `(app)` group, and one each for the three
+   * screens that are routes outside it (`/plan-routes`, `/live-map`, `/ramp-ipad`), which until
+   * 2026-10-17 rendered with no shell and so no menu at all.
+   *
+   * The row key is read from the table and the file from the row, so a layout that guards with
+   * someone else's key — or with no key — fails here rather than shipping.
+   */
+  const LAYOUT_KEYS = Object.fromEntries(Object.entries(LAYOUT).map(([key, path]) => [path, key]));
+
+  it.each(PAGES.filter((p) => p.kind === "layout" && p.path !== LAYOUT.root))(
+    "$file guards sign-in with its own row",
+    (row) => {
+      const source = readFileSync(path.join(REPO, row.file), "utf8");
+      expect(source).toContain(`requirePage(LAYOUT.${LAYOUT_KEYS[row.path]})`);
+      expect(source).toMatch(/export const dynamic = "force-dynamic"/);
+      // A session and nothing more: the role belongs to the page inside, so the refusal is
+      // rendered by the page that was asked for and can say who that page is for.
+      expect(row.access).toEqual({ signedIn: true });
+    },
+  );
 
   it("a public page holds no guard, and there are only four of them", () => {
     const publicPages = PAGES.filter((p) => "public" in p.access).map((p) => p.path);
@@ -247,14 +271,15 @@ describe("every role-restricted page has a 403 boundary beside it", () => {
       const boundary = path.join(REPO, path.dirname(row.file), "forbidden.tsx");
       expect(existsSync(boundary), `missing ${rel(boundary)}`).toBe(true);
       const source = readFileSync(boundary, "utf8");
-      // It names its own page, which is where the "who can open this" line comes from.
-      expect(source).toContain(`<NoAccess path="${row.path}" />`);
+      // It names its own page, which is where the "who can open this" line comes from. The
+      // frame around the card is the shared component's (src/ui/refused-frame.test.ts).
+      expect(source).toContain(`<RefusedPage path="${row.path}" />`);
     },
   );
 
   it("every boundary names a path the table holds", () => {
     for (const file of surfaceFiles.forbidden) {
-      const named = /<NoAccess path="([^"]+)"/.exec(readFileSync(path.join(REPO, file), "utf8"))?.[1];
+      const named = /<RefusedPage path="([^"]+)"/.exec(readFileSync(path.join(REPO, file), "utf8"))?.[1];
       // The root boundary names no page on purpose: it is the refusal with no page to name.
       if (!named) {
         expect(file).toBe("src/app/forbidden.tsx");
@@ -327,13 +352,19 @@ describe("the policy itself, written out so a silent widening fails", () => {
     const written = Object.fromEntries(
       PAGES.filter((p) => p.kind === "page").map((p) => [
         p.path,
-        "roles" in p.access ? [...p.access.roles].join("+") : "PUBLIC",
+        "roles" in p.access ? [...p.access.roles].join("+") : "signedIn" in p.access ? "SIGNED_IN" : "PUBLIC",
       ]),
     );
     expect(written).toEqual({
       "/": "PUBLIC",
       "/login": "PUBLIC",
       "/_not-found": "PUBLIC",
+      /*
+       * The refusal card at an address: a session and nothing more, and then `forbidden()` for
+       * every one of them. It grants no access to anything — there is nothing behind it — and
+       * it is the only page whose policy is a bare session (src/app/refusal-check/page.tsx).
+       */
+      "/refusal-check": "SIGNED_IN",
       "/today": "DIRECTOR+COORDINATOR",
       "/exceptions": "DIRECTOR+COORDINATOR",
       "/setup": "DIRECTOR+COORDINATOR",
@@ -385,14 +416,19 @@ describe("the policy itself, written out so a silent widening fails", () => {
   });
 
   it("every row whose default is a guess is flagged for the founder, with the question in the file", () => {
-    expect(foundersQuestions()).toEqual(["/today", "/setup", "/health", "/whoami", "/ramp-ipad", "/api/health"]);
+    /*
+     * Five rows, not six: `/ramp-ipad` asked whether the front desk should land there until
+     * SURF-04 is real, and Firia answered it on 2026-10-17 at 3:08 PM ET by making the live map
+     * their home. An answered question is taken off the row rather than left standing.
+     */
+    expect(foundersQuestions()).toEqual(["/today", "/setup", "/health", "/whoami", "/api/health"]);
     const source = readFileSync(path.join(__dirname, "access.ts"), "utf8");
     expect(source.match(/OPEN QUESTION for the founder/g)).toHaveLength(foundersQuestions().length);
   });
 
-  it("all six open questions are flagged in the source, in the one marker style", () => {
+  it("all five open questions are flagged in the source, in the one marker style", () => {
     /*
-     * All six are rows in this table (above). A seventh used to sit in src/ui/tokens.ts — the
+     * All five are rows in this table (above). A sixth used to sit in src/ui/tokens.ts — the
      * brand palette the brief named, which no token defined — and it was **answered** on
      * 2026-10-17 at 6:14 PM ET (Vera, founder-approved): Teal, Teal Ink, the tint and Coral are
      * tokens now, so the marker is gone with the question. Counted across the whole of src/ so a
@@ -403,8 +439,8 @@ describe("the policy itself, written out so a silent widening fails", () => {
       .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
       .map((f) => [rel(f), (readFileSync(f, "utf8").match(/OPEN QUESTION for the founder/g) ?? []).length] as const)
       .filter(([, count]) => count > 0);
-    expect(Object.fromEntries(flagged)).toEqual({ "src/auth/access.ts": 6 });
-    expect(flagged.reduce((n, [, count]) => n + count, 0)).toBe(6);
+    expect(Object.fromEntries(flagged)).toEqual({ "src/auth/access.ts": 5 });
+    expect(flagged.reduce((n, [, count]) => n + count, 0)).toBe(5);
   });
 });
 
@@ -442,6 +478,12 @@ describe("the decision, cell by cell", () => {
       "/login",
       "/_not-found",
       "/whoami",
+      /*
+       * The refusal card at an address. "Allowed" here is the guard letting a session past, and
+       * the page then refuses it — which is the whole route: it carries no data and no screen,
+       * so there is nothing for this row to have given the front desk.
+       */
+      "/refusal-check",
       "/live-map",
       "/ramp-ipad",
       // The redirects to those same two screens, and not the one to Plan routes.
@@ -523,8 +565,12 @@ describe("where each role lives", () => {
   it("sends every role to a page that role can actually open", () => {
     expect(homePathFor(callers.director)).toBe("/today");
     expect(homePathFor(callers.coordinator)).toBe("/today");
-    // The front desk has no console page: their surface is the ramp iPad (ARCHITECTURE §1).
-    expect(homePathFor(callers.frontDesk)).toBe("/ramp-ipad");
+    /*
+     * The front desk has no console page. Their home is the live map — Firia's final ruling,
+     * 2026-10-17 3:08 PM ET: "Front desk gets two tabs, Live map (their home) and Ramp iPad."
+     * It was the ramp iPad before that, which is still their other tab.
+     */
+    expect(homePathFor(callers.frontDesk)).toBe("/live-map");
     expect(homePathFor(callers.signedOut)).toBe("/login");
     expect(homePathFor(callers.noRole)).toBe("/login");
     for (const caller of [callers.director, callers.coordinator, callers.frontDesk]) {
@@ -540,19 +586,14 @@ describe("where each role lives", () => {
 
   it("offers each role only the nav items it can open", () => {
     /*
-     * The whole rail: §2's four console destinations, Plan routes and the live map between the
-     * board and the exceptions it raises, and the ramp iPad last (PRD §14 lists it after the
-     * console destinations because it is not one). Addresses only — no "preview" in any of them.
+     * The whole menu, for a role whose row opens everything: the board, the planning surface,
+     * the live map and the ramp iPad. The three console destinations whose pages are not built
+     * — Exceptions & Approvals, Setup, Health & ROI — are off the *menu* (Firia, 2026-10-17
+     * 2:48 PM ET, the `inMenu` flag in src/ui/nav-items.ts) while their rows and their routes
+     * stay exactly as they are; `rolesWhoCanOpen` below is still asked about all seven.
+     * Addresses only — no "preview" in any of them.
      */
-    const everything = [
-      "/today",
-      "/plan-routes",
-      "/live-map",
-      "/exceptions",
-      "/setup",
-      "/health",
-      "/ramp-ipad",
-    ];
+    const everything = ["/today", "/plan-routes", "/live-map", "/ramp-ipad"];
     expect(navItemsFor("DIRECTOR").map((i) => i.href)).toEqual(everything);
     expect(navItemsFor("COORDINATOR").map((i) => i.href)).toEqual(everything);
     /*
@@ -565,14 +606,21 @@ describe("where each role lives", () => {
     expect(navItemsFor("FRONT_DESK").map((i) => i.href)).toEqual(["/live-map", "/ramp-ipad"]);
     expect(navItemsFor(null)).toEqual([]);
     /*
-     * And the rail is never wider than the table for any role: this compares the whole rail
-     * against `rolesWhoCanOpen` row by row, so an item added to nav-items.ts whose row omits a
-     * role fails here rather than on a screen.
+     * And the menu is never wider than the table for any role: this compares what a role is
+     * shown against `rolesWhoCanOpen` row by row, so an item added to nav-items.ts whose row
+     * omits a role fails here rather than on a screen. Narrower is allowed and is what the
+     * `inMenu` flag does — the comparison is against the rows that are *on* the menu.
      */
     for (const role of ROLES) {
       const shown = navItemsFor(role).map((i) => i.href);
-      const allowed = navItems.filter((i) => rolesWhoCanOpen(i.href).includes(role)).map((i) => i.href);
+      const allowed = navItems
+        .filter((i) => i.inMenu && rolesWhoCanOpen(i.href).includes(role))
+        .map((i) => i.href);
       expect(shown, role).toEqual(allowed);
+      // Nothing off the menu is reachable from it, for any role.
+      for (const off of navItems.filter((i) => !i.inMenu)) {
+        expect(shown, `${role} is offered ${off.href}`).not.toContain(off.href);
+      }
     }
     // ...and hiding is only ever the same answer the server gives, never a different one.
     for (const role of ROLES) {

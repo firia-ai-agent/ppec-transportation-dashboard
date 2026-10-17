@@ -54,10 +54,10 @@ export default async function RampIpadPage({
 
   if (!view || !selected) {
     return (
-      <div className={styles.page}>
+      <main className={styles.page}>
         <h1 className={styles.heading}>{vanArrival.heading}</h1>
         <p className={styles.banner}>{view ? flow.empty.noVans : flow.error.load}</p>
-      </div>
+      </main>
     );
   }
 

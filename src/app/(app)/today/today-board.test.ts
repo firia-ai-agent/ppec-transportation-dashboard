@@ -229,8 +229,17 @@ describe("the board renders the day", () => {
     expect(html).toContain(boardCopy.noReceiver);
   });
 
-  it("says plainly how the keyboard moves through it (§4.1)", () => {
-    expect(html).toContain(boardCopy.keyboardHint);
+  /**
+   * The hint line is gone (Vera's review, 2026-10-17 2:44 PM ET) and the keys are not: J and K
+   * still move between rides and Enter still opens one (`onKeyDown` below), and every row is
+   * reachable by Tab and by its own button, so nothing on this board is keyboard-only.
+   */
+  it("says nothing about J and K above the rows, and still moves on them", () => {
+    expect(html).not.toMatch(/J and K/);
+    expect(boardCopy).not.toHaveProperty("keyboardHint");
+    const source = readFileSync(path.join(__dirname, "TodayBoard.tsx"), "utf8");
+    expect(source).toMatch(/case "j"|=== "j"/i);
+    expect(source).toMatch(/case "k"|=== "k"/i);
   });
 
   /**

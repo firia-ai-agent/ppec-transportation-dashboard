@@ -416,15 +416,19 @@ async function expectNoCodesOrOldDates(page: Page): Promise<void> {
 }
 
 /**
- * The frame's bottom tab bar is 64 px plus the safe area (§9.2, built in the Rework 1 PR). A
- * screen that ends under it is a screen whose last card cannot be reached, so these two leave
- * the room whether or not the bar is mounted yet.
+ * The frame's bottom tab bar is 64 px plus the safe area (§9.2, Firia's 3:08 PM ET ruling, built
+ * in the Rework 1 PR and merged into this branch). A screen that ends under it is a screen whose
+ * last card cannot be reached — so the bar is there, and nothing the person has to touch is
+ * underneath it.
  */
 async function expectRoomForTabBar(page: Page): Promise<void> {
-  const padding = await page.evaluate(() => {
-    const main = document.querySelector("main") ?? document.body;
-    const page = main.querySelector<HTMLElement>("[class*='page']") ?? (main as HTMLElement);
-    return Number.parseFloat(getComputedStyle(page).paddingBottom || "0");
-  });
-  expect(padding).toBeGreaterThanOrEqual(64);
+  const bar = page.getByRole("navigation").last();
+  await expect(bar).toBeVisible();
+  const barBox = await boxOf(bar);
+  expect(barBox.height).toBeGreaterThanOrEqual(64);
+  for (const locator of [page.locator("[data-rider]").last(), page.locator("[data-confirm]")]) {
+    if ((await locator.count()) === 0) continue;
+    const box = await boxOf(locator.first());
+    expect(box.y + box.height, "a control sits under the tab bar").toBeLessThanOrEqual(barBox.y + 1);
+  }
 }

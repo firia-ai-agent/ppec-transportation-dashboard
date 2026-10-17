@@ -8,73 +8,32 @@
   min-height: calc(100vh - var(--layout-demo-banner-height));
 }
 
+/*
+ * One row (Vera, 2026-10-17 2:44 PM ET). It used to be two: the site name, the scenario clock
+ * and the avatar above; four "· Simulated" pills, their note and global search below. The pills
+ * and the note are gone — one Simulated chip per screen, the one in the DEMO bar — and search
+ * moved into Today, under the board's own title.
+ */
 .header {
   position: relative;
   display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
-  background: var(--color-surface);
-  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
-}
-
-.topRow,
-.bottomRow {
-  display: flex;
   align-items: center;
   gap: var(--space-5);
-  flex-wrap: wrap;
+  min-height: var(--layout-header-height);
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-surface);
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
 }
 
 .siteName {
   font-size: var(--text-20);
   font-weight: var(--weight-semibold);
   line-height: var(--leading-tight);
-}
-
-.facts {
-  display: flex;
-  align-items: center;
-  gap: var(--space-5);
-  margin: 0;
-}
-
-.fact {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.factLabel {
-  font-size: var(--text-12);
-  color: var(--color-ink-muted);
-}
-
-.factValue {
-  margin: 0;
-  font-size: var(--text-14);
-  font-weight: var(--weight-medium);
+  white-space: nowrap;
 }
 
 .spacer {
   flex: 1 1 auto;
-}
-
-.bottomRow {
-  justify-content: space-between;
-  align-items: flex-end;
-}
-
-.adapters {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-
-.adaptersNote {
-  font-size: var(--text-12);
-  color: var(--color-ink-muted);
 }
 
 .body {
@@ -90,18 +49,42 @@
   padding: var(--space-6) var(--space-5);
 }
 
+/*
+ * The content area for a screen that brings its own `<main>` and its own padding (Plan routes,
+ * the live map, the ramp iPad — all three built before this shell reached them). Same box in the
+ * layout as `.main`, no padding of its own: doubling it would reindent three finished screens.
+ */
+.contentSlot {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 @media (max-width: 767px) {
   .header {
-    padding: var(--space-4);
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-3);
   }
 
-  .facts {
-    gap: var(--space-4);
+  /*
+   * The product's name yields the row to the things that do something: the demo readout, its
+   * Start, and the account. The screen's own <h1> is directly below this and says where you
+   * are; the DEMO bar above it says which build this is (see png/shell-flow-390.png, whose
+   * phone header carries the screen and the avatar and no product name).
+   */
+  .siteName {
+    display: none;
   }
 
-  .bottomRow {
-    align-items: stretch;
-    flex-direction: column;
+  /*
+   * Clearance for the bottom tab bar, which is `position: fixed` and would otherwise sit on
+   * top of the last rows of the page (Firia, 3:08 PM ET: "page content padded so nothing hides
+   * behind it"). The bar's own height plus the device's safe-area inset — the same two lengths
+   * the bar pads itself with, so the two agree by construction.
+   */
+  .body {
+    padding-bottom: calc(var(--layout-tab-bar-height) + env(safe-area-inset-bottom, 0px));
   }
 
   .main {

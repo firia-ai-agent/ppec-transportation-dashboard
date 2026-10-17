@@ -64,12 +64,12 @@ export default async function PlanRoutesPage({
 
   if (!view) {
     return (
-      <div className={styles.page}>
+      <main className={styles.page}>
         <h1 className={styles.heading}>{planBoard.heading}</h1>
         <p className={styles.chip} data-tone="crit">
           {flow.error.load}
         </p>
-      </div>
+      </main>
     );
   }
 

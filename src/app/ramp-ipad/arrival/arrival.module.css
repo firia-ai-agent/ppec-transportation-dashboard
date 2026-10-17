@@ -7,8 +7,10 @@
  * from src/ui/tokens.ts — no colour literal lives outside that file.
  */
 
+/* Fills the shell's content slot; the viewport arithmetic is the shell's (src/ui/AppShell). */
 .page {
-  min-height: calc(100vh - var(--layout-demo-banner-height));
+  flex: 1 1 auto;
+  min-height: 0;
   padding: var(--space-5);
   background: var(--color-bg);
   color: var(--color-ink);
@@ -353,10 +355,9 @@
 }
 
 @media (max-width: 767px) {
-  /* Room for the frame's 64 px tab bar and the safe area below it (§9.2, Rework 1's PR). */
+  /* The tab bar's room is the shell's (AppShell.module.css `.body`); these are the gutters. */
   .page {
     padding: var(--space-3);
-    padding-bottom: calc(var(--layout-tab-bar-height) + env(safe-area-inset-bottom, 0px) + var(--space-3));
   }
 
   .rider {
