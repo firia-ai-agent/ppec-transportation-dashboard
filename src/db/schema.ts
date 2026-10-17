@@ -282,6 +282,74 @@ export const vehicleCapabilityDay = ops.table("vehicle_capability_day", {
   evidenceMessageId: uuid("evidence_message_id").references(() => message.id, { onDelete: "restrict" }), ...audit,
 }, (t) => [uniqueIndex("vehicle_capability_day_uq").on(t.vehicleId, t.serviceDate)]);
 
+/* ───────────────── ops: the plan board (redesign §1.6, migration 0009) ───────────────── */
+/**
+ * One van's setup for one day: how many of each thing it actually has on board.
+ *
+ * The three tables below are the redesign's answer to "vans are generic; the number of each
+ * piece of equipment is a variable, set per van when it arrives" (founder, 2026-10-17). They
+ * take over from the layout model *for the planning and ramp screens only* — `vehicle_layout`
+ * and `layout_position` keep their rows and their readers elsewhere, and nothing here drops or
+ * alters an existing table (migration 0009 is additive by instruction).
+ *
+ * `state` is the chain the day runs on: `DEFAULT` (copied in from the last checked day, or from
+ * the configured default), `PLANNED` (a coordinator set it on the board), `CHECKED` (the front
+ * desk confirmed it at the ramp, which is the only state that counts as a van checked today and
+ * the one tomorrow starts from). Text with a check constraint rather than a new enum: 0001 hands
+ * `migrator` a hard-coded list of enum names, so every enum created after it carries its own
+ * ownership fix (0008's F6), and three words in a CHECK need no type at all.
+ */
+export const vehicleSetupDay = ops.table("vehicle_setup_day", {
+  id: pk(), siteId: siteRef(), vehicleId: uuid("vehicle_id").references(() => vehicle.id, { onDelete: "restrict" }).notNull(),
+  serviceDate: date("service_date").notNull(),
+  seats: smallint("seats").notNull(), wheelchairSpots: smallint("wheelchair_spots").notNull(),
+  carSeats: smallint("car_seats").notNull(), oxygenMounts: smallint("oxygen_mounts").notNull(),
+  hasLift: boolean("has_lift").notNull(),
+  state: text("state").notNull().default("DEFAULT"),
+  /** The staff user who set it, when a person did. Null for a row the demo seed wrote. */
+  setBy: uuid("set_by").references(() => appUser.id, { onDelete: "restrict" }), setAt: timestamp("set_at", { withTimezone: true }),
+  ...audit,
+}, (t) => [uniqueIndex("vehicle_setup_day_uq").on(t.vehicleId, t.serviceDate),
+  index("vehicle_setup_day_site_date_idx").on(t.siteId, t.serviceDate),
+  check("vehicle_setup_day_state_known", sql`state IN ('DEFAULT','PLANNED','CHECKED')`),
+  check("vehicle_setup_day_counts_sane", sql`seats >= 0 AND wheelchair_spots >= 0 AND car_seats >= 0 AND oxygen_mounts >= 0`)]);
+
+/**
+ * One saved plan: the board for one site, one service date and one leg.
+ *
+ * `version` is the row's own audit version (the ops convention, and the column `transition()`
+ * guards on), which is what the board's save sends back and what makes "someone else saved" a
+ * conflict a coordinator is told about rather than a write that lands on top of theirs.
+ */
+export const planRun = ops.table("plan_run", {
+  id: pk(), siteId: siteRef(), serviceDate: date("service_date").notNull(),
+  direction: legDirection("direction").notNull(),
+  /** The staff user who saved it, when a person did; null for a row the demo seed wrote. */
+  savedBy: uuid("saved_by").references(() => appUser.id, { onDelete: "restrict" }),
+  savedAt: timestamp("saved_at", { withTimezone: true }).notNull().defaultNow(),
+  ...audit,
+}, (t) => [uniqueIndex("plan_run_site_date_dir_uq").on(t.siteId, t.serviceDate, t.direction)]);
+
+/**
+ * Where one child is on a saved board: a van, or one of the three groups that are not a van.
+ *
+ * Rewritten wholesale inside the save's transaction, so a row carries no version of its own —
+ * the plan it belongs to is the thing with a version. `bucket` and `vehicle_id` agree by
+ * constraint: a child is in a van exactly when there is a van to name.
+ */
+export const planAssignment = ops.table("plan_assignment", {
+  planRunId: uuid("plan_run_id").references(() => planRun.id, { onDelete: "restrict" }).notNull(),
+  siteId: siteRef(), childToken: uuid("child_token").references(() => childProfile.childToken, { onDelete: "restrict" }).notNull(),
+  vehicleId: uuid("vehicle_id").references(() => vehicle.id, { onDelete: "restrict" }),
+  bucket: text("bucket").notNull(), stopSeq: smallint("stop_seq"),
+  /** True when a person put this child here, so planning again keeps them where they are. */
+  pinned: boolean("pinned").notNull().default(false),
+  ...audit,
+}, (t) => [primaryKey({ columns: [t.planRunId, t.childToken] }),
+  index("plan_assignment_van_idx").on(t.planRunId, t.vehicleId, t.stopSeq),
+  check("plan_assignment_bucket_known", sql`bucket IN ('VAN','UNASSIGNED','FAMILY_DRIVES','ABSENT')`),
+  check("plan_assignment_van_has_vehicle", sql`(bucket = 'VAN') = (vehicle_id IS NOT NULL)`)]);
+
 /* ───────────────────────────── ops: legs + manifests ───────────────────────────── */
 export const manifest = ops.table("manifest", {
   id: pk(), siteId: siteRef(), serviceDate: date("service_date").notNull(), direction: legDirection("direction").notNull(),
