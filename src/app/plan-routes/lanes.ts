@@ -7,31 +7,36 @@
  * code — the three vocabularies the machine uses to talk to itself. The verdict is computed in
  * src/domain/solver; the sentence that says it is chosen here; neither is written here.
  *
- * Three of these helpers are no longer only this screen's: "why has this child no van", the
- * chip that goes with it and the phrase for the thing that is missing are now read by the ramp
- * iPad and the Today board too, so they live in src/ui/arrival-lines.ts and are re-exported
- * here. One wording, three screens — see that file for why.
+ * Three of these helpers are no longer only this screen's and are re-exported here rather than
+ * written here. "Why has this child no van" and the chip that goes with it are read by the ramp
+ * iPad and the Today board too, so they live in src/ui/arrival-lines.ts; the phrase for the
+ * thing that is missing is read by the save endpoint as well, so it lives beside the planner in
+ * src/domain/plan/reasons.ts with the refusal that embeds it. One wording per sentence, however
+ * many screens say it — see those files for why.
  */
-import { countable, fill, layoutName, pluralize, planRoutes, rampIpad, securement, sentence, vanName } from "@/ui/copy";
-import { missingPhrase, reasonLine, unplacedState } from "@/ui/arrival-lines";
+import { countable, fill, layoutName, pluralize, planRoutes, rampIpad, securement, sentence } from "@/ui/copy";
+import { reasonLine, unplacedState } from "@/ui/arrival-lines";
+import { missingPhrase } from "@/domain/plan/reasons";
+import type { ArrivalAnswer } from "@/domain/plan/stages";
 import { capabilityStates, legStates, reservationStates, type StateDescriptor } from "@/ui/states";
-import { clockLabel } from "@/ui/service-date";
+import { clockLabel, siteTimeLabel } from "@/ui/service-date";
 import { causeOfDeficit } from "@/domain/solver";
 import type {
   Child, DailyCapability, LanePlan, LaneSeats, Layout, PlanRider, SolveResult, Unplaced,
   UnplacedCause, Vehicle, WcPosition,
 } from "@/domain/solver";
 
-export { missingPhrase, reasonLine, unplacedState };
+export { reasonLine, unplacedState };
 
 /* ───────────────────────── what the day knows about the van ───────────────────────── */
 
 /**
- * The three answers a lane can carry about the van that is coming (VEH-02, VEH-04). "Not checked
- * yet" is first because it is the honest state of a morning, and it is never read as a yes.
+ * The answers a lane can carry about the van that is coming (VEH-02, VEH-04), re-exported from
+ * the module that turns one into a solver observation (src/domain/plan/stages.ts) — because the
+ * save endpoint is handed the same answer over HTTP and must read it the same way.
  */
-export const ARRIVAL_ANSWERS = ["NOT_CHECKED", "REPORTED", "RAMP_CHECKED"] as const;
-export type ArrivalAnswer = (typeof ARRIVAL_ANSWERS)[number];
+export { ARRIVAL_ANSWERS } from "@/domain/plan/stages";
+export type { ArrivalAnswer } from "@/domain/plan/stages";
 
 /**
  * One answer, labelled. "Reported by the provider" named a role where the day has a name on file
@@ -74,16 +79,11 @@ function chairSecurement(riders: readonly PlanRider[]): string {
 }
 
 /**
- * "Can’t put Zoe B. in the substitute van: no four-point straps." — one line, the child, the
- * missing thing, and the van by name rather than by the code the fixtures file it under.
+ * The refusal, and the missing thing inside it. Both moved to src/domain/plan/reasons.ts when
+ * the save endpoint started saying the same sentence about the same verdict: one definition, so
+ * a refused drag and a refused save cannot word it differently.
  */
-export function refusalLine(vehicle: Vehicle, child: Child, cause: UnplacedCause): string {
-  return fill(planRoutes.refused, {
-    vehicle: vanName(vehicle.description),
-    child: child.displayName,
-    missing: missingPhrase(cause, securement[child.securement ?? "OTHER"]),
-  });
-}
+export { missingPhrase, refusalLine } from "@/domain/plan/reasons";
 
 /**
  * The sentence under a lane's chip. Three shapes, because they are three different facts:
@@ -169,19 +169,15 @@ export function equipmentChips(
 /**
  * "Set up as 1 wheelchair · 3 seats" — the configuration in words, never the shorthand.
  *
- * A van with no place for a chair says so in its own clause instead, because the general
- * template reads "Set up as No wheelchairs · 6 seats" there, and the seat count still follows
- * it: that setup is the one a ramp check that found the wrong van produces, and "6 seats" is
- * the half of it a coordinator is about to act on.
+ * A configuration with no wheelchair place at all is a sentence of its own rather than the
+ * button's label dropped into this one (Vera's review, 2026-10-17): `layoutName` answers with
+ * "No wheelchairs · 6 seats", which reads as a label and put a capital in the middle of the
+ * lane's line. Read off the positions the van is built with, not off the code, so the sentence
+ * follows the configuration rather than how a provider wrote it down.
  */
 export function setUpAsLine(layout: Layout): string {
-  const places = layout.positions.filter(isWcPosition).length;
-  if (places > 0) return fill(planRoutes.setUpAs, { layout: layoutName(layout.code) });
-  const seats = pluralize(
-    layout.positions.length - places,
-    countable.seat,
-  );
-  return `${planRoutes.setUpNoWcPlaces}${rampIpad.layout.separator}${seats}`;
+  if (!layout.positions.some(isWcPosition)) return planRoutes.setUpNoWheelchairs;
+  return fill(planRoutes.setUpAs, { layout: layoutName(layout.code) });
 }
 
 /**
@@ -269,6 +265,29 @@ export function needChips(child: Child, measured: boolean): string[] {
 /** "7 of 9 riders are in a van." */
 export function summaryLine(planned: number, total: number): string {
   return fill(planRoutes.summary, { planned, total });
+}
+
+/**
+ * "Plan saved at 1:24 PM. No family has been told."
+ *
+ * The time is the server's own record of when it kept the plan (`savedAt`, ISO), read out in the
+ * site's timezone — not the browser's local time, and not this screen's clock, because the save
+ * is the one thing on the screen a server decides and the record of it is the server's.
+ */
+export function savedLine(savedAt: string): string {
+  return fill(planRoutes.saved, { time: siteTimeLabel(new Date(savedAt)) });
+}
+
+/**
+ * "Showing the plan saved at 1:24 PM."
+ *
+ * The line for a plan the screen *found* rather than one it just made: a coordinator who
+ * reloads gets their children back in their vans, and this says the plan in front of them is
+ * the saved one and when it was saved. Same clock as {@link savedLine} and for the same reason
+ * — the instant is the server's record, read out at the centre.
+ */
+export function showingSavedLine(savedAt: string): string {
+  return fill(planRoutes.showingSaved, { time: siteTimeLabel(new Date(savedAt)) });
 }
 
 /** Is there anything on this plan a coordinator still has to decide? */

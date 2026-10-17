@@ -34,13 +34,11 @@ import type { Unplaced, UnplacedCause } from "@/domain/solver";
 /**
  * The thing that is missing, as a refusal or a lane line reads it: "no four-point straps".
  *
- * Keyed by the planner's cause rather than by the solver's deficit type, because a cause is
- * what a person can act on — "this van is full" and "this van is not built for this chair" are
- * two different conversations with the provider.
+ * Defined beside the planner (src/domain/plan/reasons.ts) because the save endpoint says the
+ * same phrase about the same verdict over HTTP, and re-exported here so the three screens that
+ * read this module read it from one place.
  */
-export function missingPhrase(cause: UnplacedCause, securementWords: string): string {
-  return fill(planRoutes.missing[cause], { securement: securementWords });
-}
+export { missingPhrase } from "@/domain/plan/reasons";
 
 /**
  * The §3 chip beside a child in no van: what kind of "no van" this is.

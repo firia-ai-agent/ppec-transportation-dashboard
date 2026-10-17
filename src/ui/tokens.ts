@@ -79,6 +79,21 @@ export const color = {
   "map-truck-crit": "#B91C1C",
 
   /**
+   * The route palette: one colour per van, so three vans' lines on one map are told apart.
+   *
+   * Three because the demo day has three lanes, and the first of them is `brand` — the one route
+   * colour the map already had (src/components/map/style.ts `MAP_TOKENS.route`) — so these are
+   * its second and third and there is no fourth copy of blue. Blue, bluish-green and vermillion
+   * is the colour-vision-deficient-safe trio, and it is still never the only cue: every line on
+   * the plan map carries the van's own name along it (§3, `planRoutes.mapVanRow`).
+   *
+   * Not a status colour between them: green, amber and red are the truck tones above and the
+   * five chip tones, and violet is the demo's. A van is not a state.
+   */
+  "map-route-2": "#0F766E",
+  "map-route-3": "#9A3412",
+
+  /**
    * The two positron basemap fills we name (§5.1, §8): `osm-bg` is positron's land, kept as-is
    * and reused as the map pane's placeholder so it never flashes white; `osm-water` is our
    * override (positron's default `#C2C8CA` fails 3:1 against the ok/stale truck tones).
@@ -138,6 +153,11 @@ export const contrastPairs: ReadonlyArray<{
   { fg: "map-truck-ok", bg: "surface", documented: 5.02, needs: 3 },
   { fg: "map-truck-stale", bg: "surface", documented: 4.92, needs: 3 },
   { fg: "map-truck-crit", bg: "surface", documented: 6.47, needs: 3 },
+  // Not §8 rows: the second and third route lines, held to the 3:1 UI floor on the white the
+  // basemap's lightest fill is, and to 4.5:1 besides, because the stop number a line's own
+  // circle carries is `surface` text sitting on it.
+  { fg: "map-route-2", bg: "surface", documented: 5.47, needs: 3 },
+  { fg: "map-route-3", bg: "surface", documented: 7.31, needs: 3 },
 ];
 
 /** WCAG 2.1 relative luminance of a `#RRGGBB` string. */

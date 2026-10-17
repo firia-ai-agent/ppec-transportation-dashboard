@@ -48,7 +48,31 @@ export const MAP_TOKENS = {
   truckStale: color["map-truck-stale"],
   /** `map-truck-crit` — GPS lost. */
   truckCrit: color["map-truck-crit"],
+  /** `map-route-2` / `map-route-3` — the second and third lines of {@link ROUTE_COLORS}. */
+  route2: color["map-route-2"],
+  route3: color["map-route-3"],
 } as const;
+
+/**
+ * One colour per van, for a map that draws a whole fleet's plan at once (the Plan routes pane).
+ *
+ * Three, because the demo day runs three vans, and the first is the route colour the map already
+ * had — so there is one blue on the map and not two. A fourth van wraps round to the first
+ * ({@link routeColor}), which is survivable because the colour is never the only cue: every line
+ * carries the van's own name along it and every lane beside the map says the same name in words
+ * (DESIGN-DIRECTION §3).
+ */
+export const ROUTE_COLORS: readonly string[] = [
+  MAP_TOKENS.route,
+  MAP_TOKENS.route2,
+  MAP_TOKENS.route3,
+];
+
+/** The colour of the nth van's line. Wraps, and never returns the demo violet. */
+export function routeColor(index: number): string {
+  const n = ROUTE_COLORS.length;
+  return ROUTE_COLORS[((Math.trunc(index) % n) + n) % n];
+}
 
 /**
  * `demo-bg` / `src-sim` violet. Reserved for the DEMO banner and the Simulated
@@ -290,6 +314,28 @@ export const MAP_LAYER_IDS = {
   vehicleLabel: "ppec-vehicle-label",
 } as const;
 
+/**
+ * The Plan routes pane's own sources and layers.
+ *
+ * Separate ids rather than the fleet's, because the two panes draw different things: the fleet
+ * map draws where the vans *are* (one route colour, trucks, GPS freshness), and this one draws
+ * what a coordinator is *planning* (a line per van, the stops numbered in the order they are
+ * driven, no truck and no clock). Sharing the ids would mean one set of layers whose paint had
+ * to be true of both.
+ */
+export const PLAN_SOURCE_IDS = {
+  routes: "ppec-plan-routes",
+  stops: "ppec-plan-stops",
+} as const;
+
+export const PLAN_LAYER_IDS = {
+  routeLine: "ppec-plan-route-line",
+  routeLabel: "ppec-plan-route-label",
+  stopCircle: "ppec-plan-stop-circle",
+  stopOrder: "ppec-plan-stop-order",
+  stopLabel: "ppec-plan-stop-label",
+} as const;
+
 /** Image id of the heading chevron, registered with `map.addImage` by FleetMap. */
 export const HEADING_ICON_ID = "ppec-heading-chevron";
 
@@ -339,6 +385,50 @@ export function headingChevronImage(size = HEADING_ICON_SIZE): {
 /** The font stack OpenFreeMap serves from its glyphs endpoint. */
 const LABEL_FONT = ["Noto Sans Regular"];
 const LABEL_FONT_BOLD = ["Noto Sans Bold"];
+
+/**
+ * Label paint, which is the same wherever a map of ours writes a word: ink on a white halo, so
+ * the text holds its contrast over every positron fill *and* over our own route lines (§8).
+ */
+const LABEL_PAINT = {
+  "text-color": MAP_TOKENS.ink,
+  "text-halo-color": MAP_TOKENS.surface,
+  "text-halo-width": LABEL_HALO_WIDTH,
+} as const;
+
+/**
+ * The centre: an ink pin with a white ring and its name under it, shared by both panes because
+ * it is the same place on both and it is the one stop no van is assigned to.
+ */
+function centerLayers(): StyleLayerLike[] {
+  return [
+    {
+      id: MAP_LAYER_IDS.centerPin,
+      type: "circle",
+      source: MAP_SOURCE_IDS.center,
+      paint: {
+        "circle-radius": 8,
+        "circle-color": MAP_TOKENS.ink,
+        "circle-stroke-width": 2,
+        "circle-stroke-color": MAP_TOKENS.surface,
+      },
+    },
+    {
+      id: MAP_LAYER_IDS.centerLabel,
+      type: "symbol",
+      source: MAP_SOURCE_IDS.center,
+      layout: {
+        "text-field": ["get", "name"],
+        "text-font": LABEL_FONT_BOLD,
+        "text-size": 12,
+        "text-anchor": "top",
+        "text-offset": [0, 1],
+        "text-max-width": 10,
+      },
+      paint: { ...LABEL_PAINT },
+    },
+  ];
+}
 
 /**
  * Our layer stack, bottom to top: planned route, driven route, stops, center pin,
@@ -401,35 +491,7 @@ export function fleetMapLayers(): StyleLayerLike[] {
         "text-halo-width": LABEL_HALO_WIDTH,
       },
     },
-    {
-      id: MAP_LAYER_IDS.centerPin,
-      type: "circle",
-      source: MAP_SOURCE_IDS.center,
-      paint: {
-        "circle-radius": 8,
-        "circle-color": MAP_TOKENS.ink,
-        "circle-stroke-width": 2,
-        "circle-stroke-color": MAP_TOKENS.surface,
-      },
-    },
-    {
-      id: MAP_LAYER_IDS.centerLabel,
-      type: "symbol",
-      source: MAP_SOURCE_IDS.center,
-      layout: {
-        "text-field": ["get", "name"],
-        "text-font": LABEL_FONT_BOLD,
-        "text-size": 12,
-        "text-anchor": "top",
-        "text-offset": [0, 1],
-        "text-max-width": 10,
-      },
-      paint: {
-        "text-color": MAP_TOKENS.ink,
-        "text-halo-color": MAP_TOKENS.surface,
-        "text-halo-width": LABEL_HALO_WIDTH,
-      },
-    },
+    ...centerLayers(),
     {
       id: MAP_LAYER_IDS.vehicleCircle,
       type: "circle",
@@ -484,6 +546,123 @@ export function fleetMapLayers(): StyleLayerLike[] {
         "text-halo-width": LABEL_HALO_WIDTH,
       },
     },
+  ];
+}
+
+/**
+ * The Plan routes pane's layer stack, bottom to top: each van's line, the van's name along it,
+ * then the stops as numbered discs with their place names, then the centre.
+ *
+ * Three things are driven by feature properties rather than by paint, because they are per van
+ * and per plan: `color` (which of {@link ROUTE_COLORS} this van has), `selected` (the lane a
+ * coordinator is looking at, which comes forward) and `dimmed` (every other lane while one is
+ * selected). Nothing here is colour-only — `van` writes the van's own name on its line and
+ * `order` writes the stop's position in the drive inside its disc — and nothing here is violet.
+ */
+export function planMapLayers(): StyleLayerLike[] {
+  return [
+    {
+      id: PLAN_LAYER_IDS.routeLine,
+      type: "line",
+      source: PLAN_SOURCE_IDS.routes,
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": ["get", "color"],
+        // The selected lane is drawn heavier as well as brighter: a line that only changed
+        // opacity is a line that changed colour, which is the one cue we never lean on.
+        "line-width": ["case", ["boolean", ["get", "selected"], false], 7, 4],
+        "line-opacity": ["case", ["boolean", ["get", "dimmed"], false], 0.3, 0.95],
+      },
+    },
+    {
+      id: PLAN_LAYER_IDS.routeLabel,
+      type: "symbol",
+      source: PLAN_SOURCE_IDS.routes,
+      layout: {
+        "text-field": ["get", "van"],
+        "text-font": LABEL_FONT_BOLD,
+        "text-size": 12,
+        /*
+         * Along the line it names, repeated down it rather than written once in the middle
+         * (Vera's review, 2026-10-17).
+         *
+         * `line-center` puts one name at the midpoint of each route, and three routes that cross
+         * the centre of the pane put their three names on top of each other there — the one
+         * place every van's line goes. `line` writes the name again every `symbol-spacing`
+         * pixels, so whichever stretch of a line a coordinator is reading has the van's name on
+         * it, and MapLibre's own collision test keeps the copies off each other. 250 px is wide
+         * enough that a route is not a ribbon of its own name in a 40%-width pane.
+         */
+        "symbol-placement": "line",
+        "symbol-spacing": 250,
+        "text-max-angle": 30,
+        "text-max-width": 14,
+      },
+      paint: {
+        // The line's own colour on a white halo (>=4.5:1 for all three, src/ui/tokens.ts), which
+        // ties the name to the line it is written on without the colour being the message.
+        "text-color": ["get", "color"],
+        "text-halo-color": MAP_TOKENS.surface,
+        "text-halo-width": LABEL_HALO_WIDTH,
+        /*
+         * A dimmed van is still a van with a name: 0.45 took the names of the other two routes
+         * to the edge of readable on positron's land, which left their lines told apart by
+         * colour alone — the one cue §3 never allows on its own. The line underneath carries the
+         * dimming (0.3), so the name only has to say which line it is.
+         */
+        "text-opacity": ["case", ["boolean", ["get", "dimmed"], false], 0.7, 1],
+      },
+    },
+    {
+      id: PLAN_LAYER_IDS.stopCircle,
+      type: "circle",
+      source: PLAN_SOURCE_IDS.stops,
+      paint: {
+        "circle-radius": ["case", ["boolean", ["get", "selected"], false], 11, 9],
+        "circle-color": ["get", "color"],
+        // 2 px white halo, as every marker of ours carries: it is what keeps the disc >=3:1
+        // against every positron fill underneath (§8).
+        "circle-stroke-width": 2,
+        "circle-stroke-color": MAP_TOKENS.surface,
+        "circle-opacity": ["case", ["boolean", ["get", "dimmed"], false], 0.3, 1],
+      },
+    },
+    {
+      id: PLAN_LAYER_IDS.stopOrder,
+      type: "symbol",
+      source: PLAN_SOURCE_IDS.stops,
+      layout: {
+        "text-field": ["get", "order"],
+        "text-font": LABEL_FONT_BOLD,
+        "text-size": 11,
+        // The number is inside its own disc, so it is drawn whatever else is nearby: a stop with
+        // no number is a dot, and the order is half of what this map says.
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: {
+        "text-color": MAP_TOKENS.surface,
+        "text-opacity": ["case", ["boolean", ["get", "dimmed"], false], 0.4, 1],
+      },
+    },
+    {
+      id: PLAN_LAYER_IDS.stopLabel,
+      type: "symbol",
+      source: PLAN_SOURCE_IDS.stops,
+      layout: {
+        "text-field": ["get", "label"],
+        "text-font": LABEL_FONT,
+        "text-size": 12,
+        "text-anchor": "top",
+        "text-offset": [0, 1],
+        "text-max-width": 10,
+      },
+      paint: {
+        ...LABEL_PAINT,
+        "text-opacity": ["case", ["boolean", ["get", "dimmed"], false], 0.45, 1],
+      },
+    },
+    ...centerLayers(),
   ];
 }
 
@@ -658,6 +837,96 @@ export function plannedRoutesGeoJson(
         geometry: { type: "LineString", coordinates: r.planned },
         properties: { id: r.id, vehicleId: r.vehicleId },
       })),
+  };
+}
+
+/**
+ * One van's plan, as the Plan routes pane hands it over: the shape
+ * src/domain/plan/map.ts returns, named structurally so this module keeps importing nothing
+ * but the colour table.
+ */
+export interface PlanRouteLike {
+  laneId: string;
+  /** The van's own name, written along its line. */
+  vanName: string;
+  /** Which of {@link ROUTE_COLORS} this van has. */
+  colorIndex: number;
+  line: Coord[];
+  stops: ReadonlyArray<{ order: number; label: string; coord: Coord }>;
+}
+
+/** Is this lane dimmed — i.e. some other lane is the selected one? */
+function dimmedBy(laneId: string, selectedLaneId?: string | null): boolean {
+  return typeof selectedLaneId === "string" && selectedLaneId.length > 0 && selectedLaneId !== laneId;
+}
+
+/**
+ * A line per van, in its own colour, labelled with the van's name.
+ *
+ * A van with nobody in it has no line, so it produces no feature: an empty lane is read in the
+ * list beside the map (which still names it), not as a dot on the road.
+ */
+export function planRoutesGeoJson(
+  routes: readonly PlanRouteLike[],
+  selectedLaneId?: string | null,
+): FeatureCollection<
+  LineFeature<{ laneId: string; van: string; color: string; selected: boolean; dimmed: boolean }>
+> {
+  return {
+    type: "FeatureCollection",
+    features: routes
+      .filter((route) => route.line.length >= 2)
+      .map((route) => ({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: route.line },
+        properties: {
+          laneId: route.laneId,
+          van: route.vanName,
+          color: routeColor(route.colorIndex),
+          selected: route.laneId === selectedLaneId,
+          dimmed: dimmedBy(route.laneId, selectedLaneId),
+        },
+      })),
+  };
+}
+
+/**
+ * Every van's stops, each carrying its number in that van's own stop list as **text**, because
+ * that number is drawn inside the disc: it is the row the lane beside the map prints for the same
+ * kerb (src/domain/plan/map.ts), and a plan a coordinator has rearranged is read from those
+ * numbers rather than from the shape of the line.
+ */
+export function planStopsGeoJson(
+  routes: readonly PlanRouteLike[],
+  selectedLaneId?: string | null,
+): FeatureCollection<
+  PointFeature<{
+    laneId: string;
+    van: string;
+    order: string;
+    label: string;
+    color: string;
+    selected: boolean;
+    dimmed: boolean;
+  }>
+> {
+  return {
+    type: "FeatureCollection",
+    features: routes.flatMap((route) =>
+      route.stops.map((stop) => ({
+        type: "Feature" as const,
+        geometry: { type: "Point" as const, coordinates: stop.coord },
+        properties: {
+          laneId: route.laneId,
+          van: route.vanName,
+          order: String(stop.order),
+          label: stop.label,
+          color: routeColor(route.colorIndex),
+          selected: route.laneId === selectedLaneId,
+          dimmed: dimmedBy(route.laneId, selectedLaneId),
+        },
+      })),
+    ),
   };
 }
 

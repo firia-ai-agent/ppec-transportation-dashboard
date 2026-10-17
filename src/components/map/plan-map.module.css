@@ -1,0 +1,207 @@
+/*
+ * The Plan routes map pane (DESIGN-DIRECTION §4.1, §5.1, §9).
+ *
+ * The same two rules the fleet pane keeps: the MapLibre attribution, bottom-right, is never
+ * covered (ADR-008), so every overlay lives inside `.overlay` and reserves the bottom strip;
+ * and the list of vans sits *under* the canvas rather than over it, because it is the way to
+ * read this map without a pointer and not a decoration on top of it.
+ *
+ * This pane is narrow by construction — it is the right-hand column of the planning screen, from
+ * 280 px up — so the canvas is a fixed-ish height and the vans are a column beneath it rather
+ * than a second column beside it.
+ */
+
+.pane {
+  --map-attribution-reserve: 32px;
+  --map-gutter: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.canvasWrap {
+  position: relative;
+  min-height: 360px;
+  height: clamp(360px, 46vh, 520px);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  /* positron land, so the pane never flashes white while the style is in flight. */
+  background: var(--color-osm-bg);
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+}
+
+/* MapLibre's own chrome, pinned and sized exactly as on the fleet pane. */
+.canvasWrap :global(.maplibregl-ctrl-bottom-right) {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  max-width: 100%;
+  margin: 0;
+  padding: 0 var(--space-2) var(--space-2) 0;
+  pointer-events: auto;
+}
+
+.canvasWrap :global(.maplibregl-ctrl-attrib) {
+  max-width: 100%;
+  white-space: normal;
+}
+
+/* §9: ≥44 px targets. MapLibre's own zoom buttons are 29 px. */
+.canvasWrap :global(.maplibregl-ctrl-group button) {
+  width: var(--target-console);
+  height: var(--target-console);
+}
+
+.canvasWrap :global(.maplibregl-ctrl-group) {
+  width: var(--target-console);
+}
+
+.overlay {
+  position: absolute;
+  inset: var(--map-gutter) var(--map-gutter)
+    calc(var(--map-gutter) + var(--map-attribution-reserve)) var(--map-gutter);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  pointer-events: none;
+}
+
+.overlay > * {
+  pointer-events: auto;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target-console);
+  padding: 0 var(--space-4);
+  font-size: var(--body-console);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.notice {
+  max-width: 40ch;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--body-console);
+  line-height: var(--leading-normal);
+  color: var(--color-crit-fg);
+  background: var(--color-crit-bg);
+  border-radius: var(--radius-md);
+}
+
+.notice button {
+  min-height: var(--target-console);
+  margin-top: var(--space-3);
+  padding: 0 var(--space-4);
+  font-size: var(--body-console);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+/*
+ * The empty state, under the camera control at the top of the canvas rather than across the
+ * middle of it. There is no line to cover yet, but there *is* the centre — the one pin the map
+ * has before anybody is in a van — and a card over it would hide the only thing it can show.
+ */
+.empty {
+  max-width: 28ch;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--body-console);
+  line-height: var(--leading-normal);
+  color: var(--color-ink-muted);
+  text-align: center;
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.note {
+  margin: 0;
+  font-size: var(--text-12);
+  line-height: var(--leading-normal);
+  color: var(--color-ink-muted);
+}
+
+/* The way to read this map with a keyboard (§9): one row per van the day has. */
+.vans {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vansHeading {
+  margin: 0;
+  font-size: var(--body-console);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--color-ink);
+}
+
+.vanButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--target-console);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--body-console);
+  line-height: var(--leading-tight);
+  text-align: left;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+/*
+ * The selected van. Three cues and not one: the check mark the button draws, the ring, and the
+ * weight of the words — the line's own colour is on the swatch, and a swatch is never the state
+ * (§3: colour is the third cue, never the only one).
+ */
+.vanButton[aria-pressed="true"] {
+  border-color: var(--color-brand);
+  box-shadow: inset 0 0 0 var(--border-hairline) var(--color-brand);
+  font-weight: var(--weight-semibold);
+}
+
+/*
+ * A sample of this van's line, drawn in the van's own colour. The colour arrives as an inline
+ * custom property from the one colour table (src/ui/tokens.ts via the map's palette), because
+ * which van gets which line is decided per plan and a stylesheet cannot know it.
+ */
+.swatch {
+  flex: none;
+  width: 20px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--van-line, var(--color-ink));
+}
+
+.vanName {
+  flex: 1;
+  min-width: 0;
+}
