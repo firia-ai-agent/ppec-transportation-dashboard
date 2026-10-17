@@ -12,7 +12,7 @@
  * and is refused outright on any deployment.
  */
 import { expect, test, type Locator } from "@playwright/test";
-import { fleetMap, mapPreview, nav, planRoutes, rampPreview } from "../src/ui/copy";
+import { fill, fleetMap, mapPreview, nav, planRoutes, rampPreview } from "../src/ui/copy";
 import { navItems } from "../src/ui/nav-items";
 import {
   boxOf,
@@ -144,8 +144,11 @@ for (const width of WIDTHS) {
       const chosenSpeed = page.getByRole("button", { name: /^×10$/ });
       await expect(chosenSpeed).toHaveAttribute("aria-pressed", "true");
 
-      // The ramp check is one click away rather than URL-only.
-      await expect(page.getByRole("link", { name: mapPreview.openRampCheck })).toBeVisible();
+      // The ramp iPad is one click away rather than URL-only, and the link calls it what its
+      // own heading and the rail call it.
+      await expect(
+        page.getByRole("link", { name: fill(mapPreview.openScreen, { page: rampPreview.heading }) }),
+      ).toBeVisible();
 
       await expectNoInternalCodes(page);
       // Let the last tiles settle, then take the picture.

@@ -488,10 +488,17 @@ export const mapPreview = {
   faultRow: "{vehicle} · {route} · {fault}",
   /** A demo run, named by where it starts: "Okeeheelee Park run". */
   routeName: "{stop} run",
-  /** Where the ramp iPad preview is, said from the map preview so it can be found at all. */
-  openRampCheck: "Open the ramp check",
-  /** The sibling planning surface, for the roles whose own row in the table opens it. */
-  openPlanRoutes: "Open Plan routes",
+  /**
+   * Where a sibling preview is, said from the map preview so it can be found at all — the ramp
+   * iPad, and the planning surface for the roles whose own row in the table opens it.
+   *
+   * `{page}` is that screen's own heading, so a link cannot call a screen something the screen
+   * does not call itself. It was two strings with the two names written out again, and when
+   * SURF-04 took the PRD's name (`rampPreview.heading`) one of them was left pointing at
+   * "the ramp check", a screen with that title no longer existing. src/ui/nav-items.ts reads
+   * the same headings for the rail.
+   */
+  openScreen: "Open {page}",
   /** A device with no active binding has no position to show, so it is absent, not faint. */
   unbound:
     "{vehicle}'s device has no active binding: {unbound} points ingested and stored as unbound, {accepted} displayable. It has no marker, no row and no ETA.",

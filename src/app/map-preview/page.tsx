@@ -21,7 +21,7 @@
 
 import Link from "next/link";
 import LiveFleetMap from "@/components/map/LiveFleetMap";
-import { mapPreview } from "@/ui/copy";
+import { fill, mapPreview, planRoutes, rampPreview } from "@/ui/copy";
 import { canOpenPage, mapViewerOf } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
 
@@ -78,7 +78,7 @@ export default async function MapPreviewPage() {
         sitting, so each one says where the other is.
       */}
       <p style={{ margin: 0, fontSize: "var(--body-console)" }}>
-        <Link href="/ramp-preview">{mapPreview.openRampCheck}</Link>
+        <Link href="/ramp-preview">{fill(mapPreview.openScreen, { page: rampPreview.heading })}</Link>
       </p>
       {/*
         Plan routes is the third preview behind the same door, and it is the coordinator's and
@@ -88,7 +88,7 @@ export default async function MapPreviewPage() {
       */}
       {canOpenPage(caller, "/plan-preview") ? (
         <p style={{ margin: 0, fontSize: "var(--body-console)" }}>
-          <Link href="/plan-preview">{mapPreview.openPlanRoutes}</Link>
+          <Link href="/plan-preview">{fill(mapPreview.openScreen, { page: planRoutes.heading })}</Link>
         </p>
       ) : null}
       <LiveFleetMap viewer={viewer} />
