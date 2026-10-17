@@ -324,8 +324,12 @@ export const board = {
      * is the rule about arrivals and handoffs. What changed is where the row sits, because a day
      * whose vans are back in the yard has nobody left to record the handoff unless a person is
      * asked to.
+     *
+     * Two clauses, two sentences — the same shape as `CHILD_HELD` above, and for the same reason:
+     * the second half is the only part this line says, and an "and" hands it to a reader as the
+     * tail of a sentence about the van. A full stop makes it its own fact, which is what it is.
      */
-    HANDOFF_UNRECORDED: "{child}'s van is back and nobody recorded who received them.",
+    HANDOFF_UNRECORDED: "{child}'s van is back. Nobody recorded who received them.",
     RIDE_STATE: "{child}'s ride needs a person to decide what happens next.",
     LOCATION_LOST: "Nothing has been heard from {van} for ten minutes.",
   },
@@ -963,32 +967,35 @@ export const drawer = {
   handoffBlockedRamp: "Check {child}'s van at the ramp first.",
   handoffBlockedNotArrived: "Wait for {child}'s van to arrive.",
   handoffBlockedNoReceiver: "Record who receives {child} first.",
-  /**
-   * The fourth reason, and the only one that is about this build rather than about the day: the
-   * van is there, an adult is on file, and the write path is not connected yet (the caption below
-   * says so too). It is said on the button because that is where somebody about to click reads —
-   * a control that looked available and then did nothing would be the one dishonest thing on
-   * this panel.
-   */
-  handoffBlockedNotConnected: "Handoff isn't connected yet.",
   overrideWithReason: "Override for {child}, with reason",
   /**
-   * Why the *override* is unavailable, under the override's own button.
+   * The override's own line, under the override's own button.
    *
-   * The line above that button is the handoff's reason and belongs to the handoff — and it stood
-   * next to the override as well, so a reader had one sentence doing two jobs: on the day where
-   * everything the handoff asks for is satisfied it reads as a note about this build, and on
-   * every other day it reads as the child's missing receiver being what stops an override too.
-   * Neither is what is true of it. What is true is the plain thing, and it is the same for both
-   * controls: this slice reads the day and writes nothing.
+   * It is here because the line above that button is the handoff's reason and belongs to the
+   * handoff: standing alone beside this control it read as the child's missing receiver being
+   * what stops an override, which is not true of it. So the override says what it is about —
+   * the ramp check, and the reason an override puts on the record — and the handoff's sentence
+   * can never speak for it.
+   *
+   * What it does *not* say is that nothing here is connected yet. That is one fact about the
+   * whole footer, it is true of both controls, and `readOnly` below says it once for both.
    */
-  overrideDisabled: "Overrides aren't connected yet.",
+  overrideDisabled: "An override skips the ramp check, with a reason on the record.",
   /** §5 override dialog. */
   overrideHeading: "Override ramp check",
   overrideReasonLabel: "Reason (required)",
   overrideCancel: "Cancel",
-  /** This slice reads; it does not write. Said out loud rather than left to be discovered. */
-  readOnly: "This panel shows the day. Confirming and overriding are not connected yet.",
+  /**
+   * This slice reads; it does not write. Said out loud rather than left to be discovered — and
+   * said **once**, here, for both controls at the bottom of the footer they sit in.
+   *
+   * It used to be said three times: on the handoff ("Handoff isn't connected yet."), on the
+   * override ("Overrides aren't connected yet.") and again in this caption. One fact in three
+   * sentences reads as three different limits, and a reader counting them has to work out that
+   * they are the same one. This caption is the line that keeps it, because it is the only one of
+   * the three that is about the panel rather than about a single control.
+   */
+  readOnly: "This panel shows the day. Confirming and overriding aren't connected yet.",
 } as const;
 
 /**

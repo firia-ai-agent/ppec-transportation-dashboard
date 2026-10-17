@@ -169,25 +169,29 @@ export function LegDrawer({
           exists at all rather than the board completing a ride by itself. It names the child,
           because the drawer opens over 56 rows and this is the control that would commit one.
         */}
-        <button type="button" className={styles.primary} disabled={blocked !== null}>
+        <button type="button" className={styles.primary} disabled>
           {fill(drawer.confirmHandoff, { child })}
         </button>
-        {blocked === null ? null : (
-          <>
-            <p className={styles.blockedReason}>{blocked}</p>
-            <button type="button" className={styles.secondary} disabled>
-              {fill(drawer.overrideWithReason, { child })}
-            </button>
-            {/*
-              And the override's own reason, under its own button (Vera, 2026-10-16). The line
-              above belongs to the handoff; it was the only sentence beside this control too,
-              which read as the child's missing receiver being what stops an override — a thing
-              that is not true of it. Two disabled controls, two reasons, each under the button
-              it is about.
-            */}
-            <p className={styles.blockedReason}>{drawer.overrideDisabled}</p>
-          </>
-        )}
+        {/*
+          The reason, when the day has one: the ramp check, the van that has not arrived, the
+          adult nobody has named. It is in the critical tone because it is something wrong with
+          the day that a coordinator can go and fix. When the day asks for none of it the button
+          is still unavailable — this slice writes nothing — and the line that says so is the
+          caption at the bottom, once, for both controls.
+        */}
+        {blocked === null ? null : <p className={styles.blockedReason}>{blocked}</p>}
+        <button type="button" className={styles.secondary} disabled>
+          {fill(drawer.overrideWithReason, { child })}
+        </button>
+        {/*
+          And the override's own line, under its own button (Vera, 2026-10-16). The reason above
+          belongs to the handoff; it was the only sentence beside this control too, which read as
+          the child's missing receiver being what stops an override — a thing that is not true of
+          it. This line says what the control is about instead, and it is a muted caption rather
+          than a warning, because nothing is wrong: it is a note about the control, not a fault
+          in the day.
+        */}
+        <p className={styles.caption}>{drawer.overrideDisabled}</p>
         <p className={styles.caption}>{drawer.readOnly}</p>
       </footer>
     </aside>
@@ -316,7 +320,11 @@ function solverVerdict(ride: RideView): string {
 }
 
 /**
- * Why the handoff cannot be confirmed, or null when it can.
+ * What the day asks for before a handoff could be confirmed, or null when it asks for nothing.
+ *
+ * Null is not "the button works": in this slice it never does, and the footer's caption is where
+ * that is said. Null means the day itself has no complaint — the van is there, the ramp check is
+ * in, an adult is on file — so there is no critical line to put beside the button.
  *
  * §4.2 names one of these — in transit without a ramp verification — and the other two follow
  * from the same rule: a handoff is a custody event naming the adult who received the child, so
@@ -338,9 +346,10 @@ function handoffBlocker(row: BoardRow, am: RideView, pm: RideView): string | nul
   if (!waitingForAHandoff(ride)) {
     return fill(drawer.handoffBlockedNotArrived, { child });
   }
-  // Everything the day could ask for is satisfied — and this slice still does not write. Said on
-  // the button rather than discovered by clicking it.
-  return drawer.handoffBlockedNotConnected;
+  // Everything the day could ask for is satisfied, so the day has no reason to give. The button
+  // is unavailable anyway, because this slice does not write — which the footer's caption says
+  // once, for this control and the override both, rather than a third time here.
+  return null;
 }
 
 /**

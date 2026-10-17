@@ -209,19 +209,44 @@ describe("COPY-GUIDE strings, verbatim", () => {
     });
 
     /**
-     * The fourth reason is not one of those: there is nothing a coordinator could do to unblock
-     * it, so it names the thing that is missing instead — this build's write path. Both disabled
-     * controls say it the same way, each under its own button (Vera, 2026-10-16), and neither
-     * says it as an instruction it cannot keep.
+     * There is a fourth thing in the way of the handoff, and it is not one of those: this slice
+     * reads the day and writes nothing. Nothing a coordinator could do unblocks it, it is true
+     * of the override in exactly the same way, and it is one fact — so the footer says it once,
+     * in the caption under both controls, and no control repeats it (Vera, #51). It used to be
+     * said three times, which reads as three different limits.
      */
-    it("says what is not connected yet, once per control and in the same words", () => {
-      expect(drawer.handoffBlockedNotConnected).toBe("Handoff isn't connected yet.");
-      expect(drawer.overrideDisabled).toBe("Overrides aren't connected yet.");
-      for (const line of [drawer.handoffBlockedNotConnected, drawer.overrideDisabled]) {
-        expect(line, line).toMatch(/isn't connected yet\.$|aren't connected yet\.$/);
-        // No placeholder: it is about the build, not about the child or the day.
-        expect(line, line).not.toMatch(/\{\w+\}/);
-      }
+    it("says what is not connected yet exactly once, for both controls at once", () => {
+      expect(drawer.readOnly).toBe(
+        "This panel shows the day. Confirming and overriding aren't connected yet.",
+      );
+      // Every line the footer can put on screen, and the caption is the only one that says it.
+      const footer = [
+        drawer.confirmHandoff,
+        drawer.handoffBlockedRamp,
+        drawer.handoffBlockedNotArrived,
+        drawer.handoffBlockedNoReceiver,
+        drawer.overrideWithReason,
+        drawer.overrideDisabled,
+        drawer.readOnly,
+      ];
+      expect(footer.filter((line) => /\bconnected\b/.test(line))).toEqual([drawer.readOnly]);
+      // The retired per-control versions are gone from the copy, not just unused by the drawer.
+      expect(Object.keys(drawer)).not.toContain("handoffBlockedNotConnected");
+    });
+
+    /**
+     * The override keeps a line of its own under its own button (Vera, 2026-10-16) — the reason
+     * above it belongs to the handoff, and alone beside this control it read as the child's
+     * missing receiver being what stops an override. What it says now is what the control is
+     * about: the ramp check, and the reason an override leaves on the record.
+     */
+    it("gives the override a line about the override, with no claim about the build", () => {
+      expect(drawer.overrideDisabled).toBe(
+        "An override skips the ramp check, with a reason on the record.",
+      );
+      // No placeholder: it is about the control, not about the child or the day.
+      expect(drawer.overrideDisabled).not.toMatch(/\{\w+\}/);
+      expect(drawer.overrideDisabled).toMatch(/ramp check/);
     });
 
     /** PRD §6.6 CA-04, in the one place it is said in full: the rule closes the line. */
@@ -263,11 +288,15 @@ describe("COPY-GUIDE strings, verbatim", () => {
    */
   it("§5 SURF-01: the unrecorded-handoff row says the van is back and nobody recorded it", () => {
     expect(board.reasons.HANDOFF_UNRECORDED).toBe(
-      "{child}'s van is back and nobody recorded who received them.",
+      "{child}'s van is back. Nobody recorded who received them.",
     );
     expect(fill(board.reasons.HANDOFF_UNRECORDED, { child: "Zoe B." })).toBe(
-      "Zoe B.'s van is back and nobody recorded who received them.",
+      "Zoe B.'s van is back. Nobody recorded who received them.",
     );
+    // Two sentences, not one joined by "and" — the same shape as CHILD_HELD above, so the half
+    // only this line says is its own fact rather than the tail of a sentence about the van.
+    expect(board.reasons.HANDOFF_UNRECORDED.split(". ")).toHaveLength(2);
+    expect(board.reasons.HANDOFF_UNRECORDED).not.toMatch(/\band nobody\b/);
     // It is not a handoff being claimed: the words never say one happened.
     expect(board.reasons.HANDOFF_UNRECORDED).not.toMatch(/handed off/i);
   });

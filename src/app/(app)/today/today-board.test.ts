@@ -595,25 +595,32 @@ describe("the one primary action, and why it is not available", () => {
   });
 
   it("says out loud that this slice does not write (§1 honesty)", () => {
-    expect(drawerHtml("C2")).toContain(drawer.readOnly);
+    expect(drawerHtml("C2")).toContain(escaped(drawer.readOnly));
   });
 
   /**
-   * Two disabled controls, two reasons, each under the button it is about (Vera, 2026-10-16).
-   * The handoff's reason was the only sentence beside the override as well, so it read as the
-   * child's missing receiver being what stops an override — which is not what stops it. What
-   * stops it is this build, and the override now says so under itself.
+   * Two disabled controls, two lines, each under the button it is about (Vera, 2026-10-16). The
+   * handoff's reason was the only sentence beside the override as well, so it read as the
+   * child's missing receiver being what stops an override — which is not what stops it. The
+   * override's own line names what the control is about instead, and the one sentence about this
+   * build not writing is the caption below them both, said once (Vera, #51).
    */
-  it("gives the override its own reason, under the override's own button", () => {
+  it("gives the override its own line, under the override's own button", () => {
     const html = drawerHtml("C2");
     const button = html.indexOf(escaped(fill(drawer.overrideWithReason, { child: "Noah O." })));
     const own = html.indexOf(escaped(drawer.overrideDisabled));
     expect(button).toBeGreaterThan(-1);
     expect(own).toBeGreaterThan(button);
     // The handoff's reason is still there, and still above its own button.
-    const handoff = html.indexOf(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
+    const handoff = html.indexOf(
+      escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })),
+    );
     expect(handoff).toBeGreaterThan(-1);
     expect(handoff).toBeLessThan(button);
+    // And the footer says "connected" once: the caption under both, and nowhere else.
+    const text = html.replace(/<[^>]*>/g, " ");
+    expect(text.match(/connected/g) ?? []).toHaveLength(1);
+    expect(html).toContain(escaped(drawer.readOnly));
   });
 
   /**

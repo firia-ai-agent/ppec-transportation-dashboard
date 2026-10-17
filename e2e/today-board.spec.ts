@@ -178,8 +178,9 @@ for (const width of WIDTHS) {
 
       /*
        * And the control that would commit one. The van is there and an adult is on file, so the
-       * day has nothing left to ask — the button is still unavailable, and the reason it gives
-       * is this build's, not a pretend one about the van not having arrived (§1 honesty).
+       * day has nothing left to ask — the button is still unavailable, and what says so is this
+       * build's own sentence, not a pretend one about the van not having arrived (§1 honesty).
+       * That sentence is the footer's caption, said once for both controls (Vera, #51).
        */
       await page.getByRole("button", { name: opener(RIDING_CHILD, boardCopy.pmSpoken) }).click();
       const panel = page.getByRole("dialog");
@@ -194,7 +195,8 @@ for (const width of WIDTHS) {
       await expect(
         panel.getByRole("button", { name: fill(drawer.confirmHandoff, { child: RIDING_CHILD }) }),
       ).toBeDisabled();
-      await expect(panel.getByText(drawer.handoffBlockedNotConnected)).toBeVisible();
+      await expect(panel.getByText(drawer.readOnly)).toBeVisible();
+      await expect(panel.getByText(/connected/)).toHaveCount(1);
       await expect(
         panel.getByText(fill(drawer.handoffBlockedNotArrived, { child: RIDING_CHILD })),
       ).toHaveCount(0);
@@ -726,9 +728,11 @@ for (const width of WIDTHS) {
       expect(await reason.evaluate((el) => getComputedStyle(el).color)).not.toBe(painted.color);
 
       /*
-       * And the override has a reason of its own, under its own button (Vera, 2026-10-16): the
+       * And the override has a line of its own, under its own button (Vera, 2026-10-16): the
        * line above belongs to the handoff, and standing alone beside this control it read as the
-       * child's missing receiver being what stops an override. This one says what does.
+       * child's missing receiver being what stops an override. This one is about the override —
+       * and it is muted, not the critical tone the handoff's reason wears, because it reports
+       * nothing wrong with the day (Vera, #51).
        */
       const ownReason = panel.getByText(drawer.overrideDisabled);
       await expect(ownReason).toBeVisible();
