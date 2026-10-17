@@ -45,17 +45,17 @@ export const VANS: readonly VanConfig[] = [
   {
     vehicleKey: "V1",
     slot: 1,
-    defaultSetup: { seats: 6, wheelchairSpots: 1, carSeats: 2, oxygenMounts: 1, hasLift: true },
+    defaultSetup: { seats: 6, wheelchairSpots: 1, carSeats: 3, oxygenMounts: 1, hasLift: true },
   },
   {
     vehicleKey: "V2",
     slot: 2,
-    defaultSetup: { seats: 5, wheelchairSpots: 1, carSeats: 2, oxygenMounts: 1, hasLift: true },
+    defaultSetup: { seats: 5, wheelchairSpots: 2, carSeats: 2, oxygenMounts: 1, hasLift: true },
   },
   {
     vehicleKey: "V4",
     slot: 3,
-    defaultSetup: { seats: 4, wheelchairSpots: 0, carSeats: 1, oxygenMounts: 0, hasLift: false },
+    defaultSetup: { seats: 4, wheelchairSpots: 0, carSeats: 2, oxygenMounts: 1, hasLift: false },
   },
   {
     // The reserve. On no run in the synthetic day, so it is not a board column; it is in the list
@@ -83,9 +83,9 @@ export function vanNameOf(slot: number): string {
 /**
  * The design token this van's colour comes from, as a CSS custom-property name.
  *
- * Van 1 keeps the blue the map has always drawn its first route in; **Van 2 is `route-2`**
- * (`#B45309`), because the teal it used to wear is the brand's primary now and a van is not an
- * action (Vera, 2026-10-17 6:14 PM ET); Van 3 keeps the vermillion third route. The reserve has
+ * Van 1 keeps the blue the map has always drawn its first route in; **Van 2 is `route-2`**,
+ * because the teal it used to wear is the brand's primary now and a van is not an action (Vera,
+ * 2026-10-17 6:14 PM ET); Van 3 keeps the vermillion third route. The reserve has
  * no route colour of its own — a fourth would need a fourth contrast row, which is a design
  * decision and not this file's — so it borrows the muted ink.
  *

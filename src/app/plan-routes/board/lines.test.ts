@@ -4,8 +4,8 @@ import type { BoardVan } from "@/domain/plan/board";
 import type { DayReadiness } from "@/domain/day/readiness";
 import {
   boardBanner,
-  checkedChip,
-  fitPreview,
+  countChip,
+  countChipLabel,
   footerLines,
   initialsOf,
   meterSr,
@@ -15,7 +15,7 @@ import {
   rejectChip,
   rejectSr,
   saveLine,
-  setupFromLine,
+  setupLine,
   stopLine,
 } from "./lines";
 
@@ -27,16 +27,19 @@ import {
  * has a word as well as a tone, a count reads `4/6`, and no sentence is longer than the spec's.
  */
 
+const SETUP = { seats: 3, wheelchairSpots: 0, carSeats: 1, oxygenMounts: 0, hasLift: false };
+
 const van = (over: Partial<BoardVan> = {}): BoardVan => ({
   id: "van-id",
   slot: 3,
   name: "Van 3",
+  colourToken: "map-route-3",
   driverName: "Marco D.",
-  setup: { seats: 3, wheelchairSpots: 0, carSeats: 1, oxygenMounts: 0, hasLift: false },
+  defaultSetup: SETUP,
+  setup: SETUP,
   setupState: "DEFAULT",
-  setupSource: "YESTERDAY",
-  setupFromDate: "2026-10-16",
-  setupBy: "Ana P.",
+  setupSource: "DEFAULT",
+  setupBy: null,
   ...over,
 });
 
@@ -44,7 +47,7 @@ const readiness = (over: Partial<DayReadiness> = {}): DayReadiness => ({
   date: "2026-10-17",
   leg: "PM",
   started: true,
-  setup: { state: "NEEDED", checked: 0, total: 3, source: "YESTERDAY", fromDay: "Fri" },
+  setup: { state: "NEEDED", checked: 0, total: 3, source: "DEFAULT" },
   plan: { state: "NEEDED", unassigned: 9 },
   live: { state: "LOCKED", vansOut: 0, blockedBy: "PLAN" },
   approvals: { waiting: 0 },
@@ -86,9 +89,11 @@ describe("§1.5: the toolbar and the cards", () => {
     expect(overConfirm("Van 3")).toBe("Van 3 is over. Save anyway?");
   });
 
-  it("previews one child against a changed setup, both ways", () => {
-    expect(fitPreview("Noah O.", true)).toBe("Noah O. fits");
-    expect(fitPreview("Noah O.", false)).toBe("Noah O. won’t fit");
+  it("writes a read-only count chip, and says where tapping it goes", () => {
+    expect(countChip("seats", 4, 6)).toBe("Seats 4/6");
+    expect(countChip("carSeats", 0, 1)).toBe("Car seats 0/1");
+    // The chip is a link to the one screen a van is counted on (the 5:55 PM ET re-cut of §1.2).
+    expect(countChipLabel("Van 2")).toBe("Count Van 2 at the ramp");
   });
 });
 
@@ -117,29 +122,33 @@ describe("§1.3: the save state is a word, not a dot", () => {
 });
 
 describe("§1.3 / §9.3: what a van and a day say about themselves", () => {
-  it("says whether the ramp has checked this van today, in a word", () => {
-    expect(checkedChip(van({ setupState: "CHECKED" }))).toEqual({ label: "Checked", tone: "ok" });
-    expect(checkedChip(van({ setupState: "DEFAULT" }))).toEqual({ label: "Not checked", tone: "warn" });
-    expect(checkedChip(van({ setupState: "PLANNED" }))).toEqual({ label: "Not checked", tone: "warn" });
-  });
-
-  it("names the day a carried-forward setup came from, and who counted it", () => {
-    expect(setupFromLine(van())).toBe("From Fri · Ana P.");
-    // Nobody recorded: the front desk is who counts a van, and no person is invented.
-    expect(setupFromLine(van({ setupBy: null }))).toBe("From Fri · Ramp staff");
-    // Set today: there is no earlier day to name, so the line is not drawn at all.
-    expect(setupFromLine(van({ setupFromDate: undefined }))).toBeNull();
+  /**
+   * The 5:55 and 6:00 PM ET rulings: a confirmed van wears an ok chip, and an unconfirmed one
+   * carries **one line** and no button — "Using default setup" — because planning on a default
+   * is a soft prerequisite (§9.1) and not a fault. "Not checked" as a warn chip is gone, and so
+   * is every word about an earlier day.
+   */
+  it("says whether the ramp has confirmed this van today, in a word and never a colour alone", () => {
+    expect(setupLine(van({ setupState: "CHECKED" }))).toEqual({
+      label: "Checked",
+      tone: "ok",
+      chip: true,
+    });
+    expect(setupLine(van({ setupState: "DEFAULT" }))).toEqual({
+      label: "Using default setup",
+      tone: "neutral",
+      chip: false,
+    });
+    expect(setupLine(van()).label).not.toMatch(/yesterday|Fri|From |Tomorrow|Planned/i);
   });
 
   it("says which step is missing, and offers the one link that fixes it", () => {
     expect(boardBanner(readiness(), "/ramp-ipad?van=1")).toEqual({
-      text: flow.banner.usingYesterday,
+      text: flow.banner.usingDefault,
       tone: "info",
       action: { label: flow.action.checkVans, href: "/ramp-ipad?van=1" },
     });
-    expect(
-      boardBanner(readiness({ setup: { state: "NEEDED", checked: 0, total: 3, source: "DEFAULT" } }), "/ramp-ipad?van=1")?.text,
-    ).toBe(flow.banner.usingDefaults);
+    expect(flow.banner).not.toHaveProperty("usingYesterday");
     // A day nobody has started is said first, and the DEMO bar is the only thing that starts one.
     expect(boardBanner(readiness({ started: false }), "/ramp-ipad?van=1")).toEqual({
       text: flow.banner.notStarted,
@@ -148,7 +157,7 @@ describe("§1.3 / §9.3: what a van and a day say about themselves", () => {
     });
     // Every van counted today: nothing to say, so nothing is said.
     expect(
-      boardBanner(readiness({ setup: { state: "DONE", checked: 3, total: 3, source: "TODAY" } }), null),
+      boardBanner(readiness({ setup: { state: "DONE", checked: 3, total: 3, source: "CHECKED" } }), null),
     ).toBeNull();
   });
 });

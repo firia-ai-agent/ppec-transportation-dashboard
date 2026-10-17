@@ -34,9 +34,9 @@ import {
   solver,
   sourceMode,
   unbuilt,
-  vanName,
   whoami,
 } from "./copy";
+import * as copyModule from "./copy";
 
 /**
  * COPY-GUIDE.md is the source of truth for words. These assertions pin the strings the guide
@@ -724,153 +724,60 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
       "What this vehicle can carry today is unknown until arrival.",
     );
     expect(solver.unusable.VERIFIED_INFEASIBLE).toMatch(/does not fit/);
+    // The three that used to carry "{vehicle}" say "another van" instead: the helper that
+    // named one from a fixture description is gone with the screens that printed it, and a van
+    // is named by its slot now (src/config/vans.ts `vanNameOf`). Firia's rule 6, 5:48 PM ET.
     expect(Object.values(solver.options).map((o) => o.label)).toEqual([
       "Split the run",
-      "Move to {vehicle}",
-      "Move to {vehicle}",
+      "Move to another van",
+      "Move to another van",
       "Ask the family to drive",
       "Delay the run",
       "Cancel the ride",
     ]);
-    expect(fill(solver.options.SPLIT_RUN.detail, { who: "Leo B.", vehicle: "V1" })).toBe(
-      "Run Leo B. separately on V1. Everyone already on the vehicle stays where they are.",
+    expect(fill(solver.options.SPLIT_RUN.detail, { who: "Leo B." })).toBe(
+      "Run Leo B. separately on another van. Everyone already on the vehicle stays where they are.",
     );
+    for (const option of Object.values(solver.options)) {
+      expect(option.label, option.label).not.toContain("{vehicle}");
+    }
     // AT-12: an option is a proposal, so no label may read like an action already taken.
     for (const option of Object.values(solver.options)) {
       expect(option.label).not.toMatch(/\b(assigned|locked|sent)\b/i);
     }
   });
 
-  it("the Plan routes screen's reasons, refusals and the AT-12 promise", () => {
-    // The reason on an unplaced child's row is the sentence Vera asked for, verbatim: it names
-    // the child and the thing that is missing, and it is one line.
-    expect(sentence(fill(planRoutes.reason.NO_LIFT, { child: "Noah O." }))).toBe(
-      "No van with a ramp for Noah O.",
-    );
-    expect(
-      sentence(
-        fill(planRoutes.reason.NO_SECUREMENT, {
-          child: "Zoe B.",
-          securement: securement.FOUR_POINT_STRAP,
-        }),
-      ),
-    ).toBe("No van with four-point straps for Zoe B.");
-    for (const [key, line] of Object.entries(planRoutes.reason)) {
-      expect(line, key).toContain("{child}");
-      expect(line.split("\n"), key).toHaveLength(1);
-      // A reason that ends on the child carries no full stop of its own: the last initial
-      // already supplied one, and `sentence()` is what closes the rest.
-      if (line.endsWith("{child}")) continue;
-      expect(sentence(fill(line, { child: "Zoe B.", vehicle: "V1", securement: "L-track" })), key)
-        .not.toMatch(/\.\.$/);
-    }
-
-    // A refused move is one line: the child first, because they are who was being moved, then
-    // the van by its own name and the one thing it is missing (Vera's review, 2026-10-17).
-    expect(
-      fill(planRoutes.refused, {
-        vehicle: vanName("substitute van"),
-        child: "Zoe B.",
-        missing: fill(planRoutes.missing.NO_SECUREMENT, { securement: securement.FOUR_POINT_STRAP }),
-      }),
-    ).toBe("Can’t put Zoe B. in the substitute van: no four-point straps.");
-
-    // AT-12: the family is told only after staff choose, said on the screen rather than implied,
-    // and said once — the second line making the same promise is gone, and so is `localOnly`.
-    expect(planRoutes.nothingSent).toBe("No family has been told. Staff choose first.");
-    expect(planRoutes.optionsNote).toBe(
-      "A coordinator picks one. The family hears nothing before that.",
-    );
-    expect(planRoutes).not.toHaveProperty("localOnly");
-    expect(planRoutes).not.toHaveProperty("needsApproval");
-    // AT-04: nobody boards on a van that does not fit, or on one nobody has checked.
-    expect(planRoutes.laneBlocked).toBe("Nobody boards until a coordinator approves.");
-    expect(planRoutes.laneNeedsCheck).toBe("Nobody boards until this van is checked.");
-    // VEH-01: an unapproved need is on screen and visibly not part of the allocation.
-    expect(fill(planRoutes.unapprovedNeed, { need: needCategories.MEDICAL_DEVICE_POWER })).toBe(
-      "Device that needs power · not used for planning",
-    );
-    // Every cause the planner can report has words for both the reason and the refusal.
-    expect(Object.keys(planRoutes.missing).sort()).toEqual(Object.keys(planRoutes.reason).sort());
-  });
-
   /**
-   * Vera's review, 2026-10-17: no vehicle code reaches the Plan routes screen.
+   * §1.5, and Firia's rules of 2026-10-17 5:48 PM ET: the old Plan routes screen's visible copy
+   * is deleted with the screen.
    *
-   * "V1" is how the fixtures file a van and how the solver keys one, and it is not a thing a
-   * coordinator says out loud — a lane headed "V1 · convertible van" asks them to translate
-   * before they can act. A van has one name on the screen, written as it is said in the middle
-   * of a sentence, and the lane's heading capitalises it in CSS so there is no second string to
-   * drift from this one.
+   * The board that replaced it says its own ~95 words from the `planBoard` block, and the lines
+   * below were the ones the spec listed by name: the sentences that explained a control, the
+   * per-position refusals in the solver's vocabulary, the drag hint, the scenario notes, and
+   * `vanNamed` — "the convertible van" — which was the second way this app had of naming a van.
+   * A test rather than a comment, because dead copy is how a screen's vocabulary comes back.
    */
-  it("names a van by what it is, in one string, with no vehicle code in it", () => {
-    expect(vanName("convertible van")).toBe("the convertible van");
-    expect(vanName("sedan")).toBe("the sedan");
-    expect(vanName("convertible van")).not.toMatch(/\bV\d\b/);
-    // Every sentence on the screen that carries a van takes it from there, and none of them
-    // opens on it — a van's name opens with "the", and a sentence cannot.
-    for (const [key, line] of Object.entries({
-      refused: planRoutes.refused,
-      moved: planRoutes.moved,
-      moveTo: planRoutes.moveTo,
-      substituted: planRoutes.substituted,
-      substituteOption: planRoutes.substituteOption,
-      asked: planRoutes.asked,
-      answered: planRoutes.answered,
-    })) {
-      expect(line, key).toContain("{vehicle}");
-      if (key === "substituteOption") continue; // a button label, not a sentence
-      expect(line.startsWith("{vehicle}"), `${key} opens on the van`).toBe(false);
+  it("has dropped the Plan routes copy the redesign deleted", () => {
+    for (const key of [
+      "vanNamed",
+      "demoScenarioNote",
+      "nothingSent",
+      "optionsNote",
+      "needsCaption",
+      "mapNote",
+      "dragHint",
+      "laneMissing",
+      "setUpChanges",
+      "reason",
+      "missing",
+      "refused",
+    ]) {
+      expect(planRoutes, key).not.toHaveProperty(key);
     }
-    // The relief driver leads with the person, and names no van at all (§1).
-    expect(fill(planRoutes.substitutedDriver, { driver: "Gus M." })).toBe("Gus M. drives instead.");
-    // The provider is named wherever they are asked something, never called "the provider".
-    for (const [key, line] of Object.entries({
-      askProvider: planRoutes.askProvider,
-      recordAnswer: planRoutes.recordAnswer,
-      reported: planRoutes.arrival.REPORTED,
-    })) {
-      expect(line, key).toContain("{provider}");
-      expect(line, key).not.toMatch(/\bthe provider\b/);
-    }
+    // And the helper that spent `vanNamed` is gone from this module altogether.
+    expect(copyModule).not.toHaveProperty("vanName");
   });
 
-  /**
-   * The lines Vera shortened, verbatim. Each one replaced a sentence that said the verdict the
-   * chip beside it already said, or explained the screen to a reader who was looking at it.
-   */
-  it("the Plan routes lines the review rewrote", () => {
-    expect(planRoutes.plan).toBe("Plan routes");
-    expect(planRoutes).not.toHaveProperty("planAgain");
-    expect(fill(planRoutes.laneMissing, { stop: "Lantana Public Library", missing: "no free seat" })).toBe(
-      "At Lantana Public Library, this van has no free seat.",
-    );
-    expect(planRoutes.setUpChanges).toEqual({
-      BEFORE: "Convertible: planning picks the setup that fits the riders.",
-      PLANNED: "Set up this way to fit these riders.",
-      SEEN: "Set up as it arrived, so planning keeps it.",
-    });
-    expect(fill(planRoutes.dragNowhere, { child: "Zoe B." })).toBe(
-      "Zoe B. wasn’t moved. Drop them on a van.",
-    );
-    expect(fill(planRoutes.movedOut, { child: "Zoe B." })).toBe("Zoe B. is not in a van now.");
-    expect(planRoutes.missing.UNKNOWN_UNTIL_ARRIVAL).toBe("not checked yet");
-    expect(fill(planRoutes.optionsHeading, { child: "Zoe B." })).toBe("Options for Zoe B.");
-    expect(planRoutes.laneOptionsHeading).toBe("Options");
-    // The pane said the map was not built yet until the map landed; what is left of that line is
-    // the empty state. It named a button — "Press Plan routes" — that the redesigned board does
-    // not have (its first step is Auto-plan, §1.2), and it told a coordinator to press the screen
-    // they were already standing on, so it is now the §9.5 string every other screen uses for a
-    // leg with nothing planned.
-    expect(planRoutes).not.toHaveProperty("mapPlaceholder");
-    expect(planRoutes.mapEmpty).toBe("No routes yet");
-    expect(planRoutes.mapEmpty).toBe(flow.empty.noRoutes);
-    // Said once over the lanes rather than under every rider card, so it is shorter than the
-    // ramp check's own copy of the same promise and deliberately not the same string.
-    expect(planRoutes.needsCaption).toBe("From intake, not a diagnosis.");
-    expect(planRoutes.waitingHeading).toBe("Waiting to be planned");
-    expect(planRoutes.changeVan).toBe("Change van or report");
-  });
 
   /**
    * Vera's review, 2026-10-17: the two things the save row says.
@@ -903,15 +810,9 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
    * buttons said what a map library calls these moves ("Fit every van") rather than what pressing
    * them does to the screen in front of them.
    */
-  it("the map's note and its two buttons, in the words the review fixed", () => {
-    expect(planRoutes.mapNote).toBe(
-      "Each van’s stops, in the order it drives them. A straight line is direct, not the road the van will take.",
-    );
+  it("the map's two buttons, in the words the review fixed", () => {
     expect(planRoutes.mapFitAll).toBe("Zoom to show every route");
     expect(planRoutes.mapShowAll).toBe("Show all vans again");
-    // The note is two sentences and neither of them is about the survey, the fixtures or a leg.
-    expect(planRoutes.mapNote.split(". ")).toHaveLength(2);
-    expect(planRoutes.mapNote).not.toMatch(/surveyed|geometry|segment|leg\b/i);
     // Each button says what it does to the screen: one zooms, the other undoes a pick.
     expect(planRoutes.mapFitAll).toMatch(/^Zoom /);
     expect(planRoutes.mapShowAll).toMatch(/ again$/);
@@ -963,20 +864,6 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
     }
     // The legend says what the choice is, and says it is the demo's rather than the day's.
     expect(planRoutes.demoScenarioLegend).toBe("Demo scenario");
-    // Each scenario still says what it is in a sentence, and both are the same service date.
-    expect(Object.keys(planRoutes.demoScenarioNote).sort()).toEqual(
-      Object.keys(planRoutes.demoScenario).sort(),
-    );
-    expect(planRoutes.demoScenarioNote.EVERY_RIDER_FITS).toBe(
-      "Three vans today: the convertible van, the center van and the sedan.",
-    );
-    expect(planRoutes.demoScenarioNote.ONE_RIDER_HAS_NO_VAN).toBe(
-      "The convertible van is off the road and a smaller van replaced it. No van today has four-point straps.",
-    );
-    // Each one names the vans the way the lanes name them, and neither names a provider's role.
-    for (const [key, note] of Object.entries(planRoutes.demoScenarioNote)) {
-      expect(note, key).not.toMatch(/\bthe provider\b|\bV\d\b/);
-    }
   });
 
   it("a delta that is not known says so, and never prints a bare minus", () => {

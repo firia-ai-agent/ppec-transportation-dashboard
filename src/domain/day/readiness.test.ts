@@ -13,8 +13,7 @@ const facts = (over: Partial<DayFacts> = {}): DayFacts => ({
   started: true,
   vans: 3,
   vansCheckedToday: 0,
-  setupSource: "YESTERDAY",
-  setupFromDate: "2026-10-16",
+  setupSource: "DEFAULT",
   planSavedAt: null,
   planSavedBy: null,
   unassigned: 9,
@@ -30,16 +29,20 @@ describe("van setup is soft, and says which day it is standing on (conflict C5)"
     expect(deriveReadiness(facts({ vansCheckedToday: 3 })).setup.state).toBe("DONE");
   });
 
-  it("names the day a carried-forward setup was confirmed on, in three letters", () => {
-    expect(deriveReadiness(facts()).setup.fromDay).toBe("Fri");
+  /**
+   * Firia/Veri, 2026-10-17 6:00 PM ET: there is no carry-over rung and no day to name. A van is
+   * on today's confirmed counts or on the shared config's defaults, and the readiness object has
+   * exactly those two sources — nothing that could render "From Fri".
+   */
+  it("stands on one of two sources, and names no earlier day", () => {
+    expect(deriveReadiness(facts()).setup.source).toBe("DEFAULT");
+    expect(deriveReadiness(facts({ setupSource: "CHECKED", vansCheckedToday: 3 })).setup.source).toBe(
+      "CHECKED",
+    );
+    expect(deriveReadiness(facts()).setup).not.toHaveProperty("fromDay");
+    // The weekday helper is still here for the times a *date* is read out, and is not a setup line.
     expect(weekdayLabel("2026-10-17")).toBe("Sat");
     expect(weekdayLabel("not a date")).toBe("");
-  });
-
-  it("has no day to name when it is standing on the configured defaults", () => {
-    const readiness = deriveReadiness(facts({ setupSource: "DEFAULT", setupFromDate: undefined }));
-    expect(readiness.setup.source).toBe("DEFAULT");
-    expect(readiness.setup.fromDay).toBeUndefined();
   });
 
   it("is Needed when there is no van at all, rather than Done over nothing", () => {

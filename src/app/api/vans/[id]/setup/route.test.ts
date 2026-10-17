@@ -3,6 +3,7 @@ import { apiAccess } from "@/ui/copy";
 import { VANS } from "@/config/vans";
 import { vehicleIdOf } from "@/modules/demo/fixtures/standard";
 import { clearMemoryPlanStore, memoryPlanStore } from "@/modules/plan/memory";
+import { demoDaySource } from "@/modules/demo/day-source";
 import { resolveSetup } from "@/domain/plan/setup";
 import { serviceDateIso } from "@/ui/service-date";
 
@@ -10,10 +11,11 @@ import { serviceDateIso } from "@/ui/service-date";
  * `POST /api/vans/:id/setup` — the write behind "Confirm Van 1" on the ramp iPad (redesign spec
  * §2) and behind Apply in the board's setup popover (§1.3).
  *
- * It is the one endpoint on this screen open to **all three roles**, because counting what is on a
- * van is the front desk's own job — so the interesting assertions are about what each role may
- * write, not only about who may call it: the front desk may confirm what arrived and may not plan
- * a van they are not looking at.
+ * It is the one endpoint on this screen open to **all three roles**, because counting what is on
+ * a van is the front desk's own job. The interesting assertions are about *what* may be written:
+ * `CHECKED` and nothing else. Firia's rule 1 (2026-10-17 5:48 PM ET) is that `PLANNED` stays in
+ * migration 0009's frozen check constraint and **no write path can produce it** — the board has
+ * no planned counts, and a request that asks for one is refused here whoever sends it.
  *
  * Runs on the memory store (this server has no `DATABASE_URL`), with the SQL the same calls make
  * asserted against the migrations in src/modules/plan/sql.test.ts.
@@ -36,6 +38,8 @@ const CALLERS = {
 const saved = { ...process.env };
 const TODAY = serviceDateIso(new Date());
 const VAN_ONE = vehicleIdOf(VANS[0].vehicleKey);
+/** The vans on the road today. The config also holds the reserve, which is on no run. */
+const DAY_VANS = demoDaySource().vans(TODAY);
 
 const counted = (over: Record<string, unknown> = {}) => ({
   date: TODAY,
@@ -87,24 +91,38 @@ describe("who may count a van", () => {
     expect(await res.json()).toEqual({ ok: false, error: apiAccess.signIn });
   });
 
-  it("lets the front desk confirm what arrived and not plan a van", async () => {
-    getCaller.mockResolvedValue(CALLERS.frontDesk);
-    expect((await post(VAN_ONE, counted({ state: "CHECKED" }))).status).toBe(200);
-    const planned = await post(VAN_ONE, counted({ state: "PLANNED" }));
-    expect(planned.status).toBe(403);
-    expect(await planned.json()).toEqual({ ok: false, reason: "NOT_YOUR_WRITE" });
+  /**
+   * Firia's rule 1: nothing writes `PLANNED`. Asserted per role, because "the front desk may
+   * not" was the old rule and a coordinator could still do it — now nobody can, and the row the
+   * refusal protects is checked for afterwards rather than assumed.
+   */
+  it("refuses a planned count from every role, and writes nothing", async () => {
+    for (const who of ["director", "coordinator", "frontDesk"] as const) {
+      clearMemoryPlanStore();
+      getCaller.mockResolvedValue(CALLERS[who]);
+      const res = await post(VAN_ONE, counted({ state: "PLANNED" }));
+      expect({ who, status: res.status }).toEqual({ who, status: 403 });
+      expect(await res.json()).toEqual({ ok: false, reason: "NOT_A_STATE" });
+      expect(await memoryPlanStore().setupRows("site", TODAY, [VAN_ONE])).toEqual([]);
+    }
   });
 
-  it("lets a coordinator plan a van they are not looking at", async () => {
-    getCaller.mockResolvedValue(CALLERS.coordinator);
-    expect((await post(VAN_ONE, counted({ state: "PLANNED" }))).status).toBe(200);
-  });
-
-  it("refuses the state the ladder returns rather than a person setting it", async () => {
+  it("refuses the state the absence of a row means, rather than a person setting it", async () => {
     getCaller.mockResolvedValue(CALLERS.coordinator);
     const res = await post(VAN_ONE, counted({ state: "DEFAULT" }));
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ ok: false, reason: "NOT_A_STATE" });
+    expect(await memoryPlanStore().setupRows("site", TODAY, [VAN_ONE])).toEqual([]);
+  });
+
+  it("confirms for all three roles, which is the one write there is", async () => {
+    for (const who of ["director", "coordinator", "frontDesk"] as const) {
+      clearMemoryPlanStore();
+      getCaller.mockResolvedValue(CALLERS[who]);
+      expect((await post(VAN_ONE, counted({ state: "CHECKED" }))).status).toBe(200);
+      const rows = await memoryPlanStore().setupRows("site", TODAY, [VAN_ONE]);
+      expect(rows.map((row) => row.state)).toEqual(["CHECKED"]);
+    }
   });
 
   it("answers a uniform 404 for a van this board does not run", async () => {
@@ -141,7 +159,7 @@ describe("what a Confirm leaves behind (§2)", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     // The answer carries the day's steps back, so the screen can say "1/3 checked".
-    expect(body.readiness.setup).toMatchObject({ state: "NEEDED", checked: 1, total: VANS.length });
+    expect(body.readiness.setup).toMatchObject({ state: "NEEDED", checked: 1, total: DAY_VANS.length });
 
     const rows = await memoryPlanStore().setupRows("site", TODAY, [VAN_ONE]);
     const today = rows.find((row) => row.serviceDate === TODAY);
@@ -149,28 +167,36 @@ describe("what a Confirm leaves behind (§2)", () => {
     expect(today?.setup.seats).toBe(6);
   });
 
-  it("is what tomorrow starts from: the ladder carries a confirmed day forward", async () => {
+  /**
+   * Firia/Veri, 2026-10-17 6:00 PM ET: a Confirm is about **today** and nothing else. Tomorrow
+   * does not start from it — tomorrow starts from the shared config's defaults until somebody
+   * confirms the van again.
+   */
+  it("changes today and not tomorrow: there is no carry-over", async () => {
     getCaller.mockResolvedValue(CALLERS.frontDesk);
-    await post(VAN_ONE, counted({ seats: 4, wheelchairSpots: 2, carSeats: 1, oxygenMounts: 0, hasLift: true }));
+    const counts = { seats: 4, wheelchairSpots: 2, carSeats: 1, oxygenMounts: 0, hasLift: true };
+    await post(VAN_ONE, counted(counts));
     const next = new Date(`${TODAY}T12:00:00Z`);
     next.setUTCDate(next.getUTCDate() + 1);
     const tomorrowDate = next.toISOString().slice(0, 10);
     const rows = await memoryPlanStore().setupRows("site", tomorrowDate, [VAN_ONE]);
     const tomorrow = resolveSetup(VANS[0].vehicleKey, tomorrowDate, rows);
-    expect(tomorrow.source).toBe("YESTERDAY");
-    expect(tomorrow.setup).toEqual({ seats: 4, wheelchairSpots: 2, carSeats: 1, oxygenMounts: 0, hasLift: true });
-    expect(tomorrow.fromDate).toBe(TODAY);
-    // And it is not read as checked *today*, which is what the van's chip says (conflict C5).
+    expect(tomorrow.source).toBe("DEFAULT");
     expect(tomorrow.state).toBe("DEFAULT");
+    expect(tomorrow.setup).toEqual(VANS[0].defaultSetup);
+    // Today, meanwhile, is exactly what was counted.
+    const today = resolveSetup(VANS[0].vehicleKey, TODAY, await memoryPlanStore().setupRows("site", TODAY, [VAN_ONE]));
+    expect(today).toMatchObject({ source: "CHECKED", state: "CHECKED" });
+    expect(today.setup).toEqual(counts);
   });
 
   it("says every van is checked once all three have been", async () => {
     getCaller.mockResolvedValue(CALLERS.frontDesk);
     let body: { readiness: { setup: { state: string; checked: number } } } | null = null;
-    for (const van of VANS) {
-      const res = await post(vehicleIdOf(van.vehicleKey), counted());
+    for (const van of DAY_VANS) {
+      const res = await post(van.id, counted());
       body = await res.json();
     }
-    expect(body?.readiness.setup).toMatchObject({ state: "DONE", checked: VANS.length });
+    expect(body?.readiness.setup).toMatchObject({ state: "DONE", checked: DAY_VANS.length });
   });
 });

@@ -53,16 +53,14 @@ afterAll(async () => {
 });
 
 describe("ops.vehicle_setup_day", () => {
-  it("hands the ladder every row on or before the date, newest first", async () => {
-    const rows = await store.setupRows(SITE, TODAY, [vanOne(), vanTwo()]);
-    expect(rows).toHaveLength(2);
-    expect(rows.every((row) => row.serviceDate === YESTERDAY)).toBe(true);
-    expect(rows.every((row) => row.state === "CHECKED")).toBe(true);
-    // The counts come back as numbers, not strings: a "4" would fail every comparison silently.
-    expect(rows[0].setup.seats).toBe(VANS.find((v) => vehicleIdOf(v.vehicleKey) === rows[0].vehicleId)!.defaultSetup.seats);
-    expect(typeof rows[0].setup.seats).toBe("number");
-    // Nobody is recorded for a seeded row, so the screen says "Ramp staff" rather than a name.
-    expect(rows[0].setBy).toBeNull();
+  /**
+   * The reset contract as re-cut on 2026-10-17 6:00 PM ET: the seed writes **no** setup row, for
+   * yesterday or for today. Every van is therefore planned on its shared-config defaults until
+   * the front desk confirms it at the ramp, and there is no carry-over for a test to find.
+   */
+  it("starts a seeded day with no van counted at all", async () => {
+    expect(await store.setupRows(SITE, TODAY, [vanOne(), vanTwo()])).toEqual([]);
+    expect(await store.setupRows(SITE, YESTERDAY, [vanOne(), vanTwo()])).toEqual([]);
   });
 
   it("writes today's setup, names who set it, and replaces it on a second write", async () => {
@@ -70,13 +68,15 @@ describe("ops.vehicle_setup_day", () => {
       vehicleId: vanOne(),
       date: TODAY,
       setup: { seats: 5, wheelchairSpots: 1, carSeats: 2, oxygenMounts: 1, hasLift: true },
-      state: "PLANNED",
+      state: "CHECKED",
       setBy: DIRECTOR.id,
       now: NOW,
     });
     let rows = await store.setupRows(SITE, TODAY, [vanOne()]);
-    expect(rows[0]).toMatchObject({ serviceDate: TODAY, state: "PLANNED", setBy: DIRECTOR.label });
+    expect(rows[0]).toMatchObject({ serviceDate: TODAY, state: "CHECKED", setBy: DIRECTOR.label });
     expect(rows[0].setup.seats).toBe(5);
+    // The counts come back as numbers, not strings: a "4" would fail every comparison silently.
+    expect(typeof rows[0].setup.seats).toBe("number");
 
     await store.putSetup(SITE, {
       vehicleId: vanOne(),

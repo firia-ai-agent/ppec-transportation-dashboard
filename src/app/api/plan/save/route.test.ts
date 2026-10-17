@@ -232,12 +232,12 @@ describe("a refused drop cannot be saved by posting it directly (§1.7 #1)", () 
   });
 
   it("saves an over-capacity van only when a person answered the confirm (§1.3)", async () => {
-    // Four children into Van 3, which has three seats: over, not impossible. Without the
+    // Five children into Van 3, which has four seats: over, not impossible. Without the
     // confirm it is refused; with it, it is kept and the answer names the van that is over.
     const placements = await emptyPlacements();
-    const four = ["C1", "C3", "C8", "C9"].map((key) => childTokenOf(key));
+    const five = ["C1", "C3", "C8", "C9", "C7"].map((key) => childTokenOf(key));
     const overloaded = { ...placements };
-    for (const token of four) overloaded[token] = { bucket: "VAN", vanId: VAN(2), pinned: true } as never;
+    for (const token of five) overloaded[token] = { bucket: "VAN", vanId: VAN(2), pinned: true } as never;
     expect((await post(body(overloaded))).status).toBe(422);
     const allowed = await post(body(overloaded, { allowOver: true }));
     expect(allowed.status).toBe(200);

@@ -14,7 +14,6 @@
  * (--confirm). Never called from a build step; src/modules/demo/build-isolation.test.ts enforces that.
  */
 import { createCipheriv, createHash, createHmac, randomBytes } from "node:crypto";
-import { VANS } from "@/config/vans";
 import type { Db, Exec } from "@/db/exec";
 import {
   CHILDREN, DATE_EXCEPTION, EXTERNAL_PEOPLE, FAMILIES, KIND, PROVIDERS, RUNS, SCENARIO_NAME,
@@ -42,9 +41,10 @@ export const RESET_TABLES = [
   "ops.agent_tool_call", "ops.agent_run", "ops.agent_memory",
   "ops.eta_estimate", "ops.telemetry_point", "ops.device_binding", "ops.device",
   "ops.manifest_reservation", "ops.trip_leg", "ops.manifest",
-  // The plan board's three tables (migration 0009). A reset clears today's plan and today's van
-  // setups and reseeds yesterday's, which is the §9 reset contract: a fresh day reads "Using
-  // yesterday's van setup", no plan is saved, and the live map stays locked until one is.
+  // The plan board's three tables (migration 0009). A reset clears every saved plan and every
+  // van setup and writes none back — the §9 reset contract as re-cut on 2026-10-17 6:00 PM ET: a
+  // fresh day reads "Using default setup" on every van, no plan is saved, and the live map stays
+  // locked until one is.
   "ops.plan_assignment", "ops.plan_run", "ops.vehicle_setup_day",
   "ops.vehicle_capability_day", "ops.layout_position", "ops.vehicle_layout", "ops.vehicle",
   "ops.dispatcher_link", "ops.provider",
@@ -69,7 +69,6 @@ export const SEEDED_TABLES = [
   "ops.family_group", "ops.child_profile", "ops.contact_authorization", "ops.stop_location",
   "ops.transport_profile", "ops.transport_need_item", "ops.therapist", "ops.therapy_session",
   "ops.provider", "ops.vehicle", "ops.vehicle_layout", "ops.layout_position", "ops.vehicle_capability_day",
-  "ops.vehicle_setup_day",
   "ops.attendance_plan", "ops.attendance_exception", "ops.attendance_day",
   "ops.manifest", "ops.trip_leg", "ops.manifest_reservation", "ops.scenario_clock",
   "ops.event_log", "ops.audit_event",
@@ -157,35 +156,20 @@ function layoutRefs(): LayoutRef[] {
 
 /* ───────────────────────── time ───────────────────────── */
 
-type Clock = {
-  tz: string; serviceDate: string; planFrom: string; exceptionDate: string;
-  /** The service date before today, which is the day the seeded van setups were confirmed on. */
-  yesterday: string;
-  /** 3:30 PM site-local yesterday: when the front desk confirmed those setups. */
-  yesterdayCheckedAt: Date;
-  at: (hhmm: string) => Date;
-};
+type Clock = { tz: string; serviceDate: string; planFrom: string; exceptionDate: string; at: (hhmm: string) => Date };
 
 /** One round trip for every date and local time the fixtures need; Postgres does the DST-correct math. */
 async function clockFor(tx: Exec, siteId: string, now: Date): Promise<Clock> {
   const site = await tx.query<{ timezone: string }>("SELECT timezone FROM ops.site WHERE id = $1", [siteId]);
   if (!site.rows[0]) throw new SeedRefused("unknown site");
   const tz = site.rows[0].timezone;
-  const d = await tx.query<{
-    service_date: string; plan_from: string; exception_date: string;
-    yesterday: string; yesterday_checked_at: Date | string;
-  }>(
+  const d = await tx.query<{ service_date: string; plan_from: string; exception_date: string }>(
     `SELECT (($1::timestamptz AT TIME ZONE $2)::date)::text AS service_date,
             (($1::timestamptz AT TIME ZONE $2)::date - 30)::text AS plan_from,
-            (($1::timestamptz AT TIME ZONE $2)::date + $3::int)::text AS exception_date,
-            (($1::timestamptz AT TIME ZONE $2)::date - 1)::text AS yesterday,
-            ((($1::timestamptz AT TIME ZONE $2)::date - 1) + '15:30'::time) AT TIME ZONE $2
-              AS yesterday_checked_at`,
+            (($1::timestamptz AT TIME ZONE $2)::date + $3::int)::text AS exception_date`,
     [now.toISOString(), tz, DATE_EXCEPTION.daysFromToday],
   );
   const { service_date: serviceDate, plan_from: planFrom, exception_date: exceptionDate } = d.rows[0];
-  const yesterday = d.rows[0].yesterday;
-  const yesterdayCheckedAt = new Date(d.rows[0].yesterday_checked_at);
   const wanted = [...new Set([
     SCENARIO_START_LOCAL,
     ...CHILDREN.flatMap((c) => [c.amWindow, c.pmWindow]),
@@ -198,7 +182,7 @@ async function clockFor(tx: Exec, siteId: string, now: Date): Promise<Clock> {
   );
   const map = new Map(t.rows.map((r) => [r.hhmm, new Date(r.ts)]));
   return {
-    tz, serviceDate, planFrom, exceptionDate, yesterday, yesterdayCheckedAt,
+    tz, serviceDate, planFrom, exceptionDate,
     at: (hhmm) => {
       const v = map.get(hhmm);
       if (!v) throw new SeedRefused(`no local time for ${hhmm}`);
@@ -346,22 +330,13 @@ export async function seedStandardScenario(db: Db, opts: SeedOptions): Promise<S
       ["id", "site_id", "vehicle_id", "service_date", "state", "created_by", "updated_by", "source_mode"],
       VEHICLES.map((v, i) => [demoId(KIND.capability, i + 1), siteId, vehicleId(v.key), clock.serviceDate, "UNKNOWN", ...audit]));
 
-    // 6b. The plan board's van setups: one CHECKED row per van for YESTERDAY, and nothing for
-    //     today (the reset contract Vera fixed on 2026-10-17 3:07 PM ET, redesign spec §9.1).
-    //     That is what makes a fresh day read the way the demo is walked: Plan routes plans on
-    //     yesterday's counts and says "Using yesterday's van setup", every van's chip reads "Not
-    //     checked" until the front desk confirms it on the ramp, and no plan exists yet, so the
-    //     live map stays locked until one is saved. The counts are the configured defaults
-    //     (src/config/vans.ts), which is also the last rung of the planning default ladder, so
-    //     there is one set of synthetic numbers and not two. `set_by` is null: the ramp staff who
-    //     confirmed them yesterday are fiction, and no app_user row stands behind them.
-    await insert(tx, "ops.vehicle_setup_day",
-      ["id", "site_id", "vehicle_id", "service_date", "seats", "wheelchair_spots", "car_seats",
-        "oxygen_mounts", "has_lift", "state", "set_at", "created_by", "updated_by", "source_mode"],
-      VANS.map((van, i) => [demoId(KIND.setupDay, i + 1), siteId, vehicleId(van.vehicleKey),
-        clock.yesterday, van.defaultSetup.seats, van.defaultSetup.wheelchairSpots,
-        van.defaultSetup.carSeats, van.defaultSetup.oxygenMounts, van.defaultSetup.hasLift,
-        "CHECKED", clock.yesterdayCheckedAt, ...audit]));
+    // 6b. **No** `ops.vehicle_setup_day` row is written, for yesterday or for today.
+    //     Firia/Veri, 2026-10-17 6:00 PM ET: an unconfirmed van is planned on its DEFAULT counts
+    //     from the shared config (src/config/vans.ts) and there is no carry-over of any kind, so
+    //     a seeded "yesterday was checked" row would be a fact the product does not have. A fresh
+    //     day therefore reads the way the demo is walked: every van column says "Using default
+    //     setup", nothing is confirmed until the front desk confirms it on the ramp, and no plan
+    //     exists, so the live map stays locked until one is saved (§9.1).
 
     // 7. Mon–Fri plans, the single date exception, and today's attendance row per child.
     await insert(tx, "ops.attendance_plan",

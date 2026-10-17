@@ -15,7 +15,7 @@ import { z } from "zod";
 import { COUNTER_MAX } from "@/config/vans";
 import { BUCKETS, checkPlan, namesOnlyThisDay, ridersInVan, type BoardPlan, type Placement } from "@/domain/plan/board";
 import { isOver } from "@/domain/plan/fit";
-import { SETUP_STATES, type SetupState } from "@/domain/plan/setup";
+import { CONFIRMED_STATE } from "@/domain/plan/setup";
 import type { DayReadiness } from "@/domain/day/readiness";
 import type { Direction } from "@/domain/solver";
 import type { StaffCaller } from "@/auth/api-guard";
@@ -152,6 +152,16 @@ export async function savePlanRequest(
 
 /* ───────────────────────────── one van's setup ───────────────────────────── */
 
+/**
+ * The three values migration 0009's check constraint allows, which is what this endpoint will
+ * *parse*. Only one of them is a write it will *accept* — see `putVanSetupRequest`.
+ *
+ * `PLANNED` is parsed rather than rejected by the schema on purpose: a caller who asks for it
+ * gets the honest 403 that says nothing writes planned counts any more, instead of a generic
+ * "that request couldn't be read" that would leave them guessing which field was wrong.
+ */
+const WRITABLE_STATES = ["DEFAULT", "PLANNED", "CHECKED"] as const;
+
 export const vanSetupBody = z.strictObject({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   seats: z.number().int().min(0).max(COUNTER_MAX),
@@ -159,7 +169,7 @@ export const vanSetupBody = z.strictObject({
   carSeats: z.number().int().min(0).max(COUNTER_MAX),
   oxygenMounts: z.number().int().min(0).max(COUNTER_MAX),
   hasLift: z.boolean(),
-  state: z.enum(SETUP_STATES),
+  state: z.enum(WRITABLE_STATES),
 });
 
 export type VanSetupAnswer =
@@ -170,13 +180,17 @@ export type VanSetupAnswer =
  * One van's setup for one day (§1.6's `PUT /api/vans/:id/setup`, a POST here).
  *
  * Two checks beyond the role the access table already took:
+ *
+ *  - **`CHECKED` is the only state anything can write** (Firia's rule 1, 2026-10-17 5:48 PM ET).
+ *    `PLANNED` stays in migration 0009's frozen check constraint and nothing produces it: the
+ *    board has no planned counts, there is no popover to apply them from, and a request asking
+ *    for one is refused here whoever sends it — so the state cannot arrive by posting round the
+ *    screen either. `DEFAULT` is nobody's to write at all: it is what the *absence* of a row
+ *    means (src/domain/plan/setup.ts), not a state a person sets.
  *  - the van has to be one this board runs, answered as a uniform 404 like every other id this
- *    app does not have;
- *  - **the front desk may only write `CHECKED`.** Counting what arrived is their job (§2) and
- *    planning a van is not — a `PLANNED` write from the ramp would be the front desk changing a
- *    coordinator's plan for a van nobody has looked at yet. `DEFAULT` is nobody's to write: it is
- *    what the ladder *returns* for a day with no row (src/domain/plan/setup.ts), not a state a
- *    person sets.
+ *    app does not have.
+ *
+ * All three roles may confirm: counting what arrived is the front desk's own job (§2).
  */
 export async function putVanSetupRequest(
   siteId: string,
@@ -186,9 +200,8 @@ export async function putVanSetupRequest(
   now: Date = new Date(),
   store: PlanStore = planStore(),
 ): Promise<VanSetupAnswer> {
-  if (input.state === "DEFAULT") return { status: 403, body: { ok: false, reason: "NOT_A_STATE" } };
-  if (caller.role === "FRONT_DESK" && input.state !== "CHECKED") {
-    return { status: 403, body: { ok: false, reason: "NOT_YOUR_WRITE" } };
+  if (input.state !== CONFIRMED_STATE) {
+    return { status: 403, body: { ok: false, reason: "NOT_A_STATE" } };
   }
 
   const view = await loadBoard(store, siteId, input.date, "PM");
@@ -206,7 +219,7 @@ export async function putVanSetupRequest(
       oxygenMounts: input.oxygenMounts,
       hasLift: input.hasLift,
     },
-    state: input.state as Exclude<SetupState, "DEFAULT">,
+    state: CONFIRMED_STATE,
     setBy: caller.userId ?? null,
     now,
   });

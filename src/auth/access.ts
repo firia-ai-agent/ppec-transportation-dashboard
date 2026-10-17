@@ -158,8 +158,6 @@ export const API = {
   planBoard: "/api/plan",
   planSave: "/api/plan/save",
   vanSetup: "/api/vans/[id]/setup",
-  /** The three steps of the day, for a screen refreshing after a save or a Confirm (§9.4). */
-  dayReadiness: "/api/day/readiness",
   queueTimer: "/api/queues/timer",
   queueOutbox: "/api/queues/outbox",
   queueAgent: "/api/queues/agent",
@@ -510,21 +508,6 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     file: "src/app/api/vans/[id]/setup/route.ts",
     path: API.vanSetup,
     methods: ["POST"],
-    auth: { kind: "session", roles: ALL_STAFF, siteScoped: false },
-  },
-  /**
-   * The three steps of the day (§9.4), for a screen that has just saved or confirmed something
-   * and needs the strip and the banners to agree with it again.
-   *
-   * All three roles, because both surfaces that read it are: the console's step strip and the
-   * ramp iPad's "All vans checked". It is a read of counts — how many vans are confirmed, whether
-   * a plan is saved — and names no child.
-   */
-  {
-    kind: "route",
-    file: "src/app/api/day/readiness/route.ts",
-    path: API.dayReadiness,
-    methods: ["GET"],
     auth: { kind: "session", roles: ALL_STAFF, siteScoped: false },
   },
   /**

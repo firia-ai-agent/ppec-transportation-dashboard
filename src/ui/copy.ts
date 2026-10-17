@@ -1139,25 +1139,6 @@ export const planRoutes = {
     EVERY_RIDER_FITS: "Normal day",
     ONE_RIDER_HAS_NO_VAN: "A child can’t be placed",
   },
-  /**
-   * What each scenario is, in one short sentence. Both were a line longer until Vera's review on
-   * 2026-10-17: a note on a demo control is read at a glance, so each one now says only the thing
-   * that is different about the fleet, and the vans in it are named the way the lanes name them.
-   */
-  demoScenarioNote: {
-    EVERY_RIDER_FITS: "Three vans today: the convertible van, the center van and the sedan.",
-    ONE_RIDER_HAS_NO_VAN:
-      "The convertible van is off the road and a smaller van replaced it. No van today has four-point straps.",
-  },
-  /**
-   * The family hears nothing until staff have chosen, said out loud while anyone has no van.
-   *
-   * It is the only sentence on this screen about sending, since Vera's review: there used to be a
-   * second one above it ("Nothing here is sent. A coordinator approves a plan before anyone is
-   * told."), and two lines making the same promise in the same place read as boilerplate rather
-   * than as the thing a coordinator is being told.
-   */
-  nothingSent: "No family has been told. Staff choose first.",
   summary: "{planned} of {total} riders are in a van.",
 
   /* ── a lane ── */
@@ -1208,27 +1189,6 @@ export const planRoutes = {
    * place line directly underneath ("0 of 6 seats used").
    */
   setUpNoWheelchairs: "Set up with no wheelchair places",
-  /**
-   * Why the line above is not the same line all day on a van that can be re-seated.
-   *
-   * A convertible van has several configurations (V1 is built as 6 seats, as 1 wheelchair place
-   * and 3 seats, or as 2 wheelchair places and 1 seat), and planning *chooses* one — so the
-   * setup line on an empty lane changes the moment Plan routes runs, which reads like the screen
-   * contradicting itself unless it says why. Vans with one configuration say none of this.
-   *
-   * Each one is a clause rather than the two sentences they were until Vera's review on
-   * 2026-10-17: the lane said "This van can be set up more than one way" three times over, once
-   * per state, and the half that actually changes — which setup this is, and who chose it — was
-   * at the end of a line nobody finishes. The word "Convertible" carries the rest now.
-   */
-  setUpChanges: {
-    /** Nobody is in it yet, so the setup on screen is only the first one it is built with. */
-    BEFORE: "Convertible: planning picks the setup that fits the riders.",
-    /** The solver chose this configuration for these riders. */
-    PLANNED: "Set up this way to fit these riders.",
-    /** Pinned by somebody who saw the van, which outranks any configuration planning would pick. */
-    SEEN: "Set up as it arrived, so planning keeps it.",
-  },
 
   stopsHeading: "Stops, in order",
   /** "Okeeheelee Park · 6:50 AM" — the place, then the window it is planned for. */
@@ -1241,18 +1201,9 @@ export const planRoutes = {
   laneEmpty: "No riders in this van yet.",
   laneNeedsCheck: "Nobody boards until this van is checked.",
   laneBlocked: "Nobody boards until a coordinator approves.",
-  /**
-   * "At Palm Beach State College, this van has no four-point straps." — the stop first, because
-   * a van that fits two children and fails on the third fails *somewhere*, and that is the part
-   * a coordinator acts on. It opened on the verdict ("Doesn't fit at …") until Vera's review on
-   * 2026-10-17; the chip beside it already says the verdict, so the line said it twice.
-   */
-  laneMissing: "At {stop}, this van has {missing}.",
   /** The same fact where the solver named no stop, so the line never reads "At the sedan, …". */
   laneMissingAnywhere: "This van has {missing}.",
 
-  /* ── moving a child between vans ── */
-  dragHint: "Drag a rider to another van, or use Move.",
   /** While a rider is held: said in the same line the answer lands in, so one place is read. */
   dragging: "Holding {child}. Let go over a van to put them in it.",
   /** Let go of a rider over nothing in particular. Nothing moved, and the line says so. */
@@ -1264,30 +1215,6 @@ export const planRoutes = {
   moveClose: "Keep where they are",
   moved: "{child} moved to {vehicle}.",
   movedOut: "{child} is not in a van now.",
-  /**
-   * The refusal: one line, the child by name, and the one thing that is missing.
-   *
-   * It opens on the child rather than on the van (Vera's review, 2026-10-17), because the child
-   * is who the coordinator was moving and the van is what refused — "V3 can't take Zoe B." also
-   * led with a code nobody says out loud, and `{vehicle}` is the van's own name now.
-   */
-  refused: "Can’t put {child} in {vehicle}: {missing}.",
-  /**
-   * The missing thing, as a refusal reads it. Keyed by the planner's cause so a new cause
-   * cannot reach a screen without words (src/domain/solver/plan.ts `UnplacedCause`).
-   */
-  missing: {
-    NO_WC_PLACE: "no wheelchair place",
-    NO_SECUREMENT: "no {securement}",
-    CHAIR_TOO_LARGE: "no wheelchair place large enough for that chair",
-    NO_LIFT: "no ramp",
-    NO_ANCHORED_SEAT: "no free anchored seat",
-    NO_SEAT: "no free seat",
-    VANS_FULL: "no free seat",
-    UNKNOWN_UNTIL_ARRIVAL: "not checked yet",
-    NO_VEHICLE: "no van to put them in",
-    NOT_IN_A_VAN: "nobody in it yet",
-  },
 
   /* ── the children in no van ── */
   /**
@@ -1302,40 +1229,10 @@ export const planRoutes = {
    */
   waitingHeading: "Waiting to be planned",
   unplacedHeading: "Not in a van yet",
-  /**
-   * One plain sentence per child, naming them and the thing that is missing.
-   *
-   * The ones that end on the child carry no full stop of their own: a child is written as a
-   * first name and a last initial, so "for Noah O." already ends in one and a template that
-   * supplied a second would print "Noah O..". `sentence()` closes them once.
-   */
-  reason: {
-    NO_WC_PLACE: "No van with a wheelchair place for {child}",
-    NO_SECUREMENT: "No van with {securement} for {child}",
-    CHAIR_TOO_LARGE: "No van with a wheelchair place large enough for {child}’s chair.",
-    NO_LIFT: "No van with a ramp for {child}",
-    NO_ANCHORED_SEAT: "No van with an anchored seat for {child}",
-    NO_SEAT: "No van with a free seat for {child}",
-    VANS_FULL: "Every van that fits {child} is full.",
-    UNKNOWN_UNTIL_ARRIVAL:
-      "Only {vehicle} fits {child}, and what it can carry is unknown until it arrives.",
-    NO_VEHICLE: "No van is on the road today for {child}",
-    NOT_IN_A_VAN: "{child} is not in a van yet. Press Plan routes, or move them into one.",
-  },
   optionsHeading: "Options for {child}",
   /** The same list on a lane, where it is about the run rather than one child. */
   laneOptionsHeading: "Options",
   optionRow: "{label} — {detail}",
-  /**
-   * Said once under the list, and it is the only place approval is mentioned.
-   *
-   * Every option in it needs a coordinator — that is what the §9 option set *is* — so each row
-   * used to carry a "Needs a coordinator's approval" chip, which put the same five words beside
-   * five options and made the one thing that differs between them harder to find (Vera's review,
-   * 2026-10-17). One note says it once, for all of them, and says the part that matters to a
-   * family in the same breath.
-   */
-  optionsNote: "A coordinator picks one. The family hears nothing before that.",
 
   /* ── what arrived (VEH-02, VEH-04) ── */
   /**
@@ -1381,15 +1278,6 @@ export const planRoutes = {
   answered: "{provider} answered for {vehicle}.",
 
   /* ── a rider's needs ── */
-  /**
-   * Said once, under the Vans heading, about every rider card below it — not on each one.
-   *
-   * It is the same promise as the ramp check's `rampIpad.needsCaption` and it is not the same
-   * string, because here it is a caption over a list rather than a line under one child's chips:
-   * nine copies of "Derived from intake, not a diagnosis." was the single most repeated sentence
-   * on the screen (Vera's review, 2026-10-17).
-   */
-  needsCaption: "From intake, not a diagnosis.",
   /** VEH-01: a need nobody has approved is on screen, and visibly not part of the plan. */
   unapprovedNeed: "{need} · not used for planning",
 
@@ -1405,20 +1293,6 @@ export const planRoutes = {
   showOnMap: "Show on the map",
   /** The §9 accessible name of the map region, which says what the map is of. */
   mapLabel: "The day’s routes",
-  /**
-   * What the lines are, said once over the map rather than on each one.
-   *
-   * The second sentence is the honest half: the demo's roads are the eight stretches its own
-   * runs drive (ADR-007), and a coordinator who moves a child makes a pair of kerbs nobody
-   * surveyed. Those stretches are drawn as the straight line between the two stops, and saying
-   * so is cheaper than letting a reviewer believe a road was measured.
-   *
-   * It says it the way a coordinator reads it (Vera's review, 2026-10-17): what a straight line
-   * means for the van is that nobody drew its route, and "no surveyed road" was our word for
-   * our own data rather than theirs.
-   */
-  mapNote:
-    "Each van’s stops, in the order it drives them. A straight line is direct, not the road the van will take.",
   /** The group of buttons that pick one van's route out of the three. */
   mapVansHeading: "Show one van’s route",
   /** "the center van · 3 stops" on the button that brings that van's line forward. */

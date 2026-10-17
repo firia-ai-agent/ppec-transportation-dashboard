@@ -368,7 +368,6 @@ describe("the policy itself, written out so a silent widening fails", () => {
       // Counting what is on a van is the front desk's own job (§2), and the step strip is read by
       // every role that has a surface at all.
       "/api/vans/[id]/setup": "session:DIRECTOR+COORDINATOR+FRONT_DESK",
-      "/api/day/readiness": "session:DIRECTOR+COORDINATOR+FRONT_DESK",
       "/api/queues/timer": "queue-callback",
       "/api/queues/outbox": "queue-callback",
       "/api/queues/agent": "queue-callback",
@@ -391,20 +390,21 @@ describe("the policy itself, written out so a silent widening fails", () => {
     expect(source.match(/OPEN QUESTION for the founder/g)).toHaveLength(foundersQuestions().length);
   });
 
-  it("all seven open questions are flagged in the source, in the one marker style", () => {
+  it("all six open questions are flagged in the source, in the one marker style", () => {
     /*
-     * Six of the seven are rows in this table (above). The seventh is not about access at all —
-     * the brand palette the brief named, which no token in this repo defines — so it is marked
-     * where someone would act on it, in src/ui/tokens.ts, in the same words. Counted across the
-     * whole of src/ so a question cannot be answered by deleting its marker, and written out per
-     * file so a marker that lands somewhere unexpected fails here rather than passing a total.
+     * All six are rows in this table (above). A seventh used to sit in src/ui/tokens.ts — the
+     * brand palette the brief named, which no token defined — and it was **answered** on
+     * 2026-10-17 at 6:14 PM ET (Vera, founder-approved): Teal, Teal Ink, the tint and Coral are
+     * tokens now, so the marker is gone with the question. Counted across the whole of src/ so a
+     * question cannot be answered by deleting its marker, and written out per file so a marker
+     * that lands somewhere unexpected fails here rather than passing a total.
      */
     const flagged = walk(SRC)
       .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
       .map((f) => [rel(f), (readFileSync(f, "utf8").match(/OPEN QUESTION for the founder/g) ?? []).length] as const)
       .filter(([, count]) => count > 0);
-    expect(Object.fromEntries(flagged)).toEqual({ "src/auth/access.ts": 6, "src/ui/tokens.ts": 1 });
-    expect(flagged.reduce((n, [, count]) => n + count, 0)).toBe(7);
+    expect(Object.fromEntries(flagged)).toEqual({ "src/auth/access.ts": 6 });
+    expect(flagged.reduce((n, [, count]) => n + count, 0)).toBe(6);
   });
 });
 
