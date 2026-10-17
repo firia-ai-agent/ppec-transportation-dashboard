@@ -78,6 +78,15 @@ for (const width of [1280, 390] as const) {
       for (const item of MENU) {
         await page.goto(item.href);
         await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+
+        /*
+         * The chrome, on every destination and at both widths — which is the whole set of
+         * screens this role has, Today included. One DEMO bar, one Simulated chip in it (Vera,
+         * 2026-10-17 2:44 PM ET: not five), and one row of header under it.
+         */
+        await expectDemoBarPinned(page);
+        await expectOneSimulatedChip(page);
+        await expectHeaderIsOneRow(page);
         const text = await page.locator("body").innerText();
         for (const words of UNBUILT_SCREENS) {
           expect(text, `${item.label} opens a page that says it is not built`).not.toContain(words);
