@@ -3,15 +3,21 @@
  * Plan routes (PRD B-09 VEH-01…05, B-13; DESIGN-DIRECTION §4.1; copy COPY-GUIDE §5).
  *
  * One lane per van: what the van has today, how many places are taken, and the children in it
- * as stops in the order they are driven. Children in no van are at the top of the screen, each
- * with one plain sentence saying what is missing. The map's place is beside the lanes and says
+ * as stops in the order they are driven. Children in no van are at the top of the screen — a
+ * plain list of names where nobody has placed them yet, and a group with a reason and the
+ * options for each child planning could not place. The map's place is beside the lanes and says
  * what will be there; the live pane lands with live updates.
  *
  * Every verdict on this screen is the capacity solver's (src/domain/solver): "Plan routes" runs
  * the planner, a drag re-asks it, a substitution re-asks it, and an arrival report re-asks it.
  * Nothing is placed by a rule of thumb the four constraints did not agree with, and nothing is
  * assigned, locked or sent — a coordinator approves a plan, and the family hears nothing before
- * that (AT-12).
+ * that (AT-12). Planning keeps what a coordinator placed by hand and fills in the rest, so the
+ * one button on the screen can say the same thing every time it is read.
+ *
+ * No vehicle code reaches it. A van is named by what it is — "the convertible van" — because
+ * "V1" is the machine's handle on it and a coordinator has to translate before they can act
+ * (copy.ts `vanNamed`).
  *
  * Client state and fixtures only: no database, no API, no routing provider and no map tiles, so
  * the screen makes no network request of its own at all (TEST-SEC-02). Words come from
@@ -22,7 +28,7 @@
  * shared demo chrome (src/ui/DemoControls) rather than anything this screen styles itself.
  */
 import { useMemo, useRef, useState } from "react";
-import { Ban, Check } from "lucide-react";
+import { Ban, Check, ChevronDown, ChevronRight } from "lucide-react";
 import {
   DEMO_SCENARIOS,
   PLAN_SERVICE_DATE,
@@ -50,20 +56,21 @@ import {
   type DailyCapability,
   type Direction,
   type LanePlan,
+  type ManualPlacements,
   type PlanInput,
   type PlanLane,
   type PlanRider,
   type ResolutionOption,
   type Unplaced,
 } from "@/domain/solver";
-import { board, fill, needCategories, places, planRoutes, rampPreview } from "@/ui/copy";
+import { board, fill, needCategories, places, planRoutes, rampPreview, vanName } from "@/ui/copy";
 import { DemoControls } from "@/ui/DemoControls";
 import { serviceDateLabel } from "@/ui/service-date";
 import { StateChip } from "@/ui/StateChip";
 import { icon } from "@/ui/tokens";
 import {
   ARRIVAL_ANSWERS,
-  ARRIVAL_LABEL,
+  arrivalLabel,
   equipmentChips,
   laneLines,
   laneState,
@@ -98,8 +105,11 @@ type LaneStage = {
 };
 
 /**
- * The service date the scenario replays, as "Tue, Oct 14". Read at noon UTC so the site
- * timezone (America/New_York) lands on the calendar day the fixture names.
+ * The service date the demo replays, as "Tue, Oct 14". Read at noon UTC so the site timezone
+ * (America/New_York) lands on the calendar day the fixture names.
+ *
+ * One date, for both scenarios: the demo control below switches which run of this day is on
+ * screen, and the screen never shows a second one (Vera's review, 2026-10-17).
  */
 const SERVICE_DATE_LABEL = serviceDateLabel(new Date(`${PLAN_SERVICE_DATE}T12:00:00Z`));
 
@@ -198,6 +208,14 @@ export default function PlanRoutes() {
   const [measured, setMeasured] = useState<readonly string[]>([]);
   const [moving, setMoving] = useState<string | null>(null);
   const [substituting, setSubstituting] = useState<string | null>(null);
+  /**
+   * Where a coordinator has put somebody by hand, so "Plan routes" can plan around them instead
+   * of over them (Vera's review, 2026-10-17). Every accepted move writes here; a run or a
+   * scenario change clears it, because a placement is about one fleet on one run.
+   */
+  const [pinned, setPinned] = useState<ManualPlacements>({});
+  /** The one lane whose "Change van or report" disclosure is open, if any. */
+  const [changing, setChanging] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
   /** The rider the pointer is holding, so their row can show that it has been picked up. */
   const [held, setHeld] = useState<string | null>(null);
@@ -224,8 +242,8 @@ export default function PlanRoutes() {
     () =>
       baseLanes.map((lane) => {
         const stage = stages[lane.id];
-        // The day was just switched: its own stages arrive in the same render, and until they
-        // do the lane is exactly what the scenario hands over.
+        // The scenario was just switched: its own stages arrive in the same render, and until
+        // they do the lane is exactly what the scenario hands over.
         if (!stage) return lane;
         return {
           id: lane.id,
@@ -246,12 +264,32 @@ export default function PlanRoutes() {
   const placed = plan.lanes.reduce((n, lane) => n + lane.riders.length, 0);
   const decisionsOpen = needsADecision(plan.lanes, plan.unplaced);
 
+  /**
+   * The two groups of children in no van, which are two different facts (Vera's review).
+   *
+   * `waiting` is the opening state and anybody a coordinator has taken out of a van: somewhere
+   * for them exists and nobody has put them there. `blocked` is the rest — a child planning
+   * could not place — and that is the group that is red and carries a reason and the options.
+   */
+  const waiting = plan.unplaced.filter((row) => row.cause === "NOT_IN_A_VAN");
+  const blocked = plan.unplaced.filter((row) => row.cause !== "NOT_IN_A_VAN");
+
   /* ───────────────────────────── the actions ───────────────────────────── */
 
+  /**
+   * Plan the day. The button says "Plan routes" every time it is read, because it does the same
+   * thing every time: it keeps the children a coordinator placed by hand and plans the rest of
+   * the day around them. It used to re-label itself "Plan routes again" and start from nothing,
+   * which threw away every drag without asking (Vera's review, 2026-10-17).
+   */
   const runPlan = () => {
-    setAssignment(planAssignment(input));
+    setAssignment(planAssignment(input, pinned));
     setMoving(null);
-    setNotice(null);
+    setNotice(
+      Object.keys(pinned).length > 0
+        ? { text: planRoutes.plannedKeptMoves, refused: false }
+        : null,
+    );
   };
 
   const chooseDirection = (next: Direction) => {
@@ -260,6 +298,7 @@ export default function PlanRoutes() {
     // assignment across would show a plan nobody made for the run on screen.
     setDirection(next);
     setAssignment(emptyAssignment(scenario));
+    setPinned({});
     setMoving(null);
     setNotice(null);
   };
@@ -274,9 +313,11 @@ export default function PlanRoutes() {
     setScenario(next);
     setStages(initialStages(next));
     setAssignment(emptyAssignment(next));
+    setPinned({});
     setMeasured([]);
     setMoving(null);
     setSubstituting(null);
+    setChanging(null);
     setNotice(null);
   };
 
@@ -284,6 +325,9 @@ export default function PlanRoutes() {
    * Move a child into a lane, or out of every lane. The solver decides: a lane that cannot take
    * the child refuses, the assignment does not change at all, and one line says who and what is
    * missing.
+   *
+   * An accepted move is remembered as this coordinator's own placement, so the next press of
+   * "Plan routes" plans around it rather than over it. A refusal records nothing: nothing moved.
    */
   const move = (childToken: string, laneId: string | null) => {
     setMoving(null);
@@ -291,6 +335,7 @@ export default function PlanRoutes() {
     if (!rider) return;
     if (laneId === null) {
       setAssignment(withMove(assignment, childToken, null));
+      setPinned((prev) => ({ ...prev, [childToken]: null }));
       setNotice({
         text: fill(planRoutes.movedOut, { child: rider.child.displayName }),
         refused: false,
@@ -305,8 +350,12 @@ export default function PlanRoutes() {
       return;
     }
     setAssignment(withMove(assignment, childToken, laneId));
+    setPinned((prev) => ({ ...prev, [childToken]: laneId }));
     setNotice({
-      text: fill(planRoutes.moved, { child: rider.child.displayName, vehicle: lane.vehicle.label }),
+      text: fill(planRoutes.moved, {
+        child: rider.child.displayName,
+        vehicle: vanName(lane.vehicle.description),
+      }),
       refused: false,
     });
   };
@@ -342,8 +391,8 @@ export default function PlanRoutes() {
     setSubstituting(null);
     setNotice({
       text: fill(planRoutes.substituted, {
-        vehicle: replacement.label,
-        previous: previous.label,
+        vehicle: vanName(replacement.description),
+        previous: vanName(previous.description),
         driver: driverName,
       }),
       refused: false,
@@ -351,15 +400,11 @@ export default function PlanRoutes() {
   };
 
   const substituteDriver = (laneId: string, driverName: string) => {
-    const vehicle = vehicleByKey(stages[laneId].vehicleKey);
     // A different person at the wheel changes nothing about what the van can carry, so the
     // capability observation is left exactly as it was.
     setStages((prev) => ({ ...prev, [laneId]: { ...prev[laneId], driverName } }));
     setSubstituting(null);
-    setNotice({
-      text: fill(planRoutes.substitutedDriver, { driver: driverName, vehicle: vehicle.label }),
-      refused: false,
-    });
+    setNotice({ text: fill(planRoutes.substitutedDriver, { driver: driverName }), refused: false });
   };
 
   const askProvider = (lane: PlanLane) => {
@@ -367,7 +412,7 @@ export default function PlanRoutes() {
     setNotice({
       text: fill(planRoutes.asked, {
         provider: lane.vehicle.providerName,
-        vehicle: lane.vehicle.label,
+        vehicle: vanName(lane.vehicle.description),
       }),
       refused: false,
     });
@@ -378,7 +423,7 @@ export default function PlanRoutes() {
     setNotice({
       text: fill(planRoutes.answered, {
         provider: lane.vehicle.providerName,
-        vehicle: lane.vehicle.label,
+        vehicle: vanName(lane.vehicle.description),
       }),
       refused: false,
     });
@@ -488,6 +533,13 @@ export default function PlanRoutes() {
     },
   });
 
+  /**
+   * The §9 options for a child or a run. Every one of them needs a coordinator, which is said
+   * once underneath rather than on each row: the chip that used to repeat it beside every option
+   * carried the same five words five times and buried the thing that differs (Vera's review,
+   * 2026-10-17). `requiresApproval` is still true of every option the solver proposes — the note
+   * is the screen saying so, not the screen assuming it.
+   */
   const optionList = (heading: string, options: readonly ResolutionOption[]) => (
     <div>
       <h4 className={styles.menuHeading}>{heading}</h4>
@@ -495,7 +547,6 @@ export default function PlanRoutes() {
         {options.map((option) => (
           <li key={option.id} className={styles.option}>
             <span>{fill(planRoutes.optionRow, { label: option.label, detail: option.detail })}</span>
-            <span className={styles.chip}>{planRoutes.needsApproval}</span>
           </li>
         ))}
       </ol>
@@ -505,7 +556,8 @@ export default function PlanRoutes() {
 
   /**
    * The keyboard's way to do what a drag does (§9: nothing on this screen is mouse-only). It
-   * lists the lanes by name, so the choice is "Move to V2" rather than a target to aim at.
+   * lists the lanes by name, so the choice is "Move to the center van" rather than a target to
+   * aim at.
    */
   const moveMenu = (rider: PlanRider, currentLaneId: string | null) => {
     const token = rider.child.token;
@@ -526,7 +578,7 @@ export default function PlanRoutes() {
           .map((lane) => (
             <Button
               key={lane.id}
-              label={fill(planRoutes.moveTo, { vehicle: lane.vehicle.label })}
+              label={fill(planRoutes.moveTo, { vehicle: vanName(lane.vehicle.description) })}
               onClick={() => move(token, lane.id)}
             />
           ))}
@@ -559,7 +611,6 @@ export default function PlanRoutes() {
             </li>
           ))}
         </ul>
-        <p className={styles.meta}>{planRoutes.needsCaption}</p>
         <div className={styles.rowActions}>
           {child.mobility === "WC" ? (
             <Button
@@ -575,12 +626,28 @@ export default function PlanRoutes() {
   };
 
   /**
-   * A rider row. `data-rider` is how the browser check finds one child's row to drag it, and
-   * `data-verdict` on a lane is how it compares what the solver said with what the lane shows —
-   * the words are chosen for a coordinator and are deliberately not machine-readable. Nothing
-   * on the screen depends on either attribute.
+   * A child in the waiting list: their name, and the one control §9 needs.
+   *
+   * Nothing else. Before planning this list is the whole roster, and it was being drawn as nine
+   * full rider cards — stop, window, equipment chips, the intake caption, a Measure button — in a
+   * red-bordered group, which said "nine problems" about a screen whose only state was that
+   * nobody had pressed the button yet (Vera's review, 2026-10-17). A name is what a coordinator
+   * reads here, and `Move` stays because a drag may never be the only way to place somebody.
    */
-  const draggableRider = (rider: PlanRider, laneId: string | null) => (
+  const waitingBody = (rider: PlanRider) => (
+    <div className={styles.waitingRow}>
+      <span className={styles.riderName}>{rider.child.displayName}</span>
+      {moveMenu(rider, null)}
+    </div>
+  );
+
+  /**
+   * A rider row, dragged by whatever is inside it. `data-rider` is how the browser check finds
+   * one child's row to drag it, and `data-verdict` on a lane is how it compares what the solver
+   * said with what the lane shows — the words are chosen for a coordinator and are deliberately
+   * not machine-readable. Nothing on the screen depends on either attribute.
+   */
+  const draggableRider = (rider: PlanRider, laneId: string | null, body: React.ReactNode) => (
     <div
       key={rider.child.token}
       className={styles.draggable}
@@ -588,7 +655,7 @@ export default function PlanRoutes() {
       data-held={held === rider.child.token ? "true" : undefined}
       {...dragHandlers(rider, laneId)}
     >
-      {riderBody(rider, laneId)}
+      {body}
     </div>
   );
 
@@ -596,10 +663,16 @@ export default function PlanRoutes() {
     const { lane, seats, verdict } = lanePlan;
     const stage = stages[lane.id];
     const headingId = `lane-${lane.id}`;
+    const changesId = `lane-${lane.id}-changes`;
     const state = laneState(lanePlan);
     const spares = spareVehicleKeys(scenario).filter((key) => key !== stage.vehicleKey);
     const laneIndex = baseLanes.findIndex((l) => l.id === lane.id);
     const lastStop = lanePlan.leg.stops.length;
+    const van = vanName(lane.vehicle.description);
+    // The van's changes are folded away, and open themselves while the van has changed: that is
+    // the half of VEH-05 where the next step — ask the provider, record the answer — is inside.
+    const changesOpen =
+      changing === lane.id || stage.arrival === "CHANGED" || stage.arrival === "ASKED";
 
     return (
       <section
@@ -607,15 +680,13 @@ export default function PlanRoutes() {
         className={styles.lane}
         aria-labelledby={headingId}
         data-lane={lane.id}
+        data-van={van}
         data-verdict={verdict.status}
         {...dropZone(lane.id)}
       >
         <div className={styles.laneTitleRow}>
           <h3 id={headingId} className={styles.laneTitle}>
-            {fill(planRoutes.vanTile, {
-              vehicle: lane.vehicle.label,
-              description: lane.vehicle.description,
-            })}
+            {van}
           </h3>
           <StateChip state={state} />
         </div>
@@ -631,11 +702,7 @@ export default function PlanRoutes() {
           <p className={styles.note}>{setUpChangeLine(lanePlan)}</p>
         ) : null}
         <ul className={styles.chips} aria-label={planRoutes.equipmentHeading}>
-          {equipmentChips(lane.vehicle, lanePlan.layout, lane.capability, {
-            wc: seats.wcAvailable,
-            amb: seats.ambAvailable,
-            tether: seats.tetherAvailable,
-          }).map((text) => (
+          {equipmentChips(lane.vehicle, lanePlan.layout, lane.capability).map((text) => (
             <li key={text} className={styles.chip}>
               {text}
             </li>
@@ -676,65 +743,95 @@ export default function PlanRoutes() {
                     })}
                   </span>
                 ) : (
-                  stopRiders.map((rider) => draggableRider(rider, lane.id))
+                  stopRiders.map((rider) =>
+                    draggableRider(rider, lane.id, riderBody(rider, lane.id)),
+                  )
                 )}
               </li>
             );
           })}
         </ol>
 
-        <div className={styles.rowActions} role="group" aria-label={planRoutes.arrivalHeading}>
-          <span className={styles.menuHeading}>{planRoutes.arrivalHeading}</span>
-          {ARRIVAL_ANSWERS.map((answer) => (
-            <Button
-              key={answer}
-              label={ARRIVAL_LABEL[answer]}
-              pressed={stage.arrival === answer}
-              onClick={() => answerArrival(lanePlan, answer)}
-            />
-          ))}
+        {/*
+          What arrived and who is driving, behind one control (Vera's review, 2026-10-17). Both
+          are real questions and neither is the one a lane is open for, so they are folded away
+          under every lane instead of being stacked beneath the stops on all three of them.
+        */}
+        <div className={styles.rowActions}>
+          <button
+            type="button"
+            className={styles.button}
+            aria-expanded={changesOpen}
+            aria-controls={changesId}
+            onClick={() => setChanging(changesOpen ? null : lane.id)}
+          >
+            {changesOpen ? (
+              <ChevronDown size={icon.inline} aria-hidden="true" />
+            ) : (
+              <ChevronRight size={icon.inline} aria-hidden="true" />
+            )}
+            {planRoutes.changeVan}
+          </button>
         </div>
-
-        {stage.arrival === "CHANGED" ? (
-          <div className={styles.rowActions}>
-            <Button label={planRoutes.askProvider} onClick={() => askProvider(lane)} />
-          </div>
-        ) : null}
-        {stage.arrival === "ASKED" ? (
-          <div className={styles.rowActions}>
-            <Button label={planRoutes.recordAnswer} onClick={() => recordAnswer(lane)} />
-          </div>
-        ) : null}
-
-        <div className={styles.rowActions} role="group" aria-label={planRoutes.substituteHeading}>
-          <span className={styles.menuHeading}>{planRoutes.substituteHeading}</span>
-          {substituting === lane.id ? (
-            <>
-              {spares.map((key) => {
-                const spare = vehicleByKey(key);
-                return (
-                  <Button
-                    key={key}
-                    label={fill(planRoutes.substituteOption, {
-                      vehicle: spare.label,
-                      description: spare.description,
-                      driver: driverFor(key),
-                    })}
-                    onClick={() => substitute(lane.id, key)}
-                  />
-                );
-              })}
+        <div id={changesId} hidden={!changesOpen} className={styles.changes}>
+          <div className={styles.rowActions} role="group" aria-label={planRoutes.arrivalHeading}>
+            <span className={styles.menuHeading}>{planRoutes.arrivalHeading}</span>
+            {ARRIVAL_ANSWERS.map((answer) => (
               <Button
-                label={planRoutes.substituteDriver}
-                onClick={() =>
-                  substituteDriver(lane.id, RELIEF_DRIVERS[laneIndex % RELIEF_DRIVERS.length])
-                }
+                key={answer}
+                label={arrivalLabel(answer, lane.vehicle.providerName)}
+                pressed={stage.arrival === answer}
+                onClick={() => answerArrival(lanePlan, answer)}
               />
-              <Button label={planRoutes.moveClose} onClick={() => setSubstituting(null)} />
-            </>
-          ) : (
-            <Button label={planRoutes.substitute} onClick={() => setSubstituting(lane.id)} />
-          )}
+            ))}
+          </div>
+
+          {stage.arrival === "CHANGED" ? (
+            <div className={styles.rowActions}>
+              <Button
+                label={fill(planRoutes.askProvider, { provider: lane.vehicle.providerName })}
+                onClick={() => askProvider(lane)}
+              />
+            </div>
+          ) : null}
+          {stage.arrival === "ASKED" ? (
+            <div className={styles.rowActions}>
+              <Button
+                label={fill(planRoutes.recordAnswer, { provider: lane.vehicle.providerName })}
+                onClick={() => recordAnswer(lane)}
+              />
+            </div>
+          ) : null}
+
+          <div className={styles.rowActions} role="group" aria-label={planRoutes.substituteHeading}>
+            <span className={styles.menuHeading}>{planRoutes.substituteHeading}</span>
+            {substituting === lane.id ? (
+              <>
+                {spares.map((key) => {
+                  const spare = vehicleByKey(key);
+                  return (
+                    <Button
+                      key={key}
+                      label={fill(planRoutes.substituteOption, {
+                        vehicle: vanName(spare.description),
+                        driver: driverFor(key),
+                      })}
+                      onClick={() => substitute(lane.id, key)}
+                    />
+                  );
+                })}
+                <Button
+                  label={planRoutes.substituteDriver}
+                  onClick={() =>
+                    substituteDriver(lane.id, RELIEF_DRIVERS[laneIndex % RELIEF_DRIVERS.length])
+                  }
+                />
+                <Button label={planRoutes.moveClose} onClick={() => setSubstituting(null)} />
+              </>
+            ) : (
+              <Button label={planRoutes.substitute} onClick={() => setSubstituting(lane.id)} />
+            )}
+          </div>
         </div>
 
         {verdict.options.length > 0 ? optionList(planRoutes.laneOptionsHeading, verdict.options) : null}
@@ -743,16 +840,16 @@ export default function PlanRoutes() {
   };
 
   const unplacedRow = (unplaced: Unplaced) => {
-    const vehicleLabel = unplaced.laneId
-      ? (lanes.find((l) => l.id === unplaced.laneId)?.vehicle.label ?? "")
-      : "";
+    const lane = unplaced.laneId ? lanes.find((l) => l.id === unplaced.laneId) : undefined;
     return (
       <div key={unplaced.rider.child.token} className={styles.unplacedRow}>
         <div className={styles.riderRow}>
           <StateChip state={unplacedState(unplaced.cause)} />
-          <p className={styles.reason}>{reasonLine(unplaced, vehicleLabel)}</p>
+          <p className={styles.reason}>
+            {reasonLine(unplaced, lane ? vanName(lane.vehicle.description) : "")}
+          </p>
         </div>
-        {draggableRider(unplaced.rider, null)}
+        {draggableRider(unplaced.rider, null, riderBody(unplaced.rider, null))}
         {unplaced.options.length > 0
           ? optionList(
               fill(planRoutes.optionsHeading, { child: unplaced.rider.child.displayName }),
@@ -776,16 +873,15 @@ export default function PlanRoutes() {
           </span>
         </div>
         {/*
-          Which scenario of the one demo day the screen replays. Two, because one of them never
-          shows the group at the top of the screen: in the normal scenario every child gets a van,
-          so the reasons a child has none — and the fact that no family has been told anything —
-          can only be read in the one where a child's equipment has no van to hold it.
+          Which scenario of the day is on screen. Two, because the normal one never shows the
+          group at the top: with every child in a van, the reasons a child has none — and the
+          fact that no family has been told anything — can only be read in the run where one
+          child's equipment has no van to hold it.
 
-          It is the demo's control and not a coordinator's, so it is rendered as the demo (Vera's
-          review, 2026-10-17): shared chrome in the DEMO bar's own violet, outside this screen's
-          own action rows, which is also what keeps it from reading as one of the day's decisions.
-          The screen still replays the one service date either way, and the demo panel (B-15) is
-          where this control ends up — see docs/BUILD-PLAN-M2.md under P-11.
+          It is a demo control and wears the DEMO bar's clothes, not the screen's (Vera's
+          review, 2026-10-17): a coordinator never chooses which run their day was. The date in
+          the heading is the same either way — one demo day, two scenarios — and when the demo
+          panel lands (B-15) this control moves into it.
         */}
         <DemoControls
           legend={planRoutes.demoScenarioLegend}
@@ -808,12 +904,12 @@ export default function PlanRoutes() {
           ))}
         </div>
         <div className={styles.actionRow}>
+          {/* One label, every time: planning keeps what a coordinator did by hand (`runPlan`). */}
           <button type="button" className={styles.primary} onClick={runPlan}>
-            {placed > 0 ? planRoutes.planAgain : planRoutes.plan}
+            {planRoutes.plan}
           </button>
           <span className={styles.meta}>{summaryLine(placed, riders.length)}</span>
         </div>
-        <p className={styles.note}>{planRoutes.localOnly}</p>
         {decisionsOpen ? <p className={styles.reason}>{planRoutes.nothingSent}</p> : null}
         {/*
           One line for what just happened: a move, or the refusal and what was missing. A
@@ -833,26 +929,56 @@ export default function PlanRoutes() {
 
       <div className={styles.split}>
         <div className={styles.column}>
+          {/*
+            The children in no van, as two groups and one drop zone (Vera's review, 2026-10-17).
+            Nobody is in a van on first load, and that is a screen waiting to be asked rather
+            than nine things that went wrong — so it is a plain list of names, and the red group
+            below it is kept for the children planning could not place. The zone is the wrapper,
+            so a rider let go anywhere over either group is a rider taken out of their van.
+          */}
           {plan.unplaced.length > 0 ? (
-            <section
-              className={styles.unplaced}
-              aria-labelledby="unplaced-heading"
-              data-unplaced="true"
-              {...dropZone(null)}
-            >
-              <h2 id="unplaced-heading" className={styles.sectionHeading}>
-                {fill(board.groupHeading, {
-                  group: planRoutes.unplacedHeading,
-                  count: plan.unplaced.length,
-                })}
-              </h2>
-              {plan.unplaced.map(unplacedRow)}
-            </section>
+            <div className={styles.noVan} {...dropZone(null)}>
+              {blocked.length > 0 ? (
+                <section
+                  className={styles.unplaced}
+                  aria-labelledby="unplaced-heading"
+                  data-unplaced="true"
+                >
+                  <h2 id="unplaced-heading" className={styles.sectionHeading}>
+                    {fill(board.groupHeading, {
+                      group: planRoutes.unplacedHeading,
+                      count: blocked.length,
+                    })}
+                  </h2>
+                  {blocked.map(unplacedRow)}
+                </section>
+              ) : null}
+
+              {waiting.length > 0 ? (
+                <section
+                  className={styles.waiting}
+                  aria-labelledby="waiting-heading"
+                  data-waiting="true"
+                >
+                  <h2 id="waiting-heading" className={styles.sectionHeading}>
+                    {fill(board.groupHeading, {
+                      group: planRoutes.waitingHeading,
+                      count: waiting.length,
+                    })}
+                  </h2>
+                  {waiting.map((row) =>
+                    draggableRider(row.rider, null, waitingBody(row.rider)),
+                  )}
+                </section>
+              ) : null}
+            </div>
           ) : null}
 
           <h2 className={styles.sectionHeading}>
             {fill(board.groupHeading, { group: planRoutes.lanesHeading, count: plan.lanes.length })}
           </h2>
+          {/* Said once, over every rider card below: a need is never a diagnosis (§1). */}
+          <p className={styles.note}>{planRoutes.needsCaption}</p>
           {plan.lanes.map((lanePlan) => laneSection(lanePlan))}
         </div>
 

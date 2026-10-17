@@ -976,8 +976,9 @@ export const solver = {
  * order, and the children in no van at the top with the reason. The verdicts are the capacity
  * solver's (src/domain/solver); these are the words that say them, and they follow the same
  * three rules the rest of this file does — name the person, say what to do, never print the
- * machine's vocabulary. A deficit type, a layout code and a capability state are all internal:
- * what reaches the screen is "no four-point straps" and "Zoe B.".
+ * machine's vocabulary. A deficit type, a layout code, a capability state and a vehicle's own
+ * code are all internal: what reaches the screen is "no four-point straps", "Zoe B." and "the
+ * convertible van".
  */
 export const planRoutes = {
   heading: "Plan routes",
@@ -988,9 +989,21 @@ export const planRoutes = {
   directionLegend: "Which run?",
   direction: { AM: "morning pickups", PM: "afternoon drop-offs" },
   directionButton: { AM: "Morning", PM: "Afternoon" },
-  /** The one primary action on the screen. */
+  /**
+   * The one primary action on the screen, and it says the same thing every time it is read.
+   *
+   * It used to become "Plan routes again" once anybody was in a van, which is a second label for
+   * one button: a coordinator who has moved two children by hand and wants the rest filled in
+   * reads "again" as "start over" (Vera's review, 2026-10-17). One label, and the button keeps
+   * what was done by hand — `plannedKeptMoves` is what it says afterwards.
+   */
   plan: "Plan routes",
-  planAgain: "Plan routes again",
+  /**
+   * Said after planning when a coordinator had already put somebody in a van by hand: those
+   * placements are kept and the rest of the day is planned around them, so the line says so
+   * rather than leaving a reader to compare two screens.
+   */
+  plannedKeptMoves: "Planned again, and kept every child you moved by hand.",
   /* ── which scenario the demo replays ── */
   /**
    * The click-through needs both halves of the §9 story on one screen: the ordinary run where
@@ -1018,16 +1031,31 @@ export const planRoutes = {
     ONE_RIDER_HAS_NO_VAN:
       "The convertible van is off the road and a smaller van replaced it. No van today has four-point straps.",
   },
-  /** Said where the plan is read, like the ramp check's own line: this surface sends nothing. */
-  localOnly: "Nothing here is sent. A coordinator approves a plan before anyone is told.",
-  /** The family hears nothing until staff have chosen, said out loud while anyone has no van. */
-  nothingSent: "No family has been told anything. Staff choose first.",
+  /**
+   * The family hears nothing until staff have chosen, said out loud while anyone has no van.
+   *
+   * It is the only sentence on this screen about sending, since Vera's review: there used to be a
+   * second one above it ("Nothing here is sent. A coordinator approves a plan before anyone is
+   * told."), and two lines making the same promise in the same place read as boilerplate rather
+   * than as the thing a coordinator is being told.
+   */
+  nothingSent: "No family has been told. Staff choose first.",
   summary: "{planned} of {total} riders are in a van.",
 
   /* ── a lane ── */
   lanesHeading: "Vans",
-  /** "V1 · convertible van" — the label, then what it is. */
-  vanTile: "{vehicle} · {description}",
+  /**
+   * A van, everywhere this screen names one: "the convertible van".
+   *
+   * The fixtures write a van as a code and then what it is ("V1 convertible van"), and the code
+   * is the machine's handle on it — nobody says "V1" out loud, and a coordinator who reads it has
+   * to translate before they can act. So no code reaches this screen at all (Vera's review,
+   * 2026-10-17): what is left is the van's own name, written as it is said in the middle of a
+   * sentence, article and all, because that is where most of these land ("Can't put Zoe B. in the
+   * center van"). A lane's heading is the same string with its first letter capitalised by the
+   * stylesheet, so there is one name for a van and not two.
+   */
+  vanNamed: "the {description}",
   vanMeta: "{provider} · {driver} driving",
   equipmentHeading: "What this van has",
   equipment: {
@@ -1059,14 +1087,19 @@ export const planRoutes = {
    * and 3 seats, or as 2 wheelchair places and 1 seat), and planning *chooses* one — so the
    * setup line on an empty lane changes the moment Plan routes runs, which reads like the screen
    * contradicting itself unless it says why. Vans with one configuration say none of this.
+   *
+   * Each one is a clause rather than the two sentences they were until Vera's review on
+   * 2026-10-17: the lane said "This van can be set up more than one way" three times over, once
+   * per state, and the half that actually changes — which setup this is, and who chose it — was
+   * at the end of a line nobody finishes. The word "Convertible" carries the rest now.
    */
   setUpChanges: {
     /** Nobody is in it yet, so the setup on screen is only the first one it is built with. */
-    BEFORE: "This van can be set up more than one way. Plan routes picks the setup that fits the riders, so this line can change.",
+    BEFORE: "Convertible: planning picks the setup that fits the riders.",
     /** The solver chose this configuration for these riders. */
-    PLANNED: "This van can be set up more than one way. Planning chose this setup because it fits the riders in it.",
+    PLANNED: "Set up this way to fit these riders.",
     /** Pinned by somebody who saw the van, which outranks any configuration planning would pick. */
-    SEEN: "This van can be set up more than one way. This is the setup it arrived in, so planning keeps it.",
+    SEEN: "Set up as it arrived, so planning keeps it.",
   },
 
   stopsHeading: "Stops, in order",
@@ -1080,24 +1113,37 @@ export const planRoutes = {
   laneEmpty: "No riders in this van yet.",
   laneNeedsCheck: "Nobody boards until this van is checked.",
   laneBlocked: "Nobody boards until a coordinator approves.",
-  /** "Doesn’t fit at Palm Beach State College: no four-point straps." */
-  laneMissing: "Doesn’t fit at {stop}: {missing}.",
+  /**
+   * "At Palm Beach State College, this van has no four-point straps." — the stop first, because
+   * a van that fits two children and fails on the third fails *somewhere*, and that is the part
+   * a coordinator acts on. It opened on the verdict ("Doesn't fit at …") until Vera's review on
+   * 2026-10-17; the chip beside it already says the verdict, so the line said it twice.
+   */
+  laneMissing: "At {stop}, this van has {missing}.",
+  /** The same fact where the solver named no stop, so the line never reads "At the sedan, …". */
+  laneMissingAnywhere: "This van has {missing}.",
 
   /* ── moving a child between vans ── */
   dragHint: "Drag a rider to another van, or use Move.",
   /** While a rider is held: said in the same line the answer lands in, so one place is read. */
   dragging: "Holding {child}. Let go over a van to put them in it.",
   /** Let go of a rider over nothing in particular. Nothing moved, and the line says so. */
-  dragNowhere: "{child} stayed where they were: that was not a van.",
+  dragNowhere: "{child} wasn’t moved. Drop them on a van.",
   move: "Move {child}",
   moveHeading: "Which van for {child}?",
   moveTo: "Move to {vehicle}",
   moveOut: "Take out of the van",
   moveClose: "Keep where they are",
   moved: "{child} moved to {vehicle}.",
-  movedOut: "{child} is out of the van, and in nobody else’s.",
-  /** The refusal: one line, the child by name, and the one thing that is missing. */
-  refused: "{vehicle} can’t take {child}: {missing}.",
+  movedOut: "{child} is not in a van now.",
+  /**
+   * The refusal: one line, the child by name, and the one thing that is missing.
+   *
+   * It opens on the child rather than on the van (Vera's review, 2026-10-17), because the child
+   * is who the coordinator was moving and the van is what refused — "V3 can't take Zoe B." also
+   * led with a code nobody says out loud, and `{vehicle}` is the van's own name now.
+   */
+  refused: "Can’t put {child} in {vehicle}: {missing}.",
   /**
    * The missing thing, as a refusal reads it. Keyed by the planner's cause so a new cause
    * cannot reach a screen without words (src/domain/solver/plan.ts `UnplacedCause`).
@@ -1110,12 +1156,23 @@ export const planRoutes = {
     NO_ANCHORED_SEAT: "no free anchored seat",
     NO_SEAT: "no free seat",
     VANS_FULL: "no free seat",
-    UNKNOWN_UNTIL_ARRIVAL: "no check yet, so what it can carry is unknown",
+    UNKNOWN_UNTIL_ARRIVAL: "not checked yet",
     NO_VEHICLE: "no van to put them in",
     NOT_IN_A_VAN: "nobody in it yet",
   },
 
   /* ── the children in no van ── */
+  /**
+   * Two groups, because they are two different facts about a child (Vera's review, 2026-10-17).
+   *
+   * On first load nobody is in a van, which is not a failure — it is a screen waiting to be
+   * asked. It was being drawn as the group below: a red-bordered panel headed "Not in a van yet
+   * (9)", nine rows of equipment chips, and nine copies of a sentence explaining that nobody had
+   * pressed the button yet. So the opening state has its own heading and its own plain list of
+   * names, and the red group is kept for the children planning could not place — the case where
+   * something really is wrong and the reason beside each name is worth reading.
+   */
+  waitingHeading: "Waiting to be planned",
   unplacedHeading: "Not in a van yet",
   /**
    * One plain sentence per child, naming them and the thing that is missing.
@@ -1137,18 +1194,37 @@ export const planRoutes = {
     NO_VEHICLE: "No van is on the road today for {child}",
     NOT_IN_A_VAN: "{child} is not in a van yet. Press Plan routes, or move them into one.",
   },
-  optionsHeading: "What a coordinator can choose for {child}",
+  optionsHeading: "Options for {child}",
   /** The same list on a lane, where it is about the run rather than one child. */
-  laneOptionsHeading: "What a coordinator can choose",
+  laneOptionsHeading: "Options",
   optionRow: "{label} — {detail}",
-  needsApproval: "Needs a coordinator’s approval",
-  optionsNote: "A coordinator chooses one of these. Nothing reaches the family before that.",
+  /**
+   * Said once under the list, and it is the only place approval is mentioned.
+   *
+   * Every option in it needs a coordinator — that is what the §9 option set *is* — so each row
+   * used to carry a "Needs a coordinator's approval" chip, which put the same five words beside
+   * five options and made the one thing that differs between them harder to find (Vera's review,
+   * 2026-10-17). One note says it once, for all of them, and says the part that matters to a
+   * family in the same breath.
+   */
+  optionsNote: "A coordinator picks one. The family hears nothing before that.",
 
   /* ── what arrived (VEH-02, VEH-04) ── */
+  /**
+   * The lane's own changes, folded away behind one control.
+   *
+   * What arrived and who is driving are both real questions and neither is the question a lane is
+   * open for: three answer buttons, a substitution row, and sometimes a fourth button to ask the
+   * provider again, all under every lane, buried the stops they sit beneath (Vera's review,
+   * 2026-10-17). They are one disclosure now, closed until somebody wants them — and opened on
+   * its own whenever the van has changed and the next step is inside it.
+   */
+  changeVan: "Change van or report",
   arrivalHeading: "What arrived",
+  /** Who said what the van can carry. The provider is named, never called "the provider" (§1). */
   arrival: {
     NOT_CHECKED: "Not checked yet",
-    REPORTED: "Reported by the provider",
+    REPORTED: "Reported by {provider}",
     RAMP_CHECKED: "Checked at the ramp",
   },
   /** When the chair that arrives is not the chair on file. */
@@ -1160,24 +1236,53 @@ export const planRoutes = {
   substituteHeading: "Substitution",
   substitute: "Different van today",
   substituteDriver: "Different driver today",
-  /** "V3 · substitute van · Omar T. driving" on the button that chooses one. */
-  substituteOption: "{vehicle} · {description} · {driver} driving",
-  substituted: "{vehicle} replaces {previous} today. {driver} is driving.",
-  substitutedDriver: "{driver} is driving {vehicle} today.",
-  askProvider: "Ask the provider what it can carry",
+  /** "the substitute van · Omar T. driving" on the button that chooses one. */
+  substituteOption: "{vehicle} · {driver} driving",
+  /**
+   * The two substitution notices. Neither opens on the van, because a van's name opens with
+   * "the" and a sentence cannot: "Today the substitute van replaces the convertible van" reads
+   * the way it is said, and the relief-driver line leads with the person (Vera's review,
+   * 2026-10-17 — §1 "name the person", and no vehicle code either way).
+   */
+  substituted: "Today {vehicle} replaces {previous}, with {driver} driving.",
+  substitutedDriver: "{driver} drives instead.",
+  /** The provider is named on every one of these: they are somebody's answer to give. */
+  askProvider: "Ask {provider} what this van can carry",
   asked: "Asked {provider} what {vehicle} can carry today.",
-  recordAnswer: "Record the provider’s answer",
+  recordAnswer: "Record {provider}’s answer",
   answered: "{provider} answered for {vehicle}.",
 
   /* ── a rider's needs ── */
-  needsCaption: "Derived from intake, not a diagnosis.",
+  /**
+   * Said once, under the Vans heading, about every rider card below it — not on each one.
+   *
+   * It is the same promise as the ramp check's `rampPreview.needsCaption` and it is not the same
+   * string, because here it is a caption over a list rather than a line under one child's chips:
+   * nine copies of "Derived from intake, not a diagnosis." was the single most repeated sentence
+   * on the screen (Vera's review, 2026-10-17).
+   */
+  needsCaption: "From intake, not a diagnosis.",
   /** VEH-01: a need nobody has approved is on screen, and visibly not part of the plan. */
   unapprovedNeed: "{need} · not used for planning",
 
   /* ── the map, beside the lanes ── */
   mapHeading: "Map",
-  mapPlaceholder: "The map of these runs arrives with live updates.",
+  /** Says what it is rather than promising when: "arrives with live updates" is a date we owe. */
+  mapPlaceholder: "The route map isn’t built yet.",
 } as const;
+
+/**
+ * A van as the Plan routes screen names it: "the convertible van".
+ *
+ * Here rather than in the screen's own helpers because three layers need it and none of them may
+ * invent it — the screen's lanes and notices, the planner's option labels (src/domain/solver),
+ * and the browser check that reads a lane's name off the page. `description` is the solver's
+ * plain-words field for a vehicle ("convertible van"), which is the half of the fixture's label
+ * that is not the code.
+ */
+export function vanName(description: string): string {
+  return fill(planRoutes.vanNamed, { description });
+}
 
 /**
  * The JSON refusals an endpoint hands back when the caller may not run it (src/auth/api-guard.ts).

@@ -12,7 +12,7 @@
  * playwright.config.ts), which grants a role and nothing else.
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { fill, nav, planRoutes as copy, securement, solver } from "../src/ui/copy";
+import { board, fill, nav, planRoutes as copy, securement, solver, vanName } from "../src/ui/copy";
 import { capabilityStates, reservationStates } from "../src/ui/states";
 import {
   boxOf,
@@ -27,6 +27,25 @@ import {
 const MEASURED_CHAIR = "Chair measured at the ramp · 142 × 74 cm";
 /** The one child in the scenario whose chair is held by four-point straps. */
 const CHAIR_CHILD = "Zoe B.";
+/** The reserve van a provider sends, as the screen names it — never as the code it is filed under. */
+const SPARE_VAN = vanName("substitute van");
+
+/**
+ * A label that names the provider, as a pattern.
+ *
+ * The three lanes belong to three different providers and the lane under test is found by what
+ * it carries, so these match the sentence and leave the name to the lane. The point of the
+ * pattern is that there *is* a name in it: "Reported by the provider" named a role where the day
+ * has somebody on file (Vera's review, 2026-10-17).
+ */
+function namesProvider(template: string): RegExp {
+  const escaped = template.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped.replace("\\{provider\\}", "\\S.+")}$`);
+}
+
+const REPORTED = namesProvider(copy.arrival.REPORTED);
+const ASK_PROVIDER = namesProvider(copy.askProvider);
+const RECORD_ANSWER = namesProvider(copy.recordAnswer);
 
 /**
  * How a lane says how full it is, since Vera's review: used of available, with the noun on the
@@ -38,6 +57,8 @@ const ANCHORED_SEATS = /(\d+) of (\d+) anchored seats? used/;
 
 type Lane = {
   id: string;
+  /** The van's name as the screen says it ("the center van") — never its fixture code. */
+  van: string;
   verdict: string;
   text: string;
   riders: string[];
@@ -51,6 +72,7 @@ async function lanes(page: Page): Promise<Lane[]> {
     const section = sections.nth(i);
     out.push({
       id: (await section.getAttribute("data-lane")) ?? "",
+      van: (await section.getAttribute("data-van")) ?? "",
       verdict: (await section.getAttribute("data-verdict")) ?? "",
       text: await section.innerText(),
       riders: await section
@@ -65,18 +87,51 @@ function laneOf(page: Page, id: string): Locator {
   return page.locator(`[data-lane="${id}"]`);
 }
 
-/** Who is in the group at the top of the screen, and what each row says about them. */
+/** What arrived and the substitution row, folded away under each lane until it is opened. */
+async function openChanges(page: Page, laneId: string): Promise<void> {
+  const control = laneOf(page, laneId).getByRole("button", { name: copy.changeVan, exact: true });
+  if ((await control.getAttribute("aria-expanded")) !== "true") await control.click();
+}
+
+/** The red group: a child planning could not place, the reason, and the options. */
 async function unplacedRows(page: Page): Promise<string[]> {
   const group = page.locator("[data-unplaced]");
   if ((await group.count()) === 0) return [];
   return (await group.innerText()).split("\n").filter((line) => line.trim().length > 0);
 }
 
+/** The neutral group: the children nobody has put in a van, as names. */
+async function waitingNames(page: Page): Promise<string[]> {
+  const group = page.locator("[data-waiting]");
+  if ((await group.count()) === 0) return [];
+  return group.locator("[data-rider]").evaluateAll((els) =>
+    els.map((el) => el.getAttribute("data-rider") ?? ""),
+  );
+}
+
 async function plan(page: Page): Promise<void> {
-  const button = page.getByRole("button", { name: copy.plan, exact: true });
-  const again = page.getByRole("button", { name: copy.planAgain, exact: true });
-  if (await button.count()) await button.click();
-  else await again.click();
+  await page.getByRole("button", { name: copy.plan, exact: true }).click();
+}
+
+/**
+ * No vehicle code anywhere in the planning surface (Vera's review, 2026-10-17).
+ *
+ * "V1" is how the fixtures file a van and how the solver keys one. The map preview and the ramp
+ * iPad print it on purpose — a device, a marker and a manifest are all identified by it — and a
+ * coordinator deciding which van a child rides in reads the van's name instead, so this is a
+ * rule about this screen and lives here rather than in e2e/helpers.ts. Read off the rendered
+ * text, so an interpolated code has nowhere to hide.
+ *
+ * The planning surface is the screen's own `<main>`, by role rather than by id: /plan-preview is
+ * its own route outside the console shell (src/app/plan-preview/page.tsx renders the screen and
+ * nothing else), so the shell's `#content` is not on this page at all and waiting for it is a
+ * two-minute timeout rather than an assertion.
+ */
+async function expectNoVehicleCodes(page: Page): Promise<void> {
+  const text = await page.getByRole("main").innerText();
+  expect([...text.matchAll(/\bV\d{1,2}\b/g)].map((m) => m[0]), "a vehicle code on screen").toEqual(
+    [],
+  );
 }
 
 /**
@@ -186,6 +241,7 @@ test.describe("Plan routes", () => {
     await expect(page.getByRole("heading", { level: 1, name: copy.heading })).toBeVisible();
     expect(new URL(page.url()).pathname).toBe("/plan-preview");
     await expectNoInternalCodes(page);
+    await expectNoVehicleCodes(page);
     console.log("screenshot:", await shot(page, "plan-routes-from-the-nav"));
   });
 
@@ -197,13 +253,30 @@ test.describe("Plan routes", () => {
     await expectDemoBarPinned(page);
     await expectVioletOnlyOnDemoChrome(page);
 
-    // Nothing is planned until staff ask for it: every child is in the group at the top, and
-    // that group is where the roster for this check comes from.
-    const before = await unplacedRows(page);
-    const roster = before
-      .flatMap((line) => [...line.matchAll(/([A-Z][a-z]+ [A-Z]\.)/g)].map((m) => m[1]))
-      .filter((name, index, all) => all.indexOf(name) === index);
+    /*
+     * Nothing is planned until staff ask for it, and that is not a failure (Vera's review,
+     * 2026-10-17): the opening screen is a neutral list of names headed "Waiting to be planned",
+     * with no red group, no reason per child and no critical border anywhere. It is also where
+     * the roster for the rest of this check comes from.
+     */
+    const roster = await waitingNames(page);
     expect(roster.length).toBeGreaterThanOrEqual(9);
+    const waiting = page.locator("[data-waiting]");
+    await expect(
+      waiting.getByRole("heading", {
+        name: fill(board.groupHeading, { group: copy.waitingHeading, count: roster.length }),
+      }),
+    ).toBeVisible();
+    expect(await page.locator("[data-unplaced]").count(), "a red group on first load").toBe(0);
+    // Names only: a row carries the child and the Move control, and nothing a card would add —
+    // no stop, no window, no equipment chip and no intake caption.
+    const waitingText = await waiting.innerText();
+    expect(waitingText).not.toContain(copy.needsCaption);
+    expect(waitingText).not.toMatch(/Uses a wheelchair|Needs an anchored seat|\d+:\d\d (AM|PM)/);
+    for (const name of roster) {
+      expect(waitingText, `${name} is in the waiting list`).toContain(name);
+    }
+
     for (const lane of await lanes(page)) {
       expect(lane.riders, `${lane.id} before planning`).toEqual([]);
       expect(lane.text).toContain(copy.laneEmpty);
@@ -221,6 +294,9 @@ test.describe("Plan routes", () => {
 
     // Every child, once, in a van the solver called a fit — and the screen says so in words.
     expect(await page.locator("[data-unplaced]").count()).toBe(0);
+    expect(await page.locator("[data-waiting]").count(), "nobody is still waiting").toBe(0);
+    // The one button still says the same thing it said before it was pressed.
+    await expect(page.getByRole("button", { name: copy.plan, exact: true })).toBeVisible();
     const planned = await lanes(page);
     const seated = planned.flatMap((lane) => lane.riders);
     expect([...seated].sort()).toEqual([...roster].sort());
@@ -238,6 +314,9 @@ test.describe("Plan routes", () => {
     expect(planned.filter((lane) => lane.text.includes(copy.setUpChanges.PLANNED))).toHaveLength(1);
     await expectEquipmentFits(page);
     await expectNoInternalCodes(page);
+    await expectNoVehicleCodes(page);
+    // The intake caption is said once, over the lanes, not under each of the nine rider cards.
+    await expect(page.getByText(copy.needsCaption, { exact: true })).toHaveCount(1);
     console.log("screenshot:", await shot(page, "plan-routes-morning"));
 
     // The afternoon is the same plan read backwards: everyone boards at the centre and each
@@ -255,6 +334,7 @@ test.describe("Plan routes", () => {
     }
     await expectEquipmentFits(page);
     await expectNoInternalCodes(page);
+    await expectNoVehicleCodes(page);
     console.log("screenshot:", await shot(page, "plan-routes-afternoon"));
   });
 
@@ -265,24 +345,27 @@ test.describe("Plan routes", () => {
     const from = (await lanes(page)).find((lane) => lane.riders.includes(CHAIR_CHILD));
     expect(from, `${CHAIR_CHILD} is planned into a van`).toBeDefined();
     const target = (await lanes(page)).find((lane) => lane.id !== from?.id);
-    const targetLabel = (await laneOf(page, target?.id ?? "")
-      .getByRole("heading", { level: 3 })
-      .innerText()).split(" ")[0];
     const rider = laneOf(page, from?.id ?? "").locator(`[data-rider="${CHAIR_CHILD}"]`);
 
-    // The pointer-free way in, because a drag is never the only way (§9): the centre van's
+    // The pointer-free way in, because a drag is never the only way (§9): the center van's
     // position is L-track hardware and this chair is held by four-point straps, so it cannot
     // take her. The same refusal with the mouse is the test below.
     await rider.getByRole("button", { name: new RegExp(`^Move ${CHAIR_CHILD}`) }).click();
     await page
-      .getByRole("button", { name: fill(copy.moveTo, { vehicle: targetLabel }), exact: true })
+      .getByRole("button", { name: fill(copy.moveTo, { vehicle: target?.van ?? "" }), exact: true })
       .first()
       .click();
 
+    // One line, the child first, then the van by name and the one thing that is missing.
     const notice = page.locator("[data-notice]");
     await expect(notice).toHaveAttribute("data-refused", "true");
-    await expect(notice).toContainText(CHAIR_CHILD);
-    await expect(notice).toContainText(securement.FOUR_POINT_STRAP);
+    await expect(notice).toHaveText(
+      fill(copy.refused, {
+        child: CHAIR_CHILD,
+        vehicle: target?.van ?? "",
+        missing: fill(copy.missing.NO_SECUREMENT, { securement: securement.FOUR_POINT_STRAP }),
+      }),
+    );
     // Nothing moved: she is still in the lane she was planned into, and the target did not
     // take her.
     const after = await lanes(page);
@@ -290,7 +373,64 @@ test.describe("Plan routes", () => {
     expect(after.find((lane) => lane.id === target?.id)?.riders).not.toContain(CHAIR_CHILD);
     expect(after.every((lane) => lane.verdict === "FEASIBLE")).toBe(true);
     await expectNoInternalCodes(page);
+    await expectNoVehicleCodes(page);
     console.log("screenshot:", await shot(page, "plan-routes-move-refused"));
+  });
+
+  /**
+   * Vera's review, 2026-10-17: pressing the one button again may not quietly undo a drag.
+   *
+   * It used to. "Plan routes" re-labelled itself "Plan routes again" and then planned from
+   * nothing, so a coordinator who had moved two children by hand and wanted the rest filled in
+   * lost both. The screen keeps them instead of asking: the label never changes, the moved child
+   * stays in the van they were put in, and one line says what was kept.
+   */
+  test("keeps a coordinator's own moves when the day is planned again", async ({ page }) => {
+    await page.goto("/plan-preview");
+    await plan(page);
+
+    // A rider who needs only a seat, and a van that says it has a free one: both read off the
+    // screen, so the move being tested is one the solver will take.
+    const planned = await lanes(page);
+    const roomy = planned.find((lane) => {
+      const seats = SEATS.exec(lane.text);
+      return seats ? Number(seats[1]) < Number(seats[2]) : false;
+    });
+    expect(roomy, "a van on this day has a free seat").toBeDefined();
+    const donor = planned.find((lane) => lane.id !== roomy?.id && lane.riders.length > 0);
+    const walking = await laneOf(page, donor?.id ?? "")
+      .locator("[data-rider]")
+      .evaluateAll((rows) =>
+        rows
+          .filter((row) => !/Uses a wheelchair|Needs an anchored seat/.test(row.textContent ?? ""))
+          .map((row) => row.getAttribute("data-rider") ?? ""),
+      );
+    expect(walking.length, `${donor?.id} has a rider who needs only a seat`).toBeGreaterThan(0);
+    const child = walking[0];
+
+    await laneOf(page, donor?.id ?? "")
+      .locator(`[data-rider="${child}"]`)
+      .getByRole("button", { name: new RegExp(`^Move ${child}`) })
+      .click();
+    await page
+      .getByRole("button", { name: fill(copy.moveTo, { vehicle: roomy?.van ?? "" }), exact: true })
+      .first()
+      .click();
+    expect((await lanes(page)).find((lane) => lane.id === roomy?.id)?.riders).toContain(child);
+
+    // Plan again. Same label, and the child a person placed is still where they were placed.
+    await expect(page.getByRole("button", { name: copy.plan, exact: true })).toBeVisible();
+    await plan(page);
+    const again = await lanes(page);
+    expect(again.find((lane) => lane.id === roomy?.id)?.riders, "the move was kept").toContain(child);
+    expect(again.find((lane) => lane.id === donor?.id)?.riders).not.toContain(child);
+    // Nobody was dropped to keep it, and the screen says what it did.
+    expect(again.flatMap((lane) => lane.riders).sort()).toEqual(
+      planned.flatMap((lane) => lane.riders).sort(),
+    );
+    await expect(page.locator("[data-notice]")).toHaveText(copy.plannedKeptMoves);
+    for (const lane of again) expect(lane.verdict, lane.id).toBe("FEASIBLE");
+    console.log("screenshot:", await shot(page, "plan-routes-kept-moves"));
   });
 
   /**
@@ -319,16 +459,16 @@ test.describe("Plan routes", () => {
       const other = planned.find((lane) => lane.id !== home?.id);
       expect(home, `${CHAIR_CHILD} is planned into a van`).toBeDefined();
       expect(other, "there is a second van to drop her on").toBeDefined();
-      const otherLabel = (
-        await laneTarget(page, other?.id ?? "").innerText()
-      ).split(" ")[0];
-
       await dragRider(page, CHAIR_CHILD, laneTarget(page, other?.id ?? ""));
 
-      // One line, the child by name, and the one thing that is missing.
+      // One line: the child by name, then the van by name and the one thing that is missing.
       await expect(notice).toHaveAttribute("data-refused", "true");
       await expect(notice).toHaveText(
-        new RegExp(`${otherLabel}.*${CHAIR_CHILD}.*${securement.FOUR_POINT_STRAP}`),
+        fill(copy.refused, {
+          child: CHAIR_CHILD,
+          vehicle: other?.van ?? "",
+          missing: fill(copy.missing.NO_SECUREMENT, { securement: securement.FOUR_POINT_STRAP }),
+        }),
       );
       // And the assignment did not change at all: a refused drag moves nobody.
       const afterRefusal = await lanes(page);
@@ -345,7 +485,6 @@ test.describe("Plan routes", () => {
         return seats ? Number(seats[1]) < Number(seats[2]) : false;
       });
       expect(roomy, "a van on this day has a free seat").toBeDefined();
-      const roomyLabel = (await laneTarget(page, roomy?.id ?? "").innerText()).split(" ")[0];
 
       const donor = afterRefusal.find((lane) => lane.id !== roomy?.id);
       const walking = await laneOf(page, donor?.id ?? "")
@@ -364,7 +503,9 @@ test.describe("Plan routes", () => {
       await dragRider(page, rider, laneTarget(page, roomy?.id ?? ""));
 
       await expect(notice).not.toHaveAttribute("data-refused", "true");
-      await expect(notice).toHaveText(fill(copy.moved, { child: rider, vehicle: roomyLabel }));
+      await expect(notice).toHaveText(
+        fill(copy.moved, { child: rider, vehicle: roomy?.van ?? "" }),
+      );
       const afterMove = await lanes(page);
       expect(afterMove.find((lane) => lane.id === roomy?.id)?.riders).toContain(rider);
       expect(afterMove.find((lane) => lane.id === donor?.id)?.riders).not.toContain(rider);
@@ -385,6 +526,12 @@ test.describe("Plan routes", () => {
     const laneId = (await lanes(page)).find((lane) => lane.riders.includes(CHAIR_CHILD))?.id ?? "";
     const lane = laneOf(page, laneId);
 
+    // What arrived is behind the lane's one disclosure, closed until somebody wants it (Vera's
+    // review, 2026-10-17) — and it is the control that says what it opens.
+    const changes = lane.getByRole("button", { name: copy.changeVan, exact: true });
+    await expect(changes).toHaveAttribute("aria-expanded", "false");
+    await openChanges(page, laneId);
+
     // Half one: nobody has reported on the van at all. That is the normal state of a morning,
     // and it is never read as a yes — the lane carries nobody's boarding.
     await lane.getByRole("button", { name: copy.arrival.NOT_CHECKED, exact: true }).click();
@@ -393,9 +540,10 @@ test.describe("Plan routes", () => {
     await expect(lane).toContainText(copy.laneNeedsCheck);
     console.log("screenshot:", await shot(page, "plan-routes-at04-unknown"));
 
-    // Half two: the van is reported, and the chair that arrives is not the chair on file. The
-    // run is infeasible *before* anyone boards, and every way out needs a coordinator.
-    await lane.getByRole("button", { name: copy.arrival.REPORTED, exact: true }).click();
+    // Half two: the van is reported — by a named provider, not by "the provider" — and the chair
+    // that arrives is not the chair on file. The run is infeasible *before* anyone boards, and
+    // every way out needs a coordinator.
+    await lane.getByRole("button", { name: REPORTED }).click();
     await expect(lane).toHaveAttribute("data-verdict", "FEASIBLE");
     const rider = lane.locator(`[data-rider="${CHAIR_CHILD}"]`);
     await rider.getByRole("button", { name: new RegExp(`^Measure ${CHAIR_CHILD}`) }).click();
@@ -404,11 +552,13 @@ test.describe("Plan routes", () => {
     await expect(lane).toContainText(reservationStates.INFEASIBLE.label);
     await expect(lane).toContainText(MEASURED_CHAIR);
     await expect(lane).toContainText(copy.laneBlocked);
-    await expect(lane.getByText(copy.needsApproval).first()).toBeVisible();
+    // One note under the list, rather than the same chip beside every option.
+    await expect(lane.getByText(copy.optionsNote)).toHaveCount(1);
     // The child is still on the run: the solver proposes and a human decides, so nobody is
     // quietly taken off a van.
     await expect(rider).toBeVisible();
     await expectNoInternalCodes(page);
+    await expectNoVehicleCodes(page);
     await expectVioletOnlyOnDemoChrome(page);
     await lane.getByRole("heading", { level: 3 }).scrollIntoViewIfNeeded();
     console.log("screenshot:", await shot(page, "plan-routes-at04-infeasible"));
@@ -421,10 +571,12 @@ test.describe("Plan routes", () => {
     const laneId = (await lanes(page)).find((lane) => lane.riders.includes(CHAIR_CHILD))?.id ?? "";
     const lane = laneOf(page, laneId);
     const was = await lane.getByRole("heading", { level: 3 }).innerText();
+    await openChanges(page, laneId);
 
-    // 1. The provider sends a different van, with a different driver.
+    // 1. The provider sends a different van, with a different driver. The van is offered by its
+    // own name: "the substitute van", never "V3".
     await lane.getByRole("button", { name: copy.substitute, exact: true }).click();
-    const spare = lane.getByRole("button", { name: /^V3 · / });
+    const spare = lane.getByRole("button", { name: new RegExp(`^${SPARE_VAN} · `) });
     await expect(spare).toBeVisible();
     await spare.click();
 
@@ -434,15 +586,19 @@ test.describe("Plan routes", () => {
     await expect(lane).toHaveAttribute("data-verdict", "CAPABILITY_PENDING");
     await expect(lane).toContainText(capabilityStates.CHANGED.label);
     await expect(lane).toContainText(solver.pending.substituted);
+    // The van has changed, so the control the next step lives in opens itself.
+    await expect(
+      lane.getByRole("button", { name: copy.changeVan, exact: true }),
+    ).toHaveAttribute("aria-expanded", "true");
     // The picture is evidence, so frame the lane that changed rather than wherever the last
     // click left the page.
     await lane.getByRole("heading", { level: 3 }).scrollIntoViewIfNeeded();
     console.log("screenshot:", await shot(page, "plan-routes-at05-substituted"));
 
-    // 3. The provider is asked again, and answers.
-    await lane.getByRole("button", { name: copy.askProvider, exact: true }).click();
+    // 3. The provider is asked again, by name, and answers.
+    await lane.getByRole("button", { name: ASK_PROVIDER }).click();
     await expect(lane).toContainText(capabilityStates.REQUESTED.label);
-    await lane.getByRole("button", { name: copy.recordAnswer, exact: true }).click();
+    await lane.getByRole("button", { name: RECORD_ANSWER }).click();
 
     // 4. Re-solved against the substitute's own hardware, which does not hold this chair.
     await expect(lane).toHaveAttribute("data-verdict", "INFEASIBLE");
@@ -452,13 +608,16 @@ test.describe("Plan routes", () => {
     console.log("screenshot:", await shot(page, "plan-routes-at05-resolved"));
 
     // A driver substitution is the other half of AT-05, and it changes nothing about what the
-    // van can carry — so the verdict is the same before and after.
+    // van can carry — so the verdict is the same before and after. The line leads with the
+    // person and names no van (Vera's review, 2026-10-17).
     const verdict = await lane.getAttribute("data-verdict");
+    await openChanges(page, laneId);
     await lane.getByRole("button", { name: copy.substitute, exact: true }).click();
     await lane.getByRole("button", { name: copy.substituteDriver, exact: true }).click();
-    await expect(page.locator("[data-notice]")).toContainText("driving");
+    await expect(page.locator("[data-notice]")).toHaveText(/^\S.+ drives instead\.$/);
     await expect(lane).toHaveAttribute("data-verdict", verdict ?? "");
     await expectNoInternalCodes(page);
+    await expectNoVehicleCodes(page);
   });
 
   test("AT-12: a child with no van is named a reason, and no family is told first", async ({
@@ -470,20 +629,23 @@ test.describe("Plan routes", () => {
     // Take away the one van built for this chair, the way a provider does: a substitution.
     const laneId = (await lanes(page)).find((lane) => lane.riders.includes(CHAIR_CHILD))?.id ?? "";
     const lane = laneOf(page, laneId);
+    await openChanges(page, laneId);
     await lane.getByRole("button", { name: copy.substitute, exact: true }).click();
-    await lane.getByRole("button", { name: /^V3 · / }).click();
-    await lane.getByRole("button", { name: copy.askProvider, exact: true }).click();
-    await lane.getByRole("button", { name: copy.recordAnswer, exact: true }).click();
+    await lane.getByRole("button", { name: new RegExp(`^${SPARE_VAN} · `) }).click();
+    await lane.getByRole("button", { name: ASK_PROVIDER }).click();
+    await lane.getByRole("button", { name: RECORD_ANSWER }).click();
     await plan(page);
 
-    // She is in the group at the top, with one plain line that names her and what is missing.
+    // She is in the red group at the top, with one plain line that names her and what is
+    // missing — and she is the only one in it, because everybody else has a van.
     const group = page.locator("[data-unplaced]");
     await expect(group).toBeVisible();
     await expect(group).toContainText(`No van with ${securement.FOUR_POINT_STRAP} for ${CHAIR_CHILD}`);
     await expect(group).toContainText(CHAIR_CHILD);
+    expect(await page.locator("[data-waiting]").count(), "nobody is merely waiting").toBe(0);
 
-    // Every way out is a proposal for a named human, and the family has been told nothing.
-    await expect(group.getByText(copy.needsApproval).first()).toBeVisible();
+    // Every way out needs a coordinator, said once under the list rather than on every row.
+    await expect(group.getByText(copy.optionsNote)).toHaveCount(1);
     for (const option of [
       solver.options.FAMILY_TRANSPORT.label,
       solver.options.DELAY.label,
@@ -495,7 +657,10 @@ test.describe("Plan routes", () => {
     await expect(group).toContainText(
       fill(solver.options.FAMILY_TRANSPORT.detail, { who: CHAIR_CHILD }),
     );
-    await expect(page.getByText(copy.optionsNote).first()).toBeVisible();
+    // The heading names her, and the options name vans rather than codes.
+    await expect(
+      group.getByRole("heading", { name: fill(copy.optionsHeading, { child: CHAIR_CHILD }) }),
+    ).toBeVisible();
 
     // Nobody else lost their van, and no lane was auto-reshuffled around her.
     const rows = await unplacedRows(page);
@@ -503,6 +668,7 @@ test.describe("Plan routes", () => {
     expect([...new Set(names)]).toEqual([CHAIR_CHILD]);
 
     await expectNoInternalCodes(page);
+    await expectNoVehicleCodes(page);
     await expectVioletOnlyOnDemoChrome(page);
     console.log("screenshot:", await shot(page, "plan-routes-at12-no-van"));
   });
@@ -548,6 +714,29 @@ test.describe("Plan routes", () => {
     await expect(page.getByText(copy.demoScenarioNote.ONE_RIDER_HAS_NO_VAN)).toBeVisible();
     // Still the one demo day: switching the scenario does not move the screen to another date.
     expect(await page.locator("h1 + span").innerText()).toBe(dateLabel);
+
+    /*
+     * Before planning, both groups are on screen at once, which is the clearest place to read
+     * the difference Vera asked for: no van on this day holds her chair, so she is in the red
+     * group with a reason from the first second — and the eight children nobody has placed yet
+     * are in the neutral one, with no reason and no critical border.
+     */
+    const bordersBefore = await page.evaluate(() => {
+      const border = (selector: string) => {
+        const el = document.querySelector(selector);
+        return el ? getComputedStyle(el).borderTopColor : null;
+      };
+      return { blocked: border("[data-unplaced]"), waiting: border("[data-waiting]") };
+    });
+    expect(bordersBefore.blocked, "the red group is on screen before planning").not.toBeNull();
+    expect(bordersBefore.waiting, "the neutral group is on screen too").not.toBeNull();
+    expect(bordersBefore.waiting, "the two groups share a border colour").not.toBe(
+      bordersBefore.blocked,
+    );
+    expect(await waitingNames(page)).not.toContain(CHAIR_CHILD);
+    await expect(page.locator("[data-waiting]")).not.toContainText(securement.FOUR_POINT_STRAP);
+    console.log("screenshot:", await shot(page, "plan-routes-at12-before-planning"));
+
     await plan(page);
 
     // One child, named, with the missing hardware said in words — and everybody else in a van.
@@ -565,18 +754,26 @@ test.describe("Plan routes", () => {
     }
 
     // Nothing is assigned and no family has been told: every way out needs a coordinator.
-    await expect(group.getByText(copy.needsApproval).first()).toBeVisible();
+    await expect(group.getByText(copy.optionsNote)).toHaveCount(1);
     await expect(page.getByText(copy.nothingSent)).toBeVisible();
     await expectEquipmentFits(page);
     await expectNoInternalCodes(page);
+    await expectNoVehicleCodes(page);
+    // The toggle is violet, and it is still the only thing on the screen that is.
+    await expectVioletOnlyOnDemoChrome(page);
     console.log("screenshot:", await shot(page, "plan-routes-at12-demo-scenario"));
 
-    // Back to the ordinary day, and the plan it starts from is dropped rather than carried over.
+    // Back to the normal day, and the plan it starts from is dropped rather than carried over:
+    // nobody is in a van, and nobody is a failure either.
     await ordinary.click();
-    expect(await page.locator("[data-unplaced]").count()).toBe(1);
+    await expectDemoControlStyling(toggle);
+    expect(await page.locator("h1 + span").innerText()).toBe(dateLabel);
+    expect(await page.locator("[data-unplaced]").count()).toBe(0);
+    expect((await waitingNames(page)).length).toBeGreaterThanOrEqual(9);
     for (const lane of await lanes(page)) expect(lane.riders, lane.id).toEqual([]);
     await plan(page);
     expect(await page.locator("[data-unplaced]").count()).toBe(0);
+    expect(await page.locator("[data-waiting]").count()).toBe(0);
   });
 
   test("TEST-SEC-02: no non-BAA call leaves the page, and no routing payload carries a token", async ({
@@ -601,10 +798,11 @@ test.describe("Plan routes", () => {
       .locator(`[data-rider="${CHAIR_CHILD}"]`)
       .getByRole("button", { name: new RegExp(`^Measure ${CHAIR_CHILD}`) })
       .click();
+    await openChanges(page, laneId);
     await lane.getByRole("button", { name: copy.substitute, exact: true }).click();
-    await lane.getByRole("button", { name: /^V3 · / }).click();
-    await lane.getByRole("button", { name: copy.askProvider, exact: true }).click();
-    await lane.getByRole("button", { name: copy.recordAnswer, exact: true }).click();
+    await lane.getByRole("button", { name: new RegExp(`^${SPARE_VAN} · `) }).click();
+    await lane.getByRole("button", { name: ASK_PROVIDER }).click();
+    await lane.getByRole("button", { name: RECORD_ANSWER }).click();
     await plan(page);
     await page.getByRole("button", { name: copy.directionButton.PM, exact: true }).click();
     await plan(page);

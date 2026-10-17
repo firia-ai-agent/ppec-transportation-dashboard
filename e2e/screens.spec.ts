@@ -12,7 +12,7 @@
  * and is refused outright on any deployment.
  */
 import { expect, test, type Locator } from "@playwright/test";
-import { fleetMap, mapPreview, nav, rampPreview } from "../src/ui/copy";
+import { fleetMap, mapPreview, nav, planRoutes, rampPreview } from "../src/ui/copy";
 import { navItems } from "../src/ui/nav-items";
 import {
   boxOf,
@@ -198,6 +198,46 @@ for (const width of WIDTHS) {
 
       await expectNoInternalCodes(page);
       console.log("screenshot:", await shot(page, `ramp-preview-${width}-bottom`));
+    });
+
+    /**
+     * Plan routes, at both of the review's widths: the map is beside the lanes.
+     *
+     * The second column started at 1280, so at 1024 — the width where the nav is the 64 px icon
+     * rail — the map pane was laid out after the lane column: three tall vans of scrolling
+     * before the pane that is meant to be read next to the plan (Vera's review, 2026-10-17).
+     * Measured rather than eyeballed, and either answer is allowed: beside the lanes, or pinned
+     * directly under the header. What is not allowed is below every lane, which is what "is it
+     * in the window at the top of the page" asks.
+     */
+    test("Plan routes keeps the map beside the lanes, not below them", async ({ page }) => {
+      await page.goto("/plan-preview");
+      await expect(
+        page.getByRole("heading", { level: 1, name: planRoutes.heading }),
+      ).toBeVisible();
+      await expectDemoBarPinned(page);
+      await expectVioletOnlyOnDemoChrome(page);
+
+      // An <aside> is a complementary landmark, named by the "Map" heading inside it.
+      const map = page.getByRole("complementary", { name: planRoutes.mapHeading });
+      const column = page.locator("[data-lane]").first();
+      await expect(map).toBeVisible();
+      const mapBox = await boxOf(map);
+      const laneBox = await boxOf(column);
+
+      const beside = mapBox.x >= laneBox.x + laneBox.width - 1;
+      const underTheHeader = mapBox.y + mapBox.height <= laneBox.y + 1;
+      expect(
+        beside || underTheHeader,
+        `the map is under the lanes: ${JSON.stringify(mapBox)} vs the first lane ${JSON.stringify(laneBox)}`,
+      ).toBe(true);
+      // The strong form of the same thing: it is on screen without scrolling past a lane.
+      await expect(map).toBeInViewport();
+      // And it has room to be a map rather than a sliver.
+      expect(mapBox.width).toBeGreaterThanOrEqual(280);
+
+      await expectNoInternalCodes(page);
+      console.log("screenshot:", await shot(page, `plan-routes-${width}`));
     });
   });
 }

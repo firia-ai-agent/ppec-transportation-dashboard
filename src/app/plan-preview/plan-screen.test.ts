@@ -14,7 +14,14 @@ import {
   spareVehicleKeys,
   vehicleByKey,
 } from "@/domain/plan/day";
-import { planAssignment, planRoutes, routePlan, type PlanInput, type RoutePlan } from "@/domain/solver";
+import {
+  canTake,
+  planAssignment,
+  planRoutes,
+  routePlan,
+  type PlanInput,
+  type RoutePlan,
+} from "@/domain/solver";
 import { places, planRoutes as copy, securement } from "@/ui/copy";
 import { capabilityStates, reservationStates } from "@/ui/states";
 import {
@@ -101,9 +108,115 @@ describe("the screen's own rules", () => {
   const screen = read("PlanRoutes.tsx");
   const css = read("plan.module.css");
 
-  it("has one primary action, and it is Plan routes", () => {
+  /**
+   * Vera's review, 2026-10-17: the one button says the same thing every time it is read.
+   *
+   * It used to become "Plan routes again" as soon as anybody was in a van — a second label for
+   * one control, and the one it changed to read as "start over" to a coordinator who had just
+   * moved two children by hand. There is one label, there is no `planAgain` left to print, and
+   * what makes that honest is the behaviour below: planning keeps those moves.
+   */
+  it("has one primary action, it is Plan routes, and it is never relabelled", () => {
     expect(screen.match(/styles\.primary/g)).toHaveLength(1);
-    expect(screen).toMatch(/className=\{styles\.primary\}[\s\S]{0,80}planRoutes\.planAgain : planRoutes\.plan/);
+    expect(screen).toMatch(/className=\{styles\.primary\}[\s\S]{0,120}\{planRoutes\.plan\}/);
+    expect(screen).not.toMatch(/planAgain/);
+    expect(copy).not.toHaveProperty("planAgain");
+  });
+
+  /**
+   * The other half of the same review: re-planning may not throw away a coordinator's own
+   * placements without asking, and this screen keeps them rather than asking. The keeping is the
+   * planner's (`planAssignment`'s `manual` argument, checked over a real plan below); what is
+   * asserted here is that the screen hands it over and clears it when it stops being true.
+   */
+  it("plans around the children a coordinator placed by hand", () => {
+    expect(screen).toMatch(/planAssignment\(input, pinned\)/);
+    // Every accepted move records where it put them; a refusal falls out above this line.
+    expect(screen).toMatch(/setPinned\(\(prev\) => \(\{ \.\.\.prev, \[childToken\]: laneId \}\)\)/);
+    expect(screen).toMatch(/setPinned\(\(prev\) => \(\{ \.\.\.prev, \[childToken\]: null \}\)\)/);
+    // A placement is about one fleet on one run, so a change of either drops it.
+    const dropped = screen.match(/setPinned\(\{\}\)/g);
+    expect(dropped, "the run switcher and the scenario toggle both clear it").toHaveLength(2);
+  });
+
+  /**
+   * No vehicle code reaches the screen (Vera's review, 2026-10-17): a van is named by what it
+   * is. The browser check reads the rendered text for a stray "V3"; this is the rule in the
+   * source, which is where it can actually be kept — nothing here may print `vehicle.label`.
+   */
+  it("names a van by what it is, never by the code the fixtures file it under", () => {
+    expect(screen + read("lanes.ts")).not.toMatch(/vehicle\.label/);
+    expect(screen).toMatch(/const van = vanName\(lane\.vehicle\.description\)/);
+  });
+
+  /**
+   * The same rule over the words the *planner* writes, which is where it was actually broken.
+   *
+   * The rule above reads the screen's own source, and the screen was clean: every van it names
+   * goes through `vanName`. But a lane's options are the solver's sentences, built in
+   * src/domain/solver/feasible.ts, and two of them interpolated `vehicle.label` — so "Run Zoe B.
+   * separately on V3" reached the screen through copy the screen never touches, and only the
+   * browser check caught it. A source rule cannot see that; a real plan can, so this asks a real
+   * one. The state is the ramp measuring a chair larger than filed, which is the shortest way to
+   * a lane that is infeasible and therefore carries options at all.
+   */
+  it("keeps the code out of the option sentences the planner writes, too", () => {
+    const input = inputFor();
+    const assignment = planAssignment(input);
+    const measured = inputFor(
+      planLanes(),
+      input.riders.map((rider) => (rider.child.token === "C6" ? asMeasured(rider) : rider)),
+    );
+    const plan = routePlan(measured, assignment);
+
+    const options = [
+      ...plan.lanes.flatMap((lane) => lane.verdict.options ?? []),
+      ...plan.unplaced.flatMap((row) => row.options),
+    ];
+    expect(options.length, "an infeasible lane offers a way out").toBeGreaterThan(0);
+    for (const option of options) {
+      expect(option.label, option.id).not.toMatch(/\bV\d{1,2}\b/);
+      expect(option.detail, option.id).not.toMatch(/\bV\d{1,2}\b/);
+    }
+  });
+
+  /**
+   * Vera's review, 2026-10-17: the arrival answers and the substitution row are folded away.
+   *
+   * They are two real questions and neither is the one a lane is open for, so three answer
+   * buttons and a substitution row under every lane — under the stops, on all three lanes — was
+   * most of what the screen was. One disclosure now, and it opens itself while the van has
+   * changed, because that is where the next step of the VEH-05 chain lives.
+   */
+  it("puts what arrived and the substitution behind one collapsed control", () => {
+    expect(screen).toMatch(/aria-expanded=\{changesOpen\}/);
+    expect(screen).toMatch(/\{planRoutes\.changeVan\}/);
+    expect(screen).toMatch(/hidden=\{!changesOpen\}/);
+    expect(screen).toMatch(
+      /changing === lane\.id \|\| stage\.arrival === "CHANGED" \|\| stage\.arrival === "ASKED"/,
+    );
+  });
+
+  /**
+   * The repeated lines Vera counted: the intake caption was under every rider card and the
+   * approval chip was beside every option. Each is said once now — the caption over the lanes,
+   * the approval in the note under each option list.
+   */
+  it("says the intake caption once, and approval once per list rather than per option", () => {
+    expect(screen.match(/planRoutes\.needsCaption/g)).toHaveLength(1);
+    expect(screen).toMatch(/\{planRoutes\.optionsNote\}/);
+    expect(screen).not.toMatch(/needsApproval/);
+    expect(copy).not.toHaveProperty("needsApproval");
+  });
+
+  /**
+   * D-6 / §4.1, at the review's own widths: the map is beside the lanes at 1024 as well as at
+   * 1280, and when the columns stack it is directly under the header rather than after the last
+   * lane. e2e/screens.spec.ts measures the boxes; this is the breakpoint that decides them.
+   */
+  it("keeps the map beside the lanes at 1024, and under the header when it cannot", () => {
+    expect(css).toMatch(/@media \(min-width: 1024px\) \{\s*\.split \{\s*grid-template-columns:/);
+    expect(css).toMatch(/@media \(max-width: 1023px\) \{\s*\.mapPane \{\s*order: -1/);
   });
 
   it("never makes a drag the only way to move a child (§9)", () => {
@@ -183,6 +296,46 @@ describe("the screen's own rules", () => {
     expect(screen).toMatch(/date: SERVICE_DATE_LABEL/);
   });
 
+  /**
+   * Vera's review, 2026-10-17: the screen's own first second is not a failure.
+   *
+   * Before planning, nobody is in a van — and that was being drawn as a red-bordered group
+   * headed "Not in a van yet (9)", nine rider cards with equipment chips and intake captions,
+   * and nine copies of a sentence saying nobody had pressed the button yet. The opening state is
+   * its own group now: a neutral box, a heading that says what it is, and the names. The red
+   * group and the critical border are kept for the children planning could not place.
+   */
+  it("opens on a neutral list of names, and keeps the red group for real failures", () => {
+    expect(screen).toMatch(/const waiting = plan\.unplaced\.filter\([\s\S]{0,60}=== "NOT_IN_A_VAN"\)/);
+    expect(screen).toMatch(/const blocked = plan\.unplaced\.filter\([\s\S]{0,60}!== "NOT_IN_A_VAN"\)/);
+    expect(screen).toMatch(/group: planRoutes\.waitingHeading/);
+    // A name and the §9 move control, and nothing else: no chips, no caption, no reason.
+    const body = /const waitingBody = \(rider: PlanRider\) => \([\s\S]*?\n  \);/.exec(screen)?.[0] ?? "";
+    expect(body).toMatch(/riderName/);
+    expect(body).toMatch(/moveMenu\(rider, null\)/);
+    expect(body).not.toMatch(/needChips|needsCaption|reasonLine|StateChip/);
+    // The critical border belongs to the blocked group alone.
+    expect(css).toMatch(/\.unplaced \{[^}]*border: var\(--border-hairline\) solid var\(--color-crit-fg\)/);
+    expect(css).toMatch(/\.waiting \{[^}]*border: var\(--border-hairline\) solid var\(--color-border-strong\)/);
+  });
+
+  /**
+   * ...and the plan agrees with that split: on first load the normal day has nine children in
+   * no van and not one reason among them, so the neutral group is the whole of it. The second
+   * scenario has one real failure from the start — no van on the day holds her chair, which is
+   * true before anybody plans anything — so the red group is reached by reading, not by acting.
+   */
+  it("has nothing to explain about the normal day before it is planned", () => {
+    const opening = routePlan(inputFor(), {});
+    expect(opening.unplaced).toHaveLength(planRiders("AM").length);
+    expect([...new Set(opening.unplaced.map((row) => row.cause))]).toEqual(["NOT_IN_A_VAN"]);
+    expect(needsADecision(opening.lanes, opening.unplaced)).toBe(false);
+
+    const hard = routePlan(inputFor(planLanes("ONE_RIDER_HAS_NO_VAN")), {});
+    const blocked = hard.unplaced.filter((row) => row.cause !== "NOT_IN_A_VAN");
+    expect(blocked.map((row) => row.rider.child.displayName)).toEqual(["Zoe B."]);
+  });
+
   it("keeps the DEMO bar's 32 px out of its own height", () => {
     expect(css).toMatch(/min-height: calc\(100vh - var\(--layout-demo-banner-height\)\)/);
   });
@@ -230,22 +383,28 @@ describe("the words a lane says", () => {
     expect(laneState(lane)).toBe(reservationStates.INFEASIBLE);
     const [missing, blocked] = laneLines(lane);
     expect(missing).toContain(securement.FOUR_POINT_STRAP);
-    expect(missing).toMatch(/^Doesn’t fit at /);
+    // The stop first and the verdict not at all: the chip beside this line already says it
+    // doesn't fit (Vera's review, 2026-10-17).
+    expect(missing).toMatch(/^At .+, this van has /);
+    expect(missing).not.toMatch(/Doesn’t fit/);
     expect(blocked).toBe(copy.laneBlocked);
   });
 
-  it("says a van's equipment as the day has it, and its configuration in words", () => {
+  /**
+   * The chips say what the van is built with; the place lines beside them say how full it is.
+   * They used to say both: "3 seats" and "2 anchored seats" were chips as well as the second
+   * half of two lines directly underneath ("0 of 3 seats used"), which is the same number twice
+   * in two shapes (Vera's review, 2026-10-17). The chairs are what is left, because a wheelchair
+   * place carries hardware and a footprint that no count can say.
+   */
+  it("says a van's equipment as the day has it, without repeating the place lines", () => {
     const plan = planRoutes(inputFor());
     const lane = laneIn(plan, "V1");
-    const chips = equipmentChips(lane.lane.vehicle, lane.layout, lane.lane.capability, {
-      wc: lane.seats.wcAvailable,
-      amb: lane.seats.ambAvailable,
-      tether: lane.seats.tetherAvailable,
-    });
+    const chips = equipmentChips(lane.lane.vehicle, lane.layout, lane.lane.capability);
     expect(chips[0]).toBe(copy.equipment.lift);
     expect(chips.some((c) => c.includes(securement.FOUR_POINT_STRAP))).toBe(true);
-    expect(chips).toContain("3 seats");
-    expect(chips).toContain("2 anchored seats");
+    // No bare seat counts: those are the lines' job, and the lines are read right below.
+    for (const chip of chips) expect(chip, chip).not.toMatch(/^\d+ (seats?|anchored seats?)$/);
     // Never the provider's shorthand on a screen.
     expect(setUpAsLine(lane.layout)).toBe("Set up as 1 wheelchair · 3 seats");
     expect(setUpAsLine(lane.layout)).not.toMatch(/\d+WC\/\d+A/);
@@ -276,6 +435,33 @@ describe("the words a lane says", () => {
       "3 of 6 seats used",
       "0 of 2 anchored seats used",
     ]);
+  });
+
+  /**
+   * Vera's review, 2026-10-17: a kind of place the van has none of and nobody is using is left
+   * out. "0 of 0 wheelchair places used" is true of the sedan and is not a fact — and it was on
+   * two of the day's three lanes, directly under two chips saying the same numbers.
+   */
+  it("leaves out a place line that reads 0 of 0", () => {
+    expect(
+      seatLines({
+        wcUsed: 0,
+        wcAvailable: 0,
+        ambUsed: 2,
+        ambAvailable: 3,
+        tetherUsed: 0,
+        tetherAvailable: 0,
+      }),
+    ).toEqual(["2 of 3 seats used"]);
+    // A van *asked* for a place it has none of still says so: that is the whole reason the run
+    // does not fit, and the first number is not zero.
+    expect(
+      seatLines({ wcUsed: 1, wcAvailable: 0, ambUsed: 0, ambAvailable: 0, tetherUsed: 0, tetherAvailable: 0 }),
+    ).toEqual(["1 of 0 wheelchair places used · more than this van has"]);
+    // And the sedan, read off a real plan: no wheelchair place, so no wheelchair line.
+    const sedan = laneIn(planRoutes(inputFor()), "V4");
+    expect(sedan.seats.wcAvailable).toBe(0);
+    expect(seatLines(sedan.seats).some((line) => line.includes("wheelchair"))).toBe(false);
   });
 
   it("says in words when a run asks for more places than the van has", () => {
@@ -320,15 +506,15 @@ describe("the words a lane says", () => {
 });
 
 /**
- * The second demo day (AT-12).
+ * The second demo scenario (AT-12).
  *
- * The scenario's own day places all nine riders, which is the right default and means the group
- * at the top of the screen — a child with no van, the reason, and the options a coordinator
- * chooses between — is never reached by walking the screen. The second day is that walk: the
- * convertible van is off the road, the provider sent the small substitute, and no van left today
- * holds a four-point strap.
+ * The normal day places all nine riders, which is the right default and means the group at the
+ * top of the screen — a child with no van, the reason, and the options a coordinator chooses
+ * between — is never reached by walking the screen. The second scenario is that walk, on the
+ * same service date: the convertible van is off the road, the provider sent the small
+ * substitute, and no van left today holds a four-point strap.
  */
-describe("the day one child has no van", () => {
+describe("the scenario where one child has no van", () => {
   const hard = () => inputFor(planLanes("ONE_RIDER_HAS_NO_VAN"), planRiders("AM"));
 
   it("still runs three lanes, with the substitute in the convertible's place", () => {
@@ -337,7 +523,7 @@ describe("the day one child has no van", () => {
       "V2",
       "V4",
     ]);
-    // The first day is untouched, which is what keeps the feasible-plan check honest.
+    // The normal scenario is untouched, which keeps the feasible-plan check honest.
     expect(planLanes().map((lane) => lane.vehicle.label)).toEqual(["V1", "V2", "V4"]);
   });
 
@@ -365,6 +551,69 @@ describe("the day one child has no van", () => {
     // can bring back — and the lanes' own vans are never offered as their own replacement.
     expect(spareVehicleKeys("ONE_RIDER_HAS_NO_VAN")).toEqual(["V1"]);
     expect(spareVehicleKeys()).toEqual(["V3"]);
+  });
+});
+
+/**
+ * Re-planning keeps what a coordinator did by hand (Vera's review, 2026-10-17).
+ *
+ * "Plan routes" used to search from nothing every time, so the one button on the screen quietly
+ * undid every drag — a coordinator who had moved two children and wanted the rest filled in had
+ * no way to ask for that. The keeping lives in the planner rather than in the screen, because
+ * "keep what a person decided and fill in the rest" is a property of a plan: a manual placement
+ * seeds the lane, the search places everybody else around it, and every placement in the result
+ * is still one the four constraints agreed with.
+ */
+describe("re-planning around a coordinator's own placements", () => {
+  /** A rider the solver placed in one lane who another lane would also take. */
+  function aMovableRider(input: PlanInput) {
+    const assignment = planAssignment(input);
+    for (const [laneId, tokens] of Object.entries(assignment)) {
+      for (const token of tokens) {
+        const other = input.lanes.find(
+          (lane) => lane.id !== laneId && canTake(input, assignment, lane.id, token).ok,
+        );
+        if (other) return { token, from: laneId, to: other.id };
+      }
+    }
+    throw new Error("no rider on this day can be moved to a second van");
+  }
+
+  it("leaves a child where they were put and plans the rest of the day around them", () => {
+    const input = inputFor();
+    const { token, from, to } = aMovableRider(input);
+
+    const again = planAssignment(input, { [token]: to });
+    expect(again[to], "the child a coordinator moved").toContain(token);
+    expect(again[from]).not.toContain(token);
+    // Nobody was dropped to make room: the whole day is still placed.
+    expect(Object.values(again).flat().sort()).toEqual(
+      input.riders.map((rider) => rider.child.token).sort(),
+    );
+    // And it is still the solver's plan, lane by lane.
+    for (const lane of routePlan(input, again).lanes) {
+      expect(lane.verdict.status, lane.lane.id).toBe("FEASIBLE");
+    }
+  });
+
+  it("leaves a child a coordinator took out of a van out of every van", () => {
+    const input = inputFor();
+    const { token } = aMovableRider(input);
+    const again = planAssignment(input, { [token]: null });
+    expect(Object.values(again).flat()).not.toContain(token);
+    // They are the only one, and the screen's own group says so with no reason attached.
+    const plan = routePlan(input, again);
+    expect(plan.unplaced.map((row) => row.rider.child.token)).toEqual([token]);
+    expect(plan.unplaced[0].cause).toBe("NOT_IN_A_VAN");
+  });
+
+  it("plans a child normally when the lane they were put in is not on this day", () => {
+    const input = inputFor();
+    const { token } = aMovableRider(input);
+    // The scenario or the run changed under the placement, so it is not theirs any more.
+    const again = planAssignment(input, { [token]: "a-lane-that-is-not-here" });
+    expect(Object.values(again).flat()).toContain(token);
+    expect(again).toEqual(planAssignment(input));
   });
 });
 
@@ -406,14 +655,24 @@ describe("the words beside a child with no van", () => {
     expect(needsADecision(plan.lanes, plan.unplaced)).toBe(false);
   });
 
-  it("refuses a move in one line that names the child and what is missing", () => {
+  /**
+   * The refusal, as Vera rewrote it: the child first, because they are who was being moved, and
+   * the van by its own name. "V2 can't take Zoe B." opened on a code nobody says out loud.
+   */
+  it("refuses a move in one line that names the child, the van and what is missing", () => {
     const plan = planRoutes(inputFor());
-    const centreVan = laneIn(plan, "V2").lane.vehicle;
+    const centerVan = laneIn(plan, "V2").lane.vehicle;
     const zoe = planRiders("AM").find((r) => r.child.token === "C6");
-    expect(refusalLine(centreVan, zoe!.child, "NO_SECUREMENT")).toBe(
-      "V2 can’t take Zoe B.: no four-point straps.",
+    expect(refusalLine(centerVan, zoe!.child, "NO_SECUREMENT")).toBe(
+      "Can’t put Zoe B. in the center van: no four-point straps.",
     );
-    expect(refusalLine(centreVan, zoe!.child, "NO_SEAT")).toBe("V2 can’t take Zoe B.: no free seat.");
+    expect(refusalLine(centerVan, zoe!.child, "NO_SEAT")).toBe(
+      "Can’t put Zoe B. in the center van: no free seat.",
+    );
+    // No vehicle code in it, whatever the cause.
+    for (const cause of ["NO_SECUREMENT", "NO_SEAT", "UNKNOWN_UNTIL_ARRIVAL"] as const) {
+      expect(refusalLine(centerVan, zoe!.child, cause), cause).not.toMatch(/\bV\d\b/);
+    }
   });
 
   it("counts the plan in riders, not in rows", () => {

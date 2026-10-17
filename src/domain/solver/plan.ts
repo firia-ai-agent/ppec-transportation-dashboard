@@ -24,7 +24,7 @@
  * give the same plan, which is what makes a screenshot of the screen evidence rather than a
  * moment (and what lets the e2e checks assert on it at all).
  */
-import { fill, layoutName, solver as solverCopy } from "@/ui/copy";
+import { fill, layoutName, solver as solverCopy, vanName } from "@/ui/copy";
 import { OPTION_RANK, feasible, onboardByStop } from "./feasible";
 import type { AlternateCandidate } from "./feasible";
 import type {
@@ -500,7 +500,8 @@ function unplacedOptions(
     add(
       "ALTERNATE_VEHICLE",
       `vehicle:${lane.id}`,
-      fill(solverCopy.options.ALTERNATE_VEHICLE.label, { vehicle: lane.vehicle.label }),
+      // The van by name: these options are read on Plan routes, where no vehicle code appears.
+      fill(solverCopy.options.ALTERNATE_VEHICLE.label, { vehicle: vanName(lane.vehicle.description) }),
       fill(solverCopy.options.ALTERNATE_VEHICLE.detail, {
         description: lane.vehicle.description,
         provider: lane.vehicle.providerName,
@@ -575,6 +576,12 @@ function spareAfter(seats: LaneSeats): number {
 }
 
 /**
+ * Where a coordinator has put a child by hand: the lane they dropped them on, or `null` for out
+ * of every van. Keyed by child token, the same shape `withMove` moves one child with.
+ */
+export type ManualPlacements = Readonly<Record<string, string | null>>;
+
+/**
  * A plan, searched greedily and checked by the solver at every step.
  *
  * Hardest rider first; among the vans that can take them, the roomiest, then the emptiest, then
@@ -583,9 +590,36 @@ function spareAfter(seats: LaneSeats): number {
  * reason it is greedy rather than exhaustive is that a coordinator has to be able to read why
  * each child is where they are, and "the search put them there" is not a reason. Staff move
  * anyone they disagree with, and the solver checks that move the same way.
+ *
+ * `manual` is the part of the plan that is not the search's to make (Vera's review, 2026-10-17):
+ * a child a coordinator has already placed stays where they were put, and the day is planned
+ * around them. Planning used to start from nothing every time, so pressing the one button on the
+ * screen silently undid every drag — the fix is here rather than in the screen because "keep
+ * what a person decided and fill in the rest" is a property of the plan, not of a click. A
+ * manual placement is checked like any other: the lane is solved with that rider aboard, so an
+ * assignment this returns is still only placements the four constraints agreed with.
  */
-export function planAssignment(input: PlanInput): Assignment {
+export function planAssignment(input: PlanInput, manual: ManualPlacements = {}): Assignment {
+  const load = new Map<string, PlanRider[]>(input.lanes.map((lane) => [lane.id, []]));
+  // Held back from the search: a child a person has placed, in the lane they placed them in, or
+  // out of every lane. A placement naming a lane this plan does not have is not one of theirs —
+  // the scenario or the run changed under it — so that child is planned like anybody else.
+  const held = new Set<string>();
+  for (const rider of input.riders) {
+    const laneId = manual[rider.child.token];
+    if (laneId === undefined) continue;
+    if (laneId === null) {
+      held.add(rider.child.token);
+      continue;
+    }
+    const lane = load.get(laneId);
+    if (!lane) continue;
+    lane.push(rider);
+    held.add(rider.child.token);
+  }
+
   const order = [...input.riders]
+    .filter((rider) => !held.has(rider.child.token))
     .map((rider, index) => ({ rider, index }))
     .sort(
       (a, b) =>
@@ -595,7 +629,6 @@ export function planAssignment(input: PlanInput): Assignment {
     )
     .map(({ rider }) => rider);
 
-  const load = new Map<string, PlanRider[]>(input.lanes.map((lane) => [lane.id, []]));
   for (const rider of order) {
     const choices = input.lanes
       .map((lane, index) => {

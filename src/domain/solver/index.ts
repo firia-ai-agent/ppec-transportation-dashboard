@@ -29,6 +29,7 @@ export type {
   Direction,
   LanePlan,
   LaneSeats,
+  ManualPlacements,
   MoveCheck,
   PlanInput,
   PlanLane,
