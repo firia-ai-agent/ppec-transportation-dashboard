@@ -98,15 +98,32 @@ test.describe(`the rail as ${ROLE}`, () => {
 });
 
 test.describe("the two copy fixes, on the screens that show them", () => {
-  test("the health page says 'not built' once, with no chip repeating it", async ({ page }) => {
-    await page.goto("/health");
+  /**
+   * An unbuilt page says "not built" once, in its heading, with no chip beside it repeating the
+   * same thing in smaller type.
+   *
+   * This was written against /health, which was the unbuilt page on the branch that fixed the
+   * chip. Health & ROI is built now — four counted numbers, each opening the rides behind it —
+   * so the rule moved to a page that is still a promise. Setup is one (`unbuilt.setup`), and
+   * the two halves of the old assertion are both kept: the heading says it, and the page says
+   * it once.
+   */
+  test("an unbuilt page says 'not built' once, with no chip repeating it", async ({ page }) => {
+    await page.goto("/setup");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(
-      unbuilt.heading.replace("{page}", nav.health),
+      unbuilt.heading.replace("{page}", nav.setup),
     );
-    // The chip that used to sit beside the heading said the same thing in smaller type.
     await expect(page.getByText("Not built yet", { exact: false })).toHaveCount(0);
     const text = await page.locator("main").innerText();
     expect(text.match(/built yet/g), text).toHaveLength(1);
+  });
+
+  /** And Health & ROI is not one of them any more: it is the built screen, with its own words. */
+  test("the health page is built, and promises nothing", async ({ page }) => {
+    await page.goto("/health");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(nav.health);
+    const text = await page.locator("main").innerText();
+    expect(text).not.toMatch(/built yet/);
   });
 
   test("the Start beside 'Demo not started' says what it starts, and stays inert", async ({
