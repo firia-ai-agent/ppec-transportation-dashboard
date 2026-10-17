@@ -265,9 +265,32 @@
   flex-wrap: wrap;
 }
 
-/* A rider row can be dragged into another lane; Move does the same thing without a mouse. */
+/*
+ * A rider row can be dragged into another lane; Move does the same thing without a mouse.
+ *
+ * `touch-action: none` is what makes the same gesture work with a finger: without it the browser
+ * claims the first few millimetres as a scroll and the row never hears the rest of the drag. The
+ * row is also not selectable while being dragged over, because a mouse drag across text selects
+ * it otherwise and the selection highlight reads as a second, meaningless state.
+ */
 .draggable {
   cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/*
+ * Held by the pointer: the row says so, and the lane it is over says so too (.lane[data-over]).
+ * Dashed, and an outline rather than a border: solid in the brand tone is the shape of the §9
+ * focus ring, and a border would move the stop rows while a drag is in flight.
+ */
+.draggable[data-held="true"] {
+  cursor: grabbing;
+  outline: var(--border-hairline) dashed var(--color-brand);
+  outline-offset: var(--space-1);
+  background: var(--color-info-bg);
+  border-radius: var(--radius-md);
 }
 
 .rowActions {

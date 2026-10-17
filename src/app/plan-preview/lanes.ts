@@ -12,8 +12,8 @@ import { capabilityStates, legStates, reservationStates, type StateDescriptor } 
 import { clockLabel } from "@/ui/service-date";
 import { causeOfDeficit } from "@/domain/solver";
 import type {
-  Child, DailyCapability, LanePlan, Layout, PlanRider, SolveResult, Unplaced, UnplacedCause,
-  Vehicle, WcPosition,
+  Child, DailyCapability, LanePlan, LaneSeats, Layout, PlanRider, SolveResult, Unplaced,
+  UnplacedCause, Vehicle, WcPosition,
 } from "@/domain/solver";
 
 /* ───────────────────────── what the day knows about the van ───────────────────────── */
@@ -191,6 +191,43 @@ export function equipmentChips(
 /** "Set up as 1 wheelchair · 3 seats" — the configuration in words, never the shorthand. */
 export function setUpAsLine(layout: Layout): string {
   return fill(planRoutes.setUpAs, { layout: layoutName(layout.code) });
+}
+
+/**
+ * Why that line changes on a van that can be re-seated, and nothing at all on a van that cannot.
+ *
+ * A convertible van is built several ways, and the configuration a lane shows is the one the day
+ * knows most about (`plannedLayout`): before a plan it is only the first one that could hold the
+ * riders, after a plan it is the one the solver found room in, and once somebody has seen the van
+ * it is the one that actually arrived. So the same lane can say "Set up as 6 seats" and then
+ * "Set up as 1 wheelchair · 3 seats" a click later — true both times, and unreadable without this
+ * sentence. Vans with one configuration get `null`: there is nothing to explain.
+ */
+export function setUpChangeLine(lane: LanePlan): string | null {
+  if (lane.lane.vehicle.layouts.length < 2) return null;
+  if (lane.lane.capability.observedLayoutId) return planRoutes.setUpChanges.SEEN;
+  return lane.riders.length === 0 ? planRoutes.setUpChanges.BEFORE : planRoutes.setUpChanges.PLANNED;
+}
+
+/* ───────────────────────────── how full the van is ───────────────────────────── */
+
+/** One place line: "3 of 6 seats used", and what to say when the run asks for more than that. */
+function seatLine(used: number, available: number, noun: { one: string; many: string }): string {
+  const line = fill(planRoutes.seatsUsed, { used, places: pluralize(available, noun) });
+  return used > available ? fill(planRoutes.seatsOver, { line }) : line;
+}
+
+/**
+ * The three place lines on a lane, used of available (Vera's review): wheelchair places, seats,
+ * anchored seats. An infeasible run can need more than the van has, so a line whose first number
+ * is the larger one says so in words rather than leaving "4 of 3" looking like a slip.
+ */
+export function seatLines(seats: LaneSeats): string[] {
+  return [
+    seatLine(seats.wcUsed, seats.wcAvailable, countable.wcPlace),
+    seatLine(seats.ambUsed, seats.ambAvailable, countable.seat),
+    seatLine(seats.tetherUsed, seats.tetherAvailable, countable.anchoredSeat),
+  ];
 }
 
 /* ───────────────────────────── a rider's row ───────────────────────────── */

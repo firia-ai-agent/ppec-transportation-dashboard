@@ -12,9 +12,10 @@
  * playwright.config.ts), which grants a role and nothing else.
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { fill, planRoutes as copy, securement, solver } from "../src/ui/copy";
+import { fill, nav, planRoutes as copy, securement, solver } from "../src/ui/copy";
 import { capabilityStates, reservationStates } from "../src/ui/states";
 import {
+  boxOf,
   expectDemoBarPinned,
   expectNoInternalCodes,
   expectVioletOnlyOnDemoChrome,
@@ -25,6 +26,14 @@ import {
 const MEASURED_CHAIR = "Chair measured at the ramp · 142 × 74 cm";
 /** The one child in the scenario whose chair is held by four-point straps. */
 const CHAIR_CHILD = "Zoe B.";
+
+/**
+ * How a lane says how full it is, since Vera's review: used of available, with the noun on the
+ * count ("3 of 6 seats used"). The anchored line has to be matched first — "anchored seats" also
+ * ends in "seats used" — which is why these are two patterns and not one with a flag.
+ */
+const SEATS = /(?<!anchored )(\d+) of (\d+) seats? used/;
+const ANCHORED_SEATS = /(\d+) of (\d+) anchored seats? used/;
 
 type Lane = {
   id: string;
@@ -97,46 +106,88 @@ async function expectEquipmentFits(page: Page): Promise<void> {
     const anchored = (await riders.allInnerTexts()).filter((row) =>
       row.includes("Needs an anchored seat"),
     ).length;
-    const seats = /Anchored seats: (\d+) needed, (\d+) free/.exec(text);
+    const seats = ANCHORED_SEATS.exec(text);
     expect(seats, `${label} does not say how many anchored seats it has`).not.toBeNull();
     expect(Number(seats?.[1]), `${label} anchored seats used`).toBe(anchored);
     expect(Number(seats?.[1])).toBeLessThanOrEqual(Number(seats?.[2]));
 
-    const walking = /\bSeats: (\d+) needed, (\d+) free/.exec(text);
+    const walking = SEATS.exec(text);
+    expect(walking, `${label} does not say how many seats are used`).not.toBeNull();
     expect(Number(walking?.[1])).toBeLessThanOrEqual(Number(walking?.[2]));
   }
 }
 
 /**
- * Drag a rider's row onto a lane.
+ * Drag a rider's row onto a lane with the mouse: press on the row, move in steps, release over
+ * the lane's heading.
  *
- * The events are dispatched rather than mimed with the mouse: headless Chromium does not start
- * a native drag session for a synthetic mouse gesture (Playwright's own `dragTo` and a stepped
- * `mouse.move` both leave the page untouched here), so a mouse-shaped check would pass while
- * testing nothing. What is dispatched is exactly what a browser sends — dragstart on the row
- * with a real `DataTransfer`, then dragover and drop on the lane — so the screen's own handlers,
- * the token it puts on the transfer and the solver call behind the drop are all the real ones.
- * The pointer-free way to do the same thing is the Move menu, and it is checked below as well.
+ * This is the gesture a coordinator makes, driven by the real input stack — `mouse.down`,
+ * `mouse.move`, `mouse.up` — and nothing about it is dispatched by hand. It is possible at all
+ * because the screen moves a rider with pointer events instead of the browser's own
+ * drag-and-drop: a platform drag session never starts for a synthetic gesture (or for a finger
+ * on an iPad), which is exactly how a drag that did nothing shipped behind a check that passed.
+ *
+ * The release lands on the lane's own heading rather than its middle, because the middle of a
+ * lane is a stop row — dropping there still works, the heading is simply a point no other
+ * element can be on top of. The pointer-free way to do the same thing is the Move menu, and it
+ * is checked below as well.
  */
-async function dragRider(page: Page, child: string, laneId: string): Promise<void> {
-  await page.evaluate(
-    ([rowSelector, laneSelector]) => {
-      const transfer = new DataTransfer();
-      const row = document.querySelector(rowSelector);
-      const lane = document.querySelector(laneSelector);
-      if (!row || !lane) throw new Error(`nothing to drag: ${rowSelector} → ${laneSelector}`);
-      const event = (type: string) =>
-        new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer });
-      row.dispatchEvent(event("dragstart"));
-      lane.dispatchEvent(event("dragover"));
-      lane.dispatchEvent(event("drop"));
-      row.dispatchEvent(event("dragend"));
-    },
-    [`[data-rider="${child}"]`, `[data-lane="${laneId}"]`],
-  );
+async function dragRider(page: Page, child: string, target: Locator): Promise<void> {
+  // The child's name, which is the first span in the row: a point inside the row that is not one
+  // of its buttons, since Measure and Move are pressed rather than dragged.
+  const grip = page.locator(`[data-rider="${child}"]`).first().locator("span").first();
+  await grip.scrollIntoViewIfNeeded();
+
+  // A mouse drag cannot scroll the page on the way, so both ends have to be on screen at once:
+  // one scroll to the midpoint between them, and then the boxes are read again.
+  const span = async () => [await boxOf(grip), await boxOf(target)] as const;
+  const [grabbed, dropped] = await span();
+  const middle = (grabbed.y + dropped.y + dropped.height) / 2;
+  const height = page.viewportSize()?.height ?? 0;
+  await page.evaluate((by) => window.scrollBy(0, by), middle - height / 2);
+
+  const [from, to] = await span();
+  for (const [what, box] of [[child, from], ["the van", to]] as const) {
+    expect(box.y, `${what} is off screen, so the mouse cannot reach it`).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height, `${what} is below the window`).toBeLessThanOrEqual(height);
+  }
+  const at = (box: typeof from) => [box.x + box.width / 2, box.y + box.height / 2] as const;
+
+  await page.mouse.move(...at(from));
+  await page.mouse.down();
+  // More than one move, and the first one small: the screen waits for the pointer to travel
+  // before it calls a press a drag, and a single jump would skip the hold entirely.
+  const [x, y] = at(from);
+  await page.mouse.move(x + 12, y + 12);
+  await page.mouse.move(...at(to), { steps: 12 });
+  await page.mouse.up();
+}
+
+/** Where a lane is dropped onto: its heading, which no stop row can sit on top of. */
+function laneTarget(page: Page, laneId: string): Locator {
+  return laneOf(page, laneId).getByRole("heading", { level: 3 });
 }
 
 test.describe("Plan routes", () => {
+  /**
+   * The screen was reachable by typing the URL and from a link on the map preview, which is not
+   * how anybody finds a screen. It is a destination in the console rail now, for the two roles
+   * whose row opens it, and this is the walk a coordinator actually makes.
+   */
+  test("is a destination in the console nav, not a URL staff have to know", async ({ page }) => {
+    await page.goto("/today");
+    const link = page
+      .getByRole("navigation", { name: nav.landmarkLabel })
+      .getByRole("link", { name: copy.heading });
+    await expect(link).toBeVisible();
+    await link.click();
+
+    await expect(page.getByRole("heading", { level: 1, name: copy.heading })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe("/plan-preview");
+    await expectNoInternalCodes(page);
+    console.log("screenshot:", await shot(page, "plan-routes-from-the-nav"));
+  });
+
   test("plans every child into a van that fits their equipment, and covers every drop-off", async ({
     page,
   }) => {
@@ -157,6 +208,14 @@ test.describe("Plan routes", () => {
       expect(lane.text).toContain(copy.laneEmpty);
     }
 
+    // The van that can be re-seated says, in plain words, that planning picks the setup — which
+    // is why its "Set up as …" line is about to change under the reader's eyes. Exactly one van
+    // on this day is built more than one way, and the other two explain nothing.
+    const convertible = (await lanes(page)).filter((lane) =>
+      lane.text.includes(copy.setUpChanges.BEFORE),
+    );
+    expect(convertible.map((lane) => lane.id)).toHaveLength(1);
+
     await plan(page);
 
     // Every child, once, in a van the solver called a fit — and the screen says so in words.
@@ -172,6 +231,10 @@ test.describe("Plan routes", () => {
       expect(lane.text, lane.id).toContain(`${copy.dropOff} · PPEC center`);
     }
     await expect(page.getByText(`${roster.length} of ${roster.length} riders are in a van.`)).toBeVisible();
+    // ...and now it says planning chose this setup, on the one lane that could choose.
+    const chosen = planned.find((lane) => lane.id === convertible[0].id);
+    expect(chosen?.text, convertible[0].id).toContain(copy.setUpChanges.PLANNED);
+    expect(planned.filter((lane) => lane.text.includes(copy.setUpChanges.PLANNED))).toHaveLength(1);
     await expectEquipmentFits(page);
     await expectNoInternalCodes(page);
     console.log("screenshot:", await shot(page, "plan-routes-morning"));
@@ -194,7 +257,7 @@ test.describe("Plan routes", () => {
     console.log("screenshot:", await shot(page, "plan-routes-afternoon"));
   });
 
-  test("refuses a drag the van cannot take, in one line that names the child", async ({ page }) => {
+  test("refuses a move the van cannot take, in one line that names the child", async ({ page }) => {
     await page.goto("/plan-preview");
     await plan(page);
 
@@ -206,9 +269,14 @@ test.describe("Plan routes", () => {
       .innerText()).split(" ")[0];
     const rider = laneOf(page, from?.id ?? "").locator(`[data-rider="${CHAIR_CHILD}"]`);
 
-    // The drag itself, as staff do it: the centre van's position is L-track hardware and this
-    // chair is held by four-point straps, so the van cannot take her.
-    await dragRider(page, CHAIR_CHILD, target?.id ?? "");
+    // The pointer-free way in, because a drag is never the only way (§9): the centre van's
+    // position is L-track hardware and this chair is held by four-point straps, so it cannot
+    // take her. The same refusal with the mouse is the test below.
+    await rider.getByRole("button", { name: new RegExp(`^Move ${CHAIR_CHILD}`) }).click();
+    await page
+      .getByRole("button", { name: fill(copy.moveTo, { vehicle: targetLabel }), exact: true })
+      .first()
+      .click();
 
     const notice = page.locator("[data-notice]");
     await expect(notice).toHaveAttribute("data-refused", "true");
@@ -220,16 +288,91 @@ test.describe("Plan routes", () => {
     expect(after.find((lane) => lane.id === from?.id)?.riders).toContain(CHAIR_CHILD);
     expect(after.find((lane) => lane.id === target?.id)?.riders).not.toContain(CHAIR_CHILD);
     expect(after.every((lane) => lane.verdict === "FEASIBLE")).toBe(true);
-    console.log("screenshot:", await shot(page, "plan-routes-move-refused"));
-
-    // And the same refusal through the keyboard's way in, because a drag is never the only way.
-    await rider.getByRole("button", { name: new RegExp(`^Move ${CHAIR_CHILD}`) }).click();
-    await page
-      .getByRole("button", { name: fill(copy.moveTo, { vehicle: targetLabel }), exact: true })
-      .first()
-      .click();
-    await expect(notice).toHaveAttribute("data-refused", "true");
     await expectNoInternalCodes(page);
+    console.log("screenshot:", await shot(page, "plan-routes-move-refused"));
+  });
+
+  /**
+   * The drag, with the mouse, both ways: a move the solver takes and a move it refuses.
+   *
+   * This is the check the screen did not have. The old one dispatched `dragstart` and `drop` by
+   * hand, which passed while a real mouse did nothing at all, because the browser's own
+   * drag-and-drop needs a platform drag session that no synthetic gesture — and no finger — ever
+   * starts. Pointer events have no such session, so what is driven here is the same input a
+   * coordinator's hand produces: press, move, release.
+   */
+  test.describe("with the mouse", () => {
+    // A drag cannot scroll the page, so the row and the van it is dropped on have to be in the
+    // window together, and a lane is tall. The gesture is what is under test here; the layout at
+    // the review's two widths is measured in e2e/screens.spec.ts.
+    test.use({ viewport: { width: 1440, height: 2000 } });
+
+    test("moves a rider into a van that fits, and refuses one that does not", async ({ page }) => {
+      await page.goto("/plan-preview");
+      await plan(page);
+      const notice = page.locator("[data-notice]");
+
+      /* ── refused: the chair's hardware is not in the other van ── */
+      const planned = await lanes(page);
+      const home = planned.find((lane) => lane.riders.includes(CHAIR_CHILD));
+      const other = planned.find((lane) => lane.id !== home?.id);
+      expect(home, `${CHAIR_CHILD} is planned into a van`).toBeDefined();
+      expect(other, "there is a second van to drop her on").toBeDefined();
+      const otherLabel = (
+        await laneTarget(page, other?.id ?? "").innerText()
+      ).split(" ")[0];
+
+      await dragRider(page, CHAIR_CHILD, laneTarget(page, other?.id ?? ""));
+
+      // One line, the child by name, and the one thing that is missing.
+      await expect(notice).toHaveAttribute("data-refused", "true");
+      await expect(notice).toHaveText(
+        new RegExp(`${otherLabel}.*${CHAIR_CHILD}.*${securement.FOUR_POINT_STRAP}`),
+      );
+      // And the assignment did not change at all: a refused drag moves nobody.
+      const afterRefusal = await lanes(page);
+      expect(afterRefusal.find((lane) => lane.id === home?.id)?.riders).toContain(CHAIR_CHILD);
+      expect(afterRefusal.find((lane) => lane.id === other?.id)?.riders).not.toContain(CHAIR_CHILD);
+      expect(afterRefusal.map((lane) => lane.riders)).toEqual(planned.map((lane) => lane.riders));
+      console.log("screenshot:", await shot(page, "plan-routes-mouse-refused"));
+
+      /* ── accepted: a walking rider into the van that still has a seat ── */
+      // Both ends read off the screen rather than assumed: the van whose own line says a seat is
+      // free, and a rider in another van who needs nothing but a seat.
+      const roomy = afterRefusal.find((lane) => {
+        const seats = SEATS.exec(lane.text);
+        return seats ? Number(seats[1]) < Number(seats[2]) : false;
+      });
+      expect(roomy, "a van on this day has a free seat").toBeDefined();
+      const roomyLabel = (await laneTarget(page, roomy?.id ?? "").innerText()).split(" ")[0];
+
+      const donor = afterRefusal.find((lane) => lane.id !== roomy?.id);
+      const walking = await laneOf(page, donor?.id ?? "")
+        .locator("[data-rider]")
+        .evaluateAll((rows) =>
+          rows
+            .filter(
+              (row) =>
+                !/Uses a wheelchair|Needs an anchored seat/.test(row.textContent ?? ""),
+            )
+            .map((row) => row.getAttribute("data-rider") ?? ""),
+        );
+      expect(walking.length, `${donor?.id} has a rider who needs only a seat`).toBeGreaterThan(0);
+      const rider = walking[0];
+
+      await dragRider(page, rider, laneTarget(page, roomy?.id ?? ""));
+
+      await expect(notice).not.toHaveAttribute("data-refused", "true");
+      await expect(notice).toHaveText(fill(copy.moved, { child: rider, vehicle: roomyLabel }));
+      const afterMove = await lanes(page);
+      expect(afterMove.find((lane) => lane.id === roomy?.id)?.riders).toContain(rider);
+      expect(afterMove.find((lane) => lane.id === donor?.id)?.riders).not.toContain(rider);
+      // The screen only ever shows the solver's verdict, so the van that took them still fits.
+      expect(afterMove.find((lane) => lane.id === roomy?.id)?.verdict).toBe("FEASIBLE");
+      await expectEquipmentFits(page);
+      await expectNoInternalCodes(page);
+      console.log("screenshot:", await shot(page, "plan-routes-mouse-moved"));
+    });
   });
 
   test("AT-04: equipment unknown until arrival stops boarding and asks for a person", async ({
@@ -361,6 +504,58 @@ test.describe("Plan routes", () => {
     await expectNoInternalCodes(page);
     await expectVioletOnlyOnDemoChrome(page);
     console.log("screenshot:", await shot(page, "plan-routes-at12-no-van"));
+  });
+
+  /**
+   * The same promise, reached by walking the screen rather than by driving a substitution.
+   *
+   * The scenario's own day places all nine riders, so the group at the top — a child with no van,
+   * the reason, and the options — was only ever reachable by taking a van away in four clicks.
+   * The second demo day is that walk: the convertible van is off the road, the provider sent the
+   * small substitute, and no van left today holds four-point straps. The first day is untouched,
+   * which is what keeps the feasible-plan check above honest.
+   */
+  test("AT-12: the demo day where one child cannot be placed shows the group and a reason", async ({
+    page,
+  }) => {
+    await page.goto("/plan-preview");
+
+    // The day is a choice on the screen, in plain words, and the ordinary day is the default.
+    const ordinary = page.getByRole("button", { name: copy.demoDay.EVERY_RIDER_FITS, exact: true });
+    await expect(ordinary).toHaveAttribute("aria-pressed", "true");
+    await page
+      .getByRole("button", { name: copy.demoDay.ONE_RIDER_HAS_NO_VAN, exact: true })
+      .click();
+    await expect(page.getByText(copy.demoDayNote.ONE_RIDER_HAS_NO_VAN)).toBeVisible();
+    await plan(page);
+
+    // One child, named, with the missing hardware said in words — and everybody else in a van.
+    const group = page.locator("[data-unplaced]");
+    await expect(group).toBeVisible();
+    await expect(group).toContainText(
+      `No van with ${securement.FOUR_POINT_STRAP} for ${CHAIR_CHILD}`,
+    );
+    const rows = await unplacedRows(page);
+    const names = rows.flatMap((line) => [...line.matchAll(/([A-Z][a-z]+ [A-Z]\.)/g)].map((m) => m[1]));
+    expect([...new Set(names)]).toEqual([CHAIR_CHILD]);
+    for (const lane of await lanes(page)) {
+      expect(lane.verdict, lane.id).toBe("FEASIBLE");
+      expect(lane.riders, `${lane.id} carries ${CHAIR_CHILD}`).not.toContain(CHAIR_CHILD);
+    }
+
+    // Nothing is assigned and no family has been told: every way out needs a coordinator.
+    await expect(group.getByText(copy.needsApproval).first()).toBeVisible();
+    await expect(page.getByText(copy.nothingSent)).toBeVisible();
+    await expectEquipmentFits(page);
+    await expectNoInternalCodes(page);
+    console.log("screenshot:", await shot(page, "plan-routes-at12-demo-day"));
+
+    // Back to the ordinary day, and the plan it starts from is dropped rather than carried over.
+    await ordinary.click();
+    expect(await page.locator("[data-unplaced]").count()).toBe(1);
+    for (const lane of await lanes(page)) expect(lane.riders, lane.id).toEqual([]);
+    await plan(page);
+    expect(await page.locator("[data-unplaced]").count()).toBe(0);
   });
 
   test("TEST-SEC-02: no non-BAA call leaves the page, and no routing payload carries a token", async ({

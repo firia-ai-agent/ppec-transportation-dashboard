@@ -68,16 +68,54 @@ export function vehicleByKey(key: string): Vehicle {
   return solverVehicle(vehicle);
 }
 
+/**
+ * The two days the screen can replay.
+ *
+ * `EVERY_RIDER_FITS` is the scenario's own day and what the screen opens on: three vans, nine
+ * riders, and a van for each of them. It is the day the browser check plans and asserts every
+ * child into a van that fits them.
+ *
+ * `ONE_RIDER_HAS_NO_VAN` is the other half of §9, and it exists because the first day never
+ * shows it: with everyone placed, the group at the top of the screen and the reasons in it
+ * (AT-12) are unreachable in a normal walk. Here the convertible van is off the road and the
+ * provider has sent the small substitute in its place, so no van on the day holds a four-point
+ * strap — one child's chair has nowhere to go, for a reason a coordinator can act on, and the
+ * other eight riders still get a van. Nothing about the solver changes between the two: the
+ * second day is the same planner over a different fleet.
+ */
+export const DEMO_DAYS = ["EVERY_RIDER_FITS", "ONE_RIDER_HAS_NO_VAN"] as const;
+export type DemoDay = (typeof DEMO_DAYS)[number];
+
 /** The vans the day plans with: one lane each, in the scenario's own run order. */
 export const LANE_VEHICLE_KEYS: readonly string[] = RUNS.map((run) => run.vehicleKey);
 
+/** The van the convertible's absence is covered with, which is the scenario's own reserve van. */
+const STAND_IN_VEHICLE_KEY = "V3";
+
+/** The van that is off the road on the day one child has no van. */
+const ABSENT_VEHICLE_KEY = "V1";
+
+/** The vans on the road, lane by lane, for one of the two days. */
+export function laneVehicleKeys(day: DemoDay = "EVERY_RIDER_FITS"): readonly string[] {
+  if (day === "EVERY_RIDER_FITS") return LANE_VEHICLE_KEYS;
+  return LANE_VEHICLE_KEYS.map((key) =>
+    key === ABSENT_VEHICLE_KEY ? STAND_IN_VEHICLE_KEY : key,
+  );
+}
+
 /**
  * The vans the day holds in reserve — V3 in the standard scenario, which is there for exactly
- * this: the provider's substitute (PRD l.1328, AT-05).
+ * this: the provider's substitute (PRD l.1328, AT-05). On the day the convertible is off the
+ * road, the reserve is on a lane and the convertible is what a substitution could bring back.
  */
 export const SPARE_VEHICLE_KEYS: readonly string[] = VEHICLES.map((v) => v.key).filter(
   (key) => !LANE_VEHICLE_KEYS.includes(key),
 );
+
+export function spareVehicleKeys(day: DemoDay = "EVERY_RIDER_FITS"): readonly string[] {
+  const onTheRoad = laneVehicleKeys(day);
+  return VEHICLES.map((v) => v.key).filter((key) => !onTheRoad.includes(key));
+}
 
 /* ───────────────────── what the day knows about a van ───────────────────── */
 
@@ -233,8 +271,8 @@ export function asMeasured(rider: PlanRider): PlanRider {
  * because the children planned into it are the same children with the same stops — see
  * `PlanLane` in src/domain/solver/plan.ts.
  */
-export function planLanes(): PlanLane[] {
-  return LANE_VEHICLE_KEYS.map((key) => ({
+export function planLanes(day: DemoDay = "EVERY_RIDER_FITS"): PlanLane[] {
+  return laneVehicleKeys(day).map((key) => ({
     id: key,
     vehicle: vehicleByKey(key),
     capability: reportedByProvider(key),

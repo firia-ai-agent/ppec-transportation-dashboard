@@ -18,12 +18,12 @@
  * src/ui/copy.ts and colours and metrics from the tokens in src/ui/tokens.ts; the DEMO banner
  * and the one source chip come from the root layout, so this page must not mount a second pair.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Ban, Check } from "lucide-react";
 import {
+  DEMO_DAYS,
   PLAN_SERVICE_DATE,
   RELIEF_DRIVERS,
-  SPARE_VEHICLE_KEYS,
   asMeasured,
   askedProvider,
   checkedAtRamp,
@@ -32,9 +32,11 @@ import {
   planLanes,
   planRiders,
   reportedByProvider,
+  spareVehicleKeys,
   substituted,
   unapprovedNeeds,
   vehicleByKey,
+  type DemoDay,
 } from "@/domain/plan/day";
 import {
   canTake,
@@ -65,7 +67,9 @@ import {
   needsADecision,
   reasonLine,
   refusalLine,
+  seatLines,
   setUpAsLine,
+  setUpChangeLine,
   stopLine,
   summaryLine,
   unplacedState,
@@ -95,21 +99,52 @@ type LaneStage = {
  */
 const SERVICE_DATE_LABEL = serviceDateLabel(new Date(`${PLAN_SERVICE_DATE}T12:00:00Z`));
 
-/** The day's lanes as the scenario hands them over, before anything has been planned. */
-const BASE_LANES = planLanes();
-
-function initialStages(): Record<string, LaneStage> {
+function initialStages(day: DemoDay): Record<string, LaneStage> {
   return Object.fromEntries(
-    BASE_LANES.map((lane) => [
+    planLanes(day).map((lane) => [
       lane.id,
       { vehicleKey: lane.vehicle.id, driverName: lane.driverName, arrival: "REPORTED" as const },
     ]),
   );
 }
 
-function emptyAssignment(): Assignment {
-  return Object.fromEntries(BASE_LANES.map((lane) => [lane.id, []]));
+function emptyAssignment(day: DemoDay): Assignment {
+  return Object.fromEntries(planLanes(day).map((lane) => [lane.id, []]));
 }
+
+/** The drop zone that is the group at the top of the screen: in no van at all. */
+const NO_LANE = "none";
+
+/** How far a pointer travels before holding a rider counts as a drag rather than a press. */
+const DRAG_THRESHOLD_PX = 5;
+
+/**
+ * The drop zone under a point, read off the screen itself: a lane id, `null` for the group at the
+ * top, and `undefined` for anywhere that is neither.
+ *
+ * Hit-tested at the pointer rather than tracked with enter and leave events, because the row
+ * being dragged holds the pointer capture for the whole gesture — which is what makes a real
+ * mouse work at all — and a captured pointer sends no events to what it is over.
+ */
+function dropZoneAt(x: number, y: number): string | null | undefined {
+  const zone = document.elementFromPoint(x, y)?.closest("[data-drop-zone]");
+  const id = zone?.getAttribute("data-drop-zone");
+  if (id === undefined || id === null) return undefined;
+  return id === NO_LANE ? null : id;
+}
+
+/** A rider held by the pointer, from the press that picked them up to the release that drops them. */
+type Gesture = {
+  pointerId: number;
+  childToken: string;
+  childName: string;
+  /** The lane they were in when they were picked up, so a drop back into it is not a move. */
+  from: string | null;
+  x: number;
+  y: number;
+  /** True once the pointer has travelled far enough for this to be a drag. */
+  dragging: boolean;
+};
 
 function capabilityOf(stage: LaneStage): DailyCapability {
   switch (stage.arrival) {
@@ -147,15 +182,31 @@ function Button({
 }
 
 export default function PlanRoutes() {
+  const [day, setDay] = useState<DemoDay>("EVERY_RIDER_FITS");
   const [direction, setDirection] = useState<Direction>("AM");
-  const [stages, setStages] = useState<Record<string, LaneStage>>(initialStages);
-  const [assignment, setAssignment] = useState<Assignment>(emptyAssignment);
+  const [stages, setStages] = useState<Record<string, LaneStage>>(() =>
+    initialStages("EVERY_RIDER_FITS"),
+  );
+  const [assignment, setAssignment] = useState<Assignment>(() =>
+    emptyAssignment("EVERY_RIDER_FITS"),
+  );
   /** Children whose chair the ramp has measured, which is AT-04's whole lever. */
   const [measured, setMeasured] = useState<readonly string[]>([]);
   const [moving, setMoving] = useState<string | null>(null);
   const [substituting, setSubstituting] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
+  /** The rider the pointer is holding, so their row can show that it has been picked up. */
+  const [held, setHeld] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; refused: boolean } | null>(null);
+  /**
+   * The gesture in progress. A ref and not state: it is read and written inside the pointer
+   * handlers between renders, and a drag that waited for a render to know where it started
+   * would drop the first few millimetres of every move.
+   */
+  const gesture = useRef<Gesture | null>(null);
+
+  /** The day's vans before anything has been reported, planned or substituted. */
+  const baseLanes = useMemo(() => planLanes(day), [day]);
 
   const riders = useMemo<PlanRider[]>(
     () =>
@@ -167,8 +218,11 @@ export default function PlanRoutes() {
 
   const lanes = useMemo<PlanLane[]>(
     () =>
-      BASE_LANES.map((lane) => {
+      baseLanes.map((lane) => {
         const stage = stages[lane.id];
+        // The day was just switched: its own stages arrive in the same render, and until they
+        // do the lane is exactly what the scenario hands over.
+        if (!stage) return lane;
         return {
           id: lane.id,
           vehicle: vehicleByKey(stage.vehicleKey),
@@ -176,7 +230,7 @@ export default function PlanRoutes() {
           driverName: stage.driverName,
         };
       }),
-    [stages],
+    [baseLanes, stages],
   );
 
   const input: PlanInput = useMemo(
@@ -201,8 +255,24 @@ export default function PlanRoutes() {
     // A plan belongs to one run: the morning's lanes are not the afternoon's, and carrying the
     // assignment across would show a plan nobody made for the run on screen.
     setDirection(next);
-    setAssignment(emptyAssignment());
+    setAssignment(emptyAssignment(day));
     setMoving(null);
+    setNotice(null);
+  };
+
+  /**
+   * Switch which day the screen replays. A different fleet is a different plan, so everything
+   * the first day collected — the assignment, what each lane was reported as, the chair the ramp
+   * measured — is dropped rather than carried onto vans it was never about.
+   */
+  const chooseDay = (next: DemoDay) => {
+    if (next === day) return;
+    setDay(next);
+    setStages(initialStages(next));
+    setAssignment(emptyAssignment(next));
+    setMeasured([]);
+    setMoving(null);
+    setSubstituting(null);
     setNotice(null);
   };
 
@@ -319,19 +389,98 @@ export default function PlanRoutes() {
 
   /* ───────────────────────── the pieces of the screen ───────────────────────── */
 
-  /** A lane, or the group at the top, as somewhere a dragged rider can be dropped. */
+  /**
+   * A lane, or the group at the top, as somewhere a held rider can be let go.
+   *
+   * The zone is only marked, never wired: `dropZoneAt` finds it under the pointer, so a zone
+   * needs no handlers of its own and cannot be missed because a child element swallowed an
+   * event.
+   */
   const dropZone = (laneId: string | null) => ({
-    "data-over": over === (laneId ?? "none") ? "true" : undefined,
-    onDragOver: (event: React.DragEvent) => {
-      event.preventDefault();
-      setOver(laneId ?? "none");
+    "data-drop-zone": laneId ?? NO_LANE,
+    "data-over": over === (laneId ?? NO_LANE) ? "true" : undefined,
+  });
+
+  /* ───────────────────────────── picking a rider up ───────────────────────────── */
+
+  /**
+   * Dragging a rider with a real pointer: mouse, trackpad, pen or finger.
+   *
+   * Not the browser's own drag-and-drop. That needs the platform to start a drag session, which
+   * it does for a mouse on a desktop and does not do for a touch, for a synthetic gesture, or in
+   * a headless browser — so the screen shipped with a drag that worked in exactly none of the
+   * ways it was tried, and said nothing when it failed. Pointer events are the same three facts
+   * (down, move, up) with no platform session in the middle: the row captures the pointer on the
+   * way down, so every move reaches it however far the pointer travels, and the zone under the
+   * pointer is hit-tested on release. A browser check can drive it with the mouse, and so can a
+   * finger on the iPad.
+   *
+   * `Move` beside every rider does the same thing with no pointer at all (§9), and it stays.
+   */
+  const dragHandlers = (rider: PlanRider, laneId: string | null) => ({
+    onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
+      // Secondary buttons belong to the browser's own menu, and a button inside the row is a
+      // button: Measure and Move are pressed, not dragged.
+      if (event.button !== 0) return;
+      if (event.target instanceof Element && event.target.closest("button")) return;
+      gesture.current = {
+        pointerId: event.pointerId,
+        childToken: rider.child.token,
+        childName: rider.child.displayName,
+        from: laneId,
+        x: event.clientX,
+        y: event.clientY,
+        dragging: false,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
     },
-    onDragLeave: () => setOver(null),
-    onDrop: (event: React.DragEvent) => {
-      event.preventDefault();
+    onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => {
+      const current = gesture.current;
+      if (!current || current.pointerId !== event.pointerId) return;
+      if (!current.dragging) {
+        const far =
+          Math.abs(event.clientX - current.x) >= DRAG_THRESHOLD_PX ||
+          Math.abs(event.clientY - current.y) >= DRAG_THRESHOLD_PX;
+        if (!far) return;
+        current.dragging = true;
+        setHeld(current.childToken);
+        setMoving(null);
+        setNotice({
+          text: fill(planRoutes.dragging, { child: current.childName }),
+          refused: false,
+        });
+      }
+      const zone = dropZoneAt(event.clientX, event.clientY);
+      setOver(zone === undefined ? null : (zone ?? NO_LANE));
+    },
+    onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => {
+      const current = gesture.current;
+      gesture.current = null;
+      if (!current || current.pointerId !== event.pointerId) return;
+      setHeld(null);
       setOver(null);
-      const token = event.dataTransfer.getData("text/plain");
-      if (token) move(token, laneId);
+      // A press that never travelled is not a drag, and claims nothing happened.
+      if (!current.dragging) return;
+      const zone = dropZoneAt(event.clientX, event.clientY);
+      if (zone === undefined) {
+        setNotice({
+          text: fill(planRoutes.dragNowhere, { child: current.childName }),
+          refused: false,
+        });
+        return;
+      }
+      // Let go over the van they are already in: nothing to say, and nothing to re-solve.
+      if (zone === current.from) {
+        setNotice(null);
+        return;
+      }
+      move(current.childToken, zone);
+    },
+    onPointerCancel: () => {
+      gesture.current = null;
+      setHeld(null);
+      setOver(null);
+      setNotice(null);
     },
   });
 
@@ -432,8 +581,8 @@ export default function PlanRoutes() {
       key={rider.child.token}
       className={styles.draggable}
       data-rider={rider.child.displayName}
-      draggable
-      onDragStart={(event) => event.dataTransfer.setData("text/plain", rider.child.token)}
+      data-held={held === rider.child.token ? "true" : undefined}
+      {...dragHandlers(rider, laneId)}
     >
       {riderBody(rider, laneId)}
     </div>
@@ -444,8 +593,8 @@ export default function PlanRoutes() {
     const stage = stages[lane.id];
     const headingId = `lane-${lane.id}`;
     const state = laneState(lanePlan);
-    const spares = SPARE_VEHICLE_KEYS.filter((key) => key !== stage.vehicleKey);
-    const laneIndex = BASE_LANES.findIndex((l) => l.id === lane.id);
+    const spares = spareVehicleKeys(day).filter((key) => key !== stage.vehicleKey);
+    const laneIndex = baseLanes.findIndex((l) => l.id === lane.id);
     const lastStop = lanePlan.leg.stops.length;
 
     return (
@@ -473,6 +622,10 @@ export default function PlanRoutes() {
           })}
         </p>
         <p className={styles.meta}>{setUpAsLine(lanePlan.layout)}</p>
+        {/* Why that line is not the same line all day on a van that can be re-seated. */}
+        {setUpChangeLine(lanePlan) ? (
+          <p className={styles.note}>{setUpChangeLine(lanePlan)}</p>
+        ) : null}
         <ul className={styles.chips} aria-label={planRoutes.equipmentHeading}>
           {equipmentChips(lane.vehicle, lanePlan.layout, lane.capability, {
             wc: seats.wcAvailable,
@@ -485,18 +638,11 @@ export default function PlanRoutes() {
           ))}
         </ul>
         <ul className={styles.chips}>
-          <li className={styles.chip}>
-            {fill(planRoutes.seatsWc, { used: seats.wcUsed, available: seats.wcAvailable })}
-          </li>
-          <li className={styles.chip}>
-            {fill(planRoutes.seatsAmb, { used: seats.ambUsed, available: seats.ambAvailable })}
-          </li>
-          <li className={styles.chip}>
-            {fill(planRoutes.seatsTether, {
-              used: seats.tetherUsed,
-              available: seats.tetherAvailable,
-            })}
-          </li>
+          {seatLines(seats).map((line) => (
+            <li key={line} className={styles.chip}>
+              {line}
+            </li>
+          ))}
         </ul>
         {laneLines(lanePlan).map((line, index) => (
           <p key={index} className={styles.laneLine} data-tone={state.tone}>
@@ -625,6 +771,23 @@ export default function PlanRoutes() {
             })}
           </span>
         </div>
+        {/*
+          Which day the scenario replays. Two, because one of them never shows the group at the
+          top of the screen: on the ordinary day every child gets a van, so the reasons a child
+          has none — and the fact that no family has been told anything — can only be read on a
+          day where one child's equipment has no van to hold it.
+        */}
+        <div className={styles.actionRow} role="group" aria-label={planRoutes.demoDayLegend}>
+          {DEMO_DAYS.map((value) => (
+            <Button
+              key={value}
+              label={planRoutes.demoDay[value]}
+              pressed={day === value}
+              onClick={() => chooseDay(value)}
+            />
+          ))}
+        </div>
+        <p className={styles.note}>{planRoutes.demoDayNote[day]}</p>
         <div className={styles.actionRow} role="group" aria-label={planRoutes.directionLegend}>
           {(["AM", "PM"] as const).map((value) => (
             <Button

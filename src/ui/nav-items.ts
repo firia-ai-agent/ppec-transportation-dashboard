@@ -1,7 +1,7 @@
-import { Activity, Flag, LayoutDashboard, Settings, type LucideIcon } from "lucide-react";
+import { Activity, Flag, LayoutDashboard, Route, Settings, type LucideIcon } from "lucide-react";
 import { canOpenPage } from "@/auth/access";
 import type { StaffRole } from "@/auth/core";
-import { nav } from "./copy";
+import { nav, planRoutes } from "./copy";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon };
 
@@ -19,10 +19,19 @@ export type NavItem = { href: string; label: string; icon: LucideIcon };
  *    person to pick up), not `octagon-alert`, which is the EXCEPTION and severity-RED state
  *    icon. `flag` carries no §3 or §7.1 meaning, so the rail cannot read as a live alert.
  *  - Setup uses `settings`, Health & ROI uses `activity`; neither appears in §3 or §7.1.
+ *  - Plan routes uses `route`. Not `map`, `map-pin` or `navigation`: §3 and §7.1 give all three a
+ *    meaning about *where a van is now*, and planning is about which van a child rides in.
  * nav-items.test.ts fails if any nav icon collides with a state or source-mode icon.
+ *
+ * Plan routes is the fifth destination and not one of §2's four, because it is the planning
+ * surface staff reach before the board has anything on it (B-09 VEH-01…05) — it was reachable
+ * only by typing the URL or through the map preview, which is not a way anybody finds a screen.
+ * Its label is the heading of the screen itself rather than a second string in `nav`, so the
+ * rail and the page cannot drift apart.
  */
 export const navItems: readonly NavItem[] = [
   { href: "/today", label: nav.today, icon: LayoutDashboard },
+  { href: "/plan-preview", label: planRoutes.heading, icon: Route },
   { href: "/exceptions", label: nav.exceptions, icon: Flag },
   { href: "/setup", label: nav.setup, icon: Settings },
   { href: "/health", label: nav.health, icon: Activity },

@@ -697,6 +697,12 @@ export const countable = {
   anchoredSeat: { one: "anchored seat", many: "anchored seats" },
   /** The plain seat count on a layout button: "6 seats", "1 seat". */
   seat: { one: "seat", many: "seats" },
+  /**
+   * A place for a chair, as a lane counts them. "Wheelchair position" is the words the ramp
+   * check uses about a *deficit*; a lane says "place", which is the word the equipment chip
+   * beside it already uses ("Wheelchair place · L-track").
+   */
+  wcPlace: { one: "wheelchair place", many: "wheelchair places" },
 } as const;
 
 /** "1 wheelchair" / "2 wheelchairs" — a count never reaches the screen without its noun. */
@@ -985,6 +991,24 @@ export const planRoutes = {
   /** The one primary action on the screen. */
   plan: "Plan routes",
   planAgain: "Plan routes again",
+  /* ── which day the demo replays ── */
+  /**
+   * The click-through needs both halves of the §9 story on one screen: the ordinary day where
+   * every child gets a van, and the day one child's equipment has no van to hold it, which is
+   * where the group at the top and the reasons in it are read. So the day is a choice, in
+   * plain words, and the ordinary one is what the screen opens on.
+   */
+  demoDayLegend: "Which day?",
+  demoDay: {
+    EVERY_RIDER_FITS: "A day everyone fits",
+    ONE_RIDER_HAS_NO_VAN: "A day one child has no van",
+  },
+  demoDayNote: {
+    EVERY_RIDER_FITS:
+      "Three vans on the road today: the convertible van, the centre van and the sedan.",
+    ONE_RIDER_HAS_NO_VAN:
+      "The convertible van is off the road, and the provider sent the small substitute instead. No van left today holds four-point straps.",
+  },
   /** Said where the plan is read, like the ramp check's own line: this surface sends nothing. */
   localOnly: "Nothing here is sent. A coordinator approves a plan before anyone is told.",
   /** The family hears nothing until staff have chosen, said out loud while anyone has no van. */
@@ -1004,14 +1028,37 @@ export const planRoutes = {
     wcPlace: "Wheelchair place · {securement} · fits {length} × {width} cm",
   },
   /**
-   * Places needed against places the van has today, said in both halves rather than as "3 of 1":
-   * a lane can be asked for more than it has — that is what an infeasible run *is* — and "of"
-   * reads as a typo the moment the first number is the larger one.
+   * Used of available, in that order (Vera's review, 2026-10-17): "3 of 6 seats used" is the
+   * sentence a coordinator says out loud about a van, and it answers "how full is it" in one
+   * read. It replaced "Seats: 3 needed, 6 free", which asked the reader to subtract.
+   *
+   * A lane can still be asked for more than it has — that is what an infeasible run *is* — and
+   * "4 of 3 seats used" would read as a typo, so `seatsOver` says the quiet part out loud rather
+   * than leaving the two numbers to argue. `lanes.ts` chooses between them.
+   *
+   * One template for all three counts, with the places carrying their own noun through
+   * `pluralize` (`countable.wcPlace`, `seat`, `anchoredSeat`): "1 of 1 wheelchair place used"
+   * rather than a plural over a count of one.
    */
-  seatsWc: "Wheelchair places: {used} needed, {available} free",
-  seatsAmb: "Seats: {used} needed, {available} free",
-  seatsTether: "Anchored seats: {used} needed, {available} free",
+  seatsUsed: "{used} of {places} used",
+  seatsOver: "{line} · more than this van has",
   setUpAs: "Set up as {layout}",
+  /**
+   * Why the line above is not the same line all day on a van that can be re-seated.
+   *
+   * A convertible van has several configurations (V1 is built as 6 seats, as 1 wheelchair place
+   * and 3 seats, or as 2 wheelchair places and 1 seat), and planning *chooses* one — so the
+   * setup line on an empty lane changes the moment Plan routes runs, which reads like the screen
+   * contradicting itself unless it says why. Vans with one configuration say none of this.
+   */
+  setUpChanges: {
+    /** Nobody is in it yet, so the setup on screen is only the first one it is built with. */
+    BEFORE: "This van can be set up more than one way. Plan routes picks the setup that fits the riders, so this line can change.",
+    /** The solver chose this configuration for these riders. */
+    PLANNED: "This van can be set up more than one way. Planning chose this setup because it fits the riders in it.",
+    /** Pinned by somebody who saw the van, which outranks any configuration planning would pick. */
+    SEEN: "This van can be set up more than one way. This is the setup it arrived in, so planning keeps it.",
+  },
 
   stopsHeading: "Stops, in order",
   /** "Okeeheelee Park · 6:50 AM" — the place, then the window it is planned for. */
@@ -1029,6 +1076,10 @@ export const planRoutes = {
 
   /* ── moving a child between vans ── */
   dragHint: "Drag a rider to another van, or use Move.",
+  /** While a rider is held: said in the same line the answer lands in, so one place is read. */
+  dragging: "Holding {child}. Let go over a van to put them in it.",
+  /** Let go of a rider over nothing in particular. Nothing moved, and the line says so. */
+  dragNowhere: "{child} stayed where they were: that was not a van.",
   move: "Move {child}",
   moveHeading: "Which van for {child}?",
   moveTo: "Move to {vehicle}",

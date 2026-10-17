@@ -2,7 +2,16 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { pageOutcome } from "@/auth/access";
-import { notCheckedYet, planLanes, planRiders, reportedByProvider, vehicleByKey, asMeasured } from "@/domain/plan/day";
+import {
+  asMeasured,
+  checkedAtRamp,
+  notCheckedYet,
+  planLanes,
+  planRiders,
+  reportedByProvider,
+  spareVehicleKeys,
+  vehicleByKey,
+} from "@/domain/plan/day";
 import { planAssignment, planRoutes, routePlan, type PlanInput, type RoutePlan } from "@/domain/solver";
 import { places, planRoutes as copy, securement } from "@/ui/copy";
 import { capabilityStates, reservationStates } from "@/ui/states";
@@ -14,7 +23,9 @@ import {
   needsADecision,
   reasonLine,
   refusalLine,
+  seatLines,
   setUpAsLine,
+  setUpChangeLine,
   stopLine,
   summaryLine,
   unplacedState,
@@ -98,6 +109,23 @@ describe("the screen's own rules", () => {
     expect(screen).toMatch(/draggable/);
     expect(screen).toMatch(/const moveMenu = /);
     expect(screen).toMatch(/planRoutes\.moveTo/);
+  });
+
+  /**
+   * The drag is pointer events and not the browser's own drag-and-drop, which is the whole
+   * reason a real mouse now moves a child: a platform drag session never starts for a touch, a
+   * synthetic gesture or a headless browser, so the old `dragstart` / `drop` pair worked in
+   * none of the ways the screen was actually tried. e2e/plan-routes.spec.ts drives the real
+   * thing with `page.mouse`; this is the assertion that the mechanism cannot quietly go back.
+   */
+  it("moves a child with pointer events, so a real mouse and a finger both work", () => {
+    for (const handler of ["onPointerDown", "onPointerMove", "onPointerUp", "onPointerCancel"]) {
+      expect(screen, handler).toContain(handler);
+    }
+    expect(screen).toMatch(/setPointerCapture/);
+    expect(screen).not.toMatch(/onDragStart|onDragOver|onDrop\b|dataTransfer/);
+    // A finger's first millimetres belong to the row, not to the scroller.
+    expect(css).toMatch(/\.draggable \{[^}]*touch-action: none/);
   });
 
   it("says what happened in a line that keeps its height, so a refusal pushes nothing down", () => {
@@ -188,6 +216,117 @@ describe("the words a lane says", () => {
   it("writes a stop as the place and the time, in words a person says out loud", () => {
     const rider = planRiders("AM").find((r) => r.child.token === "C2");
     expect(stopLine(rider!)).toBe("Okeeheelee Park · 6:50 AM");
+  });
+
+  /**
+   * Vera's review, 2026-10-17: a lane says how full it is as "3 of 6 seats used", used first.
+   * The line it replaced ("Seats: 3 needed, 6 free") asked the reader to subtract to find out
+   * whether anybody else could get on.
+   */
+  it("counts places as used of available, with the noun on the count", () => {
+    expect(
+      seatLines({
+        wcUsed: 1,
+        wcAvailable: 1,
+        ambUsed: 3,
+        ambAvailable: 6,
+        tetherUsed: 0,
+        tetherAvailable: 2,
+      }),
+    ).toEqual([
+      "1 of 1 wheelchair place used",
+      "3 of 6 seats used",
+      "0 of 2 anchored seats used",
+    ]);
+  });
+
+  it("says in words when a run asks for more places than the van has", () => {
+    const seats = {
+      wcUsed: 2,
+      wcAvailable: 1,
+      ambUsed: 4,
+      ambAvailable: 3,
+      tetherUsed: 1,
+      tetherAvailable: 1,
+    };
+    expect(seatLines(seats)[0]).toBe("2 of 1 wheelchair place used · more than this van has");
+    expect(seatLines(seats)[1]).toBe("4 of 3 seats used · more than this van has");
+    // Not over: the equal case is a full van, which is not a fault and says nothing extra.
+    expect(seatLines(seats)[2]).toBe("1 of 1 anchored seat used");
+  });
+
+  /**
+   * A convertible van's setup line changes between renders, because planning chooses the
+   * configuration — so the lane says why, in words, rather than appearing to contradict itself.
+   */
+  it("explains a convertible van's setup line, and says nothing on a van with one setup", () => {
+    const empty = routePlan(inputFor(), {});
+    const convertible = laneIn(empty, "V1");
+    expect(setUpChangeLine(convertible)).toBe(copy.setUpChanges.BEFORE);
+    // The sedan is built one way: there is nothing to explain, and no line is added.
+    expect(setUpChangeLine(laneIn(empty, "V4"))).toBeNull();
+
+    const planned = planRoutes(inputFor());
+    expect(setUpChangeLine(laneIn(planned, "V1"))).toBe(copy.setUpChanges.PLANNED);
+    // Once somebody has seen the van, the configuration is the one that arrived (ASM-17).
+    const seen = planLanes().map((lane) =>
+      lane.id === "V1"
+        ? { ...lane, capability: checkedAtRamp(lane.vehicle.id, lane.vehicle.layouts[1].id, "Dana K.") }
+        : lane,
+    );
+    const atRamp = routePlan(inputFor(seen), planAssignment(inputFor(seen)));
+    expect(setUpChangeLine(laneIn(atRamp, "V1"))).toBe(copy.setUpChanges.SEEN);
+    // Plain words about the van, never the provider's shorthand for a configuration.
+    for (const line of Object.values(copy.setUpChanges)) expect(line).not.toMatch(/\d+WC\/\d+A/);
+  });
+});
+
+/**
+ * The second demo day (AT-12).
+ *
+ * The scenario's own day places all nine riders, which is the right default and means the group
+ * at the top of the screen — a child with no van, the reason, and the options a coordinator
+ * chooses between — is never reached by walking the screen. The second day is that walk: the
+ * convertible van is off the road, the provider sent the small substitute, and no van left today
+ * holds a four-point strap.
+ */
+describe("the day one child has no van", () => {
+  const hard = () => inputFor(planLanes("ONE_RIDER_HAS_NO_VAN"), planRiders("AM"));
+
+  it("still runs three lanes, with the substitute in the convertible's place", () => {
+    expect(planLanes("ONE_RIDER_HAS_NO_VAN").map((lane) => lane.vehicle.label)).toEqual([
+      "V3",
+      "V2",
+      "V4",
+    ]);
+    // The first day is untouched, which is what keeps the feasible-plan check honest.
+    expect(planLanes().map((lane) => lane.vehicle.label)).toEqual(["V1", "V2", "V4"]);
+  });
+
+  it("leaves exactly one child out, for a reason that names her and the missing hardware", () => {
+    for (const direction of ["AM", "PM"] as const) {
+      const input = inputFor(planLanes("ONE_RIDER_HAS_NO_VAN"), planRiders(direction));
+      const plan = planRoutes({ ...input, direction });
+      expect(plan.unplaced.map((u) => u.rider.child.displayName), direction).toEqual(["Zoe B."]);
+      const [zoe] = plan.unplaced;
+      expect(reasonLine(zoe, ""), direction).toBe("No van with four-point straps for Zoe B.");
+      // Every other rider is in a van, and every lane the solver called a fit.
+      const placed = plan.lanes.flatMap((lane) => lane.riders.length);
+      expect(placed.reduce((a, b) => a + b, 0), direction).toBe(planRiders(direction).length - 1);
+      for (const lane of plan.lanes) expect(lane.verdict.status, lane.lane.id).toBe("FEASIBLE");
+    }
+  });
+
+  it("asks for a human, and has the convertible van to offer as a substitution", () => {
+    const plan = planRoutes(hard());
+    expect(needsADecision(plan.lanes, plan.unplaced)).toBe(true);
+    // Every way out is a proposal: nothing is assigned, and no family has been told (AT-12).
+    expect(plan.unplaced[0].options.length).toBeGreaterThan(0);
+    expect(plan.unplaced[0].options.every((option) => option.requiresApproval)).toBe(true);
+    // The van that fits her chair is the one that is off the road, so it is what a substitution
+    // can bring back — and the lanes' own vans are never offered as their own replacement.
+    expect(spareVehicleKeys("ONE_RIDER_HAS_NO_VAN")).toEqual(["V1"]);
+    expect(spareVehicleKeys()).toEqual(["V3"]);
   });
 });
 
