@@ -6,7 +6,7 @@
  * LOC-01/02/03, MOCKS-AND-DEMO §5 (fault buttons) and §6.2 (the scenario clock).
  *
  * Each run is a {@link ReplaySpec}: a committed fixture route, a seed and a fault list.
- * `runReplay` turns one into a whole deterministic run, so the preview page and the
+ * `runReplay` turns one into a whole deterministic run, so the live map and the
  * tests watch exactly the same trucks. Nothing here is sent anywhere and nothing is
  * written to a database.
  */
@@ -80,7 +80,7 @@ export const RUN_JITTER: ReplaySpec = {
  *
  * V4's own device on V4's own run (route1 is R3's morning), because that is what the board is
  * reading when it says this van has no position: not a van that is somewhere else, a van whose
- * device is not linked to it (ADR-013). The preview proves it by counting the points in words
+ * device is not linked to it (ADR-013). The live map proves it by counting the points in words
  * instead of drawing a truck.
  */
 export const RUN_UNBOUND: ReplaySpec = {
@@ -97,7 +97,7 @@ export interface DemoRun {
 }
 
 /**
- * The runs the preview draws. `faultLabel` is the only one of these fields that reaches a
+ * The runs the live map draws. `faultLabel` is the only one of these fields that reaches a
  * screen, so it is written the way the rest of the UI is written (COPY-GUIDE §1-§2): what was
  * injected, in plain words. The PRD step and acceptance test each run exists for stay in the
  * comments above their specs, where they are a note to the next engineer rather than something
@@ -111,11 +111,11 @@ export const DEMO_RUNS: DemoRun[] = [
 ];
 
 /**
- * Longest run in the set, in simulated seconds — the preview clock's loop length.
+ * Longest run in the set, in simulated seconds — the live map's scenario-clock loop length.
  *
  * It grew with the geometry: the tracks are the scenario's own runs now, and R1's morning
  * (route2, the stall) is a ≈32 km run across half the county rather than the 10 km the older
  * fixture drove. replays.test.ts holds the loop from both sides — long enough that every run
- * reaches its last stop on screen, and not so long that the preview sits on parked trucks.
+ * reaches its last stop on screen, and not so long that the live map sits on parked trucks.
  */
 export const DEMO_RUN_SECONDS = 4620;

@@ -59,9 +59,9 @@ MapLibre GL + **OpenFreeMap vector tiles**, `positron` base style restyled per [
 
 The tile worker MapLibre decodes vector tiles in is copied out of `node_modules` into `public/` by `scripts/copy-maplibre-worker.mjs`, which `pnpm dev` and `pnpm build` run first. Without it the bundler's guess at the worker URL 404s and the pane draws an empty canvas.
 
-Walk the pane at `/map-preview` — no database, synthetic fixtures only (`src/fixtures/map.ts`). It is **behind staff sign-in**, and the signed-in role decides what it draws: the role × data matrix is `src/domain/access/map-view.ts`, which also holds the test-only synthetic session the browser check uses (a role and nothing else; refused outright whenever `VERCEL_ENV` is set, so no deployment can be opened with it).
+Walk the pane at `/live-map` — no database, synthetic fixtures only (`src/fixtures/map.ts`). It is **behind staff sign-in**, and the signed-in role decides what it draws: the role × data matrix is `src/domain/access/map-view.ts`, which also holds the test-only synthetic session the browser check uses (a role and nothing else; refused outright whenever `VERCEL_ENV` is set, so no deployment can be opened with it).
 ```
-APP_DATA_CLASS=SYNTHETIC DEMO_MODE=1 pnpm dev   # then sign in and open http://localhost:3000/map-preview
+APP_DATA_CLASS=SYNTHETIC DEMO_MODE=1 pnpm dev   # then sign in and open http://localhost:3000/live-map
 ```
 
 ### Browser check
@@ -72,7 +72,20 @@ APP_DATA_CLASS=SYNTHETIC DEMO_MODE=1 pnpm dev   # then sign in and open http://l
 pnpm e2e                                 # the full set: builds, starts the app, writes artifacts/*.png
 pnpm e2e e2e/today-board.spec.ts         # just the board's: today-board / arrival-not-handoff / held-no-receiver /
                                          # one-date / drawer / disabled-action / needs-action, each at 1024 and 1280
-pnpm e2e e2e/screens.spec.ts             # today-* / map-preview-* / ramp-preview-* at both review widths
-pnpm e2e e2e/map-preview.spec.ts         # artifacts/map-preview.png
+pnpm e2e e2e/screens.spec.ts             # today-* / live-map-* / ramp-ipad-* at both review widths
+pnpm e2e e2e/live-map.spec.ts            # artifacts/live-map.png
+pnpm e2e e2e/nav-rail.spec.ts            # the rail a role gets, read off the page: nav-rail-<role>.png
+pnpm e2e e2e/moved-addresses.spec.ts     # /plan-preview, /map-preview, /ramp-preview still 308 to the screens
 ```
+
+**The rail on a deployment.** `e2e/deployed-rail.spec.ts` is the one spec that does not use the
+local server: it signs in to a real deployment as the seeded demo director and reads the rendered
+rail. It skips unless you name the deployment, because the test-only synthetic session above is
+refused on every deployment, and a session a deployment refuses cannot measure what a deployment
+shows:
+```
+E2E_DEPLOYED_URL=https://<the-preview-or-prod-url> pnpm e2e e2e/deployed-rail.spec.ts
+```
+It prints the commit the deployment reports (`/api/health`), so a failure says which build it
+measured — the four-item rail in the founder's screenshot was a build, not a bug.
 Each screenshot's name is in the `console.log("screenshot:", …)` line of the test that takes it, and `artifacts/` is wiped by nothing — a stale PNG is one no spec writes any more, so regenerate into an empty directory (`rm -rf artifacts && pnpm e2e`) when the set itself is under review. That also clears the other evidence kept there, `artifacts/at-10-mutation.txt`, which is a separate run (docs/ui/B12-SLICE2-DEFERRED.md §6). The board's checks read the finished day through the test-only date override (`E2E_DATE_OVERRIDE=1`, set by `playwright.config.ts`; `src/domain/board/day.ts`), which no deployment has.
