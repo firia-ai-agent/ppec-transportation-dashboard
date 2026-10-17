@@ -32,7 +32,7 @@
 import { demoDay, type ServiceDay } from "@/domain/board/day";
 import { measuredRunRoute, plannedStops } from "@/domain/board/scenario";
 import { runReplay, type ReplayResult, type ReplaySpec } from "@/domain/eta/replay";
-import type { NotificationDecision } from "@/domain/eta/notify-gate";
+import type { NotificationDecision, NotifyThresholds } from "@/domain/eta/notify-gate";
 import type { SimFault } from "@/domain/location/simulator";
 import { runRoute } from "@/fixtures/run-routes";
 import {
@@ -46,10 +46,9 @@ import {
 } from "@/modules/demo/fixtures/standard";
 import {
   etaNoticeTemplate,
+  etaNoticeThresholds,
   etaNoticeVars,
   lateMinutesFor,
-  loadEtaNoticeConfig,
-  notifyThresholds,
   type DueEtaNotice,
 } from "@/modules/messaging/eta-notice";
 import { renderTemplate } from "@/modules/messaging/templates";
@@ -87,7 +86,7 @@ export const LATE_RUN_FAULT: SimFault = { kind: "stall", atSimSeconds: 1200, dur
  */
 export function lateDropoffSpec(
   day: ServiceDay,
-  env: Record<string, string | undefined> = process.env,
+  thresholds: NotifyThresholds = etaNoticeThresholds(),
 ): ReplaySpec {
   const run = runOf(LATE_RUN_KEY);
   const planned = plannedStops(run, LATE_DIRECTION, day);
@@ -98,8 +97,8 @@ export function lateDropoffSpec(
     startAtMs: departure,
     seed: LATE_RUN_SEED,
     faults: [LATE_RUN_FAULT],
-    // The deployment's own threshold, read at the edge and handed in (the replay stays pure).
-    thresholds: notifyThresholds(loadEtaNoticeConfig(env)),
+    // The §8 table's thresholds, handed in rather than read here (the replay stays pure).
+    thresholds,
   };
 }
 
@@ -112,9 +111,9 @@ const replayCache = new Map<string, ReplayResult>();
  */
 export function lateDropoffReplay(
   day: ServiceDay = demoDay(),
-  env: Record<string, string | undefined> = process.env,
+  thresholds: NotifyThresholds = etaNoticeThresholds(),
 ): ReplayResult {
-  const spec = lateDropoffSpec(day, env);
+  const spec = lateDropoffSpec(day, thresholds);
   const key = `${day.iso}/${LATE_RUN_KEY}/${LATE_DIRECTION}/${spec.thresholds?.shiftSeconds ?? "default"}`;
   const cached = replayCache.get(key);
   if (cached) return cached;
@@ -170,12 +169,12 @@ export type LateDropoff = {
  */
 export function demoLateDropoffs(
   day: ServiceDay = demoDay(),
-  env: Record<string, string | undefined> = process.env,
+  thresholds: NotifyThresholds = etaNoticeThresholds(),
 ): readonly LateDropoff[] {
   const run = runOf(LATE_RUN_KEY);
   const vehicle = VEHICLES.find((v) => v.key === run.vehicleKey);
   const provider = PROVIDERS.find((p) => p.key === vehicle?.providerKey);
-  const replay = lateDropoffReplay(day, env);
+  const replay = lateDropoffReplay(day, thresholds);
 
   return replay.notifications.flatMap((decision): LateDropoff[] => {
     const child = riderAt(decision.stopId);
@@ -215,9 +214,9 @@ export function demoLateDropoffs(
  */
 export function dueEtaNotices(
   day: ServiceDay = demoDay(),
-  env: Record<string, string | undefined> = process.env,
+  thresholds: NotifyThresholds = etaNoticeThresholds(),
 ): readonly DueEtaNotice[] {
-  const replay = lateDropoffReplay(day, env);
+  const replay = lateDropoffReplay(day, thresholds);
   return replay.notifications.flatMap((decision): DueEtaNotice[] => {
     const child = riderAt(decision.stopId);
     if (!child) return [];
@@ -234,9 +233,9 @@ export function dueEtaNotices(
 export function demoLateDropoffFor(
   childKey: string,
   day: ServiceDay = demoDay(),
-  env: Record<string, string | undefined> = process.env,
+  thresholds: NotifyThresholds = etaNoticeThresholds(),
 ): LateDropoff | undefined {
-  return demoLateDropoffs(day, env).find((d) => d.childKey === childKey);
+  return demoLateDropoffs(day, thresholds).find((d) => d.childKey === childKey);
 }
 
 /* ───────────────────────────── the run, as the scenario writes it ───────────────────────────── */

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
@@ -6,10 +7,11 @@ import {
   ASM14_THRESHOLDS,
   emptyGateState,
   evaluateStop,
-  NOTIFY_SHIFT_SECONDS,
   type GateState,
   type NotificationDecision,
+  type NotifyThresholds,
 } from "@/domain/eta/notify-gate";
+import { notifyGateConfig } from "@/config/live";
 import type { StopEta } from "@/domain/eta/eta";
 import { drain } from "@/modules/outbox/outbox";
 import { dbRecipientAuthorizer } from "@/modules/outbox/policy";
@@ -22,13 +24,11 @@ import { freshDb } from "@/test/pglite";
 import { personaMessages, resolvePersona } from "./mailbox";
 import {
   ETA_NOTICE_NOT_AFTER_MS,
-  LATE_SHIFT_ENV_VAR,
   enqueueEtaNotice,
   etaNoticeKey,
   etaNoticeTemplate,
+  etaNoticeThresholds,
   lateMinutesFor,
-  loadEtaNoticeConfig,
-  notifyThresholds,
 } from "./eta-notice";
 
 /**
@@ -100,35 +100,36 @@ async function outboundRows() {
   return r.rows;
 }
 
-describe("the configured threshold, not a hardcoded one", () => {
-  it("falls back to ASM-14's ten minutes when nothing is configured", () => {
-    expect(loadEtaNoticeConfig({}).lateShiftSeconds).toBe(NOTIFY_SHIFT_SECONDS);
-    expect(notifyThresholds(loadEtaNoticeConfig({}))).toEqual(ASM14_THRESHOLDS);
+describe("the threshold is config, not a literal", () => {
+  it("is the §8 parameter table's own row, read through the one seam", () => {
+    expect(etaNoticeThresholds()).toEqual(ASM14_THRESHOLDS);
+    expect(etaNoticeThresholds()).toMatchObject({
+      shiftSeconds: notifyGateConfig.shiftSeconds,
+      consecutiveCalcs: notifyGateConfig.consecutiveCalcs,
+      minLeadSeconds: notifyGateConfig.minLeadSeconds,
+      cooldownSeconds: notifyGateConfig.cooldownSeconds,
+      escalationSeconds: notifyGateConfig.escalationSeconds,
+      improvementSeconds: notifyGateConfig.improvementSeconds,
+    });
   });
 
-  it("reads the operator's threshold from the environment", () => {
-    expect(loadEtaNoticeConfig({ [LATE_SHIFT_ENV_VAR]: "300" }).lateShiftSeconds).toBe(300);
-  });
-
-  it("keeps the documented default for a value nobody can have meant", () => {
-    for (const value of ["0", "-600", "99999", "abc", ""]) {
-      expect(loadEtaNoticeConfig({ [LATE_SHIFT_ENV_VAR]: value }).lateShiftSeconds, value).toBe(
-        NOTIFY_SHIFT_SECONDS,
-      );
-    }
-  });
-
-  it("never lets an improvement be worth a text at a smaller shift than a delay", () => {
-    const limits = notifyThresholds({ lateShiftSeconds: 1800 });
-    expect(limits.improvementSeconds).toBeGreaterThanOrEqual(limits.shiftSeconds);
+  it("carries no threshold of its own: the module names no number", () => {
+    const source = readFileSync(new URL("./eta-notice.ts", import.meta.url), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .map((line) => line.replace(/(^|\s)\/\/.*$/, "$1"))
+      .join("\n");
+    // The two numbers it *is* allowed: how long a notice stays sendable, and the 5-minute step
+    // lateness is said in. Neither is a gate threshold.
+    expect(source.match(/\b\d{3,}\b/g) ?? []).toEqual([]);
   });
 
   /**
-   * The point of the knob: the *same* run of recalculations notifies at one threshold and stays
+   * The point of the seam: the *same* run of recalculations notifies at one threshold and stays
    * silent at the other. Driven through the real gate, so this is the rule it enforces and not a
-   * restatement of the config object.
+   * restatement of a config object.
    */
-  it("decides a 7-minute slip by the configured threshold and nothing else", () => {
+  it("decides a 7-minute slip by the thresholds it is handed and nothing else", () => {
     const stop = (etaMs: number): StopEta => {
       const window = windowFor(etaMs);
       return {
@@ -150,7 +151,7 @@ describe("the configured threshold, not a hardcoded one", () => {
     // crosses a 10-minute window boundary: a slip inside the published window is a `same-window`
     // suppression at *any* threshold (PRD §8 damping), which is a different rule from this one.
     const baselineMs = PLANNED_DROPOFF_MS - 300_000;
-    const run = (thresholds: ReturnType<typeof notifyThresholds>) => {
+    const run = (thresholds: NotifyThresholds) => {
       // One baseline, then the same 7-minute slip held across two consecutive calculations.
       let state: GateState = emptyGateState();
       const outcomes: string[] = [];
@@ -161,8 +162,8 @@ describe("the configured threshold, not a hardcoded one", () => {
       }
       return outcomes;
     };
-    expect(run(notifyThresholds({ lateShiftSeconds: NOTIFY_SHIFT_SECONDS }))).not.toContain("NOTIFY");
-    expect(run(notifyThresholds({ lateShiftSeconds: 300 }))).toContain("NOTIFY");
+    expect(run(etaNoticeThresholds())).not.toContain("NOTIFY");
+    expect(run({ ...etaNoticeThresholds(), shiftSeconds: 300 })).toContain("NOTIFY");
   });
 
   it("says lateness in five-minute steps, never zero", () => {

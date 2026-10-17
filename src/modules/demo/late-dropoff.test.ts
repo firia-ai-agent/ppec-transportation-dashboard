@@ -3,7 +3,7 @@ import { demoDay } from "@/domain/board/day";
 import { formatClock24 } from "@/domain/eta/eta";
 import { NOTIFY_MIN_LEAD_SECONDS } from "@/domain/eta/notify-gate";
 import { childByKey, stopByKey, RUNS } from "@/modules/demo/fixtures/standard";
-import { LATE_SHIFT_ENV_VAR } from "@/modules/messaging/eta-notice";
+import { etaNoticeThresholds } from "@/modules/messaging/eta-notice";
 import {
   demoLateDropoffFor,
   demoLateDropoffs,
@@ -77,15 +77,16 @@ describe("AT-03 · the afternoon stall tells the families still ahead of it, onc
 
   it("replays the same run every time (same seed ⇒ same ETA events)", () => {
     const once = demoLateDropoffs(day);
-    const twice = demoLateDropoffs(day, { ...process.env });
+    const twice = demoLateDropoffs(day, etaNoticeThresholds());
     expect(twice).toEqual(once);
     expect(lateDropoffSpec(day).seed).toBe(lateDropoffSpec(day).seed);
   });
 
-  it("stays silent when the operator raises the threshold above the delay", () => {
-    // The stall costs about eleven minutes, so a half-hour threshold is a deployment that does not
+  it("stays silent at a threshold the delay does not reach", () => {
+    // The stall costs about eleven minutes, so a half-hour shift is a calibration that does not
     // consider this worth a text — and then nobody is texted, rather than texted differently.
-    expect(demoLateDropoffs(day, { [LATE_SHIFT_ENV_VAR]: "1800" })).toEqual([]);
+    // (The §8 table's own value is the one the app runs on; this is the rule, not the setting.)
+    expect(demoLateDropoffs(day, { ...etaNoticeThresholds(), shiftSeconds: 1800 })).toEqual([]);
   });
 });
 

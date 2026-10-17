@@ -14,10 +14,12 @@ import { legStates } from "@/ui/states";
 import { clockLabel } from "@/ui/service-date";
 import {
   BOARD_GROUPS,
+  BOARD_SCENARIO_TICK,
   NEXT_STEPS,
   NOTHING_REPORTED,
   buildBoard,
   demoDay,
+  demoDayAtTick,
   groupForState,
   matchesQuery,
   rideStateFrom,
@@ -756,6 +758,45 @@ describe("the board is about one day, and says which", () => {
     }
     // …and does ask on the day the vans are running, which is the contrast that makes it a rule.
     expect(legOf("C1", "AM").nextStep).toBe("ASK_ABOUT_VAN");
+  });
+
+  /**
+   * The same day, read later (./day.ts `demoDayAtTick`). Two things, and the first one is the
+   * one that matters most: the default is the board the whole file above is written against and
+   * has to stay it, to the row. A clock that moved the board it was wired into would have made
+   * every assertion in this file a statement about a different day.
+   *
+   * The second is that advancing it moves the morning *on* rather than redeciding it. C3's
+   * morning is the ride to test that on, because the only thing that changes about it is the
+   * hour: at 07:42 its van is on the way to Greenacres City Hall, and at 07:45 — tick 180 — it
+   * has reached the kerb. Nobody signed anything in between, so this is a vehicle fact moving a
+   * ride's state, which is exactly what a clock is allowed to do. AT-10 holds while it does:
+   * the ride reaches ARRIVED_PICKUP and asks for boarding, not a handoff.
+   */
+  describe("the demo day read at a later tick", () => {
+    it("is the board above when the clock is left where it is", () => {
+      expect(buildBoard(demoDayAtTick(BOARD_SCENARIO_TICK))).toEqual(board);
+    });
+
+    it("moves a ride whose van has reached the kerb by then, and only that ride", () => {
+      const before = legIn(board, "C3", "AM");
+      expect(before.ride.state).toBe("EN_ROUTE_PICKUP");
+      expect(before.nextStep).toBe("NOTHING");
+
+      const later = buildBoard(demoDayAtTick(BOARD_SCENARIO_TICK + 36));
+      expect(later.nowMs).toBe(board.nowMs + 180_000);
+      const after = legIn(later, "C3", "AM");
+      expect(after.ride.state).toBe("ARRIVED_PICKUP");
+      // A geofence arrival asks a person for the next thing; it does not supply it (AT-10).
+      expect(after.nextStep).toBe("CONFIRM_BOARDING");
+      expect(after.ride.receivedBy).toBeNull();
+
+      // Three minutes is three minutes: no other ride's state moved with it.
+      const stateOf = (of: typeof board) => of.legs.map((l) => `${l.key}:${l.ride.state}`);
+      expect(stateOf(later).filter((s, i) => s !== stateOf(board)[i])).toEqual([
+        `${after.key}:ARRIVED_PICKUP`,
+      ]);
+    });
   });
 
   it("has no rows at all on a day the scenario does not run (PRD §18.1 Mon–Fri)", () => {

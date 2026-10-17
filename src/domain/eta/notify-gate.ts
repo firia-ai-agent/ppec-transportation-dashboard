@@ -16,20 +16,26 @@
  * at all (the visible proof DESIGN-DIRECTION §5.1 asks for).
  */
 
+import { notifyGateConfig } from "@/config/live";
 import { formatDelta, type StopEta } from "./eta";
 
+/*
+ * The six ASM-14 numbers are calibration — PRD §8 offers a second set beside them (D2's 15/5,
+ * D3's 15-minute cooldown) — so they live in src/config/live.ts and are named here.
+ */
+
 /** ASM-14: a shift must reach 10 minutes to be worth a text. */
-export const NOTIFY_SHIFT_SECONDS = 600;
+export const NOTIFY_SHIFT_SECONDS = notifyGateConfig.shiftSeconds;
 /** ASM-14: …and must persist across 2 consecutive calculations. */
-export const NOTIFY_CONSECUTIVE_CALCS = 2;
+export const NOTIFY_CONSECUTIVE_CALCS = notifyGateConfig.consecutiveCalcs;
 /** ASM-14: never notify about a stop less than 10 minutes away. */
-export const NOTIFY_MIN_LEAD_SECONDS = 600;
+export const NOTIFY_MIN_LEAD_SECONDS = notifyGateConfig.minLeadSeconds;
 /** ASM-14: at most one notification per stop per 20 minutes… */
-export const NOTIFY_COOLDOWN_SECONDS = 1200;
+export const NOTIFY_COOLDOWN_SECONDS = notifyGateConfig.cooldownSeconds;
 /** …unless the ETA has slipped a further 15 minutes. */
-export const NOTIFY_ESCALATION_SECONDS = 900;
+export const NOTIFY_ESCALATION_SECONDS = notifyGateConfig.escalationSeconds;
 /** ASM-14: an improvement is only worth a text at 15 minutes. */
-export const NOTIFY_IMPROVEMENT_SECONDS = 900;
+export const NOTIFY_IMPROVEMENT_SECONDS = notifyGateConfig.improvementSeconds;
 
 /**
  * The gate's thresholds, as one value a caller can hand it.

@@ -14,9 +14,13 @@
  * (`evaluateStop`), which is the module that owns "is this worth a text". What this module owns is
  * the three things the gate deliberately does not:
  *
- *  1. **the threshold is a deployment setting.** The gate's defaults are ASM-14's numbers; the
- *     operator's are read here, from the environment, once (`loadEtaNoticeConfig`) and handed to
- *     the gate as `NotifyThresholds`. No caller carries a number of its own.
+ *  1. **the threshold is config, never a literal.** It is one row of the §8 parameter table
+ *     (`notifyGateConfig`, src/config/live.ts), read through `etaNoticeThresholds()` and handed
+ *     to the gate as `NotifyThresholds`. No caller — not this module, not the demo projection,
+ *     not a test — carries a number of its own, and tuning it is one edit to that table with the
+ *     tests that hold it. Deliberately not an environment variable: these are the numbers the
+ *     safety story is told against, and a deployment that could quietly raise them would make
+ *     every test of ASM-14 and LOC-03 meaningless (src/config/live.ts says so at length).
  *  2. **once per ride per threshold crossing.** The idempotency key is the leg plus the window the
  *     crossing published (`etaNoticeKey`), and the outbox is idempotent on it (`ON CONFLICT
  *     (idempotency_key) DO NOTHING`). A second sweep over the same replay, a redelivered queue
@@ -32,12 +36,10 @@
  * src/ui/copy.ts): how late the van is, and the §8 10-minute window — no child's name, no ride id,
  * no threshold and no internal code (COPY-GUIDE §2, Veri #12).
  */
-import { z } from "zod";
 import type { Db, Exec } from "@/db/exec";
 import { formatClock24 } from "@/domain/eta/eta";
 import {
   ASM14_THRESHOLDS,
-  NOTIFY_SHIFT_SECONDS,
   type NotificationDecision,
   type NotifyThresholds,
 } from "@/domain/eta/notify-gate";
@@ -49,43 +51,14 @@ import { FAMILY_SMS, authorizedContactsForChild } from "@/modules/outbox/policy"
 /* ───────────────────────────── config ───────────────────────────── */
 
 /**
- * The one knob: how far an arrival has to move before a family is texted about it, in seconds.
- *
- * Unset is ASM-14's own 10 minutes, so a deployment that configures nothing behaves exactly as the
- * PRD says. The bounds are the part worth arguing about: under a minute is a deployment that would
- * text a family about traffic noise, and over an hour is one that would never text at all, and
- * neither is a setting an operator can have meant. Out of range, unreadable or empty falls back to
- * the default rather than refusing — this is a notification threshold, not a boot guard, and an
- * app that will not start is a worse answer than one that uses the documented number.
+ * The thresholds this path judges a ride by: the §8 parameter table and nothing else
+ * (`notifyGateConfig` → `ASM14_THRESHOLDS`). A function rather than a re-export because it is the
+ * named seam every caller on this path goes through — the sweep, the demo projection and the
+ * tests — so there is one line to change the day the ETA notice wants its own calibration, and
+ * one place to look for where the number came from.
  */
-export const LATE_SHIFT_ENV_VAR = "ETA_LATE_SHIFT_SECONDS";
-
-export const etaNoticeConfigSchema = z.object({
-  lateShiftSeconds: z.coerce.number().int().min(60).max(3600).default(NOTIFY_SHIFT_SECONDS),
-});
-
-export type EtaNoticeConfig = z.infer<typeof etaNoticeConfigSchema>;
-
-export function loadEtaNoticeConfig(
-  env: Record<string, string | undefined> = process.env,
-): EtaNoticeConfig {
-  const parsed = etaNoticeConfigSchema.safeParse({ lateShiftSeconds: env[LATE_SHIFT_ENV_VAR] });
-  return parsed.success ? parsed.data : { lateShiftSeconds: NOTIFY_SHIFT_SECONDS };
-}
-
-/**
- * The gate's thresholds for this deployment: ASM-14's, with the configured shift in place of its
- * 10 minutes. The improvement threshold moves with it when the operator raises it past ASM-14's
- * 15 minutes, because "an improvement worth a text" can never be *smaller* than "a delay worth a
- * text" — a deployment that texted about a 12-minute gain and stayed silent about a 12-minute loss
- * would be telling families the good news only.
- */
-export function notifyThresholds(config: EtaNoticeConfig): NotifyThresholds {
-  return {
-    ...ASM14_THRESHOLDS,
-    shiftSeconds: config.lateShiftSeconds,
-    improvementSeconds: Math.max(ASM14_THRESHOLDS.improvementSeconds, config.lateShiftSeconds),
-  };
+export function etaNoticeThresholds(): NotifyThresholds {
+  return ASM14_THRESHOLDS;
 }
 
 /* ───────────────────────────── one notice ───────────────────────────── */
