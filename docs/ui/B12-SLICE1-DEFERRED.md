@@ -61,7 +61,7 @@ slice 2 does not close until all of them are in.
 | Provider / vehicle / AM-PM filter chips with counts | §4.1 | **slice 2, ahead.** Slice 1 shipped the "Only needs action" toggle and the §2 search; slice 2 adds the chips and their counts |
 | History, pending approvals and agent changes in the drawer, with real rows | §4.2 | **slice 2, ahead.** The drawer's three sections are empty-state prose today. Slice 2 fills **history** with real rows, and the pending-approval and agent-change rows come from the Exceptions work in the same slice |
 | Drawer **timeline rows** | §4.2 | **landed.** The day is a timeline of rows — time column, stops, icon + label state, no box — rather than two hairline cards, the dense treatment the board already uses (Vera's call, §5) |
-| **One service date on screen**, in the board's own header | §2, §6.1 | **landed, and it is not a switcher.** Vera's final call (§5): one date, the replayed demo day, labelled as the demo day, with nothing on screen offering another. The shell's duplicate — today's real date on every page — is gone, which is what the two "Service date" labels were. The board takes a service date (`src/domain/board/day.ts`) and other days are reached by a `?date=` URL and by nothing on screen |
+| **One service date on screen**, in the board's own header | §2, §6.1 | **landed, and it is not a switcher.** Vera's final call (§5): one date, the replayed demo day, labelled as the demo day, with nothing on screen offering another. The shell's duplicate — today's real date on every page — is gone, which is what the two "Service date" labels were. The board takes a service date (`src/domain/board/day.ts`) and other days are reached by the test-only date override and by nothing on screen or on a deployment (Veri #49) |
 | An **AT-13 `HELD_NO_RECEIVER` ride in the scenario** | PRD §6.6, l.1327 | **landed.** The scenario had the *family* for AT-13 — F2, no authorized receiving adult (`standard.ts:140`) — but no ride in the state. C2's afternoon on the finished day is now that ride: `ARRIVED_DROPOFF → HELD_NO_RECEIVER` by the system (CA-04, ledger row 47), with no automatic return because the machine's `noWildcardFrom` gives it no edge out but a staff one. The board, the drawer and AT-13's own check all read it |
 | A tighter, **mutation-proven** AT-10 e2e | PRD SURF-01 acceptance | **landed.** Slice 1's AT-10 line was a negative — `expect(page.getByText(/handed off to/i)).toHaveCount(0)` — which also passed on a board that rendered nothing. It now asserts positively on the finished day, where an arrival and a handoff are both on screen and told apart: C6's van arrived and no custody event was recorded, so the row reads "Arrived (vehicle)" and does **not** read as handed off |
 | **Afternoon route data aligned with the scenario** | ADR-007, §3 below | **landed for the plan.** `src/fixtures/run-routes.ts` is one route per run per direction, built from the scenario's own stops; the afternoon is the morning reversed (`reverseRoute`) and `plannedEta` gives each stop its family's 10-minute window. No row says "Window pending" any more. The three **ADR-007 replay** routes are untouched — that is still a committed-routing-data change and still the founder's call (§3.1, §5) |
@@ -73,7 +73,8 @@ slice 2 does not close until all of them are in.
 > service date in its own header — the replayed demo day, labelled as the demo day, with no
 > switcher beside it — and the day before the demo day carries the rides that *ended*, which is
 > where AT-13's held ride and AT-10's arrived-but-not-handed-over van live. That day is reached
-> by a `?date=` URL and by nothing on screen: it is where those two acceptance tests are read.
+> by the test-only date override and by nothing on screen: it is where those two acceptance
+> tests are read, and no deployment can be asked for it (Veri #49).
 > The rows below are left as they were written, so the two slices can be read in order.
 
 ## 3. Known gaps in the fixtures — the slice each one closes in
@@ -145,9 +146,10 @@ the board's seeded day, both labelled "Service date" — is closed. Vera's final
 So there is no date switcher, and none is sequenced: the date lives in the board's own header,
 is read and not changed, and the shell carries no date at all (a layout cannot read a day, so a
 date up there could only be today's real one — the contradiction itself). The finished day stays
-reachable by `?date=` with no control on screen, because that is where AT-13 and AT-10 are
-proved. The demo-controls dock (§6.1) is what eventually gives the app a scenario clock; nothing
-on this page waits on it.
+reachable, because that is where AT-13 and AT-10 are proved — as a test-only override rather than
+as a URL anyone can type (Veri #49: a `?date=` the server read on a deployment was the switcher
+without the control). The demo-controls dock (§6.1) is what eventually gives the app a scenario
+clock; nothing on this page waits on it.
 
 Still open:
 

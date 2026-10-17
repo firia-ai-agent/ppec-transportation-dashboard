@@ -225,6 +225,12 @@ export const board = {
     source: "Source",
   },
   tableLabel: "Today's rides, one row for each child's morning and afternoon",
+  /**
+   * The same table on another day. "Today's rides" is read out by a screen reader before the
+   * first row, so on a finished day it is the heading's falsehood said again where only the ear
+   * can catch it — and the ear is the one reader who cannot see the date beside it.
+   */
+  tableLabelOtherDay: "Rides on {date}, one row for each child's morning and afternoon",
   am: "AM",
   pm: "PM",
   /** The ride in words, for the ear and for the row opener's accessible name. */
@@ -812,7 +818,14 @@ export const drawer = {
    */
   amRide: "Morning ride",
   pmRide: "Afternoon ride",
+  /**
+   * §4.2's first section heading, and it may only say "Today" on the day that is true of — the
+   * same rule the board's own heading keeps (`board.headingOtherDay`). A panel of a child's
+   * finished rides headed "Today's rides" is a false sentence a reader meets *inside* the day
+   * they asked for, with the date they asked for on the header behind it (Veri #49).
+   */
   ridesHeading: "Today's rides",
+  ridesHeadingOtherDay: "Rides on {date}",
   /**
    * "Okeeheelee Park → PPEC center" — a ride read as the two ends it has, in travel order. The
    * morning collects a child at their own stop and sets them down at the centre; the afternoon

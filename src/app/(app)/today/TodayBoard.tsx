@@ -143,7 +143,12 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
         <>
           <p className={styles.hint}>{boardCopy.keyboardHint}</p>
           <table className={styles.table}>
-            <caption className="srOnly">{boardCopy.tableLabel}</caption>
+            {/* The caption is read before the first row, so it names the day the heading does. */}
+            <caption className="srOnly">
+              {day.phase === "LIVE"
+                ? boardCopy.tableLabel
+                : fill(boardCopy.tableLabelOtherDay, { date: day.label })}
+            </caption>
             <colgroup>
               <col className={styles.colChild} />
               <col className={styles.colRide} />
@@ -202,7 +207,7 @@ export function TodayBoard({ board, query }: { board: Board; query: string }) {
       )}
 
       {openLegs.length > 0 ? (
-        <LegDrawer legs={openLegs} onClose={() => setOpenChild(null)} />
+        <LegDrawer legs={openLegs} day={day} onClose={() => setOpenChild(null)} />
       ) : null}
     </div>
   );

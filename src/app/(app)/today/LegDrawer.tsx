@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
-import type { BoardRow, LegRow, NeedView, RideView } from "@/domain/board/board";
+import type { BoardRow, LegRow, NeedView, RideView, ServiceDay } from "@/domain/board/board";
 import { board as boardCopy, drawer, etaText, fill, needCategories, places } from "@/ui/copy";
 import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
@@ -33,10 +33,13 @@ import styles from "./today.module.css";
  */
 export function LegDrawer({
   legs,
+  day,
   onClose,
 }: {
   /** The child's rides, as rows of the board — so the panel and the rows cannot disagree. */
   legs: readonly LegRow[];
+  /** The day those rides are on: the panel's first heading may only say "Today" when it is. */
+  day: ServiceDay;
   onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
@@ -72,7 +75,16 @@ export function LegDrawer({
 
       <div className={styles.drawerBody}>
         <section className={styles.section}>
-          <h3 className={styles.sectionHeading}>{drawer.ridesHeading}</h3>
+          {/*
+            "Today's rides" on the day that is true of, and the day named on any other — the
+            same rule as the board's own heading, because this panel opens over a board that may
+            be about another day and is read without looking back at it.
+          */}
+          <h3 className={styles.sectionHeading}>
+            {day.phase === "LIVE"
+              ? drawer.ridesHeading
+              : fill(drawer.ridesHeadingOtherDay, { date: day.label })}
+          </h3>
           {/*
             The day in order, morning then afternoon: an ordered list, because that is what it
             is — two rides read one after the other, and the order is the information.

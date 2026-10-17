@@ -73,7 +73,13 @@ type CapabilityS = (typeof capabilityState.enumValues)[number];
  * Which day, and the instant it is read at, are ./day.ts — re-exported here because the board is
  * what every caller asks for them through.
  */
-export { BOARD_SCENARIO_SECONDS, boardInstantMs, demoDay, serviceDayFor } from "./day";
+export {
+  BOARD_SCENARIO_SECONDS,
+  boardInstantMs,
+  demoDay,
+  requestedServiceDay,
+  serviceDayFor,
+} from "./day";
 export type { DayPhase, ServiceDay } from "./day";
 
 /* ───────────────────────────── groups (COPY-GUIDE §5 SURF-01) ───────────────────────────── */

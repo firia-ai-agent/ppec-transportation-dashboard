@@ -19,7 +19,7 @@ Five things, and the first two are the same change seen from different ends.
 | 2 | AT-10 tightened: an arrival and a handoff on one board, told apart | `src/domain/board/board.ts`, `e2e/today-board.spec.ts`, `src/domain/board/board.test.ts` |
 | 3 | A disabled control that looks disabled | `src/ui/tokens.ts`, `src/app/(app)/today/today.module.css` |
 | 4 | Afternoon arrival windows, from geometry aligned to the scenario | `src/fixtures/run-routes.ts`, `src/domain/eta/eta.ts` (`plannedEta`), `src/domain/location/route.ts` (`reverseRoute`) |
-| 5 | One date on screen — the replayed demo day, labelled as the demo day, no switcher; the drawer's rides as a timeline | `src/domain/board/day.ts`, `src/app/(app)/today/TodayBoard.tsx`, `src/app/(app)/today/LegDrawer.tsx` |
+| 5 | One date on screen — the replayed demo day, labelled as the demo day, no switcher and no `?date=` a deployment reads (§4); the drawer's rides as a timeline, headed with the day they are on | `src/domain/board/day.ts` (`dateOverrideAllowed`, `requestedServiceDay`), `src/app/(app)/today/page.tsx`, `src/app/(app)/today/TodayBoard.tsx`, `src/app/(app)/today/LegDrawer.tsx`, `src/ui/copy.ts` |
 
 ## 2. The day the board is about (and why AT-13 needed one)
 
@@ -32,15 +32,17 @@ because a board with no handoff anywhere on it cannot show that an arrival is no
 
 So the board now takes a **service date** (PRD §6.1) and reads each day at an instant that
 belongs to it. The date on screen is the demo day and nothing changes it — Vera's final call, and
-§4 below — so the other three rows of this table are reached by a `?date=` URL, which is how the
-browser checks and a design review read the finished day:
+§4 below — so the other three rows of this table are reached by the **test-only date override**,
+which is how the browser checks and a design review read the finished day: a `?date=` that the
+server reads only in a local synthetic shell that asked for it by name (`E2E_DATE_OVERRIDE=1`,
+`dateOverrideAllowed` in `src/domain/board/day.ts`; Veri #49, §4):
 
 | Day | Phase | Read at | What is on it |
 |---|---|---|---|
 | before the demo day | `ENDED` | 17:30, after the last van is in (MOCKS §7 step 12) | outcomes: ten handoffs, one van arrived with no custody event, one ride holding a child, one run cancelled |
 | the demo day | `LIVE` | 07:30 + 12 min, unchanged | the morning in flight — the stall, the GPS gap, the unlinked device — **and the AT-13 hold** (§4, Vera 2026-10-16: the walk has no URL to craft, so the hold is on the board it opens) |
 | after it | `PLANNED` | 06:00, the scenario clock's start (MOCKS §6) | the plan, and nothing claimed about it |
-| a weekend | — | — | no rows at all (PRD §18.1 schedules Mon–Fri); the §5 "No rides scheduled for {date}" line. Its "Change the date" is now a sentence with no control behind it — reachable only by typing a weekend into `?date=`, so it is left verbatim as COPY-GUIDE §5 writes it rather than rewritten for a day the console cannot reach |
+| a weekend | — | — | no rows at all (PRD §18.1 schedules Mon–Fri); the §5 "No rides scheduled for {date}" line. Its "Change the date" is now a sentence with no control behind it — reachable only by a weekend date through the override, so it is left verbatim as COPY-GUIDE §5 writes it rather than rewritten for a day no console and no deployment can reach |
 
 The instants are whole-day offsets from `SCENARIO_START_MS`, so every day in range is as
 deterministic as the demo day and a screenshot of one is still evidence. The range is ±14 days
@@ -87,7 +89,8 @@ with nothing on screen offering another.
 | Decision | Why |
 |---|---|
 | **No date switcher.** One date on screen, in the **board's** header, read and not changed | Vera's final call, 2026-10-16. The date belongs to the day on screen, and the only day this build replays is the demo day: arrows offering a fortnight each way advertised days the demo does not have, and put a coordinator one stray click from a board that is not today. The shell carries no date either — it is rendered by a layout, which cannot read a day, so a date up there could only be today's real date (the contradiction slice 1 flagged) |
-| The finished day stays reachable by `?date=`, with no control on screen | It is where AT-10 is *proved* — an arrival and a handoff on one board, told apart — which does not exist on a board twelve minutes into a morning. Deleting the parameter with the switcher would have deleted browser checks of an acceptance test to remove a control that is already gone. Nothing in the console links to it; `today-board.test.ts` holds that, both on the demo day and on the finished one |
+| The finished day stays reachable, as a **test-only** override rather than as a URL anyone can type (Veri #49) | It is where AT-10 is *proved* — an arrival and a handoff on one board, told apart — which does not exist on a board twelve minutes into a morning, so deleting the parameter with the switcher would have deleted browser checks of an acceptance test to remove a control that is already gone. But a `?date=` the server read on every deployment *was* the switcher, minus the control: a link in a chat message and a coordinator is reading a finished day. So the route reads the date through `requestedServiceDay`, behind the four gates of `dateOverrideAllowed` — `VERCEL_ENV` unset, `APP_DATA_CLASS=SYNTHETIC`, `DEMO_MODE=1`, `E2E_DATE_OVERRIDE=1` — the same shape as the browser check's synthetic session, and the first of them holds on no deployment we own. `day.test.ts` walks every way the gate closes; `today-board.test.ts` holds that nothing in the console links to another day and that the route reads the date nowhere else |
+| The drawer's first heading names the day too ("Rides on Tue, Oct 13"), and the table's screen-reader caption with it | COPY-GUIDE §5's "Today's rides" may only be said on the day it is true of, the same rule the board's heading keeps. The drawer is the sharper case: it opens *over* the header that carries the date, so a panel of a child's finished rides headed "Today's rides" is read with nothing on screen to correct it. The caption is the same falsehood where only the ear can catch it (Veri #49) |
 | **The AT-13 hold is on the demo day too** (`DEMO_DAY_RIDES`, Vera 2026-10-16) | A held child and the rule that nothing brings them back were reachable only by typing a date into the URL, which means the demo walk never showed them — and they are the hardest thing on this board to infer and the worst to learn late. The demo day now records that one ride's acts, the machine makes the state as it does everywhere else, and `/today` opens on "Needs action (1)". It is one ride and not a finished day: nothing else on the live board claims an outcome, and no row on it says a child was handed over |
 | The heading says "Today" only on the demo day; other days read "Rides on Tue, Oct 13" | COPY-GUIDE §5 fixes "Today" as the SURF-01 heading, and a board of finished rides under it would be the one false sentence on the screen |
 | The live day is labelled "Demo day", not "Today" | The demo clock has not started (the readout beside it says so), so the seeded day is the day being *shown*, not the day it is |
@@ -123,3 +126,41 @@ with nothing on screen offering another.
   the scenario clock lands (§6.1 dock), the honest version is the clock walking the real day and
   the board reading whatever it has reached. Does the clock subsume this fixture, or stay beside
   it as the "yesterday" the board can look back at?
+
+## 6. Evidence, and the commands that regenerate it
+
+Everything a review of this slice reads is produced by one of three commands. All of them write
+into `artifacts/`, which is gitignored — the evidence is regenerated, never committed.
+
+**The screenshot set** (README "Browser check" is the canonical copy of this):
+
+```
+pnpm e2e                           # the whole set: builds the app, starts it, walks every screen
+pnpm e2e e2e/today-board.spec.ts   # the board's own: today-board / arrival-not-handoff /
+                                   # held-no-receiver / one-date / drawer / disabled-action /
+                                   # needs-action, each at 1024 and 1280
+rm -rf artifacts && pnpm e2e       # when the set itself is under review, so no stale PNG survives
+```
+
+`pnpm e2e` needs no database and no credentials: `playwright.config.ts` starts the app with the
+test-only synthetic session and `E2E_DATE_OVERRIDE=1`, which is also the only way a check can
+reach the finished day (§4). Each file's name is in the `console.log("screenshot:", …)` line of
+the test that takes it.
+
+**The AT-10 mutation** (`artifacts/at-10-mutation.txt`): the rule is that a vehicle arriving is
+never a child changing hands, and the one line that could break it is in `rideStateFrom`
+(`src/domain/board/board.ts`), where a custody event — and nothing else — reaches
+`COMPLETED_HANDOFF`. Make that line read the geofence instead and every layer that claims to
+hold AT-10 has to fail:
+
+```
+sed -i 's/if (facts\.custodyEvent)/if (facts.dropoffArrived)/' src/domain/board/board.ts
+pnpm vitest run --maxWorkers=2 src/domain/board/board.test.ts \
+  'src/app/(app)/today/today-board.test.ts' src/domain/eta/replay.test.ts \
+  src/domain/location/geofence.test.ts
+pnpm e2e e2e/today-board.spec.ts -g 'AT-10'
+git checkout -- src/domain/board/board.ts    # and re-run both green
+```
+
+The artifact is that run, with the tests it named. Regenerate it whenever those tests are
+renamed or re-cut, so what it names is what the suite now calls them (Veri #49).

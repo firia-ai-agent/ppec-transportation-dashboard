@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -56,7 +56,7 @@ function boardHtml(query = "", of: typeof board = board): string {
 
 function drawerHtml(key: string, of: typeof board = board): string {
   return renderToStaticMarkup(
-    createElement(LegDrawer, { legs: legsIn(of, key), onClose: () => {} }),
+    createElement(LegDrawer, { legs: legsIn(of, key), day: of.day, onClose: () => {} }),
   );
 }
 
@@ -94,6 +94,18 @@ describe("the board renders the day", () => {
   });
 
   /**
+   * And no way to ask for one by URL either, on a deployment (Veri #49). The route may read the
+   * date only through the gated helper: a `?date=` is a test path or it is nothing, and the one
+   * line that decides which is the one asserted here, because a page component is not something
+   * a unit test can render.
+   */
+  it("reads the request's date through the gate, never through the projection", () => {
+    const page = readFileSync(path.join(__dirname, "page.tsx"), "utf8");
+    expect(page).toContain("requestedServiceDay(one(params.date), process.env)");
+    expect(page).not.toMatch(/serviceDayFor\s*\(/);
+  });
+
+  /**
    * The heading may only say "Today" on the day that is true of. A board of finished rides under
    * a heading that said "Today" would be the one false sentence on the screen.
    */
@@ -102,6 +114,20 @@ describe("the board renders the day", () => {
     expect(other).toContain(fill(boardCopy.headingOtherDay, { date: finished.day.label }));
     expect(other).not.toContain(`>${boardCopy.heading}<`);
     expect(other).toContain(serviceDate.phases.ENDED);
+  });
+
+  /**
+   * The same rule where only the ear reads: the table's caption is announced before the first
+   * row, so a finished day may not be introduced as "Today's rides" there either (Veri #49).
+   */
+  it("captions the table with the day it is about, not with 'Today' (§9)", () => {
+    expect(html).toContain(escaped(boardCopy.tableLabel));
+    const other = boardHtml("", finished);
+    expect(other).toContain(
+      escaped(fill(boardCopy.tableLabelOtherDay, { date: finished.day.label })),
+    );
+    expect(other).not.toContain(escaped(boardCopy.tableLabel));
+    expect(other).not.toMatch(/Today&#x27;s rides/);
   });
 
   it("stacks the groups with their counts, needs action first", () => {
@@ -306,6 +332,21 @@ describe("the drawer reads one child's day", () => {
     const at = order.map((heading) => html.indexOf(`>${escaped(heading)}</h3>`));
     for (const [i, position] of at.entries()) expect(position, order[i]).toBeGreaterThan(-1);
     expect(at).toEqual([...at].sort((a, b) => a - b));
+  });
+
+  /**
+   * "Today's rides" is true of the demo day and of no other, and the panel is read without
+   * looking back at the header behind it, so the heading carries the day itself (Veri #49).
+   */
+  it("heads the rides with the day they are on, and says 'Today' only when it is", () => {
+    expect(html).toContain(`>${escaped(drawer.ridesHeading)}</h3>`);
+
+    const ended = drawerHtml("C6", finished);
+    expect(ended).toContain(
+      `>${escaped(fill(drawer.ridesHeadingOtherDay, { date: finished.day.label }))}</h3>`,
+    );
+    expect(ended).not.toContain(escaped(drawer.ridesHeading));
+    expect(ended).not.toMatch(/Today&#x27;s/);
   });
 
   it("holds both rides, each with its own state and its own next step", () => {

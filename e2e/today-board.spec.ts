@@ -41,6 +41,12 @@ const RIDING_CHILD = "Zoe B.";
  *
  * Reached by URL, which is now the only way: the console has no date switcher in it (Vera's
  * final call), so this is a review and test path and never something a coordinator lands on.
+ *
+ * And it is a test path in the code as well as in the design (Veri #49): the server reads
+ * `?date=` at all only because playwright.config.ts sets `E2E_DATE_OVERRIDE=1` on a local
+ * synthetic shell. The same gate is refused wherever `VERCEL_ENV` is set — every deployment —
+ * so this URL is the demo day in production, and the unit tests hold that
+ * (src/domain/board/day.test.ts).
  */
 const FINISHED = serviceDayFor(demoDay().previousIso);
 const FINISHED_URL = `/today?date=${FINISHED.iso}`;
@@ -169,6 +175,14 @@ for (const width of WIDTHS) {
        */
       await page.getByRole("button", { name: opener(RIDING_CHILD, boardCopy.pmSpoken) }).click();
       const panel = page.getByRole("dialog");
+      // The panel is about the day it was opened from, and says so rather than "Today's rides":
+      // it covers the board's own header, so it is read with no date in sight (Veri #49).
+      await expect(
+        panel.getByRole("heading", {
+          name: fill(drawer.ridesHeadingOtherDay, { date: FINISHED.label }),
+        }),
+      ).toBeVisible();
+      await expect(panel.getByText(drawer.ridesHeading, { exact: true })).toHaveCount(0);
       await expect(
         panel.getByRole("button", { name: fill(drawer.confirmHandoff, { child: RIDING_CHILD }) }),
       ).toBeDisabled();
