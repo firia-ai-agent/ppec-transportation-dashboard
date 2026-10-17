@@ -41,6 +41,8 @@ import {
   type NotificationDecision,
   type NotifyThresholds,
 } from "@/domain/eta/notify-gate";
+import { isDemoMode, isSyntheticDemo } from "@/lib/env";
+import { demoLegId } from "@/modules/demo/seed";
 import { enqueue, type OutboxTransport } from "@/modules/outbox/outbox";
 import { FAMILY_SMS, authorizedContactsForChild } from "@/modules/outbox/policy";
 
@@ -239,4 +241,117 @@ export async function enqueueEtaNotice(
       duplicate: rows.every((r) => r.duplicate),
     };
   });
+}
+
+/* ───────────────────────── the sweep: the demo day's own crossings ───────────────────────── */
+
+/**
+ * One ride the demo day's replay says a family should have been told about.
+ *
+ * It names the ride the way the *scenario* does — a fixture child key and a day part — because
+ * that is what a replay knows: the gate's decisions are about route stops, and which child rides
+ * from a stop is a fact about the plan (src/fixtures/run-routes.ts). Everything else about the
+ * ride is read from the operational row here, so nothing about the leg is assumed from a fixture.
+ */
+export type DueEtaNotice = {
+  readonly decision: NotificationDecision;
+  /** Fixture child key, e.g. "C2". Resolved to this child's seeded leg row. */
+  readonly childKey: string;
+  readonly direction: "AM" | "PM";
+  /** The child's short stop token (the fixture's `smsToken`). */
+  readonly stopToken: string;
+};
+
+/**
+ * Leg states a text about an arrival would be wrong for: the ride is not happening, is over, or
+ * has already gone wrong in a way a coordinator is holding. A family whose child's ride was
+ * canceled must not then be told when the van will reach them (AT-08 is the same rule at send
+ * time; this is the earlier refusal).
+ */
+const NOT_RIDABLE: ReadonlySet<string> = new Set([
+  "CANCELED_TRANSPORT", "CANCELED_ATTENDANCE", "NO_SHOW", "COMPLETED_HANDOFF",
+  "HELD_NO_RECEIVER", "LEFT_BEHIND_CAPACITY", "EXCEPTION",
+]);
+
+export type SweepSkip = NoticeSkip | "no-leg" | "leg-not-ridable";
+
+export type EtaNoticeSweepReport = {
+  /** Rows written by this sweep. */
+  readonly queued: number;
+  /** Crossings already told to this family — the idempotency key did its job. */
+  readonly duplicates: number;
+  readonly skipped: Readonly<Partial<Record<SweepSkip, number>>>;
+};
+
+/** Why the sweep did nothing at all. A deployment, not an error. */
+export type SweepRefusal = { readonly skipped: "not a demo deployment" };
+
+/**
+ * Queue every due crossing, idempotently. Called from the one-minute sweep
+ * (`/api/cron/sweep`), which is where ARCHITECTURE §6 puts work that nobody's request is waiting
+ * for — and the reason the text exists in the database *during the demo day* rather than only
+ * when somebody opens a screen.
+ *
+ * Gated on the ADR-015 data class **and** the ADR-014 demo switch, both, because this queues
+ * messages derived from a committed replay: on a deployment holding real data there is no
+ * scenario to replay and a text about a fixture's van would be a message to a real family. The
+ * refusal is a value, not a throw — the sweep logs it beside its other skips.
+ *
+ * Safe to call every minute forever: each crossing's key is the leg plus the window it published,
+ * so the second and every later sweep writes nothing (`duplicates`).
+ */
+export async function sweepEtaNotices(
+  db: Db,
+  transport: OutboxTransport,
+  a: {
+    readonly due: readonly DueEtaNotice[];
+    readonly now: Date;
+    readonly env?: Record<string, string | undefined>;
+    readonly by?: string;
+  },
+): Promise<EtaNoticeSweepReport | SweepRefusal> {
+  const env = a.env ?? process.env;
+  if (!isSyntheticDemo(env) || !isDemoMode(env)) return { skipped: "not a demo deployment" };
+
+  const report = { queued: 0, duplicates: 0, skipped: {} as Partial<Record<SweepSkip, number>> };
+  const skip = (reason: SweepSkip) => {
+    report.skipped[reason] = (report.skipped[reason] ?? 0) + 1;
+  };
+
+  for (const notice of a.due) {
+    const legId = demoLegId(notice.childKey, notice.direction);
+    const leg = await db.query<{
+      id: string; site_id: string; child_token: string; plan_version: number; state: string;
+    }>(
+      "SELECT id, site_id, child_token, plan_version, state FROM ops.trip_leg WHERE id = $1",
+      [legId],
+    );
+    const row = leg.rows[0];
+    if (!row) {
+      skip("no-leg");
+      continue;
+    }
+    if (NOT_RIDABLE.has(row.state)) {
+      skip("leg-not-ridable");
+      continue;
+    }
+    const result = await enqueueEtaNotice(db, transport, {
+      decision: notice.decision,
+      ride: {
+        // The site comes from the row, never from a caller (DATA-MODEL §5).
+        siteId: row.site_id,
+        legId: row.id,
+        childToken: row.child_token,
+        direction: notice.direction,
+        planVersion: row.plan_version,
+        stopToken: notice.stopToken,
+      },
+      now: a.now,
+      by: a.by ?? "system:eta-notice",
+    });
+    if ("skipped" in result) skip(result.skipped);
+    else if (result.duplicate) report.duplicates += 1;
+    else report.queued += result.messageIds.length;
+  }
+  return report;
 }

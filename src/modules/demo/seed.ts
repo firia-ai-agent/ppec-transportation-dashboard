@@ -129,6 +129,20 @@ const stopId = (childKey: string) => demoId(KIND.stop, idx(CHILDREN, childKey) +
 const CENTER_STOP_ID = demoId(KIND.stop, 0xc0);
 const SPARE_STOP_ID = demoId(KIND.stop, 0xc1);
 const legId = (childKey: string, dir: "AM" | "PM") => demoId(KIND.leg, idx(CHILDREN, childKey) * 2 + (dir === "AM" ? 1 : 2));
+
+/**
+ * The two seeded ids a *scenario* caller has to be able to name, exported because the ids are
+ * deterministic on purpose (file header: "Ids are deterministic so a reset is idempotent").
+ *
+ * The deterministic ETA notice is the caller: the demo day's replay says which *fixture child* a
+ * family should be texted about (`C2`, the afternoon, Okeeheelee Park), and the row it has to
+ * queue against is this child's leg. Re-deriving that id anywhere else would be a second
+ * definition of "which row is C2's afternoon", which is the one thing these helpers prevent.
+ * Everything else about the leg — its site, its service date, its plan version, whether it is
+ * still being driven — is read from the row itself and never assumed.
+ */
+export const demoChildToken = (childKey: string): string => childId(childKey);
+export const demoLegId = (childKey: string, direction: "AM" | "PM"): string => legId(childKey, direction);
 const manifestId = (runKey: string, dir: "AM" | "PM") => demoId(KIND.manifest, idx(RUNS, runKey) * 2 + (dir === "AM" ? 1 : 2));
 
 type LayoutRef = { id: string; code: string; vehicleKey: string; positions: { id: string; kind: "WC" | "AMB" }[] };
