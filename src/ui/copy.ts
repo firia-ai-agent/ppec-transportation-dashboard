@@ -1088,19 +1088,23 @@ export function layoutName(code: string): string {
 export const fleetMap = {
   /** Accessible name for the map region when the caller supplies none. */
   label: "Fleet map",
-  fitAll: "Fit all vehicles",
   retry: "Retry",
-  vehiclesHeading: "Vehicles",
-  /** "V1 · Convertible van" — the id, then the vehicle in plain words. */
-  vehicleRow: "{id} · {description}",
-  /** "Provider P1 · In transit" */
-  vehicleMeta: "{owner} · {state}",
-  gps: "GPS: {age}",
-  source: "Source: {label}",
-  /** §5.1: a stall is words and a clock, never a colour. */
-  stopped: "Stopped {minutes} min",
-  /** LOC-03: the 600 s band, said out loud rather than shown only in red. */
-  locationLost: "Location lost · dispatcher pinged",
+  /*
+   * THE VEHICLE CARD'S WORDS ARE DELETED — `vehicleRow` ("{id} · {description}"),
+   * `vehicleMeta` ("{owner} · {state}"), `gps`, `source`, `stopped`, `fitAll`,
+   * `vehiclesHeading`, `locationLost` and `stopFamily`.
+   *
+   * They were #53's debug screen's, and they rendered the three things Vera's walk of
+   * 2026-10-18 12:30 AM ET ruled off the screen: "V1 · Convertible van" (a V-code and a vehicle
+   * description), "Provider P1 · In transit" (a vendor) and "V2 · Live 2 s". The components that
+   * printed them — src/components/map/{FleetMap,LiveFleetMap}.tsx — are deleted with this slice,
+   * and a template whose first placeholder is an internal id is not a string to keep lying
+   * around for somebody to reach for.
+   *
+   * A van is written one way now, and it is the founder's: "Van 1 · Marco D." (`liveMap.vanName`,
+   * over the frame's one name helper). No id, no description, no provider — the demo shows no
+   * vendor name at all (REDESIGN-SPEC §6 item 5).
+   */
   /** A stop the vehicle reached. Never "Handed off": a geofence cannot complete a handoff. */
   arrived: "Arrived (vehicle)",
   passed: "Passed",
@@ -1111,12 +1115,6 @@ export const fleetMap = {
   tilesFailed: "Map tiles did not load.",
   /** The style request failed: say what still works, so nobody assumes the board is down. */
   tilesFailedDetail: "Map tiles did not load. The board below is unaffected.",
-  /**
-   * "Okeeheelee Park · F4" — the stop, then the family it belongs to. The `title` tooltip on a
-   * vehicle card's stop row, and nothing else: a family code is a build-internal label, so the
-   * card's visible words are the place name alone (COPY-GUIDE §1–§2, src/ui/no-codes.test.ts).
-   */
-  stopFamily: "{stop} · {family}",
 } as const;
 
 /**

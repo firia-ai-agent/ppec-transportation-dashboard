@@ -740,10 +740,28 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
   });
 
   it("the map pane's own wording, including the two tile notices", () => {
-    expect(fleetMap.fitAll).toBe("Fit all vehicles");
     expect(fleetMap.retry).toBe("Retry");
-    expect(fleetMap.vehiclesHeading).toBe("Vehicles");
-    expect(fleetMap.locationLost).toBe("Location lost · dispatcher pinged");
+    /*
+     * `fitAll`, `vehiclesHeading`, `locationLost`, `vehicleRow`, `vehicleMeta`, `gps`, `source`,
+     * `stopped` and `stopFamily` are deleted with #53's vehicle card, which printed
+     * "V1 · Convertible van" and "Provider P1 · In transit" — the internal codes Vera's walk of
+     * 2026-10-18 12:30 AM ET ruled off the screen. A van is "Van 1 · Marco D." now
+     * (`liveMap.vanName`), and the assertions for the deleted words go with them rather than
+     * being pointed at something else.
+     */
+    for (const gone of [
+      "fitAll",
+      "vehiclesHeading",
+      "locationLost",
+      "vehicleRow",
+      "vehicleMeta",
+      "gps",
+      "source",
+      "stopped",
+      "stopFamily",
+    ]) {
+      expect(fleetMap, gone).not.toHaveProperty(gone);
+    }
     // AT-10: a geofence says the vehicle arrived, never that a child was handed over.
     expect(fleetMap.arrived).toBe("Arrived (vehicle)");
     expect(fleetMap.arrived).not.toMatch(/Handed off/);

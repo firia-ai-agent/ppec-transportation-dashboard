@@ -86,6 +86,51 @@ async function savePlan(page: Page, leg: "AM" | "PM" = "AM") {
 }
 
 /**
+ * THE WORDS THAT MAY NEVER BE ON THIS SCREEN (Vera's walk, 2026-10-18 12:30 AM ET).
+ *
+ * She found "V1 · Convertible van", "Provider P1" and "V2 · Live 2 s" on the Live map.
+ * MOCKUP-TEST-CONTRACT.md §Rules 6 makes the absence of internal codes a global check on every
+ * screen and role, and mockups/live-map.html has the positive form in one line: a van is
+ * "Van 2" and a driver's name. REDESIGN-SPEC §6 item 5 and §7 C2 add the vendors — providers are
+ * hidden from the demo UI and no provider name is shown.
+ */
+const CODES: ReadonlyArray<[name: string, pattern: RegExp]> = [
+  ["a V-code (V1, V2, V3, V4)", /\bV\d\b/],
+  ["a provider or vendor code", /\bProvider\b|\bP\d\b/],
+  ["the synthetic marker", /\bSYN\b/],
+  ["a family key", /\bF\d{1,2}\b/],
+  ["a child token", /\bC\d{1,2}\b/],
+  ["a stop key", /\bS\d{1,2}\b/],
+  ["a run or route id", /\broute\d|\bR\d\b/],
+  ["a device id", /\bDEV-/],
+  ["a layout code", /\d+WC\/\d+A/],
+  ["a 24-hour time", /\b([01]\d|2[0-3]):[0-5]\d\b(?!\s*(AM|PM))/],
+];
+
+/** Vehicle descriptions and vendor names the fixtures carry; none is a word for this screen. */
+const NEVER_ON_SCREEN = [
+  "Convertible van",
+  "Center van",
+  "Substitute van",
+  "Sedan",
+  "Palm Lift Transport",
+  "Coastal Car Service",
+  "center fleet",
+];
+
+/** Scan everything a founder can read on the screen. `where` names the width or the role. */
+async function expectNoCodes(page: Page, where: string) {
+  const text = await page.locator("main").innerText();
+  expect(text.length, `${where}: nothing rendered to scan`).toBeGreaterThan(80);
+  for (const [name, pattern] of CODES) {
+    expect(text.match(pattern), `${where}: ${name}`).toBeNull();
+  }
+  for (const banned of NEVER_ON_SCREEN) {
+    expect(text, `${where}: "${banned}" is on the Live map`).not.toContain(banned);
+  }
+}
+
+/**
  * The two boxes in the DEMO bar that Vera found on top of each other at 390 (her walk,
  * 2026-10-18 12:30 AM ET): the scenario-clock readout and the "Restart demo day" button.
  * png/live-map-390.png draws them side by side on one 32 px row, and png/live-map.png does the
@@ -395,26 +440,31 @@ test.describe("the Live map at 1440", () => {
    * screen and role; COPY-GUIDE §1–§2). This caught a real one: the Auto texts feed was printing
    * the route stop's family *key* — "F7 · Van 1" — where png/live-map.png reads "Kim P. · Van 2".
    */
-  test("prints no internal code: not a V-code, not a family key, not a 24-hour time", async ({
+  test("prints no internal code: not a V-code, not a vendor, not a vehicle description", async ({
     page,
   }) => {
     await savePlan(page);
     await openMap(page);
     await mapDrawn(page);
-    const text = await page.locator("main").innerText();
-
-    expect(text, "a V-code").not.toMatch(/\bV\d\b/);
-    expect(text, "a family key").not.toMatch(/\bF\d{1,2}\b/);
-    expect(text, "a child token").not.toMatch(/\bC\d{1,2}\b/);
-    expect(text, "a provider code").not.toMatch(/\bP\d\b/);
-    expect(text, "a 24-hour time").not.toMatch(/\b([01]\d|2[0-3]):[0-5]\d\b(?!\s*(AM|PM))/);
-    expect(text, "a raw route id").not.toMatch(/\broute\d\b/);
-    expect(text, "a stop key").not.toMatch(/\bS\d{1,2}\b/);
+    await expectNoCodes(page, "1440");
 
     // And every line of the feed that names somebody names a person, the way the mockup does.
     const feed = await page.getByRole("region", { name: liveMap.feedHeading }).innerText();
     expect(feed).toMatch(/\d{1,2}:\d{2} (AM|PM)/);
     expect(feed).not.toMatch(/\bF\d/);
+
+    /*
+     * The van rows are the mockup's own line and nothing more: "Van 2" and a driver
+     * (mockups/live-map.html `.van .t`). Not an id, not "Convertible van", not a provider —
+     * which is what Vera found here (her walk, 2026-10-18 12:30 AM ET) and what
+     * src/modules/live-map/screen.test.ts walks the whole simulated day for.
+     */
+    const names = await page
+      .getByRole("list", { name: liveMap.vansHeading })
+      .getByRole("button")
+      .evaluateAll((bs) => bs.map((b) => b.getAttribute("aria-label") ?? ""));
+    expect(names).toHaveLength(3);
+    for (const name of names) expect(name).toMatch(/^Van [123] · [A-Z][a-z]+(?: [A-Z]\.)?$/);
   });
 
   /* The §7.1 / NFR-09 chip, which is the DEMO bar's and not this page's: one on the screen. */
@@ -641,6 +691,18 @@ test.describe("the Live map at 390", () => {
     );
   });
 
+  /*
+   * The same scan at the phone width, because a narrower screen is where a label gets swapped
+   * for "the short one" and the short one is the code (mockups/live-map.html `.van .t` draws the
+   * same name at both widths — png/live-map-390.png keeps "Van 2 Dee R." in full).
+   */
+  test("prints no internal code at 390 either", async ({ page }) => {
+    await savePlan(page);
+    await openMap(page);
+    await mapDrawn(page);
+    await expectNoCodes(page, "390");
+  });
+
   test("keeps no ETA at 390 either", async ({ page }) => {
     await savePlan(page);
     await openMap(page);
@@ -741,6 +803,25 @@ test.describe("the front desk", () => {
       as.map((a) => a.getAttribute("href")).filter((h) => h && !h.startsWith("#")),
     );
     expect([...new Set(hrefs)]).toEqual(["/live-map", "/ramp-ipad"]);
+  });
+
+  /*
+   * The role scan. The front desk is the one whose data is filtered on the way out
+   * (src/domain/access/map-view.ts withholds family labels), which makes it the role most
+   * likely to be left holding a raw label where a name was removed — so the check that matters
+   * most runs here, at both widths. The director's and the coordinator's views are scanned in
+   * the 1440 and 390 blocks above and, for all three roles, without a browser in
+   * src/modules/live-map/screen.test.ts.
+   */
+  test("reads no internal code, at either width", async ({ page }) => {
+    await page.goto(`/live-map?leg=am&at=${AT.MOCKUP}`);
+    await expect(page.getByRole("heading", { level: 1, name: liveMap.heading })).toBeVisible();
+    await expectNoCodes(page, "front desk at 1440");
+
+    await page.setViewportSize(PHONE);
+    await page.goto(`/live-map?leg=am&at=${AT.MOCKUP}`);
+    await expect(page.getByRole("heading", { level: 1, name: liveMap.heading })).toBeVisible();
+    await expectNoCodes(page, "front desk at 390");
   });
 
   test("gets no scenario or demo controls on it", async ({ page }) => {

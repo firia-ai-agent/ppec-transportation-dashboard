@@ -256,12 +256,54 @@
   position: absolute;
   left: var(--space-5);
   top: var(--space-5);
+  z-index: 2;
   margin: 0;
   padding: var(--space-4);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-crit-fg);
   font-size: var(--text-14);
+}
+
+/*
+ * MAPLIBRE'S OWN CONTROLS, HELD TO THIS APP'S RULES.
+ *
+ * These three carried over from the pane this screen replaces (#53's fleet-map.module.css) when
+ * that file was deleted, because they are Vera's review contracts rather than that pane's
+ * styling, and they are just as true of this map:
+ *
+ *  - **§9: a zoom button is a real target.** MapLibre ships 29 px buttons; the console floor is
+ *    44 (`--target-console`). The group is widened with them, or the wider buttons are cropped.
+ *  - **ADR-008 / §5.1: the attribution is never clipped and never covered.** It is pinned to the
+ *    pane's own bottom-right rather than left to flow, it sits above anything this screen floats
+ *    over the map (the legend, the locked card, the tile notice), and its text wraps inside the
+ *    pane instead of running past the edge — which is what a 390 px phone would otherwise do to
+ *    it, and the overflow this branch has just spent a slice removing.
+ */
+.mapw :global(.maplibregl-ctrl-bottom-right) {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  max-width: 100%;
+  margin: 0;
+  padding: 0 var(--space-2) var(--space-2) 0;
+  pointer-events: auto;
+}
+
+.mapw :global(.maplibregl-ctrl-attrib) {
+  max-width: 100%;
+  /* The licence text wraps rather than running out of the pane. */
+  white-space: normal;
+}
+
+.mapw :global(.maplibregl-ctrl-group button) {
+  width: var(--target-console);
+  height: var(--target-console);
+}
+
+.mapw :global(.maplibregl-ctrl-group) {
+  width: var(--target-console);
 }
 
 /* ───────────────────────────── the legend ───────────────────────────── */
