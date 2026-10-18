@@ -118,3 +118,65 @@ export function namedTokens(text: string): string[] {
   }
   return [...seen];
 }
+
+/* ───────────────────────── the way back: a token as a name ───────────────────────── */
+
+/**
+ * THE ONE NAME HELPER FOR THIS DIRECTION — a token as the first name a person reads.
+ *
+ * `tokenizeNames` is how a name gets *into* a prompt safely; this is the only way one comes back
+ * out. It exists because of the shape of the whole path and not as a convenience:
+ *
+ *  - every prompt this app sends is token-only, and `redact.validatePromptTokensOnly` fails closed
+ *    on a roster name, so the model is given "F2 asked whether C2 can be dropped at 17:00";
+ *  - what a coordinator must read is "Dara asked if Noah can be dropped at 5" (Firia, 2026-10-18
+ *    11:13 AM ET) — **real first names, never a code**, which is also the §9 no-codes rule;
+ *  - so the tokens in the model's own sentence are turned back into names here, by the same
+ *    roster that replaced them, rather than by a screen holding its own idea of who C2 is.
+ *
+ * A **first** name, because that is what the founder's sentence is: a staff screen may name a
+ * child in full ("Noah O."), but a reply read aloud beside an alert is one name per person. The
+ * mapping is the fixture roster's own `firstName`, so the two directions cannot disagree about
+ * who a token is.
+ *
+ * Unknown tokens come back null rather than as themselves: a caller that cannot name somebody has
+ * to decide what to say instead, and silently printing "C2" on a screen is the one outcome the
+ * no-codes rule forbids.
+ */
+export function firstNameOfToken(token: string): string | null {
+  const child = CHILDREN.find((c) => c.key === token);
+  if (child) return child.firstName;
+  const family = FAMILIES.find((f) => f.key === token);
+  if (family) return family.guardian.firstName;
+  const person = EXTERNAL_PEOPLE.find((p) => p.key === token);
+  return person ? person.firstName : null;
+}
+
+/** Every token this roster knows, longest first — so "C10" is replaced before "C1". */
+const TOKENS: readonly string[] = [
+  ...CHILDREN.map((c) => c.key),
+  ...FAMILIES.map((f) => f.key),
+  ...EXTERNAL_PEOPLE.map((p) => p.key),
+].sort((a, b) => b.length - a.length);
+
+/**
+ * A sentence the model wrote in tokens, as a sentence a coordinator reads in names.
+ *
+ * Word-bounded on both sides and **case-sensitive**, which is the opposite of `tokenizeNames` and
+ * is deliberate: a fixture token is upper-case by construction (`C2`, `F2`, `T1`), and a
+ * case-insensitive pass would rewrite the ordinary English word "c2"… it would not, but it *would*
+ * rewrite "D1" inside a layout code and "T1" inside the tier labels, which are the two codes this
+ * system writes in prose. Matching the token exactly as the prompt spelled it is the narrow rule.
+ *
+ * Longest first for the reason `roster()` sorts longest first: "C10" replaced after "C1" leaves
+ * "Mia0", which is a name this app just invented.
+ */
+export function detokenizeNames(text: string): string {
+  let out = text;
+  for (const token of TOKENS) {
+    const name = firstNameOfToken(token);
+    if (!name) continue;
+    out = out.replace(new RegExp(`(?<![A-Za-z0-9])${token}(?![A-Za-z0-9])`, "g"), name);
+  }
+  return out;
+}

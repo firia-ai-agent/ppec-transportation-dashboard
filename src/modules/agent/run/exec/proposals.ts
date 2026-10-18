@@ -29,6 +29,7 @@ import {
   DROPOFF_CHANGE_TEMPLATE,
 } from "@/modules/approvals/dropoff-change";
 import { childByKey, stopByKey } from "@/modules/demo/fixtures/standard";
+import { dropoffAlertWords } from "../../alert-words";
 import { agentTasks, fill } from "@/ui/copy";
 import { demoTokenForId } from "../scope-tokens";
 import { planStoreIn } from "@/modules/plan/store";
@@ -312,12 +313,31 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
     [isUuid(sourceMessageId) ? sourceMessageId : null, input.siteId],
   );
 
+  /*
+   * WHAT THE ALERT SAYS: the model's own sentence from this very call (Firia, 2026-10-18 11:15 AM
+   * ET), falling back to the named copy line when it wrote nothing fit for a screen. The order and
+   * the reasons are `agent/alert-words.ts`; the one thing worth repeating here is that the general
+   * "A family asked for a different drop-off" row is gone from this path — the words a coordinator
+   * reads beside the thread are now either the model's or the row's own fields, never a sentence
+   * about the *kind* of thing this is.
+   *
+   * `input.args.alert_text` is the policy engine's sanitized copy (`sanitizeStaffText`, a declared
+   * `staffTextFields` entry), so a number or an address somebody tried to smuggle into it arrives
+   * here already replaced by a class placeholder — and a line carrying one fails `isAlertText` and
+   * lands on the fallback rather than on a card.
+   */
+  const alertWords = dropoffAlertWords({
+    alertText: input.args.alert_text,
+    childToken: row.child_token,
+    requestedTime: requestedTime,
+  });
+
   const taskId = await raiseTask(tx, {
     id: effectId(input.idempotencyKey, "exception"),
     siteId: input.siteId,
     category: DROPOFF_CHANGE_TASK_CATEGORY,
     severity: "AMBER",
-    words: agentTasks.proposedDropoffChange,
+    words: { ...agentTasks.proposedDropoffChange, summary: alertWords },
     by,
   });
 
@@ -339,6 +359,13 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
     /** The stop as proposed, or the one the leg already holds when only the time moved. */
     stop_token: stopToken,
     rationale_code: rationale,
+    /**
+     * The words on the alert, on the proposal as well as on its task: the card in the bubble is
+     * drawn from the approval row, and a reader that had to join back to `ops.task` for the one
+     * sentence it shows would be one join away from showing the wrong one. Stored as rendered —
+     * names, no tokens — because this field is read by screens and by nothing else.
+     */
+    alert_text: alertWords,
     basis_message_id: basis.rows[0]?.id ?? null,
     /** The text, as a template and its vars. Rendered by the screen and by the outbox, once each. */
     template_id: DROPOFF_CHANGE_TEMPLATE,

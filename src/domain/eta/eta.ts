@@ -185,6 +185,31 @@ const CLOCK_24_FMT = new Intl.DateTimeFormat("en-GB", {
   hour12: false,
 });
 
+/**
+ * A PLAN TIME AS SOMEBODY SAYS IT — "5" for 17:00, "4:35" for 16:35.
+ *
+ * Firia, 2026-10-18 11:13 AM ET, for the alert line in the agent bubble: "{parent} asked to move
+ * {child}'s drop-off to 5." The time in a sentence is the time a parent typed and a coordinator
+ * repeats, and nobody says "17:00" or "5:00 PM" in the middle of one. So: 12-hour, no meridiem,
+ * and no ":00" on the hour.
+ *
+ * Takes the 24-hour "HH:MM" the plan and the proposals are written in (`clockTime` — the shape
+ * `propose_dropoff_change.requested_dropoff_time` is validated as), rather than an instant: a
+ * requested time is a wall-clock value on the service date, not a moment, and turning it into one
+ * to print it would be inventing a date to go with it. Not a time at all comes back null, because
+ * a sentence with a blank where its time should be is worse than one that leaves the time out.
+ *
+ * It is NOT {@link formatClock}, which is the full "7:42 AM" a clock or a column shows, and is
+ * right there; this is the one inside a sentence.
+ */
+export function sayClock(hhmm: string): string | null {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(hhmm.trim());
+  if (!m) return null;
+  const hour24 = Number(m[1]);
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return m[2] === "00" ? String(hour12) : `${hour12}:${m[2]}`;
+}
+
 /** A single ET time, "7:42 AM" (COPY-GUIDE l.36). For clocks, never for an ETA. */
 export function formatClock(ms: number): string {
   const { clock, meridiem } = parts(ms);

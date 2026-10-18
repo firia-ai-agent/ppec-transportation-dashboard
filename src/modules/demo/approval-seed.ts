@@ -51,6 +51,7 @@ import {
   DROPOFF_CHANGE_TASK_CATEGORY,
   DROPOFF_CHANGE_TEMPLATE,
 } from "@/modules/approvals/dropoff-change";
+import { dropoffAlertWords } from "@/modules/agent/alert-words";
 import { raiseTask } from "@/modules/agent/run/exec/effects";
 import { CHANGE_DIRECTION, demoChangeRequests, type DemoChangeRequest } from "./change-request";
 import { KIND, childByKey, childTokenOf, demoId, stopByKey } from "./fixtures/standard";
@@ -124,12 +125,27 @@ async function writeOne(
   const savedPlan = await sqlPlanStoreIn(tx).loadPlan(a.siteId, a.serviceDate, direction);
   const planRunVersionBasis = savedPlan?.version ?? 0;
 
+  /*
+   * The alert's one line, once, for the task and the proposal row alike (`agent/alert-words.ts`).
+   */
+  const alertWords = dropoffAlertWords({ childToken, requestedTime: a.request.requestedHhmm });
+
   const taskId = await raiseTask(tx, {
     id: demoId(KIND.approvalTask, 1),
     siteId: a.siteId,
     category: DROPOFF_CHANGE_TASK_CATEGORY,
     severity: "AMBER",
-    words: agentTasks.proposedDropoffChange,
+    /*
+     * The named copy line, filled from this seed's own fields (Firia, 11:15 AM ET). A seed has no
+     * model, so it is always the fallback half of `dropoffAlertWords` — and that is exactly why it
+     * calls the same function the agent's writer calls rather than wording the row itself: the
+     * seeded card and a live one say the same kind of sentence, and the old general "A family
+     * asked for a different drop-off" words neither.
+     */
+    words: {
+      ...agentTasks.proposedDropoffChange,
+      summary: alertWords,
+    },
     by: BY,
     tripLegId: legId,
     childToken,
@@ -148,6 +164,8 @@ async function writeOne(
     stop_token: stopToken,
     /* A code, never prose — the same enum `propose_dropoff_change` takes (tools.ts). */
     rationale_code: "PARENT_REQUEST",
+    /** The alert's words, on the row the card is drawn from. The seed's fallback line, as above. */
+    alert_text: alertWords,
     basis_message_id: null,
     /* The text, as a template and its vars. Rendered by the screen and by the outbox, once each. */
     template_id: DROPOFF_CHANGE_TEMPLATE,

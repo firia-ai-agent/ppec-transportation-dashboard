@@ -1412,6 +1412,26 @@ export const approval = {
   checkSameVan: "Same van",
   checkFits: "Fits",
   checkOnFile: "{adult} on file",
+  /**
+   * ONE LINE OF WHAT CHANGES IN THE PLAN (Firia, 2026-10-18 11:15 AM ET), on the card as it is
+   * drawn **in the agent bubble**.
+   *
+   * It is not the before→after table the note above deleted, and the difference is the whole of
+   * why this key exists. The table said the same change twice in a shape only somebody holding
+   * the plan could check; this is one sentence of what the plan would do, under the words the
+   * family would read. In Family texts the card sits inside the thread, where the parent's own
+   * message is two inches above it and the context pane is beside it — so the card there passes
+   * no line and draws none (`ProposalCard`'s `changeLine` is optional). In the bubble there is no
+   * thread and no pane: a coordinator is looking at one alert on top of whatever screen they were
+   * on, and "what does this do to the ride" is the one fact they would otherwise have to leave
+   * the panel to get.
+   *
+   * Both halves are the proposal row's own fields through the queue's own view — the time it
+   * asked for and the stop it names — and never a sentence read out of anybody's words.
+   */
+  planChange: "In the plan: drop-off moves to {time}, at {stop}.",
+  /** The same line for a proposal that moves only the place, which has no time to name. */
+  planChangeStop: "In the plan: drop-off moves to {stop}.",
 } as const;
 
 /**
@@ -3101,6 +3121,47 @@ export const agentBubble = {
    */
   needsApproval: "Needs approval",
   /**
+   * THE NAMED LINE ON A WAITING DROP-OFF PROPOSAL — and, since Firia's 11:15 AM ET ruling of
+   * 2026-10-18, **the fallback rather than the line**.
+   *
+   * What words a proposal now is the model's own sentence, written in the
+   * `propose_dropoff_change` call that raised it (`alert_text`, agent/alert-text.ts) and stored on
+   * the task and the proposal row. A coordinator reading an alert is reading what the thing that
+   * read the family's text has to say about it, not a sentence this app assembled about the row.
+   *
+   * This line is what the row says when **no model wrote one**: the demo seed, and a deployment
+   * whose model is down. It replaces the old general "A family asked for a different drop-off"
+   * ({@link agentTasks.proposedDropoffChange}) everywhere, the board row included — the 11:13
+   * reading, which kept the general sentence on the board, did not survive the 11:15 one, and
+   * nothing words a drop-off proposal with that row any more.
+   *
+   * Every value is a *structured field of the proposal row*: the parent and the child are tokens
+   * through the one name helper (`identity/names.firstNameOfToken`), the time is
+   * `requested_dropoff_time` through `sayClock`. Nothing here is read out of anybody's words.
+   */
+  dropoffWaiting: "{parent} asked to move {child}'s drop-off to {time}. Your reply is ready.",
+  /** The same sentence for a proposal that moves only the place: there is no time to say. */
+  dropoffWaitingNoTime: "{parent} asked to move {child}'s drop-off. Your reply is ready.",
+  /**
+   * …and with nobody nameable. A proposal whose child this roster cannot name still has to say
+   * what is waiting, and it says it without a token: a code on a screen is the one outcome §9
+   * forbids outright, so the names come out of the sentence rather than the sentence showing "C2".
+   *
+   * It is deliberately NOT the old "A family asked for a different drop-off" row
+   * ({@link agentTasks.proposedDropoffChange}), which no longer words any drop-off proposal
+   * anywhere (Firia, 11:15 AM ET): that line said a family had asked and that somebody must go
+   * and find the reply, which is both vaguer and less true than this one.
+   */
+  dropoffWaitingUnnamed: "A drop-off change is waiting, and your reply is ready.",
+  /**
+   * …and the card's one control, which is a **button again** as of the same ruling, replacing the
+   * plain-text chip of 9:21 AM. What changed is that there is now somewhere honest for it to go:
+   * it opens that parent's own Family texts thread, where the drafted reply and the decision both
+   * live. It is still not an Approve — pressing it decides nothing — so the words say what it
+   * does, which is show you the reply.
+   */
+  reviewReply: "Review reply",
+  /**
    * The grey reply under an ask nobody could answer (Firia and Vera, 2026-10-18 9:17 AM ET). One
    * line, and it is the whole of the degraded mode in the panel: it says what is true — no answer
    * — and never why, because every why is a vendor, a key or an outage. There is no keyword
@@ -3147,4 +3208,43 @@ export const agentAsk = {
     nextStep: "Do the thing that was asked, or reply to the family yourself.",
     predicate: "a coordinator has done what was asked and recorded it",
   },
+  /**
+   * WHAT THE PANEL SAYS WHEN NO MODEL WILL ANSWER (Firia and Vera, 2026-10-18 11:13 AM ET,
+   * replacing {@link agentBubble.noAnswer} on this path).
+   *
+   * "I can't answer right now." was true and useless: the app knew perfectly well what the open
+   * alert was about — it had written the row — and said nothing. So the degraded answer is **what
+   * the app knows from the task row itself**, and the whole of the rule is where those words come
+   * from:
+   *
+   *  - the parent, the child and the fact that a drop-off move was asked for are *structured
+   *    fields* of the proposal row (`child_token`, `requested_dropoff_time`, the family behind the
+   *    child), read as columns and named through the one name helper;
+   *  - **nothing is parsed out of anybody's text.** There is no keyword reader and no regex over a
+   *    family's words on this path or any other (founder's rule, 2026-10-17;
+   *    `agent/no-keyword-fallback.test.ts`). A sentence assembled from the words of the question
+   *    would be the panel pretending to have understood it; a sentence assembled from its own
+   *    columns is the panel telling you what it filed.
+   *  - it does not say the time. The time is on the alert card right above it
+   *    ({@link agentBubble.dropoffWaiting}); saying it twice in two voices is how a screen ends up
+   *    disagreeing with itself.
+   *
+   * And it ends by naming where the answer is, because the one thing this deployment can still do
+   * for a coordinator is take them to the thread. `openThread` is that action's label — a link to
+   * the parent's own Family texts thread, the same destination the alert card's button has.
+   *
+   * The staff alert is raised exactly as before: this is what the panel says, not instead of what
+   * the board records.
+   */
+  fromTheRow: "{parent} asked to move {child}'s drop-off. Open {parent}'s thread to see it.",
+  /**
+   * The same sentence with nothing open to name — an ask typed when the board is clear. It says
+   * the one true thing (nobody answered, it is on your list) and invents no subject for it.
+   *
+   * It is deliberately not {@link agentBubble.noAnswer}: that line said only that there was no
+   * answer, and this one says what happened to the question instead.
+   */
+  fromTheRowPlain: "Nobody could answer that here, so it is on your list.",
+  /** The action beside both, and the alert card's destination: that parent's own thread. */
+  openThread: "Open the thread",
 } as const;
