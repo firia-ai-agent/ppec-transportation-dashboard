@@ -1,49 +1,52 @@
 /**
- * /live-map — where every van is now: the M5 map pane on its own route until the map lands
- * inside SURF-01 (BUILD-PLAN-M2 P-03). Vera and Veri also walk the §10 map checklist lines here
- * (attribution always visible, no violet on the map, positron with the §5.1 water override,
- * reduced-motion camera). With the M5 simulator wired in the trucks move: a client-side
- * scenario clock replays the deterministic runs in src/fixtures/replays.ts (PRD §18.2 steps
- * 7–8), and the vans carry the labels the board carries — V1, V2, V3 (src/fixtures/fleet.ts,
- * MOCKS §2), so the van a coordinator reads on the board is the van they find on the map.
+ * /live-map — where every van is right now.
  *
- * It was `/map-preview` and is a permanent redirect there still (src/app/map-preview/page.tsx);
- * "preview" is out of every menu label and address (Vera's review, 2026-10-17).
+ * The founder's screen (mockups/live-map.html; png/live-map.png at 1440, png/live-map-390.png
+ * at 390): a list of vans beside the map at 1440 and under it at 390, each with its number, its
+ * driver, its next stop, the kids still aboard and **one state chip** — On route, At stop, Late,
+ * No GPS. The map draws each van's route, pin and stops in that van's own colour, the basemap's
+ * credits collapse behind an (i), and there is no ETA anywhere on it (REDESIGN-SPEC §3, which
+ * deletes the 13-field ETA line and the 41-word "Decisions only…" paragraph this page used to
+ * open with; Firia's goal-5 brief deletes the rest).
  *
- * No database, no SSE, no server actions, no sending: everything on the page is Simulated by
- * construction (ADR-015 synthetic-only) and the notification list is *decisions* only.
+ * What left with them: the per-screen scenario clock and its Pause / ×1 / ×10 / ×60 / Restart
+ * (the demo's clock is the DEMO bar's, Firia 8:36 PM ET), the "Open Ramp iPad" and "Open Plan
+ * routes" links (both are in the menu on every screen now), the notification-decision log and
+ * the injected-fault list. There are **no scenario or demo controls on this screen at all**,
+ * which is part of what makes it safe as the front desk's home page.
  *
- * It is behind staff sign-in. A deployed URL is guessable, and this page draws a whole fleet,
- * every stop's family label and every notification decision — so the route is guarded exactly
- * as the other protected pages are, by the one access table (src/auth/access.ts), and the role
- * decides which of those the viewer actually gets (src/domain/access/map-view.ts holds that
- * matrix).
+ * No database read on this slice and no writes ever: the positions come from the simulated/demo
+ * source behind the domain location interface (src/modules/live-map/day.ts), which is what the
+ * one "Simulated" chip in the DEMO bar says on this screen as on every other (§7.1, NFR-09).
  *
- * The DEMO banner and the one NFR-09 source-mode chip come from the root layout
- * (src/app/layout.tsx), which renders them on every route — this page must not mount a second
- * pair. That chip is also what the screen's name leans on: it says "Simulated" here as it does
- * everywhere, which is why the heading can be the screen's job ("Live map") rather than a note
- * about how finished the build is.
+ * It is behind staff sign-in. A deployed URL is guessable and this page draws a whole fleet, so
+ * the route is guarded exactly as the other protected pages are, by the one access table
+ * (src/auth/access.ts); the role then decides which data the viewer actually gets
+ * (src/domain/access/map-view.ts holds that matrix).
  */
 
-import Link from "next/link";
-import LiveFleetMap from "@/components/map/LiveFleetMap";
-import { fill, liveMap, planRoutes, rampIpad } from "@/ui/copy";
-import { canOpenPage, mapViewerOf } from "@/auth/access";
+import LiveMapScreen from "@/modules/live-map/LiveMapScreen";
+import { liveMap } from "@/ui/copy";
+import { mapViewerOf } from "@/auth/access";
+import { canSeeMapData } from "@/domain/access/map-view";
 import { requirePage } from "@/auth/page-guard";
+import { siteHour } from "@/ui/service-date";
+import styles from "@/modules/live-map/live-map.module.css";
 
 export const metadata = { title: liveMap.documentTitle };
 
-/** The row a screen link sits in, and the ≥44 px target inside it (§9). */
-const LINK_ROW = { margin: 0, fontSize: "var(--body-console)" } as const;
-const TAP_TARGET = {
-  display: "inline-flex",
-  alignItems: "center",
-  minHeight: "var(--target-console)",
-} as const;
-
 /** The guard reads a session, so this route is never statically rendered. */
 export const dynamic = "force-dynamic";
+
+/**
+ * Which leg the screen opens on, from the site's own clock rather than the browser's: before
+ * noon in New York the morning run is the one in progress, after it the afternoon
+ * (src/ui/service-date.ts holds the one time zone). A coordinator can switch, and the switch is
+ * the segmented control in the header bar.
+ */
+function legNow(): "AM" | "PM" {
+  return siteHour() < 12 ? "AM" : "PM";
+}
 
 export default async function LiveMapPage() {
   // Signed out is a redirect to sign-in; a role the table does not list is a 403 and the
@@ -53,41 +56,8 @@ export default async function LiveMapPage() {
   const viewer = mapViewerOf(caller);
 
   return (
-    <main style={{ padding: "var(--space-5)", display: "grid", gap: "var(--space-4)" }}>
-      {/*
-        No title and no helper lines here. The title is the frame's page header bar
-        (src/ui/PageHeader.tsx, audit §2 item 1), and the two sentences that used to open this
-        screen — what the map is, and that it is signed-in only — are deleted: audit §3 and §4
-        item 9 allow one title and at most one helper line per screen, and where the positions
-        come from is already said by the one Simulated chip in the DEMO bar (§7.1).
-      */}
-      {/*
-        The ramp iPad is a sibling surface behind the same guard, and the two are walked in one
-        sitting, so each one says where the other is. They are both in the nav rail as well; this
-        is the in-page shortcut between the pair.
-
-        §9: ≥44 px of tappable height. These two were the line-height of their own text — 18 px,
-        which on a phone is a link you aim at and miss (the founder's 2026-10-17 walk).
-      */}
-      <p style={LINK_ROW}>
-        <Link href="/ramp-ipad" style={TAP_TARGET}>
-          {fill(liveMap.openScreen, { page: rampIpad.heading })}
-        </Link>
-      </p>
-      {/*
-        Plan routes is the third screen behind the same door, and it is the coordinator's and
-        the director's (src/auth/access.ts). The link is offered only to a role whose own row
-        opens that page — hiding it is a courtesy, not the guard: /plan-routes checks the table
-        again on the server, like every other page.
-      */}
-      {canOpenPage(caller, "/plan-routes") ? (
-        <p style={LINK_ROW}>
-          <Link href="/plan-routes" style={TAP_TARGET}>
-            {fill(liveMap.openScreen, { page: planRoutes.heading })}
-          </Link>
-        </p>
-      ) : null}
-      <LiveFleetMap viewer={viewer} />
+    <main className={styles.main}>
+      <LiveMapScreen leg={legNow()} familyLabels={canSeeMapData(viewer, "familyLabels")} />
     </main>
   );
 }

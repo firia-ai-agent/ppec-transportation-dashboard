@@ -639,6 +639,103 @@ export const liveMap = {
   /** A device with no active binding has no position to show, so it is absent, not faint. */
   unbound:
     "{vehicle}'s device has no active binding: {unbound} points ingested and stored as unbound, {accepted} displayable. It has no marker, no row and no ETA.",
+
+  /* ───────────────── the screen the founder's mockup draws (goal 5) ─────────────────
+   *
+   * mockups/live-map.html, png/live-map.png (1440), png/live-map-390.png. About 25 words
+   * visible, which is REDESIGN-SPEC §3's own budget for this screen, and **no ETA among them**:
+   * the words above this block are the M5 debug screen's and are being taken off the page.
+   */
+
+  /**
+   * THE VAN, as a person says it: "Van 1 · Marco D.".
+   *
+   * Never "V1". A V-code is the database's name for a van and the test contract lints the DOM
+   * for it (`/\bV\d\b/`); the number a driver and a coordinator both use is the one painted on
+   * the door. The driver is first name + family initial, through the one name helper
+   * (src/ui/display-name.ts `shortName`), so this screen cannot write a person's name a second
+   * way.
+   *
+   * The two halves are also drawn apart — the number in ink, the driver muted beside it, as the
+   * mockup draws them — so this string is the row's *accessible name*, which is the one place
+   * the two are one phrase.
+   */
+  vanName: "Van {number} · {driver}",
+  /** Just the number, which is what the eye reads first in the list and on the map pin. */
+  vanNumber: "Van {number}",
+
+  /**
+   * The line under a van's name: where it is going and who is still aboard. The mockup's
+   * "John Prince Park · 2 kids" — no ETA, no "+12 min", no clock.
+   */
+  vanNext: "{stop} · {kids}",
+  kids: "{count} kids",
+  kidsOne: "1 kid",
+
+  /**
+   * How far along the run is, for the stop-progress bar. The bar is a picture of the same fact
+   * the chip and the next stop already carry in words (§9: never a graphic alone), so this is
+   * its accessible name rather than a visible string.
+   */
+  progress: "Stop {done} of {total}",
+
+  /**
+   * The counts at the top, which are also the filters. "1 on route · 1 late · 1 no GPS" in the
+   * mockup, and each is a filter in the list's own row ("All 3 / Late / No GPS").
+   *
+   * There is no "At stop" count and no "At stop" filter, which is the mockup: a van at a stop is
+   * a van that is fine, so the header counts the two things a coordinator acts on and the one
+   * that is simply running.
+   */
+  countOnRoute: "{count} on route",
+  countLate: "{count} late",
+  countNoGps: "{count} no GPS",
+  filterAll: "All {count}",
+  filterLate: "Late",
+  filterNoGps: "No GPS",
+  /** The filter row is a group of toggles, so it needs a name of its own (§9). */
+  filterLabel: "Show vans",
+  /** When a filter leaves the list empty, the list says so rather than being blank. */
+  filterEmpty: "No vans in this filter.",
+
+  /** The list of vans, as a region a screen reader can jump to. */
+  vansHeading: "Vans",
+
+  /** The feed under the list: what went out to families, time first. Never an ETA. */
+  feedHeading: "Auto texts",
+  /** The row's middle column: who it went to, and which van it was about. */
+  feedWho: "{family} · {van}",
+  feedEmpty: "No family text yet today.",
+  /** The leg switch in the header bar needs a name of its own, being a group of two (§9). */
+  legLabel: "Which leg",
+
+  /**
+   * The map's legend, which is the four chips again as four marker shapes — so the colour of a
+   * marker is never the only thing that says what it means (§3, §9).
+   */
+  legendHeading: "What the markers mean",
+
+  /**
+   * MAP CREDITS, collapsed behind an (i) that opens them.
+   *
+   * ADR-008 and §5.1 require the basemap's attribution to be present and never removed; the
+   * founder's mockup has no licence text across the bottom of the map. Both hold at once the way
+   * MapLibre itself does it: the credits are always in the page, behind a labelled button, and
+   * one click opens them. The label is the button's accessible name — the button's face is the
+   * letter i — so this is the one place the words exist.
+   */
+  credits: "Map credits",
+
+  /**
+   * LOCKED UNTIL A PLAN IS SAVED (REDESIGN-SPEC §9.1: "Plan saved -> Live map" is a *hard*
+   * gate). No saved plan for this leg means no routes to draw, so the map shows the centre and
+   * this card over it — never a blank map, and never an invented route.
+   */
+  lockedHeading: "No routes yet",
+  lockedBody: "Save a plan for this leg and the vans show up here.",
+  lockedAction: "Plan routes",
+  /** The same fact for a role whose menu does not carry Plan routes (front desk). */
+  lockedBodyNoPlanAccess: "A coordinator saves the plan, and the vans show up here.",
 } as const;
 
 /**

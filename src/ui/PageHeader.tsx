@@ -35,6 +35,18 @@ export function PageHeader({ account }: { account: RailAccount | null }) {
     <div className={styles.bar}>
       {/* A screen with no row in the table has no title to print, and prints none. */}
       {title ? <h1 className={styles.title}>{title}</h1> : null}
+      {/*
+        THE BAR'S ONE SLOT, and it is empty on every screen that does not fill it.
+        The founder's mockups draw a screen's own switch *inside* this bar rather than in a
+        second strip under it — the Live map's Morning|Afternoon and its three state counts
+        (mockups/live-map.html, png/live-map.png), the board's date and segmented leg. A screen
+        is a child of the layout that mounts this bar, so it cannot pass them up as props; it
+        renders them into here instead (src/ui/HeaderSlot.tsx), which is how one 64 px bar can
+        carry both the frame's title and one screen's controls without the frame knowing what
+        they are. No screen's content is in this file, and a screen that fills nothing in leaves
+        an empty element that takes no space.
+      */}
+      <div className={styles.slot} data-header-slot />
       <span className={styles.spacer} />
       {account ? (
         <Link
