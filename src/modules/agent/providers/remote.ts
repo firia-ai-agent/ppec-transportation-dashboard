@@ -372,6 +372,11 @@ export function remoteProvider(
       });
       if (!response.ok) {
         const failure = response.status === RATE_LIMITED ? "rate_limited" : "http_error";
+        // PPE-101: one diagnosable line per failed model — status, OpenRouter's error code and a
+        // short slice of its message (e.g. "No endpoints found matching your data policy"). Never
+        // the key, the request headers or the request body.
+        const detail = await openRouterErrorDetail(response);
+        console.warn(JSON.stringify({ event: "agent.provider_error", model, status: response.status, ...detail }));
         return { record: { model, status: response.status, ok: false, failure }, body: null };
       }
       const parsed = normalize(await response.json());
@@ -464,4 +469,21 @@ export function normalize(raw: unknown): ProviderResponseBody | null {
     content: typeof message.content === "string" ? message.content : null,
     ...(finishReason === undefined ? {} : { finish_reason: finishReason }),
   };
+}
+
+/** OpenRouter's `{ error: { code, message } }`, bounded; nothing else from the body is kept. */
+async function openRouterErrorDetail(
+  response: Response,
+): Promise<{ readonly code: string | number | null; readonly message: string | null }> {
+  try {
+    const body = (await response.json()) as { error?: { code?: unknown; message?: unknown } } | null;
+    const code = body?.error?.code;
+    const message = body?.error?.message;
+    return {
+      code: typeof code === "number" || typeof code === "string" ? code : null,
+      message: typeof message === "string" ? message.slice(0, 200) : null,
+    };
+  } catch {
+    return { code: null, message: null };
+  }
 }
