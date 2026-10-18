@@ -8,9 +8,13 @@
  * rosters and three fleets in one app ("Noah B." against "Noah O.", a board "Van 3" that was the
  * live map's V4).
  *
- * There is one implementation today, the synthetic day (src/modules/demo/day-source.ts), and the
- * point of the port is that it is the *only* thing that reads a fixture. A real centre's roster
- * would be a second implementation of this interface and not a second shape of screen.
+ * **Two** implementations: the database (src/modules/roster/sql.ts), which is what every
+ * deployment gets, and the synthetic day (src/modules/demo/day-source.ts) for a server with no
+ * `DATABASE_URL` — the browser check and a local `next dev`. Which one a request gets is decided
+ * once, in src/modules/plan/store.ts, by whether a database is configured. The demo adapter is
+ * the *only* thing in the app that reads a fixture (Firia's rule 5, and the 7:18 PM ET
+ * correction: the child's needs are rows now, so a Save on the board's child panel changes the
+ * board).
  *
  * What it deliberately does **not** carry: today's counts and the saved plan. Those are rows in
  * the three tables migration 0009 adds and they are read through `PlanStore`
@@ -55,7 +59,7 @@ export type OtherChild = { token: string; name: string; bucket: Bucket };
 
 export interface DayDataSource {
   /** The vans on the road on this date, in slot order. */
-  vans(date: string): readonly DayVan[];
+  vans(date: string): Promise<readonly DayVan[]>;
   /**
    * When this van pulls away from the centre on this leg, epoch ms.
    *
@@ -64,8 +68,20 @@ export interface DayDataSource {
    * fixture the screen reads for itself.
    */
   leavesAtMs(date: string, leg: Direction, vanId: string): number;
-  /** The children this leg drives, minus anybody recorded away. */
-  riders(date: string, leg: Direction, absentTokens: readonly string[]): readonly DayRider[];
-  /** Everybody else on the roster: the families who drive their own child, and anybody away. */
-  others(date: string, leg: Direction, absentTokens: readonly string[]): readonly OtherChild[];
+
+  /**
+   * The children the centre drives on this leg: a stop of their own, and a ride that is not the
+   * family's.
+   *
+   * Being *away* is not asked about here. Absence is a placement on the day's own plan
+   * (`plan_assignment.bucket = 'ABSENT'`, per date **and** per leg — founder 7:17 PM ET), so a
+   * child recorded away is still a rider of the roster and the board shows them in its Absent
+   * group. Nothing reads `ops.attendance_day` for this.
+   */
+  riders(date: string, leg: Direction): Promise<readonly DayRider[]>;
+  /**
+   * Everybody else on the roster, with the bucket they start in when no plan says otherwise:
+   * the families who drive their own child.
+   */
+  others(date: string, leg: Direction): Promise<readonly OtherChild[]>;
 }

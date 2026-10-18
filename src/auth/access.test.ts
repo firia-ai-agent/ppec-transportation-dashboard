@@ -396,6 +396,10 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/api/demo/reset": "session:DIRECTOR",
       "/api/plan": "session:DIRECTOR+COORDINATOR",
       "/api/plan/save": "session:DIRECTOR+COORDINATOR",
+      // One child moved, and one child's three need answers: the same two roles the board is
+      // open to, because both are decisions about what the day is planned against.
+      "/api/plan/place": "session:DIRECTOR+COORDINATOR",
+      "/api/children/[token]/needs": "session:DIRECTOR+COORDINATOR",
       // Counting what is on a van is the front desk's own job (§2), and the step strip is read by
       // every role that has a surface at all.
       "/api/vans/[id]/setup": "session:DIRECTOR+COORDINATOR+FRONT_DESK",

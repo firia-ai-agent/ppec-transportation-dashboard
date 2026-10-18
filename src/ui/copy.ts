@@ -6,6 +6,7 @@
  * Components must not contain user-facing string literals; a copy change is a change here.
  * Voice: calm, plain, child-first, honest about certainty (COPY-GUIDE §1).
  */
+import { NEED_CATEGORY } from "@/config/equipment";
 
 /**
  * Fills `{name}` placeholders. Keys may contain spaces, because some §3 labels are written
@@ -1018,15 +1019,18 @@ export const drawer = {
  * enum key is how the fixture and the database write it and never reaches a screen.
  */
 export const needCategories = {
-  WHEELCHAIR_SECUREMENT: "Wheelchair securement",
+  // The five the product reads and writes are keyed from the one shared list
+  // (src/config/equipment.ts), so a category cannot be spelled two ways (Veri's gate, 7:27 PM ET).
+  [NEED_CATEGORY.wheelchair]: "Wheelchair securement",
   LIFT_OR_RAMP: "Boards by lift or ramp",
-  CAR_SEAT_OR_BOOSTER: "Car seat or booster",
-  HARNESS_OR_VEST: "Harness or vest",
-  ATTENDANT_ESCORT: "Attendant rides along",
+  [NEED_CATEGORY.carSeat]: "Car seat or booster",
+  [NEED_CATEGORY.harness]: "Harness or vest",
+  [NEED_CATEGORY.nurse]: "Attendant rides along",
   SEATING_SEPARATION: "Seated away from another rider",
   MAX_RIDE_TIME: "Longest time on the van",
   EQUIPMENT_DIMENSIONS: "Chair size",
   MEDICAL_DEVICE_POWER: "Device that needs power",
+  [NEED_CATEGORY.oxygen]: "Oxygen",
 } as const;
 
 /**

@@ -39,7 +39,7 @@ const saved = { ...process.env };
 const TODAY = serviceDateIso(new Date());
 const VAN_ONE = vehicleIdOf(VANS[0].vehicleKey);
 /** The vans on the road today. The config also holds the reserve, which is on no run. */
-const DAY_VANS = demoDaySource().vans(TODAY);
+const DAY_VANS = await demoDaySource().vans(TODAY);
 
 const counted = (over: Record<string, unknown> = {}) => ({
   date: TODAY,

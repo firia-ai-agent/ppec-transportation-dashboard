@@ -21,7 +21,9 @@ import { plannedStops, plannedWindow, stopLabel } from "@/domain/board/scenario"
 import type { DayDataSource, DayRider, DayVan, OtherChild } from "@/domain/day/source";
 import type { Direction } from "@/domain/day/leg";
 import { driverFor } from "@/domain/plan/day";
-import { needsOf } from "@/domain/plan/needs";
+import type { NeedFlags } from "@/config/equipment";
+import { needsFromCategories } from "@/domain/plan/needs";
+import { demoNeedsOverride } from "./needs-store";
 import {
   CHILDREN,
   RUNS,
@@ -29,6 +31,23 @@ import {
   vehicleIdOf,
   type Child as DemoChild,
 } from "@/modules/demo/fixtures/standard";
+
+/**
+ * One fixture child's flags, from their **approved** need items only — the same rule the SQL
+ * source applies to the same rows (DECISION-LEDGER row 1: approved needs only).
+ *
+ * A Save on the board's child panel is kept in memory on a server with no database
+ * (src/modules/demo/needs-store.ts) and wins over the fixture for the three the panel owns, so
+ * the browser check can walk the whole story: turn Oxygen on, Save, watch the van's meter move.
+ * With a database the panel writes rows and this override is refused outright.
+ */
+export function needsOfDemoChild(child: DemoChild): NeedFlags {
+  const approved = needsFromCategories(
+    child.needs.filter((need) => need.state === "APPROVED").map((need) => need.category),
+  );
+  const saved = demoNeedsOverride(childTokenOf(child.key));
+  return saved ? { ...approved, ...saved } : approved;
+}
 
 /**
  * The vans on the road today: the day's own runs, named and coloured from the shared config.
@@ -69,7 +88,7 @@ function toRider(child: DemoChild, leg: Direction): DayRider {
   return {
     token: childTokenOf(child.key),
     name: child.label,
-    needs: needsOf(child),
+    needs: needsOfDemoChild(child),
     stopLabel: label,
     window: plannedWindow(child, leg),
   };
@@ -77,7 +96,7 @@ function toRider(child: DemoChild, leg: Direction): DayRider {
 
 export function demoDaySource(): DayDataSource {
   return {
-    vans() {
+    async vans() {
       return dayVans();
     },
 
@@ -99,31 +118,21 @@ export function demoDaySource(): DayDataSource {
       return stop?.etaMs ?? serviceDay.instantMs;
     },
 
-    riders(_date, leg, absentTokens) {
-      const absent = new Set(absentTokens);
-      return ridingChildren(leg)
-        .map((child) => toRider(child, leg))
-        .filter((rider) => !absent.has(rider.token));
+    async riders(_date, leg) {
+      return ridingChildren(leg).map((child) => toRider(child, leg));
     },
 
-    others(_date, leg, absentTokens) {
-      const absent = new Set(absentTokens);
-      const riding = new Set(
-        ridingChildren(leg)
-          .map((child) => childTokenOf(child.key))
-          .filter((token) => !absent.has(token)),
+    async others(_date, leg) {
+      const riding = new Set(ridingChildren(leg).map((child) => childTokenOf(child.key)));
+      return CHILDREN.filter((child) => !riding.has(childTokenOf(child.key))).map(
+        (child): OtherChild => ({
+          token: childTokenOf(child.key),
+          name: child.label,
+          // The bucket a child *starts* in. Being away is a placement on the plan, not a fact
+          // about the roster (founder 7:17 PM ET), so nothing here is ever ABSENT.
+          bucket: "FAMILY_DRIVES",
+        }),
       );
-      return CHILDREN.map((child) => ({
-        token: childTokenOf(child.key),
-        name: child.label,
-      }))
-        .filter((child) => !riding.has(child.token))
-        .map(
-          (child): OtherChild => ({
-            ...child,
-            bucket: absent.has(child.token) ? "ABSENT" : "FAMILY_DRIVES",
-          }),
-        );
     },
   };
 }

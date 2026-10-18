@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiAccess } from "@/ui/copy";
 import { VANS } from "@/config/vans";
 import { childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/standard";
-import { needsOfKey } from "@/domain/plan/needs";
+import { needsOfDemoChild } from "@/modules/demo/day-source";
+import { childByKey } from "@/modules/demo/fixtures/standard";
 import { clearMemoryPlanStore } from "@/modules/plan/memory";
 import { serviceDateIso } from "@/ui/service-date";
 
@@ -196,7 +197,7 @@ describe("a refused drop cannot be saved by posting it directly (§1.7 #1)", () 
   async function forced() {
     const placements = await emptyPlacements();
     const noah = childTokenOf("C2");
-    expect(needsOfKey("C2").wheelchair).toBe(true);
+    expect(needsOfDemoChild(childByKey("C2")).wheelchair).toBe(true);
     return {
       noah,
       body: body({ ...placements, [noah]: { bucket: "VAN", vanId: VAN(2), pinned: true } }),

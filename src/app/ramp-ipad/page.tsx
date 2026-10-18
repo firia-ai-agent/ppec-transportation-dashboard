@@ -49,7 +49,9 @@ export default async function RampIpadPage({
     view = null;
   }
 
-  const vans = view ? arrivalVans(view.day, view.plan, dayDataSource(), view.savedAt !== null) : [];
+  const vans = view
+    ? arrivalVans(view.day, view.plan, dayDataSource(siteOf(caller)), view.savedAt !== null)
+    : [];
   const selected = selectedVan(vans, one(params[VAN_PARAM]));
 
   if (!view || !selected) {

@@ -1,71 +1,79 @@
 /**
- * The four flags the board and the ramp fit a child by, read off that child's approved profile.
+ * The four flags the board and the ramp fit a child by, read off that child's **approved** need
+ * items.
  *
- * SOURCE: redesign spec §6.4 ("child needs become 4 flags … through the view `child_need_flags`
- * over APPROVED `transport_need_item`s"), §0's equipment vocabulary, and DECISION-LEDGER row 1 /
- * PRD VEH-01: **fulfilment counts approved needs only**. A need a family has told us about but
- * no director has signed is on the child's record and is not planned against — it must not
- * change where a child rides, and it must not disappear either, which is why the derivation is
- * written down here rather than inferred at a call site.
+ * SOURCE: redesign spec §6.4 ("child needs become 4 flags … over APPROVED `transport_need_item`s"),
+ * §0's equipment vocabulary, and DECISION-LEDGER row 1 / PRD VEH-01: **fulfilment counts approved
+ * needs only**. A need a family has told us about but no director has signed is on the child's
+ * record and is not planned against — it must not change where a child rides, and it must not
+ * disappear either, which is why the derivation is written down here rather than inferred at a
+ * call site.
  *
- * `mobility` is the one thing not read from a need item: it is a column on the approved transport
- * profile (`ops.transport_profile.mobility`) and is what "rides in their own chair" means.
+ * It takes **categories**, not a fixture (Firia, 2026-10-17 7:18 PM ET). Where those categories
+ * come from is the roster's business: `ops.transport_need_item` through the SQL day source
+ * (src/modules/roster/sql.ts) when there is a database, and the demo fixtures through the demo
+ * adapter (src/modules/demo/day-source.ts) when there is not. This module cannot tell, which is
+ * the point — it used to import `CHILDREN` and a Save on the panel could therefore change a row
+ * and not the board.
+ *
+ * `transport_profile.mobility` is deliberately **not** read. A chair is the approved
+ * `WHEELCHAIR_SECUREMENT` item and nothing else, so turning Wheelchair off on the panel really
+ * does take the chair off the plan; mobility stays exactly as it was (every child in the
+ * synthetic day whose mobility is `WC` also carries that item, so no rider changes by this).
  *
  * Deliberately *not* here: securement hardware and chair footprint (conflict C3), seating
  * separation and maximum ride time (C7). The founder deferred all four after the demo on
  * 2026-10-17 2:59 PM ET, so they stay on the profile and out of fit.
  *
- * Pure: fixtures in, flags out. No clock, no database, no network.
+ * Pure: categories in, flags out. No clock, no database, no network, no fixtures.
  */
-import { NO_NEEDS, type NeedFlags } from "@/config/equipment";
-import { CHILDREN, childByKey, type Child as DemoChild, type NeedCategory } from "@/modules/demo/fixtures/standard";
+import {
+  CATEGORY_OF_PANEL_FLAG,
+  FLAG_OF_CATEGORY,
+  NO_NEEDS,
+  PANEL_CATEGORIES,
+  type NeedFlags,
+} from "@/config/equipment";
 
-/**
- * Which approved need category sets which flag.
- *
- *  - `CAR_SEAT_OR_BOOSTER` and `HARNESS_OR_VEST` are one counter, because they are one thing a
- *    van carries: §0's child chip reads "needs car seat / booster / vest" and the van counter is
- *    "Car seats on board". This is also conflict C4's answer — car seats replace the LATCH-anchor
- *    checklist for the demo.
- *  - `ATTENDANT_ESCORT` is the nurse, and a nurse is one more seat taken (§1.4).
- *  - `MEDICAL_DEVICE_POWER` is the oxygen flag. The founder approved Oxygen as a counter on every
- *    van (2026-10-17 2:59 PM ET, conflict C8). In today's synthetic day the one child with such
- *    an item has it `REPORTED` and not `APPROVED` (Zoe B.'s portable suction, PRD l.1329), so no
- *    rider demands an oxygen mount and every van's Oxygen meter reads 0 of what it carries —
- *    which is the honest reading of an approved-needs-only rule, not a counter that does nothing:
- *    the rule is unit-tested, the counter is set at the ramp and saved per van per day.
- *  - `WHEELCHAIR_SECUREMENT` sets the wheelchair flag as well as `mobility`, so a child whose
- *    profile says chair in either place is read as a chair.
- *  - `LIFT_OR_RAMP`, `EQUIPMENT_DIMENSIONS`, `SEATING_SEPARATION` and `MAX_RIDE_TIME` set no flag:
- *    the lift is implied by the chair (§0), and the other three are the deferred conflicts.
- */
-const FLAG_OF: Partial<Record<NeedCategory, keyof NeedFlags>> = {
-  WHEELCHAIR_SECUREMENT: "wheelchair",
-  CAR_SEAT_OR_BOOSTER: "carSeat",
-  HARNESS_OR_VEST: "carSeat",
-  ATTENDANT_ESCORT: "nurse",
-  MEDICAL_DEVICE_POWER: "oxygen",
-};
-
-/** The flags for one child of the synthetic day. */
-export function needsOf(child: DemoChild): NeedFlags {
-  const flags: NeedFlags = { ...NO_NEEDS, wheelchair: child.mobility === "WC" };
-  for (const need of child.needs) {
-    if (need.state !== "APPROVED") continue;
-    const flag = FLAG_OF[need.category];
+/** The flags a set of **approved** categories adds up to. Anything unknown sets nothing. */
+export function needsFromCategories(categories: Iterable<string>): NeedFlags {
+  const flags: NeedFlags = { ...NO_NEEDS };
+  for (const category of categories) {
+    const flag = FLAG_OF_CATEGORY[category];
     if (flag) flags[flag] = true;
   }
   return flags;
 }
 
-/** The flags for one child by their fixture key. */
-export function needsOfKey(childKey: string): NeedFlags {
-  return needsOf(childByKey(childKey));
+/** The three the child panel shows, as the panel's own Yes/No values. */
+export type PanelNeeds = { wheelchair: boolean; carSeat: boolean; oxygen: boolean };
+
+/** What the panel opens on for a child: their three flags, in the panel's order. */
+export function panelNeedsOf(needs: NeedFlags): PanelNeeds {
+  return { wheelchair: needs.wheelchair, carSeat: needs.carSeat, oxygen: needs.oxygen };
 }
 
-/** Every child of the day with a need of any kind, for the tests and the seed to read. */
-export function childrenWithNeeds(): { key: string; needs: NeedFlags }[] {
-  return CHILDREN.map((child) => ({ key: child.key, needs: needsOf(child) })).filter((c) =>
-    Object.values(c.needs).some(Boolean),
-  );
+/**
+ * What a Save means in the profile's own vocabulary: the categories to have, and the categories
+ * to stop having.
+ *
+ * The panel owns three categories and no others, so a Save never touches the nurse's item, the
+ * lift's, the chair's measurements or anything else on the profile — it flips exactly what the
+ * person in front of it was looking at.
+ */
+export function categoryChangesFor(panel: PanelNeeds): { on: string[]; off: string[] } {
+  const on: string[] = [];
+  const off: string[] = [];
+  for (const [flag, category] of Object.entries(CATEGORY_OF_PANEL_FLAG) as [
+    keyof PanelNeeds,
+    string,
+  ][]) {
+    (panel[flag] ? on : off).push(category);
+  }
+  return { on, off };
+}
+
+/** The categories the panel is allowed to write, for a route that will not take another. */
+export function isPanelCategory(category: string): boolean {
+  return (PANEL_CATEGORIES as readonly string[]).includes(category);
 }

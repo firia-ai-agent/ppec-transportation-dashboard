@@ -12,8 +12,13 @@
  * saved by posting round it.
  */
 import { z } from "zod";
+import { NO_NEEDS, type NeedFlags } from "@/config/equipment";
 import { COUNTER_MAX } from "@/config/vans";
-import { BUCKETS, checkPlan, namesOnlyThisDay, ridersInVan, type BoardPlan, type Placement } from "@/domain/plan/board";
+import { getNeonDb } from "@/db/exec";
+import { autoPlan, BUCKETS, checkPlan, namesOnlyThisDay, ridersInVan, type BoardPlan, type Placement } from "@/domain/plan/board";
+import { setChildNeeds } from "@/modules/roster/needs-write";
+import { setDemoNeedsOverride } from "@/modules/demo/needs-store";
+import { setChildPlacement, type SetChildPlacementOutcome } from "./place";
 import { isOver } from "@/domain/plan/fit";
 import { CONFIRMED_STATE } from "@/domain/plan/setup";
 import type { DayReadiness } from "@/domain/day/readiness";
@@ -232,3 +237,191 @@ export async function putVanSetupRequest(
 
 /** Every placement a caller may post, for the one type the board and the endpoint share. */
 export type PostedPlacement = Placement;
+
+/* ───────────────────────── one child's place, and one child's needs ───────────────────────── */
+
+export const placeChildBody = z.strictObject({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  direction: z.enum(["AM", "PM"]),
+  childToken: z.string().min(1).max(64),
+  bucket: z.enum(BUCKETS),
+  vanId: z.string().min(1).max(64).nullable().optional(),
+  version: z.number().int().min(0).max(1_000_000),
+  /** Away for the whole day: the same move on both legs (founder 7:17 PM ET). */
+  allDay: z.boolean().optional(),
+  /** The version the caller holds for the *other* leg, when `allDay` is set. */
+  otherVersion: z.number().int().min(0).max(1_000_000).optional(),
+});
+
+export type PlaceChildAnswer =
+  | { status: 200; body: { ok: true; version: number; savedAt: string; view: BoardBody; alsoAM?: boolean } }
+  | {
+      status: 404 | 409 | 422;
+      body: { ok: false; reason: string; changedBy?: string | null; childToken?: string; vanId?: string };
+    };
+
+/**
+ * One drag, one drop on Absent or Family drives, one `Move to…` — all of them land here, and
+ * all of them go through the one placement writer (src/modules/plan/place.ts).
+ *
+ * Every move is a **new plan version**, which is what makes "it survives a reload" true and what
+ * turns two coordinators dragging at once into a 409 rather than a silent overwrite.
+ */
+export async function placeChildRequest(
+  siteId: string,
+  caller: Pick<StaffCaller, "userId">,
+  input: z.infer<typeof placeChildBody>,
+  now: Date = new Date(),
+  store: PlanStore = planStore(),
+): Promise<PlaceChildAnswer> {
+  const outcome = await setChildPlacement(
+    {
+      siteId,
+      serviceDate: input.date,
+      direction: input.direction,
+      childToken: input.childToken,
+      bucket: input.bucket,
+      vehicleId: input.vanId ?? null,
+      expectedVersion: input.version,
+      actor: caller.userId ?? null,
+      now,
+    },
+    store,
+  );
+  if (!outcome.ok) return refusal(outcome);
+
+  // "Absent all day" is the same move on the other leg, with the version the caller holds for
+  // it. A conflict there is reported as a conflict; the leg that did save stays saved.
+  let alsoAM: boolean | undefined;
+  if (input.allDay && input.bucket === "ABSENT") {
+    const other = await setChildPlacement(
+      {
+        siteId,
+        serviceDate: input.date,
+        direction: input.direction === "AM" ? "PM" : "AM",
+        childToken: input.childToken,
+        bucket: "ABSENT",
+        expectedVersion: input.otherVersion ?? 0,
+        actor: caller.userId ?? null,
+        now,
+      },
+      store,
+    );
+    alsoAM = other.ok;
+  }
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      version: outcome.version,
+      savedAt: outcome.savedAt,
+      view: outcome.view,
+      ...(alsoAM === undefined ? {} : { alsoAM }),
+    },
+  };
+}
+
+function refusal(outcome: Exclude<SetChildPlacementOutcome, { ok: true }>): PlaceChildAnswer {
+  if (outcome.status === 422) {
+    return {
+      status: 422,
+      body: {
+        ok: false,
+        reason: outcome.reason,
+        childToken: outcome.childToken,
+        vanId: outcome.vanId,
+      },
+    };
+  }
+  if (outcome.status === 409 && outcome.reason === "CHANGED") {
+    return { status: 409, body: { ok: false, reason: outcome.reason, changedBy: outcome.changedBy } };
+  }
+  return { status: outcome.status, body: { ok: false, reason: outcome.reason } };
+}
+
+export const childNeedsBody = z.strictObject({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  direction: z.enum(["AM", "PM"]),
+  wheelchair: z.boolean(),
+  carSeat: z.boolean(),
+  oxygen: z.boolean(),
+  /** The version the board was showing, so the re-plan it triggers is not a silent overwrite. */
+  version: z.number().int().min(0).max(1_000_000),
+});
+
+export type ChildNeedsAnswer =
+  | { status: 200; body: { ok: true; needs: NeedFlags; version: number; savedAt: string; view: BoardBody } }
+  | { status: 404 | 409 | 503; body: { ok: false; reason: string; changedBy?: string | null } };
+
+/**
+ * The child panel's Save (founder 7:17 PM ET): three Yes/No answers, written to the child's
+ * approved profile, and then **the plan re-run on the new needs**.
+ *
+ * The re-plan is the half that makes the Save mean anything: a child who now needs a car seat
+ * has to end up on a van that has one, and a van that has just lost a rider has to show it. It
+ * is the same single placement function the board drags against (`autoPlan` over
+ * `src/domain/plan/fit.ts`), so the answer a coordinator gets here is the answer they would have
+ * got by dragging — children a person pinned stay where they were put, and anybody who no longer
+ * fits their pin comes out of it with a shortfall rather than quietly over-filling the van.
+ */
+export async function setChildNeedsRequest(
+  siteId: string,
+  caller: Pick<StaffCaller, "userId">,
+  childToken: string,
+  input: z.infer<typeof childNeedsBody>,
+  now: Date = new Date(),
+  store: PlanStore = planStore(),
+  env: Record<string, string | undefined> = process.env,
+): Promise<ChildNeedsAnswer> {
+  const panel = { wheelchair: input.wheelchair, carSeat: input.carSeat, oxygen: input.oxygen };
+
+  const before = await loadBoard(store, siteId, input.date, input.direction);
+  const known =
+    before.day.riders.some((rider) => rider.token === childToken) ||
+    before.day.others.some((other) => other.token === childToken);
+  if (!known) return { status: 404, body: { ok: false, reason: "NOT_THIS_DAY" } };
+
+  if (env.DATABASE_URL) {
+    const written = await setChildNeeds(getNeonDb(), {
+      siteId,
+      childToken,
+      panel,
+      actor: caller.userId ?? null,
+      now,
+    });
+    if (!written.ok) return { status: 404, body: { ok: false, reason: written.reason } };
+  } else {
+    // No database at all: the browser check's server (src/modules/demo/needs-store.ts).
+    setDemoNeedsOverride(childToken, panel, env);
+  }
+
+  // Read the day again — the needs are rows (or the override) now — and re-run the one
+  // placement function over it, keeping everybody a person placed by hand.
+  const after = await loadBoard(store, siteId, input.date, input.direction);
+  const replanned = autoPlan(after.day, after.plan);
+  const saved = await store.savePlan(siteId, {
+    date: input.date,
+    direction: input.direction,
+    version: input.version,
+    placements: placementsToSave(after.day, replanned),
+    savedBy: caller.userId ?? null,
+    now,
+  });
+  if (!saved.ok) {
+    return { status: 409, body: { ok: false, reason: "CHANGED", changedBy: saved.changedBy } };
+  }
+
+  const view = await loadBoard(store, siteId, input.date, input.direction);
+  const rider = view.day.riders.find((candidate) => candidate.token === childToken);
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      needs: rider?.needs ?? { ...NO_NEEDS, ...panel },
+      version: saved.version,
+      savedAt: saved.savedAt,
+      view,
+    },
+  };
+}

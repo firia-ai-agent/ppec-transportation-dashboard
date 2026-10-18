@@ -29,6 +29,7 @@ import {
 import { resolveSetup, type SetupSource } from "@/domain/plan/setup";
 import { getNeonDb } from "@/db/exec";
 import { demoDaySource } from "@/modules/demo/day-source";
+import { sqlDaySource } from "@/modules/roster/sql";
 import { vehicleIdOf } from "@/modules/demo/fixtures/standard";
 import { vanArrival } from "@/ui/copy";
 import { memoryPlanStore } from "./memory";
@@ -55,9 +56,19 @@ export function hasNoDatabase(env: Record<string, string | undefined> = process.
   return !env.DATABASE_URL;
 }
 
-/** The day's roster and fleet. One implementation today; screens never see which. */
-export function dayDataSource(): DayDataSource {
-  return demoDaySource();
+/**
+ * The day's roster and fleet: the database when one is configured, the synthetic day when there
+ * is none. Screens never see which — they call `loadBoard`.
+ *
+ * The condition is the same one the store uses, for the same reason: a deployment always has
+ * `DATABASE_URL`, so a deployment always reads rows, and the child panel's Save therefore moves
+ * the board (Firia's 7:18 PM ET correction and Veri's gate (c)).
+ */
+export function dayDataSource(
+  siteId: string,
+  env: Record<string, string | undefined> = process.env,
+): DayDataSource {
+  return env.DATABASE_URL ? sqlDaySource(getNeonDb(), siteId) : demoDaySource();
 }
 
 export type BoardView = {
@@ -85,13 +96,15 @@ export async function loadBoard(
   siteId: string,
   date: string,
   direction: Direction,
-  source: DayDataSource = dayDataSource(),
+  source: DayDataSource = dayDataSource(siteId),
 ): Promise<BoardView> {
-  const dayVans = source.vans(date);
-  const [context, rows, saved] = await Promise.all([
+  const dayVans = await source.vans(date);
+  const [context, rows, saved, riders, others] = await Promise.all([
     store.dayContext(siteId, date),
     store.setupRows(siteId, date, dayVans.map((van) => van.id)),
     store.loadPlan(siteId, date, direction),
+    source.riders(date, direction),
+    source.others(date, direction),
   ]);
 
   const vans: BoardVan[] = dayVans.map((van) => {
@@ -112,13 +125,7 @@ export async function loadBoard(
     };
   });
 
-  const day: BoardDay = {
-    date,
-    direction,
-    vans,
-    riders: source.riders(date, direction, context.absentTokens),
-    others: source.others(date, direction, context.absentTokens),
-  };
+  const day: BoardDay = { date, direction, vans, riders, others };
 
   const plan = saved ? planFrom(day, saved.placements) : emptyPlan(day);
   const started = context.startedDate === date;

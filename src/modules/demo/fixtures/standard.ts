@@ -14,6 +14,8 @@
 
 /* ───────────────────────────── ids ───────────────────────────── */
 
+import { NEED_CATEGORY } from "@/config/equipment";
+
 /** Deterministic, UUIDv7-shaped fixture id. `kind` namespaces the entity, `n` numbers it within the kind. */
 export const demoId = (kind: number, n: number): string =>
   `01900000-0000-7000-8000-${kind.toString(16).padStart(4, "0")}${n.toString(16).padStart(8, "0")}`;
@@ -47,10 +49,19 @@ export type AuthScope =
   | "RECEIVE_TRANSPORT_UPDATES" | "CANCEL_LEG" | "CHANGE_PICKUP_INSTRUCTIONS"
   | "CONFIRM_AVAILABILITY_TO_RECEIVE" | "RECEIVE_ATTENDANCE_UPDATES" | "ACCESS_SENSITIVE_INFO" | "RECEIVE_CHILD";
 
-/** PRD §9 approved-need categories (l.880), pending CA-05. */
+/**
+ * PRD §9 approved-need categories (l.880), pending CA-05.
+ *
+ * The five the product actually reads and writes come from the shared list
+ * (src/config/equipment.ts `NEED_CATEGORY`) rather than being spelled a second time here: a
+ * fixture that says `"OXYGEN"` in its own words is a fixture that can drift from the panel, the
+ * write path and the planner, which is the gate Veri set on 2026-10-17 at 7:27 PM ET. The rest
+ * are the deferred ones — written by the seed, read by nothing (conflicts C3 and C7).
+ */
 export const NEED_CATEGORIES = [
-  "WHEELCHAIR_SECUREMENT", "LIFT_OR_RAMP", "CAR_SEAT_OR_BOOSTER", "HARNESS_OR_VEST", "ATTENDANT_ESCORT",
-  "SEATING_SEPARATION", "MAX_RIDE_TIME", "EQUIPMENT_DIMENSIONS", "MEDICAL_DEVICE_POWER",
+  NEED_CATEGORY.wheelchair, "LIFT_OR_RAMP", NEED_CATEGORY.carSeat, NEED_CATEGORY.harness,
+  NEED_CATEGORY.nurse, "SEATING_SEPARATION", "MAX_RIDE_TIME", "EQUIPMENT_DIMENSIONS",
+  "MEDICAL_DEVICE_POWER", NEED_CATEGORY.oxygen,
 ] as const;
 export type NeedCategory = (typeof NEED_CATEGORIES)[number];
 
@@ -197,8 +208,14 @@ const SCENARIO_CHILDREN: Child[] = [
       { category: "LIFT_OR_RAMP", value: { required: "LIFT" }, state: "APPROVED", evidenceRef: "intake/C6" },
       { category: "ATTENDANT_ESCORT", value: { escort: "NURSE" }, state: "APPROVED", evidenceRef: "intake/C6" },
       { category: "EQUIPMENT_DIMENSIONS", value: { lengthCm: 128, widthCm: 70 }, state: "APPROVED", evidenceRef: "intake/C6" },
-      // The one reported-but-unapproved item (PRD l.1329 "needs with statuses incl. one unapproved reported item").
-      // Fulfillment counts approved needs only (DECISION-LEDGER row 1), so this must not change today's plan.
+      // Oxygen, approved (founder 2026-10-17 7:17 PM ET). It was `MEDICAL_DEVICE_POWER` and
+      // `REPORTED`, which meant the day's one oxygen rider was planned against nothing and every
+      // van's Oxygen meter read 0 of what it carries. The category comes from the shared list.
+      { category: NEED_CATEGORY.oxygen, value: { device: "OXYGEN" }, state: "APPROVED", evidenceRef: "intake/C6" },
+      // The one reported-but-unapproved item (PRD l.1329 "needs with statuses incl. one unapproved
+      // reported item"). Fulfilment counts approved needs only (DECISION-LEDGER row 1), so this
+      // must not change today's plan — and now that oxygen is approved, the suction is what keeps
+      // that promise demonstrable.
       { category: "MEDICAL_DEVICE_POWER", value: { device: "PORTABLE_SUCTION", note: "awaiting operational-need approval" }, state: "REPORTED" },
     ],
     scopes: FULL_SCOPES, censusPad: false,

@@ -34,7 +34,7 @@ describe("standard scenario seed (PRD §18.1)", () => {
       "ops.contact_authorization": 82,
       "ops.stop_location": 11,
       "ops.transport_profile": 28,
-      "ops.transport_need_item": 13,
+      "ops.transport_need_item": 14,
       "ops.therapist": 2,
       "ops.therapy_session": 2,
       "ops.provider": 3,

@@ -26,13 +26,12 @@ export const TEST_DATE = "2026-10-17";
  * `setups` is keyed by **slot**, which is how a person refers to a van ("Van 3"), so a test that
  * lowers Van 3's wheelchair spots does not have to know a vehicle id.
  */
-export function testDay(
+export async function testDay(
   direction: Direction = "PM",
   setups: Readonly<Record<number, Partial<VanSetup>>> = {},
-  absentTokens: readonly string[] = [],
-): BoardDay {
+): Promise<BoardDay> {
   const source = demoDaySource();
-  const vans: BoardVan[] = source.vans(TEST_DATE).map((van) => {
+  const vans: BoardVan[] = (await source.vans(TEST_DATE)).map((van) => {
     const override = setups[van.slot];
     const setup = { ...van.defaultSetup, ...(override ?? {}) };
     return {
@@ -49,8 +48,8 @@ export function testDay(
     date: TEST_DATE,
     direction,
     vans,
-    riders: source.riders(TEST_DATE, direction, absentTokens),
-    others: source.others(TEST_DATE, direction, absentTokens),
+    riders: await source.riders(TEST_DATE, direction),
+    others: await source.others(TEST_DATE, direction),
   };
 }
 

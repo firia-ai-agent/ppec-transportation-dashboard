@@ -170,6 +170,10 @@ export const API = {
   /** The plan board: the day it reads, the plan it saves, and one van's setup. */
   planBoard: "/api/plan",
   planSave: "/api/plan/save",
+  /** One child moved: a drag, a drop on Absent or Family drives, or `Move to…`. */
+  planPlace: "/api/plan/place",
+  /** The three Yes/No answers on the board's child panel. */
+  childNeeds: "/api/children/[token]/needs",
   vanSetup: "/api/vans/[id]/setup",
   queueTimer: "/api/queues/timer",
   queueOutbox: "/api/queues/outbox",
@@ -552,6 +556,41 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     file: "src/app/api/plan/route.ts",
     path: API.planBoard,
     methods: ["GET"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: false },
+  },
+  /**
+   * One child's place on one leg: a drag between vans, a drop on Absent or on Family drives, or
+   * the `Move to…` control (founder 2026-10-17 7:17 PM ET).
+   *
+   * The two console roles, the same set the screen is open to — and the same set `/api/plan/save`
+   * has, because they are two halves of one job. The front desk reads the board on Today and may
+   * not move anybody on it, which is a courtesy on screen (no drag handles) and a 403 here.
+   *
+   * Not site-scoped: it takes no site id. The site is the caller's own membership.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/plan/place/route.ts",
+    path: API.planPlace,
+    methods: ["POST"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: false },
+  },
+  /**
+   * One child's three need answers, from the board's child panel: wheelchair, car seat, oxygen.
+   *
+   * The two console roles. A need is what the day is planned against, so this is the same
+   * decision as moving a child and is held to the same set; the front desk sees the panel's
+   * values and has no Save (§2's division of labour: they count vans, coordinators plan).
+   *
+   * Not site-scoped in the row's sense — the child token in the path is checked against the
+   * caller's own site inside (`setChildNeedsRequest`), and a child of another site answers the
+   * same uniform 404 as a token that does not exist.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/children/[token]/needs/route.ts",
+    path: API.childNeeds,
+    methods: ["POST"],
     auth: { kind: "session", roles: CONSOLE, siteScoped: false },
   },
   /**

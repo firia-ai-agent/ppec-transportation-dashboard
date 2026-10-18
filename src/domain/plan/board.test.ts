@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { VANS, defaultSetupOf, vanNameOf } from "@/config/vans";
 import {
   autoPlan,
+  childrenInBucket,
   boardMap,
   checkPlan,
   emptyPlan,
@@ -18,9 +19,14 @@ import {
   type BoardPlan,
 } from "./board";
 import { fits, placeRiders, rejectReason } from "./fit";
-import { needsOf, needsOfKey } from "./needs";
+import { needsFromCategories } from "./needs";
+import { needsOfDemoChild } from "@/modules/demo/day-source";
+import { childByKey } from "@/modules/demo/fixtures/standard";
 import { resolveSetup, type SetupRow } from "./setup";
 import { CHILDREN, childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/standard";
+
+/** One fixture child's flags, the way the demo adapter builds them for the board. */
+const needsOfKey = (key: string) => needsOfDemoChild(childByKey(key));
 import { TEST_DATE, scenarioPlan, testDay, vanIdOfSlot } from "@/test/board-day";
 
 /**
@@ -33,20 +39,34 @@ import { TEST_DATE, scenarioPlan, testDay, vanIdOfSlot } from "@/test/board-day"
 const DATE = TEST_DATE;
 
 describe("§6.4: a child's needs, from their approved profile only", () => {
-  it("reads a chair, a car seat, a vest and a nurse off the approved items", () => {
+  it("reads a chair, a car seat, a vest and a nurse off the approved items", async () => {
     expect(needsOfKey("C2")).toMatchObject({ wheelchair: true, carSeat: false, nurse: false });
     expect(needsOfKey("C1")).toMatchObject({ wheelchair: false, carSeat: true });
     expect(needsOfKey("C7")).toMatchObject({ carSeat: true });
     expect(needsOfKey("C6")).toMatchObject({ wheelchair: true, nurse: true });
   });
 
-  it("ignores a need nobody has approved (DECISION-LEDGER row 1)", () => {
-    // Zoe B.'s portable suction is REPORTED, not APPROVED, so it asks for no oxygen mount.
-    expect(needsOfKey("C6").oxygen).toBe(false);
-    expect(CHILDREN.filter((child) => needsOf(child).oxygen)).toEqual([]);
+  it("ignores a need nobody has approved (DECISION-LEDGER row 1)", async () => {
+    // Zoe B. (C6) carries the day's one reported-but-unapproved item, a portable suction
+    // (PRD l.1329). It is not oxygen, it is not any flag, and it must not reach the plan.
+    const suction = childByKey("C6").needs.find((need) => need.state === "REPORTED");
+    expect(suction?.category).toBe("MEDICAL_DEVICE_POWER");
+    expect(needsFromCategories([suction!.category])).toEqual({
+      wheelchair: false,
+      carSeat: false,
+      oxygen: false,
+      nurse: false,
+    });
   });
 
-  it("gives a child with nothing on file nothing", () => {
+  it("plans against oxygen, now that the day has an approved oxygen rider (7:17 PM ET)", async () => {
+    // Zoe B.'s device used to be `MEDICAL_DEVICE_POWER` and `REPORTED`, so no van's oxygen
+    // mount was ever asked for. It is `OXYGEN` and `APPROVED` now.
+    expect(needsOfKey("C6").oxygen).toBe(true);
+    expect(CHILDREN.filter((child) => needsOfDemoChild(child).oxygen).length).toBeGreaterThan(0);
+  });
+
+  it("gives a child with nothing on file nothing", async () => {
     expect(needsOfKey("C8")).toEqual({ wheelchair: false, carSeat: false, oxygen: false, nurse: false });
   });
 });
@@ -67,13 +87,13 @@ describe("§1.6 as re-cut: which counts a van is planned on", () => {
     ...over,
   });
 
-  it("uses today's confirmed row when there is one", () => {
+  it("uses today's confirmed row when there is one", async () => {
     const resolved = resolveSetup(key, DATE, [row()]);
     expect(resolved).toMatchObject({ source: "CHECKED", state: "CHECKED", setBy: "Ana P." });
     expect(resolved.setup.seats).toBe(2);
   });
 
-  it("never carries an earlier day forward: yesterday's confirmed van is not today's", () => {
+  it("never carries an earlier day forward: yesterday's confirmed van is not today's", async () => {
     const resolved = resolveSetup(key, DATE, [
       row({ serviceDate: "2026-10-16" }),
       row({ serviceDate: "2026-10-15" }),
@@ -83,11 +103,11 @@ describe("§1.6 as re-cut: which counts a van is planned on", () => {
     expect(resolved).not.toHaveProperty("fromDate");
   });
 
-  it("never reads tomorrow as today", () => {
+  it("never reads tomorrow as today", async () => {
     expect(resolveSetup(key, DATE, [row({ serviceDate: "2026-10-18" })]).source).toBe("DEFAULT");
   });
 
-  it("has only the two states a screen can see", () => {
+  it("has only the two states a screen can see", async () => {
     for (const state of [resolveSetup(key, DATE, [row()]).state, resolveSetup(key, DATE, []).state]) {
       expect(["CHECKED", "DEFAULT"]).toContain(state);
     }
@@ -95,23 +115,24 @@ describe("§1.6 as re-cut: which counts a van is planned on", () => {
 });
 
 describe("the day the board opens on", () => {
-  it("names each van by number and nothing else", () => {
-    expect(testDay().vans.map((van) => van.name)).toEqual(["Van 1", "Van 2", "Van 3"]);
+  it("names each van by number and nothing else", async () => {
+    const day = await testDay();
+    expect(day.vans.map((van) => van.name)).toEqual(["Van 1", "Van 2", "Van 3"]);
     expect(vanNameOf(2)).toBe("Van 2");
-    for (const van of testDay().vans) {
+    for (const van of day.vans) {
       expect(van.name).not.toMatch(/\bV\d\b/);
       expect(van.id).not.toMatch(/^V\d$/);
     }
   });
 
-  it("gives every van a colour from the one shared config, and no two the same", () => {
-    const tokens = testDay().vans.map((van) => van.colourToken);
+  it("gives every van a colour from the one shared config, and no two the same", async () => {
+    const tokens = (await testDay()).vans.map((van) => van.colourToken);
     expect(new Set(tokens).size).toBe(tokens.length);
     for (const token of tokens) expect(token).not.toMatch(/^#/);
   });
 
-  it("drives the children with a stop of their own, and nobody else", () => {
-    const day = testDay();
+  it("drives the children with a stop of their own, and nobody else", async () => {
+    const day = await testDay();
     expect(day.riders.length).toBeGreaterThan(0);
     for (const rider of day.riders) {
       expect(rider.stopLabel.length).toBeGreaterThan(0);
@@ -122,15 +143,23 @@ describe("the day the board opens on", () => {
     for (const other of day.others) expect(riding.has(other.token)).toBe(false);
   });
 
-  it("puts a child the day records as away in the Absent group instead", () => {
-    const away = childTokenOf("C1");
-    const day = testDay("PM", {}, [away]);
-    expect(day.riders.some((rider) => rider.token === away)).toBe(false);
-    expect(day.others.find((other) => other.token === away)?.bucket).toBe("ABSENT");
+  /**
+   * Away is a **placement**, not a fact about the roster (founder 2026-10-17 7:17 PM ET): the
+   * child is still one of the day's riders and the board shows them in its Absent group, which
+   * is also what lets a coordinator drag them back out of it.
+   */
+  it("keeps a child marked away on the roster, in the Absent bucket of this leg's plan", async () => {
+    const day = await testDay();
+    const away = day.riders[0];
+    const plan = { ...emptyPlan(day), [away.token]: { bucket: "ABSENT" as const, vanId: null, pinned: true } };
+    expect(day.riders.some((rider) => rider.token === away.token)).toBe(true);
+    expect(childrenInBucket(day, plan, "ABSENT").map((child) => child.token)).toEqual([away.token]);
+    // And Auto-plan does not put them in a van behind the coordinator's back.
+    expect(autoPlan(day, plan)[away.token].bucket).toBe("ABSENT");
   });
 
-  it("opens with everybody waiting (§1.3 Empty)", () => {
-    const day = testDay();
+  it("opens with everybody waiting (§1.3 Empty)", async () => {
+    const day = await testDay();
     const plan = emptyPlan(day);
     expect(placedCount(day, plan)).toBe(0);
     expect(unassignedRiders(day, plan)).toHaveLength(day.riders.length);
@@ -139,23 +168,23 @@ describe("the day the board opens on", () => {
 });
 
 describe("§1.4: Auto-plan is the one placement function", () => {
-  it("places every rider of the day across the three vans", () => {
-    const day = testDay();
+  it("places every rider of the day across the three vans", async () => {
+    const day = await testDay();
     const plan = autoPlan(day, emptyPlan(day));
     expect(placedCount(day, plan)).toBe(day.riders.length);
     expect(unassignedRiders(day, plan)).toEqual([]);
   });
 
-  it("gives no van more than it can carry", () => {
-    const day = testDay();
+  it("gives no van more than it can carry", async () => {
+    const day = await testDay();
     const plan = autoPlan(day, emptyPlan(day));
     for (const van of day.vans) {
       expect(fits(van.setup, ridersInVan(day, plan, van.id)), van.name).toBe(true);
     }
   });
 
-  it("keeps a child a person placed by hand, and plans the rest around them", () => {
-    const day = testDay();
+  it("keeps a child a person placed by hand, and plans the rest around them", async () => {
+    const day = await testDay();
     const rider = day.riders[0];
     const van = day.vans[1];
     const pinned = moveTo(emptyPlan(day), rider.token, van.id);
@@ -164,16 +193,16 @@ describe("§1.4: Auto-plan is the one placement function", () => {
     expect(placedCount(day, plan)).toBe(day.riders.length);
   });
 
-  it("leaves a child a person took out of a van out of it", () => {
-    const day = testDay();
+  it("leaves a child a person took out of a van out of it", async () => {
+    const day = await testDay();
     const rider = day.riders[0];
     const plan = autoPlan(day, moveTo(emptyPlan(day), rider.token, null));
     expect(plan[rider.token]).toMatchObject({ bucket: "UNASSIGNED", pinned: true });
   });
 
-  it("leaves a rider no van can take unplaced, and says exactly what the day is short of", () => {
+  it("leaves a rider no van can take unplaced, and says exactly what the day is short of", async () => {
     // Every van loses its car seats, so the children who need one cannot ride at all.
-    const day = testDay("PM", {
+    const day = await testDay("PM", {
       1: { carSeats: 0 },
       2: { carSeats: 0 },
       3: { carSeats: 0 },
@@ -189,8 +218,8 @@ describe("§1.4: Auto-plan is the one placement function", () => {
     for (const one of short) expect(one.shortfall).toEqual({ reason: "CAR_SEAT", short: 1 });
   });
 
-  it("never puts a chair on a van whose lift does not work", () => {
-    const day = testDay("PM", { 1: { hasLift: false }, 2: { hasLift: false } });
+  it("never puts a chair on a van whose lift does not work", async () => {
+    const day = await testDay("PM", { 1: { hasLift: false }, 2: { hasLift: false } });
     const plan = autoPlan(day, emptyPlan(day));
     for (const van of day.vans) {
       if (van.setup.hasLift) continue;
@@ -198,8 +227,8 @@ describe("§1.4: Auto-plan is the one placement function", () => {
     }
   });
 
-  it("is the same answer the board's own vans give the placement function directly", () => {
-    const day = testDay();
+  it("is the same answer the board's own vans give the placement function directly", async () => {
+    const day = await testDay();
     const direct = placeRiders(placeableVans(day), day.riders);
     const plan = autoPlan(day, emptyPlan(day));
     for (const rider of day.riders) {
@@ -209,8 +238,8 @@ describe("§1.4: Auto-plan is the one placement function", () => {
 });
 
 describe("§1.7 #1: a refused drop changes nothing", () => {
-  it("refuses a chair onto the van with no spot and no lift, and names it", () => {
-    const day = testDay();
+  it("refuses a chair onto the van with no spot and no lift, and names it", async () => {
+    const day = await testDay();
     const vanThree = day.vans.find((van) => van.slot === 3);
     if (!vanThree) throw new Error("no Van 3");
     expect(vanThree.setup.wheelchairSpots).toBe(0);
@@ -220,8 +249,8 @@ describe("§1.7 #1: a refused drop changes nothing", () => {
     expect(rejectReason(vanThree.setup, [], chair)).toBe("WHEELCHAIR");
   });
 
-  it("refuses the whole save when a posted plan puts them there anyway", () => {
-    const day = testDay();
+  it("refuses the whole save when a posted plan puts them there anyway", async () => {
+    const day = await testDay();
     const vanThree = vanIdOfSlot(3);
     const chair = day.riders.find((rider) => rider.needs.wheelchair);
     if (!chair) throw new Error("no chair rider in the day");
@@ -234,13 +263,13 @@ describe("§1.7 #1: a refused drop changes nothing", () => {
     });
   });
 
-  it("passes a plan the fit rule agrees with", () => {
-    const day = testDay();
+  it("passes a plan the fit rule agrees with", async () => {
+    const day = await testDay();
     expect(checkPlan(day, autoPlan(day, emptyPlan(day)))).toEqual({ ok: true });
   });
 
-  it("refuses a plan naming a child or a van the day does not have", () => {
-    const day = testDay();
+  it("refuses a plan naming a child or a van the day does not have", async () => {
+    const day = await testDay();
     const good = autoPlan(day, emptyPlan(day));
     expect(namesOnlyThisDay(day, good)).toBe(true);
     const strangeChild: BoardPlan = { ...good, "not-a-child": { bucket: "UNASSIGNED", vanId: null, pinned: false } };
@@ -253,8 +282,8 @@ describe("§1.7 #1: a refused drop changes nothing", () => {
 });
 
 describe("stops, in the order a van drives them", () => {
-  it("numbers the stops from one, and gives two children at one kerb the same number", () => {
-    const day = testDay();
+  it("numbers the stops from one, and gives two children at one kerb the same number", async () => {
+    const day = await testDay();
     const plan = scenarioPlan(day);
     for (const van of day.vans) {
       const riders = ridersInVan(day, plan, van.id);
@@ -267,8 +296,8 @@ describe("stops, in the order a van drives them", () => {
     }
   });
 
-  it("counts a van's meters off the riders in it", () => {
-    const day = testDay();
+  it("counts a van's meters off the riders in it", async () => {
+    const day = await testDay();
     const plan = autoPlan(day, emptyPlan(day));
     for (const van of day.vans) {
       const riders = ridersInVan(day, plan, van.id);
@@ -281,8 +310,8 @@ describe("stops, in the order a van drives them", () => {
     }
   });
 
-  it("hands the map the same plan the columns show", () => {
-    const day = testDay();
+  it("hands the map the same plan the columns show", async () => {
+    const day = await testDay();
     const plan = autoPlan(day, emptyPlan(day));
     const data = boardMap(day, plan);
     for (const van of day.vans) {

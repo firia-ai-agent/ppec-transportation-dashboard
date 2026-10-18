@@ -107,6 +107,37 @@ export function unassignedRiders(day: BoardDay, plan: BoardPlan): BoardRider[] {
   return day.riders.filter((rider) => plan[rider.token]?.bucket === "UNASSIGNED");
 }
 
+/**
+ * Everybody in one of the two groups at the foot of the Unassigned column, whichever half of
+ * the day's roster they came from.
+ *
+ * A child dropped on Absent is a **rider** with an `ABSENT` placement, and a child whose family
+ * drives them every day is an "other" with no stop at all — both belong in the same group on
+ * screen, and both can be dragged back out of it (founder 2026-10-17 7:17 PM ET). So this reads
+ * the *plan*, which is the only place either answer lives.
+ */
+export function childrenInBucket(
+  day: BoardDay,
+  plan: BoardPlan,
+  bucket: Bucket,
+): { token: string; name: string; rider: BoardRider | null }[] {
+  const riders = day.riders
+    .filter((rider) => plan[rider.token]?.bucket === bucket)
+    .map((rider) => ({ token: rider.token, name: rider.name, rider }));
+  const others = day.others
+    .filter((other) => plan[other.token]?.bucket === bucket)
+    .map((other) => ({ token: other.token, name: other.name, rider: null }));
+  return [...riders, ...others].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The riders this leg is actually planning: not the ones a person has taken off it. */
+export function ridersToPlace(day: BoardDay, plan: BoardPlan): BoardRider[] {
+  return day.riders.filter((rider) => {
+    const bucket = plan[rider.token]?.bucket;
+    return bucket !== "ABSENT" && bucket !== "FAMILY_DRIVES";
+  });
+}
+
 /** How many of the leg's riders are in a van. */
 export function placedCount(day: BoardDay, plan: BoardPlan): number {
   return day.riders.filter((rider) => plan[rider.token]?.bucket === "VAN").length;
@@ -200,7 +231,7 @@ export function placeableVans(day: BoardDay): PlaceableVan[] {
 /** Who a person has already placed, which Auto-plan keeps where they are (§1.4). */
 function pinsOf(day: BoardDay, plan: BoardPlan): Record<string, string | null> {
   const pins: Record<string, string | null> = {};
-  for (const rider of day.riders) {
+  for (const rider of ridersToPlace(day, plan)) {
     const placement = plan[rider.token];
     if (!placement?.pinned) continue;
     pins[rider.token] = placement.bucket === "VAN" ? placement.vanId : null;
@@ -218,9 +249,12 @@ function pinsOf(day: BoardDay, plan: BoardPlan): Record<string, string | null> {
  * board's Unassigned column and the ramp's banner both read.
  */
 export function autoPlan(day: BoardDay, plan: BoardPlan): BoardPlan {
-  const result = placeRiders(placeableVans(day), day.riders, pinsOf(day, plan));
+  // A child somebody marked away, or whose family is driving them today, is not the planner's
+  // to place: those are placements on this leg's plan and the search leaves them alone.
+  const toPlace = ridersToPlace(day, plan);
+  const result = placeRiders(placeableVans(day), toPlace, pinsOf(day, plan));
   const next: Record<string, Placement> = { ...plan };
-  for (const rider of day.riders) {
+  for (const rider of toPlace) {
     const vanId = result.vanOf[rider.token] ?? null;
     next[rider.token] = vanId
       ? { bucket: "VAN", vanId, pinned: plan[rider.token]?.pinned === true }
@@ -231,7 +265,7 @@ export function autoPlan(day: BoardDay, plan: BoardPlan): BoardPlan {
 
 /** Everybody this day cannot seat as it stands, each with the exact thing it is short of. */
 export function shortfallsOfDay(day: BoardDay, plan: BoardPlan): readonly Unplaced[] {
-  return placeRiders(placeableVans(day), day.riders, pinsOf(day, plan)).unplaced;
+  return placeRiders(placeableVans(day), ridersToPlace(day, plan), pinsOf(day, plan)).unplaced;
 }
 
 /* ───────────────────────────── saving a plan ───────────────────────────── */

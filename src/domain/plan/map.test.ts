@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { planMap, planMapCoords, PLAN_CENTER_COORD, PLAN_CENTER_LABEL, type PlanMapVan } from "./map";
-import { boardMap, moveTo, ridersInVan, stopNumbers } from "./board";
+import { boardMap, moveTo, ridersInVan, stopNumbers, type BoardDay } from "./board";
 import { scenarioPlan, testDay, vanIdOfSlot } from "@/test/board-day";
 import { places } from "@/ui/copy";
 
@@ -19,7 +19,7 @@ const AM = () => testDay("AM");
 const PM = () => testDay("PM");
 
 /** The van's own stops, numbered as its column numbers them — what the board hands the map. */
-function stopsOf(day: ReturnType<typeof testDay>, plan: ReturnType<typeof scenarioPlan>, slot: number) {
+function stopsOf(day: BoardDay, plan: ReturnType<typeof scenarioPlan>, slot: number) {
   const vanId = vanIdOfSlot(slot);
   const riders = ridersInVan(day, plan, vanId);
   const numbers = stopNumbers(riders);
@@ -33,8 +33,8 @@ function stopsOf(day: ReturnType<typeof testDay>, plan: ReturnType<typeof scenar
 }
 
 describe("what the map is handed", () => {
-  it("names every van the day has, in the day's own order, each with its own colour", () => {
-    const day = AM();
+  it("names every van the day has, in the day's own order, each with its own colour", async () => {
+    const day = await AM();
     const data = boardMap(day, scenarioPlan(day));
     expect(data.routes.map((route) => route.laneId)).toEqual(day.vans.map((van) => van.id));
     expect(data.routes.map((route) => route.vanName)).toEqual(day.vans.map((van) => van.name));
@@ -44,16 +44,16 @@ describe("what the map is handed", () => {
     expect(new Set(data.routes.map((r) => r.colorIndex)).size).toBe(data.routes.length);
   });
 
-  it("names a van by its number and never by a vehicle code", () => {
-    const day = AM();
+  it("names a van by its number and never by a vehicle code", async () => {
+    const day = await AM();
     for (const route of boardMap(day, scenarioPlan(day)).routes) {
       expect(route.vanName).toMatch(/^Van \d$/);
       expect(route.vanName).not.toMatch(/\bV\d\b/);
     }
   });
 
-  it("puts the centre on the map once, by name and never by address", () => {
-    const day = AM();
+  it("puts the centre on the map once, by name and never by address", async () => {
+    const day = await AM();
     const data = boardMap(day, scenarioPlan(day));
     expect(data.center).toEqual(PLAN_CENTER_COORD);
     expect(data.centerLabel).toBe(PLAN_CENTER_LABEL);
@@ -63,8 +63,8 @@ describe("what the map is handed", () => {
     }
   });
 
-  it("has nothing to draw before anybody is in a van, and says so", () => {
-    const day = AM();
+  it("has nothing to draw before anybody is in a van, and says so", async () => {
+    const day = await AM();
     const data = boardMap(day, {});
     expect(data.empty).toBe(true);
     for (const route of data.routes) {
@@ -78,8 +78,8 @@ describe("what the map is handed", () => {
 });
 
 describe("the stops, in the order the van drives them", () => {
-  it("numbers each van's discs the way its column numbers its rider cards", () => {
-    const day = PM();
+  it("numbers each van's discs the way its column numbers its rider cards", async () => {
+    const day = await PM();
     const plan = scenarioPlan(day);
     const data = boardMap(day, plan);
     for (const van of day.vans) {
@@ -89,8 +89,8 @@ describe("the stops, in the order the van drives them", () => {
     }
   });
 
-  it("draws a kerb two children share once", () => {
-    const day = PM();
+  it("draws a kerb two children share once", async () => {
+    const day = await PM();
     const plan = scenarioPlan(day);
     for (const van of day.vans) {
       const riders = ridersInVan(day, plan, van.id);
@@ -100,10 +100,10 @@ describe("the stops, in the order the van drives them", () => {
     }
   });
 
-  it("runs the morning to the centre and the afternoon out of it", () => {
-    const morning = AM();
-    const afternoon = PM();
-    const first = (day: ReturnType<typeof testDay>) => {
+  it("runs the morning to the centre and the afternoon out of it", async () => {
+    const morning = await AM();
+    const afternoon = await PM();
+    const first = (day: BoardDay) => {
       const plan = scenarioPlan(day);
       const van = day.vans.find((v) => ridersInVan(day, plan, v.id).length > 0);
       if (!van) throw new Error("no loaded van in the scenario");
@@ -120,8 +120,8 @@ describe("the stops, in the order the van drives them", () => {
 });
 
 describe("the geometry is the committed survey, and says where it is not", () => {
-  it("follows the surveyed road for the pairs the day's own runs drive", () => {
-    const day = AM();
+  it("follows the surveyed road for the pairs the day's own runs drive", async () => {
+    const day = await AM();
     const data = boardMap(day, scenarioPlan(day));
     const drawn = data.routes.filter((route) => route.stops.length > 0);
     expect(drawn.length).toBeGreaterThan(0);
@@ -136,8 +136,8 @@ describe("the geometry is the committed survey, and says where it is not", () =>
     }
   });
 
-  it("draws the line between two stops nobody surveyed, and marks it", () => {
-    const day = AM();
+  it("draws the line between two stops nobody surveyed, and marks it", async () => {
+    const day = await AM();
     const plan = scenarioPlan(day);
     // A child moved into another van makes a kerb pair nobody drove.
     const from = day.vans[0];
@@ -154,8 +154,8 @@ describe("the geometry is the committed survey, and says where it is not", () =>
     }
   });
 
-  it("joins the stretches into one line with no repeated vertex", () => {
-    const day = AM();
+  it("joins the stretches into one line with no repeated vertex", async () => {
+    const day = await AM();
     const data = boardMap(day, scenarioPlan(day));
     for (const route of data.routes) {
       for (let i = 1; i < route.line.length; i += 1) {
@@ -166,8 +166,8 @@ describe("the geometry is the committed survey, and says where it is not", () =>
 });
 
 describe("the map follows a move, because it is the same answer the columns are", () => {
-  it("takes a child's kerb off one van's line and puts it on another's", () => {
-    const day = PM();
+  it("takes a child's kerb off one van's line and puts it on another's", async () => {
+    const day = await PM();
     const plan = scenarioPlan(day);
     const from = day.vans[0];
     const to = day.vans[1];
@@ -185,8 +185,8 @@ describe("the map follows a move, because it is the same answer the columns are"
     expect(labels(after, to.id)).toContain(rider.stopLabel);
   });
 
-  it("drops a line entirely when the last rider is taken out of a van", () => {
-    const day = PM();
+  it("drops a line entirely when the last rider is taken out of a van", async () => {
+    const day = await PM();
     let plan = scenarioPlan(day);
     const van = day.vans[2];
     for (const rider of ridersInVan(day, plan, van.id)) {
@@ -199,7 +199,7 @@ describe("the map follows a move, because it is the same answer the columns are"
 });
 
 describe("the module on its own", () => {
-  it("drops a stop the fixtures place nowhere rather than guessing a coordinate", () => {
+  it("drops a stop the fixtures place nowhere rather than guessing a coordinate", async () => {
     const vans: PlanMapVan[] = [
       { laneId: "v1", vanName: "Van 1", stops: [{ order: 1, label: "Nowhere At All" }] },
     ];
