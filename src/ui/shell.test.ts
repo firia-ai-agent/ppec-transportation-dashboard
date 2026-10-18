@@ -372,10 +372,11 @@ describe("§9.2 the rail's brand block", () => {
   });
 
   it("takes its mark from the name, so a centre is named in one place", () => {
-    expect(app.brandName).toBe("Sunrise PPEC");
+    expect(app.brandName).toBe("PPEC of Palm Beach");
     expect(app.brandLine).toBe("Transport");
+    expect(app.documentTitle).toBe("PPEC of Palm Beach · Transport");
     expect(rail).toMatch(/app\.brandName\.trim\(\)\[0\]/);
-    expect(app.brandName.trim()[0]).toBe("S");
+    expect(app.brandName.trim()[0]).toBe("P");
   });
 
   it("wears Teal Ink and the brand's own white, which is a §8 pair", () => {

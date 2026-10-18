@@ -24,22 +24,35 @@
 
 /* ───────────────────────────── the vans at the centre ───────────────────────────── */
 
+/*
+ * ONE ROW OF THREE, Van 1 / Van 2 / Van 3 (png/ramp-arrival.png, png/ramp-arrival-390.png).
+ *
+ * They used to wrap onto two rows on a phone and to be ordered by the time each van leaves,
+ * which read as 1, 3, 2. The order is the van's slot now (arrival/view.ts) and the row never
+ * wraps: three equal tabs, each under a bar of its own colour, with the leave time under the
+ * name. The whole row is portaled into the frame's header bar (src/ui/HeaderSlot.tsx).
+ */
 .tabs {
   display: flex;
-  gap: var(--space-3);
-  flex-wrap: wrap;
+  gap: var(--space-2);
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .tab {
-  display: grid;
-  grid-template-columns: 10px auto;
-  grid-template-rows: auto auto;
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  flex-direction: column;
   align-items: center;
-  column-gap: var(--space-3);
-  row-gap: var(--space-1);
+  justify-content: center;
+  line-height: var(--leading-tight);
   min-height: var(--target-ramp);
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-2) var(--space-3);
+  /* The van's own colour, from the one shared config (src/config/vans.ts), as the bar on top.
+     The colour is set inline from the van's token; this is the shape it is drawn in. */
   border: var(--border-hairline) solid var(--color-border-strong);
+  border-top: 4px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-ink);
@@ -57,29 +70,37 @@
   font-weight: var(--weight-semibold);
 }
 
-/* The van's own colour, from the one shared config (src/config/vans.ts). */
-.tabSwatch {
-  grid-row: 1 / span 2;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
+/* The bar on top stays the van's own colour on the open tab too: it is set inline from the
+   van's token, which is what keeps it out of this file (§0 rule 6: never a hex). */
 
 .tabName {
   font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .tabTime {
   font-size: var(--text-14);
+  font-weight: var(--weight-regular);
+  color: var(--color-ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 /* ───────────────────────────── the two cards ───────────────────────────── */
 
+/* Both cards run the height of the row, which is what puts Confirm on the floor of the left
+   one rather than under the last stepper (png/ramp-arrival.png). */
 .cards {
   display: grid;
   grid-template-columns: minmax(320px, 420px) 1fr;
   gap: var(--space-4);
-  align-items: start;
+  align-items: stretch;
+  min-height: 0;
 }
 
 .card {
@@ -90,6 +111,14 @@
   border: var(--border-hairline) solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-surface);
+}
+
+/* The card's own header row: its title, and the driver at the trailing end (the mockup's `.ch`). */
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
 }
 
 .cardTitle {
@@ -103,9 +132,25 @@
 }
 
 .driver {
-  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 0 auto;
   color: var(--color-ink-muted);
   font-size: var(--text-16);
+}
+
+/* The driver's initials, the same disc the frame draws a person in (src/ui/display-name.ts). */
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral-fg);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
 }
 
 .riderCount {
@@ -134,32 +179,45 @@
   flex-direction: column;
 }
 
-/* A count the front desk has changed away from the plan reads as changed, and says what the
-   plan had underneath it (§2). */
-.stepper[data-changed="true"] .stepperLabel {
-  color: var(--color-warn-fg);
-  font-weight: var(--weight-semibold);
-}
+/*
+ * `data-changed` is still the record of a count the front desk moved away from the van's
+ * default, and it is no longer what colours anything: amber means "under what the plan needs"
+ * now (`data-short` below), which is the difference a person can act on.
+ */
 
+/* "Planned 3": what the saved plan needs of this van for this counter. Always said. */
 .planned {
   font-size: var(--text-12);
   font-weight: var(--weight-regular);
+  color: var(--color-ink-muted);
 }
 
+/*
+ * ONE JOINED STEPPER — − | n | + inside a single rounded box (the mockup's `.st`).
+ *
+ * It was three separate controls with gaps between them; the mockup draws one control with two
+ * hairlines in it, which is also one target to aim a thumb at. The box is the ramp's own 56 px
+ * target (§9: ≥56 px on this screen, which clears the 44 px console minimum).
+ */
 .stepperControls {
+  /* content-box so the 56 px is the buttons' own height, not 56 minus the two hairlines. */
+  box-sizing: content-box;
   display: inline-flex;
-  align-items: center;
-  gap: var(--space-3);
+  align-items: stretch;
+  height: var(--target-ramp);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
 }
 
 .stepperButton {
   width: var(--target-ramp);
-  height: var(--target-ramp);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: var(--border-hairline) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border: 0;
+  border-radius: 0;
   background: var(--color-surface);
   color: var(--color-ink);
   font: inherit;
@@ -167,34 +225,68 @@
 }
 
 .stepperValue {
-  min-width: 44px;
+  min-width: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-inline: var(--border-hairline) solid var(--color-border-strong);
   text-align: center;
-  font-size: var(--text-32);
+  font-size: var(--text-24);
   font-weight: var(--weight-semibold);
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * Counted under what the plan needs: the number itself goes amber, which is the one cell a front
+ * desk is looking at (png/ramp-arrival.png's `.st.chg b`). Never colour alone — the "Planned 3"
+ * under the label says the number it is short of, in words.
+ */
+.stepper[data-short="true"] .stepperValue {
+  background: var(--color-warn-bg);
+  color: var(--color-warn-fg);
+}
+
+.stepper[data-short="true"] .planned {
+  color: var(--color-warn-fg);
+  font-weight: var(--weight-semibold);
+}
+
+/* The lift is the same joined shape as a counter: Yes | No in one box, the chosen side filled
+   light green (png/ramp-arrival.png's `.yn`). */
 .toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  min-width: 88px;
-  min-height: var(--target-ramp);
+  min-width: 82px;
   padding: 0 var(--space-4);
-  border: var(--border-hairline) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border: 0;
+  border-radius: 0;
   background: var(--color-surface);
-  color: var(--color-ink);
+  color: var(--color-ink-muted);
   font: inherit;
+  font-weight: var(--weight-semibold);
   cursor: pointer;
 }
 
+.toggle + .toggle {
+  border-left: var(--border-hairline) solid var(--color-border-strong);
+}
+
 .toggle[aria-pressed="true"] {
-  background: var(--color-brand);
-  border-color: var(--color-brand);
-  color: var(--color-surface);
-  font-weight: var(--weight-semibold);
+  background: var(--color-ok-bg);
+  color: var(--color-ok-fg);
+}
+
+/*
+ * The Confirm block: at the foot of the counting card at every width, and **fixed** above the
+ * shell's bottom tab bar below 768 (see the media query at the end of this file).
+ */
+.confirmBar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: auto;
 }
 
 .confirm {
@@ -238,16 +330,30 @@
   list-style: none;
 }
 
+/*
+ * One rider row, as the mockup draws it (png/ramp-arrival.png's `.kid`): the stop number in the
+ * van's colour, the child's name over their stop, the equipment chips in a column of their own,
+ * and the verdict chip at the trailing end.
+ */
 .rider {
   display: grid;
-  grid-template-columns: 32px auto auto 1fr auto;
+  grid-template-columns: 32px minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-4);
   min-height: var(--target-ramp);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3);
   border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
 }
 
+/*
+ * A child this van has run out for: the row is tinted coral, fading out across it, and the chip
+ * beside them names the thing that is missing. Never the tint alone — the chip is the answer.
+ */
+.rider[data-fits="false"] {
+  background: linear-gradient(90deg, var(--color-crit-bg), transparent 60%);
+}
+
+/* The stop number, filled with the van's own colour token (set inline, §0 rule 6). */
 .riderStop {
   display: inline-flex;
   align-items: center;
@@ -255,25 +361,50 @@
   width: 32px;
   height: 32px;
   border-radius: var(--radius-pill);
-  background: var(--color-neutral-bg);
-  color: var(--color-neutral-fg);
-  font-weight: var(--weight-semibold);
+  color: var(--color-surface);
+  font-weight: var(--weight-bold);
   font-variant-numeric: tabular-nums;
 }
 
-.riderName {
-  font-weight: var(--weight-medium);
+.riderWho {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: var(--leading-tight);
 }
 
+.riderName {
+  font-weight: var(--weight-semibold);
+}
+
+/* The equipment icons, each in its own small tile — the mockup's `.eq span`. */
 .riderNeeds {
   display: inline-flex;
   gap: var(--space-2);
-  color: var(--color-ink-muted);
+  color: var(--color-neutral-fg);
+}
+
+.riderNeeds svg {
+  width: 32px;
+  height: 32px;
+  padding: 7px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+}
+
+/* On a row that does not fit, the chips are the crit pair: the gap has a shape as well as a word. */
+.rider[data-fits="false"] .riderNeeds svg {
+  background: var(--color-crit-bg);
+  color: var(--color-crit-fg);
 }
 
 .riderStopLabel {
   color: var(--color-ink-muted);
   font-size: var(--text-14);
+  font-weight: var(--weight-regular);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /*
@@ -338,9 +469,23 @@
   color: var(--color-ink-muted);
 }
 
-.emptyLink {
-  color: var(--color-brand);
+/*
+ * The whole screen when this leg has no saved plan: the one line above, and this — the way to
+ * the board, at the ramp's own target size (§9: ≥56 px).
+ */
+.emptyAction {
+  align-self: flex-start;
+  min-height: var(--target-ramp);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-md);
+  border: var(--border-hairline) solid var(--color-brand);
+  background: var(--color-brand);
+  color: var(--color-surface);
   font-weight: var(--weight-semibold);
+  font-size: var(--text-20);
+  text-decoration: none;
 }
 
 /* ───────────────────────────── one column on a phone ───────────────────────────── */
@@ -352,16 +497,47 @@
 }
 
 @media (max-width: 767px) {
-  /* The tab bar's room is the shell's (AppShell.module.css `.body`); these are the gutters. */
+  /*
+   * The tab bar's room is the shell's (AppShell.module.css `.body`); these are the gutters. The
+   * extra room at the foot is this screen's own: Confirm is fixed over the page below, so the
+   * last rider has to be able to scroll clear of both it and the tab bar under it.
+   */
   .page {
     padding: var(--space-3);
+    padding-bottom: calc(
+      var(--layout-tab-bar-height) + 84px + env(safe-area-inset-bottom, 0px)
+    );
+  }
+
+  /*
+   * Confirm, pinned above the bottom tab bar — the bar's own height from the frame's token
+   * (src/ui/tokens.ts `layout.tabBarHeight`, which is what AppShell pads the page by), plus the
+   * device's safe-area inset, so the two never share a pixel.
+   */
+  .confirmBar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--layout-tab-bar-height) + env(safe-area-inset-bottom, 0px));
+    z-index: 15;
+    margin: 0;
+    padding: var(--space-3);
+    gap: var(--space-2);
+    background: var(--color-surface);
+    /* A hairline and the surface under it; there is no shadow token and no colour literal
+       lives outside src/ui/tokens.ts (§0 rule 6, src/ui/no-hex.test.ts). */
+    border-top: var(--border-hairline) solid var(--color-border-strong);
   }
 
   .rider {
-    grid-template-columns: 32px 1fr auto;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    gap: var(--space-3);
   }
 
-  .riderStopLabel {
-    grid-column: 2 / 4;
+  /* The verdict chip takes the end of the row; the equipment keeps its own column beside it. */
+  .riderNeeds svg {
+    width: 28px;
+    height: 28px;
+    padding: 5px;
   }
 }

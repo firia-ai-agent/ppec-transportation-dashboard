@@ -37,6 +37,18 @@ export function legAt(now: Date = new Date()): Leg {
   return siteHour(now) < 12 ? "AM" : "PM";
 }
 
+/**
+ * The leg a screen is about: the one the **address** names, and the clock's when it names none.
+ *
+ * §9.3 keeps a screen's state in its URL, so a `?leg=` a person followed — from the board, from
+ * the ramp's van tabs — is a decision already made, and the clock must not quietly overrule it:
+ * a coordinator opening Today from a morning link at 2 PM is looking at the morning. With no
+ * `?leg=` nothing changes: {@link legAt} answers, in centre time, as before.
+ */
+export function legFor(asked: Leg | undefined, now: Date = new Date()): Leg {
+  return asked ?? legAt(now);
+}
+
 /** Today's service date at the centre, which is the date every row below is keyed by. */
 export function serviceDateAt(now: Date = new Date()): string {
   return serviceDateIso(now);
@@ -106,14 +118,17 @@ export async function readDayFacts(
 export async function getDayReadiness({
   siteId,
   now = new Date(),
+  leg: asked,
   exec,
 }: {
   siteId: string | null;
   now?: Date;
+  /** The leg the address names (`?leg=`). The clock decides when it names none. */
+  leg?: Leg;
   exec?: Exec;
 }): Promise<DayReadiness> {
   const date = serviceDateAt(now);
-  const leg = legAt(now);
+  const leg = legFor(asked, now);
   if (!siteId) return deriveReadiness(unreadFacts(date, leg));
   try {
     const source = exec ?? (await import("@/auth/exec")).getExec();

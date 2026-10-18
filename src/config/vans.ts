@@ -87,7 +87,7 @@ export function vanNameOf(slot: number): string {
  * The design token this van's colour comes from, as a CSS custom-property name.
  *
  * `VAN_COLORS` in src/ui/tokens.ts is the one place the three are written (Firia's ruling,
- * 2026-10-17 11:25 PM ET): blue, amber, magenta, one per van, emitted as `--color-van1/2/3`.
+ * 2026-10-17 11:25 PM ET): blue, amber, magenta, one per van, emitted as `--van-1/2/3` (read through `vanColourVar`).
  * The board's columns, the ramp's van chip and the live map's lines all read this, so a van is
  * the same colour wherever it is drawn.
  *
@@ -96,6 +96,15 @@ export function vanNameOf(slot: number): string {
 export function vanColourToken(slot: number): string {
   const key = `van${slot}`;
   return key in VAN_COLORS ? key : "ink-muted";
+}
+
+/**
+ * The CSS colour for a van's token. tokens.ts emits the van palette as `--van-1/2/3` (not
+ * `--color-van1`), so a `vanN` token maps to `var(--van-N)`; any other token is a chrome colour.
+ */
+export function vanColourVar(token: string): string {
+  const match = /^van(\d+)$/.exec(token);
+  return match ? `var(--van-${match[1]})` : `var(--color-${token})`;
 }
 
 /** The vans on the road on an ordinary day, in slot order: the board's three columns. */

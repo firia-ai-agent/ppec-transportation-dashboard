@@ -7,6 +7,7 @@
  * must never be told two different things about one van.
  */
 import { fill, pluralize, vanArrival } from "@/ui/copy";
+import { shortName } from "@/ui/display-name";
 import { formatClock } from "@/domain/eta/eta";
 import type { RejectReason } from "@/config/equipment";
 import type { Shortfall } from "@/domain/plan/fit";
@@ -28,14 +29,16 @@ export function leavesLine(atMs: number): string {
 }
 
 /**
- * "Default 3" — what this van normally carries, said only under a counter that differs from it.
+ * "Planned 3" — what the saved plan for this leg needs of this van for one counter.
  *
- * Not "Planned": nothing plans counts any more (Firia's rule 1, 2026-10-17 5:48 PM ET). The
- * number it compares against is the van's DEFAULT from the shared config, so a front desk who
- * finds one car seat on a van that usually has two can see that is a difference and not a typo.
+ * It replaces "Default 3" (`differsLine`, which compared a count against the van's config
+ * default): the ramp reads a saved plan now, so the useful number under a counter is what the
+ * children the coordinator put on this van actually need. The sum is `usedBy` in
+ * src/domain/plan/fit.ts and is never computed a second time here, so the hint, the amber cell
+ * and the won't-fit banner cannot disagree.
  */
-export function differsLine(n: number): string {
-  return fill(vanArrival.differsFrom, { n });
+export function plannedLine(n: number): string {
+  return fill(vanArrival.planned, { n });
 }
 
 /** One rider's verdict: "Fits", or the one thing that is missing. */
@@ -61,7 +64,8 @@ export function shortfallLines(
   shortfall: Shortfall,
 ): { who: string; short: string } {
   return {
-    who: fill(vanArrival.wontFit, { child }),
+    // The one name helper (src/ui/display-name.ts): "Mia R.", never a stored row's whole name.
+    who: fill(vanArrival.wontFit, { child: shortName(child) }),
     short:
       shortfall.reason === "LIFT"
         ? vanArrival.noLift
@@ -70,6 +74,19 @@ export function shortfallLines(
             thing: vanArrival.shortThing[shortfall.reason][shortfall.short === 1 ? "one" : "many"],
           }),
   };
+}
+
+/**
+ * The same banner as one sentence: "Mia R. won't fit · 1 car seat short".
+ *
+ * The screen draws the two halves on two lines, the way the mockup does
+ * (png/ramp-arrival.png), and this is what they say read together — the form the spec and the
+ * work order quote, and the one the banner carries on `data-shortfall` so a browser check can
+ * assert the whole line rather than two fragments of it.
+ */
+export function shortfallBanner(child: string, shortfall: Shortfall): string {
+  const lines = shortfallLines(child, shortfall);
+  return [lines.who, lines.short].join(" · ");
 }
 
 function capitalise(word: string): string {
