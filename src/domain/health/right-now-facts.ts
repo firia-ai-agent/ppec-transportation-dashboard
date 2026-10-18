@@ -9,8 +9,15 @@
  *
  * The other three are the day's own rows:
  *  - kids placed: the saved plan (`plan_run` / `plan_assignment`) for this date and leg;
- *  - running late: a van whose latest arrival estimate is past the window it was given;
+ *  - running late: a van whose latest arrival estimate is past the window it was given — the van
+ *    **the saved plan puts that child on**, not the one the seeded manifest has them on;
  *  - needs you: open tasks of kind NEEDS_PERSON (docs/DATA-MODEL.md, StaffAlert).
+ *
+ * THE SAVED PLAN IS WHAT THESE TILES ARE ABOUT (Firia, 2026-10-17 6:02 PM ET: "Today, Live map
+ * and Health read the saved plan", and the S1 ruling of 2026-10-18 4:45 AM ET). Veri's prod check
+ * found Today's van column disagreeing with the board a director had just saved for five of nine
+ * children; two of these four tiles are counted per van, so the same disagreement was theirs to
+ * make. Both now answer from the plan: `PLACED` always did, and `LATE_VANS` does below.
  *
  * It never throws at the page. No site, no database and a query that raises all land on
  * `unreadRightNow`, the same fail-safe the strip uses.
@@ -42,6 +49,20 @@ const UNCHECKED_VANS = `
  *
  * Family drives and absent are not "to place": they are not waiting on a van. A day with no
  * saved plan has no rows, and the tile says 0/0 rather than inventing a cohort.
+ *
+ * **These are the board's own two numbers.** `VAN` and `VAN`+`UNASSIGNED` is exactly what Today's
+ * van column and the plan board count (`savedPlacementsForBoard` → `buildBoard`), so the tile and
+ * the column cannot read differently off one saved plan — which is the thing Veri's check found
+ * them doing. That it holds for the real save path is asserted rather than assumed, child by
+ * child, in src/app/(app)/today/saved-plan.db.test.ts.
+ *
+ * It stays a statement of its own rather than a second call to `loadBoard`: `loadBoard` needs a
+ * plan store, a day-data source and a fleet whose ids are the fixtures' (`vehicleKeyOf` throws on
+ * any other van), and these four tiles are counted from one `Exec` on any site's rows. The one
+ * case where the two could part company is a day whose roster or fleet changed *after* the plan
+ * was saved — `planFrom` drops a child the day no longer has and demotes a van it no longer runs
+ * — and the board's answer is the one on screen; a demo reset writes both halves at once, so no
+ * seeded day has that shape.
  */
 const PLACED = `
   SELECT count(*) FILTER (WHERE a.bucket = 'VAN')::int AS placed,
@@ -57,25 +78,58 @@ const PLACED = `
  *
  * The latest estimate is the one that counts: an earlier one that was late and a later one
  * that caught up is not "running late". One van with two late rides is one van.
+ *
+ * **Which van is late is the plan's answer, not the manifest's** (Firia, 2026-10-17 6:02 PM ET).
+ * The arrival estimate belongs to a child's ride; the van that ride is on is a person's decision,
+ * and once a coordinator has saved one for this date and leg that decision is in `saved` below.
+ * So a child the plan moved from Van 3 to Van 1 makes **Van 1** the van the pill names — which is
+ * the van the same child sits on, on Today, on the board and on the live map. Reading the van off
+ * `ops.manifest` instead is how a director saw Today and Health blame different vans.
+ *
+ * Three cases, and the `CASE` below is them in order:
+ *  - no row in the saved plan for this child (which is every child when **nothing** is saved for
+ *    the leg, because `saved` is then empty): the seeded manifest's van, exactly as before;
+ *  - the plan puts them in a van: that van;
+ *  - the plan takes them off a van — Unassigned, Family drives, away today: no van is running
+ *    late for a ride the plan says is not on one, so the row drops out (`label IS NULL`).
  */
 const LATE_VANS = `
-  SELECT DISTINCT v.label
-    FROM ops.vehicle v
-    JOIN ops.manifest m
-      ON m.vehicle_id = v.id
-     AND m.site_id = v.site_id
-     AND m.service_date = $2::date
-     AND m.direction::text = $3
-    JOIN ops.trip_leg l ON l.manifest_id = m.id
-    JOIN LATERAL (
-      SELECT eta_at, window_end
-        FROM ops.eta_estimate e
-       WHERE e.trip_leg_id = l.id
-       ORDER BY e.computed_at DESC
-       LIMIT 1
-    ) e ON e.eta_at > e.window_end
-   WHERE v.site_id = $1
-   ORDER BY v.label`;
+  WITH saved AS (
+    SELECT a.child_token, a.bucket::text AS bucket, a.vehicle_id
+      FROM ops.plan_assignment a
+      JOIN ops.plan_run r ON r.id = a.plan_run_id
+     WHERE r.site_id = $1
+       AND r.service_date = $2::date
+       AND r.direction::text = $3
+  )
+  SELECT DISTINCT label
+    FROM (
+      SELECT CASE
+               WHEN s.child_token IS NULL THEN seeded.label
+               WHEN s.bucket = 'VAN' THEN planned.label
+             END AS label
+        FROM ops.manifest m
+        JOIN ops.vehicle seeded
+          ON seeded.id = m.vehicle_id
+         AND seeded.site_id = m.site_id
+        JOIN ops.trip_leg l ON l.manifest_id = m.id
+        LEFT JOIN saved s ON s.child_token = l.child_token
+        LEFT JOIN ops.vehicle planned
+          ON planned.id = s.vehicle_id
+         AND planned.site_id = m.site_id
+        JOIN LATERAL (
+          SELECT eta_at, window_end
+            FROM ops.eta_estimate e
+           WHERE e.trip_leg_id = l.id
+           ORDER BY e.computed_at DESC
+           LIMIT 1
+        ) e ON e.eta_at > e.window_end
+       WHERE m.site_id = $1
+         AND m.service_date = $2::date
+         AND m.direction::text = $3
+    ) rides
+   WHERE label IS NOT NULL
+   ORDER BY label`;
 
 /** Open "needs a person" tasks. Any other category, and any task that is no longer open, is not this number. */
 const NEEDS_YOU = `
