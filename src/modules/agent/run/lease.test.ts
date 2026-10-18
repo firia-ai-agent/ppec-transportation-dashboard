@@ -308,22 +308,27 @@ function parkingHarness() {
   return runHarness({
     db,
     script: [
-      toolCall("request_clarification", {
-        thread_id: "TH-F1", ambiguity_type: "WHICH_CHILD", candidate_tokens: ["C1"],
-        draft_template_id: "generic.notice",
+      /*
+       * `notify_affected_therapist` rather than `request_clarification`: S1-7 (Firia,
+       * 2026-10-18) moved the clarification to the `human` tier, so the loop never calls an
+       * executor for it and it cannot park anything. What this fixture needs is any auto-tier
+       * send that awaits an answer, and this is one the AT-01 scope already reaches.
+       */
+      toolCall("notify_affected_therapist", {
+        therapy_session_token: "SESS-C1", child_token: "C1", impact: "LATE", eta: "09:30",
       }),
       AT01_NOTE,
     ],
     facts: AT01_FACTS,
     policy: at01Policy(),
     overrides: {
-      request_clarification: async () => ({
+      notify_affected_therapist: async () => ({
         data: { would_send: "generic.notice" },
         awaitExternal: {
           reasonCode: "CLARIFICATION",
           afterSeconds: 15 * 60,
-          summary: "Waiting for the guardian to say which child",
-          completionPredicate: "guardian reply resolves WHICH_CHILD",
+          summary: "Waiting for the therapist to answer",
+          completionPredicate: "therapist reply acknowledges the change",
         },
       }),
       summarize_thread_for_staff: AT01_EXECUTORS.summarize_thread_for_staff,

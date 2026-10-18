@@ -121,10 +121,17 @@ describe("check 1, part 1: no route and no server action can put a message in th
 
   it("every caller of the egress door is a domain module, and none of them is a route", () => {
     /*
-     * The door itself, the four §11.2 executors that are allowed through it, the ETA sweeper, the
+     * The door itself, the §11.2 executors that are allowed through it, the ETA sweeper, the
      * fixed-copy HELP answer, and SURF-05's approval decision. Each one composes from a template id
      * and codes; none of them takes copy from a caller. If this list grows, the thing that grew has
      * to be read.
+     *
+     * The list got SHORTER on Firia's S1-7 ruling (2026-10-18), which is the direction a list like
+     * this is allowed to move without anybody reading it twice. `exec/clarify.ts` and
+     * `exec/followup.ts` are off it: the two tools that reached a family no longer queue anything
+     * at all — they write a `MESSAGE_SEND` proposal, and `modules/approvals/decide.ts` queues it
+     * when a person approves. So the agent's own remaining doors are the therapist alert and the
+     * dispatcher question, neither of which is a text to a family.
      *
      * `modules/approvals/decide.ts` is the newest and is the reason this list is worth having. It
      * is what a coordinator's "Approve and send" runs, and it is a **module** rather than the
@@ -136,8 +143,6 @@ describe("check 1, part 1: no route and no server action can put a message in th
      */
     expect(queueingFiles.sort()).toEqual([
       "modules/agent/run/exec/capability.ts",
-      "modules/agent/run/exec/clarify.ts",
-      "modules/agent/run/exec/followup.ts",
       "modules/agent/run/exec/therapist.ts",
       "modules/approvals/decide.ts",
       "modules/messaging/eta-notice.ts",

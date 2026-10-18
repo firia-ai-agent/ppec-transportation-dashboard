@@ -47,7 +47,9 @@ import { dbRecipientAuthorizer } from "@/modules/outbox/policy";
 import { twilioStub } from "@/modules/outbox/provider";
 import { type AgentScenario, seedAgentScenario } from "@/test/agent-state";
 import { TEST_NOW } from "@/test/clock";
-import { F1_NUMBER, PEPPER } from "@/test/messaging";
+import { F1_NUMBER, PEPPER, seedStaff } from "@/test/messaging";
+import { decideApproval, pendingApprovals } from "@/modules/approvals/decide";
+import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { freshDb } from "@/test/pglite";
 import { toolCall } from "./providers/fake";
 import type { PolicyContext } from "./policy";
@@ -186,6 +188,22 @@ const script = () => [
   toolCall("summarize_thread_for_staff", { thread_id: sc.threadId, summary: "Guardian canceled a ride" }),
 ];
 
+/**
+ * The Approve button (S1-7, Firia 2026-10-18). `send_followup` proposes now, so the run leaves a
+ * `MESSAGE_SEND` row and a coordinator's decision is what puts the message in the outbox. What
+ * this file is about — that the message then goes to the SIMULATOR and never to a wire — is
+ * unchanged, and is asserted after this.
+ */
+async function approveWaiting(): Promise<void> {
+  const coordinator = await seedStaff(db, "COORDINATOR", sc.siteId);
+  for (const p of await pendingApprovals(db, [sc.siteId])) {
+    const answer = await decideApproval(db, new FakeOutboxTransport(), {
+      userId: coordinator, approvalId: p.id, decision: "APPROVED", approvedText: p.text, now,
+    });
+    expect(answer.status).toBe(200);
+  }
+}
+
 /** The real simulator, wired the way `outboxDeps()` wires it, with the test's clock and pepper. */
 const simDeps = (): DrainDeps => ({
   provider: new DbSimMessagingProvider(db, new VercelQueueScheduler(db, new FakeTransport(), () => now), {
@@ -210,6 +228,7 @@ describe("check 2, part 3: a real send lands in the simulator, not on a wire", (
       now: () => now,
     });
     expect((await h.start(trigger())).state).toBe("SUCCEEDED");
+    await approveWaiting();
 
     const [queued] = (
       await db.query<{ id: string; state: string; channel: string }>(
@@ -247,6 +266,7 @@ describe("check 2, part 3: a real send lands in the simulator, not on a wire", (
       now: () => now,
     });
     await h.start(trigger());
+    await approveWaiting();
     const [queued] = (await db.query<{ id: string }>("SELECT id FROM ops.outbound_message", [])).rows;
     await drain(db, queued.id, simDeps());
 
@@ -279,6 +299,7 @@ describe("check 2, part 4: the phone panel is reading that same simulated row", 
       now: () => now,
     });
     await h.start(trigger());
+    await approveWaiting();
     const [queued] = (await db.query<{ id: string }>("SELECT id FROM ops.outbound_message", [])).rows;
     await drain(db, queued.id, simDeps());
 
@@ -311,6 +332,7 @@ describe("check 2, part 4: the phone panel is reading that same simulated row", 
       now: () => now,
     });
     await h.start(trigger());
+    await approveWaiting();
 
     const queued = (await db.query<{ id: string }>("SELECT id FROM ops.outbound_message", [])).rows;
     for (const q of queued) expect(await drain(db, q.id, simDeps())).toBe("BLOCKED_EGRESS");
