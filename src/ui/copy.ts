@@ -591,7 +591,23 @@ export const liveMap = {
    * src/ui/DemoClock.tsx). The words stay under `liveMap` because the live map is the screen the
    * clock moves and the only one it is drawn on.
    */
-  clock: "Scenario clock {time} ET",
+  /**
+   * THE READOUT IN THE DEMO BAR, and it is the time and nothing else.
+   *
+   * png/live-map-390.png and png/live-map.png both draw it as "3:24 PM" — four or five
+   * characters between the Simulated chip and "Restart demo day" — and the test contract says
+   * the same in words: "The clock sits inside the DEMO bar and reads as a 12-hour time (for
+   * example '2:47 PM')". It used to read "Scenario clock 7:31 AM ET", which is three words and
+   * a zone more than the mockup has room for: at 390 the bar overran the viewport by 36 px and
+   * the readout painted over the button beside it (Vera's walk, 2026-10-18 12:30 AM ET).
+   *
+   * What the extra words were doing is not lost, it moved to where width is free: `clockLabel`
+   * is the readout's accessible name, so a screen reader still hears what the number is while
+   * the eye reads the mockup's four characters.
+   */
+  clock: "{time}",
+  /** The accessible name of the readout above — said to the ear, never drawn. */
+  clockLabel: "Scenario clock",
   pause: "Pause",
   play: "Play",
   restart: "Restart",

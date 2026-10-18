@@ -81,6 +81,33 @@ async function savePlan(page: Page, leg: "AM" | "PM" = "AM") {
   expect(response.status(), "the board could not save a plan").toBe(200);
 }
 
+/**
+ * The two boxes in the DEMO bar that Vera found on top of each other at 390 (her walk,
+ * 2026-10-18 12:30 AM ET): the scenario-clock readout and the "Restart demo day" button.
+ * png/live-map-390.png draws them side by side on one 32 px row, and png/live-map.png does the
+ * same with room to spare.
+ */
+async function barBoxes(page: Page) {
+  const clock = page.locator("[data-demo-clock]");
+  const restart = page.getByRole("button", { name: demoDay.restart });
+  await expect(clock).toBeVisible();
+  await expect(restart).toBeVisible();
+  const [a, b] = [await clock.boundingBox(), await restart.boundingBox()];
+  expect(a, "the scenario clock has no box").not.toBeNull();
+  expect(b, "Restart demo day has no box").not.toBeNull();
+  return { clock: a!, restart: b! };
+}
+
+/** Do two boxes share any pixel? */
+function intersects(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+): boolean {
+  return (
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+  );
+}
+
 /** The live map at one instant of the simulated day, with the plan already saved. */
 async function openMap(page: Page, at: number = AT.MOCKUP) {
   await page.goto(`/live-map?leg=am&at=${at}`);
@@ -398,6 +425,41 @@ test.describe("the Live map at 1440", () => {
       await chips.evaluate((el) => el.closest("main") === null && document.querySelector("main") !== null),
     ).toBe(true);
   });
+
+  /*
+   * THE DEMO BAR'S CLOCK AND ITS BUTTON DO NOT OVERLAP (Vera, 2026-10-18 12:30 AM ET).
+   *
+   * png/live-map.png draws the bar as `DEMO · Synthetic data · [Simulated] ……… 3:24 PM
+   * [Restart demo day]`: one row, each thing beside the next, nothing on top of anything. At
+   * this width there is room to spare, which is exactly why the same assertion is worth making
+   * at 390 as well (below) — this one is the control.
+   */
+  test("lays the DEMO bar's clock beside the Restart button, never over it", async ({ page }) => {
+    await savePlan(page);
+    await openMap(page);
+    const { clock, restart } = await barBoxes(page);
+    expect(
+      intersects(clock, restart),
+      `the clock ${JSON.stringify(clock)} overlaps Restart ${JSON.stringify(restart)}`,
+    ).toBe(false);
+    // Side by side on one row, in the mockup's order: the time, then the button.
+    expect(clock.x + clock.width).toBeLessThanOrEqual(restart.x);
+  });
+
+  /*
+   * And the readout is the TIME, not a sentence about it. png/live-map.png and
+   * png/live-map-390.png both draw "3:24 PM" there; "Scenario clock 7:31 AM ET" is what used to
+   * be drawn and what overran the phone. The words live in the accessible name now.
+   */
+  test("reads the clock as a bare 12-hour time, with the words only to the ear", async ({
+    page,
+  }) => {
+    await savePlan(page);
+    await openMap(page);
+    const clock = page.locator("[data-demo-clock]");
+    await expect(clock).toContainText(/^\s*\d{1,2}:\d{2}\s(AM|PM)\s*$/);
+    await expect(clock.getByLabel(liveMap.clockLabel)).toBeAttached();
+  });
 });
 
 /* ══════════════════ the four chips, one scenario second at a time ══════════════════ */
@@ -493,6 +555,54 @@ test.describe("the Live map at 390", () => {
     mkdirSync(ARTIFACTS, { recursive: true });
     await page.screenshot({ path: path.join(ARTIFACTS, "live-map-390.png") });
     expect(failures, `page errors: ${failures.join("; ")}`).toEqual([]);
+  });
+
+  /*
+   * THE PAGE IS EXACTLY 390 WIDE (Vera's walk, 2026-10-18 12:30 AM ET: it measured 426).
+   *
+   * png/live-map-390.png is a 390 px phone with nothing hanging off the side of it, and
+   * MOCKUP-TEST-CONTRACT.md §Rules 6 makes it a global check on every screen and role:
+   * `scrollWidth <= innerWidth` at 390. Asserted on the locked screen as well as the saved one,
+   * because the DEMO bar is the same bar either way and the overflow was the bar's.
+   */
+  test("is exactly 390 wide, with nothing hanging off the side", async ({ page }) => {
+    await savePlan(page);
+    await openMap(page);
+    await mapDrawn(page);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+      "the Live map overflows a 390 px phone sideways",
+    ).toBeLessThanOrEqual(PHONE.width);
+
+    // The same width, with no plan saved: the bar and the locked card, and still no scroll.
+    await page.goto("/live-map?leg=pm");
+    await expect(page.getByText(liveMap.lockedHeading)).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(PHONE.width);
+  });
+
+  /*
+   * And the two things in the bar that were on top of each other are beside each other
+   * (png/live-map-390.png: `DEMO [Simulated] 3:24 PM [Restart demo day]`, one row, no overlap).
+   * The clock readout is the time alone at this width, which is what makes the row fit.
+   */
+  test("lays the DEMO bar's clock beside the Restart button at 390, never over it", async ({
+    page,
+  }) => {
+    await savePlan(page);
+    await openMap(page);
+    const { clock, restart } = await barBoxes(page);
+    expect(
+      intersects(clock, restart),
+      `at 390 the clock ${JSON.stringify(clock)} overlaps Restart ${JSON.stringify(restart)}`,
+    ).toBe(false);
+    expect(clock.x + clock.width).toBeLessThanOrEqual(restart.x);
+    // Both are inside the viewport: a box that fits by hanging off the edge is not a fix.
+    expect(restart.x + restart.width).toBeLessThanOrEqual(PHONE.width);
+    await expect(page.locator("[data-demo-clock]")).toContainText(
+      /^\s*\d{1,2}:\d{2}\s(AM|PM)\s*$/,
+    );
   });
 
   test("keeps no ETA at 390 either", async ({ page }) => {
