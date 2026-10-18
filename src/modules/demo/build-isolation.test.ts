@@ -36,6 +36,8 @@ const ALLOWED_SEED_IMPORTERS = [
   // The drags and the child panel's Save, asserted against a seeded database (`pnpm test:db`).
   "src/modules/plan/place.db.test.ts",
   "src/modules/plan/sql.test.ts",
+  // Two sessions saving at once, on the real local Postgres (`pnpm test:db`).
+  "src/modules/plan/race.db.test.ts",
 ];
 
 const SRC_RE = /\.(ts|tsx|mjs|js)$/;
