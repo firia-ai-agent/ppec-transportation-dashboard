@@ -286,8 +286,14 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
 
 /**
  * Drive every unfinished run of a site: QUEUED (a timer fired and `agentResumeHandler` re-triggered
- * it) and RUNNING (a run whose process died mid-step). This is the shape the agent queue route and
- * the sweeper both want; until that route exists it is also how a timer-driven resume is exercised.
+ * it) and RUNNING (a run whose process died mid-step).
+ *
+ * **Not the production path, and no longer the only way a fired timer is delivered.** A re-triggered
+ * run is driven by its own `ppec-agent` wake-up now — `agentResumeHandler` publishes one after the
+ * job's claim transaction commits, `/api/queues/agent` takes the per-run lease and drives it
+ * (timers.ts, queue.ts, lease.ts) — so this sweep-shaped driver is what the suites use to drive a
+ * batch, and what a periodic sweep would call if one is ever built. It takes no lease, so nothing
+ * production-facing should call it while the queue consumer can.
  */
 export async function resumeQueuedRuns(deps: RunDeps, siteId: string, limit = 100): Promise<RunResult[]> {
   const runs = await resumableRuns(deps.db, siteId, limit);
