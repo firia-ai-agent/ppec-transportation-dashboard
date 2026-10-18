@@ -8,12 +8,17 @@ import {
   contrastRatio,
   focusRing,
   fontSize,
+  isBlue,
   layout,
   relativeLuminance,
   target,
   tokenCss,
   tones,
   space,
+  VAN_COLORS,
+  VAN_COLOR_LIST,
+  vanColor,
+  vanContrastPairs,
 } from "./tokens";
 
 const SRC_ROOT = path.resolve(__dirname, "..");
@@ -33,8 +38,13 @@ function walkSrc(dir: string = SRC_ROOT): string[] {
  * WCAG 2.1 AA, or that drifts from the published ratio, fails the build.
  */
 describe("§8 contrast", () => {
-  it("covers every colour pair the doc lists, plus the palette, inactive-control, demo-control and route-line pairs", () => {
-    expect(contrastPairs).toHaveLength(34);
+  /*
+   * 32, not 34: the two route-line rows left with `map-route-2` / `map-route-3` when the app
+   * went to one van palette (Firia, 2026-10-17 11:25 PM ET). The van palette is checked by its
+   * own table below (`vanContrastPairs`), to a stricter threshold.
+   */
+  it("covers every colour pair the doc lists, plus the palette, inactive-control and demo-control pairs", () => {
+    expect(contrastPairs).toHaveLength(32);
   });
 
   it.each(contrastPairs)(
@@ -112,8 +122,6 @@ describe("token shape", () => {
         "ink",
         "ink-brand",
         "ink-muted",
-        "map-route-2",
-        "map-route-3",
         "map-truck-crit",
         "map-truck-ok",
         "map-truck-stale",
@@ -318,6 +326,99 @@ describe("token shape", () => {
       VIOLET_VARS.test(readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, "")),
     );
     expect(offenders.map((f) => path.relative(SRC_ROOT, f))).toEqual([]);
+  });
+});
+
+/**
+ * THE VAN PALETTE, and the two halves of Firia's 11:25 PM ET ruling of 2026-10-17.
+ *
+ * It replaces every earlier colour note: Van 1 #1D4ED8, Van 2 #B45309, Van 3 #BE185D, from ONE
+ * group in tokens.ts, and that group is the only place under src/ a blue may appear. The ruling
+ * has a second half that is easy to lose — **no chrome token is blue** — so both are asserted
+ * here rather than one. The browser half of it (a *computed* chrome colour) is e2e's, in
+ * e2e/live-map.spec.ts, over the same {@link isBlue} classifier.
+ */
+describe("the van palette (Firia, 2026-10-17 11:25 PM ET)", () => {
+  it("is the three colours the ruling names, in order", () => {
+    expect(VAN_COLORS).toEqual({ van1: "#1D4ED8", van2: "#B45309", van3: "#BE185D" });
+    expect(VAN_COLOR_LIST).toEqual(["#1D4ED8", "#B45309", "#BE185D"]);
+  });
+
+  it("gives the nth van the nth colour, and wraps rather than running out", () => {
+    expect([0, 1, 2].map(vanColor)).toEqual([...VAN_COLOR_LIST]);
+    expect(vanColor(3)).toBe(VAN_COLORS.van1);
+    expect(vanColor(-1)).toBe(VAN_COLORS.van3);
+  });
+
+  it("tells three vans apart: no two share a colour, and none is the demo violet", () => {
+    expect(new Set(VAN_COLOR_LIST).size).toBe(3);
+    for (const hex of VAN_COLOR_LIST) expect(hex).not.toBe(color["demo-bg"]);
+  });
+
+  /* A van pin carries a white numeral, and a van square sits on a white card, so these are text
+     pairs rather than UI-part pairs: 4.5:1, on both page surfaces. */
+  it.each(vanContrastPairs)(
+    "$van on $on meets $needs:1 and matches the documented $documented:1",
+    ({ van, on, documented, needs }) => {
+      const ratio = contrastRatio(VAN_COLORS[van], color[on]);
+      expect(ratio, `${van} on ${on}`).toBeGreaterThanOrEqual(needs);
+      expect(Math.round(ratio * 100) / 100).toBeCloseTo(documented, 2);
+    },
+  );
+
+  it("emits one custom property per van colour, so no component holds the literal", () => {
+    const css = tokenCss();
+    VAN_COLOR_LIST.forEach((hex, i) => expect(css).toContain(`--van-${i + 1}:${hex}`));
+  });
+
+  /* Half one of the ruling: blue appears only inside VAN_COLORS. */
+  it("holds the only blue under src/: Van 1, and nothing else in the group", () => {
+    expect(VAN_COLOR_LIST.filter(isBlue)).toEqual([VAN_COLORS.van1]);
+  });
+
+  /* Half two, and the one that is easy to lose: no CHROME token is blue. */
+  it("leaves no blue in the chrome: not one token in the §8 table", () => {
+    const blue = Object.entries(color)
+      .filter(([, hex]) => isBlue(hex))
+      .map(([name]) => name);
+    expect(blue, "blue is van identity only; chrome is teal (Firia, 11:25 PM ET)").toEqual([]);
+  });
+
+  /*
+   * And no stylesheet may paint a blue of its own either. A component reads `--van-N` when it is
+   * drawing a van and a `--color-*` otherwise; a hard blue in a .module.css would be a chrome
+   * blue that neither half of the rule above can see. (no-hex.test.ts already bans every literal
+   * outside tokens.ts — this says *why* for the blue in particular, and fails first.)
+   */
+  it("lets no stylesheet under src/ paint a blue of its own", () => {
+    const sheets = walkSrc().filter((f) => f.endsWith(".css"));
+    expect(sheets.length).toBeGreaterThan(10);
+    const offenders = sheets
+      .map((f) => ({
+        file: path.relative(SRC_ROOT, f),
+        hits: [...readFileSync(f, "utf8").matchAll(/#[0-9a-fA-F]{6}\b/g)]
+          .map((m) => m[0])
+          .filter(isBlue),
+      }))
+      .filter((r) => r.hits.length > 0);
+    expect(offenders).toEqual([]);
+  });
+
+  /*
+   * The classifier itself, because a ban is only as good as what it calls blue. These are the
+   * judgement calls the thresholds encode: the ink is a near-black with a navy lean, the slates
+   * are greys with one, and the demo violet is reserved rather than banned.
+   */
+  it("calls a blue blue, and leaves the ink, the slates and the demo violet alone", () => {
+    expect(isBlue("#1D4ED8")).toBe(true);
+    expect(isBlue(color.ink)).toBe(false);
+    expect(isBlue(color["ink-muted"])).toBe(false);
+    expect(isBlue(color["border-strong"])).toBe(false);
+    expect(isBlue(color["neutral-fg"])).toBe(false);
+    expect(isBlue(color["neutral-bg"])).toBe(false);
+    expect(isBlue(color.brand)).toBe(false);
+    expect(isBlue(color["demo-bg"])).toBe(false);
+    expect(isBlue(color.surface)).toBe(false);
   });
 });
 
