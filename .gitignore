@@ -14,6 +14,10 @@ artifacts/*
 # …except the review set this PR is gated on: the ramp and board at both widths, for all three
 # roles, plus the PR body that cites them. Committed on purpose — they are the visual proof.
 !artifacts/rework-ramp-board/
+# …and this lane's PR body, which cites the mockups and the specs. The browser-check PNGs under
+# the same directory are still run output and stay ignored.
+!artifacts/wtbubble/
+artifacts/wtbubble/*.png
 /test-results/
 .DS_Store
 next-env.d.ts
