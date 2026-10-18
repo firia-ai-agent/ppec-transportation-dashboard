@@ -37,6 +37,7 @@ import { TextsScreen } from "./TextsScreen";
 import { approvalQueue } from "./queue";
 import {
   conversationRows,
+  openThreadOf,
   runsOf,
   threadView,
   type ProposalView,
@@ -208,6 +209,8 @@ const ALERT: AssistantAlert = {
   sentence: "Dara O. texted about Noah's drop-off. The assistant couldn't read it. Reply yourself.",
   theirWords: "Can you drop Noah at 5 instead?",
   threadId: "thread-1",
+  /** Noah's own token, so the tab can open *this* family's thread (`openThreadOf`). */
+  childToken: childTokenOf("C2"),
   messageId: "message-1",
   beingHandled: false,
 };
@@ -417,5 +420,58 @@ describe("gate 8, the courtesy half: the front desk sees no For you tab", () => 
     const html = textOf(render({ tab: "for-you", showForYouTab: false, proposals: [] }));
     expect(html).not.toContain(approval.approveAndSend);
     expect(html).toContain(conversationRows(texts, [PROPOSAL])[0].adultName);
+  });
+});
+
+/* ───────────────────── which thread the screen opens on (mockups/family-texts.html) ───────────────────── */
+
+/**
+ * The thread pane shows one conversation, and the mockup draws it beside whatever the tab is
+ * asking a person to deal with (/workspace/ppec-redesign/mockups/family-texts.html, and
+ * approvals.html where `.th.on` is the family with something waiting).
+ *
+ * On production this went wrong in the one state that matters: the For you tab had a "needs a
+ * person" alert about Dara at the top of it, and the pane beside it was open on Rosa — the newest
+ * thread — so the screen was asking about one family and showing another.
+ */
+describe("the thread the tab opens on", () => {
+  /** The alert carries the child's own token; the day's threads are keyed by the fixture child. */
+  const alertAbout = (childKey: string) => [{ childToken: childTokenOf(childKey) }];
+  const noon = texts[texts.length - 1];
+
+  it("opens the thread the URL names, whatever else is waiting", () => {
+    const asked = texts[0];
+    const open = openThreadOf(texts, {
+      askedThread: asked.childKey,
+      proposals: [PROPOSAL],
+      alerts: alertAbout(noon.childKey),
+    });
+    expect(open?.childKey).toBe(asked.childKey);
+  });
+
+  it("opens the thread an alert is about rather than the newest one", () => {
+    const alerted = texts.find((t) => t.childKey !== texts[0].childKey)!;
+    const open = openThreadOf(texts, { proposals: [], alerts: alertAbout(alerted.childKey) });
+
+    expect(open?.childKey).toBe(alerted.childKey);
+    expect(open?.childKey).not.toBe(texts[0].childKey);
+  });
+
+  it("still opens a thread with a decision waiting on it first: the card lives inside it", () => {
+    const alerted = texts.find((t) => t.childKey !== PROPOSAL.threadKey)!;
+    const open = openThreadOf(texts, { proposals: [PROPOSAL], alerts: alertAbout(alerted.childKey) });
+    expect(open?.childKey).toBe(PROPOSAL.threadKey);
+  });
+
+  it("falls back to the newest thread when nothing is waiting and nothing is alerting", () => {
+    expect(openThreadOf(texts, { proposals: [], alerts: [] })?.childKey).toBe(texts[0].childKey);
+    // An alert about a child this day has no thread for changes nothing, and names nobody wrongly.
+    expect(openThreadOf(texts, { proposals: [], alerts: [{ childToken: null }] })?.childKey).toBe(
+      texts[0].childKey,
+    );
+  });
+
+  it("has no thread to open on a day with no family texts at all", () => {
+    expect(openThreadOf([], { proposals: [], alerts: alertAbout("C2") })).toBeNull();
   });
 });

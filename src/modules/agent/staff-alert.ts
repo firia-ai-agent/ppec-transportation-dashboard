@@ -518,6 +518,16 @@ export type AssistantAlert = {
   /** The thread "Open text" and "Reply" lead to. */
   readonly threadId: string | null;
   /**
+   * `ops.task.child_token` — whose ride the text is about, when the rows said so unambiguously.
+   *
+   * The screen's half of what `alertSubject` resolved: Family texts keys its threads by the
+   * fixture child the day texted, so this is how the tab opens *this* family's thread rather than
+   * the newest one (`family-texts/conversations.ts` `openThreadOf`). Null for a text that could
+   * not be tied to one child, which is the same "say less rather than guess" the card's own
+   * sentence makes.
+   */
+  readonly childToken: string | null;
+  /**
    * The message the card's words came from. Nullable because the join is a LEFT JOIN: every row
    * this module writes carries a locator, and a row that somehow does not should still render as
    * a card a person can see rather than disappear from the board.
@@ -530,6 +540,7 @@ export type AssistantAlert = {
 type AlertRow = {
   id: string;
   state: string;
+  child_token: string | null;
   message_id: string | null;
   thread_id: string | null;
   body_tokenized: string | null;
@@ -553,7 +564,7 @@ export async function openAssistantAlerts(
 ): Promise<AssistantAlert[]> {
   if (siteIds.length === 0) return [];
   const r = await db.query<AlertRow>(
-    `SELECT t.id, t.state,
+    `SELECT t.id, t.state, t.child_token,
             m.id AS message_id, m.thread_id, m.body_tokenized,
             c.display_name AS child_display_name,
             th.counterparty_token,
@@ -612,6 +623,7 @@ function toAlert(row: AlertRow, names: ReadonlyMap<string, string>): AssistantAl
   return {
     id: row.id,
     state: row.state === "IN_PROGRESS" ? "IN_PROGRESS" : "OPEN",
+    childToken: row.child_token,
     sentence:
       child === ""
         ? fillCard(assistantUnavailable.cardNoChild, { adult })

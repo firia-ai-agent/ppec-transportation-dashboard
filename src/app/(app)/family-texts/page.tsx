@@ -12,7 +12,7 @@ import { familyTexts } from "@/ui/copy";
 import { NOT_ON_YOUR_MENU, withNotice } from "@/ui/notice";
 import { decideApprovalAction, takeAlertAction } from "./actions";
 import { contextFor } from "./context";
-import { conversationRows, tabFrom, threadView, type ProposalView } from "./conversations";
+import { conversationRows, openThreadOf, tabFrom, threadView, type ProposalView } from "./conversations";
 import { TextsScreen } from "./TextsScreen";
 import { phonesForDay, threadFor } from "./thread";
 
@@ -121,14 +121,12 @@ export default async function FamilyTextsPage({
     mayApprove && assistantReachable ? await readQueue(siteIds, day, editedTime) : [];
 
   /*
-   * Which thread is open, in order: the one the URL names; otherwise the one with something
-   * waiting on it, which is the row the mockups draw as current (approvals.html `.th.on` is the
-   * "Change ready" family); otherwise the newest.
+   * Which thread is open: the one the URL names, else the one with a decision waiting on it (the
+   * row the mockups draw as current — approvals.html `.th.on` is the "Change ready" family), else
+   * the one an alert is about, else the newest. The order lives in `conversations.ts` with the
+   * rest of the view model, where it can be asked about without a database.
    */
-  const selected =
-    phones.find((p) => p.childKey === askedThread) ??
-    phones.find((p) => queue.some((q) => q.threadKey === p.childKey)) ??
-    phones[0];
+  const selected = openThreadOf(phones, { askedThread, proposals: queue, alerts: board.alerts });
   const thread = selected
     ? await threadFor(getNeonDb, {
         dropoff: selected,

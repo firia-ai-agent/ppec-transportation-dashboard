@@ -31,6 +31,7 @@
 import { formatClock } from "@/domain/eta/eta";
 import type { ServiceDay } from "@/domain/board/day";
 import { HANDOFF_TEMPLATE } from "@/modules/demo/handoff-notice";
+import { childTokenOf } from "@/modules/demo/fixtures/standard";
 import { approval, fill, familyTexts, onDay } from "@/ui/copy";
 import type { Bubble, BubbleAuthor, DayPhone, Thread, ThreadSource } from "./thread";
 
@@ -193,6 +194,41 @@ export function conversationRows(
   // "11:00 AM" sorts above "4:30 PM" as a string, which would put the morning at the top.
   const waiting = (r: (typeof rows)[number]) => (r.row.state === "changeReady" ? 1 : 0);
   return rows.sort((a, b) => waiting(b) - waiting(a) || b.atMs - a.atMs).map((r) => r.row);
+}
+
+/**
+ * WHICH THREAD IS OPEN, in the order a coordinator's attention is already in.
+ *
+ *  1. **the one the URL names** — a person who clicked a row gets that row, always;
+ *  2. **the one with a decision waiting on it** — the card lives *inside* the thread, so a screen
+ *     showing a proposal in the list and somebody else's conversation beside it is showing a
+ *     decision nobody can read;
+ *  3. **the one with a text nobody could read on it** (#B4). The "needs a person" alert is drawn
+ *     at the top of the For you tab; opening the newest thread beside it meant the one thing on
+ *     the screen asking for a person was about Dara and the pane next to it was Rosa's;
+ *  4. otherwise the newest, which is what the list is sorted by.
+ *
+ * The alert is matched on its own `child_token` against the day's threads (`childTokenOf`), not on
+ * a name or a sentence: the card's words are built for a person to read and are not an identifier.
+ *
+ * Takes the alerts structurally rather than importing `AssistantAlert`: this module is reachable
+ * from the browser bundle and `agent/staff-alert.ts` reaches the agent's config, which is the
+ * module that holds the key's *name* (`agent/key-never-leaves.test.ts` walks type-only imports the
+ * way a conservative bundler would).
+ */
+export function openThreadOf(
+  texts: readonly DayPhone[],
+  a: {
+    readonly askedThread?: string;
+    readonly proposals: readonly ProposalView[];
+    readonly alerts: readonly { readonly childToken: string | null }[];
+  },
+): DayPhone | null {
+  const waiting = texts.find((t) => a.proposals.some((p) => p.threadKey === t.childKey));
+  const alerted = texts.find((t) =>
+    a.alerts.some((alert) => alert.childToken !== null && alert.childToken === childTokenOf(t.childKey)),
+  );
+  return texts.find((t) => t.childKey === a.askedThread) ?? waiting ?? alerted ?? texts[0] ?? null;
 }
 
 /* ───────────────────────────── the thread ───────────────────────────── */
