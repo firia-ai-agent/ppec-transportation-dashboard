@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { ArrowRight, Bot, Check, Pencil, X } from "lucide-react";
 import { StateChip } from "@/ui/StateChip";
-import { approval, outboundSms } from "@/ui/copy";
+import { approval } from "@/ui/copy";
 import { icon } from "@/ui/tokens";
 import type { DecideAction, DecisionState } from "./actions";
 import type { ProposalView } from "./conversations";
@@ -90,17 +90,18 @@ export function ProposalCard({
         {/* The exact body, as the family would read it. Plain text, never shortened. */}
         <blockquote>{proposal.draftText === "" ? approval.draftFailed : proposal.draftText}</blockquote>
         {/*
-          * The STOP/HELP footer, under the draft rather than in it (Firia, 11:00 PM ET, S1-5).
-          * It is appended by the send step (`renderForSend`, src/modules/messaging/templates.ts,
-          * whose `SEND_FOOTER` is this same `outboundSms.optOut` — read from copy.ts here so a
-          * client component does not pull the outbox into the browser bundle), so it is not
-          * words anybody wrote — but it is a line of what the family receives, and
-          * a card that showed neither the sentence nor the fact of it would be hiding part of
-          * the message. Muted ink, which is what "the channel adds this" looks like.
+          * NO STOP/HELP footer here, and none anywhere a person reads (Firia, 10:51 PM ET, which
+          * supersedes the 11:00 PM "muted line under the draft" wording).
+          *
+          * The 10DLC sentence is appended by the send step alone (`renderForSend`'s `SEND_FOOTER`,
+          * src/modules/messaging/templates.ts) — it is the channel's furniture, not words anybody
+          * wrote and not a thing anybody approves. Showing it to staff made the card longer
+          * without making the decision clearer: a coordinator is deciding the sentence above, and
+          * every extra line under it is one more thing to read before they can.
+          *
+          * So the draft the card shows is exactly `renderTemplate`'s output and stops there. The
+          * assertion that keeps it that way is in texts-screen.test.ts.
           */}
-        <p className={styles.draftFooter}>
-          {approval.sendFooterNote} {outboundSms.optOut}
-        </p>
       </div>
 
       {/* The time field, in the Edit state only — never on the resting card (10:51 PM ET). */}

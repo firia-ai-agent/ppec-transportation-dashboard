@@ -1061,16 +1061,12 @@ export const familyTexts = {
 export const approval = {
   /** What the parent would receive, shown exactly — the body, not a description of it. */
   exactTextHeading: "The text the family will get",
-  /**
-   * The channel's furniture, shown under the draft and not inside it (Firia, 11:00 PM ET, S1-5).
-   *
-   * The 10DLC HELP/STOP sentence is appended by the send step (`renderForSend`), so it is not in
-   * the body a coordinator reads — but it *is* part of what the family receives, and a card that
-   * showed neither would be hiding a line of the message. So it sits below the quote, in the
-   * muted ink the rest of the card's secondary text uses, which is what "added when it sends"
-   * looks like.
+  /*
+   * There is NO key here for the STOP/HELP footer, and that absence is the ruling (Firia, 10:51
+   * PM ET): the 10DLC sentence is appended by the send step alone (`SEND_FOOTER`,
+   * src/modules/messaging/templates.ts) and is never shown to staff — not in a bubble, not on the
+   * card. A copy key for it would be the first half of putting it back.
    */
-  sendFooterNote: "Added when it sends:",
   nothingUntilApproved: "The family hears nothing until you approve",
   approveAndSend: "Approve and send",
   edit: "Edit",

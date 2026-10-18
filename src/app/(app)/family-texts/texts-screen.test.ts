@@ -27,6 +27,7 @@ import { demoDay } from "@/domain/board/day";
 import { demoChangeRequests } from "@/modules/demo/change-request";
 import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
 import type { AssistantAlert } from "@/modules/agent/staff-alert";
+import { SEND_FOOTER } from "@/modules/messaging/templates";
 import { approval, assistantUnavailable, familyTexts } from "@/ui/copy";
 import type { ThreadContext } from "@/app/(app)/family-texts/context";
 import { TextsScreen } from "./TextsScreen";
@@ -194,6 +195,26 @@ describe("the screen's shape", () => {
     // The card is after the bubbles and before the compose bar: inside the thread, not beside it.
     expect(card).toBeGreaterThan(thread);
     expect(compose).toBeGreaterThan(card);
+  });
+
+  /**
+   * THE STOP/HELP FOOTER IS NEVER ON A STAFF SCREEN (Firia, 2026-10-17 10:51 PM ET, which
+   * supersedes the 11:00 PM "muted line under the draft" wording).
+   *
+   * `SEND_FOOTER` (src/modules/messaging/templates.ts:57) is appended by `renderForSend` at send
+   * time and by nothing else, so the sentence exists on a family's phone and nowhere a person
+   * reads: not in a bubble, not under the draft, not anywhere on the card. The assertion is on
+   * the whole screen rather than on the card alone, because "not on the card" would pass while
+   * the same line sat in a bubble two inches above it.
+   */
+  it("shows the 10DLC footer nowhere a person reads — not in a bubble, not on the card", () => {
+    for (const html of [render({}), render({ tab: "for-you" }), render({ editing: true })]) {
+      expect(textOf(html)).not.toContain(SEND_FOOTER);
+      // And not the label that used to introduce it either: the line is gone, not relabelled.
+      expect(textOf(html)).not.toContain("Added when it sends");
+    }
+    // The draft itself is still on the card, so the absence above is about the footer alone.
+    expect(textOf(render({}))).toContain(approval.exactTextHeading);
   });
 
   it("has exactly one compose bar", () => {
