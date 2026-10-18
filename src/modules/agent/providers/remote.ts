@@ -372,9 +372,8 @@ export function remoteProvider(
       });
       if (!response.ok) {
         const failure = response.status === RATE_LIMITED ? "rate_limited" : "http_error";
-        // PPE-101: one diagnosable line per failed model — status, OpenRouter's error code and a
-        // short slice of its message (e.g. "No endpoints found matching your data policy"). Never
-        // the key, the request headers or the request body.
+        // PPE-101: one diagnosable line per failed model — model, status, OpenRouter's error code
+        // and provider name. Never the key, headers, request body, or the vendor's message text.
         const detail = await openRouterErrorDetail(response);
         console.warn(JSON.stringify({ event: "agent.provider_error", model, status: response.status, ...detail }));
         return { record: { model, status: response.status, ok: false, failure }, body: null };
@@ -471,19 +470,24 @@ export function normalize(raw: unknown): ProviderResponseBody | null {
   };
 }
 
-/** OpenRouter's `{ error: { code, message } }`, bounded; nothing else from the body is kept. */
+/**
+ * OpenRouter's `error.code` and `error.metadata.provider_name`, nothing else. The message and the
+ * rest of the body are never read into a log: a moderation error can quote the flagged input back.
+ */
 async function openRouterErrorDetail(
   response: Response,
-): Promise<{ readonly code: string | number | null; readonly message: string | null }> {
+): Promise<{ readonly code: string | number | null; readonly provider: string | null }> {
   try {
-    const body = (await response.json()) as { error?: { code?: unknown; message?: unknown } } | null;
+    const body = (await response.json()) as
+      | { error?: { code?: unknown; metadata?: { provider_name?: unknown } } }
+      | null;
     const code = body?.error?.code;
-    const message = body?.error?.message;
+    const provider = body?.error?.metadata?.provider_name;
     return {
-      code: typeof code === "number" || typeof code === "string" ? code : null,
-      message: typeof message === "string" ? message.slice(0, 200) : null,
+      code: typeof code === "number" || (typeof code === "string" && /^[A-Za-z0-9_.-]{1,40}$/.test(code)) ? code : null,
+      provider: typeof provider === "string" && /^[A-Za-z0-9 _.-]{1,40}$/.test(provider) ? provider : null,
     };
   } catch {
-    return { code: null, message: null };
+    return { code: null, provider: null };
   }
 }

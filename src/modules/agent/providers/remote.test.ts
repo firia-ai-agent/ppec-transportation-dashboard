@@ -222,6 +222,29 @@ describe("model chain", () => {
     ]);
   });
 
+  it("logs model, status, error code and provider on failure — never the vendor's message (PPE-101)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const echo = "FLAGGED INPUT: Dara Noah 555-123-4567";
+    fetchMock.mockImplementation(async () =>
+      new Response(
+        JSON.stringify({ error: { code: 403, message: echo, metadata: { provider_name: "Chutes", flagged_input: echo } } }),
+        { status: 403, headers: { "content-type": "application/json" } },
+      ),
+    );
+    await expect(remoteProvider(DEMO, KEY_ENV).invoke(call())).rejects.toThrow(RemoteProviderUnavailable);
+    const lines = warn.mock.calls.map((c) => String(c[0]));
+    expect(lines).toHaveLength(2);
+    expect(JSON.parse(lines[0])).toEqual({
+      event: "agent.provider_error", model: DEMO.model, status: 403, code: 403, provider: "Chutes",
+    });
+    for (const l of lines) {
+      expect(l).not.toContain("FLAGGED");
+      expect(l).not.toContain("555");
+      expect(l).not.toMatch(/message|flagged_input|Bearer/);
+    }
+    warn.mockRestore();
+  });
+
   it("on 429 from both models refuses, and answers in no other way", async () => {
     fetchMock.mockResolvedValue(vendorStatus(RATE_LIMITED));
     const provider = remoteProvider(DEMO, KEY_ENV);
