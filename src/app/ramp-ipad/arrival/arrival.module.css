@@ -338,9 +338,23 @@
   color: var(--color-ink-muted);
 }
 
-.emptyLink {
-  color: var(--color-brand);
+/*
+ * The whole screen when this leg has no saved plan: the one line above, and this — the way to
+ * the board, at the ramp's own target size (§9: ≥56 px).
+ */
+.emptyAction {
+  align-self: flex-start;
+  min-height: var(--target-ramp);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-md);
+  border: var(--border-hairline) solid var(--color-brand);
+  background: var(--color-brand);
+  color: var(--color-surface);
   font-weight: var(--weight-semibold);
+  font-size: var(--text-20);
+  text-decoration: none;
 }
 
 /* ───────────────────────────── one column on a phone ───────────────────────────── */

@@ -1990,8 +1990,12 @@ export const vanArrival = {
   confirmed: "Checked",
   /** Said once every van has been confirmed today (§9.3). */
   allChecked: "All vans checked",
-  /** No plan saved yet, so there is nobody to list beside the steppers (§9.3). */
-  noRidersPlanned: "No riders planned",
+  /**
+   * The whole screen when this leg has no saved plan (Firia's ruling for S1): the ramp
+   * never invents a plan by looking, so there is one line and one way out of it — `Plan routes`,
+   * which is `flow.action.planRoutes` and not a second string for the same button.
+   */
+  noPlanSaved: "No plan saved",
   /** Who an observation is attributed to when the front desk counts a van themselves. */
   observedBy: "Ramp staff",
   /** A counter's own label for a screen reader, since the numbers are the big part. */

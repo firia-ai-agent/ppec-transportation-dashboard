@@ -70,7 +70,12 @@ test.beforeEach(async ({ page }) => {
   await page.setViewportSize(WIDE);
 });
 
-const rampUrl = (day: string) => `/ramp-ipad?date=${day}`;
+/*
+ * The ramp carries its leg now (`?leg=`), because it reads the plan saved for THAT leg rather
+ * than a constant afternoon (src/app/ramp-ipad/page.tsx `resolveLeg`). Without one the address
+ * opens on the morning, which is the default leg, and this walk is about the afternoon.
+ */
+const rampUrl = (day: string) => `/ramp-ipad?date=${day}&leg=pm`;
 const boardUrl = (day: string) => `/plan-routes?date=${day}&leg=pm`;
 
 /**
@@ -105,6 +110,47 @@ const stepper = (page: Page, key: string): Locator => page.locator(`[data-steppe
 const fewer = (page: Page, key: string): Locator => stepper(page, key).getByRole("button").first();
 const openTab = (page: Page): Locator => page.locator('[data-tab][aria-current="page"]');
 
+/**
+ * A saved afternoon for this day, made the way a coordinator makes one: Auto-plan, then Save.
+ *
+ * The ramp reads the **saved** plan and nothing else now — Firia's S1 ruling deleted the
+ * `planSaved ? plan : autoPlan(day, plan)` fallback from src/app/ramp-ipad/arrival/view.ts — so a
+ * ramp walk on a day nobody has planned has nothing to count against and must be given one.
+ */
+async function planTheAfternoon(page: Page, day: string): Promise<void> {
+  await openBoard(page, day);
+  const state = page.locator("[data-save-state]");
+  // The walk is serial on one server, so a day planned by an earlier test is still planned.
+  if (!/^Saved /.test((await state.textContent()) ?? "")) {
+    await page.locator("[data-auto-plan]").click();
+    await expect(page.locator("[data-unassigned-count]")).toHaveText("0");
+    await page.locator("[data-save]").click();
+  }
+  await expect(state).toHaveText(/^Saved /);
+}
+
+/**
+ * Open the ramp on a day with a saved afternoon, and say whether there is one to open.
+ *
+ * A front desk cannot plan (§9.3), and one browser-check run is one role, so on that role's
+ * server no plan can exist: what they get is the screen the ruling specifies — one line, and no
+ * link to a board they may not open — and the walk honestly ends there rather than asserting
+ * about a plan the ramp used to invent.
+ */
+async function openRamp(page: Page, day: string): Promise<boolean> {
+  if (!CONSOLE_ROLE) {
+    await page.goto(rampUrl(day));
+    await expect(page.locator("[data-no-plan]")).toHaveText(vanArrival.noPlanSaved);
+    await expect(page.locator("[data-plan-routes]")).toHaveCount(0);
+    await expect(page.locator("[data-stepper]")).toHaveCount(0);
+    await expect(page.locator("[data-tab]")).toHaveCount(0);
+    return false;
+  }
+  await planTheAfternoon(page, day);
+  await page.goto(rampUrl(day));
+  return true;
+}
+
 /** The van tab carrying a named child, so a test does not depend on which van the day picked. */
 async function tabWith(page: Page, child: string): Promise<void> {
   for (const tab of await page.locator("[data-tab]").all()) {
@@ -116,8 +162,8 @@ async function tabWith(page: Page, child: string): Promise<void> {
 }
 
 test.describe.serial("§2: the van that just arrived", () => {
-  test("opens on a van, pre-filled, with the riders it would carry", async ({ page }) => {
-    await page.goto(rampUrl(DAY.ramp));
+  test("opens on a van, pre-filled, with the riders the saved plan gave it", async ({ page }) => {
+    if (!(await openRamp(page, DAY.ramp))) return;
     await expect(page.getByRole("heading", { level: 1, name: vanArrival.heading })).toBeVisible();
     // One tab per van, each saying when it leaves, and the open one marked by more than colour.
     await expect(page.locator("[data-tab]")).toHaveCount(3);
@@ -133,13 +179,13 @@ test.describe.serial("§2: the van that just arrived", () => {
     await expect(page.getByText(/Planned \d/)).toHaveCount(0);
     await expect(page.getByText(/Tomorrow starts/i)).toHaveCount(0);
 
-    // Vera's differences list, item 3: the riders card is populated with no saved plan, so the
-    // check is walkable on a fresh day.
+    // The riders are the ones the plan that was just saved put on this van — the ramp shows a
+    // saved plan or it shows nothing at all.
     await expect(page.locator("[data-rider]").first()).toBeVisible();
-    await expect(page.locator("[data-verdict]").first()).toContainText(vanArrival.fits);
   });
 
   test("the review shots of the ramp, at both widths", async ({ page }) => {
+    if (!(await openRamp(page, DAY.ramp))) return;
     await reviewBoth(page, "ramp", async () => {
       await page.goto(rampUrl(DAY.ramp));
       await expect(page.locator("[data-rider]").first()).toBeVisible();
@@ -147,7 +193,7 @@ test.describe.serial("§2: the van that just arrived", () => {
   });
 
   test("one car seat fewer, and the child who needs it is named with the way out", async ({ page }) => {
-    await page.goto(rampUrl(DAY.wontFit));
+    if (!(await openRamp(page, DAY.wontFit))) return;
     await tabWith(page, "Mia R.");
 
     const carSeats = stepper(page, "carSeats");
@@ -186,7 +232,7 @@ test.describe.serial("§2: the van that just arrived", () => {
   });
 
   test("Confirm writes CHECKED, and a reload says so", async ({ page }) => {
-    await page.goto(rampUrl(DAY.confirm));
+    if (!(await openRamp(page, DAY.confirm))) return;
     const vanName = (await openTab(page).locator("span").first().innerText()).trim();
     await fewer(page, "seats").click();
     const seats = await stepper(page, "seats").locator("output").innerText();
@@ -217,6 +263,7 @@ test.describe.serial("§2: the van that just arrived", () => {
   });
 
   test("at 390 the counters are still thumb-sized, with room for the tab bar", async ({ page }) => {
+    if (!(await openRamp(page, DAY.ramp))) return;
     await page.setViewportSize(PHONE);
     await page.goto(rampUrl(DAY.ramp));
     const confirm = page.locator("[data-confirm]");

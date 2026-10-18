@@ -32,10 +32,10 @@ import { COUNTER_MAX } from "@/config/vans";
 import { firstShortfall, rejectReason, type VanSetup } from "@/domain/plan/fit";
 import { openPlanBoard } from "@/domain/plan/replan";
 import type { BoardRider } from "@/domain/plan/board";
+import type { Direction } from "@/domain/day/leg";
 import { boardHref } from "@/modules/plan/when";
 import type { ArrivalVan } from "./view";
-import { RAMP_DIRECTION } from "./when";
-import { flow, planBoard, vanArrival } from "@/ui/copy";
+import { planBoard, vanArrival } from "@/ui/copy";
 import { COUNTER_ICON, COUNTER_LABEL, LIFT_ICON, NeedIcons } from "@/ui/equipment";
 import { icon } from "@/ui/tokens";
 import {
@@ -48,9 +48,6 @@ import {
 } from "./lines";
 import styles from "./arrival.module.css";
 
-/** The coordinator's board. Its address is the access table's, not invented here. */
-const PLAN_PATH = "/plan-routes";
-
 /** This screen's own address, which its van tabs point back at with a different `?van=`. */
 const RAMP_PATH = "/ramp-ipad";
 
@@ -58,21 +55,21 @@ export default function VanArrival({
   vans,
   selected,
   date,
+  leg,
   canPlan,
-  planSaved,
 }: {
   vans: readonly ArrivalVan[];
-  /** The van being counted: the one the address names, or the first to leave. */
+  /** The van being counted: the one the address names, or the first one. */
   selected: ArrivalVan;
   date: string;
+  /**
+   * The leg being checked, read from the address by the page (`?leg=`, Morning by default).
+   * Every link this screen draws carries it on, so a tab, Re-plan and the board all stay on the
+   * half of the day the front desk is standing in front of.
+   */
+  leg: Direction;
   /** Whether this role may open the planning board at all (§9.3 hides what they cannot use). */
   canPlan: boolean;
-  /**
-   * Whether the riders beside the steppers come from a plan somebody saved, or from the
-   * placement function run on the spot. Either way the list is populated — a ramp with an empty
-   * Riders card cannot be checked at all (Vera's differences list, item 3).
-   */
-  planSaved: boolean;
 }) {
   /**
    * The steppers open on today's counts: the row the front desk confirmed earlier today if there
@@ -99,10 +96,9 @@ export default function VanArrival({
 
   const shortfall = firstShortfall(draft, selected.riders);
   const firstRefused = verdicts.find((verdict) => verdict.reason !== null)?.rider ?? null;
-  const planHref = boardHref(PLAN_PATH, { date, leg: RAMP_DIRECTION });
   const replan = openPlanBoard({
     date,
-    leg: RAMP_DIRECTION,
+    leg,
     vanId: selected.van.id,
     observed: draft,
     canPlan,
@@ -139,13 +135,13 @@ export default function VanArrival({
         label (src/ui/PageHeader.tsx, #74), so a second one was the same words twice.
       */}
 
-      {/* The vans at the centre this afternoon, in the order they leave. */}
+      {/* The vans out on this leg, in van order: Van 1, Van 2, Van 3. */}
       <nav className={styles.tabs} aria-label={vanArrival.ridersHeading}>
         {vans.map((arrival) => (
           <a
             key={arrival.van.id}
             className={styles.tab}
-            href={boardHref(RAMP_PATH, { date, leg: RAMP_DIRECTION, van: arrival.van.id })}
+            href={boardHref(RAMP_PATH, { date, leg, van: arrival.van.id })}
             aria-current={arrival.van.id === selected.van.id ? "page" : undefined}
             data-tab={arrival.van.id}
           >
@@ -252,17 +248,6 @@ export default function VanArrival({
             <span className={styles.riderCount}>{selected.riders.length}</span>
             <span className={styles.leaves}>{leavesLine(selected.leavesMs)}</span>
           </h2>
-
-          {!planSaved && selected.riders.length === 0 ? (
-            <p className={styles.empty} data-empty="">
-              {vanArrival.noRidersPlanned}
-              {canPlan ? (
-                <a className={styles.emptyLink} href={planHref}>
-                  {flow.action.planRoutes}
-                </a>
-              ) : null}
-            </p>
-          ) : null}
 
           {firstRefused && shortfall ? (
             <div className={styles.banner} data-shortfall="">
