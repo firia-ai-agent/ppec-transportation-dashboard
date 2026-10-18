@@ -326,6 +326,50 @@ describe("fail-shut boundaries", () => {
     expect([row.status, row.result]).toEqual(["FAILED", { error_code: "NO_EXECUTOR" }]);
   });
 
+  /**
+   * PPE-103 S2 (c): THE ASSEMBLER IS INSIDE THE FAIL-SHUT RULE.
+   *
+   * `deps.assemble` reads rows — the trigger's message, the ask's words, the day's legs — and any
+   * of those reads can refuse. It was called bare, with the run row already RUNNING, so a refusal
+   * left the loop by `throw` and the run sat RUNNING with nothing driving it: the one step in the
+   * loop that could not complete and did not end the run. The caller saw it worst of all on the
+   * ask path, where the request came back "unavailable" over a run that still looked in progress.
+   */
+  it("a context that cannot be assembled fails the run instead of leaving it RUNNING", async () => {
+    const h = harness();
+    const deps = {
+      ...h.deps(0),
+      assemble: async () => {
+        throw new Error("tier facts could not be read");
+      },
+    };
+    const r = await startAndDriveRun(deps, TRIGGER);
+
+    expect([r.state, r.steps]).toEqual(["FAILED", 0]);
+    expect(r.reason).toBe("context could not be assembled: tier facts could not be read");
+    // The database agrees — this is the row a second driver and the board would read.
+    expect((await runs()).map((x) => x.state)).toEqual(["FAILED"]);
+    // In front of the gateway: no turn was taken, nothing persisted, nothing executed.
+    expect(h.gateways.at(-1)!.auditLog).toEqual([]);
+    expect(await calls(r.runId)).toEqual([]);
+    expect(h.recorder.intents).toEqual([]);
+  });
+
+  it("…but a fatal error still leaves the run exactly as the dead process left it", async () => {
+    // The same seam the gateway call honours: "the process died here" is not an outcome of the
+    // run, so the rows are untouched and the next driver resumes from them.
+    class Gone extends Error {}
+    const h = harness({ isFatal: (e) => e instanceof Gone });
+    const deps = {
+      ...h.deps(0),
+      assemble: async () => {
+        throw new Gone("process is going away");
+      },
+    };
+    await expect(startAndDriveRun(deps, TRIGGER)).rejects.toThrow(/process is going away/);
+    expect((await runs()).map((x) => x.state)).toEqual(["RUNNING"]);
+  });
+
   it("an executor that throws is recorded as a failed step, not a crash", async () => {
     const h = harness({
       script: [AT01_READ],

@@ -249,7 +249,28 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
     }
     const at = clock();
     const committed = committedCalls(calls);
-    const assembled = await deps.assemble({ runId, trigger: run.trigger, committed, now: at });
+    /*
+     * ASSEMBLY IS PART OF THE STEP, AND FAILS LIKE ONE.
+     *
+     * The assembler reads rows — the trigger's message, the ask's words, the scope, the day's legs
+     * — and any of those reads can refuse: a row that is gone, a site fence, a database that blinks
+     * mid-run. Called bare, that refusal left this function by `throw` while the run row was
+     * already `RUNNING`, so the run sat RUNNING for ever: the loop's own fail-shut rule says a step
+     * that cannot complete ends the run, and this was the one step it did not apply to. (The ask
+     * path felt it as a request that came back `unavailable` with a RUNNING run behind it, which
+     * reads on the board as work still in progress that nothing is driving.)
+     *
+     * So it is a `fail` like every other step that cannot complete: FAILED, with a reason, and
+     * nothing executed. `isFatal` is honoured first for the same reason the gateway call honours
+     * it — "the process died here" must leave the rows untouched for the next driver to resume.
+     */
+    let assembled;
+    try {
+      assembled = await deps.assemble({ runId, trigger: run.trigger, committed, now: at });
+    } catch (e) {
+      if (deps.isFatal?.(e)) throw e;
+      return fail(deps, run, `context could not be assembled: ${message(e)}`, steps);
+    }
     const wrongSite = scopeSiteRefusal(run, assembled.policy);
     if (wrongSite) return fail(deps, run, wrongSite, steps);
     let turn: GatewayResult;
@@ -678,6 +699,7 @@ async function modelDown(
         siteId: run.trigger.siteId,
         askTaskId: run.trigger.id,
         by: actor,
+        reason: unavailable.reason,
       });
     } else {
       raised = "no staff alert: this trigger has nobody waiting on an answer";

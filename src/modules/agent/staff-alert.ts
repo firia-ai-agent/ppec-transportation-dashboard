@@ -337,16 +337,59 @@ export function askUnavailableAlertId(askTaskId: string): string {
 }
 
 /**
- * Raise it, with the ask's own words on it.
+ * Why an ask ended with nobody having answered it.
+ *
+ * The model-outage classes, plus the one an ask can reach that an inbound text cannot:
+ * `run_failed`, a run that was really driven, reached a model and still stopped without an answer
+ * — a policy block, a step budget spent, an executor that failed. The coordinator's next move is
+ * the same for all of them (read it and answer it yourself), so this class never reaches a card;
+ * it is the log's and the row's, exactly like `UnavailableReason`.
+ */
+export type AskUnavailableReason = UnavailableReason | "run_failed";
+
+/**
+ * The one line an ask that nobody answered writes to the server log.
+ *
+ * The **class and nothing else**: no `detail`, because the ask's two callers hold an error whose
+ * message can carry an endpoint, a model name or a header (`ask/staff-ask.ts` says this at the
+ * catch that calls it), and no ask text, because the whole reason this row exists is that nobody
+ * could read it.
+ */
+export function askUnavailableLogLine(reason: AskUnavailableReason): string {
+  return `agent: ask unavailable (${reason}); staff alert raised`;
+}
+
+/** Log it, once, through the same `console` seam the queue routes use. */
+export function logAskUnavailable(reason: AskUnavailableReason): void {
+  console.warn(askUnavailableLogLine(reason));
+}
+
+/**
+ * Raise it, with the ask's own words on it and the class of what went wrong beside them.
  *
  * The words are read back from the ask's task row (`askTextOf`), not passed in: both callers have
  * the id and only one of them has the sentence, and an alert that said less than the row it came
  * from would be the second-best of the two rows a coordinator can see. A row this read cannot find
  * — a preview, a database away — still raises the alert, with the copy line alone.
+ *
+ * `reason` is the one thing the caller does know and the row could not derive: a timeout looks
+ * exactly like a vendor error from inside this function. It is stored where
+ * `raiseModelUnavailableAlert` stores its own, `completion_evidence -> 'locator' ->> reason_class`,
+ * so one query answers "what kind of failure was this" for both doors into the alert — and it is a
+ * **class**, never a sentence out of a provider error.
+ *
+ * The write is `ON CONFLICT DO NOTHING` (`raiseTask`), so the first of the two writers wins: a run
+ * the loop already alerted on keeps the loop's class, and an ask that timed out before the loop
+ * got there records `timeout`. One ask, one row, one class.
  */
 export async function raiseAskUnavailableAlert(
   db: Exec,
-  input: { readonly siteId: string; readonly askTaskId: string; readonly by: string },
+  input: {
+    readonly siteId: string;
+    readonly askTaskId: string;
+    readonly by: string;
+    readonly reason: AskUnavailableReason;
+  },
 ): Promise<RaisedAlert> {
   const id = askUnavailableAlertId(input.askTaskId);
   const written = await raiseTask(db, {
@@ -359,6 +402,7 @@ export async function raiseAskUnavailableAlert(
       nextStep: agentAsk.unavailable.nextStep,
       predicate: agentAsk.unavailable.predicate,
     },
+    evidence: { locator: { ask_task_id: input.askTaskId, reason_class: input.reason } },
     by: input.by,
   });
   return { id: written, created: true };

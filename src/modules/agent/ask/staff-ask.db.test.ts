@@ -10,11 +10,12 @@ import { agentAsk, agentTasks } from "@/ui/copy";
 import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
 import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, loadAgentConfig } from "../config";
 import { approvalKey } from "../policy";
-import { toolCall } from "../providers/fake";
+import { freeText, toolCall } from "../providers/fake";
 import type { TierFacts } from "../run/context";
 import type { PolicyContext } from "../policy";
 import { type AgentRunner, agentRunner } from "../run/deps";
 import { liveHarness } from "../run/exec/live-harness";
+import { askUnavailableLogLine } from "../staff-alert";
 import { toolCalls } from "../run/store";
 import { TRIGGER_TYPES } from "../run/triggers";
 import {
@@ -445,6 +446,139 @@ describe("(e) with no model there is a staff alert, and nothing else", () => {
     // And the live vendor adapter IS here, because the ask drives the real runner: the refusal
     // this path takes is "no model would answer", not "no model was ever asked".
     expect(reachable).toContain("modules/agent/providers/remote.ts");
+  });
+});
+
+/**
+ * PPE-103 S2: WHAT THE ALERT RECORDS, AND WHICH RUNS EARN ONE.
+ *
+ * Two facts the degraded path had been losing. (a) A *timeout* — our own deadline on the whole
+ * ask — left a row indistinguishable from a vendor error, so nobody reading the board afterwards
+ * could tell "the model never answered" from "we stopped waiting". (b) A run that FAILED for any
+ * other reason came back `ok` with no answer on it, which reads in the panel as a model that had
+ * nothing to say.
+ *
+ * Both are asserted against the real board: the row `raiseAskUnavailableAlert` actually wrote,
+ * read back out of `ops.task`, and the real run loop driven to a real FAILED.
+ */
+describe("PPE-103 (a) the alert records which kind of nothing happened", () => {
+  /** The alert row and the class on it, as `openAssistantAlerts` and an on-call would read them. */
+  const alertRow = async () =>
+    (
+      await db.query<{ id: string; summary: string; completion_evidence: Record<string, unknown> | null }>(
+        "SELECT id, summary, completion_evidence FROM ops.task WHERE category = $1",
+        [STAFF_ALERT_TASK_CATEGORY],
+      )
+    ).rows[0];
+
+  /** A runner that exists, with the deadline the ask is held to and nothing else on it. */
+  const runnerWithDeadline = (askTimeoutMs: number) => () => ({
+    ok: true as const,
+    refused: false,
+    reason: null,
+    deps: { gateway: { config: { askTimeoutMs } } } as never,
+  });
+
+  it("stores TIMEOUT as the alert's reason class when the ask runs out of time", async () => {
+    // A drive that never settles: the deadline is the only thing that can end this ask.
+    const r = await askAgent(
+      db,
+      { siteId: sc.siteId, text: "Tell the family we are late", by: "u1" },
+      { env: {}, runner: runnerWithDeadline(10), drive: () => new Promise(() => {}) },
+    );
+    expect(r.ok === false && r.outcome).toBe("unavailable");
+    expect(r.outcome === "unavailable" && r.reason).toBe("TIMEOUT");
+
+    const ask = (await tasks()).find((t) => t.category === STAFF_ASK_TASK_CATEGORY);
+    const alert = await alertRow();
+    expect(alert).toBeDefined();
+    // The same shape `raiseModelUnavailableAlert` writes for an inbound text, so one query
+    // answers "what kind of failure was this" for both doors into the alert.
+    expect(alert.completion_evidence).toEqual({
+      locator: { ask_task_id: ask!.id, reason_class: "timeout" },
+    });
+  });
+
+  it("logs the class alone — not the error, not the deadline, not what was asked", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await askAgent(
+        db,
+        { siteId: sc.siteId, text: "Tell the family we are late", by: "u1" },
+        { env: {}, runner: runnerWithDeadline(10), drive: () => new Promise(() => {}) },
+      );
+      expect(warn.mock.calls.map((c) => c[0])).toContain(askUnavailableLogLine("timeout"));
+      const logged = warn.mock.calls.flat().join(" ").toLowerCase();
+      expect(logged).not.toContain("tell the family");
+      expect(logged).not.toMatch(/https?:\/\//);
+      expect(logged).not.toMatch(/\d/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("classes a reached-and-failed vendor as the vendor's failure, not as a timeout", async () => {
+    const r = await askAgent(
+      db,
+      { siteId: sc.siteId, text: "Tell the family we are late", by: "u1" },
+      {
+        env: {},
+        runner: runnerWithDeadline(5_000),
+        drive: async () => {
+          throw new Error("socket hang up");
+        },
+      },
+    );
+    expect(r.outcome === "unavailable" && r.reason).toBe("the model could not be reached");
+    expect((await alertRow()).completion_evidence).toMatchObject({ locator: { reason_class: "provider_error" } });
+  });
+});
+
+describe("PPE-103 (b) any FAILED run is a person's job, not an answer", () => {
+  /**
+   * The run is really driven, really reaches the gateway and really fails — `freeText` is the
+   * model answering with a sentence where a catalog call belongs, which the gateway refuses
+   * (`REJECTED_FREE_TEXT`) and the loop fails shut on. It is **not** an outage: `modelUnavailable`
+   * returns null for it, so `run.modelUnavailable` is unset and the loop raised no alert of its
+   * own. Everything the ask does from here it does by reading the run's state.
+   */
+  it("answers not-ok and raises the alert for a run that failed without an outage", async () => {
+    const before = await stateSnapshot();
+    const { deps } = withModel([freeText("just call her mother")]);
+    const r = await askAgent(db, { siteId: sc.siteId, text: "Tell the family we are late", by: "u1" }, deps);
+
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.outcome).toBe("unavailable");
+
+    // The run is on the board as FAILED, with no tool call under it: nothing was executed.
+    const runs = (await db.query<{ id: string; state: string }>("SELECT id, state FROM ops.agent_run", [])).rows;
+    expect(runs.map((x) => x.state)).toEqual(["FAILED"]);
+    expect(await toolCalls(db, runs[0].id)).toEqual([]);
+
+    // Two rows: the ask, and the alert that says nobody answered it.
+    expect((await tasks()).map((t) => [t.category, t.severity, t.state])).toEqual([
+      [STAFF_ASK_TASK_CATEGORY, "AMBER", "OPEN"],
+      [STAFF_ALERT_TASK_CATEGORY, "RED", "OPEN"],
+    ]);
+    // And it says which kind of nothing: a run that ran and stopped, not a vendor that was down.
+    const alert = (
+      await db.query<{ completion_evidence: Record<string, unknown> | null }>(
+        "SELECT completion_evidence FROM ops.task WHERE category = $1",
+        [STAFF_ALERT_TASK_CATEGORY],
+      )
+    ).rows[0];
+    expect(alert.completion_evidence).toMatchObject({ locator: { reason_class: "run_failed" } });
+    // Nothing the ask could have changed, changed.
+    expect(await stateSnapshot()).toEqual(before);
+  });
+
+  it("still answers ok, with no alert, for a run that succeeded", async () => {
+    const { deps } = withModel([toolCall("propose_manifest_reallocation", REALLOCATION())], {
+      scope: { ...sc.scope, shared: new Set(["V-SYN-1", "V-SYN-2"]) },
+    });
+    const r = await askAgent(db, { siteId: sc.siteId, text: "Van 1 cannot take its runs", by: "u1" }, deps);
+    expect(r.ok && r.run.state).toBe("SUCCEEDED");
+    expect((await tasks()).map((t) => t.category)).not.toContain(STAFF_ALERT_TASK_CATEGORY);
   });
 });
 

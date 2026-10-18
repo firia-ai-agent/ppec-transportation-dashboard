@@ -52,7 +52,13 @@ import { STAFF_ALERT_TASK_CATEGORY, STAFF_ASK_TASK_CATEGORY, askTextOf } from ".
 import { type AgentRunner, agentRunner } from "../run/deps";
 import { raiseTask } from "../run/exec/effects";
 import { askAnswer } from "./answer";
-import { askUnavailableAlertId, raiseAskUnavailableAlert } from "../staff-alert";
+import {
+  type AskUnavailableReason,
+  askUnavailableAlertId,
+  logAskUnavailable,
+  modelUnavailable,
+  raiseAskUnavailableAlert,
+} from "../staff-alert";
 import type { RunDeps, RunResult } from "../run/loop";
 import { startAndDriveRun } from "../run/loop";
 import { type Trigger, assertTrigger } from "../run/triggers";
@@ -225,6 +231,29 @@ export async function askAgent(
         reason: "the model could not be reached",
       };
     }
+    /*
+     * ANY OTHER FAILED RUN IS THE SAME ANSWER — the run's own state, not a flag on top of it.
+     *
+     * `modelUnavailable` is one way a run can end with nothing to say, and the loop fails shut in
+     * several others: a policy block, a scope refusal, a step budget spent, an executor that
+     * threw, a context that could not be assembled. Every one of those leaves the ask exactly
+     * where an outage does — a person typed a question, no answer exists, and the only row on the
+     * board says the agent took it. So FAILED is read off `run.state`, which is the database's
+     * own account of how the run ended, and gets the alert and the not-ok the outage gets.
+     *
+     * The alert id is the ask's (`askUnavailableAlertId`), so a run the loop already alerted on
+     * does not get a second row — which is also why this is safe to raise unconditionally here.
+     */
+    if (run.state === "FAILED") {
+      logAskUnavailable("run_failed");
+      const raised = await raiseAskUnavailableAlert(db, {
+        siteId: input.siteId,
+        askTaskId: taskId,
+        by: input.by,
+        reason: "run_failed",
+      });
+      return { ok: false, outcome: "unavailable", taskId: raised.id, reason: "the run stopped without an answer" };
+    }
     const said = await askAnswer(db, run.runId);
     return { ok: true, outcome: "ran", taskId, run, answer: said.answer, proposalId: said.proposalId };
   } catch (err) {
@@ -237,12 +266,23 @@ export async function askAgent(
      *
      * The error is never returned and never logged here: a provider's message can carry an
      * endpoint, a model name or — in the worst case — a header. The caller gets the fact.
+     *
+     * Its **class** is a different thing from its message, and that one is recorded: a deadline we
+     * imposed on ourselves is the one failure on this path nothing downstream can tell apart from
+     * a vendor error, because the run is still running when we stop waiting for it and writes no
+     * row saying so. `timeout` is that fact, stored on the alert (`reason_class`) and logged — a
+     * class and nothing else, so nothing from the error itself reaches the log. Everything else is
+     * classified by the one classifier (`modelUnavailable`), defaulting to `provider_error` for a
+     * throw nobody has named.
      */
-    void err;
+    const reason: AskUnavailableReason =
+      err instanceof AskTimedOut ? "timeout" : (modelUnavailable(err)?.reason ?? "provider_error");
+    logAskUnavailable(reason);
     const raised = await raiseAskUnavailableAlert(db, {
       siteId: input.siteId,
       askTaskId: taskId,
       by: input.by,
+      reason,
     });
     return {
       ok: false,
