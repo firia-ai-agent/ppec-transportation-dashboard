@@ -22,11 +22,13 @@
  */
 
 import { useMemo, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
 import { MapPin } from "lucide-react";
 import { formatClock } from "@/domain/eta/eta";
 import type { VanChip } from "@/domain/location/van-chip";
 import { fill, liveMap, planRoutes } from "@/ui/copy";
 import { useDemoClock } from "@/ui/demo-clock";
+import { boardHref } from "@/modules/plan/when";
 import { HeaderSlot } from "@/ui/HeaderSlot";
 import { Pill, PillLabel } from "@/ui/Pill";
 import { icon } from "@/ui/tokens";
@@ -70,15 +72,35 @@ const CHIP_TONE: Record<VanChip, "info" | "neutral" | "crit"> = {
 };
 
 export interface LiveMapScreenProps {
-  /** The leg the screen opens on, decided on the server from the site's own clock. */
+  /** The service date being looked at, in the centre's time zone (src/modules/plan/when.ts). */
+  date: string;
+  /** The leg the address names, or the one the centre's own clock defaults to (§9.1). */
   leg: "AM" | "PM";
   /** True for a role allowed to see which family a text went to (map-view.ts). */
   familyLabels: boolean;
-  /** Overlaid over the map when today has no saved plan: ./LockedCard.tsx. */
+  /**
+   * Is a plan saved for this date and leg? The hard gate (§9.1): without one there are no routes
+   * to draw, so the map keeps its centre pin and the locked card sits over it.
+   */
+  unlocked: boolean;
+  /**
+   * How many children the SAVED PLAN puts in each van, keyed by the fixture's van key. The list's
+   * "· 2 kids" is the coordinator's own decision when there is one, rather than a count derived
+   * from a route fixture. Empty while the screen is locked, because there is nothing to read.
+   */
+  kidsByVan: Readonly<Record<string, number>>;
+  /** Overlaid over the map when this leg has no saved plan: ./LockedCard.tsx. */
   locked?: React.ReactNode;
 }
 
-export default function LiveMapScreen({ leg: initialLeg, familyLabels, locked }: LiveMapScreenProps) {
+export default function LiveMapScreen({
+  date,
+  leg,
+  familyLabels,
+  unlocked,
+  kidsByVan,
+  locked,
+}: LiveMapScreenProps) {
   const reduced = useReducedMotion();
   /*
    * THE CLOCK IS THE DEMO BAR'S (Firia, 2026-10-17 8:36 PM ET). This screen used to own it and
@@ -88,16 +110,24 @@ export default function LiveMapScreen({ leg: initialLeg, familyLabels, locked }:
    * which is also what makes it safe as the front desk's home page.
    */
   const { seconds } = useDemoClock();
-  const [leg, setLeg] = useState<"AM" | "PM">(initialLeg);
   const [filter, setFilter] = useState<VanFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const day = useMemo(
-    () => liveDayAt(seconds, { tween: !reduced, familyLabels }),
-    [seconds, reduced, familyLabels],
+    () => liveDayAt(seconds, { tween: !reduced, familyLabels, kidsByVan }),
+    [seconds, reduced, familyLabels, kidsByVan],
   );
 
-  const shown = day.vans.filter((van) => matchesFilter(van.chip, filter));
+  /*
+   * Locked means there is no saved plan for this leg, so there is nothing to list: no vans, no
+   * counts, no feed. The map keeps its centre pin and the card sits over it (§9.5), which is the
+   * acceptance walk's "never a blank map" — and the list is honestly empty rather than showing a
+   * fleet the coordinator has not committed to.
+   */
+  const vans = unlocked ? day.vans : [];
+  const counts = unlocked ? day.counts : { all: 0, onRoute: 0, late: 0, noGps: 0 };
+  const shown = vans.filter((van) => matchesFilter(van.chip, filter));
+  const feed = unlocked ? day.feed : [];
 
   return (
     <>
@@ -107,17 +137,23 @@ export default function LiveMapScreen({ leg: initialLeg, familyLabels, locked }:
         src/ui/HeaderSlot.tsx says how a page reaches a bar its layout mounted.
       */}
       <HeaderSlot>
+        {/*
+          The leg switch is two LINKS, not two buttons: which leg you are on decides which saved
+          plan the server reads, so it belongs in the address (§9.3 — "deep links keep state in
+          the URL"). A reload, a bookmark and a second tab all land on the same leg, and
+          src/modules/plan/when.ts is the one thing that parses it.
+        */}
         <span className={styles.seg} role="group" aria-label={liveMap.legLabel}>
           {(["AM", "PM"] as const).map((option) => (
-            <button
+            <Link
               key={option}
-              type="button"
+              href={boardHref("/live-map", { date, leg: option })}
               className={styles.segOption}
-              aria-pressed={leg === option}
-              onClick={() => setLeg(option)}
+              aria-current={leg === option ? "page" : undefined}
+              data-on={leg === option ? "true" : undefined}
             >
               {planRoutes.directionButton[option]}
-            </button>
+            </Link>
           ))}
         </span>
         {/*
@@ -127,13 +163,13 @@ export default function LiveMapScreen({ leg: initialLeg, familyLabels, locked }:
         */}
         <span className={styles.counts} aria-live="polite">
           <Pill tone="info">
-            <PillLabel>{fill(liveMap.countOnRoute, { count: day.counts.onRoute })}</PillLabel>
+            <PillLabel>{fill(liveMap.countOnRoute, { count: counts.onRoute })}</PillLabel>
           </Pill>
           <Pill tone="crit">
-            <PillLabel>{fill(liveMap.countLate, { count: day.counts.late })}</PillLabel>
+            <PillLabel>{fill(liveMap.countLate, { count: counts.late })}</PillLabel>
           </Pill>
           <Pill tone="neutral">
-            <PillLabel>{fill(liveMap.countNoGps, { count: day.counts.noGps })}</PillLabel>
+            <PillLabel>{fill(liveMap.countNoGps, { count: counts.noGps })}</PillLabel>
           </Pill>
         </span>
       </HeaderSlot>
@@ -143,7 +179,7 @@ export default function LiveMapScreen({ leg: initialLeg, familyLabels, locked }:
           <div className={styles.filters} role="group" aria-label={liveMap.filterLabel}>
             {(
               [
-                ["all", fill(liveMap.filterAll, { count: day.counts.all })],
+                ["all", fill(liveMap.filterAll, { count: counts.all })],
                 ["late", liveMap.filterLate],
                 ["noGps", liveMap.filterNoGps],
               ] as const
@@ -184,11 +220,11 @@ export default function LiveMapScreen({ leg: initialLeg, familyLabels, locked }:
 
           <section className={styles.feed} aria-label={liveMap.feedHeading}>
             <h2 className={styles.feedHeading}>{liveMap.feedHeading}</h2>
-            {day.feed.length === 0 ? (
+            {feed.length === 0 ? (
               <p className={styles.empty}>{liveMap.feedEmpty}</p>
             ) : (
               <ul className={styles.feedList}>
-                {day.feed.slice(0, 3).map((row) => (
+                {feed.slice(0, 3).map((row) => (
                   <li key={row.key} className={styles.feedRow}>
                     <span className={styles.feedTime}>{formatClock(row.atMs)}</span>
                     <span className={styles.feedWho}>
@@ -212,7 +248,7 @@ export default function LiveMapScreen({ leg: initialLeg, familyLabels, locked }:
         </aside>
 
         <LiveMapPane
-          vans={day.vans}
+          vans={vans}
           center={day.center}
           centerLabel={liveMap.centerLabel}
           label={liveMap.mapLabel}

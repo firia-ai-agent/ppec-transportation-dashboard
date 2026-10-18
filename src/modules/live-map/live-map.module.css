@@ -344,10 +344,14 @@
   font: inherit;
   font-weight: var(--weight-medium);
   white-space: nowrap;
+  text-decoration: none;
   cursor: pointer;
 }
 
-.segOption[aria-pressed="true"] {
+/* The leg you are on. It is a link, so `aria-current="page"` is what marks it — the same
+   attribute the rail's current item carries — and `data-on` is the paint hook (contract rule 4:
+   `data-*` for state, never for layout). */
+.segOption[data-on="true"] {
   background: var(--color-surface);
   color: var(--color-ink);
   box-shadow: 0 1px 2px var(--color-neutral-bg);
@@ -425,4 +429,68 @@
   .counts {
     display: none;
   }
+}
+
+/* ───────────────────────────── locked: no plan saved for this leg ───────────────────────────── */
+
+/*
+ * The mockup's centred card over the map (REDESIGN-SPEC §9.5: "Map tiles with depot pin only +
+ * centred card `No routes yet`"). Over the map and not instead of it — the acceptance walk is
+ * explicit that a founder must never meet a blank map here.
+ */
+.locked {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  max-width: 320px;
+  padding: var(--space-6);
+  border: var(--border-hairline) solid var(--color-neutral-bg);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  text-align: center;
+}
+
+.lockedHeading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--text-16);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink-brand);
+}
+
+.lockedHeading svg {
+  stroke-width: var(--icon-stroke);
+}
+
+.lockedBody {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--text-14);
+}
+
+/* The one action, at the §9 console target height. */
+.lockedAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--target-console);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-md);
+  background: var(--color-brand);
+  color: var(--color-surface);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+}
+
+.lockedAction:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
 }

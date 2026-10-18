@@ -132,15 +132,24 @@ function vanOf(
   result: ReplayResult,
   frame: ReplayFrame,
   planned: ReturnType<typeof plannedEta>,
+  kidsByVan: Readonly<Record<string, number>>,
 ): LiveVan {
   const route = result.spec.route;
   const stops = stopsOf(result);
   const geometry = routeGeometry(route);
   const next = frame.stops.find((stop) => stop.status === "pending");
-  // Kids still aboard: every stop still to come that is somebody's, so the centre is not a kid.
-  const kids = frame.stops.filter(
-    (stop) => stop.status === "pending" && stop.stopId !== CENTER_STOP_ID,
-  ).length;
+  /*
+   * Kids still aboard.
+   *
+   * The SAVED PLAN first: a coordinator decided who rides in this van, and that decision is the
+   * answer (`ops.plan_assignment`, read in ./plan-read.ts). The run's own remaining stops are the
+   * fallback, for the one server that has no database to read — the browser check — where there
+   * is no saved plan to disagree with.
+   */
+  const kids =
+    kidsByVan[route.vehicleId] ??
+    frame.stops.filter((stop) => stop.status === "pending" && stop.stopId !== CENTER_STOP_ID)
+      .length;
   const done = frame.stops.filter(
     (stop) => stop.status !== "pending" && stop.stopId !== CENTER_STOP_ID,
   ).length;
@@ -206,11 +215,17 @@ function feedOf(
  */
 export function liveDayAt(
   seconds: number,
-  options: { tween?: boolean; familyLabels?: boolean } = {},
+  options: {
+    tween?: boolean;
+    familyLabels?: boolean;
+    /** The saved plan's own count of children per van, keyed by the fixture's van key. */
+    kidsByVan?: Readonly<Record<string, number>>;
+  } = {},
 ): LiveDay {
   const nowMs = SCENARIO_START_MS + seconds * 1000;
   const runs = visibleRuns(nowMs, options.tween ?? true);
-  const vans = runs.map((run, i) => vanOf(i, run.result, run.frame, run.planned));
+  const kidsByVan = options.kidsByVan ?? {};
+  const vans = runs.map((run, i) => vanOf(i, run.result, run.frame, run.planned, kidsByVan));
   const numbered = runs.map((run, i) => ({ ...run, number: i + 1 }));
   return {
     vans: bySeverity(vans),

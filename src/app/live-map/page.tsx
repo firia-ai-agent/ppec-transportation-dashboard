@@ -15,49 +15,101 @@
  * the injected-fault list. There are **no scenario or demo controls on this screen at all**,
  * which is part of what makes it safe as the front desk's home page.
  *
- * No database read on this slice and no writes ever: the positions come from the simulated/demo
- * source behind the domain location interface (src/modules/live-map/day.ts), which is what the
- * one "Simulated" chip in the DEMO bar says on this screen as on every other (§7.1, NFR-09).
+ * ───────────────────────────────── the hard gate ─────────────────────────────────
  *
- * It is behind staff sign-in. A deployed URL is guessable and this page draws a whole fleet, so
- * the route is guarded exactly as the other protected pages are, by the one access table
- * (src/auth/access.ts); the role then decides which data the viewer actually gets
- * (src/domain/access/map-view.ts holds that matrix).
+ * **It is locked until a plan is saved for this leg** (REDESIGN-SPEC §9.1: "Plan saved → Live
+ * map", hard — "No saved plan = no routes"). This page reads `ops.plan_run` / `ops.plan_assignment`
+ * for the date and leg in the address, and with nothing saved it draws the centre pin and the
+ * "No routes yet" card over the map (§9.5) rather than a fleet nobody committed to. It is a
+ * **read**: there is no save path on this screen and nothing here writes a row.
+ *
+ * Where the positions come from, as always on this screen: the simulated/demo source behind the
+ * domain location interface (src/modules/live-map/day.ts). No real provider, no paid service —
+ * which is what the one "Simulated" chip in the DEMO bar says here as on every route (§7.1,
+ * NFR-09).
+ *
+ * It is behind staff sign-in, and the access table is the guard (src/auth/access.ts): all three
+ * staff roles, because a person at the door needs to see where the vans are, and anybody else —
+ * signed out, or signed in with no membership — gets the refusal page and a 403. The role then
+ * decides which *data* the viewer gets (src/domain/access/map-view.ts).
  */
 
 import LiveMapScreen from "@/modules/live-map/LiveMapScreen";
+import { LockedCard } from "@/modules/live-map/LockedCard";
 import { liveMap } from "@/ui/copy";
-import { mapViewerOf } from "@/auth/access";
+import { canOpenPage, mapViewerOf } from "@/auth/access";
 import { canSeeMapData } from "@/domain/access/map-view";
 import { requirePage } from "@/auth/page-guard";
-import { siteHour } from "@/ui/service-date";
+import {
+  demoVehicleId,
+  isUnlocked,
+  kidsPerVan,
+  loadSavedPlan,
+  siteOf,
+} from "@/modules/live-map/plan-read";
+import { DATE_PARAM, LEG_PARAM, resolveDate, resolveLeg } from "@/modules/plan/when";
+import { DEMO_RUNS } from "@/fixtures/replays";
 import styles from "@/modules/live-map/live-map.module.css";
 
 export const metadata = { title: liveMap.documentTitle };
 
-/** The guard reads a session, so this route is never statically rendered. */
+/** The guard reads a session and the plan is a row, so this route is never statically rendered. */
 export const dynamic = "force-dynamic";
 
-/**
- * Which leg the screen opens on, from the site's own clock rather than the browser's: before
- * noon in New York the morning run is the one in progress, after it the afternoon
- * (src/ui/service-date.ts holds the one time zone). A coordinator can switch, and the switch is
- * the segmented control in the header bar.
- */
-function legNow(): "AM" | "PM" {
-  return siteHour() < 12 ? "AM" : "PM";
+/** One `?p=` value, which Next hands over as a string or an array of them. */
+function one(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
-export default async function LiveMapPage() {
+export default async function LiveMapPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   // Signed out is a redirect to sign-in; a role the table does not list is a 403 and the
   // no-access page (forbidden.tsx beside this file). Which *data* the role then sees is
   // src/domain/access/map-view.ts.
   const caller = await requirePage("/live-map");
   const viewer = mapViewerOf(caller);
 
+  /*
+   * The day and the leg, from the address and defaulted in the CENTRE's time zone — never the
+   * server's idea of local time and never the browser's (§9.3, src/modules/plan/when.ts, which
+   * is #73's file byte-identical so the board and this screen cannot disagree about "today").
+   */
+  const params = await searchParams;
+  const date = resolveDate(one(params[DATE_PARAM]));
+  const leg = resolveLeg(one(params[LEG_PARAM]));
+
+  // The saved plan for that leg: the gate, and the kid counts. Read only.
+  const plan = await loadSavedPlan(siteOf(caller as { memberships?: readonly { siteId: string }[] }), date, leg);
+  const unlocked = isUnlocked(plan);
+
+  /*
+   * The saved plan counts children by `ops.vehicle.id`; the simulated runs are keyed by the
+   * fixture's own van key. Joined here, once, so nothing below this line has to know that the
+   * two naming systems exist (src/modules/live-map/plan-read.ts `demoVehicleId`).
+   */
+  const byVehicleId = kidsPerVan(plan);
+  const kidsByVan: Record<string, number> = {};
+  for (const run of DEMO_RUNS) {
+    const key = run.spec.route.vehicleId;
+    const id = demoVehicleId(key);
+    if (id && id in byVehicleId) kidsByVan[key] = byVehicleId[id];
+  }
+
   return (
     <main className={styles.main}>
-      <LiveMapScreen leg={legNow()} familyLabels={canSeeMapData(viewer, "familyLabels")} />
+      <LiveMapScreen
+        date={date}
+        leg={leg}
+        familyLabels={canSeeMapData(viewer, "familyLabels")}
+        unlocked={unlocked}
+        kidsByVan={kidsByVan}
+        locked={
+          unlocked ? null : <LockedCard canPlan={canOpenPage(caller, "/plan-routes")} />
+        }
+      />
     </main>
   );
 }
