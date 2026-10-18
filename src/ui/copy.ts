@@ -27,8 +27,16 @@ export function sentence(text: string): string {
 }
 
 export const app = {
-  /** Site name in the header. */
+  /** Site name in the header. Below 1280, where the rail has no room for the brand block. */
   siteName: "PPEC transportation",
+  /**
+   * THE BRAND BLOCK at the top of the labelled rail (REDESIGN-SPEC §9.2, and the founder's
+   * mockups: png/shell-flow-1440.png, mockups/shell-flow.html). The centre's own name over what
+   * this app is for, under a square mark carrying the name's first letter — so the 64 px icon
+   * rail, which has room for the mark and nothing else, still says whose app this is.
+   */
+  brandName: "Sunrise PPEC",
+  brandLine: "Transport",
   /** <title> */
   documentTitle: "PPEC transportation dashboard",
   skipToContent: "Skip to content",
@@ -119,6 +127,37 @@ export const flow = {
     plan: "Plan routes",
     live: "Live map",
   },
+  /**
+   * The three words a step's chip can say (REDESIGN-SPEC §9.2's table, and §9.5's `state.*`).
+   *
+   * §9.2 draws a fourth, `Running`, for a live map with vans moving on it. There is no word for
+   * it here because there is no fact behind it: nothing in this build records that a van has
+   * left the depot, and a chip is a claim about the day. `deriveReadiness` cannot return it
+   * either (src/domain/day/readiness.ts), so the vocabulary and the derivation agree.
+   */
+  state: {
+    done: "Done",
+    needed: "Needed",
+    locked: "Locked",
+  },
+  /** The one line under a step's name: what that step's own data says right now (§9.5). */
+  detail: {
+    setup: "{checked}/{total} checked",
+    planSaved: "Saved {time}",
+    planNone: "Not saved",
+    liveLocked: "Plan first",
+    liveNeeded: "Not started",
+  },
+  /**
+   * What a card is announced as: the step, its state and its detail, because the eye reads
+   * those three as one card and the ear would otherwise hear them as three (§9).
+   */
+  stepAria: "{step}: {state}, {detail}",
+  /**
+   * A locked card opens the step that is missing rather than the step it names (§9.2: "a locked
+   * card is still a link"), so its accessible name says where it actually goes.
+   */
+  stepAriaLocked: "{step}: {state}, {detail}. Opens {target}",
 } as const;
 
 /** COPY-GUIDE §5: visible label "Search", placeholder "Child, route or vehicle". */
@@ -132,6 +171,10 @@ export const identity = {
   menuLabel: "Account",
   signOut: "Sign out",
   signedInAs: "Signed in as {name}",
+  /** The rail's account block and the phone's avatar: one link, named as a person and a role. */
+  account: "{name}, {role}",
+  /** The same block for a session with no person behind it: the role, and nothing invented. */
+  accountRoleOnly: "{role}",
 } as const;
 
 /**
@@ -409,36 +452,24 @@ export const board = {
   openRow: "Open {child}, {ride} ride",
 } as const;
 
-/**
- * The service date (§2 header, PRD §6.1).
+/*
+ * THE SERVICE DATE USED TO HAVE WORDS OF ITS OWN, and has none now (Firia's final call,
+ * 2026-10-17 7:55 PM ET).
  *
- * One date on screen, and it is the demo day: the chrome used to carry today's real date while
- * the board carried the seeded day the scenario replays, both labelled "Service date" — two
- * different days, the same words, and nothing on the screen to say which one a row belonged to.
- * The board's own header now carries that one date, and the shell carries none, so in demo mode
- * nothing on screen claims to be today.
+ * The board's header read `Today · Service date Sat, Oct 17 · [Demo day]`: a heading, a field
+ * label for the date beside it, the date, and a tag repeating what the DEMO bar above already
+ * says in violet on every screen. The founder's mockups draw one of those four — the date
+ * (png/shell-flow-1440.png, png/shell-flow-390.png: `Today    [ Sat, Oct 17 ]`). So
+ * `serviceDate.groupLabel` and `serviceDate.phases` are gone rather than hidden: a label on a
+ * date nobody could mistake for anything else, and a tag that was the bar's sentence said twice.
  *
- * It is read rather than changed (Vera's final call): no switcher, no arrows. The day is the one
- * the scenario replays, and a control offering another one would offer days this build does not
- * replay — the chrome would be promising what the data cannot keep.
- *
- * The date says what kind of day it is, because that is the answer to the first question the
- * board raises: "Demo day" is said plainly rather than "Today", since the demo clock has not
- * started (the readout beside it says so) and the seeded day is the day being shown and not the
- * day it is. The other two phases belong to a finished or an unstarted day, which the projection
- * can still be asked for by URL; neither is a day the console offers a way to reach.
+ * Nothing is lost from a day that is *not* the demo day either: the heading already names it
+ * ("Rides for Tue, Oct 13", `board.headingOtherDay` through `onDay` below), which is the one
+ * sentence that ever had to distinguish them.
  */
-export const serviceDate = {
-  groupLabel: "Service date",
-  phases: {
-    LIVE: "Demo day",
-    ENDED: "Day ended",
-    PLANNED: "Not started",
-  },
-} as const;
 
 /** The day a heading is about: its phase, and the date it is labelled by (src/domain/board/day.ts). */
-export type LabelledDay = { phase: keyof typeof serviceDate.phases; label: string };
+export type LabelledDay = { phase: "ENDED" | "LIVE" | "PLANNED"; label: string };
 
 /**
  * A heading that may only say "Today" on the day that is true of (Veri #49).

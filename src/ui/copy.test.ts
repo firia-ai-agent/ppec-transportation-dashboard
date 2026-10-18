@@ -25,7 +25,6 @@ import {
   rampIpad,
   sentence,
   demoDay,
-  serviceDate,
   screenReader,
   search,
   securement,
@@ -36,6 +35,7 @@ import {
   vanName,
   whoami,
 } from "./copy";
+import type { DayPhase } from "@/domain/board/day";
 
 /**
  * COPY-GUIDE.md is the source of truth for words. These assertions pin the strings the guide
@@ -293,10 +293,17 @@ describe("COPY-GUIDE strings, verbatim", () => {
       { phase: "PLANNED", label: "Thu, Oct 15" },
     ] as const;
 
+    /*
+     * The phases are the board's own (src/domain/board/day.ts's `DayPhase`), not a copy block's:
+     * the "Demo day" / "Day ended" tag that used to name them beside the date is gone (Firia,
+     * 2026-10-17 7:55 PM ET), and what reads a phase now is `onDay`. So the list this suite
+     * covers is checked against the type's three values, written out here because a type has no
+     * runtime form to read.
+     */
     it("has a pair for every phase a day can be in, so no phase falls through", () => {
-      expect(Object.keys(serviceDate.phases).sort()).toEqual(["ENDED", "LIVE", "PLANNED"]);
-      expect([demoDay, ...otherDays].map((d) => d.phase).sort()).toEqual(
-        Object.keys(serviceDate.phases).sort(),
+      const phases: DayPhase[] = ["ENDED", "LIVE", "PLANNED"];
+      expect([demoDay, ...otherDays].map((d) => d.phase as DayPhase).sort()).toEqual(
+        [...phases].sort(),
       );
     });
 

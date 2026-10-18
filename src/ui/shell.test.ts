@@ -14,7 +14,7 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/today",
   useSearchParams: () => new URLSearchParams(),
 }));
-import { demoBanner, demoDay, login, nav, unbuilt } from "./copy";
+import { app, demoBanner, demoDay, login, nav, unbuilt } from "./copy";
 import { canRestartDemo, DemoBanner } from "./DemoBanner";
 import { Placeholder } from "./Placeholder";
 import { SourceBadge } from "./SourceBadge";
@@ -279,14 +279,72 @@ describe("§2 header: one row", () => {
     expect(existsSync(path.join(UI, "FreshnessPill.tsx"))).toBe(false);
   });
 
-  it("keeps one identity location, and keeps it at every width", () => {
-    expect(shell).toMatch(/<AvatarMenu displayName=\{displayName\} \/>/);
-    // It used to be `display: none` below 768, where the hamburger drawer carried identity.
+  /**
+   * ONE IDENTITY LOCATION PER WIDTH — and above 1280 it is the rail's, not the header's
+   * (Firia, 2026-10-17 7:55 PM ET).
+   *
+   * The header used to carry the product's name and an account pill while the labelled rail
+   * carried neither, so a 1440 screen said who you were signed in as twice over and named the
+   * centre twice (png/shell-flow-1440.png draws both in the rail and no header at all). Both
+   * moved; what was left of the header was an empty white band, so above 1280 there is no
+   * header. Below it the rail has no room for words and the header is back — with the account
+   * menu Sign out lives in, which is the thing that must stay reachable on a phone.
+   */
+  it("keeps exactly one identity location at each width", () => {
+    // Both blocks are given the same object, built once in ConsoleShell.
+    expect(shell).toMatch(/<AvatarMenu account=\{account\} \/>/);
+    expect(shell).toMatch(/<NavRail role=\{role\} account=\{account\} \/>/);
+    // Above 1280 the header is gone, so the pill inside it cannot be a second identity.
+    const desk = css.slice(css.indexOf("@media (min-width: 1280px)"));
+    expect(desk).toMatch(/\.header \{[^}]*display: none/);
+    // Below it the pill stays — it used to be `display: none` under 768, where the deleted
+    // hamburger drawer carried identity instead.
     const avatar = read(UI, "AvatarMenu.module.css");
     const phone = avatar.slice(avatar.indexOf("@media (max-width: 767px)"));
     expect(phone).not.toMatch(/\.menu \{[^}]*display: none/);
     // Sign out rides inside it, which is what makes it reachable on a phone (Firia, 3:08 PM ET).
     expect(read(UI, "AvatarMenu.tsx")).toMatch(/<SignOutButton \/>/);
+    // ...and the rail's own account block is a link to the page that holds the other one.
+    const rail = read(UI, "NavRail.tsx");
+    expect(rail).toMatch(/href=\{account\.href\}/);
+    const railCss = read(UI, "NavRail.module.css");
+    const narrow = railCss.slice(railCss.indexOf("@media (max-width: 1279px)"));
+    expect(narrow).toMatch(/\.account \{[^}]*display: none/);
+  });
+});
+
+/**
+ * THE RAIL'S BRAND BLOCK — a square mark and the centre's name over what the app is for
+ * (REDESIGN-SPEC §9.2, png/shell-flow-1440.png). The 64 px icon rail shows the mark alone,
+ * because 64 px has no room for a name and a clipped one is worse than none.
+ */
+describe("§9.2 the rail's brand block", () => {
+  const rail = read(UI, "NavRail.tsx");
+  const css = read(UI, "NavRail.module.css");
+
+  it("is the first thing in the rail, above the menu", () => {
+    expect(rail.indexOf("styles.brand")).toBeGreaterThan(-1);
+    expect(rail.indexOf("styles.brand")).toBeLessThan(rail.indexOf("styles.list"));
+  });
+
+  it("takes its mark from the name, so a centre is named in one place", () => {
+    expect(app.brandName).toBe("Sunrise PPEC");
+    expect(app.brandLine).toBe("Transport");
+    expect(rail).toMatch(/app\.brandName\.trim\(\)\[0\]/);
+    expect(app.brandName.trim()[0]).toBe("S");
+  });
+
+  it("wears Teal Ink and the brand's own white, which is a §8 pair", () => {
+    expect(css).toMatch(/\.mark \{[^}]*background: var\(--color-ink-brand\)/);
+    expect(css).toMatch(/\.mark \{[^}]*color: var\(--color-surface\)/);
+    expect(contrastRatio(color["ink-brand"], color.surface)).toBeGreaterThanOrEqual(4.5);
+    expect(css).toMatch(/\.brandName \{[^}]*color: var\(--color-ink-brand\)/);
+  });
+
+  it("shows the mark alone on the 64 px icon rail", () => {
+    const narrow = css.slice(css.indexOf("@media (max-width: 1279px)"));
+    expect(narrow).toMatch(/\.brandText \{[^}]*display: none/);
+    expect(narrow).not.toMatch(/\.mark \{[^}]*display: none/);
   });
 });
 

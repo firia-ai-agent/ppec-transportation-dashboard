@@ -1,7 +1,12 @@
 import type { ReactNode } from "react";
 import type { ResolvedCaller } from "@/auth/caller";
 import { AppShell } from "./AppShell";
-import { personName } from "./display-name";
+import { fill, identity, roleNames } from "./copy";
+import { accountLines, initialsOf } from "./display-name";
+import type { RailAccount } from "./NavRail";
+
+/** The account page, which is where both identity entry points go (src/auth/access.ts). */
+const ACCOUNT_PATH = "/whoami";
 
 /**
  * The console shell as a layout mounts it: one place that turns the caller its guard just
@@ -19,10 +24,12 @@ import { personName } from "./display-name";
  * the access table in its own file (`requirePage(LAYOUT.…)`) and src/auth/access.test.ts can
  * read it there.
  *
- * The name is the person's, not the database row's: `personName` drops the synthetic `SYN`
- * prefix and the role, so the header reads "Dana" rather than "SYN Dana Director" (Vera's
- * review, 2026-10-17). Applied here, the one place a caller becomes what the shell renders, so
- * the header and the phone's account pill cannot disagree about it.
+ * The name is the person's, not the database row's: the helpers in src/ui/display-name.ts drop
+ * the synthetic `SYN` prefix and the role and shorten what is left to "Dana M." (Vera's review,
+ * 2026-10-17; the founder's mockups). Applied here, the one place a caller becomes what the
+ * shell renders, so the rail's account block, the phone's avatar and /whoami cannot disagree
+ * about who is signed in — and `accountLines` is the one that decides a session whose whole
+ * name *is* a role says that role once rather than twice.
  */
 export function ConsoleShell({
   caller,
@@ -34,12 +41,20 @@ export function ConsoleShell({
   pageOwnsMain?: boolean;
   children: ReactNode;
 }) {
+  const role = caller.kind === "STAFF" ? caller.role : null;
+  const lines = accountLines(caller.displayName, role ? roleNames[role].one : null);
+  const account: RailAccount | null = lines.name
+    ? {
+        ...lines,
+        initials: initialsOf(lines.name),
+        label: lines.role
+          ? fill(identity.account, { name: lines.name, role: lines.role })
+          : fill(identity.accountRoleOnly, { role: lines.name }),
+        href: ACCOUNT_PATH,
+      }
+    : null;
   return (
-    <AppShell
-      displayName={personName(caller.displayName ?? "")}
-      role={caller.kind === "STAFF" ? caller.role : null}
-      pageOwnsMain={pageOwnsMain}
-    >
+    <AppShell account={account} role={role} pageOwnsMain={pageOwnsMain}>
       {children}
     </AppShell>
   );

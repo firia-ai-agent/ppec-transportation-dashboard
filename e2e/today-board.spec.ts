@@ -14,7 +14,7 @@
  * and is refused outright on any deployment. The board it renders is the committed demo day.
  */
 import { expect, test } from "@playwright/test";
-import { board as boardCopy, drawer, fill, sentence, serviceDate } from "../src/ui/copy";
+import { board as boardCopy, drawer, fill, sentence } from "../src/ui/copy";
 import { legStates } from "../src/ui/states";
 import { demoDay, serviceDayFor } from "../src/domain/board/day";
 import { demoDateIso } from "../src/ui/service-date";
@@ -332,17 +332,22 @@ for (const width of WIDTHS) {
       await expect(page.getByRole("heading", { level: 1, name: boardCopy.heading })).toBeVisible();
 
       /*
-       * The one date, labelled: "Service date · Sat, Oct 17 · Demo day". The words are the day
-       * the demo is being *given* on — the scenario replays a seeded Wednesday and every screen
-       * re-dates it (Firia, 2026-10-17 4:50 PM ET; src/ui/service-date.ts) — and the `datetime`
-       * attribute says the same day the words do, which is the whole of that ruling.
+       * The one date, and only the date: "Sat, Oct 17". The words are the day the demo is being
+       * *given* on — the scenario replays a seeded Wednesday and every screen re-dates it
+       * (Firia, 2026-10-17 4:50 PM ET; src/ui/service-date.ts) — and the `datetime` attribute
+       * says the same day the words do, which is the whole of that ruling.
+       *
+       * The "Service date" label and the "Demo day" tag that used to flank it are gone (Firia,
+       * 7:55 PM ET), so they are checked for by absence: one of them labelled the only date in
+       * the app, the other repeated the DEMO bar above every screen.
        */
       const dates = page.locator("time[datetime]");
       await expect(dates).toHaveCount(1);
       await expect(dates).toHaveText(demoDay().label);
       await expect(dates).toHaveAttribute("datetime", demoDateIso(demoDay().iso));
-      await expect(page.getByText(serviceDate.groupLabel)).toBeVisible();
-      await expect(page.getByText(serviceDate.phases.LIVE, { exact: true })).toBeVisible();
+      await expect(page.getByText("Service date", { exact: true })).toHaveCount(0);
+      // Exact, because the DEMO bar's one control reads "Restart demo day" and is not this tag.
+      await expect(page.getByText("Demo day", { exact: true })).toHaveCount(0);
 
       /*
        * The real date is the one the board shows now, so this is the check it has become: if
@@ -366,7 +371,6 @@ for (const width of WIDTHS) {
         await expect(page.getByRole("link", { name })).toHaveCount(0);
         await expect(page.getByRole("button", { name })).toHaveCount(0);
       }
-      await expect(page.getByRole("navigation", { name: serviceDate.groupLabel })).toHaveCount(0);
 
       // Nothing on the live day has been handed over: no ride on it has a custody event, so no
       // row may say one happened. The one outcome it does carry is the AT-13 hold, which is on
@@ -389,7 +393,6 @@ for (const width of WIDTHS) {
           name: fill(boardCopy.headingOtherDay, { date: FINISHED.label }),
         }),
       ).toBeVisible();
-      await expect(page.getByText(serviceDate.phases.ENDED)).toBeVisible();
       await expect(page.locator("time[datetime]")).toHaveAttribute(
         "datetime",
         demoDateIso(FINISHED.iso),

@@ -98,9 +98,9 @@ describe("every destination in the menu renders the menu", () => {
       expect(source, path.relative(REPO, file)).toMatch(/<ConsoleShell caller=\{caller\}/);
       expect(source, path.relative(REPO, file)).not.toMatch(/\brole=/);
     }
-    expect(read(path.join(UI, "ConsoleShell.tsx"))).toMatch(
-      /role=\{caller\.kind === "STAFF" \? caller\.role : null\}/,
-    );
+    const consoleShell = read(path.join(UI, "ConsoleShell.tsx"));
+    expect(consoleShell).toMatch(/const role = caller\.kind === "STAFF" \? caller\.role : null;/);
+    expect(consoleShell).toMatch(/role=\{role\}/);
     // And both rails filter with that one function rather than listing destinations again.
     for (const component of ["NavRail.tsx", "TabBar.tsx"]) {
       expect(read(path.join(UI, component)), component).toMatch(/navItemsFor\(role\)/);

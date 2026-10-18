@@ -4,12 +4,70 @@
   background: var(--color-surface);
 }
 
+/*
+ * Three blocks down one column: brand, menu, account (REDESIGN-SPEC §9.2, and the mockup's
+ * `.rail > .brand / .nav / .grow / .me`). The spacer between the menu and the account is what
+ * puts the account on the floor of the rail at any height.
+ */
 .panel {
   height: 100%;
+  display: flex;
+  flex-direction: column;
   padding: var(--space-4) var(--space-3);
   border-right: var(--border-hairline) solid var(--color-neutral-bg);
   background: var(--color-surface);
 }
+
+.grow {
+  flex: 1 1 auto;
+}
+
+/* ───────────────────────────── the brand block ───────────────────────────── */
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-5);
+  padding: 0 var(--space-3);
+}
+
+/* The square mark: the centre's initial, in the brand's own teal (founder's palette, 6:19 PM). */
+.mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--color-ink-brand);
+  color: var(--color-surface);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+
+.brandText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: var(--leading-tight);
+}
+
+.brandName {
+  color: var(--color-ink-brand);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+.brandLine {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+  white-space: nowrap;
+}
+
+/* ───────────────────────────── the menu ───────────────────────────── */
 
 .list {
   /* §9: 8 px between targets. */
@@ -53,6 +111,61 @@
   white-space: nowrap;
 }
 
+/* ───────────────────────────── the account block ───────────────────────────── */
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--target-console);
+  padding: var(--space-3);
+  border-top: var(--border-hairline) solid var(--color-neutral-bg);
+  color: var(--color-ink);
+  text-decoration: none;
+}
+
+.account:hover {
+  background: var(--color-neutral-bg);
+}
+
+.account:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral-fg);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+}
+
+.accountText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: var(--leading-tight);
+}
+
+.accountName {
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+.accountRole {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+  white-space: nowrap;
+}
+
 /* 768–1279 (§2): the rail keeps a 64 px footprint — the board must not reflow — and the panel
    inside it expands over the content to the full labelled width on hover or on keyboard focus
    anywhere inside it. The labels stay in the DOM throughout; they are clipped, not removed. */
@@ -68,6 +181,7 @@
     inset-block: 0;
     inset-inline-start: 0;
     width: var(--layout-rail-icon);
+    padding: var(--space-4) var(--space-3);
     overflow: hidden;
     transition: width 120ms ease;
   }
@@ -77,6 +191,28 @@
     width: var(--layout-rail-wide);
     /* A hairline is enough separation; the panel is opaque surface over the content. */
     border-inline-end: var(--border-hairline) solid var(--color-border-strong);
+  }
+
+  /* The icon rail shows the mark and nothing else (§9.2): 64 px has no room for a name. */
+  .brand {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .brandText {
+    display: none;
+  }
+
+  /*
+   * ONE IDENTITY ENTRY POINT below 1280, and it is the header's avatar.
+   *
+   * The account block is a link to /whoami; the header's avatar is a menu with Sign out in it.
+   * Two of them on one screen is two places to look for the same thing, so each width has
+   * exactly one: the rail's below 232 px of width would be a bare disc anyway, and the thing
+   * that must stay reachable on a phone is Sign out (Firia, 3:08 PM ET).
+   */
+  .account {
+    display: none;
   }
 
   /* Collapsed, the icon sits on the rail's centre line; expanded, the row reads icon → label. */

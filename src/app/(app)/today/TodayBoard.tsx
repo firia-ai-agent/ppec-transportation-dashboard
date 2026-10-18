@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import {
   ArrowDownRight,
   ArrowUpRight,
+  Calendar,
   Car,
   CirclePause,
   Clock,
@@ -19,7 +20,7 @@ import {
   type LegRow,
   type RideView,
 } from "@/domain/board/board";
-import { board as boardCopy, etaText, fill, onDay, screenReader, serviceDate } from "@/ui/copy";
+import { board as boardCopy, etaText, fill, onDay, screenReader } from "@/ui/copy";
 import { SearchField } from "@/ui/SearchField";
 import { StepStrip } from "@/ui/StepStrip";
 import type { StripStep } from "@/ui/step-strip";
@@ -108,19 +109,28 @@ export function TodayBoard({
   return (
     <div className={styles.page}>
       {/*
-        The board's own header: one date, and which day that is (Vera's final call). The date is
-        read, never changed — there is no switcher, because the only day this build replays is
-        the demo day, and a control offering another one would promise a day the demo does not
-        have. The heading says "Today" on the day that is true of and names the day on any
-        other, because a board of finished rides under "Today" would be the one false sentence
-        on the screen.
+        The board's own header: the heading, and the date beside it — and nothing else (Firia's
+        final call, 2026-10-17 7:55 PM ET).
+
+        It used to read `Today · Service date Sat, Oct 17 · [Demo day]`. Two of those four were
+        the screen talking about itself: "Service date" is a field label on the only date in the
+        app, and "Demo day" is what the violet bar above every screen already says. The founder's
+        mockups draw the date as one readout next to the heading (png/shell-flow-1440.png,
+        png/shell-flow-390.png) and that is what is left here.
+
+        The date is read, never changed — there is no switcher, because the only day this build
+        replays is the demo day, and a control offering another one would promise a day the demo
+        does not have. So this is a readout with a calendar mark on it and no chevron: it is
+        shaped like the mockup's date button without pretending to be one. The heading says
+        "Today" on the day that is true of and names the day on any other, because a board of
+        finished rides under "Today" would be the one false sentence on the screen.
       */}
       <header className={styles.titleRow}>
         <h1 className={styles.heading}>
           {onDay({ today: boardCopy.heading, otherDay: boardCopy.headingOtherDay }, day)}
         </h1>
         <p className={styles.date}>
-          <span className={styles.dateLabel}>{serviceDate.groupLabel}</span>{" "}
+          <Calendar size={icon.inline} aria-hidden="true" />
           {/*
             The machine-readable date is the one the words say (Firia, 4:50 PM ET): the day the
             demo is being given on, not the fixture day the rows are keyed by. A `<time>` whose
@@ -129,9 +139,7 @@ export function TodayBoard({
           */}
           <time dateTime={demoDateIso(day.iso)} className="tabularNums">
             {day.label}
-          </time>{" "}
-          {/* Which kind of day this is — on the demo day, that it is the demo day and not today. */}
-          <span className={styles.phase}>{serviceDate.phases[day.phase]}</span>
+          </time>
         </p>
       </header>
 

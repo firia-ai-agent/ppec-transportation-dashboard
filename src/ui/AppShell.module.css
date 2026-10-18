@@ -63,6 +63,20 @@
   flex-direction: column;
 }
 
+/*
+ * ≥1280: no header at all (Firia, 2026-10-17 7:55 PM ET).
+ *
+ * Everything that was in it is in the rail now — the product's name as the brand block, the
+ * account as the block at the rail's foot — and a 64 px white band with nothing in it is not a
+ * header. Gone, the rail runs full height from under the DEMO bar and the page's own `h1` row
+ * is the top of the screen, which is what the founder's mockup draws (png/shell-flow-1440.png).
+ */
+@media (min-width: 1280px) {
+  .header {
+    display: none;
+  }
+}
+
 @media (max-width: 767px) {
   .header {
     gap: var(--space-3);

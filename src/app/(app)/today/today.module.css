@@ -16,7 +16,7 @@
 
 .titleRow {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-5);
   flex-wrap: wrap;
 }
@@ -28,37 +28,29 @@
   line-height: var(--leading-tight);
 }
 
-/* The one date on screen (§2, PRD §6.1): read, not changed — there is no switcher beside it. */
-.date {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0;
-  font-size: var(--body-console);
-  color: var(--color-ink);
-  flex-wrap: wrap;
-}
-
-.dateLabel {
-  font-size: var(--text-12);
-  text-transform: none;
-  color: var(--color-ink-muted);
-}
-
 /*
- * Which kind of day this is, as words in the §3 neutral tone: it is a fact about what is being
- * shown — the demo day, replayed — and never a status of the day's rides, so it takes no status
- * colour (§3, §8).
+ * THE ONE DATE ON SCREEN (§2, PRD §6.1), as the mockups draw it: a calendar mark and the day,
+ * in a bordered readout beside the heading (png/shell-flow-1440.png).
+ *
+ * Read, not changed. The mockup puts a chevron on it because the finished product has a date
+ * picker; there is none here and there is no day but the demo day to pick, so there is no
+ * chevron either — the box is the shape, and a control it is not.
+ *
+ * The field label that used to precede it ("Service date") and the tag that used to follow it
+ * ("Demo day") are both gone: the first named the only date in the app and the second repeated
+ * the DEMO bar (Firia, 2026-10-17 7:55 PM ET).
  */
-.phase {
+.date {
   display: inline-flex;
   align-items: center;
-  padding: 0 var(--space-2);
-  border: var(--border-hairline) solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-12);
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border: var(--border-hairline) solid var(--color-disabled-border);
+  border-radius: var(--radius-md);
+  font-size: var(--body-console);
   font-weight: var(--weight-medium);
-  color: var(--color-ink-muted);
+  color: var(--color-ink);
   white-space: nowrap;
 }
 

@@ -2,7 +2,7 @@ import { Suspense, type ReactNode } from "react";
 import type { StaffRole } from "@/auth/core";
 import { app } from "./copy";
 import { AvatarMenu } from "./AvatarMenu";
-import { NavRail } from "./NavRail";
+import { NavRail, type RailAccount } from "./NavRail";
 import { NoticeToast } from "./NoticeToast";
 import { TabBar } from "./TabBar";
 import styles from "./AppShell.module.css";
@@ -39,6 +39,15 @@ import styles from "./AppShell.module.css";
  * (§9.3, src/auth/page-guard.ts). It reads `?notice=` from the client, so it is wrapped in a
  * Suspense boundary of its own and can never hold up the screen behind it.
  *
+ * **The header is gone above 1280** (Firia's final call, 2026-10-17 7:55 PM ET). It held two
+ * things and the labelled rail now holds both: the product's name, which the rail's brand block
+ * says under a mark, and the account pill, which is the block at the rail's foot. What was left
+ * was an empty white band over a rail that the founder's mockup draws running full height from
+ * under the DEMO bar (png/shell-flow-1440.png), so the band goes rather than stays empty, and
+ * each screen's own `h1` row is the top of the page — which is what the mockup draws there.
+ * Below 1280 the rail has no room for words, so the header comes back with the name at one end
+ * and the account menu at the other, and Sign out stays one tap away on a phone.
+ *
  * One shell, every signed-in screen. It used to wrap only the four routes inside src/app/(app),
  * which left Plan routes, the live map and the ramp iPad with no menu at all: the founder's
  * 2026-10-17 walk of production reached each of them and found the browser's Back button was
@@ -48,12 +57,16 @@ import styles from "./AppShell.module.css";
  * disproved.)
  */
 export function AppShell({
-  displayName,
+  account,
   role,
   pageOwnsMain = false,
   children,
 }: {
-  displayName: string;
+  /**
+   * Who is signed in, already turned into the words a screen shows (src/ui/ConsoleShell.tsx).
+   * `null` for a caller with no name at all, which draws no identity block anywhere.
+   */
+  account: RailAccount | null;
   /** The caller's role, so the menu offers only the pages they can open. `null` shows none. */
   role: StaffRole | null;
   /**
@@ -77,18 +90,19 @@ export function AppShell({
         <span className={styles.siteName}>{app.siteName}</span>
         <div className={styles.spacer} />
         {/*
-          One identity location, at every width now. It used to be hidden below 768 because the
-          hamburger drawer carried the name and Sign out; the drawer is gone, so this is where
-          they are on a phone too — compact (initials and the first name), with Sign out inside
-          it (Firia, 3:08 PM ET: "reachable on phone").
+          The identity location below 1280, where the rail is an icon strip or a tab bar and has
+          nowhere to put a name. Compact on a phone (initials only), with Sign out inside it, so
+          the way to stop being signed in is one tap away at every width (Firia, 3:08 PM ET:
+          "reachable on phone"). Above 1280 the rail's own account block is this instead, and
+          the stylesheet hides this one: one identity entry point per width, never two.
         */}
-        <AvatarMenu displayName={displayName} />
+        {account ? <AvatarMenu account={account} /> : null}
       </header>
       <Suspense fallback={null}>
         <NoticeToast />
       </Suspense>
       <div className={styles.body}>
-        <NavRail role={role} />
+        <NavRail role={role} account={account} />
         <Content id="content" className={pageOwnsMain ? styles.contentSlot : styles.main}>
           {children}
         </Content>

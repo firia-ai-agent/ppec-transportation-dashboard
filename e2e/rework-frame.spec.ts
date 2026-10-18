@@ -28,7 +28,9 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type { StaffRole } from "../src/auth/core";
-import { demoDay, nav, sourceMode } from "../src/ui/copy";
+import { deriveReadiness, unreadFacts } from "../src/domain/day/readiness";
+import { legAt, serviceDateAt } from "../src/domain/day/day-facts";
+import { demoDay, flow, nav, sourceMode } from "../src/ui/copy";
 import { navItemsFor } from "../src/ui/nav-items";
 import { stepsFor } from "../src/ui/step-strip";
 import { splitTabs } from "../src/ui/TabBar";
@@ -51,6 +53,17 @@ const EXTRA = ["/whoami", "/family-texts", "/approvals"];
 const ROUTES = [...MENU.map((item) => item.href), ...EXTRA];
 
 const WIDTHS = [390, 1440] as const;
+
+/**
+ * The day this run's server reads, which is no day at all: the synthetic session is a role with
+ * no site behind it (src/auth/caller.ts), so the readiness loader has nothing to read a centre's
+ * rows for and answers with the unread day — Needed, Needed, Locked
+ * (src/domain/day/day-facts.ts). Derived here through the same function the server uses rather
+ * than written out, so this file cannot drift from it, and deterministic by the shape of the
+ * session rather than by an environment variable a deployment could set.
+ */
+const READINESS = deriveReadiness(unreadFacts(serviceDateAt(), legAt()));
+const STEPS = stepsFor(ROLE, READINESS);
 
 const slug = (href: string) => href.replace(/^\//, "") || "home";
 
@@ -107,13 +120,31 @@ async function visibleMatches(page: Page, pattern: string): Promise<string[]> {
 }
 
 /**
- * The frame, at this width: a header, the menu this width draws — and not the other one — and
- * nothing to open to find it. Returns the menu, because every caller's next question is about
- * what is in it.
+ * The frame, at this width: one brand, one identity, the menu this width draws — and not the
+ * other one — and nothing to open to find it. Returns the menu, because every caller's next
+ * question is about what is in it.
  */
 async function expectFrame(page: Page, width: number, where: string) {
-  await expect(page.locator("header").first(), `no header on ${where} at ${width}`).toBeVisible();
   const rail = page.getByRole("navigation", { name: nav.landmarkLabel });
+  const brand = page.locator("[data-rail-brand]");
+  const railAccount = page.locator("[data-rail-account]");
+  const headerAccount = page.locator("header details");
+  /*
+   * WHERE THE IDENTITY AND THE BRAND ARE, and that there is one of each (REDESIGN-SPEC §9.2,
+   * Firia 7:55 PM ET). At 1280 and up the rail carries both — the brand block at its head, the
+   * account block at its foot — and the white header that used to duplicate them is gone, so
+   * the rail runs full height as the mockup draws it. Below 1280 the rail has no room for
+   * words, so the header is back with the name and the account menu that holds Sign out.
+   */
+  if (width >= 1280) {
+    await expect(brand, `no brand block on ${where} at ${width}`).toBeVisible();
+    await expect(railAccount, `no account block on ${where} at ${width}`).toBeVisible();
+    await expect(headerAccount, `a second identity on ${where} at ${width}`).toBeHidden();
+  } else {
+    await expect(page.locator("header").first(), `no header on ${where} at ${width}`).toBeVisible();
+    await expect(headerAccount, `no account menu on ${where} at ${width}`).toBeVisible();
+    await expect(railAccount, `a second identity on ${where} at ${width}`).toBeHidden();
+  }
   const bar = page.locator("[data-tab-bar]");
   // The hamburger and its drawer are deleted (Firia, 2026-10-17 3:08 PM ET), at every width.
   await expect(page.getByRole("button", { name: /menu/i }), `a hamburger on ${where}`).toHaveCount(0);
@@ -204,41 +235,71 @@ for (const width of WIDTHS) {
     });
 
     /**
-     * TODAY'S STEP STRIP: three cards, each one a way into the screen that does that step, and
-     * never a link this role would be bounced from (REDESIGN-SPEC §9.2). A front desk sees all
-     * three and can open one of them, so the two they cannot open are plain text rather than a
-     * link to a 403 — which is why the hrefs are checked against the access table's own answer.
+     * TODAY'S STEP STRIP: three cards, each saying what its own step actually stands at, and
+     * never a link this role would be bounced from (REDESIGN-SPEC §9.2).
+     *
+     * The states here are the ones a shell with no database shows — Needed, Needed, Locked —
+     * because that is what this run is: a role with no site behind it, so the readiness loader
+     * reads nothing and says so rather than claiming anything is done. That makes the whole
+     * strip deterministic without a seed and without a flag.
+     *
+     * A front desk sees all three cards and can open one, so the two they cannot open are plain
+     * text rather than links to a 403 — which is why the hrefs are checked against the access
+     * table's own answer, through the same function the page renders from.
      */
-    test("the step strip is three steps, each opening a screen this role can open", async ({
-      page,
-    }) => {
+    test("the step strip is three steps, each saying where that step stands", async ({ page }) => {
       test.skip(!MENU.some((item) => item.href === "/today"), "Today is not on this role's menu");
       await page.goto("/today");
-      const strip = page.getByRole("navigation", { name: /steps/i });
+      const strip = page.getByRole("navigation", { name: flow.stepsAria });
       await expect(strip).toBeVisible();
       await expect(strip.locator("li")).toHaveCount(3);
 
-      const steps = stepsFor(ROLE);
-      const linkable = steps.filter((step) => step.linked);
+      /*
+       * THE SHOT OF THE STRIP, taken here — on Today, before anything is clicked. It used to be
+       * taken at the end of this test, after the walk below had clicked through to the last
+       * step, so the file called "today-steps" was a picture of the live map (Vera's read of
+       * the artifacts). One shot of the strip, then one per destination, each named after what
+       * is in it.
+       */
+      console.log("screenshot:", await shotOf(page, "/today-steps", width));
+
+      // Every card says its step, its state and the one line its own data gives it.
+      for (const step of STEPS) {
+        const card = strip.locator(`[data-step="${step.key}"]`);
+        await expect(card, `no ${step.key} card`).toHaveCount(1);
+        await expect(card).toHaveAttribute("data-state", step.state);
+        await expect(card).toContainText(step.label);
+        await expect(card).toContainText(step.detail);
+      }
+
+      // The first card that is not done is the one marked as the step to take next, and it is
+      // marked once — a strip with three "do this next" markers says nothing at all.
+      const current = strip.locator('[aria-current="step"]');
+      await expect(current).toHaveCount(1);
+      await expect(current).toHaveAttribute(
+        "data-step",
+        STEPS.find((step) => step.current)!.key,
+      );
+
+      const linkable = STEPS.filter((step) => step.linked);
       const links = strip.getByRole("link");
       await expect(links).toHaveCount(linkable.length);
       const hrefs = await links.evaluateAll((els) => els.map((el) => el.getAttribute("href") ?? ""));
       expect(hrefs).toEqual(linkable.map((step) => step.href));
-      // And the cards that are not links say their step anyway: three steps, whatever the role.
-      const names = await strip.locator("li").evaluateAll((els) =>
-        els.map((el) => (el.textContent ?? "").trim()),
-      );
-      expect(names).toEqual(steps.map((step) => step.label));
 
-      // Each link goes where it says, inside the frame.
+      /*
+       * Each link goes where it says, inside the frame — and for a Locked card "where it says"
+       * is the step it is waiting on: the live map's card opens Plan routes while nothing is
+       * saved, and its accessible name says so rather than surprising the click.
+       */
       for (const step of linkable) {
         await page.goto("/today");
-        await strip.getByRole("link", { name: step.label }).click();
+        await strip.getByRole("link", { name: step.ariaLabel }).click();
         await page.waitForURL(`**${step.href}`);
         expect(new URL(page.url()).pathname).toBe(step.href);
         await expectFrame(page, width, step.href);
+        console.log("screenshot:", await shotOf(page, `/step-${step.key}`, width));
       }
-      console.log("screenshot:", await shotOf(page, "/today-steps", width));
     });
 
     /**
