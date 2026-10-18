@@ -139,13 +139,20 @@ export function sqlDaySource(db: Db, siteId: string): DayDataSource {
     },
 
     async others(_date, leg) {
-      const { children } = await roster();
+      const { children, needs } = await roster();
       return children
         .filter((row) => !drivenBy(row, leg))
         .map(
           (row): OtherChild => ({
             token: row.child_token,
             name: row.display_name,
+            // The same approved-needs read a rider gets, because the board asks the same fit
+            // question of them: the Family drives lane is full cards and one of them can be
+            // put in a van (Firia, 2026-10-18).
+            needs: needsFromCategories(needs.get(row.child_token) ?? []),
+            // No kerb of ours on this leg, which is what made them an "other".
+            stopLabel: "",
+            window: "",
             // Where a child starts when the plan says nothing. Away is a placement, never a
             // fact read off the roster.
             bucket: "FAMILY_DRIVES",

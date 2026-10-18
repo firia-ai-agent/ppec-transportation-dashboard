@@ -1796,6 +1796,15 @@ export const planBoard = {
   familyDrives: "Family drives",
   absent: "Absent",
   /**
+   * A card's one subline where there is no kerb of ours to name: a family-drives child, who is
+   * a full card in their own lane and may be put in a van all the same (Firia, 2026-10-18).
+   *
+   * It stays true in both places the card is drawn — waiting in the lane, and carried in a van
+   * the centre has no pickup for — so one string does for both and no card is ever left with a
+   * blank line under its name.
+   */
+  noStop: "No pickup stop",
+  /**
    * The child panel (founder 2026-10-17 7:17 PM ET): three Yes/No answers about what a child
    * needs, anchored to their card, and a Save that re-plans the leg.
    *

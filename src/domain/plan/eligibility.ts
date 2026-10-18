@@ -25,7 +25,7 @@
  */
 import type { RejectReason } from "@/config/equipment";
 import { rejectReason } from "./fit";
-import { ridersInVan, type BoardDay, type BoardPlan } from "./board";
+import { boardRiders, ridersInVan, type BoardDay, type BoardPlan } from "./board";
 
 /** The answer: yes, or no and the one thing that is missing. */
 export type Eligibility = { ok: true } | { ok: false; reason: RejectReason };
@@ -38,12 +38,17 @@ const ALLOWED: Eligibility = { ok: true };
  * `vanId` is `null` for "out of every van", which is the one move that is always allowed: a
  * child in no van takes nothing from anybody.
  *
- * Two inputs the board can hand over that are not a placement decision at all, and both are
- * allowed rather than refused, because a refusal has to name something a coordinator can act on:
- * a child who is not a rider on this leg (a family-drives child has no ride of ours to fit), and
- * a van this day does not have — the caller resolves the van before it has a name to put in a
- * refusal, so a drop on a target that is not on the board moves nobody and says nothing
- * (src/app/plan-routes/board/drop.ts).
+ * **Every child of the day is asked the same question**, including the ones the centre does not
+ * drive this leg (`boardRiders`): a family-drives child dropped on a van is checked against that
+ * van's counts with their own approved needs, and a child with nothing approved needs a seat and
+ * nothing else. Before Firia's 2026-10-18 report they were not riders here at all, so the answer
+ * was an unconditional yes and the seat they took was never counted.
+ *
+ * Two inputs the board can hand over that are not a placement decision at all are allowed rather
+ * than refused, because a refusal has to name something a coordinator can act on: a child this
+ * day does not have, and a van this day does not run — the caller resolves the van before it has
+ * a name to put in a refusal, so a drop on a target that is not on the board moves nobody and
+ * says nothing (src/app/plan-routes/board/drop.ts).
  */
 export function eligibility(
   day: BoardDay,
@@ -53,7 +58,7 @@ export function eligibility(
 ): Eligibility {
   if (vanId === null) return ALLOWED;
   const van = day.vans.find((candidate) => candidate.id === vanId);
-  const rider = day.riders.find((candidate) => candidate.token === childToken);
+  const rider = boardRiders(day).find((candidate) => candidate.token === childToken);
   if (!van || !rider) return ALLOWED;
   /*
    * The riders already in the van, in the van's own drive order, plus this child — which is

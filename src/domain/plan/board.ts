@@ -63,7 +63,13 @@ export type BoardVan = DayVan & {
   setupBy?: string | null;
 };
 
-/** A child this leg drives (the port's own rider). */
+/**
+ * One child as the board draws and places them (the port's own rider).
+ *
+ * A child the centre does not drive this leg is one of these too — `OtherChild` is a
+ * `DayRider` with the bucket it starts in — so there is one card and one fit question for
+ * every child on the board (`boardRiders`).
+ */
 export type BoardRider = DayRider;
 
 export type BoardDay = {
@@ -90,6 +96,30 @@ export function emptyPlan(day: BoardDay): BoardPlan {
 }
 
 /**
+ * **Every child of the day as a card**: the riders this leg drives, then the children it does
+ * not (Firia's bug report of 2026-10-18).
+ *
+ * The two halves of the roster arrive separately because only one of them has a kerb of ours
+ * (src/domain/day/source.ts), and the board used to treat that as "only one of them is a
+ * child": `day.others` had no needs, so the Family drives lane could draw nothing but a name,
+ * no card could be lifted out of it, and a drop on a van would not have been counted against
+ * that van's seats. Every question the board asks about a child — may this one go here, who is
+ * in this van, how many are placed — is asked of this list, so there is one roster on the
+ * board and not two.
+ *
+ * Where they differ is the kerb, and that is `hasStop`: a family-drives child a coordinator has
+ * put in a van is in the van and is not a stop.
+ */
+export function boardRiders(day: BoardDay): readonly BoardRider[] {
+  return [...day.riders, ...day.others];
+}
+
+/** Does the centre pick this child up at a kerb of its own on this leg? */
+export function hasStop(rider: BoardRider): boolean {
+  return rider.stopLabel !== "";
+}
+
+/**
  * The riders in one van, in the order that van drives their stops.
  *
  * The order is the pickup window and nothing else: every rider of a leg is aboard together at the
@@ -97,42 +127,41 @@ export function emptyPlan(day: BoardDay): BoardPlan {
  * here, only a sort — which is all the ordering this app's planner does now.
  */
 export function ridersInVan(day: BoardDay, plan: BoardPlan, vanId: string): BoardRider[] {
-  return day.riders
+  return boardRiders(day)
     .filter((rider) => plan[rider.token]?.vanId === vanId)
     .sort((a, b) => a.window.localeCompare(b.window) || a.token.localeCompare(b.token));
 }
 
 /** Everybody waiting to be placed (§1.3's Unassigned count). */
 export function unassignedRiders(day: BoardDay, plan: BoardPlan): BoardRider[] {
-  return day.riders.filter((rider) => plan[rider.token]?.bucket === "UNASSIGNED");
+  return boardRiders(day).filter((rider) => plan[rider.token]?.bucket === "UNASSIGNED");
 }
 
 /**
  * Everybody in one of the two groups at the foot of the Unassigned column, whichever half of
  * the day's roster they came from.
  *
- * A child dropped on Absent is a **rider** with an `ABSENT` placement, and a child whose family
- * drives them every day is an "other" with no stop at all — both belong in the same group on
- * screen, and both can be dragged back out of it (founder 2026-10-17 7:17 PM ET). So this reads
- * the *plan*, which is the only place either answer lives.
+ * A child dropped on Absent is a rider of this leg with an `ABSENT` placement, and a child whose
+ * family drives them every day is an "other" with no stop at all — both belong in the same group
+ * on screen, both are a full card there, and both can be dragged back out of it (founder
+ * 2026-10-17 7:17 PM ET; Firia 2026-10-18). So this reads the *plan*, which is the only place
+ * either answer lives, and it returns the card rather than a name.
  */
-export function childrenInBucket(
-  day: BoardDay,
-  plan: BoardPlan,
-  bucket: Bucket,
-): { token: string; name: string; rider: BoardRider | null }[] {
-  const riders = day.riders
+export function childrenInBucket(day: BoardDay, plan: BoardPlan, bucket: Bucket): BoardRider[] {
+  return boardRiders(day)
     .filter((rider) => plan[rider.token]?.bucket === bucket)
-    .map((rider) => ({ token: rider.token, name: rider.name, rider }));
-  const others = day.others
-    .filter((other) => plan[other.token]?.bucket === bucket)
-    .map((other) => ({ token: other.token, name: other.name, rider: null }));
-  return [...riders, ...others].sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** The riders this leg is actually planning: not the ones a person has taken off it. */
+/**
+ * The children this leg is actually planning: not the ones a person has taken off it.
+ *
+ * A family-drives child sits in `FAMILY_DRIVES` and is left alone, exactly as before; one a
+ * coordinator has moved into a van or out into Unassigned is a child of the plan like any other
+ * and Auto-plan answers for them too.
+ */
 export function ridersToPlace(day: BoardDay, plan: BoardPlan): BoardRider[] {
-  return day.riders.filter((rider) => {
+  return boardRiders(day).filter((rider) => {
     const bucket = plan[rider.token]?.bucket;
     return bucket !== "ABSENT" && bucket !== "FAMILY_DRIVES";
   });
@@ -140,7 +169,7 @@ export function ridersToPlace(day: BoardDay, plan: BoardPlan): BoardRider[] {
 
 /** How many of the leg's riders are in a van. */
 export function placedCount(day: BoardDay, plan: BoardPlan): number {
-  return day.riders.filter((rider) => plan[rider.token]?.bucket === "VAN").length;
+  return boardRiders(day).filter((rider) => plan[rider.token]?.bucket === "VAN").length;
 }
 
 /**
@@ -152,6 +181,10 @@ export function stopNumbers(ridersInDriveOrder: readonly BoardRider[]): Map<stri
   let n = 0;
   let previous: string | null = null;
   for (const rider of ridersInDriveOrder) {
+    // A child in the van with no kerb of ours — a family-drives child a coordinator moved onto
+    // it — is carried and is not a stop: numbering them would claim a pickup this day does not
+    // have, and draw a disc for it on the map. Their card shows a grip instead of a number.
+    if (!hasStop(rider)) continue;
     if (rider.stopLabel !== previous) {
       n += 1;
       previous = rider.stopLabel;
@@ -173,7 +206,7 @@ export function usedInVan(day: BoardDay, plan: BoardPlan, vanId: string): Used {
 
 /** The needs of one rider by token, for the screen's chips. */
 export function needsByToken(day: BoardDay, token: string): NeedFlags | null {
-  return day.riders.find((rider) => rider.token === token)?.needs ?? null;
+  return boardRiders(day).find((rider) => rider.token === token)?.needs ?? null;
 }
 
 /* ───────────────────────────── the map ───────────────────────────── */
@@ -185,7 +218,9 @@ function mapVansOf(day: BoardDay, plan: BoardPlan): PlanMapVan[] {
     const numbers = stopNumbers(riders);
     const stops: { order: number; label: string }[] = [];
     for (const rider of riders) {
-      const order = numbers.get(rider.token) ?? 0;
+      const order = numbers.get(rider.token);
+      // No kerb of ours, so no disc: the map draws the stops a van drives, not its load.
+      if (order === undefined) continue;
       if (stops[stops.length - 1]?.order === order) continue;
       stops.push({ order, label: rider.stopLabel });
     }

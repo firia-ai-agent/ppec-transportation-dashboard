@@ -63,6 +63,7 @@ const DAY = {
   drag: "2026-12-01",
   dragPhone: "2026-12-02",
   parity: "2026-12-03",
+  family: "2026-12-04",
 };
 
 const boardUrl = (day: string) => `/plan-routes?date=${day}&leg=pm`;
@@ -280,6 +281,109 @@ test.describe("S1: Zoe B. onto Van 1", () => {
     await page.mouse.up();
     await expect(byHand.locator(`[data-rider="${token}"]`)).toHaveCount(1);
     await expect(page.locator(`[data-refusal="${token}"]`)).toHaveCount(0);
+  });
+});
+
+/* ───────────────────────── the Family drives lane ───────────────────────── */
+
+/**
+ * FIRIA'S SECOND REPORT, 2026-10-18: the Family drives group was one collapsed line reading "3".
+ *
+ * MOCKUP: mockups/plan-board.html + png/plan-board.png (1440) and png/plan-board-390.png — the
+ * Unassigned column and the two groups at the foot of it (plan-board.html's `.group`), beside
+ * the three van columns a card is dragged onto.
+ *
+ * Its own day (`DAY.family`), its own plan, no order against anything else in this file. The
+ * board opens started on this server — the memory store answers "started" for every date
+ * (src/modules/plan/memory.ts `dayContext`), which is the same thing the Start the founder
+ * pressed leaves behind — so the walk begins where their report begins: at the lane.
+ *
+ * What a browser is needed for: that the lane is open with no click, that what is in it is the
+ * same card Unassigned draws rather than a name, and that a real drag of one of those cards onto
+ * a real van survives a Save and a reload — both ways. The arithmetic underneath is unit-tested
+ * (src/app/plan-routes/board/family-drives.test.ts) and the rows are
+ * src/modules/plan/place.db.test.ts.
+ */
+test.describe("S1: Family drives is an open lane of cards", () => {
+  test.skip(!CONSOLE_ROLE, "the board is not this role's screen");
+
+  const FAMILY_CHILDREN = ["Ana S.", "Beni A.", "Cleo M."];
+  const lane = (page: Page): Locator => page.locator('[data-bucket="FAMILY_DRIVES"]');
+  const laneList = (page: Page): Locator => page.locator('[data-bucket-list="FAMILY_DRIVES"]');
+
+  test("opens with Ana S., Beni A. and Cleo M. as cards, and carries one onto a van and back", async ({
+    page,
+  }) => {
+    await openBoard(page, DAY.family);
+
+    /* ── 1. the lane, open, with a card each — and Absent untouched beside it ── */
+    await expect(lane(page).locator("button[aria-expanded]")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await expect(lane(page)).toContainText(planBoard.familyDrives);
+    await expect(laneList(page)).toBeVisible();
+    await expect(laneList(page).locator("[data-rider]")).toHaveCount(FAMILY_CHILDREN.length);
+    for (const name of FAMILY_CHILDREN) {
+      const child = laneList(page).locator("[data-rider]").filter({ hasText: name });
+      await expect(child, name).toHaveCount(1);
+      // A full card and not a name: it has the grip's own `Move to…` control beside it.
+      const token = await child.getAttribute("data-rider");
+      await expect(page.locator(`[data-move-to="${token}"]`), name).toHaveCount(1);
+    }
+    // No kerb of ours, said in words rather than left blank (§1.5's `noStop`).
+    await expect(laneList(page).first()).toContainText(planBoard.noStop);
+
+    // ABSENT IS UNCHANGED (founder 6:49): still a count row, still closed, no list at all.
+    const absent = page.locator('[data-bucket="ABSENT"]');
+    await expect(absent).toContainText(planBoard.absent);
+    await expect(absent.locator("button[aria-expanded]")).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator('[data-bucket-list="ABSENT"]')).toHaveCount(0);
+
+    /* ── 2. Ana S. onto Van 1, the same off-centre drag the S1 walk makes ── */
+    const vanOne = vans(page).first();
+    await expect(vanOne).toHaveAttribute("aria-label", "Van 1");
+    const ana = laneList(page).locator("[data-rider]").filter({ hasText: "Ana S." });
+    const token = await ana.getAttribute("data-rider");
+    const vanId = await vanOne.getAttribute("data-van");
+
+    await liftOffCentre(page, ana, vanOne);
+    // The one eligibility rule answers for her too: she needs a seat, and Van 1 is empty.
+    await expect(vanOne).toHaveAttribute("data-fit", "yes");
+    await page.mouse.up();
+    expect(await expectLandedOrRefused(page, "Ana S.", vanOne, lane(page))).toBe("LANDED");
+
+    /* ── 3. Save, and it is a row: the reload draws her in the van ── */
+    await page.locator("[data-save]").click();
+    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
+    expect((await savedPlanOf(page, DAY.family)).plan[token ?? ""]).toMatchObject({
+      bucket: "VAN",
+      vanId,
+    });
+    await page.reload();
+    await expect(vans(page).first().locator(`[data-rider="${token}"]`)).toHaveCount(1);
+    await expect(laneList(page).locator(`[data-rider="${token}"]`)).toHaveCount(0);
+    // The other two are still in the lane, and it is still open after the reload.
+    await expect(laneList(page).locator("[data-rider]")).toHaveCount(FAMILY_CHILDREN.length - 1);
+
+    /* ── 4. and back into Family drives, saved, and still there after a reload ── */
+    await liftOffCentre(page, vans(page).first().locator(`[data-rider="${token}"]`), lane(page));
+    await page.mouse.up();
+    await expect(laneList(page).locator(`[data-rider="${token}"]`)).toHaveCount(1);
+    await expect(toast(page)).toContainText(planBoard.familyDrives);
+
+    await page.locator("[data-save]").click();
+    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
+    expect((await savedPlanOf(page, DAY.family)).plan[token ?? ""]).toMatchObject({
+      bucket: "FAMILY_DRIVES",
+      vanId: null,
+    });
+    await page.reload();
+    await expect(laneList(page).locator("[data-rider]")).toHaveCount(FAMILY_CHILDREN.length);
+    await expect(laneList(page).locator(`[data-rider="${token}"]`)).toHaveCount(1);
+    await expect(vans(page).first().locator(`[data-rider="${token}"]`)).toHaveCount(0);
+
+    await expectNoInternalCodes(page);
   });
 });
 

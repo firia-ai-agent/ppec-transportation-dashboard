@@ -6,7 +6,7 @@ import { GripVertical } from "lucide-react";
 import { planBoard } from "@/ui/copy";
 import { NeedIcons } from "@/ui/equipment";
 import { icon } from "@/ui/tokens";
-import type { Bucket, BoardRider } from "@/domain/plan/board";
+import { hasStop, type Bucket, type BoardRider } from "@/domain/plan/board";
 import { stopLine } from "./lines";
 import styles from "./board.module.css";
 
@@ -112,8 +112,17 @@ export function RiderCard({
         <span className={styles.cardIcons}>
           <NeedIcons needs={rider.needs} />
         </span>
+        {/*
+          The one subline. A child with no kerb of ours — a family-drives child, in their lane or
+          in a van a coordinator put them in — has no stop and no window to print, so they say so
+          in words rather than leaving the line blank (§1.5's `noStop`).
+        */}
         <span className={styles.cardSub}>
-          {stopNumber === undefined ? rider.stopLabel : stopLine(rider.window, rider.stopLabel)}
+          {!hasStop(rider)
+            ? planBoard.noStop
+            : stopNumber === undefined
+              ? rider.stopLabel
+              : stopLine(rider.window, rider.stopLabel)}
         </span>
       </button>
       {/*

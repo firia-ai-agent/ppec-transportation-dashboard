@@ -54,8 +54,20 @@ export type DayRider = FitRider & {
 export const BUCKETS = ["VAN", "UNASSIGNED", "FAMILY_DRIVES", "ABSENT"] as const;
 export type Bucket = (typeof BUCKETS)[number];
 
-/** A child of the day who is not ours to place this leg. */
-export type OtherChild = { token: string; name: string; bucket: Bucket };
+/**
+ * A child of the day the centre does not drive on this leg.
+ *
+ * They are a **child of the board all the same** (Firia's bug report of 2026-10-18): the Family
+ * drives lane draws them as the same card Unassigned draws, and a coordinator may put one of
+ * them in a van — a family who cannot drive today is the whole reason that drag exists. So they
+ * carry everything the one fit rule needs (`FitRider`: their approved needs) and the card needs,
+ * and `stopLabel` is empty because there is no kerb of ours on this leg — which is what made
+ * them an "other" in the first place.
+ */
+export type OtherChild = DayRider & {
+  /** Where they start when the plan says nothing: the family's own ride. */
+  bucket: Bucket;
+};
 
 export interface DayDataSource {
   /** The vans on the road on this date, in slot order. */

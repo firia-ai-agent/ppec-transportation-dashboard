@@ -47,6 +47,8 @@ import type { RejectReason } from "@/config/equipment";
 import {
   autoPlan,
   boardMap,
+  boardRiders,
+  needsByToken,
   placedCount,
   ridersToPlace,
   unassignedRiders,
@@ -473,7 +475,9 @@ export default function PlanBoard({
   );
 
   const onDragStart = (event: DragStartEvent) => {
-    const rider = day.riders.find((r) => r.token === String(event.active.id));
+    // Every child on the board, not only the ones this leg drives: a family-drives card lifts
+    // like any other, so it needs its overlay and its pre-check (Firia, 2026-10-18).
+    const rider = boardRiders(day).find((r) => r.token === String(event.active.id));
     setLifted(rider ?? null);
     setToast(null);
     // The last refusal is answered by picking the card up again (Vera: it clears on drag start).
@@ -522,12 +526,12 @@ export default function PlanBoard({
          */
         accessibility={{
           announcements: {
-            onDragStart: ({ active }) => nameOfRider(day, String(active.id)),
+            onDragStart: ({ active }) => nameOf(day, String(active.id)),
             onDragOver: ({ active, over }) =>
-              over ? movedLine(nameOfRider(day, String(active.id)), nameOfColumn(day, String(over.id))) : undefined,
+              over ? movedLine(nameOf(day, String(active.id)), nameOfColumn(day, String(over.id))) : undefined,
             onDragEnd: ({ active, over }) =>
-              over ? movedLine(nameOfRider(day, String(active.id)), nameOfColumn(day, String(over.id))) : undefined,
-            onDragCancel: ({ active }) => nameOfRider(day, String(active.id)),
+              over ? movedLine(nameOf(day, String(active.id)), nameOfColumn(day, String(over.id))) : undefined,
+            onDragCancel: ({ active }) => nameOf(day, String(active.id)),
           },
         }}
         onDragStart={onDragStart}
@@ -686,7 +690,7 @@ export default function PlanBoard({
           childName={nameOf(day, openChild)}
           where={whereLine(vanNameOfChild(day, plan, openChild), day.direction)}
           needs={panelNeedsOf(
-            day.riders.find((rider) => rider.token === openChild)?.needs ?? {
+            needsByToken(day, openChild) ?? {
               wheelchair: false,
               carSeat: false,
               oxygen: false,
@@ -765,11 +769,7 @@ export default function PlanBoard({
 
 /** The name of any child on the day, rider or not — never an id (§9.3). */
 function nameOf(day: BoardDay, token: string): string {
-  return (
-    day.riders.find((rider) => rider.token === token)?.name ??
-    day.others.find((other) => other.token === token)?.name ??
-    ""
-  );
+  return boardRiders(day).find((rider) => rider.token === token)?.name ?? "";
 }
 
 /** Which van this child is in right now, by name, or null for "in none of them". */
@@ -792,11 +792,6 @@ function asMoves(before: BoardPlan, after: BoardPlan): PendingMove[] {
     moves.push({ childToken: token, bucket: placement.bucket, vanId: placement.vanId });
   }
   return moves;
-}
-
-/** A rider's own name, for an announcement that must not contain an id. */
-function nameOfRider(day: BoardDay, token: string): string {
-  return day.riders.find((rider) => rider.token === token)?.name ?? "";
 }
 
 /** A column's own name: a van's number, or the group at the top of the board. */
