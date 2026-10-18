@@ -50,8 +50,9 @@ import { agentAsk } from "@/ui/copy";
 import { redact } from "../redact";
 import { STAFF_ALERT_TASK_CATEGORY, STAFF_ASK_TASK_CATEGORY, askTextOf } from "./ask-text";
 import { type AgentRunner, agentRunner } from "../run/deps";
-import { effectId, raiseTask } from "../run/exec/effects";
+import { raiseTask } from "../run/exec/effects";
 import { askAnswer } from "./answer";
+import { askUnavailableAlertId, raiseAskUnavailableAlert } from "../staff-alert";
 import type { RunDeps, RunResult } from "../run/loop";
 import { startAndDriveRun } from "../run/loop";
 import { type Trigger, assertTrigger } from "../run/triggers";
@@ -201,7 +202,7 @@ export async function askAgent(
     /*
      * A HARD DEADLINE ON THE WHOLE ASK. The run is driven inside this request, and a request that
      * outlives the route's `maxDuration` is a 504 nobody is told about. So the ask gets
-     * `askTimeoutMs` (config, default 45 s) and, if the model has not finished by then, it ends
+     * `askTimeoutMs` (config, DEFAULT_ASK_TIMEOUT_MS) and, if the model has not finished by then, it ends
      * the same way a model that could not be reached does: one alert, a person told.
      */
     // Read the deadline BEFORE starting the run: if this throws after the run's promise exists,
@@ -209,35 +210,44 @@ export async function askAgent(
     const askTimeoutMs = answer.deps.gateway.config.askTimeoutMs;
     const run = await withDeadline((deps.drive ?? startAndDriveRun)(answer.deps, trigger), askTimeoutMs);
     if (run === TIMED_OUT) throw new AskTimedOut();
+    /*
+     * THE RUN REACHED NO MODEL (rule 3, from inside the loop). The turn threw, `modelDown` logged
+     * it, raised this ask's own staff alert and failed the run — so the one thing left to do here
+     * is not to call that `ok`. An ask that came back "ran" with no answer on it reads, in the
+     * panel and in the route's body, as a model that had nothing to say; what happened is that
+     * nothing answered at all, which is the alert's fact and the person's cue.
+     */
+    if (run.modelUnavailable) {
+      return {
+        ok: false,
+        outcome: "unavailable",
+        taskId: askUnavailableAlertId(taskId),
+        reason: "the model could not be reached",
+      };
+    }
     const said = await askAnswer(db, run.runId);
     return { ok: true, outcome: "ran", taskId, run, answer: said.answer, proposalId: said.proposalId };
   } catch (err) {
     /*
      * The model could not be reached after all — a gateway PROVIDER_ERROR, a missing key, a
      * vendor refusal. Same answer as (2): a person. A second row, because the first one said the
-     * agent had taken it and that turned out not to be true; `effectId` makes it idempotent, so a
-     * retried ask raises one alert rather than one per attempt.
+     * agent had taken it and that turned out not to be true; the id is derived from the ask
+     * (`askUnavailableAlertId`), so a retried ask — and a run the loop already alerted on — raise
+     * one row rather than one per attempt.
      *
      * The error is never returned and never logged here: a provider's message can carry an
      * endpoint, a model name or — in the worst case — a header. The caller gets the fact.
      */
     void err;
-    const alertId = await raiseTask(db, {
-      id: effectId(taskId, "needs-person"),
+    const raised = await raiseAskUnavailableAlert(db, {
       siteId: input.siteId,
-      category: STAFF_ALERT_TASK_CATEGORY,
-      severity: "RED",
-      words: {
-        summary: `${agentAsk.unavailable.summary}: ${ask}`,
-        nextStep: agentAsk.unavailable.nextStep,
-        predicate: agentAsk.unavailable.predicate,
-      },
+      askTaskId: taskId,
       by: input.by,
     });
     return {
       ok: false,
       outcome: "unavailable",
-      taskId: alertId,
+      taskId: raised.id,
       reason: err instanceof AskTimedOut ? "TIMEOUT" : "the model could not be reached",
     };
   }

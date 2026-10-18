@@ -79,9 +79,13 @@ import {
 import type { TierFacts } from "./run/context";
 import { type LiveHarness, liveHarness } from "./run/exec/live-harness";
 import type { Trigger } from "./run/triggers";
+import { STAFF_ALERT_TASK_CATEGORY, STAFF_ASK_TASK_CATEGORY } from "./ask/ask-text";
+import { raiseTask } from "./run/exec/effects";
+import { agentAsk } from "@/ui/copy";
 import {
   type Unavailable,
   MODEL_UNAVAILABLE_CATEGORY,
+  askUnavailableAlertId,
   assistantAlertCount,
   modelUnavailable,
   modelUnavailableLogLine,
@@ -292,9 +296,18 @@ async function expectNeedsAPersonAndNothingElse(expected: Unavailable, legWord: 
     acknowledgments: 0,
   });
 
-  // 4. Exactly one log line, naming the condition, with no secret VALUE in it.
-  expect(warn).toHaveBeenCalledTimes(1);
-  const logged = String(warn.mock.calls[0][0]);
+  /*
+   * 4. Exactly one outage line, naming the condition, with no secret VALUE in it.
+   *
+   * One *of those*, not one line in total: PPE-101 (a88e2c4) added a diagnosable line per failed
+   * model — status and the vendor's own error code — so a 429 on both models logs two of those
+   * before this one. What must stay single is the sentence that says a person was told.
+   */
+  const outageLines = warn.mock.calls
+    .map((c: unknown[]) => String(c[0]))
+    .filter((line: string) => line.startsWith("agent: model unavailable"));
+  expect(outageLines).toHaveLength(1);
+  const logged = outageLines[0];
   expect(logged).toBe(modelUnavailableLogLine(expected));
   expect(logged).toContain(expected.detail);
 
@@ -751,5 +764,81 @@ describe("the leg word is read off the leg, not out of the family's sentence", (
     const [card] = await alerts();
     expect(card.sentence).toContain(assistantUnavailable.legWord.AM);
     expect(card.sentence).not.toContain(assistantUnavailable.legWord.PM);
+  });
+});
+
+/* ───────────────── the same rule for an ASK: a question nobody answered needs a person ───────────────── */
+
+/**
+ * The founder's rule is about the degraded mode, not about which door the work came in by. An ask
+ * typed into the bubble is a person waiting on an answer, so a `staff.ask` run that reaches no
+ * model owes them the same card a family's text does — and before this it got nothing at all:
+ * `modelDown` raised an alert for `msg.inbound` and said "this trigger carries no family message"
+ * for everything else, while the ask's own caller read the FAILED run as a run that had simply
+ * finished with nothing to say.
+ */
+describe("a staff ask that reaches no model", () => {
+  const ASKED = "can we move the afternoon run for the family that just called";
+
+  /** The ask's own row — what `askAgent` writes before it drives anything, and what the trigger names. */
+  async function askRow(): Promise<string> {
+    return raiseTask(db, {
+      id: "0199b000-0000-7000-8000-00000000a51c",
+      siteId: sc.siteId,
+      category: STAFF_ASK_TASK_CATEGORY,
+      severity: "AMBER",
+      words: {
+        summary: `${agentAsk.asked.summary}: ${ASKED}`,
+        nextStep: agentAsk.asked.nextStep,
+        predicate: agentAsk.asked.predicate,
+      },
+      by: "staff:test",
+    });
+  }
+
+  it("raises the ask's own needs-a-person alert, carrying what was asked, and proposes nothing", async () => {
+    const askId = await askRow();
+    fetchMock.mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
+
+    const run = await harnessWithLiveAdapter().start({ type: "staff.ask", id: askId, siteId: sc.siteId });
+
+    // The run failed, and it says so in the two ways its caller reads: the state, and the flag the
+    // ask refuses on (`ask/staff-ask.ts` must not answer `ok` for a run nothing answered).
+    expect(run.state).toBe("FAILED");
+    expect(run.modelUnavailable).toBe(true);
+    expect(run.reason).toContain("model unavailable (rate limited on every model)");
+    expect(run.reason).toContain("staff alert raised");
+
+    const alert = await db.query<{ category: string; severity: string; state: string; summary: string; next_step: string }>(
+      "SELECT category, severity, state, summary, next_step FROM ops.task WHERE id = $1",
+      [askUnavailableAlertId(askId)],
+    );
+    expect(alert.rows).toEqual([
+      {
+        category: STAFF_ALERT_TASK_CATEGORY,
+        severity: "RED",
+        state: "OPEN",
+        // The ask's own words, read back off its row, so the card says what nobody could answer.
+        summary: `${agentAsk.unavailable.summary}: ${ASKED}`,
+        next_step: agentAsk.unavailable.nextStep,
+      },
+    ]);
+    // Nothing was proposed, nothing was sent: the degraded mode is a person, not a worse machine.
+    expect(await sideEffects()).toEqual({ outbound: 0, approvals: 0, changeRequests: 0, acknowledgments: 0 });
+  });
+
+  it("raises one alert however many times the ask is re-driven", async () => {
+    const askId = await askRow();
+    fetchMock.mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
+    const t: Trigger = { type: "staff.ask", id: askId, siteId: sc.siteId };
+
+    await harnessWithLiveAdapter().start(t);
+    await harnessWithLiveAdapter().start(t);
+
+    const rows = await db.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM ops.task WHERE category = $1",
+      [STAFF_ALERT_TASK_CATEGORY],
+    );
+    expect(rows.rows[0].n).toBe("1");
   });
 });

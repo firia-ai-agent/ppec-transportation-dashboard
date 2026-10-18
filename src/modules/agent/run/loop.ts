@@ -61,6 +61,7 @@ import {
   type Unavailable,
   logModelUnavailable,
   modelUnavailable,
+  raiseAskUnavailableAlert,
   raiseModelUnavailableAlert,
 } from "../staff-alert";
 import { policyTaskIds, writePolicyTasks } from "./tasks";
@@ -101,6 +102,13 @@ export type RunResult = {
   readonly steps: number;
   readonly reason?: string;
   readonly awaiting?: ParkedAwait;
+  /**
+   * True when this run stopped because **no model could be reached** (`modelDown`), rather than
+   * because the agent refused a step. The caller that drives a run inside a person's own request —
+   * the bubble's ask (`ask/staff-ask.ts`) — must not answer them `ok` for a run nothing answered,
+   * and reading it off the reason string would be reading a sentence as a status code.
+   */
+  readonly modelUnavailable?: true;
 };
 
 export type DriveOpts = {
@@ -654,24 +662,34 @@ async function modelDown(
 ): Promise<RunResult> {
   logModelUnavailable(unavailable);
   let raised = "staff alert raised";
-  if (run.trigger.type === "msg.inbound") {
-    try {
+  try {
+    if (run.trigger.type === "msg.inbound") {
       await raiseModelUnavailableAlert(deps.db, {
         siteId: run.trigger.siteId,
         messageId: run.trigger.id,
         reason: unavailable.reason,
         by: actor,
       });
-    } catch (e) {
-      raised = `staff alert could not be written: ${message(e)}`;
+    } else if (run.trigger.type === "staff.ask") {
+      // An ask has no family message to put on a card, and it still has a person waiting on an
+      // answer nothing produced: the alert is the ask's own row (`staff-alert.ts`), raised on the
+      // same id `ask/staff-ask.ts` uses, so one ask is one alert however it failed.
+      await raiseAskUnavailableAlert(deps.db, {
+        siteId: run.trigger.siteId,
+        askTaskId: run.trigger.id,
+        by: actor,
+      });
+    } else {
+      raised = "no staff alert: this trigger has nobody waiting on an answer";
     }
-  } else {
-    raised = "no staff alert: this trigger carries no family message";
+  } catch (e) {
+    raised = `staff alert could not be written: ${message(e)}`;
   }
   // `stop` is said out loud on the run row: a misrouted key is not a flaky vendor, and whoever
   // reads this must not wait for it to clear. The alert is raised either way.
   const kind = unavailable.stop ? "stop" : "model unavailable";
-  return fail(deps, run, `${kind} (${unavailable.detail}); ${raised}`, steps);
+  const failed = await fail(deps, run, `${kind} (${unavailable.detail}); ${raised}`, steps);
+  return { ...failed, modelUnavailable: true };
 }
 
 /**

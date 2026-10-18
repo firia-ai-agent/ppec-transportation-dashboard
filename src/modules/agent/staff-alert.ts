@@ -59,13 +59,14 @@
  * already does not.
  */
 import type { Exec } from "@/db/exec";
-import { assistantUnavailable } from "@/ui/copy";
+import { agentAsk, assistantUnavailable } from "@/ui/copy";
 import { childFirstName, guardianShortName } from "@/modules/identity/display-name";
 import type { IdentityGateway } from "@/modules/identity/gateway";
 import { type DemoDataGuardCode, DATA_MODE_ENV_VAR } from "./config";
 import { type GatewayOutcome, GatewayError } from "./gateway";
-import { effectId } from "./run/exec/effects";
+import { effectId, raiseTask } from "./run/exec/effects";
 import { ProviderError } from "./providers/provider";
+import { STAFF_ALERT_TASK_CATEGORY, askTextOf } from "./ask/ask-text";
 import {
   RemoteApiKeyMissing,
   RemoteBaseUrlRefused,
@@ -314,6 +315,64 @@ export type RaiseAlertInput = {
 };
 
 export type RaisedAlert = { readonly id: string; readonly created: boolean };
+
+/**
+ * THE SAME ALERT FOR AN **ASK** — a staff question nobody could answer (PPE: the bubble).
+ *
+ * The founder's rule of 2026-10-17 is about the degraded mode, not about which door the work came
+ * in by: a run that could not reach a model owes a person an alert whether the trigger was a
+ * family's text or a coordinator typing into the bubble. An ask has no `ops.message` behind it, so
+ * there is nothing to locate and nothing to quote — what it has is its own `ops.task` row, which
+ * is the thing the trigger names, and the words on it are what was asked.
+ *
+ * The id is derived from that ask row and from nothing else, so one ask is one alert however it
+ * failed: the run loop raises it the moment the model turn comes back unavailable
+ * (`run/loop.ts` `modelDown`), and `ask/staff-ask.ts` raises the same id when the whole ask threw
+ * or ran out of time. The second writer finds the row already there.
+ */
+export function askUnavailableAlertId(askTaskId: string): string {
+  return effectId(askTaskId, "needs-person");
+}
+
+/**
+ * Raise it, with the ask's own words on it.
+ *
+ * The words are read back from the ask's task row (`askTextOf`), not passed in: both callers have
+ * the id and only one of them has the sentence, and an alert that said less than the row it came
+ * from would be the second-best of the two rows a coordinator can see. A row this read cannot find
+ * — a preview, a database away — still raises the alert, with the copy line alone.
+ */
+export async function raiseAskUnavailableAlert(
+  db: Exec,
+  input: { readonly siteId: string; readonly askTaskId: string; readonly by: string },
+): Promise<RaisedAlert> {
+  const id = askUnavailableAlertId(input.askTaskId);
+  const written = await raiseTask(db, {
+    id,
+    siteId: input.siteId,
+    category: STAFF_ALERT_TASK_CATEGORY,
+    severity: "RED",
+    words: {
+      summary: await askSummary(db, input),
+      nextStep: agentAsk.unavailable.nextStep,
+      predicate: agentAsk.unavailable.predicate,
+    },
+    by: input.by,
+  });
+  return { id: written, created: true };
+}
+
+/** "<what this row is>: <what was asked>", or the copy line alone when the ask cannot be read. */
+async function askSummary(db: Exec, input: { siteId: string; askTaskId: string }): Promise<string> {
+  const asked = await db
+    .query<{ summary: string }>(`SELECT summary FROM ops.task WHERE id = $1 AND site_id = $2`, [
+      input.askTaskId,
+      input.siteId,
+    ])
+    .catch(() => ({ rows: [] as { summary: string }[] }));
+  const words = asked.rows[0]?.summary;
+  return words ? `${agentAsk.unavailable.summary}: ${askTextOf(words)}` : agentAsk.unavailable.summary;
+}
 
 /**
  * Write the one alert, and nothing else.
