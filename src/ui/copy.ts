@@ -32,6 +32,10 @@ export function sentence(text: string): string {
  * Firia 8:36 PM ET): there is no full-width band across the top of a screen at any width now, so
  * the product is named once — the brand block at the head of the rail, below.
  */
+/** The centre's name and what the app is for: the one place both are written. */
+const BRAND_NAME = "PPEC of Palm Beach";
+const BRAND_LINE = "Transport";
+
 export const app = {
   /**
    * THE BRAND BLOCK at the top of the labelled rail (REDESIGN-SPEC §9.2, and the founder's
@@ -39,10 +43,10 @@ export const app = {
    * this app is for, under a square mark carrying the name's first letter — so the 64 px icon
    * rail, which has room for the mark and nothing else, still says whose app this is.
    */
-  brandName: "Sunrise PPEC",
-  brandLine: "Transport",
+  brandName: BRAND_NAME,
+  brandLine: BRAND_LINE,
   /** <title> */
-  documentTitle: "PPEC transportation dashboard",
+  documentTitle: `${BRAND_NAME} · ${BRAND_LINE}`,
   skipToContent: "Skip to content",
 } as const;
 
@@ -704,7 +708,7 @@ export const liveMap = {
   /** The one state chip per van (mockups/live-map.html). No ETAs on this screen. */
   chips: { onRoute: "On route", atStop: "At stop", late: "Late", noGps: "No GPS" },
   /** <title> for the route, so the tab says which screen is open. */
-  documentTitle: "Live map · PPEC transportation dashboard",
+  documentTitle: `Live map · ${BRAND_NAME}`,
   /*
    * `intro` and `signedInOnly` are deleted (Firia, 2026-10-17 8:36 PM ET; audit §3 and §4 item
    * 9). They were the two sentences under this screen's heading — what the map is for, and that
@@ -1486,7 +1490,7 @@ export const solver = {
 export const planRoutes = {
   heading: "Plan routes",
   /** <title> for the route, so the tab says which screen is open. */
-  documentTitle: "Plan routes · PPEC transportation dashboard",
+  documentTitle: `Plan routes · ${BRAND_NAME}`,
   /*
    * The old screen's subtitle and its "Which run?" radio — "{date} · morning pickups" and
    * "afternoon drop-offs" — are gone with the screen that printed them (Firia, 2026-10-18
@@ -1790,7 +1794,7 @@ export const equipment = {
 export const planBoard = {
   heading: "Plan routes",
   /** <title> for the route, so the tab says which screen is open. */
-  documentTitle: "Plan routes · PPEC transportation dashboard",
+  documentTitle: `Plan routes · ${BRAND_NAME}`,
   /** The two legs of the day, as the segmented control says them. */
   morning: "Morning",
   afternoon: "Afternoon",
@@ -1945,7 +1949,7 @@ export const planBoard = {
 export const vanArrival = {
   /** The screen's own name, which the rail reads too — one string, so they cannot drift. */
   heading: rampIpad.heading,
-  documentTitle: "Ramp iPad · PPEC transportation dashboard",
+  documentTitle: `Ramp iPad · ${BRAND_NAME}`,
   /** The card over the steppers: "What’s on Van 1?" */
   whatsOn: "What’s on {van}?",
   seats: equipment.seats,
@@ -1956,15 +1960,20 @@ export const vanArrival = {
   yes: "Yes",
   no: "No",
   /**
-   * Under a counter that is not what this van usually carries: the shared config's default.
+   * Under every counter: what the **saved plan** needs of this van for it, summed from the
+   * planned riders' own needs (src/domain/plan/fit.ts `usedBy`).
    *
-   * Deliberately **not** called "Planned" (Firia's rule 1, 2026-10-17 5:48 PM ET): nothing plans
-   * counts any more, so a number differing from the van's default is a difference from the
-   * default and is named as one.
+   * It supersedes `differsFrom` ("Default {n}"), which was written when nothing planned counts
+   * (Firia's rule 1, 2026-10-17 5:48 PM ET) and so could only compare a count against the van's
+   * config default. The ramp reads a saved plan now, so there is a planned number to name, and
+   * naming it is what makes the amber value cell mean something a front desk can act on (Vera's
+   * room list item 3, Firia's 7:59 AM ET plan).
    */
-  differsFrom: "Default {n}",
-  /** The van tabs, in the order they leave the centre. */
+  planned: "Planned {n}",
+  /** The van tabs: Van 1, Van 2, Van 3, with the time each leaves under its name. */
   leaves: "Leaves {time}",
+  /** What the row of van tabs is, to a screen reader. */
+  vansLabel: "Vans",
   ridersHeading: "Riders",
   fits: "Fits",
   /** The crit banner: "Mia R. won’t fit" over "1 car seat short". */
@@ -1990,8 +1999,12 @@ export const vanArrival = {
   confirmed: "Checked",
   /** Said once every van has been confirmed today (§9.3). */
   allChecked: "All vans checked",
-  /** No plan saved yet, so there is nobody to list beside the steppers (§9.3). */
-  noRidersPlanned: "No riders planned",
+  /**
+   * The whole screen when this leg has no saved plan (Firia's ruling for S1): the ramp
+   * never invents a plan by looking, so there is one line and one way out of it — `Plan routes`,
+   * which is `flow.action.planRoutes` and not a second string for the same button.
+   */
+  noPlanSaved: "No plan saved",
   /** Who an observation is attributed to when the front desk counts a van themselves. */
   observedBy: "Ramp staff",
   /** A counter's own label for a screen reader, since the numbers are the big part. */

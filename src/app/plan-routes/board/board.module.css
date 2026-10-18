@@ -38,11 +38,27 @@
  */
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-2) var(--space-4);
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
+  padding: var(--space-2) 0;
+}
+
+/*
+ * S1 (Firia 7:55 AM ET): Morning | Afternoon must always show. The row used to scroll sideways
+ * (`overflow-x: auto`) with its scrollbar hidden, and `.segmented` has `overflow: hidden`, which
+ * lets a flex item shrink below its own content — so between 768 and ~1280 the leg switch was the
+ * thing squeezed to nothing. Now nothing on the row shrinks: a row that is too narrow wraps under
+ * the date and leg switch (1440 still fits on one line, as plan-board.png draws it).
+ */
+.toolbar > * {
+  flex: none;
+  white-space: nowrap;
+}
+
+.toolbar > .spacer {
+  flex: 1 1 0;
 }
 
 /* Headings are Teal Ink — the frame's `ink-brand` (#71), 9.47:1 on white. */

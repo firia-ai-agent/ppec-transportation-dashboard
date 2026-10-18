@@ -40,6 +40,14 @@ const ALLOWED_SEED_IMPORTERS = [
   "src/modules/plan/race.db.test.ts",
   // Ramp Confirm, proved against a seeded day to write one table and never the plan.
   "src/modules/plan/confirm.db.test.ts",
+  // Morning and afternoon saved and reloaded on their own, against a seeded day (S1, 2026-10-18).
+  "src/modules/plan/legs.db.test.ts",
+  /*
+   * Morning and afternoon are two plan runs that save independently of each other, and the ramp
+   * iPad reads the one the address names (S1 lane 6, 2026-10-18). Both need the seeded rows.
+   */
+  "src/modules/plan/legs.db.test.ts",
+  "src/modules/plan/ramp-leg.db.test.ts",
   /*
    * One saved plan read by four screens — the board, Today, Health and the Live map — against a
    * seeded day (S1, 2026-10-18). The memory store cannot reach the SQL those tiles are counted

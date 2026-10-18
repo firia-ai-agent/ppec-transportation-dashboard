@@ -4,6 +4,7 @@ import { getDayReadiness, serviceDateAt } from "@/domain/day/day-facts";
 import { readRightNow } from "@/domain/health/right-now-facts";
 import { rightNowTiles } from "@/domain/health/right-now";
 import { savedPlacementsForBoard } from "@/modules/plan/store";
+import { LEG_PARAM, resolveLeg } from "@/modules/plan/when";
 import { stepsFor } from "@/ui/step-strip";
 import { TodayBoard } from "./TodayBoard";
 
@@ -80,6 +81,15 @@ export default async function Page({
    * is the browser check's synthetic caller, and it gets the seeded day exactly as before.
    */
   const siteId = caller.memberships[0]?.siteId ?? null;
+
+  /*
+   * The leg this page is about, when the address names one (§9.3: a screen keeps its state in
+   * its URL). A person who followed a morning link — from the board, or from the ramp iPad's van
+   * tabs — is looking at the morning, whatever the clock says; with no `?leg=` nothing changes
+   * and the clock still answers (src/domain/day/day-facts.ts `legFor`).
+   */
+  const askedLeg = one(params[LEG_PARAM]);
+  const leg = askedLeg ? resolveLeg(askedLeg) : undefined;
   const saved = await savedPlacementsForBoard(siteId, serviceDateAt());
   const board = buildBoard(
     requestedBoardDay(one(params.date), one(params[CLOCK_PARAM]), process.env),
@@ -97,14 +107,14 @@ export default async function Page({
    *
    * Which card is a link is still the access table's answer, per role (`stepsFor`).
    */
-  const readiness = await getDayReadiness({ siteId });
+  const readiness = await getDayReadiness({ siteId, leg });
   const steps = stepsFor(caller.kind === "STAFF" ? caller.role : null, readiness);
   /*
    * The Health tab's four numbers, from the same centre and the same day as the strip above.
    * A session with no site — every browser check — reads nothing, and the tiles say so with
    * zeros rather than with a figure the day does not have.
    */
-  const tiles = rightNowTiles(await readRightNow({ siteId }));
+  const tiles = rightNowTiles(await readRightNow({ siteId, leg }));
 
   // The strip belongs under the board's own header (REDESIGN-SPEC §9.2), so it is handed to
   // the board rather than rendered above everything: the board is what owns that header.
