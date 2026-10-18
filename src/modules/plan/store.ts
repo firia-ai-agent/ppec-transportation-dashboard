@@ -27,7 +27,7 @@ import {
   type BoardVan,
   type Placement,
 } from "@/domain/plan/board";
-import { resolveSetup, type SetupSource } from "@/domain/plan/setup";
+import { resolveSetups, setupFor, type SetupSource, type VanSetups } from "@/domain/plan/setup";
 import { getNeonDb } from "@/db/exec";
 import { demoDaySource } from "@/modules/demo/day-source";
 import { sqlDaySource } from "@/modules/roster/sql";
@@ -113,13 +113,20 @@ export async function loadBoard(
     source.others(date, direction),
   ]);
 
+  /*
+   * ONE SETUP PER VAN, from the one shared resolution (src/domain/plan/setup.ts `resolveSetups`)
+   * — the same call Today makes through `savedSetupsForBoard` below, so the two screens cannot
+   * be planning the same van on two different sets of counts (Firia's S1, 2026-10-18).
+   */
+  const setups = resolveSetups(
+    dayVans.map((van) => ({ vehicleKey: vehicleKeyOf(van.id), vehicleId: van.id })),
+    date,
+    rows,
+  );
+
   const vans: BoardVan[] = dayVans.map((van) => {
     const key = vehicleKeyOf(van.id);
-    const resolved = resolveSetup(
-      key,
-      date,
-      rows.filter((row) => row.vehicleId === van.id),
-    );
+    const resolved = setupFor(setups, key);
     return {
       ...van,
       setup: resolved.setup,
@@ -254,6 +261,57 @@ export async function savedPlacementsForBoard(
     return saved;
   } catch {
     // §9.4 again: a day this request cannot read is the day the scenario describes, not a 500.
+    return {};
+  }
+}
+
+/**
+ * WHAT EACH VAN IS PLANNED ON, FOR THE SCREENS THAT DO NOT LOAD A BOARD — Today, chiefly.
+ *
+ * SOURCE: Firia's S1 of 2026-10-18. Today was checking each van against the **seeded seating
+ * layouts** (src/modules/demo/fixtures/standard.ts `VEHICLES`, e.g. Van 1's `1WC/3A`) while the
+ * plan board was planning it on `ops.vehicle_setup_day` or the shared config's defaults — so the
+ * board happily filled a van Today then said would not fit. This is the board's own read, handed
+ * to Today: the same `loadBoard`, the same `store.setupRows` query, the same two rungs
+ * (src/domain/plan/setup.ts `resolveSetups`).
+ *
+ * Keyed by **vehicle key**, which is the vocabulary `buildBoard` speaks; `loadBoard` has already
+ * turned the rows into one resolved setup per van of the day. A setup is a fact about a date and
+ * not about a leg, so one leg's board answers for both.
+ *
+ * **It never throws at the page**, exactly like `savedPlacementsForBoard` above: a session with
+ * no centre, a server with no database and a query that raises all land on "nobody has counted a
+ * van", which is every van on its configured defaults — the same answer the board shows.
+ */
+export async function savedSetupsForBoard(
+  siteId: string | null,
+  date: string,
+  store?: PlanStore,
+  source?: DayDataSource,
+): Promise<VanSetups> {
+  if (!siteId) return {};
+  try {
+    const view = await loadBoard(
+      store ?? planStore(),
+      siteId,
+      date,
+      // Either leg answers: a van's counts are a fact about the date (`ops.vehicle_setup_day` is
+      // keyed by vehicle and service date), so this reads the morning and uses its vans.
+      "AM",
+      source ?? dayDataSource(siteId),
+    );
+    return Object.fromEntries(
+      view.day.vans.map((van) => [
+        vehicleKeyOf(van.id),
+        {
+          setup: van.setup,
+          state: van.setupState,
+          source: van.setupSource,
+          setBy: van.setupBy ?? null,
+        },
+      ]),
+    );
+  } catch {
     return {};
   }
 }

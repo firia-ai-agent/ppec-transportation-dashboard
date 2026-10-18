@@ -478,20 +478,32 @@ describe("a Family drives child is a child of the plan (Firia, 2026-10-18)", () 
     ).toEqual(["Ana S.", "Beni A.", "Cleo M."]);
   });
 
-  it("takes a seat like anybody else: six children fit Van 1, six and Ana do not", async () => {
+  it("takes a seat like anybody else: a full Van 1 fits, and full plus Ana does not", async () => {
     await startTheDay();
-    const day = (await board()).day;
+    const view = await board();
+    const day = view.day;
+    const van = day.vans.find((candidate) => candidate.id === vanOne());
+    if (!van) throw new Error("the day does not run Van 1");
     /*
-     * Six children who fill Van 1's six seats exactly and overrun no other counter: three who
-     * need a car seat, which is all three the van carries, and three who need nothing. Chosen
-     * by their needs rather than by name, so the day's roster can change under it.
+     * Enough children to fill Van 1's seats exactly and overrun no other counter: car-seat
+     * riders up to the car seats the van carries, then riders who need nothing at all.
+     *
+     * The numbers come off **this van's own setup** rather than being written here (they were
+     * "six seats, three car seats" until Firia's S1 of 2026-10-18, when the shared default
+     * became the configuration the seeded van is actually fitted as): one default, in
+     * src/config/vans.ts, and no second copy of it in a test that would then have to be edited
+     * alongside it. The claim is unchanged and is the one the bug was about — the van is filled
+     * to its counts, and the next child is refused.
      */
-    const ambulatory = day.riders.filter((rider) => !rider.needs.wheelchair);
+    const ambulatory = day.riders.filter(
+      (rider) => !rider.needs.wheelchair && !rider.needs.nurse && !rider.needs.oxygen,
+    );
     const fill = [
-      ...ambulatory.filter((rider) => rider.needs.carSeat).slice(0, 3),
+      ...ambulatory.filter((rider) => rider.needs.carSeat).slice(0, van.setup.carSeats),
       ...ambulatory.filter((rider) => !rider.needs.carSeat),
-    ];
-    expect(usedBy(fill)).toMatchObject({ seats: 6, carSeats: 3, wheelchairSpots: 0 });
+    ].slice(0, van.setup.seats);
+    expect(usedBy(fill)).toMatchObject({ seats: van.setup.seats, wheelchairSpots: 0 });
+    expect(usedBy(fill).carSeats).toBeLessThanOrEqual(van.setup.carSeats);
 
     const six = await applyPendingMoves(
       {
@@ -508,12 +520,12 @@ describe("a Family drives child is a child of the plan (Firia, 2026-10-18)", () 
     );
     expect(six.ok).toBe(true);
     if (!six.ok) return;
-    expect(usedInVan(six.view.day, six.view.plan, vanOne()).seats).toBe(6);
+    expect(usedInVan(six.view.day, six.view.plan, vanOne()).seats).toBe(van.setup.seats);
 
     /*
-     * Ana would be the seventh, and the van seats six. **This is the half that was broken**:
-     * she was not a rider the server counted at all, so `checkPlan` replayed Van 1 without her
-     * and this save would have been kept — a van carrying seven on six seats.
+     * Ana would be one more, and every seat is taken. **This is the half that was broken**: she
+     * was not a rider the server counted at all, so `checkPlan` replayed Van 1 without her and
+     * this save would have been kept — a van carrying one more child than it has seats.
      */
     const seventh = await applyPendingMoves(
       { siteId: SITE, serviceDate: DATE, direction: "PM",

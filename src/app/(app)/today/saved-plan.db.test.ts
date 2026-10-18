@@ -10,8 +10,9 @@ import { childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/standard";
 import { seedStandardScenario } from "@/modules/demo/seed";
 import { kidsInVan, loadSavedPlan, vansInPlan } from "@/modules/live-map/plan-read";
 import { applyPendingMoves, setChildPlacement } from "@/modules/plan/place";
+import { putVanSetupRequest } from "@/modules/plan/api";
 import { sqlPlanStore } from "@/modules/plan/sql";
-import { savedPlacementsForBoard } from "@/modules/plan/store";
+import { savedPlacementsForBoard, savedSetupsForBoard } from "@/modules/plan/store";
 import { loadBoard } from "@/modules/plan/store";
 import { sqlDaySource } from "@/modules/roster/sql";
 import { freshPlanDb, SITE } from "@/test/pglite";
@@ -99,10 +100,13 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  // Every test starts from the day a reset leaves behind: no plan at all, and no arrival estimate.
+  // Every test starts from the day a reset leaves behind: no plan at all, no arrival estimate,
+  // and no van counted — the seed writes no `vehicle_setup_day` row either (seed.ts), so every
+  // van is on its configured default until a test has the ramp count one.
   await db.query("DELETE FROM ops.plan_assignment", []);
   await db.query("DELETE FROM ops.plan_run", []);
   await db.query("DELETE FROM ops.eta_estimate", []);
+  await db.query("DELETE FROM ops.vehicle_setup_day", []);
 });
 
 /** Save Auto-plan's morning, exactly as the board's Save does: every move, one version. */
@@ -154,15 +158,50 @@ async function moveChild(
   expect(moved.ok, "reason" in moved ? moved.reason : "moved").toBe(true);
 }
 
+/**
+ * ONE VAN COUNTED AT THE RAMP, through the write the iPad's Confirm actually makes:
+ * `putVanSetupRequest` (src/modules/plan/api.ts), which is
+ * src/app/api/vans/[id]/setup/route.ts in two lines, writing one `ops.vehicle_setup_day` row as
+ * `CHECKED` for this date.
+ *
+ * The caller is the browser check's own shape — a role and no user id — so `set_by` is null and
+ * the screens attribute the count to the ramp rather than to an invented person. All three roles
+ * may confirm (§2); that the write touches no other table is src/modules/plan/confirm.db.test.ts.
+ */
+async function countAtRamp(
+  vehicleKey: string,
+  counts: { seats: number; wheelchairSpots: number; carSeats: number; oxygenMounts: number },
+): Promise<void> {
+  const answer = await putVanSetupRequest(
+    SITE,
+    { userId: undefined, role: "FRONT_DESK" },
+    vanId(vehicleKey),
+    { date: DATE, ...counts, hasLift: true, state: "CHECKED" },
+    NOW,
+    store,
+  );
+  expect(answer.status, "reason" in answer.body ? answer.body.reason : "counted").toBe(200);
+}
+
 /** Firia's morning, saved: Auto-plan, then Liam D. dragged to Van 2. */
 async function saveTheReferenceMorning(): Promise<void> {
   await saveTheMorning();
   await moveChild(MOVED_CHILD, "VAN", MOVED_TO, 1);
 }
 
-/** Today, built the way the page builds it: the saved plan, read through `loadBoard`. */
+/**
+ * Today, built the way the page builds it: the saved plan **and** what each van is planned on —
+ * the `CHECKED` row the ramp wrote, else the van's default — both read through `loadBoard`
+ * (src/modules/plan/store.ts). The setups are the second half of the page's read since Firia's
+ * S1 of 2026-10-18: this screen's fit check is the board's own counts now, and never the seeded
+ * seating layouts.
+ */
 async function todayBoard(): Promise<Board> {
-  return buildBoard(demoDay(), await savedPlacementsForBoard(SITE, DATE, store, source()));
+  const [saved, setups] = await Promise.all([
+    savedPlacementsForBoard(SITE, DATE, store, source()),
+    savedSetupsForBoard(SITE, DATE, store, source()),
+  ]);
+  return buildBoard(demoDay(), saved, setups);
 }
 
 /** Health's four tiles, read the way the page reads them. */
@@ -532,35 +571,43 @@ describe("Today's fit check reads the saved van's riders", () => {
   }, 60_000);
 
   /**
-   * (b) And a saved van that really does not hold its riders still says so. Mia R. (C1),
-   * Owen C. (C7) and Theo V. (C9) are dragged onto Van 1, next to Zoe B. and Ava N.: five riders,
-   * one of them in her own chair, on a van whose layout is one chair space and three seats
-   * (standard.ts R1, `1WC/3A`). The ramp's own counts let the save through — six seats, three car
-   * seats, one chair, and that is what the board's Save re-checks (src/domain/plan/fit.ts) — and
-   * the capacity solver, which is asked about the actual seats, refuses it.
+   * (b) And a saved van that really does not hold its riders still says so — which, now that the
+   * board and this screen read **one** set of counts, is a van the ramp counted *down* under a
+   * plan somebody had already saved. The front desk reaches Van 1 and finds one seat and no car
+   * seat where the plan has Zoe B. (her nurse rides in a seat) and Ava N. (a booster): the plan
+   * is untouched, nobody is un-saved, and Today says the van no longer holds them (§1.3's "Over
+   * capacity"; boarding is what the ramp check stops, not planning).
    *
    * This is the half that proves nothing is being suppressed: the reason, the step and the
    * verdict are the same three the bug was reported as.
+   *
+   * It used to build that state by **dragging three more children onto Van 1** and leaning on
+   * the disagreement this commit removes: the board's save accepted five riders because the van's
+   * counts said six seats, and the seat-level solver refused them because the seeded layout said
+   * `1WC/3A`. The drag is now refused at the board (src/domain/plan/eligibility.ts) — which is
+   * the fix — so the over-filled van has to come from the one place that can still produce one.
    */
-  it("still warns when a saved van really does not hold its riders", async () => {
+  it("still warns when the ramp counts a saved van down under its riders", async () => {
     await saveTheReferenceMorning();
-    await moveChild("C1", "VAN", "V1", 2);
-    await moveChild("C7", "VAN", "V1", 3);
-    await moveChild("C9", "VAN", "V1", 4);
+    const before = await todayBoard();
+    expect(misfits(before), "the saved plan fits before anybody counts the van").toEqual([]);
+
+    await countAtRamp("V1", { seats: 1, wheelchairSpots: 1, carSeats: 0, oxygenMounts: 1 });
 
     const today = await todayBoard();
     const crowded = ridesOnVan(today, "V1");
-    expect(crowded.map((leg) => leg.child.childKey).sort()).toEqual(
-      ["C1", "C4", "C6", "C7", "C9"].sort(),
-    );
+    expect(crowded.map((leg) => leg.child.childKey).sort()).toEqual(["C4", "C6"].sort());
     for (const leg of crowded) {
       expect(leg.ride.solver, leg.child.childKey).toBe("INFEASIBLE");
       expect(leg.needsActionReasons, leg.child.childKey).toContain("DOES_NOT_FIT");
       expect(leg.nextStep, leg.child.childKey).toBe("MOVE_TO_FITTING_VAN");
       expect(leg.group, leg.child.childKey).toBe("NEEDS_ACTION");
     }
-    // Every rider of the crowded van, and only them: Van 2's three are not dragged in with them.
-    expect(misfits(today).sort()).toEqual(["C1", "C4", "C6", "C7", "C9"].sort());
+    // Every rider of the counted-down van, and only them: Van 2's four are not dragged in too.
+    expect(misfits(today).sort()).toEqual(["C4", "C6"].sort());
+    // And the plan itself is untouched by the count (src/modules/plan/confirm.db.test.ts holds
+    // that in rows): the two are still on Van 1, which is why the row has something to say.
+    for (const leg of crowded) expect(leg.ride.vanNumber).toBe(slotOf("V1"));
   }, 60_000);
 
   /**

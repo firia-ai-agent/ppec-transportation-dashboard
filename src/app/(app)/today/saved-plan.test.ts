@@ -16,6 +16,7 @@ import { applyPendingMoves, setChildPlacement } from "@/modules/plan/place";
 import {
   loadBoard,
   savedPlacementsForBoard,
+  savedSetupsForBoard,
   savedSpotsFrom,
 } from "@/modules/plan/store";
 import {
@@ -128,9 +129,18 @@ async function moveChild(
   expect(moved.ok, "reason" in moved ? moved.reason : "moved").toBe(true);
 }
 
-/** Today, built the way the page builds it: the saved plan, read through `loadBoard`. */
+/**
+ * Today, built the way the page builds it: the saved plan **and** what each van is planned on,
+ * both read through `loadBoard` (src/modules/plan/store.ts). The setups are the second half of
+ * the page's read since Firia's S1 of 2026-10-18 — this screen's fit check is the board's counts
+ * now, never the seeded layouts (./one-van-setup.test.ts).
+ */
 async function todayBoard(): Promise<Board> {
-  return buildBoard(demoDay(), await savedPlacementsForBoard(SITE, DATE, store(), source()));
+  const [saved, setups] = await Promise.all([
+    savedPlacementsForBoard(SITE, DATE, store(), source()),
+    savedSetupsForBoard(SITE, DATE, store(), source()),
+  ]);
+  return buildBoard(demoDay(), saved, setups);
 }
 
 /** The van number Today's morning row shows for a child, or null when it shows no van. */

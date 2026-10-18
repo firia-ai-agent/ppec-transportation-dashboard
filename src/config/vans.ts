@@ -49,11 +49,26 @@ export type VanConfig = {
  * no sedan, convertible, centre van or substitute anywhere. A van that cannot take a chair today
  * is a van whose one wheelchair spot is already **used** — a counted fact that the ramp can
  * change and the board explains — and that is what the "won't fit" refusal is made of.
+ *
+ * **These are the numbers the seeded van actually holds** (Firia's S1 of 2026-10-18: "6 seats
+ * plus a wheelchair is more than the van holds"). The counters are independent — a chair spot is
+ * not one of the seats — so a default has to name *one* configuration, and the honest one for a
+ * lift-equipped van whose wheelchair spot is reported free is the chair configuration every
+ * seeded van is fitted as: `1WC/3A` in src/modules/demo/fixtures/standard.ts — one chair spot,
+ * three ambulatory seats, two of them tether/LATCH-capable, which is the car-seat count in every
+ * one of those layouts. Oxygen is not a seating plan: it is the mount the founder approved as a
+ * counter on every van (2026-10-17 2:59 PM ET), and there is one.
+ *
+ * The old `seats: 6` was the *other* configuration — `0WC/6A`, six walkers and no chair — with a
+ * chair spot added on top of it, so an unchecked van claimed seven places in a four-place van and
+ * the board let a coordinator fill it while Today, reading the seeded layout, said it would not
+ * fit. A van really running six walkers today is a van somebody counted at the ramp (Seats 6,
+ * Wheelchair 0), which is exactly what the iPad is for.
  */
 const GENERIC_VAN: VanSetup = {
-  seats: 6,
+  seats: 3,
   wheelchairSpots: 1,
-  carSeats: 3,
+  carSeats: 2,
   oxygenMounts: 1,
   hasLift: true,
 };
