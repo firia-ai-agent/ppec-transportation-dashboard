@@ -7,6 +7,7 @@ import { icon } from "@/ui/tokens";
 import type { AssistantAlert } from "@/modules/agent/staff-alert";
 import { Composer } from "./Composer";
 import { ProposalCard } from "./ProposalCard";
+import { ThreadEnd } from "./ThreadEnd";
 import { ROW_STATES } from "./row-state";
 import type { ThreadContext } from "./context";
 import type { ConversationRow, ProposalView, TabKey, ThreadView } from "./conversations";
@@ -87,19 +88,12 @@ export function TextsScreen({
       data-tab={tab}
     >
       {/*
-        * No `h1` here. Since #74 the title is the frame's — one 64 px page header bar, one
-        * heading, read from the access table (src/ui/PageHeader.tsx, src/ui/page-title.ts) — so
-        * a title on the screen's own body would be the second one on the page. What is left in
-        * this row is the assistant's state chip, which is this screen's and not the frame's
-        * (approvals.html `.top .chip.info`).
+        * No `h1` and no header row of its own. Since #74 the title is the frame's — one 64 px
+        * page header bar, one heading, read from the access table (src/ui/PageHeader.tsx) — so a
+        * title here would be the second on the page, and a row holding nothing but a chip was a
+        * band of empty white under it. The assistant's state chip (approvals.html
+        * `.top .chip.info`) rides the tab strip instead, which is this screen's own row.
         */}
-      <div className={styles.header}>
-        <span className={styles.headerSpacer} />
-        {assistantReachable ? (
-          <StateChip state={{ icon: Bot, label: familyTexts.assistantOn, tone: "info" }} />
-        ) : null}
-      </div>
-
       <nav className={styles.tabs} aria-label={familyTexts.conversationsLabel}>
         {TABS.filter((key) => key !== "for-you" || showForYouTab).map((key) => (
           <Link
@@ -114,6 +108,10 @@ export function TextsScreen({
             )}
           </Link>
         ))}
+        <span className={styles.headerSpacer} />
+        {assistantReachable ? (
+          <StateChip state={{ icon: Bot, label: familyTexts.assistantOn, tone: "info" }} />
+        ) : null}
       </nav>
 
       {/*
@@ -215,10 +213,13 @@ function ConversationList({
             </span>
             <span className={styles.rowBody}>
               <span className={styles.rowTop}>
-                <span className={styles.rowName}>{row.adultName}</span>
+                {/* approvals.html `.th .nm`: "Lee W. · Jonah", the child beside the adult. */}
+                <span className={styles.rowName}>
+                  {row.adultName}
+                  <span className={styles.rowChild}>{fill(familyTexts.rowChild, { child: row.childFirstName })}</span>
+                </span>
                 <span className={styles.rowTime}>{row.timeLabel}</span>
               </span>
-              <span className={styles.rowChild}>{row.childFirstName}</span>
               <span className={styles.rowPreview}>{row.preview}</span>
               <StateChip state={ROW_STATES[row.state]} />
             </span>
@@ -282,6 +283,8 @@ function Thread({
             editHref={hrefFor(tab, thread.key)}
           />
         )}
+        {/* The thread opens at its newest message, so the card's own controls are on screen. */}
+        <ThreadEnd />
       </div>
 
       <Composer

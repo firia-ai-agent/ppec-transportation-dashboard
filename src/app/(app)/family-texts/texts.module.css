@@ -304,6 +304,7 @@
   color: var(--color-ink-muted);
 }
 
+/* The child, beside the adult's name and lighter than it (approvals.html `.th .nm span`). */
 .rowChild {
   font-size: var(--text-12);
   color: var(--color-ink-muted);
@@ -322,6 +323,14 @@
 .thread {
   flex: 1;
   min-width: 0;
+  /*
+   * `min-height: 0` is what makes the message list scroll instead of growing.
+   *
+   * A flex child's `min-height` is `auto`, so without this the thread is as tall as its content
+   * and `.messages` below never becomes a scroller — the end of the thread, which is where the
+   * approve card is, falls off the bottom of the screen with no way to reach it.
+   */
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--color-surface);
@@ -371,10 +380,24 @@
 
 .messages {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: var(--space-5) var(--space-5);
   display: flex;
   flex-direction: column;
+}
+
+/*
+ * Nothing in the thread shrinks.
+ *
+ * A flex child's `flex-shrink` is 1, so in a column that is out of room the browser squeezes the
+ * last thing in it — which here is the approve card, and a squeezed card clips its own draft and
+ * its own three buttons while the pane reports no overflow at all and therefore never scrolls.
+ * With `flex: none` the card keeps its height, the pane overflows, and the thread scrolls to its
+ * newest message like any other messaging screen (ThreadEnd.tsx).
+ */
+.messages > * {
+  flex: none;
 }
 
 .stamp {

@@ -24,7 +24,13 @@
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { approval, assistantUnavailable, familyTexts } from "../src/ui/copy";
-import { expectDemoBarPinned, expectNoInternalCodes, shot } from "./helpers";
+import {
+  expectDemoBarPinned,
+  expectNoInternalCodes,
+  expectOneSimulatedChip,
+  expectVioletOnlyOnDemoChrome,
+  shot,
+} from "./helpers";
 
 const SCREEN = "/family-texts";
 const FOR_YOU = "/family-texts?tab=for-you";
@@ -82,9 +88,30 @@ test.describe("1440: three panes on For you, the card inside the thread", () => 
     expect(await page.getByRole("heading", { level: 1 }).count()).toBe(1);
     await expect(page.getByText(familyTexts.intro)).toHaveCount(0);
 
-    // approvals.html `.top .chip.info`: the assistant's own state, beside the title.
-    // (The chip's word is on screen twice — once for a screen reader, once visibly.)
-    await expect(page.getByText(familyTexts.assistantOn, { exact: true })).toBeVisible();
+    /*
+     * approvals.html `.tabs`: three tabs, in this order — For you, Sent, All — and the two that
+     * count something carry their count (the contract's "The tabs are For you | Sent | All").
+     */
+    const tabs = page.getByRole("navigation", { name: familyTexts.conversationsLabel }).getByRole("link");
+    await expect(tabs).toHaveCount(3);
+    for (const [i, label] of [familyTexts.tabForYou, familyTexts.tabSent, familyTexts.tabAll].entries()) {
+      await expect(tabs.nth(i)).toContainText(label);
+    }
+
+    /*
+     * approvals.html `.top .chip.info`: the assistant's own state. It is a claim about the
+     * assistant, so it is drawn only when one can be reached — with no model it is absent, and
+     * the "needs a person" alert is what the screen says instead (gate 5). Asserted both ways,
+     * because a chip that said "Assistant on" over a screen with no assistant is the exact
+     * failure this check exists for. (The word is on screen twice when it is there — once for a
+     * screen reader, once visibly — so this takes the visible one.)
+     */
+    const chip = page.getByText(familyTexts.assistantOn, { exact: true });
+    if (await hasCard(page)) {
+      await expect(chip).toBeVisible();
+    } else {
+      await expect(chip).toHaveCount(0);
+    }
 
     const list = page.getByRole("navigation", { name: familyTexts.conversationsLabel }).first();
     const rows = page.getByRole("list", { name: familyTexts.conversationsLabel });
@@ -112,8 +139,15 @@ test.describe("1440: three panes on For you, the card inside the thread", () => 
       expect(cardBox!.x).toBeGreaterThanOrEqual(threadBox!.x - 1);
     }
 
+    /*
+     * The contract's global checks, on this screen: nothing runs off the side, the DEMO bar is
+     * pinned, there is exactly one "Simulated" and it is inside that bar, and violet appears
+     * nowhere else.
+     */
     expect(await scrollWidth(page)).toBeLessThanOrEqual(1440);
     await expectDemoBarPinned(page);
+    await expectOneSimulatedChip(page);
+    await expectVioletOnlyOnDemoChrome(page);
     await expectNoInternalCodes(page);
     console.log("screenshot:", await shot(page, "family-texts-1440"));
   });
@@ -134,7 +168,13 @@ test.describe("1440: three panes on For you, the card inside the thread", () => 
     const first = rows.first();
     const text = (await first.textContent()) ?? "";
     expect(text, "an initials disc, two letters").toMatch(/[A-Z]{2}/);
-    expect(text, "a 12-hour time (COPY-GUIDE §3)").toMatch(/\b(?:1[0-2]|[1-9]):[0-5]\d\s?(?:AM|PM)/);
+    /*
+     * A 12-hour time, and no 24-hour one (COPY-GUIDE §3). No word boundaries in either pattern:
+     * a row's text runs straight into its neighbour's parts ("…· Noah4:14 PM…"), so a boundary
+     * would be asserting about the gaps between spans rather than about the clock.
+     */
+    expect(text, "a 12-hour time (COPY-GUIDE §3)").toMatch(/(?:1[0-2]|[1-9]):[0-5]\d\s?(?:AM|PM)/);
+    expect(text, "and never the 24-hour form the plan stores").not.toMatch(/(?:1[3-9]|2[0-3]):[0-5]\d/);
     // approvals.html `.th .chip`: one state pill per row, and only the five this screen has.
     const pills = Object.values(familyTexts.rowState);
     const onRow = pills.filter((word) => text.includes(word));
@@ -244,6 +284,21 @@ test.describe("1440: three panes on For you, the card inside the thread", () => 
       expect(Math.abs(a!.y - d!.y), "Don't send shares it too").toBeLessThanOrEqual(2);
       expect(a!.x, "teal Approve & send is first").toBeLessThan(e!.x);
       expect(await card.first().locator("input[type='time']").count(), "no time input").toBe(0);
+
+      /*
+       * The thread opens at its newest message, so the card's own controls are on screen rather
+       * than under the fold — which is what every messaging screen does and what the mockup
+       * draws (approvals.html: the card sits against the compose bar).
+       */
+      const scroll = await page.locator("[data-messages]").evaluate((el) => ({
+        top: el.scrollTop,
+        height: el.scrollHeight,
+        client: el.clientHeight,
+      }));
+      expect(scroll.height, "the thread scrolls").toBeGreaterThan(scroll.client);
+      expect(scroll.top, "and opens at its end").toBeGreaterThan(scroll.height - scroll.client - 4);
+      const actions = await dontSend.boundingBox();
+      expect(actions!.y + actions!.height, "the controls are on screen").toBeLessThanOrEqual(900);
 
       // approvals.html `.draft`: the exact words, and they name the child (Firia, 10:51 PM ET).
       await expect(card.first().getByText(/gets off at/)).toBeVisible();

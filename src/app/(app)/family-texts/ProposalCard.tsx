@@ -140,6 +140,10 @@ export function ProposalCard({
           </form>
         )}
 
+        {/* approvals.html `.acts .sp`: Don't send sits at the far end, away from the two
+          * controls that go on with the change. */}
+        <span className={styles.actionSpacer} />
+
         <form action={submit} className={styles.decideForm}>
           <input type="hidden" name="approval" value={proposal.approvalId} />
           <input type="hidden" name="time" value={proposal.requestedHhmm ?? ""} />

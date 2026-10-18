@@ -985,6 +985,8 @@ export const familyTexts = {
   unread: "Unread",
   /** The thread's own header: the adult, then who they are and which child. */
   threadSubtitle: "{relationship} · {child}",
+  /** A list row names the child beside the adult: "Lee W. · Jonah" (approvals.html `.th .nm`). */
+  rowChild: " · {child}",
   /** The identity check that passed on this number, as a chip on the thread header. */
   verified: "Verified",
   /** The call control on the thread header, which places no call in the demo. */
