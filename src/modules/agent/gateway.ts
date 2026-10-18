@@ -2,15 +2,15 @@
  * The LLM gateway (PRD §11.2 "LLM gateway contract", l.993) — the only way agent code reaches a
  * model, and the place every rule in that sentence is enforced:
  *
- *   redact(); validatePromptTokensOnly() (fails closed on E.164, address patterns, untokenized
- *   names; logs hash only); JSON-schema tool calls only; vendorAttestation{provider, model,
- *   region, baa_version, retention_confirmation_id} required in PHI mode; endpoint allow-list
- *   excludes Batch/Files/Code-Exec/Web-Fetch; per-call audit of hashes only.
+ *   JSON-schema tool calls only; vendorAttestation{provider, model, region, baa_version,
+ *   retention_confirmation_id} required in PHI mode; endpoint allow-list excludes
+ *   Batch/Files/Code-Exec/Web-Fetch; per-call audit of hashes only.
  *
- * Nothing above is optional or configurable away. The provider is a transport (providers/*), the
- * policy engine is what happens to an accepted tool call afterwards (policy.ts), and this module
- * is the choke point in between: a prompt that leaks never goes out, and a response that is not
- * exactly one schema-valid call to a catalog tool never comes back.
+ * The prompt is not scrubbed for PHI: the agent runtime is HIPAA-compliant (user, 2026-10-18), so
+ * the model reads what staff read. The provider is a transport (providers/*), the policy engine is
+ * what happens to an accepted tool call afterwards (policy.ts), and this module is the choke point
+ * in between: a response that is not exactly one schema-valid call to a catalog tool never comes
+ * back.
  *
  * It holds no prompt and no response text anywhere — not in the audit log, not in an error
  * message, not in a thrown stack. That is TEST-SEC-01 (PRD §18.3 l.1334).
@@ -24,14 +24,13 @@ import {
   vendorAttestationSchema,
 } from "./config";
 import type { LlmProvider, ProviderResponseBody } from "./providers/provider";
-import { PromptLeakError, redact, sha256Hex, validatePromptTokensOnly } from "./redact";
+import { redact, sha256Hex } from "./redact";
 import { type ToolTier, TOOL_NAMES, toolDeclarations, toolDef } from "./tools";
 
 /* ────────────────────────────────── audit (hashes only) ────────────────────────────────── */
 
 export type GatewayOutcome =
   | "ACCEPTED"
-  | "REJECTED_PROMPT_LEAK"
   | "REJECTED_PROMPT_TOO_LARGE"
   | "REJECTED_ENDPOINT"
   | "REJECTED_ATTESTATION"
@@ -122,8 +121,6 @@ export interface LlmGateway {
   readonly config: AgentConfig;
   /** PRD §11.2 `redact()` — for text that is kept (staff notes, summaries), never to fix a prompt. */
   redact(text: string): string;
-  /** PRD §11.2 `validatePromptTokensOnly()`. Returns the prompt hash; throws PromptLeakError. */
-  validatePromptTokensOnly(prompt: string): string;
   /** One model turn. Resolves only with a schema-valid catalog tool call. */
   complete(request: GatewayRequest): Promise<GatewayResult>;
   /** Per-call audit records, newest last. Hashes only. */
@@ -180,7 +177,6 @@ export function createGateway(
   return {
     config,
     redact,
-    validatePromptTokensOnly,
     auditLog,
 
     async complete(request: GatewayRequest): Promise<GatewayResult> {
@@ -251,15 +247,14 @@ export function createGateway(
         reject(audited, "REJECTED_UNKNOWN_TOOL", `tool ${unknownOffer} is not in the §11.2 catalog`, { tool: unknownOffer });
       }
 
-      // 5. validatePromptTokensOnly — fails closed, logs the hash only.
-      try {
-        validatePromptTokensOnly(request.prompt);
-      } catch (e) {
-        if (e instanceof PromptLeakError) {
-          reject(audited, "REJECTED_PROMPT_LEAK", e.message);
-        }
-        throw e;
-      }
+      /*
+       * 5. NO PROMPT SCRUBBING. The prompt used to be refused if it carried anything that read as a
+       *    name, a number or an address (`validatePromptTokensOnly`). The agent runtime is
+       *    HIPAA-compliant (user, 2026-10-18), so the model may read what staff read; and the
+       *    check failed closed on ordinary words, which refused every staff ask on prod
+       *    ("untokenized ADDRESS×1"). What stays is everything else here: the endpoint allow-list,
+       *    attestation in PHI mode, the rate limits, one schema-valid catalog call, hash-only audit.
+       */
 
       // 6. The call itself. Counted before it is made: a provider error still cost money.
       callsPerRun.set(request.runId, runCalls + 1);

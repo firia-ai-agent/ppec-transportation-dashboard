@@ -29,7 +29,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
-import { findLeaks, validatePromptTokensOnly } from "@/modules/agent/redact";
+import { findLeaks } from "@/modules/agent/redact";
 import { type AgentScenario, seedAgentScenario } from "@/test/agent-state";
 import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
@@ -116,8 +116,6 @@ describe("check 4, part 1: the assembler never reads the identity vault", () => 
     for (const [what, value] of Object.entries(VAULT)) {
       expect({ what, present: everything.includes(value) }).toEqual({ what, present: false });
     }
-    // Belt: the gateway's own guards, over the same prompt.
-    expect(() => validatePromptTokensOnly(prompt)).not.toThrow();
     expect(findLeaks(prompt)).toEqual([]);
   });
 });

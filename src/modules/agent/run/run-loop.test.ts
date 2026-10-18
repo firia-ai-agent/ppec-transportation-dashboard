@@ -9,6 +9,7 @@
  * Everything the model says is scripted (`FakeProvider`) and everything it would do is an intent
  * record (`intentRecorder`), so a failure here is the loop's and not a vendor's.
  */
+import { sha256Hex } from "@/modules/agent/redact";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
@@ -451,11 +452,8 @@ describe("§11.1 tiers assembled fresh each run", () => {
     });
     expect(third).toContain("result seq=0 tool=get_leg_state status=EXECUTED leg_state=SCHEDULED leg_version=3");
     expect(third).toContain("<untrusted_user_message>wont need the AM van, dropping off at 9:30</untrusted_user_message>");
-    // Validated by the gateway, which refuses a prompt carrying a number, an address or a name.
-    expect(h.gateways.at(-1)!.validatePromptTokensOnly(third)).toMatch(/^[0-9a-f]{64}$/);
-    expect(h.gateways.at(-1)!.auditLog.at(-1)!.promptHash).toBe(
-      h.gateways.at(-1)!.validatePromptTokensOnly(third),
-    );
+    // And that is the prompt the run sent: the audit row carries its hash and nothing else.
+    expect(h.gateways.at(-1)!.auditLog.at(-1)!.promptHash).toBe(sha256Hex(third));
   });
 });
 

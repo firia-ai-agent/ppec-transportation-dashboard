@@ -155,19 +155,17 @@ describe("complete(): one schema-valid catalog tool call, or nothing", () => {
   });
 });
 
-describe("validatePromptTokensOnly() gates the provider call", () => {
-  it("never reaches the provider when the prompt leaks", async () => {
+describe("the prompt is not scrubbed: the agent runtime is HIPAA-compliant (2026-10-18)", () => {
+  it("sends a prompt carrying a name, a number and an address to the provider, and audits only its hash", async () => {
     const { gateway, provider } = gatewayFor([toolCall("get_leg_state", { leg_id: "L-C1-AM" })]);
-    await expect(
-      gateway.complete({ runId: "RUN-1", prompt: `${PROMPT}\nguardian=Alma R. +1-561-555-0101` }),
-    ).rejects.toMatchObject({ outcome: "REJECTED_PROMPT_LEAK" });
-    expect(provider.calls).toEqual([]);
-  });
-
-  it("exposes redact() and validatePromptTokensOnly() as the contract names them", () => {
-    const { gateway } = gatewayFor([]);
-    expect(gateway.redact("call Alma at 561-555-0101")).toBe("call [REDACTED:NAME] at [REDACTED:PHONE]");
-    expect(gateway.validatePromptTokensOnly(PROMPT)).toBe(sha256Hex(PROMPT));
+    const prompt = `${PROMPT}\nguardian=Alma R. +1-561-555-0101 home=2216 Jog Rd`;
+    const r = await gateway.complete({ runId: "RUN-1", prompt });
+    expect(r.call.tool).toBe("get_leg_state");
+    expect(provider.calls).toHaveLength(1);
+    expect(gateway.auditLog.at(-1)).toMatchObject({ outcome: "ACCEPTED", promptHash: sha256Hex(prompt) });
+    // The audit row is still hashes, codes and counts: none of the prompt's words are in it.
+    const audit = JSON.stringify(gateway.auditLog);
+    for (const fragment of ["Alma", "555-0101", "Jog Rd"]) expect(audit).not.toContain(fragment);
   });
 });
 
@@ -322,7 +320,8 @@ describe("per-call audit of hashes only (§11.2)", () => {
   it("holds no prompt or response text anywhere", async () => {
     const leaky = `${PROMPT}\nnote=Alma R. asked us to call 561-555-0101 about 2216 Jog Rd`;
     const { gateway } = gatewayFor([toolCall("get_leg_state", { leg_id: "L-C1-AM" })]);
-    await expect(gateway.complete({ runId: "RUN-1", prompt: leaky })).rejects.toThrow(GatewayError);
+    // The prompt goes through (HIPAA runtime, 2026-10-18); the audit row still keeps none of it.
+    await expect(gateway.complete({ runId: "RUN-1", prompt: leaky })).resolves.toBeTruthy();
     const serialized = JSON.stringify(gateway.auditLog);
     for (const fragment of ["Alma", "561-555-0101", "Jog Rd", "T2 leg="]) {
       expect(serialized).not.toContain(fragment);

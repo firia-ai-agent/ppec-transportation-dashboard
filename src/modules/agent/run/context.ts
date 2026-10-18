@@ -67,9 +67,8 @@ export type AssembledContext = {
 export type ContextAssembler = (input: AssembleInput) => Promise<AssembledContext> | AssembledContext;
 
 /**
- * The §11.1 prompt. Every line is tokens, codes, counts and hashes — `validatePromptTokensOnly()`
- * in the gateway is the backstop, and it is a backstop rather than the rule because the tier
- * sources are tokenized upstream (B-07).
+ * The §11.1 prompt: tiers, results and guidance. The gateway no longer scrubs it for PHI (the agent
+ * runtime is HIPAA-compliant, 2026-10-18); the tier sources still carry tokens where they did.
  *
  * The results block is how a resumed run catches up: one line per committed call with its sequence
  * number, tool, status and the tokenized facts that call contributed. It carries no result text —

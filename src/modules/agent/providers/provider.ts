@@ -10,7 +10,7 @@
  */
 import type { DataMode } from "../config";
 
-/** What the gateway hands a provider. The prompt has already passed validatePromptTokensOnly(). */
+/** What the gateway hands a provider, after its endpoint, attestation and rate-limit checks. */
 export type ProviderCall = {
   readonly endpoint: string;
   readonly model: string;

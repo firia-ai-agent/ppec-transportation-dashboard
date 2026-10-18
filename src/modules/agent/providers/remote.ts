@@ -43,7 +43,7 @@
  *     same reason as the endpoint and the host: config checked it, and this is the outbound path.
  *
  * What this file does *not* do is any of the gateway's work. It does not redact, validate, audit
- * or interpret: the prompt arriving here has already passed `validatePromptTokensOnly()`, and the
+ * or interpret: the prompt arriving here has already passed the gateway's checks, and the
  * body leaving here is normalized onto `ProviderResponseBody` for the gateway to accept or refuse.
  * That is why a response carrying prose is returned as-is rather than patched — free text is a
  * contract violation for the gateway to reject, not something an adapter should paper over.
