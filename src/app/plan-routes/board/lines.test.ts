@@ -47,7 +47,7 @@ const readiness = (over: Partial<DayReadiness> = {}): DayReadiness => ({
   leg: "PM",
   started: true,
   setup: { state: "NEEDED", checked: 0, total: 3, source: "DEFAULT" },
-  plan: { state: "NEEDED", unassigned: 9 },
+  plan: { state: "NEEDED", savedAt: null, savedBy: null, unassigned: 9 },
   live: { state: "LOCKED", vansOut: 0, blockedBy: "PLAN" },
   approvals: { waiting: 0 },
   ...over,

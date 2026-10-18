@@ -12,8 +12,11 @@
  * and is refused outright on any deployment.
  */
 import { expect, test, type Locator } from "@playwright/test";
-import { fill, fleetMap, liveMap, nav, planBoard, rampIpad } from "../src/ui/copy";
-import { menuItems } from "../src/ui/nav-items";
+import { canOpenPage } from "../src/auth/access";
+import type { StaffRole } from "../src/auth/core";
+import { canSeeMapData } from "../src/domain/access/map-view";
+import { fill, fleetMap, liveMap, nav, planBoard, planRoutes, rampIpad } from "../src/ui/copy";
+import { navItemsFor } from "../src/ui/nav-items";
 import {
   boxOf,
   contains,
@@ -30,11 +33,30 @@ const WIDTHS = [1024, 1280] as const;
 
 const VIEWPORT = { height: 900 };
 
+/**
+ * ONE RUN IS ONE ROLE (`E2E_DEMO_ROLE`, playwright.config.ts), so this file asks the role it
+ * was started as rather than assuming the director.
+ *
+ * Three of the four screens below are not every role's: the board and Plan routes are the
+ * console's, which the front desk's row does not open at all (they are sent home, §9.3), and
+ * the live map's demo internals — the injected-fault panel and the scenario clock — are the
+ * director's alone (`MAP_DATA_BY_ROLE`, src/domain/access/map-view.ts). So each claim is made
+ * about the role's *own* view: a screen their row does not open is skipped and said to be
+ * skipped, and a panel their row does not carry is asserted absent rather than expected.
+ */
+const ROLE = (process.env.E2E_DEMO_ROLE ?? "DIRECTOR") as StaffRole;
+const CALLER = { kind: "STAFF", role: ROLE } as const;
+const MENU = navItemsFor(ROLE);
+/** The demo's own panels on the live map: one role sees them (the fault list and the clock). */
+const SEES_DEMO_INTERNALS =
+  canSeeMapData(ROLE, "injectedFaults") && canSeeMapData(ROLE, "clockControls");
+
 for (const width of WIDTHS) {
   test.describe(`at ${width}px`, () => {
     test.use({ viewport: { width, ...VIEWPORT } });
 
     test("the board carries the DEMO bar and a rail that is not clipped", async ({ page }) => {
+      test.skip(!canOpenPage(CALLER, "/today"), `${ROLE} does not open the board`);
       await page.goto("/today");
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
@@ -49,7 +71,7 @@ for (const width of WIDTHS) {
       expect(railBox.width).toBe(width < 1280 ? 64 : 232);
 
       // §2 / §9: every item is reachable and named, and nothing hangs off the rail's edge.
-      for (const item of menuItems) {
+      for (const item of MENU) {
         const link = rail.getByRole("link", { name: item.label });
         await expect(link).toHaveAttribute("title", item.label);
         const icon = link.locator("svg");
@@ -83,8 +105,15 @@ for (const width of WIDTHS) {
       const map = page.getByRole("region", { name: liveMap.mapLabel });
       await expect(map).toBeVisible();
 
-      // Pause the clock first, so the map can reach idle and the screenshot is a still fleet.
-      await page.getByRole("button", { name: liveMap.pause, exact: true }).click();
+      /*
+       * Pause the clock first, so the map can reach idle and the screenshot is a still fleet.
+       * The clock's controls are the director's (`clockControls`, src/domain/access/map-view.ts)
+       * and they ride in the DEMO bar, so for the other roles there is nothing to press — and
+       * what is asserted instead is that there is nothing to press: the map still has to draw.
+       */
+      const pause = page.getByRole("button", { name: liveMap.pause, exact: true });
+      if (SEES_DEMO_INTERNALS) await pause.click();
+      else await expect(pause, `${ROLE} is being offered the scenario clock`).toHaveCount(0);
 
       /*
        * The blank-map check. A pane that drew nothing looks exactly like a pane that drew a
@@ -143,8 +172,10 @@ for (const width of WIDTHS) {
       }
 
       // §6.2: the running speed is filled and says so, rather than wearing a focus-ring outline.
+      // One role holds the clock, so one role has a speed to read (see the pause above).
       const chosenSpeed = page.getByRole("button", { name: /^×10$/ });
-      await expect(chosenSpeed).toHaveAttribute("aria-pressed", "true");
+      if (SEES_DEMO_INTERNALS) await expect(chosenSpeed).toHaveAttribute("aria-pressed", "true");
+      else await expect(chosenSpeed).toHaveCount(0);
 
       // The ramp iPad is one click away rather than URL-only, and the link calls it what its
       // own heading and the rail call it.
@@ -195,6 +226,7 @@ for (const width of WIDTHS) {
      * in the window at the top of the page" asks.
      */
     test("Plan routes keeps the map beside the lanes, not below them", async ({ page }) => {
+      test.skip(!canOpenPage(CALLER, "/plan-routes"), `${ROLE} does not open Plan routes`);
       await page.goto("/plan-routes");
       await expect(
         page.getByRole("heading", { level: 1, name: planBoard.heading }),

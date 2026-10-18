@@ -16,7 +16,7 @@
 
 .titleRow {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-5);
   flex-wrap: wrap;
 }
@@ -28,37 +28,29 @@
   line-height: var(--leading-tight);
 }
 
-/* The one date on screen (§2, PRD §6.1): read, not changed — there is no switcher beside it. */
-.date {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0;
-  font-size: var(--body-console);
-  color: var(--color-ink);
-  flex-wrap: wrap;
-}
-
-.dateLabel {
-  font-size: var(--text-12);
-  text-transform: none;
-  color: var(--color-ink-muted);
-}
-
 /*
- * Which kind of day this is, as words in the §3 neutral tone: it is a fact about what is being
- * shown — the demo day, replayed — and never a status of the day's rides, so it takes no status
- * colour (§3, §8).
+ * THE ONE DATE ON SCREEN (§2, PRD §6.1), as the mockups draw it: a calendar mark and the day,
+ * in a bordered readout beside the heading (png/shell-flow-1440.png).
+ *
+ * Read, not changed. The mockup puts a chevron on it because the finished product has a date
+ * picker; there is none here and there is no day but the demo day to pick, so there is no
+ * chevron either — the box is the shape, and a control it is not.
+ *
+ * The field label that used to precede it ("Service date") and the tag that used to follow it
+ * ("Demo day") are both gone: the first named the only date in the app and the second repeated
+ * the DEMO bar (Firia, 2026-10-17 7:55 PM ET).
  */
-.phase {
+.date {
   display: inline-flex;
   align-items: center;
-  padding: 0 var(--space-2);
-  border: var(--border-hairline) solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-12);
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border: var(--border-hairline) solid var(--color-disabled-border);
+  border-radius: var(--radius-md);
+  font-size: var(--body-console);
   font-weight: var(--weight-medium);
-  color: var(--color-ink-muted);
+  color: var(--color-ink);
   white-space: nowrap;
 }
 
@@ -75,7 +67,11 @@
   padding: var(--space-2) var(--space-4);
   background: var(--color-surface);
   border: var(--border-hairline) solid var(--color-border-strong);
-  border-radius: var(--radius-pill);
+  /*
+   * The leg toggle is a segmented control, not a status chip: the mockup draws it at the 6 px
+   * step (mockups/shell-flow.html `.seg`), and the pill radius is the one pill's now (§4.1).
+   */
+  border-radius: var(--radius-md);
   color: var(--color-ink);
   cursor: pointer;
 }
@@ -98,9 +94,16 @@
 }
 
 /*
- * §10: no horizontal scroll, and §4.1: no truncation hiding a child. Both at once means the
- * columns are given their widths rather than discovered: a cell with more words in it wraps
- * inside its own column instead of pushing the source chip off the right-hand edge.
+ * §10: no horizontal scroll *of the page*, and §4.1: no truncation hiding a child.
+ *
+ * The `.col*` widths below are preferences, not law. They were law, and they were measured
+ * against a chip that was allowed to wrap onto a second line; the chip may not wrap any more
+ * (audit §4.1, src/ui/Pill.module.css), so a column half a word too narrow stopped taking two
+ * lines and started painting its chip over the next column. The browser discovers the widths
+ * instead, which gives the chip columns what they need and takes the give out of the two
+ * columns that are sentences and can wrap — where it belongs. Below 1024 the table carries the
+ * scrollbar that answer costs (the rule under this one). The board's own rebuild re-cuts these
+ * columns properly (audit §4 item 3).
  */
 .table {
   width: 100%;
@@ -108,7 +111,46 @@
   background: var(--color-surface);
   border: var(--border-hairline) solid var(--color-neutral-bg);
   border-radius: var(--radius-md);
-  table-layout: fixed;
+  /*
+   * The browser finds the widths, at every width of window. A chip may not wrap any more (audit
+   * §4.1), so a column half a word too narrow does not take two lines — it paints its chip over
+   * the next column, which is the overlap the founder reported. The `.col*` percentages below
+   * stay as the preference; what the browser may not do is go under a chip's own width.
+   */
+  table-layout: auto;
+}
+
+/*
+ * BELOW 1024 THE TABLE IS ITS OWN SCROLL BOX, AND THE PAGE IS NOT.
+ *
+ * Six columns of chips that may not wrap need about 840 px, and a phone has 390. One of the two
+ * has to scroll, and it must not be the page: a document that scrolls sideways takes the step
+ * strip, the tab bar and the DEMO bar off the screen with it (measured at 390: `scrollWidth`
+ * 766, the frame sliding away at `scrollX` 376 — Veri's gate on #74). So the element becomes a
+ * block with its own horizontal scrollbar and the rows keep every column they had.
+ *
+ * `position: relative` is load-bearing, and is the fix for that 766. Every cell on this board
+ * carries a `.srOnly` span ("State: …", "Source: …"), which is `position: absolute`; with no
+ * positioned ancestor its containing block is the document, so the scroll box did not clip it
+ * and all 840 px of its layout position was added to the *document's* scrollable overflow. The
+ * box itself was scrolling correctly the whole time. Making the table their containing block
+ * puts them inside the clip, and the page is 390 px wide again.
+ *
+ * **At 1024 and up there is no scroll box**, and that is the other half of the same bug: an
+ * `overflow-x: auto` element is a scroll container in both axes, so the sticky group headers
+ * inside it stick to *it* rather than to the window — and a board scrolled to the bottom lost
+ * "Not riding today" off the top of the screen instead of pinning it (§4.1, and the e2e check
+ * that measures it at 1024 and 1280). The discovered widths fit a 1024 px window, so from there
+ * up the table is a plain table and the window is the one thing that scrolls.
+ *
+ * The board's rebuild replaces this table and this rule with it (audit §4 item 3).
+ */
+@media (max-width: 1023px) {
+  .table {
+    display: block;
+    position: relative;
+    overflow-x: auto;
+  }
 }
 
 /*
@@ -152,13 +194,16 @@
 
 
 /*
- * A chip is written to sit on one line (src/ui/StateChip.module.css), which is right in a
- * header and wrong in a fixed column: "Stale · 9 min · ETA texts paused" would run over the
- * next cell rather than take a second line. Nothing is hidden and nothing is shortened —
- * §4.1's rule is no truncation, not one line.
+ * THE CELL DOES NOT GET TO WRAP THE PILL. This rule used to set `white-space: normal` on every
+ * chip in the board, which is the founder's bug in one declaration: a chip that wraps is two
+ * lines of pill in a 40 px column, and at 390 px it lands on its neighbour. Audit §4.1 fixes the
+ * pill at one line, nowrap, no shrink (src/ui/Pill.module.css), and a column that cannot hold
+ * one is a column to re-cut — which the board's own rebuild does (audit §4 item 3).
+ *
+ * `.cellChip` is kept as the hook the cells name so the next change has somewhere to go.
  */
 .cellChip {
-  white-space: normal;
+  max-width: 100%;
 }
 
 /* Below 1280 the last three columns leave the row for the drawer, so the rest share the width. */
@@ -265,12 +310,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * The van's name and the chip beside it, or the two chips a location can carry. **In a row, not
+ * stacked** (audit §4 item 1: "never render 2 pills stacked in one cell") — they used to wrap,
+ * which put the second chip under the first and is what the founder saw overlapping at 390 px.
+ */
 .van {
   display: inline-flex;
   align-items: center;
   /* 4 px: the chips beside the van's name carry their own padding, so 8 px reads as a gap. */
   gap: var(--space-2);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .vanName {

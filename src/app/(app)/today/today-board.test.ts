@@ -5,16 +5,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { buildBoard, demoDay, serviceDayFor, type LegRow } from "@/domain/board/board";
 import { DEMO_SERVICE_DATE } from "@/domain/board/day";
-import {
-  board as boardCopy,
-  drawer,
-  fill,
-  needCategories,
-  places,
-  serviceDate,
-} from "@/ui/copy";
+import * as copy from "@/ui/copy";
+import { board as boardCopy, drawer, fill, needCategories, places } from "@/ui/copy";
 import { legStates, therapySessionStates } from "@/ui/states";
 import { clockLabel, demoDateIso, demoDateLabel } from "@/ui/service-date";
+import { deriveReadiness, unreadFacts } from "@/domain/day/readiness";
 import { stepsFor } from "@/ui/step-strip";
 import { TodayBoard } from "./TodayBoard";
 import { LegDrawer } from "./LegDrawer";
@@ -35,6 +30,13 @@ import { nextStepCellText } from "./next-step";
 function escaped(text: string): string {
   return text.replace(/'/g, "&#x27;");
 }
+
+/*
+ * The strip's states, for a day nothing could be read for — which is what a board rendered in
+ * node has: there is no database here and no session behind it. The strip's own combinations
+ * live in src/ui/step-strip.test.ts; what this file renders is the board around them.
+ */
+const READINESS = deriveReadiness(unreadFacts(DEMO_SERVICE_DATE, "PM"));
 
 const board = buildBoard();
 /** The day before, read after the last van is in: the one with outcomes on it (AT-10, AT-13). */
@@ -60,7 +62,7 @@ const legOf = (key: string, direction: "AM" | "PM"): LegRow => {
  */
 function boardHtml(query = "", of: typeof board = board): string {
   return renderToStaticMarkup(
-    createElement(TodayBoard, { board: of, query, steps: stepsFor("DIRECTOR") }),
+    createElement(TodayBoard, { board: of, query, steps: stepsFor("DIRECTOR", READINESS) }),
   );
 }
 
@@ -74,12 +76,22 @@ describe("the board renders the day", () => {
   const html = boardHtml();
 
   /**
-   * Vera's final call: one date on screen, the replayed demo day, labelled as the demo day —
-   * and no switcher. The date is a fact to read, so a `<time>` and the words for what kind of
-   * day it is; there is no arrow, no link and no form that would offer another one.
+   * One date on screen, the replayed demo day, and nothing beside it — and no switcher.
+   *
+   * It used to read `Today · Service date Sat, Oct 17 · [Demo day]`. Two of those four were the
+   * screen talking about itself and are gone (Firia, 2026-10-17 7:55 PM ET): "Service date" is a
+   * field label on the only date the app has, and "Demo day" repeats the violet bar that is
+   * above every screen. The date is still a fact to read, so it is still a `<time>`; there is no
+   * arrow, no link and no form that would offer another day.
    */
-  it("has one heading and one date, the demo day, labelled as the demo day", () => {
-    expect(html).toContain(`>${boardCopy.heading}<`);
+  it("has one date, the demo day, and no heading, label or tag around it", () => {
+    /*
+     * No heading on the board itself: the screen's title is the frame's 64 px page header bar
+     * (src/ui/PageHeader.tsx, audit §2 item 1), so what is left in this row is the date — which
+     * is also what names the day when the board is not showing today.
+     */
+    expect(html).not.toContain(`>${boardCopy.heading}<`);
+    expect(html.match(/<h1/g)).toBeNull();
     /*
      * The day is read, not written down: the board prints the day the demo is being given on
      * (Firia, 2026-10-17 4:50 PM ET), so this asks the one helper what that is rather than
@@ -87,10 +99,11 @@ describe("the board renders the day", () => {
      */
     expect(html).toMatch(new RegExp(`datetime="${demoDateIso(DEMO_SERVICE_DATE)}"`, "i"));
     expect(html).toContain(demoDateLabel(DEMO_SERVICE_DATE));
-    expect(html).toContain(serviceDate.phases.LIVE);
-    // One date, once: the label, the date and the kind of day, and nothing else dated.
+    // One date, once, and nothing else dated.
     expect(html.match(/<time/g)).toHaveLength(1);
-    expect(html).toContain(serviceDate.groupLabel);
+    // The two things that used to flank it are gone from the board, not merely restyled.
+    expect(html).not.toContain("Service date");
+    expect(html).not.toContain("Demo day");
   });
 
   it("offers no way to change the day: no switcher anywhere on the board", () => {
@@ -104,8 +117,9 @@ describe("the board renders the day", () => {
     expect(existsSync(path.join(__dirname, "..", "..", "..", "ui", "ServiceDateSwitcher.tsx"))).toBe(
       false,
     );
-    expect(serviceDate).not.toHaveProperty("previousDay");
-    expect(serviceDate).not.toHaveProperty("nextDay");
+    // The copy block that held the date's own words is gone entirely, so there is nothing
+    // left for a switcher to be re-labelled out of.
+    expect(copy).not.toHaveProperty("serviceDate");
   });
 
   /**
@@ -135,7 +149,8 @@ describe("the board renders the day", () => {
         fill(boardCopy.headingOtherDay, { date: of_.day.label }),
       );
       expect(other, of_.day.iso).not.toContain(`>${boardCopy.heading}<`);
-      expect(other, of_.day.iso).toContain(serviceDate.phases[of_.day.phase]);
+      // The heading is the only thing that says which day this is now: no tag repeats it.
+      expect(other, of_.day.iso).toContain(of_.day.label);
     }
   });
 

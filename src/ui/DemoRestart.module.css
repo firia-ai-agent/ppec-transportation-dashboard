@@ -1,8 +1,8 @@
 /*
  * The one control in the DEMO bar. It wears the bar's own pair — a white outline and white text
- * on the violet — rather than the screen's brand tone, for the reason the demo controls already
- * follow (src/ui/DemoControls.module.css): a button that steers the *demo* must not look like
- * one of the day's decisions. The violet is the bar's; this is inside it.
+ * on the violet — rather than the screen's brand tone, for the reason every control in this bar
+ * follows (src/ui/DemoClock.module.css is the other): a button that steers the *demo* must not
+ * look like one of the day's decisions. The violet is the bar's; this is inside it.
  */
 .wrap {
   display: flex;
@@ -23,7 +23,13 @@
   min-height: 24px;
   padding: var(--space-1) var(--space-3);
   border: var(--border-hairline) solid var(--color-demo-fg);
-  border-radius: var(--radius-pill);
+  /*
+   * A button at the 4 px step, which is what the mockup draws in the bar
+   * (mockups/shell-flow.html `.demo .reset`). It was fully rounded, and a fully rounded box with
+   * words in it is a *pill* — the one shape §4.1 reserves for a status chip, so the control
+   * beside the Simulated chip read as a second chip.
+   */
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-demo-fg);
   font-size: var(--text-12);

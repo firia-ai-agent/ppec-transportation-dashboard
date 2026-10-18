@@ -62,25 +62,27 @@ describe("ADR-008 / §5.1: the attribution is never clipped and never covered", 
   });
 });
 
-describe("the running clock speed is filled, not outlined", () => {
+/**
+ * THE CLOCK IS THE DEMO BAR'S (Firia, 2026-10-17 8:36 PM ET; audit §3 and §4 item 5: "delete
+ * the helper lines, links and clock row" from the live map).
+ *
+ * So the three things this file used to check about the clock row are checked where the clock is
+ * now (src/ui/demo-clock.test.ts and src/ui/shell.test.ts), and what is checked here is that the
+ * map has no clock of its own left: no interval, no play state, no buttons — it reads the one
+ * store, which is what keeps the vans moving to the time the bar is showing.
+ */
+describe("the map owns no clock", () => {
   const source = read(HERE, "LiveFleetMap.tsx");
 
-  it("uses the §8 brand pair that passes AA, and says so to a screen reader", () => {
-    expect(source).toMatch(/const pressed: React\.CSSProperties = \{[^}]*background: "var\(--color-brand\)"/s);
-    expect(source).toMatch(/const pressed: React\.CSSProperties = \{[^}]*color: "var\(--color-surface\)"/s);
-    expect(source).toMatch(/aria-pressed=\{speed === option\}/);
+  it("reads the shared store instead of running its own interval", () => {
+    expect(source).toMatch(/useDemoClock\(\)/);
+    expect(source).not.toMatch(/setInterval|useSimClock|setPlaying|setSpeed\(/);
   });
 
-  it("carries a check mark too, so the state is never colour alone (§3)", () => {
-    expect(source).toMatch(/\{speed === option \? <Check size=\{icon\.inline\} aria-hidden="true" \/> : null\}/);
-  });
-
-  it("no longer marks the choice with an outline, which reads as a focus ring", () => {
-    const pressedRule = source.slice(
-      source.indexOf("const pressed: React.CSSProperties"),
-      source.indexOf("const meta: React.CSSProperties"),
-    );
-    expect(pressedRule).not.toMatch(/boxShadow/);
+  it("draws no clock row: no readout, no controls, no motion note", () => {
+    expect(source).not.toMatch(/liveMap\.(?:clock|pause|play|speed|restart|motion)/);
+    expect(source).not.toMatch(/aria-pressed/);
+    expect(source).not.toMatch(/<button/);
   });
 });
 

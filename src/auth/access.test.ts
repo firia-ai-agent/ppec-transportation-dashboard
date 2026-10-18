@@ -13,17 +13,19 @@ import {
   apiOutcome,
   canSeeNavItem,
   foundersQuestions,
+  HOME_ORDER,
   homePathFor,
   mapViewerOf,
   mostCapable,
   pageLabel,
   pageOutcome,
+  pathOfHref,
   rolesWhoCanOpen,
   whoCanOpenLine,
   type Caller,
 } from "./access";
 import { canOpenLiveMap, canOpenRampIpad } from "@/domain/access/map-view";
-import { navItems, navItemsFor } from "@/ui/nav-items";
+import { menuItems, navItems, navItemsFor } from "@/ui/nav-items";
 import { noAccess } from "@/ui/copy";
 
 /**
@@ -158,34 +160,45 @@ describe("every surface in the filesystem has exactly one row", () => {
  * that may not open it.
  */
 describe("the addresses that moved", () => {
+  /** The three that are the same screen renamed, as opposed to a screen that became a tab. */
+  const RENAMED = ["/plan-preview", "/map-preview", "/ramp-preview"];
+
   it("has no \"preview\" left in any address a screen is reached at, or any label", () => {
     const destinations = PAGES.filter((p) => p.kind === "page" && !(p.path in MOVED_PAGES));
     for (const row of destinations) {
       expect(row.path, row.file).not.toMatch(/preview/i);
       expect(row.label ?? "", row.file).not.toMatch(/preview/i);
     }
-    // And the labels on the redirect rows are the destinations' labels, so there is no second
+    // And the labels on the renamed rows are the destinations' labels, so there is no second
     // name for a screen hiding on an old address either.
-    for (const [from, to] of Object.entries(MOVED_PAGES)) {
-      expect(pageLabel(from), from).toBe(pageLabel(to));
+    for (const from of RENAMED) {
+      expect(pageLabel(from), from).toBe(pageLabel(MOVED_PAGES[from]));
       expect(pageLabel(from), from).not.toMatch(/preview/i);
     }
   });
 
-  it("is these three pairs, with both ends in the table", () => {
+  /**
+   * Five pairs: the three renamed screens, and the two that became part of another screen
+   * (Firia, 2026-10-17 8:36 PM ET). `/approvals` lands on a *tab* — `?tab=for-you` — so the row
+   * at the other end is looked up by the path inside that address.
+   */
+  it("is these five pairs, with both ends in the table", () => {
     expect(MOVED_PAGES).toEqual({
       "/plan-preview": "/plan-routes",
       "/map-preview": "/live-map",
       "/ramp-preview": "/ramp-ipad",
+      "/exceptions": "/today",
+      "/approvals": "/family-texts?tab=for-you",
     });
     for (const [from, to] of Object.entries(MOVED_PAGES)) {
       expect(PAGES.map((p) => p.path), from).toContain(from);
-      expect(PAGES.map((p) => p.path), to).toContain(to);
+      expect(PAGES.map((p) => p.path), to).toContain(pathOfHref(to));
     }
   });
 
   it("sends only a caller who could open the destination, and refuses everyone else the same way", () => {
-    for (const [from, to] of Object.entries(MOVED_PAGES)) {
+    for (const [from, href] of Object.entries(MOVED_PAGES)) {
+      const to = pathOfHref(href);
       expect(rolesWhoCanOpen(from), from).toEqual(rolesWhoCanOpen(to));
       for (const caller of Object.values(callers)) {
         expect({ from, outcome: pageOutcome(caller, from) }).toEqual({
@@ -193,6 +206,22 @@ describe("the addresses that moved", () => {
           outcome: pageOutcome(caller, to),
         });
       }
+    }
+  });
+
+  /**
+   * THE FRONT DESK ENDS ON A SCREEN THEY CAN SEE — never on "For you", never on a 403.
+   *
+   * Their row opens neither of the two pages that moved, so the guard answers before the
+   * redirect does and sends them to their own home (§9.3). The assertion is the whole chain:
+   * refused at the old address, home is the live map, and the live map is a page they may open.
+   */
+  it("leaves the front desk on their own home, not on the destination", () => {
+    for (const from of ["/exceptions", "/approvals"]) {
+      expect(pageOutcome(callers.frontDesk, from), from).toBe("NO_ACCESS");
+      const home = homePathFor(callers.frontDesk);
+      expect(home).toBe("/live-map");
+      expect(pageOutcome(callers.frontDesk, home)).toBe("ALLOW");
     }
   });
 
@@ -215,10 +244,17 @@ describe("the addresses that moved", () => {
     }
   });
 
-  it("keeps the moved addresses out of the rail and out of every role's home", () => {
+  /**
+   * A redirect is never a destination: not on the menu, and not anybody's home. The second half
+   * is the one that would bite — "send them home" is where the guard puts a role that may not
+   * open what they asked for (§9.3), and a home that redirects is a bounce rather than a
+   * screen. `/exceptions` was in that order until this PR; it is not now.
+   */
+  it("keeps the moved addresses off the menu and out of every role's home", () => {
     for (const from of Object.keys(MOVED_PAGES)) {
-      expect(navItems.map((i) => i.href), from).not.toContain(from);
+      expect(menuItems.map((i) => i.href), from).not.toContain(from);
       for (const caller of Object.values(callers)) expect(homePathFor(caller), from).not.toBe(from);
+      expect(HOME_ORDER, from).not.toContain(from);
     }
   });
 });
@@ -597,12 +633,13 @@ describe("where each role lives", () => {
 
   it("offers each role only the nav items it can open", () => {
     /*
-     * The whole menu, for a role whose row opens everything, in REDESIGN-SPEC §0's order: the
-     * day's four screens, then Family texts, then the two surfaces that are about the day
-     * rather than in it. Setup is the one destination off the *menu* (the `inMenu` flag in
-     * src/ui/nav-items.ts), because §0 moves van counts onto the ramp iPad rather than because
-     * the page is unfinished; its row and its route are untouched, and `rolesWhoCanOpen` below
-     * is still asked about every destination. Addresses only — no "preview" in any of them.
+     * The whole menu, for a role whose row opens everything, in REDESIGN-SPEC §9.2's order and
+     * at §9.2's length: five, the day's four screens and then Family texts. Three destinations
+     * are off the *menu* (the `inMenu` flag in src/ui/nav-items.ts) and none of the three is off
+     * it because a page is unfinished — Exceptions & Approvals is Today's "Needs you" card and
+     * the For you tab, Health & ROI is a tab inside Today, and §0 moves Setup's van counts onto
+     * the ramp iPad. Every row and every route is untouched, and `rolesWhoCanOpen` below is
+     * still asked about every destination. Addresses only — no "preview" in any of them.
      */
     const everything = [
       "/today",
@@ -610,8 +647,6 @@ describe("where each role lives", () => {
       "/live-map",
       "/ramp-ipad",
       "/family-texts",
-      "/exceptions",
-      "/health",
     ];
     expect(navItemsFor("DIRECTOR").map((i) => i.href)).toEqual(everything);
     expect(navItemsFor("COORDINATOR").map((i) => i.href)).toEqual(everything);

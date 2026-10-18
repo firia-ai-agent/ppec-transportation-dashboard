@@ -1,10 +1,22 @@
 import Link from "next/link";
 import { UserLock } from "lucide-react";
-import { homePathFor, pageLabel, whoCanOpenLine } from "@/auth/access";
+import { homePathFor, pageLabel, whoCanOpenLine, type Caller } from "@/auth/access";
 import { getCaller } from "@/auth/caller";
 import { fill, noAccess } from "./copy";
 import { icon } from "./tokens";
 import styles from "./NoAccess.module.css";
+
+/**
+ * THE REFUSAL'S OWN TITLE, in one expression — read by the card and by the frame around it.
+ *
+ * Two headings, because two refusals: a role refused *this* page, and an account with no role
+ * at any site, whose refusal is not about a page at all (Vera's two lines). `src/ui/RefusedPage.tsx`
+ * prints it in the page header bar when the boundary has no page to name, and the card then
+ * renders no heading of its own — one screen, one h1 (Veri's gate on #74).
+ */
+export function refusalHeading(caller: Caller): string {
+  return caller.kind === "NO_ROLE" ? noAccess.noRoleHeading : noAccess.heading;
+}
 
 /**
  * A page that exists, is open to staff, and is not open to *this* person.
@@ -26,8 +38,8 @@ import styles from "./NoAccess.module.css";
  * The DEMO bar and the one Simulated chip are above it, from the root layout, on this route as on
  * every other (§7, §7.1, NFR-09) — this card must not mount a second pair.
  *
- * It is a card, not a page: every boundary that renders it is inside the app shell, so the menu,
- * the header and Sign out are on screen around it and a refusal is not the dead end the
+ * It is a card, not a page: every boundary that renders it is inside the app shell, so the menu
+ * and the account are on screen around it and a refusal is not the dead end the
  * founder's walk of production found (Vera's review, 2026-10-17). That is also why there is no
  * `<main>` here — the shell's `#content` is the landmark, and two would be one too many.
  *
@@ -35,13 +47,27 @@ import styles from "./NoAccess.module.css";
  * (src/auth/page-guard.ts calls `forbidden()`), and `path` is the page that was asked for. The
  * root boundary passes none.
  *
+ * Its heading is `refusalHeading` below, so the frame above it can print the same words in the
+ * page header bar when the refusal has no page to name — see `titleInFrame`.
+ *
  * One caller gets different words: someone signed in who holds no role at any site at all. Their
  * refusal is not about this page — every page refuses them — so "This page isn't part of your
  * role" and a line naming the roles that could open it would both be beside the point. They get
  * Vera's two lines instead (`noAccess.noRoleHeading` / `noRoleLine`): what is true of their
  * account, and who can change it. Everyone else keeps the role card above, page line included.
  */
-export async function NoAccess({ path }: { path?: string }) {
+export async function NoAccess({
+  path,
+  titleInFrame = false,
+}: {
+  path?: string;
+  /**
+   * True when the frame above this card is already printing `refusalHeading` as the screen's
+   * title (src/ui/RefusedPage.tsx, src/ui/PageHeader.tsx). The card then leaves the heading to
+   * it rather than saying the same words twice — and the screen keeps exactly one h1.
+   */
+  titleInFrame?: boolean;
+}) {
   const caller = await getCaller();
   const home = homePathFor(caller);
   const noRole = caller.kind === "NO_ROLE";
@@ -51,7 +77,16 @@ export async function NoAccess({ path }: { path?: string }) {
         <p className={styles.icon}>
           <UserLock size={icon.nav} aria-hidden="true" />
         </p>
-        <h1 className={styles.heading}>{noRole ? noAccess.noRoleHeading : noAccess.heading}</h1>
+        {/*
+          An h2, not an h1: the page's one title is in the frame's header bar now
+          (src/ui/PageHeader.tsx), and the card's heading is the answer *inside* that page. Two
+          h1s on one screen is two titles, which is the thing audit §2 item 1 is about.
+
+          And none at all when the frame is printing it: a refusal with no page to name has no
+          row in the table for the bar to read, so the bar reads this heading instead and the
+          card would otherwise repeat it word for word under itself.
+        */}
+        {titleInFrame ? null : <h2 className={styles.heading}>{refusalHeading(caller)}</h2>}
         {noRole ? <p className={styles.line}>{noAccess.noRoleLine}</p> : null}
         {!noRole && path ? <p className={styles.line}>{whoCanOpenLine(path)}</p> : null}
         <Link className={styles.link} href={home}>

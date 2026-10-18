@@ -19,14 +19,17 @@
 
 .item {
   min-width: 0;
+  display: flex;
 }
 
 .card {
+  flex: 1;
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  min-height: var(--target-console);
-  padding: var(--space-4);
+  /* §9.2's 56 px card, which is also well over the §9 44 px target. */
+  min-height: 56px;
+  padding: var(--space-3) var(--space-4);
   border: var(--border-hairline) solid var(--color-neutral-bg);
   border-radius: var(--radius-md);
   background: var(--color-surface);
@@ -53,17 +56,40 @@
 }
 
 /*
+ * THE STEP TO DO NEXT — the first card that is not Done (§9.2, and the mockup's `.step.cur`).
+ *
+ * A brand border and a soft ring outside it, on the card itself rather than on the link, so a
+ * plain status card the front desk cannot open is still marked as the next thing in the order
+ * of the day. `aria-current="step"` beside it is what says the same to a screen reader, which is
+ * why this rule hangs off the attribute: the ring cannot be drawn without the announcement.
+ */
+.card[aria-current="step"] {
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 var(--border-ring) var(--color-selected-bg);
+}
+
+/*
  * A step this role cannot open: no ring, no pointer, and the card reads as a label rather than
  * a control. It keeps its place in the row, because the order of the day is the same three
  * steps for everybody (§9.2, "the front desk sees all three cards").
  */
 .plain {
   cursor: default;
-  background: var(--color-neutral-bg);
-  border-color: var(--color-neutral-bg);
 }
 
-/* §9.2: a 32 px disc. The selected tint behind Teal Ink — 8.27:1, and the strip's only colour. */
+/* §9.2: a Locked card sits on the page colour rather than on a surface (the mockup's `.locked`). */
+.card[data-state="LOCKED"] .name {
+  color: var(--color-neutral-fg);
+}
+
+/*
+ * §9.2: a 32 px disc in the state's own tone.
+ *
+ * Two edges, two rules. The icon against the disc is the §8 tone pair (6.5:1 and up), which is
+ * the one a reader has to resolve; the disc against the card is a tone's *background*, which on
+ * white is a tint and not a 3:1 edge on its own — so the disc takes a hairline in the tone's
+ * foreground ink, and that edge is 5:1 or better. Same two colours, no new ones.
+ */
 .disc {
   display: inline-flex;
   flex: none;
@@ -71,17 +97,47 @@
   justify-content: center;
   width: 32px;
   height: 32px;
+  border: var(--border-hairline) solid currentColor;
   border-radius: var(--radius-pill);
-  background: var(--color-selected-bg);
-  color: var(--color-ink-brand);
+}
+
+.disc[data-tone="ok"] {
+  color: var(--color-ok-fg);
+  background: var(--color-ok-bg);
+}
+
+.disc[data-tone="warn"] {
+  color: var(--color-warn-fg);
+  background: var(--color-warn-bg);
+}
+
+.disc[data-tone="neutral"] {
+  color: var(--color-neutral-fg);
+  background: var(--color-neutral-bg);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  line-height: var(--leading-tight);
 }
 
 .name {
-  flex: 1;
-  min-width: 0;
   font-weight: var(--weight-semibold);
-  line-height: var(--leading-tight);
   overflow-wrap: anywhere;
+}
+
+/* The one line the step's own data says: "3/3 checked", "Saved 2:41 PM", "Plan first". */
+.detail {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+  overflow-wrap: anywhere;
+}
+
+.chip {
+  flex: none;
 }
 
 .chevron {
@@ -91,14 +147,15 @@
 
 /*
  * At 390 the three cards stay in one row — §9.2 is explicit about it — and stack inside: the
- * disc on its own line with the chevron in the corner beside it, then the name under both.
+ * disc on its own line with the chevron in the corner beside it, then the name, the detail and
+ * the chip under them (png/shell-flow-390.png).
  */
 @media (max-width: 767px) {
   .card {
     position: relative;
     flex-direction: column;
     align-items: flex-start;
-    gap: var(--space-3);
+    gap: var(--space-2);
     padding: var(--space-3);
   }
 
@@ -108,8 +165,17 @@
     inset-inline-end: var(--space-3);
   }
 
-  .name {
+  .disc {
+    width: 28px;
+    height: 28px;
+  }
+
+  .text {
     flex: none;
+    width: 100%;
+  }
+
+  .name {
     font-size: var(--text-14);
   }
 }

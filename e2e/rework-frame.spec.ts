@@ -28,29 +28,48 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type { StaffRole } from "../src/auth/core";
-import { demoDay, nav, sourceMode } from "../src/ui/copy";
-import { navItemsFor } from "../src/ui/nav-items";
+import { deriveReadiness, unreadFacts } from "../src/domain/day/readiness";
+import { legAt, serviceDateAt } from "../src/domain/day/day-facts";
+import { demoDay, flow, nav, sourceMode } from "../src/ui/copy";
+import { menuBadgeFor } from "../src/ui/menu-badge";
+import { MENU_SIZE, navItemsFor } from "../src/ui/nav-items";
 import { stepsFor } from "../src/ui/step-strip";
-import { splitTabs } from "../src/ui/TabBar";
-import { ARTIFACTS, expectDemoBarPinned } from "./helpers";
+import { APPROVAL_ROLES, MOVED_PAGES, homePathFor, pageOutcome } from "../src/auth/access";
+import { ARTIFACTS, expectDemoBarPinned, frameHeaders } from "./helpers";
 
 /** The role playwright.config.ts started the server as. Its default is the director. */
 const ROLE = (process.env.E2E_DEMO_ROLE ?? "DIRECTOR") as StaffRole;
 
-/** This role's menu, and what of it has a tab of its own below 768 (REDESIGN-SPEC §9.2). */
+/**
+ * This role's menu — and below 768 the bar carries every item of it, one tab each (Firia,
+ * 2026-10-17 8:36 PM ET). There is no overflow and no "More": the menu is five items at every
+ * width, so `TABS` is the menu.
+ */
 const MENU = navItemsFor(ROLE);
-const TABS = splitTabs(MENU).tabs;
+const TABS = MENU;
 
 /**
- * The addresses walked on top of the menu. All three were a gap in the walk: `/whoami` rendered
- * with no frame at all, and `/family-texts` and `/approvals` did not exist — `/family-texts` as
- * a 404 behind a menu item, `/approvals` as the queue §9.2 reaches from it.
+ * The addresses walked on top of the menu. `/whoami` rendered with no frame at all on the
+ * founder's walk; `/family-texts` was a 404 behind a menu item. `/approvals` is not in this list
+ * any more — it is a permanent redirect to the tab it is (§9.2), and the redirects have a test
+ * of their own below, where the status line is what is being read.
  */
-const EXTRA = ["/whoami", "/family-texts", "/approvals"];
+const EXTRA = ["/whoami", "/family-texts"];
 
 const ROUTES = [...MENU.map((item) => item.href), ...EXTRA];
 
 const WIDTHS = [390, 1440] as const;
+
+/**
+ * The day this run's server reads, which is no day at all: the synthetic session is a role with
+ * no site behind it (src/auth/caller.ts), so the readiness loader has nothing to read a centre's
+ * rows for and answers with the unread day — Needed, Needed, Locked
+ * (src/domain/day/day-facts.ts). Derived here through the same function the server uses rather
+ * than written out, so this file cannot drift from it, and deterministic by the shape of the
+ * session rather than by an environment variable a deployment could set.
+ */
+const READINESS = deriveReadiness(unreadFacts(serviceDateAt(), legAt()));
+const STEPS = stepsFor(ROLE, READINESS);
 
 const slug = (href: string) => href.replace(/^\//, "") || "home";
 
@@ -107,17 +126,64 @@ async function visibleMatches(page: Page, pattern: string): Promise<string[]> {
 }
 
 /**
- * The frame, at this width: a header, the menu this width draws — and not the other one — and
- * nothing to open to find it. Returns the menu, because every caller's next question is about
- * what is in it.
+ * The frame, at this width: one brand, one identity, the menu this width draws — and not the
+ * other one — and nothing to open to find it. Returns the menu, because every caller's next
+ * question is about what is in it.
  */
 async function expectFrame(page: Page, width: number, where: string) {
-  await expect(page.locator("header").first(), `no header on ${where} at ${width}`).toBeVisible();
   const rail = page.getByRole("navigation", { name: nav.landmarkLabel });
+  const brand = page.locator("[data-rail-brand]");
+  const railAccount = page.locator("[data-rail-account]");
+  const pageAccount = page.locator("[data-page-account]");
+  /*
+   * NO APP HEADER, AT ANY WIDTH (audit §2 items 1, 3 and 5). The 96 px white band with the
+   * product's name in it and the "Dana ⌄" pill at its far right is deleted: the brand is the
+   * block at the head of the rail, the account is the block at its foot, and the screen's title
+   * is the 64 px page header bar inside the content column.
+   */
+  expect(await frameHeaders(page), `an app header on ${where} at ${width}`).toEqual([]);
+  const title = page.getByRole("heading", { level: 1 });
+  await expect(title, `no page title on ${where} at ${width}`).toBeVisible();
+  /*
+   * ...and it is in the 64 px bar at the top of the content column. Measured against the column
+   * rather than against the window, because the §9.3 notice is a row of its own above it — a
+   * front desk who typed an address they may not open lands on their home *with* that line, and
+   * the frame below it is still the frame.
+   */
+  expect(
+    await title.evaluate((el) => {
+      const bar = el.parentElement as HTMLElement;
+      const box = bar.getBoundingClientRect();
+      return {
+        isTheBar: bar.nextElementSibling?.id === "content",
+        height: Math.round(box.height),
+      };
+    }),
+    `the title is not in the page header bar on ${where}`,
+  ).toEqual({ isTheBar: true, height: 64 });
+  /*
+   * WHERE THE IDENTITY IS, and that there is one of it (REDESIGN-SPEC §9.2, audit §2 item 5).
+   * At 768 and up the rail carries it — the block at its foot, beside the brand block at its
+   * head. Below 768 the rail is a tab bar with no room for a name, so the account is the 36 px
+   * disc at the trailing end of the page header bar, and it is a link to /whoami, where Sign
+   * out is.
+   */
+  if (width >= 768) {
+    await expect(brand, `no brand block on ${where} at ${width}`).toBeVisible();
+    await expect(railAccount, `no account block on ${where} at ${width}`).toBeVisible();
+    await expect(pageAccount, `a second identity on ${where} at ${width}`).toBeHidden();
+  } else {
+    await expect(pageAccount, `no account disc on ${where} at ${width}`).toBeVisible();
+    await expect(railAccount, `a second identity on ${where} at ${width}`).toBeHidden();
+    expect(await pageAccount.getAttribute("href")).toBe("/whoami");
+  }
   const bar = page.locator("[data-tab-bar]");
-  // The hamburger and its drawer are deleted (Firia, 2026-10-17 3:08 PM ET), at every width.
+  // The hamburger and its drawer are deleted (Firia, 2026-10-17 3:08 PM ET), at every width —
+  // and so is the phone bar's "More" tab and the sheet it opened (Firia, 8:36 PM ET).
   await expect(page.getByRole("button", { name: /menu/i }), `a hamburger on ${where}`).toHaveCount(0);
   await expect(page.locator("[data-nav-drawer]"), `a drawer on ${where}`).toHaveCount(0);
+  await expect(page.locator("[data-more-tab]"), `a More tab on ${where}`).toHaveCount(0);
+  await expect(page.locator("[data-more-sheet]"), `a More sheet on ${where}`).toHaveCount(0);
   if (width < 768) {
     await expect(bar, `no tab bar on ${where} at ${width}`).toBeVisible();
     await expect(rail, `the desk rail is on screen at ${width} as well`).toBeHidden();
@@ -151,7 +217,22 @@ for (const width of WIDTHS) {
 
         const where = new URL(page.url()).pathname;
         const menu = await expectFrame(page, width, where);
-        await expect(menu.getByRole("link")).toHaveCount(width < 768 ? TABS.length : MENU.length);
+        /*
+         * EVERY link in the menu landmark is a menu item, and the account is not one of them
+         * (Firia ruling: a 5-item menu with the account block outside the menu; Veri #74 gate,
+         * 12:03 AM ET; shell-flow.html — `.nav` holds the destinations, the account sits at the
+         * rail's foot). Counting every <a>, not a data hook, so a link slipped into the landmark
+         * fails here.
+         */
+        await expect(menu.locator("a")).toHaveCount(width < 768 ? TABS.length : MENU.length);
+        await expect(
+          menu.locator('a[href="/whoami"]'),
+          `the account link is inside the menu landmark on ${where} at ${width}`,
+        ).toHaveCount(0);
+        await expect(
+          page.locator('a[href="/whoami"]:visible').first(),
+          `no account link outside the menu on ${where} at ${width}`,
+        ).toBeVisible();
 
         // The one DEMO bar, pinned, with the one §7.1 chip riding in it.
         await expectDemoBarPinned(page);
@@ -204,41 +285,71 @@ for (const width of WIDTHS) {
     });
 
     /**
-     * TODAY'S STEP STRIP: three cards, each one a way into the screen that does that step, and
-     * never a link this role would be bounced from (REDESIGN-SPEC §9.2). A front desk sees all
-     * three and can open one of them, so the two they cannot open are plain text rather than a
-     * link to a 403 — which is why the hrefs are checked against the access table's own answer.
+     * TODAY'S STEP STRIP: three cards, each saying what its own step actually stands at, and
+     * never a link this role would be bounced from (REDESIGN-SPEC §9.2).
+     *
+     * The states here are the ones a shell with no database shows — Needed, Needed, Locked —
+     * because that is what this run is: a role with no site behind it, so the readiness loader
+     * reads nothing and says so rather than claiming anything is done. That makes the whole
+     * strip deterministic without a seed and without a flag.
+     *
+     * A front desk sees all three cards and can open one, so the two they cannot open are plain
+     * text rather than links to a 403 — which is why the hrefs are checked against the access
+     * table's own answer, through the same function the page renders from.
      */
-    test("the step strip is three steps, each opening a screen this role can open", async ({
-      page,
-    }) => {
+    test("the step strip is three steps, each saying where that step stands", async ({ page }) => {
       test.skip(!MENU.some((item) => item.href === "/today"), "Today is not on this role's menu");
       await page.goto("/today");
-      const strip = page.getByRole("navigation", { name: /steps/i });
+      const strip = page.getByRole("navigation", { name: flow.stepsAria });
       await expect(strip).toBeVisible();
       await expect(strip.locator("li")).toHaveCount(3);
 
-      const steps = stepsFor(ROLE);
-      const linkable = steps.filter((step) => step.linked);
+      /*
+       * THE SHOT OF THE STRIP, taken here — on Today, before anything is clicked. It used to be
+       * taken at the end of this test, after the walk below had clicked through to the last
+       * step, so the file called "today-steps" was a picture of the live map (Vera's read of
+       * the artifacts). One shot of the strip, then one per destination, each named after what
+       * is in it.
+       */
+      console.log("screenshot:", await shotOf(page, "/today-steps", width));
+
+      // Every card says its step, its state and the one line its own data gives it.
+      for (const step of STEPS) {
+        const card = strip.locator(`[data-step="${step.key}"]`);
+        await expect(card, `no ${step.key} card`).toHaveCount(1);
+        await expect(card).toHaveAttribute("data-state", step.state);
+        await expect(card).toContainText(step.label);
+        await expect(card).toContainText(step.detail);
+      }
+
+      // The first card that is not done is the one marked as the step to take next, and it is
+      // marked once — a strip with three "do this next" markers says nothing at all.
+      const current = strip.locator('[aria-current="step"]');
+      await expect(current).toHaveCount(1);
+      await expect(current).toHaveAttribute(
+        "data-step",
+        STEPS.find((step) => step.current)!.key,
+      );
+
+      const linkable = STEPS.filter((step) => step.linked);
       const links = strip.getByRole("link");
       await expect(links).toHaveCount(linkable.length);
       const hrefs = await links.evaluateAll((els) => els.map((el) => el.getAttribute("href") ?? ""));
       expect(hrefs).toEqual(linkable.map((step) => step.href));
-      // And the cards that are not links say their step anyway: three steps, whatever the role.
-      const names = await strip.locator("li").evaluateAll((els) =>
-        els.map((el) => (el.textContent ?? "").trim()),
-      );
-      expect(names).toEqual(steps.map((step) => step.label));
 
-      // Each link goes where it says, inside the frame.
+      /*
+       * Each link goes where it says, inside the frame — and for a Locked card "where it says"
+       * is the step it is waiting on: the live map's card opens Plan routes while nothing is
+       * saved, and its accessible name says so rather than surprising the click.
+       */
       for (const step of linkable) {
         await page.goto("/today");
-        await strip.getByRole("link", { name: step.label }).click();
+        await strip.getByRole("link", { name: step.ariaLabel }).click();
         await page.waitForURL(`**${step.href}`);
         expect(new URL(page.url()).pathname).toBe(step.href);
         await expectFrame(page, width, step.href);
+        console.log("screenshot:", await shotOf(page, `/step-${step.key}`, width));
       }
-      console.log("screenshot:", await shotOf(page, "/today-steps", width));
     });
 
     /**
@@ -271,66 +382,185 @@ for (const width of WIDTHS) {
 }
 
 /**
- * The phone's "More" tab, and the rules that make it a tab rather than the deleted hamburger:
- * the primary tabs stay on screen, the sheet is in the frame, every row is a §9 target, and it
- * closes on a selection, on Escape and on a tap outside, with focus managed both ways.
+ * THE PHONE'S BAR, at 390: five tabs, the count on Family texts, and nothing to open.
  *
- * Only for a role whose menu is longer than the bar's five slots — the front desk has two
- * destinations, so there is nothing to overflow and no tab to find.
+ * Firia, 2026-10-17 8:36 PM ET, over the 6:19 PM menu: five items at every width, so the bar is
+ * one tab per item and the fifth slot that opened the rest is deleted with the overflow it
+ * existed for. The front desk's two destinations are two tabs, as they always were.
  */
-test.describe(`the phone's More tab, as ${ROLE}`, () => {
+test.describe(`the phone's tab bar, as ${ROLE}`, () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  const OVERFLOW = splitTabs(MENU).overflow;
-
-  test("opens the rest of the menu in the frame, and closes three ways", async ({ page }) => {
-    test.skip(OVERFLOW.length === 0, `${ROLE}'s menu fits the bar, so there is no More tab`);
+  test("is one tab per menu item, with the Family texts count on it when there is one", async ({
+    page,
+  }) => {
     await page.goto(MENU[0].href);
     const bar = page.locator("[data-tab-bar]");
-    const more = bar.locator("[data-more-tab]");
+    await expect(bar).toBeVisible();
 
-    // The four tabs beside it are on screen without a tap: that is the whole difference.
-    await expect(bar.getByRole("link")).toHaveCount(TABS.length);
-    await expect(more).toBeVisible();
-    await expect(more).toHaveAttribute("aria-expanded", "false");
-    expect((await more.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
-
-    // 1. It opens, and every row in it is this role's own destination and a §9 target.
-    await more.click();
-    const sheet = page.locator("[data-more-sheet]");
-    await expect(sheet).toBeVisible();
-    await expect(more).toHaveAttribute("aria-expanded", "true");
-    const rows = sheet.getByRole("link");
-    await expect(rows).toHaveCount(OVERFLOW.length);
-    expect(await rows.evaluateAll((els) => els.map((el) => el.getAttribute("href") ?? ""))).toEqual(
-      OVERFLOW.map((item) => item.href),
+    // One tab per item, in the menu's order, and every one a §9 target.
+    const tabs = bar.getByRole("link");
+    await expect(tabs).toHaveCount(MENU.length);
+    expect(MENU.length).toBeLessThanOrEqual(MENU_SIZE);
+    expect(await tabs.evaluateAll((els) => els.map((el) => el.getAttribute("href") ?? ""))).toEqual(
+      MENU.map((item) => item.href),
     );
-    for (const row of await rows.all()) {
-      expect((await row.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    for (const tab of await tabs.all()) {
+      expect((await tab.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
     }
-    // Focus went into it, so the next Tab is inside the sheet rather than past it (§9).
-    expect(await sheet.evaluate((el) => el.contains(document.activeElement))).toBe(true);
-    console.log("screenshot:", await shotOf(page, "/more-sheet", 390));
 
-    // 2. Escape closes it and puts the focus back on the tab that opened it.
-    await page.keyboard.press("Escape");
-    await expect(sheet).toHaveCount(0);
-    await expect(more).toBeFocused();
-
-    // 3. A tap outside closes it.
-    await more.click();
-    await expect(sheet).toBeVisible();
-    await page.mouse.click(195, 300);
-    await expect(sheet).toHaveCount(0);
-
-    // 4. Picking something closes it, and goes there — inside the frame, bar and all.
-    await more.click();
-    await sheet.getByRole("link", { name: OVERFLOW[0].label }).click();
-    await page.waitForURL(`**${OVERFLOW[0].href}`);
+    // Nothing to open: no More tab, no sheet, no hamburger (checked at every route above too).
+    await expect(bar.locator("[data-more-tab]")).toHaveCount(0);
     await expect(page.locator("[data-more-sheet]")).toHaveCount(0);
-    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-    await expectFrame(page, 390, OVERFLOW[0].href);
-    // ...and the bar says where you are, even for a destination that has no tab of its own.
-    await expect(bar.locator("[data-more-tab]")).toHaveAttribute("aria-current", "page");
+
+    /*
+     * THE BADGE (REDESIGN-SPEC §9.2, audit §2 item 2): a Teal disc with white text on Family
+     * texts, for the roles that can act on what is waiting — and the count said in words in the
+     * tab's own accessible name, because the disc is aria-hidden.
+     *
+     * Asked of `menuBadgeFor` rather than written down, which is why this still holds now that
+     * the answer is "nothing": the fixture behind the count is deleted and there is no live read
+     * until #61, so no role is shown a disc and no tab says "waiting" (Veri's S2 on #74). The
+     * branch below is what the badge has to look like when there is a count again.
+     */
+    const waiting = menuBadgeFor("/family-texts", ROLE);
+    const badge = bar.locator("[data-menu-badge]");
+    if (waiting === null) {
+      await expect(badge, `${ROLE} is being shown a count`).toHaveCount(0);
+    } else {
+      await expect(badge).toHaveCount(1);
+      await expect(badge).toHaveText(String(waiting));
+      const disc = await badge.evaluate((el) => {
+        const s = getComputedStyle(el);
+        const box = el.getBoundingClientRect();
+        return { bg: s.backgroundColor, ink: s.color, w: Math.round(box.width), h: Math.round(box.height) };
+      });
+      expect(disc.w).toBe(20);
+      expect(disc.h).toBe(20);
+      expect(disc.bg).toBe("rgb(15, 118, 110)");
+      expect(disc.ink).toBe("rgb(255, 255, 255)");
+      const tab = bar.getByRole("link", { name: `${nav.familyTexts}, ${waiting} waiting` });
+      await expect(tab).toHaveCount(1);
+      expect(await badge.evaluate((el) => el.closest("a")?.getAttribute("href"))).toBe(
+        "/family-texts",
+      );
+    }
+    console.log("screenshot:", await shotOf(page, "/tab-bar", 390));
+  });
+
+  /**
+   * THE ACTIVE TAB. mockup: /workspace/ppec-redesign/mockups/shell-flow.html:75 (and
+   * plan-board.html:75), Vera's ruling 11:00 PM ET — `.nav a.on{background:transparent;
+   * font-weight:700;box-shadow:inset 0 3px 0 var(--brand)}`: an exact 3 px brand bar drawn as an
+   * inset shadow, bold text, **no fill** and no border. Same exact values as one-menu.spec.ts.
+   */
+  test("marks the page you are on with an edge, not a filled block", async ({ page }) => {
+    await page.goto(MENU[0].href);
+    const current = page.locator("[data-tab-bar] a[aria-current='page']");
+    await expect(current).toHaveCount(1);
+    const style = await current.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return {
+        shadow: s.boxShadow,
+        border: s.borderTopWidth,
+        background: s.backgroundColor,
+        weight: s.fontWeight,
+      };
+    });
+    expect(style.shadow).toBe("rgb(15, 118, 110) 0px 3px 0px 0px inset");
+    expect(style.border).toBe("0px");
+    expect(style.background).toBe("rgba(0, 0, 0, 0)");
+    expect(style.weight).toBe("700");
+  });
+
+  /**
+   * THE ACTIVE RAIL ITEM at 1440. mockup: /workspace/ppec-redesign/mockups/shell-flow.html:32
+   * (`.nav a.on{background:var(--info-bg);color:var(--info-fg)}`), Vera's ruling 11:00 PM ET:
+   * no border, the --info-bg fill (#E6F2F1) and --info-fg text (#134E4A).
+   */
+  test("marks the current rail item with the info fill and no border", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(MENU[0].href);
+    // The rail, not the tab bar: both are in the DOM at every width; only the rail shows here.
+    const current = page.locator("nav:not([data-tab-bar]) [data-nav-item][aria-current='page']");
+    await expect(current).toHaveCount(1);
+    const style = await current.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return {
+        borders: [s.borderTopWidth, s.borderRightWidth, s.borderBottomWidth, s.borderLeftWidth],
+        shadow: s.boxShadow,
+        background: s.backgroundColor,
+        ink: s.color,
+      };
+    });
+    expect(style.borders).toEqual(["0px", "0px", "0px", "0px"]);
+    expect(style.shadow).toBe("none");
+    expect(style.background).toBe("rgb(230, 242, 241)");
+    expect(style.ink).toBe("rgb(19, 78, 74)");
+  });
+});
+
+/**
+ * THE TWO ADDRESSES THAT MOVED — `/exceptions` → `/today` and `/approvals` →
+ * `/family-texts?tab=for-you`, both permanent (Firia, 8:36 PM ET; audit §2 item 2).
+ *
+ * Read off the status line rather than off the screen, with redirects not followed, because 308
+ * is the claim: the address has moved for good. Then followed, because where a person *ends* is
+ * the other half — and for the front desk that must be a screen they can see (their home, the
+ * live map), never "For you" and never a refusal.
+ */
+test.describe(`the moved addresses, as ${ROLE}`, () => {
+  for (const [from, to] of Object.entries(MOVED_PAGES)) {
+    if (!["/exceptions", "/approvals"].includes(from)) continue;
+
+    test(`${from} answers for this role without ever 404ing`, async ({ page }) => {
+      const canOpen = pageOutcome({ kind: "STAFF", role: ROLE }, from) === "ALLOW";
+      // The status line, with the redirect not followed.
+      const response = await page.request.get(from, { maxRedirects: 0 });
+      expect(response.status(), `${from} answered ${response.status()}`).not.toBe(404);
+      if (canOpen) {
+        expect(response.status(), `${from} is not a permanent redirect`).toBe(308);
+        expect(response.headers()["location"]).toContain(to);
+      } else {
+        /*
+         * A role whose row does not open it never learns where it went: the guard answers
+         * first, with a 307 to their own home and the §9.3 notice on it.
+         */
+        expect(response.status()).toBe(307);
+        const location = response.headers()["location"] ?? "";
+        expect(location).toContain(homePathFor({ kind: "STAFF", role: ROLE }));
+        expect(location, `${from} leaked its destination to ${ROLE}`).not.toContain(
+          to.split("?")[0],
+        );
+      }
+
+      // And where a person actually ends: a screen with this frame on it, never a dead end.
+      await page.goto(from);
+      const landed = new URL(page.url()).pathname;
+      expect(landed).toBe(canOpen ? to.split("?")[0] : homePathFor({ kind: "STAFF", role: ROLE }));
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+      await expectFrame(page, 1440, landed);
+      // The front desk is on a page their own row opens, and it is not the For you queue.
+      expect(pageOutcome({ kind: "STAFF", role: ROLE }, landed)).toBe("ALLOW");
+      if (!canOpen) expect(page.url()).not.toContain("tab=for-you");
+      console.log("screenshot:", await shotOf(page, `/from-${slug(from)}`, 1440));
+    });
+  }
+
+  /**
+   * A typed `?tab=for-you` is refused on the *server* for a role that may not decide, and lands
+   * them on their own home — not hidden in the UI (the ID-swap skill, rule 6).
+   */
+  test("the For you tab refuses a role that may not decide, server-side", async ({ page }) => {
+    const allowed = APPROVAL_ROLES.includes(ROLE);
+    const response = await page.request.get("/family-texts?tab=for-you", { maxRedirects: 0 });
+    if (allowed) {
+      expect(response.status()).toBe(200);
+      return;
+    }
+    expect(response.status()).toBe(307);
+    expect(response.headers()["location"]).toContain(homePathFor({ kind: "STAFF", role: ROLE }));
+    await page.goto("/family-texts?tab=for-you");
+    expect(new URL(page.url()).pathname).toBe(homePathFor({ kind: "STAFF", role: ROLE }));
   });
 });

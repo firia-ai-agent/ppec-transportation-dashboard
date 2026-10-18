@@ -1,0 +1,68 @@
+/*
+ * The scenario clock inside the DEMO bar. It wears the bar's own pair — white text, white
+ * hairline outlines on the violet — and never the screen's brand tone, for the same reason the
+ * reset beside it does (src/ui/DemoRestart.module.css): a control that steers the *demo* must
+ * not look like one of the day's decisions. The violet is the bar's; this is inside it.
+ */
+.clock {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.time {
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  /*
+   * 24 px, not the §9 44 px: the bar is 32 px tall and these are chrome about the demo rather
+   * than controls on a screen — the same exception the §7.1 source chip and the reset take.
+   */
+  min-height: 24px;
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-hairline) solid var(--color-demo-fg);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-demo-fg);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/*
+ * The speed that is running, filled rather than outlined — the bar's pair the other way round,
+ * which is how the demo control already marks its chosen option, and it is never colour alone:
+ * a check mark sits beside the label (§3).
+ */
+.button[aria-pressed="true"] {
+  background: var(--color-demo-fg);
+  color: var(--color-demo-bg);
+}
+
+/* §9: a ring in the brand tone would be a smudge on the violet. It is the bar's own ink. */
+.button:focus-visible {
+  outline: var(--focus-width) solid var(--color-demo-fg);
+  outline-offset: var(--focus-offset);
+}
+
+/*
+ * Below 768 the bar has room for the words "DEMO", the chip and the one control, and that is
+ * all (REDESIGN-SPEC §0 drops "Synthetic data" there for the same reason). The clock's buttons
+ * go first and the readout stays: the time is the thing being read, the speed is not.
+ */
+@media (max-width: 767px) {
+  .button {
+    display: none;
+  }
+}

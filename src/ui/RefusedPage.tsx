@@ -1,6 +1,6 @@
 import { getCaller } from "@/auth/caller";
 import { ConsoleShell } from "./ConsoleShell";
-import { NoAccess } from "./NoAccess";
+import { NoAccess, refusalHeading } from "./NoAccess";
 import { shellComesFromLayout } from "./refused-frame";
 
 /**
@@ -9,10 +9,11 @@ import { shellComesFromLayout } from "./refused-frame";
  *
  * Vera's review, 2026-10-17 4:19 PM ET: "This page isn't part of your role" must never be a
  * bare page whose only exit is the "Go to …" link. A refusal is a screen like any other, so it
- * carries the furniture every screen carries — the header, the account menu with Sign out in
- * it, and the menu this person's own role holds (the bottom tab bar on a phone, the left rail
- * at a desk). One line of the card says where you may go; the frame around it is how you
- * actually go there, and how you reach Sign out when the answer is "this account is wrong".
+ * carries the furniture every screen carries — the page header bar with that screen's title in
+ * it, the account block, and the menu this person's own role holds (the bottom tab bar on a
+ * phone, the left rail at a desk). One line of the card says where you may go; the frame around
+ * it is how you actually go there, and how you reach Sign out when the answer is "this account
+ * is wrong" (the account block opens /whoami, where Sign out is).
  *
  * It replaces twelve copies of the same decision with one. Before this, src/app/forbidden.tsx
  * mounted the shell itself and the eleven boundaries beside the pages rendered a bare
@@ -29,11 +30,21 @@ import { shellComesFromLayout } from "./refused-frame";
  * src/auth/page-guard.ts), and the APIs still answer 403 to the same caller.
  */
 export async function RefusedPage({ path }: { path?: string }) {
-  const card = <NoAccess path={path} />;
-  if (shellComesFromLayout(path)) return card;
+  // Already inside a frame, which is printing that page's own title: the card is the answer
+  // under it, with its own heading at h2 (src/ui/NoAccess.tsx).
+  if (shellComesFromLayout(path)) return <NoAccess path={path} />;
+  /*
+   * Nothing above this boundary frames it, so the frame comes from here — and so does the one
+   * thing the frame cannot read for itself. The page header bar takes a screen's title from
+   * that screen's row in the access table, and a refusal with no page to name has no row: the
+   * card arrived with no h1 at all, which is Veri's gate on #74 and an a11y regression on the
+   * one screen that is nothing but a heading. So the refusal's own heading *is* the title here,
+   * and the card below it renders none — one screen, one h1, and the words said once.
+   */
+  const caller = await getCaller();
   return (
-    <ConsoleShell caller={await getCaller()}>
-      {card}
+    <ConsoleShell caller={caller} title={refusalHeading(caller)}>
+      <NoAccess path={path} titleInFrame />
     </ConsoleShell>
   );
 }

@@ -14,7 +14,17 @@
  * and is refused outright on any deployment. The board it renders is the committed demo day.
  */
 import { expect, test } from "@playwright/test";
-import { flow, board as boardCopy, drawer, fill, sentence, serviceDate } from "../src/ui/copy";
+import { canOpenPage } from "../src/auth/access";
+import type { StaffRole } from "../src/auth/core";
+import {
+  board as boardCopy,
+  demoBanner,
+  drawer,
+  fill,
+  flow,
+  nav,
+  sentence,
+} from "../src/ui/copy";
 import { legStates } from "../src/ui/states";
 import { demoDay, serviceDayFor } from "../src/domain/board/day";
 import { demoDateIso } from "../src/ui/service-date";
@@ -22,10 +32,25 @@ import {
   boxOf,
   expectDemoBarPinned,
   expectNoInternalCodes,
+  expectPageHeaderBar,
   expectVioletOnlyOnDemoChrome,
   overlaps,
   shot,
 } from "./helpers";
+
+/**
+ * ONE RUN IS ONE ROLE (`E2E_DEMO_ROLE`, playwright.config.ts), and the board is not every
+ * role's: /today is the coordinator's and the director's (src/auth/access.ts). A front desk who
+ * types the address is sent to their own home with the §9.3 notice, so every test below would
+ * be measuring the live map instead. They are skipped by name rather than deleted — that
+ * redirect is e2e/role-pages.spec.ts's subject, and it is measured there.
+ */
+const ROLE = (process.env.E2E_DEMO_ROLE ?? "DIRECTOR") as StaffRole;
+const OPENS_BOARD = canOpenPage({ kind: "STAFF", role: ROLE }, "/today");
+
+test.beforeEach(() => {
+  test.skip(!OPENS_BOARD, `${ROLE} does not open the board`);
+});
 
 /** The review's two widths: the icon rail lives at 1024, the labelled rail at 1280. */
 const WIDTHS = [1024, 1280] as const;
@@ -332,17 +357,22 @@ for (const width of WIDTHS) {
       await expect(page.getByRole("heading", { level: 1, name: boardCopy.heading })).toBeVisible();
 
       /*
-       * The one date, labelled: "Service date · Sat, Oct 17 · Demo day". The words are the day
-       * the demo is being *given* on — the scenario replays a seeded Wednesday and every screen
-       * re-dates it (Firia, 2026-10-17 4:50 PM ET; src/ui/service-date.ts) — and the `datetime`
-       * attribute says the same day the words do, which is the whole of that ruling.
+       * The one date, and only the date: "Sat, Oct 17". The words are the day the demo is being
+       * *given* on — the scenario replays a seeded Wednesday and every screen re-dates it
+       * (Firia, 2026-10-17 4:50 PM ET; src/ui/service-date.ts) — and the `datetime` attribute
+       * says the same day the words do, which is the whole of that ruling.
+       *
+       * The "Service date" label and the "Demo day" tag that used to flank it are gone (Firia,
+       * 7:55 PM ET), so they are checked for by absence: one of them labelled the only date in
+       * the app, the other repeated the DEMO bar above every screen.
        */
       const dates = page.locator("time[datetime]");
       await expect(dates).toHaveCount(1);
       await expect(dates).toHaveText(demoDay().label);
       await expect(dates).toHaveAttribute("datetime", demoDateIso(demoDay().iso));
-      await expect(page.getByText(serviceDate.groupLabel)).toBeVisible();
-      await expect(page.getByText(serviceDate.phases.LIVE, { exact: true })).toBeVisible();
+      await expect(page.getByText("Service date", { exact: true })).toHaveCount(0);
+      // Exact, because the DEMO bar's one control reads "Restart demo day" and is not this tag.
+      await expect(page.getByText("Demo day", { exact: true })).toHaveCount(0);
 
       /*
        * The real date is the one the board shows now, so this is the check it has become: if
@@ -379,7 +409,6 @@ for (const width of WIDTHS) {
         await expect(page.getByRole("link", { name })).toHaveCount(0);
         await expect(page.getByRole("button", { name })).toHaveCount(0);
       }
-      await expect(page.getByRole("navigation", { name: serviceDate.groupLabel })).toHaveCount(0);
 
       // Nothing on the live day has been handed over: no ride on it has a custody event, so no
       // row may say one happened. The one outcome it does carry is the AT-13 hold, which is on
@@ -393,19 +422,31 @@ for (const width of WIDTHS) {
      * The finished day, reached the only way it can be now: by URL. There is no control on the
      * board that goes here (the test above holds that), and this is the day AT-13 and AT-10 are
      * read on — so the board still has to be about the day it names rather than about today.
+     *
+     * **Where the day is named moved**, and that is audit §2 item 1: the board's own `<h1>` is
+     * deleted and the screen's one title is the frame's page header bar, which prints that
+     * screen's label from the access table — "Today", the name of the screen, on every day. So
+     * the h1 this test used to read ("Rides on Fri, Oct 16") is not coming back: one title per
+     * screen, and it is the screen's name.
+     *
+     * What names the *day* is the board's date readout beside it, and that is what is asserted
+     * instead — the words, the machine-readable attribute, and the screen-reader caption before
+     * the first row, which is the one place a reader who cannot see the readout is told. This
+     * address is a test path besides (`E2E_DATE_OVERRIDE`, refused wherever `VERCEL_ENV` is
+     * set), so no deployment can be on a day the title does not match.
      */
     test("a day asked for by URL is the day the board names", async ({ page }) => {
       await page.goto(FINISHED_URL);
-      await expect(
-        page.getByRole("heading", {
-          level: 1,
-          name: fill(boardCopy.headingOtherDay, { date: FINISHED.label }),
-        }),
-      ).toBeVisible();
-      await expect(page.getByText(serviceDate.phases.ENDED)).toBeVisible();
-      await expect(page.locator("time[datetime]")).toHaveAttribute(
-        "datetime",
-        demoDateIso(FINISHED.iso),
+      // The frame's one title, and it is the screen's name rather than the day.
+      await expect(page.getByRole("heading", { level: 1, name: nav.today })).toBeVisible();
+      await expectPageHeaderBar(page);
+      // The day, in the readout the mockup draws beside it: the words and the attribute agree.
+      const readout = page.locator("time[datetime]");
+      await expect(readout).toHaveText(FINISHED.label);
+      await expect(readout).toHaveAttribute("datetime", demoDateIso(FINISHED.iso));
+      // ...and said once more for the ear, before the first row (`onDay`, Veri #49).
+      await expect(page.locator("table caption")).toHaveText(
+        fill(boardCopy.tableLabelOtherDay, { date: FINISHED.label }),
       );
       // …and that day's rides are the finished ones.
       await expect(page.getByText(/^Handed off to /).first()).toBeVisible();
@@ -722,6 +763,95 @@ for (const width of WIDTHS) {
       await expect(page.getByRole("button", { name: opener(NO_RECEIVER_CHILD) })).toHaveCount(0);
       await page.getByRole("link", { name: boardCopy.clearSearch }).click();
       await expect(page.getByRole("button", { name: opener(NO_RECEIVER_CHILD) })).toBeVisible();
+    });
+  });
+}
+
+/**
+ * THE PAGE DOES NOT SCROLL SIDEWAYS — the board at a phone width, and at the width where the
+ * icon rail starts.
+ *
+ * Veri's gate on #74, measured at 390 px: `document.documentElement.scrollWidth` was 766 on a
+ * 390 px window, `scrollTo` reached `scrollX` 376, and the frame went with it — the DEMO bar,
+ * the tab bar and the step strip all slid off the left-hand edge, which is §10's "no horizontal
+ * scroll" failing in the one place a founder opens the app on a phone. The board's nine columns
+ * of chips genuinely do not fit 390 px and a chip may not wrap (audit §4.1), so the answer is
+ * not "make it fit": it is that the **table** carries the scrollbar and the page does not
+ * (src/app/(app)/today/today.module.css).
+ *
+ * So three things are measured here, in the browser, at both widths:
+ *  - the document is no wider than the window — the whole claim, in one number;
+ *  - the table still has its columns, inside its own scroll box, below 1024 — otherwise "no
+ *    sideways scroll" could be met by hiding half the board;
+ *  - and after a scroll in *both* directions the chrome is still on screen: the DEMO bar at the
+ *    top (NFR-09) and the menu this width draws — the tab bar on a phone, the rail at the desk.
+ */
+for (const width of [390, 1024] as const) {
+  test.describe(`the board's frame at ${width}px`, () => {
+    test.use({ viewport: { width, height: width < 768 ? 844 : 900 } });
+
+    test("the page does not scroll sideways, and the frame stays on screen", async ({ page }) => {
+      await page.goto("/today");
+      await expect(page.getByRole("heading", { level: 1, name: boardCopy.heading })).toBeVisible();
+      const viewport = page.viewportSize() ?? { width, height: 900 };
+
+      const page_ = await page.evaluate(() => ({
+        doc: document.documentElement.scrollWidth,
+        body: document.body.scrollWidth,
+        window: window.innerWidth,
+      }));
+      expect(page_.doc, `the document is ${page_.doc}px wide in a ${width}px window`).toBeLessThanOrEqual(
+        viewport.width,
+      );
+      expect(page_.body, "the body is wider than the window").toBeLessThanOrEqual(viewport.width);
+
+      /*
+       * The columns are still there, and below 1024 the table is the thing that scrolls. Both
+       * halves: a board that answered "no sideways scroll" by dropping its chip columns would
+       * pass the number above and fail the day.
+       */
+      const table = page.locator("table");
+      await expect(table).toHaveCount(1);
+      const box = await table.evaluate((el) => ({
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
+        overflowX: getComputedStyle(el).overflowX,
+        columns: el.querySelectorAll("thead th").length,
+      }));
+      expect(box.columns, "the board has lost columns").toBeGreaterThanOrEqual(6);
+      expect(box.clientWidth, "the table is wider than the window").toBeLessThanOrEqual(
+        viewport.width,
+      );
+      if (width < 1024) {
+        expect(box.overflowX, "the table is not its own scroll box").toBe("auto");
+        expect(box.scrollWidth, "the table has nothing to scroll").toBeGreaterThan(box.clientWidth);
+      }
+
+      /*
+       * And the chrome, after asking the window to scroll both ways: the DEMO bar is pinned at
+       * the top and the menu this width draws is on screen. `scrollTo` with an x of 2000 is the
+       * founder's swipe — on a page that overflows it took the frame with it.
+       */
+      await page.evaluate(() => window.scrollTo(2000, document.body.scrollHeight));
+      await page.waitForTimeout(300);
+      expect(await page.evaluate(() => Math.round(window.scrollX)), "the page scrolled sideways").toBe(0);
+      const bar = page.getByRole("status", { name: demoBanner.ariaLabel });
+      await expect(bar).toBeInViewport();
+      expect((await boxOf(bar)).y, "the DEMO bar is not at the top of the window").toBeLessThan(40);
+      const menu =
+        width < 768
+          ? page.locator("[data-tab-bar]")
+          : page.getByRole("navigation", { name: nav.landmarkLabel });
+      await expect(menu).toBeInViewport();
+      const menuBox = await boxOf(menu);
+      expect(menuBox.x, "the menu has slid off the left-hand edge").toBeGreaterThanOrEqual(0);
+      expect(
+        menuBox.x + menuBox.width,
+        "the menu has slid off the right-hand edge",
+      ).toBeLessThanOrEqual(viewport.width + 1);
+
+      await page.evaluate(() => window.scrollTo(0, 0));
+      console.log("screenshot:", await shot(page, `today-frame-${width}`));
     });
   });
 }

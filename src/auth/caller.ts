@@ -20,7 +20,7 @@ import { getActiveUser, getMemberships, type Membership } from "@/auth/core";
 import { getExec } from "@/auth/exec";
 import { mostCapable, type Caller } from "@/auth/access";
 import { demoSessionRole } from "@/domain/access/map-view";
-import { demoLogins } from "@/ui/copy";
+import { DEMO_ACCOUNTS } from "@/auth/demo-accounts";
 
 export type ResolvedCaller = Caller & {
   /** The name the console puts in its header. Absent for an anonymous caller. */
@@ -35,12 +35,21 @@ export async function getCaller(
 ): Promise<ResolvedCaller> {
   const demoRole = demoSessionRole(env);
   /*
-   * A role and nothing else: no user id, no site, so nothing that writes can accept it. The
-   * name it renders is that role's own words from COPY-GUIDE, never an invented person, because
-   * there is no user row behind this session.
+   * A role and nothing else: no user id, no site, so nothing that writes can accept it, and
+   * nothing it reads is scoped to a centre (the day's readiness reads nothing for it at all,
+   * src/domain/day/day-facts.ts).
+   *
+   * The name it renders is the demo staff roster's own, for that role — "SYN Dana Mercer
+   * Director", which src/ui/display-name.ts turns into "Dana M." on a screen. It used to be the
+   * role's *title*, and that is where "Director · Director" came from: the account page joins a
+   * name to a role with a middle dot, and when the name is the role the line says one thing
+   * twice. No person is invented here either — this is the same roster `seedDemoUsers` creates
+   * the three accounts from (src/auth/demo-accounts.ts), read behind its own interface, so the
+   * browser-test session is named exactly as the account it stands in for.
    */
   if (demoRole) {
-    return { kind: "STAFF", role: demoRole, displayName: demoLogins.roles[demoRole].title, memberships: [] };
+    const account = DEMO_ACCOUNTS.find((a) => a.role === demoRole);
+    return { kind: "STAFF", role: demoRole, displayName: account?.name, memberships: [] };
   }
 
   const session = await auth();

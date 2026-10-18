@@ -61,6 +61,22 @@ const SITE_CLOCK_FMT = new Intl.DateTimeFormat("en-US", {
   hour12: true,
 });
 
+/**
+ * The hour on the wall at the centre, 0–23 (PRD §6.1: the site's own timezone, never the
+ * browser's). The one thing the day's *leg* is decided by — before noon the morning run is the
+ * one being worked, after it the afternoon (REDESIGN-SPEC §9.1) — and it is read here, beside
+ * the date the same clock gives, so the two cannot be taken from two different clocks.
+ */
+export function siteHour(now: Date = new Date()): number {
+  return Number(HOUR_FMT.format(now));
+}
+
+const HOUR_FMT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: SITE_TIME_ZONE,
+  hour: "2-digit",
+  hourCycle: "h23",
+});
+
 /** "2026-10-14", for `<time dateTime>` and, later, query parameters. */
 export function serviceDateIso(now: Date = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {

@@ -282,15 +282,18 @@
   font-size: var(--text-14);
 }
 
+/*
+ * The one pill (src/ui/Pill.module.css, Vera's audit §4 item 1), at the ramp's own size: this
+ * screen is read at arm's length on an iPad and its body text is 14 px, so the shape is the
+ * shared one and only the scale is local.
+ */
 .chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-pill);
+  composes: pill from "../../../ui/Pill.module.css";
+  height: auto;
+  min-height: var(--layout-pill-height);
+  padding-block: var(--space-2);
   font-size: var(--text-14);
   font-weight: var(--weight-medium);
-  white-space: nowrap;
 }
 
 .chip[data-tone="ok"] { color: var(--color-ok-fg); background: var(--color-ok-bg); }

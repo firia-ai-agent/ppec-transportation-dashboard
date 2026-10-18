@@ -54,39 +54,13 @@ export default async function LiveMapPage() {
 
   return (
     <main style={{ padding: "var(--space-5)", display: "grid", gap: "var(--space-4)" }}>
-      <h1
-        style={{
-          margin: 0,
-          fontSize: "var(--text-20)",
-          fontWeight: "var(--weight-semibold)",
-          lineHeight: "var(--leading-tight)",
-          color: "var(--color-ink)",
-        }}
-      >
-        {liveMap.heading}
-      </h1>
-      <p
-        style={{
-          margin: 0,
-          maxWidth: "70ch",
-          fontSize: "var(--body-console)",
-          lineHeight: "var(--leading-normal)",
-          color: "var(--color-ink-muted)",
-        }}
-      >
-        {liveMap.intro}
-      </p>
-      <p
-        style={{
-          margin: 0,
-          maxWidth: "70ch",
-          fontSize: "var(--body-console)",
-          lineHeight: "var(--leading-normal)",
-          color: "var(--color-ink-muted)",
-        }}
-      >
-        {liveMap.signedInOnly}
-      </p>
+      {/*
+        No title and no helper lines here. The title is the frame's page header bar
+        (src/ui/PageHeader.tsx, audit §2 item 1), and the two sentences that used to open this
+        screen — what the map is, and that it is signed-in only — are deleted: audit §3 and §4
+        item 9 allow one title and at most one helper line per screen, and where the positions
+        come from is already said by the one Simulated chip in the DEMO bar (§7.1).
+      */}
       {/*
         The ramp iPad is a sibling surface behind the same guard, and the two are walked in one
         sitting, so each one says where the other is. They are both in the nav rail as well; this

@@ -97,15 +97,15 @@
   flex: 1 1 auto;
 }
 
+/*
+ * The one pill (src/ui/Pill.module.css, Vera's audit §4 item 1): the board's chips are that
+ * shape and not a second one, so they cannot wrap or overlap at 390 the way the founder's walk
+ * found. Only the type scale is local — the board reads at desk distance, not arm's length.
+ */
 .chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-pill);
+  composes: pill from "../../../ui/Pill.module.css";
   font-size: var(--text-12);
   font-weight: var(--weight-medium);
-  white-space: nowrap;
 }
 
 .chip[data-tone="ok"] { color: var(--color-ok-fg); background: var(--color-ok-bg); }
