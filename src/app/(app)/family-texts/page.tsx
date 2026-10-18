@@ -152,7 +152,7 @@ export default async function FamilyTextsPage({
    * model is reachable and with nothing at all on a read-only preview.
    */
   if (mayApprove && siteIds.length > 0) {
-    await draftDemoProposal(getNeonDb(), { siteId: siteIds[0], serviceDate: day.iso, day });
+    await draftTodaysCard(siteIds[0], day);
   }
   const queue =
     mayApprove && assistantReachable ? await readQueue(siteIds, day, editedTime) : [];
@@ -238,6 +238,26 @@ async function readAlerts(
     return { alerts: await openAssistantAlerts(getExec(), siteIds, identityGateway()), unreadable: false };
   } catch {
     return { alerts: [], unreadable: true };
+  }
+}
+
+/**
+ * The demo day's card, drafted on first load, failing soft like the two reads below it.
+ *
+ * `draftDemoProposal` swallows a read-only preview and an absent database itself — but it can only
+ * do that for what happens *inside* it, and **opening the connection is not inside it**. Calling
+ * `draftDemoProposal(getNeonDb(), …)` evaluates the argument first, so a deployment with no
+ * `DATABASE_URL` threw out of the argument list before the function it was being passed to could
+ * catch anything, and this screen 500ed for a coordinator instead of rendering the day's threads.
+ * That is the same failure `readAlerts` and `readQueue` are shaped around, and this is the same
+ * shape: the handle is opened where the catch can see it. `src/auth/guard-matrix.test.ts` is what
+ * measures it — the page is called there with a `getNeonDb` that throws on purpose.
+ */
+async function draftTodaysCard(siteId: string, day: ServiceDay): Promise<void> {
+  try {
+    await draftDemoProposal(getNeonDb(), { siteId, serviceDate: day.iso, day });
+  } catch {
+    // Nothing to show and nothing to say: with no card the For you tab prints its empty state.
   }
 }
 
