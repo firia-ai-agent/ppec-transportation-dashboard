@@ -1810,6 +1810,29 @@ export const planBoard = {
     OXYGEN: "Oxygen",
     LIFT: "Lift",
   },
+  /**
+   * THE ONE LINE A REFUSED DROP LEAVES ON THE CARD (Vera's taste spec, 2026-10-18).
+   *
+   * A refusal is not a toast: a toast is what a *move* leaves behind, it slides away after four
+   * seconds, and the card a coordinator is looking at is where the answer belongs. So a drop that
+   * a van refuses leaves the card exactly where it was with one coral line under it, naming the
+   * van and the thing that is missing in four words at most — and the `rejectSr` sentence below
+   * is still announced, so the ear gets the same refusal the eye does.
+   *
+   * One line per `RejectReason` (src/config/equipment.ts) and no other: no codes, no numbers, no
+   * "see the chip". The van name is one word in the count, because "Van 1" is a name.
+   *
+   * There is no line for a nurse, because there is no nurse refusal to have: a nurse riding along
+   * takes one of the van's seats (the `seats` counter's own `demandOf`), so a van that cannot
+   * take the nurse is a van that is out of seats and says so.
+   */
+  rejectCard: {
+    SEAT: "{van} seats full",
+    WHEELCHAIR: "{van} wheelchair full",
+    CAR_SEAT: "{van} car seats full",
+    OXYGEN: "{van} oxygen full",
+    LIFT: "No lift on {van}",
+  },
   /** Announced when a drop is refused, so the refusal is not only a colour and a shape. */
   rejectSr: "{child} won’t fit {van}: no {thing}",
   /** The thing a refusal names, in the words a sentence needs rather than a chip. */

@@ -9,6 +9,7 @@ import { planBoard } from "@/ui/copy";
 import { icon } from "@/ui/tokens";
 import type { BoardRider } from "@/domain/plan/board";
 import { RiderCard } from "./RiderCard";
+import { refusalLineFor, type Refusal } from "./refusal";
 import styles from "./board.module.css";
 
 /** The drop zone that is no van at all: "out of every van", which is always allowed. */
@@ -38,6 +39,7 @@ export function UnassignedColumn({
   onOpenChild,
   canEdit,
   overBucket,
+  refusal,
 }: {
   day: BoardDay;
   plan: BoardPlan;
@@ -50,6 +52,8 @@ export function UnassignedColumn({
   canEdit: boolean;
   /** Which group the card being held is over, so it can say it would take them. */
   overBucket: Bucket | null;
+  /** The one refused drop on the board, so the card it is about carries its line (Vera). */
+  refusal?: Refusal | null;
 }) {
   const { setNodeRef } = useDroppable({ id: UNASSIGNED_ID });
   const waiting = unassignedRiders(day, plan);
@@ -98,6 +102,7 @@ export function UnassignedColumn({
               moveToBucket={(bucket) => onMoveToBucket(rider.token, bucket)}
               onOpen={() => onOpenChild(rider.token)}
               canEdit={canEdit}
+              refusalLine={refusalLineFor(refusal, rider.token)}
             />
           ))}
         </ul>
@@ -112,6 +117,7 @@ export function UnassignedColumn({
           columns={columns}
           over={overBucket === group.bucket}
           canEdit={canEdit}
+          refusal={refusal}
           onMove={onMove}
           onMoveToBucket={onMoveToBucket}
           onOpenChild={onOpenChild}
@@ -136,6 +142,7 @@ function CollapsedGroup({
   columns,
   over,
   canEdit,
+  refusal,
   onMove,
   onMoveToBucket,
   onOpenChild,
@@ -146,6 +153,7 @@ function CollapsedGroup({
   columns: readonly { id: string | null; name: string }[];
   over: boolean;
   canEdit: boolean;
+  refusal?: Refusal | null;
   onMove: (childToken: string, vanId: string | null) => void;
   onMoveToBucket: (childToken: string, bucket: Bucket) => void;
   onOpenChild: (childToken: string) => void;
@@ -187,6 +195,7 @@ function CollapsedGroup({
                 moveToBucket={(next) => onMoveToBucket(child.token, next)}
                 onOpen={() => onOpenChild(child.token)}
                 canEdit={canEdit}
+                refusalLine={refusalLineFor(refusal, child.token)}
               />
             ) : (
               // A child the centre never drives on this leg: a name, and no card to drag,
