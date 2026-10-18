@@ -30,22 +30,22 @@
 
 /* ───────────────────────────── toolbar (§1.1: 60 px) ───────────────────────────── */
 
+/*
+ * The board's controls, as they sit **in the frame's header bar** (src/ui/HeaderSlot.tsx):
+ * plan-board.png draws the date, Morning | Afternoon, the placed count, Undo, Auto-plan and
+ * Save on the title's own row. One line, no wrap and no height of its own — the bar sets the
+ * height, and a control that cannot fit scrolls with the row rather than pushing the bar taller.
+ */
 .toolbar {
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  flex-wrap: wrap;
-  min-height: 60px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
 /* Headings are Teal Ink — the frame's `ink-brand` (#71), 9.47:1 on white. */
-.heading {
-  font-size: var(--text-24);
-  font-weight: var(--weight-semibold);
-  line-height: var(--leading-tight);
-  color: var(--color-ink-brand);
-  margin: 0;
-}
 
 .date {
   display: inline-flex;

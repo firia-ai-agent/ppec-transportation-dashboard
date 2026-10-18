@@ -65,7 +65,7 @@ export default async function PlanRoutesPage({
   if (!view) {
     return (
       <main className={styles.page}>
-        <h1 className={styles.heading}>{planBoard.heading}</h1>
+        {/* The frame draws this screen's one `h1` (src/ui/PageHeader.tsx, #74). */}
         <p className={styles.chip} data-tone="crit">
           {flow.error.load}
         </p>

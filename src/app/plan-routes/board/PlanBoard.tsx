@@ -74,6 +74,7 @@ import type { BoardView } from "@/modules/plan/store";
 import { boardHref } from "@/modules/plan/when";
 import { flow, planBoard } from "@/ui/copy";
 import { NeedIcons } from "@/ui/equipment";
+import { HeaderSlot } from "@/ui/HeaderSlot";
 import { serviceDateLabel } from "@/ui/service-date";
 import { icon } from "@/ui/tokens";
 import { BoardToolbar } from "./BoardToolbar";
@@ -96,7 +97,6 @@ export default function PlanBoard({
   view,
   selectedVanId = null,
   canEdit = true,
-  headingLevel = 1,
 }: {
   view: BoardView;
   /**
@@ -105,7 +105,6 @@ export default function PlanBoard({
    */
   canEdit?: boolean;
   /** 1 where the board is the screen, 2 where it is Today's child list. */
-  headingLevel?: 1 | 2;
   /**
    * The van the address names (§9.3's `?van=`), which is where the ramp's Re-plan and the
    * board's own "Check vans" round trip come back to: that column is ringed, its route is the one
@@ -437,31 +436,38 @@ export default function PlanBoard({
           setOverBucket(null);
         }}
       >
-        <BoardToolbar
-          dateLabel={serviceDateLabel(new Date(`${day.date}T12:00:00Z`))}
-          direction={day.direction}
-          hrefFor={(next) => boardHref(BOARD_PATH, { date: day.date, leg: next })}
-          placed={placed}
-          total={ridersToPlace(day, plan).length}
-          save={dirty && save.kind === "SAVED" ? { kind: "DIRTY" } : save}
-          canUndo={hasPending(pending)}
-          onUndo={undo}
-          onAutoPlan={() => {
-            // Auto-plan proposes: its answer becomes unsaved moves, like a drag, and nothing is
-            // written until Save (option A).
-            const planned = autoPlan(day, plan);
-            setPending((queue) =>
-              movesToSave(savedPlan, [...queue, ...asMoves(plan, planned)]).reduce(
-                (next, move) => enqueue(next, move),
-                NO_PENDING,
-              ),
-            );
-          }}
-          autoPlanPrimary={placed === 0}
-          onSave={trySave}
-          canSave={day.riders.length > 0 && (dirty || save.kind === "FAILED")}
-          headingLevel={headingLevel}
-        />
+        {/*
+          The board's controls ride in the frame's 64 px header bar, beside the one `h1` it
+          draws (src/ui/HeaderSlot.tsx, #74/#77): per plan-board.png the date, Morning |
+          Afternoon, the placed count, Undo, Auto-plan and Save are all on that row, not in a
+          second strip under it. The frame knows nothing about them — it owns a slot.
+        */}
+        <HeaderSlot>
+          <BoardToolbar
+            dateLabel={serviceDateLabel(new Date(`${day.date}T12:00:00Z`))}
+            direction={day.direction}
+            hrefFor={(next) => boardHref(BOARD_PATH, { date: day.date, leg: next })}
+            placed={placed}
+            total={ridersToPlace(day, plan).length}
+            save={dirty && save.kind === "SAVED" ? { kind: "DIRTY" } : save}
+            canUndo={hasPending(pending)}
+            onUndo={undo}
+            onAutoPlan={() => {
+              // Auto-plan proposes: its answer becomes unsaved moves, like a drag, and nothing
+              // is written until Save (option A).
+              const planned = autoPlan(day, plan);
+              setPending((queue) =>
+                movesToSave(savedPlan, [...queue, ...asMoves(plan, planned)]).reduce(
+                  (next, move) => enqueue(next, move),
+                  NO_PENDING,
+                ),
+              );
+            }}
+            autoPlanPrimary={placed === 0}
+            onSave={trySave}
+            canSave={day.riders.length > 0 && (dirty || save.kind === "FAILED")}
+          />
+        </HeaderSlot>
 
         {banner ? (
           <p className={styles.banner} data-tone={banner.tone} data-banner="">

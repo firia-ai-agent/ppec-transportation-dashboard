@@ -21,12 +21,6 @@
 }
 
 /* Headings are Teal Ink — the frame's `ink-brand` (#71), 9.47:1 on white. */
-.heading {
-  font-size: var(--text-24);
-  font-weight: var(--weight-semibold);
-  color: var(--color-ink-brand);
-  margin: 0;
-}
 
 /* ───────────────────────────── the vans at the centre ───────────────────────────── */
 
