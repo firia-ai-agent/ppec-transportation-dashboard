@@ -1061,6 +1061,16 @@ export const familyTexts = {
 export const approval = {
   /** What the parent would receive, shown exactly — the body, not a description of it. */
   exactTextHeading: "The text the family will get",
+  /**
+   * The channel's furniture, shown under the draft and not inside it (Firia, 11:00 PM ET, S1-5).
+   *
+   * The 10DLC HELP/STOP sentence is appended by the send step (`renderForSend`), so it is not in
+   * the body a coordinator reads — but it *is* part of what the family receives, and a card that
+   * showed neither would be hiding a line of the message. So it sits below the quote, in the
+   * muted ink the rest of the card's secondary text uses, which is what "added when it sends"
+   * looks like.
+   */
+  sendFooterNote: "Added when it sends:",
   nothingUntilApproved: "The family hears nothing until you approve",
   approveAndSend: "Approve and send",
   edit: "Edit",
@@ -2192,8 +2202,21 @@ export const demoReset = {
  * not the service word "ride".
  */
 export const outboundSms = {
-  /** COPY-GUIDE §6: a simulated message says so, in every body, with no exception. */
-  demoTag: "[DEMO]",
+  /**
+   * THE 10DLC FOOTER, AND WHERE IT IS NOT.
+   *
+   * It is not in a body. Firia, 2026-10-17 11:00 PM ET (S1-5): the STOP/HELP footer is appended
+   * in the SEND STEP and nowhere else — `renderForSend` in src/modules/messaging/templates.ts,
+   * which is what the provider calls. So the drafted text a coordinator approves, and the
+   * bubbles in a thread, are the message itself; the proposal card shows this sentence as a
+   * muted line underneath, which is what it is: the channel's furniture, not the words anybody
+   * wrote (ProposalCard.tsx).
+   *
+   * The `[DEMO]` tag that used to end every body is gone outright (same ruling). The demo bar at
+   * the top of every screen is where this deployment says it is a simulation; a tag inside a
+   * family's text said it again, in the one place the words are supposed to read like a person
+   * wrote them.
+   */
   optOut: "Reply HELP for help, STOP to opt out.",
   /** The center's number as the copy guide writes it (COPY-GUIDE §5 dispatcher link). */
   centerPhone: "(561) 555-0100",
@@ -2209,7 +2232,7 @@ export const outboundSms = {
   yourChild: "your child",
   /** The fixed answer to an inbound HELP: same words every time, no child name and no van detail. */
   helpReply:
-    "PPEC: This number sends van updates for your child. Call us at {centerPhone} if you need help. Reply STOP to opt out. {demoTag}",
+    "PPEC: This number sends van updates for your child. Call us at {centerPhone} if you need help. Reply STOP to opt out.",
   /**
    * The pickup places a family knows by name (MOCKS §1: public landmarks, never a home), keyed by the
    * short stop token the outbox carries. The token is a developer-facing shape and a family must never
@@ -2238,9 +2261,9 @@ export const outboundSms = {
   etaApprox: "around {time}",
   bodies: {
     "pickup.eta":
-      "PPEC: Your child's van is on the way to {stopLabel}. Pickup {eta}. {optOut} {demoTag}",
+      "PPEC: Your child's van is on the way to {stopLabel}. Pickup {eta}.",
     "dropoff.eta":
-      "PPEC: Your child's van home is on the way to {stopLabel}. Arrival {eta}. {optOut} {demoTag}",
+      "PPEC: Your child's van home is on the way to {stopLabel}. Arrival {eta}.",
     /**
      * The one text PRD §18.2 step 7 sends: a van that has lost time, and the new 10-minute
      * window for the families still ahead of it.
@@ -2257,11 +2280,11 @@ export const outboundSms = {
      * still is, and the next thing they get is the arrival notice itself.
      */
     "dropoff.late":
-      "PPEC: {childName}'s van home is running about {delayMinutes} minutes late. The drop-off is still at {stopLabel}. {optOut} {demoTag}",
+      "PPEC: {childName}'s van home is running about {delayMinutes} minutes late. The drop-off is still at {stopLabel}.",
     "leg.canceled":
-      "PPEC: Got it. Your child's van on {legDate} is canceled. {reasonCode} {optOut} {demoTag}",
+      "PPEC: Got it. Your child's van on {legDate} is canceled. {reasonCode}",
     "leg.changed":
-      "PPEC: Your child's van on {legDate} changed. New pickup {eta} at {stopLabel}. {optOut} {demoTag}",
+      "PPEC: Your child's van on {legDate} changed. New pickup {eta} at {stopLabel}.",
     /**
      * The afternoon's version of the line above. `leg.changed` says "New pickup", which is the
      * morning: a family whose *drop-off* moved and is told about a pickup has been told about the
@@ -2278,7 +2301,7 @@ export const outboundSms = {
      * than hedging it into a window.
      */
     "dropoff.changed":
-      "PPEC: Yes — {childName} gets off at {stopLabel} at {eta}. {optOut} {demoTag}",
+      "PPEC: Yes — {childName} gets off at {stopLabel} at {eta}.",
     /**
      * The afternoon's handoff, once the day has **recorded** one.
      *
@@ -2291,20 +2314,20 @@ export const outboundSms = {
      * screen carries no ETAs at all (Firia, 2026-10-17 8:36 PM and 10:51 PM ET).
      */
     "dropoff.received":
-      "PPEC: {childName} is off the van at {stopLabel}. {optOut} {demoTag}",
+      "PPEC: {childName} is off the van at {stopLabel}.",
     "therapist.absence_alert":
-      "PPEC: A child is not coming in today. The {sessionStart} session is affected. {optOut} {demoTag}",
+      "PPEC: A child is not coming in today. The {sessionStart} session is affected.",
     "therapist.late_alert":
-      "PPEC: A child is running late for the {sessionStart} session. Now expected {eta}. {optOut} {demoTag}",
+      "PPEC: A child is running late for the {sessionStart} session. Now expected {eta}.",
     "child.not_received":
-      "PPEC: We could not hand off your child at {stopLabel} at {eta}. Please call us at {centerPhone}. {demoTag}",
-    "center.closure": "PPEC: The center is closed on {date}. {reasonCode} {optOut} {demoTag}",
+      "PPEC: We could not hand off your child at {stopLabel} at {eta}. Please call us at {centerPhone}.",
+    "center.closure": "PPEC: The center is closed on {date}. {reasonCode}",
     /**
      * Fixed copy, no vars (Veri #12): a staff-typed notice could carry a child's name, so the
      * only generic message we can send is the one that asks the family to call.
      */
     "generic.notice":
-      "PPEC: There is an update about your child's transportation. Please call us at {centerPhone}. {optOut} {demoTag}",
+      "PPEC: There is an update about your child's transportation. Please call us at {centerPhone}.",
   },
   /** What a `reasonCode` says to a family, per template. */
   reasons: {

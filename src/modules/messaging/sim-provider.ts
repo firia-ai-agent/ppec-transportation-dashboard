@@ -18,7 +18,7 @@ import { ProviderRejected, ProviderTimeout, type MessagingProvider, type Outboun
 import { phoneHmac } from "@/modules/identity/phone";
 import { NO_FAULTS, simFaultStore, type SimFaultStore } from "./faults";
 import { SIM_CENTER_NUMBER, simNumberByHmac } from "./sim-numbers";
-import { renderTemplate, TemplateRenderError } from "./templates";
+import { renderForSend, TemplateRenderError } from "./templates";
 import { uuidv7 } from "uuidv7";
 
 export const SIM_STATUS_JOB_KIND = "sms.sim.status";
@@ -90,8 +90,13 @@ export class DbSimMessagingProvider implements MessagingProvider {
        * text names the child). Never a var: the outbox's allowlist refuses every name anybody
        * could type (Veri #12), and this is the database's answer, not a caller's. A row that
        * cannot be read renders "your child" and the text still goes.
+       *
+       * THIS IS THE SEND STEP, so this is where the 10DLC STOP/HELP footer is appended —
+       * `renderForSend`, not `renderTemplate` (Firia, 11:00 PM ET, S1-5). No body carries it,
+       * so the card a coordinator approved and the bubbles in the thread are the message; what
+       * leaves the centre is the message plus the sentence the channel requires.
        */
-      body = renderTemplate(msg.templateId, msg.vars, { child: await this.childName(msg) });
+      body = renderForSend(msg.templateId, msg.vars, { child: await this.childName(msg) });
     } catch (e) {
       // A bad template or a missing var is a definite refusal: FAILED, never a blind retry.
       if (e instanceof TemplateRenderError) throw new ProviderRejected(`sim: ${e.message}`);

@@ -23,6 +23,7 @@ import { PEPPER } from "@/test/messaging";
 import { freshDb } from "@/test/pglite";
 import { personaMessages, resolvePersona } from "./mailbox";
 import { dbIdentityGateway } from "@/modules/identity/gateway";
+import { SEND_FOOTER } from "./templates";
 import {
   ETA_NOTICE_NOT_AFTER_MS,
   enqueueEtaNotice,
@@ -265,7 +266,11 @@ describe("what the family actually reads", () => {
     expect(text.reachedPhone).toBe(true);
     expect(text.body).toContain("running about 15 minutes late");
     expect(text.body).toContain("Okeeheelee Park");
-    expect(text.body).toContain("[DEMO]");
+    // A bubble is the message. No [DEMO] tag and no STOP/HELP footer in a thread (Firia,
+    // 11:00 PM ET, S1-5) — what left the centre carried the footer; what a coordinator reads
+    // back is the words. `sim-provider.test.ts` holds the other half.
+    expect(text.body).not.toContain("DEMO");
+    expect(text.body).not.toContain(SEND_FOOTER);
     // No time of any kind in it, and no range (Firia, 10:51 PM ET).
     expect(text.body).not.toMatch(/\d{1,2}:\d{2}/);
     expect(text.body).not.toContain("\u2013");

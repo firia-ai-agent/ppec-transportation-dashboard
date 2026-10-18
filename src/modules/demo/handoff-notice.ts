@@ -119,7 +119,7 @@ function noticeFor(child: Child, day: ServiceDay, index: number): HandoffNotice 
     body: renderTemplate(
       HANDOFF_TEMPLATE,
       { stopLabel: stop.smsToken },
-      { child: child.label, footer: false },
+      { child: child.label },
     ),
   };
 }

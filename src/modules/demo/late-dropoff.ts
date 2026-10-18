@@ -208,7 +208,7 @@ export function demoLateDropoffs(
        * send pipeline's and belong on a family's phone (Firia, 2026-10-17 10:51 PM ET). The
        * child is named from their own row, as the sent text names them.
        */
-      body: renderTemplate(templateId, vars, { child: child.label, footer: false }),
+      body: renderTemplate(templateId, vars, { child: child.label }),
     }];
   });
 }

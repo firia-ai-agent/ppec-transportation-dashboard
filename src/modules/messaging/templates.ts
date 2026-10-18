@@ -1,5 +1,5 @@
 /**
- * Outbound SMS bodies (COPY-GUIDE §1 voice, §5 "Outbound family SMS", §6 "[DEMO]" suffix).
+ * Outbound SMS bodies (COPY-GUIDE §1 voice, §5 "Outbound family SMS").
  * Callers never pass free text: the outbox carries a template id plus allowlisted vars
  * (outbox TEMPLATE_VARS), and this is the only place those become words.
  *
@@ -24,8 +24,11 @@
  *    rendered raw — so there is no path for a seeded or staff-typed name into a family's SMS;
  *  - every template in TEMPLATE_VARS has a body, and every placeholder is an allowlisted var for it;
  *  - no ticket codes, enum names, stop tokens or internal jargon in user-facing text (COPY-GUIDE §2);
- *  - every body ends with the "[DEMO]" suffix, so a simulated message is never mistaken for a real one;
- *  - family-facing bodies carry the opt-out sentence (10DLC HELP/STOP reply requirement, PRD §17 D-04);
+ *  - a body is the message and nothing else: no `[DEMO]` tag, and no STOP/HELP footer. Firia,
+ *    2026-10-17 11:00 PM ET (S1-5) — the footer belongs to the SEND STEP (`renderForSend`, below,
+ *    which is what the provider calls), so the drafted text a coordinator approves and the
+ *    bubbles in a thread are the words somebody wrote, and the 10DLC requirement (PRD §17 D-04)
+ *    is met by the thing that actually leaves the centre;
  *  - a var whose value breaks its TEMPLATE_VARS rule is refused, not rendered (defence in depth: the
  *    outbox already rejects it at enqueue and blocks it at send).
  */
@@ -41,23 +44,25 @@ export class TemplateRenderError extends Error {}
  */
 const HELP_REPLY_TEMPLATE_ID = "consent.help";
 
-const { demoTag, optOut, centerPhone } = outboundSms;
-const FIXED = { demoTag, optOut, centerPhone };
+const { centerPhone } = outboundSms;
+const FIXED = { centerPhone };
 
 /**
- * The same bodies without the channel's furniture — the opt-out sentence and the `[DEMO]` tag.
+ * THE SEND STEP'S FOOTER — the 10DLC HELP/STOP sentence (PRD §17 D-04).
  *
- * For the two staff surfaces that show a family's words back to a person: the proposal card a
- * coordinator approves, and the thread bubbles. Firia, 2026-10-17 10:51 PM ET — "the STOP/HELP
- * footer is appended in the SEND PIPELINE, never shown in the bubble or the card", and "remove
- * the [DEMO] tag from bubbles". Both still go out on every real send, because the send renders
- * from `BODIES` below and this map is not reachable from it.
+ * Appended by `renderForSend` and by nothing else, so there is exactly one place a body grows
+ * it: the moment a message leaves the centre. A draft on a card, a bubble in a thread and a
+ * preview on a screen are all `renderTemplate`, and all of them are the message without it.
  */
-const SCREEN_BODIES: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries({ ...outboundSms.bodies, [HELP_REPLY_TEMPLATE_ID]: outboundSms.helpReply }).map(
-    ([id, body]) => [id, fill(body, { ...FIXED, optOut: "", demoTag: "" }).replace(/\s+/g, " ").trim()],
-  ),
-);
+export const SEND_FOOTER = outboundSms.optOut;
+
+/**
+ * The one body that already says it: the fixed answer to an inbound HELP, which ends "Reply STOP
+ * to opt out." because that *is* the answer somebody asked for. Appending the footer to it would
+ * tell a family twice, in one text, how to stop — which reads as a bug and spends characters the
+ * channel charges for.
+ */
+const CARRIES_ITS_OWN_FOOTER: ReadonlySet<string> = new Set([HELP_REPLY_TEMPLATE_ID]);
 
 /** Fixed HELP answer. Same words every time, no ticket codes, no child name and no van detail. */
 export const HELP_REPLY_TEMPLATE = HELP_REPLY_TEMPLATE_ID;
@@ -199,12 +204,6 @@ export type RenderFor = {
    * before Firia's 10:51 PM ET ruling — so a row that could not be read is still a sendable text.
    */
   readonly child?: string | null;
-  /**
-   * `false` on the two staff surfaces: the proposal card and the thread bubbles, where the
-   * opt-out sentence and the `[DEMO]` tag are the channel's furniture and not the message
-   * (10:51 PM ET). Every send leaves it alone and carries both.
-   */
-  readonly footer?: boolean;
 };
 
 /**
@@ -239,7 +238,7 @@ export function renderTemplate(
   vars: Record<string, unknown>,
   how: RenderFor = {},
 ): string {
-  const body = (how.footer === false ? SCREEN_BODIES : BODIES)[templateId];
+  const body = BODIES[templateId];
   if (!body) throw new TemplateRenderError(`no body for template ${templateId}`);
   if (!TEMPLATE_VARS[templateId]) throw new TemplateRenderError(`no vars allowlist for template ${templateId}`);
   const bad = disallowedVars(templateId, vars);
@@ -256,4 +255,21 @@ export function renderTemplate(
     if (worded === null) throw new TemplateRenderError(`template ${templateId} has no copy for var ${name}`);
     return worded;
   });
+}
+
+/**
+ * The body as it leaves the centre: the message, then the footer.
+ *
+ * The one caller is the messaging provider (`sim-provider.ts`), which is the send step. Every
+ * other caller of `renderTemplate` is a screen or a draft, and gets the message alone — which is
+ * the whole of Firia's S1-5 ruling: a coordinator approves words, not words plus furniture, and
+ * what they approve is what the family reads with the required sentence after it.
+ */
+export function renderForSend(
+  templateId: string,
+  vars: Record<string, unknown>,
+  how: RenderFor = {},
+): string {
+  const body = renderTemplate(templateId, vars, how);
+  return CARRIES_ITS_OWN_FOOTER.has(templateId) ? body : `${body} ${SEND_FOOTER}`;
 }

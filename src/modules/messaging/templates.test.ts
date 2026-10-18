@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CHILDREN, EXTERNAL_PEOPLE, FAMILIES, STOPS } from "@/modules/demo/fixtures/standard";
 import { CLOSURE_REASON_CODES, LEG_CANCEL_REASON_CODES, TEMPLATE_VARS } from "@/modules/outbox/outbox";
 import { outboundSms } from "@/ui/copy";
-import { HELP_REPLY_BODY, HELP_REPLY_TEMPLATE, knownTemplates, renderTemplate, templatePlaceholders, TemplateRenderError, UNKNOWN_STOP } from "./templates";
+import { HELP_REPLY_BODY, HELP_REPLY_TEMPLATE, knownTemplates, renderForSend, renderTemplate, SEND_FOOTER, templatePlaceholders, TemplateRenderError, UNKNOWN_STOP } from "./templates";
 
 /**
  * One rule-abiding value per var name (outbox TEMPLATE_VARS value rules, Veri #12). Since those
@@ -46,7 +46,13 @@ describe("outbound SMS templates (COPY-GUIDE §5)", () => {
       expect(body, t).not.toMatch(/[A-Z]{3,}_[A-Z]{3,}/); // enum names stay on developer surfaces
       expect(body, t).not.toMatch(/\b(?:load|unload|cargo|pax|patient|handicapped|ASAP|URGENT)\b/i);
       expect(body, t).not.toMatch(/wheelchair-bound|special needs|[\u{1F300}-\u{1FAFF}]|!/u);
-      expect(body, t).toContain("[DEMO]"); // COPY-GUIDE §6: a simulated message says so
+      /*
+       * A body is the message and nothing else (Firia, 2026-10-17 11:00 PM ET, S1-5): no
+       * [DEMO] tag — the demo bar on every screen is where this deployment says it is a
+       * simulation — and no STOP/HELP footer, which the send step appends (`renderForSend`).
+       */
+      expect(body, t).not.toContain("DEMO");
+      expect(body, t).not.toContain(SEND_FOOTER);
       expect(body, t).toMatch(/^PPEC: /);
     }
   });
@@ -81,7 +87,7 @@ describe("outbound SMS templates (COPY-GUIDE §5)", () => {
     expect(renderTemplate("therapist.absence_alert", { sessionStart: "2026-10-14T13:30:00-04:00" }))
       .toContain("The 1:30 PM session");
     expect(renderTemplate("center.closure", { date: "2026-10-14", reasonCode: "HOLIDAY" }))
-      .toBe("PPEC: The center is closed on October 14. This is for a holiday. Reply HELP for help, STOP to opt out. [DEMO]");
+      .toBe("PPEC: The center is closed on October 14. This is for a holiday.");
     expect(renderTemplate("pickup.eta", { eta: "00:05", stopLabel: "OKEE-PARK" })).toContain("Pickup around 12:05 AM");
     // Both ends of a window are read from their own text too, so neither moves with the server TZ.
     expect(renderTemplate("pickup.eta", { eta: "2026-10-14T08:12:00-04:00", etaEnd: "2026-10-14T08:22:00-04:00", stopLabel: "OKEE-PARK" }))
@@ -101,7 +107,7 @@ describe("outbound SMS templates (COPY-GUIDE §5)", () => {
 
   it("renders vars and refuses an unknown template, an unknown var, a bad value or a missing var", () => {
     expect(renderTemplate("pickup.eta", { eta: "08:12", etaEnd: "08:22", stopLabel: "OKEE-PARK" }))
-      .toBe("PPEC: Your child's van is on the way to Okeeheelee Park. Pickup 8:12\u20138:22 AM. Reply HELP for help, STOP to opt out. [DEMO]");
+      .toBe("PPEC: Your child's van is on the way to Okeeheelee Park. Pickup 8:12\u20138:22 AM.");
     expect(() => renderTemplate("not.a.template", {})).toThrow(TemplateRenderError);
     expect(() => renderTemplate("pickup.eta", { ...sampleVars("pickup.eta"), address: "1 Main St" })).toThrow(/not permitted/);
     // Free text in an allowlisted name is a value-rule refusal, and the value is never echoed back.
@@ -179,9 +185,9 @@ describe("the pickup window (etaEnd, COPY-GUIDE §3)", () => {
 
   it("the window is rendered on each template that takes one, and only as a window", () => {
     expect(renderTemplate("dropoff.eta", { stopLabel: "PRINCE-PARK", eta: "16:05", etaEnd: "16:20" }))
-      .toBe("PPEC: Your child's van home is on the way to John Prince Park. Arrival 4:05–4:20 PM. Reply HELP for help, STOP to opt out. [DEMO]");
+      .toBe("PPEC: Your child's van home is on the way to John Prince Park. Arrival 4:05–4:20 PM.");
     expect(renderTemplate("leg.changed", { legDate: "2026-10-14", stopLabel: "OKEE-PARK", eta: "08:12", etaEnd: "08:22" }))
-      .toBe("PPEC: Your child's van on October 14 changed. New pickup 8:12–8:22 AM at Okeeheelee Park. Reply HELP for help, STOP to opt out. [DEMO]");
+      .toBe("PPEC: Your child's van on October 14 changed. New pickup 8:12–8:22 AM at Okeeheelee Park.");
     // etaEnd is read by the eta rule, so no body needs a placeholder of its own for it.
     for (const t of knownTemplates()) expect(templatePlaceholders(t), t).not.toContain("etaEnd");
   });
@@ -345,5 +351,37 @@ describe("the late drop-off text says what Vera settled", () => {
     expect(body).toContain("Noah's van home");
     // And with no row read it is the old wording, which still names nobody.
     expect(namesInBody(renderTemplate(TEMPLATE, { delayMinutes: 15, stopLabel: "OKEE-PARK" }))).toEqual([]);
+  });
+});
+
+/**
+ * THE FOOTER IS THE SEND STEP'S (Firia, 2026-10-17 11:00 PM ET, S1-5).
+ *
+ * The rule has two halves and the bodies above are only the first: no body carries the 10DLC
+ * sentence. This is the second — what actually leaves the centre still does, because the
+ * provider renders through `renderForSend` and not through `renderTemplate`.
+ */
+describe("the STOP/HELP footer is appended at send, and only there", () => {
+  it("adds it to every template, once, at the end", () => {
+    for (const t of knownTemplates().filter((t) => t !== HELP_REPLY_TEMPLATE)) {
+      const sent = renderForSend(t, sampleVars(t));
+      expect(sent.endsWith(SEND_FOOTER), `${t}: ${sent}`).toBe(true);
+      expect(sent.split(SEND_FOOTER)).toHaveLength(2);
+      // And the draft it was built from is the same words without it.
+      expect(sent).toBe(`${renderTemplate(t, sampleVars(t))} ${SEND_FOOTER}`);
+    }
+  });
+
+  it("and leaves the HELP answer alone, because that body is itself the opt-out instruction", () => {
+    // "…Reply STOP to opt out." is the answer somebody asked for. Appending the footer would
+    // tell one family twice, in one text, how to stop.
+    const sent = renderForSend(HELP_REPLY_TEMPLATE, {});
+    expect(sent).toBe(renderTemplate(HELP_REPLY_TEMPLATE, {}));
+    expect(sent).toContain("Reply STOP to opt out.");
+    expect(sent).not.toContain(SEND_FOOTER);
+  });
+
+  it("is the 10DLC sentence PRD §17 D-04 asks for", () => {
+    expect(SEND_FOOTER).toBe("Reply HELP for help, STOP to opt out.");
   });
 });

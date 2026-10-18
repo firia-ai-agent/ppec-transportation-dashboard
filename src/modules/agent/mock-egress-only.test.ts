@@ -32,7 +32,7 @@ import { VercelQueueScheduler } from "@/modules/jobs/scheduler";
 import { personaMessages, resolvePersona } from "@/modules/messaging/mailbox";
 import { dbIdentityGateway } from "@/modules/identity/gateway";
 import { DbSimMessagingProvider, SIM_STATUS_JOB_KIND, simStatusHandler } from "@/modules/messaging/sim-provider";
-import { renderTemplate } from "@/modules/messaging/templates";
+import { renderForSend, renderTemplate } from "@/modules/messaging/templates";
 import { type DrainDeps, drain } from "@/modules/outbox/outbox";
 import { dbRecipientAuthorizer } from "@/modules/outbox/policy";
 import { twilioStub } from "@/modules/outbox/provider";
@@ -219,7 +219,9 @@ describe("check 2, part 3: a real send lands in the simulator, not on a wire", (
     ).rows;
     expect(out.map((m) => [m.provider, m.source_mode])).toEqual([["SIM", "SIMULATED"]]);
     expect(out[0].external_id).toBe(`SIM-${queued.id}`);
-    expect(out[0].body_tokenized).toBe(renderTemplate("leg.canceled", VARS()));
+    // The stored body is what was SENT, so it carries the 10DLC footer the send step appends
+    // (`renderForSend`, Firia 11:00 PM ET, S1-5). The draft it was rendered from does not.
+    expect(out[0].body_tokenized).toBe(renderForSend("leg.canceled", VARS()));
     expect(fetchCalls).toBe(0);
   });
 

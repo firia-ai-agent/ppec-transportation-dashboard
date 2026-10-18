@@ -128,7 +128,7 @@ describe("the scan itself works", () => {
     expect(tokensIn("PPEC: Your child's van is on the way to OKEE-PARK.")).toEqual(["OKEE-PARK"]);
     expect(tokensIn("Pickup STOP-4")).toEqual(["STOP-4"]);
     // A phone number, a window and the fixed parts of every body are not tokens.
-    expect(tokensIn("Call us at (561) 555-0100. Pickup 8:12\u20138:22 AM. Reply HELP for help, STOP to opt out. [DEMO]")).toEqual([]);
+    expect(tokensIn("Call us at (561) 555-0100. Pickup 8:12\u20138:22 AM. Reply HELP for help, STOP to opt out.")).toEqual([]);
   });
 
   it("passes words that merely look like one", () => {

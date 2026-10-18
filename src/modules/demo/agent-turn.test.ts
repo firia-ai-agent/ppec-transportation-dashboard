@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { demoDay } from "@/domain/board/day";
 import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, loadAgentConfig } from "@/modules/agent/config";
+import { SEND_FOOTER } from "@/modules/messaging/templates";
 import type { LlmProvider, ProviderCall, ProviderResponseBody } from "@/modules/agent/providers/provider";
 import { toolCall } from "@/modules/agent/providers/fake";
 import { findLeaks } from "@/modules/agent/redact";
@@ -216,7 +217,10 @@ describe("approving the proposal", () => {
      * off at … at 3:58 PM"), and the approved drop-off is a decided minute rather than a window.
      */
     expect(approved.reply.body).toContain(`Yes — ${approved.childFirstName} gets off at Okeeheelee Park at 5:00 PM`);
-    expect(approved.reply.body).toContain("[DEMO]");
+    // A draft is the message and nothing else: no [DEMO] tag, and no STOP/HELP footer — the
+    // send step appends that (Firia, 11:00 PM ET, S1-5; src/modules/messaging/templates.ts).
+    expect(approved.reply.body).not.toContain("DEMO");
+    expect(approved.reply.body).not.toContain(SEND_FOOTER);
     /*
      * Every var is still a code, a date or a clock time — the outbox's own rule (Veri #12) is
      * untouched by the name in the sentence above. The name is not a var and cannot be one: it is

@@ -541,6 +541,17 @@
   font-size: var(--text-14);
 }
 
+/**
+ * The 10DLC footer under the draft (Firia, 11:00 PM ET, S1-5). A muted line, smaller than the
+ * body, so it reads as the channel's and not as the sentence somebody is approving. Token
+ * colour only — `--color-ink-muted` on `--color-canvas` is a contrast-paired row in tokens.ts.
+ */
+.draftFooter {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
 .draftLabel {
   font-size: var(--text-12);
   font-weight: var(--weight-semibold);

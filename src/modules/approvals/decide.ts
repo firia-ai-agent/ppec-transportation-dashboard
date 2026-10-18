@@ -188,7 +188,7 @@ export function bodyOf(
      * or on the card (Firia, 2026-10-17 10:51 PM ET). The words either side of them are the same
      * words, from the same renderer.
      */
-    return renderTemplate(templateId, vars, { child, footer: false });
+    return renderTemplate(templateId, vars, { child });
   } catch {
     // A row whose vars the current copy will not render. Say nothing rather than a broken sentence;
     // the screen shows `approval.draftFailed` and a person writes the reply themselves.
