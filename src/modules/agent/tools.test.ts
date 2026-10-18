@@ -21,11 +21,12 @@ import {
 } from "./tools";
 
 describe("§11.2 tool catalog", () => {
-  it("has all 16 tools, each with a tier and an effect", () => {
+  it("has all 17 tools, each with a tier and an effect", () => {
     expect(TOOL_NAMES).toHaveLength(TOOL_COUNT);
     expect(TOOL_NAMES).toEqual([
       "resolve_sender",
       "get_leg_state",
+      "read_guardian_thread",
       "cancel_attendance_or_leg",
       "request_clarification",
       "record_acknowledgment",

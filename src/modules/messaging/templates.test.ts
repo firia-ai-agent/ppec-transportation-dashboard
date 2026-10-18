@@ -22,8 +22,19 @@ const SAMPLE: Record<string, string> = {
    * a coordinator approved. The sample names nobody, so the name sweep below still means what it
    * says — what a real one names is the family's own child, which is the whole of the ruling.
    */
-  replyText: "Yes, that works. We will see you then!",
+  replyText: "Yes, that works. We will see you then.",
 };
+
+/**
+ * The one body that is not this app's own wording, and so not under the two rules below that are
+ * about this app's voice: `dropoff.reply` is `{replyText}` placed whole (ui/copy.ts), the approved
+ * model sentence and nothing else. It carries no `PPEC:` prefix on purpose — the prefix is the
+ * machine's voice and `messaging/reply-text.ts` refuses a reply that has one. Every content rule
+ * in the sweep below still runs on it; what is exempt is the prefix, which the code's own comment
+ * says it must not have. The shape of the words themselves is held by reply-text.ts, four times
+ * over, and by `reply-text.test.ts`.
+ */
+const MODEL_WRITTEN_BODY = "dropoff.reply";
 const sampleVars = (templateId: string, reasonCode = "WEATHER"): Record<string, string> =>
   Object.fromEntries(Object.keys(TEMPLATE_VARS[templateId]).map((v) => [v, v === "reasonCode" ? reasonCode : SAMPLE[v]]));
 
@@ -59,7 +70,8 @@ describe("outbound SMS templates (COPY-GUIDE §5)", () => {
        */
       expect(body, t).not.toContain("DEMO");
       expect(body, t).not.toContain(SEND_FOOTER);
-      expect(body, t).toMatch(/^PPEC: /);
+      if (t !== MODEL_WRITTEN_BODY) expect(body, t).toMatch(/^PPEC: /);
+      else expect(body, t).not.toMatch(/PPEC\s*:/i);
     }
   });
 

@@ -300,6 +300,9 @@ describe("check 1, part 2b: the approved reply is bounded and still carries no P
       requested_dropoff_time: "17:00",
       requested_stop_token: null,
       rationale_code: "PARENT_REQUEST",
+      // The coordinator's line is required too, and is a separate field from the family's reply
+      // (Firia, 11:15 AM ET): this one is redacted into the log, that one is not.
+      alert_text: "F2 asked to move the afternoon drop-off to five o'clock.",
       reply,
       source_message_id: "MSG-1",
       expected_version: 1,

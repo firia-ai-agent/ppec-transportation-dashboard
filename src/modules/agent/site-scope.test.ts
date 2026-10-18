@@ -46,6 +46,7 @@ const ctx = (overrides: Partial<PolicyContext> = {}): PolicyContext => ({
 const VALID_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
   resolve_sender: { message_id: "MSG-1" },
   get_leg_state: { leg_id: "L-C1-AM" },
+  read_guardian_thread: { thread_id: "TH-F1", count: 5 },
   cancel_attendance_or_leg: {
     child_token: "C1",
     date: "2026-10-16",
@@ -99,7 +100,9 @@ const VALID_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
     requested_dropoff_time: "17:00",
     requested_stop_token: "GA-LIBRARY",
     rationale_code: "PARENT_REQUEST",
-    // The model's reply to the parent (Firia, 2026-10-18 11:04 AM ET) — a required argument now.
+    // The model's own line for the coordinator's card, and its reply to the parent (Firia,
+    // 2026-10-18 11:04 and 11:15 AM ET) — both required arguments now.
+    alert_text: "F1 asked to move the afternoon drop-off to five o'clock.",
     reply: "Yes, that works. We will see you then!",
     source_message_id: "MSG-1",
     expected_version: 1,
@@ -156,7 +159,7 @@ const blockOf = (tool: string, args: Record<string, unknown>, context = ctx()) =
 };
 
 describe("VERI-3: the walk covers the catalog", () => {
-  it("VERI-3 has a schema-valid call for all 16 tools, and a foreign value for every scoped argument", () => {
+  it("VERI-3 has a schema-valid call for all 17 tools, and a foreign value for every scoped argument", () => {
     expect(Object.keys(VALID_ARGS).sort()).toEqual([...TOOL_NAMES].sort());
     for (const tool of TOOL_NAMES) {
       expect(TOOL_REGISTRY[tool].schema.safeParse(VALID_ARGS[tool]).success, tool).toBe(true);

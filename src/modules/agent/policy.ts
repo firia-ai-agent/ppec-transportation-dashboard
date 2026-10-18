@@ -401,6 +401,10 @@ export type PolicyRow = {
 const ROWS: readonly PolicyRow[] = [
   { tool: "resolve_sender", scopedArgs: ["message_id"], sendSubject: null, note: "reads one message of this family's thread" },
   { tool: "get_leg_state", scopedArgs: ["leg_id"], sendSubject: null, note: "a leg belongs to one child" },
+  // The thread is the only scoped object in the call: `count` is a number of messages, not an id.
+  // `sendSubject: null` because nothing leaves the building — the tool reads bodies as stored and
+  // hands them to the model, so there is no outbound copy for a consent check to govern.
+  { tool: "read_guardian_thread", scopedArgs: ["thread_id"], sendSubject: null, note: "reads this family's own thread; a thread token from another family is out of scope" },
   { tool: "cancel_attendance_or_leg", scopedArgs: ["child_token"], sendSubject: null, note: "the date and day part are not objects" },
   { tool: "request_clarification", scopedArgs: ["thread_id", "candidate_tokens"], sendSubject: "thread_id", note: "an outbound into a thread: the thread is the consent subject" },
   { tool: "record_acknowledgment", scopedArgs: ["ack_id", "source_message_id"], sendSubject: null, note: "the ack row already binds its contact" },
@@ -421,17 +425,15 @@ const ROWS: readonly PolicyRow[] = [
   { tool: "record_capability_report", scopedArgs: ["vehicle_token", "source_message_id"], sendSubject: null, note: "an observation about a site vehicle; `parsed` holds codes, not ids" },
   { tool: "report_boarding", scopedArgs: ["leg_id"], sendSubject: null, note: "BOARDED_REPORTED on one leg" },
   { tool: "propose_manifest_reallocation", scopedArgs: ["infeasible_vehicle_token", "leg_ids", "options"], sendSubject: null, note: "proposes only; `options` nests the vehicles and legs it would move" },
-  // The time itself is not an object and is not scope-checked — it is a string on the leg's own
-  // service date, and the leg is what the family scope answers for. `sendSubject: null` because a
-  // proposal sends nothing: the family hears about this only if a person approves it.
-  { tool: "propose_dropoff_change", scopedArgs: ["child_token", "leg_id"], sendSubject: null, note: "proposes a new drop-off time on one leg of this family's; no mutation and no send" },
   { tool: "propose_contact_or_profile_change", scopedArgs: ["family_token", "source_message_id"], sendSubject: null, note: "proposes against this family only" },
   /*
    * A drop-off proposal names one of *this family's* legs and one of this run's own messages as
    * its basis, and both are scope-checked. `requested_stop_token` deliberately is not: a stop is
    * not a family's object and not in `scope.shared` either — it is constrained by the tool's own
    * schema to the center's code-owned list of places (`KNOWN_STOP_TOKENS`), which is a tighter
-   * check than the scope could give it. Nothing sends: a proposal is a row for a person.
+   * check than the scope could give it. The requested time is not scope-checked either — it is a
+   * clock string on the leg's own service date, and the leg is what the family scope answers for.
+   * Nothing sends: a proposal is a row for a person.
    */
   { tool: "propose_dropoff_change", scopedArgs: ["leg_id", "source_message_id"], sendSubject: null, note: "one of this family's legs, and the message it was asked in" },
   { tool: "escalate_exception", scopedArgs: ["leg_id"], sendSubject: null, note: "always allowed (§11.2), still scope-checked" },
@@ -723,9 +725,16 @@ export function evaluate(
   //    recipient (§11.2) or leaking one; in a structured argument it is refused outright. In a
   //    staff-facing prose field it is redacted instead (`sanitizeStaffText`, below) — the words still have to reach a
   //    human, and `redact()` is exactly the contract for text that is kept.
+  //
+  //    And in a *family*-facing prose field it is neither refused nor redacted, on the one row that
+  //    declares one (`ToolDef.familyTextFields`, `propose_dropoff_change.reply`): a reply naming
+  //    the parent and the child is what Firia's 11:04 AM ET ruling asked for, and that field's own
+  //    shape check — run by the schema, before this engine sees the call — already refuses the
+  //    number, the address, the link and the code this step is looking for. Declared per argument,
+  //    so it is a decision about that one field and not a default.
   for (const leaf of stringLeaves(args)) {
     const field = leaf.path.split(/[.[]/)[0];
-    if (def.staffTextFields.includes(field)) continue;
+    if (def.staffTextFields.includes(field) || def.familyTextFields?.includes(field)) continue;
     const leaks = findLeaks(leaf.value);
     if (leaks.length > 0) {
       return block(

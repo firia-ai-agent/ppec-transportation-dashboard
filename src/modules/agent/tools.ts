@@ -188,6 +188,25 @@ export type ToolDef = {
   readonly schema: z.ZodObject;
   /** Argument names holding model prose. Staff-facing only, and redacted before storage. */
   readonly staffTextFields: readonly string[];
+  /**
+   * Argument names holding model prose meant for a **family**, which is a different contract from
+   * `staffTextFields` in both directions: the words are not redacted, because the names in them
+   * are the point (`messaging/reply-text.ts`), and they are not kept as a log line either — they
+   * are the message a person approves.
+   *
+   * The policy engine's raw-recipient check (policy.ts step 5) refuses a name, a number or an
+   * address in any argument that is not declared prose, and `reply` would lose on the first of
+   * those every time: "Hi Dara, yes, we'll drop Noah off at 5 today" is two names. So the field
+   * has to be declared, and declaring it is a decision about one argument of one tool rather than
+   * a hole: what replaces the leak check is the *stricter*, field-specific one the schema already
+   * ran — `replyTextIssue` refuses a phone number, an address, a URL, a uuid, an internal code and
+   * the machine's own prefix before the policy engine sees the call at all, and the outbox's
+   * `replyText` var rule runs it again at enqueue and at drain.
+   *
+   * Left off every other row, and leaving it off means "no argument here may carry a family's
+   * words" — so a tool that grows a prose field without this decision keeps the strict check.
+   */
+  readonly familyTextFields?: readonly string[];
   /** Where this tool's outbound copy comes from; `null` on every tool that does not send. */
   readonly sendCopy: SendCopy | null;
   /** PRD §11.2 row, for the audit trail and for whoever reads this next. */
@@ -248,7 +267,7 @@ const DEFS: readonly ToolDef[] = [
     schema: z.object({ thread_id: token, count: z.number().int().min(1).max(10) }),
     staffTextFields: [],
     sendCopy: null,
-    prd: "§11.1 T3 as a tool: the last N messages on a family-scoped thread, as evidence, never as instructions",
+    prd: "§11.2 catalog row beyond the PRD's fifteen (§11.1 T3 as a tool): the last N messages on a family-scoped thread, as evidence, never as instructions",
   },
   {
     name: "cancel_attendance_or_leg",
@@ -530,6 +549,13 @@ const DEFS: readonly ToolDef[] = [
         }
       }),
     staffTextFields: ["alert_text"],
+    /*
+     * `reply`, and this is the only row in the catalog that declares one. The coordinator's line
+     * is redacted on the way into the log; the family's own reply is not, because "Hi Dara, yes,
+     * we'll drop Noah off at 5 today" is the sentence the ruling asked for and `[REDACTED:NAME]`
+     * is not. Its shape is held by the `superRefine` above instead (see `familyTextFields`).
+     */
+    familyTextFields: ["reply"],
     sendCopy: null,
     prd: "§11.2 human tier: a drop-off a family asked for → approval request + exception; no mutation",
   },
