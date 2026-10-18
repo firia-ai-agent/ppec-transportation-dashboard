@@ -9,7 +9,7 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { expect, type Locator, type Page } from "@playwright/test";
-import { demoBanner, sourceMode } from "../src/ui/copy";
+import { demoBanner, planBoard, sourceMode } from "../src/ui/copy";
 
 export const ARTIFACTS = path.resolve(__dirname, "..", "artifacts");
 
@@ -185,16 +185,45 @@ export async function expectPageHeaderBar(page: Page): Promise<void> {
    * In the 64 px bar at the top of the content column — measured against the column, not the
    * window: the §9.3 notice is a row of its own above the frame when a redirect put one there.
    */
-  expect(
-    await title.evaluate((el) => {
-      const bar = el.parentElement as HTMLElement;
-      return {
-        isTheBar: bar.nextElementSibling?.id === "content",
-        height: Math.round(bar.getBoundingClientRect().height),
-      };
-    }),
-    "the title is not in the page header bar",
-  ).toEqual({ isTheBar: true, height: 64 });
+  const measured = await title.evaluate((el) => {
+    const bar = el.parentElement as HTMLElement;
+    return {
+      isTheBar: bar.nextElementSibling?.id === "content",
+      height: Math.round(bar.getBoundingClientRect().height),
+      truncated: el.scrollWidth > el.clientWidth,
+    };
+  });
+  /*
+   * The one bar that is allowed to wrap: the board's, below 768 px (Firia's ruling on #73,
+   * src/app/plan-routes/board/board.module.css under `max-width: 767px`). Its date, Morning |
+   * Afternoon, Undo, Auto-plan and Save do not fit beside the title on a phone, so the title
+   * takes a row of its own and the controls go under it. No fixed height is asserted there: it
+   * is whatever the rows come to. What is asserted is what the wrap is for — it is still the
+   * bar, it is at least the 64 px one, the title reads in full, and Save and the leg switch are
+   * on screen inside it. Every other screen at every width, and the board at 768 and up, keeps
+   * the single 64 px row.
+   */
+  const width = page.viewportSize()?.width ?? Number.POSITIVE_INFINITY;
+  const wrapsHere = width < 768 && new URL(page.url()).pathname === "/plan-routes";
+  if (wrapsHere) {
+    expect(measured.isTheBar, "the title is not in the page header bar").toBe(true);
+    expect(measured.height, "the wrapped board header is shorter than the bar").toBeGreaterThanOrEqual(64);
+    expect(measured.truncated, "the board's title is cut off in the wrapped header").toBe(false);
+    const bar = title.locator("xpath=..");
+    await expect(
+      bar.getByRole("button", { name: planBoard.save, exact: true }),
+      "Save is not on screen in the wrapped board header",
+    ).toBeVisible();
+    const legs = bar.getByRole("navigation", { name: planBoard.heading, exact: true });
+    await expect(legs, "Morning | Afternoon is not on screen in the wrapped board header").toBeVisible();
+    await expect(legs.getByRole("link", { name: planBoard.morning })).toBeVisible();
+    await expect(legs.getByRole("link", { name: planBoard.afternoon })).toBeVisible();
+  } else {
+    expect(
+      { isTheBar: measured.isTheBar, height: measured.height },
+      "the title is not in the page header bar",
+    ).toEqual({ isTheBar: true, height: 64 });
+  }
   const overflowing = await page.evaluate(() => {
     const bar = document.querySelector("h1")?.parentElement;
     if (!bar) return [];
