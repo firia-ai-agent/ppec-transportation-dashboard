@@ -78,7 +78,21 @@ export const DROPOFF_CHANGE_REASON_CODES = [
  * a body or a var rule — the outbox stays the single source of both.
  */
 export const FOLLOWUP_TEMPLATE_FAMILIES: Readonly<Record<string, readonly string[]>> = {
-  confirmation: ["leg.canceled", "leg.changed", "dropoff.changed"],
+  /*
+   * ONE confirmation, not three. `leg.changed` and `dropoff.changed` came off this list on
+   * Firia's 11:00 PM ET ruling (Veri S1-1): they are the two bodies that tell a family their
+   * child's ride is different, and the whole of goal 4 is that a person decides that. While
+   * they were here the model could send the exact text the "For you" card asks a coordinator
+   * to approve — with the proposal still pending, or with no proposal at all. Veri's probe ran
+   * it: resolve_sender → get_leg_state → send_followup(dropoff.changed) succeeded, 0 approval
+   * rows, the message queued and drained SENT.
+   *
+   * Both are still real templates and are still sent — by `src/modules/approvals/decide.ts`,
+   * after a director or a coordinator has pressed Approve (APPROVAL_ROLES). They are simply not
+   * the agent's to send. `leg.canceled` stays: a cancellation the family itself asked for,
+   * which `cancel_attendance_or_leg` has its own §11.2 tier for.
+   */
+  confirmation: ["leg.canceled"],
   eta_delay: ["pickup.eta", "dropoff.eta"],
   absence_to_therapist: ["therapist.absence_alert"],
   // No dedicated reminder body exists yet (B-05): the late alert and the fixed-copy notice carry

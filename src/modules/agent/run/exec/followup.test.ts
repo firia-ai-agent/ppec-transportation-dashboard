@@ -203,30 +203,69 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     expect(await tasks()).toEqual([]);
   });
 
-  it("a change confirmation is a decision too: the asker only, and nothing to the other contact", async () => {
-    // `leg.changed` is the other half of `DECISION_TEMPLATES`, and it is a disclosure about the
-    // same request: the parent who did not ask is not told what the parent who did asked for.
+  /**
+   * THE TWO BODIES THE AGENT MAY NOT SEND (Firia, 2026-10-17 11:00 PM ET; Veri S1-1).
+   *
+   * `leg.changed` and `dropoff.changed` are the texts that tell a family their child's ride is
+   * different. Goal 4 is that a person decides that, so they are `approvals/decide.ts`'s to
+   * send and nobody else's — and until this ruling they were on `send_followup`'s guardian
+   * allow-list, which meant the model could send the exact words the "For you" card asks a
+   * coordinator to approve, with the proposal still pending or with no proposal at all. Veri's
+   * probe ran it end to end: run SUCCEEDED, 0 approval rows, outbound QUEUED, drained SENT.
+   *
+   * Each is asserted on its own because each has its own template, and each fails if its id is
+   * put back on either list — `FOLLOWUP_TEMPLATE_FAMILIES.confirmation` (src/modules/agent/
+   * tools.ts) or `AUDIENCE_RULES.GUARDIAN_OF_CHILD.templates` (followup.ts). The first is the
+   * schema the model is given; the second is the executor behind it.
+   */
+  for (const [templateId, vars] of [
+    ["leg.changed", { legDate: "SERVICE_DATE", eta: "09:30", stopLabel: "HOME" }],
+    ["dropoff.changed", { legDate: "SERVICE_DATE", eta: "17:00", stopLabel: "HOME" }],
+  ] as const) {
+    it(`refuses to send ${templateId}: that text waits for an approval`, async () => {
+      sc = await seedAgentScenario(db);
+      const child = sc.children[0];
+      // A second contact, so a leak would have somewhere to leak to and the "nothing queued"
+      // claim below is about the whole table rather than about one row.
+      await seedSecondGuardian(db, {
+        siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER, now: sc.receivedAt,
+      });
+      const h = harness([
+        toolCall("resolve_sender", { message_id: sc.messageId }),
+        toolCall("get_leg_state", { leg_id: sc.legs[child].AM }),
+        followupCall({
+          template_id: templateId,
+          vars: { ...vars, legDate: sc.serviceDate },
+        }),
+      ]);
+      const r = await h.start(trigger());
+
+      // Nothing is queued and nothing is sent. Whatever the run's own end state, the family's
+      // phone is the assertion: no row in the outbox means no text, pending approval or not.
+      expect(await outbound()).toEqual([]);
+      expect(await h.drainOutbox()).toEqual([]);
+      expect(h.provider.sent).toEqual([]);
+
+      // And the refusal is the template's, not an accident of the scenario: the same call with
+      // an allow-listed body does queue one.
+      const call = (await toolCalls(db, r.runId)).find((c) => c.tool === "send_followup");
+      expect(
+        JSON.stringify(call?.result ?? {}),
+        `${templateId} was accepted by send_followup`,
+      ).not.toContain("outbound_message_ids");
+    });
+  }
+
+  it("the allow-listed confirmation still goes out, so the refusals above are about those two ids", async () => {
     sc = await seedAgentScenario(db);
     const child = sc.children[0];
-    const second = await seedSecondGuardian(db, {
-      siteId: sc.siteId, familyGroupId: sc.familyGroupId, childToken: child, number: F2_NUMBER, now: sc.receivedAt,
-    });
     const h = harness([
       toolCall("resolve_sender", { message_id: sc.messageId }),
       toolCall("get_leg_state", { leg_id: sc.legs[child].AM }),
-      followupCall({ template_id: "leg.changed", vars: { legDate: sc.serviceDate, eta: "09:30" } }),
+      followupCall({ template_id: "leg.canceled", vars: { legDate: sc.serviceDate, reasonCode: "FAMILY_REQUEST" } }),
     ]);
-    const r = await h.start(trigger());
-    expect(r.state).toBe("SUCCEEDED");
-
-    const rows = await outbound();
-    expect(rows.map((m) => [m.template_id, m.recipient_token])).toEqual([["leg.changed", sc.contactToken]]);
-    expect(rows.filter((m) => m.recipient_token === second)).toEqual([]);
-    expect((await toolCalls(db, r.runId))[2].result).toMatchObject({ recipients: 1 });
-    expect(await h.drainOutbox()).toEqual(["SENT"]);
-    expect(h.provider.sent.map((m) => m.recipientToken)).toEqual([sc.contactToken]);
-    expect(JSON.stringify(h.provider.sent)).not.toContain(second);
-    expect(await tasks()).toEqual([]);
+    await h.start(trigger());
+    expect((await outbound()).map((m) => m.template_id)).toEqual(["leg.canceled"]);
   });
 
   it("a notice fans out to every authorized contact, one message each, the asker first (§10.1)", async () => {

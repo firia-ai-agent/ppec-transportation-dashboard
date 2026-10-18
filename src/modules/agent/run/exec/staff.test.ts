@@ -557,8 +557,15 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
       String(approval.proposal.template_id),
       approval.proposal.vars as Record<string, unknown>,
     );
-    expect(body).toContain("New drop-off around 5:00 PM at Greenacres Branch Library");
-    // Still no name in it, and still the 12-hour clock a family reads (COPY-GUIDE §3).
+    /*
+     * The body is the one Firia asked for at 10:51 PM ET: it opens with the answer and names the
+     * child and the stop ("Model draft is human and uses the child's name"). The assertion is on
+     * the stop and on the shape rather than on the whole sentence, because the *words* are
+     * src/ui/copy.ts's to change and this test is about the vars reaching the renderer.
+     */
+    expect(body).toContain("Greenacres Branch Library");
+    expect(body).toMatch(/^PPEC: Yes/);
+    // Still no name of a person in it, and never the 24-hour clock (COPY-GUIDE §3).
     expect(body).not.toContain("17:00");
 
     // An AMBER task for the board, and nothing else in the database moved.
@@ -603,7 +610,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
     // C2's own stop, out of the fixtures: Okeeheelee Park.
     expect(approval.proposal.stop_token).toBe("OKEE-PARK");
     expect(renderTemplate(DROPOFF_CHANGE_TEMPLATE, approval.proposal.vars as Record<string, unknown>))
-      .toContain("New drop-off around 5:15 PM at Okeeheelee Park");
+      .toContain("Okeeheelee Park");
   });
 
   /**

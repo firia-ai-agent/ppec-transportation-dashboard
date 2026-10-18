@@ -103,10 +103,24 @@ type AudienceRule =
     }
   | { readonly kind: "staff_task"; readonly templates: readonly string[] };
 
+/**
+ * EVERY BODY THE AGENT MAY SEND A FAMILY, named so a test can read the list.
+ *
+ * No `leg.changed` and no `dropoff.changed` (Firia, 2026-10-17 11:00 PM ET; Veri S1-1). The two
+ * bodies that tell a family their child's ride changed are `approvals/decide.ts`'s alone, sent
+ * after a person approves. The tool's own allow-list (`FOLLOWUP_TEMPLATE_FAMILIES`,
+ * src/modules/agent/tools.ts) drops them from the schema as well, so a model asking for one is
+ * refused before it reaches here; this is the second of the two locks, and the one that answers
+ * `TEMPLATE_NOT_FOR_AUDIENCE` if the first is ever widened.
+ */
+export const GUARDIAN_SEND_TEMPLATES: readonly string[] = [
+  "leg.canceled", "pickup.eta", "dropoff.eta", "generic.notice",
+];
+
 const AUDIENCE_RULES: Readonly<Record<Audience, AudienceRule>> = {
   GUARDIAN_OF_CHILD: {
     kind: "outbox",
-    templates: ["leg.canceled", "leg.changed", "dropoff.changed", "pickup.eta", "dropoff.eta", "generic.notice"],
+    templates: GUARDIAN_SEND_TEMPLATES,
     // One definition of "how a family is reached" (outbox/policy.ts `FAMILY_SMS`), shared with the
     // deterministic ETA notice: the same purpose on the same channel under the same rule.
     channel: FAMILY_SMS.channel,
