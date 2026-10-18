@@ -1803,6 +1803,13 @@ export const planBoard = {
   unassigned: "Unassigned",
   /** The whole Unassigned list once nobody is left in it (§1.3 "All placed"). */
   allPlaced: "All placed",
+  /**
+   * The lane for the children the centre does not drive, and — since Vera's 390 pass of
+   * 2026-10-18 — the **card's own subline** for one of them, in their lane or in a van a
+   * coordinator put them in. It replaced "No pickup stop", which named a thing that was missing
+   * instead of the arrangement a coordinator already knows about, and it is one label rather
+   * than two so the lane and the card under it cannot drift apart.
+   */
   familyDrives: "Family drives",
   absent: "Absent",
   /**
@@ -1909,9 +1916,15 @@ export const planBoard = {
     LIFT: "lift",
   },
   /**
-   * The one line an unconfirmed van's column carries (Firia/Veri, 2026-10-17 6:00 PM ET): no
+   * The one line about a van nobody has confirmed (Firia/Veri, 2026-10-17 6:00 PM ET): no
    * button, no "yesterday", no carry-over — the van is planned on the shared config's defaults
    * until the front desk confirms it at the ramp.
+   *
+   * It is said **once**, in the board's own banner beside "Check vans" (`flow.banner`, the same
+   * sentence), and no longer on each van column — three columns said it three times for one
+   * fact about the day (Vera on b3453cd, 2026-10-18). It stays here because this is the board's
+   * copy block and the sentence is the board's; `src/app/plan-routes/board/lines.test.ts` holds
+   * the two spellings of it to the one wording.
    */
   usingDefault: "Using default setup",
   /** "Seats 4/6" — a read-only count chip on a van column, one per counter (§1.2, 5:55 PM ET). */
@@ -1936,6 +1949,18 @@ export const planBoard = {
   mapLabel: "Route map",
   /** The one column a phone shows at a time is chosen here (§9.3 at 390 px). */
   columnSwitcher: "Which column?",
+  /**
+   * The Unassigned tab on that switcher, with how many are still waiting: "Unassigned · 2"
+   * (png/plan-board-390.png). The word itself is `unassigned` above rather than written again
+   * here, so the tab and the column it opens cannot come to say two different things.
+   */
+  switcherUnassigned: "{name} · {n}",
+  /**
+   * How a card is moved where there is no pointer (png/plan-board-390.png's own line). Holding
+   * a card opens the `Move to…` control the card has had all along — the same one a right-click
+   * opens on a wide screen — so this names the gesture rather than announcing a second control.
+   */
+  holdToMove: "Hold a card to move it",
 } as const;
 
 /**

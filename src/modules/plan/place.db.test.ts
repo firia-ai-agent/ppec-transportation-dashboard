@@ -2,7 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { NEED_CATEGORY } from "@/config/equipment";
 import { VANS } from "@/config/vans";
 import type { Db } from "@/db/exec";
-import { ridersInVan, usedInVan } from "@/domain/plan/board";
+import { childrenInBucket, ridersInVan, usedInVan } from "@/domain/plan/board";
+import { usedBy } from "@/domain/plan/fit";
 import { freshPlanDb, SITE } from "@/test/pglite";
 import { childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/standard";
 import { seedStandardScenario } from "@/modules/demo/seed";
@@ -389,6 +390,160 @@ describe("Absent and Family drives are placements on this day's plan", () => {
  * were — otherwise the screen says "somebody else saved first" while the record has already
  * changed under it, and a reload shows a pinned child in a van that no longer fits.
  */
+describe("a Family drives child is a child of the plan (Firia, 2026-10-18)", () => {
+  /**
+   * Ana S. is one of the three the centre does not drive: `am_mode`/`pm_mode` is `FAMILY` and
+   * she has no `stop_location`, so the SQL day source hands her over as an "other" and the board
+   * draws her in the Family drives lane. The report was that the lane was a line reading "3".
+   *
+   * What is proved here is the half a browser cannot: the move a coordinator makes on that card
+   * is a row. It passes the two checks a save runs — `namesOnlyThisDay` and `checkPlan`, both
+   * inside `writePlan` — it comes back on the next read of the day, and it goes home again.
+   */
+  const ANA = () => childTokenOf("C10");
+
+  it("is handed over by the roster with her approved needs and no stop of ours", async () => {
+    const day = (await board()).day;
+    const ana = day.others.find((other) => other.token === ANA());
+    expect(ana, "Ana S. is a child the centre does not drive this leg").toBeTruthy();
+    expect(ana!.name).toBe("Ana S.");
+    // Nothing approved, so the one fit rule asks for a seat and nothing else.
+    expect(ana!.needs).toEqual({ wheelchair: false, carSeat: false, oxygen: false, nurse: false });
+    expect(ana!.stopLabel).toBe("");
+    expect(day.riders.some((rider) => rider.token === ANA())).toBe(false);
+    // And the plan she arrives on has her in the lane, not waiting.
+    expect((await board()).plan[ANA()]).toMatchObject({ bucket: "FAMILY_DRIVES", vanId: null });
+  });
+
+  it("goes onto a van through the save path, and is in the van on the next read", async () => {
+    await startTheDay();
+    const saved = await applyPendingMoves(
+      {
+        siteId: SITE,
+        serviceDate: DATE,
+        direction: "PM",
+        moves: [{ childToken: ANA(), bucket: "VAN", vanId: vanOne() }],
+        expectedVersion: 0,
+        actor: null,
+        now: NOW,
+      },
+      store,
+      source(),
+    );
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    expect(saved.version).toBe(1);
+
+    const rows = await db.query<{ bucket: string; vehicle_id: string | null; stop_seq: number | null }>(
+      `SELECT bucket, vehicle_id::text AS vehicle_id, stop_seq FROM ops.plan_assignment
+        WHERE child_token = $1::uuid`,
+      [ANA()],
+    );
+    // In the van, and not a stop: there is no kerb of ours to drive her to.
+    expect(rows.rows[0]).toMatchObject({ bucket: "VAN", vehicle_id: vanOne(), stop_seq: null });
+
+    const reloaded = await board();
+    expect(reloaded.plan[ANA()]).toMatchObject({ bucket: "VAN", vanId: vanOne() });
+    expect(ridersInVan(reloaded.day, reloaded.plan, vanOne()).map((r) => r.token)).toContain(ANA());
+    // And her seat is counted, which is what `eligibility` and `checkPlan` now agree on.
+    expect(usedInVan(reloaded.day, reloaded.plan, vanOne()).seats).toBe(1);
+  });
+
+  it("goes back into Family drives, and stays there on the next read", async () => {
+    await startTheDay();
+    const onto = await applyPendingMoves(
+      { siteId: SITE, serviceDate: DATE, direction: "PM",
+        moves: [{ childToken: ANA(), bucket: "VAN", vanId: vanOne() }],
+        expectedVersion: 0, actor: null, now: NOW },
+      store,
+      source(),
+    );
+    expect(onto.ok).toBe(true);
+    if (!onto.ok) return;
+
+    const home = await applyPendingMoves(
+      { siteId: SITE, serviceDate: DATE, direction: "PM",
+        moves: [{ childToken: ANA(), bucket: "FAMILY_DRIVES", vanId: null }],
+        expectedVersion: onto.version, actor: null, now: NOW },
+      store,
+      source(),
+    );
+    expect(home.ok).toBe(true);
+
+    const reloaded = await board();
+    expect(reloaded.plan[ANA()]).toMatchObject({ bucket: "FAMILY_DRIVES", vanId: null });
+    expect(ridersInVan(reloaded.day, reloaded.plan, vanOne()).map((r) => r.token)).not.toContain(ANA());
+    expect(
+      childrenInBucket(reloaded.day, reloaded.plan, "FAMILY_DRIVES").map((child) => child.name),
+    ).toEqual(["Ana S.", "Beni A.", "Cleo M."]);
+  });
+
+  it("takes a seat like anybody else: a full Van 1 fits, and full plus Ana does not", async () => {
+    await startTheDay();
+    const view = await board();
+    const day = view.day;
+    const van = day.vans.find((candidate) => candidate.id === vanOne());
+    if (!van) throw new Error("the day does not run Van 1");
+    /*
+     * Enough children to fill Van 1's seats exactly and overrun no other counter: car-seat
+     * riders up to the car seats the van carries, then riders who need nothing at all.
+     *
+     * The numbers come off **this van's own setup** rather than being written here (they were
+     * "six seats, three car seats" until Firia's S1 of 2026-10-18, when the shared default
+     * became the configuration the seeded van is actually fitted as): one default, in
+     * src/config/vans.ts, and no second copy of it in a test that would then have to be edited
+     * alongside it. The claim is unchanged and is the one the bug was about — the van is filled
+     * to its counts, and the next child is refused.
+     */
+    const ambulatory = day.riders.filter(
+      (rider) => !rider.needs.wheelchair && !rider.needs.nurse && !rider.needs.oxygen,
+    );
+    const fill = [
+      ...ambulatory.filter((rider) => rider.needs.carSeat).slice(0, van.setup.carSeats),
+      ...ambulatory.filter((rider) => !rider.needs.carSeat),
+    ].slice(0, van.setup.seats);
+    expect(usedBy(fill)).toMatchObject({ seats: van.setup.seats, wheelchairSpots: 0 });
+    expect(usedBy(fill).carSeats).toBeLessThanOrEqual(van.setup.carSeats);
+
+    const six = await applyPendingMoves(
+      {
+        siteId: SITE,
+        serviceDate: DATE,
+        direction: "PM",
+        moves: fill.map((rider) => ({ childToken: rider.token, bucket: "VAN" as const, vanId: vanOne() })),
+        expectedVersion: 0,
+        actor: null,
+        now: NOW,
+      },
+      store,
+      source(),
+    );
+    expect(six.ok).toBe(true);
+    if (!six.ok) return;
+    expect(usedInVan(six.view.day, six.view.plan, vanOne()).seats).toBe(van.setup.seats);
+
+    /*
+     * Ana would be one more, and every seat is taken. **This is the half that was broken**: she
+     * was not a rider the server counted at all, so `checkPlan` replayed Van 1 without her and
+     * this save would have been kept — a van carrying one more child than it has seats.
+     */
+    const seventh = await applyPendingMoves(
+      { siteId: SITE, serviceDate: DATE, direction: "PM",
+        moves: [{ childToken: ANA(), bucket: "VAN", vanId: vanOne() }],
+        expectedVersion: six.version, actor: null, now: NOW },
+      store,
+      source(),
+    );
+    expect(seventh).toMatchObject({ ok: false, status: 422, reason: "SEAT", vanId: vanOne() });
+
+    // And nothing was written: the version is still the one the six left behind, and Ana is
+    // still in her lane.
+    const after = await board();
+    expect(after.version).toBe(six.version);
+    expect(after.plan[ANA()]).toMatchObject({ bucket: "FAMILY_DRIVES", vanId: null });
+  });
+});
+
 describe("a needs Save and its re-plan are one transaction", () => {
   const approvedCategories = async (token: string) => {
     const rows = await db.query<{ category: string }>(

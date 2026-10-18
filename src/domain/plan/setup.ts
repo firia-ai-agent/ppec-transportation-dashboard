@@ -77,5 +77,67 @@ export function resolveSetup(
       setBy: confirmed.setBy,
     };
   }
+  return defaultResolved(vehicleKey);
+}
+
+/** The second rung, written once: no row for today means this van's configured defaults. */
+function defaultResolved(vehicleKey: string): ResolvedSetup {
   return { setup: defaultSetupOf(vehicleKey), state: "DEFAULT", source: "DEFAULT" };
+}
+
+/* ─────────────── the whole day's vans, which is what a screen actually asks for ─────────────── */
+
+/** Every van's counts for one date, by vehicle key. The shape both views are handed. */
+export type VanSetups = Readonly<Record<string, ResolvedSetup>>;
+
+/** A van as this resolution identifies it: the config's key, and the row's own id. */
+export type SetupVan = { vehicleKey: string; vehicleId: string };
+
+/**
+ * **THE SINGLE SOURCE OF EACH VAN'S SETUP FOR A DATE** — the one function both screens read.
+ *
+ * SOURCE: Firia's S1 of 2026-10-18 — the board let a coordinator put six children and a
+ * wheelchair in a van while Today, checking the same van against the seeded seating layouts in
+ * src/modules/demo/fixtures/standard.ts, said that van holds one chair and three seats. Two
+ * screens, two capacity sources, two answers about one van.
+ *
+ * So there is one: today's `CHECKED` row for that van, else its configured default, per van, for
+ * every van of the day at once. The plan board reads it through `loadBoard`
+ * (src/modules/plan/store.ts) and Today reads it through `savedSetupsForBoard` into `buildBoard`
+ * (src/domain/board/board.ts) — the same two rungs, the same rows, the same arithmetic in
+ * src/domain/plan/fit.ts. **Neither screen reads a layout for capacity.**
+ *
+ * `rows` is whatever the store found for these vans on any date; each van takes its own, and the
+ * date and state rules are `resolveSetup`'s, so there is still exactly one place that decides
+ * what a confirmation is and what its absence means.
+ *
+ * Pure: the rows come from the server page or the loader (src/modules/plan/store.ts).
+ */
+export function resolveSetups(
+  vans: readonly SetupVan[],
+  date: string,
+  rows: readonly SetupRow[],
+): VanSetups {
+  return Object.fromEntries(
+    vans.map((van) => [
+      van.vehicleKey,
+      resolveSetup(
+        van.vehicleKey,
+        date,
+        rows.filter((row) => row.vehicleId === van.vehicleId),
+      ),
+    ]),
+  );
+}
+
+/**
+ * One van out of that answer — and the configured default for a van the caller was handed nothing
+ * about, which is the same rung `resolveSetup` lands on when there is no row.
+ *
+ * That case is a real one and not a defence: a page with no centre behind the session reads no
+ * rows at all (every browser check), and a van nobody has counted is on its defaults whether the
+ * day was read or not.
+ */
+export function setupFor(setups: VanSetups, vehicleKey: string): ResolvedSetup {
+  return setups[vehicleKey] ?? defaultResolved(vehicleKey);
 }

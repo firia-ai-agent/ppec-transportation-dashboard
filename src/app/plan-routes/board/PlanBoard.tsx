@@ -40,6 +40,7 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import { Hand } from "lucide-react";
 import PlanMap from "@/components/map/PlanMap";
 import { useRouter } from "next/navigation";
 import { API } from "@/auth/access";
@@ -47,6 +48,8 @@ import type { RejectReason } from "@/config/equipment";
 import {
   autoPlan,
   boardMap,
+  boardRiders,
+  needsByToken,
   placedCount,
   ridersToPlace,
   unassignedRiders,
@@ -70,7 +73,8 @@ import {
 import { eligibility } from "@/domain/plan/eligibility";
 import type { BoardView } from "@/modules/plan/store";
 import { boardHref } from "@/modules/plan/when";
-import { flow, planBoard } from "@/ui/copy";
+import { vanColourVar } from "@/config/vans";
+import { fill, flow, planBoard } from "@/ui/copy";
 import { NeedIcons } from "@/ui/equipment";
 import { HeaderSlot } from "@/ui/HeaderSlot";
 import { serviceDateLabel } from "@/ui/service-date";
@@ -473,7 +477,9 @@ export default function PlanBoard({
   );
 
   const onDragStart = (event: DragStartEvent) => {
-    const rider = day.riders.find((r) => r.token === String(event.active.id));
+    // Every child on the board, not only the ones this leg drives: a family-drives card lifts
+    // like any other, so it needs its overlay and its pre-check (Firia, 2026-10-18).
+    const rider = boardRiders(day).find((r) => r.token === String(event.active.id));
     setLifted(rider ?? null);
     setToast(null);
     // The last refusal is answered by picking the card up again (Vera: it clears on drag start).
@@ -522,12 +528,12 @@ export default function PlanBoard({
          */
         accessibility={{
           announcements: {
-            onDragStart: ({ active }) => nameOfRider(day, String(active.id)),
+            onDragStart: ({ active }) => nameOf(day, String(active.id)),
             onDragOver: ({ active, over }) =>
-              over ? movedLine(nameOfRider(day, String(active.id)), nameOfColumn(day, String(over.id))) : undefined,
+              over ? movedLine(nameOf(day, String(active.id)), nameOfColumn(day, String(over.id))) : undefined,
             onDragEnd: ({ active, over }) =>
-              over ? movedLine(nameOfRider(day, String(active.id)), nameOfColumn(day, String(over.id))) : undefined,
-            onDragCancel: ({ active }) => nameOfRider(day, String(active.id)),
+              over ? movedLine(nameOf(day, String(active.id)), nameOfColumn(day, String(over.id))) : undefined,
+            onDragCancel: ({ active }) => nameOf(day, String(active.id)),
           },
         }}
         onDragStart={onDragStart}
@@ -600,23 +606,60 @@ export default function PlanBoard({
           </p>
         ) : null}
 
-        {/* One column at a time on a phone (§9.3); the switcher is hidden on a wide screen. */}
+        {/*
+          One column at a time on a phone (§9.3); the switcher is hidden on a wide screen.
+
+          Chips, as png/plan-board-390.png draws them — each van's own colour as a dot beside
+          its name, and Unassigned with how many are still waiting — and not the leg switch's
+          segmented control, which Vera's 390 pass found them wearing.
+        */}
         <div className={styles.switcher} role="tablist" aria-label={planBoard.columnSwitcher}>
-          {[{ id: UNASSIGNED_ID, name: `${planBoard.unassigned} ${waiting.length}` }, ...day.vans.map((van) => ({ id: van.id, name: van.name }))].map(
-            (column) => (
-              <button
-                key={column.id}
-                type="button"
-                role="tab"
-                className={styles.segment}
-                aria-selected={shownColumn === column.id}
-                onClick={() => setShownColumn(column.id)}
-              >
-                {column.name}
-              </button>
-            ),
-          )}
+          {[
+            {
+              id: UNASSIGNED_ID,
+              name: fill(planBoard.switcherUnassigned, {
+                name: planBoard.unassigned,
+                n: waiting.length,
+              }),
+              colour: null as string | null,
+            },
+            ...day.vans.map((van) => ({
+              id: van.id,
+              name: van.name,
+              colour: vanColourVar(van.colourToken),
+            })),
+          ].map((column) => (
+            <button
+              key={column.id}
+              type="button"
+              role="tab"
+              className={styles.vanTab}
+              aria-selected={shownColumn === column.id}
+              onClick={() => setShownColumn(column.id)}
+            >
+              {column.colour ? (
+                <span
+                  className={styles.swatch}
+                  style={{ background: column.colour }}
+                  aria-hidden="true"
+                />
+              ) : null}
+              {column.name}
+            </button>
+          ))}
         </div>
+
+        {/*
+          How a card moves where there is no pointer to right-click with (png/plan-board-390.png).
+          One line above the columns, shown only at 390, instead of a `Move to…` select printed
+          under every card — which is what doubled the Family drives lane's height.
+        */}
+        {canEdit ? (
+          <p className={styles.moveHint} data-move-hint="">
+            <Hand size={icon.chip} aria-hidden="true" />
+            {planBoard.holdToMove}
+          </p>
+        ) : null}
 
         <div className={styles.body}>
           <div className={styles.columns}>
@@ -630,6 +673,7 @@ export default function PlanBoard({
               onOpenChild={setOpenChild}
               canEdit={canEdit}
               overBucket={overBucket}
+              lifted={Boolean(lifted)}
               refusal={refusal}
             />
             {day.vans.map((van) => (
@@ -684,9 +728,13 @@ export default function PlanBoard({
       {openChild ? (
         <ChildPanel
           childName={nameOf(day, openChild)}
-          where={whereLine(vanNameOfChild(day, plan, openChild), day.direction)}
+          where={whereLine(
+            vanNameOfChild(day, plan, openChild),
+            plan[openChild]?.bucket ?? "UNASSIGNED",
+            day.direction,
+          )}
           needs={panelNeedsOf(
-            day.riders.find((rider) => rider.token === openChild)?.needs ?? {
+            needsByToken(day, openChild) ?? {
               wheelchair: false,
               carSeat: false,
               oxygen: false,
@@ -765,11 +813,7 @@ export default function PlanBoard({
 
 /** The name of any child on the day, rider or not — never an id (§9.3). */
 function nameOf(day: BoardDay, token: string): string {
-  return (
-    day.riders.find((rider) => rider.token === token)?.name ??
-    day.others.find((other) => other.token === token)?.name ??
-    ""
-  );
+  return boardRiders(day).find((rider) => rider.token === token)?.name ?? "";
 }
 
 /** Which van this child is in right now, by name, or null for "in none of them". */
@@ -792,11 +836,6 @@ function asMoves(before: BoardPlan, after: BoardPlan): PendingMove[] {
     moves.push({ childToken: token, bucket: placement.bucket, vanId: placement.vanId });
   }
   return moves;
-}
-
-/** A rider's own name, for an announcement that must not contain an id. */
-function nameOfRider(day: BoardDay, token: string): string {
-  return day.riders.find((rider) => rider.token === token)?.name ?? "";
 }
 
 /** A column's own name: a van's number, or the group at the top of the board. */

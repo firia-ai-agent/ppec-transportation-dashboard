@@ -44,7 +44,11 @@ import { frameAt, type ReplayFrame } from "@/domain/eta/replay";
 import { driverFor } from "@/domain/plan/day";
 import { vanConfigOf } from "@/config/vans";
 import { shortName } from "@/ui/display-name";
-import { feasible, type SolveResult, type SolveStatus } from "@/domain/solver";
+import type { SolveStatus } from "@/domain/solver";
+import { fits, type FitRider } from "@/domain/plan/fit";
+import { setupFor, type VanSetups } from "@/domain/plan/setup";
+import { needsOfDemoChild } from "@/modules/demo/day-source";
+import { solver as solverCopy } from "@/ui/copy";
 import { gpsFreshnessFor, type GpsFreshness } from "@/ui/states";
 import { serviceDateIso } from "@/ui/service-date";
 import type { attendanceState, capabilityState, legState } from "@/db/schema";
@@ -74,7 +78,6 @@ import {
   replayForVehicle,
   runOfChild,
   runOfVehicle,
-  solverLeg,
   solverVehicle,
   stopLabel,
   vehicleOf,
@@ -497,7 +500,14 @@ export function rideStateFrom(facts: RideFacts): { state: LegS; path: LegS[] } {
 
 /* ───────────────────────────── building the board ───────────────────────────── */
 
-type RunSolve = { solve: SolveResult; capability: CapabilityS; departed: boolean };
+type RunSolve = {
+  /** The fit verdict, in the vocabulary a row already speaks. */
+  status: SolveStatus;
+  /** Why it is unknown rather than a yes or a no. */
+  pendingReason: string | null;
+  capability: CapabilityS;
+  departed: boolean;
+};
 
 /**
  * A ride's vehicle has a displayable position when its committed run has accepted at least one
@@ -540,17 +550,57 @@ function solveRun(
   day: ServiceDay,
   recorded: boolean,
   riders: readonly string[],
+  setups: VanSetups,
 ): RunSolve {
   const departed =
     day.phase === "LIVE" && direction === "AM" && frameFor(run, day.instantMs) !== null;
   const checked = day.phase === "ENDED" || departed || recorded;
   const capability = capabilityFor(run, serviceDateIso(new Date(day.instantMs)), checked);
-  const solve = feasible(
-    solverVehicle(vehicleOf(run)),
-    solverLeg(run, direction, riders),
-    capability,
-  );
-  return { solve, capability: capability.state, departed };
+  /*
+   * NOTHING ABOUT THIS VAN IS ASSUMED UNTIL SOMEBODY REPORTS IT — the rung that is unchanged.
+   * An unobserved vehicle-day is the normal morning answer and is not a refusal (PRD §9): the
+   * row says so in the solver's own words rather than claiming a fit either way.
+   */
+  if (capability.state === "UNKNOWN" || capability.state === "REQUESTED") {
+    return {
+      status: "CAPABILITY_PENDING",
+      pendingReason: solverCopy.pending.unobserved,
+      capability: capability.state,
+      departed,
+    };
+  }
+  /*
+   * AND THE COUNTS ARE THE ONES SOMEBODY SET AT THE RAMP, ELSE THIS VAN'S DEFAULTS — the one
+   * shared resolution (src/domain/plan/setup.ts), handed in by the server page.
+   *
+   * This used to be `feasible()` over the **seeded seating layouts** of
+   * src/modules/demo/fixtures/standard.ts, pinned to the run's own `layoutCode`: Van 1 held
+   * "1WC/3A", one chair and three seats, whatever the front desk had counted and whatever the
+   * plan board was planning it on. That was the second capacity source in Firia's S1 report,
+   * and the one the board could not see. The arithmetic is now the fit rule every other surface
+   * uses (src/domain/plan/fit.ts), over the counts the board uses, so a plan the board allowed
+   * cannot come back as a warning here. The seat-level solver still orders a van's stops; it
+   * decides no capacity question on this screen.
+   */
+  const { setup } = setupFor(setups, run.vehicleKey);
+  return {
+    status: fits(setup, fitRiders(riders)) ? "FEASIBLE" : "INFEASIBLE",
+    pendingReason: null,
+    capability: capability.state,
+    departed,
+  };
+}
+
+/**
+ * The children on a van as the fit rule reads them — their **approved** needs, through the one
+ * function the plan board's own day source reads them with (`needsOfDemoChild`), so a need turned
+ * on in the child panel counts the same against a van on both screens.
+ */
+function fitRiders(riderKeys: readonly string[]): FitRider[] {
+  return riderKeys.map((key) => {
+    const child = childByKey(key);
+    return { token: key, name: child.label, needs: needsOfDemoChild(child) };
+  });
 }
 
 /**
@@ -733,6 +783,7 @@ function rideFor(
   child: DemoChild,
   direction: Direction,
   day: ServiceDay,
+  setups: VanSetups,
   plan?: SavedLegPlan,
 ): RideView {
   const spot = plan?.[child.key];
@@ -780,12 +831,13 @@ function rideFor(
   const vehicle = solverVehicle(vehicleOf(run));
   const dispatcher = dispatcherOf(vehicleOf(run));
   const record = dayRecordFor(child, direction, day);
-  const { solve, capability, departed } = solveRun(
+  const { status, pendingReason, capability, departed } = solveRun(
     run,
     direction,
     day,
     record !== undefined,
     ridersOf(run, spot, plan),
+    setups,
   );
   const frame = departed ? frameFor(run, day.instantMs) : null;
   const ownStop = stopLabel(child);
@@ -793,7 +845,7 @@ function rideFor(
   const { state, path } = rideStateFrom({
     assigned: true,
     capability,
-    solver: solve.status,
+    solver: status,
     departed,
     // The child's own stop — which the committed geometry now names, because the replayed track
     // is this run's own morning (src/fixtures/routes.ts). It used to be another run's road, so
@@ -819,8 +871,8 @@ function rideFor(
     providerDispatcher: dispatcher,
     layoutCode: run.layoutCode,
     capability,
-    solver: solve.status,
-    solverPendingReason: solve.pendingReason,
+    solver: status,
+    solverPendingReason: pendingReason,
     receivedBy: record?.receivedBy ?? null,
     ...etaViewFor(child, run, direction, day),
   };
@@ -956,10 +1008,11 @@ function rowFor(
   day: ServiceDay,
   therapy: BoardRow["therapy"],
   saved: SavedBoardPlan,
+  setups: VanSetups,
 ): BoardRow {
   const rides: RideView[] = [
-    rideFor(child, "AM", day, saved.AM),
-    rideFor(child, "PM", day, saved.PM),
+    rideFor(child, "AM", day, setups, saved.AM),
+    rideFor(child, "PM", day, setups, saved.PM),
   ];
   return {
     childKey: child.key,
@@ -1024,15 +1077,29 @@ function therapyByChild(): Map<string, BoardRow["therapy"]> {
  * in a leg nothing was saved for — and that leg is the scenario's own runs, byte for byte what
  * this function returned before there was a plan to read.
  *
+ * `setups` is what each van is planned on today — the `CHECKED` row the ramp wrote, else the
+ * van's configured default — read on the server through the plan board's own store
+ * (`savedSetupsForBoard`) and resolved by the one shared function (src/domain/plan/setup.ts
+ * `resolveSetups`), which is what makes this screen's fit check and the board's eligibility one
+ * answer rather than two (Firia's S1, 2026-10-18). Omit it and every van is on its default,
+ * which is the honest answer for a day nobody has counted a van on — and the answer a session
+ * with no centre behind it gets.
+ *
  * A day the scenario does not run at all — a weekend — has no rows rather than empty ones: PRD
  * §18.1 schedules the runs Mon–Fri, and a board that showed 28 children with nothing against
  * their names would be inventing a day. The screen says which kind of nothing it is
  * (COPY-GUIDE §5 "No rides scheduled for {date}").
  */
-export function buildBoard(day: ServiceDay = demoDay(), saved: SavedBoardPlan = {}): Board {
+export function buildBoard(
+  day: ServiceDay = demoDay(),
+  saved: SavedBoardPlan = {},
+  setups: VanSetups = {},
+): Board {
   const therapy = therapyByChild();
   const children = day.scheduled ? boardChildren : [];
-  const rows = children.map((child) => rowFor(child, day, therapy.get(child.key) ?? null, saved));
+  const rows = children.map((child) =>
+    rowFor(child, day, therapy.get(child.key) ?? null, saved, setups),
+  );
   const legs = children.flatMap((child, i) =>
     rows[i].rides.map((ride) => legFor(child, rows[i], ride, day.phase)),
   );

@@ -3,7 +3,8 @@ import { buildBoard, CLOCK_PARAM, requestedBoardDay } from "@/domain/board/board
 import { getDayReadiness, serviceDateAt } from "@/domain/day/day-facts";
 import { readRightNow } from "@/domain/health/right-now-facts";
 import { rightNowTiles } from "@/domain/health/right-now";
-import { savedPlacementsForBoard } from "@/modules/plan/store";
+import { savedPlacementsForBoard, savedSetupsForBoard } from "@/modules/plan/store";
+import { siteOf } from "@/modules/plan/api";
 import { LEG_PARAM, resolveLeg } from "@/modules/plan/when";
 import { stepsFor } from "@/ui/step-strip";
 import { TodayBoard } from "./TodayBoard";
@@ -81,7 +82,6 @@ export default async function Page({
    * is the browser check's synthetic caller, and it gets the seeded day exactly as before.
    */
   const siteId = caller.memberships[0]?.siteId ?? null;
-
   /*
    * The leg this page is about, when the address names one (§9.3: a screen keeps its state in
    * its URL). A person who followed a morning link — from the board, or from the ramp iPad's van
@@ -90,10 +90,29 @@ export default async function Page({
    */
   const askedLeg = one(params[LEG_PARAM]);
   const leg = askedLeg ? resolveLeg(askedLeg) : undefined;
-  const saved = await savedPlacementsForBoard(siteId, serviceDateAt());
+  /*
+   * AND WHAT EACH VAN IS PLANNED ON COMES FROM THE SAME PLACE THE PLAN BOARD READS IT (Firia's
+   * S1 of 2026-10-18): today's `CHECKED` row for that van, else its configured default, through
+   * the plan board's own store and the one shared resolution (src/domain/plan/setup.ts).
+   *
+   * This screen used to check each van against the **seeded seating layouts** instead, so the
+   * board would let a coordinator fill a van that Today then reported as not fitting. The read
+   * happens here, on the server, because src/domain/board is pure.
+   *
+   * The centre is `siteOf(caller)` — the plan board's own resolution, which falls back to the
+   * demo centre for a session with no membership — and not the `siteId` above: the counts a van
+   * is planned on have to be the same rows the board read, or the two screens are back to
+   * disagreeing on the one server where a session can have no centre.
+   */
+  const date = serviceDateAt();
+  const [saved, setups] = await Promise.all([
+    savedPlacementsForBoard(siteId, date),
+    savedSetupsForBoard(siteOf(caller), date),
+  ]);
   const board = buildBoard(
     requestedBoardDay(one(params.date), one(params[CLOCK_PARAM]), process.env),
     saved,
+    setups,
   );
 
   /*

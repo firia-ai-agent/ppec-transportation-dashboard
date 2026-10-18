@@ -23,9 +23,11 @@ import styles from "./board.module.css";
  * and a footer of stops and minutes.
  *
  * The counts are **read** here and set nowhere on this screen (Firia's rule 1): there is no ⚙ and
- * no setup popover, a chip is a link to the ramp iPad on this van, and a van nobody has confirmed
- * today says so in one line — "Using default setup", no button — because that is a soft
- * prerequisite and not a fault (§9.1, and the 5:55 and 6:00 PM ET rulings).
+ * no setup popover, and a chip is a link to the ramp iPad on this van. A van the ramp confirmed
+ * today wears the Checked chip; a van nobody has confirmed says nothing of its own, because that
+ * is a soft prerequisite and not a fault (§9.1, and the 5:55 and 6:00 PM ET rulings) — and
+ * because "Using default setup" is the board's own banner, said once beside "Check vans" rather
+ * than once per column (Vera on b3453cd, 2026-10-18).
  *
  * While a child is held, the column says what it would do with them *before* the drop: a dashed
  * brand outline when it fits, dimmed with a one-word chip when it does not, and a hatched crit
@@ -113,18 +115,12 @@ export function VanColumn({
           {initialsOf(van.driverName)}
         </span>
         {van.driverName}
-        {setupState.chip ? (
+        {setupState ? (
           <span className={styles.chip} data-tone={setupState.tone} data-checked={van.setupState}>
             {setupState.label}
           </span>
         ) : null}
       </div>
-
-      {setupState.chip ? null : (
-        <p className={styles.defaultLine} data-checked={van.setupState}>
-          {setupState.label}
-        </p>
-      )}
 
       <CapacityMeters setup={van.setup} used={used} vanName={van.name} rampHref={rampHref} />
 
