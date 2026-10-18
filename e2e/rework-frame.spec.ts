@@ -218,14 +218,21 @@ for (const width of WIDTHS) {
         const where = new URL(page.url()).pathname;
         const menu = await expectFrame(page, width, where);
         /*
-         * The menu's own links. `:not([data-rail-account])` because the rail's foot carries one
-         * more link that is not a destination on the menu — the account block, which opens
-         * /whoami (REDESIGN-SPEC §9.2) — and counting it would make every role's menu one item
-         * longer than their row in the access table says.
+         * EVERY link in the menu landmark is a menu item, and the account is not one of them
+         * (Firia ruling: a 5-item menu with the account block outside the menu; Veri #74 gate,
+         * 12:03 AM ET; shell-flow.html — `.nav` holds the destinations, the account sits at the
+         * rail's foot). Counting every <a>, not a data hook, so a link slipped into the landmark
+         * fails here.
          */
-        await expect(menu.locator("a:not([data-rail-account])")).toHaveCount(
-          width < 768 ? TABS.length : MENU.length,
-        );
+        await expect(menu.locator("a")).toHaveCount(width < 768 ? TABS.length : MENU.length);
+        await expect(
+          menu.locator('a[href="/whoami"]'),
+          `the account link is inside the menu landmark on ${where} at ${width}`,
+        ).toHaveCount(0);
+        await expect(
+          page.locator('a[href="/whoami"]:visible').first(),
+          `no account link outside the menu on ${where} at ${width}`,
+        ).toBeVisible();
 
         // The one DEMO bar, pinned, with the one §7.1 chip riding in it.
         await expectDemoBarPinned(page);
