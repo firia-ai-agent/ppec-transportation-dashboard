@@ -18,7 +18,7 @@ import { app, demoBanner, demoDay, login, nav, unbuilt } from "./copy";
 import { canRestartDemo, DemoBanner } from "./DemoBanner";
 import { Placeholder } from "./Placeholder";
 import { SourceBadge } from "./SourceBadge";
-import { color, contrastRatio } from "./tokens";
+import { color, contrastRatio, layout } from "./tokens";
 import { ROLE_LADDER } from "@/auth/access";
 import { RESET_ROLES } from "@/modules/demo/reset";
 
@@ -164,10 +164,19 @@ describe("NFR-09 / §7.1: the source-mode chip sits next to the DEMO banner", ()
     expect(layout).not.toMatch(/DemoBanner|ScreenSource|SourceBadge/);
   });
 
-  it("the outlined white chip still passes contrast on the violet bar", () => {
-    const chipCss = read(UI, "SourceBadge.module.css");
-    expect(chipCss).toMatch(/background: var\(--color-surface\)/);
-    expect(chipCss).toMatch(/border: var\(--border-hairline\) solid var\(--color-border-strong\)/);
+  /**
+   * The chip is the one pill now (audit §2 item 4 / §4 item 1): fully rounded, 20 px high, a
+   * white fill and 11 px semibold text in the mode's own token. It used to be a square-cornered
+   * outlined box, which is what the audit's crop of production shows.
+   */
+  it("the rounded white chip still passes contrast on the violet bar", () => {
+    const chipCss = read(UI, "Pill.module.css");
+    const pill = chipCss.slice(chipCss.indexOf(".pill {"), chipCss.indexOf(".pill[data-tone"));
+    expect(pill).toMatch(/border-radius: var\(--radius-pill\)/);
+    expect(pill).toMatch(/font-size: var\(--text-11\)/);
+    const source = chipCss.slice(chipCss.indexOf(".source,"));
+    expect(source).toMatch(/height: var\(--layout-source-badge-height\)/);
+    expect(source).toMatch(/background: var\(--color-surface\)/);
     // Chip text on its own white fill is the §8 row (7.10:1), unchanged by what sits behind it.
     expect(contrastRatio(color["src-sim"], color.surface)).toBeGreaterThanOrEqual(4.5);
     // The chip's edge against the bar is a UI part, so 3:1: white on demo violet is 7.10:1.
@@ -195,9 +204,16 @@ describe("§2 icon rail, 768–1279", () => {
     expect(rail).toMatch(/@media \(prefers-reduced-motion: reduce\)/);
   });
 
+  /*
+   * The name is `item.label`, and on the one row that carries a count it is the label *and* the
+   * count in words — "Family texts, 2 waiting" (`flow.tabbar`, src/ui/menu-badge.ts), because
+   * the disc that draws the number is aria-hidden and a shape says nothing to a reader (§9).
+   */
   it("gives every link both an aria-label and a tooltip carrying the page name", () => {
-    expect(component).toMatch(/aria-label=\{item\.label\}/);
-    expect(component).toMatch(/title=\{item\.label\}/);
+    expect(component).toMatch(/aria-label=\{name\}/);
+    expect(component).toMatch(/title=\{name\}/);
+    expect(component).toMatch(/const name =\s*\n?\s*waiting === null\s*\n?\s*\? item\.label/);
+    expect(component).toMatch(/flow\.tabbar\.waiting/);
   });
 
   it("takes the collapsed label out of flow, so the icon is not pushed off the rail", () => {
@@ -235,33 +251,63 @@ describe("§2 header: in demo mode no date in the chrome", () => {
 });
 
 /**
- * ONE ROW (Vera's review, 2026-10-17 2:44 PM ET).
+ * NO HEADER AT ALL, AND A PAGE HEADER BAR INSTEAD (Vera's audit §2 items 1, 3 and 5; Firia,
+ * 2026-10-17 8:36 PM ET).
  *
- * The header was two: the site name, a "Scenario clock" label over its readout and the avatar
- * above; four "<adapter> · Simulated" pills, the line "Times are simulated until the live board
- * is connected." and global search below. What is left is one row — the site name and the
- * account — and the things that left it went somewhere better or nowhere at all. The scenario
- * clock is the last of them: its readout said "Demo day · Not started" about a state nothing
- * set, and its "Start demo day" was rendered inert because the control behind it did not exist.
- * The demo's one control is the DEMO bar's now, and it is the reset this app already has.
+ * The header was two rows, then one, and now none. What production had at ef4bfb3 was a 96 px
+ * white band reading "PPEC transportation" above a rail that started with nothing, with a "D ·
+ * Dana ⌄" pill at its far right — the product named twice over on a 1440 screen and the account
+ * in two places. Everything it held has somewhere better to be: the name is the rail's brand
+ * block, the account is the block at the rail's foot (and below 768, where the rail is a tab
+ * bar, the 36 px disc in the page header bar), and the screen's own title is that bar.
+ *
+ * What left earlier and has not come back: four "<adapter> · Simulated" pills and their note,
+ * global search (it searches the board, so it is on the board), the dead "Demo day · Not
+ * started" readout and its inert "Start demo day".
  */
-describe("§2 header: one row", () => {
+describe("§2 the page header bar, and no app header", () => {
   const shell = read(UI, "AppShell.tsx");
   const css = read(UI, "AppShell.module.css");
+  const barCss = read(UI, "PageHeader.module.css");
+  const bar = read(UI, "PageHeader.tsx");
 
-  it("is a single flex row, not a column of two", () => {
-    const header = css.slice(css.indexOf(".header {"), css.indexOf(".siteName {"));
-    expect(header).toMatch(/display: flex/);
-    expect(header).not.toMatch(/flex-direction: column/);
-    // The two rows it used to be built from are gone, names and all.
+  it("mounts no header element and holds no header styles", () => {
+    expect(shell).not.toMatch(/<header/);
+    expect(css).not.toMatch(/\.header \{|\.siteName \{/);
+    // The two rows it was once built from are gone, names and all.
     expect(css).not.toMatch(/\.topRow|\.bottomRow/);
     expect(shell).not.toMatch(/styles\.topRow|styles\.bottomRow/);
+    // ...and so is the product name it carried: the rail's brand block says it once.
+    expect(code(read(UI, "copy.ts"))).not.toMatch(/siteName/);
+  });
+
+  /** The bar the mockup draws: 64 px, white, one hairline under it, the title in Teal Ink. */
+  it("is a 64 px white bar with the title at the 20 px step in Teal Ink", () => {
+    const block = barCss.slice(barCss.indexOf(".bar {"), barCss.indexOf(".title {"));
+    expect(block).toMatch(/min-height: var\(--layout-header-height\)/);
+    expect(block).toMatch(/background: var\(--color-surface\)/);
+    expect(block).toMatch(/border-bottom: var\(--border-hairline\)/);
+    expect(layout.headerHeight).toBe("64px");
+    const title = barCss.slice(barCss.indexOf(".title {"), barCss.indexOf(".spacer {"));
+    expect(title).toMatch(/font-size: var\(--text-20\)/);
+    expect(title).toMatch(/font-weight: var\(--weight-semibold\)/);
+    expect(title).toMatch(/color: var\(--color-ink-brand\)/);
+    // Teal Ink on white, and on the page's own off-white: both well over AA.
+    expect(contrastRatio(color["ink-brand"], color.surface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(color["ink-brand"], color.bg)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  /** One `h1` per screen, and it is this one: the title is read from the access table's label. */
+  it("carries the screen's own title, as its one h1", () => {
+    expect(bar).toMatch(/<h1 className=\{styles\.title\}>\{title\}<\/h1>/);
+    expect(bar).toMatch(/pageTitleFor\(pathname\)/);
   });
 
   it("carries no demo chrome at all: that is the bar above it", () => {
     // The code, not the comments: the file explains where the demo's control went, and saying
     // so is the opposite of mounting one.
     expect(code(shell)).not.toMatch(/ScenarioClock|scenarioClock|DemoRestart|demoDay\./);
+    expect(code(bar)).not.toMatch(/ScenarioClock|scenarioClock|DemoRestart|demoDay\./);
     // The component and its stylesheet are deleted, not hidden: nothing can mount one again.
     for (const gone of ["ScenarioClock.tsx", "ScenarioClock.module.css"]) {
       expect(existsSync(path.join(UI, gone)), gone).toBe(false);
@@ -280,36 +326,33 @@ describe("§2 header: one row", () => {
   });
 
   /**
-   * ONE IDENTITY LOCATION PER WIDTH — and above 1280 it is the rail's, not the header's
-   * (Firia, 2026-10-17 7:55 PM ET).
+   * ONE IDENTITY LOCATION PER WIDTH, AND NEVER NONE.
    *
-   * The header used to carry the product's name and an account pill while the labelled rail
-   * carried neither, so a 1440 screen said who you were signed in as twice over and named the
-   * centre twice (png/shell-flow-1440.png draws both in the rail and no header at all). Both
-   * moved; what was left of the header was an empty white band, so above 1280 there is no
-   * header. Below it the rail has no room for words and the header is back — with the account
-   * menu Sign out lives in, which is the thing that must stay reachable on a phone.
+   * ≥1280 it is the rail's account block; 768–1279 the same block, collapsed to its disc on the
+   * icon rail; <768 the 36 px disc at the trailing end of the page header bar. The avatar menu
+   * that used to be the one below 1280 is deleted with the band it sat in — the disc is a *link*
+   * to /whoami, which is the screen Sign out is on, so the way to stop being signed in is one
+   * tap from every screen at every width (Firia, 3:08 PM ET: "reachable on phone").
    */
   it("keeps exactly one identity location at each width", () => {
-    // Both blocks are given the same object, built once in ConsoleShell.
-    expect(shell).toMatch(/<AvatarMenu account=\{account\} \/>/);
+    // Both are given the same object, built once in ConsoleShell.
+    expect(shell).toMatch(/<PageHeader account=\{account\} \/>/);
     expect(shell).toMatch(/<NavRail role=\{role\} account=\{account\} \/>/);
-    // Above 1280 the header is gone, so the pill inside it cannot be a second identity.
-    const desk = css.slice(css.indexOf("@media (min-width: 1280px)"));
-    expect(desk).toMatch(/\.header \{[^}]*display: none/);
-    // Below it the pill stays — it used to be `display: none` under 768, where the deleted
-    // hamburger drawer carried identity instead.
-    const avatar = read(UI, "AvatarMenu.module.css");
-    const phone = avatar.slice(avatar.indexOf("@media (max-width: 767px)"));
-    expect(phone).not.toMatch(/\.menu \{[^}]*display: none/);
-    // Sign out rides inside it, which is what makes it reachable on a phone (Firia, 3:08 PM ET).
-    expect(read(UI, "AvatarMenu.tsx")).toMatch(/<SignOutButton \/>/);
-    // ...and the rail's own account block is a link to the page that holds the other one.
+    // The deleted menu, gone as files so nothing can mount it again.
+    for (const gone of ["AvatarMenu.tsx", "AvatarMenu.module.css"]) {
+      expect(existsSync(path.join(UI, gone)), gone).toBe(false);
+    }
+    // The page header's disc is drawn below 768 and nowhere else.
+    expect(barCss).toMatch(/\.avatar \{\s*display: none;\s*\}/);
+    const phone = barCss.slice(barCss.indexOf("@media (max-width: 767px)"));
+    expect(phone).toMatch(/\.avatar \{[^}]*width: var\(--layout-avatar-phone\)/);
+    expect(bar).toMatch(/href=\{account\.href\}/);
+    // ...and the rail's own account block is a link to the same screen, at both rail widths.
     const rail = read(UI, "NavRail.tsx");
     expect(rail).toMatch(/href=\{account\.href\}/);
     const railCss = read(UI, "NavRail.module.css");
     const narrow = railCss.slice(railCss.indexOf("@media (max-width: 1279px)"));
-    expect(narrow).toMatch(/\.account \{[^}]*display: none/);
+    expect(narrow).not.toMatch(/\.account \{[^}]*display: none/);
   });
 });
 
@@ -453,8 +496,12 @@ describe("copy from the review", () => {
     const html = renderToStaticMarkup(Placeholder({ page: nav.health, body: unbuilt.health }));
     expect(html).not.toMatch(/Not built yet/i);
     expect(html.match(/built yet/g)).toHaveLength(1);
-    // One heading, one sentence, and nothing else in the frame.
-    expect(html.match(/<(?:h1|p|span)\b/g)).toEqual(["<h1", "<p"]);
+    /*
+     * One heading, one sentence, and nothing else in the frame — and the heading is an `h2`:
+     * the page's one `h1` is the frame's page header bar (src/ui/PageHeader.tsx, audit §2
+     * item 1), so a second one here would be two titles on one screen.
+     */
+    expect(html.match(/<(?:h1|h2|p|span)\b/g)).toEqual(["<h2", "<p"]);
   });
 });
 

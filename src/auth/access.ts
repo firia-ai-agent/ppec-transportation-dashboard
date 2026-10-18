@@ -198,6 +198,31 @@ export const API = {
   simPhoneMessages: "/api/sim/phones/[number]/messages",
 } as const;
 
+/* ───────────────────────── the "For you" tab (approvals) ───────────────────────── */
+
+/**
+ * The tab inside Family texts that approvals *are* (REDESIGN-SPEC §9.2). A query string, not a
+ * path: `/family-texts?tab=for-you` is where `/approvals` sends a person, and it is the one
+ * string both the redirect and the gate below read.
+ */
+export const FOR_YOU_TAB = "for-you";
+export const FAMILY_TEXTS_FOR_YOU = `/family-texts?tab=${FOR_YOU_TAB}`;
+
+/**
+ * MAY THIS CALLER OPEN "FOR YOU"? — the server's answer, asked by the page before it renders
+ * the tab (src/app/(app)/family-texts/page.tsx).
+ *
+ * It exists because a tab is not a path and so has no row of its own: the page's row answers
+ * "may you open Family texts", and this answers "may you decide", which is `APPROVAL_ROLES`.
+ * The front desk is refused here as well as by the page's row — the two checks are independent,
+ * and that is the point: widening the page's row must not hand the door key to the queue. A
+ * typed `?tab=for-you` is refused on the *server*, before any markup exists, rather than by a
+ * tab that is merely not drawn (the ID-swap skill, rule 6: hiding ≠ denying).
+ */
+export function canOpenForYou(caller: Caller): boolean {
+  return caller.kind === "STAFF" && APPROVAL_ROLES.includes(caller.role);
+}
+
 export const PAGES: readonly PageRow[] = [
   /**
    * The document shell: fonts, tokens and the DEMO bar on every route, signed in or not (§7,
@@ -496,15 +521,32 @@ export const PAGES: readonly PageRow[] = [
 ];
 
 /**
- * The old address → the screen's own address, for the three redirect pages above. One table, so
- * a redirect cannot point somewhere the access table does not hold (`access.test.ts` checks
- * both ends of every pair, and that the two rows are open to the same roles).
+ * An address → where it answers from now, for every page in this app whose whole body is a
+ * permanent redirect. One table, so a redirect cannot point somewhere the access table does not
+ * hold (`access.test.ts` checks both ends of every pair, that the two rows are open to the same
+ * roles, and that the guard runs before the redirect in every one of these files).
+ *
+ * Two kinds of pair, and the difference is worth keeping in mind:
+ *  - the three `*-preview` addresses, which are the same screen *renamed* (Vera's review,
+ *    2026-10-17: no "preview" in any menu label or address);
+ *  - `/exceptions` and `/approvals`, which are screens that turned out to be *part of another
+ *    screen* (Firia, 8:36 PM ET; audit §2 item 2). What needs action is Today's "Needs you"
+ *    card (§9.2), and approvals are the "For you" tab inside Family texts — so the label on
+ *    these two rows is their own, not the destination's, and the address lands where the
+ *    content went.
  */
 export const MOVED_PAGES: Readonly<Record<string, string>> = {
   "/plan-preview": "/plan-routes",
   "/map-preview": "/live-map",
   "/ramp-preview": "/ramp-ipad",
+  "/exceptions": "/today",
+  "/approvals": FAMILY_TEXTS_FOR_YOU,
 };
+
+/** `"/family-texts?tab=for-you"` → `"/family-texts"`: the row a destination with a tab on it. */
+export function pathOfHref(href: string): string {
+  return href.split("?")[0];
+}
 
 export const ENDPOINTS: readonly EndpointRow[] = [
   /**
@@ -769,31 +811,6 @@ export function canOpenPage(caller: Caller, path: string): boolean {
   return pageOutcome(caller, path) === "ALLOW";
 }
 
-/* ───────────────────────── the "For you" tab (approvals) ───────────────────────── */
-
-/**
- * The tab inside Family texts that approvals *are* (REDESIGN-SPEC §9.2). A query string, not a
- * path: `/family-texts?tab=for-you` is where `/approvals` sends a person, and it is the one
- * string both the redirect and the gate below read.
- */
-export const FOR_YOU_TAB = "for-you";
-export const FAMILY_TEXTS_FOR_YOU = `/family-texts?tab=${FOR_YOU_TAB}`;
-
-/**
- * MAY THIS CALLER OPEN "FOR YOU"? — the server's answer, asked by the page before it renders
- * the tab (src/app/(app)/family-texts/page.tsx).
- *
- * It exists because a tab is not a path and so has no row of its own: the page's row answers
- * "may you open Family texts", and this answers "may you decide", which is `APPROVAL_ROLES`.
- * The front desk is refused here as well as by the page's row — the two checks are independent,
- * and that is the point: widening the page's row must not hand the door key to the queue. A
- * typed `?tab=for-you` is refused on the *server*, before any markup exists, rather than by a
- * tab that is merely not drawn (the ID-swap skill, rule 6: hiding ≠ denying).
- */
-export function canOpenForYou(caller: Caller): boolean {
-  return caller.kind === "STAFF" && APPROVAL_ROLES.includes(caller.role);
-}
-
 export type ApiOutcome =
   | "ALLOW"
   /** No session: JSON 401. */
@@ -827,7 +844,12 @@ export function apiOutcome(caller: Caller, path: string): ApiOutcome {
  * ahead of `/ramp-ipad` here — it used to be the other way round, and sign-in, `/` and every
  * "send them home" redirect read this one list, so moving it moves all of them at once.
  */
-const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/plan-routes", "/live-map", "/ramp-ipad", "/whoami"] as const;
+/*
+ * `/exceptions` is out of this order as of Firia's 8:36 PM ET ruling: it is a permanent redirect
+ * now (MOVED_PAGES), and a "home" that redirects is a bounce rather than a screen to be on.
+ * Exported so access.test.ts can hold that no moved address ever gets back into it.
+ */
+export const HOME_ORDER = ["/today", "/setup", "/health", "/plan-routes", "/live-map", "/ramp-ipad", "/whoami"] as const;
 
 /** Where this caller is sent when they need somewhere to be: their own first page, or sign-in. */
 export function homePathFor(caller: Caller): string {

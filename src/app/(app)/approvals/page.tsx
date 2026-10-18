@@ -1,5 +1,5 @@
 import { permanentRedirect } from "next/navigation";
-import { FAMILY_TEXTS_FOR_YOU } from "@/auth/access";
+import { MOVED_PAGES } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
 
 /** The guard reads a session, so this route is never statically rendered. */
@@ -19,5 +19,6 @@ export const dynamic = "force-dynamic";
  */
 export default async function Page() {
   await requirePage("/approvals");
-  permanentRedirect(FAMILY_TEXTS_FOR_YOU);
+  // From the one table of this app's addresses, like its sibling (src/auth/access.ts).
+  permanentRedirect(MOVED_PAGES["/approvals"]);
 }

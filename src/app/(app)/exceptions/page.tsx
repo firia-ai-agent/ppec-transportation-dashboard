@@ -1,4 +1,5 @@
 import { permanentRedirect } from "next/navigation";
+import { MOVED_PAGES } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
 
 /** The guard reads a session, so this route is never statically rendered. */
@@ -27,5 +28,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function Page() {
   await requirePage("/exceptions");
-  permanentRedirect("/today");
+  // The destination is read from the one table that holds this app's addresses, so a redirect
+  // cannot point at a screen the access table does not have (src/auth/access.ts MOVED_PAGES).
+  permanentRedirect(MOVED_PAGES["/exceptions"]);
 }

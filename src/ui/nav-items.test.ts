@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { Flag, type LucideIcon } from "lucide-react";
-import { PAGES, ROLE_LADDER, pageLabel } from "@/auth/access";
-import { isCurrent, menuItems, navItems, navItemsFor } from "./nav-items";
+import { FAMILY_TEXTS_FOR_YOU, PAGES, ROLE_LADDER, pageLabel } from "@/auth/access";
+import { MENU_SIZE, isCurrent, menuItems, navItems, navItemsFor } from "./nav-items";
 import { liveMap, nav, planRoutes, rampIpad } from "./copy";
 import { sourceModes, vocabularies } from "./states";
 
@@ -124,16 +124,21 @@ describe("the menu lists only screens that work", () => {
     return readFileSync(path.join(REPO, row.file), "utf8");
   }
 
-  it("is every destination but Setup, in §0's order", () => {
+  /**
+   * FIVE ITEMS, in §9.2's order, and the same five at every width (Firia, 2026-10-17 8:36 PM
+   * ET; audit §2 item 2 counted seven on production). The count is asserted as well as the
+   * list, because five is the thing the phone's tab bar is built from — five equal tabs, no
+   * overflow and no "More" (src/ui/TabBar.tsx).
+   */
+  it("is five items, in §9.2's order", () => {
     expect(menuItems.map((i) => i.href)).toEqual([
       "/today",
       "/plan-routes",
       "/live-map",
       "/ramp-ipad",
       "/family-texts",
-      "/exceptions",
-      "/health",
     ]);
+    expect(menuItems).toHaveLength(MENU_SIZE);
   });
 
   /**
@@ -163,10 +168,14 @@ describe("the menu lists only screens that work", () => {
     expect(unbuilt.map((i) => i.label)).toEqual([]);
   });
 
-  it("the one that is off is off for a reason, and is still a route", () => {
+  it("the three that are off are off for a reason, and are still routes", () => {
     const off = navItems.filter((item) => !item.inMenu).map((i) => i.href);
-    // Setup alone, and §0's reason rather than the build's: van counts move to the ramp iPad.
-    expect(off).toEqual(["/setup"]);
+    /*
+     * Exceptions & Approvals and Health & ROI, which are a tab each rather than a destination
+     * (§9.2), and Setup, whose van counts move to the ramp iPad (§0). None of the three is a
+     * statement about the build: each is where that screen's content actually belongs.
+     */
+    expect(off).toEqual(["/exceptions", "/health", "/setup"]);
     // Off the menu is not deleted and not closed: every one still has a row and a page.
     for (const href of off) {
       expect(PAGES.some((p) => p.kind === "page" && p.path === href), href).toBe(true);
@@ -194,7 +203,12 @@ describe("the menu lists only screens that work", () => {
    */
   it("keeps Approvals off the menu and reachable from Family texts", () => {
     expect(navItems.some((item) => item.href === "/approvals")).toBe(false);
-    expect(sourceOf("/family-texts")).toMatch(/href="\/approvals"/);
+    /*
+     * The link is to the *tab*, which is what approvals are (§9.2) and where `/approvals` is a
+     * 308 to: a link to `/approvals` would be a hop through a redirect to the page it is on.
+     */
+    expect(sourceOf("/family-texts")).toMatch(/FAMILY_TEXTS_FOR_YOU/);
+    expect(FAMILY_TEXTS_FOR_YOU).toBe("/family-texts?tab=for-you");
   });
 });
 
