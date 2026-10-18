@@ -249,7 +249,10 @@ test.describe("S1: Zoe B. onto Van 1", () => {
     }
 
     // 2. And the move a phone makes: the card's own `Move to…` (§9.3), which runs the same
-    //    eligibility check the drag runs.
+    //    eligibility check the drag runs. Since Vera's 390 pass it is held open, not printed under
+    //    every card, so open it the way rework-ramp-board.spec.ts:487 does (PPE-78).
+    await expect(page.locator("[data-move-hint]")).toBeVisible();
+    await zoe.click({ button: "right" });
     await page.locator(`[data-move-to="${token}"]`).selectOption({ label: vanOneLabel });
     const outcome = await expectLandedOrRefused(page, "Zoe B.", vanOne, unassigned(page));
     if (outcome === "LANDED") {
@@ -737,8 +740,24 @@ test.describe("S1: one van setup, read by the board and by Today", () => {
     await expect(vanOne).toHaveAttribute("aria-label", "Van 1");
     const vanId = await vanOne.getAttribute("data-van");
     const oxygen = () => page.locator(`[data-van="${vanId}"] [data-counter="oxygenMounts"]`);
+    // The dated half opens the Ramp on the board's own leg (boardUrl is `leg=pm`); with no leg the
+    // Ramp opens on Morning, which has no plan on this date (#82 resolveLeg, PPE-77).
     const rampOn = (day?: string) =>
-      day ? `/ramp-ipad?date=${day}&van=${vanId}` : `/ramp-ipad?van=${vanId}`;
+      day ? `/ramp-ipad?date=${day}&leg=pm&van=${vanId}` : `/ramp-ipad?van=${vanId}`;
+
+    /* ── 0. A saved plan for this date and leg, so the Ramp has riders to open on (PPE-77) ──
+     * Since #82 the Ramp shows "No plan saved" for a date+leg with no plan. Auto-plan and Save
+     * first; Zoe B. goes back to Unassigned before the save, because step 1 drags her from there. */
+    await page.locator("[data-auto-plan]").click();
+    const zoeCard = () => card(page, "Zoe B.");
+    const zoeToken = await zoeCard().getAttribute("data-rider");
+    if ((await unassigned(page).locator(`[data-rider="${zoeToken}"]`).count()) === 0) {
+      await liftOffCentre(page, zoeCard(), unassigned(page));
+      await page.mouse.up();
+      await expect(unassigned(page).locator(`[data-rider="${zoeToken}"]`)).toHaveCount(1);
+    }
+    await page.locator("[data-save]").click();
+    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
 
     /* ── 1. THE BOARD, on a date of its own: the mount counted away, and the drag refused ── */
     await page.goto(rampOn(DAY.counted));
