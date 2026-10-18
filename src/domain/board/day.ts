@@ -22,7 +22,7 @@
  *
  * The demo day can also be read at an *instant* other than its own, on the scenario clock
  * (`demoDayAtTick`, src/domain/eta/scenario-clock.ts) — which is how AT-13's browser check walks
- * the day past Noah B.'s 4:20 PM drop-off and sees the ride that ends holding him. That is the
+ * the day past Noah O.'s 4:20 PM drop-off and sees the ride that ends holding him. That is the
  * same test path and the same four gates, by calling the same function (`requestedScenarioTick`):
  * no deployment has a clock control, production included.
  *

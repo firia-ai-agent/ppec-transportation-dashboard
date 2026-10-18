@@ -58,7 +58,7 @@ const WIDTHS = [1024, 1280] as const;
 const VIEWPORT = { height: 900 };
 
 /** The child the scenario gives no authorized receiving adult, and one on a van that is moving. */
-const NO_RECEIVER_CHILD = "Noah B.";
+const NO_RECEIVER_CHILD = "Noah O.";
 const RIDING_CHILD = "Zoe B.";
 
 /**
@@ -289,7 +289,7 @@ for (const width of WIDTHS) {
     /**
      * AT-13: a ride that **ended** with nobody on file to receive the child.
      *
-     * The afternoon van reached Noah B.'s stop, no adult on file may receive him and no custody
+     * The afternoon van reached Noah O.'s stop, no adult on file may receive him and no custody
      * event was recorded, so the leg machine's only remaining edge was HELD_NO_RECEIVER. What
      * the board has to carry is the part a coordinator cannot be left to assume: he is waiting
      * with the van, and nothing is bringing him back on its own (PRD §6.6 CA-04).

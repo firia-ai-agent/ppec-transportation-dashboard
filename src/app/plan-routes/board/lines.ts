@@ -62,7 +62,7 @@ export function rejectChip(reason: RejectReason): string {
   return planBoard.reject[reason];
 }
 
-/** "Noah B. won't fit Van 3: no wheelchair spot" — announced, not only drawn (§1.3). */
+/** "Noah O. won't fit Van 3: no wheelchair spot" — announced, not only drawn (§1.3). */
 export function rejectSr(child: string, van: string, reason: RejectReason): string {
   return fill(planBoard.rejectSr, { child, van, thing: planBoard.rejectThing[reason] });
 }

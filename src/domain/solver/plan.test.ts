@@ -167,7 +167,7 @@ describe("a feasible plan (VEH-03)", () => {
     // Zoe B.'s chair is held by four-point straps, and V1 is the only van in the scenario with
     // a position built for them.
     expect(laneOf(plan, "C6")).toBe("V1");
-    // Noah B.'s L-track chair fits V2's position, and V1 is busy with the other chair.
+    // Noah O.'s L-track chair fits V2's position, and V1 is busy with the other chair.
     expect(laneOf(plan, "C2")).toBe("V2");
   });
 
@@ -238,7 +238,7 @@ describe("unknown until arrival (VEH-04, AT-04)", () => {
 
   it("names the unchecked van when it is the only one that fits a child", () => {
     /*
-     * Noah B.'s L-track chair fits Van 2's position, and Van 3 is on its all-ambulatory layout
+     * Noah O.'s L-track chair fits Van 2's position, and Van 3 is on its all-ambulatory layout
      * today, so it has no wheelchair place at all. With those two as the whole day, the answer
      * is "not known yet", never "no van" — the van that fits him is the one nobody has reported
      * on. (Van 3 is the same generic van as the others; what it is carrying today is a fact

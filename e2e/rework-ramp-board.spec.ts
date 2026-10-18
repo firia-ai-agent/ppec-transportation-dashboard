@@ -343,9 +343,9 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
     // so this is read back unchanged afterwards (the read-only board route, GET /api/plan).
     const planBefore = await savedPlanOf(page, DAY.drag);
 
-    // 2. Noah B. rides in his own chair too, and the spot is gone.
+    // 2. Noah O. rides in his own chair too, and the spot is gone.
     const before = await vanThree.locator("[data-rider]").count();
-    await liftOver(page, card(page, "Noah B."), vanThree);
+    await liftOver(page, card(page, "Noah O."), vanThree);
     await expect(vanThree).toHaveAttribute("data-fit", "no");
     await expect(vanThree.locator("[data-reject-chip]")).toHaveText(planBoard.reject.WHEELCHAIR);
     await review(page, "board-dragreject");
@@ -353,8 +353,8 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
 
     // Nothing moved, and the refusal was said as a sentence rather than only drawn.
     await expect(vanThree.locator("[data-rider]")).toHaveCount(before);
-    await expect(vanThree.locator("[data-rider]").filter({ hasText: "Noah B." })).toHaveCount(0);
-    await expect(announced(page)).toContainText("Noah B.");
+    await expect(vanThree.locator("[data-rider]").filter({ hasText: "Noah O." })).toHaveCount(0);
+    await expect(announced(page)).toContainText("Noah O.");
     await expect(announced(page)).toContainText(planBoard.rejectThing.WHEELCHAIR);
     await expect(spots).toContainText("1/1");
 
@@ -370,7 +370,7 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
     const zoe = await card(page, "Zoe B.").getAttribute("data-rider");
     const noah = await page
       .locator('[data-role="unassigned"] [data-rider]')
-      .filter({ hasText: "Noah B." })
+      .filter({ hasText: "Noah O." })
       .getAttribute("data-rider");
     expect(saved.plan[zoe ?? ""]).toMatchObject({ bucket: "VAN", vanId: vanThreeId });
     expect(saved.plan[noah ?? ""]?.bucket).not.toBe("VAN");
@@ -400,14 +400,14 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
 
     // At 390 the `Move to…` select is on every card already (§9.3), so it is used directly:
     // the right-click that reveals it on a wide screen is a pointer affordance, not the control.
-    const noah = card(page, "Noah B.");
+    const noah = card(page, "Noah O.");
     const token = await noah.getAttribute("data-rider");
     await page.locator(`[data-move-to="${token}"]`).selectOption({ label: vanThreeName });
-    await expect(announced(page)).toContainText("Noah B.");
+    await expect(announced(page)).toContainText("Noah O.");
     await expect(announced(page)).toContainText(planBoard.rejectThing.WHEELCHAIR);
     // Nobody moved: the second chair is still where it was.
     await expect(
-      vans(page).nth(2).locator("[data-rider]").filter({ hasText: "Noah B." }),
+      vans(page).nth(2).locator("[data-rider]").filter({ hasText: "Noah O." }),
     ).toHaveCount(0);
     await review(page, "board-dragreject");
     await page.setViewportSize(WIDE);
@@ -417,13 +417,13 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
     await openBoard(page, DAY.drag);
     const target = vans(page).nth(1);
     const before = await target.locator("[data-rider]").count();
-    const noah = card(page, "Noah B.");
+    const noah = card(page, "Noah O.");
     await liftOver(page, noah, target);
     await expect(target).toHaveAttribute("data-fit", "yes");
     await page.mouse.up();
-    await expect(target.locator("[data-rider]").filter({ hasText: "Noah B." })).toHaveCount(1);
+    await expect(target.locator("[data-rider]").filter({ hasText: "Noah O." })).toHaveCount(1);
     expect(await target.locator("[data-rider]").count()).toBeGreaterThan(before);
-    await expect(page.locator("[data-toast]")).toContainText("Noah B.");
+    await expect(page.locator("[data-toast]")).toContainText("Noah O.");
   });
 
   test("a child placed from the keyboard alone", async ({ page }) => {

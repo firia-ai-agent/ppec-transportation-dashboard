@@ -171,7 +171,7 @@ const SCENARIO_CHILDREN: Child[] = [
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
-    key: "C2", familyKey: "F2", firstName: "Noah", lastInitial: "B", label: "Noah B.", dob: "2021-09-02",
+    key: "C2", familyKey: "F2", firstName: "Noah", lastInitial: "O", label: "Noah O.", dob: "2021-09-02",
     stopKey: "S2", mobility: "WC", wcLengthCm: 108, wcWidthCm: 64, securement: "L_TRACK", tether: false,
     amMode: "CENTER", pmMode: "CENTER", amWindow: "06:50", pmWindow: "16:20",
     needs: [
@@ -411,7 +411,7 @@ export type RideRecord = {
  * on file in the afternoon.
  *
  *  - **C2's afternoon ride is AT-13.** F2 holds every scope except RECEIVE_CHILD (see
- *    `NO_RECEIVER_SCOPES`), so when the van reached Noah B.'s stop there was nobody on file to
+ *    `NO_RECEIVER_SCOPES`), so when the van reached Noah O.'s stop there was nobody on file to
  *    receive him and no custody event to record. The leg ends HELD_NO_RECEIVER: he waits with
  *    the van, every authorized and emergency contact is called, a staff task is raised, and
  *    **nothing returns him to the centre on its own** (PRD §6.6 CA-04, DECISION-LEDGER row 47).
@@ -498,7 +498,7 @@ export const rideRecordFor = (
  * Acts, never a state, exactly like the finished day's records: the leg machine in
  * src/domain/board/board.ts makes HELD_NO_RECEIVER out of them one legal edge at a time, so this
  * fixture cannot claim an outcome the domain would refuse. F2 holds every scope except
- * RECEIVE_CHILD (`NO_RECEIVER_SCOPES`), so the afternoon van reached Noah B.'s stop with nobody
+ * RECEIVE_CHILD (`NO_RECEIVER_SCOPES`), so the afternoon van reached Noah O.'s stop with nobody
  * on file to receive him and no custody event to record.
  *
  * What it *is* ahead of is the board's own clock: the demo day is read twelve minutes into its

@@ -55,11 +55,11 @@ describe("the fresh demo seed", () => {
     const names = CHILDREN.map((child) => child.label);
     // The two the mockups name: the chair rider the board has to refuse, and the child the
     // ramp's "won't fit · 1 car seat short" line is about.
-    expect(names).toContain("Noah B.");
+    expect(names).toContain("Noah O.");
     expect(names).toContain("Mia R.");
     const mia = CHILDREN.find((child) => child.label === "Mia R.");
     expect(mia?.needs.map((need) => need.category)).toContain(NEED_CATEGORY.carSeat);
-    const noah = CHILDREN.find((child) => child.label === "Noah B.");
+    const noah = CHILDREN.find((child) => child.label === "Noah O.");
     expect(noah?.needs.map((need) => need.category)).toContain(NEED_CATEGORY.wheelchair);
   });
 

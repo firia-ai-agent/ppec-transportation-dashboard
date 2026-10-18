@@ -124,7 +124,7 @@ export function fits(setup: VanSetup, riders: readonly FitRider[]): boolean {
  * can — §1.4's `rejectReason(setup, riders, child)`.
  *
  * `riders` is what is already in the van, and the child is added to it rather than asked about
- * alone, because capacity is a fact about the load: the honest answer to "can Noah B. go in Van
+ * alone, because capacity is a fact about the load: the honest answer to "can Noah O. go in Van
  * 2" depends on who is in Van 2. A child already in the van is not counted twice, so re-checking
  * a drop into the van a child is already in answers about the plan as it stands.
  */

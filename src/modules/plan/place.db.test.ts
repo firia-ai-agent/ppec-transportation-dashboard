@@ -171,7 +171,7 @@ describe("a drag is a row, and a new version every time", () => {
     );
     expect(kept.ok).toBe(true);
 
-    // Noah B. rides in his own chair and this van has no spot for it: a 422 on a fresh board.
+    // Noah O. rides in his own chair and this van has no spot for it: a 422 on a fresh board.
     const stale = await setChildPlacement(
       { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: childTokenOf("C2"),
         bucket: "VAN", vehicleId: vanThree(), expectedVersion: 0, actor: null, now: NOW },
@@ -195,7 +195,7 @@ describe("a drag is a row, and a new version every time", () => {
     );
     expect(first.ok).toBe(true);
 
-    // …so Noah B.'s chair is refused from it, by name, and nothing of his is written.
+    // …so Noah O.'s chair is refused from it, by name, and nothing of his is written.
     const before = await board();
     const refused = await setChildPlacement(
       { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: childTokenOf("C2"),

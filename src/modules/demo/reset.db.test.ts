@@ -142,7 +142,7 @@ describe("Restart demo day, twice", () => {
     // Its riders are the seeded children, by token and by name, and one of them is the chair
     // rider the mockup draws.
     expect(view.day.riders.length + view.day.others.length).toBe(12);
-    expect(view.day.riders.some((rider) => rider.name === "Noah B." && rider.needs.wheelchair)).toBe(true);
+    expect(view.day.riders.some((rider) => rider.name === "Noah O." && rider.needs.wheelchair)).toBe(true);
     // Every rider has the stop the seed wrote, which is what the map draws them at.
     for (const rider of view.day.riders) expect(rider.stopLabel.length).toBeGreaterThan(0);
     // And no plan exists yet, so the live map is locked until one is saved (§9.1).

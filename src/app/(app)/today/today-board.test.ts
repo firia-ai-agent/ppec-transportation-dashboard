@@ -236,7 +236,7 @@ describe("the board renders the day", () => {
    * coordinator reading their own board already knows.
    */
   it("says the next step as a verb and a child's name, never as a role", () => {
-    expect(html).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah B." })));
+    expect(html).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
     expect(html).toContain(
       escaped(fill(boardCopy.nextSteps.ASK_ABOUT_VAN, { dispatcher: "Rae S.", child: "Mia R." })),
     );
@@ -326,7 +326,7 @@ describe("the board renders the day", () => {
     const live = boardHtml("Noah");
     expect(live).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
     expect(live).toContain(boardCopy.groups.NEEDS_ACTION);
-    expect(live).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah B." })));
+    expect(live).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
     // It is the only ride on the live board with an outcome: nothing else on it is finished.
     expect(live).not.toMatch(/handed off/i);
 
@@ -555,14 +555,14 @@ describe("the one primary action, and why it is not available", () => {
 
   it("asks for the receiving adult first when there is none on file (AT-13)", () => {
     const html = drawerHtml("C2");
-    expect(html).toContain(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah B." })));
-    expect(html).toContain(escaped(fill(drawer.receiverMissing, { child: "Noah B." })));
+    expect(html).toContain(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
+    expect(html).toContain(escaped(fill(drawer.receiverMissing, { child: "Noah O." })));
     // The afternoon ride says why it needs a person, and the step that answers it. On the demo
     // day that ride has ended holding him, so the reason is the hold itself (below).
-    expect(html).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah B." })));
-    expect(html).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah B." })));
+    expect(html).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
+    expect(html).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
     // PRD §6.6: a child is held with the van; nothing drives them back on their own.
-    expect(html).toContain(escaped(fill(drawer.heldNoReturn, { child: "Noah B." })));
+    expect(html).toContain(escaped(fill(drawer.heldNoReturn, { child: "Noah O." })));
   });
 
   it("says out loud that this slice does not write (§1 honesty)", () => {
@@ -577,12 +577,12 @@ describe("the one primary action, and why it is not available", () => {
    */
   it("gives the override its own reason, under the override's own button", () => {
     const html = drawerHtml("C2");
-    const button = html.indexOf(escaped(fill(drawer.overrideWithReason, { child: "Noah B." })));
+    const button = html.indexOf(escaped(fill(drawer.overrideWithReason, { child: "Noah O." })));
     const own = html.indexOf(escaped(drawer.overrideDisabled));
     expect(button).toBeGreaterThan(-1);
     expect(own).toBeGreaterThan(button);
     // The handoff's reason is still there, and still above its own button.
-    const handoff = html.indexOf(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah B." })));
+    const handoff = html.indexOf(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
     expect(handoff).toBeGreaterThan(-1);
     expect(handoff).toBeLessThan(button);
   });
@@ -597,7 +597,7 @@ describe("the one primary action, and why it is not available", () => {
     const html = drawerHtml("C2");
     const buttons = html.match(/<button[^>]*disabled[^>]*>/g) ?? [];
     expect(buttons).toHaveLength(2);
-    expect(html).toContain(escaped(fill(drawer.overrideWithReason, { child: "Noah B." })));
+    expect(html).toContain(escaped(fill(drawer.overrideWithReason, { child: "Noah O." })));
     // The classes are the ones the stylesheet dresses; no inline style decides this.
     expect(html).not.toMatch(/<button[^>]*disabled[^>]*style=/);
   });
@@ -612,8 +612,8 @@ describe("the one primary action, and why it is not available", () => {
 
     it("says the ride is held, on the afternoon row, and never that it was handed off", () => {
       expect(held).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
-      expect(held).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah B." })));
-      expect(held).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah B." })));
+      expect(held).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
+      expect(held).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
       // A hold is not a handoff, and the panel says nothing that could be read as one.
       expect(held).not.toMatch(/handed off/i);
     });
@@ -621,17 +621,17 @@ describe("the one primary action, and why it is not available", () => {
     it("reads the same on the finished day, whose morning was received at the ramp", () => {
       const ended = drawerHtml("C2", finished);
       expect(ended).toContain(`State: ${legStates.HELD_NO_RECEIVER.label}`);
-      expect(ended).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah B." })));
+      expect(ended).toContain(escaped(fill(boardCopy.reasons.CHILD_HELD, { child: "Noah O." })));
       expect(ended).toContain(
         `State: ${fill(legStates.COMPLETED_HANDOFF.label, { "receiver role": boardCopy.receivedByRamp })}`,
       );
     });
 
     it("says the child waits with the van and nothing brings them back (PRD §6.6 CA-04)", () => {
-      expect(held).toContain(escaped(fill(drawer.heldNoReturn, { child: "Noah B." })));
-      expect(held).toContain(escaped(fill(drawer.receiverMissing, { child: "Noah B." })));
+      expect(held).toContain(escaped(fill(drawer.heldNoReturn, { child: "Noah O." })));
+      expect(held).toContain(escaped(fill(drawer.receiverMissing, { child: "Noah O." })));
       // No automatic return, and no handoff either: the only exit is a person's.
-      expect(held).toContain(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah B." })));
+      expect(held).toContain(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
     });
   });
 });

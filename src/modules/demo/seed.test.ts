@@ -131,7 +131,7 @@ describe("standard scenario seed (PRD §18.1)", () => {
 
   it("C2 needs a wheelchair position with L-track securement and a lift, and rides a lift-equipped vehicle", async () => {
     const c2 = await one<{ child_token: string; display_name: string }>(
-      "SELECT child_token, display_name FROM ops.child_profile WHERE display_name = 'Noah B.'");
+      "SELECT child_token, display_name FROM ops.child_profile WHERE display_name = 'Noah O.'");
     const p = await one<{ mobility: string; securement: string; wc_length_cm: number; wc_width_cm: number; status: string }>(
       "SELECT mobility, securement, wc_length_cm, wc_width_cm, status FROM ops.transport_profile WHERE child_token=$1", [c2.child_token]);
     expect(p).toMatchObject({ mobility: "WC", securement: "L_TRACK", status: "APPROVED" });
@@ -200,7 +200,7 @@ describe("standard scenario seed (PRD §18.1)", () => {
   });
 
   it("F2 has no authorized receiving adult (AT-13) while still getting transport updates", async () => {
-    const c2 = await one<{ child_token: string }>("SELECT child_token FROM ops.child_profile WHERE display_name='Noah B.'");
+    const c2 = await one<{ child_token: string }>("SELECT child_token FROM ops.child_profile WHERE display_name='Noah O.'");
     const scopes = await rows<{ scope: string }>("SELECT scope::text scope FROM ops.contact_authorization WHERE child_token=$1 ORDER BY 1", [c2.child_token]);
     expect(scopes.map((s) => s.scope)).toEqual(["CANCEL_LEG", "CHANGE_PICKUP_INSTRUCTIONS", "RECEIVE_ATTENDANCE_UPDATES", "RECEIVE_TRANSPORT_UPDATES"]);
     const gc = await one<{ can_receive_child: boolean }>(`

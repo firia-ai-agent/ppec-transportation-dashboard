@@ -168,7 +168,7 @@ export type NeedsActionReason = (typeof NEEDS_ACTION_REASONS)[number];
  * This used to be the owner — COORDINATOR, FRONT_DESK, PROVIDER — which is a column that tells
  * a coordinator reading their own board the one thing they already know. The codes below are
  * chosen here and become a sentence in src/ui/copy.ts (`board.nextSteps`), where each one opens
- * with a verb and names the child: "Record who receives Noah B.", not "Coordinator".
+ * with a verb and names the child: "Record who receives Noah O.", not "Coordinator".
  */
 export const NEXT_STEPS = [
   /** CA-04's own step: call every authorized and emergency contact for a child being held. */
