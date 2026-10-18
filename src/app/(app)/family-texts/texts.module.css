@@ -724,14 +724,6 @@
 /* ───────────────────────────── the phone (<768) ───────────────────────────── */
 
 @media (max-width: 767px) {
-  /*
-   * Demo ruling (Firia, 2026-10-18 10:46 AM ET): at phone width the agent bubble would sit on the
-   * compose bar's Send, so it is hidden while the compose bar is on the page — the same pattern as
-   * the Ramp hide (arrival.module.css). At 768 and above it shows as everywhere else.
-   */
-  :global(body):has(.composeDock) :global([data-agent-bubble]) {
-    display: none;
-  }
 
   .work {
     flex-direction: column;
@@ -837,11 +829,10 @@
 }
 
 /*
- * Demo ruling (Veri PPE-92, 2026-10-18): at 768 and above the agent bubble stays on screen, so the
- * compose bar leaves room for it on the right and Send is never under the disc.
+ * Demo ruling (Firia, 2026-10-18 10:55 AM ET, PPE-92 option A): the agent bubble is hidden on
+ * Family texts at every width while the compose bar is on the page. The thread already shows the
+ * agent, and at any width the disc would sit on Send. Same pattern as the Ramp hide.
  */
-@media (min-width: 768px) {
-  :global(body):has([data-agent-bubble]) .compose {
-    padding-right: calc(var(--layout-agent-bubble-size) + 2 * var(--layout-agent-bubble-gap));
-  }
+:global(body):has(.composeDock) :global([data-agent-bubble]) {
+  display: none;
 }
