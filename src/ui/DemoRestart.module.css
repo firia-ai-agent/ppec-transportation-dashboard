@@ -73,3 +73,27 @@
   line-height: var(--leading-tight);
   text-align: end;
 }
+
+/*
+ * The phone bar's own tightening, from mockups/live-map.html: `.demo .reset{padding:0 8px}` at
+ * the width png/live-map-390.png is drawn at. The label keeps its words — the mockup draws
+ * "Restart demo day" in full at 390 — and `min-width: 0` on the wrap is the backstop that makes
+ * an overrun impossible rather than unlikely: if a future string did not fit, this elides inside
+ * its own button instead of pushing the row past the viewport.
+ */
+@media (max-width: 480px) {
+  .wrap {
+    min-width: 0;
+  }
+
+  .button {
+    padding: var(--space-1) var(--space-2);
+    min-width: 0;
+  }
+
+  .label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

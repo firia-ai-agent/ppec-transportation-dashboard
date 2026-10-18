@@ -37,6 +37,7 @@ import {
   vehicleMapLabel,
   vehiclesGeoJson,
 } from "./style";
+import { VAN_COLORS, VAN_COLOR_LIST } from "@/ui/tokens";
 
 /**
  * A trimmed stand-in for the real OpenFreeMap positron style: one layer per override
@@ -273,9 +274,17 @@ describe("the plan's layers (one line per van)", () => {
   const layers = planMapLayers();
   const layer = (id: string) => layers.find((l) => l.id === id);
 
-  it("gives each van its own colour, and the first one is the route colour the map already had", () => {
+  /*
+   * The palette is the app's one van palette now, not this module's own trio: Firia's ruling of
+   * 2026-10-17 11:25 PM ET puts Van 1 / Van 2 / Van 3 in a single group in src/ui/tokens.ts
+   * ({@link VAN_COLORS}), so the board, the ramp board and the live map all draw a van the same
+   * colour. This used to assert `ROUTE_COLORS[0] === MAP_TOKENS.route` (brand teal); Van 1 is
+   * #1D4ED8 and the brand is not a van's colour any more. tokens.test.ts owns the hexes.
+   */
+  it("gives each van its own colour, from the app's one van palette", () => {
     expect(ROUTE_COLORS).toHaveLength(3);
-    expect(ROUTE_COLORS[0]).toBe(MAP_TOKENS.route);
+    expect(ROUTE_COLORS).toEqual([...VAN_COLOR_LIST]);
+    expect(ROUTE_COLORS[0]).toBe(VAN_COLORS.van1);
     expect(new Set(ROUTE_COLORS).size).toBe(3);
     // Every one of them is a token, and none is a status colour or the demo violet.
     for (const colour of ROUTE_COLORS) {

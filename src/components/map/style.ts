@@ -19,7 +19,7 @@ import {
   GPS_STALE_SECONDS,
   type GpsBand,
 } from "@/domain/location/freshness";
-import { color, VAN_COLORS } from "@/ui/tokens";
+import { color, VAN_COLOR_LIST, vanColor } from "@/ui/tokens";
 
 // ---------------------------------------------------------------------------
 // Tokens (DESIGN-DIRECTION §8)
@@ -38,8 +38,11 @@ export const MAP_TOKENS = {
   inkMuted: color["ink-muted"],
   /** `surface` — white halos and stop fills. */
   surface: color.surface,
-  /** `van1` — the first van's planned and driven route lines ({@link VAN_COLORS}). */
-  route: VAN_COLORS.van1,
+  /**
+   * `route`/`brand` — the fleet pane's single-colour route line, for a map drawing one run.
+   * A map drawing the whole fleet colours each line by its van instead ({@link ROUTE_COLORS}).
+   */
+  route: color.brand,
   /** `osm-water` — the §5.1 water override (positron's default fails 3:1 vs trucks). */
   water: color["osm-water"],
   /** `map-truck-ok` — GPS fresh/aging. */
@@ -48,30 +51,27 @@ export const MAP_TOKENS = {
   truckStale: color["map-truck-stale"],
   /** `map-truck-crit` — GPS lost. */
   truckCrit: color["map-truck-crit"],
-  /** `van2` / `van3` — the second and third lines of {@link ROUTE_COLORS}. */
-  route2: VAN_COLORS.van2,
-  route3: VAN_COLORS.van3,
 } as const;
 
 /**
- * One colour per van, for a map that draws a whole fleet's plan at once (the Plan routes pane).
+ * One colour per van, for any map that draws a whole fleet at once — the Plan routes pane and
+ * the Live map both.
  *
- * Three, because the demo day runs three vans, and the first is the route colour the map already
- * had — so there is one blue on the map and not two. A fourth van wraps round to the first
- * ({@link routeColor}), which is survivable because the colour is never the only cue: every line
- * carries the van's own name along it and every lane beside the map says the same name in words
- * (DESIGN-DIRECTION §3).
+ * It is {@link VAN_COLORS}, not a palette of this module's own, and that is Firia's ruling of
+ * 2026-10-17 11:25 PM ET: one group in src/ui/tokens.ts, so the van a coordinator reads as blue
+ * on the board is the same blue on the map. This module used to hold a second trio (brand teal,
+ * amber, vermillion) under `MAP_TOKENS.route2` / `route3`, and two palettes for one fact is how
+ * Van 2 ends up amber on one screen and orange on the next.
+ *
+ * A fourth van wraps round to the first ({@link routeColor}), which is survivable because the
+ * colour is never the only cue: every line carries the van's own name along it and every lane
+ * beside the map says the same name in words (DESIGN-DIRECTION §3).
  */
-export const ROUTE_COLORS: readonly string[] = [
-  MAP_TOKENS.route,
-  MAP_TOKENS.route2,
-  MAP_TOKENS.route3,
-];
+export const ROUTE_COLORS: readonly string[] = VAN_COLOR_LIST;
 
 /** The colour of the nth van's line. Wraps, and never returns the demo violet. */
 export function routeColor(index: number): string {
-  const n = ROUTE_COLORS.length;
-  return ROUTE_COLORS[((Math.trunc(index) % n) + n) % n];
+  return vanColor(index);
 }
 
 /**

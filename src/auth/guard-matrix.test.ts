@@ -68,8 +68,9 @@ import { NOT_ON_YOUR_MENU, withNotice } from "@/ui/notice";
  *  - `@/auth` and `next-auth` — Auth.js's module scope wants `next/server`, which resolves only
  *    inside Next. Nothing here calls into it; the pages reach the session through `getCaller`,
  *    and /login only uses `AuthError` to tell a bad password from a real failure.
- *  - `@/components/map/LiveFleetMap` — a client component that pulls in MapLibre. The page is
- *    being called for its guard, and the pane has its own tests.
+ *  - `@/modules/live-map/LiveMapScreen` — a client component that pulls in MapLibre. The page is
+ *    being called for its guard, and the pane has its own tests (src/components/map/pane.test.ts).
+ *    It replaced #53's own screen component, which is deleted.
  *  - `@/db/exec` — `getNeonDb` throws a sentinel, so "the handler reached the database" is
  *    observable, and a refusal that was supposed to happen first shows up as a 200 or a throw.
  */
@@ -95,7 +96,7 @@ vi.mock("@/auth", () => ({
   handlers: { GET: vi.fn(), POST: vi.fn() },
 }));
 vi.mock("next-auth", () => ({ AuthError: class AuthError extends Error {} }));
-vi.mock("@/components/map/LiveFleetMap", () => ({ default: () => null }));
+vi.mock("@/modules/live-map/LiveMapScreen", () => ({ default: () => null }));
 vi.mock("@/db/exec", () => ({ getNeonDb, runAfterCommit: vi.fn() }));
 /*
  * The console shell, as a pass-through. Since Vera's review (2026-10-17 4:19 PM ET) the 403

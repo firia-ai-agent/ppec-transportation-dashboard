@@ -48,8 +48,9 @@ export function resolveDate(param: string | undefined | null, now: Date = new Da
 }
 
 /**
- * The leg Plan routes shows: the one in the address, otherwise Morning (Firia ruling 1:34 AM ET:
- * Morning is the default leg on Plan routes, whatever the hour).
+ * The leg a screen shows: the one in the address, otherwise Morning (Firia's ruling of
+ * 2026-10-18 1:34 AM ET — Morning is the default leg, whatever the hour). The clock still
+ * decides elsewhere; it does not decide which leg a link without one opens.
  */
 export function resolveLeg(param: string | undefined | null): Direction {
   const asked = (param ?? "").trim().toUpperCase();

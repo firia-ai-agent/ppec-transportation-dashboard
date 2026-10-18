@@ -721,19 +721,48 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
     expect(liveMap).not.toHaveProperty("motionReduced");
   });
 
-  /** The clock's own words, which are the DEMO bar's now (src/ui/DemoClock.tsx). */
+  /**
+   * The clock's own words, which are the DEMO bar's now (src/ui/DemoClock.tsx).
+   *
+   * The readout is the TIME and nothing else: png/live-map-390.png and png/live-map.png both
+   * draw "3:24 PM" there, and MOCKUP-TEST-CONTRACT.md says it in words ("the clock … reads as a
+   * 12-hour time (for example '2:47 PM')"). It was "Scenario clock {time} ET", which is what
+   * overran a 390 px phone and painted over the button beside it. The words it lost are not
+   * gone — `clockLabel` is the readout's accessible name — so this asserts both halves rather
+   * than dropping one.
+   */
   it("the clock says the time and the three speeds, in the bar", () => {
-    expect(liveMap.clock).toBe("Scenario clock {time} ET");
+    expect(liveMap.clock).toBe("{time}");
+    expect(fill(liveMap.clock, { time: "3:24 PM" })).toBe("3:24 PM");
+    expect(liveMap.clockLabel).toBe("Scenario clock");
     expect(fill(liveMap.speed, { factor: 10 })).toBe("×10");
     expect(liveMap.pause).toBe("Pause");
     expect(liveMap.restart).toBe("Restart");
   });
 
   it("the map pane's own wording, including the two tile notices", () => {
-    expect(fleetMap.fitAll).toBe("Fit all vehicles");
     expect(fleetMap.retry).toBe("Retry");
-    expect(fleetMap.vehiclesHeading).toBe("Vehicles");
-    expect(fleetMap.locationLost).toBe("Location lost · dispatcher pinged");
+    /*
+     * `fitAll`, `vehiclesHeading`, `locationLost`, `vehicleRow`, `vehicleMeta`, `gps`, `source`,
+     * `stopped` and `stopFamily` are deleted with #53's vehicle card, which printed
+     * "V1 · Convertible van" and "Provider P1 · In transit" — the internal codes Vera's walk of
+     * 2026-10-18 12:30 AM ET ruled off the screen. A van is "Van 1 · Marco D." now
+     * (`liveMap.vanName`), and the assertions for the deleted words go with them rather than
+     * being pointed at something else.
+     */
+    for (const gone of [
+      "fitAll",
+      "vehiclesHeading",
+      "locationLost",
+      "vehicleRow",
+      "vehicleMeta",
+      "gps",
+      "source",
+      "stopped",
+      "stopFamily",
+    ]) {
+      expect(fleetMap, gone).not.toHaveProperty(gone);
+    }
     // AT-10: a geofence says the vehicle arrived, never that a child was handed over.
     expect(fleetMap.arrived).toBe("Arrived (vehicle)");
     expect(fleetMap.arrived).not.toMatch(/Handed off/);
