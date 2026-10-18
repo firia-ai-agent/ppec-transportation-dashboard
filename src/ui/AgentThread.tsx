@@ -11,6 +11,7 @@ import styles from "./AgentThread.module.css";
  *  - a centred day separator ("Today");
  *  - a driver's message as a **grey bubble on the left**, with "Name · Van N" above it;
  *  - a staff message as a **teal bubble on the right**;
+ *  - the agent's own reply as a grey bubble on the left with no name above it;
  *  - a proposal as the **compact card** from mockups/family-texts.html (`.prop`): the question is
  *    the title and the one row under it is a single amber "Needs approval" chip. No details table
  *    and no clock times — that is the full For you card (mockups/approvals.html), which this is
@@ -29,6 +30,13 @@ export type AgentThreadItem =
   | { readonly kind: "driver"; readonly id: string; readonly name: string; readonly van: number; readonly text: string }
   /** A message from staff: teal, right. */
   | { readonly kind: "staff"; readonly id: string; readonly text: string }
+  /**
+   * The agent answering: grey, left, and with no name above it — the one that speaks here is the
+   * panel the person is typing into, so naming it would be labelling the app (and no screen in
+   * this app says "AI" or names a vendor). On this branch the only thing it ever says is that it
+   * cannot answer (src/ui/agent-ask-state.ts).
+   */
+  | { readonly kind: "agent"; readonly id: string; readonly text: string }
   /**
    * A change the agent has proposed and nobody has decided yet. `question` is the one line the
    * card is titled with. There is no `decide` here: deciding is a write, and the write path is
@@ -59,6 +67,12 @@ export function AgentThread({ items }: { items: readonly AgentThreadItem[] }) {
           case "staff":
             return (
               <p key={item.id} className={`${styles.bubble} ${styles.outbound}`}>
+                {item.text}
+              </p>
+            );
+          case "agent":
+            return (
+              <p key={item.id} className={`${styles.bubble} ${styles.inbound}`}>
                 {item.text}
               </p>
             );

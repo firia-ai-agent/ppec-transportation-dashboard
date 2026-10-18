@@ -8,13 +8,6 @@
   border-top: var(--border-hairline) solid var(--color-neutral-bg);
 }
 
-/* What came back from the last ask. One line, above the field, read out when it changes. */
-.notice {
-  margin-bottom: var(--space-3);
-  color: var(--color-ink-muted);
-  font-size: var(--text-12);
-}
-
 .row {
   display: flex;
   align-items: center;

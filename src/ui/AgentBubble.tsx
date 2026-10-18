@@ -12,6 +12,7 @@ import {
   setAgentBubbleOpen,
   subscribeAgentBubbleOpen,
 } from "./agent-bubble-state";
+import { getAsked, getAskedOnServer, subscribeAsked } from "./agent-ask-state";
 import { AgentThread, type AgentThreadItem } from "./AgentThread";
 import styles from "./AgentBubble.module.css";
 
@@ -72,6 +73,15 @@ export function AgentBubble({
     getAgentBubbleOpen,
     getAgentBubbleOpenOnServer,
   );
+  /*
+   * EVERY ASK SHOWS, RIGHT AWAY (Firia and Vera, 2026-10-18 9:17 AM ET). `items` is the thread the
+   * server read from what this app stores; `asked` is what this tab has asked since it loaded,
+   * which the server has no row for — an ask is an `ops.task`, not a message
+   * (src/modules/agent/ask/staff-ask.ts), so a `router.refresh()` cannot bring it back and the
+   * bubble is the one place it can live. This component is mounted once by the shell and is not
+   * unmounted by a navigation, which is what makes that true across a tab change.
+   */
+  const asked = useSyncExternalStore(subscribeAsked, getAsked, getAskedOnServer);
 
   if (agentBubbleHidden({ pathname, tab, canDecide })) return null;
 
@@ -103,7 +113,7 @@ export function AgentBubble({
               <X size={22} aria-hidden="true" />
             </button>
           </div>
-          <AgentThread items={items} />
+          <AgentThread items={asked.length === 0 ? items : [...items, ...asked]} />
           {compose}
         </aside>
       ) : null}

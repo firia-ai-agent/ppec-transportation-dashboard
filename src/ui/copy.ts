@@ -2424,6 +2424,15 @@ export const agentBubble = {
    * merges and the card gets its writer.
    */
   needsApproval: "Needs approval",
+  /**
+   * The grey reply under an ask nobody could answer (Firia and Vera, 2026-10-18 9:17 AM ET). One
+   * line, and it is the whole of the degraded mode in the panel: it says what is true — no answer
+   * — and never why, because every why is a vendor, a key or an outage. There is no keyword
+   * fallback behind it; a sentence assembled from the words of the question would be the panel
+   * pretending to have understood it. The staff alert the server raises is unchanged and says the
+   * rest ({@link agentAsk.unavailable}).
+   */
+  noAnswer: "I can't answer right now.",
   /** Nothing has been said today. The thread shows what exists and never invents a message. */
   empty: "Nothing yet today.",
 } as const;
@@ -2439,6 +2448,12 @@ export const agentBubble = {
  * `unavailable` is the **staff alert** of docs/DATA-MODEL.md: kind NEEDS_PERSON, severity RED,
  * raised when no model can be reached. There is no keyword parser behind it and no proposal on
  * it — the whole of the degraded mode is that a person is asked to do the thing themselves.
+ *
+ * The two *notice* lines that used to live here are gone (Firia and Vera, 2026-10-18 9:17 AM ET):
+ * what the panel says back is now said in the thread, where the question was asked — the teal
+ * bubble for every ask, and {@link agentBubble.noAnswer} under the ones nobody could answer. A
+ * status line above the field saying one thing while the thread said another was two answers to
+ * one question.
  */
 export const agentAsk = {
   /** The ask itself: open work until the agent or a person answers it. */
@@ -2456,8 +2471,4 @@ export const agentAsk = {
     nextStep: "Do the thing that was asked, or reply to the family yourself.",
     predicate: "a coordinator has done what was asked and recorded it",
   },
-  /** What the bubble says back when the ask could not be answered. One line, under the thread. */
-  unavailableNotice: "Nobody can answer that right now. It is on your list instead.",
-  /** What the bubble says back when the ask went in. */
-  sent: "Asked.",
 } as const;
