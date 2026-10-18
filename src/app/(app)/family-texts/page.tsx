@@ -92,13 +92,12 @@ export default async function FamilyTextsPage({
   }
   const tab = tabFrom(one(params.tab));
   const askedThread = one(params.thread);
-  const editedTime = clockOrNull(one(params.time));
   /*
-   * `?edit=` is the Edit control's own state and nothing else: it names the proposal whose time
-   * field is open. It writes nothing and sends nothing — the card comes back pending either way
-   * (gate 2) — and the resting card has no field on it at all (Firia, 10:51 PM ET).
+   * `?edit=` is the Edit control's own state and nothing else: it names the proposal whose text box
+   * is open. It writes nothing and sends nothing — the words travel in the Approve POST, never in
+   * the URL — and the resting card has no field on it at all (Firia, 10:51 PM ET).
    */
-  const editing = one(params.edit) !== undefined;
+  const editingId = one(params.edit) ?? null;
 
   const day = demoDay();
   const phones = phonesForDay(day);
@@ -118,7 +117,7 @@ export default async function FamilyTextsPage({
    * queue read for them at all.
    */
   const queue =
-    mayApprove && assistantReachable ? await readQueue(siteIds, day, editedTime) : [];
+    mayApprove && assistantReachable ? await readQueue(siteIds, day) : [];
 
   /*
    * Which thread is open, in order: the one the URL names; otherwise the one with something
@@ -156,7 +155,7 @@ export default async function FamilyTextsPage({
     <TextsScreen
       tab={tab}
       context={context}
-      editing={editing}
+      editingId={editingId}
       /*
         * "Change ready" only where the queue holds a pending proposal for that thread (Vera,
         * bdfaa8e): the chip, the card and For you read one list, so a fixture ask with no row
@@ -169,7 +168,6 @@ export default async function FamilyTextsPage({
       alerts={board.alerts}
       alertsUnreadable={board.unreadable}
       assistantReachable={assistantReachable}
-      editedTime={editedTime}
       threadOpen={askedThread !== undefined}
       decide={decideApprovalAction}
       takeAlert={takeAlertAction}
@@ -196,16 +194,6 @@ export default async function FamilyTextsPage({
  * `agent/run/exec/proposals.ts` writes and is read back by the same query.
  */
 
-/**
- * A 24-hour wall-clock time, or nothing.
- *
- * The same shape `decideApproval` accepts, checked here too, so a junk `?time=` is simply ignored
- * rather than rendered into a card. It is never used as anything but a time.
- */
-function clockOrNull(value: string | undefined): string | null {
-  return value !== undefined && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : null;
-}
-
 async function readAlerts(
   siteIds: readonly string[],
 ): Promise<{ alerts: readonly AssistantAlert[]; unreadable: boolean }> {
@@ -228,11 +216,10 @@ async function readAlerts(
 async function readQueue(
   siteIds: readonly string[],
   day: ServiceDay,
-  editedTime: string | null,
 ): Promise<readonly ProposalView[]> {
   if (siteIds.length === 0) return [];
   try {
-    return await approvalQueue({ db: getExec(), siteIds, day, editedTime });
+    return await approvalQueue({ db: getExec(), siteIds, day });
   } catch {
     return [];
   }

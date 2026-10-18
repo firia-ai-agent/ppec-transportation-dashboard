@@ -467,6 +467,8 @@ export const task = ops.table("task", {
 export const approvalRequest = ops.table("approval_request", {
   id: pk(), siteId: siteRef(), taskId: uuid("task_id").references(() => task.id, { onDelete: "restrict" }).notNull(), proposal: jsonb("proposal").notNull(), // structured diff
   decidedBy: uuid("decided_by"), decidedAt: timestamp("decided_at", { withTimezone: true }), decision: text("decision"),
+  // The reply's words as the coordinator edited them before approving; null when sent as drafted.
+  editedText: text("edited_text"),
   ...audit,
 }); // decision race: UPDATE ... WHERE id=$1 AND decided_at IS NULL RETURNING → 0 rows = 409 ALREADY_DECIDED
 export const agentRun = ops.table("agent_run", {

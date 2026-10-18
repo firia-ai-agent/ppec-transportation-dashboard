@@ -28,7 +28,6 @@ export function Composer({
   adultName,
   approvalId,
   draftText,
-  editedTime,
   decide,
 }: {
   readonly adultName: string;
@@ -36,8 +35,6 @@ export function Composer({
   readonly approvalId: string | null;
   /** The exact words Send would put on the family's phone, shown in the bar itself. */
   readonly draftText: string;
-  /** The time the card currently shows, so Send approves what is on screen. */
-  readonly editedTime: string | null;
   readonly decide: DecideAction;
 }) {
   const [state, submit, pending] = useActionState<DecisionState, FormData>(decide, { status: "idle" });
@@ -52,7 +49,6 @@ export function Composer({
       <form action={submit} className={styles.compose}>
         <input type="hidden" name="approval" value={approvalId ?? ""} />
         <input type="hidden" name="decision" value="APPROVED" />
-        <input type="hidden" name="time" value={editedTime ?? ""} />
         {/* The words in the bar, carried with the press: Send approves what is on screen, and a
           * message that changed under it is refused rather than sent (S1-7). */}
         <input type="hidden" name="text" value={draftText} />

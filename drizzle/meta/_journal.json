@@ -64,6 +64,13 @@
       "when": 1792264656440,
       "tag": "0009_plan_board",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792366187356,
+      "tag": "0010_approval_edited_text",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { Check, Pencil, X } from "lucide-react";
+import { REPLY_TEXT_MAX } from "@/modules/messaging/reply-text";
 import { approval, fill } from "@/ui/copy";
 import { icon } from "@/ui/tokens";
 import type { DecideAction, DecisionState } from "./actions";
@@ -35,10 +37,12 @@ import styles from "./texts.module.css";
  *
  *  - **Approve & send** posts to `decideApprovalAction`, which calls `decideApproval` and nothing
  *    else. One write path, for all three controls (gate 1).
- *  - **Edit** is a `GET` to this same screen. It writes nothing and sends nothing: the card comes
- *    back *pending* with the message re-rendered through the same template, so **an edited
- *    message needs a fresh approval** (gate 2). Edit changes the words and only the words — it
- *    moves no ride, because the ride is saved by the decision and by nothing else.
+ *  - **Edit** is a link to this same card with `?edit=<approval id>`. It writes nothing and sends
+ *    nothing: the bubble becomes a text box holding the reply's own words, inside the Approve form,
+ *    so **an edited message is approved by the same press that sends it** (gate 2) and the words
+ *    never travel in a URL. Edit changes the words and only the words — the ride moves by the
+ *    decision and by nothing else. Only a reply with words of its own has Edit; fixed copy does not
+ *    (`decide.editableReplyOf`).
  *  - **Don't send** posts the same action with `DECLINED`: the decision is written and nothing
  *    else happens.
  *
@@ -49,19 +53,22 @@ import styles from "./texts.module.css";
 export function ProposalCard({
   proposal,
   decide,
-  editHref,
+  threadHref,
   editing = false,
   className,
 }: {
   readonly proposal: ProposalView;
   readonly decide: DecideAction;
-  /** Where Edit submits: this screen, with the thread and tab it is already on. */
-  readonly editHref: string;
+  /** The Family texts thread this card belongs to. Edit is this address plus `edit=<id>`. */
+  readonly threadHref: string;
   /** True in the state Edit navigates to, which is the only state with a field on it. */
   readonly editing?: boolean;
   readonly className?: string;
 }) {
   const [state, submit, pending] = useActionState<DecisionState, FormData>(decide, { status: "idle" });
+  const canEdit = proposal.replyText !== null;
+  const editHref = `${threadHref}${threadHref.includes("?") ? "&" : "?"}edit=${encodeURIComponent(proposal.approvalId)}`;
+  const fieldId = `reply-${proposal.approvalId}`;
 
   return (
     <section
@@ -87,10 +94,13 @@ export function ProposalCard({
         * because it is the same words. Never shortened, and never the send step's furniture: the
         * STOP/HELP footer and the [DEMO] tag are appended by `renderForSend` and belong on a
         * family's phone, not on the thing a person is deciding (Firia, 2026-10-17 10:51 PM ET).
+        * In the Edit state the bubble is the text box, so there is one copy of the words on screen.
         */}
-      <p className={[styles.bubble, styles.out, styles.cardBubble].join(" ")}>
-        {proposal.draftText === "" ? approval.draftFailed : proposal.draftText}
-      </p>
+      {editing && canEdit ? null : (
+        <p className={[styles.bubble, styles.out, styles.cardBubble].join(" ")}>
+          {proposal.draftText === "" ? approval.draftFailed : proposal.draftText}
+        </p>
+      )}
 
       {/*
         * ONE LINE OF WHAT THE PLAN DOES, under the words the family reads (same ruling).
@@ -106,60 +116,58 @@ export function ProposalCard({
       )}
 
       {/*
-        * Edit's one field, in the state Edit navigates to and nowhere else. It is the message
-        * that changes: the time is the one thing in these words a coordinator may move, so
-        * moving it re-renders the sentence through the same template and leaves the proposal
-        * PENDING, waiting for an approval of the new words.
+        * The one action row (mockups/approvals.html `.acts`): Approve first, teal; Edit (a link, not
+        * a decision); Don't send at the far end. Approve's form holds the text box in the Edit
+        * state, so the words typed are the words posted with the press — and nowhere else.
         */}
-      {editing ? (
-        <form method="get" action={editHref} className={styles.editForm}>
-          <input type="hidden" name="edit" value={proposal.approvalId} />
-          <label className={styles.diffKey} htmlFor={`time-${proposal.approvalId}`}>
-            {approval.editTimeLabel}
-          </label>
-          <input
-            id={`time-${proposal.approvalId}`}
-            className={styles.editTime}
-            type="time"
-            name="time"
-            defaultValue={proposal.requestedHhmm ?? ""}
-          />
-          <button type="submit" className={styles.secondary}>
-            <Pencil size={icon.inline} aria-hidden="true" />
-            {approval.editApply}
-          </button>
-        </form>
-      ) : null}
-
-      {/*
-        * The one action row (mockups/approvals.html `.acts`): three controls, teal first. Two
-        * forms, because the three are two different kinds of thing — Edit is a navigation and the
-        * other two are the decision — and HTML forms cannot nest, so they sit side by side in one
-        * row and read as one bar.
-        */}
-      <div className={styles.actions}>
-        {/* Approve and Don't send: the one write path, twice. */}
-        <form action={submit} className={styles.decideForm}>
-          <input type="hidden" name="approval" value={proposal.approvalId} />
-          <input type="hidden" name="time" value={proposal.requestedHhmm ?? ""} />
-          {/* The words this card is showing, so the decision is a signature on them and not on
-            * whatever the row says by the time it is read (S1-7). */}
+      <form action={submit} id={`approve-${proposal.approvalId}`} className={styles.approveForm}>
+        <input type="hidden" name="approval" value={proposal.approvalId} />
+        {editing && canEdit ? (
+          <>
+            <label className="srOnly" htmlFor={fieldId}>
+              {approval.editLabel}
+            </label>
+            <textarea
+              id={fieldId}
+              name="edited"
+              className={styles.editText}
+              defaultValue={proposal.replyText ?? ""}
+              maxLength={REPLY_TEXT_MAX}
+              rows={3}
+              required
+              autoFocus
+            />
+            <p className={styles.editHint}>{approval.editHint}</p>
+          </>
+        ) : (
+          /* The words this card is showing, so the decision is a signature on them and not on
+           * whatever the row says by the time it is read (S1-7). */
           <input type="hidden" name="text" value={proposal.draftText} />
-          <button type="submit" name="decision" value="APPROVED" className={styles.primary} disabled={pending}>
-            <Check size={icon.inline} aria-hidden="true" />
-            {approval.approveAndSend}
-          </button>
-        </form>
+        )}
+      </form>
+      <div className={styles.actions}>
+        <button
+          type="submit"
+          form={`approve-${proposal.approvalId}`}
+          name="decision"
+          value="APPROVED"
+          className={styles.primary}
+          disabled={pending}
+        >
+          <Check size={icon.inline} aria-hidden="true" />
+          {approval.approveAndSend}
+        </button>
 
-        {/* Edit: a navigation, not a decision. It writes nothing and sends nothing (gate 2). */}
-        {editing ? null : (
-          <form method="get" action={editHref} className={styles.editForm}>
-            <input type="hidden" name="edit" value={proposal.approvalId} />
-            <button type="submit" className={styles.secondary}>
-              <Pencil size={icon.inline} aria-hidden="true" />
-              {approval.edit}
-            </button>
-          </form>
+        {!canEdit ? null : editing ? (
+          <Link href={threadHref} className={styles.secondary} scroll={false}>
+            <X size={icon.inline} aria-hidden="true" />
+            {approval.editCancel}
+          </Link>
+        ) : (
+          <Link href={editHref} className={styles.secondary} scroll={false}>
+            <Pencil size={icon.inline} aria-hidden="true" />
+            {approval.edit}
+          </Link>
         )}
 
         {/* approvals.html `.acts .sp`: Don't send sits at the far end, away from the two
@@ -168,9 +176,6 @@ export function ProposalCard({
 
         <form action={submit} className={styles.decideForm}>
           <input type="hidden" name="approval" value={proposal.approvalId} />
-          <input type="hidden" name="time" value={proposal.requestedHhmm ?? ""} />
-          {/* The words this card is showing, so the decision is a signature on them and not on
-            * whatever the row says by the time it is read (S1-7). */}
           <input type="hidden" name="text" value={proposal.draftText} />
           <button type="submit" name="decision" value="DECLINED" className={styles.quiet} disabled={pending}>
             <X size={icon.inline} aria-hidden="true" />

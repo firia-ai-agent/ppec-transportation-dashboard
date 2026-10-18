@@ -274,7 +274,8 @@ test.describe("1440: three panes on For you, the card inside the thread", () => 
        * helper line on the resting card (Firia, 10:51 PM ET).
        */
       const approve = page.getByRole("button", { name: approval.approveAndSend }).first();
-      const edit = page.getByRole("button", { name: approval.edit }).first();
+      // Edit is a link (a navigation), the other two are the decision's buttons.
+      const edit = page.getByRole("link", { name: approval.edit }).first();
       const dontSend = page.getByRole("button", { name: approval.dontSend }).first();
       await expect(approve).toBeVisible();
       await expect(edit).toBeVisible();
@@ -341,11 +342,12 @@ test.describe("1440: three panes on For you, the card inside the thread", () => 
     // The message, in a bubble: one, and the same words the thread would show once it is sent.
     await expect(card.getByText(/gets off at/)).toBeVisible();
 
-    // The three buttons, and no fourth control.
-    for (const name of [approval.approveAndSend, approval.edit, approval.dontSend]) {
+    // The three controls, and no fourth: two decision buttons and Edit, which is a link.
+    for (const name of [approval.approveAndSend, approval.dontSend]) {
       await expect(card.getByRole("button", { name })).toHaveCount(1);
     }
-    expect(await card.getByRole("button").count(), "three buttons, and no more").toBe(3);
+    await expect(card.getByRole("link", { name: approval.edit })).toHaveCount(1);
+    expect(await card.getByRole("button").count(), "two buttons, and no more").toBe(2);
 
     /*
      * NO TIME ROW, and no clock time at all. The ride's hour is not on the card: the body of
@@ -357,19 +359,20 @@ test.describe("1440: three panes on For you, the card inside the thread", () => 
     console.log("screenshot:", await shot(page, "for-you-card-1440"));
   });
 
-  test("Edit is a navigation, and it opens the time field without sending", async ({ page }) => {
+  test("Edit is a navigation, and it opens the reply's words without sending", async ({ page }) => {
     await page.goto(FOR_YOU);
     test.skip(!(await hasCard(page)), "needs the card state (a reachable model)");
 
     /*
-     * Firia's gate 2, and the ruling of 10:51 PM ET that the resting card has no time input: Edit
-     * navigates to the Edit state, where the field is. It writes nothing and sends nothing — the
-     * card comes back with Approve still to press.
+     * Firia's gate 2, and the ruling of 10:51 PM ET that the resting card has no field: Edit
+     * navigates to the Edit state, where the reply's words are in a text box (Edit = the message
+     * text, user ruling 2026-10-18). It writes nothing and sends nothing — the card comes back with
+     * Approve still to press, and the words never appear in the URL.
      */
-    await page.getByRole("button", { name: approval.edit }).first().click();
+    await page.getByRole("link", { name: approval.edit }).first().click();
     await expect(page).toHaveURL(/edit=/);
     const card = cardRegion(page).first();
-    await expect(card.locator("input[type='time']")).toBeVisible();
+    await expect(card.getByRole("textbox", { name: approval.editLabel })).toBeVisible();
     await expect(page.getByRole("button", { name: approval.approveAndSend }).first()).toBeVisible();
     await expect(page.getByText(approval.nothingUntilApproved).first()).toBeVisible();
   });

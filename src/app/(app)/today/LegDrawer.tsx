@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import Link from "next/link";
+import { familyThreadHref } from "@/auth/access";
 import { MessagesSquare, X } from "lucide-react";
 import type { BoardRow, LegRow, NeedView, RideView, ServiceDay } from "@/domain/board/board";
 import {
@@ -176,7 +177,7 @@ export function LegDrawer({
           */}
           <h3 className={styles.sectionHeading}>{drawer.textsHeading}</h3>
           {hasTexts ? (
-            <Link className={styles.drawerLink} href={`/family-texts?child=${row.childKey}`}>
+            <Link className={styles.drawerLink} href={familyThreadHref(row.childKey)}>
               <MessagesSquare size={icon.inline} aria-hidden="true" />
               {fill(drawer.openTexts, { child })}
             </Link>

@@ -125,7 +125,7 @@ const oneRow: Exec = { query: async () => ({ rows: [SEEDED_ROW] as never[] }) };
 
 let PROPOSAL: ProposalView;
 beforeAll(async () => {
-  PROPOSAL = (await approvalQueue({ db: oneRow, siteIds: [SITE], day, editedTime: null }))[0];
+  PROPOSAL = (await approvalQueue({ db: oneRow, siteIds: [SITE], day }))[0];
 });
 
 /** The action is never called in a static render; it is here to satisfy the prop. */
@@ -145,7 +145,7 @@ function render(a: {
   proposals?: readonly ProposalView[];
   /** The third pane (approvals.html `aside.ctx`), when a case is about it. */
   context?: ThreadContext | null;
-  /** The Edit state, which is the only state with a time field on the card. */
+  /** The Edit state, which is the only state with a text box on the card. */
   editing?: boolean;
   request?: typeof request | undefined;
 }): string {
@@ -172,8 +172,7 @@ function render(a: {
       assistantReachable: reachable,
       // The third pane is the page's read of the day; these cases are about the other two.
       context: a.context ?? null,
-      editing: a.editing ?? false,
-      editedTime: null,
+      editingId: a.editing ? PROPOSAL.approvalId : null,
       threadOpen: a.threadOpen ?? false,
       decide,
       takeAlert: takeAlertSpy,

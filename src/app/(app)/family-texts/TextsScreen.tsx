@@ -39,8 +39,7 @@ export function TextsScreen({
   alertsUnreadable,
   assistantReachable,
   context,
-  editing,
-  editedTime,
+  editingId,
   threadOpen,
   decide,
   takeAlert,
@@ -62,10 +61,8 @@ export function TextsScreen({
    * Null when the open thread has nothing to decide, which is when there is no pane.
    */
   readonly context: ThreadContext | null;
-  /** True when the URL has put the open proposal into its Edit state (`?edit=`). */
-  readonly editing: boolean;
-  /** A time a coordinator typed into Edit, already applied to the draft. */
-  readonly editedTime: string | null;
+  /** The proposal the URL has put into its Edit state (`?edit=<approval id>`), or null. */
+  readonly editingId: string | null;
   /** True when the URL names a thread: the phone shows the thread rather than the list. */
   readonly threadOpen: boolean;
   readonly decide: DecideAction;
@@ -154,8 +151,7 @@ export function TextsScreen({
           <Thread
             thread={thread}
             tab={tab}
-            editing={editing}
-            editedTime={editedTime}
+            editingId={editingId}
             decide={decide}
             assistantReachable={assistantReachable}
           />
@@ -251,19 +247,18 @@ function ConversationList({
 function Thread({
   thread,
   tab,
-  editing,
-  editedTime,
+  editingId,
   decide,
   assistantReachable,
 }: {
   readonly thread: ThreadView;
   readonly tab: TabKey;
-  readonly editing: boolean;
-  readonly editedTime: string | null;
+  readonly editingId: string | null;
   readonly decide: DecideAction;
   /** False when no model can be reached: no card renders at all (gate 5). */
   readonly assistantReachable: boolean;
 }) {
+  const editing = thread.proposal !== null && thread.proposal.approvalId === editingId;
   return (
     <section className={styles.thread} aria-label={thread.adultName}>
       <div className={styles.threadHeader}>
@@ -296,7 +291,7 @@ function Thread({
             proposal={thread.proposal}
             decide={decide}
             editing={editing}
-            editHref={hrefFor(tab, thread.key)}
+            threadHref={hrefFor(tab, thread.key)}
           />
         )}
         {/* The thread opens at its newest message, so the card's own controls are on screen. */}
@@ -305,9 +300,9 @@ function Thread({
 
       <Composer
         adultName={thread.adultName}
-        approvalId={thread.proposal?.approvalId ?? null}
+        /* While the card is being edited its own Approve sends the edit; the bar does not send the draft. */
+        approvalId={editing ? null : (thread.proposal?.approvalId ?? null)}
         draftText={thread.proposal?.draftText ?? ""}
-        editedTime={editedTime ?? thread.proposal?.requestedHhmm ?? null}
         decide={decide}
       />
     </section>

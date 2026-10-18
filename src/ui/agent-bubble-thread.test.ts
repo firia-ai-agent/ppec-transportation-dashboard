@@ -248,7 +248,7 @@ describe("a waiting proposal, with the card the shell read, is the Family texts 
     pickupLabel: "Dara O.",
     checks: [],
     draftText: "PPEC: Hi Dara, yes, we can drop Noah off at 5 today.",
-    requestedHhmm: "17:00",
+    replyText: "Hi Dara, yes, we can drop Noah off at 5 today.",
     alertText: "Dara asked to move Noah's drop-off to 5 PM.",
   };
   const decide = async () => ({ status: "idle" as const });

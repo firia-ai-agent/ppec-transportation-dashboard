@@ -100,7 +100,7 @@ afterEach(async () => {
 
 /** A proposal row of the shape `proposals.dropoffChange` writes, at a site of our choosing. */
 async function seedProposal(
-  over: { siteId?: string; legId?: string; planVersionBasis?: number; time?: string | null } = {},
+  over: { siteId?: string; legId?: string; planVersionBasis?: number; time?: string | null; reply?: string } = {},
 ): Promise<string> {
   const siteId = over.siteId ?? SITE;
   const taskId = uuidv7();
@@ -136,8 +136,14 @@ async function seedProposal(
         requested_dropoff_time: time,
         stop_token: "OKEE-PARK",
         rationale_code: "PARENT_REQUEST",
-        template_id: "dropoff.changed",
-        vars: { legDate: SERVICE_DATE, ...(time ? { eta: time } : {}), stopLabel: "OKEE-PARK" },
+        // A model-drafted reply (`dropoff.reply`) when the case gives one; the fixed template otherwise.
+        template_id: over.reply === undefined ? "dropoff.changed" : "dropoff.reply",
+        vars: {
+          legDate: SERVICE_DATE,
+          ...(time ? { eta: time } : {}),
+          stopLabel: "OKEE-PARK",
+          ...(over.reply === undefined ? {} : { replyText: over.reply }),
+        },
         approval_key: "a-key",
       }),
     ],
@@ -427,39 +433,74 @@ describe("approving", () => {
   });
 
   /**
-   * THE EDITED TIME IS WHAT GETS RECORDED — and it is not a word of the text.
-   *
-   * It used to be both: the body said "at 5:30 PM", so the edit was visible in the sentence. The
-   * COPY RULE took the clock out of `dropoff.changed` (Vera's S1-2 item b), and that changes where
-   * this claim is checkable rather than whether it holds. The edited minute is the one the message
-   * *carries* — `vars.eta`, which is what the drain renders and what the plan was saved against —
-   * while the words a family reads say where their child gets off and not when. So the assertion
-   * moved onto the row, and the body is asserted to carry no clock at all.
+   * EDIT = THE MESSAGE TEXT (user ruling, 2026-10-18). The coordinator's words go out in the
+   * reply's own slot, exactly as typed, and the time the parent asked for is still the one agreed.
    */
-  it("records the time a coordinator edited, not the one the agent proposed", async () => {
-    const id = await seedProposal();
+  it("sends the edited words exactly, records them, and keeps the agreed time", async () => {
+    const id = await seedProposal({ reply: "Yes, we can drop Noah at 5 today." });
 
-    const answer = await decide({ approvalId: id, editedTime: "17:30" });
+    const answer = await decide({ approvalId: id, editedText: "  Sure, Noah will be home at 5.\n See you then!  " });
 
-    // The edit reached the message, and the proposal's own 17:00 did not.
-    expect((await queued())[0].vars).toMatchObject({ eta: "17:30" });
-    expect((await queued())[0].vars).not.toMatchObject({ eta: "17:00" });
-    // And the words are the same words either way, because they name no minute.
-    expect(answer.body.ok && answer.body.text).toBe(
-      "PPEC: Yes — Noah gets off at Okeeheelee Park today.",
+    expect(answer).toMatchObject({ status: 200, body: { ok: true, text: "PPEC: Sure, Noah will be home at 5. See you then!" } });
+    const [message] = await queued();
+    expect(message.template_id).toBe("dropoff.reply");
+    expect(message.vars).toMatchObject({ replyText: "Sure, Noah will be home at 5. See you then!", eta: "17:00" });
+    const row = await db.query<{ edited_text: string | null }>(
+      "SELECT edited_text FROM ops.approval_request WHERE id = $1",
+      [id],
     );
+    expect(row.rows[0].edited_text).toBe("Sure, Noah will be home at 5. See you then!");
   });
 
-  it("refuses a time that is not a time, before anything is written", async () => {
-    const id = await seedProposal();
-    for (const bad of ["5pm-ish", "25:00", "17:0", "tomorrow"]) {
-      expect(await decide({ approvalId: id, editedTime: bad }), bad).toEqual({
+  it("sends the model's words, and records no edit, when nothing was edited", async () => {
+    const id = await seedProposal({ reply: "Yes, we can drop Noah at 5 today." });
+    await decide({ approvalId: id });
+    expect((await queued())[0].vars).toMatchObject({ replyText: "Yes, we can drop Noah at 5 today." });
+    const row = await db.query<{ edited_text: string | null }>(
+      "SELECT edited_text FROM ops.approval_request WHERE id = $1",
+      [id],
+    );
+    expect(row.rows[0].edited_text).toBeNull();
+  });
+
+  it("refuses an edit that breaks the reply rule, before anything is written", async () => {
+    const id = await seedProposal({ reply: "Yes, we can drop Noah at 5 today." });
+    for (const bad of ["", "Call us at 561-555-0100", "See https://example.com", "x".repeat(321)]) {
+      expect(await decide({ approvalId: id, editedText: bad }), bad).toEqual({
         status: 422,
-        body: { ok: false, error: "NOT_A_TIME" },
+        body: { ok: false, error: "EDIT_NOT_SENDABLE" },
       });
     }
     expect(await queued()).toEqual([]);
-    expect((await leg()).plan_version).toBe(1);
+    expect(await pendingApprovals(db, [SITE])).toHaveLength(1);
+  });
+
+  it("refuses an edit on fixed copy, which has no words of its own", async () => {
+    const id = await seedProposal();
+    expect(await decide({ approvalId: id, editedText: "Anything at all." })).toEqual({
+      status: 422,
+      body: { ok: false, error: "NOT_EDITABLE" },
+    });
+    expect(await queued()).toEqual([]);
+  });
+
+  /** The exception the proposal hangs off is answered by the decision, whichever way it went. */
+  it("resolves the proposal's task: approved, or overridden by Don't send", async () => {
+    const taskState = async (approvalId: string) =>
+      (
+        await db.query<{ state: string }>(
+          "SELECT t.state FROM ops.task t JOIN ops.approval_request a ON a.task_id = t.id WHERE a.id = $1",
+          [approvalId],
+        )
+      ).rows[0].state;
+
+    const approved = await seedProposal();
+    await decide({ approvalId: approved });
+    expect(await taskState(approved)).toBe("RESOLVED_APPROVED");
+
+    const declined = await seedProposal();
+    await decide({ approvalId: declined, decision: "DECLINED" });
+    expect(await taskState(declined)).toBe("RESOLVED_OVERRIDE");
   });
 
   /** The race the schema comment next to the table names: two coordinators, one send. */
