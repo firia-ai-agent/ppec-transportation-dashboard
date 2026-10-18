@@ -327,7 +327,7 @@ describe("the closed disc sits where the mockup puts it", () => {
   it("sits 16 px above the tab bar, plus the safe-area inset, below 768", () => {
     const phone = css.slice(css.indexOf("@media (max-width: 767px)"));
     expect(phone).toMatch(
-      /bottom: calc\(\s*var\(--layout-tab-bar-height\) \+ var\(--layout-agent-bubble-gap\) \+ env\(safe-area-inset-bottom, 0px\)\s*\)/,
+      /bottom: calc\(\s*var\(--layout-tab-bar-height\) \+ var\(--border-hairline\) \+ var\(--layout-agent-bubble-gap\) \+\s*env\(safe-area-inset-bottom, 0px\)\s*\)/,
     );
   });
 

@@ -121,10 +121,18 @@
    * 16 px gap — and this adds the device's own safe-area inset on top, because the bar pads
    * itself by the same inset (src/ui/TabBar.module.css) and a flat 80 would put the disc on an
    * iPhone's home bar.
+   *
+   * …and the bar's own HAIRLINE, which is the S3 fix (Firia, 2026-10-18): the measured gap was
+   * 15 px, not 16. `--layout-tab-bar-height` is a `min-height` on the TAB, inside a bar that
+   * takes a 1 px `border-top` of its own, so the box a browser measures is 65 px tall and the
+   * mockup's flat 80 lands the disc one pixel short of the clearance it is supposed to have.
+   * The three lengths are added rather than a 81 written, so the day the bar's edge changes the
+   * disc moves with it.
    */
   .bubble {
     bottom: calc(
-      var(--layout-tab-bar-height) + var(--layout-agent-bubble-gap) + env(safe-area-inset-bottom, 0px)
+      var(--layout-tab-bar-height) + var(--border-hairline) + var(--layout-agent-bubble-gap) +
+        env(safe-area-inset-bottom, 0px)
     );
   }
 
