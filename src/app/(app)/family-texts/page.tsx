@@ -8,6 +8,7 @@ import { demoDay, type ServiceDay } from "@/domain/board/day";
 import { modelReach } from "@/modules/agent/run/deps";
 import { openAssistantAlerts, type AssistantAlert } from "@/modules/agent/staff-alert";
 import { approvalQueue } from "./queue";
+import { draftDemoProposal } from "@/modules/demo/draft-proposal";
 import { demoChangeRequests, withRequestedTime, type DemoChangeRequest } from "@/modules/demo/change-request";
 import { familyTexts } from "@/ui/copy";
 import { NOT_ON_YOUR_MENU, withNotice } from "@/ui/notice";
@@ -136,6 +137,23 @@ export default async function FamilyTextsPage({
    * the family's text. Gate 8's courtesy half likewise — a role that may not decide does not have
    * the queue read for them at all.
    */
+  /*
+   * THE DEMO DAY'S CARD IS DRAFTED BY THE MODEL, ON THE FIRST LOAD THAT FINDS IT MISSING (Firia,
+   * 2026-10-18 11:04 AM ET).
+   *
+   * "Restart demo day" drafts it too, right after the seed commits. This is the second door on
+   * the same idempotent step, for the two cases that door does not cover: a founder who reloads
+   * this screen before the route's own drafting answered, and a deployment where the day was
+   * seeded by the build rather than by the button. The row is written on one fixed id with `ON
+   * CONFLICT DO NOTHING`, so however many loads race here the day has exactly one card.
+   *
+   * It is gated the same way the queue below it is — a role that may not decide does not draft a
+   * decision — and it never throws: `draftDemoProposal` answers with the copy fallback when no
+   * model is reachable and with nothing at all on a read-only preview.
+   */
+  if (mayApprove && siteIds.length > 0) {
+    await draftDemoProposal(getNeonDb(), { siteId: siteIds[0], serviceDate: day.iso, day });
+  }
   const queue =
     mayApprove && assistantReachable ? await readQueue(siteIds, day, editedTime) : [];
 

@@ -19,6 +19,8 @@ import { demoReset as copy } from "@/ui/copy";
 import type { Db } from "@/db/exec";
 import { isReadOnlyDbEnv } from "@/db/read-only";
 import { seedStandardScenario, type SeedResult } from "./seed";
+import { draftDemoProposal } from "./draft-proposal";
+import { demoDay } from "@/domain/board/day";
 import { clearMemoryPlanStore } from "@/modules/plan/memory";
 
 /**
@@ -84,6 +86,23 @@ export async function handleDemoReset(db: Db, env: Record<string, string | undef
   }
 
   const result = await seedStandardScenario(db, { now: req.now, siteId, env });
+  /*
+   * THE DAY'S ONE PROPOSAL, DRAFTED BY THE MODEL — after the seed's transaction, never inside it
+   * (Firia, 2026-10-18 11:04 AM ET).
+   *
+   * The seed writes the day and no card; this is the real agent turn over the parent's text, and
+   * the reply on the card is the model's own words. It is awaited because a founder who presses
+   * Restart and opens Family texts should find the card already there — but it cannot fail this
+   * route and cannot hang it: `draftDemoProposal` never throws and gives up after
+   * `DRAFT_TIMEOUT_MS`, falling back to the copy reply. Restart always finishes.
+   */
+  await draftDemoProposal(db, {
+    siteId,
+    serviceDate: result.serviceDate,
+    day: demoDay(),
+    env,
+    now: req.now,
+  });
   /*
    * The seed truncates the board's three tables and writes yesterday's van setups back
    * (src/modules/demo/seed.ts), so the plan itself is gone with the rest of the day's rows.

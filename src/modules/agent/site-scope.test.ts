@@ -99,6 +99,8 @@ const VALID_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
     requested_dropoff_time: "17:00",
     requested_stop_token: "GA-LIBRARY",
     rationale_code: "PARENT_REQUEST",
+    // The model's reply to the parent (Firia, 2026-10-18 11:04 AM ET) — a required argument now.
+    reply: "Yes, that works. We will see you then!",
     source_message_id: "MSG-1",
     expected_version: 1,
   },
