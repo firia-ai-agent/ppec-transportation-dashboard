@@ -256,17 +256,38 @@ describe("an approved change saves a new plan version, through the board's own w
 
   it("and writes nothing to ops.trip_leg: the board owns where a child is", async () => {
     /*
-     * There used to be a second write here — an UPDATE of `trip_leg.window_start` and
-     * `plan_version` — and Firia's S1-3 (2026-10-17 11:00 PM ET) took it out. It was a second
-     * writer of the plan, it guarded on a different counter from the board's
-     * (`trip_leg.plan_version` vs `plan_run.version`, Veri S1-3.2), and a drop-off time is not a
-     * leg's pickup window in the first place. The leg is READ by this decision and nothing else.
+     * WHAT THIS TEST IS NOW, AND WHY IT CHANGED. There used to be an `UPDATE ops.trip_leg` in
+     * `decide.ts` setting `window_start` **and** `plan_version`, and Firia's S1-3 (2026-10-17
+     * 11:00 PM ET) took it out: it was a second writer of the plan and it guarded a different
+     * counter from the board's (`trip_leg.plan_version` vs `plan_run.version`, Veri S1-3.2). This
+     * test then held the leg row whole.
+     *
+     * Firia's 11:11 AM ET ruling of 2026-10-18 — "the plan must really change, not just the text"
+     * — put the *time* back, and only the time. `plan_run` has no time column at all (0009), so
+     * the agreed drop-off's one home in this schema is the leg's window; it is written by a named
+     * function in the plan module through the port (`plan/leg-write.ts`), not by SQL here.
+     *
+     * So what this test holds is the part of S1-3 that still stands, which is the part that
+     * mattered: **`plan_version` is not this decision's counter.** The outbox compares a queued
+     * message's `plan_version_basis` to it at drain, so a bump here would cancel this decision's
+     * own text. Where the child rides is still the board's alone — the leg's van and child columns
+     * are untouched — and the full-row assertion lives next door for the one decision that writes
+     * no time (`apply-dropoff.db.test.ts`, "Don't send changes nothing").
      */
     await savedPlanWithChildInVanOne();
     const before = await legRow();
     const id = await seedProposal();
     expect((await approve(id, board())).status).toBe(200);
-    expect(await legRow()).toEqual(before);
+    const after = await legRow();
+    expect(after.plan_version).toBe(before.plan_version);
+    expect(after.child_token).toBe(before.child_token);
+    expect(after.vehicle_id).toBe(before.vehicle_id);
+    expect(after.direction).toBe(before.direction);
+    expect(after.service_date).toEqual(before.service_date);
+    // The one column it does move, to the instant 17:00 at the centre falls on (EDT in October).
+    // Asserted as the value and not as "different from before", because this file seeds once and
+    // an earlier decision in it has already agreed the same time on the same leg.
+    expect(new Date(after.window_start as string).toISOString()).toBe("2026-10-16T21:00:00.000Z");
   });
 
   it("and texts the family, once the plan holds the change", async () => {
@@ -397,6 +418,8 @@ describe("when the plan cannot be saved, the approval fails safe", () => {
      * `currentPlacement` answers the version it read, and the write is guarded on it.
      */
     const stale: PlanPlacementPortFor = (tx) => ({
+      setDropoffWindow: board()(tx).setDropoffWindow,
+      recordReceiver: board()(tx).recordReceiver,
       currentPlacement: async (query) => {
         const current = await board()(tx).currentPlacement(query);
         // Somebody else's Save, landing between this decision's read and its write. It takes the
@@ -426,6 +449,8 @@ describe("when the plan cannot be saved, the approval fails safe", () => {
     const id = await seedProposal();
     // No plan saved and the proposal names a date this scenario's clock has not started.
     const unstarted: PlanPlacementPortFor = (tx) => ({
+      setDropoffWindow: board()(tx).setDropoffWindow,
+      recordReceiver: board()(tx).recordReceiver,
       currentPlacement: async () => ({ bucket: "VAN", vehicleId: vanOne(), version: 0 }),
       setChildPlacement: (input) =>
         board()(tx).setChildPlacement({ ...input, serviceDate: "2026-11-30" }),
@@ -439,6 +464,8 @@ describe("when the plan cannot be saved, the approval fails safe", () => {
     await savedPlanWithChildInVanOne();
     const id = await seedProposal();
     const broken: PlanPlacementPortFor = (tx) => ({
+      setDropoffWindow: board()(tx).setDropoffWindow,
+      recordReceiver: board()(tx).recordReceiver,
       currentPlacement: board()(tx).currentPlacement,
       setChildPlacement: async () => {
         throw new Error("the board is unreachable");
@@ -457,6 +484,8 @@ describe("when the plan cannot be saved, the approval fails safe", () => {
     await savedPlanWithChildInVanOne();
     const id = await seedProposal();
     const nobody: PlanPlacementPortFor = (tx) => ({
+      setDropoffWindow: board()(tx).setDropoffWindow,
+      recordReceiver: board()(tx).recordReceiver,
       currentPlacement: async () => null,
       setChildPlacement: board()(tx).setChildPlacement,
     });

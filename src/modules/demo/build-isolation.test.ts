@@ -33,8 +33,10 @@ const ALLOWED_SEED_IMPORTERS = [
   "src/modules/demo/reset.ts",
   "scripts/demo-reset.ts",
   "src/modules/demo/seed.test.ts",
-  // S1-2: the seed now writes a real approval row, and this suite is what proves it.
-  "src/modules/demo/seeded-approval.db.test.ts",
+  // The demo end to end: Restart, Dara's inbound text, the model's card, Approve (founder 2026-10-18).
+  "src/modules/demo/inbound-flow.db.test.ts",
+  // Approve writing the agreed drop-off onto a seeded leg, and Restart putting it back.
+  "src/modules/approvals/apply-dropoff.db.test.ts",
   "src/modules/messaging/eta-notice-sweep.test.ts",
   // The drags and the child panel's Save, asserted against a seeded database (`pnpm test:db`).
   "src/modules/plan/place.db.test.ts",

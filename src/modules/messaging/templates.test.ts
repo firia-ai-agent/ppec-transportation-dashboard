@@ -17,6 +17,12 @@ const SAMPLE: Record<string, string> = {
   legDate: "2026-10-14",
   date: "2026-10-14",
   delayMinutes: "15",
+  /*
+   * The one var that is already words (Firia, 2026-10-18 11:04 AM ET): the reply a model wrote and
+   * a coordinator approved. The sample names nobody, so the name sweep below still means what it
+   * says — what a real one names is the family's own child, which is the whole of the ruling.
+   */
+  replyText: "Yes, that works. We will see you then.",
 };
 const sampleVars = (templateId: string, reasonCode = "WEATHER"): Record<string, string> =>
   Object.fromEntries(Object.keys(TEMPLATE_VARS[templateId]).map((v) => [v, v === "reasonCode" ? reasonCode : SAMPLE[v]]));

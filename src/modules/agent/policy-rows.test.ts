@@ -33,7 +33,7 @@ function schemaArgs(tool: string): string[] {
 }
 
 describe("VERI-1: every registry tool has a policy row", () => {
-  it("VERI-1 the walk itself works: all 15 catalog tools, and the table has exactly those keys", () => {
+  it("VERI-1 the walk itself works: all 17 catalog tools, and the table has exactly those keys", () => {
     expect(TOOL_NAMES).toHaveLength(TOOL_COUNT);
     expect(Object.keys(POLICY_ROWS).sort()).toEqual([...TOOL_NAMES].sort());
     // No row for a tool that does not exist: a stale row is a rule nothing enforces.

@@ -51,6 +51,7 @@
  * decided for itself.
  */
 import type { Db, Exec } from "@/db/exec";
+import { formatClock24 } from "@/domain/eta/eta";
 import { rosterFromDisplayName, tokenizeNames, type RosterEntry } from "@/modules/identity/names";
 import { activeSuppression, authorizedContactsForChild, FAMILY_SMS } from "@/modules/outbox/policy";
 import { serviceDateIso } from "@/ui/service-date";
@@ -58,6 +59,7 @@ import { familyScope, type FamilyScope } from "../policy";
 import type { AssembleInput, AssembledContext, ContextAssembler, TierFacts } from "./context";
 import { tierPrompt } from "./context";
 import { demoPairsFor, demoTokenForId, scopeTokens, type ScopeTokenPair, type ScopeTokens } from "./scope-tokens";
+import { staffAskContext } from "./staff-ask-context";
 
 /** How many thread messages reach T3. §11.1 says "last N"; this is N. */
 export const THREAD_MESSAGES_IN_CONTEXT = 5;
@@ -83,12 +85,18 @@ type MessageRow = {
 type ThreadRow = { id: string; family_group_id: string | null; counterparty_token: string | null; state: string };
 
 /**
- * The §11.1 assembler for an inbound family message.
+ * The §11.1 assembler for an inbound family message, and for a staff ask.
  *
- * Only `msg.inbound` for now, and the refusal for every other trigger type is deliberate: a timer,
- * a sweeper and a reconciliation each resolve their family from a different row, and an assembler
- * that guessed would be the scope-invention `deps.ts` refuses to allow. Each one is a reader to
- * add here when its trigger is wired.
+ * **Two readers now, and still no guessing.** `msg.inbound` resolves its family from the thread
+ * the trigger's message arrived on; `staff.ask` resolves the *site* from the `ops.task` row the
+ * ask was recorded as, and is scoped to that site's own rows rather than to one family — because
+ * an ask does not name a family, and picking one would mean parsing the ask, which this app does
+ * not do. The reasons are at length in `run/staff-ask-context.ts`.
+ *
+ * The refusal for the remaining trigger types is unchanged and is deliberate: a timer, a sweeper
+ * and a reconciliation each resolve their family from a different row, and an assembler that
+ * guessed would be the scope-invention `deps.ts` refuses to allow. Each one is a reader to add
+ * here when its trigger is wired.
  */
 export function dbContextAssembler(
   db: Db,
@@ -98,6 +106,9 @@ export function dbContextAssembler(
   const limit = opts.messages ?? THREAD_MESSAGES_IN_CONTEXT;
 
   return async (input: AssembleInput): Promise<AssembledContext> => {
+    if (input.trigger.type === "staff.ask") {
+      return staffAskContext(db, input, { paused: agentPaused(env) });
+    }
     if (input.trigger.type !== "msg.inbound") {
       throw new AssemblerRefusal(`no context reader for trigger type ${input.trigger.type}`);
     }
@@ -164,7 +175,11 @@ export function dbContextAssembler(
         `service_date=${serviceDate}`,
         `thread=${t(thread.id)} state=${thread.state}`,
         ...legs.map(
-          (l) => `leg=${t(l.id)} child=${t(l.child_token)} part=${l.direction} state=${l.state} version=${l.plan_version}`,
+          (l) =>
+            `leg=${t(l.id)} child=${t(l.child_token)} part=${l.direction} state=${l.state} version=${l.plan_version}` +
+            // The drop-off (or pick-up) time the plan holds now, site-local: what a requested change
+            // would change *from*. A 24-hour clock, the same shape `requested_dropoff_time` takes.
+            (l.window_start ? ` window=${formatClock24(new Date(l.window_start).getTime())}` : ""),
         ),
       ].join(" "),
       t3: bodies.map((body) => tokenizeNames(body, familyNames)),
@@ -237,12 +252,19 @@ async function childProfiles(
   return r.rows;
 }
 
-type LegFact = { id: string; child_token: string; direction: string; state: string; plan_version: number };
+type LegFact = {
+  id: string;
+  child_token: string;
+  direction: string;
+  state: string;
+  plan_version: number;
+  window_start: Date | string | null;
+};
 
 async function legRows(db: Exec, children: readonly string[], siteId: string, serviceDate: string): Promise<LegFact[]> {
   if (children.length === 0) return [];
   const r = await db.query<LegFact>(
-    `SELECT id, child_token, direction, state, plan_version FROM ops.trip_leg
+    `SELECT id, child_token, direction, state, plan_version, window_start FROM ops.trip_leg
      WHERE site_id = $1 AND service_date = $2 AND child_token = ANY($3::uuid[])
      ORDER BY child_token, direction`,
     [siteId, serviceDate, children],

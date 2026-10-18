@@ -279,7 +279,7 @@ describe("check 2, part 3: a real send lands in the simulator, not on a wire", (
     expect(job.kind).toBe(SIM_STATUS_JOB_KIND);
     expect(job.payload.to).toBe("DELIVERED");
 
-    await db.tx((tx) => simStatusHandler(tx, { payload: job.payload } as never));
+    await db.tx((tx) => simStatusHandler(tx, { payload: job.payload } as never, () => {}));
     const [row] = (await db.query<{ state: string }>("SELECT state FROM ops.outbound_message", [])).rows;
     expect(row.state).toBe("DELIVERED");
     expect(fetchCalls).toBe(0);

@@ -12,7 +12,7 @@ vi.mock("next/navigation", () => ({
 
 import { AgentBubble } from "./AgentBubble";
 import { AgentThread, type AgentThreadItem } from "./AgentThread";
-import { agentBubble, fill } from "./copy";
+import { agentBubble, approval, fill } from "./copy";
 
 /**
  * THE THREAD IN THE BUBBLE, and the coral dot on the closed disc — check (c) of the lane.
@@ -152,7 +152,7 @@ describe("a waiting proposal is the compact card from family-texts.html", () => 
    * `href`, no `role="link"`, no `onClick` handler and no `tabIndex` anywhere in the thread — the
    * absence of a whole class of control rather than the presence of one particular one.
    */
-  it("is plain text, not a link: no anchor, no href, no role=link, nothing focusable", () => {
+  it("is plain text when there is no card behind it: no anchor, no href, no role=link, nothing focusable", () => {
     const html = thread([PROPOSAL, DRIVER, STAFF]);
     // The words are still there — the ruling is about what the words are, not whether they show.
     expect(html).toContain(agentBubble.needsApproval);
@@ -165,9 +165,8 @@ describe("a waiting proposal is the compact card from family-texts.html", () => 
     expect(html).not.toMatch(/tabindex=/i);
     expect(html).not.toMatch(/<button|<form/);
 
-    // And the component itself holds no link machinery to re-grow one from.
-    const source = readFileSync(path.join(UI, "AgentThread.tsx"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-    expect(source).not.toMatch(/next\/link|FAMILY_TEXTS_FOR_YOU|href|onClick|role=/);
+    // The compact form is what a proposal with no card behind it draws (no model, a read that
+    // failed); the controls belong to the real card only, below.
   });
 
   /**
@@ -176,7 +175,7 @@ describe("a waiting proposal is the compact card from family-texts.html", () => 
    * the old test asserted the three words were present and this asserts they are absent, which is
    * the stronger statement of the two, and it is checked as words *and* as controls.
    */
-  it("offers no Approve, Edit or Skip in the bubble — the buttons return after #75", () => {
+  it("offers no Approve, Edit or Skip on the compact form — those are the real card's", () => {
     const html = thread([PROPOSAL, DRIVER, STAFF]);
     for (const word of ["Approve", "Edit", "Skip"]) {
       expect(html, `"${word}" is still on the card`).not.toContain(word);
@@ -225,3 +224,53 @@ describe("a waiting proposal is the compact card from family-texts.html", () => 
     }
   });
 });
+
+/*
+ * THE REAL CARD, IN THE BUBBLE (founder, 2026-10-18: "the card shows up fully rendered in two
+ * places: the bubble and Family texts. It has the draft, one line saying what changes in the plan,
+ * and Approve. It's a real card, not a line of text."). #75 merged the writer the 9:17 and 9:21
+ * rulings were waiting on, so when the shell hands the thread the queue's own `ProposalView`, the
+ * proposal is drawn with Family texts' card component — the same draft, plan line and buttons.
+ */
+describe("a waiting proposal, with the card the shell read, is the Family texts card", () => {
+  const CARD = {
+    approvalId: "p1",
+    threadKey: "C2",
+    childLabel: "Noah O.",
+    adultName: "Dara O.",
+    parentFirstName: "Dara",
+    changeLine: "Noah: drop-off moves to 5:00 PM on Van 2.",
+    draftedLabel: "",
+    stopFrom: null,
+    stopTo: "Okeeheelee Park",
+    timeFrom: null,
+    timeTo: "5:00 PM",
+    pickupLabel: "Dara O.",
+    checks: [],
+    draftText: "PPEC: Hi Dara, yes, we can drop Noah off at 5 today.",
+    requestedHhmm: "17:00",
+    alertText: "Dara asked to move Noah's drop-off to 5 PM.",
+  };
+  const decide = async () => ({ status: "idle" as const });
+  const withCard = () =>
+    renderToStaticMarkup(
+      createElement(AgentThread, { items: [{ kind: "proposal", id: "p1", question: CARD.alertText }], cards: [CARD], decide }),
+    );
+
+  it("draws the draft, the plan line and Approve — the card, not a chip", () => {
+    const html = withCard();
+    expect(html).toContain(CARD.draftText);
+    expect(html).toContain(CARD.changeLine);
+    expect(html).toContain(fill(approval.replyTo, { parent: "Dara" }));
+    expect(html).toContain(approval.approveAndSend.replace("&", "&amp;"));
+    expect(html).not.toContain(agentBubble.needsApproval);
+  });
+
+  it("decides through the one action it is handed, never a writer of its own", () => {
+    const html = withCard();
+    expect(html).toMatch(/<form/);
+    // Edit opens the thread on Family texts, where the time field lives.
+    expect(html).toContain("/family-texts?tab=for-you&amp;thread=C2");
+  });
+});
+

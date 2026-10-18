@@ -6,6 +6,9 @@ import { siteOf } from "@/modules/plan/api";
 import { apiAccess } from "@/ui/copy";
 
 export const dynamic = "force-dynamic";
+// The ask drives its run inside this request under `askTimeoutMs` (45 s by default), so the
+// platform's own ceiling sits above it: an ask that runs out is a staff alert, never a 504.
+export const maxDuration = 60;
 
 const noStore = { "cache-control": "no-store" };
 
@@ -47,7 +50,9 @@ export async function POST(req: Request) {
     }
     // A preview and a missing model are both "nothing happened that you asked for", and the
     // panel says the same line for both: it is on your list now.
-    return Response.json({ ok: result.ok, outcome: result.outcome }, { status: 200, headers: noStore });
+    // The model's answer in names and the proposal it made, when it ran; never a reason or a code.
+    const said = result.outcome === "ran" ? { answer: result.answer, proposalId: result.proposalId } : {};
+    return Response.json({ ok: result.ok, outcome: result.outcome, ...said }, { status: 200, headers: noStore });
   } catch {
     return Response.json({ ok: false, error: apiAccess.unavailable }, { status: 503, headers: noStore });
   }

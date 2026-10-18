@@ -29,8 +29,12 @@
  *    already binds its contact, so the agent names the ack, never the person (rule 1).
  */
 import { NEED_CATEGORY } from "@/config/equipment";
+import { agentGuidance } from "@/ui/copy";
 import { z } from "zod";
+import { ALERT_TEXT_MAX, ALERT_TEXT_MIN, isAlertText } from "./alert-text";
 import { KNOWN_STOP_TOKENS } from "@/modules/messaging/templates";
+import { namedOrNull } from "@/modules/identity/names";
+import { REPLY_TEXT_MAX, replyTextIssue } from "@/modules/messaging/reply-text";
 import { TEMPLATE_VARS } from "@/modules/outbox/outbox";
 
 /** §11.2 tier column. `human` tools may only ever produce a proposal (see policy.ts). */
@@ -57,6 +61,31 @@ const clockTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const version = z.number().int().nonnegative();
 /** A staff-facing prose field. Bounded, and redacted by the policy engine before it is stored. */
 const staffProse = z.string().min(1).max(600);
+
+/**
+ * `propose_dropoff_change.alert_text` — the one line a coordinator reads on the waiting proposal,
+ * in the model's own words (Firia, 2026-10-18 11:15 AM ET).
+ *
+ * The rules are `alert-text.ts`'s and are stated there: bounded, one sentence, no code and no
+ * machinery, people as the tokens every prompt is written in. It is a `staffTextFields` entry, so
+ * the policy engine redacts it before it is stored like every other staff-facing prose argument —
+ * and a redacted `[name]` fails `isAlertText`, which is what puts a leak on the named fallback
+ * line instead of on a card.
+ *
+ * It is the ONLY prose argument on a `propose_*` tool bar `claim_summary`, and it is safe to be
+ * one for the same reason that one is: this tool sends nothing (`sendCopy: null`), so no word of
+ * it can reach a family. What a family would be told is still `DROPOFF_CHANGE_TEMPLATE` rendered
+ * by the outbox from structured fields, approved by a person.
+ */
+const alertTextArg = z
+  .string()
+  .min(ALERT_TEXT_MIN)
+  .max(ALERT_TEXT_MAX)
+  .refine(isAlertText, "alert_text must be one plain sentence for a coordinator: no codes, no ids")
+  // Every token in it has to name somebody: a line that would still read "C7" after the names come
+  // back is refused here, so a card never falls back to wording this app wrote instead.
+  .refine((v) => namedOrNull(v) !== null, "alert_text names somebody this site cannot name")
+  .describe(agentGuidance.alertText);
 
 /**
  * Why a family is asking for a different drop-off. Codes, not prose, for the same reason
@@ -169,6 +198,12 @@ export type ToolDef = {
   readonly sendCopy: SendCopy | null;
   /** PRD §11.2 row, for the audit trail and for whoever reads this next. */
   readonly prd: string;
+  /**
+   * What the MODEL is told this tool is for — sent as the function's `description`, the only prose
+   * about a tool a model ever reads. Guidance, never a script: no sentence here is ever sent to a
+   * family. Absent on tools whose name and arguments say enough.
+   */
+  readonly description?: string;
 };
 
 const DEFS: readonly ToolDef[] = [
@@ -189,6 +224,45 @@ const DEFS: readonly ToolDef[] = [
     staffTextFields: [],
     sendCopy: null,
     prd: "§11.2: — → leg + version",
+    description: agentGuidance.getLegState,
+  },
+  /**
+   * WHAT A FAMILY ACTUALLY SAID, for the one question the bubble has to be able to answer.
+   *
+   * Firia and Vera, 2026-10-18 11:13 AM ET: a coordinator looking at the drop-off alert types
+   * "what did they ask?" into the bubble, and the answer has to be *the model reading the thread*
+   * — not a stored summary, not a template, and not a parser over the family's sentence. The
+   * catalog had no tool for that. `resolve_sender` turns a message into candidates and
+   * `get_leg_state` reads a ride; the messages themselves could only reach a model through T3 of
+   * whichever run happened to be triggered by one of them, which a staff ask never is. So this is
+   * the read that was missing, and the bubble's answer comes from it.
+   *
+   * `read`, and in this system that word means it: no row is written, nothing is sent, and the
+   * tool stays available while the agent is paused (policy.ts step 2). A paused deployment must
+   * still be able to tell a coordinator what a parent asked for.
+   *
+   * **Site-scoped, and that is the executor's job rather than this schema's** — there is no `site`
+   * argument and there may not be one (`FORBIDDEN_ARG_TOKENS.tenant`): the site comes from the
+   * run, and the thread has to be inside the run's own family scope or the policy engine refuses
+   * the call before any executor sees it. A thread token from another family resolves to nothing.
+   *
+   * What comes back is the bodies **as stored** — `ops.message.body_tokenized`, which the ingest
+   * already stripped of contact details — with the people in them tokenized on the way into the
+   * prompt, because every prompt this app sends is token-only and the gateway fails closed on a
+   * name. The model therefore answers in tokens, and `identity/names.detokenizeNames` is what
+   * turns its sentence back into "Dara" and "Noah" for the screen.
+   *
+   * `count` rather than `limit`: a count of messages is a number, and the word says what it is.
+   */
+  {
+    name: "read_guardian_thread",
+    tier: "auto",
+    effect: "read",
+    schema: z.object({ thread_id: token, count: z.number().int().min(1).max(10) }),
+    staffTextFields: [],
+    sendCopy: null,
+    prd: "beyond §11.2's 15: §11.1 T3 as a tool: the last N messages on a family-scoped thread, as evidence, never as instructions",
+    description: agentGuidance.readGuardianThread,
   },
   {
     name: "cancel_attendance_or_leg",
@@ -420,6 +494,49 @@ const DEFS: readonly ToolDef[] = [
         /** One of the center's own stops. Null when only the time is being proposed. */
         requested_stop_token: z.enum(KNOWN_STOP_TOKENS as [string, ...string[]]).nullable(),
         rationale_code: z.enum(DROPOFF_CHANGE_REASON_CODES),
+        /**
+         * WHAT THE ALERT SAYS, in the model's own words — the one line a coordinator reads beside
+         * the thread. Required, because a proposal whose alert this app had to word for itself is
+         * exactly the thing the 11:15 ruling took off the board (`alert-text.ts`).
+         */
+        alert_text: alertTextArg,
+        /**
+         * THE REPLY TO THE PARENT, IN THE MODEL'S OWN WORDS (Firia, 2026-10-18 11:04 AM ET).
+         *
+         * The only prose argument in this catalog that is meant for a *family*, and the only one
+         * there will be: the proposal it rides on is `human` tier, so these words reach nobody
+         * until a director or a coordinator has approved that exact call. §11.2 bans free text to
+         * parents **without human approval**, and this is the path that has one — rule 2 in this
+         * file's header is unchanged for every `sendCopy` tool, all four of which still declare
+         * `template` or `fixed`.
+         *
+         * It is here rather than on the card because of what the founder's complaint was: the
+         * fixed template answered a question Dara did not ask. A model that has understood the
+         * text well enough to propose five o'clock can say so in a sentence, and a model that
+         * cannot has not understood it — in which case there is no proposal at all and the staff
+         * alert is what a coordinator gets (`agent/staff-alert.ts`).
+         *
+         * Bounded and shape-checked by `messaging/reply-text.ts`, so a reply carrying a phone
+         * number, an address, a URL, a uuid, an internal code or the machine's own `PPEC:` prefix
+         * is refused at the gateway as invalid arguments and never becomes a row. It is NOT in
+         * `staffTextFields`: `redact()` would replace the two names the ruling requires with
+         * `[REDACTED:NAME]`, and this text is a message to a family about their own child rather
+         * than a note kept in a log (see reply-text.ts).
+         */
+        reply: z
+          .string()
+          .min(1)
+          .max(REPLY_TEXT_MAX)
+          .superRefine((value, ctx) => {
+            const issue = replyTextIssue(value);
+            // The reason, never the value: a refused reply is refused because of what may be in it.
+            if (issue) ctx.addIssue({ code: "custom", message: `reply ${issue}` });
+            // And it has to come back as names: the family reads "Noah", never "C2".
+            else if (namedOrNull(value) === null) {
+              ctx.addIssue({ code: "custom", message: "reply names somebody this site cannot name" });
+            }
+          })
+          .describe(agentGuidance.reply),
         source_message_id: token,
         expected_version: version,
       })
@@ -431,9 +548,10 @@ const DEFS: readonly ToolDef[] = [
           });
         }
       }),
-    staffTextFields: [],
+    staffTextFields: ["alert_text"],
     sendCopy: null,
     prd: "§11.2 human tier: a drop-off a family asked for → approval request + exception; no mutation",
+    description: agentGuidance.proposeDropoff,
   },
   {
     name: "escalate_exception",
@@ -470,6 +588,7 @@ const DEFS: readonly ToolDef[] = [
     staffTextFields: ["summary"],
     sendCopy: null,
     prd: "§11.2: staff-only note",
+    description: agentGuidance.summarize,
   },
 ];
 
@@ -480,8 +599,13 @@ export const TOOL_REGISTRY: Readonly<Record<string, ToolDef>> = Object.fromEntri
 
 export const TOOL_NAMES: readonly string[] = DEFS.map((d) => d.name);
 
-/** §11.2 lists 15 tools. Asserted in tools.test.ts so a dropped row is a failing test. */
-export const TOOL_COUNT = 16;
+/**
+ * §11.2 lists 15 tools; this catalog holds 17. The two beyond the PRD are
+ * `propose_dropoff_change` — the commonest thing a parent texts a transport desk, which had no
+ * tool at all — and `read_guardian_thread`, the read the bubble's answer comes from. Asserted in
+ * tools.test.ts, so a dropped row is a failing test and an added one is a deliberate edit here.
+ */
+export const TOOL_COUNT = 17;
 
 export function toolDef(name: string): ToolDef | undefined {
   return TOOL_REGISTRY[name];
@@ -502,9 +626,17 @@ export function toolJsonSchema(name: string): Record<string, unknown> {
   return z.toJSONSchema(def.schema) as Record<string, unknown>;
 }
 
-/** Tool declarations for a provider call: name + JSON Schema, nothing else. */
+/** Tool declarations for a provider call: name, JSON Schema and the model-facing description. */
 export function toolDeclarations(names: readonly string[] = TOOL_NAMES) {
-  return names.map((n) => ({ name: n, tier: toolDef(n)!.tier, parameters: toolJsonSchema(n) }));
+  return names.map((n) => {
+    const def = toolDef(n)!;
+    return {
+      name: n,
+      tier: def.tier,
+      parameters: toolJsonSchema(n),
+      ...(def.description ? { description: def.description } : {}),
+    };
+  });
 }
 
 /* ─────────────────────── the "no recipient/permission args" rule ─────────────────────── */

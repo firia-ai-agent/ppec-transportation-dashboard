@@ -248,7 +248,9 @@ describe("the day's other facts", () => {
       "SELECT count(*)::int n FROM ops.approval_request WHERE site_id = $1 AND decided_at IS NULL",
       [SITE],
     );
-    expect(waiting.rows[0].n).toBe(1);
+    // None: the seed writes no card (founder, 2026-10-18) — the day's one proposal is the model's,
+    // from the parent's own text once it arrives. The counter still reads the table, not a literal.
+    expect(waiting.rows[0].n).toBe(0);
     expect(context.approvalsWaiting).toBe(waiting.rows[0].n);
   });
 

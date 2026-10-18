@@ -16,14 +16,16 @@ import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
 import { SITE, freshDb } from "@/test/pglite";
 import { handlers } from "@/modules/jobs/handlers";
-import { handleWake } from "@/modules/jobs/runner";
+import { type Handlers, handleWake } from "@/modules/jobs/runner";
 import { agentWaits, fill } from "@/ui/copy";
 import { toolCall } from "../providers/fake";
 import { tierPrompt } from "./context";
+import { CLARIFICATION_AWAIT_SECONDS } from "./exec/clarify";
 import { AT01_EXECUTORS, AT01_FACTS, AT01_NOTE, at01Policy, runHarness } from "./harness";
 import { resumeQueuedRuns } from "./loop";
+import { type AgentWake, type AgentWakeTransport, handleAgentWake, runWakeKey } from "./queue";
 import { loadRun, toolCalls } from "./store";
-import { AGENT_AWAIT_TASK_CATEGORY, AGENT_RESUME_JOB_KIND, awaitTimerKey } from "./timers";
+import { AGENT_AWAIT_TASK_CATEGORY, AGENT_RESUME_JOB_KIND, agentResumeHandler, awaitTimerKey } from "./timers";
 import type { Trigger } from "./triggers";
 
 const TRIGGER: Trigger = { type: "msg.inbound", id: "MSG-1", siteId: SITE };
@@ -45,17 +47,38 @@ const AWAIT_ARGS = {
   eta: "09:30",
 };
 const AWAIT_TOOL = "notify_affected_therapist";
-const CLARIFY_SECONDS = 15 * 60;
+/** §11.2 "→ outbound + 15-min await" (`exec/clarify.CLARIFICATION_AWAIT_SECONDS`). */
+const CLARIFY_SECONDS = CLARIFICATION_AWAIT_SECONDS;
+
+/** What the `ppec-agent` topic is handed, in order (`queue.ts AgentWakeTransport`). */
+class FakeAgentTransport implements AgentWakeTransport {
+  sent: { msg: AgentWake; idempotencyKey: string }[] = [];
+  failNext = 0;
+  async publish(msg: AgentWake, opts: { idempotencyKey: string }) {
+    if (this.failNext > 0) { this.failNext--; throw new Error("fake publish failure"); }
+    this.sent.push({ msg, idempotencyKey: opts.idempotencyKey });
+  }
+}
 
 let pg: PGlite;
 let db: Db;
 let now: Date;
+/** The run wake-ups the resume handler published, per test. */
+let agentQueue: FakeAgentTransport;
+/**
+ * The production registry with one substitution: the resume handler over a fake `ppec-agent`
+ * transport instead of the Vercel one (`jobs/handlers.ts` wires the real one). Everything else —
+ * the claim, the lease, the fence, the DONE update — is the real consumer.
+ */
+let timerHandlers: Handlers;
 const open: PGlite[] = [];
 
 beforeEach(async () => {
   ({ pg, db } = await freshDb());
   open.push(pg);
   now = new Date(TEST_NOW);
+  agentQueue = new FakeAgentTransport();
+  timerHandlers = { ...handlers, [AGENT_RESUME_JOB_KIND]: agentResumeHandler(agentQueue) };
 }, 60_000);
 
 afterEach(async () => {
@@ -160,10 +183,15 @@ describe("§11.1 an awaited response is a task plus a timer", () => {
 
     // The deadline arrives and the ordinary B-03 consumer fires it.
     now = new Date(timer.due_at);
-    expect(await handleWake(db, { jobId: timer.id }, "d1", handlers, () => now)).toBe("fired");
+    expect(await handleWake(db, { jobId: timer.id }, "d1", timerHandlers, () => now)).toBe("fired");
     expect((await job(awaitTimerKey(r.runId, 0))).state).toBe("DONE");
-    // The handler is DB-only: all it did was re-trigger the run.
+    // The handler's *transaction* is DB-only: all it wrote was the run's state.
     expect((await loadRun(db, r.runId))!.state).toBe("QUEUED");
+    // And after that transaction committed, one wake-up for that run (the driver's half is the
+    // test below; this one drives the batch way, which is what a sweep would do).
+    expect(agentQueue.sent).toEqual([
+      { msg: { runId: r.runId, siteId: SITE }, idempotencyKey: runWakeKey(r.runId) },
+    ]);
 
     const resumed = await resumeQueuedRuns(h.deps(1), SITE);
     expect(resumed.map((x) => [x.runId, x.state, x.steps])).toEqual([[r.runId, "SUCCEEDED", 1]]);
@@ -200,13 +228,16 @@ describe("§11.1 an awaited response is a task plus a timer", () => {
     await db.query("UPDATE ops.job SET site_id = $2 WHERE id = $1", [timer.id, OTHER_SITE]);
 
     now = new Date(timer.due_at);
-    expect(await handleWake(db, { jobId: timer.id }, "d1", handlers, () => now)).toBe("fired");
+    expect(await handleWake(db, { jobId: timer.id }, "d1", timerHandlers, () => now)).toBe("fired");
 
     // The job is done — a wake-up for work this handler may not do is a no-op and an ack, the same
     // answer every other B-03 handler gives — and the parked run was not touched.
     expect((await job(key)).state).toBe("DONE");
     expect((await loadRun(db, r.runId))!.state).toBe("WAITING_TOOL");
     expect(await toolCalls(db, r.runId)).toHaveLength(1);
+    // Nothing was published either: the publish is conditional on the UPDATE having matched, so a
+    // wake-up this handler may not raise is not raised for some other driver to act on.
+    expect(agentQueue.sent).toEqual([]);
   });
 
   it("the timer is a no-op for a run that is no longer waiting", async () => {
@@ -217,9 +248,84 @@ describe("§11.1 an awaited response is a task plus a timer", () => {
     await db.query("UPDATE ops.agent_run SET state = 'SUCCEEDED' WHERE id = $1", [r.runId]);
 
     now = new Date(timer.due_at);
-    expect(await handleWake(db, { jobId: timer.id }, "d1", handlers, () => now)).toBe("fired");
+    expect(await handleWake(db, { jobId: timer.id }, "d1", timerHandlers, () => now)).toBe("fired");
     expect((await loadRun(db, r.runId))!.state).toBe("SUCCEEDED");
     expect(await toolCalls(db, r.runId)).toHaveLength(1);
+    // A no-op fire publishes nothing: there is no re-queued run for a wake-up to be about.
+    expect(agentQueue.sent).toEqual([]);
+  });
+
+  /**
+   * THE 15-MINUTE CLARIFICATION WAIT, END TO END, WITH NOBODY POLLING ANYTHING.
+   *
+   * This is the gap this change closes. The run parks on §11.2's "→ outbound + 15-min await"
+   * (`CLARIFICATION_AWAIT_SECONDS`), the deadline fires through the ordinary B-03 consumer, and
+   * what drives the re-queued run is the **wake-up the handler published** — delivered to
+   * `handleAgentWake`, the same consumer `/api/queues/agent` is, under the same per-run lease.
+   * `resumeQueuedRuns` is deliberately not called anywhere in here: before this change it was the
+   * only thing that would have finished this run, and production called it from nowhere, so a
+   * family's clarification sat QUEUED forever with no exception raised.
+   *
+   * The await is declared by `notify_affected_therapist` rather than by `request_clarification`
+   * itself: Firia's S1-7 ruling (2026-10-18) moved that tool to the `human` tier, so the loop
+   * proposes it and never calls an executor for it, and it can no longer park anything. The wait
+   * under test is the clarification wait all the same — same reason code, same 15 minutes, same
+   * timer — and `exec/clarify.ts` is where the seconds come from.
+   */
+  it("the 15-minute clarification wait resumes and finishes on the wake-up the timer published", async () => {
+    const h = clarifyHarness();
+    const r = await h.start(TRIGGER);
+    expect([r.state, r.awaiting!.dueAt.toISOString()]).toEqual([
+      "WAITING_TOOL",
+      new Date(now.getTime() + 15 * 60 * 1000).toISOString(),
+    ]);
+
+    // 15 minutes later the deadline fires. Nothing else happens in between.
+    now = new Date(now.getTime() + CLARIFICATION_AWAIT_SECONDS * 1000);
+    const timer = await job(awaitTimerKey(r.runId, 0));
+    expect(await handleWake(db, { jobId: timer.id }, "d1", timerHandlers, () => now)).toBe("fired");
+
+    // One wake-up, for this run, in this tenant, keyed exactly as the inbound path keys its own —
+    // so a resume and an inbound trigger for the same run collapse instead of making two drivers.
+    expect(agentQueue.sent).toEqual([
+      { msg: { runId: r.runId, siteId: SITE }, idempotencyKey: runWakeKey(r.runId) },
+    ]);
+
+    // Delivered: the run is claimed, driven and finished, with no polling driver anywhere.
+    const driven = await handleAgentWake(db, agentQueue.sent[0].msg, { deps: h.deps(1) });
+    expect(driven).toMatchObject({ ok: true, runId: r.runId, reclaimed: false });
+    if (!driven.ok) throw new Error("unreachable");
+    expect([driven.result.state, driven.result.steps]).toEqual(["SUCCEEDED", 1]);
+
+    expect((await loadRun(db, r.runId))!.state).toBe("SUCCEEDED");
+    expect((await toolCalls(db, r.runId)).map((c) => [c.seq, c.tool, c.status])).toEqual([
+      [0, AWAIT_TOOL, "EXECUTED"],
+      [1, "summarize_thread_for_staff", "EXECUTED"],
+    ]);
+    // The awaited call ran once and the resumed turn saw its committed result (§11.1).
+    expect(h.recorder.intents.map((i) => i.tool)).toEqual([AWAIT_TOOL, "summarize_thread_for_staff"]);
+    // The staff task the wait raised is still the only one: resuming raised nothing new.
+    expect((await tasks()).map((t) => t.category)).toEqual([AGENT_AWAIT_TASK_CATEGORY]);
+  });
+
+  /**
+   * A publish that fails is the residual this change does not remove, and it is left where it was:
+   * the run is QUEUED and drivable, which is exactly where the handler used to leave *every* fired
+   * deadline. The hook runner swallows it (`db/exec.runAfterCommit`), so the job is still DONE
+   * rather than retried against a state change that already happened.
+   */
+  it("a wake-up that could not be published still leaves the run re-queued, and the job done", async () => {
+    const h = clarifyHarness();
+    const r = await h.start(TRIGGER);
+    const timer = await job(awaitTimerKey(r.runId, 0));
+    agentQueue.failNext = 1;
+
+    now = new Date(timer.due_at);
+    expect(await handleWake(db, { jobId: timer.id }, "d1", timerHandlers, () => now)).toBe("fired");
+
+    expect(agentQueue.sent).toEqual([]);
+    expect((await job(awaitTimerKey(r.runId, 0))).state).toBe("DONE");
+    expect((await loadRun(db, r.runId))!.state).toBe("QUEUED");
   });
 });
 

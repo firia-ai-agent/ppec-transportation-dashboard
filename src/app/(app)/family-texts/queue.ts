@@ -84,6 +84,27 @@ async function viewOf(
    * words, including the name in them.
    */
   const childLabel = row.childLabel === "" ? facts.childLabel : row.childLabel;
+  /*
+   * WHAT THE PLAN CHANGES, in one line, under the draft (Firia, 11:11 AM ET 2026-10-18).
+   *
+   * Built from the proposal's own time and the placement the plan actually holds — the same van
+   * read the "Same van" tick is answered from (`checks.ts`) — and formatted through the one clock
+   * helper this screen uses, so the line and the bubble cannot be an hour apart. The child is
+   * named by first name, which is how the line reads as a sentence about a person; the family's
+   * own text says the full label.
+   *
+   * Left empty when either half is missing: a proposal with no time is a change of place only, and
+   * a child the plan has on no van has no van to name. One line less, never a guessed one.
+   */
+  const timeLabel = time === null ? null : formatClock(localTimeOn(a.day, time));
+  const changeLine =
+    timeLabel === null || facts.vanName === ""
+      ? ""
+      : fill(approval.changeLine, {
+          child: firstNameOf(childLabel),
+          time: timeLabel,
+          van: facts.vanName,
+        });
   return {
     approvalId: row.id,
     /*
@@ -97,6 +118,8 @@ async function viewOf(
     // The child's name off `ops.child_profile` (the row's own join), falling back to the roster.
     childLabel,
     adultName: facts.adultName,
+    parentFirstName: firstNameOf(facts.adultName),
+    changeLine,
     /*
      * "Agent · 3:58 PM" — the author from `copy.agentLabel` (Vera's S1-2 item a) and the minute
      * off the row's own `created_at`. No line at all for a row whose timestamp cannot be read,
@@ -114,7 +137,7 @@ async function viewOf(
     stopFrom: null,
     stopTo: facts.stopLabel,
     timeFrom: null,
-    timeTo: time === null ? null : formatClock(localTimeOn(a.day, time)),
+    timeTo: timeLabel,
     pickupLabel: facts.pickupLabel,
     // Computed, every one of them, and absent when they cannot be answered (S1-2, checks.ts).
     checks: facts.checks,
@@ -134,7 +157,20 @@ async function viewOf(
       row.childLabel === "" ? null : row.childLabel,
     ),
     requestedHhmm: time,
+    alertText: row.alertText,
   };
+}
+
+/**
+ * "Dara O." → "Dara", "Noah O." → "Noah".
+ *
+ * Staff screens name people as a first name plus a last initial (D-3), and a heading that says
+ * "Reply to Dara O." reads like a form field. The initial is dropped for the heading and the one
+ * line under the draft, and nowhere else: the thread, the card's accessible name and the text
+ * itself keep the label the rest of the app uses.
+ */
+function firstNameOf(label: string): string {
+  return label.split(/\s+/)[0] ?? "";
 }
 
 /*

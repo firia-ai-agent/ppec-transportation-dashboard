@@ -409,7 +409,12 @@ export function remoteProvider(
       // cannot answer this turn with prose.
       tools: call.tools.map((t) => ({
         type: "function",
-        function: { name: t.name, parameters: t.parameters },
+        function: {
+          name: t.name,
+          // The only words about a tool the model reads (tools.ts `description`). Guidance only.
+          ...(t.description ? { description: t.description } : {}),
+          parameters: t.parameters,
+        },
       })),
       tool_choice: "required",
       provider: {

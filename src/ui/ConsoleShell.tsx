@@ -3,9 +3,15 @@ import { canOpenForYou } from "@/auth/access";
 import type { ResolvedCaller } from "@/auth/caller";
 import { getNeonDb } from "@/db/exec";
 import { readAgentThreadOrEmpty } from "@/modules/agent/ask/thread";
+import { modelReach } from "@/modules/agent/run/deps";
+import { decideApprovalAction } from "@/app/(app)/family-texts/actions";
+import type { ProposalView } from "@/app/(app)/family-texts/conversations";
+import { approvalQueue } from "@/app/(app)/family-texts/queue";
+import { demoDay } from "@/domain/board/day";
 import { siteOf } from "@/modules/plan/api";
 import { AgentBubble } from "./AgentBubble";
 import { AgentCompose } from "./AgentCompose";
+import { RefreshWhileAgentWorks } from "./RefreshWhileAgentWorks";
 import { AppShell } from "./AppShell";
 import { fill, identity, roleNames } from "./copy";
 import { accountLines, initialsOf } from "./display-name";
@@ -73,6 +79,8 @@ export async function ConsoleShell({
   const role = caller.kind === "STAFF" ? caller.role : null;
   const canDecide = canOpenForYou(caller);
   const thread = canDecide ? await readAgentThreadOrEmpty(getNeonDb, siteOf(caller)) : null;
+  const cards = canDecide && (thread?.waiting ?? 0) > 0 ? await cardsOrEmpty(siteOf(caller)) : [];
+  const working = canDecide ? await agentWorking(siteOf(caller)) : false;
   const lines = accountLines(caller.displayName, role ? roleNames[role].one : null);
   const account: RailAccount | null = lines.name
     ? {
@@ -94,7 +102,40 @@ export async function ConsoleShell({
         waiting={thread?.waiting ?? 0}
         items={thread?.items ?? []}
         compose={<AgentCompose />}
+        cards={cards}
+        decide={decideApprovalAction}
       />
+      <RefreshWhileAgentWorks working={working} />
     </>
   );
+}
+
+/**
+ * The pending proposals as the cards Family texts draws — the same queue (`family-texts/queue.ts`),
+ * so the bubble and the screen show one card, not two drafts of one. Gated the way Family texts
+ * gates it: with no model there is nothing to approve. Fail-soft like the thread above.
+ */
+async function cardsOrEmpty(siteId: string): Promise<readonly ProposalView[]> {
+  if (modelReach().kind !== "model") return [];
+  try {
+    return await approvalQueue({ db: getNeonDb(), siteIds: [siteId], day: demoDay(), editedTime: null });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Is an agent run at this site still on its way to an answer? Read so the screens can catch up
+ * when it lands (`RefreshWhileAgentWorks`). Fail-soft: a read that fails is "not working".
+ */
+async function agentWorking(siteId: string): Promise<boolean> {
+  try {
+    const r = await getNeonDb().query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM ops.agent_run WHERE site_id = $1 AND state IN ('QUEUED', 'RUNNING')",
+      [siteId],
+    );
+    return (r.rows[0]?.n ?? 0) > 0;
+  } catch {
+    return false;
+  }
 }

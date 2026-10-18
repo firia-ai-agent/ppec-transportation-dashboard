@@ -30,7 +30,6 @@
  */
 import { formatClock } from "@/domain/eta/eta";
 import type { ServiceDay } from "@/domain/board/day";
-import type { DemoChangeRequest } from "@/modules/demo/change-request";
 import { HANDOFF_TEMPLATE } from "@/modules/demo/handoff-notice";
 import { approval, fill, familyTexts, onDay } from "@/ui/copy";
 import type { Bubble, BubbleAuthor, DayPhone, Thread, ThreadSource } from "./thread";
@@ -88,6 +87,14 @@ export type ProposalView = {
   readonly threadKey: string;
   readonly childLabel: string;
   readonly adultName: string;
+  /** "Dara" — the parent this reply goes to, for the card's own heading (`approval.replyTo`). */
+  readonly parentFirstName: string;
+  /**
+   * "Noah: drop-off moves to 5:00 PM on Van 2." — what the PLAN changes, in one line, for the
+   * person signing for it (Firia, 11:11 AM ET 2026-10-18). "" when the facts behind it cannot be
+   * answered: a card that invented a van or a time would be worse than a card with one line less.
+   */
+  readonly changeLine: string;
   /** "Agent · 3:58 PM" — who drafted it and when (`copy.agentLabel`, Vera's S1-2 item a). */
   readonly draftedLabel: string;
   /** The stop. `from` is null when the place does not change, and then there is no arrow. */
@@ -102,6 +109,8 @@ export type ProposalView = {
   readonly checks: readonly string[];
   /** The exact words the family would get. */
   readonly draftText: string;
+  /** The model's one line about this proposal, for the coordinator ("" when the row has none). */
+  readonly alertText: string;
   /** The proposed time as a 24-hour clock — the only shape the Edit control takes. */
   readonly requestedHhmm: string | null;
 };
@@ -145,11 +154,17 @@ export function initialsOf(name: string): string {
  */
 export function conversationRows(
   texts: readonly DayPhone[],
-  requests: readonly DemoChangeRequest[],
+  /**
+   * The pending proposals, from the approval queue (`queue.ts`) — the same rows the card and the
+   * badge read. A thread is "Change ready" exactly when one of them is about it, and its preview is
+   * the model's own line about that proposal. There is no fixture request here any more: what a
+   * family asked for is a message row, and whether anything is waiting on it is an approval row.
+   */
+  proposals: readonly ProposalView[],
 ): readonly ConversationRow[] {
   const rows = texts.map((text) => {
-    const request = requests.find((r) => r.childKey === text.childKey);
-    const atMs = request ? request.askedAtMs : text.atMs;
+    const proposal = proposals.find((p) => p.threadKey === text.childKey);
+    const atMs = text.atMs;
     return {
       atMs,
       row: {
@@ -158,24 +173,26 @@ export function conversationRows(
         adultName: text.guardianName,
         childFirstName: text.childFirstName,
         timeLabel: formatClock(atMs),
-        preview: request ? request.parentText : text.body,
+        preview: proposal && proposal.alertText !== "" ? proposal.alertText : text.body,
         /*
          * What has happened to this family, in that order: a change they asked for and nobody
          * has decided; a van running late; a child handed over at their stop. The state is read
          * off the text the day actually sent them (`templateId`) rather than guessed.
          */
-        state: (request
+        state: (proposal
           ? "changeReady"
           : text.templateId === HANDOFF_TEMPLATE
             ? "autoDropped"
             : "autoLate") as RowState,
-        unread: request !== undefined,
+        unread: proposal !== undefined,
       } satisfies ConversationRow,
     };
   });
-  // Newest first, on the instant rather than on the label: "11:00 AM" sorts above "4:30 PM" as
-  // a string, which would put the morning at the top of an afternoon's list.
-  return rows.sort((a, b) => b.atMs - a.atMs).map((r) => r.row);
+  // A thread with a decision waiting on it first — it is the one somebody has to act on, and the
+  // row the mockups draw as current — then newest first, on the instant rather than on the label:
+  // "11:00 AM" sorts above "4:30 PM" as a string, which would put the morning at the top.
+  const waiting = (r: (typeof rows)[number]) => (r.row.state === "changeReady" ? 1 : 0);
+  return rows.sort((a, b) => waiting(b) - waiting(a) || b.atMs - a.atMs).map((r) => r.row);
 }
 
 /* ───────────────────────────── the thread ───────────────────────────── */
@@ -292,7 +309,6 @@ function msOf(bubble: Bubble): number {
 export function threadView(a: {
   readonly selected: DayPhone;
   readonly thread: Thread;
-  readonly request: DemoChangeRequest | undefined;
   /**
    * The proposal waiting on THIS thread, from the approval queue (`queue.ts`) — the same rows the
    * tab's badge counts. Undefined on a screen that has not read the queue at all (a role that may
@@ -304,7 +320,8 @@ export function threadView(a: {
   /** False for a role that may not decide: they get the thread and no card in it either. */
   readonly mayApprove: boolean;
 }): ThreadView {
-  const bubbles = a.request ? [...a.thread.bubbles, parentBubble(a.request)] : a.thread.bubbles;
+  // The thread as the database holds it: the family's own messages are rows, never a fixture.
+  const bubbles = a.thread.bubbles;
   return {
     key: a.selected.childKey,
     initials: initialsOf(a.selected.guardianName),
@@ -333,15 +350,3 @@ function stampFor(day: ServiceDay): string {
   return onDay({ today: familyTexts.stampToday, otherDay: familyTexts.stampOtherDay }, day);
 }
 
-/** The family's own reply, as a bubble. Their words, unread and unsummarized. */
-function parentBubble(request: DemoChangeRequest): Bubble {
-  return {
-    id: `ask-${request.childKey}`,
-    direction: "IN",
-    author: "PARENT",
-    timeLabel: formatClock(request.askedAtMs),
-    body: request.parentText,
-    delivery: null,
-    reachedPhone: true,
-  };
-}

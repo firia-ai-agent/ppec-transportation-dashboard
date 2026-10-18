@@ -199,6 +199,8 @@ let placements: SetChildPlacementInput[] = [];
 /** The `plan_run.version` the fake board holds. Proposals are written against it by default. */
 const FAKE_PLAN_VERSION = 7;
 const fakePlacement: PlanPlacementPortFor = () => ({
+  setDropoffWindow: async () => ({ ok: true }),
+  recordReceiver: async () => ({ ok: true }),
   currentPlacement: async () => ({ bucket: "VAN", vehicleId: FAKE_VAN, version: FAKE_PLAN_VERSION }),
   setChildPlacement: async (input) => {
     placements.push(input);
@@ -211,6 +213,8 @@ const FAKE_VAN = "00000000-0000-7000-8000-0000000000f1";
 
 /** The same port, refusing the way the board refuses a plan that moved. */
 const refusingPlacement: PlanPlacementPortFor = () => ({
+  setDropoffWindow: async () => ({ ok: true }),
+  recordReceiver: async () => ({ ok: true }),
   currentPlacement: async () => ({ bucket: "VAN", vehicleId: FAKE_VAN, version: FAKE_PLAN_VERSION }),
   setChildPlacement: async (input) => {
     placements.push(input);

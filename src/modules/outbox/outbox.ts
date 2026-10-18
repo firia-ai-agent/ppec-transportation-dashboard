@@ -12,6 +12,8 @@ import { canTransition, OUTBOUND } from "@/domain/machines";
 import { IllegalTransition, StaleOrConflict } from "@/domain/transition";
 import { activeSuppression, childAuthorized, recipientKind, therapistAuthorized, type RecipientAuthorizer } from "./policy";
 import { ProviderRejected, ProviderTimeout, type MessagingProvider } from "./provider";
+import { DROPOFF_REPLY_TEMPLATE } from "@/modules/approvals/dropoff-change";
+import { isReplyText } from "@/modules/messaging/reply-text";
 
 export const OUTBOX_TOPIC = "ppec-outbox";
 export const SEND_TIMEOUT_MS = 10_000;
@@ -49,7 +51,7 @@ const COLS = "id, site_id, purpose, recipient_token, recipient_rule, channel, te
  * see TEMPLATE_VARS below), but each one is still child data: it says a particular child's van, stop or
  * session. Any message using one must therefore carry a child reference.
  */
-export const CHILD_TEMPLATES = new Set(["pickup.eta", "dropoff.eta", "dropoff.late", "dropoff.received", "leg.canceled", "leg.changed", "dropoff.changed", "therapist.absence_alert", "therapist.late_alert", "child.not_received"]);
+export const CHILD_TEMPLATES = new Set(["pickup.eta", "dropoff.eta", "dropoff.late", "dropoff.received", "leg.canceled", "leg.changed", "dropoff.changed", DROPOFF_REPLY_TEMPLATE, "therapist.absence_alert", "therapist.late_alert", "child.not_received"]);
 /**
  * Veri #12 review: free text is banned from outbound vars. A staff-typed "reason" or "text" can carry a child's
  * name, and matching values against a name list misses nicknames and typos, so outbound vars carry only fixed
@@ -74,6 +76,23 @@ const oneOf = (codes: ReadonlySet<string>): VarRule => (v) => typeof v === "stri
 const clockTime: VarRule = (v) => typeof v === "string" && (CLOCK.test(v) || TIMESTAMP.test(v));
 const calendarDay: VarRule = (v) => typeof v === "string" && (DAY.test(v) || TIMESTAMP.test(v));
 const stopToken: VarRule = (v) => typeof v === "string" && /^[A-Z0-9-]{1,12}$/.test(v);
+/**
+ * THE ONE VAR THAT MAY CARRY A SENTENCE — the model-written reply a coordinator approved.
+ *
+ * Firia, 2026-10-18 11:04 AM ET. Every other rule above is a code, a clock, a date or a small
+ * integer, and that is unchanged: this rule is permitted on `dropoff.reply` and on no other
+ * template, and `dropoff.reply` is sendable only by `approvals/decide.ts` after a person has
+ * pressed Approve on those exact words. §11.2 bans free text to parents *without human approval*,
+ * so the ban that moved is the one the ruling names and no other — the GPS late notice, the
+ * HELP/STOP answers and the day's own arrival notices still take codes alone.
+ *
+ * The shape is `messaging/reply-text.ts`: bounded length, no line breaks, no phone number, no
+ * address, no URL, no uuid, no internal code and no `PPEC:` prefix. Names are allowed in it and
+ * only in it, because the whole of the ruling is that the sentence reads as a person's ("Hi Dara,
+ * yes, we'll drop Noah off at 5 today") — see that module for why this field is not redacted.
+ */
+const modelReply: VarRule = (v) => isReplyText(v);
+
 /**
  * Whole minutes of lateness, 1–240 (`dropoff.late`). A count, not prose: the only thing a caller
  * can put in it is a small integer, written as a number or as its digits, so the §18.2 step 7
@@ -105,6 +124,13 @@ export const TEMPLATE_VARS: Readonly<Record<string, Readonly<Record<string, VarR
   "leg.changed": { legDate: calendarDay, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
   /* No `etaEnd`: an approved drop-off time is a decision, so the body says the minute (10:51 PM ET). */
   "dropoff.changed": { legDate: calendarDay, eta: clockTime, stopLabel: stopToken },
+  /*
+   * The approved reply, in the model's own words (Firia, 11:04 AM ET). `replyText` is the whole
+   * body; `legDate`, `eta` and `stopLabel` ride along because the proposal records them and
+   * `decide.ts` sends the row's own vars plus a coordinator's edited time — they are not placed
+   * in the sentence, which is the same shape `legDate` has always had on `dropoff.changed`.
+   */
+  [DROPOFF_REPLY_TEMPLATE]: { replyText: modelReply, legDate: calendarDay, eta: clockTime, stopLabel: stopToken },
   /* The handoff the day recorded. A place and nothing else: no time is left to say. */
   "dropoff.received": { stopLabel: stopToken },
   "therapist.absence_alert": { sessionStart: clockTime },

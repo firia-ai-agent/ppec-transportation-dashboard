@@ -276,6 +276,20 @@ export type ReceivingAdult = { name: string; relationship: string };
 
 export function receivingAdultOf(child: DemoChild): ReceivingAdult | null {
   if (!child.scopes.includes("RECEIVE_CHILD")) return null;
+  return guardianAdultOf(child);
+}
+
+/**
+ * The family's own guardian, whatever the file says they may do.
+ *
+ * `receivingAdultOf` above is the question "may this adult be handed the child", and the fixture
+ * scopes are one answer to it. They are not the only one: when a coordinator approves a drop-off
+ * change because the parent said somebody is home, the app writes that permission as a row
+ * (`modules/plan/leg-write.ts` → `ops.contact_authorization` `RECEIVE_CHILD`, §6.4), and the
+ * board reads it back as a leg fact. The adult it names is this one — so the name comes from
+ * here rather than from the scope check, which has just been answered elsewhere.
+ */
+export function guardianAdultOf(child: DemoChild): ReceivingAdult {
   const { guardian } = familyByKey(child.familyKey);
   return {
     name: `${guardian.firstName} ${guardian.lastInitial}.`,

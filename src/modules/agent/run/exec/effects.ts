@@ -248,17 +248,27 @@ export async function raiseTask(
     by: string;
     tripLegId?: string | null;
     childToken?: string | null;
+    /**
+     * `completion_evidence` — the machine-readable detail on the row, as
+     * `{ locator: { … } }`, which is the shape `staff-alert.raiseModelUnavailableAlert` already
+     * writes and `openAssistantAlerts` already reads. It is where a *class* goes: a reason code,
+     * a message id, a thread id. Never a sentence a person reads (that is `words`), and never a
+     * value out of a provider error — those name endpoints, models and, in the worst case,
+     * headers (see `ask/staff-ask.ts`, which is this parameter's first caller).
+     */
+    evidence?: Record<string, unknown> | null;
   },
 ): Promise<string> {
   await db.query(
     `INSERT INTO ops.task (id, site_id, category, severity, state, summary, next_step, completion_predicate,
-       trip_leg_id, child_token, created_by, updated_by, source_mode)
-     VALUES ($1, $2, $3, $4, 'OPEN', $5, $6, $7, $8, $9, $10, $10, 'SIMULATED')
+       trip_leg_id, child_token, completion_evidence, created_by, updated_by, source_mode)
+     VALUES ($1, $2, $3, $4, 'OPEN', $5, $6, $7, $8, $9, $10::jsonb, $11, $11, 'SIMULATED')
      ON CONFLICT (id) DO NOTHING`,
     [
       a.id, a.siteId, a.category, a.severity,
       a.words.summary, a.words.nextStep, a.words.predicate,
-      a.tripLegId ?? null, a.childToken ?? null, a.by,
+      a.tripLegId ?? null, a.childToken ?? null,
+      a.evidence ? JSON.stringify(a.evidence) : null, a.by,
     ],
   );
   return a.id;

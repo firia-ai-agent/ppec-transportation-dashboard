@@ -2,7 +2,10 @@ import { z } from "zod";
 import { API } from "@/auth/access";
 import { requireApiSession } from "@/auth/api-guard";
 import { getNeonDb } from "@/db/exec";
+import { vercelQueueAgentTransport } from "@/modules/agent/run/vercel-queue";
+import { sendDemoInbound } from "@/modules/demo/inbound-script";
 import { demoControlsGate, handleDemoReset } from "@/modules/demo/reset";
+import { vercelQueueOutboxTransport } from "@/modules/outbox/transport";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -31,8 +34,22 @@ export async function POST(req: Request) {
   if (!guard.ok) return guard.response;
   const parsed = body.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) return Response.json({ ok: false, error: "Bad request." }, { status: 400, headers: noStore });
-  const r = await handleDemoReset(getNeonDb(), process.env, {
-    userId: guard.caller.userId, siteId: parsed.data.siteId, now: new Date(),
-  });
+  const r = await handleDemoReset(
+    getNeonDb(),
+    process.env,
+    { userId: guard.caller.userId, siteId: parsed.data.siteId, now: new Date() },
+    // The day's one inbound text, through the webhook's own path. The run it starts is driven by
+    // the agent queue consumer, so Restart answers without waiting for the model.
+    async (db, seeded) => {
+      const sent = await sendDemoInbound(db, {
+        env: process.env,
+        now: seeded.now,
+        serviceDate: seeded.serviceDate,
+        agentTransport: vercelQueueAgentTransport,
+        outboxTransport: vercelQueueOutboxTransport,
+      });
+      if (!sent.sent) console.log(`[demo:reset] inbound text not sent (${sent.reason})`);
+    },
+  );
   return Response.json(r.body, { status: r.status, headers: noStore });
 }

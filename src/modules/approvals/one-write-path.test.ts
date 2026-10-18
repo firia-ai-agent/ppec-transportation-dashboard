@@ -282,11 +282,10 @@ describe("gate 2: an edited message needs a fresh approval", () => {
     const html = renderToStaticMarkup(
       createElement(TextsScreen, {
         tab: "for-you",
-        rows: conversationRows(texts, [edited]),
+        rows: conversationRows(texts, queue),
         thread: threadView({
           selected,
           thread: { source: "scenario", bubbles: [] },
-          request: edited,
           proposal: queue[0],
           day,
           assistantReachable: true,

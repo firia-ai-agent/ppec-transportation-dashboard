@@ -27,8 +27,12 @@ import {
   DROPOFF_CHANGE_KIND,
   DROPOFF_CHANGE_TASK_CATEGORY,
   DROPOFF_CHANGE_TEMPLATE,
+  DROPOFF_REPLY_TEMPLATE,
 } from "@/modules/approvals/dropoff-change";
+import { isReplyText } from "@/modules/messaging/reply-text";
 import { childByKey, stopByKey } from "@/modules/demo/fixtures/standard";
+import { modelAlertWords } from "../../alert-words";
+import { namedOrNull } from "@/modules/identity/names";
 import { agentTasks, fill } from "@/ui/copy";
 import { demoTokenForId } from "../scope-tokens";
 import { planStoreIn } from "@/modules/plan/store";
@@ -267,6 +271,23 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
   const rationale = String(input.args.rationale_code ?? "");
   const sourceMessageId = String(input.args.source_message_id ?? "");
   const by = `agent:${input.runId}`;
+  /*
+   * THE MODEL'S REPLY TO THE PARENT, IN NAMES (Firia, 2026-10-18 11:04 AM ET; founder 2026-10-18).
+   *
+   * The model wrote it in the prompt's tokens ("Hi F2, yes — C2 can be dropped at 5"), because every
+   * prompt is token-only; this is where the people come back as the first names the family uses
+   * (`identity/names.namedOrNull`, the roster that replaced them). Checked here as well as at the
+   * gateway, which already refused a reply that could not be named or breaks the shape: this is the
+   * field that becomes the words a family reads.
+   *
+   * There is NO TEMPLATE BEHIND IT. A reply that does not pass is no proposal at all — the call is
+   * recorded as refused and no card is written — because a card worded by this app while the model
+   * is up is exactly what the founder ruled out. On the agent's own path it cannot happen: the
+   * schema refuses the call first.
+   */
+  const named = namedOrNull(input.args.reply);
+  const reply = named !== null && isReplyText(named) ? named : null;
+  if (reply === null) return { proposal_refused: "NO_REPLY_IN_NAMES", mutated: false };
 
   /*
    * The leg, at this site. A leg at another site cannot be reached — the policy engine's scope
@@ -312,12 +333,45 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
     [isUuid(sourceMessageId) ? sourceMessageId : null, input.siteId],
   );
 
+  /*
+   * WHAT THE ALERT SAYS: the model's own sentence from this very call (Firia, 2026-10-18 11:15 AM
+   * ET), falling back to the named copy line when it wrote nothing fit for a screen. The order and
+   * the reasons are `agent/alert-words.ts`; the one thing worth repeating here is that the general
+   * "A family asked for a different drop-off" row is gone from this path — the words a coordinator
+   * reads beside the thread are now either the model's or the row's own fields, never a sentence
+   * about the *kind* of thing this is.
+   *
+   * `input.args.alert_text` is the policy engine's sanitized copy (`sanitizeStaffText`, a declared
+   * `staffTextFields` entry), so a number or an address somebody tried to smuggle into it arrives
+   * here already replaced by a class placeholder — and a line carrying one fails `isAlertText` and
+   * lands on the fallback rather than on a card.
+   */
+  const alertWords = modelAlertWords(input.args.alert_text);
+  if (alertWords === null) return { proposal_refused: "NO_ALERT_IN_NAMES", mutated: false };
+
+  /*
+   * WHO ASKED (PPE-98): the guardian on the thread of the message that started this run. Read off
+   * the trigger's own message row, never off an argument the model wrote, and carried on the
+   * proposal so Approve records *that* adult as the receiver rather than whichever contact the
+   * child's file lists first.
+   */
+  const asker =
+    input.trigger.type === "msg.inbound"
+      ? await tx.query<{ counterparty_token: string | null }>(
+          `SELECT t.counterparty_token FROM ops.message m
+           JOIN ops.conversation_thread t ON t.id = m.thread_id AND t.site_id = m.site_id
+           WHERE m.id = $1 AND m.site_id = $2`,
+          [isUuid(input.trigger.id) ? input.trigger.id : null, input.siteId],
+        )
+      : { rows: [] };
+  const requestedByContact = asker.rows[0]?.counterparty_token ?? null;
+
   const taskId = await raiseTask(tx, {
     id: effectId(input.idempotencyKey, "exception"),
     siteId: input.siteId,
     category: DROPOFF_CHANGE_TASK_CATEGORY,
     severity: "AMBER",
-    words: agentTasks.proposedDropoffChange,
+    words: { ...agentTasks.proposedDropoffChange, summary: alertWords },
     by,
   });
 
@@ -339,10 +393,24 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
     /** The stop as proposed, or the one the leg already holds when only the time moved. */
     stop_token: stopToken,
     rationale_code: rationale,
+    /**
+     * The words on the alert, on the proposal as well as on its task: the card in the bubble is
+     * drawn from the approval row, and a reader that had to join back to `ops.task` for the one
+     * sentence it shows would be one join away from showing the wrong one. Stored as rendered —
+     * names, no tokens — because this field is read by screens and by nothing else.
+     */
+    alert_text: alertWords,
+    /** The guardian whose message asked for this, for Approve's receiver record (PPE-98). */
+    requested_by_contact: requestedByContact,
     basis_message_id: basis.rows[0]?.id ?? null,
-    /** The text, as a template and its vars. Rendered by the screen and by the outbox, once each. */
-    template_id: DROPOFF_CHANGE_TEMPLATE,
+    /**
+     * THE WORDS: the model's reply, through the one renderer the card and the outbox share.
+     * `dropoff.reply`'s whole body is `replyText`; `reply_text` beside it is provenance.
+     */
+    template_id: DROPOFF_REPLY_TEMPLATE,
+    reply_text: reply,
     vars: {
+      replyText: reply,
       legDate: row.service_date,
       ...(requestedTime ? { eta: requestedTime } : {}),
       stopLabel: stopToken,

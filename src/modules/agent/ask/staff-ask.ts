@@ -6,7 +6,7 @@
  *
  *   ask → one `ops.task` row (`raiseTask`, the writer every executor already uses)
  *       → a `staff.ask` trigger carrying that row's id
- *       → `agentRunner()` → the one run loop → the one gateway → the one policy engine
+ *       → `agentRunner(db, env)` → the one run loop → the one gateway → the one policy engine
  *
  * There is no second agent, no second prompt pipeline, no second policy and no second approvals
  * table. A `propose_*` call from this run is a `PROPOSED` call row plus the `ops.approval_request`
@@ -20,17 +20,25 @@
  *  1. **A preview.** Previews share the one production database read-only (DECISION-LEDGER #43),
  *     so an ask writes *nothing at all* — not the task, not the run. `previewSkip` is asked first,
  *     before any row is derived, for the same reason the queue routes ask it first.
- *  2. **No runner.** `agentRunner()` refuses in this deployment: there is no §11.1 context
- *     assembler, and a run driven against a scope this process invented is worse than no run
- *     (run/deps.ts). That is the "model unavailable" case, and the answer to it is the **staff
- *     alert** of docs/DATA-MODEL.md — an open NEEDS_PERSON task, RED, with no proposal on it.
+ *  2. **No model.** `agentRunner(db, env)` is the real runner the agent queue consumer drives
+ *     with (run/deps.ts), and two of its three answers are this refusal: `ok: false`, when no
+ *     provider can be built from this deployment's configuration at all, and `ok: true` with
+ *     `refused: true`, when one can be built but may not be *called* — no key, a deployment that
+ *     has not confirmed demo-data-only operation, a base URL off the host allow-list. The second
+ *     is a provider that refuses every turn (`run/provider-choice.ts`), so driving a run on it
+ *     would spend a started run to arrive at exactly this answer; the ask stops before the run
+ *     instead. That is the "model unavailable" case, and the answer to it is the **staff alert**
+ *     of docs/DATA-MODEL.md — an open NEEDS_PERSON task, RED, with no proposal on it.
  *  3. **The model could not be reached** once a run was started: a gateway `PROVIDER_ERROR`, a
  *     missing key, a vendor refusal. Same answer, same row.
  *
- * What is deliberately **not** here: a keyword or text-parser fallback. `providers/keyword.ts`
- * exists on this branch and is reachable from the remote adapter's model chain, but nothing in
- * this module's import graph reaches it (staff-ask.db.test.ts walks that graph), and the degraded
- * mode is a person rather than a worse machine (founder's rule; docs/DATA-MODEL.md M3).
+ * What is deliberately **not** here: a keyword or text-parser fallback. The §18.1 reader was
+ * deleted outright (no-keyword-fallback.test.ts), and nothing in this module's import graph is
+ * named for the job it did or names one of its exports — staff-ask.db.test.ts walks that graph and
+ * checks both. `providers/remote.ts` *is* on the path, and is meant to be: it is the live vendor
+ * adapter, the one thing that calls the model, and its model chain ends in
+ * `RemoteProviderUnavailable` with nothing behind it. The degraded mode is a person rather than a
+ * worse machine (founder's rule; docs/DATA-MODEL.md M3).
  *
  * `OPENROUTER_API_KEY` is never read here. The key is the remote adapter's, by env-var name only
  * (providers/remote.ts), and nothing on this path logs, prints or returns it.
@@ -40,22 +48,21 @@ import type { Db } from "@/db/exec";
 import { previewSkip } from "@/db/read-only";
 import { agentAsk } from "@/ui/copy";
 import { redact } from "../redact";
-import { type AgentRunner, agentRunner } from "./no-runner";
+import { STAFF_ALERT_TASK_CATEGORY, STAFF_ASK_TASK_CATEGORY, askTextOf } from "./ask-text";
+import { type AgentRunner, agentRunner } from "../run/deps";
 import { effectId, raiseTask } from "../run/exec/effects";
+import { askAnswer } from "./answer";
 import type { RunDeps, RunResult } from "../run/loop";
 import { startAndDriveRun } from "../run/loop";
 import { type Trigger, assertTrigger } from "../run/triggers";
 
-/** `ops.task.category` for the ask itself. Free text in the column; no migration. */
-export const STAFF_ASK_TASK_CATEGORY = "STAFF_ASK";
-
-/**
- * `ops.task.category` for the staff alert (docs/DATA-MODEL.md: "kind NEEDS_PERSON, reason
- * MODEL_UNAVAILABLE"). Severity RED, state OPEN, no proposal attached — it is read in Family
- * texts → For you by the two roles that may decide, which is the same gate the bubble itself is
- * drawn behind.
+/*
+ * The ask's two task categories and `askTextOf` are defined in `ask/ask-text.ts` and re-exported
+ * here, where every caller already reads them from. They moved because the context assembler needs
+ * the words of an ask (`run/staff-ask-context.ts`) and this module imports the run loop: defining
+ * them here made that a cycle. See the header of `ask-text.ts`.
  */
-export const STAFF_ALERT_TASK_CATEGORY = "NEEDS_PERSON";
+export { STAFF_ASK_TASK_CATEGORY, STAFF_ALERT_TASK_CATEGORY, askTextOf };
 
 /** The one longest ask the compose bar accepts. Longer is a document, not a question. */
 export const MAX_ASK_LENGTH = 500;
@@ -78,13 +85,30 @@ export type StaffAskResult =
    * `reason` is the runner's own sentence, for the log — never for a screen.
    */
   | { readonly ok: false; readonly outcome: "unavailable"; readonly taskId: string; readonly reason: string }
-  /** The run this ask started, and where it got to. */
-  | { readonly ok: true; readonly outcome: "ran"; readonly taskId: string; readonly run: RunResult };
+  /**
+   * The run this ask started, where it got to, and what it said: the model's answer in names
+   * (`ask/answer.ts`) and the proposal it made, if any.
+   */
+  | {
+      readonly ok: true;
+      readonly outcome: "ran";
+      readonly taskId: string;
+      readonly run: RunResult;
+      readonly answer: string | null;
+      readonly proposalId: string | null;
+    };
+
+/**
+ * The log sentence for a runner that is `ok` and `refused` without words of its own. `run/deps.ts`
+ * always has words, so this is the shape-level default rather than a message anybody should see.
+ */
+const NO_MODEL_CONFIGURED = "no model configured for this deployment";
 
 export type StaffAskDeps = {
   /**
-   * The deps a run is driven with, or the named refusal. Defaults to `agentRunner()`, which
-   * refuses in this deployment; a suite passes a harness's deps to drive the loop for real.
+   * The deps a run is driven with, or the named refusal. Defaults to `agentRunner(db, env)`, the
+   * one the agent queue consumer drives with; a suite passes a harness's deps instead, to drive
+   * the loop against a scripted provider.
    */
   readonly runner?: () => AgentRunner;
   /** How a run is started and driven. Defaults to the one the queue consumer uses. */
@@ -105,18 +129,34 @@ export function normalizeAsk(text: string): string | null {
 }
 
 /**
- * The words of the ask, back out of the row it was stored in.
+ * The runner's two answers as the two rows an ask can become: the deps to drive, or the sentence
+ * saying why nothing will.
  *
- * `raiseTask` has one `summary` column and a board row has to say *what it is*, so an ask is
- * stored as "<what this row is>: <what was asked>". The thread in the bubble wants only the
- * second half — it already knows what the row is, because it is drawing it as a message — so the
- * prefix is taken off here rather than parsed at the far end. One function, both directions.
+ * `ok: true` with `refused: true` is folded in with `ok: false` on purpose, and that is the whole
+ * of rule (1): a refused provider throws this deployment's refusal on the first turn, so a run
+ * driven on it ends in the same staff alert with an `ops.agent_run` row and an audited failed call
+ * behind it. One ask, one row, whichever way the runner refused.
  */
-export function askTextOf(summary: string): string {
-  for (const prefix of [agentAsk.asked.summary, agentAsk.unavailable.summary]) {
-    if (summary.startsWith(`${prefix}: `)) return summary.slice(prefix.length + 2);
+function askRunner(runner: () => AgentRunner): { readonly deps: RunDeps } | { readonly refused: string } {
+  let answer: AgentRunner;
+  try {
+    answer = runner();
+  } catch (e) {
+    /*
+     * A configuration no provider can be built from at all — a base URL off the host allow-list, a
+     * model off it, a number that will not parse. `run/deps.ts` means that to be its `ok: false`
+     * answer and reads the config outside the `try` that produces it, so the throw arrives here
+     * instead. It is the same fact and it gets the same row: a person told, rather than a 503 with
+     * nothing on the board, which is the founder's rule broken by a construction order.
+     *
+     * One sentence, bounded, for the log. An `AgentConfigError` names env vars and never carries a
+     * value (config.ts), and this `reason` is not a field the route forwards.
+     */
+    return { refused: (e instanceof Error ? e.message : String(e)).slice(0, 280) };
   }
-  return summary;
+  if (!answer.ok) return { refused: answer.reason };
+  if (answer.refused) return { refused: answer.reason ?? NO_MODEL_CONFIGURED };
+  return { deps: answer.deps };
 }
 
 export async function askAgent(
@@ -124,8 +164,10 @@ export async function askAgent(
   input: StaffAskInput,
   deps: StaffAskDeps = {},
 ): Promise<StaffAskResult> {
+  const env = deps.env ?? process.env;
+
   // 1. Previews write nothing. Asked before any row is derived, as on every queue route.
-  const skip = previewSkip(deps.env ?? process.env);
+  const skip = previewSkip(env);
   if (skip) return { ok: false, outcome: "skipped", ...skip };
 
   const ask = normalizeAsk(input.text);
@@ -136,27 +178,39 @@ export async function askAgent(
    * the row is: the ask the agent took, or the staff alert nobody could. One ask is one row
    * either way — a second row saying the same thing twice is two things to close.
    */
-  const runner = (deps.runner ?? agentRunner)();
+  const answer = askRunner(deps.runner ?? (() => agentRunner(db, env)));
+  const canRun = "deps" in answer;
   const askId = uuidv7();
-  const words = runner.ok ? agentAsk.asked : agentAsk.unavailable;
+  const words = canRun ? agentAsk.asked : agentAsk.unavailable;
   const taskId = await raiseTask(db, {
     id: askId,
     siteId: input.siteId,
-    category: runner.ok ? STAFF_ASK_TASK_CATEGORY : STAFF_ALERT_TASK_CATEGORY,
-    severity: runner.ok ? "AMBER" : "RED",
+    category: canRun ? STAFF_ASK_TASK_CATEGORY : STAFF_ALERT_TASK_CATEGORY,
+    severity: canRun ? "AMBER" : "RED",
     words: { summary: `${words.summary}: ${ask}`, nextStep: words.nextStep, predicate: words.predicate },
     by: input.by,
   });
 
   // 3. The staff alert is the whole of the degraded mode. No parser, no template, no proposal.
-  if (!runner.ok) return { ok: false, outcome: "unavailable", taskId, reason: runner.reason };
+  if (!("deps" in answer)) return { ok: false, outcome: "unavailable", taskId, reason: answer.refused };
 
   // 4. The one run loop, entered the way every other trigger enters it.
   const trigger: Trigger = { type: "staff.ask", id: taskId, siteId: input.siteId };
   assertTrigger(trigger);
   try {
-    const run = await (deps.drive ?? startAndDriveRun)(runner.deps, trigger);
-    return { ok: true, outcome: "ran", taskId, run };
+    /*
+     * A HARD DEADLINE ON THE WHOLE ASK. The run is driven inside this request, and a request that
+     * outlives the route's `maxDuration` is a 504 nobody is told about. So the ask gets
+     * `askTimeoutMs` (config, default 45 s) and, if the model has not finished by then, it ends
+     * the same way a model that could not be reached does: one alert, a person told.
+     */
+    const run = await withDeadline(
+      (deps.drive ?? startAndDriveRun)(answer.deps, trigger),
+      answer.deps.gateway.config.askTimeoutMs,
+    );
+    if (run === TIMED_OUT) throw new AskTimedOut();
+    const said = await askAnswer(db, run.runId);
+    return { ok: true, outcome: "ran", taskId, run, answer: said.answer, proposalId: said.proposalId };
   } catch (err) {
     /*
      * The model could not be reached after all — a gateway PROVIDER_ERROR, a missing key, a
@@ -180,6 +234,31 @@ export async function askAgent(
       },
       by: input.by,
     });
-    return { ok: false, outcome: "unavailable", taskId: alertId, reason: "the model could not be reached" };
+    return {
+      ok: false,
+      outcome: "unavailable",
+      taskId: alertId,
+      reason: err instanceof AskTimedOut ? "TIMEOUT" : "the model could not be reached",
+    };
   }
+}
+
+class AskTimedOut extends Error {}
+const TIMED_OUT = Symbol("timed out");
+
+/** `promise`, or TIMED_OUT once `ms` have passed. The loser is not awaited. */
+function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve(TIMED_OUT), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
 }

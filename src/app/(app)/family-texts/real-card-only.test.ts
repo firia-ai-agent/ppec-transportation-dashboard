@@ -114,7 +114,6 @@ function render(a: {
       thread: threadView({
         selected,
         thread: threadFor(selected.childKey),
-        request: undefined,
         // The page's own line: the member of the ONE queue whose thread this is.
         proposal: a.proposals.find((p) => p.threadKey === selected.childKey) ?? null,
         day,
@@ -219,7 +218,6 @@ describe("a model that cannot be reached means the alert, never a scripted card 
           thread: threadView({
             selected: texts[texts.length - 1],
             thread: threadFor(texts[texts.length - 1].childKey),
-            request: undefined,
             proposal: queue[0],
             day,
             assistantReachable: false,
@@ -370,7 +368,7 @@ describe("the card is one approve row, labelled Agent, with no codes on it (S1-2
     expect(countOf(text, approval.dontSend)).toBe(1);
   });
 
-  it("names the author 'Agent', out of copy.ts", async () => {
+  it("keeps the author 'Agent' in copy.ts, and heads the card with who the reply goes to", async () => {
     // The word itself lives in copy, so the feed header and the card cannot drift apart.
     expect(approval.agentLabel).toBe("Agent");
     expect(approval.draftedBy).toContain("{agent}");
@@ -385,7 +383,13 @@ describe("the card is one approve row, labelled Agent, with no codes on it (S1-2
      * row — the queue builds it and this asserts it — and the card draws the word, not the time.
      */
     expect(text).not.toContain(card.draftedLabel);
-    expect(render({ openKey: OPEN, proposals: [card] })).toContain(`aria-label="${approval.agentLabel}"`);
+    /*
+     * And the head says the act rather than the author (Firia, 11:11 AM ET 2026-10-18): "Reply to
+     * Dara", in words every reader gets. The robot mark that carried "Agent" for a screen reader
+     * came off with that ruling (ProposalCard.tsx).
+     */
+    expect(text).toContain(fill(approval.replyTo, { parent: card.parentFirstName }));
+    expect(render({ openKey: OPEN, proposals: [card] })).not.toContain(`aria-label="${approval.agentLabel}"`);
     // Not the old word, anywhere on the screen.
     expect(text).not.toContain("Assistant ·");
   });

@@ -13,20 +13,22 @@
  * every-minute sweeper re-arms the row — the agent inherits the timer guarantees instead of
  * restating them.
  *
- * The handler is deliberately tiny. A B-03 handler is DB-only (ADR-001/ADR-003: external effects
- * go through the outbox) and runs inside the job's claim transaction, while a run step needs its
- * own transaction per tool call (that is the whole of persist-before-execute). So the handler does
- * the one DB-only thing that re-triggers a run — move it WAITING_TOOL → QUEUED — and a driver picks
- * it up (`resumeQueuedRuns`, loop.ts; `driveRunLeased` under a claim, lease.ts).
+ * The handler is deliberately tiny. A B-03 handler's *transaction* is DB-only (ADR-001/ADR-003:
+ * external effects go through the outbox) and it runs inside the job's claim transaction, while a
+ * run step needs its own transaction per tool call (that is the whole of persist-before-execute).
+ * So the handler does the one DB-only thing that re-triggers a run — move it WAITING_TOOL → QUEUED
+ * — and then, **after that transaction commits**, publishes the one message that gets it driven:
+ * the same `ppec-agent` wake-up the inbound path publishes (`queue.ts enqueueRun`), delivered to
+ * the same consumer, taken under the same per-run lease (`driveRunLeased`, lease.ts).
  *
  * The queue slice built that driver (`/api/queues/agent`) and deliberately did **not** wire this
- * handler to it: publishing a wake-up is an external effect, and a B-03 handler may not have one —
- * it runs inside the job's claim transaction and has no after-commit hook to publish from
- * (`Handler` in jobs/runner.ts), which is the same rule that sends every message through the
- * outbox. So a fired deadline leaves the run QUEUED and visible, and what delivers it is the thing
- * that delivers any QUEUED run: a periodic sweep of `agent_run_resume_idx`, which is named as not
- * built in docs/agent/B08-SLICE1-DEFERRED.md ("What the queue slice did not bring"). Nothing about
- * the protocol changes either way — the handler's job is to make the run drivable, not to drive it.
+ * handler to it, because a handler had no after-commit hook to publish from and publishing inside
+ * the claim transaction is the thing ADR-003 forbids. It left the run QUEUED and named a periodic
+ * sweep of `agent_run_resume_idx` as the delivery mechanism (docs/agent/B08-SLICE1-DEFERRED.md,
+ * "What the queue slice did not bring") — and that sweep was never built, so a fired deadline
+ * re-queued a run that nothing then drove. `fire` now hands every handler the claim transaction's
+ * own `afterCommit` (jobs/runner.ts), which is the hook that was missing; see
+ * `agentResumeHandler` for why after-commit is the only correct moment for it.
  */
 import { z } from "zod";
 import type { Exec } from "@/db/exec";
@@ -41,6 +43,7 @@ import {
   escalateTimerKey,
 } from "./exec/escalate";
 import type { AwaitExternal } from "./executors";
+import { type AgentWakeTransport, runWakeKey } from "./wake";
 import { type RunRow, type ToolCallRow, commitCall, runActor, setRunState } from "./store";
 import { triggerLabel } from "./triggers";
 
@@ -219,24 +222,69 @@ async function armEscalation(
 }
 
 /**
- * The B-03 handler for `agent.run.resume`. DB-only and idempotent: it moves the run back to QUEUED
- * and nothing else. A run that is not WAITING_TOOL any more — because the awaited reply arrived as
- * its own `msg.inbound` trigger and something else already finished this run, or because a human
- * took it over — matches zero rows and the timer fires as a no-op, which is the same answer every
- * other B-03 handler gives to a wake-up for work that is already done.
+ * The B-03 handler for `agent.run.resume`: move the parked run back to QUEUED **and publish the
+ * wake-up that drives it**.
+ *
+ * The state change is DB-only and idempotent, as it always was. A run that is not WAITING_TOOL any
+ * more — because the awaited reply arrived as its own `msg.inbound` trigger and something else
+ * already finished this run, or because a human took it over — matches zero rows and the timer
+ * fires as a no-op, which is the same answer every other B-03 handler gives to a wake-up for work
+ * that is already done. Nothing is published for a no-op either: the `RETURNING id` is what the
+ * publish is conditional on, so a wake-up exists only for a run this fire actually re-queued.
  *
  * `AND site_id = $3` is the tenant fence (PR #35 review, F3). The run id travels in a job payload,
  * and a payload is not an authorization: the id could be wrong by accident (a hand-written replay,
  * a copied fixture) or on purpose, and a wake-up that could re-queue *any* run by id would be a
  * cross-tenant write with a timer in front of it. The job row carries the site it was scheduled
  * for, so the fence costs one predicate — and a mismatch matches zero rows, which is the same
- * no-op as every other wake-up for work this handler may not do.
+ * no-op as every other wake-up for work this handler may not do. The published message carries
+ * that same `job.site_id`, never the run row's, so the consumer's claim is fenced on what this
+ * handler was authorized for (queue.ts `AgentWake`).
+ *
+ * ## Why this publishes at all now
+ *
+ * The queue slice deliberately did not wire the two together, and the reason it gave was a real
+ * one: a B-03 handler runs inside the job's claim transaction and had no after-commit hook to
+ * publish from, so publishing was either an external effect inside a transaction (ADR-003's rule,
+ * and a wake-up a rollback cannot take back) or nothing. It left "a fired deadline leaves the run
+ * QUEUED and visible" and named the periodic sweep of `agent_run_resume_idx` as the thing that
+ * would deliver it — and that sweep was never built. `resumeQueuedRuns` (loop.ts) exists but
+ * production calls it from nowhere, so in the deployed app a 15-minute clarification wait came due,
+ * the run went QUEUED, and **nothing ever drove it**: the family's question sat unanswered with no
+ * exception raised, because a GREEN wait that re-queued itself is not an exception to anybody.
+ *
+ * What changed is the hook, not the rule: `fire` now hands every handler the transaction's own
+ * `afterCommit` (jobs/runner.ts), so the wake-up goes out **after** the claim transaction commits,
+ * which is the same ordering `JobScheduler.schedule` and the outbox already use. A publish before
+ * the commit would be the genuinely broken version — the consumer would take the lease, find the
+ * run still WAITING_TOOL, refuse it `parked` and ack, and the one wake-up would be spent on a row
+ * that had not moved yet.
+ *
+ * It is the **same** message the inbound path publishes — `{runId, siteId}` under
+ * `runWakeKey(runId)` (queue.ts `enqueueRun`) — so there is one consumer, one lease and one driver
+ * for a run however it came to be drivable, and a resume wake-up that races an inbound one for the
+ * same run collapses on the queue's own idempotency key instead of becoming two drivers.
+ *
+ * A failed publish is swallowed by the hook runner (`db/exec.runAfterCommit`) and leaves the run
+ * QUEUED, which is exactly where this handler used to leave it — strictly better than before, and
+ * still the honest residual: nothing on the agent topic re-arms a QUEUED run nobody was told about
+ * (queue.ts). The await's own escalation timer, when it declared one, is what puts a silent wait in
+ * front of a person (§11.2 "no reply → escalate", `exec/escalate.ts`).
  */
-export const agentResumeHandler: Handler = async (tx, job) => {
-  const payload = resumePayloadSchema.parse(job.payload);
-  await tx.query(
-    `UPDATE ops.agent_run SET state = 'QUEUED', version = version + 1, updated_at = now(), updated_by = $2
-     WHERE id = $1 AND state = 'WAITING_TOOL' AND site_id = $3`,
-    [payload.runId, `system:job:${AGENT_RESUME_JOB_KIND}`, job.site_id],
-  );
-};
+export function agentResumeHandler(transport: AgentWakeTransport): Handler {
+  return async (tx, job, afterCommit) => {
+    const payload = resumePayloadSchema.parse(job.payload);
+    const requeued = await tx.query<{ id: string }>(
+      `UPDATE ops.agent_run SET state = 'QUEUED', version = version + 1, updated_at = now(), updated_by = $2
+       WHERE id = $1 AND state = 'WAITING_TOOL' AND site_id = $3 RETURNING id`,
+      [payload.runId, `system:job:${AGENT_RESUME_JOB_KIND}`, job.site_id],
+    );
+    if (requeued.rows.length === 0) return;
+    afterCommit(() =>
+      transport.publish(
+        { runId: payload.runId, siteId: job.site_id },
+        { idempotencyKey: runWakeKey(payload.runId) },
+      ),
+    );
+  };
+}

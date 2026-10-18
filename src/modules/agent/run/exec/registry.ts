@@ -21,7 +21,7 @@ import { recordCapabilityReportExecutor, requestProviderCapabilityExecutor } fro
 import { recordAcknowledgmentExecutor } from "./clarify";
 import type { ExecutorDeps } from "./effects";
 import { type ProposalWriter, proposalWriter } from "./proposals";
-import { getLegStateExecutor, resolveSenderExecutor } from "./reads";
+import { getLegStateExecutor, readGuardianThreadExecutor, resolveSenderExecutor } from "./reads";
 import { closeTaskExecutor, escalateExceptionExecutor, summarizeThreadForStaffExecutor } from "./staff";
 import { notifyAffectedTherapistExecutor } from "./therapist";
 
@@ -32,6 +32,12 @@ export function liveExecutors(deps: ExecutorDeps): ToolExecutors {
   return {
     resolve_sender: resolveSenderExecutor(deps),
     get_leg_state: getLegStateExecutor(deps),
+    /*
+     * The read the bubble's answer comes from (Firia and Vera, 11:13 AM ET). `read` effect, so it
+     * is one of the tools that stay available while the agent is paused: a paused deployment must
+     * still be able to tell a coordinator what a parent asked for.
+     */
+    read_guardian_thread: readGuardianThreadExecutor(deps),
     cancel_attendance_or_leg: cancelAttendanceOrLegExecutor(deps),
     /*
      * NO `request_clarification` and NO `send_followup` here any more (Firia's S1-7 ruling,

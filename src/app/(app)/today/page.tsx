@@ -4,6 +4,7 @@ import { getDayReadiness, serviceDateAt } from "@/domain/day/day-facts";
 import { readRightNow } from "@/domain/health/right-now-facts";
 import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
 import { rightNowTiles } from "@/domain/health/right-now";
+import { legFactsForBoard } from "@/modules/plan/leg-facts";
 import { savedPlacementsForBoard, savedSetupsForBoard } from "@/modules/plan/store";
 import { siteOf } from "@/modules/plan/api";
 import { LEG_PARAM, resolveLeg } from "@/modules/plan/when";
@@ -106,14 +107,27 @@ export default async function Page({
    * disagreeing on the one server where a session can have no centre.
    */
   const date = serviceDateAt();
-  const [saved, setups] = await Promise.all([
+  /*
+   * AND THE ARRIVAL IS THE ONE THE PLAN HOLDS, WHERE A DECISION HAS MOVED IT (Firia, 11:11 AM ET
+   * 2026-10-18).
+   *
+   * Approving a drop-off change writes the agreed minute to the leg and the receiver to the
+   * child's file (src/modules/plan/leg-write.ts). Those are rows, and the rows above are the only
+   * other thing on this screen that is one — so they are read here, for the same date and centre,
+   * and handed to the same `buildBoard`. Without it a coordinator who had just pressed Approve
+   * would come back to this column and read the scheduled window, which is the whole of what
+   * "the plan must really change, not just the text" was about.
+   */
+  const [saved, setups, legs] = await Promise.all([
     savedPlacementsForBoard(siteId, date),
     savedSetupsForBoard(siteOf(caller), date),
+    legFactsForBoard(siteId, date),
   ]);
   const board = buildBoard(
     requestedBoardDay(one(params.date), one(params[CLOCK_PARAM]), process.env),
     saved,
     setups,
+    legs,
   );
 
   /*

@@ -13,6 +13,8 @@ import {
   subscribeAgentBubbleOpen,
 } from "./agent-bubble-state";
 import { getAsked, getAskedOnServer, subscribeAsked } from "./agent-ask-state";
+import type { DecideAction } from "@/app/(app)/family-texts/actions";
+import type { ProposalView } from "@/app/(app)/family-texts/conversations";
 import { AgentThread, type AgentThreadItem } from "./AgentThread";
 import styles from "./AgentBubble.module.css";
 
@@ -46,6 +48,8 @@ export function AgentBubble({
   waiting = 0,
   items = [],
   compose,
+  cards = [],
+  decide,
 }: {
   /**
    * `canOpenForYou(caller)` — resolved on the server by the layout that mounts the shell, never
@@ -65,6 +69,9 @@ export function AgentBubble({
   items?: readonly AgentThreadItem[];
   /** The compose bar, which is a form and therefore the server's to render. */
   compose?: ReactNode;
+  /** The pending proposals as full cards, and the one action that decides them (AgentThread). */
+  cards?: readonly ProposalView[];
+  decide?: DecideAction;
 }) {
   const pathname = usePathname();
   const tab = useSearchParams().get("tab");
@@ -113,7 +120,7 @@ export function AgentBubble({
               <X size={22} aria-hidden="true" />
             </button>
           </div>
-          <AgentThread items={asked.length === 0 ? items : [...items, ...asked]} />
+          <AgentThread items={asked.length === 0 ? items : [...items, ...asked]} cards={cards} decide={decide} />
           {compose}
         </aside>
       ) : null}

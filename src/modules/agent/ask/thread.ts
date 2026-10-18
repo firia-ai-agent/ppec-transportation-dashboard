@@ -22,7 +22,9 @@
 import type { Db } from "@/db/exec";
 import type { AgentThreadItem } from "@/ui/AgentThread";
 import { agentBubble } from "@/ui/copy";
-import { STAFF_ASK_TASK_CATEGORY, askTextOf } from "./staff-ask";
+import { namedOrNull } from "@/modules/identity/names";
+import { ANSWER_TOOL } from "./answer";
+import { STAFF_ASK_TASK_CATEGORY, askTextOf } from "./ask-text";
 
 export type AgentThreadView = {
   readonly items: readonly AgentThreadItem[];
@@ -64,8 +66,24 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
     at: r.at,
     item: { kind: "staff", id: r.id, text: askTextOf(r.summary) } as AgentThreadItem,
   }));
+  /*
+   * THE MODEL'S ANSWERS, so a reload shows what it said and not only what was asked: each
+   * `staff.ask` run's `summarize_thread_for_staff` note, in names (`ask/answer.ts`), placed when it
+   * was written — after the ask it answers.
+   */
+  const notes = await db.query<{ ask_id: string; summary: string | null; at: Date }>(
+    `SELECT r.trigger_id AS ask_id, c.args->>'summary' AS summary, c.created_at AS at
+       FROM ops.agent_run r JOIN ops.agent_tool_call c ON c.run_id = r.id
+      WHERE r.site_id = $1 AND r.trigger_type = 'staff.ask' AND c.tool = $2 AND c.status = 'EXECUTED'
+      ORDER BY c.created_at, c.id`,
+    [siteId, ANSWER_TOOL],
+  );
+  const answers = notes.rows.flatMap((r) => {
+    const text = namedOrNull(r.summary);
+    return text === null ? [] : [{ at: r.at, item: { kind: "agent", id: `answer:${r.ask_id}`, text } as AgentThreadItem }];
+  });
 
-  const ordered = [...said, ...proposals].sort(
+  const ordered = [...said, ...answers, ...proposals].sort(
     (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime(),
   );
   if (ordered.length === 0) return EMPTY;

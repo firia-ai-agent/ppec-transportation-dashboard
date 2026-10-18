@@ -104,6 +104,19 @@ export function addNoAnswer(askId: string): void {
 }
 
 /**
+ * The model's own answer, directly under the ask it answers — the words the run wrote
+ * (`modules/agent/ask/answer.ts`, already in names). At most one per ask, like the line above.
+ */
+export function addAnswer(askId: string, text: string): void {
+  const id = `${askId}:answer`;
+  if (asked.some((item) => item.id === id)) return;
+  const at = asked.findIndex((item) => item.id === askId);
+  if (at < 0) return;
+  asked = [...asked.slice(0, at + 1), { kind: "agent", id, text }, ...asked.slice(at + 1)];
+  emit();
+}
+
+/**
  * IS THERE ANYTHING TO SEND? One predicate, so the greyed-out button and the handler that would
  * do the sending cannot disagree about it.
  *
@@ -152,8 +165,19 @@ export async function sendAsk(text: string, post: AskPost): Promise<void> {
       return;
     }
     const body: unknown = await res.json().catch(() => null);
-    const answered = typeof body === "object" && body !== null && (body as { ok?: unknown }).ok === true;
-    if (!answered) addNoAnswer(id);
+    const said = (typeof body === "object" && body !== null ? body : {}) as {
+      ok?: unknown;
+      answer?: unknown;
+      proposalId?: unknown;
+    };
+    if (said.ok !== true) {
+      addNoAnswer(id);
+      return;
+    }
+    // The model's words when it wrote some; when it only proposed, the card is the answer. A run
+    // that did neither (it escalated, say) adds nothing: its result is on the board already.
+    if (typeof said.answer === "string" && said.answer.trim() !== "") addAnswer(id, said.answer);
+    else if (typeof said.proposalId === "string") addAnswer(id, agentBubble.proposedBelow);
   } catch {
     addNoAnswer(id);
   }

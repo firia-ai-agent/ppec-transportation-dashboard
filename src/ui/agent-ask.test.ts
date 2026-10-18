@@ -164,6 +164,21 @@ describe("(b) everything that is not an answer says the same one line", () => {
     expect(html).not.toContain(NO_ANSWER);
   });
 
+  it("shows the model's own answer, grey and directly under the ask, when it wrote one", async () => {
+    const ANSWER = "Dara asked to have Noah dropped off at 5 instead, because someone is home then.";
+    await sendAsk(ASK, () => Promise.resolve(response(200, { ok: true, outcome: "ran", answer: ANSWER, proposalId: null })));
+    expect(getAsked().map((i) => [i.kind, i.text])).toEqual([
+      ["staff", ASK],
+      ["agent", ANSWER],
+    ]);
+    expect(panel()).not.toContain(NO_ANSWER);
+  });
+
+  it("points at the card when the model proposed a change and wrote no line of its own", async () => {
+    await sendAsk(ASK, () => Promise.resolve(response(200, { ok: true, outcome: "ran", answer: null, proposalId: "p1" })));
+    expect(getAsked().map((i) => i.text)).toEqual([ASK, agentBubble.proposedBelow]);
+  });
+
   it("cannot put the same line under the same ask twice", () => {
     const id = addAsk(ASK);
     addNoAnswer(id);
