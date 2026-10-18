@@ -24,22 +24,35 @@
 
 /* ───────────────────────────── the vans at the centre ───────────────────────────── */
 
+/*
+ * ONE ROW OF THREE, Van 1 / Van 2 / Van 3 (png/ramp-arrival.png, png/ramp-arrival-390.png).
+ *
+ * They used to wrap onto two rows on a phone and to be ordered by the time each van leaves,
+ * which read as 1, 3, 2. The order is the van's slot now (arrival/view.ts) and the row never
+ * wraps: three equal tabs, each under a bar of its own colour, with the leave time under the
+ * name. The whole row is portaled into the frame's header bar (src/ui/HeaderSlot.tsx).
+ */
 .tabs {
   display: flex;
-  gap: var(--space-3);
-  flex-wrap: wrap;
+  gap: var(--space-2);
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .tab {
-  display: grid;
-  grid-template-columns: 10px auto;
-  grid-template-rows: auto auto;
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  flex-direction: column;
   align-items: center;
-  column-gap: var(--space-3);
-  row-gap: var(--space-1);
+  justify-content: center;
+  line-height: var(--leading-tight);
   min-height: var(--target-ramp);
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-2) var(--space-3);
+  /* The van's own colour, from the one shared config (src/config/vans.ts), as the bar on top.
+     The colour is set inline from the van's token; this is the shape it is drawn in. */
   border: var(--border-hairline) solid var(--color-border-strong);
+  border-top: 4px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-ink);
@@ -57,20 +70,25 @@
   font-weight: var(--weight-semibold);
 }
 
-/* The van's own colour, from the one shared config (src/config/vans.ts). */
-.tabSwatch {
-  grid-row: 1 / span 2;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
+/* The bar on top stays the van's own colour on the open tab too: it is set inline from the
+   van's token, which is what keeps it out of this file (§0 rule 6: never a hex). */
 
 .tabName {
   font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .tabTime {
   font-size: var(--text-14);
+  font-weight: var(--weight-regular);
+  color: var(--color-ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 /* ───────────────────────────── the two cards ───────────────────────────── */
@@ -134,32 +152,43 @@
   flex-direction: column;
 }
 
-/* A count the front desk has changed away from the plan reads as changed, and says what the
-   plan had underneath it (§2). */
-.stepper[data-changed="true"] .stepperLabel {
-  color: var(--color-warn-fg);
-  font-weight: var(--weight-semibold);
-}
+/*
+ * `data-changed` is still the record of a count the front desk moved away from the van's
+ * default, and it is no longer what colours anything: amber means "under what the plan needs"
+ * now (`data-short` below), which is the difference a person can act on.
+ */
 
+/* "Planned 3": what the saved plan needs of this van for this counter. Always said. */
 .planned {
   font-size: var(--text-12);
   font-weight: var(--weight-regular);
+  color: var(--color-ink-muted);
 }
 
+/*
+ * ONE JOINED STEPPER — − | n | + inside a single rounded box (the mockup's `.st`).
+ *
+ * It was three separate controls with gaps between them; the mockup draws one control with two
+ * hairlines in it, which is also one target to aim a thumb at. The box is the ramp's own 56 px
+ * target (§9: ≥56 px on this screen, which clears the 44 px console minimum).
+ */
 .stepperControls {
   display: inline-flex;
-  align-items: center;
-  gap: var(--space-3);
+  align-items: stretch;
+  height: var(--target-ramp);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
 }
 
 .stepperButton {
   width: var(--target-ramp);
-  height: var(--target-ramp);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: var(--border-hairline) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border: 0;
+  border-radius: 0;
   background: var(--color-surface);
   color: var(--color-ink);
   font: inherit;
@@ -167,34 +196,57 @@
 }
 
 .stepperValue {
-  min-width: 44px;
+  min-width: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-inline: var(--border-hairline) solid var(--color-border-strong);
   text-align: center;
-  font-size: var(--text-32);
+  font-size: var(--text-24);
   font-weight: var(--weight-semibold);
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * Counted under what the plan needs: the number itself goes amber, which is the one cell a front
+ * desk is looking at (png/ramp-arrival.png's `.st.chg b`). Never colour alone — the "Planned 3"
+ * under the label says the number it is short of, in words.
+ */
+.stepper[data-short="true"] .stepperValue {
+  background: var(--color-warn-bg);
+  color: var(--color-warn-fg);
+}
+
+.stepper[data-short="true"] .planned {
+  color: var(--color-warn-fg);
+  font-weight: var(--weight-semibold);
+}
+
+/* The lift is the same joined shape as a counter: Yes | No in one box, the chosen side filled
+   light green (png/ramp-arrival.png's `.yn`). */
 .toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  min-width: 88px;
-  min-height: var(--target-ramp);
+  min-width: 82px;
   padding: 0 var(--space-4);
-  border: var(--border-hairline) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border: 0;
+  border-radius: 0;
   background: var(--color-surface);
-  color: var(--color-ink);
+  color: var(--color-ink-muted);
   font: inherit;
+  font-weight: var(--weight-semibold);
   cursor: pointer;
 }
 
+.toggle + .toggle {
+  border-left: var(--border-hairline) solid var(--color-border-strong);
+}
+
 .toggle[aria-pressed="true"] {
-  background: var(--color-brand);
-  border-color: var(--color-brand);
-  color: var(--color-surface);
-  font-weight: var(--weight-semibold);
+  background: var(--color-ok-bg);
+  color: var(--color-ok-fg);
 }
 
 .confirm {

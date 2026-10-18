@@ -59,6 +59,17 @@
 }
 
 /*
+ * A screen whose header controls belong at the **trailing** end of the bar marks them with
+ * `data-header-end` (the ramp iPad's van tabs, png/ramp-arrival.png). The slot is a 0 px element
+ * on every other screen and stays one: only a bar that actually holds such a control grows, so
+ * nothing that fills this slot today moves.
+ */
+.slot:global(:has(> [data-header-end])) {
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+
+/*
  * The account's disc, below 768 only (audit §2 item 5). Above it the rail's account block is the
  * one identity location and this is not drawn — one per width, never two.
  */
@@ -81,6 +92,17 @@
   .title {
     flex: 1 1 0;
     min-width: 0;
+  }
+
+  /*
+   * Below 768 the trailing controls take a row of their own under the title, which is what the
+   * 390 mockup draws (png/ramp-arrival-390.png: one row of three van tabs across the width).
+   * `order` puts them after the account disc so the title's row is still the title's row.
+   */
+  .slot:global(:has(> [data-header-end])) {
+    flex: 1 0 100%;
+    order: 2;
+    justify-content: stretch;
   }
 
   .avatar {

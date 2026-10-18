@@ -28,14 +28,16 @@ export function leavesLine(atMs: number): string {
 }
 
 /**
- * "Default 3" — what this van normally carries, said only under a counter that differs from it.
+ * "Planned 3" — what the saved plan for this leg needs of this van for one counter.
  *
- * Not "Planned": nothing plans counts any more (Firia's rule 1, 2026-10-17 5:48 PM ET). The
- * number it compares against is the van's DEFAULT from the shared config, so a front desk who
- * finds one car seat on a van that usually has two can see that is a difference and not a typo.
+ * It replaces "Default 3" (`differsLine`, which compared a count against the van's config
+ * default): the ramp reads a saved plan now, so the useful number under a counter is what the
+ * children the coordinator put on this van actually need. The sum is `usedBy` in
+ * src/domain/plan/fit.ts and is never computed a second time here, so the hint, the amber cell
+ * and the won't-fit banner cannot disagree.
  */
-export function differsLine(n: number): string {
-  return fill(vanArrival.differsFrom, { n });
+export function plannedLine(n: number): string {
+  return fill(vanArrival.planned, { n });
 }
 
 /** One rider's verdict: "Fits", or the one thing that is missing. */

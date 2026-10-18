@@ -34,14 +34,15 @@ import { openPlanBoard } from "@/domain/plan/replan";
 import type { BoardRider } from "@/domain/plan/board";
 import type { Direction } from "@/domain/day/leg";
 import { boardHref } from "@/modules/plan/when";
-import type { ArrivalVan } from "./view";
+import { plannedUse, underPlanned, type ArrivalVan } from "./view";
 import { planBoard, vanArrival } from "@/ui/copy";
 import { COUNTER_ICON, COUNTER_LABEL, LIFT_ICON, NeedIcons } from "@/ui/equipment";
+import { HeaderSlot } from "@/ui/HeaderSlot";
 import { icon } from "@/ui/tokens";
 import {
   confirmLabel,
-  differsLine,
   leavesLine,
+  plannedLine,
   riderVerdict,
   shortfallLines,
   whatsOn,
@@ -94,6 +95,9 @@ export default function VanArrival({
     });
   }, [draft, selected.riders]);
 
+  /** What the saved plan needs of this van, counter by counter: the "Planned 3" hints. */
+  const planned = useMemo(() => plannedUse(selected.riders), [selected.riders]);
+
   const shortfall = firstShortfall(draft, selected.riders);
   const firstRefused = verdicts.find((verdict) => verdict.reason !== null)?.rider ?? null;
   const replan = openPlanBoard({
@@ -135,26 +139,30 @@ export default function VanArrival({
         label (src/ui/PageHeader.tsx, #74), so a second one was the same words twice.
       */}
 
-      {/* The vans out on this leg, in van order: Van 1, Van 2, Van 3. */}
-      <nav className={styles.tabs} aria-label={vanArrival.ridersHeading}>
-        {vans.map((arrival) => (
-          <a
-            key={arrival.van.id}
-            className={styles.tab}
-            href={boardHref(RAMP_PATH, { date, leg, van: arrival.van.id })}
-            aria-current={arrival.van.id === selected.van.id ? "page" : undefined}
-            data-tab={arrival.van.id}
-          >
-            <span
-              className={styles.tabSwatch}
-              style={{ background: `var(--color-${arrival.van.colourToken})` }}
-              aria-hidden="true"
-            />
-            <span className={styles.tabName}>{arrival.van.name}</span>
-            <span className={styles.tabTime}>{leavesLine(arrival.leavesMs)}</span>
-          </a>
-        ))}
-      </nav>
+      {/*
+        The vans out on this leg, in van order: Van 1, Van 2, Van 3, each under a bar of its own
+        colour with the time it leaves under its name (png/ramp-arrival.png). At 1440 they sit at
+        the trailing end of the frame's own 64 px header bar, which is where the mockup draws
+        them, so they are portaled into its one slot (src/ui/HeaderSlot.tsx) rather than taking a
+        second strip under it. At 390 that bar wraps and they are one row of three across it.
+      */}
+      <HeaderSlot>
+        <nav className={styles.tabs} aria-label={vanArrival.vansLabel} data-header-end="">
+          {vans.map((arrival) => (
+            <a
+              key={arrival.van.id}
+              className={styles.tab}
+              style={{ borderTopColor: `var(--color-${arrival.van.colourToken})` }}
+              href={boardHref(RAMP_PATH, { date, leg, van: arrival.van.id })}
+              aria-current={arrival.van.id === selected.van.id ? "page" : undefined}
+              data-tab={arrival.van.id}
+            >
+              <span className={styles.tabName}>{arrival.van.name}</span>
+              <span className={styles.tabTime}>{leavesLine(arrival.leavesMs)}</span>
+            </a>
+          ))}
+        </nav>
+      </HeaderSlot>
 
       <div className={styles.cards}>
         <section className={styles.card} aria-labelledby="whats-on">
@@ -167,21 +175,25 @@ export default function VanArrival({
             const Icon = COUNTER_ICON[counter.key];
             const value = draft[counter.key];
             const changed = value !== defaults[counter.key];
+            /* Counted under what the plan needs: the value cell goes amber (Vera's item 3). */
+            const short = underPlanned(draft, planned, counter.key);
             return (
               <div
                 key={counter.key}
                 className={styles.stepper}
                 data-stepper={counter.key}
                 data-changed={changed ? "true" : "false"}
+                data-short={short ? "true" : "false"}
               >
                 <Icon size={icon.nav} aria-hidden="true" />
                 <span className={styles.stepperLabel}>
                   {COUNTER_LABEL[counter.key]}
-                  {/* What the plan had, said only when the count in front of them differs. */}
-                  {changed ? (
-                    <small className={styles.planned}>{differsLine(defaults[counter.key])}</small>
-                  ) : null}
+                  {/* What the saved plan needs of this van for this counter. */}
+                  <small className={styles.planned} data-planned={counter.key}>
+                    {plannedLine(planned[counter.key])}
+                  </small>
                 </span>
+                {/* One joined control, − | n | + (png/ramp-arrival.png's `.st`). */}
                 <span className={styles.stepperControls}>
                   <button
                     type="button"

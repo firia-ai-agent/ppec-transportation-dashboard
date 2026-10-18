@@ -13,10 +13,12 @@
  *
  * Pure apart from reading the day: no database of its own, no network, no React.
  */
+import type { CounterKey } from "@/config/equipment";
 import type { DayDataSource } from "@/domain/day/source";
 import type { Direction } from "@/domain/day/leg";
 import type { BoardDay, BoardPlan, BoardRider, BoardVan } from "@/domain/plan/board";
 import { ridersInVan } from "@/domain/plan/board";
+import { usedBy, type Used, type VanSetup } from "@/domain/plan/fit";
 import { boardHref } from "@/modules/plan/when";
 import { flow, vanArrival } from "@/ui/copy";
 
@@ -70,4 +72,25 @@ export function noPlanView(
     action: flow.action.planRoutes,
     href: boardHref(PLAN_PATH, { date, leg }),
   };
+}
+
+/**
+ * What the saved plan needs of this van, counter by counter — the "Planned 3" under a stepper.
+ *
+ * It is `usedBy` and nothing else (src/domain/plan/fit.ts): the hint under a counter, the amber
+ * cell beside it and the won't-fit banner are three readings of one sum, so a front desk is never
+ * told the van needs three car seats by one of them and two by another.
+ */
+export function plannedUse(riders: readonly BoardRider[]): Used {
+  return usedBy(riders);
+}
+
+/**
+ * Is what the front desk counted **under** what the plan needs? The amber cell (§2, Vera item 3).
+ *
+ * Amber and not crit: a van counted short is a fact to show, not a refusal — the refusal is the
+ * banner, which names the child it costs.
+ */
+export function underPlanned(counted: VanSetup, planned: Used, key: CounterKey): boolean {
+  return counted[key] < planned[key];
 }

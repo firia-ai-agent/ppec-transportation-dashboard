@@ -175,9 +175,15 @@ test.describe.serial("§2: the van that just arrived", () => {
     for (const key of ["seats", "wheelchairSpots", "carSeats", "oxygenMounts"]) {
       await expect(stepper(page, key)).toHaveAttribute("data-changed", "false");
     }
-    // Nothing on this screen says a count was "planned", and nothing promises tomorrow.
-    await expect(page.getByText(/Planned \d/)).toHaveCount(0);
-    await expect(page.getByText(/Tomorrow starts/i)).toHaveCount(0);
+    /*
+     * Every counter says what the SAVED plan needs of this van under its label — "Planned 3"
+     * (ramp-arrival.png). This replaces the old rule that nothing on the screen says a count was
+     * "planned", which was written when nothing planned counts: the ramp reads a saved plan now,
+     * so there is a planned number and the amber cell is measured against it (Vera's item 3).
+     */
+    await expect(page.locator("[data-planned]")).toHaveCount(4);
+    await expect(page.locator('[data-planned="carSeats"]')).toHaveText(/^Planned \d+$/);
+    await expect(page.getByText(/Default \d/)).toHaveCount(0);
 
     // The riders are the ones the plan that was just saved put on this van — the ramp shows a
     // saved plan or it shows nothing at all.
@@ -206,8 +212,9 @@ test.describe.serial("§2: the van that just arrived", () => {
       await fewer(page, "carSeats").click();
     }
     await expect(carSeats).toHaveAttribute("data-changed", "true");
-    // The hint under a changed counter names the van's default, and never calls it "Planned".
-    await expect(carSeats).toContainText(/Default \d/);
+    // Counted below what the plan needs: the hint names that number and the cell goes amber.
+    await expect(carSeats).toContainText(/Planned \d/);
+    await expect(carSeats).toHaveAttribute("data-short", "true");
 
     const banner = page.locator("[data-shortfall]");
     await expect(banner).toBeVisible();

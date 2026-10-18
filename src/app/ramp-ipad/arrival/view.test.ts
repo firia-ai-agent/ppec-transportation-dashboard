@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { emptyPlan, moveTo } from "@/domain/plan/board";
+import { usedBy } from "@/domain/plan/fit";
 import { demoDaySource } from "@/modules/demo/day-source";
 import { childTokenOf } from "@/modules/demo/fixtures/standard";
 import { boardHref } from "@/modules/plan/when";
-import { testDay, vanIdOfSlot, TEST_DATE } from "@/test/board-day";
+import { defaultsOfSlot, testDay, vanIdOfSlot, TEST_DATE } from "@/test/board-day";
 import { flow, vanArrival } from "@/ui/copy";
-import { arrivalVans, noPlanView, selectedVan } from "./view";
+import { arrivalVans, noPlanView, plannedUse, selectedVan, underPlanned } from "./view";
 
 /**
  * WHAT THE RAMP DRAWS, AND WHAT IT REFUSES TO INVENT.
@@ -77,5 +78,40 @@ describe("no plan saved for this leg", () => {
     expect(pm.line).toBe(vanArrival.noPlanSaved);
     expect(pm.action).toBe(flow.action.planRoutes);
     expect(pm.href).toBe(boardHref("/plan-routes", { date: TEST_DATE, leg: "PM" }));
+  });
+});
+
+describe("what the plan needs of a van, under each counter", () => {
+  it("is fit.ts's own sums over the riders the plan put on it", async () => {
+    const day = await testDay("AM");
+    const liam = day.riders.find((rider) => rider.needs.carSeat)!;
+    const plan = moveTo(emptyPlan(day), liam.token, vanIdOfSlot(1));
+    const vans = arrivalVans(day, plan, source);
+
+    const planned = plannedUse(vans[0].riders);
+    expect(planned).toEqual(usedBy(vans[0].riders));
+    expect(planned.carSeats).toBe(1);
+    // Seats are the riders aboard who are not in their own chair, plus any nurse riding along.
+    expect(planned.seats).toBe(liam.needs.wheelchair ? 0 : 1);
+
+    // A van the plan put nobody on needs nothing, so nothing under it is amber.
+    expect(plannedUse(vans[1].riders)).toEqual(usedBy([]));
+  });
+
+  it("is amber only when the count in front of the front desk is BELOW it", async () => {
+    const day = await testDay("AM");
+    const withCarSeat = day.riders.filter((rider) => rider.needs.carSeat).slice(0, 2);
+    expect(withCarSeat).toHaveLength(2);
+    let plan = emptyPlan(day);
+    for (const rider of withCarSeat) plan = moveTo(plan, rider.token, vanIdOfSlot(1));
+    const planned = plannedUse(arrivalVans(day, plan, source)[0].riders);
+    expect(planned.carSeats).toBe(2);
+
+    const defaults = defaultsOfSlot(1);
+    expect(underPlanned(defaults, planned, "carSeats")).toBe(false);
+    expect(underPlanned({ ...defaults, carSeats: 2 }, planned, "carSeats")).toBe(false);
+    expect(underPlanned({ ...defaults, carSeats: 1 }, planned, "carSeats")).toBe(true);
+    // Lowering a different counter says nothing about this one.
+    expect(underPlanned({ ...defaults, seats: 0 }, planned, "carSeats")).toBe(false);
   });
 });
