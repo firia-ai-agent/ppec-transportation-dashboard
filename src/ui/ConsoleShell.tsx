@@ -72,7 +72,7 @@ export async function ConsoleShell({
 }) {
   const role = caller.kind === "STAFF" ? caller.role : null;
   const canDecide = canOpenForYou(caller);
-  const thread = canDecide ? await readAgentThreadOrEmpty(getNeonDb(), siteOf(caller)) : null;
+  const thread = canDecide ? await readAgentThreadOrEmpty(getNeonDb, siteOf(caller)) : null;
   const lines = accountLines(caller.displayName, role ? roleNames[role].one : null);
   const account: RailAccount | null = lines.name
     ? {

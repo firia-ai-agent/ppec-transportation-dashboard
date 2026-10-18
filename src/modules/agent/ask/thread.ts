@@ -75,10 +75,17 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
   };
 }
 
-/** The same read, never allowed to take a screen down with it. */
-export async function readAgentThreadOrEmpty(db: Db, siteId: string): Promise<AgentThreadView> {
+/**
+ * The same read, never allowed to take a screen down with it. Takes the handle lazily, so a
+ * missing DATABASE_URL (getNeonDb throws) also lands in the catch — Veri #84 S1 at e06d88f:
+ * resolving it outside the try made every staff page 500 on the e2e server.
+ */
+export async function readAgentThreadOrEmpty(
+  db: Db | (() => Db),
+  siteId: string,
+): Promise<AgentThreadView> {
   try {
-    return await readAgentThread(db, siteId);
+    return await readAgentThread(typeof db === "function" ? db() : db, siteId);
   } catch {
     // A panel that cannot list today's proposals is a smaller problem than a console that will
     // not render. The proposals are still on their own screen, which is this one's link target.

@@ -395,6 +395,11 @@ describe("the thread the panel draws is read from rows this app holds", () => {
   it("never takes a screen down with it", async () => {
     const broken = { query: async () => { throw new Error("no"); } } as unknown as typeof db;
     expect(await readAgentThreadOrEmpty(broken, sc.siteId)).toEqual({ items: [], waiting: 0 });
+    // Veri #84 S1: no DATABASE_URL means the handle itself throws; that must not 500 the console.
+    const noUrl = () => {
+      throw new Error("DATABASE_URL is not set");
+    };
+    expect(await readAgentThreadOrEmpty(noUrl, sc.siteId)).toEqual({ items: [], waiting: 0 });
   });
 });
 
