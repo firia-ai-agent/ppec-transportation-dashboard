@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import {
+  Activity,
   ArrowDownRight,
   ArrowUpRight,
   Calendar,
@@ -9,9 +10,13 @@ import {
   CirclePause,
   Clock,
   Hand,
+  LayoutGrid,
   Locate,
   UserCheck,
 } from "lucide-react";
+import type { RightNowTile } from "@/domain/health/right-now";
+import { healthNow } from "@/ui/copy";
+import { HealthTiles } from "./HealthTiles";
 import { formatDelta } from "@/domain/eta/eta";
 import {
   matchesQuery,
@@ -63,9 +68,15 @@ export function TodayBoard({
   board,
   query,
   steps,
+  tiles,
 }: {
   board: Board;
   query: string;
+  /**
+   * The four Right now tiles, already counted from today's rows (src/domain/health).
+   * This component chooses the boxes. It does not decide a number.
+   */
+  tiles: readonly RightNowTile[];
   /**
    * The day's three steps, already filtered to what this role may open (src/ui/step-strip.ts).
    * Passed in rather than computed here because this is a client component and the access table
@@ -75,6 +86,7 @@ export function TodayBoard({
   steps: readonly StripStep[];
 }) {
   const { day } = board;
+  const [tab, setTab] = useState<"board" | "health">("board");
   const [onlyNeedsAction, setOnlyNeedsAction] = useState(false);
   const [openChild, setOpenChild] = useState<string | null>(null);
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -131,6 +143,41 @@ export function TodayBoard({
         mockup draws beside it — and the date is what names the day when it is not today.
       */}
       <header className={styles.titleRow}>
+        {/*
+          Board | Health (png/today-saved-1440.png, png/health-demo-1440.png). The selected
+          tab is the tint the rest of the app uses for "this one". Health is the four tiles
+          and nothing else on that panel.
+        */}
+        <div className={styles.tabs} role="tablist" aria-label={healthNow.tabsLabel}>
+          <button
+            type="button"
+            role="tab"
+            id="today-tab-board"
+            className={styles.tab}
+            aria-selected={tab === "board"}
+            aria-controls="today-panel-board"
+            onClick={() => setTab("board")}
+          >
+            <span className={styles.tabInner}>
+              <LayoutGrid size={icon.inline} aria-hidden="true" />
+              {healthNow.board}
+            </span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="today-tab-health"
+            className={styles.tab}
+            aria-selected={tab === "health"}
+            aria-controls="today-panel-health"
+            onClick={() => setTab("health")}
+          >
+            <span className={styles.tabInner}>
+              <Activity size={icon.inline} aria-hidden="true" />
+              {healthNow.health}
+            </span>
+          </button>
+        </div>
         <p className={styles.date}>
           <Calendar size={icon.inline} aria-hidden="true" />
           {/*
@@ -145,6 +192,13 @@ export function TodayBoard({
         </p>
       </header>
 
+      <div
+        role="tabpanel"
+        id="today-panel-board"
+        aria-labelledby="today-tab-board"
+        hidden={tab !== "board"}
+        className={styles.panel}
+      >
       {/* The order of the day, under the header and above the board (REDESIGN-SPEC §9.2). */}
       <StepStrip steps={steps} />
 
@@ -251,6 +305,17 @@ export function TodayBoard({
       {openLegs.length > 0 ? (
         <LegDrawer legs={openLegs} day={day} onClose={() => setOpenChild(null)} />
       ) : null}
+      </div>
+
+      <div
+        role="tabpanel"
+        id="today-panel-health"
+        aria-labelledby="today-tab-health"
+        hidden={tab !== "health"}
+        className={styles.panel}
+      >
+        <HealthTiles tiles={tiles} />
+      </div>
     </div>
   );
 }

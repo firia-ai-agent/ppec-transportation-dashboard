@@ -17,8 +17,56 @@
 .titleRow {
   display: flex;
   align-items: center;
-  gap: var(--space-5);
+  gap: var(--space-4);
   flex-wrap: wrap;
+  min-width: 0;
+}
+
+/*
+ * Board | Health (png/today-saved-1440.png, png/health-demo-390.png). The selected tab takes
+ * the "this one" tint. The radius and the padding live in two rules so this is a tab and not
+ * a second pill (src/ui/pill.test.ts).
+ */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.tab {
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-ink-muted);
+  font: inherit;
+  font-size: var(--body-console);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.tab[aria-selected="true"] {
+  background: var(--color-selected-bg);
+  color: var(--color-ink-brand);
+  font-weight: var(--weight-semibold);
+}
+
+.tabInner {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target-console);
+  padding: var(--space-2) var(--space-4);
+}
+
+.panel {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.panel[hidden] {
+  display: none;
 }
 
 .heading {
@@ -44,7 +92,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-3);
-  margin: 0;
+  margin: 0 0 0 auto;
   padding: var(--space-2) var(--space-4);
   border: var(--border-hairline) solid var(--color-disabled-border);
   border-radius: var(--radius-md);

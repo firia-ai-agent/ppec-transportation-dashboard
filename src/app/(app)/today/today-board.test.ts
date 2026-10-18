@@ -10,6 +10,7 @@ import { board as boardCopy, drawer, fill, needCategories, places } from "@/ui/c
 import { legStates, therapySessionStates } from "@/ui/states";
 import { clockLabel, demoDateIso, demoDateLabel } from "@/ui/service-date";
 import { deriveReadiness, unreadFacts } from "@/domain/day/readiness";
+import { rightNowTiles, unreadRightNow } from "@/domain/health/right-now";
 import { stepsFor } from "@/ui/step-strip";
 import { TodayBoard } from "./TodayBoard";
 import { LegDrawer } from "./LegDrawer";
@@ -62,7 +63,12 @@ const legOf = (key: string, direction: "AM" | "PM"): LegRow => {
  */
 function boardHtml(query = "", of: typeof board = board): string {
   return renderToStaticMarkup(
-    createElement(TodayBoard, { board: of, query, steps: stepsFor("DIRECTOR", READINESS) }),
+    createElement(TodayBoard, {
+      board: of,
+      query,
+      steps: stepsFor("DIRECTOR", READINESS),
+      tiles: rightNowTiles(unreadRightNow()),
+    }),
   );
 }
 
