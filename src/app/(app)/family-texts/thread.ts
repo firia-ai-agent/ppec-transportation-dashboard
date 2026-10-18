@@ -189,7 +189,16 @@ export function faultLine(e: unknown): string {
   return `${name}: ${text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s@]*@/gi, "$1[redacted]@").slice(0, 200)}`;
 }
 
-function bubbleOf(message: PersonaMessage): Bubble {
+/**
+ * One logged message, as a bubble.
+ *
+ * Exported for the suite that reads a *real* drained row back onto the screen
+ * (`messaging/eta-notice.test.ts`, Veri's run-8 gate 4): the two claims the thread makes about an
+ * outbound text — who sent it, and what became of it — are both made here, off the row's own
+ * `template_id` and `state`, and a test that re-implemented this mapping would prove nothing
+ * about the screen.
+ */
+export function bubbleOf(message: PersonaMessage): Bubble {
   return {
     id: message.id,
     direction: message.direction,

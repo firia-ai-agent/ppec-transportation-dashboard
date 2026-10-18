@@ -28,10 +28,18 @@ import type { Db } from "@/db/exec";
 import { ALL_STAFF, APPROVAL_ROLES } from "@/auth/access";
 import { demoChildToken, demoLegId } from "@/modules/demo/fixtures/standard";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
+import { FakeTransport } from "@/modules/jobs/fake-transport";
+import { VercelQueueScheduler } from "@/modules/jobs/scheduler";
+import { InMemorySimFaultStore } from "@/modules/messaging/faults";
+import { recordConsent } from "@/modules/messaging/consent";
+import { DbSimMessagingProvider } from "@/modules/messaging/sim-provider";
+import { drain, type DrainDeps } from "@/modules/outbox/outbox";
+import { gatewayRecipientAuthorizer } from "@/modules/outbox/policy";
 import { TEST_NOW } from "@/test/clock";
-import { seedPersona, seedStaff } from "@/test/messaging";
+import { testIdentityGateway } from "@/test/identity-gateway";
+import { PEPPER, seedPersona, seedStaff } from "@/test/messaging";
 import { freshDb, ORG, SITE } from "@/test/pglite";
-import { renderTemplate } from "@/modules/messaging/templates";
+import { renderTemplate, SEND_FOOTER } from "@/modules/messaging/templates";
 import { decideApproval, pendingApprovals } from "./decide";
 import { MESSAGE_SEND_KIND } from "./message-send";
 import type { PlanPlacementPortFor, SetChildPlacementInput } from "./plan-placement-port";
@@ -134,6 +142,48 @@ async function seedProposal(
   );
   return id;
 }
+
+/** The row `proposals.messageSend` writes for a `send_followup` to a family. */
+async function seedMessage(over: { vars?: Record<string, unknown>; templateId?: string } = {}): Promise<string> {
+  const taskId = uuidv7();
+  await db.query(
+    `INSERT INTO ops.task (id, site_id, category, severity, state, summary, next_step, completion_predicate,
+       created_by, updated_by, source_mode)
+     VALUES ($1, $2, 'FAMILY_MESSAGE', 'AMBER', 'OPEN', 'There is a text ready for a family',
+       'Read the text, then decide', 'the text approved or declined', 'test', 'test', 'SIMULATED')`,
+    [taskId, SITE],
+  );
+  const id = uuidv7();
+  await db.query(
+    `INSERT INTO ops.approval_request (id, site_id, task_id, proposal, created_by, updated_by, source_mode)
+     VALUES ($1, $2, $3, $4::jsonb, 'test', 'test', 'SIMULATED')`,
+    [
+      id,
+      SITE,
+      taskId,
+      JSON.stringify({
+        kind: MESSAGE_SEND_KIND,
+        tool: "send_followup",
+        audience: "GUARDIAN_OF_CHILD",
+        recipient_tokens: [contactToken],
+        child_token: childToken,
+        therapy_session_id: null,
+        trip_leg_id: legId,
+        channel: "SMS_1TO1",
+        purpose: "FAMILY_TRANSPORT_UPDATE",
+        recipient_rule: "authorized_contacts_for_child",
+        template_id: over.templateId ?? "leg.canceled",
+        vars: over.vars ?? { legDate: SERVICE_DATE, reasonCode: "FAMILY_REQUEST" },
+        approval_key: "a-key",
+      }),
+    ],
+  );
+  return id;
+}
+
+/** The words the card would show for that row: one renderer, the same one the outbox uses. */
+const wordsOf = (vars: Record<string, unknown> = { legDate: SERVICE_DATE, reasonCode: "FAMILY_REQUEST" }) =>
+  renderTemplate("leg.canceled", vars, { child: "Noah O." });
 
 /**
  * The board's plan port, faked (`plan-placement-port.ts`).
@@ -525,48 +575,6 @@ describe("another kind of proposal", () => {
  * one sends, because there is nothing for a version to be a version OF.
  */
 describe("a message approval: the text is the guard, and no plan is read (S1-7)", () => {
-  /** The row `proposals.messageSend` writes for a `send_followup` to a family. */
-  async function seedMessage(over: { vars?: Record<string, unknown>; templateId?: string } = {}): Promise<string> {
-    const taskId = uuidv7();
-    await db.query(
-      `INSERT INTO ops.task (id, site_id, category, severity, state, summary, next_step, completion_predicate,
-         created_by, updated_by, source_mode)
-       VALUES ($1, $2, 'FAMILY_MESSAGE', 'AMBER', 'OPEN', 'There is a text ready for a family',
-         'Read the text, then decide', 'the text approved or declined', 'test', 'test', 'SIMULATED')`,
-      [taskId, SITE],
-    );
-    const id = uuidv7();
-    await db.query(
-      `INSERT INTO ops.approval_request (id, site_id, task_id, proposal, created_by, updated_by, source_mode)
-       VALUES ($1, $2, $3, $4::jsonb, 'test', 'test', 'SIMULATED')`,
-      [
-        id,
-        SITE,
-        taskId,
-        JSON.stringify({
-          kind: MESSAGE_SEND_KIND,
-          tool: "send_followup",
-          audience: "GUARDIAN_OF_CHILD",
-          recipient_tokens: [contactToken],
-          child_token: childToken,
-          therapy_session_id: null,
-          trip_leg_id: legId,
-          channel: "SMS_1TO1",
-          purpose: "FAMILY_TRANSPORT_UPDATE",
-          recipient_rule: "authorized_contacts_for_child",
-          template_id: over.templateId ?? "leg.canceled",
-          vars: over.vars ?? { legDate: SERVICE_DATE, reasonCode: "FAMILY_REQUEST" },
-          approval_key: "a-key",
-        }),
-      ],
-    );
-    return id;
-  }
-
-  /** The words the card would show for that row: one renderer, the same one the outbox uses. */
-  const wordsOf = (vars: Record<string, unknown> = { legDate: SERVICE_DATE, reasonCode: "FAMILY_REQUEST" }) =>
-    renderTemplate("leg.canceled", vars, { child: "Noah O." });
-
   it("queues the text for the recipient the row names, and writes no plan", async () => {
     const id = await seedMessage();
     const answer = await decide({ approvalId: id, approvedText: wordsOf() });
@@ -631,5 +639,178 @@ describe("a message approval: the text is the guard, and no plan is read (S1-7)"
     expect(waiting.map((p) => p.id).sort()).toEqual([message, dropoff].sort());
     // Both render their words through the same renderer, which is what the card shows.
     expect(waiting.every((p) => p.text.length > 0)).toBe(true);
+  });
+});
+
+/**
+ * THE SEND HALF OF THE GATE — what reaches the family's phone, and what stops it (Veri's run-8
+ * gate; Firia's approval rules, 2026-10-18).
+ *
+ * Everything above this line stops at `ops.outbound_message`. That is the right boundary for the
+ * decision model — approving does not send, it queues, and the outbox decides — but it leaves the
+ * three claims a coordinator actually relies on unproved, because each of them is about the
+ * **drain**:
+ *
+ *  1. **a second Approve sends no second text.** "One row queued" is not that claim: a row
+ *     drained twice is two sends, and the assertions above would not have noticed. So both
+ *     presses are made, *every* queued row is drained, drained again, and the family's mailbox is
+ *     counted.
+ *  2. **an edited draft does not go out on the old signature**, and what does go out is the
+ *     approved words byte for byte — the sentence the channel requires after them, and nothing
+ *     else anywhere in them.
+ *  3. **a STOP that lands after the approval and before the drain stops the text**, and the row
+ *     records why. The approval was lawful when it was made; consent is re-read at send time,
+ *     which is the entire reason approving queues rather than sends.
+ *
+ * The provider is the real `DbSimMessagingProvider` over the real `drain`, so "what the family
+ * receives" is a row in `ops.message` — the bytes the centre handed the channel — rather than a
+ * template id and a bag of vars. The footer is appended at the send step and only there
+ * (`renderForSend`, S1-5), which is why the byte comparison below is the approved text plus one
+ * space plus `SEND_FOOTER`: a coordinator signs the message, and the channel adds its furniture.
+ */
+describe("what the family actually receives", () => {
+  /** The suites' identity gateway: it knows the rows `seedPersona` wrote (S1-6). */
+  const GATEWAY = testIdentityGateway({ pepper: PEPPER });
+
+  /** Two minutes after the decision — the drain is a later moment than the approval, always. */
+  const DRAIN_NOW = new Date(TEST_NOW.getTime() + 2 * 60_000);
+
+  /**
+   * The real send stack, built per call so it reads the database this test was given.
+   *
+   * `DbSimMessagingProvider` is the one the app and the demo run: it renders the body the way a
+   * send renders it, addresses the persona phone by blind index, and writes what it sent into
+   * `ops.message`. An in-memory provider would have let the byte comparison below be a comparison
+   * against this file's own idea of the text.
+   */
+  const sendStack = (): DrainDeps => ({
+    provider: new DbSimMessagingProvider(
+      db,
+      new VercelQueueScheduler(db, new FakeTransport(), () => DRAIN_NOW),
+      {
+        faults: new InMemorySimFaultStore(),
+        clock: () => DRAIN_NOW,
+        pepper: PEPPER,
+        seed: "test-seed",
+        gateway: GATEWAY,
+      },
+    ),
+    authorizer: gatewayRecipientAuthorizer(GATEWAY),
+    clock: () => DRAIN_NOW,
+    timeoutMs: 500,
+  });
+
+  /**
+   * Drain every outbound row there is, and answer with what each one did.
+   *
+   * Every row, not the one this test expects: "exactly one text" is a claim about the whole
+   * outbox, and a second row queued under a second key would be invisible to a drain of a known
+   * id. Called twice over, a sent row answers `noop` — which is the other half of the claim.
+   */
+  async function drainAll(): Promise<string[]> {
+    const rows = await db.query<{ id: string }>(
+      "SELECT id FROM ops.outbound_message ORDER BY created_at, id",
+      [],
+    );
+    const out: string[] = [];
+    for (const row of rows.rows) out.push(await drain(db, row.id, sendStack(), "test:drain"));
+    return out;
+  }
+
+  /** The bytes that left the centre, in order: `ops.message`, which is the persona's phone. */
+  const received = async () =>
+    (await db.query<{ body_tokenized: string }>(
+      "SELECT body_tokenized FROM ops.message WHERE direction = 'OUT' ORDER BY received_at, id",
+      [],
+    )).rows.map((m) => m.body_tokenized);
+
+  /** The outbound row's own verdict and the reason it recorded for it. */
+  const verdict = async () =>
+    (await db.query<{ state: string; block_reason: string | null }>(
+      "SELECT state, block_reason FROM ops.outbound_message ORDER BY created_at, id",
+      [],
+    )).rows;
+
+  it("sends one text for two presses of Approve, and nothing for the drain that follows", async () => {
+    const id = await seedMessage();
+
+    expect(await decide({ approvalId: id, approvedText: wordsOf() })).toMatchObject({ status: 200 });
+    expect(await decide({ approvalId: id, approvedText: wordsOf() })).toEqual({
+      status: 409,
+      body: { ok: false, error: "ALREADY_DECIDED" },
+    });
+
+    // One queued row, drained once: one text. Drained again: nothing, because the row has left
+    // QUEUED and a sent message is never re-sent (ADR-003).
+    expect(await drainAll()).toEqual(["SENT"]);
+    expect(await drainAll()).toEqual(["noop"]);
+    expect(await received()).toHaveLength(1);
+  });
+
+  it("does not send an edited draft on the old approval, and sends the approved words byte for byte", async () => {
+    const id = await seedMessage();
+    const asDrafted = wordsOf();
+
+    /*
+     * The draft changes under the open card — here the reason the row gives, which is the one
+     * thing in these words that is not fixed copy. The card re-renders through the decision
+     * model's own renderer and shows the new sentence; the signature a coordinator had already
+     * given is a signature on the old one.
+     */
+    const editedVars = { legDate: SERVICE_DATE, reasonCode: "SCHEDULE_CHANGE" };
+    await db.query(
+      "UPDATE ops.approval_request SET proposal = jsonb_set(proposal, '{vars}', $2::jsonb) WHERE id = $1",
+      [id, JSON.stringify(editedVars)],
+    );
+    const asEdited = wordsOf(editedVars);
+    expect(asEdited).not.toBe(asDrafted);
+
+    expect(await decide({ approvalId: id, approvedText: asDrafted })).toEqual({
+      status: 409,
+      body: { ok: false, error: "MESSAGE_CHANGED" },
+    });
+    // Nothing queued, so nothing to drain, so nothing on the phone: the edit did not send.
+    expect(await drainAll()).toEqual([]);
+    expect(await received()).toEqual([]);
+
+    // The card now reads the edited words, still pending, still with an Approve to press.
+    expect((await pendingApprovals(db, [SITE])).map((p) => p.text)).toEqual([asEdited]);
+
+    expect(await decide({ approvalId: id, approvedText: asEdited })).toMatchObject({ status: 200 });
+    expect(await drainAll()).toEqual(["SENT"]);
+
+    /*
+     * Byte for byte. Not "contains" and not a shape: the approved text, then one space, then the
+     * 10DLC sentence the channel requires — which is the whole of what the send step is allowed
+     * to add to a message a person signed.
+     */
+    expect(await received()).toEqual([`${asEdited} ${SEND_FOOTER}`]);
+  });
+
+  it("does not send a text a STOP overtook, and records why", async () => {
+    const id = await seedMessage();
+    expect(await decide({ approvalId: id, approvedText: wordsOf() })).toMatchObject({ status: 200 });
+    expect((await verdict())[0].state).toBe("QUEUED");
+
+    /*
+     * The family texts STOP in the minute between the approval and the drain. Recorded through
+     * the consent model rather than by writing `ops.suppression` by hand, because what has to
+     * block the send is the projection a real STOP actually leaves behind (MSG-04).
+     */
+    const stop = await recordConsent(db, GATEWAY, {
+      siteId: SITE,
+      contactToken,
+      channel: "SMS_1TO1",
+      kind: "STOP",
+      at: new Date(TEST_NOW.getTime() + 60_000),
+      by: "test:webhook",
+    });
+    expect(stop.suppression).toBe("added");
+
+    expect(await drainAll()).toEqual(["BLOCKED_EGRESS"]);
+    // Not sent, and not sendable later: the row says what it is and why, in one place.
+    expect(await received()).toEqual([]);
+    expect(await verdict()).toEqual([{ state: "BLOCKED_EGRESS", block_reason: "suppressed (ALL)" }]);
+    expect(await drainAll()).toEqual(["noop"]);
   });
 });
