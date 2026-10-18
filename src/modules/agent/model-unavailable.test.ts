@@ -46,7 +46,7 @@ const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
-import { assistantUnavailable } from "@/ui/copy";
+import { assistantUnavailable, fill } from "@/ui/copy";
 import { APPROVAL_ROLES } from "@/auth/access";
 import { CHILDREN, FAMILIES, synLegalName } from "@/modules/demo/fixtures/standard";
 import { TEST_NOW } from "@/test/clock";
@@ -93,6 +93,7 @@ import {
   openAssistantAlerts,
 } from "./staff-alert";
 import { liveProviderOrRefusal } from "./run/provider-choice";
+import { freeText, toolCall } from "./providers/fake";
 
 /* ───────────────────────────── the family, and what they wrote ───────────────────────────── */
 
@@ -851,6 +852,111 @@ describe("the leg word is read off the leg, not out of the family's sentence", (
 
     const [card] = await alerts();
     expect(card.sentence).toContain(assistantUnavailable.legWord.AM);
+  });
+});
+
+/* ─────────── a run that failed for any other reason leaves the same family unanswered ─────────── */
+
+/**
+ * VERA, 2026-10-18 (mockups/family-texts.html — the For you tab; mockups/agent-bubble.html).
+ *
+ * An outage was the only failure that put a card in front of a person. Every other way a run can
+ * end — a gateway refusal, a policy block, a scope refusal, a spent step budget, a context that
+ * could not be assembled — left the family's text sitting in the thread with **nothing** on the
+ * For you tab: no proposal, because none was written, and no alert, because nothing was down.
+ * From the family's side those are one fact, and it is the fact the founder's rule of 2026-10-17
+ * is about: their text is there, nobody answered it, so it needs a person.
+ *
+ * Driven through the real loop with the scripted provider: the model answers with a sentence
+ * where a catalog call belongs, which the gateway refuses (`REJECTED_FREE_TEXT`) and the loop
+ * fails shut on. `modelUnavailable` returns null for that outcome, so this is emphatically **not**
+ * the outage path — which is the whole point of the case.
+ */
+describe("Vera: an unanswered family text whose run FAILED surfaces the needs-a-person card", () => {
+  const failingRun = () =>
+    liveHarness({
+      gateway: GATEWAY, db, script: [freeText("just call her mother")],
+      facts: facts(), policy: policy(), now: () => now,
+    });
+
+  it("raises the card, with its own reason class, for a run that failed without an outage", async () => {
+    const r = await failingRun().start(trigger());
+    expect(r.state).toBe("FAILED");
+    // Not an outage: nothing here claims the model could not be reached.
+    expect(r.modelUnavailable).toBeUndefined();
+
+    const [card] = await alerts();
+    expect(card).toBeDefined();
+    expect(card.sentence).toBe(
+      fill(assistantUnavailable.card, {
+        adult: `${GUARDIAN.firstName} ${GUARDIAN.lastInitial}.`,
+        child: CHILD.firstName,
+        leg: assistantUnavailable.legWord.PM,
+      }),
+    );
+    // Their own words are under it, verbatim, because nothing read them.
+    expect(card.theirWords).toBe(THEIR_WORDS);
+    // And the row says which kind of nothing this was — not an outage class.
+    const [task] = (
+      await db.query<{ completion_evidence: { locator?: Record<string, unknown> } | null }>(
+        "SELECT completion_evidence FROM ops.task WHERE category = $1",
+        [MODEL_UNAVAILABLE_CATEGORY],
+      )
+    ).rows;
+    expect(task.completion_evidence?.locator).toMatchObject({
+      message_id: sc.messageId,
+      reason_class: "run_failed",
+    });
+  });
+
+  it("counts on the For you badge, exactly once however often the run is re-driven", async () => {
+    const h = failingRun();
+    const first = await h.start(trigger());
+    await h.start(trigger());
+    // The second start finds the finished run and drives nothing; the card's id is the
+    // message's either way, so a retry cannot make a second one.
+    expect(first.state).toBe("FAILED");
+    expect(await assistantAlertCount(db, [sc.siteId])).toBe(1);
+    expect(await alerts()).toHaveLength(1);
+  });
+
+  it("writes nothing else: a card is not a proposal, a ride change or a text", async () => {
+    const before = await legs();
+    await failingRun().start(trigger());
+    expect(await sideEffects()).toEqual({
+      outbound: 0, approvals: 0, changeRequests: 0, acknowledgments: 0,
+    });
+    expect(await legs()).toEqual(before);
+  });
+
+  /**
+   * …and a run that DID produce something gets no card. A proposal is a decision already in front
+   * of a coordinator, and a "nobody answered this" card beside it would be the tab contradicting
+   * the card next to it.
+   */
+  it("raises no card for a run that put a proposal in front of a person", async () => {
+    const pm = (await legs()).find((l) => l.id === sc.legs[sc.children[0]].PM)!;
+    const h = liveHarness({
+      gateway: GATEWAY, db,
+      script: [
+        toolCall("propose_dropoff_change", {
+          leg_id: pm.id,
+          requested_dropoff_time: "17:00",
+          requested_stop_token: null,
+          rationale_code: "PARENT_REQUEST",
+          // A sentence fit for a card: no token, no code, no id (`agent/alert-text.ts`).
+          alert_text: "A parent asked to move a drop-off to 5 PM.",
+          reply: "Hi, yes, we can do that today. Thank you for letting us know.",
+          source_message_id: sc.messageId,
+          expected_version: pm.plan_version,
+        }),
+      ],
+      facts: facts(), policy: policy(), now: () => now,
+    });
+    const r = await h.start(trigger());
+    expect(r.state).toBe("SUCCEEDED");
+    expect(await alerts()).toEqual([]);
+    expect(await assistantAlertCount(db, [sc.siteId])).toBe(0);
   });
 });
 

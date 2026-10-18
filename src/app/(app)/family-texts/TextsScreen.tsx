@@ -79,6 +79,18 @@ export function TextsScreen({
   readonly showForYouTab: boolean;
 }) {
   const forYou = tab === "for-you" && showForYouTab;
+  /**
+   * THE EMPTY STATE (Firia's S1-2: "with no rows show the … empty state").
+   *
+   * Said as a fact about the day rather than about the build, which is what `approval.none`
+   * already says on the screen this tab replaced. It is the whole of what a coordinator gets when
+   * nothing is waiting — no card, because a card is an offer to approve something, and no list,
+   * because the list is the other two tabs.
+   *
+   * Not shown while an alert is up, or while the board could not be read: "nothing is waiting"
+   * under a "needs a person" card would be the tab contradicting itself in two lines.
+   */
+  const nothingWaiting = forYou && proposals.length === 0 && alerts.length === 0 && !alertsUnreadable;
   return (
     <div
       className={styles.screen}
@@ -133,22 +145,16 @@ export function TextsScreen({
               rows={rows}
             />
           ) : null}
+          {nothingWaiting ? <p className={styles.empty}>{approval.none}</p> : null}
           {/*
-            * THE EMPTY STATE (Firia's S1-2: "with no rows show the … empty state").
+            * …AND THE LIST IS NOT UNDER IT (Vera, 2026-10-18; mockups/family-texts.html).
             *
-            * Said as a fact about the day rather than about the build, which is what
-            * `approval.none` already says on the screen this tab replaced. It is the whole of what
-            * a coordinator gets when no proposal is waiting — there is no card any more for a day
-            * with no approval rows in it, because a card is an offer to approve something and
-            * there is nothing to approve.
-            *
-            * Not shown while an alert is up: "nothing is waiting" under a "needs a person" card
-            * would be the tab contradicting itself in two lines.
+            * "Nothing is waiting for a decision." over the day's five conversations read as a
+            * screen arguing with itself — five rows, each with a pill on it, under a line saying
+            * there was nothing here. The other two tabs *are* the list and keep it; For you is a
+            * queue, and an empty queue is one sentence.
             */}
-          {forYou && proposals.length === 0 && alerts.length === 0 && !alertsUnreadable ? (
-            <p className={styles.empty}>{approval.none}</p>
-          ) : null}
-          <ConversationList rows={rows} tab={tab} openKey={thread?.key ?? null} />
+          {nothingWaiting ? null : <ConversationList rows={rows} tab={tab} openKey={thread?.key ?? null} />}
         </div>
         {thread === null ? (
           <p className={styles.empty}>{familyTexts.emptyDay}</p>

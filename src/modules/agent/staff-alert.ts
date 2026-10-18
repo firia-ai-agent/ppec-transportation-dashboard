@@ -311,7 +311,7 @@ export type RaiseAlertInput = {
   readonly siteId: string;
   /** The inbound `ops.message` this run was triggered by. The card's text is read from it. */
   readonly messageId: string;
-  readonly reason: UnavailableReason;
+  readonly reason: UnansweredReason;
   /** `created_by` / `updated_by`. The run's actor, so the row says which run could not run. */
   readonly by: string;
 };
@@ -337,15 +337,16 @@ export function askUnavailableAlertId(askTaskId: string): string {
 }
 
 /**
- * Why an ask ended with nobody having answered it.
+ * Why a question — a family's text or a coordinator's ask — ended with nobody having answered it.
  *
- * The model-outage classes, plus the one an ask can reach that an inbound text cannot:
- * `run_failed`, a run that was really driven, reached a model and still stopped without an answer
- * — a policy block, a step budget spent, an executor that failed. The coordinator's next move is
- * the same for all of them (read it and answer it yourself), so this class never reaches a card;
- * it is the log's and the row's, exactly like `UnavailableReason`.
+ * The model-outage classes, plus the one that is not an outage at all: `run_failed`, a run that
+ * was really driven, may well have reached a model, and still stopped without producing anything
+ * for the person waiting — a policy block, a scope refusal, a step budget spent, a context that
+ * could not be assembled, an executor that threw. The coordinator's next move is the same for all
+ * of them (read it and answer it yourself), so this class never reaches a card; it is the log's
+ * and the row's, exactly like `UnavailableReason`.
  */
-export type AskUnavailableReason = UnavailableReason | "run_failed";
+export type UnansweredReason = UnavailableReason | "run_failed";
 
 /**
  * The one line an ask that nobody answered writes to the server log.
@@ -355,12 +356,12 @@ export type AskUnavailableReason = UnavailableReason | "run_failed";
  * catch that calls it), and no ask text, because the whole reason this row exists is that nobody
  * could read it.
  */
-export function askUnavailableLogLine(reason: AskUnavailableReason): string {
+export function askUnavailableLogLine(reason: UnansweredReason): string {
   return `agent: ask unavailable (${reason}); staff alert raised`;
 }
 
 /** Log it, once, through the same `console` seam the queue routes use. */
-export function logAskUnavailable(reason: AskUnavailableReason): void {
+export function logAskUnavailable(reason: UnansweredReason): void {
   console.warn(askUnavailableLogLine(reason));
 }
 
@@ -388,7 +389,7 @@ export async function raiseAskUnavailableAlert(
     readonly siteId: string;
     readonly askTaskId: string;
     readonly by: string;
-    readonly reason: AskUnavailableReason;
+    readonly reason: UnansweredReason;
   },
 ): Promise<RaisedAlert> {
   const id = askUnavailableAlertId(input.askTaskId);

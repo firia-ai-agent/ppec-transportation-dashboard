@@ -53,7 +53,7 @@ import { type AgentRunner, agentRunner } from "../run/deps";
 import { raiseTask } from "../run/exec/effects";
 import { askAnswer } from "./answer";
 import {
-  type AskUnavailableReason,
+  type UnansweredReason,
   askUnavailableAlertId,
   logAskUnavailable,
   modelUnavailable,
@@ -275,7 +275,7 @@ export async function askAgent(
      * classified by the one classifier (`modelUnavailable`), defaulting to `provider_error` for a
      * throw nobody has named.
      */
-    const reason: AskUnavailableReason =
+    const reason: UnansweredReason =
       err instanceof AskTimedOut ? "timeout" : (modelUnavailable(err)?.reason ?? "provider_error");
     logAskUnavailable(reason);
     const raised = await raiseAskUnavailableAlert(db, {

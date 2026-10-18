@@ -645,8 +645,81 @@ async function finish(deps: RunDeps, run: RunRow, outcome: StepOutcome, steps: n
   }
 }
 
-async function fail(deps: RunDeps, run: RunRow, reason: string, steps: number): Promise<RunResult> {
+/**
+ * The run stops here, FAILED — and whoever was waiting on an answer is told.
+ *
+ * Fail-shut has always been the easy half: the run is marked, nothing else runs, nothing was
+ * executed. The half that was missing is the **person**. A family's text and a coordinator's ask
+ * are both somebody waiting on an answer this run was going to produce, and a run that ends
+ * FAILED produces none — whether the model was unreachable (`modelDown`, which raises the alert
+ * itself and passes `alerted`) or the run refused a step of its own: a policy block, a scope
+ * refusal, a spent budget, a context that could not be assembled, an executor that threw. From
+ * the family's side those are one fact, and the founder's rule of 2026-10-17 is about that fact
+ * and not about which line of this file reached it: their text is sitting there, so it needs a
+ * person. Before this, only the outage raised a card and every other failure left "For you"
+ * showing nothing at all.
+ *
+ * `alertUnanswered` writes at most one row and is `ON CONFLICT DO NOTHING` on an id derived from
+ * the message or the ask, so a re-driven run and a run the loop already alerted on are one card.
+ */
+async function fail(
+  deps: RunDeps,
+  run: RunRow,
+  reason: string,
+  steps: number,
+  opts: { readonly alerted?: boolean } = {},
+): Promise<RunResult> {
+  if (!opts.alerted) await alertUnanswered(deps, run);
   return move(deps, run, "FAILED", steps, reason);
+}
+
+/**
+ * One "needs a person" card for a run that ended with nothing for whoever was waiting.
+ *
+ * Three conditions, and each is a refusal to raise noise:
+ *
+ *  1. **Somebody has to be waiting.** A timer, a sweeper or a reconciliation run has nobody on
+ *     the other end of it — the same test `modelDown` makes — so those fail quietly as before.
+ *  2. **The run must have produced nothing.** A run that wrote a proposal before a later step
+ *     failed has already put a decision in front of a coordinator; a second card saying nobody
+ *     answered would be the screen contradicting the card beside it.
+ *  3. **It must not take the run down with it.** The alert is a courtesy on top of the failure,
+ *     never a reason the failure cannot be recorded, so the write is caught and dropped.
+ *
+ * The class is `run_failed`: honest about what happened, and distinct from every outage class so
+ * an on-call reading `reason_class` can tell "no model answered" from "the agent refused a step".
+ */
+async function alertUnanswered(deps: RunDeps, run: RunRow): Promise<void> {
+  if (run.trigger.type !== "msg.inbound" && run.trigger.type !== "staff.ask") return;
+  try {
+    if (await hasProposal(deps.db, run.id)) return;
+    if (run.trigger.type === "msg.inbound") {
+      await raiseModelUnavailableAlert(deps.db, {
+        siteId: run.trigger.siteId,
+        messageId: run.trigger.id,
+        reason: "run_failed",
+        by: run.updatedBy,
+      });
+    } else {
+      await raiseAskUnavailableAlert(deps.db, {
+        siteId: run.trigger.siteId,
+        askTaskId: run.trigger.id,
+        by: run.updatedBy,
+        reason: "run_failed",
+      });
+    }
+  } catch {
+    // The run still failed, and that is the fact that must be recorded.
+  }
+}
+
+/** Did this run put a decision in front of a person? One PROPOSED call row is enough. */
+async function hasProposal(db: Db, runId: string): Promise<boolean> {
+  const r = await db.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM ops.agent_tool_call WHERE run_id = $1 AND status = 'PROPOSED'`,
+    [runId],
+  );
+  return Number(r.rows[0]?.n ?? 0) > 0;
 }
 
 /**
@@ -710,7 +783,9 @@ async function modelDown(
   // `stop` is said out loud on the run row: a misrouted key is not a flaky vendor, and whoever
   // reads this must not wait for it to clear. The alert is raised either way.
   const kind = unavailable.stop ? "stop" : "model unavailable";
-  const failed = await fail(deps, run, `${kind} (${unavailable.detail}); ${raised}`, steps);
+  // `alerted`: the card for this run is the one just written above, with the outage's own class
+  // on it. Letting `fail` raise a second would overwrite nothing (same id) and log a second line.
+  const failed = await fail(deps, run, `${kind} (${unavailable.detail}); ${raised}`, steps, { alerted: true });
   return { ...failed, modelUnavailable: true };
 }
 

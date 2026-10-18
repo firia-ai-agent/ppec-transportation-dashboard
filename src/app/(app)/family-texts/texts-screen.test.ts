@@ -568,6 +568,52 @@ describe("gate 5: no model, no card", () => {
   });
 });
 
+/**
+ * VERA, 2026-10-18 — mockups/family-texts.html and mockups/agent-bubble.html, read at 1440 and 390.
+ *
+ * An empty queue is one sentence. The tab was drawing `approval.none` and then the day's five
+ * conversations under it, each with a pill on it: a screen saying "nothing is waiting" over five
+ * rows that look like things waiting. The list belongs to the other two tabs, which are the list;
+ * For you is a queue, and an empty queue has nothing in it.
+ */
+describe("Vera: the For you tab with nothing waiting is one line and nothing else", () => {
+  const empty = () => textOf(render({ tab: "for-you", request: undefined, alerts: [] }));
+
+  it("says the one line from copy.ts", () => {
+    expect(empty()).toContain(approval.none);
+    expect(approval.none).toBe("Nothing is waiting for a decision.");
+  });
+
+  /**
+   * Counted on the markup, because the adult's name is on the *thread* pane too and the thread is
+   * not what this is about: the `<ul>` the rows live in carries the list's own label, and the tab
+   * strip above carries it as well, so one of them is "no list" and two is "a list".
+   */
+  const lists = (html: string) =>
+    (html.match(new RegExp(`aria-label="${familyTexts.conversationsLabel}"`, "g")) ?? []).length;
+
+  it("draws no conversation row under it — no list, and not one pill", () => {
+    const html = render({ tab: "for-you", request: undefined, alerts: [] });
+    expect(lists(html)).toBe(1);
+    for (const label of Object.values(familyTexts.rowState)) expect(textOf(html)).not.toContain(label);
+  });
+
+  it("keeps the list on the two tabs that are the list", () => {
+    for (const tab of ["all", "sent"] as const) {
+      const html = render({ tab, request: undefined });
+      expect({ tab, lists: lists(html) }).toEqual({ tab, lists: 2 });
+      // …and those tabs never say the queue's empty line, which is not about them.
+      expect({ tab, none: textOf(html).includes(approval.none) }).toEqual({ tab, none: false });
+    }
+  });
+
+  it("keeps the list when something IS waiting: an alert is read beside the day", () => {
+    const html = render({ tab: "for-you", request: undefined, alerts: [ALERT] });
+    expect(textOf(html)).not.toContain(approval.none);
+    expect(lists(html)).toBe(2);
+  });
+});
+
 describe("gate 6: no provider name and no raw state anywhere on the screen", () => {
   const BANNED = [
     /\bTwilio\b/i,
