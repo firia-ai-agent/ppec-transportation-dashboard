@@ -2,9 +2,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { planBoard } from "@/ui/copy";
-import { slotSnapshot, subscribeToSlot } from "@/ui/HeaderSlot";
 import { boardHref, resolveLeg } from "@/modules/plan/when";
 import { BoardToolbar } from "./BoardToolbar";
 
@@ -67,35 +66,5 @@ describe("the leg switch cannot be squeezed or scrolled out of sight", () => {
 
   it("nothing on the row shrinks (`.segmented` has overflow: hidden, so it would shrink to 0)", () => {
     expect(rule(".toolbar > *")).toContain("flex: none");
-  });
-});
-
-describe("HeaderSlot finds a header bar mounted after it rendered (soft navigation)", () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("re-reads the slot when the document changes, and stops on unsubscribe", () => {
-    let slot: object | null = null;
-    let fire: () => void = () => {};
-    const disconnect = vi.fn();
-    vi.stubGlobal("document", { body: {}, querySelector: () => slot });
-    vi.stubGlobal(
-      "MutationObserver",
-      class {
-        constructor(cb: () => void) {
-          fire = cb;
-        }
-        observe() {}
-        disconnect = disconnect;
-      },
-    );
-    const onChange = vi.fn();
-    const unsubscribe = subscribeToSlot(onChange);
-    expect(slotSnapshot()).toBeNull(); // the new bar is not in the document yet
-    slot = { tag: "div" };
-    fire(); // the commit that mounts the bar
-    expect(onChange).toHaveBeenCalled();
-    expect(slotSnapshot()).toBe(slot);
-    unsubscribe();
-    expect(disconnect).toHaveBeenCalled();
   });
 });

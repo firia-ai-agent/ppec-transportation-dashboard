@@ -30,15 +30,57 @@ import type { ReactNode } from "react";
  * layout), so during render `[data-header-slot]` is not in the document yet. A one-shot lookup
  * returned null and nothing ever asked again: the toolbar, leg switch included, was never drawn
  * until a full page load (which the leg links are). So the snapshot is the slot element itself,
- * and the subscription re-reads it whenever the document's children change.
+ * and the subscription tells React when it may have changed.
+ *
+ * The watch is as small as it can be (Veri's gate, 8:09 AM ET):
+ *  - **searching**: no slot yet, so one observer on the body's subtree, until the slot appears;
+ *  - **found**: that observer is disconnected. What is left is one `childList` observer (no
+ *    subtree) on each ancestor of the slot, which fires only when the slot or a node above it is
+ *    added or removed — never on the board's own drags and re-renders. If the slot has left the
+ *    document (a header remount), React is told and the search starts again; otherwise nothing.
+ *  - unsubscribe (unmount) disconnects whatever is attached.
  */
 export const SLOT_SELECTOR = "[data-header-slot]";
 
 export function subscribeToSlot(onChange: () => void): () => void {
   if (typeof MutationObserver === "undefined" || typeof document === "undefined") return () => {};
-  const observer = new MutationObserver(onChange);
-  observer.observe(document.body, { childList: true, subtree: true });
-  return () => observer.disconnect();
+  let observers: MutationObserver[] = [];
+  const stop = () => {
+    for (const observer of observers) observer.disconnect();
+    observers = [];
+  };
+  const watchSlot = (slot: Element) => {
+    stop();
+    const onAncestorChange = () => {
+      if (slot.isConnected) return;
+      onChange();
+      search();
+    };
+    for (let node: Node | null = slot.parentNode; node; node = node.parentNode) {
+      const observer = new MutationObserver(onAncestorChange);
+      observer.observe(node, { childList: true });
+      observers.push(observer);
+      if (node === document.body) break;
+    }
+  };
+  const search = () => {
+    stop();
+    const found = document.querySelector(SLOT_SELECTOR);
+    if (found) {
+      watchSlot(found);
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      const slot = document.querySelector(SLOT_SELECTOR);
+      if (!slot) return;
+      watchSlot(slot);
+      onChange();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    observers.push(observer);
+  };
+  search();
+  return stop;
 }
 
 export function slotSnapshot(): Element | null {
