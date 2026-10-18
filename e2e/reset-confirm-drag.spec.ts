@@ -8,7 +8,12 @@
  *    switcher at 390 (plan-board.html:286 `.vtabs.p390`), and the toolbar's Auto-plan / Save.
  *  - `/workspace/ppec-redesign/mockups/shell-flow.html` + `png/shell-flow-1440.png`: the DEMO
  *    bar and the "Restart demo day" control at its right-hand end (shell-flow.html's `.demo
- *    .reset`, drawn identically in plan-board.html:265).
+ *    .reset`, drawn identically in plan-board.html:265) — and Today itself (`<h1>Today`,
+ *    shell-flow.html:144, with its step strip at :156), which the last describe below compares
+ *    against the board.
+ *  - `/workspace/ppec-redesign/mockups/ramp-arrival.html`: the Ramp iPad's Oxygen stepper
+ *    (ramp-arrival.html:181) and the big "Confirm Van 1" beneath them (:183), which is where
+ *    the counts both of those screens plan on are set.
  *
  * WHAT ONLY A BROWSER CAN ANSWER. The arithmetic is unit-tested — where a drop lands
  * (src/app/plan-routes/board/collision.test.ts), whether a van may take a child
@@ -35,7 +40,7 @@
  * control — the same dialog, the same decision, the same request.
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { demoDay, planBoard } from "../src/ui/copy";
+import { board as boardCopy, demoDay, fill, planBoard, sentence, vanArrival } from "../src/ui/copy";
 import { API } from "../src/auth/access";
 import { boxOf, expectNoInternalCodes } from "./helpers";
 
@@ -64,6 +69,10 @@ const DAY = {
   dragPhone: "2026-12-02",
   parity: "2026-12-03",
   family: "2026-12-04",
+  /** The S1 of 2026-10-18: a van nobody has counted, full on the counts it is planned on. */
+  full: "2026-12-05",
+  /** The same S1: a van the ramp has counted, on a board of its own. */
+  counted: "2026-12-06",
 };
 
 const boardUrl = (day: string) => `/plan-routes?date=${day}&leg=pm`;
@@ -593,5 +602,195 @@ test.describe("S1: Restart today?", () => {
     await page.goto("/");
     await expect(page.locator("[data-demo-restart]")).toHaveCount(0);
     await expect(page.locator("[data-restart-confirm]")).toHaveCount(0);
+  });
+});
+/* ──────────────── one van setup, read by the board and by Today ──────────────── */
+
+/**
+ * FIRIA'S THIRD REPORT, 2026-10-18: the board allowed six children and a wheelchair in a van,
+ * while Today — about the same van, on the same day — said that van holds one chair and three
+ * seats. Two capacity sources: the board's `van.setup` (today's `CHECKED`
+ * `ops.vehicle_setup_day` row, else the shared default) and the seeded seating layouts Today's
+ * fit check was reading (src/modules/demo/fixtures/standard.ts).
+ *
+ * MOCKUPS THESE TWO TESTS ARE ABOUT:
+ *  - `/workspace/ppec-redesign/mockups/plan-board.html` — the van column's read-only count
+ *    meters (plan-board.html:319 `.meters`, styled at :99) and the toolbar's Auto-plan;
+ *  - `/workspace/ppec-redesign/mockups/ramp-arrival.html` — the Ramp iPad: the Oxygen stepper
+ *    (ramp-arrival.html:181) and the big "Confirm Van 1" with "Tomorrow starts from this"
+ *    beneath it (ramp-arrival.html:183);
+ *  - `/workspace/ppec-redesign/mockups/shell-flow.html` — Today (`<h1>Today`, shell-flow.html:144)
+ *    with its step strip (:156), which is the screen whose rows must agree with that board.
+ *
+ * WHAT ONLY A BROWSER CAN ANSWER. The arithmetic and the rows are unit- and db-tested
+ * (src/app/(app)/today/one-van-setup.test.ts, src/app/(app)/today/saved-plan.db.test.ts "one
+ * stored setup, two screens"). What those cannot say is whether the two *screens* a person walks
+ * between show one answer: the meter a coordinator reads, the refusal the card gets, the stepper
+ * the front desk pushes, and the step on Today's row, all from the one stored setup.
+ *
+ * EACH TEST SETS UP ITS OWN STATE. The first works on a date of its own (`DAY.full`), where
+ * nobody has counted a van. The second is about *today*, because that is the only day the Ramp
+ * iPad writes, so it states today's counts through the iPad itself before changing one of them —
+ * and puts the counter back at the end, so it leaves today as it found it.
+ */
+test.describe("S1: one van setup, read by the board and by Today", () => {
+  test.skip(!CONSOLE_ROLE, "the board is not this role's screen");
+
+  const lane = (page: Page): Locator => page.locator('[data-bucket-list="FAMILY_DRIVES"]');
+  const stepper = (page: Page, counter: string): Locator =>
+    page.locator(`[data-stepper="${counter}"]`);
+  /** The two buttons of a stepper, in the order the iPad draws them (VanArrival.tsx). */
+  const fewer = (page: Page, counter: string): Locator =>
+    stepper(page, counter).getByRole("button").first();
+  const more = (page: Page, counter: string): Locator =>
+    stepper(page, counter).getByRole("button").last();
+  /** Zoe B.'s rows on Today — both of her rides, so a step cannot hide on the other one. */
+  const zoeRows = (page: Page): Locator =>
+    page.locator("tbody tr").filter({ hasText: "Zoe B." });
+
+  /**
+   * MOCKUP: plan-board.html (the `.meters` row under a van's header, :319) + the Family drives
+   * lane at the foot of Unassigned.
+   *
+   * An unchecked van is planned on its default counts and says so in words ("Using default
+   * setup"). Auto-plan fills it to those counts; the next card let go on it is refused, stays
+   * where it was, and carries one coral line naming the van and what ran out. Before this fix the
+   * default claimed six seats and a chair space — seven places in a four-place van — so this drop
+   * landed and Today then reported the plan the board had just taken.
+   */
+  test("an unchecked van, full on its default counts, refuses the drop with the coral reason", async ({
+    page,
+  }) => {
+    await openBoard(page, DAY.full);
+    // Nobody has counted a van on this date, and the column states the assumption it stands on.
+    await expect(vans(page).first()).toContainText(planBoard.usingDefault);
+
+    await page.locator("[data-auto-plan]").click();
+    // The van whose Seats meter is full — "full" is the meter's own word for used === total, so
+    // this test does not write down a number the config owns (src/config/vans.ts).
+    const full = vans(page)
+      .filter({ has: page.locator('[data-counter="seats"][data-level="full"]') })
+      .first();
+    await expect(full).toHaveCount(1);
+    const label = (await full.getAttribute("aria-label")) ?? "Van";
+
+    // Ana S. is driven by her family today and may still be put in a van (#79) — she needs a
+    // seat like anybody else, and this van has none left.
+    const ana = lane(page).locator("[data-rider]").filter({ hasText: "Ana S." });
+    const token = await ana.getAttribute("data-rider");
+    await liftOffCentre(page, ana, full);
+    // While she is held the column says what it would do with her, and it is a no.
+    await expect(full).toHaveAttribute("data-fit", "no");
+    await page.mouse.up();
+
+    await expect(lane(page).locator(`[data-rider="${token}"]`), "she did not move").toHaveCount(1);
+    await expect(full.locator(`[data-rider="${token}"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-refusal="${token}"]`)).toHaveText(
+      fill(planBoard.rejectCard.SEAT, { van: label }),
+    );
+    // A refusal belongs on the card: no toast, and still said once for the ear.
+    await expect(toast(page)).toHaveCount(0);
+    await expect(announced(page)).toContainText("Ana S.");
+    await expectNoInternalCodes(page);
+  });
+
+  /**
+   * MOCKUP: ramp-arrival.html:181 (the Oxygen stepper) and :183 (Confirm Van 1), then
+   * plan-board.html:319 (Van 1's meters) and shell-flow.html:144 (Today).
+   *
+   * The walk the report is about, in three screens: the front desk counts Van 1 at the ramp, and
+   * after a reload the coordinator's board and Today both plan that van on what was counted.
+   * Zoe B. travels with oxygen and the morning has her on Van 1, so the mount is the one counter
+   * that moves both screens at once — and when it is gone, Auto-plan stops putting her there and
+   * Today's row asks for her to be moved. Put back, both screens let go of it.
+   */
+  test("after the ramp changes a counter, the board and Today both follow it", async ({ page }) => {
+    /* ── Van 1 by its own id: the ramp iPad is addressed with it (§9.3's `?van=`) ── */
+    await openBoard(page, DAY.counted);
+    const vanOne = vans(page).first();
+    await expect(vanOne).toHaveAttribute("aria-label", "Van 1");
+    const vanId = await vanOne.getAttribute("data-van");
+    const oxygen = () => page.locator(`[data-van="${vanId}"] [data-counter="oxygenMounts"]`);
+    const rampOn = (day?: string) =>
+      day ? `/ramp-ipad?date=${day}&van=${vanId}` : `/ramp-ipad?van=${vanId}`;
+
+    /* ── 1. THE BOARD, on a date of its own: the mount counted away, and the drag refused ── */
+    await page.goto(rampOn(DAY.counted));
+    await expect(
+      page.locator('[data-tab][aria-current="page"]'),
+      "the iPad opens on the van the address names",
+    ).toContainText("Van 1");
+    // It opens on this van's default — nobody has counted it on this date — and the front desk
+    // finds the mount missing.
+    await expect(stepper(page, "oxygenMounts").locator("output")).toHaveText("1");
+    await fewer(page, "oxygenMounts").click();
+    await expect(stepper(page, "oxygenMounts").locator("output")).toHaveText("0");
+    await page.locator("[data-confirm]").click();
+    await expect(page.locator("[data-confirm]")).toContainText(vanArrival.confirmed);
+
+    await openBoard(page, DAY.counted);
+    await expect(vanOne, "the column stops standing on a default").toContainText(
+      planBoard.checked,
+    );
+    await expect(oxygen(), "no mount, counted").toContainText("/0");
+    await expect(oxygen()).toHaveAttribute("data-level", "none");
+    // Zoe B. travels with oxygen. Van 1 is empty on this board and still cannot take her, and
+    // the coral line names the counter the ramp changed rather than a seat.
+    const zoe = await card(page, "Zoe B.").getAttribute("data-rider");
+    await liftOffCentre(page, card(page, "Zoe B."), vanOne);
+    await expect(vanOne).toHaveAttribute("data-fit", "no");
+    await page.mouse.up();
+    await expect(unassigned(page).locator(`[data-rider="${zoe}"]`), "she did not move").toHaveCount(
+      1,
+    );
+    await expect(page.locator(`[data-refusal="${zoe}"]`)).toHaveText(
+      fill(planBoard.rejectCard.OXYGEN, { van: "Van 1" }),
+    );
+    await expectNoInternalCodes(page);
+
+    /* ── 2. AND TODAY, which is the only day it reads — so this half states today's counts ── */
+    await page.goto(rampOn());
+    await expect(stepper(page, "oxygenMounts").locator("output")).toHaveText("1");
+    await page.locator("[data-confirm]").click();
+    await expect(page.locator("[data-confirm]")).toContainText(vanArrival.confirmed);
+
+    await page.goto("/today");
+    await expect(zoeRows(page).first()).toBeVisible();
+    await expect(
+      zoeRows(page).locator('[data-step="MOVE_TO_FITTING_VAN"]'),
+      "with the mount on board there is nothing to move her for",
+    ).toHaveCount(0);
+
+    await page.goto(rampOn());
+    await fewer(page, "oxygenMounts").click();
+    await expect(stepper(page, "oxygenMounts").locator("output")).toHaveText("0");
+    await page.locator("[data-confirm]").click();
+    await expect(page.locator("[data-confirm]")).toContainText(vanArrival.confirmed);
+
+    // The board and Today, both reloaded, on the one number the front desk just set.
+    await page.goto("/plan-routes");
+    await expect(oxygen(), "the board reads today's count").toContainText("/0");
+    await page.goto("/today");
+    const asked = zoeRows(page).locator('[data-step="MOVE_TO_FITTING_VAN"]');
+    // Her morning, and only her morning: the afternoon's van has not been reported on at all, so
+    // that row is honestly pending rather than a second copy of this answer.
+    await expect(asked, "the morning has her on Van 1, which has no mount").toHaveCount(1);
+    await expect(asked.first()).toHaveText(
+      sentence(fill(boardCopy.nextSteps.MOVE_TO_FITTING_VAN, { child: "Zoe B." })),
+    );
+    await expect(zoeRows(page).first(), "the van they disagreed about").toContainText("Van 1");
+    await expectNoInternalCodes(page);
+
+    /* ── 3. put back, and both screens let go of it — today is left as it was found ── */
+    await page.goto(rampOn());
+    await more(page, "oxygenMounts").click();
+    await expect(stepper(page, "oxygenMounts").locator("output")).toHaveText("1");
+    await page.locator("[data-confirm]").click();
+    await expect(page.locator("[data-confirm]")).toContainText(vanArrival.confirmed);
+
+    await page.goto("/plan-routes");
+    await expect(oxygen()).toContainText("/1");
+    await page.goto("/today");
+    await expect(zoeRows(page).locator('[data-step="MOVE_TO_FITTING_VAN"]')).toHaveCount(0);
   });
 });
