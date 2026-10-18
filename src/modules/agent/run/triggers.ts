@@ -34,6 +34,25 @@ export const TRIGGER_TYPES = [
   "sweeper.overdue",
   /** Hourly / end-of-day reconciliation. Id: the reconciliation window. */
   "reconciliation",
+  /**
+   * **A staff person asked the agent something**, from the chat bubble in the console frame
+   * (src/ui/AgentBubble.tsx, src/modules/agent/ask/staff-ask.ts).
+   *
+   * Not in the PRD's §11.1 list, and added rather than squeezed into one of the five, because it
+   * is a sixth *kind of thing that happened*: `msg.inbound` means a family texted us and carries
+   * that message's id, and an ask typed by a coordinator is neither that event nor an operational
+   * one the rules deferred. Giving it `msg.inbound`'s name would make the idempotency key lie
+   * about where the run came from, and §11.1's own rule is that the pair identifies the run.
+   *
+   * No migration: `ops.agent_run.trigger_type` is plain text with no CHECK (src/db/schema.ts), so
+   * this list is the whole of the vocabulary and adding to it changes no column.
+   *
+   * **Id: the `ops.task` row the ask is recorded as** — written by `raiseTask()`, the writer every
+   * agent executor already uses, before the run is started. It is the id of a stored thing, as
+   * this file's header requires, and it is stable: one ask is one row is one run, and a
+   * redelivered or double-submitted ask collapses onto it rather than making a second.
+   */
+  "staff.ask",
 ] as const;
 
 export type TriggerType = (typeof TRIGGER_TYPES)[number];

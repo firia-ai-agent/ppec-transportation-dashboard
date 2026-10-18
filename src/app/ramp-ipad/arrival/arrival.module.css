@@ -7,6 +7,16 @@
  * from src/ui/tokens.ts — no colour literal lives outside that file.
  */
 
+/*
+ * THE CONFIRM BUTTON'S OWN HEIGHT, written once because three rules need it: the button, the
+ * room the page leaves under itself, and — below 768, where the bar is pinned — the height this
+ * screen declares to the frame as `--sticky-action-bar-height` (see the media query at the end).
+ * 60 px is the mockup's (png/ramp-arrival-390.png `.conf`) and is over §9's 56 px ramp target.
+ */
+:global(:root) {
+  --ramp-confirm-height: 60px;
+}
+
 /* Fills the shell's content slot; the viewport arithmetic is the shell's (src/ui/AppShell). */
 .page {
   flex: 1 1 auto;
@@ -290,7 +300,7 @@
 }
 
 .confirm {
-  min-height: 60px;
+  min-height: var(--ramp-confirm-height);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -510,10 +520,45 @@
   }
 
   /*
+   * …AND THE FRAME IS TOLD HOW TALL THAT BAR IS.
+   *
+   * Anything the *shell* floats at the bottom of the window — today the agent chat disc
+   * (src/ui/AgentBubble.module.css), tomorrow whatever else — would otherwise land on this bar,
+   * because the shell has no way to know a page has pinned something to the floor. So the
+   * contract is one custom property on the document root, declared here and read there:
+   * `--sticky-action-bar-height` (src/ui/tokens.ts `stickyActionBar`, default 0).
+   *
+   * It is declared ONLY inside this media query, because that is the only place the bar is
+   * pinned: at 768 and above `.confirmBar` is back in the flow at the foot of its card, nothing
+   * is floating over the page, and the frame's default 0 is the right answer.
+   *
+   * THE NUMBER, DERIVED FROM THIS BAR'S OWN CSS RATHER THAN MEASURED OFF A SCREENSHOT —
+   * `border-top` 1 px + `padding` 8 px + the button 60 px + `padding` 8 px = **77 px**. The bar
+   * holds exactly one child (`.confirm`; VanArrival.tsx renders no hint beside it), so its height
+   * is its padding box plus that button, and the `gap` never applies. At 390×844 with the tab bar
+   * at 64 that puts the bar's box at y 703–780 and the button at y 712–772, which is what a
+   * browser measures.
+   */
+  :global(:root) {
+    --sticky-action-bar-height: calc(
+      var(--border-hairline) + var(--space-3) + var(--ramp-confirm-height) + var(--space-3)
+    );
+  }
+
+  /*
    * Confirm, pinned above the bottom tab bar — the bar's own height from the frame's token
    * (src/ui/tokens.ts `layout.tabBarHeight`, which is what AppShell pads the page by), plus the
    * device's safe-area inset, so the two never share a pixel.
    */
+  /*
+   * DEMO RULING (Firia, 2026-10-18 10:10 AM ET): the agent bubble is hidden on the ramp iPad at
+   * 390 while Confirm is pinned, rather than lifted by the shared offset, which waits until after
+   * the demo. The selector stays pure for CSS Modules by anchoring on this file's own class.
+   */
+  :global(body):has(.confirmBar) :global([data-agent-bubble]) {
+    display: none;
+  }
+
   .confirmBar {
     position: fixed;
     left: 0;

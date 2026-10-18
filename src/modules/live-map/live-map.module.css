@@ -279,6 +279,25 @@
  *    over the map (the legend, the locked card, the tile notice), and its text wraps inside the
  *    pane instead of running past the edge — which is what a 390 px phone would otherwise do to
  *    it, and the overflow this branch has just spent a slice removing.
+ *
+ * AND NOW THE AGENT BUBBLE, which is the newest thing that could cover them (src/ui/AgentBubble
+ * .tsx, mockups/agent-bubble.html). The disc is `position: fixed` 16 px off the window's
+ * bottom-right corner, and these controls are pinned to the bottom-right of a pane that used to
+ * reach the window's floor — so without clearance the 56 px disc would sit exactly on the zoom
+ * group. **Nothing in this file moved**; the clearance is the content column's bottom padding
+ * (src/ui/AppShell.module.css `.contentSlot`), which shortens the pane and lifts everything
+ * pinned to its floor with it. The arithmetic, written down because it is the thing a later
+ * change to either number would break (src/ui/agent-bubble.test.ts holds it):
+ *
+ *   at 1440 — pane floor is 88 px above the window's (`--layout-agent-bubble-clear-wide`), the
+ *             group's own 4 px padding puts its lowest pixel 92 px up, and the disc's highest is
+ *             72 px up (16 gap + 56 disc): a 20 px gap;
+ *   at 390  — the column also clears the 64 px tab bar, so the pane floor is 64 + 80 = 144 px up
+ *             (`--layout-agent-bubble-clear-phone`), the group's lowest pixel is 148 px up, and
+ *             the disc's highest is 136 px up (64 bar + 16 gap + 56 disc): a 12 px gap.
+ *
+ * Both gaps are measured in a real browser at both widths by e2e/agent-bubble.spec.ts, which is
+ * the only thing that can say the disc covers nothing; the arithmetic here is why it should not.
  */
 .mapw :global(.maplibregl-ctrl-bottom-right) {
   position: absolute;

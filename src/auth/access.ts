@@ -197,6 +197,8 @@ export const API = {
   /** The three Yes/No answers on the board's child panel. */
   childNeeds: "/api/children/[token]/needs",
   vanSetup: "/api/vans/[id]/setup",
+  /** The agent chat bubble's compose bar: one ask, into the one run loop (§11.1). */
+  agentAsk: "/api/agent/ask",
   queueTimer: "/api/queues/timer",
   queueOutbox: "/api/queues/outbox",
   queueAgent: "/api/queues/agent",
@@ -708,6 +710,24 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     path: API.vanSetup,
     methods: ["POST"],
     auth: { kind: "session", roles: ALL_STAFF, siteScoped: false },
+  },
+  /**
+   * `POST /api/agent/ask` — the agent chat bubble's compose bar (src/ui/AgentBubble.tsx).
+   *
+   * `APPROVAL_ROLES`, and the same constant the For you tab is gated by rather than a list of its
+   * own: an ask can only come back as a proposal, and a proposal is decided in For you, so a role
+   * that may not decide must not be able to raise one. The front desk is refused here as well as
+   * by the bubble not being drawn for them — the two are independent, and hiding is not denying.
+   *
+   * It writes nothing on a preview (`previewSkip`, inside the module), and with no runner in this
+   * deployment the one row it writes is the staff alert.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/agent/ask/route.ts",
+    path: API.agentAsk,
+    methods: ["POST"],
+    auth: { kind: "session", roles: APPROVAL_ROLES, siteScoped: false },
   },
   /**
    * Queue trigger for topic ppec-timer (vercel.json). Invoked by the platform's queue with its

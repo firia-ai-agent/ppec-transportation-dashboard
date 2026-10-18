@@ -2397,3 +2397,95 @@ export const agentPolicyTask = {
     predicate: "the sender identified and recorded, or the thread closed as unknown",
   },
 } as const;
+
+/**
+ * THE AGENT BUBBLE — the floating chat the founder asked for, on every screen inside the frame
+ * (src/ui/AgentBubble.tsx, mounted once by src/ui/ConsoleShell.tsx).
+ *
+ * Vera's binding mockup is /workspace/ppec-redesign/mockups/agent-bubble.html and the four
+ * png/agent-bubble-{closed,open}-{1440,390}.png shots. Everything a person reads in it is here,
+ * and the rules the COPY-GUIDE puts on it are the ones the rest of this file follows: no vendor
+ * and no model name, no "AI" label, no codes, and as few words as the screen can be read with.
+ *
+ * The closed button carries **no visible text** (the mockup draws a 56 px disc with an icon in
+ * it), so `open` / `openWaiting` is its accessible name and the only way it is announced. The
+ * count is in the name rather than left to the coral dot, for the same reason the tab bar's
+ * badge is in its tab's name: a dot says nothing to a screen reader.
+ */
+export const agentBubble = {
+  /** The closed button's accessible name with nothing waiting (agent-bubble.html, `.fab`). */
+  open: "Agent",
+  /** …and with proposals waiting, which is what the coral dot means for the eye. */
+  openWaiting: "Agent, {count} waiting",
+  /** The panel's heading, and its dialog label. */
+  title: "Agent",
+  /** The 44 px X at the top right of the panel and of the phone sheet. */
+  close: "Close",
+  /** The day separator above the thread. The thread is the same one "For you" shows. */
+  today: "Today",
+  /** Who said it, above a driver's grey bubble: "Marcus L. · Van 1". */
+  speaker: "{name} · Van {van}",
+  /** The compose bar, pinned to the foot of the panel, and its round teal button. */
+  ask: "Ask the agent…",
+  send: "Send",
+  /**
+   * The compact proposal card (mockups/family-texts.html, `.prop`) carries ONE amber chip, not
+   * the mockup's Approve · Edit · Skip row (Firia and Vera, 2026-10-18 9:17 AM ET). Acting in
+   * place is a write, the write path is #75's, and a button that cannot write is a worse answer
+   * than a chip that says where the decision is made.
+   *
+   * And the chip is PLAIN TEXT — a `<span>`, no link (Firia, 2026-10-18 9:21 AM ET, overriding the
+   * 9:17 reading). These two words are a statement of where the proposal stands, not an offer to
+   * go anywhere: a link out of the panel still reads as the thing to press, and what it would
+   * reach is the decide path #75 is rebuilding. The words become a control again, beside the three
+   * that come back, when #75 merges.
+   */
+  needsApproval: "Needs approval",
+  /**
+   * The grey reply under an ask nobody could answer (Firia and Vera, 2026-10-18 9:17 AM ET). One
+   * line, and it is the whole of the degraded mode in the panel: it says what is true — no answer
+   * — and never why, because every why is a vendor, a key or an outage. There is no keyword
+   * fallback behind it; a sentence assembled from the words of the question would be the panel
+   * pretending to have understood it. The staff alert the server raises is unchanged and says the
+   * rest ({@link agentAsk.unavailable}).
+   */
+  noAnswer: "I can't answer right now.",
+  /** Nothing has been said today. The thread shows what exists and never invents a message. */
+  empty: "Nothing yet today.",
+} as const;
+
+/**
+ * A STAFF ASK, as the rows it writes read on the board (src/modules/agent/ask/staff-ask.ts).
+ *
+ * An ask typed into the bubble is recorded before anything is driven, because it is the thing
+ * that happened and the run's identity is that row's id. It lands as an `ops.task` — the one
+ * staff-visible queue this app has — in the same summary / next step / predicate shape as every
+ * other agent task above, so a coordinator reads it the same way.
+ *
+ * `unavailable` is the **staff alert** of docs/DATA-MODEL.md: kind NEEDS_PERSON, severity RED,
+ * raised when no model can be reached. There is no keyword parser behind it and no proposal on
+ * it — the whole of the degraded mode is that a person is asked to do the thing themselves.
+ *
+ * The two *notice* lines that used to live here are gone (Firia and Vera, 2026-10-18 9:17 AM ET):
+ * what the panel says back is now said in the thread, where the question was asked — the teal
+ * bubble for every ask, and {@link agentBubble.noAnswer} under the ones nobody could answer. A
+ * status line above the field saying one thing while the thread said another was two answers to
+ * one question.
+ */
+export const agentAsk = {
+  /** The ask itself: open work until the agent or a person answers it. */
+  asked: {
+    summary: "Somebody asked the assistant to do something",
+    nextStep: "Read the ask, and do it yourself if the assistant has not.",
+    predicate: "the ask answered, by the assistant or by a coordinator, and the outcome recorded",
+  },
+  /**
+   * The staff alert. The words say what is true — nobody could answer — and not why, because the
+   * why is a vendor, a key or an outage and none of those is a coordinator's to read.
+   */
+  unavailable: {
+    summary: "Nobody could answer an ask here, so it needs a person",
+    nextStep: "Do the thing that was asked, or reply to the family yourself.",
+    predicate: "a coordinator has done what was asked and recorded it",
+  },
+} as const;
