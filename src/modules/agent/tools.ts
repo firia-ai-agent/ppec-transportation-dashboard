@@ -492,7 +492,10 @@ const DEFS: readonly ToolDef[] = [
         /** The new drop-off time, 24-hour. Null when only the place is being proposed. */
         requested_dropoff_time: clockTime.nullable(),
         /** One of the center's own stops. Null when only the time is being proposed. */
-        requested_stop_token: z.enum(KNOWN_STOP_TOKENS as [string, ...string[]]).nullable(),
+        requested_stop_token: z
+          .enum(KNOWN_STOP_TOKENS as [string, ...string[]])
+          .nullable()
+          .describe(agentGuidance.requestedStop),
         rationale_code: z.enum(DROPOFF_CHANGE_REASON_CODES),
         /**
          * WHAT THE ALERT SAYS, in the model's own words — the one line a coordinator reads beside
