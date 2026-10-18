@@ -34,8 +34,29 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { API, endpointRow } from "../src/auth/access";
+import type { StaffRole } from "../src/auth/core";
 import { demoBanner, demoDay, fill, liveMap, planRoutes, sourceMode } from "../src/ui/copy";
 import { VAN_COLORS, isBlue } from "../src/ui/tokens";
+
+/**
+ * ONE RUN IS ONE ROLE (`E2E_DEMO_ROLE`, playwright.config.ts: "the role the browser check signs
+ * in as"). Two things below are the role's and not the screen's, so the run's role has to be in
+ * hand before a test can say what it expects:
+ *
+ *  - "Restart demo day" is the director's button. The bar asks the access table rather than
+ *    keeping a list of its own (src/ui/DemoBanner.tsx `canRestartDemo`), because
+ *    `POST /api/demo/reset` answers 403 to every other role — so this asks the same table, and
+ *    whoever changes that row moves the bar and this spec together.
+ *  - Every block except the front desk's own walks the console: `savePlan` saves a plan on
+ *    /plan-routes, which Firia's 3:08 PM ET ruling does not give the front desk at all. Their
+ *    walk is the block at the bottom of this file, and it is the one that runs on their run.
+ */
+const ROLE = (process.env.E2E_DEMO_ROLE ?? "DIRECTOR") as StaffRole;
+const RESET_ROW = endpointRow(API.demoReset)?.auth;
+const SEES_RESTART = RESET_ROW?.kind === "session" && RESET_ROW.roles.includes(ROLE);
+const IS_FRONT_DESK = ROLE === "FRONT_DESK";
+const FRONT_DESK_SKIP = "front desk sees only Live map and Ramp (Firia)";
 
 const ARTIFACTS = path.resolve(__dirname, "..", "artifacts", "rework-livemap");
 
@@ -135,16 +156,37 @@ async function expectNoCodes(page: Page, where: string) {
  * 2026-10-18 12:30 AM ET): the scenario-clock readout and the "Restart demo day" button.
  * png/live-map-390.png draws them side by side on one 32 px row, and png/live-map.png does the
  * same with room to spare.
+ *
+ * The pair only exists on a run that holds the button. On any other role the bar is the clock
+ * and no button (`SEES_RESTART` above), so there is nothing the clock could be on top of — and
+ * the absence is worth asserting rather than skipping past, which is what the null arm does.
  */
 async function barBoxes(page: Page) {
   const clock = page.locator("[data-demo-clock]");
   const restart = page.getByRole("button", { name: demoDay.restart });
   await expect(clock).toBeVisible();
-  await expect(restart).toBeVisible();
-  const [a, b] = [await clock.boundingBox(), await restart.boundingBox()];
+  const a = await clock.boundingBox();
   expect(a, "the scenario clock has no box").not.toBeNull();
+  if (!SEES_RESTART) {
+    await expect(restart, `${ROLE} is offered Restart demo day`).toHaveCount(0);
+    return { clock: a!, restart: null };
+  }
+  await expect(restart).toBeVisible();
+  const b = await restart.boundingBox();
   expect(b, "Restart demo day has no box").not.toBeNull();
   return { clock: a!, restart: b! };
+}
+
+/**
+ * THE READOUT ITSELF — the span inside the clock box, not the box (src/ui/DemoClock.tsx).
+ *
+ * `[data-demo-clock]` is the clock *and* its controls: on a director's run Pause, 1×/2×/4× and
+ * Restart are drawn in there beside the time, so the box's own text is never a bare time. The
+ * time is one span, drawn for every role that can see the screen, and it carries the words that
+ * used to sit in front of it as its accessible name — which is what names it here.
+ */
+function clockTime(page: Page) {
+  return page.locator("[data-demo-clock]").getByLabel(liveMap.clockLabel, { exact: true });
 }
 
 /** Do two boxes share any pixel? */
@@ -167,6 +209,7 @@ async function openMap(page: Page, at: number = AT.MOCKUP) {
 
 test.describe("the Live map at 1440", () => {
   test.use({ viewport: DESK });
+  test.skip(IS_FRONT_DESK, FRONT_DESK_SKIP);
 
   test("draws every element the founder can see, in the mockup's own words", async ({ page }) => {
     const failures: string[] = [];
@@ -518,11 +561,15 @@ test.describe("the Live map at 1440", () => {
    * [Restart demo day]`: one row, each thing beside the next, nothing on top of anything. At
    * this width there is room to spare, which is exactly why the same assertion is worth making
    * at 390 as well (below) — this one is the control.
+   *
+   * The button is the director's, so on any other run `barBoxes` has asserted it is not drawn
+   * and there is no pair left to measure.
    */
   test("lays the DEMO bar's clock beside the Restart button, never over it", async ({ page }) => {
     await savePlan(page);
     await openMap(page);
     const { clock, restart } = await barBoxes(page);
+    if (!restart) return;
     expect(
       intersects(clock, restart),
       `the clock ${JSON.stringify(clock)} overlaps Restart ${JSON.stringify(restart)}`,
@@ -541,9 +588,10 @@ test.describe("the Live map at 1440", () => {
   }) => {
     await savePlan(page);
     await openMap(page);
-    const clock = page.locator("[data-demo-clock]");
-    await expect(clock).toContainText(/^\s*\d{1,2}:\d{2}\s(AM|PM)\s*$/);
-    await expect(clock.getByLabel(liveMap.clockLabel)).toBeAttached();
+    // The time span, not the box around it: the box also holds this role's clock controls.
+    const time = clockTime(page);
+    await expect(time).toBeVisible();
+    await expect(time).toContainText(/^\s*\d{1,2}:\d{2}\s(AM|PM)\s*$/);
   });
 });
 
@@ -556,6 +604,7 @@ test.describe("the Live map at 1440", () => {
  */
 test.describe("one chip per van, and all four of them", () => {
   test.use({ viewport: DESK });
+  test.skip(IS_FRONT_DESK, FRONT_DESK_SKIP);
 
   const CASES = [
     { chip: liveMap.chips.atStop, at: AT.ALL_AT_STOP, note: "every van standing in a stop's geofence" },
@@ -593,6 +642,7 @@ test.describe("one chip per van, and all four of them", () => {
 
 test.describe("the Live map at 390", () => {
   test.use({ viewport: PHONE });
+  test.skip(IS_FRONT_DESK, FRONT_DESK_SKIP);
 
   test("puts the map on top and the vans in cards under it", async ({ page }) => {
     const failures: string[] = [];
@@ -679,16 +729,17 @@ test.describe("the Live map at 390", () => {
     await savePlan(page);
     await openMap(page);
     const { clock, restart } = await barBoxes(page);
-    expect(
-      intersects(clock, restart),
-      `at 390 the clock ${JSON.stringify(clock)} overlaps Restart ${JSON.stringify(restart)}`,
-    ).toBe(false);
-    expect(clock.x + clock.width).toBeLessThanOrEqual(restart.x);
-    // Both are inside the viewport: a box that fits by hanging off the edge is not a fix.
-    expect(restart.x + restart.width).toBeLessThanOrEqual(PHONE.width);
-    await expect(page.locator("[data-demo-clock]")).toContainText(
-      /^\s*\d{1,2}:\d{2}\s(AM|PM)\s*$/,
-    );
+    if (restart) {
+      expect(
+        intersects(clock, restart),
+        `at 390 the clock ${JSON.stringify(clock)} overlaps Restart ${JSON.stringify(restart)}`,
+      ).toBe(false);
+      expect(clock.x + clock.width).toBeLessThanOrEqual(restart.x);
+      // Both are inside the viewport: a box that fits by hanging off the edge is not a fix.
+      expect(restart.x + restart.width).toBeLessThanOrEqual(PHONE.width);
+    }
+    // And the readout is the time alone — the span, not the box that holds the controls too.
+    await expect(clockTime(page)).toContainText(/^\s*\d{1,2}:\d{2}\s(AM|PM)\s*$/);
   });
 
   /*
@@ -715,6 +766,8 @@ test.describe("the Live map at 390", () => {
 /* ══════════════════════ locked until a plan is saved (§9.1, §9.5) ══════════════════════ */
 
 test.describe("locked until a plan is saved", () => {
+  test.skip(IS_FRONT_DESK, FRONT_DESK_SKIP);
+
   for (const [name, viewport] of [["1440", DESK], ["390", PHONE]] as const) {
     test(`shows "No routes yet" over the map and no vans at ${name}`, async ({ page }) => {
       await page.setViewportSize(viewport);
