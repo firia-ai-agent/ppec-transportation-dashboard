@@ -98,12 +98,23 @@ describe("gate 1: one write path for all three controls", () => {
     expect(decideApproval.mock.calls[0][2]).toMatchObject({ editedTime: "17:30" });
   });
 
-  it("has no write of its own in the action at all", () => {
+  it("has no write of its own in the decision action at all", () => {
     const source = readFileSync(ACTION_FILE, "utf8");
-    // No SQL, no outbox, no second decision function.
-    expect(source).not.toMatch(/\bINSERT\b|\bUPDATE\b|\bDELETE\b|\.query\(|\benqueue\(/i);
-    // Exactly one call into the decision model.
+    /*
+     * Scoped to `decideApprovalAction`'s own body, because this file holds a second action now:
+     * `takeAlertAction`, which marks a "needs a person" alert taken (Firia's S1-4,
+     * 2026-10-18 12:13 AM ET). That is a different row and a different decision — a task state,
+     * not an approval — and it has its own write, `openAlert`, held to its own rules in
+     * `app/(app)/family-texts/alert-taken-on-post.test.ts`. What gate 1 is about is the
+     * APPROVAL: that there is no second path from a button to a plan change or a text.
+     */
+    const body = bodyOf(source, "decideApprovalAction");
+    expect(body).not.toMatch(/\bINSERT\b|\bUPDATE\b|\bDELETE\b|\.query\(|\benqueue\(/i);
+    // Exactly one call into the decision model, from the whole file.
     expect(source.match(/decideApproval\(/g) ?? []).toHaveLength(1);
+    // And the other action cannot decide an approval or send anything.
+    const take = bodyOf(source, "takeAlertAction");
+    expect(take).not.toMatch(/decideApproval\(|\benqueue\(|outbox/i);
   });
 
   it("refuses before it calls anything when the role may not decide", async () => {
@@ -241,6 +252,7 @@ describe("gate 2: an edited message needs a fresh approval", () => {
         editedTime: "17:30",
         threadOpen: false,
         decide: async (): Promise<DecisionState> => ({ status: "idle" }),
+        takeAlert: async () => {},
         showForYouTab: true,
       }),
     );
@@ -253,3 +265,18 @@ describe("gate 2: an edited message needs a fresh approval", () => {
     expect(decideApproval).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * One exported function's body, as text: from its `export … function <name>` line to the next
+ * one (or the end of the file). Enough to tell two actions in one module apart, which is all
+ * the assertion above needs.
+ */
+function bodyOf(source: string, name: string): string {
+  const start = source.search(new RegExp(`^export (?:async )?function ${name}\\b`, "m"));
+  expect(start, `${name} is not an exported function of this module`).toBeGreaterThanOrEqual(0);
+  // To the closing brace in column 0, which is where a top-level function ends in this codebase.
+  const rest = source.slice(start);
+  const end = rest.search(/^\}/m);
+  expect(end, `${name} has no closing brace in column 0`).toBeGreaterThan(0);
+  return rest.slice(0, end + 1);
+}

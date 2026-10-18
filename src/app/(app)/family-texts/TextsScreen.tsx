@@ -12,7 +12,7 @@ import { ROW_STATES } from "./row-state";
 import type { ThreadContext } from "./context";
 import type { ConversationRow, ProposalView, TabKey, ThreadView } from "./conversations";
 import { TABS } from "./conversations";
-import type { DecideAction } from "./actions";
+import type { DecideAction, TakeAlertAction } from "./actions";
 import styles from "./texts.module.css";
 
 /**
@@ -43,6 +43,7 @@ export function TextsScreen({
   editedTime,
   threadOpen,
   decide,
+  takeAlert,
   showForYouTab,
 }: {
   readonly tab: TabKey;
@@ -68,6 +69,8 @@ export function TextsScreen({
   /** True when the URL names a thread: the phone shows the thread rather than the list. */
   readonly threadOpen: boolean;
   readonly decide: DecideAction;
+  /** The POST that marks a "needs a person" alert taken. A render never does (S1-4). */
+  readonly takeAlert: TakeAlertAction;
   /**
    * Whether this caller may see the "For you" tab at all. The front desk may not — and the tab
    * being absent is the courtesy; the server refusing the action and the page is the guard.
@@ -127,6 +130,7 @@ export function TextsScreen({
             <ForYouAlert
               alerts={alerts}
               alertsUnreadable={alertsUnreadable}
+              takeAlert={takeAlert}
               assistantReachable={assistantReachable}
             />
           ) : null}
@@ -351,10 +355,12 @@ function ForYouAlert({
   alerts,
   alertsUnreadable,
   assistantReachable,
+  takeAlert,
 }: {
   readonly alerts: readonly AssistantAlert[];
   readonly alertsUnreadable: boolean;
   readonly assistantReachable: boolean;
+  readonly takeAlert: TakeAlertAction;
 }) {
   if (assistantReachable && alerts.length === 0 && !alertsUnreadable) return null;
   return (
@@ -365,7 +371,20 @@ function ForYouAlert({
         <div key={alert.id}>
           <p className={styles.alertLine}>{alert.sentence}</p>
           <blockquote className={styles.alertWords}>{alert.theirWords}</blockquote>
-          {alert.beingHandled ? <p className={styles.alertRule}>{assistantUnavailable.openedBy}</p> : null}
+          {alert.beingHandled ? (
+            <p className={styles.alertRule}>{assistantUnavailable.openedBy}</p>
+          ) : (
+            /*
+             * The one thing that marks an alert taken (S1-4, Firia 12:13 AM ET). A POST, so a
+             * render — or a link prefetch — can never claim an alert nobody has read.
+             */
+            <form action={takeAlert}>
+              <input type="hidden" name="alert" value={alert.id} />
+              <button type="submit" className={styles.secondary}>
+                {assistantUnavailable.take}
+              </button>
+            </form>
+          )}
         </div>
       ))}
       {!assistantReachable && alerts.length === 0 ? (

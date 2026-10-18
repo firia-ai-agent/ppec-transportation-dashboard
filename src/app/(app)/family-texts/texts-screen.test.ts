@@ -65,6 +65,11 @@ const projected: Thread = {
 
 /** The action is never called in a static render; it is here to satisfy the prop. */
 const decide = async (): Promise<DecisionState> => ({ status: "idle" });
+/**
+ * The take-alert POST, as a prop. A render never calls it — which is the point of S1-4 and is
+ * asserted in `alert-taken-on-post.test.ts`; here it is just the shape the screen needs.
+ */
+const takeAlertSpy = async () => {};
 
 function render(a: {
   tab?: TabKey;
@@ -104,6 +109,7 @@ function render(a: {
       editedTime: null,
       threadOpen: a.threadOpen ?? false,
       decide,
+      takeAlert: takeAlertSpy,
       showForYouTab: mayApprove,
     }),
   );

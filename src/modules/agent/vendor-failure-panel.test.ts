@@ -247,12 +247,18 @@ describe("check 5, part 4: the words the panel uses are in copy.ts and are plain
 describe("check 5, part 5: no server action can spend a model call at all", () => {
   /**
    * This used to drive `runAgentTurn`, the phone panel's own action, and assert it answered with
-   * a sentence rather than throwing. The rebuilt screen has no such action: the only server action
-   * under `/family-texts` is the approval decision, and a turn is driven by the queue
-   * (`/api/queues/agent`) where a model call belongs. So the stronger version of the same check is
-   * that the action surface is exactly one function and it is the decision.
+   * a sentence rather than throwing. The rebuilt screen has no such action: a turn is driven by
+   * the queue (`/api/queues/agent`) where a model call belongs. So the stronger version of the
+   * same check is that the action surface is an exact, short list and no item on it is a door to
+   * a vendor.
+   *
+   * Two actions, and the list is exact so a third has to be argued for here:
+   *  - `decideApprovalAction` — Approve / Edit / Don't send, the one write path (gate 1).
+   *  - `takeAlertAction` — marks a "needs a person" alert taken, which used to happen on a GET
+   *    render (Firia's S1-4, 2026-10-18 12:13 AM ET). It writes one task state and calls no
+   *    model; `alert-taken-on-post.test.ts` holds its rules.
    */
-  it("exports the decision and nothing that calls a vendor", () => {
+  it("exports the decision and the alert take, and nothing that calls a vendor", () => {
     /*
      * Read as text rather than imported: the action's module graph reaches Auth.js, which wants a
      * Next request context this runner has none of. What is being asserted is the shape of the
@@ -261,6 +267,7 @@ describe("check 5, part 5: no server action can spend a model call at all", () =
     const source = readFileSync(ACTIONS, "utf8");
     expect([...source.matchAll(/^export (?:async )?function (\w+)/gm)].map((m) => m[1])).toEqual([
       "decideApprovalAction",
+      "takeAlertAction",
     ]);
     expect(source).not.toMatch(/demoAgentTurn|createGateway|chooseProvider|modelReach/);
   });

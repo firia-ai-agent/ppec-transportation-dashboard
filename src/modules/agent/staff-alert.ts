@@ -76,22 +76,18 @@ import {
   RemoteRequestUrlRefused,
 } from "./providers/remote";
 
-/** `ops.task.category` for a model this deployment could not reach. */
-export const MODEL_UNAVAILABLE_CATEGORY = "ASSISTANT_UNAVAILABLE";
-
-/** The states an alert is still a person's work in. Closed ones leave the board. */
-export const LIVE_ALERT_STATES = ["OPEN", "IN_PROGRESS"] as const;
-
 /**
- * The same list as a SQL literal.
- *
- * Inlined rather than bound as a parameter because the driver has to be told the element type of
- * an enum array and `$n::task_state[]` does not survive the round trip through every backend this
- * runs on. Safe to inline precisely because these are module constants declared one line above —
- * no caller supplies them, so there is no value here that did not come from this file.
+ * The task row's own three facts — the category, the live states and the UPDATE that marks an
+ * alert taken — live in `./alert-task.ts`, which imports nothing but `Exec`, and are re-exported
+ * here so callers have one name for each. The split exists because the "For you" tab's server
+ * action needs `openAlert` and must not reach a vendor through it; see that file's header.
  */
-const sqlEnumList = (values: readonly string[]) => values.map((v) => `'${v}'`).join(", ");
-const LIVE_ALERT_STATES_SQL = sqlEnumList(LIVE_ALERT_STATES);
+export {
+  LIVE_ALERT_STATES,
+  MODEL_UNAVAILABLE_CATEGORY,
+  openAlert,
+} from "./alert-task";
+import { LIVE_ALERT_STATES_SQL, MODEL_UNAVAILABLE_CATEGORY, sqlEnumList } from "./alert-task";
 
 /**
  * Why no model answered, as a stable class.
@@ -520,28 +516,6 @@ export async function assistantAlertCount(db: Exec, siteIds: readonly string[]):
     [siteIds, MODEL_UNAVAILABLE_CATEGORY],
   );
   return Number(r.rows[0]?.n ?? 0);
-}
-
-/**
- * A staff member opened this alert: mark it taken, and say whether that was this call.
- *
- * `OPEN → IN_PROGRESS`, guarded on both the state and the site, so two coordinators opening the
- * same card do not both think they are the one handling it, and an id from another tenant updates
- * nothing. It does **not** close the alert: only answering the family does that, and this code
- * cannot know when that happened.
- */
-export async function openAlert(
-  db: Exec,
-  a: { id: string; siteIds: readonly string[]; by: string },
-): Promise<{ readonly claimed: boolean }> {
-  if (a.siteIds.length === 0) return { claimed: false };
-  const r = await db.query<{ id: string }>(
-    `UPDATE ops.task SET state = 'IN_PROGRESS', updated_by = $3, updated_at = now()
-     WHERE id = $1 AND site_id = ANY($2::uuid[]) AND category = $4 AND state = 'OPEN'
-     RETURNING id`,
-    [a.id, a.siteIds, a.by, MODEL_UNAVAILABLE_CATEGORY],
-  );
-  return { claimed: r.rows.length > 0 };
 }
 
 /**

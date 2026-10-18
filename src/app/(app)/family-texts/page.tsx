@@ -11,7 +11,7 @@ import { bodyOf, pendingApprovals } from "@/modules/approvals/decide";
 import { demoChangeRequests, withRequestedTime, type DemoChangeRequest } from "@/modules/demo/change-request";
 import { familyTexts } from "@/ui/copy";
 import { NOT_ON_YOUR_MENU, withNotice } from "@/ui/notice";
-import { decideApprovalAction } from "./actions";
+import { decideApprovalAction, takeAlertAction } from "./actions";
 import { contextFor } from "./context";
 import { conversationRows, proposalFromDemo, tabFrom, threadView, type ProposalView } from "./conversations";
 import { TextsScreen } from "./TextsScreen";
@@ -159,6 +159,7 @@ export default async function FamilyTextsPage({
       editedTime={editedTime}
       threadOpen={askedThread !== undefined}
       decide={decideApprovalAction}
+      takeAlert={takeAlertAction}
       showForYouTab={mayApprove}
     />
   );

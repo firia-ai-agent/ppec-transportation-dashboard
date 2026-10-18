@@ -2661,6 +2661,15 @@ export const assistantUnavailable = {
   badgeLabel: "{count} waiting for a person",
   /** Shown once a staff member has opened the alert: it stays on the board, marked as taken. */
   openedBy: "Being handled",
+  /**
+   * The button that marks an alert taken — and the ONLY thing that marks it taken (Firia's S1-4,
+   * 2026-10-18 12:13 AM ET).
+   *
+   * It used to happen on a GET: opening `/exceptions?alert=<id>` ran the UPDATE during the
+   * render, so a link prefetch could claim an alert nobody had looked at, and a reload could
+   * tell a second coordinator somebody was already on it. A state change needs a press.
+   */
+  take: "I'll handle this",
   /** The empty state, so a board with no alert does not read as a board that lost them. */
   none: "No texts are waiting for a person.",
   /**

@@ -40,6 +40,12 @@ import {
   type DecideError,
   decideApproval,
 } from "@/modules/approvals/decide";
+/*
+ * From `alert-task.ts` and not from `staff-alert.ts`: this is a server-action module, so
+ * everything it imports is on the bundle walk's server graph, and the agent's config and
+ * provider errors must not be (key-never-leaves.test.ts, vendor-failure-panel.test.ts).
+ */
+import { openAlert } from "@/modules/agent/alert-task";
 import { vercelQueueOutboxTransport } from "@/modules/outbox/transport";
 import { approval as approvalCopy } from "@/ui/copy";
 
@@ -110,3 +116,40 @@ export async function decideApprovalAction(
     queued: answer.body.queued,
   };
 }
+
+/**
+ * MARK A "NEEDS A PERSON" ALERT TAKEN — on a press, and on nothing else (Firia's S1-4,
+ * 2026-10-18 12:13 AM ET).
+ *
+ * `openAlert` is an UPDATE: `OPEN → IN_PROGRESS`. It used to run inside the `/exceptions` page's
+ * GET render, so the act of *looking* claimed the alert — which meant a link prefetch could claim
+ * one nobody had read, and a reload could tell a second coordinator that somebody was already on
+ * it. A state change belongs to a POST, and a server action is a POST.
+ *
+ * Nothing on the "For you" tab's render path calls `openAlert` any more; the only caller in
+ * `src/app` is this function. `src/app/(app)/family-texts/alert-taken-on-post.test.ts` holds both
+ * halves of that.
+ *
+ * Same two role checks as the decision above, for the same two reasons: `APPROVAL_ROLES` refuses
+ * a role outright here, and the UPDATE is scoped to the caller's own memberships, which is the
+ * check that cannot be made from the request alone. A front desk reaches neither the page nor
+ * this action.
+ */
+export async function takeAlertAction(form: FormData): Promise<void> {
+  const caller = await getCaller();
+  const role = caller.kind === "STAFF" ? caller.role : null;
+  if (role === null || !APPROVAL_ROLES.includes(role)) return;
+  const id = String(form.get("alert") ?? "");
+  if (!id) return;
+  await openAlert(getNeonDb(), {
+    id,
+    // The caller's own memberships, off the session: an id from another tenant updates nothing
+    // because it is not in this list, not because the row said so.
+    siteIds: caller.memberships.map((m) => m.siteId),
+    by: `staff:${caller.kind === "STAFF" ? caller.userId : "unknown"}`,
+  });
+  revalidatePath(APPROVALS_PAGE);
+}
+
+/** The take action's shape, for the same `.tsx`-scanner reason as `DecideAction` above. */
+export type TakeAlertAction = (form: FormData) => Promise<void>;
