@@ -2277,6 +2277,19 @@ export const outboundSms = {
      */
     "dropoff.changed":
       "PPEC: Yes — {childName} gets off at {stopLabel} at {eta}. {optOut} {demoTag}",
+    /**
+     * The afternoon's handoff, once the day has **recorded** one.
+     *
+     * Never on a geofence. PRD SURF-01 and COPY-GUIDE §2 are explicit that arriving is not being
+     * received, and this body is sent from `receivedBy` — the custody event a person recorded
+     * (`FINISHED_DAY_RIDES`) — and from nothing else. A van that has arrived and not handed over
+     * says so on the board and sends a family nothing.
+     *
+     * No time in it: the handoff has happened, so there is nothing left to estimate, and this
+     * screen carries no ETAs at all (Firia, 2026-10-17 8:36 PM and 10:51 PM ET).
+     */
+    "dropoff.received":
+      "PPEC: {childName} is off the van at {stopLabel}. {optOut} {demoTag}",
     "therapist.absence_alert":
       "PPEC: A child is not coming in today. The {sessionStart} session is affected. {optOut} {demoTag}",
     "therapist.late_alert":

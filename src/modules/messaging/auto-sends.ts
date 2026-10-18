@@ -23,6 +23,12 @@ export const AUTO_SEND_TEMPLATES: ReadonlySet<string> = new Set([
   "pickup.eta",
   "dropoff.eta",
   "dropoff.late",
+  /*
+   * The handoff notice. It is an auto send and not a decision: nobody chooses to send it, the
+   * day sends it because a custody event was recorded. Which is also why it is safe for it to
+   * wear "Auto · Delivered" — the label is a claim about who sent it, and nobody did.
+   */
+  "dropoff.received",
   HELP_REPLY_TEMPLATE,
 ]);
 

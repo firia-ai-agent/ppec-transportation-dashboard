@@ -31,9 +31,9 @@
 import { formatClock } from "@/domain/eta/eta";
 import type { ServiceDay } from "@/domain/board/day";
 import type { DemoChangeRequest } from "@/modules/demo/change-request";
-import type { LateDropoff } from "@/modules/demo/late-dropoff";
+import { HANDOFF_TEMPLATE } from "@/modules/demo/handoff-notice";
 import { approval, fill, familyTexts, onDay } from "@/ui/copy";
-import type { Bubble, BubbleAuthor, Thread, ThreadSource } from "./thread";
+import type { Bubble, BubbleAuthor, DayPhone, Thread, ThreadSource } from "./thread";
 
 /** The three tabs over the list. `for-you` is the approvals queue (REDESIGN-SPEC §9.2). */
 export const TABS = ["for-you", "sent", "all"] as const;
@@ -135,13 +135,16 @@ export function initialsOf(name: string): string {
 /**
  * The conversation list: one row per family the day has texted, newest first.
  *
- * The rows are the day's own texts and nothing else. A list padded out to look busy would be a
- * list of families this centre has not texted, which is the one thing a screen quoting parents
- * must never invent — so five rows in the mockup and two rows on the demo day is the honest
- * answer, and it is the day that decides.
+ * The rows are the day's own texts and nothing else — and the day has five of them (Firia,
+ * 2026-10-17 10:51 PM ET; mockups/family-texts.html and approvals.html both draw five): the
+ * afternoon's two late notices, and the families whose child the day recorded as received at
+ * their stop (`demoHandoffNotices`). Every one is a fixture fact with a rendered body behind it.
+ * What is still not here is a family this centre has not texted: a list padded to look busy is
+ * the one thing a screen that quotes parents must never invent, so the two rides the fixtures
+ * record as *arrived with no handoff* (AT-13, AT-10) are absent rather than claimed.
  */
 export function conversationRows(
-  texts: readonly LateDropoff[],
+  texts: readonly DayPhone[],
   requests: readonly DemoChangeRequest[],
 ): readonly ConversationRow[] {
   const rows = texts.map((text) => {
@@ -156,9 +159,16 @@ export function conversationRows(
         childFirstName: text.childFirstName,
         timeLabel: formatClock(atMs),
         preview: request ? request.parentText : text.body,
-        // A family who has asked for something has a change ready to read; one who has not has
-        // been told the van is late and that is all that has happened to them.
-        state: (request ? "changeReady" : "autoLate") as RowState,
+        /*
+         * What has happened to this family, in that order: a change they asked for and nobody
+         * has decided; a van running late; a child handed over at their stop. The state is read
+         * off the text the day actually sent them (`templateId`) rather than guessed.
+         */
+        state: (request
+          ? "changeReady"
+          : text.templateId === HANDOFF_TEMPLATE
+            ? "autoDropped"
+            : "autoLate") as RowState,
         unread: request !== undefined,
       } satisfies ConversationRow,
     };
@@ -288,7 +298,7 @@ function proposalChecks(adultName: string): readonly string[] {
  * still renders either way: the texts that went out went out.
  */
 export function threadView(a: {
-  readonly selected: LateDropoff;
+  readonly selected: DayPhone;
   readonly thread: Thread;
   readonly request: DemoChangeRequest | undefined;
   readonly day: ServiceDay;

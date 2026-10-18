@@ -104,7 +104,14 @@ describe("what the family reads, and what staff read beside it", () => {
     expect(text.templateId).toBe("dropoff.late");
     expect(text.body).toContain(`about ${text.delayMinutes} minutes late`);
     expect(text.body).toContain(stopByKey(childByKey("C2").stopKey!).label);
-    expect(text.body).toContain("[DEMO]");
+    /*
+     * No `[DEMO]` tag and no STOP/HELP footer: this `body` is what a *staff* screen shows — the
+     * bubble in the Family texts thread — and those two are the channel's furniture, appended by
+     * the send pipeline on their way to a family's phone (Firia, 2026-10-17 10:51 PM ET).
+     * `templates.test.ts` holds that every sent body still carries both.
+     */
+    expect(text.body).not.toContain("[DEMO]");
+    expect(text.body).not.toContain("Reply HELP for help");
     // The window is the panel's, not the family's: it is on the staff row and not in the text.
     expect(text.windowText).not.toBe("");
     expect(text.body).not.toContain(text.windowText);
@@ -171,9 +178,16 @@ describe("what the family reads, and what staff read beside it", () => {
     }
   });
 
-  it("names nobody and nothing internal in the body (Veri #12, COPY-GUIDE §2)", () => {
+  it("names the child and nothing internal in the body (Veri #12, COPY-GUIDE §2)", () => {
     for (const text of demoLateDropoffs(day)) {
-      expect(text.body).not.toContain(text.childFirstName);
+      /*
+       * The child **is** named, from their own row, since Firia's 10:51 PM ET ruling of
+       * 2026-10-17 ("the model draft is human and uses the child's name"). Veri #12's rule is
+       * untouched and is about a name a *caller* chose: no var carries one, and
+       * `templates.test.ts` is the lock on that door. Nobody else is named — not the guardian,
+       * who is who is holding the phone.
+       */
+      expect(text.body).toContain(text.childFirstName);
       expect(text.body).not.toContain(text.guardianFirstName);
       expect(text.body).not.toMatch(/\bF\d{1,2}\b|\bC\d{1,2}\b|\bS\d\b|\bR\d\b/);
       expect(text.body).not.toMatch(/ETA|threshold|NOTIFY|SUPPRESS|PM\b.*window/i);

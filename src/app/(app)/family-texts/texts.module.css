@@ -55,14 +55,6 @@
   background: var(--color-surface);
 }
 
-.title {
-  font-size: 18px;
-  font-weight: var(--weight-semibold);
-  letter-spacing: -0.01em;
-  color: var(--color-ink-brand);
-  margin: 0;
-}
-
 .headerSpacer {
   flex: 1;
 }
@@ -224,7 +216,9 @@
 .ctxAvatar {
   width: 24px;
   height: 24px;
-  font-size: var(--text-11);
+  /* The 24 px disc of the pick-up list (approvals.html `.ctx .av`). The 11 px step belongs to
+     the pill and to the two count badges, and this is neither (src/ui/pill.test.ts). */
+  font-size: var(--text-12);
 }
 
 .ctxRelationship {
@@ -836,29 +830,18 @@
     z-index: 2;
   }
 
-  /* Which pane the phone is on is the URL's answer, not a script's (see the file header). */
-  .screen[data-view="list"] .thread {
-    display: none;
-  }
-
-  .screen[data-view="thread"] .listPane,
-  .screen[data-view="thread"] .tabs {
-    display: none;
-  }
-
   /*
-   * At 390 the thread view hides the page title and keeps the h1 for a screen reader (Firia,
-   * 10:51 PM ET). The thread's own header names the family, which is the title of what is on
-   * screen; a second one above it is the band Vera's audit §2 item 1 deleted everywhere else.
+   * Which pane the phone is on is the URL's answer, not a script's (see the file header) — on
+   * the two tabs that are one conversation at a time. The For you tab stacks instead
+   * (png/approvals-390.png), so its panes are both on screen and neither is hidden.
    */
-  .screen[data-view="thread"] .title {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+  .screen[data-view="list"]:not([data-tab="for-you"]) .thread {
+    display: none;
   }
+
+  .screen[data-view="thread"]:not([data-tab="for-you"]) .listPane,
+  .screen[data-view="thread"]:not([data-tab="for-you"]) .tabs {
+    display: none;
+  }
+
 }

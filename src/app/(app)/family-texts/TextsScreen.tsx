@@ -75,9 +75,25 @@ export function TextsScreen({
 }) {
   const forYou = tab === "for-you" && showForYouTab;
   return (
-    <div className={styles.screen} data-view={threadOpen ? "thread" : "list"}>
+    <div
+      className={styles.screen}
+      data-view={threadOpen ? "thread" : "list"}
+      /*
+       * The For you tab does not switch panes at 390: png/approvals-390.png stacks them — the
+       * day's rows as full-width cards, the thread under them, the van pane under that. The
+       * list/thread switch belongs to the other two tabs, where a phone shows one conversation
+       * at a time (family-texts.html's two phone frames).
+       */
+      data-tab={tab}
+    >
+      {/*
+        * No `h1` here. Since #74 the title is the frame's — one 64 px page header bar, one
+        * heading, read from the access table (src/ui/PageHeader.tsx, src/ui/page-title.ts) — so
+        * a title on the screen's own body would be the second one on the page. What is left in
+        * this row is the assistant's state chip, which is this screen's and not the frame's
+        * (approvals.html `.top .chip.info`).
+        */}
       <div className={styles.header}>
-        <h1 className={styles.title}>{familyTexts.heading}</h1>
         <span className={styles.headerSpacer} />
         {assistantReachable ? (
           <StateChip state={{ icon: Bot, label: familyTexts.assistantOn, tone: "info" }} />
@@ -254,7 +270,7 @@ function Thread({
         <StateChip state={{ icon: ShieldCheck, label: familyTexts.verified, tone: "ok" }} />
       </div>
 
-      <div className={styles.messages}>
+      <div className={styles.messages} data-messages>
         {thread.runs.map((run) => (
           <Runs key={run.id} run={run} />
         ))}
@@ -292,6 +308,14 @@ function Runs({ run }: { readonly run: ThreadView["runs"][number] }) {
       {run.bubbles.map((bubble, index) => (
         <p
           key={bubble.id}
+          /*
+           * `data-bubble` is the author's side, which is *state* and not layout — which side of
+           * the thread a message sits on is the one thing a bubble is (family-texts.html
+           * `.b.in` / `.b.out`). The browser check measures the box it produces rather than
+           * trusting the attribute (e2e/family-texts.spec.ts).
+           */
+          data-bubble={run.side}
+          data-tail={index === run.bubbles.length - 1 ? "true" : undefined}
           className={[styles.bubble, side, index === run.bubbles.length - 1 ? tail : ""]
             .filter(Boolean)
             .join(" ")}

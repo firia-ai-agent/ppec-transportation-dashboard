@@ -107,6 +107,19 @@ export class DbSimMessagingProvider implements MessagingProvider {
 
     const recipient = await this.recipient(msg);
     const personaNumber = recipient.phoneHmac ? simNumberByHmac(pepper).get(recipient.phoneHmac) : undefined;
+    /*
+     * **A family is texted on a synthetic number or not at all** (MOCKS §3; Veri's bar, 2026-10-17).
+     *
+     * The fiction block is 555-01xx and `simNumberByHmac` is its whole address book — the centre's
+     * number and the eight persona phones. A family contact whose blind index is not in it is a
+     * number this simulation cannot name, and the only safe thing to do with a number we cannot
+     * name is refuse: `ProviderRejected`, so the message ends FAILED and is never retried into
+     * somebody's real phone. Therapists and dispatchers have no family group and are not addressed
+     * through the persona phones, so they are not held to this.
+     */
+    if (recipient.familyGroupId !== null && personaNumber === undefined) {
+      throw new ProviderRejected("sim: the recipient is not a synthetic persona number");
+    }
     const faults = personaNumber ? await this.faults.get(personaNumber) : NO_FAULTS;
     const delayMs = simDeliveryDelayMs(`${this.seed}:${msg.messageId}`) + (faults.delayedDelivery ? SIM_DELAYED_DELIVERY_EXTRA_MS : 0);
 

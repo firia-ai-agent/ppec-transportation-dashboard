@@ -203,7 +203,12 @@ export function demoLateDropoffs(
       windowText: decision.windowText ?? "",
       delayMinutes: lateMinutesFor(decision.shiftSeconds),
       templateId,
-      body: renderTemplate(templateId, vars),
+      /*
+       * The words a staff screen shows: no STOP/HELP footer and no `[DEMO]` tag, which are the
+       * send pipeline's and belong on a family's phone (Firia, 2026-10-17 10:51 PM ET). The
+       * child is named from their own row, as the sent text names them.
+       */
+      body: renderTemplate(templateId, vars, { child: child.label, footer: false }),
     }];
   });
 }

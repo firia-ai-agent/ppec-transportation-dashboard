@@ -140,14 +140,18 @@ const ALERT: AssistantAlert = {
 };
 
 describe("the screen's shape", () => {
-  it("has one title and no sentence under it", () => {
+  it("draws no title of its own, and no sentence under the frame's", () => {
     const html = render({});
-    expect(html).toContain(familyTexts.heading);
+    /*
+     * Since #74 the title is the frame's: one 64 px page header bar above every screen, with the
+     * h1 in it and the words read from the access table (src/ui/PageHeader.tsx,
+     * src/ui/page-title.ts). So this screen's body adds no heading at all — a second one would
+     * be two titles on one page, which is what the browser check caught.
+     */
+    expect(html.match(/<h1/g) ?? []).toHaveLength(0);
     // The placeholder's helper line and its bare "For you" link are both gone (Vera 3.5, item 1).
     expect(html).not.toContain(familyTexts.intro);
     expect(html).not.toContain("Every text this day sent to a family");
-    // One h1 on the screen, and it is the one the rail names.
-    expect(html.match(/<h1/g) ?? []).toHaveLength(1);
   });
 
   it("renders both panes, with the thread beside the list", () => {

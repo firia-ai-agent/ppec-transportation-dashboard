@@ -121,6 +121,63 @@ describe("gate 1: one write path for all three controls", () => {
   });
 });
 
+/**
+ * **A send is refused while the message is waiting for a person** (Veri's bar, 2026-10-17).
+ *
+ * The compose bar's Send *is* the approval when a proposal is open (Firia's gate 3): a
+ * coordinator who has read the drafted reply and presses it has signed it, and that press runs
+ * `decideApproval` like every other control. What this suite holds is the other half — there is
+ * no press, no form and no code path that puts a waiting message on a family's phone *without*
+ * that call. Not from the bar with nothing open, not from a form with a decision missing, and
+ * not from anything on the screen but the three controls.
+ */
+describe("a send is refused while the message awaits approval", () => {
+  it("does nothing at all when the form names no decision", async () => {
+    const { decideApprovalAction } = await import("@/app/(app)/family-texts/actions");
+    const f = new FormData();
+    f.set("approval", "01900000-0000-7000-8000-002600000001");
+    // No `decision`: the bar with nothing open posts this, and nothing may come of it.
+    expect(await decideApprovalAction({ status: "idle" }, f)).toEqual({ status: "idle" });
+    expect(decideApproval).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when a decision names no approval", async () => {
+    const { decideApprovalAction } = await import("@/app/(app)/family-texts/actions");
+    const f = new FormData();
+    f.set("decision", "APPROVED");
+    expect(await decideApprovalAction({ status: "idle" }, f)).toEqual({ status: "idle" });
+    expect(decideApproval).not.toHaveBeenCalled();
+  });
+
+  it("refuses a decision this app does not have", async () => {
+    const { decideApprovalAction } = await import("@/app/(app)/family-texts/actions");
+    // "SEND" is not one of the two decisions. A third word is not a third write path.
+    expect(await decideApprovalAction({ status: "idle" }, form("SEND"))).toEqual({ status: "idle" });
+    expect(decideApproval).not.toHaveBeenCalled();
+  });
+
+  it("has no second way to release one: the screen posts to this action and nothing else", () => {
+    const card = readFileSync(CARD_FILE, "utf8");
+    const composer = readFileSync(
+      path.join(REPO, "src", "app", "(app)", "family-texts", "Composer.tsx"),
+      "utf8",
+    );
+    // Every form on either component submits the injected action; none posts to a URL.
+    for (const [name, source] of [["card", card], ["composer", composer]] as const) {
+      const forms = [...source.matchAll(/<form\b[^>]*>/g)].map((m) => m[0]);
+      expect(forms.length, name).toBeGreaterThan(0);
+      for (const tag of forms) {
+        const posts = tag.includes("action={submit}");
+        const navigates = tag.includes('method="get"');
+        expect(posts || navigates, `${name}: ${tag}`).toBe(true);
+      }
+    }
+    // And neither one reaches the outbox or a route: the action is the only door.
+    expect(card).not.toMatch(/fetch\(|enqueue\(/);
+    expect(composer).not.toMatch(/fetch\(|enqueue\(/);
+  });
+});
+
 describe("gate 2: an edited message needs a fresh approval", () => {
   const day = demoDay();
   const request = demoChangeRequests(day)[0];

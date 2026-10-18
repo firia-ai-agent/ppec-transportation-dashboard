@@ -106,7 +106,15 @@ export default async function FamilyTextsPage({
   const requests = demoChangeRequests(day).map((r) => withRequestedTime(r, editedTime, day));
   const assistantReachable = modelReach().kind === "model";
 
-  const selected = phones.find((p) => p.childKey === askedThread) ?? phones[phones.length - 1];
+  /*
+   * Which thread is open, in order: the one the URL names; otherwise the one with something
+   * waiting on it, which is the row the mockups draw as current (approvals.html `.th.on` is the
+   * "Change ready" family); otherwise the newest.
+   */
+  const selected =
+    phones.find((p) => p.childKey === askedThread) ??
+    phones.find((p) => requests.some((r) => r.childKey === p.childKey)) ??
+    phones[0];
   const thread = selected
     ? await threadFor(getNeonDb, {
         dropoff: selected,

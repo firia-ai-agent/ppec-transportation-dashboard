@@ -1,17 +1,15 @@
 /**
  * FAMILY TEXTS AND ITS "FOR YOU" TAB, in a real browser, at both review widths.
  *
- * What a renderer test cannot answer. `app/(app)/family-texts/texts-screen.test.ts` holds the
- * markup and the five gates that are about *what is on the screen*; this file is about what the
- * screen does at a width:
+ * Written to /workspace/ppec-redesign/MOCKUP-TEST-CONTRACT.md: **the mockup decides what is on
+ * screen and where**, and every assertion below names the file it is read from —
+ * `family-texts.html`, `approvals.html` or `png/approvals-390.png` — or, where a ruling overrides
+ * the mockup, the ruling with its time in ET. Behaviour cites `docs/DATA-MODEL.md` or the ruling
+ * it comes from. An uncited assertion here is a gate failure, not a style note.
  *
- *  - at 1440 it is **two panes** — the conversation list beside the thread — with the approve card
- *    inside the thread and one compose bar under it (mockups/family-texts.html);
- *  - at 390 it is **one pane at a time**: the list, then the thread, with a back chevron, and
- *    nothing overflowing sideways (`scrollWidth <= 390`, which is the measurement five of the
- *    seven mockups failed in Vera's audit);
- *  - the "For you" tab stacks **one card per row** at 390 with no horizontal scroll either;
- *  - no provider name and no internal code in the rendered text, at either width.
+ * What a renderer test cannot answer. `app/(app)/family-texts/texts-screen.test.ts` holds the
+ * markup and the gates that are about *what is on the screen*; this file is about what the screen
+ * does at a width — where the panes are, what a tap does, and whether anything runs off the side.
  *
  * It also writes the screenshots the side-by-sides are built from.
  *
@@ -24,7 +22,7 @@
  * if neither is true — which is the stronger check: exactly one of "a card" and "the needs-a-person
  * alert" must be on the For you tab, never both and never neither.
  */
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { approval, assistantUnavailable, familyTexts } from "../src/ui/copy";
 import { expectDemoBarPinned, expectNoInternalCodes, shot } from "./helpers";
 
@@ -34,8 +32,19 @@ const FOR_YOU = "/family-texts?tab=for-you";
 /** The widest a phone frame may measure. Vera's audit measures overflow at exactly this number. */
 const PHONE = 390;
 
+/** The five threads the day has (family-texts.html `.list`, approvals.html `.list`: five rows). */
+const THREADS = 5;
+
 async function scrollWidth(page: Page): Promise<number> {
   return page.evaluate(() => document.documentElement.scrollWidth);
+}
+
+/** The computed value of one CSS property, for the shape assertions the mockup fixes. */
+async function css(locator: Locator, property: string): Promise<string> {
+  return locator.evaluate(
+    (el, prop) => window.getComputedStyle(el).getPropertyValue(prop),
+    property,
+  );
 }
 
 /**
@@ -57,16 +66,25 @@ async function hasCard(page: Page): Promise<boolean> {
   return (await page.getByText(approval.changeDropoff).count()) > 0;
 }
 
-test.describe("1440: two panes, the card inside the thread", () => {
+test.describe("1440: three panes on For you, the card inside the thread", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test("the list and the thread are side by side, with one compose bar", async ({ page }) => {
     await page.goto(SCREEN);
 
-    // One title, and nothing explaining it underneath (Firia, 8:36 PM ET).
+    /*
+     * ONE title, and it is the frame's: since #74 the 64 px page header bar carries every
+     * screen's h1 (src/ui/PageHeader.tsx, png/shell-flow-1440.png), so the screen's own body
+     * adds none and there is exactly one on the page. Nothing explains it underneath either
+     * (Firia, 8:36 PM ET).
+     */
     await expect(page.getByRole("heading", { level: 1, name: familyTexts.heading })).toBeVisible();
     expect(await page.getByRole("heading", { level: 1 }).count()).toBe(1);
     await expect(page.getByText(familyTexts.intro)).toHaveCount(0);
+
+    // approvals.html `.top .chip.info`: the assistant's own state, beside the title.
+    // (The chip's word is on screen twice — once for a screen reader, once visibly.)
+    await expect(page.getByText(familyTexts.assistantOn, { exact: true })).toBeVisible();
 
     const list = page.getByRole("navigation", { name: familyTexts.conversationsLabel }).first();
     const rows = page.getByRole("list", { name: familyTexts.conversationsLabel });
@@ -80,7 +98,8 @@ test.describe("1440: two panes, the card inside the thread", () => {
     expect(threadBox).not.toBeNull();
     expect(listBox!.x + listBox!.width).toBeLessThanOrEqual(threadBox!.x + 1);
 
-    // One compose bar, and its Send is the only one on the screen.
+    // family-texts.html `.cmp`: one compose bar, and its Send is the only one on the screen. The
+    // control is the 36 px teal disc, so its name is read rather than drawn.
     await expect(page.getByRole("button", { name: familyTexts.composeAction, exact: true })).toHaveCount(1);
 
     // With a model reachable the thread carries the card, and it sits inside the thread rather
@@ -99,20 +118,135 @@ test.describe("1440: two panes, the card inside the thread", () => {
     console.log("screenshot:", await shot(page, "family-texts-1440"));
   });
 
-  test("the For you tab is the approvals queue, one card per row", async ({ page }) => {
+  test("the list has the day's five threads, each row the mockup's own parts", async ({ page }) => {
+    await page.goto(SCREEN);
+    const rows = page.getByRole("list", { name: familyTexts.conversationsLabel }).getByRole("link");
+
+    /*
+     * family-texts.html `.list`: five conversations. They are the demo day's own texts — two late
+     * notices and the families whose child the day recorded as received — and not five invented
+     * ones (Firia, 10:51 PM ET: "the mockup's 5 threads, from demo fixture data").
+     */
+    await expect(rows).toHaveCount(THREADS);
+
+    // family-texts.html `.cv`: the disc of initials, the adult's name, the child, a time and the
+    // one-line preview. Read off the first row, which is the newest.
+    const first = rows.first();
+    const text = (await first.textContent()) ?? "";
+    expect(text, "an initials disc, two letters").toMatch(/[A-Z]{2}/);
+    expect(text, "a 12-hour time (COPY-GUIDE §3)").toMatch(/\b(?:1[0-2]|[1-9]):[0-5]\d\s?(?:AM|PM)/);
+    // approvals.html `.th .chip`: one state pill per row, and only the five this screen has.
+    const pills = Object.values(familyTexts.rowState);
+    const onRow = pills.filter((word) => text.includes(word));
+    expect(onRow, `exactly one state pill on the row (${text})`).toHaveLength(1);
+
+    /*
+     * No pill wraps and none is taller than one line (contract: "Pills are 22px high with one
+     * line and no wrap"). Asserted on the row's own chip rather than on a stylesheet.
+     */
+    const chip = first.locator("[data-pill='true']").first();
+    if ((await chip.count()) > 0) {
+      expect(await css(chip, "white-space")).toBe("nowrap");
+      const box = await chip.boundingBox();
+      expect(box!.height).toBeLessThanOrEqual(24);
+    }
+  });
+
+  test("the thread header, the bubbles and the Auto · Delivered line", async ({ page }) => {
+    await page.goto(SCREEN);
+
+    // family-texts.html `.th-h`: the adult, the child and the van, and approvals.html's green
+    // Verified chip beside them.
+    await expect(page.getByText(familyTexts.verified, { exact: true }).first()).toBeVisible();
+
+    /*
+     * family-texts.html `.b.in` / `.b.out`: the parent's bubbles grey on the LEFT, the centre's
+     * teal on the RIGHT, 18 px corners. Measured rather than read off a class name.
+     */
+    const bubbles = page.locator("[data-bubble]");
+    const count = await bubbles.count();
+    expect(count, "the thread has bubbles").toBeGreaterThan(0);
+    const frame = await page.locator("[data-messages]").boundingBox();
+    for (let i = 0; i < count; i += 1) {
+      const bubble = bubbles.nth(i);
+      const side = await bubble.getAttribute("data-bubble");
+      const box = await bubble.boundingBox();
+      const middle = frame!.x + frame!.width / 2;
+      if (side === "IN") {
+        expect(box!.x, `parent bubble ${i} is on the left`).toBeLessThan(middle);
+      } else {
+        expect(box!.x + box!.width, `staff bubble ${i} is on the right`).toBeGreaterThan(middle);
+      }
+      expect(await css(bubble, "border-top-left-radius")).toBe("18px");
+    }
+
+    // family-texts.html `.ts`: a centred stamp above each run, saying the day and the time.
+    await expect(page.getByText(familyTexts.stampToday).first()).toBeVisible();
+
+    // family-texts.html `.meta`: "Auto · Delivered", on a templated follow-up and nothing else.
+    await expect(page.getByText(familyTexts.autoDelivered).first()).toBeVisible();
+
+    // No [DEMO] tag and no STOP/HELP footer in a bubble (Firia, 10:51 PM ET: they are the send
+    // pipeline's, and belong on a family's phone).
+    await expect(page.getByText("[DEMO]")).toHaveCount(0);
+    await expect(page.getByText(/Reply HELP for help/)).toHaveCount(0);
+  });
+
+  test("the For you tab is three panes: list, thread with the card, van and pick-up", async ({ page }) => {
     await page.goto(FOR_YOU);
     await expect(page.getByRole("heading", { level: 1, name: familyTexts.heading })).toBeVisible();
-    // The tab is current, and it is a tab of this screen rather than a page of its own.
+    expect(await page.getByRole("heading", { level: 1 }).count(), "one title, the frame's").toBe(1);
+    // approvals.html `.tabs`: For you is current, and it is a tab of this screen, not a page.
     await expect(page.getByRole("link", { name: new RegExp(familyTexts.tabForYou) })).toHaveAttribute(
       "aria-current",
       "page",
     );
+
     const state = await stateOf(page);
     if (state === "card") {
-      const cards = page.getByRole("region", { name: approval.changeDropoff });
-      await expect(cards.first()).toBeVisible();
-      await expect(page.getByRole("button", { name: approval.approveAndSend }).first()).toBeVisible();
-      await expect(page.getByRole("button", { name: approval.dontSend }).first()).toBeVisible();
+      const card = page.getByRole("region", { name: approval.changeDropoff });
+      await expect(card.first()).toBeVisible();
+
+      /*
+       * THREE PANES, left to right (Firia, 2026-10-17 10:51 PM ET; approvals.html `.work`):
+       * the list, the thread with the card inline, and the van / pick-up pane.
+       */
+      const rows = page.getByRole("list", { name: familyTexts.conversationsLabel });
+      const context = page.getByRole("complementary", { name: familyTexts.rideContext });
+      await expect(context).toBeVisible();
+      const listBox = await rows.boundingBox();
+      const cardBox = await card.first().boundingBox();
+      const ctxBox = await context.boundingBox();
+      expect(listBox!.x + listBox!.width, "the list is left of the card").toBeLessThanOrEqual(cardBox!.x + 1);
+      expect(cardBox!.x + cardBox!.width, "the card is left of the pane").toBeLessThanOrEqual(ctxBox!.x + 1);
+
+      // approvals.html `.ctx`: the child, the van and its driver, the counts after the change,
+      // and who may collect them.
+      await expect(context.getByText(familyTexts.allowedPickup)).toBeVisible();
+      await expect(context.getByText(/Van \d/).first()).toBeVisible();
+      // NO ETA on this screen (Firia, 8:36 PM and 10:51 PM ET): the mockup's "On time" pill is a
+      // state chip instead, and no arrival time is drawn anywhere in the pane.
+      await expect(context.getByText(/\b(?:1[0-2]|[1-9]):[0-5]\d\s?(?:AM|PM)\b/)).toHaveCount(0);
+      await expect(context.getByText("On time")).toHaveCount(0);
+
+      /*
+       * approvals.html `.acts`: ONE row of three buttons, teal first, and no time input and no
+       * helper line on the resting card (Firia, 10:51 PM ET).
+       */
+      const approve = page.getByRole("button", { name: approval.approveAndSend }).first();
+      const edit = page.getByRole("button", { name: approval.edit }).first();
+      const dontSend = page.getByRole("button", { name: approval.dontSend }).first();
+      await expect(approve).toBeVisible();
+      await expect(edit).toBeVisible();
+      await expect(dontSend).toBeVisible();
+      const [a, e, d] = await Promise.all([approve.boundingBox(), edit.boundingBox(), dontSend.boundingBox()]);
+      expect(Math.abs(a!.y - e!.y), "Approve and Edit share a row").toBeLessThanOrEqual(2);
+      expect(Math.abs(a!.y - d!.y), "Don't send shares it too").toBeLessThanOrEqual(2);
+      expect(a!.x, "teal Approve & send is first").toBeLessThan(e!.x);
+      expect(await card.first().locator("input[type='time']").count(), "no time input").toBe(0);
+
+      // approvals.html `.draft`: the exact words, and they name the child (Firia, 10:51 PM ET).
+      await expect(card.first().getByText(/gets off at/)).toBeVisible();
       // Nothing is sent until a person says so, and the card says that before anything is pressed.
       await expect(page.getByText(approval.nothingUntilApproved).first()).toBeVisible();
     } else {
@@ -124,6 +258,23 @@ test.describe("1440: two panes, the card inside the thread", () => {
     await expectNoInternalCodes(page);
     console.log("screenshot:", await shot(page, `for-you-1440-${state}`));
   });
+
+  test("Edit is a navigation, and it opens the time field without sending", async ({ page }) => {
+    await page.goto(FOR_YOU);
+    test.skip(!(await hasCard(page)), "needs the card state (a reachable model)");
+
+    /*
+     * Firia's gate 2, and the ruling of 10:51 PM ET that the resting card has no time input: Edit
+     * navigates to the Edit state, where the field is. It writes nothing and sends nothing — the
+     * card comes back with Approve still to press.
+     */
+    await page.getByRole("button", { name: approval.edit }).first().click();
+    await expect(page).toHaveURL(/edit=/);
+    const card = page.getByRole("region", { name: approval.changeDropoff }).first();
+    await expect(card.locator("input[type='time']")).toBeVisible();
+    await expect(page.getByRole("button", { name: approval.approveAndSend }).first()).toBeVisible();
+    await expect(page.getByText(approval.nothingUntilApproved).first()).toBeVisible();
+  });
 });
 
 test.describe("390: the list, then the thread", () => {
@@ -134,6 +285,7 @@ test.describe("390: the list, then the thread", () => {
 
     const rows = page.getByRole("list", { name: familyTexts.conversationsLabel });
     await expect(rows).toBeVisible();
+    await expect(rows.getByRole("link")).toHaveCount(THREADS);
     // Nothing runs off the side of the phone (Vera's audit, M1).
     expect(await scrollWidth(page)).toBeLessThanOrEqual(PHONE);
     console.log("screenshot:", await shot(page, "family-texts-390-list"));
@@ -150,9 +302,30 @@ test.describe("390: the list, then the thread", () => {
     await expect(rows).toBeHidden();
     expect(who.length).toBeGreaterThan(0);
 
-    // And a back chevron that returns to the list.
+    /*
+     * NOT BUILT, and recorded here rather than left unsaid. Firia, 10:51 PM ET: "at 390 hide the
+     * page title on the thread view, keep a visually-hidden h1". Since #74 the title is **the
+     * frame's** — one 64 px page header bar above every screen, with the h1 in it
+     * (src/ui/PageHeader.tsx, read from the access table) — and this PR is told to take #74's
+     * frame as #74 has it and add no frame work of its own. Hiding that bar on one view of one
+     * screen is a change to PageHeader, so it belongs to the frame PR.
+     *
+     * What this asserts meanwhile is the half that is true and must stay true: exactly one h1 on
+     * the page at this width, and it names the screen.
+     */
+    const title = page.getByRole("heading", { level: 1, name: familyTexts.heading });
+    expect(await title.count(), "exactly one h1, and it is the frame's").toBe(1);
+
+    // family-texts.html `.th-h .back`: a back chevron that returns to the list.
     const back = page.getByRole("link", { name: familyTexts.backToList });
     await expect(back).toBeVisible();
+
+    // family-texts.html `.cmp`: the compose bar is pinned to the bottom of the thread.
+    const send = page.getByRole("button", { name: familyTexts.composeAction, exact: true });
+    await expect(send).toBeVisible();
+    const sendBox = await send.boundingBox();
+    expect(sendBox!.y, "the bar sits in the lower half of the phone").toBeGreaterThan(844 / 2);
+
     expect(await scrollWidth(page)).toBeLessThanOrEqual(PHONE);
     console.log("screenshot:", await shot(page, "family-texts-390-thread"));
 
@@ -164,10 +337,20 @@ test.describe("390: the list, then the thread", () => {
   test("the For you tab stacks one card per row, with no horizontal scroll", async ({ page }) => {
     await page.goto(FOR_YOU);
     const state = await stateOf(page);
+    // png/approvals-390.png: the panes stack into one column and nothing runs off the side.
     expect(await scrollWidth(page)).toBeLessThanOrEqual(PHONE);
 
+    // png/approvals-390.png: every row is a full-width card, one per row.
+    const rows = page.getByRole("list", { name: familyTexts.conversationsLabel }).getByRole("link");
+    const rowCount = await rows.count();
+    expect(rowCount).toBe(THREADS);
+    for (let i = 0; i < rowCount; i += 1) {
+      const box = await rows.nth(i).boundingBox();
+      expect(box!.x + box!.width, `row ${i} fits the phone`).toBeLessThanOrEqual(PHONE + 1);
+      expect(box!.width, `row ${i} spans the phone`).toBeGreaterThan(PHONE * 0.8);
+    }
+
     if (state === "card") {
-      // One card per row: every card starts at the same left edge and spans the phone.
       const cards = page.getByRole("region", { name: approval.changeDropoff });
       const count = await cards.count();
       expect(count).toBeGreaterThan(0);
@@ -181,5 +364,29 @@ test.describe("390: the list, then the thread", () => {
     }
     await expectNoInternalCodes(page);
     console.log("screenshot:", await shot(page, `for-you-390-${state}`));
+  });
+
+  test("the NEEDS_PERSON alert is first on For you, and counted on the tab", async ({ page }) => {
+    await page.goto(FOR_YOU);
+    const state = await stateOf(page);
+    test.skip(state !== "alert", "needs the no-model state (the alert)");
+
+    /*
+     * Firia, 2026-10-17 8:36 PM ET, and docs/DATA-MODEL.md's signed row for the NEEDS_PERSON
+     * staff alert: it is at the TOP of For you, for director and coordinator only, and it counts
+     * toward what is waiting. The front desk never reaches this tab at all
+     * (e2e/family-texts-front-desk.spec.ts, and the server half in
+     * src/modules/approvals/front-desk-cannot-approve.test.ts).
+     */
+    const alert = page.getByRole("heading", { name: assistantUnavailable.heading });
+    await expect(alert).toBeVisible();
+    const alertBox = await alert.boundingBox();
+    const rows = page.getByRole("list", { name: familyTexts.conversationsLabel });
+    const rowsBox = await rows.boundingBox();
+    expect(alertBox!.y, "the alert is above the day's rows").toBeLessThan(rowsBox!.y);
+
+    // And no proposal card anywhere, because nothing read the family's text (gate 5).
+    await expect(page.getByText(approval.changeDropoff)).toHaveCount(0);
+    expect(await scrollWidth(page)).toBeLessThanOrEqual(PHONE);
   });
 });

@@ -22,6 +22,13 @@ describe("the templates the day sends by itself", () => {
       HELP_REPLY_TEMPLATE,
       "dropoff.eta",
       "dropoff.late",
+      /*
+       * The handoff notice, added with the day's own threads (Firia, 2026-10-17 10:51 PM ET —
+       * the five threads come from fixture data). Nobody chooses to send it: the day sends it
+       * because a custody event was recorded, which is what makes it an auto send and not a
+       * decision.
+       */
+      "dropoff.received",
       "pickup.eta",
     ].sort());
   });

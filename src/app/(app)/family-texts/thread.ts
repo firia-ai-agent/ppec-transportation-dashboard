@@ -22,7 +22,18 @@
  */
 import type { Db } from "@/db/exec";
 import { formatClock } from "@/domain/eta/eta";
+import { demoHandoffNotices, type HandoffNotice } from "@/modules/demo/handoff-notice";
 import { demoLateDropoffs, type LateDropoff } from "@/modules/demo/late-dropoff";
+
+/**
+ * One family the day has texted, whatever the day texted them about.
+ *
+ * The two kinds today are the afternoon's late notice and the handoff the day recorded, and they
+ * have everything this screen reads in common: whose ride, which adult, which phone, which
+ * template, the words, and when. A screen that asked which kind a row was would be a screen with
+ * two layouts for one list.
+ */
+export type DayPhone = LateDropoff | HandoffNotice;
 import { personaMailboxResponse, type PersonaMessage } from "@/modules/messaging/mailbox";
 import { normalizeE164 } from "@/modules/identity/phone";
 import { isAutoSend } from "@/modules/messaging/auto-sends";
@@ -77,7 +88,7 @@ export type Thread = {
 };
 
 /** The sim persona number as the mailbox route spells it (E.164), from the fixture's own form. */
-export function e164Of(dropoff: Pick<LateDropoff, "phone">): string {
+export function e164Of(dropoff: Pick<DayPhone, "phone">): string {
   return normalizeE164(dropoff.phone) ?? dropoff.phone;
 }
 
@@ -85,7 +96,7 @@ export function e164Of(dropoff: Pick<LateDropoff, "phone">): string {
  * The same number as a person reads it: "(561) 555-0102". The fixtures hold a dialling form and
  * the mailbox route wants E.164; neither is something a screen prints (COPY-GUIDE §3).
  */
-export function phoneLabel(dropoff: Pick<LateDropoff, "phone">): string {
+export function phoneLabel(dropoff: Pick<DayPhone, "phone">): string {
   const digits = e164Of(dropoff).replace(/\D/g, "").slice(-10);
   if (digits.length !== 10) return dropoff.phone;
   return fill(familyTexts.phoneFormat, {
@@ -118,7 +129,7 @@ export function phoneLabel(dropoff: Pick<LateDropoff, "phone">): string {
  */
 export async function threadFor(
   db: () => Db,
-  a: { dropoff: LateDropoff; pepper: string | undefined; userId: string | undefined },
+  a: { dropoff: DayPhone; pepper: string | undefined; userId: string | undefined },
 ): Promise<Thread> {
   const logged = await loggedThread(db, a);
   if (logged.kind === "unreadable") return { source: "logUnreadable", bubbles: [projected(a.dropoff)] };
@@ -133,7 +144,7 @@ type LoggedThread =
 
 async function loggedThread(
   db: () => Db,
-  a: { dropoff: LateDropoff; pepper: string | undefined; userId: string | undefined },
+  a: { dropoff: DayPhone; pepper: string | undefined; userId: string | undefined },
 ): Promise<LoggedThread> {
   // Not a fault: the browser check's synthetic role holds a role and no user, and the read model
   // needs both. There is nothing to read, which is what the projection is for.
@@ -186,7 +197,7 @@ function bubbleOf(message: PersonaMessage): Bubble {
 }
 
 /** The demo day's own text, as a bubble. No delivery state: nothing has been sent. */
-function projected(dropoff: LateDropoff): Bubble {
+function projected(dropoff: DayPhone): Bubble {
   return {
     id: `${dropoff.childKey}-${dropoff.atMs}`,
     direction: "OUT",
@@ -200,6 +211,17 @@ function projected(dropoff: LateDropoff): Bubble {
 }
 
 /** The families the demo day has a text for, in the order the van reaches them. */
-export function phonesForDay(...args: Parameters<typeof demoLateDropoffs>): readonly LateDropoff[] {
-  return demoLateDropoffs(...args);
+export function phonesForDay(...args: Parameters<typeof demoLateDropoffs>): readonly DayPhone[] {
+  const late = demoLateDropoffs(...args);
+  /*
+   * The day's five threads (Firia, 2026-10-17 10:51 PM ET), all of them fixture facts: the two
+   * afternoon late texts, and the families whose child the day recorded as *received* at their
+   * stop. The late families are excluded from the second list — a family is one thread, and the
+   * newest thing that happened to them is what the row shows.
+   */
+  const handed = demoHandoffNotices(args[0], THREADS - late.length, late.map((t) => t.childKey));
+  return [...late, ...handed].sort((a, b) => b.atMs - a.atMs);
 }
+
+/** How many threads the day's list holds (mockups/family-texts.html, approvals.html: five). */
+export const THREADS = 5;
