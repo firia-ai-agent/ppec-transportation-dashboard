@@ -1569,6 +1569,12 @@ export const planBoard = {
    * a board that filled the name in with a guess would be naming the wrong person.
    */
   changedAnon: "Someone else saved · Reload",
+  /**
+   * The line a Save gets when somebody else moved the plan on while this board was being built
+   * (Firia, 2026-10-17 10:29 PM ET). The unsaved moves are **kept** — the board is still the
+   * coordinator's draft — so the words ask for a reload rather than announcing a loss.
+   */
+  changedReload: "Plan changed, reload",
   overChip: "Full",
   undo: "Undo",
   /** The dashed target inside an empty van column. */

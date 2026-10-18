@@ -8,7 +8,8 @@ import { childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/standard";
 import { seedStandardScenario } from "@/modules/demo/seed";
 import { sqlDaySource } from "@/modules/roster/sql";
 import { setChildNeeds } from "@/modules/roster/needs-write";
-import { setChildAwayAllDay, setChildPlacement } from "./place";
+import { applyPendingMoves, setChildAwayAllDay, setChildPlacement } from "./place";
+import { autoPlan } from "@/domain/plan/board";
 import { setChildNeedsRequest } from "./api";
 import { loadBoard } from "./store";
 import { sqlPlanStore } from "./sql";
@@ -161,6 +162,120 @@ describe("a drag is a row, and a new version every time", () => {
     );
     expect(refused).toMatchObject({ ok: false, status: 422, reason: "WHEELCHAIR" });
     expect((await db.query("SELECT 1 FROM ops.plan_run", [])).rows).toHaveLength(0);
+  });
+});
+
+/**
+ * Save: the whole queue, in one transaction (Firia's option A, 2026-10-17 10:29 PM ET).
+ *
+ * The board drags into a queue and writes nothing, so everything that matters happens here —
+ * on a real database, because "all or nothing" is a transaction claim and nothing else can
+ * prove it.
+ */
+describe("Save applies every pending move at once, or none of them", () => {
+  it("writes one new version for the whole queue", async () => {
+    await startTheDay();
+    const riders = (await board()).day.riders.slice(0, 3);
+    const moves = riders.map((rider, i) => ({
+      childToken: rider.token,
+      bucket: "VAN" as const,
+      vanId: [vanOne(), vanTwo(), vanOne()][i],
+    }));
+    const written = await applyPendingMoves(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", moves, expectedVersion: 0, actor: null, now: NOW },
+      store,
+      source(),
+    );
+    expect(written.ok).toBe(true);
+    if (!written.ok) return;
+    expect(written.version).toBe(1);
+    const after = await board();
+    for (const move of moves) expect(after.plan[move.childToken].vanId).toBe(move.vanId);
+    // One version for the lot, not one per move.
+    const runs = await db.query<{ version: number }>("SELECT version FROM ops.plan_run", []);
+    expect(runs.rows.map((row) => Number(row.version))).toEqual([1]);
+  });
+
+  it("writes nothing at all when one move in the queue is refused", async () => {
+    await startTheDay();
+    const day = (await board()).day;
+    const chair = day.riders.find((rider) => rider.needs.wheelchair)!;
+    const anybody = day.riders.find((rider) => !rider.needs.wheelchair)!;
+    const vanThree = vehicleIdOf(VANS[2].vehicleKey);
+    const refused = await applyPendingMoves(
+      {
+        siteId: SITE,
+        serviceDate: DATE,
+        direction: "PM",
+        moves: [
+          { childToken: anybody.token, bucket: "VAN", vanId: vanOne() },
+          // Van 3 has no wheelchair spot and no lift: this one cannot be applied.
+          { childToken: chair.token, bucket: "VAN", vanId: vanThree },
+        ],
+        expectedVersion: 0,
+        actor: null,
+        now: NOW,
+      },
+      store,
+      source(),
+    );
+    expect(refused).toMatchObject({ ok: false, status: 422 });
+    // Not even the good move landed, and there is no plan at all.
+    expect((await db.query("SELECT 1 FROM ops.plan_run", [])).rows).toHaveLength(0);
+    expect((await board()).plan[anybody.token].bucket).not.toBe("VAN");
+  });
+
+  it("refuses the whole queue on a stale version, and changes nothing", async () => {
+    await startTheDay();
+    const riders = (await board()).day.riders;
+    await applyPendingMoves(
+      {
+        siteId: SITE, serviceDate: DATE, direction: "PM", expectedVersion: 0, actor: null, now: NOW,
+        moves: [{ childToken: riders[0].token, bucket: "VAN", vanId: vanOne() }],
+      },
+      store,
+      source(),
+    );
+    const stale = await applyPendingMoves(
+      {
+        siteId: SITE, serviceDate: DATE, direction: "PM", expectedVersion: 0, actor: null, now: NOW,
+        moves: [{ childToken: riders[1].token, bucket: "VAN", vanId: vanTwo() }],
+      },
+      store,
+      source(),
+    );
+    expect(stale).toMatchObject({ ok: false, status: 409, reason: "CHANGED" });
+    const after = await board();
+    expect(after.version).toBe(1);
+    expect(after.plan[riders[1].token].bucket).not.toBe("VAN");
+  });
+
+  it("saves Auto-plan's moves to the same plan a fresh run would give", async () => {
+    await startTheDay();
+    const before = await board();
+    const planned = autoPlan(before.day, before.plan);
+    const moves = Object.entries(planned)
+      .filter(([token, placement]) => before.plan[token]?.vanId !== placement.vanId)
+      .map(([token, placement]) => ({
+        childToken: token,
+        bucket: placement.bucket,
+        vanId: placement.vanId,
+      }));
+    expect(moves.length).toBeGreaterThan(0);
+
+    const written = await applyPendingMoves(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", moves, expectedVersion: 0, actor: null, now: NOW },
+      store,
+      source(),
+    );
+    expect(written.ok).toBe(true);
+    const after = await board();
+    for (const rider of after.day.riders) {
+      expect({ who: rider.name, van: after.plan[rider.token].vanId }).toEqual({
+        who: rider.name,
+        van: planned[rider.token].vanId,
+      });
+    }
   });
 });
 

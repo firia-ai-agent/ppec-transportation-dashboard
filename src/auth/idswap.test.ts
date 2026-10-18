@@ -374,33 +374,35 @@ describe("the same procedure, at the plan save endpoint", () => {
     const board = await (
       await GET(new Request(`https://example.test/plan?date=${date}&direction=${PM}`))
     ).json();
-    const ours = { date, direction: PM, version: 0, placements: board.plan };
+    /*
+     * Save posts **moves** now (Firia's option A, 2026-10-17 10:29 PM ET), so a swapped id
+     * reaches the server as a move that names it — which is the only way one can.
+     */
     const someone = Object.keys(board.plan)[0];
+    const ours = {
+      date,
+      direction: PM,
+      version: 0,
+      moves: [{ childToken: someone, bucket: "VAN", vanId: vehicleIdOf("V1") }],
+    };
     return {
       ours,
       /** A child this day does not drive — the swap. */
       theirs: {
         ...ours,
-        placements: {
-          ...board.plan,
-          "01900000-0000-7000-8000-00110000beef": { bucket: "UNASSIGNED", vanId: null, pinned: false },
-        },
+        moves: [
+          { childToken: "01900000-0000-7000-8000-00110000beef", bucket: "VAN", vanId: vehicleIdOf("V1") },
+        ],
       },
       /** A van that is in the fleet and not on the board — the other swap. */
       otherVan: {
         ...ours,
-        placements: {
-          ...board.plan,
-          [someone]: { bucket: "VAN", vanId: vehicleIdOf("V3"), pinned: true },
-        },
+        moves: [{ childToken: someone, bucket: "VAN", vanId: vehicleIdOf("V3") }],
       },
-      /** A chair into the van with no spot and no lift: the plan the fit rule refuses. */
+      /** A chair into the van with no spot and no lift: the move the fit rule refuses. */
       refused: {
         ...ours,
-        placements: {
-          ...board.plan,
-          [childTokenOf("C2")]: { bucket: "VAN", vanId: vehicleIdOf("V4"), pinned: true },
-        },
+        moves: [{ childToken: childTokenOf("C2"), bucket: "VAN", vanId: vehicleIdOf("V4") }],
       },
     };
   }

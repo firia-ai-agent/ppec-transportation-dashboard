@@ -38,9 +38,13 @@ export function saveLine(state: SaveState): { label: string; tone: Tone } {
     case "FAILED":
       return { label: planBoard.saveFailed, tone: "crit" };
     case "CHANGED":
-      // A name when the server knows one, and the chip that names nobody when it does not.
+      /*
+       * Somebody else saved while this board was being built. The unsaved moves are kept, so
+       * the chip asks for a reload rather than announcing a loss (Firia, 10:29 PM ET) — and it
+       * names whoever moved it when the server knows a name.
+       */
       return {
-        label: state.by ? fill(planBoard.changedBy, { name: state.by }) : planBoard.changedAnon,
+        label: state.by ? fill(planBoard.changedBy, { name: state.by }) : planBoard.changedReload,
         tone: "warn",
       };
     default:

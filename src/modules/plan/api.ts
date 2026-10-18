@@ -20,7 +20,7 @@ import { autoPlan, BUCKETS, checkPlan, namesOnlyThisDay, ridersInVan, type Board
 import { isReadOnlyDbEnv } from "@/db/read-only";
 import { setChildNeeds } from "@/modules/roster/needs-write";
 import { setDemoNeedsOverride } from "@/modules/demo/needs-store";
-import { setChildPlacement, writePlan, type SetChildPlacementOutcome } from "./place";
+import { applyPendingMoves, setChildPlacement, writePlan, type SetChildPlacementOutcome } from "./place";
 import { sqlDaySource } from "@/modules/roster/sql";
 import { sqlPlanStore } from "./sql";
 import { isOver } from "@/domain/plan/fit";
@@ -79,12 +79,27 @@ const placement = z.strictObject({
   pinned: z.boolean(),
 });
 
+/**
+ * What Save sends: **the moves**, not a board.
+ *
+ * A whole-plan map posted from a screen is a free-form write of every child's bucket, which is
+ * how a stale tab marks somebody absent (Veri F1). A list of moves is what the person actually
+ * did, each applied through the same checks a single drag gets (src/modules/plan/place.ts).
+ */
 export const savePlanBody = z.strictObject({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   direction: z.enum(["AM", "PM"]),
   /** The version the board was showing; 0 when it started from no saved plan. */
   version: z.number().int().min(0).max(1_000_000),
-  placements: z.record(z.string().min(1).max(64), placement),
+  moves: z
+    .array(
+      z.strictObject({
+        childToken: z.string().min(1).max(64),
+        bucket: z.enum(BUCKETS),
+        vanId: z.string().min(1).max(64).nullable().optional(),
+      }),
+    )
+    .max(200),
 });
 
 export type SavePlanAnswer =
@@ -92,14 +107,14 @@ export type SavePlanAnswer =
   | { status: 404 | 409 | 422 | 503; body: { ok: false; error?: string; reason?: string; changedBy?: string | null; childToken?: string; vanId?: string } };
 
 /**
- * The board's Save (§1.6's `POST /api/plan/save`) — which is Auto-plan's answer being accepted,
- * and nothing else.
+ * The board's Save (§1.6's `POST /api/plan/save`): **the pending moves, in one transaction**
+ * (Firia's option A, 2026-10-17 10:29 PM ET).
  *
- * It is the **same writer** every drag uses (`writePlan`, src/modules/plan/place.ts), so it has
- * the same refusals and no others: the fit rule always decides (there is no `allowOver` any
- * more — a van can never be saved over its counts), and a whole-board save may not move anybody
- * into or out of Absent or Family drives, because those are one-child moves through
- * `setChildPlacement` (Veri F1, 2026-10-17).
+ * Dragging writes nothing. Save sends the queue the board built up — drags, drops on Absent or
+ * Family drives, `Move to…`, and whatever Auto-plan proposed — and every one of them is applied
+ * through the same writer and the same refusals a single move gets: the fit rule always decides
+ * (there is no `allowOver`), and one bad move writes nothing at all. One `plan_run` version per
+ * Save, and a 409 if somebody else moved it on.
  */
 export async function savePlanRequest(
   siteId: string,
@@ -109,15 +124,19 @@ export async function savePlanRequest(
   store: PlanStore = planStore(),
   source: DayDataSource = dayDataSource(siteId),
 ): Promise<SavePlanAnswer> {
-  const written = await writePlan(
+  const written = await applyPendingMoves(
     {
       siteId,
       serviceDate: input.date,
       direction: input.direction,
+      moves: input.moves.map((move) => ({
+        childToken: move.childToken,
+        bucket: move.bucket,
+        vanId: move.vanId ?? null,
+      })),
       expectedVersion: input.version,
       actor: caller.userId ?? null,
       now,
-      change: () => input.placements as BoardPlan,
     },
     store,
     source,

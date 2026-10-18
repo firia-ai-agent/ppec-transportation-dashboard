@@ -58,6 +58,17 @@ import {
   type BoardRider,
 } from "@/domain/plan/board";
 import { panelNeedsOf, type PanelNeeds } from "@/domain/plan/needs";
+import {
+  applyPending,
+  clearPending,
+  enqueue,
+  hasPending,
+  movesToSave,
+  undoLast,
+  NO_PENDING,
+  type PendingMove,
+  type PendingQueue,
+} from "@/domain/plan/pending";
 import { isOver, rejectReason } from "@/domain/plan/fit";
 import type { BoardView } from "@/modules/plan/store";
 import { boardHref } from "@/modules/plan/when";
@@ -104,7 +115,6 @@ export default function PlanBoard({
 }) {
   /* ── the board as the server last answered, and the plan on screen ── */
   const [board, setBoard] = useState<BoardView>(view);
-  const [plan, setPlan] = useState<BoardPlan>(view.plan);
   const [savedPlan, setSavedPlan] = useState<BoardPlan>(view.plan);
   const [version, setVersion] = useState(view.version);
   /** The child whose panel is open, by token. One at a time (mockup plan-board-child-*.png). */
@@ -115,8 +125,13 @@ export default function PlanBoard({
   const [save, setSave] = useState<SaveState>(
     view.savedAt ? { kind: "SAVED", at: view.savedAt } : { kind: "DIRTY" },
   );
-  const [undoStack, setUndoStack] = useState<BoardPlan[]>([]);
-  const [toast, setToast] = useState<{ text: string; before: BoardPlan } | null>(null);
+  /**
+   * The moves nobody has saved yet (Firia's option A, 2026-10-17 10:29 PM ET). A drag goes on
+   * here and writes nothing; Save sends the whole queue in one transaction; Undo takes the last
+   * one back and never touches what is saved.
+   */
+  const [pending, setPending] = useState<PendingQueue>(NO_PENDING);
+  const [toast, setToast] = useState<{ text: string } | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [lifted, setLifted] = useState<BoardRider | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -130,7 +145,10 @@ export default function PlanBoard({
    */
   const day: BoardDay = board.day;
 
-  const dirty = useMemo(() => fingerprint(plan) !== fingerprint(savedPlan), [plan, savedPlan]);
+  /** What the screen shows: the saved plan with every unsaved move folded on, in order. */
+  const plan: BoardPlan = useMemo(() => applyPending(savedPlan, pending), [savedPlan, pending]);
+
+  const dirty = hasPending(pending);
   const placed = placedCount(day, plan);
   const waiting = unassignedRiders(day, plan);
   const map = useMemo(() => boardMap(day, plan), [day, plan]);
@@ -161,7 +179,7 @@ export default function PlanBoard({
    * round trip; the server asks it again, because a request did not come from this screen.
    */
   const applyPlacement = useCallback(
-    async (childToken: string, bucket: Bucket, vanId: string | null) => {
+    (childToken: string, bucket: Bucket, vanId: string | null) => {
       if (!canEdit) return;
       const rider = day.riders.find((r) => r.token === childToken);
       const other = day.others.find((o) => o.token === childToken);
@@ -170,19 +188,14 @@ export default function PlanBoard({
       if (van && rider) {
         const reason = rejectReason(van.setup, ridersInVan(day, plan, van.id), rider);
         if (reason) {
-          // Refused: the card goes back where it was and the reason is said, not only drawn.
+          // Refused before it is even a draft: the card goes back and the reason is said, not
+          // only drawn. The server asks the same question again at Save.
           setAnnouncement(rejectSr(rider.name, van.name, reason));
           return;
         }
       }
 
-      const before = plan;
-      const next: BoardPlan =
-        bucket === "VAN" || bucket === "UNASSIGNED"
-          ? moveTo(plan, childToken, bucket === "VAN" ? vanId : null)
-          : { ...plan, [childToken]: { bucket, vanId: null, pinned: true } };
-      setPlan(next);
-      setUndoStack((stack) => [...stack, before]);
+      setPending((queue) => enqueue(queue, { childToken, bucket, vanId }));
       const whereTo = van
         ? van.name
         : bucket === "ABSENT"
@@ -190,46 +203,12 @@ export default function PlanBoard({
           : bucket === "FAMILY_DRIVES"
             ? planBoard.familyDrives
             : planBoard.unassigned;
-      setToast({ text: movedLine(name, whereTo), before });
+      setToast({ text: movedLine(name, whereTo) });
       setAnnouncement(movedLine(name, whereTo));
-
-      try {
-        const response = await fetch(API.planPlace, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            date: day.date,
-            direction: day.direction,
-            childToken,
-            bucket,
-            vanId: bucket === "VAN" ? vanId : null,
-            version,
-          }),
-        });
-        const body = (await response.json().catch(() => null)) as
-          | { ok?: boolean; version?: number; savedAt?: string; reason?: string; changedBy?: string | null; view?: BoardView }
-          | null;
-        if (response.ok && body?.ok && body.view && typeof body.version === "number") {
-          setBoard(body.view);
-          setPlan(body.view.plan);
-          setSavedPlan(body.view.plan);
-          setVersion(body.version);
-          setSave({ kind: "SAVED", at: body.savedAt ?? new Date().toISOString() });
-          return;
-        }
-        if (response.status === 409 && body?.reason === "CHANGED") {
-          setSave({ kind: "CHANGED", by: body.changedBy ?? null });
-          return;
-        }
-        // The server refused the move: put the board back where it was and say so.
-        setPlan(before);
-        setSave({ kind: "FAILED" });
-      } catch {
-        setPlan(before);
-        setSave({ kind: "FAILED" });
-      }
+      // Nothing is written: the board is a draft until Save (option A).
+      setSave({ kind: "DIRTY" });
     },
-    [canEdit, day, plan, version],
+    [canEdit, day, plan],
   );
 
   const applyMove = useCallback(
@@ -265,7 +244,6 @@ export default function PlanBoard({
           | null;
         if (response.ok && body?.ok && body.view && typeof body.version === "number") {
           setBoard(body.view);
-          setPlan(body.view.plan);
           setSavedPlan(body.view.plan);
           setVersion(body.version);
           setSave({ kind: "SAVED", at: body.savedAt ?? new Date().toISOString() });
@@ -286,12 +264,9 @@ export default function PlanBoard({
     [day.date, day.direction, version],
   );
 
+  /** Undo takes back the most recent **unsaved** move, and only that (option A). */
   const undo = useCallback(() => {
-    setUndoStack((stack) => {
-      const previous = stack[stack.length - 1];
-      if (previous) setPlan(previous);
-      return stack.slice(0, -1);
-    });
+    setPending((queue) => undoLast(queue));
     setToast(null);
   }, []);
 
@@ -353,41 +328,39 @@ export default function PlanBoard({
     };
   }, []);
 
-  /* ── saving: Auto-plan's answer, accepted ── */
-  const onSave = useCallback(
-    async () => {
-      setSave({ kind: "SAVING" });
-      try {
-        const response = await fetch(API.planSave, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            date: day.date,
-            direction: day.direction,
-            version,
-            placements: plan,
-          }),
-        });
-        const body = (await response.json().catch(() => null)) as
-          | { ok?: boolean; version?: number; savedAt?: string; reason?: string; changedBy?: string | null }
-          | null;
-        if (response.ok && body?.ok && typeof body.savedAt === "string" && typeof body.version === "number") {
-          setVersion(body.version);
-          setSavedPlan(plan);
-          setSave({ kind: "SAVED", at: body.savedAt });
-          return;
-        }
-        if (response.status === 409 && body?.reason === "CHANGED") {
-          setSave({ kind: "CHANGED", by: body.changedBy ?? null });
-          return;
-        }
-        setSave({ kind: "FAILED" });
-      } catch {
-        setSave({ kind: "FAILED" });
+  /* ── saving: every pending move, in one transaction (option A) ── */
+  const onSave = useCallback(async () => {
+    const moves = movesToSave(savedPlan, pending);
+    if (moves.length === 0) return;
+    setSave({ kind: "SAVING" });
+    try {
+      const response = await fetch(API.planSave, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ date: day.date, direction: day.direction, version, moves }),
+      });
+      const body = (await response.json().catch(() => null)) as
+        | { ok?: boolean; version?: number; savedAt?: string; reason?: string; changedBy?: string | null; view?: BoardView }
+        | null;
+      if (response.ok && body?.ok && typeof body.version === "number") {
+        if (body.view) setBoard(body.view);
+        setSavedPlan(body.view ? body.view.plan : plan);
+        setVersion(body.version);
+        setPending(clearPending());
+        setSave({ kind: "SAVED", at: body.savedAt ?? new Date().toISOString() });
+        return;
       }
-    },
-    [day.date, day.direction, plan, version],
-  );
+      if (response.status === 409) {
+        // Somebody else moved the plan on. The queue is **kept** — it is this coordinator's
+        // draft — and the screen asks for a reload (Firia, 10:29 PM ET).
+        setSave({ kind: "CHANGED", by: body?.changedBy ?? null });
+        return;
+      }
+      setSave({ kind: "FAILED" });
+    } catch {
+      setSave({ kind: "FAILED" });
+    }
+  }, [day.date, day.direction, pending, plan, savedPlan, version]);
 
   /*
    * There is no "Save anyway?" (Veri, 2026-10-17 8:35 PM ET): a van can never be saved over its
@@ -467,11 +440,19 @@ export default function PlanBoard({
           placed={placed}
           total={ridersToPlace(day, plan).length}
           save={dirty && save.kind === "SAVED" ? { kind: "DIRTY" } : save}
-          canUndo={undoStack.length > 0}
+          canUndo={hasPending(pending)}
           onUndo={undo}
           onAutoPlan={() => {
-            setUndoStack((stack) => [...stack, plan]);
-            setPlan(autoPlan(day, plan));
+            // Auto-plan proposes: its answer becomes unsaved moves, like a drag, and nothing is
+            // written until Save (option A).
+            const planned = autoPlan(day, plan);
+            setPending((queue) =>
+              movesToSave(savedPlan, [...queue, ...asMoves(plan, planned)]).reduce(
+                (next, move) => enqueue(next, move),
+                NO_PENDING,
+              ),
+            );
+            setSave({ kind: "DIRTY" });
           }}
           autoPlanPrimary={placed === 0}
           onSave={trySave}
@@ -649,6 +630,17 @@ function vanNameOfChild(day: BoardDay, plan: BoardPlan, token: string): string |
 /** The child-needs endpoint for one child, from the access table's own template. */
 function childNeedsPath(childToken: string): string {
   return API.childNeeds.replace("[token]", encodeURIComponent(childToken));
+}
+
+/** The difference between two plans, as the moves that would make it — what Auto-plan proposes. */
+function asMoves(before: BoardPlan, after: BoardPlan): PendingMove[] {
+  const moves: PendingMove[] = [];
+  for (const [token, placement] of Object.entries(after)) {
+    const was = before[token];
+    if (was && was.bucket === placement.bucket && was.vanId === placement.vanId) continue;
+    moves.push({ childToken: token, bucket: placement.bucket, vanId: placement.vanId });
+  }
+  return moves;
 }
 
 /** A rider's own name, for an announcement that must not contain an id. */

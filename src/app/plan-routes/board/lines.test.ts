@@ -114,10 +114,13 @@ describe("§1.3: the save state is a word, not a dot", () => {
       label: "Changed by Dana M. · Reload",
       tone: "warn",
     });
+    // With no name, the chip is the one that asks for a reload and keeps the draft
+    // (Firia's option A, 2026-10-17 10:29 PM ET).
     expect(saveLine({ kind: "CHANGED", by: null })).toEqual({
-      label: planBoard.changedAnon,
+      label: planBoard.changedReload,
       tone: "warn",
     });
+    expect(planBoard.changedReload).toBe("Plan changed, reload");
   });
 });
 

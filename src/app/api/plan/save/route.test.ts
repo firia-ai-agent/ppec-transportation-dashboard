@@ -96,11 +96,27 @@ async function emptyPlacements(): Promise<Record<string, { bucket: string; vanId
   return plan;
 }
 
+/**
+ * Save posts **moves**, not a board (Firia's option A, 2026-10-17 10:29 PM ET).
+ *
+ * These tests were written against the whole-plan body, and what they are each about is
+ * unchanged, so the helper turns the plan they build into the moves that would produce it from
+ * a fresh day: everything that is not Unassigned is a move somebody made.
+ */
+const movesFor = (placements: unknown) =>
+  Object.entries((placements ?? {}) as Record<string, { bucket: string; vanId: string | null }>)
+    .filter(([, placement]) => placement.bucket !== "UNASSIGNED")
+    .map(([childToken, placement]) => ({
+      childToken,
+      bucket: placement.bucket,
+      vanId: placement.vanId,
+    }));
+
 const body = (placements: unknown, over?: Partial<{ version: number; allowOver: boolean }>) => ({
   date: TODAY,
   direction: "PM" as const,
   version: 0,
-  placements,
+  moves: movesFor(placements),
   ...over,
 });
 
@@ -222,9 +238,11 @@ describe("a refused drop cannot be saved by posting it directly (§1.7 #1)", () 
   });
 
   it("does not keep the half of the plan that was fine either", async () => {
-    const { noah, body: forcedBody } = await forced();
+    const { noah } = await forced();
+    // One move the fit rule is happy with, and one it is not: the whole save is refused, and
+    // the good one does not land either (option A's all-or-nothing).
     const mixed = body({
-      ...(forcedBody.placements as Record<string, unknown>),
+      ...(await emptyPlacements()),
       [childTokenOf("C3")]: { bucket: "VAN", vanId: VAN(0), pinned: true },
       [noah]: { bucket: "VAN", vanId: VAN(2), pinned: true },
     });
@@ -258,9 +276,11 @@ describe("an id swap over HTTP", () => {
    * gets: one uniform answer for a child who is not on this day, a van that is not on the board,
    * and an id that matches nothing at all — in the same words, with nothing echoed back.
    */
+  // A move that **names** the strange id, because that is the only way one reaches the server
+  // now: Save sends the moves a person made, not a map of every child.
   const swaps: Array<[string, Record<string, unknown>]> = [
-    ["a child who is on no run today", { "01900000-0000-7000-8000-00110000beef": { bucket: "UNASSIGNED", vanId: null, pinned: false } }],
-    ["a child id that matches nothing", { "not-a-child": { bucket: "UNASSIGNED", vanId: null, pinned: false } }],
+    ["a child who is on no run today", { "01900000-0000-7000-8000-00110000beef": { bucket: "VAN", vanId: VAN(0), pinned: true } }],
+    ["a child id that matches nothing", { "not-a-child": { bucket: "VAN", vanId: VAN(0), pinned: true } }],
   ];
 
   it.each(swaps)("%s is a uniform 404 that confirms nothing", async (_what, placements) => {
