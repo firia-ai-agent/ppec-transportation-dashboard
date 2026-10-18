@@ -539,7 +539,12 @@
    * at 64 that puts the bar's box at y 703–780 and the button at y 712–772, which is what a
    * browser measures.
    */
-  :global(:root) {
+  /*
+   * `:root:root`, not `:root`: the frame's default 0 is emitted by an inline <style> in the root
+   * layout (tokenCss), which ties on specificity and wins on source order, so a plain `:root` here
+   * was silently overridden and the disc stayed at y707 over Confirm (Vera, 09197cf).
+   */
+  :global(:root:root) {
     --sticky-action-bar-height: calc(
       var(--border-hairline) + var(--space-3) + var(--ramp-confirm-height) + var(--space-3)
     );

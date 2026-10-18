@@ -119,7 +119,7 @@ describe("the ramp iPad's arrival page declares its Confirm bar's height", () =>
     expect(before).not.toMatch(/--sticky-action-bar-height/);
 
     expect(phone(arrivalCss)).toMatch(
-      /:global\(:root\) \{\s*--sticky-action-bar-height: calc\(\s*var\(--border-hairline\) \+ var\(--space-3\) \+ var\(--ramp-confirm-height\) \+ var\(--space-3\)\s*\),?\s*;?\s*\}/,
+      /:global\(:root:root\) \{\s*--sticky-action-bar-height: calc\(\s*var\(--border-hairline\) \+ var\(--space-3\) \+ var\(--ramp-confirm-height\) \+ var\(--space-3\)\s*\),?\s*;?\s*\}/,
     );
   });
 
