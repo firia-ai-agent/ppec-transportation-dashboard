@@ -14,6 +14,7 @@ import { PROVIDERS, VEHICLES } from "@/modules/demo/fixtures/standard";
 import { legStates, therapySessionStates } from "@/ui/states";
 import { clockLabel, demoDateIso, demoDateLabel } from "@/ui/service-date";
 import { deriveReadiness, unreadFacts } from "@/domain/day/readiness";
+import { rightNowTiles, unreadRightNow } from "@/domain/health/right-now";
 import { stepsFor } from "@/ui/step-strip";
 import { TodayBoard } from "./TodayBoard";
 import { LegDrawer } from "./LegDrawer";
@@ -66,7 +67,12 @@ const legOf = (key: string, direction: "AM" | "PM"): LegRow => {
  */
 function boardHtml(query = "", of: typeof board = board): string {
   return renderToStaticMarkup(
-    createElement(TodayBoard, { board: of, query, steps: stepsFor("DIRECTOR", READINESS) }),
+    createElement(TodayBoard, {
+      board: of,
+      query,
+      steps: stepsFor("DIRECTOR", READINESS),
+      tiles: rightNowTiles(unreadRightNow()),
+    }),
   );
 }
 
@@ -686,5 +692,23 @@ describe("the one primary action, and why it is not available", () => {
       // No automatic return, and no handoff either: the only exit is a person's.
       expect(held).toContain(escaped(fill(drawer.handoffBlockedNoReceiver, { child: "Noah O." })));
     });
+  });
+});
+
+describe("Board | Health", () => {
+  /**
+   * png/health-demo-1440.png, png/health-demo-390.png, png/today-saved-390.png: the selected
+   * tab uses the rail's selected tint (selected-bg, ink-brand) and the md radius. The radius
+   * and the padding stay in two rules so this is a tab and not a second pill (src/ui/pill.test.ts).
+   */
+  it("fills the selected tab with the selected tint and the md radius", () => {
+    const css = readFileSync(path.join(__dirname, "today.module.css"), "utf8");
+    const tab = css.slice(css.indexOf(".tab {"), css.indexOf('.tab[aria-selected="true"]'));
+    expect(tab).toMatch(/border-radius:\s*var\(--radius-md\)/);
+    expect(tab).not.toMatch(/radius-pill/);
+    const selected = css.slice(css.indexOf('.tab[aria-selected="true"]'), css.indexOf(".tabInner"));
+    expect(selected).toMatch(/background:\s*var\(--color-selected-bg\)/);
+    expect(selected).toMatch(/color:\s*var\(--color-ink-brand\)/);
+    expect(selected).not.toMatch(/padding/);
   });
 });

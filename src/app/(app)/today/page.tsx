@@ -1,6 +1,8 @@
 import { requirePage } from "@/auth/page-guard";
 import { buildBoard, CLOCK_PARAM, requestedBoardDay } from "@/domain/board/board";
 import { getDayReadiness, serviceDateAt } from "@/domain/day/day-facts";
+import { readRightNow } from "@/domain/health/right-now-facts";
+import { rightNowTiles } from "@/domain/health/right-now";
 import { stepsFor } from "@/ui/step-strip";
 import { savedPlanFor } from "./saved-plan";
 import { TodayBoard } from "./TodayBoard";
@@ -97,8 +99,14 @@ export default async function Page({
    */
   const readiness = await getDayReadiness({ siteId });
   const steps = stepsFor(caller.kind === "STAFF" ? caller.role : null, readiness);
+  /*
+   * The Health tab's four numbers, from the same centre and the same day as the strip above.
+   * A session with no site — every browser check — reads nothing, and the tiles say so with
+   * zeros rather than with a figure the day does not have.
+   */
+  const tiles = rightNowTiles(await readRightNow({ siteId }));
 
   // The strip belongs under the board's own header (REDESIGN-SPEC §9.2), so it is handed to
   // the board rather than rendered above everything: the board is what owns that header.
-  return <TodayBoard board={board} query={query} steps={steps} />;
+  return <TodayBoard board={board} query={query} steps={steps} tiles={tiles} />;
 }

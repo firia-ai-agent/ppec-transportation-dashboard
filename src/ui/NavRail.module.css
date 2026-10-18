@@ -1,7 +1,18 @@
 .rail {
+  position: relative;
   flex: none;
   width: var(--layout-rail-wide);
   background: var(--color-surface);
+}
+
+/*
+ * The menu landmark fills the rail, so the frame's measurement of that landmark is the rail
+ * (64 px, or 232 px from 1280). The account is a sibling of this landmark, not a child, which
+ * is what keeps it out of the menu's link count.
+ */
+.landmark {
+  position: absolute;
+  inset: 0;
 }
 
 /*
@@ -159,12 +170,18 @@
 /* ───────────────────────────── the account block ───────────────────────────── */
 
 .account {
+  position: absolute;
+  inset-inline-start: 0;
+  bottom: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  width: 100%;
   min-height: var(--target-console);
   padding: var(--space-3);
   border-top: var(--border-hairline) solid var(--color-neutral-bg);
+  background: var(--color-surface);
   color: var(--color-ink);
   text-decoration: none;
 }
@@ -267,6 +284,7 @@
   .rail:hover .account,
   .rail:focus-within .account {
     justify-content: flex-start;
+    width: var(--layout-rail-wide);
     padding: var(--space-3);
   }
 
