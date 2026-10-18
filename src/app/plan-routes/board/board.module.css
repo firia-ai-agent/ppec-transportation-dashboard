@@ -1,0 +1,965 @@
+/*
+ * The plan board (redesign spec §1.1 layout, §1.3 states; DESIGN-DIRECTION §8 tokens, §9 targets).
+ *
+ * Every value is a custom property from src/ui/tokens.ts: no colour literal and no magic number
+ * (src/ui/no-hex.test.ts holds the first). The demo violet is not reachable from here at all —
+ * D-5 reserves it for the DEMO bar and the Simulated chip, and the browser check reads the
+ * computed colour of every element on this screen to prove it.
+ *
+ * Three cues for every state, never colour alone (§0's rule 2): a van that cannot take the child
+ * being dragged is dimmed **and** hatched **and** carries a one-word chip; a van that can gets a
+ * dashed outline **and** a ring; the current leg is a pressed button with a check mark.
+ */
+
+/*
+ * The board fills the shell's content slot (src/ui/AppShell.tsx `contentSlot`), which is already
+ * the window less the DEMO bar, the header and — on a phone — the tab bar and its safe area. So
+ * this grows to fill rather than measuring the viewport itself: two elements each claiming
+ * `100vh` is how a page ends up one header taller than the screen.
+ */
+.page {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--space-5);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* ───────────────────────────── toolbar (§1.1: 60 px) ───────────────────────────── */
+
+/*
+ * The board's controls, as they sit **in the frame's header bar** (src/ui/HeaderSlot.tsx):
+ * plan-board.png draws the date, Morning | Afternoon, the placed count, Undo, Auto-plan and
+ * Save on the title's own row. One line, no wrap and no height of its own — the bar sets the
+ * height, and a control that cannot fit scrolls with the row rather than pushing the bar taller.
+ */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+/* Headings are Teal Ink — the frame's `ink-brand` (#71), 9.47:1 on white. */
+
+.date {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-ink-muted);
+  font-weight: var(--weight-medium);
+}
+
+.segmented {
+  display: inline-flex;
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.segment {
+  display: inline-flex;
+  text-decoration: none;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target-console);
+  padding: 0 var(--space-4);
+  border: 0;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.segment + .segment {
+  border-left: var(--border-hairline) solid var(--color-border-strong);
+}
+
+/* Selected is the frame's `selected-bg` tint with `ink-brand` on it — plus the
+   weight and `aria-selected`, so it is never colour alone. */
+.segment[aria-current="page"] {
+  background: var(--color-selected-bg);
+  color: var(--color-ink-brand);
+  font-weight: var(--weight-semibold);
+}
+
+.placed {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-medium);
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+/*
+ * The one pill (src/ui/Pill.module.css, Vera's audit §4 item 1): the board's chips are that
+ * shape and not a second one, so they cannot wrap or overlap at 390 the way the founder's walk
+ * found. Only the type scale is local — the board reads at desk distance, not arm's length.
+ */
+.chip {
+  composes: pill from "../../../ui/Pill.module.css";
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+}
+
+.chip[data-tone="ok"] { color: var(--color-ok-fg); background: var(--color-ok-bg); }
+.chip[data-tone="info"] { color: var(--color-ink-brand); background: var(--color-selected-bg); }
+.chip[data-tone="warn"] { color: var(--color-warn-fg); background: var(--color-warn-bg); }
+.chip[data-tone="crit"] { color: var(--color-crit-fg); background: var(--color-crit-bg); }
+.chip[data-tone="neutral"] { color: var(--color-neutral-fg); background: var(--color-neutral-bg); }
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--target-console);
+  padding: 0 var(--space-4);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.button[data-variant="primary"] {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--color-surface);
+}
+
+.button:disabled {
+  background: var(--color-disabled-bg);
+  border-color: var(--color-disabled-border);
+  color: var(--color-disabled-fg);
+  cursor: default;
+}
+
+.iconButton {
+  width: var(--target-console);
+  padding: 0;
+}
+
+/* ───────────────────────────── banner (§9.3) ───────────────────────────── */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+}
+
+.banner[data-tone="info"] { color: var(--color-ink-brand); background: var(--color-selected-bg); }
+.banner[data-tone="warn"] { color: var(--color-warn-fg); background: var(--color-warn-bg); }
+
+.bannerLink {
+  color: inherit;
+  font-weight: var(--weight-semibold);
+  text-decoration: underline;
+}
+
+/*
+ * "Start demo day" — the strip's one button (Firia's final scope, 2026-10-18 1:50 AM ET). It is
+ * an action and not a destination, so it is a button; it sits in a sentence, so it is drawn as
+ * the word beside it rather than as a second primary on the screen.
+ */
+.bannerButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  text-decoration: underline;
+  cursor: pointer;
+  min-height: var(--target-console);
+}
+
+.bannerButton:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* ───────────────────────────── the board (§1.1) ───────────────────────────── */
+
+.body {
+  display: flex;
+  gap: var(--space-4);
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.columns {
+  display: flex;
+  gap: var(--space-3);
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+  flex: 1 1 auto;
+  /* Four or more vans scroll sideways *inside* the board, and each column keeps its own height
+     (§1.1): without this the tallest column stretches the page and its footer falls off the
+     bottom of the window instead of its rider list scrolling. */
+  min-height: 0;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  flex: 0 0 196px;
+  padding: var(--space-3);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  /* The column is as tall as the board and no taller; the rider list inside it is what scrolls. */
+  min-height: 0;
+  max-height: 100%;
+}
+
+.column[data-role="unassigned"] {
+  flex: 0 0 176px;
+}
+
+/* The van the address names (§9.3's `?van=`), which is where the ramp hands a leg back. */
+.column[data-selected="true"] {
+  box-shadow: inset 0 0 0 2px var(--color-brand);
+}
+
+/* Dragging: a van that can take the lifted child (§1.3). Outline + ring, with the chip below. */
+.column[data-fit="yes"] {
+  outline: 2px dashed var(--color-brand);
+  outline-offset: -2px;
+  box-shadow: 0 0 0 4px var(--color-selected-bg);
+}
+
+/* A van that cannot: dimmed, and the reason is a word in the chip (never colour alone). */
+.column[data-fit="no"] {
+  opacity: 0.5;
+}
+
+/* The hovered van that would refuse the drop (§1.3 "Drop rejected").
+   Coral is the alert accent on the edge; the words and the crit chip inside carry the meaning. */
+.column[data-reject="hover"] {
+  opacity: 1;
+  border: 2px dashed var(--color-alert);
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-surface),
+    var(--color-surface) 6px,
+    var(--color-crit-bg) 6px,
+    var(--color-crit-bg) 12px
+  );
+}
+
+.columnHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  flex: 0 0 auto;
+}
+
+.vanName {
+  font-weight: var(--weight-semibold);
+}
+
+.count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.driverRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral-fg);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+}
+
+/* ───────────────────────────── meters (§1.2) ───────────────────────────── */
+
+.meters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/*
+ * A read-only count, and the way to the screen that sets it: the chip is a link to the ramp iPad
+ * on this van (Firia's rule 1 — the board reads counts and never writes them). It is not drawn
+ * as body-text link, because it is a number a coordinator reads at a glance: no underline until
+ * it is hovered or focused, when it needs to say it is a target.
+ */
+.meter {
+  display: grid;
+  grid-template-columns: 16px auto 1fr;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-ink);
+  text-decoration: none;
+  border-radius: 4px;
+}
+
+a.meter:hover .meterValue,
+a.meter:focus-visible .meterValue {
+  text-decoration: underline;
+}
+
+a.meter:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.meterValue {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+}
+
+.meterTotal {
+  font-weight: var(--weight-regular);
+  color: var(--color-ink-muted);
+  font-style: normal;
+}
+
+.bar {
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--color-neutral-bg);
+  overflow: hidden;
+}
+
+.barFill {
+  display: block;
+  height: 100%;
+  background: var(--color-brand);
+}
+
+/* Full is ink, over is crit, and a van with none of a thing is dimmed (§1.2). */
+.meter[data-level="full"] .barFill { background: var(--color-ink); }
+.meter[data-level="over"] .barFill { background: var(--color-crit-fg); }
+.meter[data-level="over"] .meterValue { color: var(--color-crit-fg); }
+/* An over count is ringed in coral as well as being crit text: an accent, never the only cue. */
+.meter[data-level="over"] { box-shadow: inset 0 0 0 1px var(--color-alert); border-radius: 4px; }
+.meter[data-level="none"] { opacity: 0.45; }
+
+.liftRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ───────────────────────────── rider cards (§1.2) ───────────────────────────── */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-height: 48px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.card {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  text-align: left;
+  cursor: grab;
+}
+
+.card[data-dragging="true"] {
+  opacity: 0.4;
+}
+
+.stopBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  color: var(--color-surface);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+}
+
+.grip {
+  color: var(--color-border-strong);
+  display: inline-flex;
+  justify-content: center;
+}
+
+.cardName {
+  font-weight: var(--weight-medium);
+}
+
+.cardSub {
+  grid-column: 2 / 4;
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.cardIcons {
+  display: inline-flex;
+  gap: var(--space-1);
+  color: var(--color-ink-muted);
+}
+
+/*
+ * "Move to…": the drag, without a drag. Hidden on a wide screen until the card's context menu
+ * asks for it (§1.2), and always visible on a phone, where there is no cross-column drag at all
+ * (§9.3). `display: none` rather than a visual trick, so a hidden control is not in the tab order.
+ */
+.moveTo {
+  display: none;
+}
+
+.moveTo[data-open="true"] {
+  display: block;
+}
+
+.moveToSelect {
+  width: 100%;
+  min-height: var(--target-console);
+  margin-top: var(--space-2);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+}
+
+.overlayCard {
+  transform: rotate(-2.5deg);
+  /* A lifted card is above the board: a ring of ink rather than a tinted shadow, because a
+     colour literal may not live outside tokens.ts — and that guard bars every colour function,
+     not only a hex, so a tinted shadow is not an option here at all. */
+  box-shadow: 0 0 0 2px var(--color-ink);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  font-weight: var(--weight-medium);
+}
+
+.dropTarget {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 56px;
+  border: var(--border-hairline) dashed var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-ink-muted);
+  font-size: var(--text-12);
+}
+
+.group {
+  border-top: var(--border-hairline) solid var(--color-neutral-bg);
+  padding-top: var(--space-2);
+}
+
+.groupToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--target-console);
+  border: 0;
+  background: none;
+  color: var(--color-ink-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.groupNames {
+  margin: 0;
+  padding: 0 0 0 var(--space-5);
+  list-style: none;
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.footer {
+  display: flex;
+  gap: var(--space-4);
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.footerItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ───────────────────────────── setup popover (§1.3 #setup) ───────────────────────────── */
+
+.popover {
+  position: absolute;
+  z-index: 20;
+  width: 260px;
+  padding: var(--space-4);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: 0 0 0 var(--border-hairline) var(--color-ink-muted);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.popoverTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-16);
+  font-weight: var(--weight-semibold);
+}
+
+.popoverFrom {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.stepper {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stepperControls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stepperButton {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.stepperValue {
+  min-width: 24px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+}
+
+/* A value a person has changed away from the plan reads as changed (§1.3 "Setup open"). */
+.stepper[data-changed="true"] .stepperValue {
+  color: var(--color-ink-brand);
+  background: var(--color-selected-bg);
+  border-radius: var(--radius-sm);
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.popoverActions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}
+
+.popoverHost {
+  position: relative;
+}
+
+/* ───────────────────────────── map (§1.1: flex, ≥320) ───────────────────────────── */
+
+.map {
+  flex: 1 1 360px;
+  min-width: 320px;
+  display: flex;
+  flex-direction: column;
+  min-height: 420px;
+}
+
+/* ───────────────────────────── toast + announcements ───────────────────────────── */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-6);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-md);
+  background: var(--color-ink);
+  color: var(--color-surface);
+  z-index: 30;
+}
+
+.toastUndo {
+  border: 0;
+  background: none;
+  color: var(--color-surface);
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  text-decoration: underline;
+  cursor: pointer;
+  min-height: var(--target-console);
+}
+
+.dialog {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+/* The scrim is the ink token at 45% on a layer of its own, so the card above it is not faded
+   with it — and so the one colour source (tokens.ts) stays the only one. */
+.dialog::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--color-ink);
+  opacity: 0.45;
+}
+
+.dialogCard {
+  position: relative;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 320px;
+}
+
+.dialogTitle {
+  margin: 0;
+  font-size: var(--text-20);
+  font-weight: var(--weight-semibold);
+}
+
+/* ───────────────────────────── one column at a time (§9.3 at 390) ───────────────────────────── */
+
+.switcher {
+  display: none;
+  gap: var(--space-2);
+  overflow-x: auto;
+}
+
+/*
+ * 390 (png/plan-board-390.png): the toolbar's controls join the header bar's own wrapping row
+ * so row 1 is the title then Undo, Auto-plan and Save, and row 2 is the date then
+ * Morning | Afternoon (then the placed count and save state). Layout only — 1440 is above.
+ */
+@media (max-width: 767px) {
+  :global([data-header-slot]):has(> .toolbar) {
+    display: contents;
+  }
+
+  /*
+   * Vera 3:55 AM ET on b7e8eac: the title must read "Plan routes" in full at 390, so on the board
+   * it takes a row of its own and the buttons move to the row under it.
+   */
+  :global(h1):has(~ [data-header-slot] > .toolbar) {
+    flex: 0 0 100%;
+  }
+
+  .toolbar {
+    display: contents;
+  }
+
+  .toolbar > .button {
+    order: 1;
+    flex: none;
+  }
+
+  :global([data-header-slot]):has(> .toolbar) ~ :global([data-page-account]) {
+    order: 1;
+  }
+
+  .toolbar > .spacer {
+    order: 2;
+    flex: 0 0 100%;
+    height: 0;
+  }
+
+  .toolbar > .date,
+  .toolbar > .segmented,
+  .toolbar > .placed,
+  .toolbar > .chip {
+    order: 3;
+    flex: none;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 767px) {
+  /*
+   * The room for the tab bar is the shell's (`.body` in AppShell.module.css pads by the bar plus
+   * the safe area), so this only sets its own gutters — padding it twice would leave a 128 px
+   * gap under the last rider card.
+   */
+  .page {
+    padding: var(--space-3);
+  }
+
+  .switcher {
+    display: flex;
+  }
+
+  .body {
+    flex-direction: column;
+  }
+
+  /*
+   * The map is a 200 px strip **below** the column, not above it (Vera's differences list, item
+   * 4): a phone opens on the switcher and the children, and a map that takes the first screen is
+   * a map that covers the rider cards. Capped and clipped, so the attribution inside it cannot
+   * push the strip past its own height.
+   */
+  .map {
+    flex: 0 0 200px;
+    min-height: 200px;
+    max-height: 200px;
+    overflow: hidden;
+    order: 2;
+  }
+
+  .column[data-shown="false"] {
+    display: none;
+  }
+
+  .moveTo {
+    display: block;
+  }
+
+  .column {
+    flex: 1 1 auto;
+  }
+}
+
+/* ───────────────────────── the two groups, as drop targets ───────────────────────── */
+
+/*
+ * "Family drives" and "Absent" are placements on this day's plan now (founder 2026-10-17
+ * 7:17 PM ET), so they are things a card can be dropped on — and they say so while one is held:
+ * a dashed teal edge and the brand tint, the same two cues a van that can take the child gets.
+ */
+.group[data-over="true"] {
+  outline: 2px dashed var(--color-brand);
+  outline-offset: -2px;
+  background: var(--color-selected-bg);
+  border-radius: var(--radius-md);
+}
+
+/* ───────────────────────── the child panel (mockup plan-board-child-*) ───────────────────── */
+
+/*
+ * The dim behind the panel: the ink token at 12 % opacity.
+ *
+ * Opacity on the element rather than a translucent colour, because every colour function is
+ * barred outside tokens.ts (src/ui/no-hex.test.ts) — and the one thing a scrim must not be is a
+ * fifth definition of "nearly-black".
+ */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--color-ink);
+  opacity: 0.12;
+  border: 0;
+}
+
+/*
+ * Anchored to the card on a wide screen, in the middle of the board where the mockup draws it.
+ * Fixed rather than absolute so a column that scrolls cannot clip it.
+ */
+.panel {
+  position: fixed;
+  z-index: 31;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  gap: var(--space-1);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-neutral-bg);
+  border-radius: 12px;
+  /* Lifted off the board by a soft neutral shadow; the border is what actually bounds it. */
+  box-shadow: 0 12px 32px var(--color-neutral-bg);
+}
+
+.panelHead {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.panelName {
+  display: block;
+  font-size: var(--text-16);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--color-ink-brand);
+}
+
+.panelWhere {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.panelClose {
+  margin-left: auto;
+  width: var(--target-console);
+  height: var(--target-console);
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+}
+
+.panelRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  border-top: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.panelLabel {
+  flex: 1;
+  font-weight: var(--weight-medium);
+}
+
+.panelToggle {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--color-disabled-bg);
+  border: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.panelOption {
+  height: 32px;
+  min-width: 48px;
+  padding: 0 var(--space-3);
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-ink-muted);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+/* The chosen answer is a fill **and** `aria-pressed`, so it is never colour alone (§0 rule 2). */
+.panelOption[aria-pressed="true"] {
+  background: var(--color-brand);
+  color: var(--color-surface);
+  font-weight: var(--weight-semibold);
+}
+
+.panelOption:disabled {
+  cursor: default;
+}
+
+.panelSave {
+  margin-top: var(--space-2);
+  justify-content: center;
+  height: 44px;
+}
+
+.panelNote {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+  text-align: center;
+}
+
+@media (max-width: 767px) {
+  /* A sheet at the foot of the screen, with the grab handle the mockup draws (390 × 844). */
+  .panel {
+    top: auto;
+    left: 0;
+    bottom: 0;
+    transform: none;
+    width: 100%;
+    border-radius: 16px 16px 0 0;
+    padding-bottom: calc(var(--layout-tab-bar-height) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .panel::before {
+    content: "";
+    width: 36px;
+    height: 4px;
+    margin: 0 auto var(--space-3);
+    border-radius: 999px;
+    background: var(--color-neutral-bg);
+  }
+}

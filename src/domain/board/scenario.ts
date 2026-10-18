@@ -30,6 +30,7 @@
  * van's arrival at a stop is an arrival at a *named child's* stop.
  */
 
+import { NEED_CATEGORY } from "@/config/equipment";
 import type {
   AmbSeat,
   Child as SolverChild,
@@ -81,7 +82,7 @@ export const CENTER_STOP_ID = "CENTER";
  * tether/LATCH-capable seats, so the solver has to be told which children they are, and the
  * fixture says it twice: explicitly on the child (`tether`) and through the approved need.
  */
-const TETHER_NEEDS = new Set(["CAR_SEAT_OR_BOOSTER", "HARNESS_OR_VEST"]);
+const TETHER_NEEDS = new Set<string>([NEED_CATEGORY.carSeat, NEED_CATEGORY.harness]);
 
 function needsTether(child: DemoChild): boolean {
   return child.tether ?? child.needs.some((n) => TETHER_NEEDS.has(n.category));
@@ -114,16 +115,24 @@ function solverPositions(vehicleKey: string, layout: DemoLayout): SolverLayout["
   });
 }
 
+/** One generic van, so there is one word for what any of them is (REDESIGN-SPEC §6.1). */
+const VEHICLE_KIND = "van";
+
 export function solverVehicle(vehicle: DemoVehicle): SolverVehicle {
   const provider = PROVIDERS.find((p) => p.key === vehicle.providerKey);
   if (!provider) throw new Error(`unknown provider ${vehicle.providerKey}`);
-  // The fixture writes a vehicle as "V1 convertible van": the label and then what it is. The
-  // solver keeps them apart, because a tile shows the label and a sentence shows the words.
-  const [label, ...rest] = vehicle.label.split(" ");
+  /*
+   * The fixture used to write a vehicle as "V1 convertible van" — a code, then what kind of
+   * vehicle it was — and this split them, because a tile showed the code and a sentence showed
+   * the kind. Both halves are gone: the fleet is three vans of one generic type (Vera/Athena/
+   * Veri with Firia's sign-off, 2026-10-18 12:13 AM ET) and the label is the van's own name,
+   * "Van 1", which is the only thing any screen calls it (§1.5). The description is the kind,
+   * and the kind is "van" for every one of them.
+   */
   return {
     id: vehicle.key,
-    label,
-    description: rest.join(" "),
+    label: vehicle.label,
+    description: VEHICLE_KIND,
     providerId: provider.key,
     /*
      * The provider as a screen says it. The fixture's name carries ADR-015's `SYN` marker —

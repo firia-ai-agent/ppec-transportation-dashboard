@@ -43,8 +43,8 @@ import { getNeonDb } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import { staffLabel } from "@/modules/plan/staff";
 import { DEFAULT_DEMO_SITE } from "@/modules/demo/seed";
-import { demoId, KIND, VEHICLES } from "@/modules/demo/fixtures/standard";
-import { getSavedPlan } from "@/modules/demo/plan-store";
+import { vehicleIdOf } from "@/modules/demo/fixtures/standard";
+import { memoryPlanStore } from "@/modules/plan/memory";
 import { DEMO_SCENARIOS } from "@/domain/plan/day";
 
 /** Where one child is on a saved board. The same four buckets `plan_assignment` constrains. */
@@ -116,7 +116,7 @@ export async function loadSavedPlan(
 ): Promise<SavedPlan | null> {
   // With no database, the saved plan is the one the board kept in this process (see
   // `savedPlanWithoutDatabase`). Never an invented one: nothing saved is still locked.
-  if (hasNoDatabase()) return savedPlanWithoutDatabase(direction);
+  if (hasNoDatabase()) return savedPlanWithoutDatabase(siteId, date, direction);
 
   const db = getNeonDb();
   const run = await db.query<RunRow>(
@@ -209,15 +209,21 @@ export function siteOf(caller: { memberships?: readonly { siteId: string }[] }):
  *
  * `plan_assignment.vehicle_id` is a real `ops.vehicle` id, and the simulated runs on this screen
  * are keyed by the fixture's own short key — so the two have to be joined somewhere, and this is
- * the one place. The seed's ids are deterministic (`demoId(KIND.vehicle, n)` over the fixture's
- * own order), so this is a lookup rather than a query.
+ * the one place. The seed's ids are deterministic, and the formula for them lives with the
+ * fixtures: `vehicleIdOf` is the very function `src/modules/demo/seed.ts` inserts
+ * `ops.vehicle.id` with, so this is a lookup rather than a query — and one formula rather than
+ * a copy, which is what a copy got wrong (Veri S1, 2026-10-18 3:03 AM ET: a second, 0-based
+ * formula here showed each van the next van's children).
  *
- * Returns null for a key the fixtures do not have, which is a van the saved plan cannot be
- * talking about.
+ * Returns null for a key the fixtures do not have — `vehicleIdOf` throws on one — which is a van
+ * the saved plan cannot be talking about.
  */
 export function demoVehicleId(vehicleKey: string): string | null {
-  const index = VEHICLES.findIndex((vehicle) => vehicle.key === vehicleKey);
-  return index === -1 ? null : demoId(KIND.vehicle, index);
+  try {
+    return vehicleIdOf(vehicleKey);
+  } catch {
+    return null;
+  }
 }
 
 /** How many children the saved plan puts in one fixture van, or null when nothing is saved. */
@@ -239,40 +245,40 @@ export function kidsInVan(plan: SavedPlan | null, vehicleKey: string): number | 
  * this slice.
  *
  * So it reads what *is* the saved plan on that server: the one the Plan routes board kept when a
- * coordinator pressed Save (src/modules/demo/plan-store.ts, #58's in-process store). That is a
- * real save by a real click in this session, not a fixture standing in for one — press Save on
- * the board and the map unlocks; reset the demo and it locks again.
+ * coordinator pressed Save. That is the **one** plan store this app has without a database
+ * (src/modules/plan/memory.ts, which #73 made the only one — #58's second store is gone), and it
+ * is a real save by a real click in this session, not a fixture standing in for one: press Save
+ * on the board and the map unlocks; reset the demo and it locks again.
  *
  * It is never reached when a database is configured: {@link loadSavedPlan} checks `DATABASE_URL`
- * first and {@link assertMemoryAllowed} states the rule on its own (Firia's rule 4). A plan out
- * of one serverless instance's memory must never stand in for a row every instance can see.
+ * first, {@link assertMemoryAllowed} states the rule on its own (Firia's rule 4), and the store
+ * itself throws on a production or preview server (Veri F6). A plan out of one serverless
+ * instance's memory must never stand in for a row every instance can see.
  *
- * The shape is translated, not invented: the board's store keeps lane id → child tokens plus the
- * van on each lane, which is the same fact `plan_assignment` holds one row at a time. There is
- * no version and no saver to report, so neither is claimed: version 0, saved by nobody.
+ * The shape is the board's own: `plan_assignment`'s four buckets, the van and its drive order,
+ * read back the same way the database read above reads them.
  */
-function savedPlanWithoutDatabase(direction: Direction): SavedPlan | null {
-  for (const scenario of DEMO_SCENARIOS) {
-    const kept = getSavedPlan(scenario, direction);
-    if (!kept) continue;
-    const placements: Record<string, SavedPlacement> = {};
-    for (const [laneId, tokens] of Object.entries(kept.assignment)) {
-      const vehicleKey = kept.stages[laneId]?.vehicleKey;
-      // The board's lanes are named by the fixture's van key; the plan's rows are named by the
-      // seeded vehicle id, so the translation happens here rather than at the reader.
-      const vanId = vehicleKey ? demoVehicleId(vehicleKey) : null;
-      tokens.forEach((token, index) => {
-        placements[token] = {
-          // `plan_assignment` constrains "in a van" and "names a van" to be the same thing, and
-          // a translation that cannot find the van must not break that: a child on a lane whose
-          // van the fixtures do not know is unassigned, not in a van called null.
-          bucket: vanId ? "VAN" : "UNASSIGNED",
-          vanId,
-          stopSeq: vanId ? index + 1 : null,
-        };
-      });
-    }
-    return { version: 0, savedAt: kept.savedAt, savedBy: null, placements };
+async function savedPlanWithoutDatabase(
+  siteId: string,
+  date: string,
+  direction: Direction,
+): Promise<SavedPlan | null> {
+  const kept = await memoryPlanStore().loadPlan(siteId, date, direction);
+  if (!kept) return null;
+  const placements: Record<string, SavedPlacement> = {};
+  for (const [token, placement] of Object.entries(kept.placements)) {
+    placements[token] = {
+      bucket: placement.bucket,
+      vanId: placement.vanId,
+      // The in-process store keeps the board's own placements, which carry no stop order: a
+      // van's drive order is derived from the day (src/domain/plan/board.ts `stopNumbers`).
+      stopSeq: null,
+    };
   }
-  return null;
+  return {
+    version: kept.version,
+    savedAt: kept.savedAt,
+    savedBy: kept.savedBy,
+    placements,
+  };
 }

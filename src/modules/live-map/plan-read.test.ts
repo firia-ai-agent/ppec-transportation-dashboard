@@ -21,9 +21,9 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DEMO_ACCOUNTS } from "@/auth/demo-accounts";
-import { demoId, KIND, VEHICLES } from "@/modules/demo/fixtures/standard";
+import { vehicleIdOf } from "@/modules/demo/fixtures/standard";
 import { DEFAULT_DEMO_SITE } from "@/modules/demo/seed";
-import { clearSavedPlans, putSavedPlan } from "@/modules/demo/plan-store";
+import { clearMemoryPlanStore, memoryPlanStore } from "@/modules/plan/memory";
 import {
   assertMemoryAllowed,
   demoVehicleId,
@@ -37,8 +37,13 @@ import {
   type SavedPlan,
 } from "./plan-read";
 
-const VAN_1 = demoId(KIND.vehicle, VEHICLES.findIndex((v) => v.key === "V1"));
-const VAN_2 = demoId(KIND.vehicle, VEHICLES.findIndex((v) => v.key === "V2"));
+/*
+ * The ids the **seed** inserts for Van 1 and Van 2, not a copy of the formula that makes them:
+ * `vehicleIdOf` is what src/modules/demo/seed.ts writes into `ops.vehicle.id` (step 6). A test
+ * that re-derived them agreed with a wrong read (Veri S1, 2026-10-18 3:03 AM ET).
+ */
+const VAN_1 = vehicleIdOf("V1");
+const VAN_2 = vehicleIdOf("V2");
 
 function planWith(
   placements: SavedPlan["placements"],
@@ -106,6 +111,21 @@ describe("reading plan_assignment (DATA-MODEL.md, \"One source for the plan\")",
 
   it("says 0 for a van the saved plan puts nobody in — which is a fact, not a missing answer", () => {
     expect(kidsInVan(planWith({ C1: { bucket: "VAN", vanId: VAN_1, stopSeq: 1 } }), "V2")).toBe(0);
+  });
+
+  /*
+   * Veri S1, 2026-10-18 3:03 AM ET — "the Live map shows children on the wrong van". A plan is
+   * saved against the id the seed really gave Van 1, so the read has to find those children
+   * under Van 1 and nobody under Van 2. A second, 0-based formula here put them one van along.
+   */
+  it("puts a plan saved with Van 1's seeded id under Van 1 (Veri S1 3:03 AM ET)", () => {
+    const plan = planWith({
+      C1: { bucket: "VAN", vanId: vehicleIdOf("V1"), stopSeq: 1 },
+      C2: { bucket: "VAN", vanId: vehicleIdOf("V1"), stopSeq: 2 },
+      C3: { bucket: "VAN", vanId: vehicleIdOf("V1"), stopSeq: 3 },
+    });
+    expect(kidsInVan(plan, "V1")).toBe(3);
+    expect(kidsInVan(plan, "V2")).toBe(0);
   });
 });
 
@@ -192,21 +212,41 @@ describe("who saved it, in the words a screen may print", () => {
  * nothing saved is locked, and a save unlocks.
  */
 describe("with no database, the board's own saved plan is the gate", () => {
-  afterEach(() => clearSavedPlans());
+  afterEach(() => clearMemoryPlanStore());
+
+  /**
+   * The store is the one the Plan routes board writes to when there is no database
+   * (src/modules/plan/memory.ts — #73 made it the only one; #58's second store is gone), so
+   * "a plan was saved" here means exactly what it means on the board: somebody pressed Save.
+   */
+  const save = (
+    direction: "AM" | "PM",
+    placements: Record<string, { bucket: "VAN" | "UNASSIGNED" | "ABSENT" | "FAMILY_DRIVES"; vanId: string | null }>,
+  ) =>
+    memoryPlanStore({}).savePlan("site", {
+      date: "2026-10-17",
+      direction,
+      version: 0,
+      placements: Object.fromEntries(
+        Object.entries(placements).map(([token, placement]) => [
+          token,
+          { ...placement, pinned: false },
+        ]),
+      ),
+      savedBy: null,
+      now: new Date("2026-10-17T12:41:00.000Z"),
+    });
 
   it("is locked when nobody has saved anything in this process", async () => {
-    clearSavedPlans();
+    clearMemoryPlanStore();
     expect(isUnlocked(await loadSavedPlan("site", "2026-10-17", "AM"))).toBe(false);
   });
 
   it("unlocks once a plan is saved, and reads its children into their vans", async () => {
-    putSavedPlan({
-      scenario: "EVERY_RIDER_FITS",
-      direction: "AM",
-      stages: { L1: { vehicleKey: "V1", arrival: "NOT_CHECKED" }, L2: { vehicleKey: "V2", arrival: "NOT_CHECKED" } },
-      measured: [],
-      assignment: { L1: ["C6", "C7"], L2: ["C2"] },
-      savedAt: "2026-10-17T12:41:00.000Z",
+    await save("AM", {
+      C6: { bucket: "VAN", vanId: VAN_1 },
+      C7: { bucket: "VAN", vanId: VAN_1 },
+      C2: { bucket: "VAN", vanId: VAN_2 },
     });
     const plan = await loadSavedPlan("site", "2026-10-17", "AM");
     expect(isUnlocked(plan)).toBe(true);
@@ -217,31 +257,17 @@ describe("with no database, the board's own saved plan is the gate", () => {
 
   /* The leg is part of the gate (§9.1): a morning plan does not unlock the afternoon. */
   it("gates per leg: saving the morning leaves the afternoon locked", async () => {
-    putSavedPlan({
-      scenario: "EVERY_RIDER_FITS",
-      direction: "AM",
-      stages: { L1: { vehicleKey: "V1", arrival: "NOT_CHECKED" } },
-      measured: [],
-      assignment: { L1: ["C6"] },
-      savedAt: "2026-10-17T12:41:00.000Z",
-    });
+    await save("AM", { C6: { bucket: "VAN", vanId: VAN_1 } });
     expect(isUnlocked(await loadSavedPlan("site", "2026-10-17", "AM"))).toBe(true);
     expect(isUnlocked(await loadSavedPlan("site", "2026-10-17", "PM"))).toBe(false);
   });
 
   /*
-   * `plan_assignment` constrains "is in a van" and "names a van" to be the same thing. A lane
-   * whose van the fixtures do not know must not become a child in a van called null.
+   * `plan_assignment` constrains "is in a van" and "names a van" to be the same thing, and the
+   * read keeps it: a child who is in no van names none, and counts towards no van.
    */
-  it("keeps the table's own invariant when it cannot name the van", async () => {
-    putSavedPlan({
-      scenario: "EVERY_RIDER_FITS",
-      direction: "PM",
-      stages: { L1: { vehicleKey: "NOT-A-VAN", arrival: "NOT_CHECKED" } },
-      measured: [],
-      assignment: { L1: ["C6"] },
-      savedAt: "2026-10-17T12:41:00.000Z",
-    });
+  it("keeps the table's own invariant for a child who is in no van", async () => {
+    await save("PM", { C6: { bucket: "UNASSIGNED", vanId: null } });
     const plan = await loadSavedPlan("site", "2026-10-17", "PM");
     expect(plan?.placements.C6).toEqual({ bucket: "UNASSIGNED", vanId: null, stopSeq: null });
     expect(kidsPerVan(plan)).toEqual({});

@@ -77,7 +77,7 @@ export const FLEET: Vehicle[] = [V1, V2, V3, V4];
 /** C1: car seat, AM self-drop family. */
 export const C1: Child = { token: "C1", displayName: "Mia R.", mobility: "AMB", tether: true, escort: false };
 /** C2: wheelchair, fixed chair, L-track securement, boards by lift. */
-export const C2: Child = { token: "C2", displayName: "Noah B.", mobility: "WC", securement: "L_TRACK", wcLengthCm: 110, wcWidthCm: 70, tether: false, escort: false };
+export const C2: Child = { token: "C2", displayName: "Noah O.", mobility: "WC", securement: "L_TRACK", wcLengthCm: 110, wcWidthCm: 70, tether: false, escort: false };
 /** C3: ambulatory. */
 export const C3: Child = { token: "C3", displayName: "Ava T.", mobility: "AMB", tether: false, escort: false };
 /** C4: booster. */

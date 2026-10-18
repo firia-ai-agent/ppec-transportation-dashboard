@@ -6,7 +6,11 @@ import { createElement } from "react";
 import { buildBoard, demoDay, serviceDayFor, type LegRow } from "@/domain/board/board";
 import { DEMO_SERVICE_DATE } from "@/domain/board/day";
 import * as copy from "@/ui/copy";
-import { board as boardCopy, drawer, fill, needCategories, places } from "@/ui/copy";
+import { board as boardCopy, drawer, fill, liveMap, needCategories, places } from "@/ui/copy";
+import { vanConfigOf } from "@/config/vans";
+import { driverFor } from "@/domain/plan/day";
+import { shortName, withoutSyntheticMarker } from "@/ui/display-name";
+import { PROVIDERS, VEHICLES } from "@/modules/demo/fixtures/standard";
 import { legStates, therapySessionStates } from "@/ui/states";
 import { clockLabel, demoDateIso, demoDateLabel } from "@/ui/service-date";
 import { deriveReadiness, unreadFacts } from "@/domain/day/readiness";
@@ -454,12 +458,20 @@ describe("the drawer reads one child's day", () => {
     expect(html).not.toMatch(/WHEELCHAIR_SECUREMENT|MEDICAL_DEVICE_POWER/);
   });
 
-  it("greys the one reported-but-unapproved need and says it drives nothing (VEH-01)", () => {
+  /**
+   * VEH-01's rule is unchanged; its **data** is not in the fresh seed.
+   *
+   * The seed used to carry one `REPORTED` need (Zoe B.'s portable suction) so the greyed row
+   * could be seen on screen. The 2026-10-17 8:02 PM ET seed holds only what the six founder
+   * goals need and every item on it is `APPROVED`, so there is nothing to grey — and the rule
+   * that an unapproved need drives nothing is still the one the drawer and the planner apply
+   * (`usedForAllocation` here, approved-categories-only in src/domain/plan/needs.ts).
+   */
+  it("plans against approved needs only, and the seeded day has nothing unapproved left", () => {
     const unapproved = legsOf("C6")[0].child.needs.filter((n) => !n.usedForAllocation);
-    expect(unapproved).toHaveLength(1);
-    expect(html).toContain('data-approved="false"');
-    expect(html).toContain(drawer.needNotApproved);
-    expect(html).toContain(drawer.needNotUsed);
+    expect(unapproved).toEqual([]);
+    // Every need the drawer draws is an approved one, so none of them is greyed.
+    expect(html).not.toContain('data-approved="false"');
   });
 
   it("writes a planned time the way a screen does, not the way the fixture stores it", () => {
@@ -520,6 +532,55 @@ describe("the drawer reads one child's day", () => {
 });
 
 /**
+ * THE VAN, NAMED ONCE — "Van 3 · Omar T.", and the drawer says it the way every other screen does.
+ *
+ * Firia, 2026-10-18 3:04 AM ET: this line read "Van 3 · Coastal Car Service". A provider is who
+ * the centre contracts with; the person a coordinator wants when a child is on the road is the
+ * driver, and the plan board's van header and the live map's van list had already settled the
+ * phrase — the number painted on the door and the driver, through the one name helper.
+ *
+ * The expectation is built from those screens' own sources (src/config/vans.ts for the number,
+ * `driverFor` + `shortName` for the person, `liveMap.vanName` for the shape) rather than from a
+ * literal or from the fields the drawer reads, so a drawer that drifts from the board fails here.
+ */
+describe("the drawer names the van the board's way (Firia, 2026-10-18 3:04 AM ET)", () => {
+  const driven = board.legs.filter((leg) => leg.ride.vehicleLabel !== null);
+  /** Every seeded provider as a screen would print it: "Coastal Car Service", marker and all. */
+  const providerNames = PROVIDERS.flatMap((provider) => [
+    provider.name,
+    withoutSyntheticMarker(provider.name),
+  ]);
+
+  /** What the live map and the plan board call this van, out of their own sources. */
+  function boardsVanLine(vehicleLabel: string): string {
+    const vehicle = VEHICLES.find((v) => v.label === vehicleLabel);
+    const config = vehicle ? vanConfigOf(vehicle.key) : null;
+    if (!vehicle || !config) throw new Error(`no van in the fleet is called ${vehicleLabel}`);
+    return fill(liveMap.vanName, {
+      number: config.slot,
+      driver: shortName(driverFor(vehicle.key)),
+    });
+  }
+
+  it("writes the number on the door and the driver, in the live map's own words", () => {
+    expect(driven.length).toBeGreaterThan(0);
+    for (const leg of driven) {
+      const line = boardsVanLine(leg.ride.vehicleLabel ?? "");
+      expect(line).toMatch(/^Van \d · \S/);
+      expect(drawerHtml(leg.child.childKey)).toContain(escaped(line));
+    }
+  });
+
+  it("names no provider anywhere on the panel: that is the contract, not the person driving", () => {
+    expect(providerNames).toContain("Coastal Car Service");
+    for (const leg of driven) {
+      const html = drawerHtml(leg.child.childKey);
+      for (const provider of providerNames) expect(html).not.toContain(escaped(provider));
+    }
+  });
+});
+
+/**
  * §4.2: one primary action, and a disabled one explains itself in text beside the button. The
  * handoff is the AT-10 rule made into a control — it is a person's act, so it is never
  * available because a vehicle arrived somewhere. Each of its reasons opens with a verb and
@@ -535,7 +596,12 @@ describe("the one primary action, and why it is not available", () => {
   });
 
   it("names the ramp check when that is what is missing (§5 SURF-02)", () => {
-    expect(drawerHtml("C1")).toContain(
+    /*
+     * The day that has not started: nobody has checked a van, so the handoff is blocked on the
+     * ramp check rather than on an arrival. It is read on that day because the demo day itself
+     * now has all three vans out — there is no van held back (Firia's 8:02 PM ET seed ruling).
+     */
+    expect(drawerHtml("C1", planned)).toContain(
       escaped(fill(drawer.handoffBlockedRamp, { child: "Mia R." })),
     );
   });

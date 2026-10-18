@@ -17,7 +17,8 @@ import {
   RUN_STALL,
   RUN_UNBOUND,
   SCENARIO_START_MS,
-  SUBSTITUTE_ROUTE,
+  UNBOUND_ROUTE,
+  VAN3_ROUTE,
 } from "@/fixtures/replays";
 import { ROUTE_1, ROUTE_2 } from "@/fixtures/routes";
 import { GPS_LOST_SECONDS, GPS_STALE_SECONDS } from "@/domain/location/freshness";
@@ -315,7 +316,7 @@ describe("LOC-01 · an unbound device is stored and displayed nowhere", () => {
   const unbound = runReplay(RUN_UNBOUND);
 
   it("ingests every point as unbound and accepts none", () => {
-    const device = unbound.ingest.devices[ROUTE_1.deviceId];
+    const device = unbound.ingest.devices[UNBOUND_ROUTE.deviceId];
     expect(device.counts.accepted).toBe(0);
     expect(device.counts.unbound).toBe(unbound.run.points.length);
     expect(device.latest).toBeUndefined();
@@ -394,14 +395,14 @@ describe("the demo runs stay demonstrable", () => {
     );
   });
 
-  it("uses the three committed fixture routes and the reserve van's own device", () => {
+  it("uses the committed fixture geometry, and one device per run", () => {
     expect(DEMO_RUNS.map((r) => r.spec.route.id)).toEqual([
       "route2",
       "route3",
-      "route2-substitute",
-      "route1",
+      "route2-van3",
+      "route1-unbound",
     ]);
-    expect(SUBSTITUTE_ROUTE.deviceId).not.toBe(ROUTE_2.deviceId);
+    expect(VAN3_ROUTE.deviceId).not.toBe(ROUTE_2.deviceId);
     // One device per vehicle (ADR-013), so the four runs are four devices.
     expect(new Set(DEMO_RUNS.map((r) => r.spec.route.deviceId)).size).toBe(DEMO_RUNS.length);
   });

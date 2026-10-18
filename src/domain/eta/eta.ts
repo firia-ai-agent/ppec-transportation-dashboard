@@ -27,7 +27,7 @@ import {
   type RouteStop,
 } from "@/domain/location/route";
 import { etaText, fill } from "@/ui/copy";
-import { PROJECT_TIME_ZONE } from "./traffic";
+import { SITE_TIME_ZONE } from "@/ui/service-date";
 
 /** ASM-13: u is at least 5 minutes. */
 export const UNCERTAINTY_FLOOR_SECONDS = 300;
@@ -112,7 +112,7 @@ export function windowFor(etaMs: number): { startMs: number; endMs: number } {
 // `timeZoneName` is read only to tell the two halves of a repeated DST hour apart; the
 // abbreviation is appended to the window text, never to a plain clock.
 const TIME_FMT = new Intl.DateTimeFormat("en-US", {
-  timeZone: PROJECT_TIME_ZONE,
+  timeZone: SITE_TIME_ZONE,
   hour: "numeric",
   minute: "2-digit",
   hour12: true,

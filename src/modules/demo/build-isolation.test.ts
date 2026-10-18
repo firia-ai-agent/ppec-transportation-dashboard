@@ -19,11 +19,35 @@ const BUILD_AND_BOOT_ENTRIES = [
   "src/instrumentation.ts",
   "next.config.ts",
 ];
-/** The only files allowed to import the seed. */
+/**
+ * The only files allowed to import the seed: the two entry points, and the tests that need a
+ * seeded database to assert against.
+ *
+ * src/modules/plan/sql.test.ts is the second of those — the plan board's three tables hold
+ * foreign keys to the children and the vans, so the only honest way to exercise its statements is
+ * against a database the seed has filled (PGlite, as src/db/migrations.test.ts does). A test is
+ * not a build step, and the first assertion in this file is the one that proves no build or boot
+ * entry point reaches the demo module at all.
+ */
 const ALLOWED_SEED_IMPORTERS = [
   "src/modules/demo/reset.ts",
   "scripts/demo-reset.ts",
   "src/modules/demo/seed.test.ts",
+  // The drags and the child panel's Save, asserted against a seeded database (`pnpm test:db`).
+  "src/modules/plan/place.db.test.ts",
+  "src/modules/plan/sql.test.ts",
+  // Two sessions saving at once, on the real local Postgres (`pnpm test:db`).
+  "src/modules/plan/race.db.test.ts",
+  // Ramp Confirm, proved against a seeded day to write one table and never the plan.
+  "src/modules/plan/confirm.db.test.ts",
+  /*
+   * The Live map's plan reader and its test (#77). They import the demo **site id** constant —
+   * `DEFAULT_DEMO_SITE`, which is where a synthetic day's rows live — and never the seeding
+   * function: the first test above is the one that holds the real rule, and it still shows no
+   * build or boot entry point reaching this module at all.
+   */
+  "src/modules/live-map/plan-read.ts",
+  "src/modules/live-map/plan-read.test.ts",
 ];
 
 const SRC_RE = /\.(ts|tsx|mjs|js)$/;

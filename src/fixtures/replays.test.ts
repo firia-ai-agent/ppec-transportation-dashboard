@@ -14,7 +14,7 @@ import { displayablePosition } from "@/domain/location/ingest";
 import { runReplay } from "@/domain/eta/replay";
 import { GPS_LOST_SECONDS, GPS_STALE_SECONDS } from "@/domain/location/freshness";
 import { trafficBandAt } from "@/domain/eta/traffic";
-import { CHILDREN, RUNS } from "@/modules/demo/fixtures/standard";
+import { CHILDREN, RUNS, VEHICLES } from "@/modules/demo/fixtures/standard";
 import { ROUTE_1, ROUTE_2 } from "./routes";
 import {
   DEMO_RUNS,
@@ -24,7 +24,8 @@ import {
   RUN_STALL,
   RUN_UNBOUND,
   SCENARIO_START_MS,
-  SUBSTITUTE_ROUTE,
+  UNBOUND_ROUTE,
+  VAN3_ROUTE,
 } from "./replays";
 
 describe("the demo run set", () => {
@@ -143,30 +144,43 @@ describe("each run shows the fault its label claims", () => {
   });
 
   it("the unbound device is ingested, stored and displayed nowhere (LOC-01, ADR-013)", () => {
-    expect(RUN_UNBOUND.route).toBe(ROUTE_1);
+    expect(RUN_UNBOUND.route).toBe(UNBOUND_ROUTE);
     const result = runReplay(RUN_UNBOUND);
-    const device = result.ingest.devices[ROUTE_1.deviceId];
+    const device = result.ingest.devices[UNBOUND_ROUTE.deviceId];
     expect(device.counts.unbound).toBeGreaterThan(0);
     expect(device.counts.accepted).toBe(0);
     expect(result.accepted).toEqual([]);
-    expect(displayablePosition(result.ingest, ROUTE_1.deviceId)).toBeUndefined();
+    expect(displayablePosition(result.ingest, UNBOUND_ROUTE.deviceId)).toBeUndefined();
     // No position at all is a location loss, not a fresh reading.
     expect(result.exceptions).toHaveLength(1);
     expect(result.notifications).toEqual([]);
   });
 });
 
-describe("SUBSTITUTE_ROUTE", () => {
-  it("is route 2's geometry — the run V3 would take over — under V3's own device", () => {
-    expect(SUBSTITUTE_ROUTE.stops).toBe(ROUTE_2.stops);
-    expect(SUBSTITUTE_ROUTE.legs).toBe(ROUTE_2.legs);
-    expect(SUBSTITUTE_ROUTE.id).not.toBe(ROUTE_2.id);
-    expect(SUBSTITUTE_ROUTE.vehicleId).toBe("V3");
-    expect(SUBSTITUTE_ROUTE.deviceId).toBe("DEV-V3");
+describe("UNBOUND_ROUTE", () => {
+  it("is R3's geometry under a device that is linked to nothing", () => {
+    expect(UNBOUND_ROUTE.stops).toBe(ROUTE_1.stops);
+    expect(UNBOUND_ROUTE.legs).toBe(ROUTE_1.legs);
+    expect(UNBOUND_ROUTE.id).not.toBe(ROUTE_1.id);
+    // A different device from the van that drives this road: one device per vehicle (ADR-013).
+    expect(UNBOUND_ROUTE.deviceId).not.toBe(ROUTE_1.deviceId);
+    expect(UNBOUND_ROUTE.vehicleId).not.toBe(ROUTE_1.vehicleId);
   });
 
-  it("belongs to the one van the scenario puts on no run", () => {
-    expect(RUNS.map((r) => r.vehicleKey)).not.toContain(SUBSTITUTE_ROUTE.vehicleId);
+  it("leaves Van 3 a road of its own, with its own device", () => {
+    expect(VAN3_ROUTE.stops).toBe(ROUTE_2.stops);
+    expect(VAN3_ROUTE.id).not.toBe(ROUTE_2.id);
+    expect(VAN3_ROUTE.vehicleId).toBe("V3");
+    expect(VAN3_ROUTE.deviceId).not.toBe(ROUTE_2.deviceId);
+    // Van 3 is a van the scenario runs, not a reserve (Firia's 8:02 PM ET seed ruling).
+    expect(RUNS.map((r) => r.vehicleKey)).toContain(VAN3_ROUTE.vehicleId);
+  });
+
+  it("belongs to no van in the fleet at all (LOC-01)", () => {
+    // Three vans, three runs, and this device is on none of them: that is the whole of LOC-01
+    // now that there is no reserve to hold back (Firia's 8:02 PM ET seed ruling).
+    expect(RUNS.map((r) => r.vehicleKey)).not.toContain(UNBOUND_ROUTE.vehicleId);
+    expect(VEHICLES.map((v) => v.key)).not.toContain(UNBOUND_ROUTE.vehicleId);
   });
 });
 

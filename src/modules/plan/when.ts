@@ -12,7 +12,7 @@
  * set to Phoenix must be looking at the same day as the person next to them (PRD §6.1).
  */
 import { SITE_TIME_ZONE } from "@/ui/service-date";
-import { defaultLeg, type Direction } from "@/domain/day/leg";
+import type { Direction } from "@/domain/day/leg";
 import { serviceDateIso } from "@/ui/service-date";
 
 /** The URL parameters §9.3 fixes: `?date=2026-10-17&leg=pm&van={id}`. */
@@ -47,14 +47,15 @@ export function resolveDate(param: string | undefined | null, now: Date = new Da
   return serviceDateIso(now);
 }
 
-/** The leg to show: the one in the address, or the morning before noon and the afternoon after. */
-export function resolveLeg(
-  param: string | undefined | null,
-  now: Date = new Date(),
-): Direction {
+/**
+ * The leg a screen shows: the one in the address, otherwise Morning (Firia's ruling of
+ * 2026-10-18 1:34 AM ET — Morning is the default leg, whatever the hour). The clock still
+ * decides elsewhere; it does not decide which leg a link without one opens.
+ */
+export function resolveLeg(param: string | undefined | null): Direction {
   const asked = (param ?? "").trim().toUpperCase();
   if (asked === "AM" || asked === "PM") return asked;
-  return defaultLeg(centreHour(now));
+  return "AM";
 }
 
 /** The address a screen keeps its state in, so a reload restores the same view (§9.3). */
