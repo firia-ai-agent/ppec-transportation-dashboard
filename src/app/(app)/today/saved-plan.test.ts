@@ -13,9 +13,20 @@ import {
 import { kidsInVan, loadSavedPlan, vansInPlan } from "@/modules/live-map/plan-read";
 import { clearMemoryPlanStore, memoryPlanStore } from "@/modules/plan/memory";
 import { applyPendingMoves, setChildPlacement } from "@/modules/plan/place";
-import { loadBoard } from "@/modules/plan/store";
+import {
+  loadBoard,
+  savedPlacementsForBoard,
+  savedSpotsFrom,
+} from "@/modules/plan/store";
+import {
+  AUTO_PLANNED_VANS,
+  MOVED_CHILD,
+  MOVED_FROM,
+  MOVED_TO,
+  REFERENCE_MORNING,
+  VERI_FIVE,
+} from "@/test/reference-plan";
 import { shortName } from "@/ui/display-name";
-import { savedPlanFor, savedSpotsFrom } from "./saved-plan";
 
 /**
  * TODAY READS THE SAVED PLAN — end to end, through the save path Plan routes uses.
@@ -42,8 +53,10 @@ import { savedPlanFor, savedSpotsFrom } from "./saved-plan";
  * migrations elsewhere (src/modules/plan/sql.test.ts, place.db.test.ts); the ids this file joins
  * on are the fixtures' own deterministic formula, which is the one the seed inserts with.
  *
- * Reproducing Veri's day exactly, rather than trusting Auto-plan to land on it: the placement
- * below is her nine, written down.
+ * Reproducing the day exactly, rather than trusting Auto-plan to land on it: the morning is
+ * Firia's own prod re-save of 2026-10-18 5:09 AM ET, written down once in
+ * src/test/reference-plan.ts and mirrored by the seeded-database half of this file's story
+ * (./saved-plan.db.test.ts).
  */
 
 const SITE = DEMO_SITE_ID;
@@ -63,35 +76,8 @@ const slotOf = (vehicleKey: string): number => {
   return config.slot;
 };
 
-/**
- * The morning Veri checked, as the plan it was *before* the director's last move: Liam D. (C3) is
- * on Van 1, where Auto-plan put him, and everybody else is where her check found them.
- *
- * Every van fits its riders on the shared defaults (6 seats, 1 chair, 3 car seats, 1 oxygen
- * mount) — the two chairs are on different vans and the one oxygen rider has the mount on his —
- * which is what lets the server's own re-check accept the whole save (src/domain/plan/fit.ts).
- */
-const AUTO_PLANNED: Readonly<Record<string, readonly string[]>> = {
-  V1: ["C4", "C2", "C3"],
-  V2: ["C5", "C8", "C1"],
-  V3: ["C7", "C9", "C6"],
-};
-
-/** Where that morning ends up once Liam D. is moved to Van 2 — Veri's nine, child by child. */
-const VERI_MORNING: Readonly<Record<string, string>> = {
-  C4: "V1", // Ava N.
-  C2: "V1", // Noah O.
-  C5: "V2", // Eli N.
-  C8: "V2", // Ivy H.
-  C1: "V2", // Mia R.
-  C3: "V2", // Liam D., moved
-  C7: "V3", // Owen C.
-  C9: "V3", // Theo V.
-  C6: "V3", // Zoe B.
-};
-
 const moves = () =>
-  Object.entries(AUTO_PLANNED).flatMap(([vehicleKey, childKeys]) =>
+  Object.entries(AUTO_PLANNED_VANS).flatMap(([vehicleKey, childKeys]) =>
     childKeys.map((childKey) => ({
       childToken: token(childKey),
       bucket: "VAN" as const,
@@ -144,7 +130,7 @@ async function moveChild(
 
 /** Today, built the way the page builds it: the saved plan, read through `loadBoard`. */
 async function todayBoard(): Promise<Board> {
-  return buildBoard(demoDay(), await savedPlanFor(SITE, DATE, store(), source()));
+  return buildBoard(demoDay(), await savedPlacementsForBoard(SITE, DATE, store(), source()));
 }
 
 /** The van number Today's morning row shows for a child, or null when it shows no van. */
@@ -178,18 +164,18 @@ describe("a plan saved on the board is the plan Today shows", () => {
     await saveTheMorning();
 
     const planned = await todayBoard();
-    const onVanOne = morningRow(planned, "C3");
-    expect(onVanOne.ride.vanNumber).toBe(1);
-    expect(onVanOne.ride.vehicleLabel).toBe(vanNameOf(1));
-    expect(onVanOne.ride.driverName).toBe(shortName(driverFor("V1")));
+    const before = morningRow(planned, MOVED_CHILD);
+    expect(before.ride.vanNumber).toBe(slotOf(MOVED_FROM));
+    expect(before.ride.vehicleLabel).toBe(vanNameOf(slotOf(MOVED_FROM)));
+    expect(before.ride.driverName).toBe(shortName(driverFor(MOVED_FROM)));
 
-    await moveChild("C3", "VAN", "V2", 1);
+    await moveChild(MOVED_CHILD, "VAN", MOVED_TO, 1);
 
     const moved = await todayBoard();
-    const onVanTwo = morningRow(moved, "C3");
-    expect(onVanTwo.ride.vanNumber).toBe(2);
-    expect(onVanTwo.ride.vehicleLabel).toBe(vanNameOf(2));
-    expect(onVanTwo.ride.driverName).toBe(shortName(driverFor("V2")));
+    const after = morningRow(moved, MOVED_CHILD);
+    expect(after.ride.vanNumber).toBe(slotOf(MOVED_TO));
+    expect(after.ride.vehicleLabel).toBe(vanNameOf(slotOf(MOVED_TO)));
+    expect(after.ride.driverName).toBe(shortName(driverFor(MOVED_TO)));
   });
 
   /**
@@ -200,14 +186,14 @@ describe("a plan saved on the board is the plan Today shows", () => {
    */
   it("agrees with the board and the live map for all nine children", async () => {
     await saveTheMorning();
-    await moveChild("C3", "VAN", "V2", 1);
+    await moveChild(MOVED_CHILD, "VAN", MOVED_TO, 1);
 
     const board = await loadBoard(store(), SITE, DATE, "AM", source());
     const today = await todayBoard();
     const live = await loadSavedPlan(SITE, DATE, "AM");
     expect(live).not.toBeNull();
 
-    for (const [childKey, vehicleKey] of Object.entries(VERI_MORNING)) {
+    for (const [childKey, vehicleKey] of Object.entries(REFERENCE_MORNING)) {
       const where = `${childKey} → ${vehicleKey}`;
       // The board: the plan as the screen it was saved on reads it.
       expect(board.plan[token(childKey)], where).toMatchObject({
@@ -224,11 +210,9 @@ describe("a plan saved on the board is the plan Today shows", () => {
 
     // Veri's five, named, against the vans her check found on Today — every one of which was the
     // seeded run and none of which was the saved plan.
-    expect(vanNumberOf(today, "C4"), "Ava N.").toBe(1);
-    expect(vanNumberOf(today, "C5"), "Eli N.").toBe(2);
-    expect(vanNumberOf(today, "C8"), "Ivy H.").toBe(2);
-    expect(vanNumberOf(today, "C7"), "Owen C.").toBe(3);
-    expect(vanNumberOf(today, "C9"), "Theo V.").toBe(3);
+    for (const [childKey, vehicleKey] of Object.entries(VERI_FIVE)) {
+      expect(vanNumberOf(today, childKey), childKey).toBe(slotOf(vehicleKey));
+    }
 
     // And the counts the three screens would each put on a van: 2, 4, 3.
     for (const vehicleKey of ["V1", "V2", "V3"]) {
@@ -287,9 +271,9 @@ describe("a plan saved on the board is the plan Today shows", () => {
   /** A plan is per date **and** per leg: a saved morning says nothing about the afternoon. */
   it("leaves the afternoon's rows exactly as the seeded day has them", async () => {
     await saveTheMorning();
-    await moveChild("C3", "VAN", "V2", 1);
+    await moveChild(MOVED_CHILD, "VAN", MOVED_TO, 1);
 
-    const saved = await savedPlanFor(SITE, DATE, store(), source());
+    const saved = await savedPlacementsForBoard(SITE, DATE, store(), source());
     expect(saved.AM).toBeDefined();
     expect(saved.PM, "nothing has been saved for the afternoon").toBeUndefined();
 
@@ -320,10 +304,10 @@ describe("a plan saved on the board is the plan Today shows", () => {
    * the repo asserts against.
    */
   it("is the seeded board when no plan has been saved for the date", async () => {
-    expect(await savedPlanFor(SITE, DATE, store(), source())).toEqual({});
+    expect(await savedPlacementsForBoard(SITE, DATE, store(), source())).toEqual({});
     expect(await todayBoard()).toEqual(buildBoard(demoDay()));
     // …and for a session with no site at all, which is the browser check's caller (§9.4).
-    expect(await savedPlanFor(null, DATE, store(), source())).toEqual({});
+    expect(await savedPlacementsForBoard(null, DATE, store(), source())).toEqual({});
   });
 
   /**
@@ -335,8 +319,8 @@ describe("a plan saved on the board is the plan Today shows", () => {
     const board = await loadBoard(store(), SITE, DATE, "AM", source());
     const spots = savedSpotsFrom(board.plan);
 
-    expect(spots.C3).toEqual({ bucket: "VAN", vehicleKey: "V1" });
-    expect(vehicleKeyOfId(vanId("V1"))).toBe("V1");
+    expect(spots[MOVED_CHILD]).toEqual({ bucket: "VAN", vehicleKey: MOVED_FROM });
+    expect(vehicleKeyOfId(vanId(MOVED_FROM))).toBe(MOVED_FROM);
     // Every child of the day is in the plan, and every one of them under a key this board has.
     for (const [childKey, spot] of Object.entries(spots)) {
       expect(token(childKey), childKey).toBeTruthy();

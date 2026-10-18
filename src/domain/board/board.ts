@@ -31,7 +31,7 @@
  *
  * Pure and deterministic: no clock, no database, no network. The instant is an argument, and so
  * is the saved plan — the read that fetches it is the plan board's own `loadBoard`, called on the
- * server in src/app/(app)/today/page.tsx (src/app/(app)/today/saved-plan.ts).
+ * server in src/app/(app)/today/page.tsx (`savedPlacementsForBoard`, src/modules/plan/store.ts).
  */
 
 import {
@@ -116,7 +116,7 @@ export type { DayPhase, ServiceDay } from "./day";
  * key — because that is the only vocabulary a pure projection over the fixtures can use. The
  * translation from the ids the rows actually hold (`ops.child_profile.child_token`,
  * `ops.vehicle.id`) happens once, where the read happens, through the fixtures' own
- * `childKeyOfToken` / `vehicleKeyOfId` (src/app/(app)/today/saved-plan.ts). One formula and its
+ * `childKeyOfToken` / `vehicleKeyOfId` (src/modules/plan/store.ts). One formula and its
  * one inverse: a second, home-made one is what showed every van the next van's children (Veri
  * S1, 2026-10-18 3:03 AM ET).
  */

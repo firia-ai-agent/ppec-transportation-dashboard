@@ -291,7 +291,7 @@ function ends(ride: RideView): string {
  */
 function vanLine(ride: RideView): string {
   // No van, and the two different reasons for it: the family is driving, or the saved plan has
-  // not given this child a van yet (the board's own Unassigned, src/app/(app)/today/saved-plan.ts).
+  // not given this child a van yet (the board's own Unassigned, src/modules/plan/store.ts).
   if (ride.vehicleLabel === null) {
     return ride.mode === "FAMILY" ? boardCopy.familyDrives : planBoard.unassigned;
   }

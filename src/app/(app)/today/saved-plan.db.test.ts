@@ -1,0 +1,479 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { vanConfigOf, vanNameOf } from "@/config/vans";
+import type { Db } from "@/db/exec";
+import { buildBoard, demoDay, type Board } from "@/domain/board/board";
+import { getDayReadiness, legAt, serviceDateAt } from "@/domain/day/day-facts";
+import { loadRightNow } from "@/domain/health/right-now-facts";
+import { rightNowTiles, vanOnScreen, type RightNowTile } from "@/domain/health/right-now";
+import { ridersInVan } from "@/domain/plan/board";
+import { childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/standard";
+import { seedStandardScenario } from "@/modules/demo/seed";
+import { kidsInVan, loadSavedPlan, vansInPlan } from "@/modules/live-map/plan-read";
+import { applyPendingMoves, setChildPlacement } from "@/modules/plan/place";
+import { sqlPlanStore } from "@/modules/plan/sql";
+import { savedPlacementsForBoard } from "@/modules/plan/store";
+import { loadBoard } from "@/modules/plan/store";
+import { sqlDaySource } from "@/modules/roster/sql";
+import { freshPlanDb, SITE } from "@/test/pglite";
+import {
+  AUTO_PLANNED_VANS,
+  MOVED_CHILD,
+  MOVED_FROM,
+  MOVED_TO,
+  REFERENCE_MORNING,
+  VERI_FIVE,
+} from "@/test/reference-plan";
+import type { PlanStore } from "@/modules/plan/types";
+
+/**
+ * ONE SAVED PLAN, FOUR READERS, AGAINST A DATABASE.
+ *
+ * SOURCE: Firia's signed rule of 2026-10-17 6:02 PM ET — "Today, Live map and Health read the
+ * saved plan" — the S1 ruling of 2026-10-18 4:45 AM ET, and the scope added at 4:47 and 4:54 AM
+ * ET: Health counts the same facts. Veri's prod check had found Today's morning van column
+ * disagreeing with the board a director had just saved for five of nine children; two of Health's
+ * four tiles are counted *per van*, so the same disagreement was theirs to make.
+ *
+ * ./saved-plan.test.ts proves the round trip on the memory store — the store a server with no
+ * `DATABASE_URL` gets — and so cannot reach a line of SQL. This file is the other half: the same
+ * morning (src/test/reference-plan.ts, Firia's 5:09 AM ET prod re-save), saved through the same
+ * writers, on **PGlite with every migration in `drizzle/` applied** (src/test/pglite.ts, which is
+ * also what `pnpm test:db` points at a throwaway local Postgres). Nothing here touches a shared
+ * database: the seed and the reads are this process's own.
+ *
+ * What it is here to prove, in rows:
+ *  - the step strip's Plan step follows the plan (`getDayReadiness`, src/domain/day/day-facts.ts):
+ *    Needed before the save, Done and stamped after it, for that date **and** that leg;
+ *  - Today's van column and Health's "Kids placed" are the same two numbers — `VAN` placed and
+ *    `VAN`+`UNASSIGNED` to place — so the tile and the column cannot read differently;
+ *  - Health's "Running late" blames the van the **plan** puts the late child on, not the van the
+ *    seeded manifest has them on;
+ *  - the board, Today, Health and the Live map agree about all nine children.
+ */
+
+/*
+ * The Live map's reader opens the server's own database (`getNeonDb`, src/db/exec.ts) rather than
+ * taking one, so this is how it is pointed at the migrated PGlite database in front of it. The
+ * rest of the module is the real one — `runAfterCommit` included, which the harness itself uses.
+ * `DATABASE_URL` is stubbed for the same reason: `hasNoDatabase()` is what sends that reader to
+ * the memory store, and the plan under test is in these tables.
+ */
+let db: Db;
+vi.mock("@/db/exec", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/db/exec")>()),
+  getNeonDb: () => db,
+}));
+
+/** 07:30 at the centre on Friday 2026-10-16: the morning leg of the day the seed writes. */
+const NOW = new Date("2026-10-16T11:30:00.000Z");
+const DATE = "2026-10-16";
+const LEG = "AM" as const;
+
+let close: () => Promise<void>;
+let store: PlanStore;
+
+const source = () => sqlDaySource(db, SITE);
+const token = (childKey: string) => childTokenOf(childKey);
+const vanId = (vehicleKey: string) => vehicleIdOf(vehicleKey);
+/** The number painted on this van's door, from the one fleet config (§1.5). */
+const slotOf = (vehicleKey: string): number => {
+  const config = vanConfigOf(vehicleKey);
+  if (!config) throw new Error(`no van config for ${vehicleKey}`);
+  return config.slot;
+};
+
+beforeAll(async () => {
+  ({ db, close } = await freshPlanDb());
+  await seedStandardScenario(db, {
+    now: NOW,
+    siteId: SITE,
+    env: { APP_DATA_CLASS: "SYNTHETIC", DEMO_MODE: "1", HMAC_PEPPER: "p", DATA_KEY: "k" },
+  });
+  store = sqlPlanStore(db);
+  vi.stubEnv("DATABASE_URL", "postgres://syn-pglite/never-connected");
+}, 180_000);
+
+afterAll(async () => {
+  vi.unstubAllEnvs();
+  await close();
+});
+
+beforeEach(async () => {
+  // Every test starts from the day a reset leaves behind: no plan at all, and no arrival estimate.
+  await db.query("DELETE FROM ops.plan_assignment", []);
+  await db.query("DELETE FROM ops.plan_run", []);
+  await db.query("DELETE FROM ops.eta_estimate", []);
+});
+
+/** Save Auto-plan's morning, exactly as the board's Save does: every move, one version. */
+async function saveTheMorning(): Promise<void> {
+  const written = await applyPendingMoves(
+    {
+      siteId: SITE,
+      serviceDate: DATE,
+      direction: LEG,
+      moves: Object.entries(AUTO_PLANNED_VANS).flatMap(([vehicleKey, childKeys]) =>
+        childKeys.map((childKey) => ({
+          childToken: token(childKey),
+          bucket: "VAN" as const,
+          vanId: vanId(vehicleKey),
+        })),
+      ),
+      expectedVersion: 0,
+      actor: null,
+      now: NOW,
+    },
+    store,
+    source(),
+  );
+  expect(written.ok, "reason" in written ? written.reason : "saved").toBe(true);
+}
+
+/** One child's drag, as the board's own `Move to…` does it. */
+async function moveChild(
+  childKey: string,
+  bucket: "VAN" | "UNASSIGNED" | "FAMILY_DRIVES" | "ABSENT",
+  vehicleKey: string | null,
+  expectedVersion: number,
+): Promise<void> {
+  const moved = await setChildPlacement(
+    {
+      siteId: SITE,
+      serviceDate: DATE,
+      direction: LEG,
+      childToken: token(childKey),
+      bucket,
+      vehicleId: vehicleKey === null ? null : vanId(vehicleKey),
+      expectedVersion,
+      actor: null,
+      now: NOW,
+    },
+    store,
+    source(),
+  );
+  expect(moved.ok, "reason" in moved ? moved.reason : "moved").toBe(true);
+}
+
+/** Firia's morning, saved: Auto-plan, then Liam D. dragged to Van 2. */
+async function saveTheReferenceMorning(): Promise<void> {
+  await saveTheMorning();
+  await moveChild(MOVED_CHILD, "VAN", MOVED_TO, 1);
+}
+
+/** Today, built the way the page builds it: the saved plan, read through `loadBoard`. */
+async function todayBoard(): Promise<Board> {
+  return buildBoard(demoDay(), await savedPlacementsForBoard(SITE, DATE, store, source()));
+}
+
+/** Health's four tiles, read the way the page reads them. */
+async function healthTiles(): Promise<readonly RightNowTile[]> {
+  return rightNowTiles(await loadRightNow(db, SITE, DATE, LEG));
+}
+
+function tile(tiles: readonly RightNowTile[], key: RightNowTile["key"]): RightNowTile {
+  const found = tiles.find((t) => t.key === key);
+  if (!found) throw new Error(`no ${key}`);
+  return found;
+}
+
+const morningLegs = (board: Board) => board.legs.filter((leg) => leg.ride.direction === LEG);
+const morningRow = (board: Board, childKey: string) => {
+  const leg = morningLegs(board).find((l) => l.child.childKey === childKey);
+  if (!leg) throw new Error(`no morning row for ${childKey}`);
+  return leg;
+};
+
+/** What the saved rows themselves say, counted in the database and in no other way. */
+async function savedBuckets(): Promise<Record<string, number>> {
+  const rows = await db.query<{ bucket: string; n: number }>(
+    `SELECT a.bucket::text AS bucket, count(*)::int AS n
+       FROM ops.plan_assignment a
+       JOIN ops.plan_run r ON r.id = a.plan_run_id
+      WHERE r.site_id = $1 AND r.service_date = $2::date AND r.direction::text = $3
+      GROUP BY a.bucket`,
+    [SITE, DATE, LEG],
+  );
+  return Object.fromEntries(rows.rows.map((r) => [r.bucket, Number(r.n)]));
+}
+
+/**
+ * A late arrival for one child's morning ride, on the manifest the **seed** put them on.
+ *
+ * The seed writes today's manifests and trip legs but no estimate (src/modules/demo/seed.ts §8),
+ * so this is the one row the scenario does not have. It is deliberately hung off the seeded
+ * manifest: that is the van the old query named, and the test below is that the plan's van is
+ * named instead.
+ */
+async function runningLate(childKey: string): Promise<void> {
+  const leg = await db.query<{ id: string }>(
+    `SELECT id::text AS id FROM ops.trip_leg
+      WHERE site_id = $1 AND child_token = $2 AND service_date = $3::date AND direction::text = $4`,
+    [SITE, token(childKey), DATE, LEG],
+  );
+  expect(leg.rows[0], `${childKey} has a seeded morning leg`).toBeTruthy();
+  await db.query(
+    `INSERT INTO ops.eta_estimate
+       (id, site_id, trip_leg_id, computed_at, eta_at, uncertainty_sec, window_start, window_end,
+        created_by, updated_by)
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, 60, $5, $6, 'test', 'test')`,
+    [
+      SITE,
+      leg.rows[0].id,
+      "2026-10-16T11:00:00Z",
+      "2026-10-16T11:45:00Z",
+      "2026-10-16T11:10:00Z",
+      "2026-10-16T11:30:00Z",
+    ],
+  );
+}
+
+describe("the day's three steps follow the saved plan", () => {
+  /**
+   * REDESIGN-SPEC §9.4, and the scope added 2026-10-18 4:47 AM ET: the step strip above the board
+   * and the board itself are about one day. `getDayReadiness` reads whether a `plan_run` exists
+   * for this date and leg, so saving the morning through the real writer is what finishes the
+   * step — there is no second notion of "saved" anywhere.
+   */
+  it("is Needed before the save and Done, stamped, after it", async () => {
+    const asked = { siteId: SITE, now: NOW, exec: db };
+    const before = await getDayReadiness(asked);
+    expect(before.date, "the fixed now is the demo date").toBe(DATE);
+    expect(before.leg, "…and the matching leg").toBe(LEG);
+    expect(before.plan.state).toBe("NEEDED");
+    expect(before.plan.savedAt).toBeNull();
+    // §9.1's one hard arrow: no saved plan for this leg, no live map.
+    expect(before.live.blockedBy).toBe("PLAN");
+
+    await saveTheReferenceMorning();
+
+    const after = await getDayReadiness(asked);
+    expect(after.plan.state).toBe("DONE");
+    expect(after.plan.savedAt).toBeInstanceOf(Date);
+    expect(after.live.blockedBy).toBeNull();
+  }, 60_000);
+
+  /** A plan is per date **and** per leg: a saved morning does not finish the afternoon's step. */
+  it("leaves the afternoon's step Needed when only the morning is saved", async () => {
+    await saveTheReferenceMorning();
+    const afternoon = new Date("2026-10-16T17:30:00.000Z"); // 13:30 at the centre
+    expect(serviceDateAt(afternoon)).toBe(DATE);
+    expect(legAt(afternoon)).toBe("PM");
+
+    const pm = await getDayReadiness({ siteId: SITE, now: afternoon, exec: db });
+    expect(pm.plan.state).toBe("NEEDED");
+    expect(pm.plan.savedAt).toBeNull();
+  }, 60_000);
+});
+
+describe("Today's van column and Health's Kids placed are the same two numbers", () => {
+  /**
+   * The scope added 2026-10-18 4:54 AM ET: "Kids placed" must count exactly what Today and the
+   * board show for the leg. Both sides are counted here from the one saved plan — Today through
+   * `savedPlacementsForBoard` and `buildBoard`, the tile through #76's own `PLACED` statement —
+   * and the saved rows' own buckets are counted a third time, in SQL, as the arbiter.
+   */
+  it("counts the rides on a van, and the saved VAN rows, as one number", async () => {
+    await saveTheReferenceMorning();
+
+    const buckets = await savedBuckets();
+    const facts = await loadRightNow(db, SITE, DATE, LEG);
+    const onAVan = morningLegs(await todayBoard()).filter(
+      (leg) => leg.ride.vanNumber !== null,
+    ).length;
+
+    expect(buckets.VAN, "nine of nine placed (Firia, 5:09 AM ET)").toBe(9);
+    expect(buckets.UNASSIGNED ?? 0).toBe(0);
+    expect(facts.placed).toBe(buckets.VAN);
+    expect(facts.toPlace).toBe((buckets.VAN ?? 0) + (buckets.UNASSIGNED ?? 0));
+    expect(onAVan, "Today's morning rides on a van").toBe(facts.placed);
+
+    const kids = tile(rightNowTiles(facts), "KIDS_PLACED");
+    expect(kids.count).toBe(9);
+    expect(kids.outOf).toBe(9);
+  }, 60_000);
+
+  /**
+   * And with one child out of a van, which is the shape the tile's fraction is actually for. Ivy
+   * H. (C8) is *seeded* on Van 1, so "no van" is a different answer from the fixture's: a Today
+   * that ignored the plan would still count nine on a van here.
+   */
+  it("drops one from both sides when a child is left unassigned", async () => {
+    await saveTheReferenceMorning();
+    await moveChild("C8", "UNASSIGNED", null, 2);
+
+    const buckets = await savedBuckets();
+    const facts = await loadRightNow(db, SITE, DATE, LEG);
+    const legs = morningLegs(await todayBoard());
+    const onAVan = legs.filter((leg) => leg.ride.vanNumber !== null).length;
+    const findingAVan = legs.filter((leg) => leg.nextStep === "FIND_VAN").length;
+
+    expect(buckets.VAN).toBe(8);
+    expect(buckets.UNASSIGNED).toBe(1);
+    expect(facts.placed).toBe(8);
+    expect(facts.toPlace).toBe(9);
+    expect(onAVan, "Today's morning rides on a van").toBe(facts.placed);
+    expect(findingAVan, "…and the rows still looking for one").toBe(
+      facts.toPlace - facts.placed,
+    );
+    expect(morningRow(await todayBoard(), "C8").ride.vanNumber).toBeNull();
+
+    const kids = tile(rightNowTiles(facts), "KIDS_PLACED");
+    expect(kids.count).toBe(8);
+    expect(kids.outOf).toBe(9);
+    expect(kids.pill, "8 of 9 is not All").toBeNull();
+  }, 60_000);
+
+  /**
+   * The three children the day's roster has but this leg does not carry are Family drives, and a
+   * family driving is not somebody waiting for a van (docs/DATA-MODEL.md: the buckets are VAN,
+   * UNASSIGNED, FAMILY_DRIVES, ABSENT). Nine is the leg's cohort, twelve is the census.
+   */
+  it("does not count the three the family drives among the nine to place", async () => {
+    await saveTheReferenceMorning();
+    const buckets = await savedBuckets();
+    const facts = await loadRightNow(db, SITE, DATE, LEG);
+    expect(buckets.FAMILY_DRIVES).toBe(3);
+    expect(facts.toPlace).toBe(9);
+  }, 60_000);
+});
+
+describe("Health's Running late blames the van the plan put the child on", () => {
+  /**
+   * The scope added 2026-10-18 4:54 AM ET. Ava N. (C4) is **seeded** on Van 3 (standard.ts
+   * `RUNS`, R3) and Firia's saved morning puts her on **Van 1**. Her ride is the one running late,
+   * so the pill has to say Van 1 — the van she is sitting on, on Today, on the board and on the
+   * live map. Reading the van off `ops.manifest` is how a director saw Today and Health blame two
+   * different vans for one late child.
+   */
+  it("names the planned van, not the seeded manifest's van", async () => {
+    await runningLate("C4");
+
+    // With nothing saved, the seeded manifest is all there is to go on: Van 3, unchanged.
+    const seeded = await loadRightNow(db, SITE, DATE, LEG);
+    expect(seeded.lateVans).toEqual([vanOnScreen(vanNameOf(slotOf("V3")))]);
+
+    await saveTheReferenceMorning();
+
+    const planned = await loadRightNow(db, SITE, DATE, LEG);
+    expect(planned.lateVans).toEqual([vanNameOf(slotOf(REFERENCE_MORNING.C4))]);
+    expect(planned.lateVans, "not the van she was seeded on").not.toContain(
+      vanNameOf(slotOf("V3")),
+    );
+    // And the tile says the same thing, with the one van named on its pill.
+    const late = tile(rightNowTiles(planned), "RUNNING_LATE");
+    expect(late.count).toBe(1);
+    expect(late.pill?.text).toBe(vanNameOf(1));
+    // The child is on that van everywhere else, too.
+    expect(morningRow(await todayBoard(), "C4").ride.vehicleLabel).toBe(vanNameOf(1));
+  }, 60_000);
+
+  /**
+   * A late ride the plan has taken off a van is not a van running late. "Her family drives her
+   * today" is a decision, and no van is behind on a ride it is not driving.
+   */
+  it("names no van when the plan has taken that child off one", async () => {
+    await runningLate("C4");
+    await saveTheReferenceMorning();
+    await moveChild("C4", "FAMILY_DRIVES", null, 2);
+
+    const facts = await loadRightNow(db, SITE, DATE, LEG);
+    expect(facts.lateVans).toEqual([]);
+    expect(tile(rightNowTiles(facts), "RUNNING_LATE").count).toBe(0);
+  }, 60_000);
+
+  /**
+   * Two late children the plan puts on one van is one van, and the latest estimate is still the
+   * one that counts (#76). Liam D. (C3) is dragged onto Van 2, where Noah O. (C2) already is.
+   */
+  it("counts one van once, however many of its rides are late", async () => {
+    await saveTheReferenceMorning();
+    await runningLate(MOVED_CHILD);
+    await runningLate("C2");
+
+    const facts = await loadRightNow(db, SITE, DATE, LEG);
+    expect(facts.lateVans).toEqual([vanNameOf(slotOf(MOVED_TO))]);
+  }, 60_000);
+});
+
+describe("the board, Today, Health and the Live map agree about all nine", () => {
+  /**
+   * Firia's prod re-save of 2026-10-18 5:09 AM ET, child by child, through four readers: the plan
+   * board (`loadBoard`), Today (`buildBoard` over `savedPlacementsForBoard`), Health
+   * (`loadRightNow`) and the Live map (its own `loadSavedPlan` / `kidsInVan`). Veri's five are
+   * named explicitly, because those are the five a director saw two different answers for.
+   */
+  it("puts every child on one van, and counts each van the same way four times", async () => {
+    await saveTheReferenceMorning();
+
+    const board = await loadBoard(store, SITE, DATE, LEG, source());
+    const today = await todayBoard();
+    const live = await loadSavedPlan(SITE, DATE, LEG);
+    const facts = await loadRightNow(db, SITE, DATE, LEG);
+    expect(live, "the live map reads the same rows").not.toBeNull();
+
+    for (const [childKey, vehicleKey] of Object.entries(REFERENCE_MORNING)) {
+      const where = `${childKey} → ${vehicleKey}`;
+      // The board: the plan as the screen it was saved on reads it.
+      expect(board.plan[token(childKey)], where).toMatchObject({
+        bucket: "VAN",
+        vanId: vanId(vehicleKey),
+      });
+      // Today: the van number and the van's name on the morning row, which is what Veri compared.
+      const row = morningRow(today, childKey);
+      expect(row.ride.vanNumber, where).toBe(slotOf(vehicleKey));
+      expect(row.ride.vehicleLabel, where).toBe(vanNameOf(slotOf(vehicleKey)));
+      // The live map: the same child in the same van, through its own read of the same two tables.
+      expect(live?.placements[token(childKey)]?.vanId, where).toBe(vanId(vehicleKey));
+    }
+
+    // Veri's five, named — every one of which was showing the seeded run and not the saved plan.
+    for (const [childKey, vehicleKey] of Object.entries(VERI_FIVE)) {
+      expect(morningRow(today, childKey).ride.vanNumber, childKey).toBe(slotOf(vehicleKey));
+    }
+
+    // Van by van: 2, 4, 3 — the same three counts off all four readers.
+    let placed = 0;
+    for (const vehicleKey of ["V1", "V2", "V3"]) {
+      const onBoard = ridersInVan(board.day, board.plan, vanId(vehicleKey)).length;
+      const onToday = morningLegs(today).filter(
+        (leg) => leg.ride.vanNumber === slotOf(vehicleKey),
+      ).length;
+      expect(onBoard, vehicleKey).toBe(REFERENCE_MORNING_COUNTS[vehicleKey]);
+      expect(onToday, vehicleKey).toBe(onBoard);
+      expect(kidsInVan(live, vehicleKey), vehicleKey).toBe(onBoard);
+      placed += onBoard;
+    }
+    // Health counts the same nine, as one fraction rather than per van.
+    expect(facts.placed).toBe(placed);
+    expect(facts.toPlace).toBe(placed);
+    expect(vansInPlan(live).sort()).toEqual([vanId("V1"), vanId("V2"), vanId("V3")].sort());
+  }, 60_000);
+
+  /**
+   * The one child, the one move — the bug as a director made it. Liam D. (C3) is *seeded* on
+   * Van 2, so the half that proves this is a test of the fix rather than of the fixture is the
+   * first one: on Van 1, where Auto-plan put him, the fixture and the plan give different answers.
+   */
+  it("follows Liam D. from Van 1 to Van 2, on every screen", async () => {
+    await saveTheMorning();
+    expect(morningRow(await todayBoard(), MOVED_CHILD).ride.vanNumber).toBe(slotOf(MOVED_FROM));
+
+    await moveChild(MOVED_CHILD, "VAN", MOVED_TO, 1);
+
+    const today = await todayBoard();
+    const live = await loadSavedPlan(SITE, DATE, LEG);
+    expect(morningRow(today, MOVED_CHILD).ride.vanNumber).toBe(slotOf(MOVED_TO));
+    expect(morningRow(today, MOVED_CHILD).ride.vehicleLabel).toBe(vanNameOf(slotOf(MOVED_TO)));
+    expect(live?.placements[token(MOVED_CHILD)]?.vanId).toBe(vanId(MOVED_TO));
+    expect(kidsInVan(live, MOVED_TO)).toBe(4);
+    expect(kidsInVan(live, MOVED_FROM)).toBe(2);
+  }, 60_000);
+});
+
+/** Firia's layout, as three counts: Van 1 carries two, Van 2 four, Van 3 three. */
+const REFERENCE_MORNING_COUNTS: Record<string, number> = Object.entries(
+  REFERENCE_MORNING,
+).reduce<Record<string, number>>((counts, [, vehicleKey]) => {
+  counts[vehicleKey] = (counts[vehicleKey] ?? 0) + 1;
+  return counts;
+}, {});

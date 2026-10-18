@@ -940,7 +940,7 @@ describe("the shell's search box, applied to the board", () => {
  * plan through the real save path and reads it back through `loadBoard`.
  *
  * The plan arrives in this scenario's vocabulary (a fixture child key, a fixture vehicle key),
- * which is what the translation in saved-plan.ts produces.
+ * which is what the translation in `savedSpotsFrom` (src/modules/plan/store.ts) produces.
  */
 describe("a saved plan decides which van a child is on", () => {
   const savedOn = (vehicleKey: string, ...childKeys: string[]): SavedBoardPlan => ({

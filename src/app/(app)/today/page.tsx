@@ -3,8 +3,8 @@ import { buildBoard, CLOCK_PARAM, requestedBoardDay } from "@/domain/board/board
 import { getDayReadiness, serviceDateAt } from "@/domain/day/day-facts";
 import { readRightNow } from "@/domain/health/right-now-facts";
 import { rightNowTiles } from "@/domain/health/right-now";
+import { savedPlacementsForBoard } from "@/modules/plan/store";
 import { stepsFor } from "@/ui/step-strip";
-import { savedPlanFor } from "./saved-plan";
 import { TodayBoard } from "./TodayBoard";
 
 /** The guard reads a session, so this route is never statically rendered. */
@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
  *
  * One fact on a row is not computed at all, because it is a person's decision: **which van a
  * child rides this leg**. That comes from the plan a coordinator saved for this date and leg,
- * read through the plan board's own `loadBoard` (./saved-plan.ts), so this screen and Plan
+ * read through the plan board's own `loadBoard` (`savedPlacementsForBoard`), so this screen and Plan
  * routes cannot disagree about who is on which van — which is what they were doing for five of
  * nine children (Veri's prod check, 2026-10-18). A leg nobody has saved a plan for is still the
  * seeded day's own runs, exactly as before.
@@ -80,7 +80,7 @@ export default async function Page({
    * is the browser check's synthetic caller, and it gets the seeded day exactly as before.
    */
   const siteId = caller.memberships[0]?.siteId ?? null;
-  const saved = await savedPlanFor(siteId, serviceDateAt());
+  const saved = await savedPlacementsForBoard(siteId, serviceDateAt());
   const board = buildBoard(
     requestedBoardDay(one(params.date), one(params[CLOCK_PARAM]), process.env),
     saved,

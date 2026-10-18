@@ -484,7 +484,7 @@ const FAMILY_DRIVES: StateDescriptor = {
 
 /**
  * A ride with no van that is **not** the family's: the saved plan leaves this child in
- * Unassigned (src/app/(app)/today/saved-plan.ts).
+ * Unassigned (`savedPlacementsForBoard`, src/modules/plan/store.ts).
  *
  * It is the board's own word for it — the Unassigned column the plan board puts them in
  * (`planBoard.unassigned`) — because "Family drives" is a different claim and was being made
