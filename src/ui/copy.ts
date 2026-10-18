@@ -1370,16 +1370,16 @@ export const approval = {
    *
    * The time used to be the only thing a person could change on this card. Now the sentence is
    * theirs too: the field holds the drafted reply, they rewrite as much of it as they like, and
-   * **Approve & send sends exactly what is in the box**. The label says whose words they are
-   * about to become, because that is the fact that makes the press safe to make — there is no
-   * "save the draft" step and nothing is sent until the same press that approves it.
+   * **Approve & send sends exactly what is in the box**. The box sits under the bubble and the
+   * Approve button, so its job is evident from where it is; the label is for screen readers only
+   * (Vera, 2026-10-18: "drop 'The reply, in your words'"), one word, and never drawn.
    *
    * It does NOT say "320 characters" or list what a text may not carry. The limit and the
    * refusals are real and are enforced server-side (`modules/approvals/decide.ts`), and a field
    * label is not the place to teach them; {@link textNotSendable} is what a person reads if they
    * hit one.
    */
-  editTextLabel: "The reply, in your words",
+  editTextLabel: "Reply",
 
   /* ── what came back ── */
 
@@ -1407,10 +1407,12 @@ export const approval = {
    * they hit: the reason a reply is refused is that it may carry something that must not be
    * repeated, in a log line or on a screen (`messaging/reply-text.ts`).
    *
-   * Says plainly that nothing went out, like every other refusal on this card.
+   * Says plainly that nothing went out, like every other refusal on this card. `{max}` is filled
+   * from `REPLY_TEXT_MAX` (`messaging/reply-text.ts`) by the action that maps the refusal, so the
+   * number a person reads is the number the server enforces — never typed out here (Vera).
    */
   textNotSendable:
-    "Nothing was sent. A text to a family can't carry a phone number, a link, an address or a code, and has to fit in 320 characters. Edit the reply and approve again.",
+    "Not sent. Take out phone numbers, links, addresses or codes, and keep it under {max} characters.",
   /**
    * An edited reply on a card whose words are the centre's fixed copy (`TEXT_NOT_EDITABLE`). The
    * screen offers no field there, so this is what a hand-made post reads — and it still says what

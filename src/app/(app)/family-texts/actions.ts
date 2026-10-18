@@ -62,7 +62,8 @@ import { redraftReply } from "@/modules/approvals/redraft";
  */
 import { openAlert } from "@/modules/agent/alert-task";
 import { vercelQueueOutboxTransport } from "@/modules/outbox/transport";
-import { approval as approvalCopy } from "@/ui/copy";
+import { REPLY_TEXT_MAX } from "@/modules/messaging/reply-text";
+import { approval as approvalCopy, fill } from "@/ui/copy";
 
 /** What the screen renders after a decision: what happened, or the one sentence a refusal gets. */
 export type DecisionState =
@@ -92,7 +93,7 @@ const REFUSALS: Readonly<Record<DecideError, string>> = {
   NOT_A_TIME: approvalCopy.notATime,
   MESSAGE_CHANGED: approvalCopy.messageChanged,
   DRAFT_FOR_OTHER_TIME: approvalCopy.retypeForNewTime,
-  TEXT_NOT_SENDABLE: approvalCopy.textNotSendable,
+  TEXT_NOT_SENDABLE: fill(approvalCopy.textNotSendable, { max: String(REPLY_TEXT_MAX) }),
   TEXT_NOT_EDITABLE: approvalCopy.textNotEditable,
   PLAN_NOT_SAVED: approvalCopy.planNotSaved,
   TIME_NOT_SAVED: approvalCopy.timeNotSaved,

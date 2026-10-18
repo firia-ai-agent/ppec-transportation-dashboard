@@ -217,7 +217,8 @@ export function ProposalCard({
           <DecisionFields proposal={proposal} body={shownBody} time={timeValue} timeField update={updateTime} />
           {rewritable ? (
             <div className={styles.editReplyField}>
-              <label className={styles.diffKey} htmlFor={`reply-${proposal.approvalId}`}>
+              {/* Screen readers only (Vera): the box's place under the bubble says what it is. */}
+              <label className="srOnly" htmlFor={`reply-${proposal.approvalId}`}>
                 {approval.editTextLabel}
               </label>
               {/*

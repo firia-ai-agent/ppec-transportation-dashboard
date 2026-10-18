@@ -32,6 +32,7 @@ import { demoChangeRequests } from "@/modules/demo/change-request";
 import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
 import type { AssistantAlert } from "@/modules/agent/staff-alert";
 import { SEND_FOOTER } from "@/modules/messaging/templates";
+import { REPLY_TEXT_MAX } from "@/modules/messaging/reply-text";
 import { approval, assistantUnavailable, familyTexts, fill } from "@/ui/copy";
 import type { ThreadContext } from "@/app/(app)/family-texts/context";
 import { childTokenOf, stopByKey, childByKey } from "@/modules/demo/fixtures/standard";
@@ -389,6 +390,26 @@ describe("PPE-97: the draft reply is a field, and the press that approves carrie
     expect(textOf(html)).toContain(DRAFTED_REPLY);
     expect(html).not.toMatch(/<textarea[^>]*>PPEC:/);
     expect(textOf(html)).toContain(approval.editTextLabel);
+  });
+
+  /**
+   * VERA on 49b1c3a (mockups/family-texts.html, mockups/agent-bubble.html): no drawn label over
+   * the box. One word, "Reply", for a screen reader alone; and the refusal's character count is
+   * the server's constant, never a number typed into copy.
+   */
+  it("labels the box 'Reply' for screen readers only, and draws no label", () => {
+    const html = render({ editing: true, proposal: REPLY_PROPOSAL });
+    expect(approval.editTextLabel).toBe("Reply");
+    expect(html).toMatch(/<label class="srOnly" for="reply-[^"]+">Reply<\/label>/);
+    expect(textOf(html)).not.toContain("The reply, in your words");
+  });
+
+  it("says the cap in the refusal from REPLY_TEXT_MAX, with no number typed into copy.ts", () => {
+    expect(approval.textNotSendable).toContain("{max}");
+    expect(approval.textNotSendable).not.toMatch(/\d/);
+    expect(fill(approval.textNotSendable, { max: String(REPLY_TEXT_MAX) })).toBe(
+      `Not sent. Take out phone numbers, links, addresses or codes, and keep it under ${REPLY_TEXT_MAX} characters.`,
+    );
   });
 
   it("has that field inside the form that approves — one press, one approval", () => {
