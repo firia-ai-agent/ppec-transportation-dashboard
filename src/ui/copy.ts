@@ -1268,6 +1268,17 @@ export const familyTexts = {
    */
   dropoffReplyFallback:
     "Hi {parentName}, yes, we'll drop {childName} off at {eta} today. Thanks for letting us know!",
+  /**
+   * …and the same answer with nobody and nothing nameable: a proposal whose child this roster
+   * cannot name, or one that moves only the place, has no first name and no time to put in the
+   * line above. It says the one true thing — the change is in hand — and invents neither.
+   *
+   * A reply is never empty (`agent/alert-words.ts` `dropoffReplyWords`): a card whose bubble is
+   * blank is a coordinator being asked to approve nothing, and the words a family would get are
+   * the whole of what they are deciding.
+   */
+  dropoffReplyFallbackPlain:
+    "Yes, that works. We have the change for today's drop-off. Thanks for letting us know.",
   /** A tab with nothing in it. One line, and it is about the day rather than the build. */
   noneForYou: "Nothing is waiting for you.",
   noneSent: "No texts have gone out today.",

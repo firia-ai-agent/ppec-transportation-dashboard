@@ -29,10 +29,8 @@ import {
   DROPOFF_CHANGE_TEMPLATE,
   DROPOFF_REPLY_TEMPLATE,
 } from "@/modules/approvals/dropoff-change";
-import { isReplyText } from "@/modules/messaging/reply-text";
 import { childByKey, stopByKey } from "@/modules/demo/fixtures/standard";
-import { modelAlertWords } from "../../alert-words";
-import { namedOrNull } from "@/modules/identity/names";
+import { type DropoffReply, dropoffAlertWords, dropoffReplyWords } from "../../alert-words";
 import { agentTasks, fill } from "@/ui/copy";
 import { demoTokenForId } from "../scope-tokens";
 import { planStoreIn } from "@/modules/plan/store";
@@ -272,24 +270,6 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
   const sourceMessageId = String(input.args.source_message_id ?? "");
   const by = `agent:${input.runId}`;
   /*
-   * THE MODEL'S REPLY TO THE PARENT, IN NAMES (Firia, 2026-10-18 11:04 AM ET; founder 2026-10-18).
-   *
-   * The model wrote it in the prompt's tokens ("Hi F2, yes — C2 can be dropped at 5"), because every
-   * prompt is token-only; this is where the people come back as the first names the family uses
-   * (`identity/names.namedOrNull`, the roster that replaced them). Checked here as well as at the
-   * gateway, which already refused a reply that could not be named or breaks the shape: this is the
-   * field that becomes the words a family reads.
-   *
-   * There is NO TEMPLATE BEHIND IT. A reply that does not pass is no proposal at all — the call is
-   * recorded as refused and no card is written — because a card worded by this app while the model
-   * is up is exactly what the founder ruled out. On the agent's own path it cannot happen: the
-   * schema refuses the call first.
-   */
-  const named = namedOrNull(input.args.reply);
-  const reply = named !== null && isReplyText(named) ? named : null;
-  if (reply === null) return { proposal_refused: "NO_REPLY_IN_NAMES", mutated: false };
-
-  /*
    * The leg, at this site. A leg at another site cannot be reached — the policy engine's scope
    * check refused it long before this runs — and the `site_id` here says so again, because a
    * writer that trusted the scope check would be the one place the tenant boundary was implied
@@ -304,6 +284,33 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
   );
   const row = leg.rows[0];
   if (!row) return { proposal_refused: "NO_SUCH_LEG", mutated: false };
+
+  /*
+   * THE MODEL'S REPLY TO THE PARENT, IN NAMES (Firia, 2026-10-18 11:04 AM ET; founder 2026-10-18).
+   *
+   * The model wrote it in the prompt's tokens ("Hi F2, yes — C2 can be dropped at 5"), because every
+   * prompt is token-only; `dropoffReplyWords` is where the people come back as the first names the
+   * family uses, and where a sentence that cannot be named or breaks the egress shape lands on the
+   * copy line instead (`agent/alert-words.ts`).
+   *
+   * IT NO LONGER THROWS THE PROPOSAL AWAY. This used to answer `NO_REPLY_IN_NAMES` and write
+   * nothing at all: no approval row, no task, nothing on any board — a family who had asked for
+   * something, a model that had understood it, and a coordinator told nothing, which is worse than
+   * a plainer sentence by every measure. On the agent's own path the gateway refuses such a call
+   * first, so what this really covers is a row written around that door.
+   *
+   * Which of the two wrote it is a fact about this run, so it is logged (never the sentence, and
+   * never anything the family typed — the reason is a class) and **shown nowhere**: a chip saying
+   * "drafted from copy" would put the build's state on a card a coordinator is reading for the
+   * family's sake.
+   */
+  const drafted = dropoffReplyWords({
+    reply: input.args.reply,
+    childToken: row.child_token,
+    requestedTime,
+  });
+  logProposalReply(drafted);
+  const reply = drafted.text;
 
   // The place the family would be told. The proposed stop when there is one, otherwise the one the
   // leg already drops at — and if neither can be named, nothing is proposed at all.
@@ -335,7 +342,9 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
 
   /*
    * WHAT THE ALERT SAYS: the model's own sentence from this very call (Firia, 2026-10-18 11:15 AM
-   * ET), falling back to the named copy line when it wrote nothing fit for a screen. The order and
+   * ET), falling back to the named copy line when it wrote nothing fit for a screen — the fallback rather
+   * than a refusal, for the reason the reply above gives: a proposal nobody can see is the worst of
+   * the outcomes. The order and
    * the reasons are `agent/alert-words.ts`; the one thing worth repeating here is that the general
    * "A family asked for a different drop-off" row is gone from this path — the words a coordinator
    * reads beside the thread are now either the model's or the row's own fields, never a sentence
@@ -346,8 +355,11 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
    * here already replaced by a class placeholder — and a line carrying one fails `isAlertText` and
    * lands on the fallback rather than on a card.
    */
-  const alertWords = modelAlertWords(input.args.alert_text);
-  if (alertWords === null) return { proposal_refused: "NO_ALERT_IN_NAMES", mutated: false };
+  const alertWords = dropoffAlertWords({
+    alertText: input.args.alert_text,
+    childToken: row.child_token,
+    requestedTime,
+  });
 
   /*
    * WHO ASKED (PPE-98): the guardian on the thread of the message that started this run. Read off
@@ -639,4 +651,21 @@ async function clarificationProposal(tx: Exec, input: ProposalInput): Promise<Pr
  */
 function legOf(direction: string | undefined): Direction | null {
   return direction === "AM" || direction === "PM" ? direction : null;
+}
+
+/**
+ * One line per proposal saying who wrote the words on it, for whoever is reading the server log
+ * when a card looks plainer than it should.
+ *
+ * Never the sentence and never the family's text: `reason` is a class from `replyTextIssue`
+ * ("contains a phone number") or one of two phrases, and nothing here renders on a screen.
+ */
+function logProposalReply(drafted: DropoffReply): void {
+  console.log(
+    JSON.stringify({
+      event: "agent.proposal_reply",
+      modelWritten: drafted.modelWritten,
+      reason: drafted.reason,
+    }),
+  );
 }

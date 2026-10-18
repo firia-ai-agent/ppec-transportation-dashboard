@@ -31,7 +31,8 @@
 import { sayClock } from "@/domain/eta/eta";
 import { childByKey } from "@/modules/demo/fixtures/standard";
 import { firstNameOfToken, namedOrNull } from "@/modules/identity/names";
-import { agentBubble, fill } from "@/ui/copy";
+import { replyTextIssue } from "@/modules/messaging/reply-text";
+import { agentBubble, familyTexts, fill } from "@/ui/copy";
 import { isAlertText } from "./alert-text";
 import { demoTokenForId } from "./run/scope-tokens";
 
@@ -79,4 +80,68 @@ function parentFirstName(childKey: string): string | null {
     // A fixture key this roster no longer holds. Say less rather than guess at a name.
     return null;
   }
+}
+
+/* ───────────────────────────── the reply on the card ───────────────────────────── */
+
+export type DropoffReplyInput = {
+  /** `reply` as the call carried it — the model's sentence in the prompt's tokens, or nothing. */
+  readonly reply?: unknown;
+  readonly childToken: string;
+  /** `requested_dropoff_time`, "HH:MM", or null when only the place moves. */
+  readonly requestedTime: string | null;
+};
+
+export type DropoffReply = {
+  /** The words the family would get. **Never empty**, and always sendable. */
+  readonly text: string;
+  /** True when those words are the model's own. */
+  readonly modelWritten: boolean;
+  /**
+   * Why they are not, as a class — "no reply written", "not in names", or `replyTextIssue`'s own
+   * phrase ("contains a phone number"). For the server log; it never carries the value it refused,
+   * and there is no screen that shows it. Null when the model wrote them.
+   */
+  readonly reason: string | null;
+};
+
+/**
+ * THE WORDS ON THE CARD'S BUBBLE — the model's reply, or the copy line, and never nothing.
+ *
+ * The writer used to throw the whole proposal away when the model's `reply` could not be named or
+ * broke the shape (`NO_REPLY_IN_NAMES`): the run went on to succeed, no approval row was written,
+ * no task was raised, and a coordinator was told nothing at all. That is the one outcome worse
+ * than a plainer sentence — the family asked for something, a model understood it well enough to
+ * propose the change, and the card it should have produced existed nowhere.
+ *
+ * So a reply that does not pass lands on the copy fallback, exactly as the alert line does
+ * (`dropoffAlertWords` above), and the row records which of the two it was. What has NOT changed
+ * is the egress rule: both sentences are code-owned or model-written-and-checked, the fallback is
+ * held to the same `replyTextIssue` shape as the model's own, and nothing here reads a word of
+ * what the family typed.
+ */
+export function dropoffReplyWords(a: DropoffReplyInput): DropoffReply {
+  const named = namedOrNull(a.reply);
+  if (named === null) {
+    const wrote = typeof a.reply === "string" && a.reply.trim() !== "";
+    return fallbackReply(a, wrote ? "not in names" : "no reply written");
+  }
+  const issue = replyTextIssue(named);
+  return issue === null ? { text: named, modelWritten: true, reason: null } : fallbackReply(a, issue);
+}
+
+/** The copy line, filled from the row's own fields — and held to the shape the model's is held to. */
+function fallbackReply(a: DropoffReplyInput, reason: string): DropoffReply {
+  const childKey = demoTokenForId(a.childToken);
+  const childName = childKey ? firstNameOfToken(childKey) : null;
+  const parentName = childKey ? parentFirstName(childKey) : null;
+  const eta = a.requestedTime ? sayClock(a.requestedTime) : null;
+  const named =
+    childName && parentName && eta
+      ? fill(familyTexts.dropoffReplyFallback, { parentName, childName, eta })
+      : null;
+  // A filled line that cannot be sent is not a line: a roster name with a digit run or a bracket
+  // in it would fail the same check the model's sentence fails, and the plain line is the floor.
+  const text = named !== null && replyTextIssue(named) === null ? named : familyTexts.dropoffReplyFallbackPlain;
+  return { text, modelWritten: false, reason };
 }
