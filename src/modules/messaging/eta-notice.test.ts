@@ -187,9 +187,13 @@ describe("a crossing becomes one queued text", () => {
     expect(rows[0].child_token).toBe(scenario.children[0]);
     expect(rows[0].trip_leg_id).toBe(ride().legId);
     expect(rows[0].plan_version_basis).toBe(1);
+    /*
+     * No `eta` and no `etaEnd` on the afternoon's late text (Firia, 2026-10-17 10:51 PM ET: "the
+     * auto late text has no time range and no ETA"). The morning's `pickup.eta` still carries
+     * its §8 window — the test below is that one — so the two are asserted apart rather than one
+     * shape being assumed for both.
+     */
     expect(rows[0].vars).toEqual({
-      eta: "16:30",
-      etaEnd: "16:40",
       stopLabel: "OKEE-PARK",
       delayMinutes: 15,
     });
@@ -259,11 +263,20 @@ describe("what the family actually reads", () => {
     const text = thread.find((m) => m.direction === "OUT")!;
     expect(text.reachedPhone).toBe(true);
     expect(text.body).toContain("running about 15 minutes late");
-    expect(text.body).toContain("4:30–4:40 PM");
     expect(text.body).toContain("Okeeheelee Park");
     expect(text.body).toContain("[DEMO]");
-    // Veri #12 / COPY-GUIDE §2: no child's name, no ride id, no threshold, no internal code.
-    expect(text.body).not.toMatch(/Noah|Syn C\.|OKEE-PARK|16:30/);
+    // No time of any kind in it, and no range (Firia, 10:51 PM ET).
+    expect(text.body).not.toMatch(/\d{1,2}:\d{2}/);
+    expect(text.body).not.toContain("\u2013");
+    /*
+     * COPY-GUIDE §2: no ride id, no threshold, no internal code, and no raw var.
+     *
+     * The child's *name* is now in the body by Firia's 10:51 PM ET ruling — read from the child's
+     * own row at render time and never from a var (Veri #12's rule is about a name a caller
+     * chose; `templates.test.ts` holds that door). This scenario's child is seeded as "Syn C.",
+     * so the name that appears is the one the row holds.
+     */
+    expect(text.body).not.toMatch(/OKEE-PARK|16:30/);
     expect(text.body).not.toMatch(new RegExp(ride().legId));
     expect(text.body).not.toMatch(/ETA|threshold|SHIFT|NOTIFY/i);
   });

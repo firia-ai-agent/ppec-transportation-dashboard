@@ -322,10 +322,13 @@ export function approveDropoff(request: DropoffRequest, day: ServiceDay): Approv
     ? STOPS.find((s) => s.smsToken === request.requestedStopToken)?.key ?? child.stopKey
     : child.stopKey;
   const stop = stopKey ? stopByKey(stopKey) : null;
+  /*
+   * No `etaEnd`: an approved drop-off is a decided minute and not a window any more (Firia,
+   * 2026-10-17 10:51 PM ET), and `dropoff.changed`'s allowlist no longer permits one.
+   */
   const vars = {
     legDate: day.iso,
     eta: formatClock24(window.startMs),
-    etaEnd: formatClock24(window.endMs),
     stopLabel: stop?.smsToken ?? "CENTER",
   };
   const templateId = "dropoff.changed";
@@ -339,6 +342,6 @@ export function approveDropoff(request: DropoffRequest, day: ServiceDay): Approv
     afterWindowText: formatWindow(window.startMs, window.endMs),
     place: stop?.label ?? "",
     vanLabel: vehicle?.label ?? null,
-    reply: { templateId, vars, body: renderTemplate(templateId, vars) },
+    reply: { templateId, vars, body: renderTemplate(templateId, vars, { child: child.firstName }) },
   };
 }

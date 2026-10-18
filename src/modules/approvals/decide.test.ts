@@ -25,7 +25,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import { uuidv7 } from "uuidv7";
 import type { Db } from "@/db/exec";
-import { ALL_STAFF, APPROVAL_ROLES, approvalRoles } from "@/auth/access";
+import { ALL_STAFF, APPROVAL_ROLES } from "@/auth/access";
 import { demoChildToken, demoLegId } from "@/modules/demo/fixtures/standard";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { TEST_NOW } from "@/test/clock";
@@ -193,11 +193,10 @@ describe("who may decide", () => {
    * that is about to be deleted, and any edit to that route would have moved who may approve.
    */
   it("holds a decider to the named approval roles, and to nothing derived from a route", () => {
-    expect([...approvalRoles()].sort()).toEqual(["COORDINATOR", "DIRECTOR"]);
-    expect(approvalRoles()).toEqual(APPROVAL_ROLES);
-    expect(approvalRoles()).not.toContain("FRONT_DESK");
+    expect([...APPROVAL_ROLES].sort()).toEqual(["COORDINATOR", "DIRECTOR"]);
+        expect(APPROVAL_ROLES).not.toContain("FRONT_DESK");
     // Not open to every staff role: the front desk's job is custody at the ramp, not approvals.
-    expect(approvalRoles().length).toBeLessThan(ALL_STAFF.length);
+    expect(APPROVAL_ROLES.length).toBeLessThan(ALL_STAFF.length);
   });
 
   /**
@@ -292,8 +291,17 @@ describe("approving", () => {
     expect(answer.status).toBe(200);
     expect(answer.body).toMatchObject({ ok: true, decision: "APPROVED" });
     expect(answer.body.ok && answer.body.queued).toBe(1);
-    // The exact words the family gets — the ones the screen showed, through the one renderer.
-    expect(answer.body.ok && answer.body.text).toContain("New drop-off around 5:00 PM at Okeeheelee Park");
+    /*
+     * The exact words the family gets — the ones the screen showed, through the one renderer.
+     *
+     * Firia, 2026-10-17 10:51 PM ET: the draft is human and names the child ("Yes, Jonah gets
+     * off at … at 3:58 PM"). The name is resolved from the child's own row at render time and is
+     * never a var (`src/modules/messaging/templates.ts`, Veri #12), and the minute is said flat
+     * rather than hedged into "around", because a coordinator approved that time.
+     */
+    expect(answer.body.ok && answer.body.text).toBe(
+      "PPEC: Yes — Noah gets off at Okeeheelee Park at 5:00 PM.",
+    );
 
     // 1. the decision, with who made it and when.
     const row = (await db.query<{ decision: string; decided_by: string; decided_at: Date }>(
@@ -327,7 +335,7 @@ describe("approving", () => {
 
     const answer = await decide({ approvalId: id, editedTime: "17:30" });
 
-    expect(answer.body.ok && answer.body.text).toContain("around 5:30 PM");
+    expect(answer.body.ok && answer.body.text).toContain("at 5:30 PM");
     expect((await queued())[0].vars).toMatchObject({ eta: "17:30" });
   });
 

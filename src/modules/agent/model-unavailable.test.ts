@@ -20,7 +20,7 @@
  *    their given name, and the leg word taken from the leg row rather than from the text;
  *  - the parent's words **verbatim**, read back from `ops.message` — not copied into the task;
  *  - **roles**: a director and a coordinator see the alert and the count; the front desk sees
- *    neither. Read through `approvalRoles()`, which reads `src/auth/access.ts`, which this change
+ *    neither. Read through `APPROVAL_ROLES`, which is in `src/auth/access.ts`, which this change
  *    does not touch;
  *  - **nothing sent**: no `ops.outbound_message` row at all, and the messaging provider was never
  *    handed anything;
@@ -38,7 +38,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
 import { assistantUnavailable } from "@/ui/copy";
-import { approvalRoles } from "@/auth/access";
+import { APPROVAL_ROLES } from "@/auth/access";
 import { CHILDREN, FAMILIES, synLegalName } from "@/modules/demo/fixtures/standard";
 import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
@@ -653,11 +653,11 @@ describe("the classifier, pinned directly", () => {
 
 describe("roles: only a director or a coordinator sees the alert or its count", () => {
   it("the access table's /exceptions row is the whole rule, and the front desk is not in it", () => {
-    // Asserted against `approvalRoles()` rather than a list written here, because the list here
+    // Asserted against `APPROVAL_ROLES` rather than a list written here, because the list here
     // is exactly the thing that could drift from `src/auth/access.ts` — which this change does
     // not touch.
-    expect([...approvalRoles()].sort()).toEqual(["COORDINATOR", "DIRECTOR"]);
-    expect(approvalRoles()).not.toContain("FRONT_DESK");
+    expect([...APPROVAL_ROLES].sort()).toEqual(["COORDINATOR", "DIRECTOR"]);
+    expect(APPROVAL_ROLES).not.toContain("FRONT_DESK");
   });
 
   it("a caller with no membership at the site reads no alerts and a count of zero", async () => {

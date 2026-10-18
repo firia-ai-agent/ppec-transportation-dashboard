@@ -1,4 +1,5 @@
-import { APPROVAL_ROLES, canDecideApprovals } from "@/auth/access";
+import { redirect } from "next/navigation";
+import { APPROVAL_ROLES, FOR_YOU_TAB, canOpenForYou, homePathFor } from "@/auth/access";
 import { getExec } from "@/auth/exec";
 import { requirePage } from "@/auth/page-guard";
 import { getNeonDb } from "@/db/exec";
@@ -8,7 +9,9 @@ import { openAssistantAlerts, type AssistantAlert } from "@/modules/agent/staff-
 import { bodyOf, pendingApprovals } from "@/modules/approvals/decide";
 import { demoChangeRequests, withRequestedTime, type DemoChangeRequest } from "@/modules/demo/change-request";
 import { familyTexts } from "@/ui/copy";
+import { NOT_ON_YOUR_MENU, withNotice } from "@/ui/notice";
 import { decideApprovalAction } from "./actions";
+import { contextFor } from "./context";
 import { conversationRows, proposalFromDemo, tabFrom, threadView, type ProposalView } from "./conversations";
 import { TextsScreen } from "./TextsScreen";
 import { phonesForDay, threadFor } from "./thread";
@@ -58,6 +61,16 @@ export const dynamic = "force-dynamic";
  * user is read-only; a signed-in demo session, which holds no membership and therefore no site;
  * and a database that is simply away. None is a reason to take the screen off a coordinator, and
  * none is a reason to tell them their families are all answered — `alertsUnreadable` says which.
+ *
+ * TWO GUARDS, AND THEY ANSWER TWO QUESTIONS.
+ *  1. `requirePage` — may you open Family texts at all? That is this page's row.
+ *  2. `canOpenForYou` — may you *decide*? That is `APPROVAL_ROLES` (src/auth/access.ts), and it
+ *     is asked here, on the server, before any markup exists, because `?tab=for-you` is a URL a
+ *     person can type. A tab that is merely not drawn is hiding, not denying (the ID-swap
+ *     skill, rule 6), and the front desk must never land on this queue — they land on their own
+ *     home, the live map, with the §9.3 notice.
+ * The two are independent on purpose: widening the row that opens the page must not quietly
+ * hand the approvals queue to a role that may not approve.
  */
 export default async function FamilyTextsPage({
   searchParams,
@@ -68,11 +81,24 @@ export default async function FamilyTextsPage({
   const params = await searchParams;
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
-  const role = caller.kind === "STAFF" ? caller.role : null;
-  const mayApprove = canDecideApprovals(role);
+  /*
+   * The second guard (#74): `?tab=for-you` is a URL a person can type, so a role that may not
+   * decide is sent to their own home with the §9.3 notice rather than shown a tab that is merely
+   * not drawn. The page's own row has already answered the first question above.
+   */
+  const mayApprove = canOpenForYou(caller);
+  if (one(params.tab) === FOR_YOU_TAB && !mayApprove) {
+    redirect(withNotice(homePathFor(caller), NOT_ON_YOUR_MENU));
+  }
   const tab = tabFrom(one(params.tab));
   const askedThread = one(params.thread);
   const editedTime = clockOrNull(one(params.time));
+  /*
+   * `?edit=` is the Edit control's own state and nothing else: it names the proposal whose time
+   * field is open. It writes nothing and sends nothing — the card comes back pending either way
+   * (gate 2) — and the resting card has no field on it at all (Firia, 10:51 PM ET).
+   */
+  const editing = one(params.edit) !== undefined;
 
   const day = demoDay();
   const phones = phonesForDay(day);
@@ -105,9 +131,14 @@ export default async function FamilyTextsPage({
         })
       : null;
 
+  /* The third pane, for the thread that is open and only on the tab that decides things. */
+  const context = selected && mayApprove ? await contextFor(selected.childKey, day) : null;
+
   return (
     <TextsScreen
       tab={tab}
+      context={context}
+      editing={editing}
       rows={conversationRows(phones, requests)}
       thread={view}
       /* Gate 5, applied once: with no model there is nothing to approve, so the queue is empty

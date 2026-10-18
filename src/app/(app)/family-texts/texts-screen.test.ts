@@ -28,6 +28,7 @@ import { demoChangeRequests } from "@/modules/demo/change-request";
 import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
 import type { AssistantAlert } from "@/modules/agent/staff-alert";
 import { approval, assistantUnavailable, familyTexts } from "@/ui/copy";
+import type { ThreadContext } from "@/app/(app)/family-texts/context";
 import { TextsScreen } from "./TextsScreen";
 import {
   conversationRows,
@@ -72,6 +73,10 @@ function render(a: {
   showForYouTab?: boolean;
   threadOpen?: boolean;
   proposals?: readonly ProposalView[];
+  /** The third pane (approvals.html `aside.ctx`), when a case is about it. */
+  context?: ThreadContext | null;
+  /** The Edit state, which is the only state with a time field on the card. */
+  editing?: boolean;
   request?: typeof request | undefined;
 }): string {
   const reachable = a.assistantReachable ?? true;
@@ -93,6 +98,9 @@ function render(a: {
       alerts: a.alerts ?? [],
       alertsUnreadable: false,
       assistantReachable: reachable,
+      // The third pane is the page's read of the day; these cases are about the other two.
+      context: a.context ?? null,
+      editing: a.editing ?? false,
       editedTime: null,
       threadOpen: a.threadOpen ?? false,
       decide,
@@ -162,11 +170,17 @@ describe("the screen's shape", () => {
   });
 
   it("puts the approve card inside the thread", () => {
-    const html = textOf(render({}));
+    /*
+     * On the markup rather than the text, because the compose bar's Send is an icon with its
+     * name read and not drawn (family-texts.html `.cmp .send`: a 36 px teal disc with
+     * `aria-label="Send"`). Its position in the document is what this is about either way.
+     */
+    const html = render({});
     const thread = html.indexOf(request.parentText);
     const card = html.indexOf(approval.changeDropoff);
-    const compose = html.indexOf(familyTexts.composeAction);
+    const compose = html.indexOf(`aria-label="${familyTexts.composeAction}"`);
     expect(thread).toBeGreaterThan(-1);
+    expect(compose).toBeGreaterThan(-1);
     // The card is after the bubbles and before the compose bar: inside the thread, not beside it.
     expect(card).toBeGreaterThan(thread);
     expect(compose).toBeGreaterThan(card);

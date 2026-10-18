@@ -2,35 +2,20 @@ import type { ReactNode } from "react";
 import styles from "./StubPage.module.css";
 
 /**
- * A SCREEN WHOSE DATA IS NOT BUILT: its own title, one line, and nothing else.
+ * A SCREEN WHOSE DATA IS NOT BUILT: its title, and nothing else.
  *
- * This is not `Placeholder` (src/ui/Placeholder.tsx) and the difference is the menu. A page
- * that is off the menu and reached by typing a URL can afford to say "Health & ROI isn't built
- * yet" — the only person there typed the address. REDESIGN-SPEC §0 puts these on the menu,
- * because nothing on a menu may 404 and a founder mid-demo clicks rather than types, and a
- * menu item that lands on an apology is the dead end the whole redesign is about. So what they
- * find is a screen: the heading the menu promised, and one line saying what will be on it.
+ * The title is not here any more — it is in the frame's page header bar, where every screen's
+ * title is (src/ui/PageHeader.tsx, audit §2 item 1) — and neither is the one line that used to
+ * sit under it. Firia, 2026-10-17 8:36 PM ET: "delete the explanatory helper sentence under
+ * every page heading; each page keeps only its title". The audit's §3 reads the same way, screen
+ * by screen: one title, no helper paragraph, and the §9.3 empty state is what a finished screen
+ * says in place of a sentence about itself.
  *
- * It renders no data and reads none — there is nothing here to be wrong about, which is the
- * other half of the rule (a page that invents a row to look finished is worse than an empty
- * one). `children` is for the single in-frame link one of these needs: Family texts carries
- * "For you" to the approvals queue, which §9.2 keeps off the menu.
+ * So this is the page column and whatever single in-frame link the screen needs — Family texts
+ * carries "For you" to the approvals queue, which §9.2 keeps off the menu. It renders no data
+ * and reads none: a page that invents a row to look finished is worse than an empty one, and
+ * the screens themselves are a rebuild of their own (audit §4, items 3 and 6).
  */
-export function StubPage({
-  title,
-  line,
-  children,
-}: {
-  title: string;
-  /** One short sentence about what the page will hold. §0: never a paragraph. */
-  line: string;
-  children?: ReactNode;
-}) {
-  return (
-    <div className={styles.page}>
-      <h1 className={styles.heading}>{title}</h1>
-      <p className={styles.line}>{line}</p>
-      {children}
-    </div>
-  );
+export function StubPage({ children }: { children?: ReactNode }) {
+  return <div className={styles.page}>{children}</div>;
 }

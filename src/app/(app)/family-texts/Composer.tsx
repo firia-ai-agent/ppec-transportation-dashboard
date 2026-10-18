@@ -70,9 +70,15 @@ export function Composer({
           value={ready ? draftText : ""}
           placeholder={fill(familyTexts.composePlaceholder, { adult: adultName })}
         />
-        <button type="submit" className={styles.composeSend} disabled={!ready || pending}>
-          <SendHorizontal size={icon.inline} aria-hidden="true" />
-          {familyTexts.composeAction}
+        {/* The mockup's 36 px teal disc (family-texts.html `.cmp .send`): the icon is the
+          * control and its name is read, not drawn. */}
+        <button
+          type="submit"
+          className={styles.composeSend}
+          disabled={!ready || pending}
+          aria-label={familyTexts.composeAction}
+        >
+          <SendHorizontal size={icon.nav} aria-hidden="true" />
         </button>
       </form>
       <p className={styles.composeNote} role="status">

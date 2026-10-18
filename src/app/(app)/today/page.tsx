@@ -1,5 +1,6 @@
 import { requirePage } from "@/auth/page-guard";
 import { buildBoard, CLOCK_PARAM, requestedBoardDay } from "@/domain/board/board";
+import { getDayReadiness } from "@/domain/day/day-facts";
 import { stepsFor } from "@/ui/step-strip";
 import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
 import { TodayBoard } from "./TodayBoard";
@@ -64,8 +65,19 @@ export default async function Page({
    */
   const textedChildKeys = demoLateDropoffs(board.day).map((text) => text.childKey);
 
-  // The day's three steps, each a link to its screen — only where this role may open it.
-  const steps = stepsFor(caller.kind === "STAFF" ? caller.role : null);
+  /*
+   * The day's three steps, as they actually stand (REDESIGN-SPEC §9.2, §9.4).
+   *
+   * The states come from today's own rows at this caller's centre — the vans with a `CHECKED`
+   * setup row, the plan saved for this leg — read through one helper that never throws and
+   * never says Done about a day it could not read (src/domain/day/day-facts.ts). A session with
+   * no site behind it, which is every browser check, takes that unread path: Needed, Needed,
+   * Locked, by the shape of the session rather than by a flag a deployment could set.
+   *
+   * Which card is a link is still the access table's answer, per role (`stepsFor`).
+   */
+  const readiness = await getDayReadiness({ siteId: caller.memberships[0]?.siteId ?? null });
+  const steps = stepsFor(caller.kind === "STAFF" ? caller.role : null, readiness);
 
   // The strip belongs under the board's own header (REDESIGN-SPEC §9.2), so it is handed to
   // the board rather than rendered above everything: the board is what owns that header.

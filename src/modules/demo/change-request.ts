@@ -129,7 +129,8 @@ function requestFrom(text: LateDropoff, day: ServiceDay): DemoChangeRequest {
     requestedHhmm: REQUESTED_HHMM,
     templateId: CHANGE_TEMPLATE,
     vars,
-    draftText: renderTemplate(CHANGE_TEMPLATE, vars),
+    // A staff surface: the child's name in it and no STOP/HELP footer (Firia, 10:51 PM ET).
+    draftText: renderTemplate(CHANGE_TEMPLATE, vars, { child: child.firstName, footer: false }),
     vanLabel: vehicle?.label ?? text.vanLabel,
   };
 }
@@ -149,7 +150,10 @@ export function withRequestedTime(request: DemoChangeRequest, hhmm: string | nul
     requestedHhmm: hhmm,
     timeTo: formatClock(localTimeOn(day, hhmm)),
     vars,
-    draftText: renderTemplate(request.templateId, vars),
+    draftText: renderTemplate(request.templateId, vars, {
+      child: request.childFirstName,
+      footer: false,
+    }),
   };
 }
 

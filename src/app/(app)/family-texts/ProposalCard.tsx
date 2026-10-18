@@ -19,27 +19,38 @@ import styles from "./texts.module.css";
  *
  *  - **Approve and send** posts to `decideApprovalAction`, which calls `decideApproval` and
  *    nothing else. One write path, for all three controls (gate 1).
- *  - **Edit** is a `GET` form to this same screen with `?time=`. It writes nothing and sends
- *    nothing: the card comes back pending with the new time and the reply re-rendered from the
- *    same template, so the edited message needs a *fresh* approval (gate 2). An Edit that
+ *  - **Edit** is a `GET` to this same screen. It writes nothing and sends nothing: the card comes
+ *    back *pending*, now with a time field on it, and the reply re-rendered from the same
+ *    template — so an edited message needs a **fresh** approval (gate 2). An Edit that
  *    approved-with-a-different-time would be a send nobody signed.
  *  - **Don't send** posts the same action with `DECLINED`: the decision is written and nothing
  *    else happens.
  *
- * The words are never editable, only the time — `approval.editHint` says so, and the reply below
- * is always `renderTemplate`'s output over the proposal's own template. That is what keeps "no
- * free text to a family" true of the approval path as well as the automatic one.
+ * ## One row of three buttons, and nothing else
+ *
+ * Firia, 2026-10-17 10:51 PM ET: "ONE row of three buttons: teal 'Approve & send', 'Edit', 'Don't
+ * send'. No time input, no helper text." So the resting card is exactly mockups/approvals.html
+ * `.acts` — three controls, the first of them teal — and the time field exists only in the state
+ * Edit navigates to (`?edit=`), which is not a state the mockup draws. A field sitting on the
+ * resting card was the screen asking a question nobody had asked it.
+ *
+ * The words are never editable, only the time: the reply below is always `renderTemplate`'s
+ * output over the proposal's own template. That is what keeps "no free text to a family" true of
+ * the approval path as well as the automatic one.
  */
 export function ProposalCard({
   proposal,
   decide,
   editHref,
+  editing = false,
   className,
 }: {
   readonly proposal: ProposalView;
   readonly decide: DecideAction;
   /** Where Edit submits: this screen, with the thread and tab it is already on. */
   readonly editHref: string;
+  /** True in the state Edit navigates to, which is the only state with a time field on it. */
+  readonly editing?: boolean;
   readonly className?: string;
 }) {
   const [state, submit, pending] = useActionState<DecisionState, FormData>(decide, { status: "idle" });
@@ -80,14 +91,10 @@ export function ProposalCard({
         <blockquote>{proposal.draftText === "" ? approval.draftFailed : proposal.draftText}</blockquote>
       </div>
 
-      {/* The one action row (mockups/approvals.html `.acts`), built from two forms because the
-        * three controls are two different kinds of thing: Edit is a navigation and the other two
-        * are the decision. HTML forms cannot nest, so they sit side by side and read as one bar.
-        */}
-      <p className={styles.hint}>{approval.editHint}</p>
-      <div className={styles.actions}>
-        {/* Edit: a navigation, not a decision. It writes nothing and sends nothing (gate 2). */}
+      {/* The time field, in the Edit state only — never on the resting card (10:51 PM ET). */}
+      {editing ? (
         <form method="get" action={editHref} className={styles.editForm}>
+          <input type="hidden" name="edit" value={proposal.approvalId} />
           <label className={styles.diffKey} htmlFor={`time-${proposal.approvalId}`}>
             {approval.editTimeLabel}
           </label>
@@ -100,10 +107,18 @@ export function ProposalCard({
           />
           <button type="submit" className={styles.secondary}>
             <Pencil size={icon.inline} aria-hidden="true" />
-            {approval.edit}
+            {approval.editApply}
           </button>
         </form>
+      ) : null}
 
+      {/*
+        * The one action row (mockups/approvals.html `.acts`): three controls, teal first. Two
+        * forms, because the three are two different kinds of thing — Edit is a navigation and the
+        * other two are the decision — and HTML forms cannot nest, so they sit side by side in one
+        * row and read as one bar.
+        */}
+      <div className={styles.actions}>
         {/* Approve and Don't send: the one write path, twice. */}
         <form action={submit} className={styles.decideForm}>
           <input type="hidden" name="approval" value={proposal.approvalId} />
@@ -112,7 +127,22 @@ export function ProposalCard({
             <Check size={icon.inline} aria-hidden="true" />
             {approval.approveAndSend}
           </button>
-          <span className={styles.actionSpacer} />
+        </form>
+
+        {/* Edit: a navigation, not a decision. It writes nothing and sends nothing (gate 2). */}
+        {editing ? null : (
+          <form method="get" action={editHref} className={styles.editForm}>
+            <input type="hidden" name="edit" value={proposal.approvalId} />
+            <button type="submit" className={styles.secondary}>
+              <Pencil size={icon.inline} aria-hidden="true" />
+              {approval.edit}
+            </button>
+          </form>
+        )}
+
+        <form action={submit} className={styles.decideForm}>
+          <input type="hidden" name="approval" value={proposal.approvalId} />
+          <input type="hidden" name="time" value={proposal.requestedHhmm ?? ""} />
           <button type="submit" name="decision" value="DECLINED" className={styles.quiet} disabled={pending}>
             <X size={icon.inline} aria-hidden="true" />
             {approval.dontSend}

@@ -84,10 +84,16 @@ describe("the copy lives in src/ui/copy.ts", () => {
 });
 
 describe("the card", () => {
-  it("is one h1, carrying the heading", async () => {
+  /*
+   * An h2, not an h1 — and the page it is on has exactly one h1, which is the frame's page
+   * header bar (src/ui/PageHeader.tsx, audit §2 item 1). The card is the answer *inside* a
+   * page, so a second title on the screen would be two titles.
+   */
+  it("is one h2, carrying the heading, and no h1 of its own", async () => {
     const html = await render(CALLERS.frontDesk, { path: "/today" });
-    expect(html).toContain(`${escapeApostrophes(noAccess.heading)}</h1>`);
-    expect(html.match(/<h1/g)).toHaveLength(1);
+    expect(html).toContain(`${escapeApostrophes(noAccess.heading)}</h2>`);
+    expect(html.match(/<h2/g)).toHaveLength(1);
+    expect(html.match(/<h1/g), "the card's title is the frame's, not a second one").toBeNull();
   });
 
   it("says who the page is for, generated from the access table", async () => {

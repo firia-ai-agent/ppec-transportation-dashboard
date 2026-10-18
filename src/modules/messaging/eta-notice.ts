@@ -129,17 +129,25 @@ export function etaNoticeKey(legId: string, windowStartMs: number): string {
   return `eta-notice:${legId}:${serviceDateIso(new Date(windowStartMs))}:${formatClock24(windowStartMs)}`;
 }
 
-/** The vars the body is rendered from: a 10-minute window, a stop token, and whole minutes late. */
+/**
+ * The vars the body is rendered from.
+ *
+ * The morning notice is still a 10-minute window (`pickup.eta`, §8). The afternoon's *late* text
+ * is not: Firia, 2026-10-17 10:51 PM ET — "the auto late text has no time range and no ETA" — so
+ * it carries the stop and the whole minutes of lateness and nothing a family could read as a
+ * promised arrival. `dropoff.late`'s allowlist refuses a time as well, so this is the shape *and*
+ * the rule (src/modules/outbox/outbox.ts TEMPLATE_VARS).
+ */
 export function etaNoticeVars(
   decision: NotificationDecision,
   ride: NoticeRide,
 ): Record<string, string | number> {
+  if (etaNoticeTemplate(ride.direction) === "dropoff.late") {
+    return { stopLabel: ride.stopToken, delayMinutes: lateMinutesFor(decision.shiftSeconds) };
+  }
   const eta = formatClock24(decision.windowStartMs ?? decision.atMs);
   const vars: Record<string, string | number> = { eta, stopLabel: ride.stopToken };
   if (decision.windowEndMs !== undefined) vars.etaEnd = formatClock24(decision.windowEndMs);
-  if (etaNoticeTemplate(ride.direction) === "dropoff.late") {
-    vars.delayMinutes = lateMinutesFor(decision.shiftSeconds);
-  }
   return vars;
 }
 

@@ -71,9 +71,20 @@ export function sentence(text: string): string {
   return /[.?\u2026]$/.test(text) ? text : `${text}.`;
 }
 
+/*
+ * `siteName` ("PPEC transportation") is gone with the header that held it (audit §2 item 1, and
+ * Firia 8:36 PM ET): there is no full-width band across the top of a screen at any width now, so
+ * the product is named once — the brand block at the head of the rail, below.
+ */
 export const app = {
-  /** Site name in the header. */
-  siteName: "PPEC transportation",
+  /**
+   * THE BRAND BLOCK at the top of the labelled rail (REDESIGN-SPEC §9.2, and the founder's
+   * mockups: png/shell-flow-1440.png, mockups/shell-flow.html). The centre's own name over what
+   * this app is for, under a square mark carrying the name's first letter — so the 64 px icon
+   * rail, which has room for the mark and nothing else, still says whose app this is.
+   */
+  brandName: "Sunrise PPEC",
+  brandLine: "Transport",
   /** <title> */
   documentTitle: "PPEC transportation dashboard",
   skipToContent: "Skip to content",
@@ -139,17 +150,13 @@ export const nav = {
   approvals: "Approvals",
   landmarkLabel: "Main",
   menuLabel: "Menu",
-  /**
-   * The phone's overflow tab. Below 768 the bar carries five equal tabs; a role with more
-   * destinations than that gets four and this, which opens the rest in a sheet over the screen
-   * (src/ui/TabBar.tsx). It is a tab like the others — not a hamburger, and not a side drawer,
-   * both of which Firia deleted on 2026-10-17 at 3:08 PM ET.
-   */
-  more: "More",
-  /** The sheet's own accessible name, and the button that closes it. */
-  moreLabel: "More destinations",
-  closeMore: "Close",
 } as const;
+/*
+ * "More", "More destinations" and the sheet's "Close" are gone (Firia, 2026-10-17 8:36 PM ET).
+ * The menu is five items at every width, so the phone's bar is five tabs and there is nothing
+ * to overflow: the tab and the sheet it opened are deleted (src/ui/TabBar.tsx), and so are
+ * their words. They went the way the hamburger went at 3:08 PM — a menu you have to open.
+ */
 
 /**
  * The step strip under Today's header (REDESIGN-SPEC §9.2, §9.5). The three steps of the day, in
@@ -192,6 +199,58 @@ export const flow = {
   /** The one question a board with an unsaved change asks before it is left (§9.2). */
   leave: { title: "Leave without saving?", stay: "Stay", leave: "Leave" },
   error: { load: "Couldn’t load · Retry" },
+  /**
+   * The three words a step's chip can say (REDESIGN-SPEC §9.2's table, and §9.5's `state.*`).
+   *
+   * §9.2 draws a fourth, `Running`, for a live map with vans moving on it. There is no word for
+   * it here because there is no fact behind it: nothing in this build records that a van has
+   * left the depot, and a chip is a claim about the day. `deriveReadiness` cannot return it
+   * either (src/domain/day/readiness.ts), so the vocabulary and the derivation agree.
+   */
+  state: {
+    done: "Done",
+    needed: "Needed",
+    locked: "Locked",
+    /**
+     * §9.2's fourth chip, for a live map with vans moving on it.
+     *
+     * It was left out of this table while nothing in the build recorded that a van had left the
+     * depot — a chip is a claim about the day, and there was no fact behind this one. The board
+     * work (`plan/sql.ts dayContext.vansOut`, over `ops.telemetry_point`) is that fact, so
+     * `deriveReadiness` can return `RUNNING` and the word it needs is here.
+     */
+    running: "Running",
+  },
+  /** The one line under a step's name: what that step's own data says right now (§9.5). */
+  detail: {
+    setup: "{checked}/{total} checked",
+    planSaved: "Saved {time}",
+    planNone: "Not saved",
+    liveLocked: "Plan first",
+    liveNeeded: "Not started",
+  },
+  /**
+   * What a card is announced as: the step, its state and its detail, because the eye reads
+   * those three as one card and the ear would otherwise hear them as three (§9).
+   */
+  stepAria: "{step}: {state}, {detail}",
+  /**
+   * A locked card opens the step that is missing rather than the step it names (§9.2: "a locked
+   * card is still a link"), so its accessible name says where it actually goes.
+   */
+  stepAriaLocked: "{step}: {state}, {detail}. Opens {target}",
+  /**
+   * The menu, where it carries a count: Family texts, and the number of things waiting for a
+   * person in its "For you" tab (REDESIGN-SPEC §9.2, audit §2 item 2).
+   *
+   * The count is said in words, because the disc that draws it is `aria-hidden` — a badge
+   * reading "2" beside a thread icon is a shape, and the thing a screen reader should hear is
+   * what the tab *is*: "Family texts, 2 waiting". Both rails use this one string, the 232 px
+   * row and the phone's tab, so the ear gets the same sentence at either width.
+   */
+  tabbar: {
+    waiting: "{label}, {count} waiting",
+  },
 } as const;
 
 /** COPY-GUIDE §5: visible label "Search", placeholder "Child, route or vehicle". */
@@ -201,10 +260,18 @@ export const search = {
   submit: "Search",
 } as const;
 
+/*
+ * "Account" (the avatar menu's own name) and "Signed in as {name}" (the line inside the panel it
+ * opened) went with that menu: the account is a *link* now — the block at the foot of the rail,
+ * the 36 px disc in the page header below 768 — and it opens /whoami, which says who is signed
+ * in as its own screen and carries Sign out. One identity location per width, and no panel.
+ */
 export const identity = {
-  menuLabel: "Account",
   signOut: "Sign out",
-  signedInAs: "Signed in as {name}",
+  /** The rail's account block and the phone's avatar: one link, named as a person and a role. */
+  account: "{name}, {role}",
+  /** The same block for a session with no person behind it: the role, and nothing invented. */
+  accountRoleOnly: "{role}",
 } as const;
 
 /**
@@ -482,36 +549,24 @@ export const board = {
   openRow: "Open {child}, {ride} ride",
 } as const;
 
-/**
- * The service date (§2 header, PRD §6.1).
+/*
+ * THE SERVICE DATE USED TO HAVE WORDS OF ITS OWN, and has none now (Firia's final call,
+ * 2026-10-17 7:55 PM ET).
  *
- * One date on screen, and it is the demo day: the chrome used to carry today's real date while
- * the board carried the seeded day the scenario replays, both labelled "Service date" — two
- * different days, the same words, and nothing on the screen to say which one a row belonged to.
- * The board's own header now carries that one date, and the shell carries none, so in demo mode
- * nothing on screen claims to be today.
+ * The board's header read `Today · Service date Sat, Oct 17 · [Demo day]`: a heading, a field
+ * label for the date beside it, the date, and a tag repeating what the DEMO bar above already
+ * says in violet on every screen. The founder's mockups draw one of those four — the date
+ * (png/shell-flow-1440.png, png/shell-flow-390.png: `Today    [ Sat, Oct 17 ]`). So
+ * `serviceDate.groupLabel` and `serviceDate.phases` are gone rather than hidden: a label on a
+ * date nobody could mistake for anything else, and a tag that was the bar's sentence said twice.
  *
- * It is read rather than changed (Vera's final call): no switcher, no arrows. The day is the one
- * the scenario replays, and a control offering another one would offer days this build does not
- * replay — the chrome would be promising what the data cannot keep.
- *
- * The date says what kind of day it is, because that is the answer to the first question the
- * board raises: "Demo day" is said plainly rather than "Today", since the demo clock has not
- * started (the readout beside it says so) and the seeded day is the day being shown and not the
- * day it is. The other two phases belong to a finished or an unstarted day, which the projection
- * can still be asked for by URL; neither is a day the console offers a way to reach.
+ * Nothing is lost from a day that is *not* the demo day either: the heading already names it
+ * ("Rides for Tue, Oct 13", `board.headingOtherDay` through `onDay` below), which is the one
+ * sentence that ever had to distinguish them.
  */
-export const serviceDate = {
-  groupLabel: "Service date",
-  phases: {
-    LIVE: "Demo day",
-    ENDED: "Day ended",
-    PLANNED: "Not started",
-  },
-} as const;
 
 /** The day a heading is about: its phase, and the date it is labelled by (src/domain/board/day.ts). */
-export type LabelledDay = { phase: keyof typeof serviceDate.phases; label: string };
+export type LabelledDay = { phase: "ENDED" | "LIVE" | "PLANNED"; label: string };
 
 /**
  * A heading that may only say "Today" on the day that is true of (Veri #49).
@@ -562,11 +617,14 @@ export const unbuilt = {
  * No ticket codes, no dates, no promises about when (COPY-GUIDE §1): what the page is for is
  * true today; when it lands is not something this screen knows.
  */
+/*
+ * The four helper lines that used to sit under these four titles are gone (Firia, 2026-10-17
+ * 8:36 PM ET; audit §4 item 9: "each screen keeps one title and at most one helper line", and
+ * for a screen with no data a sentence about itself is not that line). Two of the four pages are
+ * permanent redirects now besides — /exceptions to Today, /approvals to the tab it is — so the
+ * only words left here are the link that reaches that tab from Family texts.
+ */
 export const stub = {
-  exceptions: "What needs action, who is handling it, and when it is due.",
-  health: "Whether each part of the system is working, and the time the demo saves.",
-  familyTexts: "Every text this day sent to a family, and what they sent back.",
-  approvals: "Changes waiting for a person to approve.",
   /** The one link out of Family texts, to the half of it that is the approvals queue (§9.2). */
   approvalsLink: "For you",
 } as const;
@@ -601,30 +659,30 @@ export const liveMap = {
   heading: "Live map",
   /** <title> for the route, so the tab says which screen is open. */
   documentTitle: "Live map · PPEC transportation dashboard",
-  /**
-   * What the surface is, in one sentence a reviewer reads once. It used to carry the build's
-   * own surface code and a paragraph of fixture provenance; neither means anything to the
-   * people who stand in front of this screen, so both are gone (COPY-GUIDE §1–§2). It also used
-   * to end "Nothing here is live", which was the honest half of a screen called "Map preview";
-   * the sentence below says where the vans are from, and `signedInOnly` says the data is
-   * simulated, so the screen never claims a live feed it does not have.
+  /*
+   * `intro` and `signedInOnly` are deleted (Firia, 2026-10-17 8:36 PM ET; audit §3 and §4 item
+   * 9). They were the two sentences under this screen's heading — what the map is for, and that
+   * its data is simulated — and a screen keeps its title and no paragraph about itself. Neither
+   * fact is lost: the title is the frame's page header bar, and the one Simulated chip in the
+   * DEMO bar says where the positions come from, on this screen as on every other.
    */
-  intro: "Where every van is, on the demo's own routes and clock.",
-  /** Said on the page itself: this surface is still behind staff sign-in, and still simulated. */
-  signedInOnly: "Staff sign-in only. The data below is simulated, and the roles still apply.",
+  /*
+   * The clock, which is the DEMO bar's now rather than this screen's (Firia, 8:36 PM ET;
+   * src/ui/DemoClock.tsx). The words stay under `liveMap` because the live map is the screen the
+   * clock moves and the only one it is drawn on.
+   */
   clock: "Scenario clock {time} ET",
   pause: "Pause",
   play: "Play",
   restart: "Restart",
   /** Clock speed buttons (§6.2): ×1 / ×10 / ×60. */
   speed: "×{factor}",
-  motionReduced: "Reduced motion: markers step, no tween",
-  /**
-   * What the markers are doing when motion is not reduced. It used to say "Tweened along route
-   * geometry" — the implementation, in two words nobody outside this repo uses. The screen says
-   * what a reviewer sees instead (COPY-GUIDE §1: plain words, no jargon).
+  /*
+   * The two motion lines went with the clock row (audit §3: "delete the helper lines, links and
+   * clock row"). What they said is visible in the thing itself — the vans either slide along
+   * their routes or step along them, and §9's reduced-motion rule is honoured either way
+   * (src/components/map/LiveFleetMap.tsx).
    */
-  motionTweened: "Vans follow their routes.",
   mapLabel: "Fleet map: simulated vehicles near the PPEC center",
   centerLabel: places.center,
   decisionsHeading: "Notification decisions",
@@ -973,6 +1031,15 @@ export const familyTexts = {
   /** A tab with nothing in it. One line, and it is about the day rather than the build. */
   noneForYou: "Nothing is waiting for you.",
   noneSent: "No texts have gone out today.",
+
+  /* ── the third pane: the van and the pick-up, beside the thread (approvals.html `aside.ctx`) ── */
+
+  /** "Van 1 after change" — the counts a coordinator is approving the ride into. */
+  afterChange: "after change",
+  /** The pane's last heading: who the family's file lets collect this child. */
+  allowedPickup: "Allowed pick-up",
+  /** The pane's own label, for the landmark a screen reader lands on. */
+  rideContext: "This ride",
 } as const;
 
 /**
@@ -1022,7 +1089,8 @@ export const approval = {
   },
   /** The Edit control: the one thing a person may change, and it is not the words. */
   editTimeLabel: "New drop-off time",
-  editHint: "Change the time and the text below changes with it. The words are ours, not yours to retype.",
+  /** The button inside the Edit state: it re-renders the draft and approves nothing (gate 2). */
+  editApply: "Update the time",
   editCancel: "Keep the time the assistant suggested",
 
   /* ── what came back ── */
@@ -1089,7 +1157,13 @@ export const rampIpad = {
   /** `{date}` is the site-timezone service date, "Tue, Oct 14" (§3). */
   subtitle: "{date} · afternoon rides",
   /** Says plainly that this surface records nothing, so nobody waits for a send that never happens. */
-  localOnly: "Nothing here is sent. Answers stay on this iPad.",
+  /*
+   * "Nothing here is sent. Answers stay on this iPad." is deleted (Firia, 2026-10-17 8:36 PM
+   * ET; audit §4 item 9): it was the explanatory sentence under the screen's heading, and a
+   * screen keeps its title and no paragraph about itself. What it was honest about is still
+   * said — the one Simulated chip in the DEMO bar says where this data comes from, on this
+   * screen as on every other.
+   */
 
   arrivalsHeading: "Which vehicle is at the ramp?",
   /** §5: the vehicle tile reads "V1 · Provider P1 · arriving 8:52 · 3 riders", over two lines. */
@@ -2121,6 +2195,16 @@ export const outboundSms = {
   optOut: "Reply HELP for help, STOP to opt out.",
   /** The center's number as the copy guide writes it (COPY-GUIDE §5 dispatcher link). */
   centerPhone: "(561) 555-0100",
+  /**
+   * What `{childName}` reads as when the child's own row could not be named.
+   *
+   * The name is never a var and never anything anybody typed: it is read at render time from
+   * `ops.child_profile.display_name`, the same way `{stopLabel}` is resolved through the fixed
+   * table below (`src/modules/messaging/templates.ts`). With no row to read, the body says this
+   * — the wording every body used before Firia's 10:51 PM ET ruling — rather than refusing to
+   * send or leaving a hole in the sentence.
+   */
+  yourChild: "your child",
   /** The fixed answer to an inbound HELP: same words every time, no child name and no van detail. */
   helpReply:
     "PPEC: This number sends van updates for your child. Call us at {centerPhone} if you need help. Reply STOP to opt out. {demoTag}",
@@ -2159,18 +2243,19 @@ export const outboundSms = {
      * The one text PRD §18.2 step 7 sends: a van that has lost time, and the new 10-minute
      * window for the families still ahead of it.
      *
-     * Why it is its own body rather than `dropoff.eta` with a later time in it: a family reading
-     * "Arrival 4:30–4:40 PM" has no way to tell that it moved, and the whole point of the damped
+     * Why it is its own body rather than `dropoff.eta` with a later time in it: a family reading an
+     * arrival window has no way to tell that it moved, and the whole point of the damped
      * notification is that something changed enough to be worth telling them about. So the news
-     * comes first, in minutes a person can act on ("about 15 minutes late"), and the window after
-     * it — and the lateness is hedged with "about" because it is an estimate, while the window is
-     * the §8 10-minute one and never a promised minute.
+     * is the news — minutes a person can act on ("about 15 minutes late") — and the lateness is
+     * hedged with "about" because it is an estimate.
      *
-     * No child's name, like every other body here (Veri #12): the drawer and the thread panel name
-     * the child on a staff screen, a family's phone says "your child".
+     * **No time and no window** (Firia, 2026-10-17 10:51 PM ET: "The auto late text has no time
+     * range and no ETA"). `dropoff.late` permits neither `eta` nor `etaEnd` any more, so there is
+     * no way for a caller to put one back: a family is told the van is late and where the stop
+     * still is, and the next thing they get is the arrival notice itself.
      */
     "dropoff.late":
-      "PPEC: The van bringing your child home is running about {delayMinutes} minutes late. New drop-off {eta} at {stopLabel}. {optOut} {demoTag}",
+      "PPEC: {childName}'s van home is running about {delayMinutes} minutes late. The drop-off is still at {stopLabel}. {optOut} {demoTag}",
     "leg.canceled":
       "PPEC: Got it. Your child's van on {legDate} is canceled. {reasonCode} {optOut} {demoTag}",
     "leg.changed":
@@ -2181,8 +2266,17 @@ export const outboundSms = {
      * wrong half of the day. Same vars, same rules, one word of difference — and the word is the
      * whole point (COPY-GUIDE §1: say the thing that happened).
      */
+    /**
+     * The answer to a parent who asked for a different drop-off, approved by a person.
+     *
+     * Firia, 2026-10-17 10:51 PM ET: "Model draft is human and uses the child's name, e.g. 'Yes,
+     * Jonah gets off at … at 3:58 PM'" — so it opens with the answer, names the child and gives
+     * the decided minute. `{eta}` is a recorded fact here and not an estimate (`dropoff.changed`
+     * no longer permits `etaEnd`): a coordinator approved this time, so the body says it rather
+     * than hedging it into a window.
+     */
     "dropoff.changed":
-      "PPEC: Your child's van on {legDate} changed. New drop-off {eta} at {stopLabel}. {optOut} {demoTag}",
+      "PPEC: Yes — {childName} gets off at {stopLabel} at {eta}. {optOut} {demoTag}",
     "therapist.absence_alert":
       "PPEC: A child is not coming in today. The {sessionStart} session is affected. {optOut} {demoTag}",
     "therapist.late_alert":

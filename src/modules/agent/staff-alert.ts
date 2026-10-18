@@ -50,7 +50,7 @@
  * ## Roles
  *
  * There are none in this file. Who may see or act on an alert is the access table's answer for
- * `/exceptions` (`approvals/decide.approvalRoles`), read at the page and at the action; this
+ * `APPROVAL_ROLES` (src/auth/access.ts), read at the page and at the action; this
  * module takes the site ids a caller is a member of and reads within them. `src/auth/access.ts`
  * is unchanged by this work — director and coordinator already hold that row, and the front desk
  * already does not.

@@ -6,13 +6,10 @@
 .list {
   display: flex;
   align-items: stretch;
-  /* Above the scrim, so the four tabs beside "More" are still tappable while it is open. */
-  position: relative;
-  z-index: 2;
 }
 
 .item {
-  /* Equal tabs: four or two, they divide the window between them. */
+  /* Equal tabs: five of them, or the front desk's two. They divide the window between them. */
   flex: 1 1 0;
   display: flex;
   min-width: 0;
@@ -30,7 +27,7 @@
   padding: var(--space-2) var(--space-1);
   /*
    * The current tab's brand bar, reserved at every state: transparent here, painted below. A
-   * border that only exists on the current tab would move the other four by 3 px.
+   * border that only exists on the current tab would move the other four by 2 px.
    */
   border-top: var(--border-current) solid transparent;
   color: var(--color-ink-muted);
@@ -40,90 +37,53 @@
 }
 
 /*
- * §9 / §3: the current page is never marked by colour alone. Three cues — the bar along the
- * top, the weight of the label, and `aria-current="page"` for the ear.
+ * §9 / §3: the current page is never marked by colour alone. Three cues — the 2 px Teal bar
+ * along the top, the weight of the label, and `aria-current="page"` for the ear.
+ *
+ * **No tinted block.** Audit §2 item 6: production filled the whole tab with the selected tint,
+ * and the mockup does not (mockups/shell-flow.html: `.nav a.on{background:transparent}` below
+ * 767) — a 64 px block of colour at the foot of a phone screen reads as a button somebody is
+ * holding down rather than as the page you are on. The rail keeps its tint, because a 40 px row
+ * in a column of rows needs the fill to be found at all; a tab has a top edge and five
+ * neighbours, so the edge is enough.
  */
 .tab[aria-current="page"] {
   border-top-color: var(--color-brand);
-  /* The same tint the rail's current item takes, so "where I am" looks the same at both widths. */
-  background: var(--color-selected-bg);
   color: var(--color-ink-brand);
   font-weight: var(--weight-semibold);
 }
 
 /*
- * The "More" tab is a button, not a link: it opens the sheet above the bar rather than going
- * anywhere. It takes the same box as a tab so the five slots are five equal columns.
+ * The icon, and the count over it. A box of its own so the disc can be positioned against the
+ * icon rather than against the tab: the badge belongs to Family texts' thread mark, which is
+ * where the mockup puts it (`.nav a .n` at the phone width).
  */
-button.tab {
-  border-inline: 0;
-  border-bottom: 0;
-  background: none;
-  cursor: pointer;
+.iconWrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
 }
 
 /*
- * The sheet the "More" tab opens: the rest of this role's destinations, in the frame, above the
- * bar. Not a side panel and not a drawer (Firia, 3:08 PM ET) — it sits on the menu it belongs
- * to, the four tabs beside it stay on screen, and tapping any of them closes it.
+ * The count badge: a Teal disc with white text (audit §2 item 2 — a Teal count badge
+ * on Family texts, white text, 20 px circle). 5.47:1, and the number is in the tab's
+ * accessible name as words besides, so it is never colour or shape alone.
  */
-.sheet {
+.badge {
   position: absolute;
-  inset-inline: 0;
-  bottom: 100%;
-  z-index: 1;
-  background: var(--color-surface);
-  /* A hairline in the strong border tone rather than a shadow: no-hex.test.ts allows no colour
-     function anywhere but tokens.ts, and an edge the eye can find is what a shadow was for. */
-  border-top: var(--border-hairline) solid var(--color-border-strong);
-  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
-}
-
-.sheetList {
-  display: flex;
-  flex-direction: column;
-}
-
-.sheetItem {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  /* §9: ≥44 px, and the whole row is the target. */
-  min-height: var(--target-console);
-  padding: var(--space-3) var(--space-5);
-  color: var(--color-ink);
-  text-decoration: none;
-  font-size: var(--text-16);
-  font-weight: var(--weight-medium);
-}
-
-.sheetItem[aria-current="page"] {
-  background: var(--color-selected-bg);
-  color: var(--color-ink-brand);
-  font-weight: var(--weight-semibold);
-}
-
-.sheetClose {
-  display: flex;
+  top: calc(-1 * var(--space-2));
+  left: calc(100% - var(--space-2));
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-3);
-  width: 100%;
-  min-height: var(--target-console);
-  padding: var(--space-3) var(--space-5);
-  border: 0;
-  border-top: var(--border-hairline) solid var(--color-neutral-bg);
-  background: none;
-  color: var(--color-ink-muted);
-  font-size: var(--text-14);
-  cursor: pointer;
-}
-
-/* Tapping the page behind the sheet closes it. Under the sheet, over everything else. */
-.scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
+  width: var(--layout-badge-size);
+  height: var(--layout-badge-size);
+  border-radius: var(--radius-pill);
+  background: var(--color-brand);
+  color: var(--color-surface);
+  font-size: var(--text-11);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-one);
 }
 
 .label {

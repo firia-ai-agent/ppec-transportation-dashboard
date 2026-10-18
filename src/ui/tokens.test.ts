@@ -134,9 +134,22 @@ describe("token shape", () => {
     );
   });
 
-  it("carries the §2 type scale 12/14/16/20/24/32", () => {
-    expect(Object.keys(fontSize)).toEqual(["12", "14", "16", "20", "24", "32"]);
-    expect(Object.values(fontSize)).toEqual(["12px", "14px", "16px", "20px", "24px", "32px"]);
+/*
+   * §2's scale, plus the one step below it: 11 px, which exists for the one pill and for nothing
+   * else (audit §4.1 fixes its text at `600 11px/1`). src/ui/pill.test.ts holds that no other
+   * file reads `--text-11`, so the floor of 12 still stands for every word that is a sentence.
+   */
+  it("carries the §2 type scale 12/14/16/20/24/32, and 11 for the one pill", () => {
+    expect(Object.keys(fontSize)).toEqual(["11", "12", "14", "16", "20", "24", "32"]);
+    expect(Object.values(fontSize)).toEqual([
+      "11px",
+      "12px",
+      "14px",
+      "16px",
+      "20px",
+      "24px",
+      "32px",
+    ]);
   });
 
   it("uses an 8 px-derived spacing scale", () => {
@@ -181,8 +194,9 @@ describe("token shape", () => {
     const read = (f: string) => readFileSync(path.join(UI, f), "utf8");
     // The bar's fill and the chip's text, both as custom properties.
     expect(read("DemoBanner.module.css")).toMatch(/background: var\(--color-demo-bg\)/);
-    expect(read("SourceBadge.module.css")).toMatch(
-      /\.badge\[data-token="src-sim"\] \{[^}]*color: var\(--color-src-sim\)/,
+    // The source chip is the one pill with a §7.1 token on it (src/ui/Pill.module.css).
+    expect(read("Pill.module.css")).toMatch(
+      /\.pill\[data-token="src-sim"\] \{[^}]*color: var\(--color-src-sim\)/,
     );
     // And the demo control, which is the bar's own pair — one way round for its text, the
     // other for the option it is set to (Vera's review, 2026-10-17).
@@ -282,7 +296,7 @@ describe("token shape", () => {
    * of these three custom properties, and the map's own copy of the token (style.ts, which is
    * JSON and cannot read a custom property) is held to the same rule by style.test.ts.
    */
-  it("spends that reservation on four elements: the bar, its control, the chip and a demo control", () => {
+  it("spends that reservation on the bar, its two controls, the chip and a demo control", () => {
     const VIOLET_VARS = /--color-(?:demo-bg|demo-fg|src-sim)\b/;
     const allowed = new Set([
       path.join(SRC_ROOT, "ui", "DemoBanner.module.css"),
@@ -290,7 +304,14 @@ describe("token shape", () => {
       // rather than the screen's action colour, for the same reason the demo control below
       // does (REDESIGN-SPEC §0, and src/ui/DemoRestart.module.css says it in full).
       path.join(SRC_ROOT, "ui", "DemoRestart.module.css"),
-      path.join(SRC_ROOT, "ui", "SourceBadge.module.css"),
+      /*
+       * The bar's other control, as of Firia's 8:36 PM ET ruling: the scenario clock moved out
+       * of the live map and into the bar, so it wears the bar's pair for the same reason the
+       * reset does (src/ui/DemoClock.module.css).
+       */
+      path.join(SRC_ROOT, "ui", "DemoClock.module.css"),
+      // The §7.1 chip, which is the one pill with a violet token on it.
+      path.join(SRC_ROOT, "ui", "Pill.module.css"),
       path.join(SRC_ROOT, "ui", "DemoControls.module.css"),
     ]);
     const stylesheets = walkSrc().filter((f) => f.endsWith(".css") && !allowed.has(f));

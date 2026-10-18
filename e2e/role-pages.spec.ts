@@ -21,11 +21,10 @@ import { API, canOpenPage, homePathFor } from "../src/auth/access";
 import type { StaffRole } from "../src/auth/core";
 import { nav, toast, unbuilt } from "../src/ui/copy";
 import { navItems, navItemsFor } from "../src/ui/nav-items";
-import { splitTabs } from "../src/ui/TabBar";
 import {
   boxOf,
   expectDemoBarPinned,
-  expectHeaderIsOneRow,
+  expectPageHeaderBar,
   expectNoInternalCodes,
   expectOneSimulatedChip,
   overlaps,
@@ -37,8 +36,11 @@ const ROLE = (process.env.E2E_DEMO_ROLE ?? "DIRECTOR") as StaffRole;
 /** This role's menu, and where the access table sends them when they need somewhere to be. */
 const MENU = navItemsFor(ROLE);
 
-/** What the phone bar's five slots carry (REDESIGN-SPEC §9.2): the rest is behind "More". */
-const TABS = splitTabs(MENU).tabs;
+/**
+ * What the phone bar carries: this role's whole menu, one tab per item (REDESIGN-SPEC §9.2, and
+ * Firia's 8:36 PM ET ruling — five items, so no overflow and no "More").
+ */
+const TABS = MENU;
 const HOME = homePathFor({ kind: "STAFF", role: ROLE });
 
 /**
@@ -104,11 +106,11 @@ for (const width of [1280, 390] as const) {
         /*
          * The chrome, on every destination and at both widths — which is the whole set of
          * screens this role has, Today included. One DEMO bar, one Simulated chip in it (Vera,
-         * 2026-10-17 2:44 PM ET: not five), and one row of header under it.
+         * 2026-10-17 2:44 PM ET: not five), and the page header bar under it.
          */
         await expectDemoBarPinned(page);
         await expectOneSimulatedChip(page);
-        await expectHeaderIsOneRow(page);
+        await expectPageHeaderBar(page);
         const text = await page.locator("body").innerText();
         for (const words of UNBUILT_SCREENS) {
           expect(text, `${item.label} opens a page that says it is not built`).not.toContain(words);
@@ -157,9 +159,11 @@ for (const width of [1280, 390] as const) {
         const notice = page.locator("[data-notice]");
         await expect(notice).toBeVisible();
         await expect(notice).toContainText(toast.notOnMenu);
-        // ...beside the chrome rather than on top of it: it explains the header, so it must
-        // not be covering the header (which is where a fixed one landed at 390 px).
-        expect(overlaps(await boxOf(notice), await boxOf(page.locator("header").first()))).toBe(false);
+        // ...beside the chrome rather than on top of it: it explains where you landed, so it
+        // must not be covering the title of the screen you landed on.
+        expect(
+          overlaps(await boxOf(notice), await boxOf(page.getByRole("heading", { level: 1 }))),
+        ).toBe(false);
         // And no 403 card: not its heading, not the code, not the word.
         const text = await page.locator("body").innerText();
         expect(text).not.toContain("isn't part of your role");
@@ -171,7 +175,7 @@ for (const width of [1280, 390] as const) {
         await expect(menu.getByRole("link")).toHaveCount(width < 768 ? TABS.length : MENU.length);
         await expectDemoBarPinned(page);
         await expectOneSimulatedChip(page);
-        await expectHeaderIsOneRow(page);
+        await expectPageHeaderBar(page);
         await expectNoInternalCodes(page);
         console.log(
           "screenshot:",

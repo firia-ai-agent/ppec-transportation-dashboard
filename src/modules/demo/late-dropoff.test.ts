@@ -94,13 +94,20 @@ describe("AT-03 · the afternoon stall tells the families still ahead of it, onc
 describe("what the family reads, and what staff read beside it", () => {
   const noah = () => demoLateDropoffFor("C2", day)!;
 
-  it("is the late-drop-off body, with the window and the public place", () => {
+  /*
+   * Firia, 2026-10-17 10:51 PM ET: "the auto late text has no time range and no ETA". So the
+   * body is the lateness and the public place, and the panel's own `windowText` stays a *staff*
+   * string — it is what the coordinator reads beside the text, which is this suite's title.
+   */
+  it("is the late-drop-off body, with the lateness and the public place and no time", () => {
     const text = noah();
     expect(text.templateId).toBe("dropoff.late");
     expect(text.body).toContain(`about ${text.delayMinutes} minutes late`);
-    expect(text.body).toContain(text.windowText);
     expect(text.body).toContain(stopByKey(childByKey("C2").stopKey!).label);
     expect(text.body).toContain("[DEMO]");
+    // The window is the panel's, not the family's: it is on the staff row and not in the text.
+    expect(text.windowText).not.toBe("");
+    expect(text.body).not.toContain(text.windowText);
   });
 
   /**
@@ -127,8 +134,8 @@ describe("what the family reads, and what staff read beside it", () => {
     const text = noah();
     const stop = stopByKey(childByKey("C2").stopKey!);
 
-    // The sentence, whole: the clock a board shows and the place a family can stand in.
-    expect(text.body).toContain("New drop-off 4:30–4:40 PM at Okeeheelee Park.");
+    // The sentence, whole: no clock at all, and the place a family can stand in (10:51 PM ET).
+    expect(text.body).toContain("The drop-off is still at Okeeheelee Park.");
     // …and the place by the name the fixture gives it, so renaming the stop moves this with it.
     expect(stop.label).toBe("Okeeheelee Park");
     expect(text.body).toContain(`at ${stop.label}.`);
@@ -153,10 +160,14 @@ describe("what the family reads, and what staff read beside it", () => {
       expect(body).toContain(stopByKey(childByKey(notice.childKey).stopKey!).label);
       expect(body, notice.childKey).not.toContain(UNKNOWN_STOP);
 
-      // 3. The clock a parent reads, in the one shape COPY-GUIDE §3 writes: 12-hour, AM/PM said.
-      expect(body, notice.childKey).toMatch(
-        /New drop-off (?:around )?(?:1[0-2]|[1-9]):[0-5]\d(?:(?: [AP]M)?–(?:1[0-2]|[1-9]):[0-5]\d)? [AP]M at /,
-      );
+      /*
+       * 3. No clock a parent could read as an arrival, in either direction — which is the
+       *    stronger form of what this block was written for. Firia, 10:51 PM ET: the late text
+       *    carries no time range and no ETA, and `dropoff.late`'s allowlist permits neither, so
+       *    there is no value a caller could put one in through.
+       */
+      expect(body, notice.childKey).not.toMatch(/\d{1,2}:\d{2}/);
+      expect(body, notice.childKey).not.toContain("\u2013");
     }
   });
 

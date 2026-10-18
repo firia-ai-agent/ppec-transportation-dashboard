@@ -25,7 +25,16 @@ describe("outbound SMS templates (COPY-GUIDE §5)", () => {
   it("every outbox template has a body and every placeholder is an allowlisted var", () => {
     expect(knownTemplates().sort()).toEqual(Object.keys(TEMPLATE_VARS).sort());
     for (const t of knownTemplates()) {
-      for (const v of templatePlaceholders(t)) expect(Object.hasOwn(TEMPLATE_VARS[t], v), `${t} uses ${v}`).toBe(true);
+      /*
+       * `childName` is the one placeholder that is not a var and must never become one: it is
+       * resolved at render time from the child's own row (`RenderFor`, Firia 2026-10-17 10:51 PM
+       * ET), the way `{optOut}` and `{demoTag}` are folded in. The assertion below is the door:
+       * no template's allowlist may carry it.
+       */
+      for (const v of templatePlaceholders(t).filter((v) => v !== "childName")) {
+        expect(Object.hasOwn(TEMPLATE_VARS[t], v), `${t} uses ${v}`).toBe(true);
+      }
+      expect(Object.keys(TEMPLATE_VARS[t]), t).not.toContain("childName");
       for (const v of Object.keys(TEMPLATE_VARS[t])) expect(SAMPLE[v] ?? v === "reasonCode", `${t} var ${v} has a sample`).toBeTruthy();
     }
   });
@@ -225,12 +234,41 @@ function namesInBody(body: string): string[] {
 describe("no child's name reaches a rendered body", () => {
   const namesIn = namesInBody;
 
-  it("the bodies carry no name placeholder at all", () => {
+  /**
+   * **No name is ever a var** — and since Firia's 10:51 PM ET ruling of 2026-10-17 that is the
+   * whole of the Veri #12 name rule, rather than "no body names a child".
+   *
+   * The ruling is that the text a family gets is human and names the child ("Yes, Jonah gets off
+   * at … at 3:58 PM"). What Veri #12 was protecting against is a *name a caller chose*: a
+   * staff-typed or model-written value in `vars`, which no value-shape check can tell from a
+   * nickname or a typo. That door is still shut, and this test is the lock on it:
+   *
+   *  - no template's allowlist carries a name var, under any spelling;
+   *  - the only name placeholder is `{childName}`, which `renderTemplate` resolves from the
+   *    child's own `ops.child_profile.display_name` — never from `vars`, which it does not even
+   *    look in for it;
+   *  - with no row to read, the body says "your child" and still sends.
+   */
+  it("carries no name var, under any spelling: the name is read from the child's row", () => {
     for (const t of knownTemplates()) {
-      for (const v of templatePlaceholders(t)) expect(v, `${t} uses ${v}`).not.toMatch(/name/i);
-      expect(Object.keys(TEMPLATE_VARS[t]), t).not.toContain("childFirstName");
+      for (const v of Object.keys(TEMPLATE_VARS[t])) expect(v, `${t} allows ${v}`).not.toMatch(/name/i);
+      for (const v of templatePlaceholders(t)) {
+        expect(v === "childName" || !/name/i.test(v), `${t} uses ${v}`).toBe(true);
+      }
     }
     expect(JSON.stringify(outboundSms.bodies) + outboundSms.helpReply).not.toContain("childFirstName");
+  });
+
+  it("names the child the row names, and nobody when there is no row", () => {
+    const vars = sampleVars("dropoff.changed");
+    // The name comes from the third argument — the server's read of the child's row — and the
+    // vars it is rendered with carry no name at all.
+    expect(renderTemplate("dropoff.changed", vars, { child: "Jonah W." })).toContain("Jonah gets off at");
+    expect(JSON.stringify(vars)).not.toContain("Jonah");
+    // A `vars` entry cannot put a name in: it is refused as a var the template does not permit.
+    expect(() => renderTemplate("dropoff.changed", { ...vars, childName: "Mallory" })).toThrow();
+    // And with no row read, the body is the wording every body carried before the ruling.
+    expect(renderTemplate("dropoff.changed", vars)).toContain("your child gets off at");
   });
 
   it("no seeded first name appears in any rendered body, on any template or stop or reason", () => {
@@ -277,19 +315,35 @@ describe("no child's name reaches a rendered body", () => {
 describe("the late drop-off text says what Vera settled", () => {
   const TEMPLATE = "dropoff.late";
 
+  /*
+   * Vera's sentence, as Firia's 2026-10-17 10:51 PM ET ruling leaves it: "the auto late text has
+   * no time range and no ETA". The news is the news — how late the van is, in minutes a person
+   * can act on — and the stop the family is already going to. Nothing a family could read as a
+   * promised arrival, and the next thing they get is the arrival notice itself.
+   */
   it("is her sentence, word for word, before the standard tail", () => {
     expect(outboundSms.bodies[TEMPLATE]).toContain(
-      "PPEC: The van bringing your child home is running about {delayMinutes} minutes late. New drop-off {eta} at {stopLabel}.",
+      "PPEC: {childName}'s van home is running about {delayMinutes} minutes late. The drop-off is still at {stopLabel}.",
     );
   });
 
-  it("renders into plain words with a real time and no child's name", () => {
-    const body = renderTemplate(TEMPLATE, { delayMinutes: 15, eta: "16:35", stopLabel: "OKEE-PARK" });
+  it("carries no time at all: not a window, not a single ETA", () => {
+    const body = renderTemplate(TEMPLATE, { delayMinutes: 15, stopLabel: "OKEE-PARK" }, { child: "Noah O." });
 
     expect(body).toContain("about 15 minutes late");
-    // A 12-hour clock for a family, never the 24-hour form the plan stores (COPY-GUIDE §3).
-    expect(body).toContain("4:35 PM");
-    expect(body).not.toContain("16:35");
-    expect(namesInBody(body)).toEqual([]);
+    expect(body).toContain("Okeeheelee Park");
+    // No clock time of any kind, in either form, and no range.
+    expect(body).not.toMatch(/\d{1,2}:\d{2}/);
+    expect(body).not.toContain("\u2013");
+    // The allowlist is the enforcement: a caller cannot put a time back in.
+    expect(Object.keys(TEMPLATE_VARS[TEMPLATE])).toEqual(["stopLabel", "delayMinutes"]);
+    expect(() => renderTemplate(TEMPLATE, { delayMinutes: 15, stopLabel: "OKEE-PARK", eta: "16:35" })).toThrow();
+  });
+
+  it("names the child whose van it is (Firia, 10:51 PM ET)", () => {
+    const body = renderTemplate(TEMPLATE, { delayMinutes: 15, stopLabel: "OKEE-PARK" }, { child: "Noah O." });
+    expect(body).toContain("Noah's van home");
+    // And with no row read it is the old wording, which still names nobody.
+    expect(namesInBody(renderTemplate(TEMPLATE, { delayMinutes: 15, stopLabel: "OKEE-PARK" }))).toEqual([]);
   });
 });

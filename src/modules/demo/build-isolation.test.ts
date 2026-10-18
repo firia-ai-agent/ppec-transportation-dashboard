@@ -37,6 +37,9 @@ const ALLOWED_SEED_IMPORTERS = [
   // The drags and the child panel's Save, asserted against a seeded database (`pnpm test:db`).
   "src/modules/plan/place.db.test.ts",
   "src/modules/plan/sql.test.ts",
+  // An approved change or cancel saving the plan through the board's own writer (gap-5), which
+  // needs the children and the vans the plan's foreign keys point at.
+  "src/modules/approvals/plan-placement.test.ts",
 ];
 
 const SRC_RE = /\.(ts|tsx|mjs|js)$/;

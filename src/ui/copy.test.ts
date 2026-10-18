@@ -26,7 +26,6 @@ import {
   rampIpad,
   sentence,
   demoDay,
-  serviceDate,
   screenReader,
   search,
   securement,
@@ -36,6 +35,7 @@ import {
   unbuilt,
   whoami,
 } from "./copy";
+import type { DayPhase } from "@/domain/board/day";
 import * as copyModule from "./copy";
 
 /**
@@ -300,10 +300,17 @@ describe("COPY-GUIDE strings, verbatim", () => {
       { phase: "PLANNED", label: "Thu, Oct 15" },
     ] as const;
 
+    /*
+     * The phases are the board's own (src/domain/board/day.ts's `DayPhase`), not a copy block's:
+     * the "Demo day" / "Day ended" tag that used to name them beside the date is gone (Firia,
+     * 2026-10-17 7:55 PM ET), and what reads a phase now is `onDay`. So the list this suite
+     * covers is checked against the type's three values, written out here because a type has no
+     * runtime form to read.
+     */
     it("has a pair for every phase a day can be in, so no phase falls through", () => {
-      expect(Object.keys(serviceDate.phases).sort()).toEqual(["ENDED", "LIVE", "PLANNED"]);
-      expect([demoDay, ...otherDays].map((d) => d.phase).sort()).toEqual(
-        Object.keys(serviceDate.phases).sort(),
+      const phases: DayPhase[] = ["ENDED", "LIVE", "PLANNED"];
+      expect([demoDay, ...otherDays].map((d) => d.phase as DayPhase).sort()).toEqual(
+        [...phases].sort(),
       );
     });
 
@@ -709,25 +716,23 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
     expect(liveMap.heading).not.toMatch(/preview/i);
     expect(liveMap.documentTitle).toContain(liveMap.heading);
     /*
-     * The intro's job is to say what the screen is for; `signedInOnly` beneath it is what says
-     * the data is simulated. It used to be a paragraph of fixture provenance, which named the
-     * build's own surface code and left the one sentence that matters at the end of six lines
-     * nobody read; then one line ending "Nothing here is live", which was the honest half of a
-     * screen called "Map preview" and would now argue with its own title. src/ui/no-codes.test.ts
-     * holds the exact wording (Vera's review).
+     * The screen explains itself nowhere: the two sentences that used to open it are deleted
+     * (Firia, 2026-10-17 8:36 PM ET; audit §3 and §4 item 9), and so are the two motion lines
+     * that rode with the clock row. One title, from the frame, and the §7.1 chip for where the
+     * data comes from. src/ui/no-codes.test.ts holds that none of the four came back.
      */
-    expect(liveMap.intro).toBe("Where every van is, on the demo's own routes and clock.");
-    // The honesty did not move out of the copy, only off the title line.
-    expect(liveMap.signedInOnly).toMatch(/simulated/);
+    expect(liveMap).not.toHaveProperty("intro");
+    expect(liveMap).not.toHaveProperty("signedInOnly");
+    expect(liveMap).not.toHaveProperty("motionTweened");
+    expect(liveMap).not.toHaveProperty("motionReduced");
   });
 
-  it("the motion line says what the markers do, not how they are animated", () => {
-    // "Tweened along route geometry" named the implementation; the line a reviewer reads now says
-    // what is happening on the screen (COPY-GUIDE §1).
-    expect(liveMap.motionTweened).toBe("Vans follow their routes.");
-    expect(liveMap.motionTweened).not.toMatch(/tween|geometry/i);
-    // The reduced-motion line still says what it is: the markers step instead of sliding.
-    expect(liveMap.motionReduced).toBe("Reduced motion: markers step, no tween");
+  /** The clock's own words, which are the DEMO bar's now (src/ui/DemoClock.tsx). */
+  it("the clock says the time and the three speeds, in the bar", () => {
+    expect(liveMap.clock).toBe("Scenario clock {time} ET");
+    expect(fill(liveMap.speed, { factor: 10 })).toBe("×10");
+    expect(liveMap.pause).toBe("Pause");
+    expect(liveMap.restart).toBe("Restart");
   });
 
   it("the map pane's own wording, including the two tile notices", () => {

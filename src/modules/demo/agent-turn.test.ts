@@ -211,11 +211,21 @@ describe("approving the proposal", () => {
 
   it("confirms it with an allow-listed template, not with words a model wrote", () => {
     expect(approved.reply.templateId).toBe("dropoff.changed");
-    expect(approved.reply.body).toContain("New drop-off 5:00–5:10 PM at Okeeheelee Park");
+    /*
+     * Firia, 2026-10-17 10:51 PM ET: the reply is human and names the child ("Yes, Jonah gets
+     * off at … at 3:58 PM"), and the approved drop-off is a decided minute rather than a window.
+     */
+    expect(approved.reply.body).toContain(`Yes — ${approved.childFirstName} gets off at Okeeheelee Park at 5:00 PM`);
     expect(approved.reply.body).toContain("[DEMO]");
-    // Every var is a code, a date or a clock time — the outbox's own rule (Veri #12).
+    /*
+     * Every var is still a code, a date or a clock time — the outbox's own rule (Veri #12) is
+     * untouched by the name in the sentence above. The name is not a var and cannot be one: it is
+     * resolved at render time from the child's own row, the way `{stopLabel}` is resolved through
+     * a fixed table (src/modules/messaging/templates.ts `RenderFor`). Nothing a model or a
+     * coordinator writes can reach a family through either door.
+     */
     for (const value of Object.values(approved.reply.vars)) expect(value).toMatch(/^[A-Z0-9:-]+$/);
-    // And no child's name reaches the family's phone.
-    expect(approved.reply.body).not.toContain(approved.childFirstName);
+    expect(Object.keys(approved.reply.vars)).not.toContain("childName");
+    expect(JSON.stringify(approved.reply.vars)).not.toContain(approved.childFirstName);
   });
 });

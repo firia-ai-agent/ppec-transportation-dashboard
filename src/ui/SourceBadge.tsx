@@ -1,15 +1,16 @@
 import { fill, screenReader } from "./copy";
 import { icon } from "./tokens";
+import { Pill } from "./Pill";
 import { sourceModes, type SourceModeKey } from "./states";
-import styles from "./SourceBadge.module.css";
 
 /**
- * DESIGN-DIRECTION §7.1 (D-10): an outlined chip — 1 px `border-strong`, white fill, 12 px
- * text + 14 px icon, 20 px high (24 px on the ramp iPad) — so it never reads as a filled
- * state chip. Screen reader: "Source: Simulated". SIMULATED is the demo violet `src-sim`;
- * LIVE is `ink` and is never violet.
+ * DESIGN-DIRECTION §7.1 (D-10) and Vera's audit §2 item 4: the one source-mode chip, and it is
+ * the one pill — fully rounded (9999px), 20 px high, `0 8px` of padding, a white fill and 11 px
+ * semibold text in the mode's own token (violet for SIMULATED, ink for LIVE, and never violet
+ * for LIVE). It used to be a square-cornered outlined box, which is what the audit's crop shows.
  *
- * NFR-09 requires one of these on every screen, record and outbound message.
+ * Screen reader: "Source: Simulated". NFR-09 requires one of these on every screen, record and
+ * outbound message; the screen-level one rides in the DEMO bar (src/ui/ScreenSource.tsx).
  */
 export function SourceBadge({
   mode,
@@ -24,14 +25,10 @@ export function SourceBadge({
   const source = sourceModes[mode];
   const Icon = source.icon;
   return (
-    <span
-      className={[styles.badge, className].filter(Boolean).join(" ")}
-      data-size={size}
-      data-token={source.textToken}
-    >
-      <Icon size={icon.chip} aria-hidden="true" />
+    <Pill variant="source" size={size} token={source.textToken} className={className}>
+      <Icon size={icon.pill} aria-hidden="true" />
       <span className="srOnly">{fill(screenReader.source, { label: source.label })}</span>
       <span aria-hidden="true">{source.label}</span>
-    </span>
+    </Pill>
   );
 }

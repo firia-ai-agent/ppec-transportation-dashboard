@@ -57,7 +57,7 @@
  * part that maps a status to a sentence, and the invariant holds for everything.
  */
 import { Forbidden, SiteNotFound, Unauthenticated, requireSiteAccess } from "@/auth/core";
-import { approvalRoles } from "@/auth/access";
+import { APPROVAL_ROLES } from "@/auth/access";
 import type { Db, Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import { boardPlacementPort, type PlacementBucket, type PlanPlacementPortFor } from "./plan-placement-port";
@@ -156,7 +156,7 @@ function viewOf(row: ApprovalRow): PendingApproval {
     childLabel: row.display_name ?? "",
     serviceDate: String(p.service_date ?? ""),
     direction: String(p.direction ?? ""),
-    text: bodyOf(p),
+    text: bodyOf(p, null, row.display_name),
     templateId: String(p.template_id ?? ""),
     vars: p.vars ?? {},
     requestedTime: p.requested_dropoff_time ?? null,
@@ -172,13 +172,23 @@ function viewOf(row: ApprovalRow): PendingApproval {
  * about to approve, not the one the agent drafted. One renderer, so what is read and what is sent
  * are the same words whichever of the two produced the time in them.
  */
-export function bodyOf(proposal: DropoffProposal, overrideTime?: string | null): string {
+export function bodyOf(
+  proposal: DropoffProposal,
+  overrideTime?: string | null,
+  child?: string | null,
+): string {
   const templateId = String(proposal.template_id ?? "");
   if (!templateId) return "";
   const vars = { ...(proposal.vars ?? {}) };
   if (overrideTime) vars.eta = overrideTime;
   try {
-    return renderTemplate(templateId, vars);
+    /*
+     * A staff surface: the child's name in the sentence, and no STOP/HELP footer or `[DEMO]` tag
+     * — those are appended by the send pipeline and belong on a family's phone, not in a bubble
+     * or on the card (Firia, 2026-10-17 10:51 PM ET). The words either side of them are the same
+     * words, from the same renderer.
+     */
+    return renderTemplate(templateId, vars, { child, footer: false });
   } catch {
     // A row whose vars the current copy will not render. Say nothing rather than a broken sentence;
     // the screen shows `approval.draftFailed` and a person writes the reply themselves.
@@ -255,7 +265,7 @@ export async function decideApproval(
   if (!row) return { status: 404, body: { ok: false, error: "NO_SUCH_APPROVAL" } };
 
   try {
-    await requireSiteAccess(db, req.userId, row.site_id, approvalRoles());
+    await requireSiteAccess(db, req.userId, row.site_id, APPROVAL_ROLES);
   } catch (e) {
     if (e instanceof Unauthenticated) return { status: 401, body: { ok: false, error: "SIGN_IN" } };
     // Another site's id: uniform not-found, so a response cannot be used to find out it is real.
@@ -269,7 +279,7 @@ export async function decideApproval(
     return { status: 404, body: { ok: false, error: "NO_SUCH_APPROVAL" } };
   }
   const time = req.editedTime ?? proposal.requested_dropoff_time ?? null;
-  const text = bodyOf(proposal, req.editedTime ?? null);
+  const text = bodyOf(proposal, req.editedTime ?? null, row.display_name);
   const by = `staff:${req.userId}`;
 
   return db.tx(async (tx, afterCommit) => {

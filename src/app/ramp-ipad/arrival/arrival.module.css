@@ -282,15 +282,11 @@
   font-size: var(--text-14);
 }
 
+/* The one pill, composed rather than redrawn (audit §4 item 1). The ramp's chip reads at the
+   14 px step, which is the size variant on the shared rule, not a second shape. */
 .chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-pill);
+  composes: pill from "../../../ui/Pill.module.css";
   font-size: var(--text-14);
-  font-weight: var(--weight-medium);
-  white-space: nowrap;
 }
 
 .chip[data-tone="ok"] { color: var(--color-ok-fg); background: var(--color-ok-bg); }

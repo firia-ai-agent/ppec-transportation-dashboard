@@ -18,8 +18,7 @@
  * matrix in that file is the one place the answer is written down.
  */
 
-import { Check } from "lucide-react";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { canSeeMapData, type MapViewer } from "@/domain/access/map-view";
 import FleetMap from "./FleetMap";
 import { formatClock } from "@/domain/eta/eta";
@@ -33,9 +32,9 @@ import {
 } from "@/domain/eta/replay";
 import { measurePath, pathUpTo } from "@/domain/location/geo";
 import { fill, liveMap, sourceMode } from "@/ui/copy";
+import { useDemoClock } from "@/ui/demo-clock";
 import { routeGeometry, type Route } from "@/domain/location/route";
-import { icon } from "@/ui/tokens";
-import { DEMO_RUNS, DEMO_RUN_SECONDS, SCENARIO_START_MS } from "@/fixtures/replays";
+import { DEMO_RUNS, SCENARIO_START_MS } from "@/fixtures/replays";
 import {
   DEMO_CENTER,
   DEMO_VEHICLES,
@@ -44,12 +43,6 @@ import {
   type MapStopFixture,
   type MapVehicleFixture,
 } from "@/fixtures/map";
-
-/** §6.2 clock speeds. ×10 by default: a 25-minute run plays in two and a half. */
-const SPEEDS = [1, 10, 60] as const;
-const DEFAULT_SPEED = 10;
-/** Wall-clock tick. 4 Hz is smooth enough for a tween between 5 s points. */
-const TICK_MS = 250;
 
 const MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -68,24 +61,6 @@ function readMotion(): boolean {
 /** §9: honoured live, so a mid-session OS change takes effect without a reload. */
 function useReducedMotion(): boolean {
   return useSyncExternalStore(subscribeMotion, readMotion, () => false);
-}
-
-/** The scenario clock (PRD §8: acceleration applies here, never to a carrier stamp). */
-function useSimClock(playing: boolean, speed: number, reduced: boolean) {
-  const [simSeconds, setSimSeconds] = useState(0);
-
-  useEffect(() => {
-    if (!playing) return;
-    // Under reduced motion the clock still runs, it just steps a second at a time:
-    // the trucks jump point to point instead of gliding (§5.1, §9).
-    const intervalMs = reduced ? 1000 : TICK_MS;
-    const id = window.setInterval(() => {
-      setSimSeconds((s) => (s + (speed * intervalMs) / 1000) % DEMO_RUN_SECONDS);
-    }, intervalMs);
-    return () => window.clearInterval(id);
-  }, [playing, speed, reduced]);
-
-  return { simSeconds, restart: () => setSimSeconds(0) };
 }
 
 /**
@@ -189,37 +164,6 @@ function vehiclesOf(
  * (src/ui/tokens.ts → `tokenCss()`), never as hexes: tokens.ts is the only file under src/
  * allowed to hold a colour literal, and src/ui/no-hex.test.ts enforces it.
  */
-const button: React.CSSProperties = {
-  minHeight: "var(--target-console)",
-  padding: "0 var(--space-4)",
-  fontSize: "var(--body-console)",
-  fontWeight: "var(--weight-semibold)",
-  lineHeight: "var(--leading-tight)",
-  color: "var(--color-ink)",
-  background: "var(--color-surface)",
-  border: "var(--border-hairline) solid var(--color-border-strong)",
-  borderRadius: "var(--radius-md)",
-  cursor: "pointer",
-};
-
-/**
- * The chosen speed, filled rather than outlined.
- *
- * An outline in the brand tone is the same shape as the §9 focus ring, so "which speed is
- * running" and "where is my keyboard" read as the same signal. A filled button is a different
- * shape of answer: brand ink carrying surface-white text, the §8 pair that passes AA at 6.70:1,
- * with a check mark beside the label so the state is never colour alone (§3).
- */
-const pressed: React.CSSProperties = {
-  ...button,
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-  color: "var(--color-surface)",
-  background: "var(--color-brand)",
-  borderColor: "var(--color-brand)",
-};
-
 const meta: React.CSSProperties = {
   fontSize: "var(--body-console)",
   lineHeight: "var(--leading-normal)",
@@ -243,9 +187,14 @@ export interface LiveFleetMapProps {
 export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
   const can = (key: Parameters<typeof canSeeMapData>[1]) => canSeeMapData(viewer, key);
   const reduced = useReducedMotion();
-  const [playing, setPlaying] = useState(true);
-  const [speed, setSpeed] = useState<number>(DEFAULT_SPEED);
-  const { simSeconds, restart } = useSimClock(playing, speed, reduced);
+  /*
+   * THE CLOCK IS THE DEMO BAR'S (Firia, 2026-10-17 8:36 PM ET; audit §3 and §4 item 5 delete
+   * the clock row from this screen). This component used to own the clock *and* draw it with
+   * Pause, ×1/×10/×60 and Restart above the map; it reads the shared store now
+   * (src/ui/demo-clock.ts) and the bar draws it (src/ui/DemoClock.tsx), so the vans move to the
+   * time the bar is showing and there is one clock rather than two.
+   */
+  const { seconds: simSeconds } = useDemoClock();
 
   // One replay per run, computed once: the clock only reads frames out of them.
   const results = useMemo(
@@ -301,44 +250,12 @@ export default function LiveFleetMap({ viewer }: LiveFleetMapProps) {
 
   return (
     <div style={{ display: "grid", gap: "var(--space-4)" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-3)",
-          flexWrap: "wrap",
-        }}
-      >
-        <span style={heading}>{fill(liveMap.clock, { time: formatClock(nowMs) })}</span>
-        {/* §6.2: the clock is a demo control, so only the role that holds them gets it. The
-            clock itself keeps running for everyone — the readout above is not a control. */}
-        {can("clockControls") ? (
-          <>
-            <button type="button" style={button} onClick={() => setPlaying((p) => !p)}>
-              {playing ? liveMap.pause : liveMap.play}
-            </button>
-            {SPEEDS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                style={speed === option ? pressed : button}
-                aria-pressed={speed === option}
-                onClick={() => setSpeed(option)}
-              >
-                {speed === option ? <Check size={icon.inline} aria-hidden="true" /> : null}
-                {fill(liveMap.speed, { factor: option })}
-              </button>
-            ))}
-            <button type="button" style={button} onClick={restart}>
-              {liveMap.restart}
-            </button>
-          </>
-        ) : null}
-        <span style={meta}>
-          {reduced ? liveMap.motionReduced : liveMap.motionTweened}
-        </span>
-      </div>
-
+      {/*
+        No clock row. The readout and its controls are in the DEMO bar (src/ui/DemoClock.tsx),
+        and the note about what the markers are doing — "Vans follow their routes." — is one of
+        the helper lines audit §3 deletes from this screen: the vans moving is visible in the
+        thing itself.
+      */}
       <FleetMap fixture={fixture} label={liveMap.mapLabel} />
 
       {can("notificationDecisions") ? (

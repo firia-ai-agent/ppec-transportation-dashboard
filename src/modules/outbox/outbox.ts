@@ -95,10 +95,16 @@ const lateMinutes: VarRule = (v) =>
 export const TEMPLATE_VARS: Readonly<Record<string, Readonly<Record<string, VarRule>>>> = {
   "pickup.eta": { eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
   "dropoff.eta": { eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
-  "dropoff.late": { eta: clockTime, etaEnd: clockTime, stopLabel: stopToken, delayMinutes: lateMinutes },
+  /*
+   * No `eta` and no `etaEnd` (Firia, 2026-10-17 10:51 PM ET: the auto late text has no time range
+   * and no ETA). The allowlist is the enforcement — a caller that passes one is refused at
+   * enqueue, so the rule cannot be undone by editing a sentence.
+   */
+  "dropoff.late": { stopLabel: stopToken, delayMinutes: lateMinutes },
   "leg.canceled": { legDate: calendarDay, reasonCode: oneOf(LEG_CANCEL_REASON_CODES) },
   "leg.changed": { legDate: calendarDay, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
-  "dropoff.changed": { legDate: calendarDay, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
+  /* No `etaEnd`: an approved drop-off time is a decision, so the body says the minute (10:51 PM ET). */
+  "dropoff.changed": { legDate: calendarDay, eta: clockTime, stopLabel: stopToken },
   "therapist.absence_alert": { sessionStart: clockTime },
   "therapist.late_alert": { sessionStart: clockTime, eta: clockTime },
   "child.not_received": { stopLabel: stopToken, eta: clockTime },
@@ -247,6 +253,7 @@ export async function drain(db: Db, messageId: string, deps: DrainDeps, by = "sy
     const res = await deps.provider.send({
       messageId: claimed.id, siteId: claimed.site_id, idempotencyKey: claimed.idempotency_key, channel: claimed.channel,
       recipientToken: claimed.recipient_token!, templateId: claimed.template_id, vars: claimed.vars,
+      childToken: claimed.child_token,
     }, { signal: ctl.signal });
     outcome = { to: "SENT", providerMessageId: res.providerMessageId };
   } catch (e) {

@@ -137,14 +137,22 @@ describe("gate 2: an edited message needs a fresh approval", () => {
 
   it("sends nothing: Edit is a GET navigation, not the decision", () => {
     const card = readFileSync(CARD_FILE, "utf8");
-    // The Edit control's form posts nowhere: it is a `GET` to this screen with the time on it.
+    // The Edit control's form posts nowhere: it is a `GET` to this screen.
     expect(card).toMatch(/<form method="get" action=\{editHref\}/);
-    // And the only `action={submit}` form — the one that reaches the server action — carries
-    // Approve and Don't send, never Edit.
-    const posted = card.slice(card.indexOf("action={submit}"));
-    expect(posted).toContain("approval.approveAndSend");
-    expect(posted).toContain("approval.dontSend");
-    expect(posted).not.toContain("approval.edit");
+    /*
+     * Every form that reaches the server action, taken one at a time.
+     *
+     * Asserted per form rather than over the tail of the file because the row is now three
+     * controls in the mockup's order — Approve & send, Edit, Don't send (mockups/approvals.html
+     * `.acts`; Firia, 2026-10-17 10:51 PM ET) — so the Edit navigation sits *between* the two
+     * posting forms. What gate 1 claims is that no posting form carries Edit, and this is that
+     * claim rather than a claim about where Edit appears in the source.
+     */
+    const posted = [...card.matchAll(/<form action=\{submit\}([\s\S]*?)<\/form>/g)].map((m) => m[1]);
+    expect(posted).toHaveLength(2);
+    for (const form of posted) expect(form).not.toContain("approval.edit");
+    expect(posted.join("")).toContain("approval.approveAndSend");
+    expect(posted.join("")).toContain("approval.dontSend");
   });
 
   it("comes back pending, with Approve still to press", async () => {
@@ -171,6 +179,8 @@ describe("gate 2: an edited message needs a fresh approval", () => {
         alerts: [],
         alertsUnreadable: false,
         assistantReachable: true,
+        context: null,
+        editing: false,
         editedTime: "17:30",
         threadOpen: false,
         decide: async (): Promise<DecisionState> => ({ status: "idle" }),

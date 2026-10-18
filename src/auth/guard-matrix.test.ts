@@ -22,6 +22,7 @@ import {
   homePathFor,
   pageLabel,
   pageOutcome,
+  pathOfHref,
   rolesWhoCanOpen,
   whoCanOpenLine,
   type Caller,
@@ -202,27 +203,6 @@ function interrupt(error: unknown): { kind: "redirect"; to: string } | { kind: "
   return null;
 }
 
-/**
- * The pages that read the database once a caller is allowed in, keyed by the caller they need to
- * hold a membership for.
- *
- * Every other page in this app renders from the fixtures, so "allowed" and "rendered" are the same
- * thing for them and the `getNeonDb` stub never fires. SURF-05 is the first that cannot be: a list
- * of pending approvals is rows, and there is nowhere else for them to come from.
- *
- * So for those pages the stub firing **is** the assertion, and a stronger one than `rendered:
- * true` would be: it proves the guard ran *before* the read (a refused caller below never reaches
- * it and gets a 403 instead), and it proves the read is really there rather than quietly swallowed
- * into an empty list — which is the exact bug Veri's S3 note was about on the phone panel.
- */
-/**
- * The pages that read rows. Both of them **fail soft**: a database that is away, read-only or
- * holds no membership for this caller renders the screen with a sentence saying so, rather than a
- * 500 — so what this set buys is the assertion that they do (see the branch that uses it), and the
- * suite below hands them no membership so a sentence check never depends on a database.
- */
-const READS_THE_DATABASE: ReadonlySet<string> = new Set(["/exceptions", "/family-texts"]);
-
 /** Calls the page the way Next calls it, and says what happened. */
 async function openPage(file: string): Promise<{ rendered: true } | { rendered: false; interrupt: ReturnType<typeof interrupt> }> {
   const mod = (await import(/* @vite-ignore */ file)) as {
@@ -295,23 +275,17 @@ async function protectedPhrasesOf(page: { file: string; path: string }): Promise
    * `/ramp-preview`, do you see any of the ramp iPad?
    */
   const moved = MOVED_PAGES[page.path];
-  const subject = moved ? (pageFiles.find((f) => f.path === moved) as { file: string; path: string }) : page;
+  // `pathOfHref`, because one destination is a *tab* — `/family-texts?tab=for-you` — and the
+  // row, and the file, belong to the path in front of the query.
+  const subject = moved
+    ? (pageFiles.find((f) => f.path === pathOfHref(moved)) as { file: string; path: string })
+    : page;
   expect(subject, page.path).toBeDefined();
   const allowed = ROLE_LADDER.find((role) => rolesWhoCanOpen(page.path).includes(role));
   expect(allowed, page.path).toBeDefined();
-  /*
-   * A page that reads rows is rendered here with **no membership**, so it shows its own empty
-   * state rather than opening the stubbed database. That is the right subject for this check
-   * anyway: what a refusal must not leak is the page's own words — its heading, its intro, the
-   * sentence it shows when there is nothing waiting — and none of those depend on a row. The
-   * rows themselves are another family's data and are never in a 403 body under any reading.
-   */
-  const memberships = READS_THE_DATABASE.has(page.path)
-    ? []
-    : [{ siteId: SITE, role: allowed as Membership["role"] }];
   getCaller.mockResolvedValue({
     kind: "STAFF", role: allowed as Membership["role"], userId: "00000000-0000-7000-8000-0000000000d1",
-    displayName: "SYN Dana Director", memberships,
+    displayName: "SYN Dana Director", memberships: [{ siteId: SITE, role: allowed as Membership["role"] }],
   });
   const mod = (await import(/* @vite-ignore */ subject.file)) as { default: (p: unknown) => Promise<unknown> };
   const html = await toHtml(await mod.default({ searchParams: Promise.resolve({}), params: Promise.resolve({}) }));
@@ -319,8 +293,21 @@ async function protectedPhrasesOf(page: { file: string; path: string }): Promise
     .split(/[.!?·|•]+/)
     .map((phrase) => phrase.trim())
     .filter((phrase) => phrase.length >= 12 && phrase.split(" ").length >= 3);
-  // A page with nothing on it would make the leak check vacuous, so it has to have said something.
-  expect(found.length, `${page.path} rendered nothing to protect`).toBeGreaterThan(0);
+  /*
+   * A page with something on it has to have said something, or the leak check below is vacuous.
+   * Two screens legitimately say nothing at all now: Family texts and Health hold no data, their
+   * title is the frame's page header bar (audit §2 item 1) and the helper line that used to sit
+   * under it is deleted (§4 item 9) — so what they render is a link, or nothing. The assertion
+   * is therefore "nothing to protect *because* the page is empty", measured on the page's own
+   * text rather than assumed: a screen that grows a sentence grows the check with it.
+   */
+  if (found.length === 0) {
+    const left = readable(html).trim();
+    expect(
+      left.split(/\s+/).filter(Boolean).length,
+      `${page.path} rendered a sentence this did not read: ${left}`,
+    ).toBeLessThan(3);
+  }
   phrases.set(page.path, found);
   return found;
 }
@@ -379,11 +366,15 @@ describe("the harness itself works", () => {
     const paths = pageFiles.map((p) => p.path).sort();
     expect(paths).toEqual(
       [
-        "/", "/_not-found", "/approvals", "/exceptions", "/family-texts", "/health", "/login",
+        "/", "/_not-found", "/family-texts", "/health", "/login",
         "/live-map", "/plan-routes", "/ramp-ipad", "/setup", "/today", "/whoami",
         // The refusal card at an address: a session, and then 403 for every one of them.
         "/refusal-check",
-        // The four old addresses, which are pages too: a guard, then a permanent redirect.
+        /*
+         * The addresses that moved, which are pages too: a guard, then a permanent redirect.
+         * Five of them since Firia's 8:36 PM ET ruling — the three renamed screens, plus
+         * `/exceptions` and `/approvals`, whose content is part of another screen now.
+         */
         ...Object.keys(MOVED_PAGES),
       ].sort(),
     );
@@ -408,18 +399,6 @@ describe("every page, for every role and for a signed-out visitor", () => {
       it(`${page.path} as ${who}`, async () => {
         getCaller.mockResolvedValue(caller);
         const expected = pageOutcome(caller, page.path);
-
-        /*
-         * A page that reads rows, opened by a caller who holds a membership. The stub makes every
-         * read throw, and the assertion is that the screen still **renders**: both of these pages
-         * wrap their reads and say on screen that the board could not be read, because a database
-         * that is away is not a reason to take a coordinator's screen off them. The guard still
-         * ran — an `ALLOW` that had been refused would come back as an interrupt, not a render.
-         */
-        if (expected === "ALLOW" && READS_THE_DATABASE.has(page.path) && caller.memberships.length > 0) {
-          expect(await openPage(page.file), page.path).toEqual({ rendered: true });
-          return;
-        }
         const result = await openPage(page.file);
 
         if (page.path === "/") {
@@ -512,12 +491,12 @@ describe("every page, for every role and for a signed-out visitor", () => {
     const staffPages = pageFiles.filter((p) => pageOutcome(CALLERS.noRole, p.path) === "NO_ACCESS");
     // Every page that asks for a role at all: the console pages (the founder's redesign adds
     // Family texts and the approvals queue inside it), the three screens that are routes
-    // outside that group, the account page, and the four redirects standing in front of them.
+    // outside that group, the account page, and the three redirects standing in front of them.
     expect(staffPages.map((p) => p.path).sort()).toEqual(
       [
         "/approvals", "/exceptions", "/family-texts", "/health", "/live-map", "/map-preview",
-        "/plan-preview", "/plan-routes", "/ramp-ipad", "/ramp-preview",
-        "/setup", "/today", "/whoami",
+        "/plan-preview", "/plan-routes", "/ramp-ipad", "/ramp-preview", "/setup", "/today",
+        "/whoami",
       ],
     );
     for (const page of staffPages) {
@@ -660,7 +639,7 @@ describe("the session endpoint, for every role and for a signed-out caller", () 
     }
   });
 
-  it("the two auth actions take no session; every other action is role-gated in its own code", () => {
+  it("the two unguarded server actions take no session, so neither has a cell to deny", () => {
     /*
      * Sign-in must run for someone who has no session by definition, and sign-out must keep
      * working for someone whose role was just removed — so neither is role-gated and there is no
@@ -668,10 +647,10 @@ describe("the session endpoint, for every role and for a signed-out caller", () 
      * the rows out), and this is the line that would fail the day one of them became a session
      * surface without a guarded refusal to go with it.
      *
-     * The third is the other kind: a session action, which is a POST endpoint with no URL of its
-     * own, so the role check cannot live in a route guard and lives in the action's own code
-     * instead. The assertion below is that it *is* there — a session row whose file never asks who
-     * is calling would be a button that guards itself by being hidden.
+     * The approvals decision is the opposite kind and is listed with its guard: it is the "For
+     * you" tab's one control, it takes a session, and `APPROVAL_ROLES` is what it answers to
+     * (`front-desk-cannot-approve.test.ts` holds the 403). A new action landing here with
+     * `auth.kind` anything but `session` is what this list is for.
      */
     const actions = ENDPOINTS.filter((row) => row.kind === "action");
     expect(actions.map((a) => [a.path, a.auth.kind])).toEqual([
@@ -679,18 +658,6 @@ describe("the session endpoint, for every role and for a signed-out caller", () 
       ["action:sign-in", "auth-endpoint"],
       ["action:sign-out", "public"],
     ]);
-    for (const action of actions.filter((a) => a.auth.kind === "session")) {
-      const source = readFileSync(path.join(REPO, action.file), "utf8");
-      /*
-       * It reads the caller and checks them against `APPROVAL_ROLES` — the named constant in the
-       * access table, imported rather than restated. A role *literal* in an action would be a
-       * list that can drift from the table, and that is still barred below; the constant's name
-       * is not a literal, which is the whole point of Veri's ruling.
-       */
-      expect(source, action.file).toMatch(/await getCaller\(\)/);
-      expect(source, action.file).toMatch(/APPROVAL_ROLES/);
-      expect(source, action.file).not.toMatch(/"(DIRECTOR|COORDINATOR|FRONT_DESK)"/);
-    }
   });
 });
 

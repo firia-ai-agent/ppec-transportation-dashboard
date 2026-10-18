@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { PAGES } from "@/auth/access";
 import { roleNames, whoami } from "@/ui/copy";
-import { shortName } from "@/ui/display-name";
+import { accountLines, shortName } from "@/ui/display-name";
 import { DEMO_ACCOUNTS } from "@/auth/demo-accounts";
 
 /**
@@ -43,7 +43,7 @@ describe("the account page is in the frame", () => {
 
 describe("it says who you are in one line", () => {
   it("uses the one name helper the shell and the phone avatar use", () => {
-    expect(page).toMatch(/shortName\(caller\.displayName/);
+    expect(page).toMatch(/accountLines\(caller\.displayName/);
     // And that helper is what turns the stored row into the words: "Dana M.", not "SYN Dana…".
     expect(shortName(DEMO_ACCOUNTS[0].name)).toBe("Dana M.");
     expect(`${shortName(DEMO_ACCOUNTS[0].name)}${whoami.separator}${roleNames.DIRECTOR.one}`).toBe(
@@ -79,13 +79,38 @@ describe("it says who you are in one line", () => {
   });
 
   /**
-   * The browser-test session has no user row behind it, so its whole display name *is* a role's
-   * title (src/auth/caller.ts). "Director · Director" would be the one line on this page that
-   * says nothing twice, so the page says it once — and the check is in the page rather than in
-   * the helper, because for a real account the two halves are different things.
+   * "DIRECTOR · DIRECTOR" — the line Vera read here — had two causes and both are fixed.
+   *
+   * The first was the session: the browser-test session had no user row behind it, so its whole
+   * display name *was* a role's title (src/auth/caller.ts). It is named from the demo staff
+   * roster now, so the two halves of this line are a person and a role again.
+   *
+   * The second is the rule, and it is still needed for any session that has no name at all: a
+   * name that is only a role is said once. It lives in `accountLines` rather than in this page,
+   * because the rail's account block and the phone's avatar have exactly the same question to
+   * answer and three copies of one rule is three places to break it.
    */
   it("says a name that is only a role once", () => {
-    expect(page).toMatch(/name !== role/);
-    expect(shortName(roleNames.DIRECTOR.one)).toBe(roleNames.DIRECTOR.one);
+    expect(accountLines("Director", roleNames.DIRECTOR.one)).toEqual({
+      name: roleNames.DIRECTOR.one,
+      role: null,
+    });
+    expect(accountLines("", roleNames.DIRECTOR.one)).toEqual({
+      name: roleNames.DIRECTOR.one,
+      role: null,
+    });
+    // The page prints the second half only when the helper gives it one.
+    expect(page).toMatch(/lines\.role \?/);
+  });
+
+  /** The session the browser checks run as is a named person now, not a role twice over. */
+  it.each(DEMO_ACCOUNTS)("names $role as a person beside their role", (account) => {
+    const role = roleNames[account.role].one;
+    const lines = accountLines(account.name, role);
+    expect(lines.role).toBe(role);
+    expect(lines.name).not.toBe(role);
+    expect(`${lines.name}${whoami.separator}${lines.role}`).not.toMatch(
+      new RegExp(`^${role}\\s*·\\s*${role}$`),
+    );
   });
 });

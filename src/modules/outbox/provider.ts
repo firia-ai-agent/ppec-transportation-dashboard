@@ -2,6 +2,15 @@
 export type OutboundPayload = {
   messageId: string; siteId: string; idempotencyKey: string; channel: string;
   recipientToken: string; templateId: string; vars: Record<string, unknown>;
+  /**
+   * Whose ride this message is about, when it is about one (`ops.outbound_message.child_token`).
+   *
+   * Carried so a provider can read the child's *own row* for the name the body says (Firia,
+   * 2026-10-17 10:51 PM ET). It is a token and not a name on purpose: the name is never a var and
+   * never anything a caller or a model wrote, which is the Veri #12 rule — this is the key to the
+   * row, and the row is the only place the words come from.
+   */
+  childToken?: string | null;
 };
 
 /** The provider did not answer in time: the message may or may not have gone out. Never resend. */

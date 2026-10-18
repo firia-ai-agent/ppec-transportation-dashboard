@@ -2,6 +2,8 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { freshDb, ORG, SITE } from "@/test/pglite";
 import type { Db } from "@/db/exec";
 import type { Exec } from "@/domain/transition";
+import { DEMO_ACCOUNTS } from "@/auth/demo-accounts";
+import { shortName } from "@/ui/display-name";
 
 /**
  * The one session reader, against a real database.
@@ -149,13 +151,22 @@ describe("the browser-test session is a role and nothing else", () => {
   it("grants the named role, with no user id and no membership, and reads no database", async () => {
     auth.mockResolvedValue(null);
     const { getCaller } = await import("./caller");
-    // VERCEL_ENV deliberately absent: that is the gate that makes this local-only.
+    /*
+     * VERCEL_ENV deliberately absent: that is the gate that makes this local-only.
+     *
+     * The name is the demo staff roster's own row for that role, not the role's title. It used
+     * to be the title, and that is where "Director · Director" on the account page came from:
+     * a page that joins a name to a role has nothing to join when the name *is* the role. No
+     * person is invented — this is the same list `seedDemoUsers` creates the three accounts
+     * from — and what a screen prints out of it is "Casey R." (src/ui/display-name.ts).
+     */
     expect(await getCaller(E2E)).toEqual({
       kind: "STAFF",
       role: "COORDINATOR",
-      displayName: "Coordinator",
+      displayName: DEMO_ACCOUNTS.find((a) => a.role === "COORDINATOR")!.name,
       memberships: [],
     });
+    expect(shortName((await getCaller(E2E)).displayName ?? "")).toBe("Casey R.");
     // No token was decoded either: the branch short-circuits before the session is read.
     expect(auth).not.toHaveBeenCalled();
   });

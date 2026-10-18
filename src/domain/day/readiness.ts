@@ -30,11 +30,26 @@ import type { SetupSource } from "@/domain/plan/setup";
 
 export type StepState = "DONE" | "NEEDED" | "LOCKED" | "RUNNING";
 
+/**
+ * Which run of the day is being worked. The same two values as `Direction`, under the name the
+ * day's own loader and the step strip use for them (#74's `day-facts.ts`).
+ */
+export type Leg = Direction;
+
 /** What the database says about one day, read once (src/modules/plan/readiness.ts). */
 export type DayFacts = {
   /** "2026-10-17", centre time. */
   date: string;
   leg: Direction;
+  /**
+   * Were these facts actually read?
+   *
+   * `false` means "nobody knows", which is a different answer from every count being zero and
+   * the one that must never become a Done (#74's §9.4 fail-safe: a module that cannot read must
+   * not blank the shell, and must not congratulate anybody either). Optional, and absent means
+   * read: every caller that builds these from rows it has in hand is reporting what it read.
+   */
+  read?: boolean;
   /**
    * Has the demo day been started for this date? Outside demo mode this is always true, so the
    * step does not exist (§9.1). In demo mode it is the day having been reset, which is what the
@@ -94,8 +109,43 @@ export function weekdayLabel(isoDate: string): string {
   return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short" }).format(at);
 }
 
+/**
+ * The day as it reads when nothing could be read: the fail-safe every loader falls back to.
+ *
+ * Needed, Needed and Locked — never a Done, because a count nobody could read is not a count of
+ * zero. #74's `day-facts.ts` returns this for a missing site, an absent database and a query
+ * that raised, which is also what makes the browser checks deterministic: the Playwright run has
+ * no database, so it takes this path by the shape of the thing rather than by a flag.
+ */
+export function unreadFacts(date: string, leg: Leg): DayFacts {
+  return {
+    date,
+    leg,
+    read: false,
+    /*
+     * `true`, in the one function whose whole point is that nothing was read.
+     *
+     * "The day has not been started" is a *claim*, and it locks the plan step. An unread day
+     * makes no claims: its fail-safe is Needed, Needed, Locked (#74's §9.4, and the test
+     * contract's "Plan routes reads 'Not saved' with Needed before a save"), so the plan step
+     * says "Not saved" and the live map stays locked behind it rather than behind a start
+     * nobody could check.
+     */
+    started: true,
+    vans: 0,
+    vansCheckedToday: 0,
+    setupSource: "DEFAULT",
+    planSavedAt: null,
+    unassigned: 0,
+    vansOut: 0,
+    approvalsWaiting: 0,
+  };
+}
+
 /** The three steps, from the day's facts. */
 export function deriveReadiness(facts: DayFacts): DayReadiness {
+  // Facts nobody could read decide nothing: every count is held at zero and no step is Done.
+  if (facts.read === false) return deriveReadiness({ ...unreadFacts(facts.date, facts.leg), read: true });
   const planSaved = facts.planSavedAt !== null;
   const setupDone = facts.vans > 0 && facts.vansCheckedToday >= facts.vans;
 

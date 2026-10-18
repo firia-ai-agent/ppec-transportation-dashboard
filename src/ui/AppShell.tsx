@@ -1,9 +1,9 @@
 import { Suspense, type ReactNode } from "react";
 import type { StaffRole } from "@/auth/core";
 import { app } from "./copy";
-import { AvatarMenu } from "./AvatarMenu";
-import { NavRail } from "./NavRail";
+import { NavRail, type RailAccount } from "./NavRail";
 import { NoticeToast } from "./NoticeToast";
+import { PageHeader } from "./PageHeader";
 import { TabBar } from "./TabBar";
 import styles from "./AppShell.module.css";
 
@@ -12,20 +12,21 @@ import styles from "./AppShell.module.css";
  * rendered by the root layout, so they also cover /login (§7, §7.1, NFR-09); the header sits
  * directly beneath them.
  *
- * **The header is one row** (Vera's review, 2026-10-17 2:44 PM ET): the site name and one
- * identity location at the trailing end. What left it, and why:
- *  - the four per-adapter freshness pills ("SMS · Simulated", "Teams · Simulated", …) and the
- *    "Times are simulated…" line under them — **one** Simulated chip on a screen, the one in
- *    the DEMO bar. Five of them saying it was four too many;
- *  - the scenario clock — a "Demo day · Not started" readout of a state nothing sets, with an
- *    inert "Start demo day" beside it, which could not start anything because the demo-controls
- *    dock was never built. The demo's one control is the DEMO bar's now, and it is the reset
- *    the app already has ("Restart demo day", src/ui/DemoRestart.tsx, REDESIGN-SPEC §0). The
- *    header holds no demo chrome at all: the bar above it is where the demo lives;
- *  - global search, which moved into Today, under the board's own title: it searches the board,
- *    so it belongs to the board (src/app/(app)/today/TodayBoard.tsx).
- * §2's service date is not in here either: it belongs to the board, which is the thing that has
- * a day (docs/ui/B12-SLICE1-DEFERRED.md §5).
+ * **There is no app header.** Vera's audit of production at ef4bfb3 (§2 items 1, 3 and 5) found
+ * a full-width white band with the words "PPEC transportation" in it, above a rail that began
+ * with nothing and ended in whitespace, with an outlined "Dana ⌄" pill at the band's far right.
+ * The band is deleted at every width. Everything it held has a home that is already on screen:
+ *  - the product's name → the brand block at the head of the rail (src/ui/NavRail.tsx);
+ *  - the account → the block at the rail's foot, and below 768, where the rail is a tab bar
+ *    with no room for words, the 36 px disc at the trailing end of the page header bar
+ *    (src/ui/PageHeader.tsx). One identity location per width, never two;
+ *  - the screen's title → the 64 px page header bar, in Teal Ink at the 20 px step, which is
+ *    what the founder's mockups draw there (png/shell-flow-1440.png, png/shell-flow-390.png).
+ * What left earlier and has not come back: the four per-adapter freshness pills and their note
+ * (one Simulated chip on a screen, the one in the DEMO bar), the dead "Demo day · Not started"
+ * readout and its inert "Start demo day" (the demo's one control is the bar's), global search
+ * (it searches the board, so it is on the board), and §2's service date (it belongs to the
+ * thing that has a day).
  *
  * Nav, and this is Firia's final ruling of 2026-10-17 3:08 PM ET: `NavRail` at 768 and up (232
  * px labelled at ≥1280, a 64 px icon rail below it), and **below 768 a bottom tab bar** that is
@@ -48,13 +49,16 @@ import styles from "./AppShell.module.css";
  * disproved.)
  */
 export function AppShell({
-  displayName,
+  account,
   role,
   pageOwnsMain = false,
-  alertCount = 0,
   children,
 }: {
-  displayName: string;
+  /**
+   * Who is signed in, already turned into the words a screen shows (src/ui/ConsoleShell.tsx).
+   * `null` for a caller with no name at all, which draws no identity block anywhere.
+   */
+  account: RailAccount | null;
   /** The caller's role, so the menu offers only the pages they can open. `null` shows none. */
   role: StaffRole | null;
   /**
@@ -64,15 +68,6 @@ export function AppShell({
    * surfaces that already have their own (the ramp iPad is laid out edge to edge).
    */
   pageOwnsMain?: boolean;
-  /**
-   * How many family texts are waiting for a person (`agent/staff-alert.ts`). Rendered as a count
-   * beside Exceptions & Approvals and nowhere else; 0 renders nothing at all. The server decides
-   * it — a role that may not open that page is handed 0 rather than a number it must then hide.
-   *
-   * Both shapes of the one menu carry it: the rail at ≥768 and the bottom tab bar below it. A
-   * count that only one width shows is a count a phone never sees.
-   */
-  alertCount?: number;
   children: ReactNode;
 }) {
   const Content = pageOwnsMain ? "div" : "main";
@@ -82,28 +77,24 @@ export function AppShell({
       <a href="#content" className="skipLink">
         {app.skipToContent}
       </a>
-      <header className={styles.header}>
-        {/* Below 768 the screen's own <h1> names where you are; the product name yields the row. */}
-        <span className={styles.siteName}>{app.siteName}</span>
-        <div className={styles.spacer} />
-        {/*
-          One identity location, at every width now. It used to be hidden below 768 because the
-          hamburger drawer carried the name and Sign out; the drawer is gone, so this is where
-          they are on a phone too — compact (initials and the first name), with Sign out inside
-          it (Firia, 3:08 PM ET: "reachable on phone").
-        */}
-        <AvatarMenu displayName={displayName} />
-      </header>
       <Suspense fallback={null}>
         <NoticeToast />
       </Suspense>
       <div className={styles.body}>
-        <NavRail role={role} alertCount={alertCount} />
-        <Content id="content" className={pageOwnsMain ? styles.contentSlot : styles.main}>
-          {children}
-        </Content>
+        <NavRail role={role} account={account} />
+        {/*
+          The content column: the page header bar, then the screen. The bar is the frame's — one
+          title, one place, every screen — and the screen below it brings its own body and
+          nothing above it (audit §2 item 1).
+        */}
+        <div className={styles.column}>
+          <PageHeader account={account} />
+          <Content id="content" className={pageOwnsMain ? styles.contentSlot : styles.main}>
+            {children}
+          </Content>
+        </div>
       </div>
-      <TabBar role={role} alertCount={alertCount} />
+      <TabBar role={role} />
     </div>
   );
 }

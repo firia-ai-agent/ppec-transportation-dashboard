@@ -39,11 +39,28 @@ export class TemplateRenderError extends Error {}
  * what this module adds is the rendering. The fixed parts are folded into every body once here,
  * so a body arrives at `renderTemplate` holding only the caller's own vars.
  */
+const HELP_REPLY_TEMPLATE_ID = "consent.help";
+
 const { demoTag, optOut, centerPhone } = outboundSms;
 const FIXED = { demoTag, optOut, centerPhone };
 
+/**
+ * The same bodies without the channel's furniture — the opt-out sentence and the `[DEMO]` tag.
+ *
+ * For the two staff surfaces that show a family's words back to a person: the proposal card a
+ * coordinator approves, and the thread bubbles. Firia, 2026-10-17 10:51 PM ET — "the STOP/HELP
+ * footer is appended in the SEND PIPELINE, never shown in the bubble or the card", and "remove
+ * the [DEMO] tag from bubbles". Both still go out on every real send, because the send renders
+ * from `BODIES` below and this map is not reachable from it.
+ */
+const SCREEN_BODIES: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries({ ...outboundSms.bodies, [HELP_REPLY_TEMPLATE_ID]: outboundSms.helpReply }).map(
+    ([id, body]) => [id, fill(body, { ...FIXED, optOut: "", demoTag: "" }).replace(/\s+/g, " ").trim()],
+  ),
+);
+
 /** Fixed HELP answer. Same words every time, no ticket codes, no child name and no van detail. */
-export const HELP_REPLY_TEMPLATE = "consent.help";
+export const HELP_REPLY_TEMPLATE = HELP_REPLY_TEMPLATE_ID;
 export const HELP_REPLY_BODY = fill(outboundSms.helpReply, FIXED);
 
 const BODIES: Readonly<Record<string, string>> = {
@@ -167,6 +184,38 @@ const FORMAT: Readonly<Record<string, (value: string, templateId: string, vars: 
 
 const PLACEHOLDER = /\{(\w+)\}/g;
 
+/**
+ * How a body is being rendered, as against *what* it says — which is the vars.
+ *
+ * Neither field is a var, and that is the whole point of their being here: the outbox's
+ * allowlist (Veri #12, `TEMPLATE_VARS`) still refuses every name and every sentence anybody could
+ * type, and these two are the server's own answers to "whose ride is this" and "is this going out
+ * or being read back by the person approving it".
+ */
+export type RenderFor = {
+  /**
+   * The child's name as their own row holds it ("Noah O."), from which the body uses the given
+   * name alone. Null or absent renders `outboundSms.yourChild` — the wording every body carried
+   * before Firia's 10:51 PM ET ruling — so a row that could not be read is still a sendable text.
+   */
+  readonly child?: string | null;
+  /**
+   * `false` on the two staff surfaces: the proposal card and the thread bubbles, where the
+   * opt-out sentence and the `[DEMO]` tag are the channel's furniture and not the message
+   * (10:51 PM ET). Every send leaves it alone and carries both.
+   */
+  readonly footer?: boolean;
+};
+
+/**
+ * "Noah O." → "Noah". The display name's first word, which is the given name on every row this
+ * app writes (`synLegalName`, and the seeded `display_name`).
+ */
+function givenName(displayName: string | null | undefined): string | null {
+  const first = (displayName ?? "").trim().split(/\s+/)[0];
+  return first ? first : null;
+}
+
 /** Var names a body needs, for the TEMPLATE_VARS agreement test. */
 export function templatePlaceholders(templateId: string): string[] {
   const body = BODIES[templateId];
@@ -185,13 +234,20 @@ export function knownTemplates(): string[] {
  * A rejected var is named but never echoed, same as outbox.disallowedVars: the reason it was
  * rejected is that it may carry a child's name.
  */
-export function renderTemplate(templateId: string, vars: Record<string, unknown>): string {
-  const body = BODIES[templateId];
+export function renderTemplate(
+  templateId: string,
+  vars: Record<string, unknown>,
+  how: RenderFor = {},
+): string {
+  const body = (how.footer === false ? SCREEN_BODIES : BODIES)[templateId];
   if (!body) throw new TemplateRenderError(`no body for template ${templateId}`);
   if (!TEMPLATE_VARS[templateId]) throw new TemplateRenderError(`no vars allowlist for template ${templateId}`);
   const bad = disallowedVars(templateId, vars);
   if (bad.length) throw new TemplateRenderError(`vars not permitted for template ${templateId}: ${bad.join(",")}`);
   return body.replace(PLACEHOLDER, (_m, name: string) => {
+    // The child's name is not a var and never will be (Veri #12): it is resolved here, from the
+    // child's own row, the way `{stopLabel}` is resolved through a fixed table.
+    if (name === "childName") return givenName(how.child) ?? outboundSms.yourChild;
     const v = vars[name];
     if (v === undefined || v === null || String(v) === "") throw new TemplateRenderError(`template ${templateId} needs var ${name}`);
     const rule = FORMAT[name];

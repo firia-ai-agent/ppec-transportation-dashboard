@@ -68,11 +68,30 @@ export class DbSimMessagingProvider implements MessagingProvider {
     return p;
   }
 
+  /**
+   * The display name on this message's child row, or null when it names no child (a closure
+   * notice) or the row is gone. One `SELECT`, site-scoped like every other read here.
+   */
+  private async childName(msg: OutboundPayload): Promise<string | null> {
+    if (!msg.childToken) return null;
+    const r = await this.db.query<{ display_name: string | null }>(
+      "SELECT display_name FROM ops.child_profile WHERE child_token = $1 AND site_id = $2",
+      [msg.childToken, msg.siteId],
+    );
+    return r.rows[0]?.display_name ?? null;
+  }
+
   async send(msg: OutboundPayload, opts: { signal: AbortSignal }) {
     if (opts.signal.aborted) throw new ProviderTimeout("sim: aborted before the send started");
     let body: string;
     try {
-      body = renderTemplate(msg.templateId, msg.vars);
+      /*
+       * The child's name, read from the child's own row at send time (Firia, 10:51 PM ET: the
+       * text names the child). Never a var: the outbox's allowlist refuses every name anybody
+       * could type (Veri #12), and this is the database's answer, not a caller's. A row that
+       * cannot be read renders "your child" and the text still goes.
+       */
+      body = renderTemplate(msg.templateId, msg.vars, { child: await this.childName(msg) });
     } catch (e) {
       // A bad template or a missing var is a definite refusal: FAILED, never a blind retry.
       if (e instanceof TemplateRenderError) throw new ProviderRejected(`sim: ${e.message}`);

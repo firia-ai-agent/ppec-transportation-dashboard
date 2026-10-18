@@ -98,8 +98,7 @@
 .tabCount {
   min-width: 18px;
   height: 18px;
-  padding: 0 5px;
-  border-radius: var(--radius-pill);
+  border-radius: 9px;
   display: grid;
   place-items: center;
   font-size: var(--text-12);
@@ -113,8 +112,13 @@
   color: var(--color-surface);
 }
 
-/* ───────────────────────────── the two panes ───────────────────────────── */
+/* ───────────────────────────── the panes ───────────────────────────── */
 
+/*
+ * TWO PANES on Sent and All, THREE on For you (Firia, 2026-10-17 10:51 PM ET; approvals.html):
+ * the list, the thread with the card inline, and the van / pick-up pane. One column at 390,
+ * which is png/approvals-390.png — the same three regions stacked, never a second layout.
+ */
 .work {
   flex: 1;
   display: flex;
@@ -122,10 +126,115 @@
   background: var(--color-surface);
 }
 
-.list {
+/* The left column: the "needs a person" alert at the top of For you, then the day's list. */
+.listPane {
   width: 340px;
   flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   border-right: var(--border-hairline) solid var(--color-neutral-bg);
+  background: var(--color-surface);
+}
+
+/* The third pane (approvals.html `.ctx`: 300px, its own white column, hairline to the left). */
+.ctx {
+  width: 300px;
+  flex: none;
+  border-left: var(--border-hairline) solid var(--color-neutral-bg);
+  background: var(--color-surface);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  overflow: auto;
+}
+
+/* `.ctx h4` in the mockup: 12px, uppercase, muted, the pane's own section headings. */
+.ctxHeading {
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+
+.ctxRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--text-13);
+}
+
+.ctxSwatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+  background: var(--color-brand);
+}
+
+/* The van's own colour token (src/config/vans.ts `vanColourToken`), never a hex (§0 rule 6). */
+.ctxSwatch[data-van-colour="map-route-2"] { background: var(--color-map-route-2); }
+.ctxSwatch[data-van-colour="map-route-3"] { background: var(--color-map-route-3); }
+.ctxSwatch[data-van-colour="ink-muted"] { background: var(--color-ink-muted); }
+
+/* The four counts after the change, in one row (approvals.html `.cap`). */
+.ctxCounts {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ctxCount {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-3) 0;
+  border: var(--border-hairline) solid var(--color-neutral-bg);
+  border-radius: var(--radius-md);
+  color: var(--color-ink-muted);
+  font-size: var(--text-13);
+}
+
+.ctxUsed {
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink);
+}
+
+.ctxTotal {
+  color: var(--color-ink-muted);
+}
+
+.ctxPickup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ctxAvatar {
+  width: 24px;
+  height: 24px;
+  font-size: var(--text-11);
+}
+
+.ctxRelationship {
+  color: var(--color-ink-muted);
+  font-size: var(--text-12);
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   background: var(--color-surface);
   margin: 0;
@@ -525,15 +634,17 @@
   min-height: var(--target-console);
   padding: 0 var(--space-5);
   border: var(--border-hairline) solid var(--color-disabled-border);
-  border-radius: var(--radius-pill);
+  border-radius: calc(var(--target-console) / 2);
   font: inherit;
   font-size: var(--text-16);
 }
 
 .composeSend {
-  min-height: var(--target-console);
-  padding: 0 var(--space-5);
-  border-radius: var(--radius-pill);
+  width: var(--target-console);
+  height: var(--target-console);
+  display: grid;
+  place-items: center;
+  border-radius: calc(var(--target-console) / 2);
   background: var(--color-brand);
   border: var(--border-hairline) solid var(--color-brand);
   color: var(--color-surface);
@@ -622,6 +733,19 @@
   color: var(--color-ink-muted);
 }
 
+/* Below 1280 there is no room for a third column: the pane follows the thread instead. */
+@media (min-width: 768px) and (max-width: 1279px) {
+  .work[data-panes="three"] {
+    flex-wrap: wrap;
+  }
+
+  .ctx {
+    width: 100%;
+    border-left: none;
+    border-top: var(--border-hairline) solid var(--color-neutral-bg);
+  }
+}
+
 /* ───────────────────────────── the phone (<768) ───────────────────────────── */
 
 @media (max-width: 767px) {
@@ -629,10 +753,24 @@
     flex-direction: column;
   }
 
-  .list {
+  .listPane {
     width: auto;
     border-right: none;
-    flex: 1;
+    flex: none;
+  }
+
+  /*
+   * The third pane becomes a bordered card below the thread, which is what the mockup's own
+   * narrow rule does (`.ctx{width:auto;border-left:none;border:1px solid …;border-radius:10px}`).
+   */
+  .ctx {
+    width: auto;
+    flex: none;
+    border-left: none;
+    border: var(--border-hairline) solid var(--color-neutral-bg);
+    border-radius: var(--radius-lg);
+    margin: 0 var(--space-4) var(--space-4);
+    overflow: visible;
   }
 
   .row {
@@ -703,8 +841,24 @@
     display: none;
   }
 
-  .screen[data-view="thread"] .list,
+  .screen[data-view="thread"] .listPane,
   .screen[data-view="thread"] .tabs {
     display: none;
+  }
+
+  /*
+   * At 390 the thread view hides the page title and keeps the h1 for a screen reader (Firia,
+   * 10:51 PM ET). The thread's own header names the family, which is the title of what is on
+   * screen; a second one above it is the band Vera's audit §2 item 1 deleted everywhere else.
+   */
+  .screen[data-view="thread"] .title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }
