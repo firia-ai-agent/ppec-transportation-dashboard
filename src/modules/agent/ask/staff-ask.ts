@@ -40,7 +40,7 @@ import type { Db } from "@/db/exec";
 import { previewSkip } from "@/db/read-only";
 import { agentAsk } from "@/ui/copy";
 import { redact } from "../redact";
-import { type AgentRunner, agentRunner } from "../run/deps";
+import { type AgentRunner, agentRunner } from "./no-runner";
 import { effectId, raiseTask } from "../run/exec/effects";
 import type { RunDeps, RunResult } from "../run/loop";
 import { startAndDriveRun } from "../run/loop";
@@ -136,7 +136,7 @@ export async function askAgent(
    * the row is: the ask the agent took, or the staff alert nobody could. One ask is one row
    * either way — a second row saying the same thing twice is two things to close.
    */
-  const runner = (deps.runner ?? (() => agentRunner(db, deps.env ?? process.env)))();
+  const runner = (deps.runner ?? agentRunner)();
   const askId = uuidv7();
   const words = runner.ok ? agentAsk.asked : agentAsk.unavailable;
   const taskId = await raiseTask(db, {

@@ -835,3 +835,13 @@
   }
 
 }
+
+/*
+ * Demo ruling (Veri PPE-92, 2026-10-18): at 768 and above the agent bubble stays on screen, so the
+ * compose bar leaves room for it on the right and Send is never under the disc.
+ */
+@media (min-width: 768px) {
+  :global(body):has([data-agent-bubble]) .compose {
+    padding-right: calc(var(--layout-agent-bubble-size) + 2 * var(--layout-agent-bubble-gap));
+  }
+}

@@ -13,7 +13,7 @@ import { approvalKey } from "../policy";
 import { toolCall } from "../providers/fake";
 import type { TierFacts } from "../run/context";
 import type { PolicyContext } from "../policy";
-import { agentRunner } from "../run/deps";
+import { AGENT_RUNNER_NO_CONTEXT_SOURCE, agentRunner } from "./no-runner";
 import { liveHarness } from "../run/exec/live-harness";
 import { toolCalls } from "../run/store";
 import { TRIGGER_TYPES } from "../run/triggers";
@@ -101,7 +101,7 @@ function withModel(script: Parameters<typeof liveHarness>[0]["script"], over: Pa
   return {
     harness: h,
     deps: {
-      runner: () => ({ ok: true as const, deps: h.deps(0), refused: false, reason: null }),
+      runner: () => ({ ok: true as const, deps: h.deps(0) }),
       env: {} as Record<string, string | undefined>,
     },
   };
@@ -218,11 +218,10 @@ describe("(e) with no model there is a staff alert, and nothing else", () => {
    * assembler and a run driven against an invented scope is worse than no run (run/deps.ts).
    * So the production path through the bubble is this test, not the one above.
    */
-  it("with no model configured, the runner refuses and says why for the log", () => {
-    // #75 builds a real runner from env; with none set there is no provider to make.
-    const runner = agentRunner(db, {});
+  it("is what this deployment actually does: the runner refuses by name", () => {
+    const runner = agentRunner();
     expect(runner.ok).toBe(false);
-    expect(runner.ok === false && runner.reason.length).toBeGreaterThan(0);
+    expect(runner.ok === false && runner.reason).toBe(AGENT_RUNNER_NO_CONTEXT_SOURCE);
   });
 
   it("raises the NEEDS_PERSON alert, RED and open, and drives no run", async () => {
@@ -275,8 +274,7 @@ describe("(e) with no model there is a staff alert, and nothing else", () => {
     expect(said).not.toMatch(/sk-[a-z0-9]/);
     expect(said).not.toMatch(/https?:\/\//);
     expect(said).not.toMatch(/\bai\b/);
-    const refused = agentRunner(db, {});
-    if (!refused.ok) expect(said).not.toContain(refused.reason.toLowerCase());
+    expect(said).not.toContain(AGENT_RUNNER_NO_CONTEXT_SOURCE.toLowerCase());
   });
 
   it("raises the same alert when the model is reached and fails", async () => {
@@ -287,7 +285,7 @@ describe("(e) with no model there is a staff alert, and nothing else", () => {
       {
         env: {},
         // A runner that exists and a drive that throws: a PROVIDER_ERROR, a missing key, a refusal.
-        runner: () => ({ ok: true as const, deps: {} as never, refused: false, reason: null }),
+        runner: () => ({ ok: true as const, deps: {} as never }),
         drive: async () => {
           throw new Error("provider unreachable");
         },
