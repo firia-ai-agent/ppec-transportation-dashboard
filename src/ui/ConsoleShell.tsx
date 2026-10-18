@@ -1,7 +1,11 @@
 import type { ReactNode } from "react";
 import { canOpenForYou } from "@/auth/access";
 import type { ResolvedCaller } from "@/auth/caller";
+import { getNeonDb } from "@/db/exec";
+import { readAgentThreadOrEmpty } from "@/modules/agent/ask/thread";
+import { siteOf } from "@/modules/plan/api";
 import { AgentBubble } from "./AgentBubble";
+import { AgentCompose } from "./AgentCompose";
 import { AppShell } from "./AppShell";
 import { fill, identity, roleNames } from "./copy";
 import { accountLines, initialsOf } from "./display-name";
@@ -43,8 +47,14 @@ const ACCOUNT_PATH = "/whoami";
  * you page guards itself with — rather than a role, because the bubble shows proposals waiting
  * for a decision and the front desk may not decide. The function is asked here for the same
  * reason the nav role is: one expression, so no screen can hold a different opinion.
+ *
+ * The thread is read here too, and only for somebody who may see it: one read, in the one place
+ * the bubble is mounted, so a tab change costs the same query rather than a different one per
+ * screen. It is fail-soft (`readAgentThreadOrEmpty`) — a panel that cannot list today's proposals
+ * is a far smaller problem than a console that will not render, and the proposals are still on
+ * their own screen, which is where the panel's own buttons go.
  */
-export function ConsoleShell({
+export async function ConsoleShell({
   caller,
   title,
   pageOwnsMain,
@@ -61,6 +71,8 @@ export function ConsoleShell({
   children: ReactNode;
 }) {
   const role = caller.kind === "STAFF" ? caller.role : null;
+  const canDecide = canOpenForYou(caller);
+  const thread = canDecide ? await readAgentThreadOrEmpty(getNeonDb(), siteOf(caller)) : null;
   const lines = accountLines(caller.displayName, role ? roleNames[role].one : null);
   const account: RailAccount | null = lines.name
     ? {
@@ -77,7 +89,12 @@ export function ConsoleShell({
       <AppShell account={account} role={role} title={title} pageOwnsMain={pageOwnsMain}>
         {children}
       </AppShell>
-      <AgentBubble canDecide={canOpenForYou(caller)} />
+      <AgentBubble
+        canDecide={canDecide}
+        waiting={thread?.waiting ?? 0}
+        items={thread?.items ?? []}
+        compose={<AgentCompose />}
+      />
     </>
   );
 }

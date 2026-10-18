@@ -486,9 +486,23 @@ describe("the loop reaches a model only through the slice-1 providers", () => {
 });
 
 describe("the §11.1 trigger list, the run-state edges and the executor registry", () => {
-  it("the five trigger types that start a run are the §11.1 list (ETA threshold is deterministic)", () => {
+  /*
+   * CHANGED, and not loosened: the five §11.1 triggers are still asserted in their order, and a
+   * sixth is now named beside them — `staff.ask`, a coordinator asking the agent something from
+   * the chat bubble in the console frame (the founder's ask of 2026-10-18; Vera's mockup
+   * /workspace/ppec-redesign/mockups/agent-bubble.html; src/modules/agent/ask/staff-ask.ts).
+   *
+   * It is a sixth entry rather than a reuse of one of the five because the pair
+   * (trigger_type, trigger_id) *is* the run's identity: `msg.inbound` means a family texted us
+   * and carries that message's row, and an ask typed by staff is neither that nor an operational
+   * event the rules deferred. Calling it one of those would make the idempotency key lie about
+   * where the run came from. No migration — `ops.agent_run.trigger_type` is plain text with no
+   * CHECK — and the §11.1 five are unchanged, which is what this list still holds.
+   */
+  it("the trigger types that start a run are the §11.1 five, plus the staff ask", () => {
     expect([...TRIGGER_TYPES]).toEqual([
       "msg.inbound", "operational.event", "timer.deadline", "sweeper.overdue", "reconciliation",
+      "staff.ask",
     ]);
   });
 

@@ -112,7 +112,9 @@ describe("(a) the bubble is on every app route", () => {
    */
   it("is mounted by ConsoleShell, which is what every app route's layout renders", () => {
     const shell = code(read(UI, "ConsoleShell.tsx"));
-    expect(shell).toMatch(/<AgentBubble canDecide=\{canOpenForYou\(caller\)\}/);
+    expect(shell).toMatch(/<AgentBubble\s+canDecide=\{canDecide\}/);
+    // …and `canDecide` is `canOpenForYou`, asked once, on the server, in this one file.
+    expect(shell).toMatch(/const canDecide = canOpenForYou\(caller\);/);
   });
 
   it("is mounted exactly once in the whole app, so changing tab cannot close it", () => {

@@ -2427,3 +2427,37 @@ export const agentBubble = {
   /** Nothing has been said today. The thread shows what exists and never invents a message. */
   empty: "Nothing yet today.",
 } as const;
+
+/**
+ * A STAFF ASK, as the rows it writes read on the board (src/modules/agent/ask/staff-ask.ts).
+ *
+ * An ask typed into the bubble is recorded before anything is driven, because it is the thing
+ * that happened and the run's identity is that row's id. It lands as an `ops.task` — the one
+ * staff-visible queue this app has — in the same summary / next step / predicate shape as every
+ * other agent task above, so a coordinator reads it the same way.
+ *
+ * `unavailable` is the **staff alert** of docs/DATA-MODEL.md: kind NEEDS_PERSON, severity RED,
+ * raised when no model can be reached. There is no keyword parser behind it and no proposal on
+ * it — the whole of the degraded mode is that a person is asked to do the thing themselves.
+ */
+export const agentAsk = {
+  /** The ask itself: open work until the agent or a person answers it. */
+  asked: {
+    summary: "Somebody asked the assistant to do something",
+    nextStep: "Read the ask, and do it yourself if the assistant has not.",
+    predicate: "the ask answered, by the assistant or by a coordinator, and the outcome recorded",
+  },
+  /**
+   * The staff alert. The words say what is true — nobody could answer — and not why, because the
+   * why is a vendor, a key or an outage and none of those is a coordinator's to read.
+   */
+  unavailable: {
+    summary: "Nobody could answer an ask here, so it needs a person",
+    nextStep: "Do the thing that was asked, or reply to the family yourself.",
+    predicate: "a coordinator has done what was asked and recorded it",
+  },
+  /** What the bubble says back when the ask could not be answered. One line, under the thread. */
+  unavailableNotice: "Nobody can answer that right now. It is on your list instead.",
+  /** What the bubble says back when the ask went in. */
+  sent: "Asked.",
+} as const;
