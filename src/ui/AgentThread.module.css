@@ -1,0 +1,142 @@
+/*
+ * mockups/agent-bubble.html `.msgs`, `.ts`, `.who`, `.b`, `.in`, `.out`, and the compact card
+ * `.prop` from mockups/family-texts.html. Lengths are the mockup's; every colour is a token.
+ *
+ * Two deliberate substitutions, because tokens.ts is the only file that may hold a colour and its
+ * §8 list is closed (tokens.test.ts asserts the whole set):
+ *  - the mockup's own bubble grey becomes `--color-neutral-bg`, the system's one grey fill;
+ *  - the mockup's own timestamp grey becomes `--color-ink-muted`, which is also the readable one.
+ *
+ * And one type substitution: the mockup sets the day label at 11.5 px, and §2's floor is 12 with
+ * 11 reserved for the one pill (src/ui/pill.test.ts holds that). The label reads at 12.
+ */
+.thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-5) var(--space-5) var(--space-3);
+}
+
+/* Nothing has been said today. One line, in the muted ink, where the thread would be. */
+.empty {
+  align-self: center;
+  margin-top: var(--space-5);
+  color: var(--color-ink-muted);
+}
+
+/* `.ts`: the centred day label above a group. */
+.day {
+  align-self: center;
+  margin: var(--space-2) 0 var(--space-4);
+  color: var(--color-ink-muted);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* `.who`: "Marcus L. · Van 1", above the grey bubble it belongs to. */
+.who {
+  margin: var(--space-4) 0 var(--space-1) var(--space-2);
+  color: var(--color-ink-muted);
+  font-size: var(--text-12);
+}
+
+/* `.b`: the shared bubble box — 82% wide at most, 18 px corners, one tail corner squared off. */
+.bubble {
+  max-width: 82%;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--space-6);
+  line-height: var(--leading-tight);
+}
+
+/* `.in`: a driver, grey, on the left. */
+.inbound {
+  align-self: flex-start;
+  background: var(--color-neutral-bg);
+  color: var(--color-ink);
+  border-bottom-left-radius: var(--radius-sm);
+}
+
+/* `.out`: staff, teal, on the right. */
+.outbound {
+  align-self: flex-end;
+  margin-top: var(--space-5);
+  background: var(--color-brand);
+  color: var(--color-surface);
+  border-bottom-right-radius: var(--radius-sm);
+}
+
+/*
+ * `.prop` (mockups/family-texts.html): the COMPACT card — the question as the title, then one row
+ * of actions. No details table and no clock times; that is the full For you card.
+ */
+.proposal {
+  align-self: flex-start;
+  max-width: 88%;
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-neutral-bg);
+  border-radius: var(--space-5);
+}
+
+.question {
+  font-weight: var(--weight-semibold);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* `.btn` / `.btn.ok2` / `.tl`: an outline action, the teal one, and the quiet third. */
+.action,
+.quiet {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+}
+
+.action {
+  padding: 0 var(--space-4);
+  border: var(--border-hairline) solid var(--color-disabled-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+.primary {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--color-surface);
+}
+
+.quiet {
+  padding: 0 var(--space-3);
+  color: var(--color-ink-muted);
+}
+
+.action:focus-visible,
+.quiet:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+@media (max-width: 767px) {
+  .thread {
+    padding: var(--space-4) var(--space-4) var(--space-3);
+  }
+}

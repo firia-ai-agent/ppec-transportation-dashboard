@@ -12,6 +12,7 @@ import {
   setAgentBubbleOpen,
   subscribeAgentBubbleOpen,
 } from "./agent-bubble-state";
+import { AgentThread, type AgentThreadItem } from "./AgentThread";
 import styles from "./AgentBubble.module.css";
 
 /**
@@ -42,7 +43,8 @@ import styles from "./AgentBubble.module.css";
 export function AgentBubble({
   canDecide,
   waiting = 0,
-  thread,
+  items = [],
+  compose,
 }: {
   /**
    * `canOpenForYou(caller)` — resolved on the server by the layout that mounts the shell, never
@@ -55,10 +57,13 @@ export function AgentBubble({
    */
   waiting?: number;
   /**
-   * The thread, already read from what this app stores and turned into what the panel shows
-   * (src/ui/agent-thread.ts). Nothing is invented here: an empty thread draws the empty line.
+   * The thread, already read from what this app stores (src/modules/agent/ask/thread.ts) and
+   * turned into what the panel draws. Nothing is invented here: a day with nothing in it renders
+   * the empty line rather than a fixture conversation.
    */
-  thread?: ReactNode;
+  items?: readonly AgentThreadItem[];
+  /** The compose bar, which is a form and therefore the server's to render. */
+  compose?: ReactNode;
 }) {
   const pathname = usePathname();
   const tab = useSearchParams().get("tab");
@@ -98,7 +103,8 @@ export function AgentBubble({
               <X size={22} aria-hidden="true" />
             </button>
           </div>
-          {thread}
+          <AgentThread items={items} />
+          {compose}
         </aside>
       ) : null}
     </div>
