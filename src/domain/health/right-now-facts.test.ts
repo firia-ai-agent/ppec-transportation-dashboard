@@ -3,7 +3,7 @@ import { uuidv7 } from "uuidv7";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { readDayFacts } from "@/domain/day/day-facts";
-import { freshDb, SITE } from "@/test/pglite";
+import { freshDb, ORG, SITE } from "@/test/pglite";
 import { loadRightNow } from "./right-now-facts";
 import { rightNowTiles, type RightNowTile } from "./right-now";
 
@@ -293,5 +293,51 @@ describe("needs you follows the open staff alerts", () => {
     const after = one(rightNowTiles(await loadRightNow(db, SITE, DATE, LEG)), "NEEDS_YOU");
     expect(after.count).toBe(1);
     expect(after.pill?.text).toBe("Family texts");
+  }, 60_000);
+});
+
+describe("a tile counts only this centre", () => {
+  /**
+   * docs/DATA-MODEL.md: a staff alert and a van check belong to a site. The other centre's
+   * open NEEDS_PERSON task and its unchecked van are not this centre's numbers.
+   */
+  it("ignores the other site's unchecked van and its open alerts", async () => {
+    const db = await database();
+    const other = "00000000-0000-7000-8000-000000000099";
+    await db.query(
+      `INSERT INTO ops.site (id, org_id, name, depot_lat, depot_lng, created_by, updated_by)
+       VALUES ($1, $2, 'SYN Other', 26.64, -80.14, 'test', 'test')`,
+      [other, ORG],
+    );
+    const v1 = await van(db, "V1");
+    const v2 = await van(db, "V2");
+    const v3 = await van(db, "V3");
+    await setup(db, v1, "CHECKED");
+    await setup(db, v2, "CHECKED");
+    await setup(db, v3, "DEFAULT");
+    await db.query(
+      `INSERT INTO ops.vehicle (id, site_id, label, lift_equipped, created_by, updated_by)
+       VALUES ($1, $2, 'A other van', true, 'test', 'test')`,
+      [uuidv7(), other],
+    );
+    await needsPerson(db);
+    await needsPerson(db);
+    for (let i = 0; i < 4; i++) {
+      await db.query(
+        `INSERT INTO ops.task
+           (id, site_id, category, severity, state, summary, completion_predicate, created_by, updated_by)
+         VALUES ($1, $2, 'NEEDS_PERSON', 'RED', 'OPEN', 'Other centre', 'staff', 'test', 'test')`,
+        [uuidv7(), other],
+      );
+    }
+
+    const tiles = rightNowTiles(await loadRightNow(db, SITE, DATE, LEG));
+    const vans = one(tiles, "VANS_CHECKED");
+    const needs = one(tiles, "NEEDS_YOU");
+    // The other centre's van sorts first by label. It must not become the pill.
+    expect(vans.count).toBe(2);
+    expect(vans.outOf).toBe(3);
+    expect(vans.pill?.text).toBe("Van 3");
+    expect(needs.count).toBe(2);
   }, 60_000);
 });

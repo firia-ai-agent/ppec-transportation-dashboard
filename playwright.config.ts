@@ -24,6 +24,8 @@ export default defineConfig({
   testDir: "./e2e",
   // Kept out of src/ so vitest, which collects src/**/*.test.ts, never tries to run these.
   testMatch: /.*\.spec\.ts$/,
+  // The seeded-database spec starts its own throwaway Postgres (playwright.db.config.ts).
+  testIgnore: /health-tab-data\.spec\.ts$/,
   outputDir: "./artifacts/playwright",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

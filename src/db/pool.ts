@@ -1,4 +1,4 @@
-import { Pool } from "@neondatabase/serverless";
+import { neonConfig, Pool } from "@neondatabase/serverless";
 import { isReadOnlyDbEnv, readOnlyGuard, rewriteBeginReadOnly, type SqlLike } from "./read-only";
 
 let pool: Pool | undefined;
@@ -12,7 +12,20 @@ let pool: Pool | undefined;
 export function getPool(): Pool {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set");
-  if (!pool) pool = new Pool({ connectionString: url });
+  if (!pool) {
+    /*
+     * A local throwaway Postgres speaks TCP. The Neon driver only speaks WebSocket, so the
+     * browser check that seeds one (e2e/health-tab-data.spec.ts) points this at its own proxy.
+     * Unset everywhere else, including every deployment: the driver keeps its Neon defaults.
+     */
+    const proxy = process.env.LOCAL_PG_WS_PROXY;
+    if (proxy) {
+      neonConfig.wsProxy = proxy;
+      neonConfig.useSecureWebSocket = false;
+      neonConfig.pipelineConnect = false;
+    }
+    pool = new Pool({ connectionString: url });
+  }
   return pool;
 }
 
