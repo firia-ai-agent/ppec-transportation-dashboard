@@ -24,6 +24,12 @@ import {
 
 const day = demoDay();
 const ASK = "Can Noah be dropped at grandma's at 5?";
+/**
+ * The reply the model writes to the parent (Firia, 2026-10-18 11:04 AM ET): warm, short, and an
+ * answer to what she actually asked — the five o'clock she named, in the names she uses. It is a
+ * tool argument, so a reply of the wrong shape is refused at the gateway like any other.
+ */
+const MODEL_REPLY = "Hi Dara, yes, we'll drop Noah off at 5 today. Thanks for letting us know!";
 
 /** The deployment that has confirmed demo-data operation but holds no key: no model can answer. */
 const NO_KEY = { [DEMO_DATA_ONLY_ENV_VAR]: DEMO_DATA_ONLY_REQUIRED_VALUE, [DATA_CLASS_ENV_VAR]: SYNTHETIC_DATA_CLASS };
@@ -71,6 +77,11 @@ const proposesDropoff = () =>
       requested_dropoff_time: "17:00",
       requested_stop_token: null,
       rationale_code: "PARENT_REQUEST",
+      /*
+       * The reply the model writes to the parent, required since Firia's 11:04 AM ET ruling: the
+       * card is the model's own sentence, which is what answers the question the parent asked.
+       */
+      reply: MODEL_REPLY,
       source_message_id: "M-F2-1",
       expected_version: 1,
     }),
@@ -137,6 +148,12 @@ describe("a model turn, judged by §11.2", () => {
     expect(turn.verdict).toBe("PROPOSAL");
     expect(turn.mutated).toBe(false);
     expect(turn.dropoff).toMatchObject({ childKey: "C2", requestedHhmm: "17:00" });
+    /*
+     * And the reply, in the model's own words, straight off the sanitized arguments — the one
+     * prose field in the catalog that is meant for a family, and the reason the card answers the
+     * question Dara asked (Firia, 11:04 AM ET). Not redacted: the names in it are the point.
+     */
+    expect(turn.args.reply).toBe(MODEL_REPLY);
   });
 
   it("sends the model a prompt with no name and no number in it (TEST-SEC-01)", async () => {

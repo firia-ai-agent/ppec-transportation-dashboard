@@ -1,6 +1,19 @@
 /**
- * THE DEMO SEEDS A REAL APPROVAL ROW — Firia's S1-2, 2026-10-17 11:00 PM ET: "Demo data seeds real
- * approval rows via the demo adapter (src/modules/demo/…), not UI fixtures."
+ * THE DEMO DAY'S CARD IS A REAL APPROVAL ROW, DRAFTED BY THE MODEL — Firia's S1-2 (2026-10-17
+ * 11:00 PM ET: "Demo data seeds real approval rows via the demo adapter … not UI fixtures") as
+ * amended by the 11:04 AM ET ruling of 2026-10-18: the reply on it is **the model's own words**,
+ * not the fixed `dropoff.changed` sentence the founder's complaint was about.
+ *
+ * So the writer under test moved. `seedStandardScenario` writes the day and **no card**, and
+ * `draftDemoProposal` writes the card afterwards — outside the seed's transaction, from the real
+ * agent turn over the parent's real text, with a timeout and a copy fallback. The suite drives it
+ * with an **injected fake provider**: no network in a test, and the script is the same shape the
+ * live model's answer has (`providers/fake.toolCall`).
+ *
+ * Everything the row had to be is unchanged, and is still asserted below: one undecided
+ * `DROPOFF_CHANGE` row that `pendingApprovals` reads, a leg that exists, the child's own stop, the
+ * board's counter as the basis, one row and not two after a Restart, and a decision that saves the
+ * plan through the board and queues the family's text.
  *
  * On PGlite over the real migrations, because the claim is about *rows*: that
  * `seedStandardScenario` leaves an `ops.approval_request` the screen's own query reads back, with
@@ -43,8 +56,12 @@ import { sqlDaySource } from "@/modules/roster/sql";
 import { VANS } from "@/config/vans";
 import { seedStaff } from "@/test/messaging";
 import { freshPlanDb, SITE } from "@/test/pglite";
+import { fakeProvider, toolCall } from "@/modules/agent/providers/fake";
 import { seedDemoChangeRequest } from "./approval-seed";
+import { draftDemoProposal, fallbackReply } from "./draft-proposal";
 import { demoChangeRequests } from "./change-request";
+import { DROPOFF_REPLY_TEMPLATE } from "@/modules/approvals/dropoff-change";
+import { demoDay } from "@/domain/board/day";
 import { childByKey, childTokenOf, stopByKey, vehicleIdOf } from "./fixtures/standard";
 import { seedStandardScenario } from "./seed";
 
@@ -71,14 +88,122 @@ afterAll(async () => {
   await close();
 });
 
-beforeEach(async () => {
+/**
+ * The reply the scripted model writes: warm, short, the five o'clock Dara asked for, both first
+ * names, no codes and no `PPEC:` prefix — the shape `messaging/reply-text.ts` enforces.
+ */
+const MODEL_REPLY = "Hi Dara, yes, we'll drop Noah off at 5 today. Thanks for letting us know!";
+
+/**
+ * A scripted `propose_dropoff_change`, as the live model answers it. The arguments are the demo
+ * day's own: the fixture leg token the turn's scope carries, the time the script asks for, and the
+ * reply. No network — `demoAgentTurn` is handed this provider instead of the configured one.
+ */
+const scriptedModel = () =>
+  fakeProvider([
+    toolCall("propose_dropoff_change", {
+      /*
+       * The fixture token the turn's own scope carries (`demoAgentTurn` builds its scope from the
+       * roster, not from the database), which is what the policy engine checks. The row's leg is
+       * read back from the seeded rows by the writer, never off the model's argument.
+       */
+      leg_id: `L-${request().childKey}-PM`,
+      requested_dropoff_time: request().requestedHhmm,
+      requested_stop_token: null,
+      rationale_code: "PARENT_REQUEST",
+      reply: MODEL_REPLY,
+      source_message_id: `M-${childByKey(request().childKey)!.familyKey}-1`,
+      expected_version: 1,
+    }),
+  ]);
+
+/** Seed the day, then draft its one card the way the reset route and the screen both do. */
+const seedAndDraft = async (provider = scriptedModel()) => {
   await seedStandardScenario(db, { now: NOW, siteId: SITE, env: ENV });
+  return draftDemoProposal(db, {
+    siteId: SITE,
+    serviceDate: SERVICE_DATE,
+    day: demoDay(),
+    env: ENV,
+    now: NOW,
+    provider,
+  });
+};
+
+beforeEach(async () => {
+  await seedAndDraft();
 }, 120_000);
 
 /** The one change request the day has — the request the seeded row is about. */
 const request = () => demoChangeRequests()[0];
 
-describe("seedStandardScenario leaves a real approval row (S1-2)", () => {
+describe("the seed writes the day and the model writes the card (Firia 11:04 AM ET)", () => {
+  it("leaves no proposal of its own: a model call is never in the reset's transaction", async () => {
+    /*
+     * The whole reason the drafting is a step of its own. Restart must finish whatever the vendor
+     * is doing, so the seed commits the day with no card on it — and this is the assertion that
+     * keeps a model call from drifting back into that transaction.
+     */
+    await db.query("DELETE FROM ops.approval_request WHERE site_id = $1", [SITE]);
+    await seedStandardScenario(db, { now: NOW, siteId: SITE, env: ENV });
+    expect(await pendingApprovals(db, [SITE])).toEqual([]);
+  });
+
+  it("drafts the card from the model's own reply, which is what Approve would send", async () => {
+    const pending = await pendingApprovals(db, [SITE]);
+    expect(pending).toHaveLength(1);
+    // The model's sentence, word for word, through the renderer the card and the outbox share.
+    expect(pending[0].text).toBe(MODEL_REPLY);
+    expect(pending[0].templateId).toBe(DROPOFF_REPLY_TEMPLATE);
+    // It answers what she asked — the five o'clock — and carries neither a code nor the prefix.
+    expect(pending[0].text).toContain("5");
+    expect(pending[0].text).not.toContain("PPEC:");
+    const proposal = await proposalJson();
+    expect(proposal.reply_text).toBe(MODEL_REPLY);
+  });
+
+  it("falls back to the improved copy reply when no model answers, and still writes one card", async () => {
+    await db.query("DELETE FROM ops.approval_request WHERE site_id = $1", [SITE]);
+    await db.query("DELETE FROM ops.task WHERE site_id = $1 AND category = 'PLAN_CHANGE'", [SITE]);
+    /*
+     * A provider whose script is empty throws on the first call — which stands for every way the
+     * model can fail: no key, a refused chain, a rate limit, a timeout. The card is drafted from
+     * copy, it names the parent, the child and the time she asked for, and there is exactly one.
+     */
+    const drafted = await draftDemoProposal(db, {
+      siteId: SITE,
+      serviceDate: SERVICE_DATE,
+      day: demoDay(),
+      env: ENV,
+      now: NOW,
+      provider: fakeProvider([]),
+    });
+    expect(drafted.modelWritten).toBe(false);
+    const pending = await pendingApprovals(db, [SITE]);
+    expect(pending).toHaveLength(1);
+    expect(pending[0].text).toBe(fallbackReply(request()));
+    expect(pending[0].text).toContain(request().childFirstName);
+    expect(pending[0].text).toContain(request().guardianName.split(" ")[0]);
+    expect(pending[0].text).toContain(request().timeTo);
+  });
+
+  it("drafts once: a second load finds the card and calls no model at all", async () => {
+    const provider = scriptedModel();
+    const again = await draftDemoProposal(db, {
+      siteId: SITE,
+      serviceDate: SERVICE_DATE,
+      day: demoDay(),
+      env: ENV,
+      now: NOW,
+      provider,
+    });
+    expect(again.alreadyDrafted).toBe(true);
+    expect(provider.calls).toEqual([]);
+    expect(await pendingApprovals(db, [SITE])).toHaveLength(1);
+  });
+});
+
+describe("the drafted row is the shape the screen and the decision both read (S1-2)", () => {
   it("writes exactly one undecided DROPOFF_CHANGE row, and the screen's query reads it", async () => {
     const rows = await db.query<{ id: string; kind: string; n: string }>(
       `SELECT id, proposal ->> 'kind' AS kind, count(*) OVER ()::text AS n
@@ -98,9 +223,9 @@ describe("seedStandardScenario leaves a real approval row (S1-2)", () => {
     expect(pending[0].childToken).toBe(childTokenOf(request().childKey));
     expect(pending[0].requestedTime).toBe(request().requestedHhmm);
     // The words come from the row's template and vars through the outbox's own renderer.
-    expect(pending[0].templateId).toBe("dropoff.changed");
-    // The child in the sentence is their first name: `renderTemplate` shortens a staff label to
-    // the name a family reads (src/modules/identity/display-name.ts).
+    expect(pending[0].templateId).toBe(DROPOFF_REPLY_TEMPLATE);
+    // The child is in the sentence by their first name — written there by the model, which is
+    // what the ruling asks for ("uses the parent's and child's first names").
     expect(pending[0].text).toContain(childByKey(request().childKey)!.firstName);
     // `created_at` is readable, which is the card's "Agent · …" line.
     expect(pending[0].draftedAtMs).toBeGreaterThan(0);
@@ -137,7 +262,7 @@ describe("seedStandardScenario leaves a real approval row (S1-2)", () => {
   });
 
   it("re-seeds rather than stacking: Restart demo day leaves one row, not two", async () => {
-    await seedStandardScenario(db, { now: NOW, siteId: SITE, env: ENV });
+    await seedAndDraft();
     const again = await pendingApprovals(db, [SITE]);
     expect(again).toHaveLength(1);
     expect(again[0].id).toBe(request().approvalId);
@@ -149,7 +274,7 @@ describe("seedStandardScenario leaves a real approval row (S1-2)", () => {
     await db.query("DELETE FROM ops.manifest_reservation WHERE site_id = $1", [SITE]);
     await db.query("DELETE FROM ops.trip_leg WHERE site_id = $1", [SITE]);
     const wrote = await db.tx((tx) =>
-      seedDemoChangeRequest(tx, { siteId: SITE, serviceDate: SERVICE_DATE }),
+      seedDemoChangeRequest(tx, { siteId: SITE, serviceDate: SERVICE_DATE, replyText: MODEL_REPLY }),
     );
     expect(wrote).toBeNull();
     expect(await pendingApprovals(db, [SITE])).toEqual([]);

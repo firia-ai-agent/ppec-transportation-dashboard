@@ -36,8 +36,16 @@ import { registerTestGuardian, testIdentityGateway } from "@/test/identity-gatew
 /** The suites' identity gateway (S1-6); see src/test/identity-gateway.ts. */
 const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 
-/** The two bodies that tell a family their child's ride is different. A person signs these. */
-const APPROVAL_ONLY = ["dropoff.changed", "leg.changed"] as const;
+/**
+ * The bodies that tell a family their child's ride is different. A person signs every one of them.
+ *
+ * `dropoff.reply` joined them on Firia's 11:04 AM ET ruling of 2026-10-18 — the model-written
+ * reply, which is the most decision-shaped body there is: a sentence a coordinator approved word
+ * for word. It is held to the same three locks as the other two (off the tool schema, off the
+ * executor's guardian allow-list, never labelled "Auto") and to a fourth of its own: it is the only
+ * body on this list that carries prose, and `free-text-egress.test.ts` is the door on that.
+ */
+const APPROVAL_ONLY = ["dropoff.changed", "leg.changed", "dropoff.reply"] as const;
 
 /** The goal-3 automatic text: the afternoon van that has lost time (PRD §18.2 step 7). */
 const LATE_NOTICE = "dropoff.late";

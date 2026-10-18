@@ -62,7 +62,7 @@ import { APPROVAL_ROLES } from "@/auth/access";
 import type { Db, Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import { boardPlacementPort, type PlacementBucket, type PlanPlacementPortFor } from "./plan-placement-port";
-import { DROPOFF_CHANGE_KIND } from "./dropoff-change";
+import { DROPOFF_CHANGE_KIND, DROPOFF_CHANGE_TEMPLATE, DROPOFF_REPLY_TEMPLATE } from "./dropoff-change";
 import { MESSAGE_SEND_KIND } from "./message-send";
 import { renderTemplate } from "@/modules/messaging/templates";
 import { enqueue, type OutboxTransport } from "@/modules/outbox/outbox";
@@ -172,6 +172,14 @@ type DropoffProposal = {
   cancel?: boolean;
   stop_token?: string | null;
   rationale_code?: string;
+  /**
+   * The model's own reply to the parent, when the proposal carries one (Firia, 2026-10-18 11:04 AM
+   * ET). Provenance, not a second copy of the words: what is rendered and what is sent is
+   * `template_id` + `vars.replyText`, through the one renderer, exactly as every other kind of
+   * proposal renders. A reader that wants to know whether a card was drafted or fell back to the
+   * fixed template reads this; nothing decides anything on it.
+   */
+  reply_text?: string;
   template_id?: string;
   vars?: Record<string, unknown>;
 };
@@ -245,9 +253,27 @@ export function bodyOf(
   overrideTime?: string | null,
   child?: string | null,
 ): string {
-  const templateId = String(proposal.template_id ?? "");
-  if (!templateId) return "";
   const vars = { ...(proposal.vars ?? {}) };
+  /*
+   * AN EDITED TIME RETIRES THE MODEL'S SENTENCE (Firia, 2026-10-18 11:04 AM ET).
+   *
+   * The reply on the card names the time the parent asked for, in the model's own words ("we'll
+   * drop Noah off at 5 today"), because that is the ruling: the text answers what she asked. A
+   * coordinator who moves the time to 5:45 has made those words wrong, and nobody re-asks the
+   * model from a form post — so the body falls back to the fixed template for the edited time,
+   * which is exactly the sentence an edited drop-off has always sent. Keyed off `vars.eta` and not
+   * off the row's own column, so this screen's renderer and `decideApproval`'s reach the same
+   * answer from the same two inputs: the words a coordinator read stay the words that are sent,
+   * and an edit still needs a fresh press because the rendered text has changed.
+   */
+  const retired =
+    String(proposal.template_id ?? "") === DROPOFF_REPLY_TEMPLATE &&
+    typeof overrideTime === "string" &&
+    overrideTime !== "" &&
+    overrideTime !== String(vars.eta ?? "");
+  const templateId = retired ? DROPOFF_CHANGE_TEMPLATE : String(proposal.template_id ?? "");
+  if (!templateId) return "";
+  if (retired) delete vars.replyText;
   if (overrideTime) vars.eta = overrideTime;
   try {
     /*

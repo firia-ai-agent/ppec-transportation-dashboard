@@ -32,6 +32,7 @@
  */
 import type { Exec } from "@/db/exec";
 import { CHILD_TEMPLATES } from "@/modules/outbox/outbox";
+import { DROPOFF_REPLY_TEMPLATE } from "@/modules/approvals/dropoff-change";
 import { FAMILY_SMS, authorizedContactsForChild } from "@/modules/outbox/policy";
 import type { CommittedCall } from "../store";
 import { factString, isUuid, legRow, threadRow } from "./effects";
@@ -144,7 +145,18 @@ const AUDIENCE_RULES: Readonly<Record<Audience, AudienceRule>> = {
  * about a ride that is happening, which every authorized contact is entitled to (§10.1 "Fan-out
  * 1:1 broadcast").
  */
-export const DECISION_TEMPLATES: ReadonlySet<string> = new Set(["leg.canceled", "leg.changed", "dropoff.changed"]);
+export const DECISION_TEMPLATES: ReadonlySet<string> = new Set([
+  "leg.canceled",
+  "leg.changed",
+  "dropoff.changed",
+  /*
+   * The model-written reply (Firia, 2026-10-18 11:04 AM ET). It is the most decision-shaped body
+   * there is — a sentence a coordinator signed, word for word — so it belongs on this list for the
+   * same reason the other three do, and it is not on `send_followup`'s schema at all: the only
+   * writer is `propose_dropoff_change`'s proposal row and the only sender is `approvals/decide.ts`.
+   */
+  DROPOFF_REPLY_TEMPLATE,
+]);
 
 /** What the subject resolved to: who gets it, and the child reference the message carries. */
 type Resolved = {

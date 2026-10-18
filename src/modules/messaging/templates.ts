@@ -33,6 +33,7 @@
  *    outbox already rejects it at enqueue and blocks it at send).
  */
 import { disallowedVars, TEMPLATE_VARS } from "@/modules/outbox/outbox";
+import { isReplyText } from "./reply-text";
 import { fill, outboundSms } from "@/ui/copy";
 
 export class TemplateRenderError extends Error {}
@@ -185,6 +186,17 @@ const FORMAT: Readonly<Record<string, (value: string, templateId: string, vars: 
   // Minutes as digits, already bounded to 1–240 by the var rule. Nothing to word: "about 15
   // minutes late" is the body's sentence, and this is the number in it.
   delayMinutes: (value) => (/^\d{1,3}$/.test(value) ? value : null),
+  /*
+   * The approved reply, placed whole — the one var that is already words (Firia, 2026-10-18
+   * 11:04 AM ET). Nothing to word, and so nothing is worded: the model wrote the sentence and a
+   * coordinator approved that sentence, so re-phrasing any part of it here would send something
+   * nobody signed.
+   *
+   * It is still *checked* rather than trusted, which is what every other rule in this table is
+   * doing too: a row written around the outbox's door renders null here and the message is
+   * refused (`ProviderRejected` → FAILED) instead of carrying a sentence that broke the shape.
+   */
+  replyText: (value) => (isReplyText(value) ? value : null),
 };
 
 const PLACEHOLDER = /\{(\w+)\}/g;

@@ -36,3 +36,15 @@ export const DROPOFF_CHANGE_TASK_CATEGORY = "PLAN_CHANGE";
 
 /** The allow-listed template a family is told about an agreed drop-off with. */
 export const DROPOFF_CHANGE_TEMPLATE = "dropoff.changed";
+
+/**
+ * The template that carries the **model's own reply** to the parent, as one var (Firia,
+ * 2026-10-18 11:04 AM ET). `DROPOFF_CHANGE_TEMPLATE` above is the fixed-copy fallback used when
+ * no model answered; this is the one a card drafted by the assistant renders and sends.
+ *
+ * Here beside the other three for the same reason they are here: five modules have to agree on
+ * the name (`agent/run/exec/proposals.ts`, `outbox/outbox.ts`, `messaging/templates.ts`,
+ * `demo/draft-proposal.ts` and `decide.ts` through the row), and a name is not worth a database
+ * handle.
+ */
+export const DROPOFF_REPLY_TEMPLATE = "dropoff.reply";
