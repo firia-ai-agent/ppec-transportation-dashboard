@@ -167,6 +167,28 @@
   text-decoration: underline;
 }
 
+/*
+ * "Start demo day" — the strip's one button (Firia's final scope, 2026-10-18 1:50 AM ET). It is
+ * an action and not a destination, so it is a button; it sits in a sentence, so it is drawn as
+ * the word beside it rather than as a second primary on the screen.
+ */
+.bannerButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  text-decoration: underline;
+  cursor: pointer;
+  min-height: var(--target-console);
+}
+
+.bannerButton:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 /* ───────────────────────────── the board (§1.1) ───────────────────────────── */
 
 .body {

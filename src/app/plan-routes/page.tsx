@@ -20,6 +20,7 @@
  * Retry" and the shell around it stays, because a screen that cannot read its day must not take
  * the menu down with it.
  */
+import { API, apiOutcome } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
 import { loadBoard, planStore } from "@/modules/plan/store";
 import { siteOf } from "@/modules/plan/api";
@@ -75,5 +76,18 @@ export default async function PlanRoutesPage({
 
   // Director and coordinator plan; nobody else reaches this page at all (the row above). The
   // same component is read-only on Today for the front desk (src/app/(app)/today/page.tsx).
-  return <PlanBoard view={view} selectedVanId={van ?? null} canEdit />;
+  /*
+   * Who may start the demo day: the one role `POST /api/demo/reset` allows, read from the same
+   * access table the endpoint is guarded by rather than from a second list here (Firia's final
+   * scope, 2026-10-18 1:50 AM ET). The server checks it again when the button is pressed.
+   */
+  const canStartDay = apiOutcome(caller, API.demoReset) === "ALLOW";
+  return (
+    <PlanBoard
+      view={view}
+      selectedVanId={van ?? null}
+      canEdit
+      canStartDay={canStartDay}
+    />
+  );
 }

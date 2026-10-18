@@ -186,6 +186,13 @@ export const flow = {
     planRoutes: "Plan routes",
     checkVans: "Check vans",
     startDemo: "Start demo day",
+    /**
+     * For a coordinator, who may not start the day: the day is started from the DEMO bar by a
+     * director, and Today is the screen that carries the order of the day beside it (§9.2's
+     * step strip). The label says where to look, because a button that answers 403 to the
+     * person reading it is worse than no button (Firia's final scope, 2026-10-18 1:50 AM ET).
+     */
+    whereDayStarts: "Where the day is started",
   },
   empty: {
     noRoutes: "No routes yet",

@@ -42,6 +42,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import PlanMap from "@/components/map/PlanMap";
+import { useRouter } from "next/navigation";
 import { API } from "@/auth/access";
 import type { RejectReason } from "@/config/equipment";
 import {
@@ -97,6 +98,7 @@ export default function PlanBoard({
   view,
   selectedVanId = null,
   canEdit = true,
+  canStartDay = false,
 }: {
   view: BoardView;
   /**
@@ -104,6 +106,11 @@ export default function PlanBoard({
    * no grips and no Save (founder 2026-10-17 7:17 PM ET). The endpoints refuse their role too.
    */
   canEdit?: boolean;
+  /**
+   * May this caller start the demo day? The director, which is the one role the reset endpoint
+   * allows (src/auth/access.ts). The server checks it again; this only decides what is offered.
+   */
+  canStartDay?: boolean;
   /** 1 where the board is the screen, 2 where it is Today's child list. */
   /**
    * The van the address names (§9.3's `?van=`), which is where the ramp's Re-plan and the
@@ -119,8 +126,11 @@ export default function PlanBoard({
   /** The child whose panel is open, by token. One at a time (mockup plan-board-child-*.png). */
   const [openChild, setOpenChild] = useState<string | null>(null);
   const [savingChild, setSavingChild] = useState(false);
+  /** True while "Start demo day" is in flight, so the one button cannot be pressed twice. */
+  const [startingDay, setStartingDay] = useState(false);
   /** Which of the two groups the held card is over, so it can say it would take them. */
   const [overBucket, setOverBucket] = useState<Bucket | null>(null);
+  const router = useRouter();
   const [save, setSave] = useState<SaveState>(
     view.savedAt ? { kind: "SAVED", at: view.savedAt } : { kind: "DIRTY" },
   );
@@ -268,6 +278,26 @@ export default function PlanBoard({
   );
 
   /** Undo takes back the most recent **unsaved** move, and only that (option A). */
+  /* ── "Start demo day": the same reset the DEMO bar calls, from the strip that is waiting on it ── */
+  const startDay = useCallback(async () => {
+    setStartingDay(true);
+    try {
+      const response = await fetch(API.demoReset, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      // The day on screen is the old one either way: a refusal is the server's answer to read,
+      // and a success is a new day to re-read. Both are a refresh.
+      if (response.ok) router.refresh();
+    } catch {
+      // Nothing to recover from and nothing to report: the strip still says the day is not
+      // started, which is the honest state of it.
+    } finally {
+      setStartingDay(false);
+    }
+  }, [router]);
+
   const undo = useCallback(() => {
     setPending((queue) => undoLast(queue));
     setToast(null);
@@ -404,7 +434,11 @@ export default function PlanBoard({
     applyMove(childToken, target === UNASSIGNED_ID ? null : target);
   };
 
-  const banner = boardBanner(view.readiness, firstUncheckedHref(day, day.date, day.direction));
+  const banner = boardBanner(
+    view.readiness,
+    firstUncheckedHref(day, day.date, day.direction),
+    canStartDay,
+  );
 
   return (
     <main className={styles.page}>
@@ -472,8 +506,25 @@ export default function PlanBoard({
         {banner ? (
           <p className={styles.banner} data-tone={banner.tone} data-banner="">
             {banner.text}
-            {banner.action ? (
-              <a className={styles.bannerLink} href={banner.action.href}>
+            {banner.action && "start" in banner.action ? (
+              /*
+                The one button this strip has, and only for the role the reset endpoint allows
+                (Firia's final scope, 2026-10-18 1:50 AM ET). It calls the same path the DEMO
+                bar's "Restart demo day" calls — `POST /api/demo/reset`, DIRECTOR and
+                site-scoped — so the server is still the thing that decides, and the screen
+                re-reads the day it just started.
+              */
+              <button
+                type="button"
+                className={styles.bannerButton}
+                data-start-day=""
+                disabled={startingDay}
+                onClick={() => void startDay()}
+              >
+                {banner.action.label}
+              </button>
+            ) : banner.action ? (
+              <a className={styles.bannerLink} href={banner.action.href} data-banner-link="">
                 {banner.action.label}
               </a>
             ) : null}
