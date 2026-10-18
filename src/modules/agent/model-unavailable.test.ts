@@ -752,18 +752,52 @@ describe("the alert is one card, and opening it marks it taken rather than hidin
 /* ───────────────────── the leg word comes from the rows, never from the text ───────────────────── */
 
 describe("the leg word is read off the leg, not out of the family's sentence", () => {
+  /**
+   * Both of this child's rides still on the board, each with the planned time it is due at —
+   * which is the demo day's own shape (`demo/seed.ts` writes `window_start` on every leg and
+   * moves no state afterwards).
+   */
+  async function planLegs(am: Date, pm: Date) {
+    await db.query("UPDATE ops.trip_leg SET state = 'SCHEDULED', window_start = $2 WHERE id = $1", [
+      sc.legs[sc.children[0]].AM,
+      am,
+    ]);
+    await db.query("UPDATE ops.trip_leg SET window_start = $2 WHERE id = $1", [
+      sc.legs[sc.children[0]].PM,
+      pm,
+    ]);
+  }
+
   it("with the morning run still ahead, the same text produces a pick-up card", async () => {
     // The message says "dropped off" in so many words. The card says "pick-up", because the AM
     // leg has not run yet — which is the whole point: nothing here reads the sentence.
-    await db.query("UPDATE ops.trip_leg SET state = 'SCHEDULED' WHERE id = $1", [
-      sc.legs[sc.children[0]].AM,
-    ]);
+    // The morning is an hour away; the afternoon is further off still.
+    await planLegs(new Date(now.getTime() + 3600_000), new Date(now.getTime() + 8 * 3600_000));
     fetchMock.mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
     await harnessWithLiveAdapter().start(trigger());
 
     const [card] = await alerts();
     expect(card.sentence).toContain(assistantUnavailable.legWord.AM);
     expect(card.sentence).not.toContain(assistantUnavailable.legWord.PM);
+  });
+
+  /**
+   * THE DEMO DAY'S SHAPE, and the reason a drop-off request got a card about a pick-up.
+   *
+   * Nothing on that day moves a leg's **state** — the board projects the day from the scenario
+   * clock and the rows stay SCHEDULED from Restart to midnight — so the terminal-state rule could
+   * not tell the morning from the afternoon and `direction ASC` picked AM every single time. The
+   * second reading is the leg's own planned time against the message's arrival: two stored
+   * timestamps, no clock, and still not one word of what the family wrote.
+   */
+  it("with both rides still SCHEDULED, the ride the message did not arrive after is the one named", async () => {
+    await planLegs(new Date(now.getTime() - 30 * 60_000), new Date(now.getTime() + 8 * 3600_000));
+    fetchMock.mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
+    await harnessWithLiveAdapter().start(trigger());
+
+    const [card] = await alerts();
+    expect(card.sentence).toContain(assistantUnavailable.legWord.PM);
+    expect(card.sentence).not.toContain(assistantUnavailable.legWord.AM);
   });
 });
 

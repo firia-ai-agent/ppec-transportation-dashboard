@@ -436,9 +436,21 @@ type AlertSubject = {
  * whole change exists to stop.
  *
  * The leg is that child's ride on the message's own service date. Where the day has both, the
- * one still ahead wins: a text that arrives after the morning run is about the afternoon. "Still
- * ahead" is the leg's state, not a clock comparison, because the leg machine is what knows
- * whether a ride has happened (`TERMINAL_LEG_STATES`).
+ * one still ahead wins: a text that arrives after the morning run is about the afternoon.
+ *
+ * "Still ahead" is asked of the rows in two ways, in this order, and the second one is why the
+ * card said "pick-up" about a drop-off all day:
+ *
+ *  1. **the leg's state** — a ride that has happened or been called off is not what a text is
+ *    about (`TERMINAL_LEG_STATES`). This is the better answer wherever the leg machine is being
+ *    driven, because it is the thing that *knows*;
+ *  2. **the leg's own planned time against the message's arrival** — `window_start <= received_at`
+ *    is a ride that was due before the family wrote. On the demo day nothing moves a leg's state
+ *    (the board projects the day from the scenario clock and the rows stay SCHEDULED), so rule 1
+ *    could not separate the morning from the afternoon and `direction ASC` picked AM every time —
+ *    at one in the afternoon, about a drop-off. Two stored timestamps, compared; nothing here is
+ *    read off a clock and nothing is read out of the family's sentence, which is the rule this
+ *    whole module exists for.
  */
 async function alertSubject(db: Exec, siteId: string, messageId: string): Promise<AlertSubject | null> {
   const msg = await db.query<{
@@ -476,9 +488,11 @@ async function alertSubject(db: Exec, siteId: string, messageId: string): Promis
   const legs = await db.query<{ id: string }>(
     `SELECT id FROM ops.trip_leg
      WHERE site_id = $1 AND child_token = $2 AND service_date = $3
-     ORDER BY (state IN (${TERMINAL_LEG_STATES_SQL})) ASC, direction ASC
+     ORDER BY (state IN (${TERMINAL_LEG_STATES_SQL})) ASC,
+              (window_start IS NOT NULL AND window_start <= $4) ASC,
+              direction ASC
      LIMIT 1`,
-    [siteId, childToken, row.service_date],
+    [siteId, childToken, row.service_date, row.received_at],
   );
   return { threadId: row.thread_id, childToken, tripLegId: legs.rows[0]?.id ?? null };
 }
