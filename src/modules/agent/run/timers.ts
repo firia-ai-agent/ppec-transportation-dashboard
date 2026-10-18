@@ -43,7 +43,7 @@ import {
   escalateTimerKey,
 } from "./exec/escalate";
 import type { AwaitExternal } from "./executors";
-import { type AgentWakeTransport, runWakeKey } from "./queue";
+import { type AgentWakeTransport, runWakeKey } from "./wake";
 import { type RunRow, type ToolCallRow, commitCall, runActor, setRunState } from "./store";
 import { triggerLabel } from "./triggers";
 

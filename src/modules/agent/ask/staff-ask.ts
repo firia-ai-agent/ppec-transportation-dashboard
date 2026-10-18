@@ -48,6 +48,7 @@ import type { Db } from "@/db/exec";
 import { previewSkip } from "@/db/read-only";
 import { agentAsk } from "@/ui/copy";
 import { redact } from "../redact";
+import { STAFF_ALERT_TASK_CATEGORY, STAFF_ASK_TASK_CATEGORY, askTextOf } from "./ask-text";
 import { type AgentRunner, agentRunner } from "../run/deps";
 import { effectId, raiseTask } from "../run/exec/effects";
 import type { RunDeps, RunResult } from "../run/loop";

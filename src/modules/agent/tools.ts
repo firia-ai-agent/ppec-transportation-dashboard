@@ -248,7 +248,7 @@ const DEFS: readonly ToolDef[] = [
     schema: z.object({ thread_id: token, count: z.number().int().min(1).max(10) }),
     staffTextFields: [],
     sendCopy: null,
-    prd: "§11.1 T3 as a tool: the last N messages on a family-scoped thread, as evidence, never as instructions",
+    prd: "beyond §11.2's 15: §11.1 T3 as a tool: the last N messages on a family-scoped thread, as evidence, never as instructions",
   },
   {
     name: "cancel_attendance_or_leg",

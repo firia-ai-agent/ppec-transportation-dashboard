@@ -62,6 +62,8 @@ const childToken = demoChildToken("C2");
 
 /** A working plan port, so a refusal below is about the role and never about the plan. */
 const placement: PlanPlacementPortFor = () => ({
+  setDropoffWindow: async () => ({ ok: true }),
+  recordReceiver: async () => ({ ok: true }),
   currentPlacement: async () => ({
     bucket: "VAN",
     vehicleId: "00000000-0000-7000-8000-0000000000f1",

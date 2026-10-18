@@ -401,6 +401,12 @@ export type PolicyRow = {
 const ROWS: readonly PolicyRow[] = [
   { tool: "resolve_sender", scopedArgs: ["message_id"], sendSubject: null, note: "reads one message of this family's thread" },
   { tool: "get_leg_state", scopedArgs: ["leg_id"], sendSubject: null, note: "a leg belongs to one child" },
+  {
+    tool: "read_guardian_thread",
+    scopedArgs: ["thread_id"],
+    sendSubject: null,
+    note: "a thread belongs to one family, and reading it sends nothing: the executor also fences the query on site",
+  },
   { tool: "cancel_attendance_or_leg", scopedArgs: ["child_token"], sendSubject: null, note: "the date and day part are not objects" },
   { tool: "request_clarification", scopedArgs: ["thread_id", "candidate_tokens"], sendSubject: "thread_id", note: "an outbound into a thread: the thread is the consent subject" },
   { tool: "record_acknowledgment", scopedArgs: ["ack_id", "source_message_id"], sendSubject: null, note: "the ack row already binds its contact" },
@@ -634,6 +640,7 @@ function staffAudienceSend(row: PolicyRow, args: Record<string, unknown>): boole
 const DEFENSIVE_TOOLS: ReadonlySet<string> = new Set([
   "resolve_sender",
   "get_leg_state",
+  "read_guardian_thread",
   "escalate_exception",
   "summarize_thread_for_staff",
   "propose_manifest_reallocation",

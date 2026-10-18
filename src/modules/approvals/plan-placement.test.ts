@@ -418,6 +418,8 @@ describe("when the plan cannot be saved, the approval fails safe", () => {
      * `currentPlacement` answers the version it read, and the write is guarded on it.
      */
     const stale: PlanPlacementPortFor = (tx) => ({
+      setDropoffWindow: board()(tx).setDropoffWindow,
+      recordReceiver: board()(tx).recordReceiver,
       currentPlacement: async (query) => {
         const current = await board()(tx).currentPlacement(query);
         // Somebody else's Save, landing between this decision's read and its write. It takes the
@@ -447,6 +449,8 @@ describe("when the plan cannot be saved, the approval fails safe", () => {
     const id = await seedProposal();
     // No plan saved and the proposal names a date this scenario's clock has not started.
     const unstarted: PlanPlacementPortFor = (tx) => ({
+      setDropoffWindow: board()(tx).setDropoffWindow,
+      recordReceiver: board()(tx).recordReceiver,
       currentPlacement: async () => ({ bucket: "VAN", vehicleId: vanOne(), version: 0 }),
       setChildPlacement: (input) =>
         board()(tx).setChildPlacement({ ...input, serviceDate: "2026-11-30" }),
@@ -460,6 +464,8 @@ describe("when the plan cannot be saved, the approval fails safe", () => {
     await savedPlanWithChildInVanOne();
     const id = await seedProposal();
     const broken: PlanPlacementPortFor = (tx) => ({
+      setDropoffWindow: board()(tx).setDropoffWindow,
+      recordReceiver: board()(tx).recordReceiver,
       currentPlacement: board()(tx).currentPlacement,
       setChildPlacement: async () => {
         throw new Error("the board is unreachable");
@@ -478,6 +484,8 @@ describe("when the plan cannot be saved, the approval fails safe", () => {
     await savedPlanWithChildInVanOne();
     const id = await seedProposal();
     const nobody: PlanPlacementPortFor = (tx) => ({
+      setDropoffWindow: board()(tx).setDropoffWindow,
+      recordReceiver: board()(tx).recordReceiver,
       currentPlacement: async () => null,
       setChildPlacement: board()(tx).setChildPlacement,
     });
