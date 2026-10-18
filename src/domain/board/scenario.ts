@@ -66,6 +66,7 @@ import {
   stopByKey,
   type Child as DemoChild,
   type Layout as DemoLayout,
+  type LegMode,
   type Position as DemoPosition,
   type Run as DemoRun,
   type Vehicle as DemoVehicle,
@@ -281,6 +282,33 @@ export function vehicleOf(run: DemoRun): DemoVehicle {
 
 export function runOfChild(key: string): DemoRun | undefined {
   return RUNS.find((r) => r.childKeys.includes(key));
+}
+
+/**
+ * The run this vehicle drives today, or `undefined` for a van the scenario does not run.
+ *
+ * The other way round from `runOfChild`, and it is what a **saved plan** needs: the plan records
+ * the van a coordinator put a child on, and every fact the board shows about that ride — the
+ * label, the driver, the layout, the replayed morning — is a fact about that van's own run. One
+ * vehicle drives one run in this scenario (standard.ts `RUNS`), so this is a lookup and not a
+ * choice.
+ */
+export function runOfVehicle(vehicleKey: string): DemoRun | undefined {
+  return RUNS.find((r) => r.vehicleKey === vehicleKey);
+}
+
+/**
+ * Who drives a leg on this van: the centre's own fleet, or a provider's.
+ *
+ * The fixture writes the mode on the *child* (`amMode` / `pmMode`), which is the right answer
+ * for the day it describes and the wrong one for a child a saved plan has moved: a child moved
+ * onto the centre's van is riding with the centre, whatever the run they were seeded on was.
+ * The ownership is the provider's own (standard.ts `dispatchOwnership`), so this reads the same
+ * fact `dispatcherOf` does rather than a second list of which van belongs to whom.
+ */
+export function legModeOf(vehicle: DemoVehicle): LegMode {
+  const provider = PROVIDERS.find((p) => p.key === vehicle.providerKey);
+  return provider?.dispatchOwnership === "CENTER_FLEET" ? "CENTER" : "PROVIDER";
 }
 
 /**
