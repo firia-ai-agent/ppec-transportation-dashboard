@@ -290,16 +290,30 @@
   list-style: none;
 }
 
+/*
+ * One rider row, as the mockup draws it (png/ramp-arrival.png's `.kid`): the stop number in the
+ * van's colour, the child's name over their stop, the equipment chips in a column of their own,
+ * and the verdict chip at the trailing end.
+ */
 .rider {
   display: grid;
-  grid-template-columns: 32px auto auto 1fr auto;
+  grid-template-columns: 32px minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-4);
   min-height: var(--target-ramp);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3);
   border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
 }
 
+/*
+ * A child this van has run out for: the row is tinted coral, fading out across it, and the chip
+ * beside them names the thing that is missing. Never the tint alone — the chip is the answer.
+ */
+.rider[data-fits="false"] {
+  background: linear-gradient(90deg, var(--color-crit-bg), transparent 60%);
+}
+
+/* The stop number, filled with the van's own colour token (set inline, §0 rule 6). */
 .riderStop {
   display: inline-flex;
   align-items: center;
@@ -307,25 +321,50 @@
   width: 32px;
   height: 32px;
   border-radius: var(--radius-pill);
-  background: var(--color-neutral-bg);
-  color: var(--color-neutral-fg);
-  font-weight: var(--weight-semibold);
+  color: var(--color-surface);
+  font-weight: var(--weight-bold);
   font-variant-numeric: tabular-nums;
 }
 
-.riderName {
-  font-weight: var(--weight-medium);
+.riderWho {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: var(--leading-tight);
 }
 
+.riderName {
+  font-weight: var(--weight-semibold);
+}
+
+/* The equipment icons, each in its own small tile — the mockup's `.eq span`. */
 .riderNeeds {
   display: inline-flex;
   gap: var(--space-2);
-  color: var(--color-ink-muted);
+  color: var(--color-neutral-fg);
+}
+
+.riderNeeds svg {
+  width: 32px;
+  height: 32px;
+  padding: 7px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+}
+
+/* On a row that does not fit, the chips are the crit pair: the gap has a shape as well as a word. */
+.rider[data-fits="false"] .riderNeeds svg {
+  background: var(--color-crit-bg);
+  color: var(--color-crit-fg);
 }
 
 .riderStopLabel {
   color: var(--color-ink-muted);
   font-size: var(--text-14);
+  font-weight: var(--weight-regular);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /*
@@ -424,10 +463,14 @@
   }
 
   .rider {
-    grid-template-columns: 32px 1fr auto;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    gap: var(--space-3);
   }
 
-  .riderStopLabel {
-    grid-column: 2 / 4;
+  /* The verdict chip takes the end of the row; the equipment keeps its own column beside it. */
+  .riderNeeds svg {
+    width: 28px;
+    height: 28px;
+    padding: 5px;
   }
 }

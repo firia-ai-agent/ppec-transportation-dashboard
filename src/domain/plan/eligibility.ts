@@ -24,7 +24,7 @@
  * by src/app/plan-routes/board/lines.ts.
  */
 import type { RejectReason } from "@/config/equipment";
-import { rejectReason } from "./fit";
+import { rejectReason, type FitRider, type VanSetup } from "./fit";
 import { ridersInVan, type BoardDay, type BoardPlan } from "./board";
 
 /** The answer: yes, or no and the one thing that is missing. */
@@ -62,4 +62,38 @@ export function eligibility(
    */
   const reason = rejectReason(van.setup, ridersInVan(day, plan, van.id), rider);
   return reason ? { ok: false, reason } : ALLOWED;
+}
+
+/* ───────────────────────── the ramp's live replay, same question ───────────────────────── */
+
+/** One rider's verdict in a van: who they are, and the one thing that was missing, or null. */
+export type VanVerdict = { token: string; reason: RejectReason | null };
+
+/**
+ * EVERY RIDER OF ONE VAN AGAINST THE COUNTS IN FRONT OF THE FRONT DESK, in drive order.
+ *
+ * This is the ramp iPad's live fit check (§2): as a stepper moves, each child on the van is
+ * re-asked, and the banner names the first one the van has run out for. It used to be written
+ * out inline in src/app/ramp-ipad/arrival/VanArrival.tsx — a `useMemo` with its own accumulator
+ * calling {@link rejectReason} — which made the ramp a **fourth** place that asked this question
+ * in its own words. It is here now, beside {@link eligibility}, because they are the same replay:
+ * the riders already aboard, plus the next one, through the one counter arithmetic.
+ *
+ * Order matters and is the van's own drive order (`ridersInVan`): a child is refused only once
+ * the van has actually run out, so the child who is named is the one the last seat went past —
+ * which is also what the save endpoint replays on the server.
+ *
+ * It takes a `VanSetup` rather than a day and a van because the counts it is asked about are the
+ * ones on the screen, which nobody has saved yet: a front desk who has taken car seats from 3 to
+ * 2 is asking about a van that does not exist in any row.
+ *
+ * Pure: no clock, no database, no copy. The words for a reason are in src/ui/copy.ts.
+ */
+export function vanVerdicts(setup: VanSetup, riders: readonly FitRider[]): VanVerdict[] {
+  const aboard: FitRider[] = [];
+  return riders.map((rider) => {
+    const reason = rejectReason(setup, aboard, rider);
+    if (!reason) aboard.push(rider);
+    return { token: rider.token, reason };
+  });
 }

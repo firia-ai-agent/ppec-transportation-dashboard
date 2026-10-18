@@ -7,6 +7,7 @@
  * must never be told two different things about one van.
  */
 import { fill, pluralize, vanArrival } from "@/ui/copy";
+import { shortName } from "@/ui/display-name";
 import { formatClock } from "@/domain/eta/eta";
 import type { RejectReason } from "@/config/equipment";
 import type { Shortfall } from "@/domain/plan/fit";
@@ -63,7 +64,8 @@ export function shortfallLines(
   shortfall: Shortfall,
 ): { who: string; short: string } {
   return {
-    who: fill(vanArrival.wontFit, { child }),
+    // The one name helper (src/ui/display-name.ts): "Mia R.", never a stored row's whole name.
+    who: fill(vanArrival.wontFit, { child: shortName(child) }),
     short:
       shortfall.reason === "LIFT"
         ? vanArrival.noLift
@@ -72,6 +74,19 @@ export function shortfallLines(
             thing: vanArrival.shortThing[shortfall.reason][shortfall.short === 1 ? "one" : "many"],
           }),
   };
+}
+
+/**
+ * The same banner as one sentence: "Mia R. won't fit · 1 car seat short".
+ *
+ * The screen draws the two halves on two lines, the way the mockup does
+ * (png/ramp-arrival.png), and this is what they say read together — the form the spec and the
+ * work order quote, and the one the banner carries on `data-shortfall` so a browser check can
+ * assert the whole line rather than two fragments of it.
+ */
+export function shortfallBanner(child: string, shortfall: Shortfall): string {
+  const lines = shortfallLines(child, shortfall);
+  return [lines.who, lines.short].join(" · ");
 }
 
 function capitalise(word: string): string {

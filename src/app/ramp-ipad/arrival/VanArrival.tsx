@@ -29,13 +29,14 @@ import { Check, CircleSlash, Minus, Plus, X } from "lucide-react";
 import { API } from "@/auth/access";
 import { EQUIPMENT_COUNTERS } from "@/config/equipment";
 import { COUNTER_MAX } from "@/config/vans";
-import { firstShortfall, rejectReason, type VanSetup } from "@/domain/plan/fit";
+import { firstShortfall, type VanSetup } from "@/domain/plan/fit";
+import { vanVerdicts } from "@/domain/plan/eligibility";
 import { openPlanBoard } from "@/domain/plan/replan";
-import type { BoardRider } from "@/domain/plan/board";
 import type { Direction } from "@/domain/day/leg";
 import { boardHref } from "@/modules/plan/when";
 import { plannedUse, underPlanned, type ArrivalVan } from "./view";
 import { planBoard, vanArrival } from "@/ui/copy";
+import { shortName } from "@/ui/display-name";
 import { COUNTER_ICON, COUNTER_LABEL, LIFT_ICON, NeedIcons } from "@/ui/equipment";
 import { HeaderSlot } from "@/ui/HeaderSlot";
 import { icon } from "@/ui/tokens";
@@ -44,6 +45,7 @@ import {
   leavesLine,
   plannedLine,
   riderVerdict,
+  shortfallBanner,
   shortfallLines,
   whatsOn,
 } from "./lines";
@@ -85,14 +87,16 @@ export default function VanArrival({
   /**
    * Each rider against the van as it is now, in the order it drives them: a child only fails
    * once the van has run out, so the answer is the same replay the save endpoint runs.
+   *
+   * The replay itself is `vanVerdicts` in src/domain/plan/eligibility.ts — the shared function,
+   * beside the board's own `eligibility()` — rather than a fourth copy of the question written
+   * out here.
    */
   const verdicts = useMemo(() => {
-    const aboard: BoardRider[] = [];
-    return selected.riders.map((rider) => {
-      const reason = rejectReason(draft, aboard, rider);
-      if (!reason) aboard.push(rider);
-      return { rider, reason };
-    });
+    const byToken = new Map(
+      vanVerdicts(draft, selected.riders).map((verdict) => [verdict.token, verdict.reason]),
+    );
+    return selected.riders.map((rider) => ({ rider, reason: byToken.get(rider.token) ?? null }));
   }, [draft, selected.riders]);
 
   /** What the saved plan needs of this van, counter by counter: the "Planned 3" hints. */
@@ -262,7 +266,11 @@ export default function VanArrival({
           </h2>
 
           {firstRefused && shortfall ? (
-            <div className={styles.banner} data-shortfall="">
+            <div
+              className={styles.banner}
+              role="alert"
+              data-shortfall={shortfallBanner(firstRefused.name, shortfall)}
+            >
               <CircleSlash size={icon.nav} aria-hidden="true" />
               <span className={styles.bannerWords}>
                 <strong>{shortfallLines(firstRefused.name, shortfall).who}</strong>
@@ -280,13 +288,28 @@ export default function VanArrival({
             {verdicts.map(({ rider, reason }, index) => {
               const verdict = riderVerdict(reason);
               return (
-                <li key={rider.token} className={styles.rider} data-rider={rider.token}>
-                  <span className={styles.riderStop}>{index + 1}</span>
-                  <span className={styles.riderName}>{rider.name}</span>
-                  <span className={styles.riderNeeds}>
+                <li
+                  key={rider.token}
+                  className={styles.rider}
+                  data-rider={rider.token}
+                  data-fits={reason ? "false" : "true"}
+                >
+                  {/* The stop number, in this van's own colour (png/ramp-arrival.png). */}
+                  <span
+                    className={styles.riderStop}
+                    style={{ background: `var(--color-${selected.van.colourToken})` }}
+                  >
+                    {index + 1}
+                  </span>
+                  <span className={styles.riderWho}>
+                    {/* The one name helper: "Mia R." (src/ui/display-name.ts). */}
+                    <span className={styles.riderName}>{shortName(rider.name)}</span>
+                    <small className={styles.riderStopLabel}>{rider.stopLabel}</small>
+                  </span>
+                  {/* The equipment chips, in a column of their own. */}
+                  <span className={styles.riderNeeds} data-needs-column="">
                     <NeedIcons needs={rider.needs} size={icon.inline} />
                   </span>
-                  <span className={styles.riderStopLabel}>{rider.stopLabel}</span>
                   <span className={styles.chip} data-tone={verdict.tone} data-verdict={reason ?? "FITS"}>
                     {reason ? (
                       <X size={icon.chip} aria-hidden="true" />
