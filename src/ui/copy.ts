@@ -1960,15 +1960,20 @@ export const vanArrival = {
   yes: "Yes",
   no: "No",
   /**
-   * Under a counter that is not what this van usually carries: the shared config's default.
+   * Under every counter: what the **saved plan** needs of this van for it, summed from the
+   * planned riders' own needs (src/domain/plan/fit.ts `usedBy`).
    *
-   * Deliberately **not** called "Planned" (Firia's rule 1, 2026-10-17 5:48 PM ET): nothing plans
-   * counts any more, so a number differing from the van's default is a difference from the
-   * default and is named as one.
+   * It supersedes `differsFrom` ("Default {n}"), which was written when nothing planned counts
+   * (Firia's rule 1, 2026-10-17 5:48 PM ET) and so could only compare a count against the van's
+   * config default. The ramp reads a saved plan now, so there is a planned number to name, and
+   * naming it is what makes the amber value cell mean something a front desk can act on (Vera's
+   * room list item 3, Firia's 7:59 AM ET plan).
    */
-  differsFrom: "Default {n}",
-  /** The van tabs, in the order they leave the centre. */
+  planned: "Planned {n}",
+  /** The van tabs: Van 1, Van 2, Van 3, with the time each leaves under its name. */
   leaves: "Leaves {time}",
+  /** What the row of van tabs is, to a screen reader. */
+  vansLabel: "Vans",
   ridersHeading: "Riders",
   fits: "Fits",
   /** The crit banner: "Mia R. won’t fit" over "1 car seat short". */
@@ -1994,8 +1999,12 @@ export const vanArrival = {
   confirmed: "Checked",
   /** Said once every van has been confirmed today (§9.3). */
   allChecked: "All vans checked",
-  /** No plan saved yet, so there is nobody to list beside the steppers (§9.3). */
-  noRidersPlanned: "No riders planned",
+  /**
+   * The whole screen when this leg has no saved plan (Firia's ruling for S1): the ramp
+   * never invents a plan by looking, so there is one line and one way out of it — `Plan routes`,
+   * which is `flow.action.planRoutes` and not a second string for the same button.
+   */
+  noPlanSaved: "No plan saved",
   /** Who an observation is attributed to when the front desk counts a van themselves. */
   observedBy: "Ramp staff",
   /** A counter's own label for a screen reader, since the numbers are the big part. */

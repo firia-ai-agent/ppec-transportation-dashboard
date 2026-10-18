@@ -28,28 +28,28 @@ import { useMemo, useState } from "react";
 import { Check, CircleSlash, Minus, Plus, X } from "lucide-react";
 import { API } from "@/auth/access";
 import { EQUIPMENT_COUNTERS } from "@/config/equipment";
-import { COUNTER_MAX } from "@/config/vans";
-import { firstShortfall, rejectReason, type VanSetup } from "@/domain/plan/fit";
+import { COUNTER_MAX, vanColourVar } from "@/config/vans";
+import { firstShortfall, type VanSetup } from "@/domain/plan/fit";
+import { vanVerdicts } from "@/domain/plan/eligibility";
 import { openPlanBoard } from "@/domain/plan/replan";
-import type { BoardRider } from "@/domain/plan/board";
+import type { Direction } from "@/domain/day/leg";
 import { boardHref } from "@/modules/plan/when";
-import type { ArrivalVan } from "./view";
-import { RAMP_DIRECTION } from "./when";
-import { flow, planBoard, vanArrival } from "@/ui/copy";
+import { plannedUse, underPlanned, type ArrivalVan } from "./view";
+import { planBoard, vanArrival } from "@/ui/copy";
+import { initialsOf, shortName } from "@/ui/display-name";
 import { COUNTER_ICON, COUNTER_LABEL, LIFT_ICON, NeedIcons } from "@/ui/equipment";
+import { HeaderSlot } from "@/ui/HeaderSlot";
 import { icon } from "@/ui/tokens";
 import {
   confirmLabel,
-  differsLine,
   leavesLine,
+  plannedLine,
   riderVerdict,
+  shortfallBanner,
   shortfallLines,
   whatsOn,
 } from "./lines";
 import styles from "./arrival.module.css";
-
-/** The coordinator's board. Its address is the access table's, not invented here. */
-const PLAN_PATH = "/plan-routes";
 
 /** This screen's own address, which its van tabs point back at with a different `?van=`. */
 const RAMP_PATH = "/ramp-ipad";
@@ -58,21 +58,21 @@ export default function VanArrival({
   vans,
   selected,
   date,
+  leg,
   canPlan,
-  planSaved,
 }: {
   vans: readonly ArrivalVan[];
-  /** The van being counted: the one the address names, or the first to leave. */
+  /** The van being counted: the one the address names, or the first one. */
   selected: ArrivalVan;
   date: string;
+  /**
+   * The leg being checked, read from the address by the page (`?leg=`, Morning by default).
+   * Every link this screen draws carries it on, so a tab, Re-plan and the board all stay on the
+   * half of the day the front desk is standing in front of.
+   */
+  leg: Direction;
   /** Whether this role may open the planning board at all (§9.3 hides what they cannot use). */
   canPlan: boolean;
-  /**
-   * Whether the riders beside the steppers come from a plan somebody saved, or from the
-   * placement function run on the spot. Either way the list is populated — a ramp with an empty
-   * Riders card cannot be checked at all (Vera's differences list, item 3).
-   */
-  planSaved: boolean;
 }) {
   /**
    * The steppers open on today's counts: the row the front desk confirmed earlier today if there
@@ -87,22 +87,26 @@ export default function VanArrival({
   /**
    * Each rider against the van as it is now, in the order it drives them: a child only fails
    * once the van has run out, so the answer is the same replay the save endpoint runs.
+   *
+   * The replay itself is `vanVerdicts` in src/domain/plan/eligibility.ts — the shared function,
+   * beside the board's own `eligibility()` — rather than a fourth copy of the question written
+   * out here.
    */
   const verdicts = useMemo(() => {
-    const aboard: BoardRider[] = [];
-    return selected.riders.map((rider) => {
-      const reason = rejectReason(draft, aboard, rider);
-      if (!reason) aboard.push(rider);
-      return { rider, reason };
-    });
+    const byToken = new Map(
+      vanVerdicts(draft, selected.riders).map((verdict) => [verdict.token, verdict.reason]),
+    );
+    return selected.riders.map((rider) => ({ rider, reason: byToken.get(rider.token) ?? null }));
   }, [draft, selected.riders]);
+
+  /** What the saved plan needs of this van, counter by counter: the "Planned 3" hints. */
+  const planned = useMemo(() => plannedUse(selected.riders), [selected.riders]);
 
   const shortfall = firstShortfall(draft, selected.riders);
   const firstRefused = verdicts.find((verdict) => verdict.reason !== null)?.rider ?? null;
-  const planHref = boardHref(PLAN_PATH, { date, leg: RAMP_DIRECTION });
   const replan = openPlanBoard({
     date,
-    leg: RAMP_DIRECTION,
+    leg,
     vanId: selected.van.id,
     observed: draft,
     canPlan,
@@ -139,53 +143,69 @@ export default function VanArrival({
         label (src/ui/PageHeader.tsx, #74), so a second one was the same words twice.
       */}
 
-      {/* The vans at the centre this afternoon, in the order they leave. */}
-      <nav className={styles.tabs} aria-label={vanArrival.ridersHeading}>
-        {vans.map((arrival) => (
-          <a
-            key={arrival.van.id}
-            className={styles.tab}
-            href={boardHref(RAMP_PATH, { date, leg: RAMP_DIRECTION, van: arrival.van.id })}
-            aria-current={arrival.van.id === selected.van.id ? "page" : undefined}
-            data-tab={arrival.van.id}
-          >
-            <span
-              className={styles.tabSwatch}
-              style={{ background: `var(--color-${arrival.van.colourToken})` }}
-              aria-hidden="true"
-            />
-            <span className={styles.tabName}>{arrival.van.name}</span>
-            <span className={styles.tabTime}>{leavesLine(arrival.leavesMs)}</span>
-          </a>
-        ))}
-      </nav>
+      {/*
+        The vans out on this leg, in van order: Van 1, Van 2, Van 3, each under a bar of its own
+        colour with the time it leaves under its name (png/ramp-arrival.png). At 1440 they sit at
+        the trailing end of the frame's own 64 px header bar, which is where the mockup draws
+        them, so they are portaled into its one slot (src/ui/HeaderSlot.tsx) rather than taking a
+        second strip under it. At 390 that bar wraps and they are one row of three across it.
+      */}
+      <HeaderSlot>
+        <nav className={styles.tabs} aria-label={vanArrival.vansLabel} data-header-end="">
+          {vans.map((arrival) => (
+            <a
+              key={arrival.van.id}
+              className={styles.tab}
+              style={{ borderTopColor: vanColourVar(arrival.van.colourToken) }}
+              href={boardHref(RAMP_PATH, { date, leg, van: arrival.van.id })}
+              aria-current={arrival.van.id === selected.van.id ? "page" : undefined}
+              data-tab={arrival.van.id}
+            >
+              <span className={styles.tabName}>{arrival.van.name}</span>
+              <span className={styles.tabTime}>{leavesLine(arrival.leavesMs)}</span>
+            </a>
+          ))}
+        </nav>
+      </HeaderSlot>
 
       <div className={styles.cards}>
         <section className={styles.card} aria-labelledby="whats-on">
-          <h2 className={styles.cardTitle} id="whats-on">
-            {whatsOn(selected.van.name)}
-          </h2>
-          <p className={styles.driver}>{selected.van.driverName}</p>
+          <div className={styles.cardHead}>
+            <h2 className={styles.cardTitle} id="whats-on">
+              {whatsOn(selected.van.name)}
+            </h2>
+            {/* Who is driving it, as a disc of initials beside their name (the mockup's `.ch`). */}
+            <p className={styles.driver} data-driver="">
+              <span className={styles.avatar} aria-hidden="true">
+                {initialsOf(selected.van.driverName)}
+              </span>
+              {shortName(selected.van.driverName)}
+            </p>
+          </div>
 
           {EQUIPMENT_COUNTERS.map((counter) => {
             const Icon = COUNTER_ICON[counter.key];
             const value = draft[counter.key];
             const changed = value !== defaults[counter.key];
+            /* Counted under what the plan needs: the value cell goes amber (Vera's item 3). */
+            const short = underPlanned(draft, planned, counter.key);
             return (
               <div
                 key={counter.key}
                 className={styles.stepper}
                 data-stepper={counter.key}
                 data-changed={changed ? "true" : "false"}
+                data-short={short ? "true" : "false"}
               >
                 <Icon size={icon.nav} aria-hidden="true" />
                 <span className={styles.stepperLabel}>
                   {COUNTER_LABEL[counter.key]}
-                  {/* What the plan had, said only when the count in front of them differs. */}
-                  {changed ? (
-                    <small className={styles.planned}>{differsLine(defaults[counter.key])}</small>
-                  ) : null}
+                  {/* What the saved plan needs of this van for this counter. */}
+                  <small className={styles.planned} data-planned={counter.key}>
+                    {plannedLine(planned[counter.key])}
+                  </small>
                 </span>
+                {/* One joined control, − | n | + (png/ramp-arrival.png's `.st`). */}
                 <span className={styles.stepperControls}>
                   <button
                     type="button"
@@ -234,16 +254,23 @@ export default function VanArrival({
             </span>
           </div>
 
-          <button
-            type="button"
-            className={styles.confirm}
-            data-confirm=""
-            disabled={saving}
-            onClick={() => void confirm()}
-          >
-            {confirmed ? <Check size={icon.nav} aria-hidden="true" /> : null}
-            {confirmed ? vanArrival.confirmed : confirmLabel(selected.van.name)}
-          </button>
+          {/*
+            Confirm sits at the foot of the card, and at 390 it is pinned above the shell's own
+            bottom tab bar (png/ramp-arrival-390.png's `.conf`): the one button on this screen is
+            reachable with a thumb without scrolling the riders past it.
+          */}
+          <div className={styles.confirmBar} data-confirm-bar="">
+            <button
+              type="button"
+              className={styles.confirm}
+              data-confirm=""
+              disabled={saving}
+              onClick={() => void confirm()}
+            >
+              {confirmed ? <Check size={icon.nav} aria-hidden="true" /> : null}
+              {confirmed ? vanArrival.confirmed : confirmLabel(selected.van.name)}
+            </button>
+          </div>
         </section>
 
         <section className={styles.card} aria-labelledby="riders">
@@ -253,19 +280,12 @@ export default function VanArrival({
             <span className={styles.leaves}>{leavesLine(selected.leavesMs)}</span>
           </h2>
 
-          {!planSaved && selected.riders.length === 0 ? (
-            <p className={styles.empty} data-empty="">
-              {vanArrival.noRidersPlanned}
-              {canPlan ? (
-                <a className={styles.emptyLink} href={planHref}>
-                  {flow.action.planRoutes}
-                </a>
-              ) : null}
-            </p>
-          ) : null}
-
           {firstRefused && shortfall ? (
-            <div className={styles.banner} data-shortfall="">
+            <div
+              className={styles.banner}
+              role="alert"
+              data-shortfall={shortfallBanner(firstRefused.name, shortfall)}
+            >
               <CircleSlash size={icon.nav} aria-hidden="true" />
               <span className={styles.bannerWords}>
                 <strong>{shortfallLines(firstRefused.name, shortfall).who}</strong>
@@ -283,13 +303,28 @@ export default function VanArrival({
             {verdicts.map(({ rider, reason }, index) => {
               const verdict = riderVerdict(reason);
               return (
-                <li key={rider.token} className={styles.rider} data-rider={rider.token}>
-                  <span className={styles.riderStop}>{index + 1}</span>
-                  <span className={styles.riderName}>{rider.name}</span>
-                  <span className={styles.riderNeeds}>
+                <li
+                  key={rider.token}
+                  className={styles.rider}
+                  data-rider={rider.token}
+                  data-fits={reason ? "false" : "true"}
+                >
+                  {/* The stop number, in this van's own colour (png/ramp-arrival.png). */}
+                  <span
+                    className={styles.riderStop}
+                    style={{ background: vanColourVar(selected.van.colourToken) }}
+                  >
+                    {index + 1}
+                  </span>
+                  <span className={styles.riderWho}>
+                    {/* The one name helper: "Mia R." (src/ui/display-name.ts). */}
+                    <span className={styles.riderName}>{shortName(rider.name)}</span>
+                    <small className={styles.riderStopLabel}>{rider.stopLabel}</small>
+                  </span>
+                  {/* The equipment chips, in a column of their own. */}
+                  <span className={styles.riderNeeds} data-needs-column="">
                     <NeedIcons needs={rider.needs} size={icon.inline} />
                   </span>
-                  <span className={styles.riderStopLabel}>{rider.stopLabel}</span>
                   <span className={styles.chip} data-tone={verdict.tone} data-verdict={reason ?? "FITS"}>
                     {reason ? (
                       <X size={icon.chip} aria-hidden="true" />
