@@ -28,7 +28,7 @@ import { useMemo, useState } from "react";
 import { Check, CircleSlash, Minus, Plus, X } from "lucide-react";
 import { API } from "@/auth/access";
 import { EQUIPMENT_COUNTERS } from "@/config/equipment";
-import { COUNTER_MAX } from "@/config/vans";
+import { COUNTER_MAX, vanColourVar } from "@/config/vans";
 import { firstShortfall, type VanSetup } from "@/domain/plan/fit";
 import { vanVerdicts } from "@/domain/plan/eligibility";
 import { openPlanBoard } from "@/domain/plan/replan";
@@ -156,7 +156,7 @@ export default function VanArrival({
             <a
               key={arrival.van.id}
               className={styles.tab}
-              style={{ borderTopColor: `var(--color-${arrival.van.colourToken})` }}
+              style={{ borderTopColor: vanColourVar(arrival.van.colourToken) }}
               href={boardHref(RAMP_PATH, { date, leg, van: arrival.van.id })}
               aria-current={arrival.van.id === selected.van.id ? "page" : undefined}
               data-tab={arrival.van.id}
@@ -312,7 +312,7 @@ export default function VanArrival({
                   {/* The stop number, in this van's own colour (png/ramp-arrival.png). */}
                   <span
                     className={styles.riderStop}
-                    style={{ background: `var(--color-${selected.van.colourToken})` }}
+                    style={{ background: vanColourVar(selected.van.colourToken) }}
                   >
                     {index + 1}
                   </span>

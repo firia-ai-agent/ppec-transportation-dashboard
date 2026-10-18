@@ -200,6 +200,8 @@
  * target (§9: ≥56 px on this screen, which clears the 44 px console minimum).
  */
 .stepperControls {
+  /* content-box so the 56 px is the buttons' own height, not 56 minus the two hairlines. */
+  box-sizing: content-box;
   display: inline-flex;
   align-items: stretch;
   height: var(--target-ramp);

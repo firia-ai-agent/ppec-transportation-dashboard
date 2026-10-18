@@ -3,6 +3,7 @@
 import { useDroppable } from "@dnd-kit/core";
 import { CircleSlash, Clock, MapPin } from "lucide-react";
 import type { RejectReason } from "@/config/equipment";
+import { vanColourVar } from "@/config/vans";
 import type { Bucket, BoardDay, BoardPlan, BoardRider, BoardVan } from "@/domain/plan/board";
 import { ridersInVan, stopCount, stopNumbers, usedInVan } from "@/domain/plan/board";
 import { isOver } from "@/domain/plan/fit";
@@ -82,7 +83,7 @@ export function VanColumn({
   const setupState = setupLine(van);
   const footer = footerLines(stopCount(riders), minutes);
   const over = isOver(van.setup, riders);
-  const colour = `var(--color-${van.colourToken})`;
+  const colour = vanColourVar(van.colourToken);
 
   return (
     <section
