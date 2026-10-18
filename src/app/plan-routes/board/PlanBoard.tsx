@@ -50,11 +50,14 @@ import {
   moveTo,
   placedCount,
   ridersInVan,
+  ridersToPlace,
   unassignedRiders,
+  type Bucket,
   type BoardDay,
   type BoardPlan,
   type BoardRider,
 } from "@/domain/plan/board";
+import { panelNeedsOf, type PanelNeeds } from "@/domain/plan/needs";
 import { isOver, rejectReason } from "@/domain/plan/fit";
 import type { BoardView } from "@/modules/plan/store";
 import { boardHref } from "@/modules/plan/when";
@@ -63,6 +66,7 @@ import { NeedIcons } from "@/ui/equipment";
 import { serviceDateLabel } from "@/ui/service-date";
 import { icon } from "@/ui/tokens";
 import { BoardToolbar } from "./BoardToolbar";
+import { ChildPanel, whereLine } from "./ChildPanel";
 import { UNASSIGNED_ID, UnassignedColumn } from "./UnassignedColumn";
 import { VanColumn } from "./VanColumn";
 import { boardBanner, movedLine, rejectSr, overConfirm, type SaveState } from "./lines";
@@ -80,8 +84,14 @@ const RAMP_PATH = "/ramp-ipad";
 export default function PlanBoard({
   view,
   selectedVanId = null,
+  canEdit = true,
 }: {
   view: BoardView;
+  /**
+   * Director and coordinator drag and edit; the front desk reads the same board on Today with
+   * no grips and no Save (founder 2026-10-17 7:17 PM ET). The endpoints refuse their role too.
+   */
+  canEdit?: boolean;
   /**
    * The van the address names (§9.3's `?van=`), which is where the ramp's Re-plan and the
    * board's own "Check vans" round trip come back to: that column is ringed, its route is the one
@@ -89,10 +99,16 @@ export default function PlanBoard({
    */
   selectedVanId?: string | null;
 }) {
-  /* ── the plan, and the setups a coordinator has applied on top of the day ── */
+  /* ── the board as the server last answered, and the plan on screen ── */
+  const [board, setBoard] = useState<BoardView>(view);
   const [plan, setPlan] = useState<BoardPlan>(view.plan);
   const [savedPlan, setSavedPlan] = useState<BoardPlan>(view.plan);
   const [version, setVersion] = useState(view.version);
+  /** The child whose panel is open, by token. One at a time (mockup plan-board-child-*.png). */
+  const [openChild, setOpenChild] = useState<string | null>(null);
+  const [savingChild, setSavingChild] = useState(false);
+  /** Which of the two groups the held card is over, so it can say it would take them. */
+  const [overBucket, setOverBucket] = useState<Bucket | null>(null);
   const [save, setSave] = useState<SaveState>(
     view.savedAt ? { kind: "SAVED", at: view.savedAt } : { kind: "DIRTY" },
   );
@@ -109,7 +125,7 @@ export default function PlanBoard({
    * confirmed at the ramp and read here (Firia's rule 1), so nothing on this screen can change a
    * van's numbers between the render and the save.
    */
-  const day: BoardDay = view.day;
+  const day: BoardDay = board.day;
 
   const dirty = useMemo(() => fingerprint(plan) !== fingerprint(savedPlan), [plan, savedPlan]);
   const placed = placedCount(day, plan);
@@ -133,12 +149,22 @@ export default function PlanBoard({
     );
   }, [day, plan, lifted]);
 
-  const applyMove = useCallback(
-    (childToken: string, vanId: string | null) => {
+  /**
+   * One child moved — into a van, out of every van, or onto Absent or Family drives.
+   *
+   * Every move is **written through the server** and saved as a new plan version (founder
+   * 2026-10-17 7:17 PM ET: never a silent overwrite, and it survives a reload). The browser
+   * still asks the fit rule first, so a refusal is instant and the card goes back without a
+   * round trip; the server asks it again, because a request did not come from this screen.
+   */
+  const applyPlacement = useCallback(
+    async (childToken: string, bucket: Bucket, vanId: string | null) => {
+      if (!canEdit) return;
       const rider = day.riders.find((r) => r.token === childToken);
-      if (!rider) return;
+      const other = day.others.find((o) => o.token === childToken);
+      const name = rider?.name ?? other?.name ?? "";
       const van = vanId ? day.vans.find((v) => v.id === vanId) : null;
-      if (van) {
+      if (van && rider) {
         const reason = rejectReason(van.setup, ridersInVan(day, plan, van.id), rider);
         if (reason) {
           // Refused: the card goes back where it was and the reason is said, not only drawn.
@@ -146,15 +172,115 @@ export default function PlanBoard({
           return;
         }
       }
+
       const before = plan;
-      const next = moveTo(plan, childToken, vanId);
+      const next: BoardPlan =
+        bucket === "VAN" || bucket === "UNASSIGNED"
+          ? moveTo(plan, childToken, bucket === "VAN" ? vanId : null)
+          : { ...plan, [childToken]: { bucket, vanId: null, pinned: true } };
       setPlan(next);
       setUndoStack((stack) => [...stack, before]);
-      setToast({ text: movedLine(rider.name, van ? van.name : planBoard.unassigned), before });
-      setAnnouncement(movedLine(rider.name, van ? van.name : planBoard.unassigned));
-      if (save.kind === "SAVED") setSave({ kind: "DIRTY" });
+      const whereTo = van
+        ? van.name
+        : bucket === "ABSENT"
+          ? planBoard.absent
+          : bucket === "FAMILY_DRIVES"
+            ? planBoard.familyDrives
+            : planBoard.unassigned;
+      setToast({ text: movedLine(name, whereTo), before });
+      setAnnouncement(movedLine(name, whereTo));
+
+      try {
+        const response = await fetch(API.planPlace, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            date: day.date,
+            direction: day.direction,
+            childToken,
+            bucket,
+            vanId: bucket === "VAN" ? vanId : null,
+            version,
+          }),
+        });
+        const body = (await response.json().catch(() => null)) as
+          | { ok?: boolean; version?: number; savedAt?: string; reason?: string; changedBy?: string | null; view?: BoardView }
+          | null;
+        if (response.ok && body?.ok && body.view && typeof body.version === "number") {
+          setBoard(body.view);
+          setPlan(body.view.plan);
+          setSavedPlan(body.view.plan);
+          setVersion(body.version);
+          setSave({ kind: "SAVED", at: body.savedAt ?? new Date().toISOString() });
+          return;
+        }
+        if (response.status === 409 && body?.reason === "CHANGED") {
+          setSave({ kind: "CHANGED", by: body.changedBy ?? null });
+          return;
+        }
+        // The server refused the move: put the board back where it was and say so.
+        setPlan(before);
+        setSave({ kind: "FAILED" });
+      } catch {
+        setPlan(before);
+        setSave({ kind: "FAILED" });
+      }
     },
-    [day, plan, save.kind],
+    [canEdit, day, plan, version],
+  );
+
+  const applyMove = useCallback(
+    (childToken: string, vanId: string | null) => {
+      void applyPlacement(childToken, vanId === null ? "UNASSIGNED" : "VAN", vanId);
+    },
+    [applyPlacement],
+  );
+
+  const applyBucket = useCallback(
+    (childToken: string, bucket: Bucket) => {
+      void applyPlacement(childToken, bucket, null);
+    },
+    [applyPlacement],
+  );
+
+  /**
+   * The child panel's Save: three Yes/No answers, written to the child's approved profile, and
+   * the leg re-planned on them (src/modules/plan/api.ts `setChildNeedsRequest`). The board that
+   * comes back is the plan as it now is — which is the whole point of the control.
+   */
+  const saveChildNeeds = useCallback(
+    async (childToken: string, panel: PanelNeeds) => {
+      setSavingChild(true);
+      try {
+        const response = await fetch(childNeedsPath(childToken), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ date: day.date, direction: day.direction, version, ...panel }),
+        });
+        const body = (await response.json().catch(() => null)) as
+          | { ok?: boolean; version?: number; savedAt?: string; reason?: string; changedBy?: string | null; view?: BoardView }
+          | null;
+        if (response.ok && body?.ok && body.view && typeof body.version === "number") {
+          setBoard(body.view);
+          setPlan(body.view.plan);
+          setSavedPlan(body.view.plan);
+          setVersion(body.version);
+          setSave({ kind: "SAVED", at: body.savedAt ?? new Date().toISOString() });
+          setOpenChild(null);
+          return;
+        }
+        if (response.status === 409 && body?.reason === "CHANGED") {
+          setSave({ kind: "CHANGED", by: body.changedBy ?? null });
+          return;
+        }
+        setSave({ kind: "FAILED" });
+      } catch {
+        setSave({ kind: "FAILED" });
+      } finally {
+        setSavingChild(false);
+      }
+    },
+    [day.date, day.direction, version],
   );
 
   const undo = useCallback(() => {
@@ -285,13 +411,22 @@ export default function PlanBoard({
     setLifted(rider ?? null);
     setToast(null);
   };
-  const onDragOver = (event: DragOverEvent) => setHovered(event.over ? String(event.over.id) : null);
+  const onDragOver = (event: DragOverEvent) => {
+    const over = event.over ? String(event.over.id) : null;
+    setHovered(over);
+    setOverBucket(over === "ABSENT" || over === "FAMILY_DRIVES" ? (over as Bucket) : null);
+  };
   const onDragEnd = (event: DragEndEvent) => {
     const childToken = String(event.active.id);
     const target = event.over ? String(event.over.id) : null;
     setLifted(null);
     setHovered(null);
+    setOverBucket(null);
     if (!target) return;
+    if (target === "ABSENT" || target === "FAMILY_DRIVES") {
+      applyBucket(childToken, target);
+      return;
+    }
     applyMove(childToken, target === UNASSIGNED_ID ? null : target);
   };
 
@@ -324,6 +459,7 @@ export default function PlanBoard({
         onDragCancel={() => {
           setLifted(null);
           setHovered(null);
+          setOverBucket(null);
         }}
       >
         <BoardToolbar
@@ -331,7 +467,7 @@ export default function PlanBoard({
           direction={day.direction}
           hrefFor={(next) => boardHref(BOARD_PATH, { date: day.date, leg: next })}
           placed={placed}
-          total={day.riders.length}
+          total={ridersToPlace(day, plan).length}
           save={dirty && save.kind === "SAVED" ? { kind: "DIRTY" } : save}
           canUndo={undoStack.length > 0}
           onUndo={undo}
@@ -381,6 +517,10 @@ export default function PlanBoard({
               shown={shownColumn === UNASSIGNED_ID}
               columns={columns}
               onMove={applyMove}
+              onMoveToBucket={applyBucket}
+              onOpenChild={setOpenChild}
+              canEdit={canEdit}
+              overBucket={overBucket}
             />
             {day.vans.map((van) => (
               <VanColumn
@@ -395,6 +535,10 @@ export default function PlanBoard({
                 shown={shownColumn === van.id}
                 columns={columns}
                 onMove={applyMove}
+                onMoveToBucket={applyBucket}
+                onOpenChild={setOpenChild}
+                canEdit={canEdit}
+                openChildToken={openChild}
                 rampHref={rampHref(van.id, day.date, day.direction)}
               />
             ))}
@@ -425,6 +569,25 @@ export default function PlanBoard({
       <p className="srOnly" role="status" aria-live="polite" data-announce="">
         {announcement}
       </p>
+
+      {openChild ? (
+        <ChildPanel
+          childName={nameOf(day, openChild)}
+          where={whereLine(vanNameOfChild(day, plan, openChild), day.direction)}
+          needs={panelNeedsOf(
+            day.riders.find((rider) => rider.token === openChild)?.needs ?? {
+              wheelchair: false,
+              carSeat: false,
+              oxygen: false,
+              nurse: false,
+            },
+          )}
+          canEdit={canEdit}
+          saving={savingChild}
+          onSave={(next) => void saveChildNeeds(openChild, next)}
+          onClose={() => setOpenChild(null)}
+        />
+      ) : null}
 
       {toast ? (
         <p className={styles.toast} data-toast="">
@@ -467,6 +630,26 @@ export default function PlanBoard({
       ) : null}
     </main>
   );
+}
+
+/** The name of any child on the day, rider or not — never an id (§9.3). */
+function nameOf(day: BoardDay, token: string): string {
+  return (
+    day.riders.find((rider) => rider.token === token)?.name ??
+    day.others.find((other) => other.token === token)?.name ??
+    ""
+  );
+}
+
+/** Which van this child is in right now, by name, or null for "in none of them". */
+function vanNameOfChild(day: BoardDay, plan: BoardPlan, token: string): string | null {
+  const vanId = plan[token]?.vanId ?? null;
+  return day.vans.find((van) => van.id === vanId)?.name ?? null;
+}
+
+/** The child-needs endpoint for one child, from the access table's own template. */
+function childNeedsPath(childToken: string): string {
+  return API.childNeeds.replace("[token]", encodeURIComponent(childToken));
 }
 
 /** A rider's own name, for an announcement that must not contain an id. */

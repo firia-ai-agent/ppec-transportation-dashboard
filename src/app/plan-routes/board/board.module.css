@@ -725,3 +725,172 @@ a.meter:focus-visible {
     flex: 1 1 auto;
   }
 }
+
+/* ───────────────────────── the two groups, as drop targets ───────────────────────── */
+
+/*
+ * "Family drives" and "Absent" are placements on this day's plan now (founder 2026-10-17
+ * 7:17 PM ET), so they are things a card can be dropped on — and they say so while one is held:
+ * a dashed teal edge and the brand tint, the same two cues a van that can take the child gets.
+ */
+.group[data-over="true"] {
+  outline: 2px dashed var(--color-teal);
+  outline-offset: -2px;
+  background: var(--color-teal-tint);
+  border-radius: var(--radius-md);
+}
+
+/* ───────────────────────── the child panel (mockup plan-board-child-*) ───────────────────── */
+
+/*
+ * The dim behind the panel: the ink token at 12 % opacity.
+ *
+ * Opacity on the element rather than a translucent colour, because every colour function is
+ * barred outside tokens.ts (src/ui/no-hex.test.ts) — and the one thing a scrim must not be is a
+ * fifth definition of "nearly-black".
+ */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--color-ink);
+  opacity: 0.12;
+  border: 0;
+}
+
+/*
+ * Anchored to the card on a wide screen, in the middle of the board where the mockup draws it.
+ * Fixed rather than absolute so a column that scrolls cannot clip it.
+ */
+.panel {
+  position: fixed;
+  z-index: 31;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  gap: var(--space-1);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-neutral-bg);
+  border-radius: 12px;
+  /* Lifted off the board by a soft neutral shadow; the border is what actually bounds it. */
+  box-shadow: 0 12px 32px var(--color-neutral-bg);
+}
+
+.panelHead {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.panelName {
+  display: block;
+  font-size: var(--text-16);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--color-teal-ink);
+}
+
+.panelWhere {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.panelClose {
+  margin-left: auto;
+  width: var(--target-console);
+  height: var(--target-console);
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+}
+
+.panelRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  border-top: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.panelLabel {
+  flex: 1;
+  font-weight: var(--weight-medium);
+}
+
+.panelToggle {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--color-disabled-bg);
+  border: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.panelOption {
+  height: 32px;
+  min-width: 48px;
+  padding: 0 var(--space-3);
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-ink-muted);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+/* The chosen answer is a fill **and** `aria-pressed`, so it is never colour alone (§0 rule 2). */
+.panelOption[aria-pressed="true"] {
+  background: var(--color-teal);
+  color: var(--color-surface);
+  font-weight: var(--weight-semibold);
+}
+
+.panelOption:disabled {
+  cursor: default;
+}
+
+.panelSave {
+  margin-top: var(--space-2);
+  justify-content: center;
+  height: 44px;
+}
+
+.panelNote {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+  text-align: center;
+}
+
+@media (max-width: 767px) {
+  /* A sheet at the foot of the screen, with the grab handle the mockup draws (390 × 844). */
+  .panel {
+    top: auto;
+    left: 0;
+    bottom: 0;
+    transform: none;
+    width: 100%;
+    border-radius: 16px 16px 0 0;
+    padding-bottom: calc(var(--layout-tab-bar-height) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .panel::before {
+    content: "";
+    width: 36px;
+    height: 4px;
+    margin: 0 auto var(--space-3);
+    border-radius: 999px;
+    background: var(--color-neutral-bg);
+  }
+}

@@ -3,7 +3,7 @@
 import { useDroppable } from "@dnd-kit/core";
 import { CircleSlash, Clock, MapPin } from "lucide-react";
 import type { RejectReason } from "@/config/equipment";
-import type { BoardDay, BoardPlan, BoardRider, BoardVan } from "@/domain/plan/board";
+import type { Bucket, BoardDay, BoardPlan, BoardRider, BoardVan } from "@/domain/plan/board";
 import { ridersInVan, stopCount, stopNumbers, usedInVan } from "@/domain/plan/board";
 import { isOver } from "@/domain/plan/fit";
 import { planBoard } from "@/ui/copy";
@@ -41,6 +41,10 @@ export function VanColumn({
   shown,
   columns,
   onMove,
+  onMoveToBucket,
+  onOpenChild,
+  canEdit,
+  openChildToken,
   rampHref,
 }: {
   van: BoardVan;
@@ -56,6 +60,14 @@ export function VanColumn({
   shown: boolean;
   columns: readonly { id: string | null; name: string }[];
   onMove: (childToken: string, vanId: string | null) => void;
+  /** A move onto one of the two groups: a placement on this leg's plan (gate (b)). */
+  onMoveToBucket: (childToken: string, bucket: Bucket) => void;
+  /** Open one child's panel: the three Yes/No answers, anchored to their card. */
+  onOpenChild: (childToken: string) => void;
+  /** Director and coordinator drag; the front desk reads the same column. */
+  canEdit: boolean;
+  /** Whose panel is open, so their card says it is the one the panel belongs to. */
+  openChildToken: string | null;
   /** Where this van is counted (the ramp iPad, on this van), or null for a role that cannot. */
   rampHref: string | null;
 }) {
@@ -127,6 +139,10 @@ export function VanColumn({
             colour={colour}
             columns={columns.filter((column) => column.id !== van.id)}
             moveTo={(vanId) => onMove(rider.token, vanId)}
+            moveToBucket={(bucket) => onMoveToBucket(rider.token, bucket)}
+            onOpen={() => onOpenChild(rider.token)}
+            canEdit={canEdit}
+            selected={openChildToken === rider.token}
           />
         ))}
         {/* An empty van shows where a child goes, at the top of the list rather than at the

@@ -1431,6 +1431,29 @@ export const planBoard = {
   allPlaced: "All placed",
   familyDrives: "Family drives",
   absent: "Absent",
+  /**
+   * The child panel (founder 2026-10-17 7:17 PM ET): three Yes/No answers about what a child
+   * needs, anchored to their card, and a Save that re-plans the leg.
+   *
+   * The labels are the shared equipment words, so the panel, the van meters and the ramp's
+   * steppers all call a car seat the same thing.
+   */
+  child: {
+    /** "Van 3 · Afternoon" — where this child is now, under their name. */
+    where: "{van} · {leg}",
+    /** The same line for a child in no van yet. */
+    whereUnassigned: "Unassigned · {leg}",
+    yes: "Yes",
+    no: "No",
+    save: "Save",
+    /** Why a Save on a child's needs is not just a record change. Four words. */
+    note: "Saving updates the plan",
+    close: "Close",
+    /** The front desk reads the same three answers and cannot change them. */
+    readOnly: "Read only",
+    /** The toast a move leaves behind: "Noah O. moved to Van 1". */
+    moved: "{child} moved to {van}",
+  },
   /** Every van on the board is "Van {n}": one generic van, numbered (conflict C1). */
   vanName: "Van {n}",
   /** The driver row's chip: the ramp confirmed this van today, or it did not. */

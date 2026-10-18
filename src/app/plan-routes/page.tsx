@@ -73,5 +73,7 @@ export default async function PlanRoutesPage({
     );
   }
 
-  return <PlanBoard view={view} selectedVanId={van ?? null} />;
+  // Director and coordinator plan; nobody else reaches this page at all (the row above). The
+  // same component is read-only on Today for the front desk (src/app/(app)/today/page.tsx).
+  return <PlanBoard view={view} selectedVanId={van ?? null} canEdit />;
 }
