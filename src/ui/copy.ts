@@ -39,7 +39,7 @@ export const app = {
    * this app is for, under a square mark carrying the name's first letter — so the 64 px icon
    * rail, which has room for the mark and nothing else, still says whose app this is.
    */
-  brandName: "Sunrise PPEC",
+  brandName: "PPEC of Palm Beach",
   brandLine: "Transport",
   /** <title> */
   documentTitle: "PPEC transportation dashboard",
