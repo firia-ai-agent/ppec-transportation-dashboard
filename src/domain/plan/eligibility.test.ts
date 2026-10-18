@@ -11,7 +11,7 @@ import {
   type BoardPlan,
 } from "./board";
 import { firstShortfall, placeRiders, type FitRider } from "./fit";
-import { eligibility, type Eligibility } from "./eligibility";
+import { eligibility, vanVerdicts, type Eligibility } from "./eligibility";
 
 /**
  * ONE ELIGIBILITY CHECK — the drag, the drop and Auto-plan, asked and answered the same way.
@@ -180,5 +180,68 @@ describe("3. the drag check is Auto-plan's check", () => {
     const day = await testDay("AM");
     expect(eligibility(day, emptyPlan(day), ZOE, "not-a-van")).toEqual({ ok: true });
     expect(eligibility(day, emptyPlan(day), "not-a-child", vanIdOfSlot(1))).toEqual({ ok: true });
+  });
+});
+
+/**
+ * THE RAMP'S LIVE REPLAY — the same question, asked of the counts on the screen.
+ *
+ * `vanVerdicts` is what the ramp iPad runs as a stepper moves (§2's live fit check). It used to
+ * be written out inline in the component, so these are the two things that must hold now that it
+ * is the shared function: it agrees with `eligibility()` on the board's own van setup, and it
+ * moves the moment a counter does.
+ */
+describe("vanVerdicts: the ramp's replay is the board's answer", () => {
+  for (const leg of ["AM", "PM"] as const) {
+    it(`agrees with eligibility() for every van of a planned day (${leg})`, async () => {
+      const day = await testDay(leg);
+      const plan = autoPlan(day, emptyPlan(day));
+      let checked = 0;
+
+      for (const van of day.vans) {
+        const aboard = ridersInVan(day, plan, van.id);
+        const verdicts = vanVerdicts(van.setup, aboard);
+        expect(verdicts.map((verdict) => verdict.token)).toEqual(aboard.map((rider) => rider.token));
+
+        for (const verdict of verdicts) {
+          /*
+           * The board asks about a child **on top of the van as the plan has it**, so the honest
+           * comparison is the plan with that child taken out of the van and dropped back in.
+           */
+          const without = moveTo(plan, verdict.token, null);
+          const drag = eligibility(day, without, verdict.token, van.id);
+          expect(drag.ok, `${verdict.token} → ${van.name}`).toBe(verdict.reason === null);
+          checked += 1;
+        }
+      }
+      expect(checked).toBeGreaterThan(5);
+    });
+  }
+
+  it("one car seat fewer: exactly one child is refused, named, and one car seat short", async () => {
+    const day = await testDay("AM");
+    const vanOne = vanIdOfSlot(1);
+    /* Two children who each need a car seat, on one van: the mockup's load (Jonah W., Mia R.). */
+    const needCarSeat = day.riders.filter((rider) => rider.needs.carSeat).slice(0, 2);
+    expect(needCarSeat).toHaveLength(2);
+    let plan = emptyPlan(day);
+    for (const rider of needCarSeat) plan = moveTo(plan, rider.token, vanOne);
+    const aboard = ridersInVan(day, plan, vanOne);
+
+    const roomy = { ...defaultsOfSlot(1), carSeats: 3 };
+    expect(vanVerdicts(roomy, aboard).every((verdict) => verdict.reason === null)).toBe(true);
+
+    // The front desk finds one car seat fewer than the plan needs.
+    const counted = { ...roomy, carSeats: 1 };
+    const refused = vanVerdicts(counted, aboard).filter((verdict) => verdict.reason !== null);
+    expect(refused).toHaveLength(1);
+    expect(refused[0].reason).toBe("CAR_SEAT");
+    expect(day.riders.some((rider) => rider.token === refused[0].token)).toBe(true);
+    // And the van is short by exactly one of them, which is what the banner says.
+    expect(firstShortfall(counted, aboard)).toEqual({ reason: "CAR_SEAT", short: 1 });
+
+    // Putting the car seat back clears it, live, with nothing else changed.
+    expect(vanVerdicts({ ...counted, carSeats: 2 }, aboard).every((v) => v.reason === null)).toBe(true);
+    expect(firstShortfall({ ...counted, carSeats: 2 }, aboard)).toBeNull();
   });
 });

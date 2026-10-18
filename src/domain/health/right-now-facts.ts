@@ -23,7 +23,7 @@
  * `unreadRightNow`, the same fail-safe the strip uses.
  */
 import type { Exec } from "@/domain/transition";
-import { readDayFacts, legAt, serviceDateAt } from "@/domain/day/day-facts";
+import { readDayFacts, legFor, serviceDateAt } from "@/domain/day/day-facts";
 import type { Leg } from "@/domain/day/readiness";
 import { unreadRightNow, vanOnScreen, type RightNowFacts } from "./right-now";
 
@@ -173,16 +173,19 @@ export async function loadRightNow(
 export async function readRightNow({
   siteId,
   now = new Date(),
+  leg: asked,
   exec,
 }: {
   siteId: string | null;
   now?: Date;
+  /** The leg the address names (`?leg=`). The clock decides when it names none (`legFor`). */
+  leg?: Leg;
   exec?: Exec;
 }): Promise<RightNowFacts> {
   if (!siteId) return unreadRightNow();
   try {
     const source = exec ?? (await import("@/auth/exec")).getExec();
-    return await loadRightNow(source, siteId, serviceDateAt(now), legAt(now));
+    return await loadRightNow(source, siteId, serviceDateAt(now), legFor(asked, now));
   } catch {
     return unreadRightNow();
   }
