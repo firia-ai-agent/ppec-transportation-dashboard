@@ -182,7 +182,15 @@ for (const width of WIDTHS) {
 
         const where = new URL(page.url()).pathname;
         const menu = await expectFrame(page, width, where);
-        await expect(menu.getByRole("link")).toHaveCount(width < 768 ? TABS.length : MENU.length);
+        /*
+         * The menu's own links. `:not([data-rail-account])` because the rail's foot carries one
+         * more link that is not a destination on the menu — the account block, which opens
+         * /whoami (REDESIGN-SPEC §9.2) — and counting it would make every role's menu one item
+         * longer than their row in the access table says.
+         */
+        await expect(menu.locator("a:not([data-rail-account])")).toHaveCount(
+          width < 768 ? TABS.length : MENU.length,
+        );
 
         // The one DEMO bar, pinned, with the one §7.1 chip riding in it.
         await expectDemoBarPinned(page);

@@ -5,6 +5,25 @@
 }
 
 /*
+ * ≥1280: the rail is the height of the window, and stays there while the board scrolls.
+ *
+ * Without this the rail is as tall as the *page*, so on a 56-row board its foot — and the
+ * account block standing on it — is two screens below the fold, which is not where the mockup
+ * draws it (png/shell-flow-1440.png: the rail runs from under the DEMO bar to the bottom of the
+ * window, with "Dana M." on its floor). Sticky under the bar rather than fixed, so it keeps its
+ * column in the layout and the board never reflows; the bar's own height is what it sticks
+ * below, because that bar is sticky too (src/ui/DemoBanner.module.css).
+ */
+@media (min-width: 1280px) {
+  .rail {
+    position: sticky;
+    top: var(--layout-demo-banner-height);
+    align-self: flex-start;
+    height: calc(100vh - var(--layout-demo-banner-height));
+  }
+}
+
+/*
  * Three blocks down one column: brand, menu, account (REDESIGN-SPEC §9.2, and the mockup's
  * `.rail > .brand / .nav / .grow / .me`). The spacer between the menu and the account is what
  * puts the account on the floor of the rail at any height.
