@@ -47,6 +47,14 @@ export const KIND = {
    * same uuid. A namespace is only ever appended here, never reused.
    */
   approvalRequest: 0x27,
+  /**
+   * `ops.task` — the exception task an approval request hangs off
+   * (`ops.approval_request.task_id` is NOT NULL, 0000_init).
+   *
+   * Its own namespace rather than a reuse of `approvalRequest`: the two rows are written together
+   * and must not collide, and a namespace is only ever appended here (see the note above).
+   */
+  approvalTask: 0x28,
 } as const;
 
 /* ───────────────────────────── types ───────────────────────────── */

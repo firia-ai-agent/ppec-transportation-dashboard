@@ -1128,8 +1128,24 @@ export const approval = {
 
   /** The card's title: what kind of change it is. */
   changeDropoff: "Change drop-off",
+  /**
+   * WHO THE PROPOSAL IS FROM — one word, and it is this one.
+   *
+   * Vera's S1-2 checklist item a (2026-10-18): "Each proposal has ONE approve row, labelled
+   * 'Agent' (from copy.ts), with no internal codes and no vendor or provider names." So the card's
+   * author is "Agent", which is also the name the mockup gives this actor where it names it at all
+   * (mockups/approvals.html: `<h3>Agent</h3>` over the same feed) — the card line there still read
+   * "Assistant", and the checklist is the later word on which of the two the product says.
+   *
+   * What it must never be is the thing underneath. A coordinator deciding whether to text a family
+   * is not helped by the name of a model or a router, and a card that said one would be leaking a
+   * deployment detail onto a staff screen — and dating itself the next time the deployment
+   * changes. The provider is configuration (`agent/config.ts`), it stays in the server log, and
+   * the assertion that keeps it off the card is in real-card-only.test.ts.
+   */
+  agentLabel: "Agent",
   /** Who drafted it and when, on the card's own header line. */
-  draftedBy: "Assistant · {time}",
+  draftedBy: "{agent} · {time}",
   /** The three rows of the before → after. */
   diffStop: "Stop",
   diffTime: "Time",
@@ -2290,14 +2306,28 @@ export const outboundSms = {
     /**
      * The answer to a parent who asked for a different drop-off, approved by a person.
      *
-     * Firia, 2026-10-17 10:51 PM ET: "Model draft is human and uses the child's name, e.g. 'Yes,
-     * Jonah gets off at … at 3:58 PM'" — so it opens with the answer, names the child and gives
-     * the decided minute. `{eta}` is a recorded fact here and not an estimate (`dropoff.changed`
-     * no longer permits `etaEnd`): a coordinator approved this time, so the body says it rather
-     * than hedging it into a window.
+     * It opens with the answer and names the child (Firia, 2026-10-17 10:51 PM ET: "Model draft is
+     * human and uses the child's name") — and it carries **no clock time**.
+     *
+     * The time came out on the COPY RULE (2026-10-18, p-rework-approvals5; Vera's S1-2 checklist
+     * item b, "drafts contain no clock times"), which is the later word and wins over the 10:51 PM
+     * example that still had one in it: *"drafted replies carry NO clock times (e.g. 'Yes, Jonah
+     * gets off at Palm Beach State College today')"*. The mockup's own card already reads that way
+     * (mockups/approvals.html `.prop .draft`: "Yes. Jonah gets off at Palm Beach State College
+     * today.").
+     *
+     * The reason is not brevity. A minute in this sentence is a promise about traffic: the stop is
+     * decided and the time is not, and a family told "at 5:00 PM" has been given an ETA by a
+     * screen that carries no ETAs (Firia, 8:36 PM and 10:51 PM ET). What moved is *where*, so
+     * that is what the text says; the day's own arrival notices are the things allowed a clock.
+     *
+     * `eta` stays in the outbox's var table for this template and is simply not placed — the same
+     * shape `legDate` has had here all along. The vars are what the proposal *records*; the body
+     * is what a family reads, and the two are allowed to differ in this direction (a placeholder
+     * with no var is the error, and templates.test.ts is the door on that).
      */
     "dropoff.changed":
-      "PPEC: Yes — {childName} gets off at {stopLabel} at {eta}.",
+      "PPEC: Yes — {childName} gets off at {stopLabel} today.",
     /**
      * The afternoon's handoff, once the day has **recorded** one.
      *

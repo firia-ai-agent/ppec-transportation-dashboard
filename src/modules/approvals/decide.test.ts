@@ -301,14 +301,20 @@ describe("approving", () => {
     /*
      * The exact words the family gets — the ones the screen showed, through the one renderer.
      *
-     * Firia, 2026-10-17 10:51 PM ET: the draft is human and names the child ("Yes, Jonah gets
-     * off at … at 3:58 PM"). The name is resolved from the child's own row at render time and is
-     * never a var (`src/modules/messaging/templates.ts`, Veri #12), and the minute is said flat
-     * rather than hedged into "around", because a coordinator approved that time.
+     * Human, and it names the child (Firia, 2026-10-17 10:51 PM ET); the name is resolved from the
+     * child's own row at render time and is never a var (`src/modules/messaging/templates.ts`,
+     * Veri #12).
+     *
+     * And **no clock time** in it: the COPY RULE (p-rework-approvals5; Vera's S1-2 checklist item
+     * b) is the later word over the 10:51 PM example that had one. What the family needs is where
+     * their child gets off, which is the thing a person just decided — the minute is traffic, and
+     * this screen gives a family no ETAs at all. Asserted as the whole string rather than a
+     * fragment, so a time cannot creep back in beside what is checked here.
      */
     expect(answer.body.ok && answer.body.text).toBe(
-      "PPEC: Yes — Noah gets off at Okeeheelee Park at 5:00 PM.",
+      "PPEC: Yes — Noah gets off at Okeeheelee Park today.",
     );
+    expect(answer.body.ok && answer.body.text).not.toMatch(/\d{1,2}:\d{2}/);
 
     // 1. the decision, with who made it and when.
     const row = (await db.query<{ decision: string; decided_by: string; decided_at: Date }>(
@@ -346,13 +352,28 @@ describe("approving", () => {
     expect(await pendingApprovals(db, [SITE])).toEqual([]);
   });
 
-  it("sends the time a coordinator edited, not the one the assistant proposed", async () => {
+  /**
+   * THE EDITED TIME IS WHAT GETS RECORDED — and it is not a word of the text.
+   *
+   * It used to be both: the body said "at 5:30 PM", so the edit was visible in the sentence. The
+   * COPY RULE took the clock out of `dropoff.changed` (Vera's S1-2 item b), and that changes where
+   * this claim is checkable rather than whether it holds. The edited minute is the one the message
+   * *carries* — `vars.eta`, which is what the drain renders and what the plan was saved against —
+   * while the words a family reads say where their child gets off and not when. So the assertion
+   * moved onto the row, and the body is asserted to carry no clock at all.
+   */
+  it("records the time a coordinator edited, not the one the agent proposed", async () => {
     const id = await seedProposal();
 
     const answer = await decide({ approvalId: id, editedTime: "17:30" });
 
-    expect(answer.body.ok && answer.body.text).toContain("at 5:30 PM");
+    // The edit reached the message, and the proposal's own 17:00 did not.
     expect((await queued())[0].vars).toMatchObject({ eta: "17:30" });
+    expect((await queued())[0].vars).not.toMatchObject({ eta: "17:00" });
+    // And the words are the same words either way, because they name no minute.
+    expect(answer.body.ok && answer.body.text).toBe(
+      "PPEC: Yes — Noah gets off at Okeeheelee Park today.",
+    );
   });
 
   it("refuses a time that is not a time, before anything is written", async () => {

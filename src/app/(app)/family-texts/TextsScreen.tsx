@@ -134,6 +134,21 @@ export function TextsScreen({
               assistantReachable={assistantReachable}
             />
           ) : null}
+          {/*
+            * THE EMPTY STATE (Firia's S1-2: "with no rows show the … empty state").
+            *
+            * Said as a fact about the day rather than about the build, which is what
+            * `approval.none` already says on the screen this tab replaced. It is the whole of what
+            * a coordinator gets when no proposal is waiting — there is no card any more for a day
+            * with no approval rows in it, because a card is an offer to approve something and
+            * there is nothing to approve.
+            *
+            * Not shown while an alert is up: "nothing is waiting" under a "needs a person" card
+            * would be the tab contradicting itself in two lines.
+            */}
+          {forYou && proposals.length === 0 && alerts.length === 0 && !alertsUnreadable ? (
+            <p className={styles.empty}>{approval.none}</p>
+          ) : null}
           <ConversationList rows={rows} tab={tab} openKey={thread?.key ?? null} />
         </div>
         {thread === null ? (

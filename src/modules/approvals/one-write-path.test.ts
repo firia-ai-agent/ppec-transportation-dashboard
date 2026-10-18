@@ -193,12 +193,24 @@ describe("gate 2: an edited message needs a fresh approval", () => {
   const day = demoDay();
   const request = demoChangeRequests(day)[0];
 
-  it("re-renders the reply from the new time, through the same template", () => {
+  /**
+   * An Edit moves the time the proposal *records* and cannot move the words.
+   *
+   * It used to move both — `dropoff.changed` said "at 5:30 PM", so a re-render showed the edit in
+   * the sentence. The COPY RULE took the clock out of that body (Vera's S1-2 item b), and the
+   * result is a sharper version of gate 2 rather than a weaker one: the only thing an Edit can
+   * change is a time field, the reply itself is `renderTemplate`'s output over a fixed template
+   * either way, and there is now no route at all by which a person's keystrokes reach a family's
+   * phone. Both halves are asserted — the time moves, the words do not.
+   */
+  it("moves the time and not the words: the reply is the template's, before and after", () => {
     const edited = withRequestedTime(request, "17:30", day);
     expect(edited.requestedHhmm).toBe("17:30");
     expect(edited.timeTo).toBe("5:30 PM");
-    expect(edited.draftText).not.toBe(request.draftText);
-    expect(edited.draftText).toContain("5:30 PM");
+    expect(request.requestedHhmm).not.toBe("17:30");
+    // The sentence is unchanged, because it names no minute to change (COPY RULE).
+    expect(edited.draftText).toBe(request.draftText);
+    expect(edited.draftText).not.toMatch(/\d{1,2}:\d{2}/);
     // Same template, so the words are still the outbox's and not a person's.
     expect(edited.templateId).toBe(request.templateId);
   });
@@ -225,12 +237,48 @@ describe("gate 2: an edited message needs a fresh approval", () => {
 
   it("comes back pending, with Approve still to press", async () => {
     const { TextsScreen } = await import("@/app/(app)/family-texts/TextsScreen");
-    const { conversationRows, proposalFromDemo, threadView } = await import(
+    const { conversationRows, threadView } = await import(
       "@/app/(app)/family-texts/conversations"
     );
+    const { approvalQueue } = await import("@/app/(app)/family-texts/queue");
+    const { DROPOFF_CHANGE_KIND } = await import("@/modules/agent/run/exec/proposals");
+    const { childTokenOf } = await import("@/modules/demo/fixtures/standard");
     const texts = demoLateDropoffs(day);
     const selected = texts[texts.length - 1];
     const edited = withRequestedTime(request, "17:30", day);
+    /*
+     * The card comes from a real approval row and the Edit time is applied over it by the queue
+     * (S1-2: the fixture card is gone). `editedTime` is the only thing that moves — the row still
+     * says 17:00 — which is exactly the claim: an edit changes the words on screen and writes
+     * nothing, so what is rendered is still a PENDING proposal.
+     */
+    const site = "00000000-0000-7000-8000-0000000000a1";
+    const row = {
+      id: request.approvalId,
+      site_id: site,
+      decided_at: null,
+      created_at: new Date(request.draftedAtMs),
+      display_name: request.childLabel,
+      proposal: {
+        kind: DROPOFF_CHANGE_KIND,
+        leg_id: "00000000-0000-7000-8000-0000000000f1",
+        child_token: childTokenOf(request.childKey),
+        service_date: day.iso,
+        direction: "PM",
+        plan_run_version_basis: 0,
+        requested_dropoff_time: request.requestedHhmm,
+        stop_token: "PBSC-LW",
+        rationale_code: "PARENT_REQUEST",
+        template_id: request.templateId,
+        vars: request.vars,
+      },
+    };
+    const queue = await approvalQueue({
+      db: { query: async () => ({ rows: [row] as never[] }) },
+      siteIds: [site],
+      day,
+      editedTime: "17:30",
+    });
     const html = renderToStaticMarkup(
       createElement(TextsScreen, {
         tab: "for-you",
@@ -239,11 +287,12 @@ describe("gate 2: an edited message needs a fresh approval", () => {
           selected,
           thread: { source: "scenario", bubbles: [] },
           request: edited,
+          proposal: queue[0],
           day,
           assistantReachable: true,
           mayApprove: true,
         }),
-        proposals: [proposalFromDemo(edited)],
+        proposals: queue,
         alerts: [],
         alertsUnreadable: false,
         assistantReachable: true,

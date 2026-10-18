@@ -22,6 +22,8 @@ import {
   type AuthScope, type Child,
 } from "./fixtures/standard";
 
+import { seedDemoChangeRequest } from "./approval-seed";
+
 export class SeedRefused extends Error {}
 
 /** Written to created_by / updated_by on every seeded row (schema convention: "demo"). */
@@ -397,6 +399,17 @@ export async function seedStandardScenario(db: Db, opts: SeedOptions): Promise<S
     }
     await insert(tx, "ops.manifest_reservation",
       ["id", "site_id", "manifest_id", "trip_leg_id", "state", "position_id", "created_by", "updated_by", "source_mode"], reservations);
+
+    /*
+     * 8b. THE DAY'S ONE PROPOSAL, as a real `ops.approval_request` row (Firia's S1-2, 11:00 PM ET:
+     *     "Demo data seeds real approval rows via the demo adapter, not UI fixtures").
+     *
+     *     After the legs, because the row names one of them and reads it back to prove it exists.
+     *     The row shape is `agent/run/exec/proposals.ts`'s, so the screen, `pendingApprovals` and
+     *     `decideApproval` all handle it exactly as they handle one the agent wrote — the demo
+     *     walks the real approval path rather than a picture of it.
+     */
+    await seedDemoChangeRequest(tx, { siteId, serviceDate: clock.serviceDate });
 
     // 9. Rewind the scenario clock to 06:00 site-local today (MOCKS §6), paused so the demo starts on cue.
     await insert(tx, "ops.scenario_clock", ["site_id", "scenario", "anchor_real", "anchor_scenario", "speed", "paused"],

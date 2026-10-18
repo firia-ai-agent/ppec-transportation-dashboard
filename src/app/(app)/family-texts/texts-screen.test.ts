@@ -22,7 +22,7 @@
  */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { demoDay } from "@/domain/board/day";
 import { demoChangeRequests } from "@/modules/demo/change-request";
 import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
@@ -30,10 +30,13 @@ import type { AssistantAlert } from "@/modules/agent/staff-alert";
 import { SEND_FOOTER } from "@/modules/messaging/templates";
 import { approval, assistantUnavailable, familyTexts } from "@/ui/copy";
 import type { ThreadContext } from "@/app/(app)/family-texts/context";
+import { childTokenOf, stopByKey, childByKey } from "@/modules/demo/fixtures/standard";
+import { DROPOFF_CHANGE_KIND } from "@/modules/agent/run/exec/proposals";
+import type { Exec } from "@/db/exec";
 import { TextsScreen } from "./TextsScreen";
+import { approvalQueue } from "./queue";
 import {
   conversationRows,
-  proposalFromDemo,
   runsOf,
   threadView,
   type ProposalView,
@@ -63,6 +66,47 @@ const projected: Thread = {
       reachedPhone: true,
     })),
 };
+
+const SITE = "00000000-0000-7000-8000-0000000000a1";
+
+/**
+ * THE CARD UNDER TEST COMES FROM A ROW, not from a fixture (Firia's S1-2, 11:00 PM ET).
+ *
+ * One `ops.approval_request` row in the exact shape the demo seed writes
+ * (src/modules/demo/approval-seed.ts) and the agent's own writer writes
+ * (agent/run/exec/proposals.ts `dropoffChange`), handed to the **real** `approvalQueue` over a
+ * stub `Exec`. So what this file renders is the production mapping from a row to a card — the
+ * ticks included, which are computed rather than returned — and a change to that mapping shows up
+ * here rather than passing because the test built its own view object.
+ */
+const SEEDED_ROW = {
+  id: request.approvalId,
+  site_id: SITE,
+  decided_at: null,
+  created_at: new Date(request.draftedAtMs),
+  display_name: request.childLabel,
+  proposal: {
+    kind: DROPOFF_CHANGE_KIND,
+    leg_id: "00000000-0000-7000-8000-0000000000f1",
+    child_token: childTokenOf(request.childKey),
+    service_date: day.iso,
+    direction: "PM",
+    plan_run_version_basis: 0,
+    requested_dropoff_time: request.requestedHhmm,
+    stop_token: stopByKey(childByKey(request.childKey)!.stopKey!).smsToken,
+    rationale_code: "PARENT_REQUEST",
+    template_id: request.templateId,
+    vars: request.vars,
+  },
+};
+
+/** `pendingApprovals`'s query, answered with the one row above and nothing else. */
+const oneRow: Exec = { query: async () => ({ rows: [SEEDED_ROW] as never[] }) };
+
+let PROPOSAL: ProposalView;
+beforeAll(async () => {
+  PROPOSAL = (await approvalQueue({ db: oneRow, siteIds: [SITE], day, editedTime: null }))[0];
+});
 
 /** The action is never called in a static render; it is here to satisfy the prop. */
 const decide = async (): Promise<DecisionState> => ({ status: "idle" });
@@ -96,11 +140,14 @@ function render(a: {
         selected,
         thread: projected,
         request: asked,
+        // The card in the thread is the queue's own row, matched on the thread it belongs to —
+        // which is the whole of "the badge and the card come from the same rows" (S1-2).
+        proposal: asked && mayApprove ? PROPOSAL : null,
         day,
         assistantReachable: reachable,
         mayApprove,
       }),
-      proposals: a.proposals ?? (mayApprove ? [proposalFromDemo(request)] : []),
+      proposals: a.proposals ?? (mayApprove && asked ? [PROPOSAL] : []),
       alerts: a.alerts ?? [],
       alertsUnreadable: false,
       assistantReachable: reachable,
@@ -244,7 +291,9 @@ describe("gate 4: Auto · Delivered is earned", () => {
 
   it("never labels the approved reply as auto", () => {
     const html = textOf(render({}));
-    const draft = html.indexOf(request.draftText);
+    // The drafted reply as the APPROVAL ROW renders it (S1-2): `bodyOf` over the row's own
+    // template and vars, naming the child the way the sent text names them ("Noah O.").
+    const draft = html.indexOf(PROPOSAL.draftText);
     const auto = html.indexOf(familyTexts.autoDelivered);
     expect(draft).toBeGreaterThan(-1);
     // The auto label is above the parent's reply; the drafted text is below it, in the card.
@@ -255,7 +304,7 @@ describe("gate 4: Auto · Delivered is earned", () => {
 describe("gate 3: nothing model-written reaches a parent unapproved", () => {
   it("shows the drafted reply only inside a card that has an Approve on it", () => {
     const html = textOf(render({}));
-    expect(html).toContain(request.draftText);
+    expect(html).toContain(PROPOSAL.draftText);
     expect(html).toContain(approval.approveAndSend);
     expect(html).toContain(approval.dontSend);
     // And the card says the family has heard nothing yet.

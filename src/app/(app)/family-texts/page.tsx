@@ -4,16 +4,16 @@ import { getExec } from "@/auth/exec";
 import { identityGateway } from "@/modules/identity/gateway";
 import { requirePage } from "@/auth/page-guard";
 import { getNeonDb } from "@/db/exec";
-import { demoDay } from "@/domain/board/day";
+import { demoDay, type ServiceDay } from "@/domain/board/day";
 import { modelReach } from "@/modules/agent/run/deps";
 import { openAssistantAlerts, type AssistantAlert } from "@/modules/agent/staff-alert";
-import { bodyOf, pendingApprovals } from "@/modules/approvals/decide";
+import { approvalQueue } from "./queue";
 import { demoChangeRequests, withRequestedTime, type DemoChangeRequest } from "@/modules/demo/change-request";
 import { familyTexts } from "@/ui/copy";
 import { NOT_ON_YOUR_MENU, withNotice } from "@/ui/notice";
 import { decideApprovalAction, takeAlertAction } from "./actions";
 import { contextFor } from "./context";
-import { conversationRows, proposalFromDemo, tabFrom, threadView, type ProposalView } from "./conversations";
+import { conversationRows, tabFrom, threadView, type ProposalView } from "./conversations";
 import { TextsScreen } from "./TextsScreen";
 import { phonesForDay, threadFor } from "./thread";
 
@@ -126,7 +126,18 @@ export default async function FamilyTextsPage({
 
   const siteIds = caller.memberships.map((m) => m.siteId);
   const board = mayApprove ? await readAlerts(siteIds) : { alerts: [], unreadable: false };
-  const logged = mayApprove ? await readPending(siteIds) : [];
+  /*
+   * THE ONE READ OF THE PROPOSALS (S1-2). The tab's badge, the For you queue and the card inside
+   * the thread are all this list — matched to a thread on `threadKey` — so the screen cannot say
+   * "1 waiting" over a card that is about something else, and cannot draw a card with no row
+   * behind it for an Approve to post.
+   *
+   * Gate 5 is applied here, once: with no model there is nothing to approve, because nothing read
+   * the family's text. Gate 8's courtesy half likewise — a role that may not decide does not have
+   * the queue read for them at all.
+   */
+  const queue =
+    mayApprove && assistantReachable ? await readQueue(siteIds, day, editedTime) : [];
 
   const view =
     selected && thread
@@ -134,6 +145,7 @@ export default async function FamilyTextsPage({
           selected,
           thread,
           request: requests.find((r) => r.childKey === selected.childKey),
+          proposal: queue.find((p) => p.threadKey === selected.childKey) ?? null,
           day,
           assistantReachable,
           mayApprove,
@@ -150,9 +162,8 @@ export default async function FamilyTextsPage({
       editing={editing}
       rows={conversationRows(phones, requests)}
       thread={view}
-      /* Gate 5, applied once: with no model there is nothing to approve, so the queue is empty
-         and the tab's count is the alerts alone. */
-      proposals={mayApprove && assistantReachable ? proposalsFor(logged, requests, editedTime) : []}
+      /* The same rows the card in the thread came from: one read, two readers (S1-2). */
+      proposals={queue}
       alerts={board.alerts}
       alertsUnreadable={board.unreadable}
       assistantReachable={assistantReachable}
@@ -165,60 +176,23 @@ export default async function FamilyTextsPage({
   );
 }
 
-/**
- * The queue: the real rows when the database has them, the demo day's own request when it does not.
+/*
+ * THERE IS NO FIXTURE FALLBACK HERE ANY MORE (Firia's S1-2, 11:00 PM ET: "Delete … the For you
+ * fixture when there are no rows … with no rows show the mockup's empty state").
  *
- * In that order on purpose. A deployment that has run the day has `ops.approval_request` rows and
- * those are the truth; a laptop and a fresh preview have none, and the day's scripted request is
- * what the screen shows instead — the same projection the threads already fall back to, and the
- * reason this screen works with no `DATABASE_URL` at all.
+ * What used to be here was `proposalsFor`: the real `ops.approval_request` rows when the database
+ * had them, and `requests.map(proposalFromDemo)` — the demo change-request fixture — when it did
+ * not. It made the screen look right on a laptop and it was the wrong trade, because the thing it
+ * invented was a *decision*. Every card carries an Approve that posts an approval id, so a card
+ * with no row behind it is a button the server answers `NO_SUCH_APPROVAL` to; and a coordinator
+ * who has pressed it has been told the family was texted about a change that no row records and
+ * no plan holds.
+ *
+ * With no rows there is now no card, and the For you tab says so in its own words. The demo still
+ * has a card to show, because the demo *seeds a real approval row* — `seedDemoChangeRequest`
+ * (src/modules/demo/approval-seed.ts), run by the standard seed, which writes the same shape
+ * `agent/run/exec/proposals.ts` writes and is read back by the same query.
  */
-function proposalsFor(
-  logged: readonly Awaited<ReturnType<typeof pendingApprovals>>[number][],
-  requests: readonly DemoChangeRequest[],
-  editedTime: string | null,
-): readonly ProposalView[] {
-  if (logged.length > 0) {
-    return logged.map((row) => proposalFromRow(row, editedTime));
-  }
-  // The requests already carry the edited time (applied once, above), so this is one mapping.
-  return requests.map(proposalFromDemo);
-}
-
-/**
- * A real `ops.approval_request` row, as the card renders it.
- *
- * It lives on the page rather than in `conversations.ts` for a reason that is about the *bundle*:
- * the two client components import that module's types, and `agent/key-never-leaves.test.ts`
- * follows a type-only import the way a conservative bundler would — so a `PendingApproval` type
- * there would put `decide.ts`, and through it the agent's config, on a path to a browser. A page
- * is server-only, and this is the only function that needs the row's shape.
- *
- * The row carries the text and the proposed time and nothing about the stop it came from, so the
- * before half of the stop row is left out rather than reconstructed: a "from" the row does not
- * hold would be this screen inventing one.
- */
-function proposalFromRow(row: Awaited<ReturnType<typeof pendingApprovals>>[number], editedTime: string | null): ProposalView {
-  const time = editedTime ?? row.requestedTime;
-  return {
-    approvalId: row.id,
-    threadKey: row.id,
-    childLabel: row.childLabel,
-    adultName: "",
-    draftedLabel: "",
-    stopFrom: null,
-    stopTo: "",
-    timeFrom: null,
-    timeTo: time,
-    pickupLabel: "",
-    // No checks: the row holds nothing the screen could claim passed, and an invented tick on a
-    // card somebody is about to approve is the worst possible place for one.
-    checks: [],
-    // The decision model's own renderer, so the words on the card are the words it queues.
-    draftText: bodyOf({ template_id: row.templateId, vars: { ...row.vars } }, editedTime),
-    requestedHhmm: time,
-  };
-}
 
 /**
  * A 24-hour wall-clock time, or nothing.
@@ -241,10 +215,22 @@ async function readAlerts(
   }
 }
 
-async function readPending(siteIds: readonly string[]) {
+/**
+ * The approval queue, failing soft.
+ *
+ * A read-only preview, a demo session with no membership, a database that is away: all three are
+ * "nothing is waiting" as far as this screen is concerned, and none of them is a reason to take
+ * Family texts off a coordinator. What they are emphatically not a reason to do is invent a card
+ * — see the note above — so the empty list is the honest answer and the tab prints it.
+ */
+async function readQueue(
+  siteIds: readonly string[],
+  day: ServiceDay,
+  editedTime: string | null,
+): Promise<readonly ProposalView[]> {
   if (siteIds.length === 0) return [];
   try {
-    return await pendingApprovals(getExec(), siteIds);
+    return await approvalQueue({ db: getExec(), siteIds, day, editedTime });
   } catch {
     return [];
   }

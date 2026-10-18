@@ -58,7 +58,14 @@ export function ProposalCard({
   return (
     <section className={[styles.card, className].filter(Boolean).join(" ")} aria-label={approval.changeDropoff}>
       <div className={styles.cardHead}>
-        <Bot size={icon.inline} aria-hidden="true" />
+        {/*
+          * The agent's mark, with the agent's name on it (Vera's S1-2 item a: the proposal is
+          * labelled "Agent", from copy.ts). Sighted readers get the word on the "Agent · 3:58 PM"
+          * line at the end of this row; a screen reader would otherwise reach the card with no
+          * idea who proposed it, because an `aria-hidden` icon is the one thing on the header that
+          * carries the author.
+          */}
+        <Bot size={icon.inline} role="img" aria-label={approval.agentLabel} />
         <h3 className={styles.cardTitle}>{approval.changeDropoff}</h3>
         <StateChip state={{ icon: Bot, label: proposal.childLabel, tone: "neutral" }} />
         <span className={styles.headerSpacer} />

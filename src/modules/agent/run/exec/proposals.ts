@@ -23,6 +23,11 @@
  * agent's side of it.
  */
 import type { Exec } from "@/db/exec";
+import {
+  DROPOFF_CHANGE_KIND,
+  DROPOFF_CHANGE_TASK_CATEGORY,
+  DROPOFF_CHANGE_TEMPLATE,
+} from "@/modules/approvals/dropoff-change";
 import { childByKey, stopByKey } from "@/modules/demo/fixtures/standard";
 import { agentTasks } from "@/ui/copy";
 import { demoTokenForId } from "../scope-tokens";
@@ -35,19 +40,22 @@ import type { ExecutorDeps } from "./effects";
 /** `ops.task.category` for the three proposals. */
 export const REALLOCATION_TASK_CATEGORY = "INFEASIBLE";
 export const CHANGE_REQUEST_TASK_CATEGORY = "IDENTITY_CHANGE";
-/** A drop-off a family asked for: a plan change a person decides, not an identity claim. */
-export const DROPOFF_CHANGE_TASK_CATEGORY = "PLAN_CHANGE";
 
-/** The allow-listed template a family is told about an agreed drop-off with. */
-export const DROPOFF_CHANGE_TEMPLATE = "dropoff.changed";
-
-/**
- * `proposal ->> 'kind'` for a drop-off change, and the key the approvals screen selects on
- * (`modules/approvals/decide.ts`). A string rather than a table: `ops.approval_request.proposal`
- * is one jsonb column shared by every `propose_*` tool, and the kind is how a reader knows which
- * shape it is holding. Exported so the writer and the reader name it once between them.
+/*
+ * The drop-off proposal's three names are `@/modules/approvals/dropoff-change`'s, re-exported here
+ * so every existing caller of this module is unchanged.
+ *
+ * They moved because of what importing *this* module costs: it reaches the board's plan store for
+ * the version basis, and `plan/store.ts` imports `getNeonDb` as a value — so a module that wanted
+ * nothing but the name of a template ended up with a runtime dependency on the database handle.
+ * See that file's header for the suite it broke. Three strings should not drag a connection behind
+ * them; the file they live in now has no imports at all.
  */
-export const DROPOFF_CHANGE_KIND = "DROPOFF_CHANGE";
+export {
+  DROPOFF_CHANGE_KIND,
+  DROPOFF_CHANGE_TASK_CATEGORY,
+  DROPOFF_CHANGE_TEMPLATE,
+} from "@/modules/approvals/dropoff-change";
 
 /**
  * The stop a leg already drops at, as the short token the outbox's copy table keys its place names

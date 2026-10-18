@@ -61,7 +61,7 @@ import { APPROVAL_ROLES } from "@/auth/access";
 import type { Db, Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import { boardPlacementPort, type PlacementBucket, type PlanPlacementPortFor } from "./plan-placement-port";
-import { DROPOFF_CHANGE_KIND } from "@/modules/agent/run/exec/proposals";
+import { DROPOFF_CHANGE_KIND } from "./dropoff-change";
 import { renderTemplate } from "@/modules/messaging/templates";
 import { enqueue, type OutboxTransport } from "@/modules/outbox/outbox";
 import { FAMILY_SMS, authorizedContactsForChild } from "@/modules/outbox/policy";
@@ -83,8 +83,19 @@ export type PendingApproval = {
   readonly id: string;
   /** "Noah O." — the label every staff screen uses, off the child's own row. */
   readonly childLabel: string;
+  /**
+   * `proposal ->> 'child_token'` — the child this proposal is about, as an id.
+   *
+   * Carried so the screen can put the card in the right *thread*. Before S1-2 the card in the
+   * thread came from a fixture and the badge over the tab came from these rows, so the two could
+   * disagree about what was waiting; one queue answers both now, and this is the column it is
+   * keyed on (`family-texts/queue.ts`).
+   */
+  readonly childToken: string;
   readonly serviceDate: string;
   readonly direction: string;
+  /** When the agent wrote the row, epoch ms — the card's "Agent · 3:58 PM" line. */
+  readonly draftedAtMs: number;
   /** The exact body the family would get, rendered by the outbox's own renderer. */
   readonly text: string;
   /**
@@ -106,6 +117,8 @@ type ApprovalRow = {
   decided_at: Date | string | null;
   proposal: DropoffProposal;
   display_name: string | null;
+  /** Absent on the decide path's own read, which does not need it. */
+  created_at?: Date | string | null;
 };
 
 /** The shape `proposals.dropoffChange` writes. Read defensively: a row outlives the code that wrote it. */
@@ -146,7 +159,7 @@ type DropoffProposal = {
 export async function pendingApprovals(db: Exec, siteIds: readonly string[]): Promise<PendingApproval[]> {
   if (siteIds.length === 0) return [];
   const r = await db.query<ApprovalRow>(
-    `SELECT a.id, a.site_id, a.decided_at, a.proposal, c.display_name
+    `SELECT a.id, a.site_id, a.decided_at, a.proposal, a.created_at, c.display_name
      FROM ops.approval_request a
      LEFT JOIN ops.child_profile c
        ON c.child_token = (a.proposal ->> 'child_token')::uuid AND c.site_id = a.site_id
@@ -163,8 +176,10 @@ function viewOf(row: ApprovalRow): PendingApproval {
   return {
     id: row.id,
     childLabel: row.display_name ?? "",
+    childToken: String(p.child_token ?? ""),
     serviceDate: String(p.service_date ?? ""),
     direction: String(p.direction ?? ""),
+    draftedAtMs: msOf(row.created_at),
     text: bodyOf(p, null, row.display_name),
     templateId: String(p.template_id ?? ""),
     vars: p.vars ?? {},
@@ -172,6 +187,16 @@ function viewOf(row: ApprovalRow): PendingApproval {
     stopToken: String(p.stop_token ?? ""),
     rationaleCode: String(p.rationale_code ?? ""),
   };
+}
+
+/**
+ * When the row was written, as epoch ms. `0` for a row whose timestamp cannot be read, which the
+ * card renders as no "drafted at" line rather than as the epoch.
+ */
+function msOf(at: Date | string | null | undefined): number {
+  if (at === null || at === undefined) return 0;
+  const ms = at instanceof Date ? at.getTime() : new Date(at).getTime();
+  return Number.isFinite(ms) ? ms : 0;
 }
 
 /**

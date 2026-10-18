@@ -213,10 +213,13 @@ describe("approving the proposal", () => {
   it("confirms it with an allow-listed template, not with words a model wrote", () => {
     expect(approved.reply.templateId).toBe("dropoff.changed");
     /*
-     * Firia, 2026-10-17 10:51 PM ET: the reply is human and names the child ("Yes, Jonah gets
-     * off at … at 3:58 PM"), and the approved drop-off is a decided minute rather than a window.
+     * Human, and it names the child (Firia, 2026-10-17 10:51 PM ET) — with no clock time in it at
+     * all (the COPY RULE in p-rework-approvals5 and Vera's S1-2 checklist item b, both later than
+     * the 10:51 PM example that still read "at 3:58 PM"). The *card* still shows the time, because
+     * a coordinator is deciding one; the text a family reads says where, not when.
      */
-    expect(approved.reply.body).toContain(`Yes — ${approved.childFirstName} gets off at Okeeheelee Park at 5:00 PM`);
+    expect(approved.reply.body).toContain(`Yes — ${approved.childFirstName} gets off at Okeeheelee Park today`);
+    expect(approved.reply.body).not.toMatch(/\d{1,2}:\d{2}/);
     // A draft is the message and nothing else: no [DEMO] tag, and no STOP/HELP footer — the
     // send step appends that (Firia, 11:00 PM ET, S1-5; src/modules/messaging/templates.ts).
     expect(approved.reply.body).not.toContain("DEMO");

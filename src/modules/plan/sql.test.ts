@@ -236,7 +236,20 @@ describe("the day's other facts", () => {
     // The seed rewinds the scenario clock to 06:00 on the day it was run for: that is the started day.
     expect(context.startedDate).toBe(TODAY);
     expect(context.vansOut).toBe(0);
-    expect(context.approvalsWaiting).toBe(0);
+    /*
+     * One, and it is the day's own proposal (S1-2). The seed writes a real
+     * `ops.approval_request` now — `seedDemoChangeRequest`, src/modules/demo/approval-seed.ts —
+     * rather than the screen inventing a card from a fixture, so a started day really does have
+     * one decision waiting on it. Asserted against the rows rather than against the literal `1`:
+     * the claim is that this counter reads the table, and a seed that wrote two proposals should
+     * move this number rather than break this line.
+     */
+    const waiting = await db.query<{ n: number }>(
+      "SELECT count(*)::int n FROM ops.approval_request WHERE site_id = $1 AND decided_at IS NULL",
+      [SITE],
+    );
+    expect(waiting.rows[0].n).toBe(1);
+    expect(context.approvalsWaiting).toBe(waiting.rows[0].n);
   });
 
   /**

@@ -88,7 +88,7 @@ export type ProposalView = {
   readonly threadKey: string;
   readonly childLabel: string;
   readonly adultName: string;
-  /** "Assistant · 3:58 PM" — who drafted it and when. */
+  /** "Agent · 3:58 PM" — who drafted it and when (`copy.agentLabel`, Vera's S1-2 item a). */
   readonly draftedLabel: string;
   /** The stop. `from` is null when the place does not change, and then there is no arrow. */
   readonly stopFrom: string | null;
@@ -255,36 +255,28 @@ function msOf(bubble: Bubble): number {
 
 /* ───────────────────────────── the proposal ───────────────────────────── */
 
-/**
- * The demo day's proposal, as the card renders it.
+/*
+ * THERE IS NO `proposalFromDemo` HERE ANY MORE, and that absence is Firia's S1-2 (2026-10-17
+ * 11:00 PM ET): "the proposal card comes from the REAL model call and REAL approval rows … Delete
+ * the fixture card."
  *
- * The stop does not move in this request, so `stopFrom` is null and the row reads as one place.
- * The checks are the three the plan can actually answer for a time-only change on the same van:
- * the van does not change, the ride still fits it, and the adult collecting the child is the one
- * already on file. None of them is a guess, and none of them is a state code.
+ * What used to be here was a pure function from the demo change-request fixture to a
+ * `ProposalView`, with three hardcoded ticks on it. Two things were wrong with it, and the second
+ * is the one that mattered:
+ *
+ *  - the ticks were decoration. "Same van", "Fits" and "{adult} on file" were returned for every
+ *    proposal that could ever exist, including for a family whose file says the adult may *not*
+ *    receive the child (F2 holds every scope except `RECEIVE_CHILD`, AT-13). They are computed
+ *    now, in `checks.ts`, and a check that cannot be answered is not shown;
+ *  - the card had no row behind it. A card is an offer to approve something, and its Approve
+ *    posts an approval id — so a card built from a fixture was an offer the server could not
+ *    honour. The card now comes from `queue.ts`, which is the same read the tab's badge counts,
+ *    and with no rows there is no card and the tab says so (`approval.none`).
+ *
+ * A `ProposalView` is still this module's type, because the two client components under this
+ * folder render it. Building one is the server's job (`queue.ts`), for the bundle reason the page
+ * header gives: this module must stay reachable from a browser, and `decide.ts` must not be.
  */
-export function proposalFromDemo(request: DemoChangeRequest): ProposalView {
-  return {
-    approvalId: request.approvalId,
-    threadKey: request.childKey,
-    childLabel: request.childLabel,
-    adultName: request.guardianName,
-    draftedLabel: fill(approval.draftedBy, { time: formatClock(request.draftedAtMs) }),
-    stopFrom: null,
-    stopTo: request.stopPlace,
-    timeFrom: request.timeFrom,
-    timeTo: request.timeTo,
-    pickupLabel: fill(approval.pickupSame, { adult: request.guardianName }),
-    checks: proposalChecks(request.guardianName),
-    draftText: request.draftText,
-    requestedHhmm: request.requestedHhmm,
-  };
-}
-
-/** The three chips, in the order the mockup reads them. */
-function proposalChecks(adultName: string): readonly string[] {
-  return [approval.checkSameVan, approval.checkFits, fill(approval.checkOnFile, { adult: adultName })];
-}
 
 /* ───────────────────────────── putting it together ───────────────────────────── */
 
@@ -301,6 +293,12 @@ export function threadView(a: {
   readonly selected: DayPhone;
   readonly thread: Thread;
   readonly request: DemoChangeRequest | undefined;
+  /**
+   * The proposal waiting on THIS thread, from the approval queue (`queue.ts`) — the same rows the
+   * tab's badge counts. Undefined on a screen that has not read the queue at all (a role that may
+   * not decide), which is the same outcome as none waiting: no card.
+   */
+  readonly proposal: ProposalView | null | undefined;
   readonly day: ServiceDay;
   readonly assistantReachable: boolean;
   /** False for a role that may not decide: they get the thread and no card in it either. */
@@ -315,7 +313,12 @@ export function threadView(a: {
     childFirstName: a.selected.childFirstName,
     childLabel: a.selected.childLabel,
     runs: runsOf(bubbles, stampFor(a.day)),
-    proposal: a.request && a.assistantReachable && a.mayApprove ? proposalFromDemo(a.request) : null,
+    /*
+     * Both flags still gate it, and the row is now the third condition rather than a fixture:
+     * gate 5 (no model, no card) and gate 8's courtesy half (a role that cannot decide is shown
+     * no decision) are unchanged, and with no approval row there is nothing to show either way.
+     */
+    proposal: a.proposal != null && a.assistantReachable && a.mayApprove ? a.proposal : null,
     source: a.thread.source,
   };
 }

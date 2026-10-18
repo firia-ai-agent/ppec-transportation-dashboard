@@ -33,6 +33,8 @@ const ALLOWED_SEED_IMPORTERS = [
   "src/modules/demo/reset.ts",
   "scripts/demo-reset.ts",
   "src/modules/demo/seed.test.ts",
+  // S1-2: the seed now writes a real approval row, and this suite is what proves it.
+  "src/modules/demo/seeded-approval.db.test.ts",
   "src/modules/messaging/eta-notice-sweep.test.ts",
   // The drags and the child panel's Save, asserted against a seeded database (`pnpm test:db`).
   "src/modules/plan/place.db.test.ts",
