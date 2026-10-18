@@ -30,7 +30,9 @@ import styles from "./TabBar.module.css";
  *    tabs, and there is no second list of destinations written down for the phone;
  *  - **the count on Family texts** (REDESIGN-SPEC §9.2, audit §2 item 2): a Teal disc over the
  *    icon, and the tab's accessible name says the number rather than leaving it to the eye —
- *    "Family texts, 2 waiting" (`flow.tabbar`, src/ui/menu-badge.ts for the count);
+ *    "Family texts, 2 waiting" (`flow.tabbar`). Only when there is a live count to say, which
+ *    there is not yet: the fixture behind it is deleted and nothing passes one, so no disc and
+ *    no "waiting" is drawn for anybody until #61 lands (src/ui/menu-badge.ts);
  *  - **clear of the iPhone home bar**: the bar pads itself by `env(safe-area-inset-bottom)` and
  *    the shell pads the page by the bar's height plus that same inset, so nothing hides behind
  *    it (src/ui/AppShell.module.css).
@@ -38,7 +40,17 @@ import styles from "./TabBar.module.css";
  * A role with no destinations at all (signed in, no membership anywhere) gets no bar rather
  * than an empty strip across the bottom of their screen.
  */
-export function TabBar({ role }: { role: StaffRole | null }) {
+export function TabBar({
+  role,
+  waiting: forYouWaiting,
+}: {
+  role: StaffRole | null;
+  /**
+   * A live count of what is waiting in Family texts · For you, for the one badge on the menu.
+   * There is none to pass until #61 lands, and an absent count draws nothing (`menuBadgeFor`).
+   */
+  waiting?: number | null;
+}) {
   const pathname = usePathname();
   // The same list, the same filter, the same order as the rail: one menu, two shapes.
   const navItems = navItemsFor(role);
@@ -51,13 +63,16 @@ export function TabBar({ role }: { role: StaffRole | null }) {
         {navItems.map((item) => {
           const Icon = item.icon;
           const current = isCurrent(pathname, item.href);
-          const waiting = menuBadgeFor(item.href, role);
+          const waiting = menuBadgeFor(item.href, role, forYouWaiting);
           return (
             <li key={item.href} className={styles.item}>
               <Link
                 href={item.href}
                 className={styles.tab}
                 aria-current={current ? "page" : undefined}
+                /* One tab per menu item, and the hook a check counts them by (the rail's foot
+                   carries an account link that is not a destination; this bar carries none). */
+                data-nav-item
                 /*
                  * The count is part of the name, not a decoration beside it: a disc with "2" in
                  * it says nothing to a screen reader, and the one thing waiting for a person is

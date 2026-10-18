@@ -198,18 +198,18 @@ describe("token shape", () => {
     expect(read("Pill.module.css")).toMatch(
       /\.pill\[data-token="src-sim"\] \{[^}]*color: var\(--color-src-sim\)/,
     );
-    // And the demo control, which is the bar's own pair — one way round for its text, the
-    // other for the option it is set to (Vera's review, 2026-10-17).
-    const control = read("DemoControls.module.css");
-    expect(control).toMatch(/\.bar \{[^}]*background: var\(--color-demo-bg\)/);
-    expect(control).toMatch(/\.bar \{[^}]*color: var\(--color-demo-fg\)/);
+    /*
+     * And the controls that ride *in* the bar, which wear the bar's own pair — one way round for
+     * their text, the other for the option they are set to. The violet banner Plan routes
+     * carried is deleted (#74, Vera's audit), so the only control wearing this colour is one
+     * that is physically inside the bar.
+     */
+    const control = read("DemoClock.module.css");
     const pressed = /\.button\[aria-pressed="true"\] \{[^}]*\}/.exec(control)?.[0] ?? "";
     expect(pressed).toMatch(/background: var\(--color-demo-fg\)/);
     expect(pressed).toMatch(/color: var\(--color-demo-bg\)/);
     // §9: a ring that would be a smudge on the violet is not a ring. It is the bar's own ink.
-    expect(control).toMatch(
-      /\.button:focus-visible \{[^}]*outline: var\(--focus-width\) solid var\(--color-demo-fg\)/,
-    );
+    expect(control).toMatch(/outline: var\(--focus-width\) solid var\(--color-demo-fg\)/);
     // The screen's one action colour never reaches a demo control: this is not a decision.
     expect(control).not.toMatch(/--color-brand/);
     // Neither carries the literal, nor does anything else under src/ but this file.
@@ -287,22 +287,23 @@ describe("token shape", () => {
    * The bar's own control joined on the founder's redesign (REDESIGN-SPEC §0): the demo's reset
    * lives in the bar now, so it is inside the reservation by position as well as by rule.
    *
-   * The demo control joined the list on Vera's review, 2026-10-17, and it is the one addition
-   * that *spends* the reservation on its own terms rather than borrowing it: the Plan routes
-   * scenario toggle is not a coordinator's control, so it is painted as the demo it steers. It
-   * is shared chrome in src/ui for that reason — a screen cannot opt itself in.
+   * A screen's own control is **not** on this list, and that is #74: Plan routes carried a
+   * violet "Demo scenario" banner in the bar's fill, which Vera's audit asked for deleted and
+   * Firia ruled on — no violet anywhere on that screen. A control that steers the demo is
+   * either inside the bar or in the screen's own clothes; there is no third option, and no
+   * stylesheet outside this list may name the colour.
    *
    * Read from the stylesheets on purpose: nothing can paint itself violet without naming one
    * of these three custom properties, and the map's own copy of the token (style.ts, which is
    * JSON and cannot read a custom property) is held to the same rule by style.test.ts.
    */
-  it("spends that reservation on the bar, its two controls, the chip and a demo control", () => {
+  it("spends that reservation on the bar, its two controls and the chip, and nothing else", () => {
     const VIOLET_VARS = /--color-(?:demo-bg|demo-fg|src-sim)\b/;
     const allowed = new Set([
       path.join(SRC_ROOT, "ui", "DemoBanner.module.css"),
       // The one control *in* the bar — "Restart demo day" — which wears the bar's own pair
-      // rather than the screen's action colour, for the same reason the demo control below
-      // does (REDESIGN-SPEC §0, and src/ui/DemoRestart.module.css says it in full).
+      // rather than the screen's action colour, because it steers the demo and not the day
+      // (REDESIGN-SPEC §0, and src/ui/DemoRestart.module.css says it in full).
       path.join(SRC_ROOT, "ui", "DemoRestart.module.css"),
       /*
        * The bar's other control, as of Firia's 8:36 PM ET ruling: the scenario clock moved out
@@ -312,7 +313,6 @@ describe("token shape", () => {
       path.join(SRC_ROOT, "ui", "DemoClock.module.css"),
       // The §7.1 chip, which is the one pill with a violet token on it.
       path.join(SRC_ROOT, "ui", "Pill.module.css"),
-      path.join(SRC_ROOT, "ui", "DemoControls.module.css"),
     ]);
     const stylesheets = walkSrc().filter((f) => f.endsWith(".css") && !allowed.has(f));
     expect(stylesheets.length).toBeGreaterThan(10);

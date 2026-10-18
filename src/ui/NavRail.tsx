@@ -55,13 +55,30 @@ export type RailAccount = {
  *  - the visible `<span>`, which is in the DOM at every width and revealed by the expansion.
  * The icon is `aria-hidden`, so the name is never announced twice.
  */
-export function NavRail({ role, account }: { role: StaffRole | null; account: RailAccount | null }) {
+export function NavRail({
+  role,
+  account,
+  waiting: forYouWaiting,
+}: {
+  role: StaffRole | null;
+  account: RailAccount | null;
+  /**
+   * A live count of what is waiting in Family texts · For you, for the one badge on the menu.
+   * There is none to pass until #61 lands, and an absent count draws nothing (`menuBadgeFor`).
+   */
+  waiting?: number | null;
+}) {
   const pathname = usePathname();
   // The role is a string, so it crosses the server/client boundary; the icons do not, which is
   // why the list is built here rather than passed in.
   const navItems = navItemsFor(role);
   return (
-    <nav className={styles.rail} aria-label={nav.landmarkLabel}>
+    /*
+     * The rail is a frame, not the landmark: the <nav> below holds the five menu links and
+     * nothing else, and the account block sits outside it (Firia ruling, 5-item menu with the
+     * account outside the menu; Veri #74 gate 12:03 AM ET).
+     */
+    <div className={styles.rail} data-rail>
       <div className={styles.panel}>
         <p className={styles.brand} data-rail-brand>
           <span className={styles.mark} aria-hidden="true">
@@ -72,43 +89,59 @@ export function NavRail({ role, account }: { role: StaffRole | null; account: Ra
             <span className={styles.brandLine}>{app.brandLine}</span>
           </span>
         </p>
-        <ul className={styles.list}>
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const current = isCurrent(pathname, item.href);
-            const waiting = menuBadgeFor(item.href, role);
-            /*
-             * The count is part of the name, not a decoration beside it: a disc with "2" in it
-             * says nothing to a screen reader, and what is waiting for a person is exactly what
-             * the row should be announced with (§9, `flow.tabbar`).
-             */
-            const name =
-              waiting === null
-                ? item.label
-                : fill(flow.tabbar.waiting, { label: item.label, count: waiting });
-            return (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  className={styles.link}
-                  aria-label={name}
-                  title={name}
-                  aria-current={current ? "page" : undefined}
-                >
-                  <Icon size={icon.nav} aria-hidden="true" />
-                  <span className={styles.label} aria-hidden="true">
-                    {item.label}
-                  </span>
-                  {waiting === null ? null : (
-                    <span className={styles.badge} aria-hidden="true" data-menu-badge>
-                      {waiting}
+        <nav aria-label={nav.landmarkLabel} data-rail-menu>
+          <ul className={styles.list}>
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const current = isCurrent(pathname, item.href);
+              const waiting = menuBadgeFor(item.href, role, forYouWaiting);
+              /*
+               * The count is part of the name, not a decoration beside it: a disc with "2" in it
+               * says nothing to a screen reader, and what is waiting for a person is exactly what
+               * the row should be announced with (§9, `flow.tabbar`).
+               */
+              const name =
+                waiting === null
+                  ? item.label
+                  : fill(flow.tabbar.waiting, {
+                      label: item.label,
+                      count: waiting,
+                    });
+              return (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className={styles.link}
+                    aria-label={name}
+                    title={name}
+                    aria-current={current ? "page" : undefined}
+                    /*
+                     * What a menu item *is*, for a check that counts them: the rail's foot carries
+                     * one more link that is not a destination — the account block — so "how many
+                     * links are in the nav" and "how many items are on the menu" are two
+                     * questions, and this is the second one (e2e/nav-rail.spec.ts).
+                     */
+                    data-nav-item
+                  >
+                    <Icon size={icon.nav} aria-hidden="true" />
+                    <span className={styles.label} aria-hidden="true">
+                      {item.label}
                     </span>
-                  )}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+                    {waiting === null ? null : (
+                      <span
+                        className={styles.badge}
+                        aria-hidden="true"
+                        data-menu-badge
+                      >
+                        {waiting}
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
         <span className={styles.grow} />
         {/*
           The account, at the foot of the rail and inside the frame: /whoami is a page in the
@@ -127,11 +160,13 @@ export function NavRail({ role, account }: { role: StaffRole | null; account: Ra
             </span>
             <span className={styles.accountText} aria-hidden="true">
               <span className={styles.accountName}>{account.name}</span>
-              {account.role ? <span className={styles.accountRole}>{account.role}</span> : null}
+              {account.role ? (
+                <span className={styles.accountRole}>{account.role}</span>
+              ) : null}
             </span>
           </Link>
         ) : null}
       </div>
-    </nav>
+    </div>
   );
 }

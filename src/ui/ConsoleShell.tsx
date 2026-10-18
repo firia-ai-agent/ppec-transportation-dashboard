@@ -33,10 +33,16 @@ const ACCOUNT_PATH = "/whoami";
  */
 export function ConsoleShell({
   caller,
+  title,
   pageOwnsMain,
   children,
 }: {
   caller: ResolvedCaller;
+  /**
+   * Passed through to {@link AppShell}: the page header bar's title, for the one screen whose
+   * path has no row in the access table to read one from — the refusal (src/ui/RefusedPage.tsx).
+   */
+  title?: string;
   /** Passed through to {@link AppShell}: the screen inside already has a `main` landmark. */
   pageOwnsMain?: boolean;
   children: ReactNode;
@@ -54,7 +60,7 @@ export function ConsoleShell({
       }
     : null;
   return (
-    <AppShell account={account} role={role} pageOwnsMain={pageOwnsMain}>
+    <AppShell account={account} role={role} title={title} pageOwnsMain={pageOwnsMain}>
       {children}
     </AppShell>
   );

@@ -94,15 +94,16 @@
 }
 
 /*
- * §10: no horizontal scroll, and §4.1: no truncation hiding a child.
+ * §10: no horizontal scroll *of the page*, and §4.1: no truncation hiding a child.
  *
- * The widths below are *preferences* at the desk and law on a narrow screen. They were law
- * everywhere, and they were measured against a chip that was allowed to wrap onto a second
- * line. The chip may not wrap any more (audit §4.1, src/ui/Pill.module.css), so at 1440 a
- * column half a word too narrow stopped taking two lines and started painting its chip over the
- * next column — letting the browser discover the widths there gives the chip columns what they
- * need and takes it out of the two columns that are sentences and can wrap, which is where the
- * give belongs. The board's own rebuild re-cuts these columns properly (audit §4 item 3).
+ * The `.col*` widths below are preferences, not law. They were law, and they were measured
+ * against a chip that was allowed to wrap onto a second line; the chip may not wrap any more
+ * (audit §4.1, src/ui/Pill.module.css), so a column half a word too narrow stopped taking two
+ * lines and started painting its chip over the next column. The browser discovers the widths
+ * instead, which gives the chip columns what they need and takes the give out of the two
+ * columns that are sentences and can wrap — where it belongs. Below 1024 the table carries the
+ * scrollbar that answer costs (the rule under this one). The board's own rebuild re-cuts these
+ * columns properly (audit §4 item 3).
  */
 .table {
   width: 100%;
@@ -111,34 +112,44 @@
   border: var(--border-hairline) solid var(--color-neutral-bg);
   border-radius: var(--radius-md);
   /*
-   * Below 1280 the widths are law again: there is not enough window for the browser to find a
-   * column for every chip, and a table that discovers its own widths at 390 px makes the *page*
-   * scroll sideways — which takes the step strip and the frame with it. The board at 390 is
-   * cut off either way (audit §3 says so of production) and its rebuild is what fixes it
-   * (audit §4 item 3); what this keeps is the frame around it, whole.
+   * The browser finds the widths, at every width of window. A chip may not wrap any more (audit
+   * §4.1), so a column half a word too narrow does not take two lines — it paints its chip over
+   * the next column, which is the overlap the founder reported. The `.col*` percentages below
+   * stay as the preference; what the browser may not do is go under a chip's own width.
    */
-  table-layout: fixed;
-}
-
-@media (min-width: 1280px) {
-  .table {
-    table-layout: auto;
-  }
+  table-layout: auto;
 }
 
 /*
- * Below 1280 there is not enough window for nine columns of chips, and a chip may not wrap to
- * make room any more (audit §4.1). So the *table* scrolls inside its own box rather than the
- * chips painting over each other or the page scrolling sideways and taking the frame with it:
- * `display: block` keeps the rows and the columns exactly as they are and makes the element a
- * scroll box around them. The board's rebuild replaces this table with the mockup's board and
- * this rule with it (audit §4 item 3).
+ * BELOW 1024 THE TABLE IS ITS OWN SCROLL BOX, AND THE PAGE IS NOT.
+ *
+ * Six columns of chips that may not wrap need about 840 px, and a phone has 390. One of the two
+ * has to scroll, and it must not be the page: a document that scrolls sideways takes the step
+ * strip, the tab bar and the DEMO bar off the screen with it (measured at 390: `scrollWidth`
+ * 766, the frame sliding away at `scrollX` 376 — Veri's gate on #74). So the element becomes a
+ * block with its own horizontal scrollbar and the rows keep every column they had.
+ *
+ * `position: relative` is load-bearing, and is the fix for that 766. Every cell on this board
+ * carries a `.srOnly` span ("State: …", "Source: …"), which is `position: absolute`; with no
+ * positioned ancestor its containing block is the document, so the scroll box did not clip it
+ * and all 840 px of its layout position was added to the *document's* scrollable overflow. The
+ * box itself was scrolling correctly the whole time. Making the table their containing block
+ * puts them inside the clip, and the page is 390 px wide again.
+ *
+ * **At 1024 and up there is no scroll box**, and that is the other half of the same bug: an
+ * `overflow-x: auto` element is a scroll container in both axes, so the sticky group headers
+ * inside it stick to *it* rather than to the window — and a board scrolled to the bottom lost
+ * "Not riding today" off the top of the screen instead of pinning it (§4.1, and the e2e check
+ * that measures it at 1024 and 1280). The discovered widths fit a 1024 px window, so from there
+ * up the table is a plain table and the window is the one thing that scrolls.
+ *
+ * The board's rebuild replaces this table and this rule with it (audit §4 item 3).
  */
-@media (max-width: 1279px) {
+@media (max-width: 1023px) {
   .table {
     display: block;
+    position: relative;
     overflow-x: auto;
-    table-layout: auto;
   }
 }
 

@@ -172,7 +172,14 @@ for (const width of [1280, 390] as const) {
         // The menu is on screen around it, which is the thing the refusal page did not have.
         const menu = menuOn(page, width);
         await expect(menu).toBeVisible();
-        await expect(menu.getByRole("link")).toHaveCount(width < 768 ? TABS.length : MENU.length);
+        /*
+         * The menu's own items. `[data-nav-item]` and not every link in the landmark: at 768 and
+         * up the rail's foot carries the account block too, which opens /whoami and is not a
+         * destination on the menu (REDESIGN-SPEC §9.2, audit §2 item 3).
+         */
+        await expect(menu.locator("[data-nav-item]")).toHaveCount(
+          width < 768 ? TABS.length : MENU.length,
+        );
         await expectDemoBarPinned(page);
         await expectOneSimulatedChip(page);
         await expectPageHeaderBar(page);

@@ -336,8 +336,8 @@ describe("§2 the page header bar, and no app header", () => {
    */
   it("keeps exactly one identity location at each width", () => {
     // Both are given the same object, built once in ConsoleShell.
-    expect(shell).toMatch(/<PageHeader account=\{account\} \/>/);
-    expect(shell).toMatch(/<NavRail role=\{role\} account=\{account\} \/>/);
+    expect(shell).toMatch(/<PageHeader account=\{account\}/);
+    expect(shell).toMatch(/<NavRail role=\{role\} account=\{account\}/);
     // The deleted menu, gone as files so nothing can mount it again.
     for (const gone of ["AvatarMenu.tsx", "AvatarMenu.module.css"]) {
       expect(existsSync(path.join(UI, gone)), gone).toBe(false);
