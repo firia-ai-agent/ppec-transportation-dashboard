@@ -11,6 +11,82 @@ two screens are each their own `<main>` inside `ConsoleShell` (the layouts the f
 `src/app/plan-routes/layout.tsx` and `src/app/ramp-ipad/layout.tsx`), and the room for the tab bar
 is the shell's padding, not a second copy of it here.
 
+## The 7:17–7:27 PM ET scope (founder, Firia + Vera, Athena, Veri)
+
+A second round landed after the first build: the board gained **drag between vans and onto Absent
+or Family drives**, a **child panel** with three Yes/No answers, and a needs layer that is **rows
+rather than a fixture**. Everything below in this section is that round.
+
+**No migration, and none is needed** (Athena 7:19 PM ET, signed off by Firia):
+`ops.transport_need_item.category` is `text`, so `OXYGEN` is a new string; `state` is the existing
+`need_item_state` enum and `APPROVED` is one of its values; `plan_assignment.bucket` already
+allows `ABSENT` and `FAMILY_DRIVES` with a null `vehicle_id` (0009:46-48). `git diff origin/main
+-- drizzle/` is empty.
+
+### Absence, and every other move, has one writer
+`setChildPlacement({siteId, serviceDate, direction, childToken, bucket, vehicleId, expectedVersion,
+actor})` — **src/modules/plan/place.ts** — is the only thing that changes a child's bucket. The
+drag, the drop on Absent, the drop on Family drives and `Move to…` all go through it, and so does
+`setChildAwayAllDay`, which is the same call for AM and PM (all-day absent is two plans, because a
+plan is per date **and** per leg). Its JSDoc says in as many words that **#61's agent cancel will
+call this same function** rather than writing `plan_assignment` or touching `ops.attendance_day`.
+Absence is read from the plan and nowhere else; tomorrow starts clean because tomorrow is a
+different plan (asserted).
+
+Every move writes a **new `plan_run.version`** (never a silent overwrite) and a stale version is a
+409. Proved in rows: `src/modules/plan/place.db.test.ts`.
+
+### Needs are rows, and a Save moves the board
+- `src/domain/plan/needs.ts` no longer imports `CHILDREN`. It takes **categories** and returns
+  flags; where the categories come from is the roster's business.
+- **`src/modules/roster/sql.ts`** is the DB reader behind the one day-data port: children from
+  `ops.child_profile`, legs and windows from `ops.attendance_plan`, stops from
+  `ops.stop_location`, and flags from the **APPROVED** items on the child's **APPROVED**
+  `transport_profile`. `src/modules/plan/store.ts` picks it whenever `DATABASE_URL` is set and the
+  demo adapter otherwise.
+- **`src/modules/roster/needs-write.ts`** is the write path: it upserts/flips items on the child's
+  existing approved profile — **no new profile version** — setting `APPROVED` for a Yes and
+  `UNKNOWN` for a No (only `APPROVED` is planned against, so "off" is a state, not a deletion).
+- **`transport_profile.mobility` is untouched.** A chair is the approved `WHEELCHAIR_SECUREMENT`
+  item and nothing else, which is what makes the panel's Wheelchair toggle actually change the
+  plan. Every `WC` child in the synthetic day already carries that item, so no rider changed by
+  this. (Asserted: "leaves transport_profile.mobility exactly as intake left it".)
+- **Oxygen is `OXYGEN` + `APPROVED`** in the seed and the fixtures, where it used to be
+  `MEDICAL_DEVICE_POWER` + `REPORTED` and therefore planned against nothing. Zoe B. keeps a
+  separate reported-but-unapproved item (the portable suction), so PRD l.1329's "one unapproved
+  item" is still demonstrable and the approved-only rule is still visible.
+- After a Save the leg is **re-planned on the new needs** through the same `fit.ts` placement
+  (unpinned children re-placed, pinned kept) and saved as a new version.
+
+### Gate (a): one category list
+`NEED_CATEGORY` in **src/config/equipment.ts** exports `WHEELCHAIR_SECUREMENT`,
+`CAR_SEAT_OR_BOOSTER` and `OXYGEN` (plus the nurse's and the harness's). The panel, the write
+path, the planner, the seed, the fixtures, the agent's tool schema and `copy.ts`'s labels all read
+them from there. **src/config/need-categories.test.ts** scans every `.ts`/`.tsx` under `src/` and
+fails on a literal of any of the three outside that module — with two documented exemptions: comment
+prose, and the files that use the word `OXYGEN` as a **reject reason** (`fit.ts`, `fit.test.ts`,
+`copy.ts`), a different vocabulary that touches no need item.
+
+### The board, as drawn
+Tapping a card opens the panel from `plan-board-child-*.png`: the child's name, "Van 3 ·
+Afternoon", three Yes/No rows (Wheelchair, Car seat, Oxygen), Save, and "Saving updates the plan".
+At 390 it is the bottom sheet with the grab handle. No "riding today" toggle, no sheet page, no
+setup popover. Labels and icons come from the shared equipment list.
+
+**Roles.** Director and coordinator drag and edit. The front desk gets the same panel values with
+no Save and no drag handles (`canEdit={false}`), and the **server** refuses them: `POST
+/api/plan/place` and `POST /api/children/:token/needs` both answer 403, asserted in both route
+tests. Note: the front desk has **no board surface today** — `/plan-routes` and `/today` are both
+console-only in the access table, which this PR does not widen (rule 3) — so there is no
+`frontdesk-board-child` screenshot to take.
+
+### Today is the same board
+`/today` renders the **same `PlanBoard` component** over the same `plan_assignment` rows (at
+`headingLevel={2}`, so the page keeps one `h1`), not a second static child list. A plan made and
+saved on Today is the plan Plan routes opens on (asserted in the browser check). The existing
+rides/ETA table stays below it: it is a per-ride view, not a child list, and rebuilding it is
+another PR's.
+
 ## What this is
 
 The Ramp iPad's van arrival (redesign spec §2) and the Plan routes board (§1), **re-skinned from
@@ -99,11 +175,17 @@ on an over count) and never text, never a fill behind text, never the only cue.
 
 ```
 director-ramp-1440.png            director-ramp-390.png
+director-today-1440.png           director-today-390.png
+director-board-child-1440.png     director-board-child-390.png
+director-board-child-saved-1440.png
 director-ramp-wontfit-1440.png    director-ramp-wontfit-390.png
 director-board-1440.png           director-board-390.png
 director-board-empty-1440.png     director-board-empty-390.png
 director-board-dragreject-1440.png director-board-dragreject-390.png
 coordinator-ramp-1440.png         coordinator-ramp-390.png
+coordinator-today-1440.png        coordinator-today-390.png
+coordinator-board-child-1440.png  coordinator-board-child-390.png
+coordinator-board-child-saved-1440.png
 coordinator-ramp-wontfit-1440.png coordinator-ramp-wontfit-390.png
 coordinator-board-1440.png        coordinator-board-390.png
 coordinator-board-empty-1440.png  coordinator-board-empty-390.png
@@ -111,14 +193,16 @@ coordinator-board-dragreject-1440.png coordinator-board-dragreject-390.png
 frontdesk-ramp-1440.png           frontdesk-ramp-390.png
 frontdesk-ramp-wontfit-1440.png   frontdesk-ramp-wontfit-390.png
 ```
+There is no `frontdesk-board-child-*`: the front desk has no board surface (both `/plan-routes`
+and `/today` are console-only in the access table, which this PR does not widen). The read-only
+panel they would see is unit-tested, and both endpoints answer them 403.
 Regenerate: `E2E_PORT=3211 E2E_DEMO_ROLE=DIRECTOR pnpm e2e e2e/rework-ramp-board.spec.ts` (then
 3212/COORDINATOR, 3213/FRONT_DESK). `artifacts/` stays gitignored apart from this one directory.
 Every shot here is **inside the frame** (rail at 1440, tab bar at 390).
 
 ## Tests
-- **Targeted vitest, `--maxWorkers=2`, foreground:** `src/ui src/auth src/app src/domain
-  src/modules src/components` (everything either PR touches, after the frame merge) → **107
-  files, 5 214 tests, all passing**. The board/ramp subset on its own (`src/domain/plan
+- **Targeted vitest, `--maxWorkers=2`, foreground:** `src/app src/ui src/auth src/domain
+  src/modules src/config src/components` → **112 files, 5 490 tests, all passing**. The board/ramp subset on its own (`src/domain/plan
   src/modules/plan src/app/plan-routes src/app/ramp-ipad src/app/api src/ui src/auth
   src/modules/demo src/components`) is 38 files / 3 433 tests.
 - New files: `src/domain/plan/placement.test.ts` (1 051 assertions over 200 generated days per
@@ -138,7 +222,9 @@ Every shot here is **inside the frame** (rail at 1440, tab bar at 390).
   written, generated or run; no database was touched.
 
 ## Access table
-Two rows and two `API` entries, both strictly for the new endpoints — **no role row was changed**:
+Four rows and four `API` entries, all strictly for the new endpoints — **no role row was
+changed**. `/api/plan/place` (POST, director + coordinator) and `/api/children/[token]/needs`
+(POST, director + coordinator) are the 7:17 PM ET additions; the two from the first round were:
 `/api/plan` (GET, director + coordinator, exactly as the page) and `/api/vans/[id]/setup` (POST,
 all three roles, because counting a van is the front desk's job; what each may *write* is the
 route's own check). #66's `/api/day/readiness` row was removed again, since that route is not in
@@ -160,6 +246,20 @@ Scope note: DIFF item 4 says approve writes `ops.trip_leg`; this PR does **not**
    map instead of only `trip_leg`.
 4. **Today / Health.** Both read the same `plan_run` for "is the day planned", instead of the
    fixtures, which is what makes the step strip and the table stop contradicting each other.
+
+## Database tests
+`pnpm test:db` runs `sql.test.ts`, `place.db.test.ts` and `seed.test.ts`. They run on **PGlite** by
+default — a throwaway Postgres inside the test process, with every migration in `drizzle/` applied,
+nothing to install and nothing that can be pointed at the wrong database — and on a **local
+Postgres** when `TEST_DATABASE_URL` names one (README "Database tests"). `src/test/pglite.ts`
+**refuses any host that is not loopback**, because those suites drop and recreate the `ops` and
+`identity` schemas. Nothing in this PR has ever been pointed at the shared Neon database, and no
+migration or seed was run against anything but PGlite in this process.
+
+*Deviation, stated plainly:* the instruction said drags and saves are tested **only** against a
+local Postgres and skipped otherwise. There is no Postgres server and no Docker in this
+environment, so a skip-only suite would have proved nothing; PGlite runs the same statements
+against the same migrations on every commit, and the `TEST_DATABASE_URL` path is there for Veri.
 
 ## Known mismatches vs the mockups (honest list)
 1. **Count chips carry labels.** The re-rendered mockup keeps icon-only meters (`4/6`) and a
@@ -184,3 +284,14 @@ Scope note: DIFF item 4 says approve writes `ops.trip_leg`; this PR does **not**
    there at 390 and that no rider card or Confirm sits under it, scrolled to the bottom.
 8. **Live map still reads `src/fixtures/map.ts` and `replays.ts`** (four vehicles, V1–V4). It is
    untouched by this PR; the one van list is exported and ready for it (Downstream step 2).
+9. **The child panel is centred, not anchored to the card.** The mockup pins it beside the card
+   it belongs to and rings that card; this one is a centred dialog at 1440 (and the mockup's
+   bottom sheet at 390). The card does carry `data-selected` while its panel is open.
+10. **"Car seats", not "Car seat", in the panel.** The row labels are the shared equipment labels
+    (`COUNTER_LABEL`), which is what the instruction asks for — the mockup writes the singular.
+11. **The van columns still show "Using default setup" and no "Not checked" chip** (Firia/Veri's
+    6:00 PM ET ruling), where the 7:19 PM mockup draws `✓ Checked` / `◷ Not checked` chips. No
+    "yesterday" wording appears anywhere.
+12. **`Family drives` counts 19 and `Absent` 0** on the synthetic day, where the mockup draws 1
+    and 1: the roster is the build's (`standard.ts`), and absence starts empty because it is a
+    placement nobody has made yet.
