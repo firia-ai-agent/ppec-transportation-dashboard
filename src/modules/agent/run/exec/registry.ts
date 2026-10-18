@@ -12,14 +12,14 @@
  * thing worse than a missing executor is a lying one. `SEQUENCED_EXECUTORS` names them, and
  * `docs/agent/B08-SLICE1-DEFERRED.md` says what each still owes.
  */
+import { MESSAGE_SEND_TOOLS } from "@/modules/approvals/message-send";
 import type { ToolExecutors } from "../executors";
 import { TOOL_NAMES } from "../../tools";
 import { cancelAttendanceOrLegExecutor } from "./cancel";
 import { reportBoardingExecutor } from "./boarding";
 import { recordCapabilityReportExecutor, requestProviderCapabilityExecutor } from "./capability";
-import { recordAcknowledgmentExecutor, requestClarificationExecutor } from "./clarify";
+import { recordAcknowledgmentExecutor } from "./clarify";
 import type { ExecutorDeps } from "./effects";
-import { sendFollowupExecutor } from "./followup";
 import { type ProposalWriter, proposalWriter } from "./proposals";
 import { getLegStateExecutor, resolveSenderExecutor } from "./reads";
 import { closeTaskExecutor, escalateExceptionExecutor, summarizeThreadForStaffExecutor } from "./staff";
@@ -33,9 +33,13 @@ export function liveExecutors(deps: ExecutorDeps): ToolExecutors {
     resolve_sender: resolveSenderExecutor(deps),
     get_leg_state: getLegStateExecutor(deps),
     cancel_attendance_or_leg: cancelAttendanceOrLegExecutor(deps),
-    request_clarification: requestClarificationExecutor(deps),
+    /*
+     * NO `request_clarification` and NO `send_followup` here any more (Firia's S1-7 ruling,
+     * 2026-10-18). Both are `human`-tier `propose` tools now, so the loop must have no executor
+     * to reach for them: they are in `PROPOSAL_ONLY_TOOLS` below, and what they write is a
+     * `MESSAGE_SEND` approval row for a person to decide.
+     */
     record_acknowledgment: recordAcknowledgmentExecutor(deps),
-    send_followup: sendFollowupExecutor(deps),
     notify_affected_therapist: notifyAffectedTherapistExecutor(deps),
     request_provider_capability: requestProviderCapabilityExecutor(deps),
     record_capability_report: recordCapabilityReportExecutor(deps),
@@ -66,16 +70,23 @@ export function liveProposalWriter(deps: ExecutorDeps): ProposalWriter {
 export const SEQUENCED_EXECUTORS: readonly string[] = [];
 
 /**
- * The three `human`-tier tools: §11.2 gives them a proposal, never an effect (policy.ts step 11).
+ * The `human`-tier tools: §11.2 gives them a proposal, never an effect (policy.ts step 11).
  *
- * `propose_dropoff_change` is the newest, and it is here rather than in `liveExecutors` for the
- * reason the whole tier exists: a requested drop-off time is a thing a person decides. The agent
- * writes the row; `modules/approvals/decide.ts` is the only code that moves the leg.
+ * `propose_dropoff_change` is here rather than in `liveExecutors` for the reason the whole tier
+ * exists: a requested drop-off time is a thing a person decides. The agent writes the row;
+ * `modules/approvals/decide.ts` is the only code that moves the leg.
+ *
+ * `send_followup` and `request_clarification` joined them on Firia's S1-7 ruling (2026-10-18).
+ * They are not proposals *about* the plan — they send nothing and change nothing, and what waits
+ * for a person is the message itself (`MESSAGE_SEND`, `modules/approvals/message-send.ts`). A
+ * tool in this list has no executor by construction: the loop's `PROPOSAL` branch never reaches
+ * for one, so there is no code path on which the agent texts a family on its own authority.
  */
 export const PROPOSAL_ONLY_TOOLS: readonly string[] = [
   "propose_manifest_reallocation",
   "propose_dropoff_change",
   "propose_contact_or_profile_change",
+  ...MESSAGE_SEND_TOOLS,
 ];
 
 /**

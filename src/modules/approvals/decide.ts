@@ -62,6 +62,7 @@ import type { Db, Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import { boardPlacementPort, type PlacementBucket, type PlanPlacementPortFor } from "./plan-placement-port";
 import { DROPOFF_CHANGE_KIND } from "./dropoff-change";
+import { MESSAGE_SEND_KIND } from "./message-send";
 import { renderTemplate } from "@/modules/messaging/templates";
 import { enqueue, type OutboxTransport } from "@/modules/outbox/outbox";
 import { FAMILY_SMS, authorizedContactsForChild } from "@/modules/outbox/policy";
@@ -115,10 +116,30 @@ type ApprovalRow = {
   id: string;
   site_id: string;
   decided_at: Date | string | null;
-  proposal: DropoffProposal;
+  proposal: DropoffProposal & MessageProposal;
   display_name: string | null;
   /** Absent on the decide path's own read, which does not need it. */
   created_at?: Date | string | null;
+};
+
+/**
+ * The shape `proposals.messageSend` writes (S1-7). Read defensively, like every other row here: a
+ * row outlives the code that wrote it, and a field that is missing is a field this decision does
+ * without rather than one it invents.
+ */
+type MessageProposal = {
+  kind?: string;
+  tool?: string;
+  audience?: string;
+  recipient_tokens?: readonly string[];
+  child_token?: string | null;
+  therapy_session_id?: string | null;
+  trip_leg_id?: string | null;
+  channel?: string;
+  purpose?: string;
+  recipient_rule?: string;
+  template_id?: string;
+  vars?: Record<string, unknown>;
 };
 
 /** The shape `proposals.dropoffChange` writes. Read defensively: a row outlives the code that wrote it. */
@@ -164,9 +185,15 @@ export async function pendingApprovals(db: Exec, siteIds: readonly string[]): Pr
      LEFT JOIN ops.child_profile c
        ON c.child_token = (a.proposal ->> 'child_token')::uuid AND c.site_id = a.site_id
      WHERE a.site_id = ANY($1::uuid[]) AND a.decided_at IS NULL
-       AND a.proposal ->> 'kind' = $2
+       AND a.proposal ->> 'kind' IN ($2, $3)
      ORDER BY a.created_at, a.id`,
-    [siteIds, DROPOFF_CHANGE_KIND],
+    /*
+     * Both decidable kinds, named rather than "everything undecided": the other `propose_*` tools
+     * write rows of their own shape, and a screen that rendered a manifest reallocation through
+     * this card would be guessing at what its text says. They stay on the board as tasks until
+     * their own cards land (B-12).
+     */
+    [siteIds, DROPOFF_CHANGE_KIND, MESSAGE_SEND_KIND],
   );
   return r.rows.map(viewOf);
 }
@@ -236,6 +263,13 @@ export type DecideRequest = {
   readonly decision: ApprovalDecision;
   /** A time a coordinator typed instead of the one proposed ("Edit"). Null keeps the proposal's. */
   readonly editedTime?: string | null;
+  /**
+   * The exact words the screen showed when the button was pressed (S1-7).
+   *
+   * Compared to what this row renders now; a mismatch is `MESSAGE_CHANGED` and nothing is sent.
+   * Required for a `MESSAGE_SEND` row, where the text is the whole of what is being decided.
+   */
+  readonly approvedText?: string;
   readonly now: Date;
 };
 
@@ -251,6 +285,12 @@ export type DecideError =
   | "ALREADY_DECIDED"
   | "PLAN_MOVED"
   | "NOT_A_TIME"
+  /**
+   * The words moved under the person deciding them (S1-7). An edit that re-rendered the message,
+   * a copy change deployed while the tab was open, a proposal re-drafted since it was read — all
+   * of them answer this, and all of them mean the same thing: read it again and decide again.
+   */
+  | "MESSAGE_CHANGED"
   /**
    * The board refused to save the plan, or this day's plan has no such child.
    *
@@ -309,10 +349,35 @@ export async function decideApproval(
   }
 
   const proposal = row.proposal ?? {};
-  if (proposal.kind !== DROPOFF_CHANGE_KIND) {
+  const kind = proposal.kind;
+  if (kind !== DROPOFF_CHANGE_KIND && kind !== MESSAGE_SEND_KIND) {
     return { status: 404, body: { ok: false, error: "NO_SUCH_APPROVAL" } };
   }
   const text = bodyOf(proposal, req.editedTime ?? null, row.display_name);
+
+  /*
+   * THE EXACT TEXT APPROVED (Firia's S1-7 ruling, 2026-10-18).
+   *
+   * A decision names the words it is a decision about, and they have to be the words this row
+   * renders right now. Anything else and "Approve" is a signature on a page that has since
+   * changed — an edit the coordinator did not read, a copy change deployed while the tab was
+   * open, a proposal that was re-drafted under them.
+   *
+   * That is also the whole of "an edit resets to pending and needs fresh approval": Edit writes
+   * nothing and sends nothing, it re-renders, and the re-rendered words no longer match what the
+   * old form carried. The stale press is refused here rather than sending the earlier text.
+   *
+   * Required for a message approval, where the text IS the thing being decided. Optional for a
+   * drop-off change, which also moves a ride, so a caller that carries no text is deciding the
+   * change and is held to the version check below instead — but a caller that carries one must
+   * be right about it.
+   */
+  if (req.approvedText !== undefined && req.approvedText !== text) {
+    return { status: 409, body: { ok: false, error: "MESSAGE_CHANGED" } };
+  }
+  if (kind === MESSAGE_SEND_KIND && req.approvedText === undefined) {
+    return { status: 409, body: { ok: false, error: "MESSAGE_CHANGED" } };
+  }
   const by = `staff:${req.userId}`;
 
   return db.tx(async (tx, afterCommit) => {
@@ -330,6 +395,29 @@ export async function decideApproval(
     if (req.decision === "DECLINED") {
       // Nothing else. No ride moves and the family is not texted — that is what "Don't send" is.
       return { status: 200, body: { ok: true, decision: req.decision, text, queued: 0 } } as const;
+    }
+
+    /*
+     * 2a. A MESSAGE, approved. No plan is read, no version is checked, and no plan is written
+     *     (Firia's S1-7 ruling): this kind moves nothing, so there is nothing a plan change could
+     *     make wrong. What guards it is the claim above — pending to approved exactly once, and a
+     *     second presser gets 409 — the exact text checked before the transaction opened, and the
+     *     outbox's own re-checks per contact at drain: consent, suppression, and the recipient's
+     *     authorization for that child.
+     *
+     *     The recipients were computed when the proposal was written, from an audience role and a
+     *     subject token (`agent/run/exec/followup.ts`), and are stored on the row. The model named
+     *     nobody then and nothing here asks it now.
+     */
+    if (kind === MESSAGE_SEND_KIND) {
+      const queued = await queueApprovedMessage(tx, afterCommit, transport, {
+        proposal,
+        siteId: row.site_id,
+        approvalId: row.id,
+        now: req.now,
+        by,
+      });
+      return { status: 200, body: { ok: true, decision: req.decision, text, queued } } as const;
     }
 
     /*
@@ -450,6 +538,68 @@ export async function decideApproval(
     if (e instanceof PlanNotSaved) return { status: 503, body: { ok: false, error: "PLAN_NOT_SAVED" } } as const;
     throw e;
   });
+}
+
+/**
+ * QUEUE AN APPROVED MESSAGE — one per recipient, in the decision's own transaction.
+ *
+ * The same `enqueue` every other send in this app goes through, so every §11.2 egress re-check
+ * still happens at drain and not here. Approving does not send; it queues, and the outbox decides.
+ *
+ * The plan version it carries is the LEG's current one, read now, where the proposal names a leg
+ * — the outbox's staleness rule compares it to `trip_leg.plan_version` at drain, so a ride that
+ * has been corrected since cancels the text rather than telling a family something that is no
+ * longer true. That is not the `plan_run` version check: that one guards a plan write, and this
+ * decision makes none.
+ *
+ * One idempotency key per approval per recipient, so a redelivered action queues nothing new and
+ * a second press that somehow got past the claim could still not produce a second text.
+ */
+async function queueApprovedMessage(
+  tx: Exec,
+  afterCommit: (h: () => Promise<void>) => void,
+  transport: OutboxTransport,
+  a: {
+    readonly proposal: MessageProposal;
+    readonly siteId: string;
+    readonly approvalId: string;
+    readonly now: Date;
+    readonly by: string;
+  },
+): Promise<number> {
+  const p = a.proposal;
+  const recipients = Array.isArray(p.recipient_tokens) ? p.recipient_tokens : [];
+  const legId = String(p.trip_leg_id ?? "");
+  const leg = legId
+    ? (
+        await tx.query<{ id: string; plan_version: number }>(
+          "SELECT id, plan_version FROM ops.trip_leg WHERE id = $1 AND site_id = $2",
+          [isUuid(legId) ? legId : null, a.siteId],
+        )
+      ).rows[0] ?? null
+    : null;
+
+  let queued = 0;
+  for (const recipientToken of recipients) {
+    const sent = await enqueue(tx, afterCommit, transport, {
+      siteId: a.siteId,
+      purpose: String(p.purpose ?? FAMILY_SMS.purpose),
+      recipientRule: String(p.recipient_rule ?? FAMILY_SMS.recipientRule),
+      recipientToken,
+      channel: (p.channel ?? FAMILY_SMS.channel) as "SMS_1TO1",
+      templateId: String(p.template_id ?? ""),
+      vars: p.vars ?? {},
+      childToken: p.child_token ?? null,
+      tripLegId: leg?.id ?? null,
+      therapySessionId: p.therapy_session_id ?? null,
+      planVersionBasis: leg?.plan_version ?? 0,
+      notAfter: new Date(a.now.getTime() + APPROVED_TEXT_NOT_AFTER_MS),
+      idempotencyKey: `approval:${a.approvalId}:${recipientToken}`,
+      by: a.by,
+    });
+    if (!sent.duplicate) queued += 1;
+  }
+  return queued;
 }
 
 /**

@@ -515,6 +515,10 @@ async function settleCall(
           const extra = await writer(tx, {
             runId: run.id, callId: row.id, siteId: run.siteId, seq: row.seq, tool: row.tool,
             args: row.args, idempotencyKey: row.idempotencyKey, approvalKey: row.argsHash, now: at,
+            // The run's own committed facts and what started it (S1-7): a message proposal reads
+            // the thread this run resolved and the leg it touched off this list, never off an
+            // argument the model wrote.
+            committed, trigger: run.trigger,
           });
           return commitCall(tx, row.id, "PROPOSED", { ...result, ...extra }, by);
         })

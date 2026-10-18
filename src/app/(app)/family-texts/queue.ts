@@ -118,8 +118,21 @@ async function viewOf(
     pickupLabel: facts.pickupLabel,
     // Computed, every one of them, and absent when they cannot be answered (S1-2, checks.ts).
     checks: facts.checks,
-    // The decision model's own renderer, so the words on the card are the words it queues.
-    draftText: bodyOf({ template_id: row.templateId, vars: { ...row.vars } }, time, childLabel),
+    /*
+     * The decision model's own renderer, so the words on the card are the words it queues — and
+     * rendered with the row's OWN child label, not the roster's fallback.
+     *
+     * That distinction matters since S1-7: the card posts these words back with the decision and
+     * `decideApproval` refuses a decision whose words do not match what it renders
+     * (`MESSAGE_CHANGED`). It renders with the row's `display_name`, so a card that rendered with
+     * a roster name the row does not hold would be refused on every press — the screen and the
+     * decision have to be looking at the same sentence, which is the whole point of the check.
+     */
+    draftText: bodyOf(
+      { template_id: row.templateId, vars: { ...row.vars } },
+      time,
+      row.childLabel === "" ? null : row.childLabel,
+    ),
     requestedHhmm: time,
   };
 }

@@ -211,8 +211,19 @@ const DEFS: readonly ToolDef[] = [
   },
   {
     name: "request_clarification",
-    tier: "auto",
-    effect: "send",
+    /*
+     * HUMAN TIER, PROPOSE EFFECT (Firia's S1-7 ruling, 2026-10-18, answering run 7's open
+     * question). A clarification is a text to a family, and the whole of goal 4 is that a person
+     * decides those. The call writes a `MESSAGE_SEND` proposal
+     * (`modules/approvals/message-send.ts`) and queues nothing; `approvals/decide.ts` is the only
+     * code that can send it, after somebody presses Approve.
+     *
+     * `sendCopy` stays `template` and the allow-list stays on the schema: what a human approves
+     * is still outbox copy, not the model's words, and a tool that declared nothing here would be
+     * read as `free_text` (step 10). The tier is what changed, not where the words come from.
+     */
+    tier: "human",
+    effect: "propose",
     schema: z.strictObject({
       thread_id: token,
       ambiguity_type: z.enum(AMBIGUITY_TYPES),
@@ -240,8 +251,18 @@ const DEFS: readonly ToolDef[] = [
   },
   {
     name: "send_followup",
-    tier: "auto",
-    effect: "send",
+    /*
+     * HUMAN TIER, PROPOSE EFFECT (Firia's S1-7 ruling, 2026-10-18). Same ruling, same reason as
+     * `request_clarification` above: a follow-up is a text to a family, and a person decides it.
+     *
+     * What this does NOT change is the day's own notices. `pickup.eta`, `dropoff.eta`,
+     * `dropoff.late` and `dropoff.received` are sent by the deterministic sweeps
+     * (`messaging/eta-notice.ts`), not by this tool, and they keep sending with no staff tap —
+     * `messaging/auto-sends.ts` is the allow-list behind "Auto · Delivered" and it is untouched.
+     * The GPS late notice in particular MUST keep auto-sending (Firia, S1-7).
+     */
+    tier: "human",
+    effect: "propose",
     schema: z.strictObject({
       // §11.2 writes `recipient_type, target_token`; renamed per rule 1 (see file header).
       audience: z.enum(AUDIENCES),

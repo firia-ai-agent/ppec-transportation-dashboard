@@ -53,6 +53,9 @@ export function Composer({
         <input type="hidden" name="approval" value={approvalId ?? ""} />
         <input type="hidden" name="decision" value="APPROVED" />
         <input type="hidden" name="time" value={editedTime ?? ""} />
+        {/* The words in the bar, carried with the press: Send approves what is on screen, and a
+          * message that changed under it is refused rather than sent (S1-7). */}
+        <input type="hidden" name="text" value={draftText} />
         <label className="srOnly" htmlFor="compose">
           {fill(familyTexts.composePlaceholder, { adult: adultName })}
         </label>

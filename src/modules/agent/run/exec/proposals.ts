@@ -29,11 +29,26 @@ import {
   DROPOFF_CHANGE_TEMPLATE,
 } from "@/modules/approvals/dropoff-change";
 import { childByKey, stopByKey } from "@/modules/demo/fixtures/standard";
-import { agentTasks } from "@/ui/copy";
+import { agentTasks, fill } from "@/ui/copy";
 import { demoTokenForId } from "../scope-tokens";
 import { planStoreIn } from "@/modules/plan/store";
 import type { Direction } from "@/domain/day/leg";
-import { raiseTask } from "./clarify";
+import {
+  CLARIFICATIONS_PER_THREAD_PER_HOUR,
+  CLARIFICATION_LIMIT_TASK_CATEGORY,
+  CLARIFICATION_PURPOSE,
+  CLARIFICATION_RECIPIENT_RULE,
+  SEND_FAILURE_TASK_CATEGORY,
+  clarificationsInLastHour,
+  raiseTask,
+} from "./clarify";
+import { MESSAGE_SEND_KIND, MESSAGE_SEND_TASK_CATEGORY } from "@/modules/approvals/message-send";
+import { STAFF_NOTICE_TASK_CATEGORY, TWO_GUARDIAN_TASK_CATEGORY, resolveFollowup } from "./followup";
+import { agentStaffNotice } from "@/ui/copy";
+import { triggerLabel } from "../triggers";
+import type { CommittedCall } from "../store";
+import type { Trigger } from "../triggers";
+import { threadRow } from "./effects";
 import { effectId, isUuid } from "./effects";
 import type { ExecutorDeps } from "./effects";
 
@@ -96,6 +111,17 @@ export type ProposalInput = {
   readonly idempotencyKey: string;
   /** `approvalKey(tool, args)` — what a human signature binds to. */
   readonly approvalKey: string;
+  /**
+   * This run's committed facts, the same list an executor gets (S1-7).
+   *
+   * A message proposal needs two of them and can read neither off an argument: which thread this
+   * run resolved (so a reply goes back to the guardian who asked) and which leg it touched (so
+   * the approved send carries that leg's version). Both are facts the run committed, which is
+   * exactly why they are trustworthy — the model never writes to this list.
+   */
+  readonly committed: readonly CommittedCall[];
+  /** What started the run, for the words on a staff task. */
+  readonly trigger: Pick<Trigger, "type" | "id">;
   readonly now: Date;
 };
 
@@ -115,6 +141,9 @@ export function proposalWriter(_deps: ExecutorDeps): ProposalWriter {
         return manifestReallocation(tx, input);
       case "propose_dropoff_change":
         return dropoffChange(tx, input);
+      case "send_followup":
+      case "request_clarification":
+        return messageSend(tx, input);
       default:
         return {};
     }
@@ -327,6 +356,212 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
     [approvalId, input.siteId, taskId, JSON.stringify(proposal), by],
   );
   return { approval_request_id: approvalId, exception_task_id: taskId, mutated: false };
+}
+
+/**
+ * §11.2 `send_followup` and `request_clarification`, as of Firia's S1-7 ruling (2026-10-18): a
+ * message a person has to approve, and nothing queued.
+ *
+ * Both tools used to execute — they resolved an audience and put a text in the outbox on the
+ * agent's own authority. Run 7's open question was whether that is what "no free text to a
+ * family" is supposed to mean, and the answer is no: a **templated** message is still a message
+ * to a family, and goal 4 is that a person decides those. So both are `human` tier with a
+ * `propose` effect now, the loop has no executor to reach for (`registry.ts`), and what they
+ * write is a `MESSAGE_SEND` row (`modules/approvals/message-send.ts`) for the "For you" tab.
+ *
+ * ## What the row carries, and what it deliberately does not
+ *
+ *  - **the recipients, resolved now.** `resolveFollowup` computes them from the audience role and
+ *    the subject token, exactly as the executor did — the model never names a person. Storing
+ *    them is what lets the card show a coordinator who this actually goes to.
+ *  - **the template id and the vars**, so the card and the outbox render the same words through
+ *    the same renderer. Never a stored string: a second rendering is a second set of words.
+ *  - **the leg**, when the run touched one, so the approved send can read that leg's plan version
+ *    at the moment it queues — the outbox's own staleness rule.
+ *  - **no `plan_run_version_basis`.** A message writes no plan, so there is no plan write to
+ *    guard and no version check at decide time (Firia, S1-7). What a message approval *is*
+ *    guarded on is the exact text approved, and the outbox's per-contact re-checks at drain.
+ *
+ * The preconditions each tool already had are checked here rather than being dropped on the way:
+ * a clarification still needs an ACTIVE thread with a counterparty and still counts against the
+ * two-an-hour limit — a family asked twice in an hour and still not understood is a phone call,
+ * not a third proposal.
+ */
+async function messageSend(tx: Exec, input: ProposalInput): Promise<Record<string, unknown>> {
+  const by = `agent:${input.runId}`;
+  const resolved =
+    input.tool === "request_clarification"
+      ? await clarificationProposal(tx, input)
+      : await followupProposal(tx, input);
+  if ("refused" in resolved) return { proposal_refused: resolved.refused, ...resolved.detail, mutated: false };
+  if ("staffTaskId" in resolved) return { staff_task_id: resolved.staffTaskId, delivered_as: "staff_task", mutated: false };
+
+  const taskId = await raiseTask(tx, {
+    id: effectId(input.idempotencyKey, "exception"),
+    siteId: input.siteId,
+    category: MESSAGE_SEND_TASK_CATEGORY,
+    severity: "AMBER",
+    words: agentTasks.proposedFamilyMessage,
+    childToken: resolved.proposal.child_token,
+    by,
+  });
+  const approvalId = effectId(input.idempotencyKey, "approval");
+  await tx.query(
+    `INSERT INTO ops.approval_request (id, site_id, task_id, proposal, created_by, updated_by, source_mode)
+     VALUES ($1, $2, $3, $4::jsonb, $5, $5, 'SIMULATED')
+     ON CONFLICT (id) DO NOTHING`,
+    [approvalId, input.siteId, taskId, JSON.stringify({ ...resolved.proposal, approval_key: input.approvalKey }), by],
+  );
+  return { approval_request_id: approvalId, exception_task_id: taskId, queued: 0, mutated: false };
+}
+
+/** What a message proposal holds, before the approval key is put on it. */
+type MessageProposal = {
+  kind: string;
+  tool: string;
+  audience: string;
+  recipient_tokens: readonly string[];
+  child_token: string | null;
+  therapy_session_id: string | null;
+  trip_leg_id: string | null;
+  channel: string;
+  purpose: string;
+  recipient_rule: string;
+  template_id: string;
+  vars: Record<string, unknown>;
+  basis_message_id?: string | null;
+  thread_id?: string | null;
+};
+
+type ProposalOutcome =
+  | { proposal: MessageProposal }
+  | { staffTaskId: string }
+  | { refused: string; detail: Record<string, unknown> };
+
+/** `send_followup`: the audience rules decide who, and `AUDIENCE_RULES.STAFF` is still a task. */
+async function followupProposal(tx: Exec, input: ProposalInput): Promise<ProposalOutcome> {
+  const by = `agent:${input.runId}`;
+  const resolved = await resolveFollowup(tx, {
+    siteId: input.siteId,
+    args: input.args,
+    committed: input.committed,
+  });
+  if (resolved.kind === "refused") {
+    if (resolved.code === "TWO_GUARDIAN_CONFLICT") {
+      // §10.3: "two-guardian conflict → exception". The agent does not pick which parent to text,
+      // and it does not propose a guess either.
+      await raiseTask(tx, {
+        id: effectId(input.idempotencyKey, "two-guardian"),
+        siteId: input.siteId,
+        category: TWO_GUARDIAN_TASK_CATEGORY,
+        severity: "AMBER",
+        words: agentTasks.proposedContactChange,
+        childToken: resolved.childToken ?? null,
+        by,
+      });
+    }
+    return { refused: resolved.code, detail: resolved.detail };
+  }
+  if (resolved.kind === "staff") {
+    const taskId = effectId(input.idempotencyKey, "staff-notice");
+    await raiseTask(tx, {
+      id: taskId,
+      siteId: input.siteId,
+      category: STAFF_NOTICE_TASK_CATEGORY,
+      // A follow-up is news, not an exception; `escalate_exception` is the tool for the other thing.
+      severity: "GREEN",
+      words: {
+        summary: fill(agentStaffNotice.locator, {
+          summary: agentStaffNotice.summary,
+          trigger: triggerLabel(input.trigger),
+          step: input.seq,
+        }),
+        nextStep: agentStaffNotice.nextStep,
+        predicate: agentStaffNotice.predicate,
+      },
+      childToken: resolved.childToken,
+      tripLegId: resolved.tripLegId,
+      by,
+    });
+    return { staffTaskId: taskId };
+  }
+  return {
+    proposal: {
+      kind: MESSAGE_SEND_KIND,
+      tool: input.tool,
+      audience: resolved.audience,
+      recipient_tokens: resolved.recipientTokens,
+      child_token: resolved.childToken,
+      therapy_session_id: resolved.therapySessionId,
+      trip_leg_id: resolved.tripLegId,
+      channel: resolved.channel,
+      purpose: resolved.purpose,
+      recipient_rule: resolved.recipientRule,
+      template_id: resolved.templateId,
+      vars: resolved.vars,
+    },
+  };
+}
+
+/**
+ * `request_clarification`: the thread decides who, and the two §11.2 preconditions still hold.
+ *
+ * The 15-minute await is gone with the send: there is nothing to wait for until a person has
+ * approved the question, and §11.1 has no notion of a run that waits for an approval. What is
+ * left behind is the row and the task.
+ */
+async function clarificationProposal(tx: Exec, input: ProposalInput): Promise<ProposalOutcome> {
+  const threadId = String(input.args.thread_id ?? "");
+  const templateId = String(input.args.draft_template_id ?? "");
+  const by = `agent:${input.runId}`;
+
+  const thread = await threadRow(tx, { siteId: input.siteId, threadId });
+  if (!thread) return { refused: "NOT_FOUND", detail: { object: "conversation_thread" } };
+  // "thread ACTIVE": OPEN is the only state the agent may write into.
+  if (thread.state !== "OPEN") return { refused: "THREAD_NOT_ACTIVE", detail: { thread_state: thread.state } };
+  if (!thread.counterparty_token) {
+    // An unknown-sender thread has nobody to ask (AT-09: it is answered by nobody).
+    await raiseTask(tx, {
+      id: effectId(input.idempotencyKey, "send-failure"),
+      siteId: input.siteId,
+      category: SEND_FAILURE_TASK_CATEGORY,
+      severity: "AMBER",
+      words: agentTasks.clarificationSendFailure,
+      by,
+    });
+    return { refused: "NO_COUNTERPARTY", detail: {} };
+  }
+  const asked = await clarificationsInLastHour(tx, { siteId: input.siteId, threadId, now: input.now });
+  if (asked >= CLARIFICATIONS_PER_THREAD_PER_HOUR) {
+    await raiseTask(tx, {
+      id: effectId(input.idempotencyKey, "clarification-limit"),
+      siteId: input.siteId,
+      category: CLARIFICATION_LIMIT_TASK_CATEGORY,
+      severity: "AMBER",
+      words: agentTasks.clarificationLimit,
+      by,
+    });
+    return { refused: "CLARIFICATION_RATE_LIMIT", detail: { asked_in_last_hour: asked, task_raised: true } };
+  }
+  return {
+    proposal: {
+      kind: MESSAGE_SEND_KIND,
+      tool: input.tool,
+      audience: "GUARDIAN_OF_CHILD",
+      recipient_tokens: [thread.counterparty_token],
+      // No child reference and no plan behind a question: `generic.notice` names no child and
+      // this message is not about one leg (outbox.assertChildReference).
+      child_token: null,
+      therapy_session_id: null,
+      trip_leg_id: null,
+      channel: thread.channel,
+      purpose: CLARIFICATION_PURPOSE,
+      recipient_rule: CLARIFICATION_RECIPIENT_RULE,
+      template_id: templateId,
+      vars: {},
+      thread_id: thread.id,
+    },
+  };
 }
 
 /**

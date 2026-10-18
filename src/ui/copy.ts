@@ -1351,6 +1351,12 @@ export const approval = {
   planMoved: "This ride changed while you were reading, so the text would have been wrong. Nothing was sent — reload and decide again.",
   notATime: "Write the time as a clock time, like 5:00 PM.",
   /**
+   * The words changed under the person deciding them (S1-7). Said as what happened and what to do,
+   * like every other refusal here — and it says plainly that nothing went out, because the first
+   * thing a coordinator wants to know is whether the family got the old text.
+   */
+  messageChanged: "This message changed while you were reading it. Nothing was sent — read it again and decide.",
+  /**
    * The plan could not be saved, including because there is nothing to save it with yet
    * (`modules/approvals/plan-placement-port.ts`). Firia's gap-5 ruling: fail safe and say so —
    * never a fake success, and never a text to a family about a change the plan does not hold.
@@ -2746,6 +2752,19 @@ export const agentTasks = {
     summary: "A family asked for a different drop-off, and there is a text ready to send",
     nextStep: "Read the text the family would get, then approve and send it, or don't send it.",
     predicate: "the drop-off approved and the family told, or the request declined",
+  },
+  /**
+   * §11.2 human tier as of Firia's S1-7 ruling (2026-10-18): `send_followup` and
+   * `request_clarification`. A text to a family is drafted and waiting for a person.
+   *
+   * One sentence for both tools, because a coordinator is doing one thing either way — reading
+   * the words and deciding whether they go — and two task summaries for one decision would be
+   * the board telling them which tool the model picked, which is not a thing they call anything.
+   */
+  proposedFamilyMessage: {
+    summary: "There is a text ready for a family, and nobody has sent it",
+    nextStep: "Read the text the family would get, then approve and send it, or don't send it.",
+    predicate: "the text approved and sent, or the request declined",
   },
   /** §11.2 propose_manifest_reallocation: "RED exception + Teams card". */
   proposedReallocation: {

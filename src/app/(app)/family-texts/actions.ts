@@ -75,6 +75,7 @@ const REFUSALS: Readonly<Record<DecideError, string>> = {
   ALREADY_DECIDED: approvalCopy.alreadyDecided,
   PLAN_MOVED: approvalCopy.planMoved,
   NOT_A_TIME: approvalCopy.notATime,
+  MESSAGE_CHANGED: approvalCopy.messageChanged,
   PLAN_NOT_SAVED: approvalCopy.planNotSaved,
 };
 
@@ -92,6 +93,16 @@ export async function decideApprovalAction(
   if (!approvalId || (decision !== "APPROVED" && decision !== "DECLINED")) return { status: "idle" };
 
   const typed = String(form.get("time") ?? "").trim();
+  /*
+   * THE WORDS THE SCREEN SHOWED, carried with the decision (S1-7).
+   *
+   * Not trusted as copy — nothing is sent from it, and `decideApproval` renders the message from
+   * the row either way. It is trusted as an *answer*: this is what the person who pressed the
+   * button had in front of them, and a decision whose words no longer match the row is refused
+   * rather than sent. That is what makes "an edit needs fresh approval" structural instead of a
+   * habit of the screen.
+   */
+  const shown = form.get("text");
   const answer = await decideApproval(
     getNeonDb(),
     vercelQueueOutboxTransport,
@@ -103,6 +114,7 @@ export async function decideApprovalAction(
       approvalId,
       decision: decision as ApprovalDecision,
       editedTime: typed === "" ? null : typed,
+      approvedText: shown === null ? undefined : String(shown),
       now: new Date(),
     },
   );

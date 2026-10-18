@@ -125,6 +125,9 @@ export function ProposalCard({
         <form action={submit} className={styles.decideForm}>
           <input type="hidden" name="approval" value={proposal.approvalId} />
           <input type="hidden" name="time" value={proposal.requestedHhmm ?? ""} />
+          {/* The words this card is showing, so the decision is a signature on them and not on
+            * whatever the row says by the time it is read (S1-7). */}
+          <input type="hidden" name="text" value={proposal.draftText} />
           <button type="submit" name="decision" value="APPROVED" className={styles.primary} disabled={pending}>
             <Check size={icon.inline} aria-hidden="true" />
             {approval.approveAndSend}
@@ -149,6 +152,9 @@ export function ProposalCard({
         <form action={submit} className={styles.decideForm}>
           <input type="hidden" name="approval" value={proposal.approvalId} />
           <input type="hidden" name="time" value={proposal.requestedHhmm ?? ""} />
+          {/* The words this card is showing, so the decision is a signature on them and not on
+            * whatever the row says by the time it is read (S1-7). */}
+          <input type="hidden" name="text" value={proposal.draftText} />
           <button type="submit" name="decision" value="DECLINED" className={styles.quiet} disabled={pending}>
             <X size={icon.inline} aria-hidden="true" />
             {approval.dontSend}
