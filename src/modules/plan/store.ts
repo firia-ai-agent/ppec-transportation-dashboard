@@ -32,7 +32,7 @@ import { demoDaySource } from "@/modules/demo/day-source";
 import { sqlDaySource } from "@/modules/roster/sql";
 import { vehicleIdOf } from "@/modules/demo/fixtures/standard";
 import { vanArrival } from "@/ui/copy";
-import { memoryPlanStore } from "./memory";
+import { MEMORY_STORE_REFUSED, memoryPlanStore } from "./memory";
 import { sqlPlanStore } from "./sql";
 import type { PlanStore, SavedPlacement } from "./types";
 
@@ -68,7 +68,12 @@ export function dayDataSource(
   siteId: string,
   env: Record<string, string | undefined> = process.env,
 ): DayDataSource {
-  return env.DATABASE_URL ? sqlDaySource(getNeonDb(), siteId) : demoDaySource();
+  if (env.DATABASE_URL) return sqlDaySource(getNeonDb(), siteId);
+  // A deployment that lost its database does not quietly fall back to fixtures either (Veri F6).
+  if (env.VERCEL_ENV === "production" || env.VERCEL_ENV === "preview") {
+    throw new Error(MEMORY_STORE_REFUSED);
+  }
+  return demoDaySource();
 }
 
 export type BoardView = {

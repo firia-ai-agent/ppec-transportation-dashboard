@@ -274,11 +274,13 @@ export async function placeChildRequest(
   caller: Pick<StaffCaller, "userId">,
   input: z.infer<typeof placeChildBody>,
   now: Date = new Date(),
-  store: PlanStore = planStore(),
+  /** Resolved **after** the preview check: a preview must be refused before a store is opened. */
+  store?: PlanStore,
   env: Record<string, string | undefined> = process.env,
 ): Promise<PlaceChildAnswer> {
   const refused = previewRefusal(env);
   if (refused) return refused;
+  const writes = store ?? planStore();
 
   const outcome = await setChildPlacement(
     {
@@ -292,7 +294,7 @@ export async function placeChildRequest(
       actor: caller.userId ?? null,
       now,
     },
-    store,
+    writes,
   );
   if (!outcome.ok) return refusal(outcome);
 
@@ -311,7 +313,7 @@ export async function placeChildRequest(
         actor: caller.userId ?? null,
         now,
       },
-      store,
+      writes,
     );
     alsoAM = other.ok;
   }
@@ -401,15 +403,18 @@ export async function setChildNeedsRequest(
   childToken: string,
   input: z.infer<typeof childNeedsBody>,
   now: Date = new Date(),
-  store: PlanStore = planStore(),
+  /** Resolved **after** the preview check, like the placement endpoint's. */
+  storeOrNull?: PlanStore,
   env: Record<string, string | undefined> = process.env,
   /** The database the needs are written to. Taken as an argument so a test can hand it one. */
   db: Db | null = null,
   /** The roster this board reads. Injected by the DB tests; the default is the request's own. */
-  source: DayDataSource = dayDataSource(siteId),
+  sourceOrNull?: DayDataSource,
 ): Promise<ChildNeedsAnswer> {
   const refused = previewRefusal(env);
   if (refused) return refused;
+  const store = storeOrNull ?? planStore();
+  const source = sourceOrNull ?? dayDataSource(siteId);
 
   const panel = { wheelchair: input.wheelchair, carSeat: input.carSeat, oxygen: input.oxygen };
 

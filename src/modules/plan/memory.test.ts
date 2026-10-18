@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { MEMORY_STORE_REFUSED, clearMemoryPlanStore, memoryPlanStore } from "./memory";
-import { hasNoDatabase, planStore } from "./store";
+import { dayDataSource, hasNoDatabase, planStore } from "./store";
 
 /**
  * Firia's rule 4 (2026-10-17 5:48 PM ET): the in-memory plan store **can never be selected when
@@ -35,6 +35,15 @@ describe("the memory store fails closed", () => {
     expect(() =>
       memoryPlanStore({ DATABASE_URL: "postgres://db/app", USE_MEMORY_PLAN_STORE: "1", DEMO_MODE: "1" }),
     ).toThrow(MEMORY_STORE_REFUSED);
+  });
+
+  it("throws on a deployment that lost its URL, rather than serving memory (Veri F6)", () => {
+    for (const vercel of ["production", "preview"]) {
+      expect(() => memoryPlanStore({ VERCEL_ENV: vercel }), vercel).toThrow(MEMORY_STORE_REFUSED);
+      expect(() => dayDataSource("site", { VERCEL_ENV: vercel }), vercel).toThrow(MEMORY_STORE_REFUSED);
+    }
+    // A development server with no URL is the one case it serves.
+    expect(() => memoryPlanStore({ VERCEL_ENV: "development" })).not.toThrow();
   });
 
   it("is used only where there is no database at all", () => {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { apiAccess } from "@/ui/copy";
+import { apiAccess, demoReset } from "@/ui/copy";
 import { childTokenOf } from "@/modules/demo/fixtures/standard";
 import { clearMemoryPlanStore, memoryPlanStore } from "@/modules/plan/memory";
 import { clearDemoNeedsOverride, demoNeedsOverride } from "@/modules/demo/needs-store";
@@ -94,6 +94,14 @@ describe("who may answer a child's three questions", () => {
     const res = await post(THEO, answers());
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ ok: false, error: apiAccess.signIn });
+  });
+
+  it("refuses a preview outright, and keeps no needs (Veri F7)", async () => {
+    process.env = { ...process.env, VERCEL_ENV: "preview" };
+    const res = await post(THEO, answers());
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { reason: string }).reason).toBe(demoReset.previewRefusal);
+    expect(demoNeedsOverride(THEO)).toBeNull();
   });
 
   it("is a 400 for a body it cannot read, and a 404 for a child this day does not have", async () => {

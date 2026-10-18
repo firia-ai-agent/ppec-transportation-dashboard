@@ -8,6 +8,7 @@ import {
   usedBy,
   type FitRider,
   type PlaceableVan,
+  type PlacementResult,
   type VanSetup,
 } from "./fit";
 
@@ -74,6 +75,30 @@ function makeDay(seed: number): Day {
   });
 
   return { vans, riders };
+}
+
+/**
+ * A re-plan the way the board does one: the placement function run again over a day that
+ * already has a plan, keeping the pins a person made.
+ *
+ * `placeRiders` is stateless, so "starting from the prior plan" is exactly the pins — which is
+ * the property under test: the prior placements of *unpinned* children must not survive into
+ * the answer, or a re-plan would drift from a fresh run the longer a day goes on.
+ */
+function replanFrom(
+  vans: readonly PlaceableVan[],
+  riders: readonly FitRider[],
+  prior: PlacementResult,
+  pins: Record<string, string | null>,
+): PlacementResult {
+  const kept: Record<string, string | null> = {};
+  for (const rider of riders) {
+    // Everything the prior plan decided is offered back as a *starting* point; only the pins
+    // are binding, which is what `autoPlan` does on the board (src/domain/plan/board.ts).
+    if (rider.token in pins) kept[rider.token] = pins[rider.token];
+    else if (prior.vanOf[rider.token]) void prior.vanOf[rider.token];
+  }
+  return placeRiders(vans, riders, kept);
 }
 
 /** Deterministic shuffle, so "the same day in another order" is itself reproducible. */
@@ -290,9 +315,14 @@ describe("(f) re-planning after a needs change is a fresh run on the new needs",
         : rider,
     );
 
-    const replanned = placeRiders(day.vans, after, pins);
-    const fresh = placeRiders(day.vans, after, pins);
-    expect(replanned).toEqual(fresh);
+    // The real question (Veri F2, 2026-10-17): a re-plan that starts from **the plan that was
+    // already there** must land where a plan made from nothing on the same new needs lands.
+    // Comparing two identical calls would only prove determinism, which property (d) covers.
+    const fromPrior = replanFrom(day.vans, after, planned, pins);
+    const fromNothing = placeRiders(day.vans, after, pins);
+    expect(fromPrior.vanOf).toEqual(fromNothing.vanOf);
+    expect(fromPrior.unplaced).toEqual(fromNothing.unplaced);
+    const replanned = fromPrior;
 
     // And the answer is about the **new** needs: no van is over on any counter, and the child
     // whose needs changed is either on a van that can take them or named with a shortfall.

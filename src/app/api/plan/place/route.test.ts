@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { apiAccess } from "@/ui/copy";
+import { apiAccess, demoReset } from "@/ui/copy";
 import { VANS } from "@/config/vans";
 import { demoDaySource } from "@/modules/demo/day-source";
 import { childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/standard";
@@ -94,6 +94,23 @@ describe("who may move a child", () => {
     const out = await post(move());
     expect(out.status).toBe(401);
     expect(await out.json()).toEqual({ ok: false, error: apiAccess.signIn });
+  });
+
+  /**
+   * A preview shares the one Neon database with production and runs every transaction
+   * `BEGIN READ ONLY` (DECISION-LEDGER #43), so a move there cannot land. It is refused in
+   * words — the same 403 the demo reset gives — rather than attempted and reported as a 503
+   * (Veri F7).
+   */
+  it("refuses a preview outright, and writes nothing", async () => {
+    process.env = { ...process.env, VERCEL_ENV: "preview" };
+    const res = await post(move());
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { reason: string }).reason).toBe(demoReset.previewRefusal);
+    // Nothing was written — and the store a preview would have used refuses to exist at all,
+    // which is the other half of "fails closed in prod and previews".
+    delete process.env.VERCEL_ENV;
+    expect(await planOf()).toBeNull();
   });
 
   it("is a 400 when the body cannot be read, or names a bucket nobody has", async () => {

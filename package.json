@@ -19,6 +19,7 @@
     "db:generate": "drizzle-kit generate",
     "db:check": "drizzle-kit check && drizzle-kit generate --name drift-probe && git diff --exit-code --stat -- drizzle && test -z \"$(git ls-files --others --exclude-standard drizzle)\"",
     "db:migrate:vercel": "node scripts/vercel-db-step.mjs",
+    "db:migrate:local": "node scripts/migrate-local.mjs",
     "vercel-build": "node scripts/vercel-db-step.mjs && tsx scripts/vercel-seed.ts && node scripts/copy-maplibre-worker.mjs && next build",
     "seed:demo-users": "tsx scripts/seed-demo-users.ts",
     "demo:reset": "tsx scripts/demo-reset.ts"

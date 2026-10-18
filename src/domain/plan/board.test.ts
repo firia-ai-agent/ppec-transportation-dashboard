@@ -27,6 +27,13 @@ import { CHILDREN, childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/sta
 
 /** One fixture child's flags, the way the demo adapter builds them for the board. */
 const needsOfKey = (key: string) => needsOfDemoChild(childByKey(key));
+
+/** Only the placements a person pinned, which is what survives a re-plan. */
+function pinnedOnly(plan: BoardPlan, tokens: readonly string[]): BoardPlan {
+  return Object.fromEntries(
+    tokens.filter((token) => plan[token]?.pinned).map((token) => [token, plan[token]]),
+  );
+}
 import { TEST_DATE, scenarioPlan, testDay, vanIdOfSlot } from "@/test/board-day";
 
 /**
@@ -225,6 +232,53 @@ describe("§1.4: Auto-plan is the one placement function", () => {
       if (van.setup.hasLift) continue;
       expect(ridersInVan(day, plan, van.id).some((rider) => rider.needs.wheelchair)).toBe(false);
     }
+  });
+
+  /**
+   * Veri F2, 2026-10-17: the test that matters is not "two identical calls agree", it is that a
+   * re-plan **of a day that already has a plan** lands where a fresh plan of the same day lands.
+   * A needs Save re-plans on top of whatever was there, so if the two drifted, a coordinator
+   * would get a different board for having saved twice.
+   */
+  it("re-planning a planned day equals planning it fresh, with the same pins", async () => {
+    const day = await testDay();
+    const prior = autoPlan(day, emptyPlan(day));
+    // A person pins two of them by hand, which is what a drag does.
+    const pinned = moveTo(moveTo(prior, day.riders[0].token, day.vans[1].id), day.riders[1].token, null);
+
+    const again = autoPlan(day, pinned);
+    const fresh = autoPlan(day, { ...emptyPlan(day), ...pinnedOnly(pinned, day.riders.map((r) => r.token)) });
+    for (const rider of day.riders) {
+      expect({ who: rider.name, van: again[rider.token].vanId }).toEqual({
+        who: rider.name,
+        van: fresh[rider.token].vanId,
+      });
+    }
+  });
+
+  it("re-plans on changed needs the same way a fresh plan would", async () => {
+    const day = await testDay();
+    const prior = autoPlan(day, emptyPlan(day));
+    // Theo V. now needs a car seat, which is what the child panel's Save writes.
+    const changed: typeof day = {
+      ...day,
+      riders: day.riders.map((rider) =>
+        rider.name.startsWith("Theo") ? { ...rider, needs: { ...rider.needs, carSeat: true } } : rider,
+      ),
+    };
+    const again = autoPlan(changed, prior);
+    const fresh = autoPlan(changed, emptyPlan(changed));
+    for (const rider of changed.riders) {
+      expect({ who: rider.name, van: again[rider.token].vanId }).toEqual({
+        who: rider.name,
+        van: fresh[rider.token].vanId,
+      });
+    }
+    // And the van they ended up on really does carry a car seat for them.
+    const theo = changed.riders.find((rider) => rider.name.startsWith("Theo"));
+    const vanId = again[theo!.token].vanId;
+    expect(vanId).not.toBeNull();
+    expect(usedInVan(changed, again, vanId!).carSeats).toBeGreaterThan(0);
   });
 
   it("is the same answer the board's own vans give the placement function directly", async () => {

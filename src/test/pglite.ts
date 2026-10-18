@@ -74,7 +74,19 @@ export async function freshPlanDb(): Promise<{ db: Db; close: () => Promise<void
   const { Pool } = await import("pg");
   const pool = new Pool({ connectionString: LOCAL_DB_URL, max: 4 });
   const sql = migrationStatements();
-  await pool.query(`DROP SCHEMA IF EXISTS ops CASCADE; DROP SCHEMA IF EXISTS identity CASCADE;`);
+  /*
+   * A clean slate, every time: the app's two schemas **and** `public`, where the enum types
+   * live. Re-applying the migrations over leftover types fails with "type … already exists",
+   * and a half-migrated database is a worse answer than a slow one. This is why the URL has to
+   * be loopback (`assertLocal` above) — it is a destructive reset of whatever it points at.
+   */
+  await pool.query(
+    `DROP SCHEMA IF EXISTS ops CASCADE;
+     DROP SCHEMA IF EXISTS identity CASCADE;
+     DROP SCHEMA IF EXISTS drizzle CASCADE;
+     DROP SCHEMA IF EXISTS public CASCADE;
+     CREATE SCHEMA public;`,
+  );
   for (const statement of sql) await pool.query(statement);
   await pool.query(
     `INSERT INTO ops.org (id,name,created_by,updated_by) VALUES ($1,'SYN Org','test','test')

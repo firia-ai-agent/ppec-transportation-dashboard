@@ -221,6 +221,75 @@ describe("Absent and Family drives are placements on this day's plan", () => {
   });
 });
 
+/**
+ * Veri F3, 2026-10-17: **a needs Save is all-or-nothing.** The item rows and the re-planned plan
+ * are one decision, so a 409 from the version check must leave the child's needs exactly as they
+ * were — otherwise the screen says "somebody else saved first" while the record has already
+ * changed under it, and a reload shows a pinned child in a van that no longer fits.
+ */
+describe("a needs Save and its re-plan are one transaction", () => {
+  const approvedCategories = async (token: string) => {
+    const rows = await db.query<{ category: string }>(
+      `SELECT ni.category FROM ops.transport_need_item ni
+         JOIN ops.transport_profile tp ON tp.id = ni.profile_id
+        WHERE tp.child_token = $1::uuid AND ni.state = 'APPROVED' ORDER BY ni.category`,
+      [token],
+    );
+    return rows.rows.map((row) => row.category);
+  };
+
+  it("rolls the need rows back when the plan save hits a stale version", async () => {
+    await startTheDay();
+    // Somebody saves first, so the version the panel is holding is already behind.
+    const first = await setChildPlacement(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: THEO(), bucket: "VAN",
+        vehicleId: vanOne(), expectedVersion: 0, actor: null, now: NOW },
+      store,
+      source(),
+    );
+    expect(first.ok).toBe(true);
+
+    const before = await approvedCategories(THEO());
+    const stale = await setChildNeedsRequest(
+      SITE,
+      { userId: undefined },
+      THEO(),
+      { date: DATE, direction: "PM", wheelchair: false, carSeat: true, oxygen: true, version: 0 },
+      NOW,
+      store,
+      { DATABASE_URL: "configured" },
+      db,
+      source(),
+    );
+    expect(stale.status).toBe(409);
+    expect(stale.body).toMatchObject({ ok: false, reason: "CHANGED" });
+    // The need rows are exactly as they were: the transaction took them back with it.
+    expect(await approvedCategories(THEO())).toEqual(before);
+    // And the plan is still the one the first write left.
+    expect((await board()).plan[THEO()]).toMatchObject({ bucket: "VAN", vanId: vanOne() });
+  });
+
+  it("keeps both when the version is the one the caller was holding", async () => {
+    await startTheDay();
+    const before = await approvedCategories(THEO());
+    expect(before).not.toContain(NEED_CATEGORY.oxygen);
+    const ok = await setChildNeedsRequest(
+      SITE,
+      { userId: undefined },
+      THEO(),
+      { date: DATE, direction: "PM", wheelchair: false, carSeat: false, oxygen: true, version: 0 },
+      NOW,
+      store,
+      { DATABASE_URL: "configured" },
+      db,
+      source(),
+    );
+    expect(ok.status).toBe(200);
+    expect(await approvedCategories(THEO())).toContain(NEED_CATEGORY.oxygen);
+    expect((await db.query("SELECT version FROM ops.plan_run", [])).rows).toHaveLength(1);
+  });
+});
+
 describe("gate (c): the child panel's Save moves the board", () => {
   const needsOf = async (token: string) => {
     const view = await board();

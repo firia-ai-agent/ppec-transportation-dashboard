@@ -68,6 +68,12 @@ export const MEMORY_STORE_REFUSED =
  */
 export function memoryPlanStore(env: Record<string, string | undefined> = process.env): PlanStore {
   if (env.DATABASE_URL) throw new Error(MEMORY_STORE_REFUSED);
+  // …and on a deployment that has *lost* its URL, which is the other half of "fails closed in
+  // prod and previews" (signed data model, edit 4; Veri F6): a production or preview server
+  // serving a plan out of one instance's memory would look like it was working.
+  if (env.VERCEL_ENV === "production" || env.VERCEL_ENV === "preview") {
+    throw new Error(MEMORY_STORE_REFUSED);
+  }
   return {
     async setupRows(_siteId, date, vehicleIds) {
       return state().setups
