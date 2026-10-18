@@ -724,6 +724,15 @@
 /* ───────────────────────────── the phone (<768) ───────────────────────────── */
 
 @media (max-width: 767px) {
+  /*
+   * Demo ruling (Firia, 2026-10-18 10:46 AM ET): at phone width the agent bubble would sit on the
+   * compose bar's Send, so it is hidden while the compose bar is on the page — the same pattern as
+   * the Ramp hide (arrival.module.css). At 768 and above it shows as everywhere else.
+   */
+  :global(body):has(.composeDock) :global([data-agent-bubble]) {
+    display: none;
+  }
+
   .work {
     flex-direction: column;
   }
