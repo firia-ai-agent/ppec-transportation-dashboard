@@ -383,6 +383,54 @@ describe("the closed disc sits where the mockup puts it", () => {
   });
 });
 
+/**
+ * THE LIVE MAP'S OWN CONTROLS, which are the things most likely to end up under the disc: the
+ * zoom group and the credits are pinned to the bottom-right of the map pane
+ * (src/modules/live-map/LiveMapPane.tsx adds both at `bottom-right`; live-map.module.css widens
+ * the zoom buttons to the §9 44 px target and pads the group by 4 px).
+ *
+ * Nothing in that file moved. The clearance is the content column's bottom padding, which
+ * shortens the pane and lifts everything pinned to its floor — so the arithmetic below is the
+ * whole of the argument, and e2e/agent-bubble.spec.ts measures the same two gaps in a browser.
+ */
+describe("the Live map's controls stay clear of the disc", () => {
+  const px = (v: string) => Number(v.replace("px", ""));
+  /** `.mapw :global(.maplibregl-ctrl-bottom-right){padding: 0 4px 4px 0}` — `--space-2`. */
+  const CONTROL_INSET = 4;
+
+  const mapCss = readFileSync(path.join(SRC, "modules", "live-map", "live-map.module.css"), "utf8");
+
+  it("still pins them to the pane's own floor, which is what the padding lifts", () => {
+    const block = mapCss.slice(mapCss.indexOf(".mapw :global(.maplibregl-ctrl-bottom-right)"));
+    expect(block).toMatch(/bottom: 0/);
+    expect(block).toMatch(/padding: 0 var\(--space-2\) var\(--space-2\) 0/);
+    expect(mapCss).toMatch(/width: var\(--target-console\)/);
+  });
+
+  it("leaves 20 px between the zoom group and the disc at 1440", async () => {
+    const { layout, space } = await import("./tokens");
+    expect(px(space["2"])).toBe(CONTROL_INSET);
+    const controlLowest = px(layout.agentBubbleClearWide) + CONTROL_INSET;
+    const discHighest = px(layout.agentBubbleGap) + px(layout.agentBubbleSize);
+    expect(controlLowest - discHighest).toBe(20);
+  });
+
+  it("leaves 12 px between them at 390, where the tab bar is under both", async () => {
+    const { layout } = await import("./tokens");
+    const bar = px(layout.tabBarHeight);
+    const controlLowest = bar + px(layout.agentBubbleClearPhone) + CONTROL_INSET;
+    const discHighest = bar + px(layout.agentBubbleGap) + px(layout.agentBubbleSize);
+    expect(controlLowest - discHighest).toBe(12);
+  });
+
+  it("writes those numbers down next to the controls they are about", () => {
+    // A number only in a test is a number the next person changing the map will not meet.
+    expect(mapCss).toMatch(/AND NOW THE AGENT BUBBLE/);
+    expect(mapCss).toMatch(/--layout-agent-bubble-clear-wide/);
+    expect(mapCss).toMatch(/--layout-agent-bubble-clear-phone/);
+  });
+});
+
 describe("the copy is the copy module's, and says nothing it may not", () => {
   it("names the button from copy.ts, with the count in the name when there is one", () => {
     AT.pathname = "/today";
