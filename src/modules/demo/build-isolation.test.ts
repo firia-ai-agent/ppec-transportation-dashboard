@@ -42,6 +42,11 @@ const ALLOWED_SEED_IMPORTERS = [
   // An approved change or cancel saving the plan through the board's own writer (gap-5), which
   // needs the children and the vans the plan's foreign keys point at.
   "src/modules/approvals/plan-placement.test.ts",
+  /*
+   * Approve writing the agreed drop-off onto the leg, and the receiver file it clears the hold
+   * from — the same seeded children and legs the writer above needs, plus the family's guardian.
+   */
+  "src/modules/approvals/apply-dropoff.db.test.ts",
   // Two sessions saving at once, on the real local Postgres (`pnpm test:db`).
   "src/modules/plan/race.db.test.ts",
   // Ramp Confirm, proved against a seeded day to write one table and never the plan.

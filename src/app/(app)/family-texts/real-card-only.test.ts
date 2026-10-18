@@ -370,7 +370,7 @@ describe("the card is one approve row, labelled Agent, with no codes on it (S1-2
     expect(countOf(text, approval.dontSend)).toBe(1);
   });
 
-  it("names the author 'Agent', out of copy.ts", async () => {
+  it("keeps the author's one word in copy.ts, and draws neither it nor a clock on the card", async () => {
     // The word itself lives in copy, so the feed header and the card cannot drift apart.
     expect(approval.agentLabel).toBe("Agent");
     expect(approval.draftedBy).toContain("{agent}");
@@ -379,13 +379,23 @@ describe("the card is one approve row, labelled Agent, with no codes on it (S1-2
     expect(card.draftedLabel.startsWith(`${approval.agentLabel} ·`)).toBe(true);
     const text = textOf(render({ openKey: OPEN, proposals: [card] }));
     /*
-     * The author is on the card as the mark's accessible name and nowhere else. The
-     * "Agent · 3:58 PM" LINE is gone: Vera's card carries no clock time (7:51 AM ET), and a
-     * drafted-at minute is a clock time wherever it sits. So the label stays a fact about the
-     * row — the queue builds it and this asserts it — and the card draws the word, not the time.
+     * The author is not on the card at all, and the "Agent · 3:58 PM" line is not either.
+     *
+     * Two rulings, and the later one wins. Vera's 7:51 AM ET card dropped the *time* — a
+     * drafted-at minute is a clock time wherever it sits — and kept the author as a mark whose
+     * accessible name was the word. Firia's 11:11 AM ET ruling then took the mark too
+     * (`ProposalCard.tsx`): it said who *drafted* the words, which is a fact about the build
+     * rather than about the decision, and it was the only thing on that row a screen reader could
+     * be given, so a non-sighted reader got "Agent" and a name and had to infer the act. The
+     * heading says the act instead, in words, for every reader.
+     *
+     * So the label stays a fact about the row — the queue builds it and the line above asserts it
+     * — and the card draws neither it nor the mark.
      */
     expect(text).not.toContain(card.draftedLabel);
-    expect(render({ openKey: OPEN, proposals: [card] })).toContain(`aria-label="${approval.agentLabel}"`);
+    const html = render({ openKey: OPEN, proposals: [card] });
+    expect(html).not.toContain(`aria-label="${approval.agentLabel}"`);
+    expect(html).toContain(fill(approval.replyTo, { parent: card.parentFirstName }));
     // Not the old word, anywhere on the screen.
     expect(text).not.toContain("Assistant ·");
   });

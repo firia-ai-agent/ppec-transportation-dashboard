@@ -111,6 +111,12 @@ const scriptedModel = () =>
       requested_dropoff_time: request().requestedHhmm,
       requested_stop_token: null,
       rationale_code: "PARENT_REQUEST",
+      /*
+       * The coordinator's line, required beside the reply since the 11:15 AM ET ruling. Without
+       * it the call is refused at the gateway as invalid arguments and the card is drafted from
+       * the copy fallback instead — which is what the assertions below would then be reading.
+       */
+      alert_text: "A family asked to move the afternoon drop-off to five o'clock.",
       reply: MODEL_REPLY,
       source_message_id: `M-${childByKey(request().childKey)!.familyKey}-1`,
       expected_version: 1,

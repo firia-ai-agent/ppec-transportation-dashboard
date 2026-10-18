@@ -84,13 +84,24 @@ afterAll(async () => {
   await close();
 });
 
+/*
+ * A RE-SEED, not a list of deletes, and the difference is this suite's whole subject.
+ *
+ * A decision writes two rows that are *seeded* data: `ops.contact_authorization` (the §6.4
+ * receiver) and `ops.trip_leg` (the agreed window, the handoff column). Deleting the plan, the
+ * outbox and the approval left both of those behind, so every test after the first one ran against
+ * a child who already had an adult on file and a leg that had already moved — which is the one
+ * starting state none of them is about. The "no adult to receive" assertions read 1 instead of 0,
+ * and "Restart demo day" compared the reset against a leg that was never the seeded one.
+ *
+ * `seedStandardScenario` truncates and rewrites all of them (`RESET_TABLES`, `SEEDED_TABLES`), so
+ * it restores exactly the state this file says it starts from — and it is the same call the test at
+ * the bottom makes to stand for Restart. Auth is deliberately left alone by the seed (ADR-014), so
+ * `coordinator` survives it.
+ */
 beforeEach(async () => {
   transport = new FakeOutboxTransport();
-  await db.query("DELETE FROM ops.plan_assignment", []);
-  await db.query("DELETE FROM ops.plan_run", []);
-  await db.query("DELETE FROM ops.outbound_message", []);
-  await db.query("DELETE FROM ops.approval_request", []);
-  await db.query("DELETE FROM ops.task", []);
+  await seedStandardScenario(db, { now: NOW, siteId: SITE, env: SEED_ENV });
 }, 60_000);
 
 /** A saved plan with Noah in the van he already rides, as a coordinator's Save leaves it. */
@@ -308,7 +319,7 @@ describe("a refusal rolls the whole decision back", () => {
 });
 
 describe("Restart demo day puts the plan back", () => {
-  it("re-seeds the leg's window and the receiver file, and the proposal is pending again", async () => {
+  it("re-seeds the leg's window and the receiver file, and keeps no decided proposal", async () => {
     const seeded = await legRow();
     const seededReceivers = await receiversOnFile();
     await savedPlanWithNoahOnVanTwo();
@@ -325,11 +336,18 @@ describe("Restart demo day puts the plan back", () => {
 
     expect(await legRow()).toEqual(seeded);
     expect(await receiversOnFile()).toBe(seededReceivers);
-    // And Dara's card is pending again: the seed writes the proposal, undecided.
-    const pending = await db.query<{ n: number }>(
-      "SELECT count(*)::int AS n FROM ops.approval_request WHERE site_id = $1 AND decision IS NULL",
+    /*
+     * And the decision this suite made is gone with it: `ops.approval_request` is truncated and
+     * the seed writes none back. Dara's card is not the seed's to write any more — drafting it
+     * means a model call, and a model call must not be inside the reset's transaction, so it is a
+     * step of its own that Restart runs after the seed commits (`demo/draft-proposal.ts`;
+     * `demo/seeded-approval.db.test.ts` is where that step and its card are asserted). What
+     * matters here is that nothing decided survives the reset.
+     */
+    const left = await db.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM ops.approval_request WHERE site_id = $1",
       [SITE],
     );
-    expect(pending.rows[0].n).toBeGreaterThan(0);
+    expect(left.rows[0].n).toBe(0);
   });
 });

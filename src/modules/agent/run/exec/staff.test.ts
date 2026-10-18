@@ -521,6 +521,14 @@ describe("§11.2 summarize_thread_for_staff: a staff-only note, and nothing else
  */
 const MODEL_REPLY = "Hi Dara, yes, we'll drop Noah off at 5 today. Thanks for letting us know!";
 
+/**
+ * The model's own line for the coordinator's card, required alongside the reply since Firia's
+ * 11:15 AM ET ruling — one sentence, no codes and no ids (`agent/alert-text.ts`). Named no family
+ * here on purpose: this scenario's tokens are uuids, and a uuid is one of the shapes that
+ * validator refuses.
+ */
+const MODEL_ALERT = "A family asked to move the afternoon drop-off to five o'clock.";
+
 describe("§11.2 propose_dropoff_change: the text a family would get, for a person to approve", () => {
   const approvals = async () =>
     (await db.query<{ id: string; site_id: string; task_id: string; proposal: Record<string, unknown>; decision: string | null }>(
@@ -540,6 +548,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
       requested_dropoff_time: "17:00",
       requested_stop_token: "GA-LIBRARY",
       rationale_code: "PARENT_REQUEST",
+      alert_text: MODEL_ALERT,
       /*
        * THE MODEL'S OWN REPLY to the parent (Firia, 2026-10-18 11:04 AM ET). Required, and it is
        * what the card shows and what Approve sends — the fixed template is the fallback for a
@@ -638,6 +647,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
         requested_dropoff_time: "17:15",
         requested_stop_token: null,
         rationale_code: "PARENT_REQUEST",
+        alert_text: MODEL_ALERT,
         reply: MODEL_REPLY,
         source_message_id: sc.messageId,
         expected_version: 1,
@@ -668,6 +678,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
         requested_dropoff_time: "17:00",
         requested_stop_token: null,
         rationale_code: "PARENT_REQUEST",
+        alert_text: MODEL_ALERT,
         reply: MODEL_REPLY,
         source_message_id: sc.messageId,
         expected_version: 1,
@@ -690,6 +701,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
         requested_dropoff_time: "17:00",
         requested_stop_token: "GA-LIBRARY",
         rationale_code: "PARENT_REQUEST",
+        alert_text: MODEL_ALERT,
         reply: MODEL_REPLY,
         source_message_id: sc.messageId,
         expected_version: 1,
@@ -708,7 +720,8 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
     const def = TOOL_REGISTRY.propose_dropoff_change;
     const nothing = {
       leg_id: "L-C1-PM", requested_dropoff_time: null, requested_stop_token: null,
-      rationale_code: "PARENT_REQUEST", reply: MODEL_REPLY, source_message_id: "MSG-1", expected_version: 1,
+      rationale_code: "PARENT_REQUEST", alert_text: MODEL_ALERT, reply: MODEL_REPLY,
+      source_message_id: "MSG-1", expected_version: 1,
     };
     expect(def.schema.safeParse(nothing).success).toBe(false);
     expect(def.schema.safeParse({ ...nothing, requested_dropoff_time: "17:00" }).success).toBe(true);

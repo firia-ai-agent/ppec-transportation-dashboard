@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { uuidv7 } from "uuidv7";
 import type { Db } from "@/db/exec";
 import { freshPlanDb, SITE } from "@/test/pglite";
 import { DEMO_ACCOUNTS } from "@/auth/demo-accounts";
@@ -237,19 +238,39 @@ describe("the day's other facts", () => {
     expect(context.startedDate).toBe(TODAY);
     expect(context.vansOut).toBe(0);
     /*
-     * One, and it is the day's own proposal (S1-2). The seed writes a real
-     * `ops.approval_request` now — `seedDemoChangeRequest`, src/modules/demo/approval-seed.ts —
-     * rather than the screen inventing a card from a fixture, so a started day really does have
-     * one decision waiting on it. Asserted against the rows rather than against the literal `1`:
-     * the claim is that this counter reads the table, and a seed that wrote two proposals should
-     * move this number rather than break this line.
+     * NONE, out of the seed itself. The day's card is not the seed's: it is drafted by a step of
+     * its own, because drafting it means a model call and a model call must never be inside the
+     * reset's transaction (`demo/draft-proposal.ts`, and
+     * `demo/seeded-approval.db.test.ts` is the suite that holds that line). So a freshly seeded
+     * day has no decision waiting on it yet.
+     *
+     * Which would leave this counter's statement unexercised, so a row is written here and the
+     * counter re-read: the claim this file exists for is that the SQL a deployment runs is the
+     * SQL under test, and `0 === 0` would prove nothing about it.
      */
-    const waiting = await db.query<{ n: number }>(
-      "SELECT count(*)::int n FROM ops.approval_request WHERE site_id = $1 AND decided_at IS NULL",
-      [SITE],
+    const waiting = async () =>
+      (await db.query<{ n: number }>(
+        "SELECT count(*)::int n FROM ops.approval_request WHERE site_id = $1 AND decided_at IS NULL",
+        [SITE],
+      )).rows[0].n;
+    expect(await waiting()).toBe(0);
+    expect(context.approvalsWaiting).toBe(0);
+
+    // Ids are the app's to mint (`pk()` carries no database default), as everywhere else here.
+    const taskId = uuidv7();
+    await db.query(
+      `INSERT INTO ops.task (id, site_id, category, severity, summary, completion_predicate, created_by, updated_by)
+       VALUES ($1, $2, 'PLAN_CHANGE', 'AMBER', 'a drop-off a family asked for', 'decided', 'test', 'test')`,
+      [taskId, SITE],
     );
-    expect(waiting.rows[0].n).toBe(1);
-    expect(context.approvalsWaiting).toBe(waiting.rows[0].n);
+    await db.query(
+      `INSERT INTO ops.approval_request (id, site_id, task_id, proposal, created_by, updated_by)
+       VALUES ($1, $2, $3, '{}'::jsonb, 'test', 'test')`,
+      [uuidv7(), SITE, taskId],
+    );
+    expect(await waiting()).toBe(1);
+    // Read from the table, not from a constant: the counter follows the row that was just written.
+    expect((await store.dayContext(SITE, TODAY)).approvalsWaiting).toBe(await waiting());
   });
 
   /**

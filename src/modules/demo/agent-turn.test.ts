@@ -78,6 +78,12 @@ const proposesDropoff = () =>
       requested_stop_token: null,
       rationale_code: "PARENT_REQUEST",
       /*
+       * The line the coordinator reads beside the thread, required since the 11:15 AM ET ruling.
+       * Tokens, not names: every prompt this app sends is token-only, so the model writes "F2"
+       * and `identity/names.detokenizeNames` turns it back before the row reaches a screen.
+       */
+      alert_text: "F2 asked to move the afternoon drop-off to five o'clock.",
+      /*
        * The reply the model writes to the parent, required since Firia's 11:04 AM ET ruling: the
        * card is the model's own sentence, which is what answers the question the parent asked.
        */
