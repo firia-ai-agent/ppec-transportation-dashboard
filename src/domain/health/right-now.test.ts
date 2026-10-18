@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canOpenPage } from "@/auth/access";
 import { deriveReadiness, type DayFacts } from "@/domain/day/readiness";
-import { healthNow, nav } from "@/ui/copy";
+import { fill, healthNow, nav } from "@/ui/copy";
 import {
   RIGHT_NOW_TILES,
   rightNowTiles,
@@ -53,6 +53,8 @@ describe("the four tiles", () => {
     expect(healthNow.needsYou).toBe("Needs you");
     expect(healthNow.all).toBe("All");
     expect(healthNow.none).toBe("None");
+    // Firia, 2026-10-18: the Vans checked chip counts the work when more than one van is open.
+    expect(healthNow.toCheck).toBe("{n} to check");
     expect(rightNowTiles(facts()).map((t) => t.label)).toEqual([
       "Kids placed",
       "Vans checked",
@@ -138,6 +140,66 @@ describe("vans checked", () => {
   it("says All once every van is checked, and names nobody", () => {
     const vans = tile(facts({ vansChecked: 3, vans: 3, uncheckedVans: [] }), "VANS_CHECKED");
     expect(vans.pill).toEqual({ text: healthNow.all, kind: "all" });
+  });
+
+  /**
+   * Firia, 2026-10-18: the chip counts the vans still to check, and names one only when it is
+   * the last one. The big number is the fraction in every case — only the chip changes.
+   */
+  describe("the chip, as the work comes down", () => {
+    const THREE_VANS = ["Van 1", "Van 2", "Van 3"] as const;
+
+    it.each([
+      { checked: 0, chip: { text: "3 to check", kind: "count" } },
+      { checked: 1, chip: { text: "2 to check", kind: "count" } },
+      { checked: 2, chip: { text: "Van 3", kind: "van" } },
+      { checked: 3, chip: { text: "All", kind: "all" } },
+    ] as const)("$checked of 3 checked reads $chip.text", ({ checked, chip }) => {
+      const vans = tile(
+        facts({ vansChecked: checked, vans: 3, uncheckedVans: THREE_VANS.slice(checked) }),
+        "VANS_CHECKED",
+      );
+      expect(vans.pill).toEqual(chip);
+      // The number is untouched by the chip: 0/3, 1/3, 2/3, 3/3.
+      expect(vans.count).toBe(checked);
+      expect(vans.outOf).toBe(3);
+    });
+
+    /**
+     * The bug this fixes: at 0 of 3 the chip said "Van 1", which reads as though Van 1 were the
+     * only one left when all three are open. A name is a claim about one van, so it waits until
+     * one van is all there is.
+     */
+    it("names no van while more than one is open", () => {
+      for (const checked of [0, 1]) {
+        const vans = tile(
+          facts({ vansChecked: checked, vans: 3, uncheckedVans: THREE_VANS.slice(checked) }),
+          "VANS_CHECKED",
+        );
+        expect(vans.pill?.text, `${checked} of 3`).not.toMatch(/Van/);
+        expect(vans.pill?.text, `${checked} of 3`).toBe(fill(healthNow.toCheck, { n: 3 - checked }));
+      }
+    });
+
+    /** Two vans, one checked: the other one is the last, so it is named. */
+    it("names the last van of two", () => {
+      const vans = tile(
+        facts({ vansChecked: 1, vans: 2, uncheckedVans: ["Van 2"] }),
+        "VANS_CHECKED",
+      );
+      expect(vans.pill).toEqual({ text: "Van 2", kind: "van" });
+      expect(vans.count).toBe(1);
+      expect(vans.outOf).toBe(2);
+    });
+
+    /**
+     * One left and the fleet row the unchecked query could not name: the chip counts it rather
+     * than pointing at nothing. It never says All, and never shows an empty chip.
+     */
+    it("counts the last van when its name was not read", () => {
+      const vans = tile(facts({ vansChecked: 2, vans: 3, uncheckedVans: [] }), "VANS_CHECKED");
+      expect(vans.pill).toEqual({ text: "1 to check", kind: "count" });
+    });
   });
 
   /** A site with no vans is not a site that has finished checking them. */

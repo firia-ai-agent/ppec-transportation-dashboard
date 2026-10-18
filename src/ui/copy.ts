@@ -236,6 +236,12 @@ export const healthNow = {
    * The code itself is never the word on the pill.
    */
   van: "Van {n}",
+  /**
+   * Two or more vans still to check: how many, and not one of their names (Firia, 2026-10-18).
+   * Naming the first of three reads as though it were the only one left. The last one left is
+   * named instead, with `van` above — that is a van somebody can go and check.
+   */
+  toCheck: "{n} to check",
 } as const;
 
 /** COPY-GUIDE §5: visible label "Search", placeholder "Child, route or vehicle". */

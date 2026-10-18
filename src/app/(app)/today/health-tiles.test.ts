@@ -34,6 +34,23 @@ function html(facts: RightNowFacts): string {
   return renderToStaticMarkup(createElement(HealthTiles, { tiles: rightNowTiles(facts) }));
 }
 
+/** The rendered Vans checked tile: its chip's words and tone, and the figure above them. */
+function vansCheckedChip(facts: RightNowFacts): { text: string; tone: string; figure: string } {
+  const markup = html(facts);
+  const cards = [...markup.matchAll(/<a [\s\S]*?<\/a>/g)].map((m) => m[0]);
+  const card = cards.find((a) => a.includes(healthNow.vansChecked));
+  if (!card) throw new Error("no Vans checked tile");
+  // `data-tone` sits on the pill's own opening tag, before `data-pill` (src/ui/Pill.tsx).
+  const chip = /<span[^>]*data-pill="true"[\s\S]*?<\/span><\/span>/.exec(card)?.[0] ?? "";
+  const text = chip.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  // `<p ` with the space: the chevron's `<path d="…">` would otherwise open the match.
+  const figure = (/<p [\s\S]*?<\/p>/.exec(card)?.[0] ?? "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+  return { text, tone: /data-tone="([a-z]+)"/.exec(chip)?.[1] ?? "", figure };
+}
+
 describe("the four tiles, as the mockup draws them", () => {
   const markup = html(MOCKUP);
 
@@ -107,6 +124,37 @@ describe("the four tiles, as the mockup draws them", () => {
     expect(figure).toMatch(/font-family:\s*var\(--font-ui\), system-ui, sans-serif/);
     expect(figure).toMatch(/font-weight:\s*var\(--weight-bold\)/);
     expect(markup).not.toContain("tabularNums");
+  });
+
+  /**
+   * Firia, 2026-10-18: the Vans checked chip counts the work while more than one van is open,
+   * names the last one, and turns green on All. The figure over it is the fraction throughout.
+   */
+  it("paints the vans-to-check count amber and All green, without touching the figure", () => {
+    const day = (vansChecked: number, uncheckedVans: readonly string[]) =>
+      vansCheckedChip({ ...MOCKUP, vansChecked, vans: 3, uncheckedVans });
+
+    const none = day(0, ["Van 1", "Van 2", "Van 3"]);
+    expect(none.text).toContain("3 to check");
+    expect(none.text).not.toContain("Van ");
+    expect(none.tone).toBe("warn");
+    expect(none.figure).toBe("0/3");
+
+    const one = day(1, ["Van 2", "Van 3"]);
+    expect(one.text).toContain("2 to check");
+    expect(one.tone).toBe("warn");
+    expect(one.figure).toBe("1/3");
+
+    const two = day(2, ["Van 3"]);
+    expect(two.text).toContain("Van 3");
+    expect(two.tone).toBe("warn");
+    expect(two.figure).toBe("2/3");
+
+    // png/health-demo-1440.png: All is the step strip's green Done, and the tiles' own ok tone.
+    const all = day(3, []);
+    expect(all.text).toContain(healthNow.all);
+    expect(all.tone).toBe("ok");
+    expect(all.figure).toBe("3/3");
   });
 
   it("links each tile to the screen the chevron promises", () => {
