@@ -25,14 +25,27 @@ import { formatClock } from "@/domain/eta/eta";
 import { demoLateDropoffs, type LateDropoff } from "@/modules/demo/late-dropoff";
 import { personaMailboxResponse, type PersonaMessage } from "@/modules/messaging/mailbox";
 import { normalizeE164 } from "@/modules/identity/phone";
+import { isAutoSend } from "@/modules/messaging/auto-sends";
 import { fill, familyTexts } from "@/ui/copy";
 import { outboundStates } from "@/ui/states";
 import type { StateDescriptor } from "@/ui/states";
+
+/**
+ * Who wrote a bubble. Three answers, because the thread has to be able to say which, and
+ * "Auto · Delivered" is a claim that only one of them earns (Firia's gate 4).
+ *
+ *  - `PARENT` — the family's own words, inbound.
+ *  - `AUTO` — a templated follow-up the day sent by itself (`messaging/auto-sends.ts`).
+ *  - `STAFF` — anything outbound that is not on that allow-list: an approved reply, which a
+ *    person signed, and anything a person wrote. Never labelled auto, on purpose.
+ */
+export type BubbleAuthor = "PARENT" | "AUTO" | "STAFF";
 
 /** One bubble: who it is from, when, what it said, and what became of it. */
 export type Bubble = {
   readonly id: string;
   readonly direction: "IN" | "OUT";
+  readonly author: BubbleAuthor;
   /** "4:08 PM" in the site's timezone — a real time, never a relative one. */
   readonly timeLabel: string;
   /** The rendered body. Outbound text is the outbox's own copy; inbound is as received. */
@@ -164,6 +177,7 @@ function bubbleOf(message: PersonaMessage): Bubble {
   return {
     id: message.id,
     direction: message.direction,
+    author: message.direction === "IN" ? "PARENT" : isAutoSend(message.templateId) ? "AUTO" : "STAFF",
     timeLabel: formatClock(Date.parse(message.at)),
     body: message.body ?? "",
     delivery: message.state ? outboundStates[message.state as keyof typeof outboundStates] ?? null : null,
@@ -176,6 +190,8 @@ function projected(dropoff: LateDropoff): Bubble {
   return {
     id: `${dropoff.childKey}-${dropoff.atMs}`,
     direction: "OUT",
+    // The §8 notice, which is on the auto allow-list: the day sends it with nobody in the loop.
+    author: isAutoSend(dropoff.templateId) ? "AUTO" : "STAFF",
     timeLabel: formatClock(dropoff.atMs),
     body: dropoff.body,
     delivery: null,

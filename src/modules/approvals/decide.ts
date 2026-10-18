@@ -29,10 +29,19 @@
  * ## The guards
  *
  * Role **and** tenant, both, and neither inferred from the fact that a button was rendered (the
- * ID-swap rule). The roles come from the one access table — the same row as the page the screen is
- * on, read through `rolesWhoCanOpen` rather than named here — and the site comes off the approval
- * row, then goes through `requireSiteAccess`. So another site's approval id is a uniform **404**,
- * exactly as an id that exists nowhere: a 403 would tell a caller that the id is real.
+ * ID-swap rule). The roles are `APPROVAL_ROLES` from `src/auth/access.ts` — a named constant, read
+ * and never derived. They used to be `rolesWhoCanOpen("/exceptions")`, which Veri called a merge
+ * blocker and was right to: `/exceptions` stops being a page in the redesign, and a permission read
+ * off a row that is being deleted is a permission an unrelated edit can change. The site comes off
+ * the approval row and goes through `requireSiteAccess`, so another site's approval id is a uniform
+ * **404**, exactly as an id that exists nowhere: a 403 would tell a caller that the id is real.
+ *
+ * ## The plan write is a port, not a query here
+ *
+ * An approved change or cancel saves a new plan version through `SetChildPlacement`
+ * (`plan-placement-port.ts`) — the board's own writer, which this branch does not have. Production
+ * passes `null` and an approval then fails safe: nothing is claimed, nothing is queued, and the
+ * coordinator reads "Couldn't update the plan" (Firia's gap-5 ruling, 2026-10-17).
  *
  * Never throws for an authorization problem. Like `modules/demo/reset.ts`, it answers
  * `{status, body}` and the server action maps it, so the screen always has something to say.
@@ -47,34 +56,18 @@
  * first exception is how a rule stops being one. So it lives here, the screen's action is the thin
  * part that maps a status to a sentence, and the invariant holds for everything.
  */
-import { Forbidden, SiteNotFound, Unauthenticated, requireSiteAccess, type StaffRole } from "@/auth/core";
-import { rolesWhoCanOpen } from "@/auth/access";
+import { Forbidden, SiteNotFound, Unauthenticated, requireSiteAccess } from "@/auth/core";
+import { approvalRoles } from "@/auth/access";
 import type { Db, Exec } from "@/db/exec";
+import type { PlacementBucket, SetChildPlacement } from "./plan-placement-port";
 import { DROPOFF_CHANGE_KIND } from "@/modules/agent/run/exec/proposals";
 import { SITE_TIME_ZONE } from "@/ui/service-date";
 import { renderTemplate } from "@/modules/messaging/templates";
 import { enqueue, type OutboxTransport } from "@/modules/outbox/outbox";
 import { FAMILY_SMS, authorizedContactsForChild } from "@/modules/outbox/policy";
 
-/** The screen these approvals are read on. Its row in the access table decides who may decide. */
-export const APPROVALS_PAGE = "/exceptions";
-
-/** The roles that may decide one: the page's own row, so the screen and the write cannot disagree. */
-export function approvalRoles(): readonly StaffRole[] {
-  return rolesWhoCanOpen(APPROVALS_PAGE);
-}
-
-/**
- * Can this role see and decide an approval at all?
- *
- * The same question `approvalRoles` answers, asked the way a caller with one role in hand asks
- * it. The menu's count (src/app/(app)/layout.tsx) and the screens both read this rather than
- * naming DIRECTOR and COORDINATOR again, so the front desk's exclusion stays a property of the
- * access table and cannot drift into a second rule here.
- */
-export function canDecideApprovals(role: StaffRole | null): boolean {
-  return role !== null && approvalRoles().includes(role);
-}
+/** The screen these approvals are read and decided on: the "For you" tab of Family texts. */
+export const APPROVALS_PAGE = "/family-texts";
 
 /**
  * How long an approved text stays worth sending. The same bound the ETA notice uses and for the
@@ -124,6 +117,8 @@ type DropoffProposal = {
   direction?: string;
   plan_version_basis?: number;
   requested_dropoff_time?: string | null;
+  /** True when the family asked for the ride to be cancelled rather than moved (bucket ABSENT). */
+  cancel?: boolean;
   stop_token?: string | null;
   rationale_code?: string;
   template_id?: string;
@@ -201,7 +196,7 @@ export type DecideRequest = {
 
 export type DecideResponse =
   | { readonly status: 200; readonly body: { readonly ok: true; readonly decision: ApprovalDecision; readonly text: string; readonly queued: number } }
-  | { readonly status: 401 | 403 | 404 | 409 | 422; readonly body: { readonly ok: false; readonly error: DecideError } };
+  | { readonly status: 401 | 403 | 404 | 409 | 422 | 503; readonly body: { readonly ok: false; readonly error: DecideError } };
 
 /** Why a decision did not land. A code: the screen maps it to words (`src/ui/copy.ts`). */
 export type DecideError =
@@ -210,15 +205,30 @@ export type DecideError =
   | "NO_SUCH_APPROVAL"
   | "ALREADY_DECIDED"
   | "PLAN_MOVED"
-  | "NOT_A_TIME";
+  | "NOT_A_TIME"
+  /**
+   * The plan could not be saved — including the case where there is nothing to save it with,
+   * because `SetChildPlacement` has not been wired yet (`plan-placement-port.ts`). Fails safe:
+   * the decision is rolled back and the family is not texted (Firia's gap-5 ruling).
+   */
+  | "PLAN_NOT_SAVED";
 
 /** A 24-hour wall-clock time, the only shape a coordinator's edit may take. */
 const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * The board's placement writer, or `null` where there is none.
+ *
+ * `null` is not a convenience: it is what production passes today, and it has to be a value this
+ * function can be handed rather than something a caller forgets. See `plan-placement-port.ts`.
+ */
+export type ApprovalDeps = { readonly placement: SetChildPlacement | null };
 
 export async function decideApproval(
   db: Db,
   transport: OutboxTransport,
   req: DecideRequest,
+  deps: ApprovalDeps = { placement: null },
 ): Promise<DecideResponse> {
   if (!req.userId) return { status: 401, body: { ok: false, error: "SIGN_IN" } };
   if (req.editedTime !== undefined && req.editedTime !== null && !CLOCK.test(req.editedTime)) {
@@ -273,7 +283,29 @@ export async function decideApproval(
       return { status: 200, body: { ok: true, decision: req.decision, text, queued: 0 } } as const;
     }
 
-    // 2. Move the ride, guarded on the version the proposal was computed against (AT-08).
+    /*
+     * 2. Save the plan, through the board's own writer and no other path (Firia's gap-5 ruling).
+     *
+     * A cancel is `ABSENT` for that leg and a change is `VAN`; both are a new plan version, and
+     * both are the board's write rather than one made up here. With no writer wired there is
+     * nothing to save the plan with, so this throws and the whole decision rolls back: not
+     * claimed, not queued, and the coordinator is told the plan was not saved. Never a fake
+     * success, and never a text to a family about a change that is not in the plan.
+     */
+    const bucket: PlacementBucket = proposal.cancel === true ? "ABSENT" : "VAN";
+    if (!deps.placement) throw new PlanNotSaved();
+    const saved = await deps.placement({
+      siteId: row.site_id,
+      serviceDate: String(proposal.service_date ?? ""),
+      direction: String(proposal.direction ?? ""),
+      childToken: String(proposal.child_token ?? ""),
+      bucket,
+      expectedVersion: proposal.plan_version_basis ?? -1,
+      actor: by,
+    });
+    if (!saved.ok) throw new PlanNotSaved();
+
+    // 3. Move the ride, guarded on the version the proposal was computed against (AT-08).
     const legId = String(proposal.leg_id ?? "");
     const moved = await tx.query<{ id: string; child_token: string; plan_version: number }>(
       `UPDATE ops.trip_leg
@@ -290,7 +322,7 @@ export async function decideApproval(
       throw new PlanMoved(legId);
     }
 
-    // 3. Queue the family's text. The outbox re-checks everything at send time.
+    // 4. Queue the family's text. The outbox re-checks everything at send time.
     const leg = moved.rows[0];
     const contacts = await authorizedContactsForChild(tx, {
       siteId: row.site_id,
@@ -321,12 +353,16 @@ export async function decideApproval(
     return { status: 200, body: { ok: true, decision: req.decision, text, queued } } as const;
   }).catch((e) => {
     if (e instanceof PlanMoved) return { status: 409, body: { ok: false, error: "PLAN_MOVED" } } as const;
+    if (e instanceof PlanNotSaved) return { status: 503, body: { ok: false, error: "PLAN_NOT_SAVED" } } as const;
     throw e;
   });
 }
 
 /** The ride moved since the proposal was drafted. Rolls the decision back with it. */
 class PlanMoved extends Error {}
+
+/** The plan could not be saved, or there is no writer to save it with. Rolls everything back. */
+class PlanNotSaved extends Error {}
 
 /** A uuid, so a non-uuid id is a clean not-found rather than a Postgres cast error. */
 function isUuid(value: string): boolean {

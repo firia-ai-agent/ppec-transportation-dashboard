@@ -34,8 +34,14 @@ import { TOOL_NAMES, toolDef } from "./tools";
 
 const KEY = "placeholder-not-a-key";
 
-/** The client component that renders the notice. Read as text: it must have no reason to print. */
-const COMPOSER = path.join(process.cwd(), "src", "app", "(app)", "family-texts", "PhoneComposer.tsx");
+/**
+ * The rebuilt screen and its page. Read as text, because the rule is structural: the screen is
+ * handed a *boolean* ("can a model be reached"), so there is no reason string on it to print by
+ * accident, and the page is the one place `modelReach()` is called.
+ */
+const SCREEN = path.join(process.cwd(), "src", "app", "(app)", "family-texts", "TextsScreen.tsx");
+const PAGE = path.join(process.cwd(), "src", "app", "(app)", "family-texts", "page.tsx");
+const ACTIONS = path.join(process.cwd(), "src", "app", "(app)", "family-texts", "actions.ts");
 
 /** A deployment that may make a live call, so every failure below is the *vendor's* and not a gate's. */
 const LIVE_ENV: Record<string, string | undefined> = {
@@ -224,67 +230,41 @@ describe("check 5, part 4: the words the panel uses are in copy.ts and are plain
   });
 });
 
-describe("check 5, part 5: the server action answers with that sentence instead of throwing", () => {
-  /** A coordinator who may open the panel: the access check is not what this suite is about. */
-  beforeEach(() => {
-    vi.doMock("@/auth/caller", () => ({ getCaller: async () => ({ kind: "staff" }) }));
-    vi.doMock("@/auth/access", () => ({ canOpenPage: () => true }));
+describe("check 5, part 5: no server action can spend a model call at all", () => {
+  /**
+   * This used to drive `runAgentTurn`, the phone panel's own action, and assert it answered with
+   * a sentence rather than throwing. The rebuilt screen has no such action: the only server action
+   * under `/family-texts` is the approval decision, and a turn is driven by the queue
+   * (`/api/queues/agent`) where a model call belongs. So the stronger version of the same check is
+   * that the action surface is exactly one function and it is the decision.
+   */
+  it("exports the decision and nothing that calls a vendor", async () => {
+    const actions = await import("@/app/(app)/family-texts/actions");
+    expect(Object.keys(actions).sort()).toEqual(["decideApprovalAction"]);
+    const source = readFileSync(ACTIONS, "utf8");
+    expect(source).not.toMatch(/demoAgentTurn|createGateway|chooseProvider|modelReach/);
   });
 
-  const form = (text: string) => {
-    const f = new FormData();
-    f.set("child", "C1");
-    f.set("text", text);
-    return f;
-  };
-
-  it("a vendor this deployment may not call at all comes back as a refusal, not a stack trace", async () => {
-    // A base URL off the host allow-list: `chooseProvider` throws rather than degrading, because
-    // "the key nearly went somewhere nobody vetted" is a stop and not a fallback (remote.ts).
+  /**
+   * And the turn seam itself still answers rather than throwing, on a deployment whose vendor may
+   * not be called at all — which is what the action case was really asserting.
+   */
+  it("a vendor this deployment may not call comes back as no model answered, not a stack trace", async () => {
     const env = { ...LIVE_ENV, AGENT_BASE_URL: "https://evil.example" };
-    const saved = process.env;
-    process.env = { ...saved, ...env } as NodeJS.ProcessEnv;
-    try {
-      const { runAgentTurn } = await import("@/app/(app)/family-texts/actions");
-      const state = await runAgentTurn({ status: "idle" }, form(TEXT));
-      expect(state.status).toBe("refused");
-      expect(state.status === "refused" ? state.message : "").toBe(familyTexts.assistantUnavailable);
-    } finally {
-      process.env = saved;
-    }
+    const turn = await demoAgentTurn({ childKey: "C1", text: TEXT, day: demoDay(), env });
+    expect(turn.modelUnavailable).toBe(true);
+    expect(turn.dropoff).toBeNull();
   });
 
   it("a rate-limited vendor comes back as a turn that says no model answered", async () => {
     VENDOR_FAILURES[0][1]();
-    const saved = process.env;
-    process.env = { ...saved, ...LIVE_ENV } as NodeJS.ProcessEnv;
-    try {
-      const { runAgentTurn } = await import("@/app/(app)/family-texts/actions");
-      const state = await runAgentTurn({ status: "idle" }, form(TEXT));
-      expect(state.status).toBe("answered");
-      if (state.status !== "answered") return;
-      expect(state.turn.modelUnavailable).toBe(true);
-      expect(state.turn.unavailableReason).toBe(EVERY_MODEL_FAILED);
-      expect(state.turn.dropoff).toBeNull();
-    } finally {
-      process.env = saved;
-    }
+    const turn = await demoAgentTurn({ childKey: "C1", text: TEXT, day: demoDay(), env: LIVE_ENV });
+    expect(turn.modelUnavailable).toBe(true);
+    expect(turn.unavailableReason).toBe(EVERY_MODEL_FAILED);
+    expect(turn.dropoff).toBeNull();
   });
 });
 
-/**
- * check 5, part 6: THE SCREEN SAYS IT, NOT ONLY THE SERVER LOG (Vera's review, 2026-10-17).
- *
- * Parts 1–5 are about one turn: a coordinator types a text, the vendor fails, and the card under
- * it is labelled. What was missing is the state *before* anybody types. The queue route logged
- * "degraded provider (…)" per delivery and no screen said anything, so a deployment whose model
- * was unreachable looked perfectly healthy: the keyword reader's answer arrived with no sign that
- * no model had ever seen the text, and the one place that knew was a log nobody at a demo reads.
- *
- * `modelReach` is the answer to "which reader will answer here", and it is one function so that
- * the log line and the sentence on screen cannot disagree. These hold the three answers, the
- * sentence each one puts on screen, and the rule that the refusal's own words never get there.
- */
 describe("check 5, part 6: which reader will answer is on the screen", () => {
   it("names the model on a deployment that may call one", () => {
     const reach = modelReach(LIVE_ENV);
@@ -322,12 +302,10 @@ describe("check 5, part 6: which reader will answer is on the screen", () => {
       // Plain words: no status code, no variable name, no vendor.
       expect(sentence, kind).not.toMatch(/\b\d{3}\b|OPENROUTER|_ENV|process\.env/i);
     }
-    // And the composer renders exactly those two and nothing for a reachable model.
-    const composer = readFileSync(COMPOSER, "utf8");
-    expect(composer).toContain("modelReachKind === \"model\" ? null");
-    expect(composer).toContain("familyTexts.assistantUnavailable");
-    // And there is no second sentence for a second reader, because there is no second reader.
-    expect(composer).not.toMatch(/keyword/i);
+    // And the screen renders that one sentence and names no second reader, because there is none.
+    const screen = readFileSync(SCREEN, "utf8");
+    expect(screen).toContain("familyTexts.assistantUnavailable");
+    expect(screen).not.toMatch(/keyword/i);
   });
 
   /**
@@ -345,9 +323,11 @@ describe("check 5, part 6: which reader will answer is on the screen", () => {
       const reach = modelReach(env);
       expect(JSON.stringify(reach)).not.toContain(KEY);
     }
-    const composer = readFileSync(COMPOSER, "utf8");
-    // The prop is a kind, not a reach: there is no `.reason` on it to render by accident.
-    expect(composer).toContain('modelReachKind: "model" | "unavailable"');
-    expect(composer).not.toMatch(/reach\.reason|modelReach\(/);
+    // The prop is a boolean, not a reach: there is no `.reason` on it to render by accident, and
+    // the page is the only file that calls `modelReach()` at all.
+    const screen = readFileSync(SCREEN, "utf8");
+    expect(screen).toContain("readonly assistantReachable: boolean;");
+    expect(screen).not.toMatch(/reach\.reason|modelReach\(/);
+    expect(readFileSync(PAGE, "utf8")).toContain('modelReach().kind === "model"');
   });
 });

@@ -24,6 +24,8 @@ export const KIND = {
   need: 0x17, person: 0x18, therapist: 0x19, session: 0x1a, provider: 0x1b, vehicle: 0x1c,
   layout: 0x1d, position: 0x1e, capability: 0x1f, plan: 0x20, exception: 0x21, attendanceDay: 0x22,
   manifest: 0x23, leg: 0x24, reservation: 0x25,
+  /** `ops.approval_request` — the row a proposal is, and the row a coordinator decides. */
+  approvalRequest: 0x26,
 } as const;
 
 /* ───────────────────────────── types ───────────────────────────── */

@@ -143,7 +143,7 @@ const AUDIENCE_RULES: Readonly<Record<Audience, AudienceRule>> = {
  * about a ride that is happening, which every authorized contact is entitled to (§10.1 "Fan-out
  * 1:1 broadcast").
  */
-const DECISION_TEMPLATES: ReadonlySet<string> = new Set(["leg.canceled", "leg.changed", "dropoff.changed"]);
+export const DECISION_TEMPLATES: ReadonlySet<string> = new Set(["leg.canceled", "leg.changed", "dropoff.changed"]);
 
 /** What the subject resolved to: who gets it, and the child reference the message carries. */
 type Resolved = {

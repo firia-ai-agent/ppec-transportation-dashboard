@@ -215,7 +215,13 @@ function interrupt(error: unknown): { kind: "redirect"; to: string } | { kind: "
  * it and gets a 403 instead), and it proves the read is really there rather than quietly swallowed
  * into an empty list — which is the exact bug Veri's S3 note was about on the phone panel.
  */
-const READS_THE_DATABASE: ReadonlySet<string> = new Set(["/exceptions"]);
+/**
+ * The pages that read rows. Both of them **fail soft**: a database that is away, read-only or
+ * holds no membership for this caller renders the screen with a sentence saying so, rather than a
+ * 500 — so what this set buys is the assertion that they do (see the branch that uses it), and the
+ * suite below hands them no membership so a sentence check never depends on a database.
+ */
+const READS_THE_DATABASE: ReadonlySet<string> = new Set(["/exceptions", "/family-texts"]);
 
 /** Calls the page the way Next calls it, and says what happened. */
 async function openPage(file: string): Promise<{ rendered: true } | { rendered: false; interrupt: ReturnType<typeof interrupt> }> {
@@ -404,12 +410,14 @@ describe("every page, for every role and for a signed-out visitor", () => {
         const expected = pageOutcome(caller, page.path);
 
         /*
-         * A page that reads rows, opened by a caller who holds a membership: the read is expected,
-         * and the stub firing is what proves the guard ran in front of it. A caller with no
-         * membership reads nothing and falls through to the branches below like any other.
+         * A page that reads rows, opened by a caller who holds a membership. The stub makes every
+         * read throw, and the assertion is that the screen still **renders**: both of these pages
+         * wrap their reads and say on screen that the board could not be read, because a database
+         * that is away is not a reason to take a coordinator's screen off them. The guard still
+         * ran — an `ALLOW` that had been refused would come back as an interrupt, not a render.
          */
         if (expected === "ALLOW" && READS_THE_DATABASE.has(page.path) && caller.memberships.length > 0) {
-          await expect(openPage(page.file)).rejects.toThrow(DB_OPENED);
+          expect(await openPage(page.file), page.path).toEqual({ rendered: true });
           return;
         }
         const result = await openPage(page.file);
@@ -508,7 +516,7 @@ describe("every page, for every role and for a signed-out visitor", () => {
     expect(staffPages.map((p) => p.path).sort()).toEqual(
       [
         "/approvals", "/exceptions", "/family-texts", "/health", "/live-map", "/map-preview",
-        "/phone-preview", "/plan-preview", "/plan-routes", "/ramp-ipad", "/ramp-preview",
+        "/plan-preview", "/plan-routes", "/ramp-ipad", "/ramp-preview",
         "/setup", "/today", "/whoami",
       ],
     );
@@ -660,24 +668,27 @@ describe("the session endpoint, for every role and for a signed-out caller", () 
      * the rows out), and this is the line that would fail the day one of them became a session
      * surface without a guarded refusal to go with it.
      *
-     * The other three are the other kind: a session action, which is a POST endpoint with no URL
-     * of its own, so the role check cannot live in a route guard and lives in the action's own
-     * code instead. The assertion below is that it *is* there — a session row whose file never
-     * asks who is calling would be a button that guards itself by being hidden.
+     * The third is the other kind: a session action, which is a POST endpoint with no URL of its
+     * own, so the role check cannot live in a route guard and lives in the action's own code
+     * instead. The assertion below is that it *is* there — a session row whose file never asks who
+     * is calling would be a button that guards itself by being hidden.
      */
     const actions = ENDPOINTS.filter((row) => row.kind === "action");
     expect(actions.map((a) => [a.path, a.auth.kind])).toEqual([
-      ["action:agent-turn", "session"],
-      ["action:agent-approval", "session"],
       ["action:approval-decision", "session"],
       ["action:sign-in", "auth-endpoint"],
       ["action:sign-out", "public"],
     ]);
     for (const action of actions.filter((a) => a.auth.kind === "session")) {
       const source = readFileSync(path.join(REPO, action.file), "utf8");
-      expect(source, action.file).toMatch(/canOpenPage\(await getCaller\(\)|canOpenPage\(caller/);
-      // Never a role literal in an action: a list restated there is a list that can drift from
-      // the table. The roles come from the row, by path.
+      /*
+       * It reads the caller and checks them against `APPROVAL_ROLES` — the named constant in the
+       * access table, imported rather than restated. A role *literal* in an action would be a
+       * list that can drift from the table, and that is still barred below; the constant's name
+       * is not a literal, which is the whole point of Veri's ruling.
+       */
+      expect(source, action.file).toMatch(/await getCaller\(\)/);
+      expect(source, action.file).toMatch(/APPROVAL_ROLES/);
       expect(source, action.file).not.toMatch(/"(DIRECTOR|COORDINATOR|FRONT_DESK)"/);
     }
   });

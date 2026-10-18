@@ -3,7 +3,7 @@
  *
  * Vera's review (2026-10-17): no "preview" in any menu label or address. The screens are at
  * `/plan-routes`, `/live-map`, `/ramp-ipad` and `/family-texts` now. `/plan-preview`,
- * `/map-preview`, `/ramp-preview` and `/phone-preview` have been read out loud in a demo, pasted
+ * `/map-preview` and `/ramp-preview` have been read out loud in a demo, pasted
  * into pull requests and bookmarked, so they still answer — as permanent redirects behind the same
  * rows of the access table.
  *

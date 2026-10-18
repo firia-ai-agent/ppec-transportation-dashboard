@@ -38,7 +38,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
 import { assistantUnavailable } from "@/ui/copy";
-import { approvalRoles } from "@/modules/approvals/decide";
+import { approvalRoles } from "@/auth/access";
 import { CHILDREN, FAMILIES, synLegalName } from "@/modules/demo/fixtures/standard";
 import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";

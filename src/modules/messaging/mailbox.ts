@@ -45,6 +45,11 @@ export type PersonaMessage = {
   body: string | null;
   /** Outbound only: the state the UI maps to Queued / Sent / Delivered / … (DESIGN-DIRECTION §3). */
   state: string | null;
+  /**
+   * Outbound only: which template the body was rendered from, so a reader can tell a text the day
+   * sent by itself from one a person signed (`auto-sends.ts`, Firia's gate 4). Null inbound.
+   */
+  templateId: string | null;
   reachedPhone: boolean;
   blockReason: string | null;
   providerMessageId: string | null;
@@ -78,12 +83,12 @@ export async function personaMessages(db: Exec, p: Persona, limit: number = DEFA
   const rows: PersonaMessage[] = [
     ...inbound.rows.map((m): PersonaMessage => ({
       id: m.id, direction: "IN", at: new Date(m.received_at).toISOString(), body: m.body_tokenized,
-      state: null, reachedPhone: true, blockReason: null, providerMessageId: m.external_id,
+      state: null, templateId: null, reachedPhone: true, blockReason: null, providerMessageId: m.external_id,
       providerIndex: m.provider_index === null ? null : Number(m.provider_index), sourceMode: m.source_mode,
     })),
     ...outbound.rows.map((o): PersonaMessage => ({
       id: o.id, direction: "OUT", at: new Date(o.created_at).toISOString(), body: safeRender(o.template_id, o.vars),
-      state: o.state, reachedPhone: ON_PHONE.has(o.state), blockReason: o.block_reason,
+      state: o.state, templateId: o.template_id, reachedPhone: ON_PHONE.has(o.state), blockReason: o.block_reason,
       providerMessageId: o.provider_message_id, providerIndex: null, sourceMode: o.source_mode,
     })),
   ];

@@ -25,13 +25,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import { uuidv7 } from "uuidv7";
 import type { Db } from "@/db/exec";
-import { ALL_STAFF, rolesWhoCanOpen } from "@/auth/access";
+import { ALL_STAFF, APPROVAL_ROLES, approvalRoles } from "@/auth/access";
 import { demoChildToken, demoLegId } from "@/modules/demo/fixtures/standard";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { TEST_NOW } from "@/test/clock";
 import { seedPersona, seedStaff } from "@/test/messaging";
 import { freshDb, ORG, SITE } from "@/test/pglite";
-import { APPROVALS_PAGE, approvalRoles, decideApproval, pendingApprovals } from "./decide";
+import { decideApproval, pendingApprovals } from "./decide";
+import type { SetChildPlacement, SetChildPlacementInput } from "./plan-placement-port";
 
 let pg: PGlite;
 let db: Db;
@@ -50,6 +51,7 @@ const SERVICE_DATE = "2026-10-14";
 beforeEach(async () => {
   ({ pg, db } = await freshDb());
   transport = new FakeOutboxTransport();
+  placements = [];
   coordinator = await seedStaff(db, "COORDINATOR", SITE);
   await db.query(
     `INSERT INTO ops.site (id, org_id, name, depot_lat, depot_lng, created_by, updated_by)
@@ -123,14 +125,36 @@ async function seedProposal(
   return id;
 }
 
-const decide = (over: Partial<Parameters<typeof decideApproval>[2]>) =>
-  decideApproval(db, transport, {
-    userId: coordinator,
-    approvalId: "",
-    decision: "APPROVED",
-    now: TEST_NOW,
-    ...over,
-  });
+/**
+ * The board's placement writer, faked (`plan-placement-port.ts`).
+ *
+ * Every approval that is expected to *land* is handed one, because the real one is on another
+ * branch and an approval with no writer refuses by design (Firia's gap-5 ruling). The recorder is
+ * what `plan-placement.test.ts` asserts against; here it is the thing that lets the rest of the
+ * file go on testing the decision, the version guard and the queued text.
+ */
+let placements: SetChildPlacementInput[] = [];
+const fakePlacement: SetChildPlacement = async (input) => {
+  placements.push(input);
+  return { ok: true, planVersion: input.expectedVersion + 1 };
+};
+
+const decide = (
+  over: Partial<Parameters<typeof decideApproval>[2]>,
+  placement: SetChildPlacement | null = fakePlacement,
+) =>
+  decideApproval(
+    db,
+    transport,
+    {
+      userId: coordinator,
+      approvalId: "",
+      decision: "APPROVED",
+      now: TEST_NOW,
+      ...over,
+    },
+    { placement },
+  );
 
 const queued = async () =>
   (await db.query<{ template_id: string; vars: Record<string, unknown>; child_token: string; trip_leg_id: string; plan_version_basis: number; state: string }>(
@@ -146,13 +170,17 @@ const leg = async () =>
 
 describe("who may decide", () => {
   /**
-   * The roles come from the page's own row, never from a list in the approval code. If somebody
-   * widens `/exceptions`, this screen widens with it — deliberately, in one place — and if
-   * somebody narrows it, the write narrows too.
+   * The roles are a **named constant** in the one access table, read and never derived.
+   *
+   * They used to be `rolesWhoCanOpen("/exceptions")` — the row of the page the screen was on.
+   * Veri called that a merge blocker and was right: `/exceptions` is being redesigned out of
+   * existence (REDESIGN-SPEC §9.3 makes it a redirect), so the permission was read off a row
+   * that is about to be deleted, and any edit to that route would have moved who may approve.
    */
-  it("holds a decider to the same roles as the screen the decision is on", () => {
-    expect(approvalRoles()).toEqual(rolesWhoCanOpen(APPROVALS_PAGE));
-    expect(approvalRoles().length).toBeGreaterThan(0);
+  it("holds a decider to the named approval roles, and to nothing derived from a route", () => {
+    expect([...approvalRoles()].sort()).toEqual(["COORDINATOR", "DIRECTOR"]);
+    expect(approvalRoles()).toEqual(APPROVAL_ROLES);
+    expect(approvalRoles()).not.toContain("FRONT_DESK");
     // Not open to every staff role: the front desk's job is custody at the ramp, not approvals.
     expect(approvalRoles().length).toBeLessThan(ALL_STAFF.length);
   });

@@ -43,6 +43,39 @@ export const ALL_STAFF: readonly StaffRole[] = ROLE_LADDER;
 /** The console pages: ARCHITECTURE §1 gives the web console to the coordinator and director. */
 const CONSOLE: readonly StaffRole[] = ["DIRECTOR", "COORDINATOR"];
 
+/**
+ * WHO MAY DECIDE AN APPROVAL. A named constant, and the only answer to that question anywhere.
+ *
+ * It used to be derived: `approvals/decide.ts` read `rolesWhoCanOpen("/exceptions")`, on the
+ * reasoning that the screen and the write could then not disagree. Veri called that a merge
+ * blocker, and the reason is the redesign: `/exceptions` stops being a page at all (REDESIGN-SPEC
+ * §9.3 turns it into a redirect), and approvals move to the "For you" tab of Family texts. A
+ * permission read off a row that is about to be deleted — or widened, because the page it names
+ * is no longer the page the decision is on — is a permission that changes when somebody edits an
+ * unrelated route. The roles are a rule about *the decision*, so they are written down once, as
+ * a rule about the decision.
+ *
+ * Director and coordinator, from PRD l.774 and PRD §6.2; BUILD-PLAN §4 makes "front desk →
+ * approval_request decide" an expected 403. The decision model, the server action and the "For
+ * you" tab all read this one constant, so none of them can drift from the others.
+ */
+export const APPROVAL_ROLES: readonly StaffRole[] = ["DIRECTOR", "COORDINATOR"];
+
+/** {@link APPROVAL_ROLES}, as a function, for callers that read it the way the guards do. */
+export function approvalRoles(): readonly StaffRole[] {
+  return APPROVAL_ROLES;
+}
+
+/**
+ * Can this role decide an approval at all? The same question, asked by a caller holding one role.
+ *
+ * The menu's count (src/app/(app)/layout.tsx) and the "For you" tab both read this rather than
+ * naming the two roles again, so the front desk's exclusion stays one rule in one place.
+ */
+export function canDecideApprovals(role: StaffRole | null): boolean {
+  return role !== null && APPROVAL_ROLES.includes(role);
+}
+
 /* ───────────────────────────── who is asking ───────────────────────────── */
 
 /**
@@ -298,7 +331,6 @@ export const PAGES: readonly PageRow[] = [
    * the writer of "Actual attendance/custody" alone; and §12 is minimum-necessary, which is what
    * decides a PHI-adjacent screen for a role with no task that needs it.
    *
-   * It was `/phone-preview`; that address is a permanent redirect row below.
    */
   {
     kind: "page",
@@ -439,7 +471,7 @@ export const PAGES: readonly PageRow[] = [
   },
   /* ── the four old addresses, kept as permanent redirects ── */
   /**
-   * `/plan-preview`, `/map-preview`, `/ramp-preview` and `/phone-preview` were these screens'
+   * `/plan-preview`, `/map-preview` and `/ramp-preview` were these screens'
    * addresses until Vera's review (2026-10-17) took "preview" out of every menu label and
    * address. A URL that
    * has been read out loud in a demo, pasted into a pull request and bookmarked by the founder
@@ -476,17 +508,10 @@ export const PAGES: readonly PageRow[] = [
     access: { roles: ALL_STAFF },
     label: rampIpad.heading,
   },
-  {
-    kind: "page",
-    file: "src/app/phone-preview/page.tsx",
-    path: "/phone-preview",
-    access: { roles: CONSOLE },
-    label: nav.familyTexts,
-  },
 ];
 
 /**
- * The old address → the screen's own address, for the four redirect pages above. One table, so
+ * The old address → the screen's own address, for the three redirect pages above. One table, so
  * a redirect cannot point somewhere the access table does not hold (`access.test.ts` checks
  * both ends of every pair, and that the two rows are open to the same roles).
  */
@@ -494,7 +519,6 @@ export const MOVED_PAGES: Readonly<Record<string, string>> = {
   "/plan-preview": "/plan-routes",
   "/map-preview": "/live-map",
   "/ramp-preview": "/ramp-ipad",
-  "/phone-preview": "/family-texts",
 };
 
 export const ENDPOINTS: readonly EndpointRow[] = [
@@ -681,40 +705,15 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     auth: { kind: "session", roles: CONSOLE, siteScoped: true },
   },
   /**
-   * The phone panel's two controls (PRD §18.2 steps 9–10): run one agent turn over a staff-typed
-   * family text, and apply the proposal it comes back with. Server actions, so they are POST
-   * endpoints with no URL of their own and need a row each.
-   *
-   * The same roles as the page they are on, and checked in the action itself rather than inferred
-   * from the fact that the button was rendered: hiding a control is not a guard (the ID-swap
-   * rule). Neither writes to the database — the turn is the §11.1 seam over the fixtures and the
-   * approval computes what the change would be — but both would be a way to spend a model call,
-   * so neither is open.
-   */
-  {
-    kind: "action",
-    file: "src/app/(app)/family-texts/actions.ts",
-    path: "action:agent-turn",
-    methods: ["POST"],
-    auth: { kind: "session", roles: CONSOLE, siteScoped: false },
-  },
-  {
-    kind: "action",
-    file: "src/app/(app)/family-texts/actions.ts",
-    path: "action:agent-approval",
-    methods: ["POST"],
-    auth: { kind: "session", roles: CONSOLE, siteScoped: false },
-  },
-  /**
    * SURF-05's decision (PRD §18.2 steps 9–10, §11.2 human tier): a coordinator approves the text a
-   * family would get, or does not. Unlike the two phone-panel actions above, this one **writes** —
-   * it claims the decision, moves the ride and queues a message — so it is the first server action
-   * in this app that is `siteScoped`.
+   * family would get, or does not. It **writes** — it claims the decision, saves the plan and
+   * queues a message — so it is the first server action in this app that is `siteScoped`.
    *
-   * The same roles as the screen it is on, which is what `approvals.approvalRoles()` reads: the
-   * page's own row rather than a list restated here, so the control a coordinator can see and the
-   * write they can make cannot come apart. Checked in the action, never inferred from the button
-   * having been rendered (the ID-swap rule).
+   * `APPROVAL_ROLES`, the named constant at the top of this file, and not the roles of any page:
+   * Veri's merge blocker. The decision model, this row and the "For you" tab read the one
+   * constant, so a route being redesigned out of existence cannot widen or narrow who may
+   * approve. Checked in the action, never inferred from the button having been rendered (the
+   * ID-swap rule).
    *
    * `siteScoped` is the tenant half, and the site is **not** a value the form carries: it comes off
    * the approval row this id names, and the caller's membership at *that* site is what is checked
@@ -723,10 +722,10 @@ export const ENDPOINTS: readonly EndpointRow[] = [
    */
   {
     kind: "action",
-    file: "src/app/(app)/exceptions/actions.ts",
+    file: "src/app/(app)/family-texts/actions.ts",
     path: "action:approval-decision",
     methods: ["POST"],
-    auth: { kind: "session", roles: CONSOLE, siteScoped: true },
+    auth: { kind: "session", roles: APPROVAL_ROLES, siteScoped: true },
   },
   /**
    * The sign-in form's own action (ADR-004). It hands email and password to the credentials

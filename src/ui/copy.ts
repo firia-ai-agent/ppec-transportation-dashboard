@@ -879,6 +879,63 @@ export const familyTexts = {
     "The assistant could not be reached, so nothing happened: no ride changed and no message was sent. Try again in a moment, or answer this text yourself.",
   /** Said under a refusal and under a blocked turn alike: the rule, in plain words. */
   nothingHappened: "No ride changed and no message was sent.",
+
+  /* ── the rebuilt screen (REDESIGN-SPEC §4; mockups/family-texts.html, mockups/approvals.html) ── */
+
+  /**
+   * The three tabs over the conversation list. "For you" is the approvals queue — REDESIGN-SPEC
+   * §9.2 keeps it a tab of this screen rather than a menu item of its own, so the words are the
+   * tab's and there is no second page title anywhere.
+   */
+  tabForYou: "For you",
+  tabSent: "Sent",
+  tabAll: "All",
+  /** The chip in the header: the assistant is reading replies on this day. */
+  assistantOn: "Assistant on",
+  /** The list, for a screen reader that is picking one. */
+  conversationsLabel: "Conversations",
+  /** A row that has something on it nobody has read yet (§9: never the teal dot alone). */
+  unread: "Unread",
+  /** The thread's own header: the adult, then who they are and which child. */
+  threadSubtitle: "{relationship} · {child}",
+  /** The identity check that passed on this number, as a chip on the thread header. */
+  verified: "Verified",
+  /** The call control on the thread header, which places no call in the demo. */
+  callLabel: "Call {adult}",
+  /** 390: the thread is a view of its own, and this goes back to the list. */
+  backToList: "Back to the conversations",
+  /** Under a run of outgoing bubbles the day sent by itself, from a template. */
+  autoDelivered: "Auto · Delivered",
+  /** Under a run of outgoing bubbles a person wrote and sent. */
+  staffSent: "Sent by {name}",
+  /** The compose bar at the bottom of a thread. */
+  composePlaceholder: "Text {adult}",
+  composeAction: "Send",
+  /**
+   * Pressing Send approves the proposal that is open, because a person pressing Send *is* the
+   * approval (Firia's gate 3). With nothing open there is nothing for it to send: free text to a
+   * family is not wired, and the control says so rather than looking live.
+   */
+  composeNoProposal: "Not connected yet. Free text to a family needs its own approval step.",
+  /** The state pill on a conversation row. Five, and every one of them is a fact about the row. */
+  rowState: {
+    changeReady: "Change ready",
+    needsYou: "Needs you",
+    autoLate: "Auto · Late",
+    autoDropped: "Auto · Dropped",
+    done: "Done",
+  },
+  /**
+   * The one text a family sends back on the demo day (PRD §18.2 steps 9–10).
+   *
+   * It is the scenario's own script, in the same sense as the late-drop-off texts the day sends:
+   * deterministic, written down, and read by the screen and by nothing that sends. It is here
+   * rather than in the fixture file because it is a sentence somebody reads.
+   */
+  demoReply: "Can you drop {child} at 5 instead? Someone is home then.",
+  /** A tab with nothing in it. One line, and it is about the day rather than the build. */
+  noneForYou: "Nothing is waiting for you.",
+  noneSent: "No texts have gone out today.",
 } as const;
 
 /**
@@ -947,6 +1004,31 @@ export const approval = {
   alreadyDecided: "Somebody decided this one already. Reload to see what they chose.",
   planMoved: "This ride changed while you were reading, so the text would have been wrong. Nothing was sent — reload and decide again.",
   notATime: "Write the time as a clock time, like 5:00 PM.",
+  /**
+   * The plan could not be saved, including because there is nothing to save it with yet
+   * (`modules/approvals/plan-placement-port.ts`). Firia's gap-5 ruling: fail safe and say so —
+   * never a fake success, and never a text to a family about a change the plan does not hold.
+   */
+  planNotSaved: "Couldn't update the plan, so nothing was sent to the family. Change the ride on the board instead.",
+
+  /* ── the card itself (mockups/approvals.html) ── */
+
+  /** The card's title: what kind of change it is. */
+  changeDropoff: "Change drop-off",
+  /** Who drafted it and when, on the card's own header line. */
+  draftedBy: "Assistant · {time}",
+  /** The three rows of the before → after. */
+  diffStop: "Stop",
+  diffTime: "Time",
+  diffPickup: "Pick-up",
+  /** Read between the two halves of a row, for a screen reader (§9). */
+  diffBecomes: "becomes",
+  /** The pick-up row when the adult collecting the child does not change. */
+  pickupSame: "{adult} · same",
+  /** The checks that passed, as chips. Each is a fact the plan can answer. */
+  checkSameVan: "Same van",
+  checkFits: "Fits",
+  checkOnFile: "{adult} on file",
 } as const;
 
 /**

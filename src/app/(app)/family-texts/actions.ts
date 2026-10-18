@@ -1,111 +1,113 @@
 "use server";
 
 /**
- * The two server actions behind the phone panel's composer (PRD §18.2 steps 9–10).
+ * The "For you" tab's one control (PRD §18.2 steps 9–10, §11.2 human tier; AT-01, AT-09).
  *
- * They are actions rather than API routes because they are this screen's own controls and have no
- * other caller: a coordinator types a parent's text and presses a button, and what comes back is
- * the state the panel renders. Both are in the access table as actions
- * (src/auth/access.ts, `action:agent-turn` and `action:agent-approval`) and both check the caller
- * against the same row as the page itself — hiding a control is not a guard, and a server action
- * is a POST endpoint with no URL of its own.
+ * Approve, Edit and Don't send are **one** action and **one** write path: `decideApproval` in
+ * `@/modules/approvals/decide`. Firia's gate 1 is that there is no second one, and the shape of
+ * this file is how that is true rather than merely intended — it reads a form, calls that one
+ * function, and turns a status into the sentence the screen shows. Edit is the same call with a
+ * time on it; Don't send is the same call with `DECLINED`. Nothing here writes anything.
  *
- * Neither writes anything. The first runs one agent turn (`modules/demo/agent-turn.ts`: the real
- * §11.1 prompt, the configured vendor, the real §11.2 policy engine) and the second computes what
- * approving its proposal would do. The *live* path that does write is the webhook → run → queue
- * one (`run/inbound-hook.ts`), which previews cannot run because they hold the one production
- * database read-only (DECISION-LEDGER #43).
+ * A server action rather than an API route because it is this screen's own button, and it carries
+ * its own row in the one access table (`action:approval-decision`): a server action **is** a POST
+ * endpoint with no URL of its own, and hiding a button is not a guard.
  *
- * There is no reader behind the model. If no model answers, the turn comes back
- * `modelUnavailable` and the panel shows the "needs a person" alert — nothing in here looks at
- * the family's words to work out what they wanted (founder, 2026-10-17).
+ * ## The role check, twice, and neither is redundant
+ *
+ * `APPROVAL_ROLES` here refuses a role outright, before anything is read. `decideApproval` checks
+ * the same constant again *together with the caller's membership at the approval's own site* —
+ * the check that cannot be made here, because the site is a property of the row and not of the
+ * request. Veri's merge blocker is why both read the named constant in `src/auth/access.ts`
+ * instead of the roles of some page: `/exceptions` is being redesigned away, and a permission
+ * read off a route is a permission a route change can move.
+ *
+ * ## The plan writer it does not have
+ *
+ * `placement: null`. The board's `setChildPlacement` is on another branch (see
+ * `modules/approvals/plan-placement-port.ts`), so an approval cannot save a plan yet and
+ * therefore refuses: nothing claimed, nothing queued, and `approval.planNotSaved` on screen.
+ * Firia's gap-5 ruling — fail safe, never a fake success. When that branch lands, this is the one
+ * line that changes.
  */
-import { canOpenPage } from "@/auth/access";
+import { revalidatePath } from "next/cache";
+import { APPROVAL_ROLES } from "@/auth/access";
 import { getCaller } from "@/auth/caller";
-import { demoDay } from "@/domain/board/day";
+import { getNeonDb } from "@/db/exec";
 import {
-  approveDropoff,
-  demoAgentTurn,
-  dropoffFromCall,
-  type ApprovedDropoff,
-  type DemoAgentTurn,
-} from "@/modules/demo/agent-turn";
-import { apiAccess, familyTexts } from "@/ui/copy";
+  APPROVALS_PAGE,
+  type ApprovalDecision,
+  type DecideError,
+  decideApproval,
+} from "@/modules/approvals/decide";
+import { vercelQueueOutboxTransport } from "@/modules/outbox/transport";
+import { approval as approvalCopy } from "@/ui/copy";
 
-const PAGE = "/family-texts";
-
-/** What the panel renders after a turn: the turn itself, or the one sentence a refusal gets. */
-export type TurnState =
+/** What the screen renders after a decision: what happened, or the one sentence a refusal gets. */
+export type DecisionState =
   | { readonly status: "idle" }
   | { readonly status: "refused"; readonly message: string }
-  | { readonly status: "answered"; readonly childKey: string; readonly text: string; readonly turn: DemoAgentTurn };
-
-export type ApprovalState =
-  | { readonly status: "idle" }
-  | { readonly status: "refused"; readonly message: string }
-  | { readonly status: "approved"; readonly applied: ApprovedDropoff };
-
-async function allowed(): Promise<boolean> {
-  return canOpenPage(await getCaller(), PAGE);
-}
+  | { readonly status: "decided"; readonly decision: ApprovalDecision; readonly text: string; readonly queued: number };
 
 /**
- * One agent turn over a staff-typed family text.
- *
- * The `catch` is not defensive habit, it is the panel's only way to say the thing out loud. A turn
- * that throws has no state in `useActionState` — React re-raises it, Next shows its error boundary
- * and the screen says nothing about the assistant at all. What throws is a configuration this
- * build can make no provider from — an agent config it cannot parse, a base URL off the host
- * allow-list. A deployment that merely may not *call* a vendor does not throw: the turn comes
- * back `answered` with `modelUnavailable`, which the panel renders as the alert.
- *
- * The error itself is not shown and not logged here: the refusals name an environment variable but
- * a thrown message is not copy, and the words a coordinator reads live in `ui/copy.ts`.
+ * The action's own shape, named here so the card can take it as a prop without writing an arrow
+ * type of its own: `copy.test.ts` scans every `.tsx` for JSX text nodes, and a
+ * `=> Promise<DecisionState>` in a component's props reads to that scanner as markup. A `.ts`
+ * module is not scanned that way, so the type lives where it belongs anyway — beside the action.
  */
-export async function runAgentTurn(_previous: TurnState, form: FormData): Promise<TurnState> {
-  if (!(await allowed())) return { status: "refused", message: apiAccess.notYourRole };
-  const childKey = String(form.get("child") ?? "");
-  const text = String(form.get("text") ?? "").trim().slice(0, 600);
-  if (!childKey || !text) return { status: "idle" };
-  try {
-    const turn = await demoAgentTurn({ childKey, text, day: demoDay() });
-    return { status: "answered", childKey, text, turn };
-  } catch {
-    return { status: "refused", message: familyTexts.assistantUnavailable };
-  }
-}
+export type DecideAction = (previous: DecisionState, form: FormData) => Promise<DecisionState>;
 
 /**
- * Apply an approved proposal.
- *
- * The change is re-derived from the model's own tool call rather than trusted as posted: the form
- * carries the call back, and `dropoffFromCall` re-reads it, so the only thing that can become a
- * change is a `propose_dropoff_change` with a schema-shaped time or one of the centre's own stop
- * tokens. On the live path the same decision is bound to `approvalKey` — the hash of the exact
- * call — which is what releases one specific call and nothing else (policy.ts).
+ * The words for each refusal. Codes stay in the model and never reach a screen (COPY-GUIDE §2):
+ * this is the one place they become sentences, and every one of them says what happened and what
+ * the person reading it can do.
  */
-export async function approveAgentProposal(
-  _previous: ApprovalState,
+const REFUSALS: Readonly<Record<DecideError, string>> = {
+  SIGN_IN: approvalCopy.signInAgain,
+  NOT_YOUR_ROLE: approvalCopy.notYourRole,
+  NO_SUCH_APPROVAL: approvalCopy.noSuchApproval,
+  ALREADY_DECIDED: approvalCopy.alreadyDecided,
+  PLAN_MOVED: approvalCopy.planMoved,
+  NOT_A_TIME: approvalCopy.notATime,
+  PLAN_NOT_SAVED: approvalCopy.planNotSaved,
+};
+
+export async function decideApprovalAction(
+  _previous: DecisionState,
   form: FormData,
-): Promise<ApprovalState> {
-  if (!(await allowed())) return { status: "refused", message: apiAccess.notYourRole };
-  const childKey = String(form.get("child") ?? "");
-  const tool = String(form.get("tool") ?? "");
-  const day = demoDay();
-  /*
-   * The proposal, re-derived from the **model's own arguments** as the form carries them back,
-   * and then re-read through the same `dropoffFromCall` the turn used. A browser can post any
-   * shape it likes; what survives is a `propose_dropoff_change` with a schema-shaped time or one
-   * of the centre's own stop tokens, which is the only thing that can become a change.
-   */
-  let args: Record<string, unknown> = {};
-  try {
-    const raw: unknown = JSON.parse(String(form.get("args") ?? "{}"));
-    if (raw && typeof raw === "object" && !Array.isArray(raw)) args = raw as Record<string, unknown>;
-  } catch {
-    return { status: "idle" };
+): Promise<DecisionState> {
+  const caller = await getCaller();
+  const role = caller.kind === "STAFF" ? caller.role : null;
+  if (role === null || !APPROVAL_ROLES.includes(role)) {
+    return { status: "refused", message: approvalCopy.notYourRole };
   }
-  const request = childKey ? dropoffFromCall(childKey, tool, args, day) : null;
-  if (!request) return { status: "idle" };
-  return { status: "approved", applied: approveDropoff(request, day) };
+  const approvalId = String(form.get("approval") ?? "");
+  const decision = String(form.get("decision") ?? "");
+  if (!approvalId || (decision !== "APPROVED" && decision !== "DECLINED")) return { status: "idle" };
+
+  const typed = String(form.get("time") ?? "").trim();
+  const answer = await decideApproval(
+    getNeonDb(),
+    vercelQueueOutboxTransport,
+    {
+      // The caller's own id, off the session. Never a value the form carried: a user id in a form
+      // is a user id an attacker chooses, and `requireSiteAccess` reads memberships for whoever
+      // this is.
+      userId: caller.kind === "STAFF" ? caller.userId : undefined,
+      approvalId,
+      decision: decision as ApprovalDecision,
+      editedTime: typed === "" ? null : typed,
+      now: new Date(),
+    },
+    { placement: null },
+  );
+
+  if (!answer.body.ok) return { status: "refused", message: REFUSALS[answer.body.error] };
+  revalidatePath(APPROVALS_PAGE);
+  return {
+    status: "decided",
+    decision: answer.body.decision,
+    text: answer.body.text,
+    queued: answer.body.queued,
+  };
 }

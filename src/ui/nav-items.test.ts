@@ -191,10 +191,20 @@ describe("the menu lists only screens that work", () => {
    * you tab inside Family texts, not a menu item"). Both halves, because either one alone is a
    * bug: on the menu it is an eighth rail item the spec does not have, and with no way to it
    * it is an address nobody can reach.
+   *
+   * The way to it is now the tab itself rather than a link to `/approvals`: Family texts renders
+   * `?tab=for-you` as one of three tabs over its own list (Firia, 2026-10-17 8:36 PM ET — "the
+   * approvals screen is the For you tab of Family texts"). So the second half is asserted against
+   * the tab, which is the thing a coordinator actually clicks.
    */
   it("keeps Approvals off the menu and reachable from Family texts", () => {
     expect(navItems.some((item) => item.href === "/approvals")).toBe(false);
-    expect(sourceOf("/family-texts")).toMatch(/href="\/approvals"/);
+    const screen = readFileSync(
+      path.join(__dirname, "..", "app", "(app)", "family-texts", "TextsScreen.tsx"),
+      "utf8",
+    );
+    expect(screen).toMatch(/familyTexts\.tabForYou/);
+    expect(screen).toMatch(/URLSearchParams\(\{ tab \}\)/);
   });
 });
 
