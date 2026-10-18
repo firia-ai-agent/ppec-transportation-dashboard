@@ -70,6 +70,35 @@ describe("what each card says", () => {
     expect(setup.state).toBe(vansChecked === vans ? "DONE" : "NEEDED");
   });
 
+  /**
+   * NO VANS AT ALL (Vera, 2026-10-17 8:46 PM ET): "0/0 checked" is a tally of nothing, so the
+   * card says what is true — "No vans" — and stays Needed. It is still a link to the ramp iPad
+   * for a role that may open it, because that is where a van gets checked.
+   */
+  it("says 'No vans' rather than '0/0 checked' when the site has none", () => {
+    const setup = byKey(stepsFor("DIRECTOR", day({ vans: 0, vansChecked: 0 })), "setup");
+    expect(setup.detail).toBe(flow.detail.setupNoVans);
+    expect(setup.detail).toBe("No vans");
+    expect(setup.detail).not.toMatch(/0\/0/);
+    expect(setup.state).toBe("NEEDED");
+  });
+
+  it("still opens the ramp iPad from the no-vans card, for the roles that may", () => {
+    const none = day({ vans: 0, vansChecked: 0 });
+    for (const role of ROLE_LADDER) {
+      const setup = byKey(stepsFor(role, none), "setup");
+      expect(setup.href, role).toBe("/ramp-ipad");
+      // Every role's row opens the ramp iPad (SURF-04), so every role gets the link.
+      expect(setup.linked, role).toBe(canOpenPage({ kind: "STAFF", role }, "/ramp-ipad"));
+      expect(setup.linked, role).toBe(true);
+    }
+  });
+
+  /** The unread day is a day with no vans *read*, and it says the same thing. */
+  it("says it for a day that could not be read at all", () => {
+    expect(byKey(stepsFor("DIRECTOR", FRESH), "setup").detail).toBe(flow.detail.setupNoVans);
+  });
+
   it("says 'Not saved' with no plan, and the minute it was saved at with one", () => {
     expect(byKey(stepsFor("DIRECTOR", FRESH), "plan").detail).toBe(flow.detail.planNone);
     const saved = byKey(stepsFor("DIRECTOR", PLANNED), "plan");
@@ -257,8 +286,12 @@ describe("a day that could not be read", () => {
   it("shows Needed, Needed and Locked, and no Done anywhere", () => {
     const steps = stepsFor("DIRECTOR", FRESH);
     expect(steps.map((s) => s.state)).toEqual(["NEEDED", "NEEDED", "LOCKED"]);
+    /*
+     * "No vans" rather than "0/0 checked" (Vera, 8:46 PM ET): a day nobody could read has no
+     * vans *read*, and a tally of nothing reads as a tally somebody is partway through.
+     */
     expect(steps.map((s) => s.detail)).toEqual([
-      "0/0 checked",
+      flow.detail.setupNoVans,
       flow.detail.planNone,
       flow.detail.liveLocked,
     ]);

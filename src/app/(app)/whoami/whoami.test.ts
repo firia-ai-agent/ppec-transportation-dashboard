@@ -103,6 +103,23 @@ describe("it says who you are in one line", () => {
     expect(page).toMatch(/lines\.role \?/);
   });
 
+  /**
+   * The whole line, per role, as a person reads it (Vera, 2026-10-17 8:46 PM ET — she asked for
+   * the front desk in particular, whose roster name is "SYN Frankie Lowell FrontDesk"). It is
+   * the shared helper's name beside the role's plain word, which is the same name the rail's
+   * account block and the page header's disc are built from (src/ui/account-identity.test.ts).
+   */
+  it.each([
+    ["DIRECTOR", "Dana M. · Director"],
+    ["COORDINATOR", "Casey R. · Coordinator"],
+    ["FRONT_DESK", "Frankie L. · Front desk"],
+  ] as const)("reads %s as %s", (role, line) => {
+    const account = DEMO_ACCOUNTS.find((a) => a.role === role)!;
+    const lines = accountLines(account.name, roleNames[role].one);
+    expect(`${lines.name}${whoami.separator}${lines.role}`).toBe(line);
+    expect(lines.name).toBe(shortName(account.name));
+  });
+
   /** The session the browser checks run as is a named person now, not a role twice over. */
   it.each(DEMO_ACCOUNTS)("names $role as a person beside their role", (account) => {
     const role = roleNames[account.role].one;

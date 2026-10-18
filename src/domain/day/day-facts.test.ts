@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Exec } from "@/domain/transition";
-import { readDayFacts } from "./day-facts";
+import { DEMO_VANS } from "@/modules/demo/day";
+import { getDayReadiness, readDayFacts } from "./day-facts";
 import { deriveReadiness } from "./readiness";
 
 /**
@@ -133,5 +134,72 @@ describe("the day's facts, as the loader reads them", () => {
       },
     };
     await expect(readDayFacts(exec, SITE, DATE, "PM")).rejects.toThrow("no database here");
+  });
+});
+
+/**
+ * THE BROWSER-TEST SESSION'S DAY — a role with no centre behind it (Vera, 2026-10-17 8:46 PM ET).
+ *
+ * That session has no `site_id`, so the two reads above have nothing to be scoped by and the
+ * strip used to say "0/0 checked" — a site with no vans in it, which is a different day from
+ * the one the demo runs on. It reads the demo day's own facts now
+ * (src/modules/demo/day.ts): the vans the seed writes, none of them checked, and no plan.
+ *
+ * The gate is the one that already existed for that session, `demoSessionRole` — null the
+ * moment `VERCEL_ENV` is set, which is every deployment we own. No new flag, and no database:
+ * the `exec` below throws if anything tries to open one.
+ */
+describe("a caller with no site", () => {
+  const DEMO_ENV = { APP_DATA_CLASS: "SYNTHETIC", DEMO_MODE: "1", E2E_DEMO_ROLE: "DIRECTOR" };
+  const NOW = new Date("2026-10-17T18:00:00Z");
+  const refuses: Exec = {
+    async query() {
+      throw new Error("the day must not open a database for a session with no site");
+    },
+  };
+
+  it("reads the demo day for the browser-test session: vans, none checked, no plan", async () => {
+    const day = await getDayReadiness({ siteId: null, now: NOW, exec: refuses, env: DEMO_ENV });
+    expect(day.setup).toEqual({ state: "NEEDED", checked: 0, total: DEMO_VANS });
+    expect(DEMO_VANS).toBeGreaterThan(0);
+    expect(day.plan).toEqual({ state: "NEEDED", savedAt: null, unplaced: null });
+    expect(day.live).toEqual({ state: "LOCKED", blockedBy: "PLAN" });
+  });
+
+  it("says the same day for every role that session can be", async () => {
+    for (const role of ["DIRECTOR", "COORDINATOR", "FRONT_DESK"]) {
+      const day = await getDayReadiness({
+        siteId: null,
+        now: NOW,
+        exec: refuses,
+        env: { ...DEMO_ENV, E2E_DEMO_ROLE: role },
+      });
+      expect(day.setup.total, role).toBe(DEMO_VANS);
+    }
+  });
+
+  /**
+   * And nobody else gets it. A deployment cannot reach this path — `demoSessionRole` refuses
+   * the moment `VERCEL_ENV` is set — and neither can a signed-in person whose membership list
+   * is empty: they are a caller we know nothing about, and the unread day is the honest answer.
+   */
+  it.each([
+    ["a deployment", { ...DEMO_ENV, VERCEL_ENV: "production" }],
+    ["live data", { ...DEMO_ENV, APP_DATA_CLASS: "LIVE" }],
+    ["demo mode off", { ...DEMO_ENV, DEMO_MODE: "0" }],
+    ["no test session", { APP_DATA_CLASS: "SYNTHETIC", DEMO_MODE: "1" }],
+  ])("gives %s the unread day instead", async (_case, env) => {
+    const day = await getDayReadiness({ siteId: null, now: NOW, exec: refuses, env });
+    expect(day.setup).toEqual({ state: "NEEDED", checked: 0, total: 0 });
+    expect(day.plan.state).toBe("NEEDED");
+    expect(day.live.state).toBe("LOCKED");
+  });
+
+  it("opens no database on either path", async () => {
+    const query = vi.fn();
+    const watched: Exec = { query };
+    await getDayReadiness({ siteId: null, now: NOW, exec: watched, env: DEMO_ENV });
+    await getDayReadiness({ siteId: null, now: NOW, exec: watched, env: {} });
+    expect(query).not.toHaveBeenCalled();
   });
 });

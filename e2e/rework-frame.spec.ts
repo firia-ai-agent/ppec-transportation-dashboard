@@ -28,9 +28,10 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type { StaffRole } from "../src/auth/core";
-import { deriveReadiness, unreadFacts } from "../src/domain/day/readiness";
+import { deriveReadiness } from "../src/domain/day/readiness";
+import { demoDayFacts } from "../src/modules/demo/day";
 import { legAt, serviceDateAt } from "../src/domain/day/day-facts";
-import { demoDay, flow, nav, sourceMode } from "../src/ui/copy";
+import { demoDay, flow, nav, sourceMode, toast } from "../src/ui/copy";
 import { menuBadgeFor } from "../src/ui/menu-badge";
 import { MENU_SIZE, navItemsFor } from "../src/ui/nav-items";
 import { stepsFor } from "../src/ui/step-strip";
@@ -61,14 +62,15 @@ const ROUTES = [...MENU.map((item) => item.href), ...EXTRA];
 const WIDTHS = [390, 1440] as const;
 
 /**
- * The day this run's server reads, which is no day at all: the synthetic session is a role with
- * no site behind it (src/auth/caller.ts), so the readiness loader has nothing to read a centre's
- * rows for and answers with the unread day — Needed, Needed, Locked
- * (src/domain/day/day-facts.ts). Derived here through the same function the server uses rather
- * than written out, so this file cannot drift from it, and deterministic by the shape of the
- * session rather than by an environment variable a deployment could set.
+ * The day this run's server reads: the **demo day**, for a session that is a role with no centre
+ * behind it (src/auth/caller.ts). The loader has no `site_id` to read rows for, so since Vera's
+ * 8:46 PM ET note (2026-10-17) it answers from the demo fixture instead of from nothing — the
+ * vans the seed writes, none of them checked, no plan saved — and the strip reads "0/4 checked"
+ * rather than "0/0". Derived here through the same two functions the server uses rather than
+ * written out, so this file cannot drift from it, and deterministic by the shape of the session
+ * rather than by an environment variable a deployment could set.
  */
-const READINESS = deriveReadiness(unreadFacts(serviceDateAt(), legAt()));
+const READINESS = deriveReadiness(demoDayFacts(serviceDateAt(), legAt()));
 const STEPS = stepsFor(ROLE, READINESS);
 
 const slug = (href: string) => href.replace(/^\//, "") || "home";
@@ -216,6 +218,13 @@ for (const width of WIDTHS) {
         await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
         const where = new URL(page.url()).pathname;
+        /*
+         * The shot is named after the address that was **asked for**, not the one it landed on.
+         * A redirect otherwise overwrites the destination's own picture — the front desk asking
+         * for /family-texts lands on /live-map with the §9.3 notice on it, and the file called
+         * "live-map" stopped being a picture of the live map (Vera read one of those as the
+         * toast firing on login, 2026-10-17 8:46 PM ET).
+         */
         const menu = await expectFrame(page, width, where);
         /*
          * The menu's own links. `:not([data-rail-account])` because the rail's foot carries one
@@ -273,7 +282,7 @@ for (const width of WIDTHS) {
         expect(await visibleMatches(page, "Start demo day")).toEqual([]);
         await expect(restart).toHaveCount(ROLE === "DIRECTOR" ? 1 : 0);
 
-        console.log("screenshot:", await shotOf(page, where, width));
+        console.log("screenshot:", await shotOf(page, href, width));
       }
     });
 
@@ -459,6 +468,48 @@ test.describe(`the phone's tab bar, as ${ROLE}`, () => {
     // Transparent, or the surface it sits on — never the selected tint.
     expect(["rgba(0, 0, 0, 0)", "rgb(255, 255, 255)"]).toContain(style.background);
     expect(Number(style.weight)).toBeGreaterThanOrEqual(600);
+  });
+});
+
+/**
+ * ARRIVING vs BEING TURNED AWAY — Vera, 2026-10-17 8:46 PM ET.
+ *
+ * "Not on your menu" is the sentence a refusal could not say (§9.3), so it belongs on exactly
+ * one kind of landing: one that followed an address this role does not open. Signing in is not
+ * one. `/` is where the sign-in action sends every role (src/app/login/page.tsx `redirectTo`),
+ * and it is what this walk uses: the browser check's session is the server's, so opening the
+ * app at its root *is* the post-sign-in landing for this role.
+ */
+test.describe(`landing at your own home, as ${ROLE}`, () => {
+  for (const width of WIDTHS) {
+    test(`says nothing about a menu at ${width}, because nothing was refused`, async ({ page }) => {
+      await page.setViewportSize({ width, height: width < 768 ? 844 : 900 });
+      await page.goto("/");
+      // Where the access table sends this role, and a screen they can open.
+      const landed = new URL(page.url()).pathname;
+      expect(landed).toBe(homePathFor({ kind: "STAFF", role: ROLE }));
+      expect(page.url(), "a notice rode along with the entry route").not.toContain("notice=");
+      await expect(page.locator("[data-notice]"), "the toast fired on arrival").toHaveCount(0);
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+      await expectFrame(page, width, landed);
+      console.log("screenshot:", await shotOf(page, "/after-login", width));
+    });
+  }
+
+  /**
+   * And the other half, on the same screen: ask for something this role may not open and the
+   * line *is* said. A role that can open everything on its menu has nothing to be refused, so
+   * the case belongs to the front desk — who has four addresses here they can only have typed.
+   */
+  test("says it when an address was refused, which is what it is for", async ({ page }) => {
+    const blocked = ["/today", "/plan-routes", "/approvals", "/exceptions"].find(
+      (href) => !MENU.some((item) => item.href === href),
+    );
+    test.skip(ROLE !== "FRONT_DESK", "every console role opens these; there is nothing to refuse");
+    await page.goto(blocked!);
+    expect(new URL(page.url()).pathname).toBe(homePathFor({ kind: "STAFF", role: ROLE }));
+    await expect(page.locator("[data-notice]")).toHaveCount(1);
+    await expect(page.locator("[data-notice]")).toContainText(toast.notOnMenu);
   });
 });
 

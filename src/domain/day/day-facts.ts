@@ -21,6 +21,7 @@
  * this path every time, by the shape of the thing rather than by a flag a deployment could set.
  */
 import type { Exec } from "@/domain/transition";
+import { demoSessionRole } from "@/domain/access/map-view";
 import { serviceDateIso, siteHour } from "@/ui/service-date";
 import {
   deriveReadiness,
@@ -143,8 +144,11 @@ async function countUnplaced(exec: Exec, planRunId: string, siteId: string): Pro
  *
  * `siteId` is nullable on purpose and is the seam the browser checks come through: the synthetic
  * test session is a role with no site and no user row behind it (src/auth/caller.ts), so there
- * is no site to read a day for, and the answer is the unread one. No environment variable
- * decides that — a session either names a site or it does not.
+ * is no site to read a day for — and since Vera's 8:46 PM ET note (2026-10-17) that session
+ * reads the demo day's own facts instead of the unread day, so the strip says "0/4 checked"
+ * rather than "0/0". Every other caller with no site still gets the unread day. No new
+ * environment variable decides any of it: a session either names a site or it does not, and the
+ * demo session is recognised by the gate it already had.
  *
  * `exec` is the other seam, for a test that wants to hand this function a database.
  */
@@ -152,14 +156,38 @@ export async function getDayReadiness({
   siteId,
   now = new Date(),
   exec,
+  env = process.env,
 }: {
   siteId: string | null;
   now?: Date;
   exec?: Exec;
+  /** The environment the browser-test session is recognised from (`demoSessionRole`). */
+  env?: Record<string, string | undefined>;
 }): Promise<DayReadiness> {
   const date = serviceDateAt(now);
   const leg = legAt(now);
-  if (!siteId) return deriveReadiness(unreadFacts(date, leg));
+  if (!siteId) {
+    /*
+     * No site — and there are two ways to have none. The browser-test session is a role with no
+     * centre behind it, and the day it stands in for is the demo day, which is written down
+     * (src/modules/demo/day.ts): four vans, none checked, no plan. Reading it there means the
+     * strip in a browser check describes the same day the demo runs on, instead of "0/0", and
+     * no row is read or written to do it.
+     *
+     * `demoSessionRole` is the gate that already exists for that session — it answers `null`
+     * the moment `VERCEL_ENV` is set, which is every deployment we own, and it needs synthetic
+     * data and demo mode besides. No new flag is introduced here: a deployment cannot turn this
+     * path on, by the same fact that makes the session itself unreachable there.
+     *
+     * Anyone else with no site is a caller we genuinely know nothing about, and gets the unread
+     * day: Needed, Needed, Locked.
+     */
+    if (demoSessionRole(env)) {
+      const { demoDayFacts } = await import("@/modules/demo/day");
+      return deriveReadiness(demoDayFacts(date, leg));
+    }
+    return deriveReadiness(unreadFacts(date, leg));
+  }
   try {
     const source = exec ?? (await import("@/auth/exec")).getExec();
     return deriveReadiness(await readDayFacts(source, siteId, date, leg));

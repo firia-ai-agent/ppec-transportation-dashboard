@@ -142,6 +142,13 @@ export const flow = {
   /** The one line under a step's name: what that step's own data says right now (§9.5). */
   detail: {
     setup: "{checked}/{total} checked",
+    /**
+     * A site with no vans at all (Vera, 2026-10-17 8:46 PM ET). "0/0 checked" is arithmetic
+     * about nothing — it reads as a count somebody is working through, when what is true is
+     * that there is nothing to check yet. The card still opens the ramp iPad, which is where a
+     * van gets checked, so the line is the fact and the card is the way out of it.
+     */
+    setupNoVans: "No vans",
     planSaved: "Saved {time}",
     /**
      * A board that is saved with somebody still on the bench (Vera, 2026-10-17 8:46 PM ET).

@@ -121,6 +121,13 @@ function wordOf(state: StepState): keyof typeof flow.state {
  */
 function detailFor(key: StepKey, state: StepState, readiness: DayReadiness): string {
   if (key === "setup") {
+    /*
+     * No vans at all is not a count (Vera, 8:46 PM ET): "0/0 checked" reads as a tally somebody
+     * is partway through, and the truth is that there is nothing on this site to check. The
+     * state is still Needed — §9.3 gives "no vans" its own empty state on the screen the card
+     * opens — and the card is still a link to the ramp iPad for a role that may open it.
+     */
+    if (readiness.setup.total === 0) return flow.detail.setupNoVans;
     return fill(flow.detail.setup, {
       checked: readiness.setup.checked,
       total: readiness.setup.total,
