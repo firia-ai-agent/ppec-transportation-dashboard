@@ -14,9 +14,21 @@ import {
 import { notifyGateConfig } from "@/config/live";
 import type { StopEta } from "@/domain/eta/eta";
 import { drain } from "@/modules/outbox/outbox";
-import { dbRecipientAuthorizer } from "@/modules/outbox/policy";
+import { dbRecipientAuthorizer, gatewayRecipientAuthorizer } from "@/modules/outbox/policy";
 import { SimMessagingProvider } from "@/modules/outbox/provider";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
+import { FakeTransport } from "@/modules/jobs/fake-transport";
+import { fire, type Handlers } from "@/modules/jobs/runner";
+import { VercelQueueScheduler } from "@/modules/jobs/scheduler";
+import { InMemorySimFaultStore } from "./faults";
+import { DbSimMessagingProvider, SIM_DELAY_MAX_MS, SIM_STATUS_JOB_KIND, simStatusHandler } from "./sim-provider";
+import { isAutoSend } from "./auto-sends";
+import { bubbleOf } from "@/app/(app)/family-texts/thread";
+import { runsOf } from "@/app/(app)/family-texts/conversations";
+import { demoDay } from "@/domain/board/day";
+import { testIdentityGateway } from "@/test/identity-gateway";
+import { familyTexts } from "@/ui/copy";
+import { outboundStates } from "@/ui/states";
 import { seedAgentScenario, type AgentScenario } from "@/test/agent-state";
 import { TEST_NOW } from "@/test/clock";
 import { PEPPER } from "@/test/messaging";
@@ -305,5 +317,113 @@ describe("what the family actually reads", () => {
     const persona = await resolvePersona(db, { number: scenario.number, pepper: PEPPER, gateway: dbIdentityGateway(db, { pepper: PEPPER }) });
     const thread = await personaMessages(db, persona!);
     expect(thread.find((m) => m.direction === "OUT")!.reachedPhone).toBe(false);
+  });
+});
+
+/**
+ * "AUTO · DELIVERED" IS EARNED BY A ROW, NOT BY A FIXTURE (Veri's run-8 gate 4; Firia's gate 4).
+ *
+ * The §8 notice is the one text in this app that goes out with **nobody in the loop**: no
+ * proposal, no card, no decision, no `ops.approval_request` row anywhere. That is what the label
+ * claims, and `texts-screen.test.ts` already holds the claim at the screen's own level — over
+ * hand-written bubbles, where `author: "AUTO"` is something the test said rather than something a
+ * send proved.
+ *
+ * This is the other end of it: a crossing becomes a real queued row, the real sim provider sends
+ * it, the real status callback lands, and the thread's own two functions read the label off that
+ * row. Both halves of the label, each from its own column:
+ *
+ *  - **"Auto"** from `template_id` through the `auto-sends.ts` allow-list. Not from the absence of
+ *    an approval row — an unknown template is not auto either — but the absence is asserted too,
+ *    because it is the fact the label is a claim about.
+ *  - **"Delivered"** from `state`, which is why the bubble is read twice: once after the send
+ *    (Sent) and once after the provider's callback (Delivered). A label that was decoration would
+ *    read the same both times.
+ *
+ * NOT held here, and worth a reader's attention: `runsOf` builds the meta line from the author
+ * alone, so the *word* "Delivered" in it is not yet read off `state` — an auto text that ended
+ * BLOCKED_EGRESS or FAILED would carry the same line. The bubble under it does carry the row's
+ * real state and `reachedPhone` (the suite above drives the opted-out case), so the fact is on
+ * the screen's view model; joining the two is a copy decision nobody has made yet.
+ */
+describe("the day's own notice, and the label the thread puts on it", () => {
+  /** The suites' gateway: addressing and egress facts for the rows `seedAgentScenario` wrote. */
+  const GATEWAY = testIdentityGateway({ pepper: PEPPER });
+  const handlers: Handlers = { [SIM_STATUS_JOB_KIND]: simStatusHandler };
+
+  /** The real provider, which renders the body, addresses the persona phone and arms the callback. */
+  const sendStack = () => ({
+    provider: new DbSimMessagingProvider(
+      db,
+      new VercelQueueScheduler(db, new FakeTransport(), () => TEST_NOW),
+      {
+        faults: new InMemorySimFaultStore(),
+        clock: () => TEST_NOW,
+        pepper: PEPPER,
+        seed: "test-seed",
+        gateway: GATEWAY,
+      },
+    ),
+    authorizer: gatewayRecipientAuthorizer(GATEWAY),
+    clock: () => TEST_NOW,
+    timeoutMs: 500,
+  });
+
+  /** How many proposals a person was asked to decide for this to happen. */
+  const approvalRows = async () =>
+    Number(
+      (await db.query<{ n: string }>("SELECT count(*)::text AS n FROM ops.approval_request", []))
+        .rows[0].n,
+    );
+
+  /** The family's thread, as the screen builds it: the read model, then `thread.ts`'s own mapping. */
+  async function outboundBubble() {
+    const persona = await resolvePersona(db, {
+      number: scenario.number,
+      pepper: PEPPER,
+      gateway: dbIdentityGateway(db, { pepper: PEPPER }),
+    });
+    const bubbles = (await personaMessages(db, persona!)).map(bubbleOf);
+    const out = bubbles.filter((b) => b.direction === "OUT");
+    expect(out).toHaveLength(1);
+    return { bubble: out[0], runs: runsOf(bubbles, demoDay().label) };
+  }
+
+  it("sends with no approval row anywhere, and the thread reads the label off that row", async () => {
+    // The template is on the allow-list that decides the label, before any of this runs.
+    expect(isAutoSend(etaNoticeTemplate("PM"))).toBe(true);
+
+    expect(await enqueueOne(notified(900))).toMatchObject({ duplicate: false });
+    const [row] = await outboundRows();
+    expect(row.template_id).toBe("dropoff.late");
+    expect(row.state).toBe("QUEUED");
+    // Nobody approved it, because there was never anything to approve.
+    expect(await approvalRows()).toBe(0);
+
+    expect(await drain(db, row.id, sendStack())).toBe("SENT");
+
+    // The author is the row's template, through the allow-list — and the delivery half is the
+    // row's own state, which at this moment is Sent and not Delivered.
+    const sent = await outboundBubble();
+    expect(sent.bubble.author).toBe("AUTO");
+    expect(sent.bubble.delivery).toEqual(outboundStates.SENT);
+    expect(sent.bubble.reachedPhone).toBe(true);
+
+    // The provider's status callback, as a durable job rather than a test writing DELIVERED.
+    const job = (await db.query<{ id: string }>("SELECT id FROM ops.job WHERE key = $1", [
+      `${SIM_STATUS_JOB_KIND}:${row.id}`,
+    ])).rows[0];
+    expect(await fire(db, job.id, "test", handlers, "LOCAL", () => new Date(TEST_NOW.getTime() + SIM_DELAY_MAX_MS))).toBe("fired");
+    expect((await outboundRows())[0].state).toBe("DELIVERED");
+
+    // Same bubble, read again: "Delivered" moved because the row moved.
+    const delivered = await outboundBubble();
+    expect(delivered.bubble.delivery).toEqual(outboundStates.DELIVERED);
+    expect(delivered.bubble.author).toBe("AUTO");
+    // And the meta line the thread draws under that run, still with no approval row behind it.
+    expect(delivered.runs.filter((r) => r.side === "OUT").map((r) => r.meta)).toEqual([
+      familyTexts.autoDelivered,
+    ]);
+    expect(await approvalRows()).toBe(0);
   });
 });
