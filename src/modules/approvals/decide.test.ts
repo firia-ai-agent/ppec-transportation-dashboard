@@ -17,9 +17,10 @@
  *    exists nowhere. A 403 there would confirm the id is real, which is the ID-swap rule
  *    (BUILD-PLAN §4: another site is a 404, not a 403).
  *
- * Then what approving actually does, which is three writes in one transaction, and the three ways
- * it refuses to do them: a decision already made, a plan that moved underneath it, and a time that
- * is not a time.
+ * Then what approving actually does, which is three writes in one transaction, and the ways it
+ * refuses to do them: a decision already made, a plan the board will not take the write for, and a
+ * time that is not a time. A proposal drafted against an older plan version is *not* one of them
+ * (Firia, PR #75) — that check is gone, and the case below holds it gone.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
@@ -126,9 +127,10 @@ async function seedProposal(
         service_date: SERVICE_DATE,
         direction: "PM",
         /*
-         * `plan_run.version` — the counter the board guards and the one `decideApproval` checks
-         * (Firia's S1-3, 2026-10-17 11:00 PM ET). The fake port below answers version 7, so 7
-         * is "the plan this proposal was computed against" and anything else is a stale one.
+         * `plan_run.version` as it was when the proposal was written — recorded, and since PR #75
+         * not checked by `decideApproval`. The fake port below answers version 7, so 7 is "the
+         * plan this proposal was computed against" and anything else is a stale basis, which is a
+         * case about what still goes through rather than what refuses.
          */
         plan_run_version_basis: over.planVersionBasis ?? FAKE_PLAN_VERSION,
         requested_dropoff_time: time,
@@ -472,28 +474,41 @@ describe("approving", () => {
   });
 
   /**
-   * AT-08 from the other side: a manual correction invalidates a queued message, and it
-   * invalidates a *pending proposal* for the same reason — the text would name a time that is no
-   * longer the plan. Nothing is written, the decision is not claimed, and a coordinator can read
-   * the new state and decide again.
+   * A PROPOSAL OLDER THAN THE PLAN IS STILL APPROVABLE (Firia, PR #75).
+   *
+   * This case used to be a 409: the proposal's `plan_run_version_basis` was compared to the
+   * plan's current version and a mismatch refused the decision. The ruling removed that check,
+   * and the demo is why. `demo/approval-seed.ts:123` stamps the basis as `savedPlan?.version ?? 0`
+   * — `0` on a restarted day, which writes no `plan_run` — and the walked demo's very next step is
+   * staff pressing Auto-plan and Save, which bumps the version. Under the old rule the one card the
+   * demo opens on became undecidable the moment the plan it is about existed.
+   *
+   * So a stale basis changes nothing: the decision reads the plan here, writes against the version
+   * it just read (`expectedVersion`, which is the real lock and is checked in
+   * `plan-placement.test.ts`), and queues the family's text.
    */
-  it("refuses when the ride moved under the proposal, and claims nothing", async () => {
-    const id = await seedProposal({ planVersionBasis: 1 });
-    // Somebody corrected the leg by hand in between.
+  it("approves a proposal whose plan basis is older than the saved plan (demo seed path)", async () => {
+    // Basis 0, while the board this decision reads is at version 7: as stale as the demo's own row.
+    const id = await seedProposal({ planVersionBasis: 0 });
+    // And a hand correction of the leg on top of it, which is likewise not a reason to refuse.
     await db.query("UPDATE ops.trip_leg SET plan_version = 2, version = version + 1 WHERE id = $1", [legId]);
 
-    expect(await decide({ approvalId: id })).toEqual({
-      status: 409,
-      body: { ok: false, error: "PLAN_MOVED" },
-    });
-    expect(await queued()).toEqual([]);
-    // Still undecided, so the screen can offer it again against the state as it now is.
+    const answer = await decide({ approvalId: id });
+
+    expect(answer.status, JSON.stringify(answer.body)).toBe(200);
+    expect(answer.body).toMatchObject({ ok: true, decision: "APPROVED", queued: 1 });
+    // One text, and one plan write — guarded on the version the decision itself read, not on the
+    // number the proposal was drafted against.
+    expect(await queued()).toHaveLength(1);
+    expect(placements).toHaveLength(1);
+    expect(placements[0].expectedVersion).toBe(FAKE_PLAN_VERSION);
+    // Decided, so the card is gone from the queue rather than offered again.
     const row = (await db.query<{ decided_at: Date | null }>(
       "SELECT decided_at FROM ops.approval_request WHERE id = $1",
       [id],
     )).rows[0];
-    expect(row.decided_at).toBeNull();
-    expect(await pendingApprovals(db, [SITE])).toHaveLength(1);
+    expect(row.decided_at).not.toBeNull();
+    expect(await pendingApprovals(db, [SITE])).toEqual([]);
   });
 });
 
@@ -571,8 +586,9 @@ describe("another kind of proposal", () => {
  * the exact text the person approving had in front of them.
  *
  * Note what is NOT seeded in these cases: no `plan_run_version_basis` and no plan port that could
- * answer one. A drop-off proposal without a basis is refused (above); a message proposal without
- * one sends, because there is nothing for a version to be a version OF.
+ * answer one. Nothing reads a basis on either kind any more (PR #75); the difference that remains
+ * is that this kind reads no plan at all, because there is nothing for a version to be a version
+ * OF.
  */
 describe("a message approval: the text is the guard, and no plan is read (S1-7)", () => {
   it("queues the text for the recipient the row names, and writes no plan", async () => {

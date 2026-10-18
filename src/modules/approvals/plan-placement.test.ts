@@ -10,10 +10,12 @@
  *     a new `plan_run` version with the child's `plan_assignment` row still in that van;
  *  2. **a cancel** puts the child in bucket `ABSENT` for that leg, in `plan_assignment`, through
  *     the same exported function the board uses and not a bucket writer of this module's own;
- *  3. **a refusal from the board** (a plan somebody else saved first; a day nobody started; a
- *     writer that throws) leaves the proposal **PENDING**, the ride where it was, and **nothing**
- *     in the outbox: the coordinator reads "Couldn't update the plan" and the family is told
- *     nothing. Never a fake success, and never a text about a change the plan does not hold.
+ *  3. **a refusal from the board** (a plan somebody else saved first *between this decision's read
+ *     and its write*; a day nobody started; a writer that throws) leaves the proposal **PENDING**,
+ *     the ride where it was, and **nothing** in the outbox: the coordinator reads "Couldn't update
+ *     the plan" and the family is told nothing. Never a fake success, and never a text about a
+ *     change the plan does not hold. A plan saved before the decision opens is *not* a refusal —
+ *     Firia, PR #75: there is no check of the proposal's recorded basis.
  *
  * The last suite is the rule about *where absence is read*: `plan_assignment`, and nowhere else.
  * `attendance_day` keeps its own record — the front desk's actual-attendance row is a different
@@ -141,10 +143,10 @@ async function savedPlanWithChildInVanOne(): Promise<number> {
 /**
  * One undecided proposal. `cancel` makes it the cancel flavour rather than a stop change.
  *
- * `basis` is `plan_run.version` — the counter the board guards (0009) and the one
- * `decideApproval` checks (Firia's S1-3, 2026-10-17 11:00 PM ET). It defaults to the version
- * the plan actually holds right now, which is what `propose_dropoff_change` records, so a test
- * that does not care about staleness never has to know the number.
+ * `basis` is `plan_run.version` — the counter the board guards (0009), recorded on the row and
+ * not checked by `decideApproval` (Firia, PR #75). It defaults to the version the plan actually
+ * holds right now, which is what `propose_dropoff_change` records, so a test that does not care
+ * about the basis never has to know the number.
  */
 async function seedProposal(over: { cancel?: boolean; basis?: number } = {}): Promise<string> {
   const basis = over.basis ?? (await planRunVersion()) ?? 0;
@@ -321,19 +323,24 @@ describe("an approved cancel puts the child in ABSENT for that leg, in plan_assi
 });
 
 /**
- * VERI (a), AND FIRIA'S S1-3: the version an approval is guarded on is `plan_run.version`.
+ * A PLAN SAVED AFTER THE PROPOSAL IS STILL APPROVABLE — Firia, PR #75: no plan-version check in
+ * `decideApproval`.
  *
- * The proposal records the version the plan held when it was written. If anybody saves the board
- * in between — a coordinator dragging a card, the ramp's re-plan, a second approval — the
- * proposal was computed against a plan that no longer exists, and approving it would move a
- * child on the strength of a read that is out of date and text a family about it.
+ * The proposal records the version the plan held when it was written, and for a while this
+ * decision compared that number to the plan's current version and 409'd on a mismatch. That rule
+ * is gone. It made the ordinary sequence unapprovable: staff press Auto-plan and Save after the
+ * day's proposals are drafted (the demo's own row is seeded with the basis of a day that has no
+ * `plan_run` at all — `demo/approval-seed.ts:123`), so the one card the walked demo opens on died
+ * of the very save the demo asks for.
  *
- * So: **409, the proposal stays PENDING, the board is untouched and nothing is sent.** Pending
- * rather than declined, because the coordinator has not decided anything — they can read the new
- * state and decide again.
+ * What guards the write instead is the write itself: `currentPlacement` reads the plan inside this
+ * transaction and `setChildPlacement` is handed that version as `expectedVersion`, so a Save that
+ * lands *between* the read and the write is still the board's own refusal — the suite below holds
+ * that, and it is the race that can actually corrupt a plan. A proposal drafted earlier is simply
+ * applied to the plan as it now is.
  */
-describe("a plan saved after the proposal makes the approval a 409 (DATA-MODEL §9.1, Firia S1-3)", () => {
-  it("refuses at the old version, changes nothing and sends nothing", async () => {
+describe("a plan saved after the proposal is still approvable (Firia, PR #75)", () => {
+  it("applies the change on top of the newer version, and texts the family", async () => {
     const started = await savedPlanWithChildInVanOne();
     // The proposal is computed against the version the plan has now.
     const id = await seedProposal({ basis: started });
@@ -348,26 +355,24 @@ describe("a plan saved after the proposal makes the approval a 409 (DATA-MODEL �
     expect(saved.ok).toBe(true);
     expect(await planRunVersion()).toBe(started + 1);
 
-    expect(await approve(id, board())).toEqual({
-      status: 409,
-      body: { ok: false, error: "PLAN_MOVED" },
-    });
-    // Pending, not declined: nothing was decided.
-    expect(await decisionOf(id)).toEqual({ decision: null, decided_at: null });
-    // The board is where the other Save left it, and this child never moved.
-    expect(await planRunVersion()).toBe(started + 1);
+    const answer = await approve(id, board());
+    expect(answer, JSON.stringify(answer.body)).toMatchObject({ status: 200 });
+
+    // Decided, and the board took one more version on top of the other Save's — not a version
+    // written against the stale number the proposal carries.
+    expect(await decisionOf(id)).toMatchObject({ decision: "APPROVED" });
+    expect(await planRunVersion()).toBe(started + 2);
     expect(await assignmentRow()).toMatchObject({ bucket: "VAN", vehicle_id: vanOne() });
+    // Still no second writer of the leg (S1-3), and the family was told.
     expect(await legVersion()).toBe(1);
-    // And the family was told nothing.
-    expect(await outbox()).toEqual([]);
-    expect(transport.sent).toEqual([]);
+    expect((await outbox()).length).toBeGreaterThan(0);
   });
 
-  it("refuses a proposal written before the rule, which carries no basis at all", async () => {
-    // A row from before Firia's S1-3 ruling holds `plan_version_basis` (the leg's counter) and
-    // no `plan_run_version_basis`. Approving it would be approving against a number nobody
-    // checked, so it is refused exactly like a stale one.
-    await savedPlanWithChildInVanOne();
+  it("approves a proposal written before the rule, which carries no basis at all", async () => {
+    // A row from before the `plan_run_version_basis` rename holds `plan_version_basis` (the leg's
+    // counter) and no `plan_run_version_basis`. Nothing reads either one to decide, so it goes
+    // through on the plan the board holds now.
+    const started = await savedPlanWithChildInVanOne();
     const id = await seedProposal();
     await db.query(
       `UPDATE ops.approval_request
@@ -375,9 +380,10 @@ describe("a plan saved after the proposal makes the approval a 409 (DATA-MODEL �
        WHERE id = $1`,
       [id],
     );
-    expect((await approve(id, board())).status).toBe(409);
-    expect(await decisionOf(id)).toEqual({ decision: null, decided_at: null });
-    expect(await outbox()).toEqual([]);
+    expect((await approve(id, board())).status).toBe(200);
+    expect(await decisionOf(id)).toMatchObject({ decision: "APPROVED" });
+    expect(await planRunVersion()).toBe(started + 1);
+    expect((await outbox()).length).toBeGreaterThan(0);
   });
 });
 

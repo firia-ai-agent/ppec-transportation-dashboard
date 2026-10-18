@@ -14,20 +14,18 @@
  *  2. the row names a leg that exists, a child the day has, and the stop the roster gives that
  *     child, so nothing on the card is reconstructed from an id scheme;
  *  3. `plan_run_version_basis` is the board's counter read at seed time (`0` on a day with no
- *     saved plan), which makes the row's staleness *real* rather than assumed — see below;
+ *     saved plan), read the way `propose_dropoff_change` reads it rather than chosen — see below;
  *  4. re-seeding is "Restart demo day": one row again, not two.
  *
- * ## The basis makes the row both approvable and stale-able, which is the point
+ * ## The basis is recorded, and the row stays decidable either way
  *
  * The seed writes no `plan_run` (§9.1: the map stays locked until the ramp is confirmed), so the
- * board's counter is `0` and that is what the row records. On a freshly restarted day the guard
- * therefore **passes**: approving writes `plan_run` version 1 through `setChildPlacement` and
- * queues the family's text, which is the demo's own path and the last suite below. Once somebody
- * has saved a plan the same row is `409 PLAN_MOVED` with nothing written and nothing sent, which
- * is AT-08's rule: a proposal computed against a plan that has since moved must not be approvable.
- *
- * Both halves come out of the row carrying the counter the board actually guards, read the way
- * `propose_dropoff_change` reads it — not out of a number the seed chose.
+ * board's counter is `0` and that is what the row records. On a freshly restarted day approving
+ * writes `plan_run` version 1 through `setChildPlacement` and queues the family's text, which is
+ * the demo's own path and the last suite below. And after somebody has saved a plan it does the
+ * same thing against the version the plan then holds: Firia's PR #75 ruling removed the
+ * plan-version check from `decideApproval`, so the demo's own next step — staff pressing Auto-plan
+ * and Save — no longer turns the one seeded card into a `409` nobody can clear.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db/exec";
@@ -158,13 +156,13 @@ describe("seedStandardScenario leaves a real approval row (S1-2)", () => {
   });
 });
 
-describe("the seeded proposal is a real decision, and obeys the version guard (AT-08)", () => {
+describe("the seeded proposal is a real decision, before and after a plan is saved", () => {
   it("APPROVES on a fresh day: the plan is saved through the board and the family is queued", async () => {
     /*
      * This is the demo's own path. A restarted day has no `plan_run`, so the board's counter is
      * `0` — which is the basis the seed recorded, because it read the same counter the same way.
-     * The guard therefore passes, `setChildPlacement` writes version 1 with the child in the van
-     * the day already has them in, and the text is queued through the outbox.
+     * `setChildPlacement` writes version 1 with the child in the van the day already has them in,
+     * and the text is queued through the outbox.
      */
     const transport = new FakeOutboxTransport();
     const r = await decideApproval(
@@ -185,7 +183,7 @@ describe("the seeded proposal is a real decision, and obeys the version guard (A
     expect(await queuedCount()).toBeGreaterThan(0);
   });
 
-  it("refuses once a plan has been saved, because the basis it carries is older", async () => {
+  it("still APPROVES once a plan has been saved, against the version the plan then holds (PR #75)", async () => {
     const before = await loadBoard(sqlPlanStore(db), SITE, SERVICE_DATE, "PM", sqlDaySource(db, SITE));
     expect(before.started, "the seeded clock starts this day").toBe(true);
     const saved = await setChildPlacement(
@@ -212,10 +210,20 @@ describe("the seeded proposal is a real decision, and obeys the version guard (A
       { userId: coordinator, approvalId: request().approvalId, decision: "APPROVED", now: NOW },
       { placement: board() },
     );
-    expect(r.status).toBe(409);
-    expect(r.body).toMatchObject({ error: "PLAN_MOVED" });
-    expect(await pendingApprovals(db, [SITE])).toHaveLength(1);
-    expect(await queuedCount()).toBe(0);
+    /*
+     * This is the demo's actual order of operations — seed, then Auto-plan + Save, then decide the
+     * card — and it used to be a `409 PLAN_MOVED` here. Firia's PR #75: the basis is not checked.
+     * The decision reads the plan it is about to write and is guarded on that read, so the save
+     * above becomes the version this write builds on.
+     */
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(await pendingApprovals(db, [SITE])).toEqual([]);
+    expect(await queuedCount()).toBeGreaterThan(0);
+    const after = await db.query<{ version: number }>(
+      "SELECT version FROM ops.plan_run WHERE site_id = $1 AND service_date = $2 AND direction = 'PM'",
+      [SITE, SERVICE_DATE],
+    );
+    expect(after.rows[0].version).toBe(saved.ok ? saved.version + 1 : -1);
   });
 });
 

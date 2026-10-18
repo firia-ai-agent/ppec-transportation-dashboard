@@ -132,8 +132,8 @@ beforeEach(async () => {
         child_token: childToken,
         service_date: "2026-10-14",
         direction: "PM",
-        // `plan_run.version`, the counter the board guards and `decideApproval` checks
-        // (Firia's S1-3). The port above answers 7, so the proposal is written against 7.
+        // `plan_run.version`, the counter the board guards. Recorded, not checked by
+        // `decideApproval` (PR #75); the port above answers 7, so this row matches it anyway.
         plan_run_version_basis: 7,
         requested_dropoff_time: "17:00",
         stop_token: "OKEE-PARK",

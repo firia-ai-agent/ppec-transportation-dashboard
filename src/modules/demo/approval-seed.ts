@@ -30,9 +30,11 @@
  * `plan_run_version_basis` is `plan_run.version` for this date and leg, read through the board's
  * own store in this transaction, exactly as the agent's writer reads it. At seed time no plan has
  * been saved (the seed deliberately writes no `plan_run`: §9.1, the map stays locked until the ramp
- * is confirmed), so the basis is `0` — and that is correct rather than convenient: approving this
- * proposal after somebody has saved a plan is a `409 PLAN_MOVED` with nothing written and nothing
- * sent, which is AT-08's rule and is what a stale proposal is supposed to do.
+ * is confirmed), so the basis is `0`. It is read rather than assumed because the row is meant to be
+ * the agent's row in every field, not because anything refuses on it: Firia's PR #75 ruling took
+ * the plan-version check out of `decideApproval`, so approving this proposal after staff have
+ * pressed Auto-plan and Save applies it to the plan as it then is — which is the walked demo's own
+ * order of operations, and under the old rule killed the one card the demo opens on.
  *
  * ## Never against a real database
  *

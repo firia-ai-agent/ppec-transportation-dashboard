@@ -13,11 +13,12 @@
  *  1. **claims the decision.** `UPDATE … WHERE id = $1 AND site_id = $2 AND decided_at IS NULL`,
  *     which is the race the schema comment next to the table names: two coordinators pressing at
  *     once, and the second gets 409 ALREADY_DECIDED rather than a second send.
- *  2. **moves the ride**, guarded on the plan version the proposal was computed against. A leg
- *     whose plan has moved since is `409` and nothing is written — AT-08's rule, from the other
- *     side: a manual correction invalidates a queued message, and it invalidates a *pending
- *     proposal* for the same reason. The bump rides with it, because a change that did not bump
- *     the version would leave the next optimistic write guarded on a lie.
+ *  2. **moves the ride**, guarded on the plan version read in this same transaction — the write's
+ *     own optimistic lock, and nothing else. The proposal's recorded basis is NOT compared to it
+ *     (Firia, PR #75): a proposal drafted before a Save is still approvable, because the demo's
+ *     own seeded card is exactly that. A plan that moves between this read and this write is the
+ *     board's 409 and nothing is written. The bump rides with it, because a change that did not
+ *     bump the version would leave the next optimistic write guarded on a lie.
  *  3. **queues the family's text**, through the outbox and nothing else. Same template, same vars,
  *     same `enqueue` the agent's own sends use, so every §11.2 egress re-check still happens at
  *     send time: consent, suppression, the recipient's authorization for that child, and the plan
@@ -151,13 +152,19 @@ type DropoffProposal = {
   direction?: string;
   /**
    * `plan_run.version` for this date and leg at the moment the proposal was written — the
-   * counter the BOARD guards (0009), and the one an approval is checked against.
+   * counter the BOARD guards (0009), recorded as provenance and **not checked here**.
+   *
+   * Firia's PR #75 ruling: no plan-version check in `decideApproval`. The write's own optimistic
+   * lock is the guard — `setChildPlacement` is given the version read in the same transaction, so
+   * a plan that moves between this decision's read and its write is still the board's own 409.
+   * What this field does NOT do is refuse a proposal for being older than the plan: the demo's
+   * own seeded row carries the basis from a day with no `plan_run` (`demo/approval-seed.ts`), and
+   * a staff Auto-plan + Save before the coordinator presses Approve must not make the one card the
+   * walked demo opens on undecidable.
    *
    * Not `trip_leg.plan_version`, which is what the field used to hold (Veri's S1-3.2: "two
-   * different counters, so the guard either always 409s or passes when it shouldn't"). The name
-   * changed with the meaning on purpose: a row written before Firia's 11:00 PM ET ruling has no
-   * `plan_run_version_basis`, and a proposal whose basis cannot be read is refused rather than
-   * approved against a number nobody checked.
+   * different counters"). It is optional because rows written before the rename carry neither,
+   * and nothing reads it to decide anything.
    */
   plan_run_version_basis?: number;
   requested_dropoff_time?: string | null;
@@ -435,10 +442,13 @@ export async function decideApproval(
      *  - a drop-off time is not a leg's `window_start`. The board owns where a child is; the
      *    text says what the family was told.
      *
-     * So: the version the proposal was computed against is `plan_run.version`, read back here
-     * through the board's own `loadBoard` (`currentPlacement`), and a mismatch is a 409 with the
-     * proposal left PENDING — the throw rolls back the claim, so a coordinator may read the new
-     * state and decide again.
+     * There is no check of the proposal's recorded basis against the plan's version (Firia, PR
+     * #75). The plan is read here through the board's own `loadBoard` (`currentPlacement`) and
+     * that read's version is handed straight to the write as `expectedVersion`, which is the
+     * whole lock: it refuses a plan that moves between this read and this write, and it does not
+     * refuse a proposal merely for having been drafted before a Save. A proposal that has gone
+     * stale in a way a coordinator should see is a thing the card shows them, not a 409 that
+     * makes the row undecidable.
      *
      * A cancel is `ABSENT` for that leg, which is what the board reads absence from and what
      * makes the child show as Absent on it. A change moves nobody — the stop moved and the child
@@ -446,7 +456,7 @@ export async function decideApproval(
      * already has them in, with that van's real id, which is what
      * `plan_assignment_van_has_vehicle` requires.
      *
-     * Anything that refuses — the board, the version, the claim, the enqueue below — rolls the
+     * Anything that refuses — the board, the claim, the enqueue below — rolls the
      * whole decision back: not claimed, not saved, not queued. Never a fake success, and never a
      * text to a family about a change the plan does not have.
      */
@@ -466,14 +476,6 @@ export async function decideApproval(
     // A child this day's plan does not have. Uniform with every other reason the plan would not
     // take the write: the coordinator is told the plan was not saved, and nothing is sent.
     if (current === null) throw new PlanNotSaved();
-
-    /*
-     * The version check, against `plan_run.version` and against nothing else. A proposal with no
-     * basis on it was written before this rule and is refused the same way a stale one is:
-     * approving it would be approving against a number nobody checked.
-     */
-    const basis = proposal.plan_run_version_basis;
-    if (basis === undefined || basis !== current.version) throw new PlanMoved(legId);
 
     const bucket: PlacementBucket = proposal.cancel === true ? "ABSENT" : current.bucket;
     const saved = await plan.setChildPlacement({
@@ -612,7 +614,12 @@ function legOf(direction: string | undefined): Direction | null {
   return direction === "AM" || direction === "PM" ? direction : null;
 }
 
-/** The ride moved since the proposal was drafted. Rolls the decision back with it. */
+/**
+ * The leg the proposal names is not there to text a family about. Rolls the decision back with it.
+ *
+ * One thrower since PR #75 (the leg read in step 3): the plan's version is no longer compared to
+ * the proposal's recorded basis, so "the ride moved" now means the ride is *gone*.
+ */
 class PlanMoved extends Error {}
 
 /** The plan could not be saved, or there is no writer to save it with. Rolls everything back. */
