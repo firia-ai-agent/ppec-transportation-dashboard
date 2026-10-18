@@ -374,9 +374,9 @@ describe("the plan's layers (one line per van)", () => {
 });
 
 describe("the plan's GeoJSON", () => {
-  const CONVERTIBLE = {
+  const VAN_ONE = {
     laneId: "V1",
-    vanName: "the convertible van",
+    vanName: "Van 1",
     colorIndex: 0,
     line: [
       [-80.1, 26.6],
@@ -384,9 +384,9 @@ describe("the plan's GeoJSON", () => {
     ] as Coord[],
     stops: [{ order: 1, label: "Okeeheelee Park", coord: [-80.1, 26.6] as Coord }],
   };
-  const SEDAN = {
-    laneId: "V4",
-    vanName: "the sedan",
+  const VAN_THREE = {
+    laneId: "V3",
+    vanName: "Van 3",
     colorIndex: 2,
     line: [
       [-80.2, 26.5],
@@ -397,10 +397,10 @@ describe("the plan's GeoJSON", () => {
   const EMPTY_LANE = { laneId: "V2", vanName: "the center van", colorIndex: 1, line: [], stops: [] };
 
   it("draws a line per van with its colour and its name on it", () => {
-    const lines = planRoutesGeoJson([CONVERTIBLE, SEDAN]);
+    const lines = planRoutesGeoJson([VAN_ONE, VAN_THREE]);
     expect(lines.features.map((f) => f.properties)).toEqual([
-      { laneId: "V1", van: "the convertible van", color: ROUTE_COLORS[0], selected: false, dimmed: false },
-      { laneId: "V4", van: "the sedan", color: ROUTE_COLORS[2], selected: false, dimmed: false },
+      { laneId: "V1", van: "Van 1", color: ROUTE_COLORS[0], selected: false, dimmed: false },
+      { laneId: "V3", van: "Van 3", color: ROUTE_COLORS[2], selected: false, dimmed: false },
     ]);
   });
 
@@ -410,27 +410,27 @@ describe("the plan's GeoJSON", () => {
   });
 
   it("marks the selected lane and dims every other one, lines and stops alike", () => {
-    const lines = planRoutesGeoJson([CONVERTIBLE, SEDAN], "V4");
+    const lines = planRoutesGeoJson([VAN_ONE, VAN_THREE], "V3");
     expect(lines.features.map((f) => [f.properties.laneId, f.properties.selected, f.properties.dimmed])).toEqual([
       ["V1", false, true],
-      ["V4", true, false],
+      ["V3", true, false],
     ]);
-    const stops = planStopsGeoJson([CONVERTIBLE, SEDAN], "V4");
+    const stops = planStopsGeoJson([VAN_ONE, VAN_THREE], "V3");
     expect(stops.features.map((f) => [f.properties.laneId, f.properties.dimmed])).toEqual([
       ["V1", true],
-      ["V4", false],
+      ["V3", false],
     ]);
   });
 
   it("dims nothing while no lane is selected", () => {
     for (const selection of [null, undefined, ""]) {
-      const lines = planRoutesGeoJson([CONVERTIBLE, SEDAN], selection);
+      const lines = planRoutesGeoJson([VAN_ONE, VAN_THREE], selection);
       expect(lines.features.every((f) => !f.properties.dimmed && !f.properties.selected)).toBe(true);
     }
   });
 
   it("carries each stop's place name and its number as text, ready to draw", () => {
-    const stops = planStopsGeoJson([CONVERTIBLE]);
+    const stops = planStopsGeoJson([VAN_ONE]);
     expect(stops.features[0].properties.label).toBe("Okeeheelee Park");
     expect(stops.features[0].properties.order).toBe("1");
     expect(stops.features[0].geometry.coordinates).toEqual([-80.1, 26.6]);
@@ -512,7 +512,7 @@ describe("GPS freshness (DESIGN-DIRECTION §3, MOCKS §5)", () => {
     expect(gpsFreshnessLabel(245)).toBe("Stale · 4 min · ETA texts paused");
     expect(gpsFreshnessLabel(720)).toBe("No signal · 12 min");
     expect(vehicleMapLabel("V1", 12)).toBe("V1 · Live 12 s");
-    expect(vehicleMapLabel("V4", 720)).toBe("V4 · No signal 12 min");
+    expect(vehicleMapLabel("V3", 720)).toBe("V3 · No signal 12 min");
   });
 });
 
@@ -559,9 +559,9 @@ describe("GeoJSON builders", () => {
     const fc = vehiclesGeoJson(
       [
         { id: "V1", coord: [-80.1, 26.6], gpsAgeSeconds: 12, headingDeg: 2 },
-        { id: "V4", coord: [-80.2, 26.7], gpsAgeSeconds: 720 },
+        { id: "V3", coord: [-80.2, 26.7], gpsAgeSeconds: 720 },
       ],
-      "V4",
+      "V3",
     );
     expect(fc.features[0].properties).toEqual({
       id: "V1",

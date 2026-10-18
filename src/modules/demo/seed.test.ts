@@ -8,6 +8,7 @@ import {
   ALLOWED_COORDS, BOARD_CENSUS, CHILDREN, DATE_EXCEPTION, EXTERNAL_PEOPLE, FAMILIES, RUNS, STOPS, VEHICLES,
   WEEKDAY_RRULE, vehicleIdOf,
 } from "./fixtures/standard";
+import { VANS } from "@/config/vans";
 
 const env = { APP_DATA_CLASS: "SYNTHETIC", DEMO_MODE: "1", HMAC_PEPPER: "test-pepper", DATA_KEY: "test-data-key" };
 // A Tuesday 13:45 local, so "today" is a weekday and the 06:00 rewind is a real rewind.
@@ -39,10 +40,12 @@ describe("standard scenario seed (PRD §18.1)", () => {
       "ops.therapist": 2,
       "ops.therapy_session": 2,
       "ops.provider": 3,
-      "ops.vehicle": 4,
+      // Three vans, all of one generic kind (Firia 8:02 PM seed ruling): V1's three layouts,
+      // V2's one and V3's two, which is 6 + 5 + 4 + 6 + 4 = 28 positions between them.
+      "ops.vehicle": 3,
       "ops.vehicle_layout": 6,
-      "ops.layout_position": 23,
-      "ops.vehicle_capability_day": 4,
+      "ops.layout_position": 28,
+      "ops.vehicle_capability_day": 3,
       // One CHECKED setup per van on the board, dated yesterday (the §9 reset contract).
       "ops.attendance_plan": 12,
       "ops.attendance_exception": 1,
@@ -283,19 +286,53 @@ describe("standard scenario seed (PRD §18.1)", () => {
       FROM ops.vehicle v JOIN ops.vehicle_layout vl ON vl.vehicle_id = v.id
       JOIN ops.layout_position pos ON pos.layout_id = vl.id
       GROUP BY v.label, vl.code, v.lift_equipped ORDER BY v.label, vl.code`);
+    /*
+     * Three vans, and every one of them the same generic kind — lift-equipped, with an
+     * all-ambulatory layout and a wheelchair layout (Firia's 8:02 PM ET seed ruling;
+     * Vera/Athena/Veri with Firia's sign-off, 2026-10-18 12:13 AM ET). There is no sedan, no
+     * reserve and no fourth vehicle: a van that cannot take a chair today is a van whose spot
+     * is already used, which is a count the ramp can change.
+     */
     expect(v).toEqual([
-      { label: "V1 convertible van", code: "0WC/6A", wc: 0, amb: 6, lift_equipped: true },
-      { label: "V1 convertible van", code: "1WC/3A", wc: 1, amb: 3, lift_equipped: true },
-      { label: "V1 convertible van", code: "2WC/1A", wc: 2, amb: 1, lift_equipped: true },
-      { label: "V2 center van", code: "1WC/4A", wc: 1, amb: 4, lift_equipped: true },
-      { label: "V3 substitute van", code: "1WC/1A", wc: 1, amb: 1, lift_equipped: true },
-      { label: "V4 sedan", code: "0WC/3A", wc: 0, amb: 3, lift_equipped: false },
+      { label: "Van 1", code: "0WC/6A", wc: 0, amb: 6, lift_equipped: true },
+      { label: "Van 1", code: "1WC/3A", wc: 1, amb: 3, lift_equipped: true },
+      { label: "Van 1", code: "2WC/1A", wc: 2, amb: 1, lift_equipped: true },
+      { label: "Van 2", code: "1WC/4A", wc: 1, amb: 4, lift_equipped: true },
+      { label: "Van 3", code: "0WC/6A", wc: 0, amb: 6, lift_equipped: true },
+      { label: "Van 3", code: "1WC/3A", wc: 1, amb: 3, lift_equipped: true },
     ]);
     // Capability is unknown until arrival, every day (MOCKS §2).
     const cap = await rows<{ state: string; n: number }>("SELECT state, count(*)::int n FROM ops.vehicle_capability_day GROUP BY state");
     expect(cap).toEqual([{ state: "UNKNOWN", n: VEHICLES.length }]);
-    // V3 is the reserve vehicle: no run of its own (AT-05 substitution).
-    expect(RUNS.some((run) => run.vehicleKey === "V3")).toBe(false);
+  });
+
+  /**
+   * EXACTLY THREE VEHICLES, and they are all the same van — "Firia 8:02 PM seed ruling", with
+   * Vera/Athena/Veri's 12:13 AM ET addition that Van 3 is not a weaker vehicle.
+   */
+  it("seeds exactly three vehicles, all of one generic type, each with a run", async () => {
+    const seeded = await rows<{ label: string; lift_equipped: boolean }>(
+      "SELECT label, lift_equipped FROM ops.vehicle ORDER BY label",
+    );
+    expect(seeded).toEqual([
+      { label: "Van 1", lift_equipped: true },
+      { label: "Van 2", lift_equipped: true },
+      { label: "Van 3", lift_equipped: true },
+    ]);
+    // Slot N is vehicle V<N>, and every one of them is on the road with a run of its own.
+    expect(VANS.map((van) => van.vehicleKey)).toEqual(["V1", "V2", "V3"]);
+    expect(VANS.every((van) => van.onRoadToday)).toBe(true);
+    expect([...RUNS].map((run) => run.vehicleKey).sort()).toEqual(["V1", "V2", "V3"]);
+    // One generic van: the same counts for all three, so no van is weaker by construction.
+    expect(VANS.map((van) => van.defaultSetup)).toEqual([
+      VANS[0].defaultSetup,
+      VANS[0].defaultSetup,
+      VANS[0].defaultSetup,
+    ]);
+    expect(VANS[0].defaultSetup.hasLift).toBe(true);
+    // And nothing in the fixture is a fourth vehicle or a kind of vehicle.
+    expect(VEHICLES).toHaveLength(3);
+    expect(JSON.stringify(VEHICLES)).not.toMatch(/sedan|convertible|cent(?:er|re) van|substitute/i);
   });
 
   /**

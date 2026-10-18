@@ -44,8 +44,12 @@ const vanOne = () => vehicleIdOf(VANS[0].vehicleKey);
 const vanTwo = () => vehicleIdOf(VANS[1].vehicleKey);
 /** Theo V. (C8) rides the afternoon and needs nothing, so he fits anywhere. */
 const THEO = () => childTokenOf("C8");
-/** The van whose counters leave no wheelchair spot, which is what the fit rule refuses on. */
-const noWheelchairVan = () => vehicleIdOf(VANS[2].vehicleKey);
+/**
+ * The third van, which is the same generic van as the other two (Vera/Athena/Veri with Firia's
+ * sign-off, 2026-10-18 12:13 AM ET): one wheelchair spot, like all of them. A chair is refused
+ * from it when that **spot is already used**, which is a count and not a weaker vehicle.
+ */
+const vanThree = () => vehicleIdOf(VANS[2].vehicleKey);
 
 const source = () => sqlDaySource(db, SITE);
 const board = (direction: "AM" | "PM" = "PM") =>
@@ -170,7 +174,7 @@ describe("a drag is a row, and a new version every time", () => {
     // Noah B. rides in his own chair and this van has no spot for it: a 422 on a fresh board.
     const stale = await setChildPlacement(
       { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: childTokenOf("C2"),
-        bucket: "VAN", vehicleId: noWheelchairVan(), expectedVersion: 0, actor: null, now: NOW },
+        bucket: "VAN", vehicleId: vanThree(), expectedVersion: 0, actor: null, now: NOW },
       store,
       source(),
     );
@@ -182,16 +186,27 @@ describe("a drag is a row, and a new version every time", () => {
 
   it("refuses a drop the fit rule refuses, with the reason and no row", async () => {
     await startTheDay();
-    // Noah B. rides in his own chair, and this van's counters leave no spot for it.
-    const vanThree = noWheelchairVan();
+    // Zoe B. rides in her own chair and takes the van's one wheelchair spot…
+    const first = await setChildPlacement(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: childTokenOf("C6"),
+        bucket: "VAN", vehicleId: vanThree(), expectedVersion: 0, actor: null, now: NOW },
+      store,
+      source(),
+    );
+    expect(first.ok).toBe(true);
+
+    // …so Noah B.'s chair is refused from it, by name, and nothing of his is written.
+    const before = await board();
     const refused = await setChildPlacement(
       { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: childTokenOf("C2"),
-        bucket: "VAN", vehicleId: vanThree, expectedVersion: 0, actor: null, now: NOW },
+        bucket: "VAN", vehicleId: vanThree(), expectedVersion: before.version, actor: null, now: NOW },
       store,
       source(),
     );
     expect(refused).toMatchObject({ ok: false, status: 422, reason: "WHEELCHAIR" });
-    expect((await db.query("SELECT 1 FROM ops.plan_run", [])).rows).toHaveLength(0);
+    const after = await board();
+    expect(after.version).toBe(before.version);
+    expect(after.plan[childTokenOf("C2")]?.bucket).not.toBe("VAN");
   });
 });
 
@@ -229,9 +244,9 @@ describe("Save applies every pending move at once, or none of them", () => {
   it("writes nothing at all when one move in the queue is refused", async () => {
     await startTheDay();
     const day = (await board()).day;
-    const chair = day.riders.find((rider) => rider.needs.wheelchair)!;
+    const chairs = day.riders.filter((rider) => rider.needs.wheelchair);
+    expect(chairs.length).toBeGreaterThan(1);
     const anybody = day.riders.find((rider) => !rider.needs.wheelchair)!;
-    const vanThree = vehicleIdOf(VANS[2].vehicleKey);
     const refused = await applyPendingMoves(
       {
         siteId: SITE,
@@ -239,8 +254,10 @@ describe("Save applies every pending move at once, or none of them", () => {
         direction: "PM",
         moves: [
           { childToken: anybody.token, bucket: "VAN", vanId: vanOne() },
-          // Van 3 has no wheelchair spot and no lift: this one cannot be applied.
-          { childToken: chair.token, bucket: "VAN", vanId: vanThree },
+          // Two chairs into a van with one spot: the second move cannot be applied, so the
+          // first one is not written either.
+          { childToken: chairs[0].token, bucket: "VAN", vanId: vanThree() },
+          { childToken: chairs[1].token, bucket: "VAN", vanId: vanThree() },
         ],
         expectedVersion: 0,
         actor: null,

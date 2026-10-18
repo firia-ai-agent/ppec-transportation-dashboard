@@ -35,9 +35,12 @@ const saved = { ...process.env };
 const TODAY = serviceDateIso(new Date());
 const VAN_ONE = vehicleIdOf(VANS[0].vehicleKey);
 const VAN_THREE = vehicleIdOf(VANS[2].vehicleKey);
-/** Theo V. needs nothing and rides the afternoon; Noah B. rides in his own chair. */
+/** Theo V. needs nothing and rides the afternoon; Noah B. and Zoe B. ride in their own chairs. */
 const THEO = childTokenOf("C8");
 const NOAH = childTokenOf("C2");
+const ZOE = childTokenOf("C6");
+/** A well-formed vehicle id that is not one of the centre's three (Firia 8:02 PM seed ruling). */
+const NOT_A_VAN = "01900000-0000-7000-8000-001c0000beef";
 
 const move = (over: Record<string, unknown> = {}) => ({
   date: TODAY,
@@ -154,16 +157,25 @@ describe("what a move leaves behind", () => {
     expect((await planOf())?.placements[THEO]).toMatchObject({ bucket: "ABSENT" });
   });
 
-  it("re-asks the fit rule on the server: a chair onto the van with no spot is a 422", async () => {
-    const res = await post(move({ childToken: NOAH, vanId: VAN_THREE }));
+  /**
+   * Every van is the same generic kind with one wheelchair spot (Vera/Athena/Veri with Firia's
+   * sign-off, 2026-10-18 12:13 AM ET), so the van that cannot take this chair is the van whose
+   * spot is already used — a count the ramp can change, re-asked on the server.
+   */
+  it("re-asks the fit rule on the server: a chair onto a van with no spot left is a 422", async () => {
+    expect((await post(move({ childToken: ZOE, vanId: VAN_THREE }))).status).toBe(200);
+    const res = await post(move({ childToken: NOAH, vanId: VAN_THREE, version: 1 }));
     expect(res.status).toBe(422);
     expect(await res.json()).toMatchObject({ ok: false, reason: "WHEELCHAIR" });
-    expect(await planOf()).toBeNull();
+    // Zoe's move is the only one kept: the refusal wrote nothing of Noah's.
+    const plan = await planOf();
+    expect(plan?.placements[ZOE]).toMatchObject({ bucket: "VAN", vanId: VAN_THREE });
+    expect(plan?.placements[NOAH]?.bucket).not.toBe("VAN");
   });
 
   it("answers a uniform 404 for a child or a van this day does not have", async () => {
     expect((await post(move({ childToken: "01900000-0000-7000-8000-00000000beef" }))).status).toBe(404);
-    expect((await post(move({ vanId: vehicleIdOf("V3") }))).status).toBe(404);
+    expect((await post(move({ vanId: NOT_A_VAN }))).status).toBe(404);
   });
 
   it("names only children the day has, which is what the uniform 404 protects", async () => {

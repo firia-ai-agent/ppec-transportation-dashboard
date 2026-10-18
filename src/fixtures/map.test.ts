@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { truckTone, type Coord } from "@/components/map/style";
 import { DEMO_CENTER, MAP_FIXTURE } from "./map";
-import { FLEET } from "./fleet";
+import { VEHICLES } from "@/modules/demo/fixtures/standard";
+import { VANS, vanNameOf } from "@/config/vans";
 
 /**
  * MOCKS-AND-DEMO.md §1: the center plus public landmarks only, no homes. The seed
@@ -43,8 +44,9 @@ describe("map fixtures", () => {
     }
   });
 
-  it("has V1–V4 (MOCKS §2), each on its own route", () => {
-    expect(MAP_FIXTURE.vehicles.map((v) => v.id)).toEqual(["V1", "V2", "V3", "V4"]);
+  it("has the centre's three vans, each on its own route", () => {
+    // Firia's 8:02 PM ET seed ruling: three vans, no reserve and no fourth vehicle anywhere.
+    expect(MAP_FIXTURE.vehicles.map((v) => v.id)).toEqual(["V1", "V2", "V3"]);
     const routeIds = new Set(MAP_FIXTURE.routes.map((r) => r.id));
     for (const vehicle of MAP_FIXTURE.vehicles) {
       expect(routeIds.has(vehicle.routeId)).toBe(true);
@@ -92,16 +94,23 @@ describe("map fixtures", () => {
  * or the screen called "Live map" would show vans the board has never heard of.
  */
 describe("the map's vans are the board's vans", () => {
-  it("uses the board's labels, and the board's words for what each van is", () => {
-    const board = new Map(FLEET.map((v) => [v.label, v.description]));
+  /**
+   * The map draws the **seeded** fleet, which is the one the board plans with: the three vans of
+   * src/modules/demo/fixtures/standard.ts, named by the one shared config (Firia's 8:02 PM ET
+   * seed ruling; Vera/Athena 12:13 AM ET — one generic van, no sedan and no substitute).
+   */
+  it("draws the seeded vans, and says nothing about what kind of vehicle they are", () => {
+    const seeded = new Set(VEHICLES.map((v) => v.key));
+    expect(seeded.size).toBe(3);
     for (const vehicle of MAP_FIXTURE.vehicles) {
-      expect(board.has(vehicle.id), `${vehicle.id} is on the map and not in the fleet`).toBe(true);
-      expect({ id: vehicle.id, description: vehicle.description }).toEqual({
-        id: vehicle.id,
-        description: board.get(vehicle.id),
-      });
+      expect(seeded.has(vehicle.id), `${vehicle.id} is on the map and not in the seed`).toBe(true);
+      // Every van is the same generic kind, so no description names a type of vehicle…
+      expect(vehicle.description).not.toMatch(/sedan|convertible|cent(?:er|re)|substitute/i);
+      // …and the row a person reads is the van's name, never its key (§1.5).
+      expect(vehicle.description).not.toMatch(/\bV\d\b/);
     }
-    // Not vacuous: the fleet is four vans and the map draws them.
-    expect(MAP_FIXTURE.vehicles.length).toBeGreaterThanOrEqual(3);
+    // Not vacuous: the map draws every van the config knows, by the name it gives them.
+    expect(MAP_FIXTURE.vehicles).toHaveLength(VANS.length);
+    expect(VANS.map((van) => vanNameOf(van.slot))).toEqual(["Van 1", "Van 2", "Van 3"]);
   });
 });

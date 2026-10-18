@@ -3,6 +3,8 @@ import type { Db } from "@/db/exec";
 import { DEMO_ACCOUNTS } from "@/auth/demo-accounts";
 import { VANS } from "@/config/vans";
 import { freshPlanDb, SITE } from "@/test/pglite";
+import { readDayFacts } from "@/domain/day/day-facts";
+import { deriveReadiness } from "@/domain/day/readiness";
 import { loadBoard } from "@/modules/plan/store";
 import { sqlPlanStore } from "@/modules/plan/sql";
 import { sqlDaySource } from "@/modules/roster/sql";
@@ -96,7 +98,36 @@ describe("Restart demo day, twice", () => {
     for (const row of snap.needs as { state: string }[]) expect(row.state).toBe("APPROVED");
     // The three the day runs are the shared config's, by id.
     const vehicleIds = new Set((snap.vehicles as { id: string }[]).map((row) => row.id));
-    for (const van of VANS.slice(0, 3)) expect(vehicleIds.has(vehicleIdOf(van.vehicleKey))).toBe(true);
+    for (const van of VANS) expect(vehicleIds.has(vehicleIdOf(van.vehicleKey))).toBe(true);
+  });
+
+  /**
+   * EXACTLY THREE VEHICLES, AND THE RESET KEEPS IT THAT WAY — "Firia 8:02 PM seed ruling".
+   *
+   * `RESET_TABLES` truncates `ops.vehicle`, so Restart demo day deletes the fleet and seeds it
+   * again: the thing worth proving is that it comes back as the same three, with no fourth
+   * vehicle left behind and no reserve added. Run twice above, read here.
+   */
+  it("leaves exactly three vehicles, named Van 1–3, however often it is run", async () => {
+    const snap = await snapshot();
+    const vehicles = snap.vehicles as { id: string; label: string }[];
+    expect(vehicles).toHaveLength(3);
+    expect(vehicles.map((row) => row.label).sort()).toEqual(["Van 1", "Van 2", "Van 3"]);
+    expect(VANS).toHaveLength(3);
+    expect(VANS.map((van) => van.slot)).toEqual([1, 2, 3]);
+    expect(VANS.map((van) => van.vehicleKey)).toEqual(["V1", "V2", "V3"]);
+    // One generic van: the same defaults for all three, every one of them lift-equipped
+    // (Vera/Athena/Veri with Firia's sign-off, 2026-10-18 12:13 AM ET).
+    for (const van of VANS) {
+      expect(van.defaultSetup).toEqual(VANS[0].defaultSetup);
+      expect(van.defaultSetup.hasLift).toBe(true);
+      expect(van.onRoadToday).toBe(true);
+    }
+    // And no row anybody reads names a kind of vehicle, or a code.
+    for (const row of vehicles) {
+      expect(row.label).not.toMatch(/sedan|convertible|cent(?:er|re)|substitute/i);
+      expect(row.label).not.toMatch(/^V\d$/);
+    }
   });
 
   it("writes no van setup for today: every van reads its defaults until the ramp confirms one", async () => {
@@ -116,5 +147,20 @@ describe("Restart demo day, twice", () => {
     for (const rider of view.day.riders) expect(rider.stopLabel.length).toBeGreaterThan(0);
     // And no plan exists yet, so the live map is locked until one is saved (§9.1).
     expect(view.savedAt).toBeNull();
+  });
+
+  /**
+   * Today's step strip counts the vans this site has: "0/3 checked", never "0/0" (§9.5, and
+   * the loader src/domain/day/day-facts.ts the Today page reads through). Three, because the
+   * seed writes three vehicles and no fourth — "Firia 8:02 PM seed ruling".
+   */
+  it("gives Today's step strip three vans to count, and none of them checked yet", async () => {
+    const facts = await readDayFacts(db, SITE, "2026-10-16", "PM");
+    expect(facts).toMatchObject({ read: true, vans: 3, vansChecked: 0 });
+    expect(deriveReadiness(facts).setup).toMatchObject({
+      state: "NEEDED",
+      checked: 0,
+      total: 3,
+    });
   });
 });

@@ -210,26 +210,37 @@ describe("a refused drop cannot be saved by posting it directly (§1.7 #1)", () 
    * This is the same plan arriving from something that is not the board: it is replayed through
    * the same fit rule and refused, with nothing kept.
    */
+  /**
+   * The posted plan the fit rule refuses: **two chairs into one van's single wheelchair spot**.
+   * Every van is the same generic kind now (Vera/Athena/Veri with Firia's sign-off,
+   * 2026-10-18 12:13 AM ET), so what refuses a drop is a count being used up.
+   */
   async function forced() {
     const placements = await emptyPlacements();
     const noah = childTokenOf("C2");
+    const zoe = childTokenOf("C6");
     expect(needsOfDemoChild(childByKey("C2")).wheelchair).toBe(true);
+    expect(needsOfDemoChild(childByKey("C6")).wheelchair).toBe(true);
     return {
       noah,
-      body: body({ ...placements, [noah]: { bucket: "VAN", vanId: VAN(2), pinned: true } }),
+      zoe,
+      body: body({
+        ...placements,
+        [zoe]: { bucket: "VAN", vanId: VAN(2), pinned: true },
+        [noah]: { bucket: "VAN", vanId: VAN(2), pinned: true },
+      }),
     };
   }
 
   it("answers 422, naming the child, the van and the one thing that is missing", async () => {
-    const { noah, body: forcedBody } = await forced();
+    const { noah, zoe, body: forcedBody } = await forced();
     const res = await post(forcedBody);
     expect(res.status).toBe(422);
-    expect(await res.json()).toEqual({
-      ok: false,
-      reason: "WHEELCHAIR",
-      childToken: noah,
-      vanId: VAN(2),
-    });
+    const answer = (await res.json()) as { childToken: string };
+    // The van and the missing thing exactly; the child is one of the two who would have ridden
+    // in that one spot (the checker names the first it reaches).
+    expect(answer).toMatchObject({ ok: false, reason: "WHEELCHAIR", vanId: VAN(2) });
+    expect([noah, zoe]).toContain(answer.childToken);
   });
 
   it("keeps nothing: after the refusal there is still no saved plan", async () => {
@@ -238,12 +249,13 @@ describe("a refused drop cannot be saved by posting it directly (§1.7 #1)", () 
   });
 
   it("does not keep the half of the plan that was fine either", async () => {
-    const { noah } = await forced();
+    const { noah, zoe } = await forced();
     // One move the fit rule is happy with, and one it is not: the whole save is refused, and
     // the good one does not land either (option A's all-or-nothing).
     const mixed = body({
       ...(await emptyPlacements()),
       [childTokenOf("C3")]: { bucket: "VAN", vanId: VAN(0), pinned: true },
+      [zoe]: { bucket: "VAN", vanId: VAN(2), pinned: true },
       [noah]: { bucket: "VAN", vanId: VAN(2), pinned: true },
     });
     expect((await post(mixed)).status).toBe(422);
@@ -256,12 +268,12 @@ describe("a refused drop cannot be saved by posting it directly (§1.7 #1)", () 
    * 422 a drag gets.
    */
   it("never saves a van over its own counts, with or without a flag", async () => {
-    // Five children into Van 3, which has four seats: over, not impossible. Without the
-    // confirm it is refused; with it, it is kept and the answer names the van that is over.
+    // Seven children into one van, which has six seats and three car seats: over, not
+    // impossible. There is no flag that lets a board post its way past that.
     const placements = await emptyPlacements();
-    const five = ["C1", "C3", "C8", "C9", "C7"].map((key) => childTokenOf(key));
+    const seven = ["C1", "C3", "C4", "C5", "C7", "C8", "C9"].map((key) => childTokenOf(key));
     const overloaded = { ...placements };
-    for (const token of five) overloaded[token] = { bucket: "VAN", vanId: VAN(2), pinned: true } as never;
+    for (const token of seven) overloaded[token] = { bucket: "VAN", vanId: VAN(2), pinned: true } as never;
     expect((await post(body(overloaded))).status).toBe(422);
     // The flag is not in the schema at all, so asking for it is a 400 rather than a way round.
     const asked = await post(body(overloaded, { allowOver: true }));
@@ -296,8 +308,13 @@ describe("an id swap over HTTP", () => {
   it("refuses a van that is not on the board, and keeps nothing", async () => {
     const placements = await emptyPlacements();
     const someone = childTokenOf("C3");
+    // A well-formed vehicle id that is not one of the centre's three: there is no reserve to
+    // name any more (Firia's 8:02 PM ET seed ruling).
     const res = await post(
-      body({ ...placements, [someone]: { bucket: "VAN", vanId: vehicleIdOf("V3"), pinned: true } }),
+      body({
+        ...placements,
+        [someone]: { bucket: "VAN", vanId: "01900000-0000-7000-8000-001c0000beef", pinned: true },
+      }),
     );
     expect(res.status).toBe(404);
     expect((await board()).savedAt).toBeNull();

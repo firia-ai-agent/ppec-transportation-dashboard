@@ -25,6 +25,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { MapFixture } from "@/fixtures/map";
+import { vanConfigOf, vanNameOf } from "@/config/vans";
+import { driverFor } from "@/domain/plan/day";
 import { fill, fleetMap as copy } from "@/ui/copy";
 import styles from "./fleet-map.module.css";
 import {
@@ -100,6 +102,12 @@ export interface FleetMapProps {
   fixture: MapFixture;
   /** Accessible name for the map region. */
   label?: string;
+}
+
+/** "Van 2" for the vehicle the fixtures file as "V2"; a code never reaches a screen (§1.5). */
+function vanNameOfVehicleKey(vehicleKey: string): string {
+  const config = vanConfigOf(vehicleKey);
+  return config ? vanNameOf(config.slot) : vehicleKey;
 }
 
 export default function FleetMap({ fixture, label = copy.label }: FleetMapProps) {
@@ -326,8 +334,18 @@ export default function FleetMap({ fixture, label = copy.label }: FleetMapProps)
                   aria-pressed={selectedId === vehicle.id}
                   onClick={() => selectVehicle(vehicle.id, vehicle.coord)}
                 >
+                  {/*
+                    "Van 2 · Nadia P." (mockup live-map.html; the test contract's Live map
+                    section). The fixtures file a vehicle under a code — "V2" — and no screen in
+                    this app prints one: the name comes from the one shared van config and the
+                    driver from the day's own list, which is what the board and the ramp call
+                    the same van.
+                  */}
                   <span className={styles.vehicleId}>
-                    {fill(copy.vehicleRow, { id: vehicle.id, description: vehicle.description })}
+                    {fill(copy.vehicleRow, {
+                      id: vanNameOfVehicleKey(vehicle.id),
+                      description: driverFor(vehicle.id),
+                    })}
                   </span>
                   <span className={styles.vehicleMeta}>
                     {fill(copy.vehicleMeta, { owner: vehicle.owner, state: vehicle.stateLabel })}

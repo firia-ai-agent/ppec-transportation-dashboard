@@ -394,15 +394,27 @@ describe("the same procedure, at the plan save endpoint", () => {
           { childToken: "01900000-0000-7000-8000-00110000beef", bucket: "VAN", vanId: vehicleIdOf("V1") },
         ],
       },
-      /** A van that is in the fleet and not on the board — the other swap. */
+      /**
+       * A van this board does not run — the other swap. The centre has three vans and runs all
+       * three (Firia's 8:02 PM ET seed ruling), so there is no reserve to name: this is a
+       * well-formed vehicle id that is not one of them, which is the same question asked of
+       * the server and the same answer it must give.
+       */
       otherVan: {
         ...ours,
-        moves: [{ childToken: someone, bucket: "VAN", vanId: vehicleIdOf("V3") }],
+        moves: [{ childToken: someone, bucket: "VAN", vanId: "01900000-0000-7000-8000-001c0000beef" }],
       },
-      /** A chair into the van with no spot and no lift: the move the fit rule refuses. */
+      /**
+       * Two chairs into one van's single wheelchair spot: the move the fit rule refuses. Every
+       * van is the same generic kind now, so a refusal is a count being used up rather than a
+       * weaker vehicle (Vera/Athena/Veri with Firia's sign-off, 2026-10-18 12:13 AM ET).
+       */
       refused: {
         ...ours,
-        moves: [{ childToken: childTokenOf("C2"), bucket: "VAN", vanId: vehicleIdOf("V4") }],
+        moves: [
+          { childToken: childTokenOf("C6"), bucket: "VAN", vanId: vehicleIdOf("V3") },
+          { childToken: childTokenOf("C2"), bucket: "VAN", vanId: vehicleIdOf("V3") },
+        ],
       },
     };
   }

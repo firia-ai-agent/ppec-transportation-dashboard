@@ -46,6 +46,35 @@ function inputFor(
   return { direction, centerLabel: places.center, lanes, riders };
 }
 
+/** The same fleet, with one lane cut down to a single layout — a van's day, not a weaker van. */
+function onlyLayout(laneId: string, code: string): PlanLane[] {
+  return planLanes()
+    .filter((lane) => lane.id === laneId)
+    .map((lane) => ({
+      ...lane,
+      vehicle: { ...lane.vehicle, layouts: lane.vehicle.layouts.filter((l) => l.code === code) },
+    }));
+}
+
+/** One lane running its all-ambulatory layout: a van with no wheelchair place in it today. */
+function withoutWheelchairPlaces(lane: PlanLane): PlanLane {
+  return {
+    ...lane,
+    vehicle: {
+      ...lane.vehicle,
+      layouts: lane.vehicle.layouts.filter((l) => !l.positions.some((p) => p.kind === "WC")),
+    },
+  };
+}
+
+/** The whole fleet, with Van 3 on its all-ambulatory layout. */
+function ambulatoryOnly(): PlanInput {
+  return inputFor(
+    "AM",
+    planLanes().map((lane) => (lane.id === "V3" ? withoutWheelchairPlaces(lane) : lane)),
+  );
+}
+
 function tokensIn(plan: RoutePlan, laneId: string): string[] {
   return plan.lanes.find((l) => l.lane.id === laneId)?.riders.map((r) => r.child.token) ?? [];
 }
@@ -76,9 +105,10 @@ describe("the day the screen plans", () => {
     ]);
     // The census children arrive with their family, so there is no pickup to plan for them.
     expect(riders.every((r) => r.stopLabel.length > 0)).toBe(true);
-    expect(planLanes().map((l) => l.id)).toEqual(["V1", "V2", "V4"]);
-    expect(planLanes().map((l) => l.vehicle.label)).toEqual(["V1", "V2", "V4"]);
-    expect(planLanes().map((l) => l.driverName)).toEqual(["Marco D.", "Nadia P.", "Bea L."]);
+    // Three vans and no reserve, slot N on vehicle V<N> (Firia's 8:02 PM ET seed ruling).
+    expect(planLanes().map((l) => l.id)).toEqual(["V1", "V2", "V3"]);
+    expect(planLanes().map((l) => l.vehicle.label)).toEqual(["Van 1", "Van 2", "Van 3"]);
+    expect(planLanes().map((l) => l.driverName)).toEqual(["Marco D.", "Nadia P.", "Omar T."]);
     expect(planLanes().every((l) => l.capability.serviceDate === PLAN_SERVICE_DATE)).toBe(true);
   });
 
@@ -200,16 +230,27 @@ describe("unknown until arrival (VEH-04, AT-04)", () => {
     // The two remaining vans fill up, so the children they cannot also take are told the true
     // reason — every van that fits them is full — and not a sentence about the unchecked one,
     // which would be wrong: an empty V1 would have taken any of them.
-    expect(plan.unplaced.map((u) => u.cause)).toEqual(Array(4).fill("VANS_FULL"));
+    // Two children over, not four: three vans of one generic kind carry more than the old
+    // fleet's sedan did (Vera/Athena/Veri, 2026-10-18 12:13 AM ET).
+    expect(plan.unplaced.map((u) => u.cause)).toEqual(Array(2).fill("VANS_FULL"));
     expect(plan.lanes.filter((l) => l.verdict.status === "FEASIBLE")).toHaveLength(2);
   });
 
   it("names the unchecked van when it is the only one that fits a child", () => {
-    // Noah B.'s L-track chair fits the centre van's position; the sedan has no wheelchair place
-    // at all. With those two as the whole day, the answer is "not known yet", never "no van".
+    /*
+     * Noah B.'s L-track chair fits Van 2's position, and Van 3 is on its all-ambulatory layout
+     * today, so it has no wheelchair place at all. With those two as the whole day, the answer
+     * is "not known yet", never "no van" — the van that fits him is the one nobody has reported
+     * on. (Van 3 is the same generic van as the others; what it is carrying today is a fact
+     * about today — Vera/Athena/Veri, 2026-10-18 12:13 AM ET.)
+     */
     const lanes = planLanes()
       .filter((lane) => lane.id !== "V1")
-      .map((lane) => (lane.id === "V2" ? { ...lane, capability: notCheckedYet(lane.vehicle.id) } : lane));
+      .map((lane) =>
+        lane.id === "V2"
+          ? { ...lane, capability: notCheckedYet(lane.vehicle.id) }
+          : withoutWheelchairPlaces(lane),
+      );
     const plan = planRoutes(inputFor("AM", lanes));
     const noah = plan.unplaced.find((u) => u.rider.child.token === "C2");
     expect(noah?.cause).toBe("UNKNOWN_UNTIL_ARRIVAL");
@@ -260,7 +301,13 @@ describe("unknown until arrival (VEH-04, AT-04)", () => {
 });
 
 describe("substitution (VEH-05, AT-05)", () => {
-  const spare = vehicleByKey("V3");
+  /*
+   * The van the provider sends instead of Van 1: one of the centre's own, fitted with an
+   * L-track position where Van 1 has a four-point strap. There is no reserve to send any more
+   * (Firia's 8:02 PM ET seed ruling), and the point of AT-05 never was the reserve — it is that
+   * a *different vehicle* arrives and nothing about it may be assumed until it is reported.
+   */
+  const spare = vehicleByKey("V2");
 
   it("goes unknown, then is re-requested, then re-solves", () => {
     const planned = planAssignment(inputFor("AM"));
@@ -278,7 +325,7 @@ describe("substitution (VEH-05, AT-05)", () => {
     const pending = routePlan(changed, planned);
     const pendingLane = pending.lanes.find((l) => l.lane.id === "V1");
     expect(pendingLane?.verdict.status).toBe("CAPABILITY_PENDING");
-    expect(pendingLane?.lane.vehicle.label).toBe("V3");
+    expect(pendingLane?.lane.vehicle.label).toBe("Van 2");
     expect(pendingLane?.lane.driverName).toBe("Omar T.");
     expect(pendingLane?.verdict.pendingReason).toMatch(/A different vehicle is coming/);
 
@@ -358,28 +405,38 @@ describe("moving a child between vans", () => {
   });
 
   it("refuses a chair the target van's securement does not hold, and names the cause", () => {
-    // Zoe B.'s four-point chair against the centre van, whose position is L-track.
+    // Zoe B.'s four-point chair against Van 2, whose one position is L-track.
     expect(canTake(input, planned, "V2", "C6")).toEqual({ ok: false, cause: "NO_SECUREMENT" });
-    // Noah B.'s chair against the sedan, which has no wheelchair place and no lift at all.
-    expect(canTake(input, planned, "V4", "C2")).toEqual({ ok: false, cause: "NO_WC_PLACE" });
+    // Zoe B.'s four-point chair against Van 3, whose position is L-track as well.
+    expect(canTake(input, planned, "V3", "C6")).toEqual({ ok: false, cause: "NO_SECUREMENT" });
+    /*
+     * And the other sentence, which is a different refusal: a van with no wheelchair place at
+     * all. Every van in the fleet is the same generic type now (Vera/Athena/Veri with Firia's
+     * sign-off, 2026-10-18 12:13 AM ET), so the lane that cannot hold a chair is one running
+     * its all-ambulatory layout rather than a weaker vehicle.
+     */
+    expect(canTake(ambulatoryOnly(), planned, "V3", "C2")).toEqual({
+      ok: false,
+      cause: "NO_WC_PLACE",
+    });
   });
 
   it("separates a van that is full from a van that was never built for the child", () => {
-    // One sedan, three seats, four walking riders: the fourth is left out because the van is
-    // full, which is a different sentence from "this van cannot carry you".
-    const sedanOnly = inputFor(
+    // One van on its three-seat layout, four walking riders: the fourth is left out because the
+    // van is full, which is a different sentence from "this van cannot carry you".
+    const oneVan = inputFor(
       "AM",
-      planLanes().filter((lane) => lane.id === "V4"),
+      onlyLayout("V3", "1WC/3A"),
       planRiders("AM").filter((rider) => ["C1", "C3", "C8", "C9"].includes(rider.child.token)),
     );
-    const plan = planRoutes(sedanOnly);
+    const plan = planRoutes(oneVan);
     expect(plan.lanes[0].riders).toHaveLength(3);
     expect(plan.unplaced).toHaveLength(1);
     expect(plan.unplaced[0].cause).toBe("VANS_FULL");
-    expect(plan.unplaced[0].laneId).toBe("V4");
+    expect(plan.unplaced[0].laneId).toBe("V3");
     // And the same question asked directly is "no free seat", not "no van for you".
     const left = plan.unplaced[0].rider.child.token;
-    expect(canTake(sedanOnly, planAssignment(sedanOnly), "V4", left)).toEqual({
+    expect(canTake(oneVan, planAssignment(oneVan), "V3", left)).toEqual({
       ok: false,
       cause: "NO_SEAT",
     });
@@ -480,8 +537,11 @@ describe("tryMove", () => {
   });
 
   it("gives the cause for every kind of refusal, in the solver's own words", () => {
-    // No wheelchair place and no lift at all, which is a different sentence from "full".
-    expect(tryMove(input, planned, "C2", "V4")).toEqual({ ok: false, cause: "NO_WC_PLACE" });
+    // A lane with no wheelchair place at all, which is a different sentence from "full".
+    expect(tryMove(ambulatoryOnly(), planned, "C2", "V3")).toEqual({
+      ok: false,
+      cause: "NO_WC_PLACE",
+    });
     // A van nobody has checked is refused rather than guessed about.
     const unchecked = inputFor(
       "AM",
@@ -496,7 +556,7 @@ describe("tryMove", () => {
     // A lane that is not on the road today, and a child who is not on the roster: neither is a
     // move the screen can make, and neither is allowed to fall through as an accepted one.
     expect(tryMove(input, planned, "C3", "V9")).toEqual({ ok: false, cause: "NO_VEHICLE" });
-    expect(tryMove(input, planned, "C99", "V4")).toEqual({ ok: false, cause: "NO_VEHICLE" });
+    expect(tryMove(input, planned, "C99", "V3")).toEqual({ ok: false, cause: "NO_VEHICLE" });
   });
 
   it("always allows taking a child out of every van", () => {

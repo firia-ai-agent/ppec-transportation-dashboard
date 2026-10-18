@@ -311,29 +311,44 @@ describe("§1.4: Auto-plan is the one placement function", () => {
 });
 
 describe("§1.7 #1: a refused drop changes nothing", () => {
-  it("refuses a chair onto the van with no spot and no lift, and names it", async () => {
+  /**
+   * The refusal is made of **counters**, not of a weaker van (Vera/Athena/Veri with Firia's
+   * sign-off, 2026-10-18 12:13 AM ET): all three vans are the same generic type, so the van that
+   * cannot take this chair is the van whose one wheelchair spot is already taken.
+   */
+  it("refuses a chair onto a van whose only wheelchair spot is used, and names it", async () => {
     const day = await testDay();
     const vanThree = day.vans.find((van) => van.slot === 3);
     if (!vanThree) throw new Error("no Van 3");
-    expect(vanThree.setup.wheelchairSpots).toBe(0);
-    expect(vanThree.setup.hasLift).toBe(false);
-    const chair = day.riders.find((rider) => rider.needs.wheelchair);
-    if (!chair) throw new Error("no chair rider in the day");
-    expect(rejectReason(vanThree.setup, [], chair)).toBe("WHEELCHAIR");
+    // One spot, and a lift — the same van as the other two.
+    expect(vanThree.setup.wheelchairSpots).toBe(1);
+    expect(vanThree.setup.hasLift).toBe(true);
+    const chairs = day.riders.filter((rider) => rider.needs.wheelchair);
+    expect(chairs.length, "the day has two children who ride in their own chair").toBeGreaterThan(1);
+    // Empty, it takes the first of them; with that one aboard, the second is refused by name.
+    expect(rejectReason(vanThree.setup, [], chairs[1])).toBe(null);
+    expect(rejectReason(vanThree.setup, [chairs[0]], chairs[1])).toBe("WHEELCHAIR");
   });
 
   it("refuses the whole save when a posted plan puts them there anyway", async () => {
     const day = await testDay();
     const vanThree = vanIdOfSlot(3);
-    const chair = day.riders.find((rider) => rider.needs.wheelchair);
-    if (!chair) throw new Error("no chair rider in the day");
-    const posted = moveTo(emptyPlan(day), chair.token, vanThree);
-    expect(checkPlan(day, posted)).toEqual({
-      ok: false,
-      childToken: chair.token,
-      vanId: vanThree,
-      reason: "WHEELCHAIR",
-    });
+    const chairs = day.riders.filter((rider) => rider.needs.wheelchair);
+    expect(chairs.length).toBeGreaterThan(1);
+    const posted = moveTo(
+      moveTo(emptyPlan(day), chairs[0].token, vanThree),
+      chairs[1].token,
+      vanThree,
+    );
+    const refused = checkPlan(day, posted);
+    // One spot and two chairs: the van is refused by name, with the reason, and the child it
+    // names is one of the two who would have ridden in it (the checker reports the first).
+    expect(refused).toMatchObject({ ok: false, vanId: vanThree, reason: "WHEELCHAIR" });
+    expect(chairs.map((rider) => rider.token)).toContain(
+      (refused as { childToken: string }).childToken,
+    );
+    // And one of them alone is a plan the rule agrees with, so it is the count that refused it.
+    expect(checkPlan(day, moveTo(emptyPlan(day), chairs[0].token, vanThree))).toEqual({ ok: true });
   });
 
   it("passes a plan the fit rule agrees with", async () => {

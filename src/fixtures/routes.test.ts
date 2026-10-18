@@ -19,7 +19,7 @@ import { FIXTURE_ROUTES, ROUTE_1, ROUTE_2, ROUTE_3, routeById } from "./routes";
 
 /** Which run's morning each track is. The mapping the module doc states, as a test. */
 const TRACK_RUNS: Array<{ route: Route; runKey: string; vehicleId: string }> = [
-  { route: ROUTE_1, runKey: "R3", vehicleId: "V4" },
+  { route: ROUTE_1, runKey: "R3", vehicleId: "V3" },
   { route: ROUTE_2, runKey: "R1", vehicleId: "V1" },
   { route: ROUTE_3, runKey: "R2", vehicleId: "V2" },
 ];
@@ -28,7 +28,8 @@ describe("route fixtures (ADR-007: geometry and durations are committed, not com
   it("ships the three PRD §18.1 routes, one per run", () => {
     expect(FIXTURE_ROUTES.map((r) => r.id)).toEqual(["route1", "route2", "route3"]);
     expect(FIXTURE_ROUTES).toHaveLength(RUNS.length);
-    expect(FIXTURE_ROUTES.map((r) => r.vehicleId)).toEqual(["V4", "V1", "V2"]);
+    // Three vans and no reserve, so R3's van is V3 (Firia's 8:02 PM ET seed ruling).
+    expect(FIXTURE_ROUTES.map((r) => r.vehicleId)).toEqual(["V3", "V1", "V2"]);
     expect(new Set(FIXTURE_ROUTES.map((r) => r.deviceId)).size).toBe(3);
     expect(routeById("route2")).toBe(ROUTE_2);
     expect(() => routeById("route9")).toThrow(/unknown fixture route/);
@@ -100,7 +101,7 @@ describe("route fixtures (ADR-007: geometry and durations are committed, not com
 
   it("gives route1 the van whose device is never bound (LOC-01)", () => {
     expect(ROUTE_1.stops.map((s) => s.id)).toEqual(["S1", "S4", "CENTER"]);
-    expect(ROUTE_1.vehicleId).toBe("V4");
+    expect(ROUTE_1.vehicleId).toBe("V3");
   });
 
   /**

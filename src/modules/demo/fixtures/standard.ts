@@ -310,9 +310,16 @@ const amb = (tetherCapable = false): Position => ({ kind: "AMB", tetherCapable }
 const wc = (securement: Securement, maxLengthCm: number, maxWidthCm: number): Position =>
   ({ kind: "WC", securement, maxLengthCm, maxWidthCm, tetherCapable: false });
 
+/**
+ * **Three vans, all of a kind** (Firia's 8:02 PM ET seed ruling; Vera/Athena, 2026-10-18
+ * 12:13 AM ET). There is no reserve and no sedan: the centre runs three generic vans, every one
+ * of them lift-equipped and laid out the same way, so a van is told from a van by the numbers
+ * counted at the ramp and never by being a weaker kind of vehicle. The label is the name the
+ * screens already use — a code is an id here and nowhere a person reads.
+ */
 export const VEHICLES: Vehicle[] = [
   {
-    key: "V1", label: "V1 convertible van", providerKey: "P1", liftEquipped: true,
+    key: "V1", label: "Van 1", providerKey: "P1", liftEquipped: true,
     layouts: [
       { code: "0WC/6A", liftRequired: false, positions: [amb(true), amb(true), amb(), amb(), amb(), amb()] },
       { code: "1WC/3A", liftRequired: true, positions: [wc("FOUR_POINT_STRAP", 130, 72), amb(true), amb(true), amb()] },
@@ -320,28 +327,29 @@ export const VEHICLES: Vehicle[] = [
     ],
   },
   {
-    key: "V2", label: "V2 center van", providerKey: "CENTER", liftEquipped: true,
+    key: "V2", label: "Van 2", providerKey: "CENTER", liftEquipped: true,
     layouts: [{ code: "1WC/4A", liftRequired: true, positions: [wc("L_TRACK", 125, 70), amb(true), amb(true), amb(), amb()] }],
   },
   {
-    key: "V3", label: "V3 substitute van", providerKey: "P1", liftEquipped: true,
-    layouts: [{ code: "1WC/1A", liftRequired: true, positions: [wc("L_TRACK", 110, 66), amb(true)] }],
-  },
-  {
-    key: "V4", label: "V4 sedan", providerKey: "P2", liftEquipped: false,
-    layouts: [{ code: "0WC/3A", liftRequired: false, positions: [amb(true), amb(true), amb()] }],
+    key: "V3", label: "Van 3", providerKey: "P2", liftEquipped: true,
+    layouts: [
+      { code: "0WC/6A", liftRequired: false, positions: [amb(true), amb(true), amb(), amb(), amb(), amb()] },
+      // An L-track chair position, as Van 2 has: the same generic van, fitted the way this one
+      // is fitted. Which chair a van holds is hardware, not a weaker class of vehicle.
+      { code: "1WC/3A", liftRequired: true, positions: [wc("L_TRACK", 125, 70), amb(true), amb(true), amb()] },
+    ],
   },
 ];
 
 /**
- * Today's three routes (MOCKS §5 "3 routes"). V3 stays in reserve for the AT-05 substitution.
- * R1 is the three-child route of PRD §18.2 step 6: a ramp report of {1WC, 1AMB} leaves C8 without a
- * seat, and V2 (R2) has the spare ambulatory seat the coordinator reallocates C8 into.
+ * Today's three routes (MOCKS §5 "3 routes"), one per van — there is no fourth vehicle to hold
+ * back. R1 is the three-child route of PRD §18.2 step 6: a ramp report of {1WC, 1AMB} leaves C8
+ * without a seat, and V2 (R2) has the spare ambulatory seat the coordinator reallocates C8 into.
  */
 export const RUNS: Run[] = [
   { key: "R1", vehicleKey: "V1", layoutCode: "1WC/3A", childKeys: ["C6", "C7", "C8"] },
   { key: "R2", vehicleKey: "V2", layoutCode: "1WC/4A", childKeys: ["C2", "C3", "C9"] },
-  { key: "R3", vehicleKey: "V4", layoutCode: "0WC/3A", childKeys: ["C1", "C4", "C5"] },
+  { key: "R3", vehicleKey: "V3", layoutCode: "0WC/6A", childKeys: ["C1", "C4", "C5"] },
 ];
 
 /* ───────────────────────── therapy (PRD l.1327: T1 09:30, T2 PM) ───────────────────────── */
@@ -413,9 +421,10 @@ export type RideRecord = {
  *  - **C6's afternoon ride is AT-10.** The van arrived and the handoff was never recorded. The
  *    geofence fired; a person still has to receive the child; the board says "Arrived (vehicle)"
  *    and asks for the handoff, and the one thing it must never say is that one happened.
- *  - **R3's six rides never ran.** V4 is a sedan with two tether-capable seats and R3's three
- *    children all ride in an anchored seat (PRD §7 constraint 3), so the capacity solver says
- *    the van does not fit its riders. Staff cancelled transport and the families drove — the
+ *  - **R3's six rides never ran.** Van 3's all-ambulatory layout has two tether-capable seats
+ *    and R3's three children all ride in an anchored seat (PRD §7 constraint 3), so the capacity
+ *    solver says the van does not fit its riders — a counted fact about the day, not a weaker
+ *    kind of van (Vera/Athena, 2026-10-18 12:13 AM ET). Staff cancelled transport and the families drove — the
  *    AT-12 rule that a family is told only after staff have chosen.
  */
 const FINISHED_DAY_EXCEPTIONS: Record<string, Partial<RideRecord>> = {

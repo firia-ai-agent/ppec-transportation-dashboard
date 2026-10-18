@@ -543,7 +543,12 @@ describe("the one primary action, and why it is not available", () => {
   });
 
   it("names the ramp check when that is what is missing (§5 SURF-02)", () => {
-    expect(drawerHtml("C1")).toContain(
+    /*
+     * The day that has not started: nobody has checked a van, so the handoff is blocked on the
+     * ramp check rather than on an arrival. It is read on that day because the demo day itself
+     * now has all three vans out — there is no van held back (Firia's 8:02 PM ET seed ruling).
+     */
+    expect(drawerHtml("C1", planned)).toContain(
       escaped(fill(drawer.handoffBlockedRamp, { child: "Mia R." })),
     );
   });
