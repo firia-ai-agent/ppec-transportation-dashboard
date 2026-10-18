@@ -12,8 +12,11 @@
  * and is refused outright on any deployment.
  */
 import { expect, test, type Locator } from "@playwright/test";
+import { canOpenPage } from "../src/auth/access";
+import type { StaffRole } from "../src/auth/core";
+// `fleetMap` and `liveMap` left with the live-map block below: this file no longer names them.
 import { fill, nav, planRoutes, rampIpad } from "../src/ui/copy";
-import { menuItems } from "../src/ui/nav-items";
+import { navItemsFor } from "../src/ui/nav-items";
 import {
   boxOf,
   contains,
@@ -30,11 +33,33 @@ const WIDTHS = [1024, 1280] as const;
 
 const VIEWPORT = { height: 900 };
 
+/**
+ * ONE RUN IS ONE ROLE (`E2E_DEMO_ROLE`, playwright.config.ts), so this file asks the role it
+ * was started as rather than assuming the director.
+ *
+ * Three of the four screens below are not every role's: the board and Plan routes are the
+ * console's, which the front desk's row does not open at all (they are sent home, §9.3), and
+ * the live map's demo internals — the injected-fault panel and the scenario clock — are the
+ * director's alone (`MAP_DATA_BY_ROLE`, src/domain/access/map-view.ts). So each claim is made
+ * about the role's *own* view: a screen their row does not open is skipped and said to be
+ * skipped, and a panel their row does not carry is asserted absent rather than expected.
+ */
+const ROLE = (process.env.E2E_DEMO_ROLE ?? "DIRECTOR") as StaffRole;
+const CALLER = { kind: "STAFF", role: ROLE } as const;
+const MENU = navItemsFor(ROLE);
+/*
+ * `SEES_DEMO_INTERNALS` went with the live-map block below: the injected-fault panel and the
+ * per-screen scenario clock it gated are both deleted from the build, so a constant about who
+ * can see them is a constant about nothing. The role-by-role story for the live map is
+ * e2e/live-map.spec.ts and src/modules/live-map/roles.test.ts now.
+ */
+
 for (const width of WIDTHS) {
   test.describe(`at ${width}px`, () => {
     test.use({ viewport: { width, ...VIEWPORT } });
 
     test("the board carries the DEMO bar and a rail that is not clipped", async ({ page }) => {
+      test.skip(!canOpenPage(CALLER, "/today"), `${ROLE} does not open the board`);
       await page.goto("/today");
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
@@ -49,7 +74,7 @@ for (const width of WIDTHS) {
       expect(railBox.width).toBe(width < 1280 ? 64 : 232);
 
       // §2 / §9: every item is reachable and named, and nothing hangs off the rail's edge.
-      for (const item of menuItems) {
+      for (const item of MENU) {
         const link = rail.getByRole("link", { name: item.label });
         await expect(link).toHaveAttribute("title", item.label);
         const icon = link.locator("svg");
@@ -147,6 +172,7 @@ for (const width of WIDTHS) {
      * in the window at the top of the page" asks.
      */
     test("Plan routes keeps the map beside the lanes, not below them", async ({ page }) => {
+      test.skip(!canOpenPage(CALLER, "/plan-routes"), `${ROLE} does not open Plan routes`);
       await page.goto("/plan-routes");
       await expect(
         page.getByRole("heading", { level: 1, name: planRoutes.heading }),

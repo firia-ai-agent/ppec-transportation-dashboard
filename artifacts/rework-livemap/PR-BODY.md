@@ -1,7 +1,8 @@
 # Goal 5 — Live GPS map
 
 Mockup: `mockups/live-map.html` · `png/live-map.png` (1440) · `png/live-map-390.png` (390).
-Branch cut from #74's head (`31e7acf`). No migrations: `git diff 31e7acf -- drizzle/` is empty.
+Branch cut from #74's head (`31e7acf`), with `origin/main` merged in after #74 landed (merge,
+never rebase). No migrations: `git diff 31e7acf -- drizzle/` is empty.
 
 ---
 
@@ -196,14 +197,15 @@ Nothing was loosened to pass. Where a run failed, the code changed — see the t
    itself draws at 390 is 390, and the front desk — the role that actually lands here, and has no
    Restart button — measures exactly 390. It belongs to the DEMO bar (#74), so it is reported
    rather than fixed from this branch.
-2. **The Family texts badge shows "2".** The ruling hides it until #61 lands
-   (MOCKUP-TEST-CONTRACT row 5). Pre-existing frame behaviour on this branch, visible in every
-   screenshot here. It also **fails two existing tests** that are nothing to do with this screen:
-   `e2e/screens.spec.ts` "the board carries the DEMO bar and a rail that is not clipped" at 1024
-   and 1280, where the rail renders `title="Family texts, 2 waiting"` against an expected
-   `"Family texts"`. Nothing in this branch's diff touches `NavRail`, `menu-badge.ts` or the nav
-   copy — the 28 changed files are listed in the commits — so this is reported, not owned. The
-   rest of `screens.spec.ts` passes (24 of 26 in the combined run).
+2. **Two tests fail in `e2e/screens.spec.ts`, and neither is this screen's.**
+   "the board carries the DEMO bar and a rail that is not clipped" fails at 1024 and 1280 on
+   `/today`: the rail measures 47 px where 64 is expected, and 215 where 232 is expected — a
+   consistent 17 px squeeze, because the board's own content overflows (`scrollWidth` 1375 at a
+   1280 viewport) and the flex row shrinks the rail to fit. Measured, not assumed: this branch's
+   only addition to shared chrome is one empty `[data-header-slot]` element in the page header,
+   it measures **0 px wide**, and deleting it from the live DOM leaves the rail at exactly 47 and
+   215. The overflow is the board's. Reported, not fixed from here.
+
 3. **Van 1's route line is drawn underneath Van 3's.** The fixtures give the substitute van
    (`route2-substitute`) *route 2's own geometry* on purpose, so the two cannot drift — which
    means two of the three lines coincide and the blue one is hidden under the pink. The mockup

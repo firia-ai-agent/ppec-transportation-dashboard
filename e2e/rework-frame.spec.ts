@@ -218,14 +218,21 @@ for (const width of WIDTHS) {
         const where = new URL(page.url()).pathname;
         const menu = await expectFrame(page, width, where);
         /*
-         * The menu's own links. `:not([data-rail-account])` because the rail's foot carries one
-         * more link that is not a destination on the menu — the account block, which opens
-         * /whoami (REDESIGN-SPEC §9.2) — and counting it would make every role's menu one item
-         * longer than their row in the access table says.
+         * EVERY link in the menu landmark is a menu item, and the account is not one of them
+         * (Firia ruling: a 5-item menu with the account block outside the menu; Veri #74 gate,
+         * 12:03 AM ET; shell-flow.html — `.nav` holds the destinations, the account sits at the
+         * rail's foot). Counting every <a>, not a data hook, so a link slipped into the landmark
+         * fails here.
          */
-        await expect(menu.locator("a:not([data-rail-account])")).toHaveCount(
-          width < 768 ? TABS.length : MENU.length,
-        );
+        await expect(menu.locator("a")).toHaveCount(width < 768 ? TABS.length : MENU.length);
+        await expect(
+          menu.locator('a[href="/whoami"]'),
+          `the account link is inside the menu landmark on ${where} at ${width}`,
+        ).toHaveCount(0);
+        await expect(
+          page.locator('a[href="/whoami"]:visible').first(),
+          `no account link outside the menu on ${where} at ${width}`,
+        ).toBeVisible();
 
         // The one DEMO bar, pinned, with the one §7.1 chip riding in it.
         await expectDemoBarPinned(page);
@@ -384,7 +391,9 @@ for (const width of WIDTHS) {
 test.describe(`the phone's tab bar, as ${ROLE}`, () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("is one tab per menu item, with the Family texts count on it", async ({ page }) => {
+  test("is one tab per menu item, with the Family texts count on it when there is one", async ({
+    page,
+  }) => {
     await page.goto(MENU[0].href);
     const bar = page.locator("[data-tab-bar]");
     await expect(bar).toBeVisible();
@@ -408,6 +417,11 @@ test.describe(`the phone's tab bar, as ${ROLE}`, () => {
      * THE BADGE (REDESIGN-SPEC §9.2, audit §2 item 2): a Teal disc with white text on Family
      * texts, for the roles that can act on what is waiting — and the count said in words in the
      * tab's own accessible name, because the disc is aria-hidden.
+     *
+     * Asked of `menuBadgeFor` rather than written down, which is why this still holds now that
+     * the answer is "nothing": the fixture behind the count is deleted and there is no live read
+     * until #61, so no role is shown a disc and no tab says "waiting" (Veri's S2 on #74). The
+     * branch below is what the badge has to look like when there is a count again.
      */
     const waiting = menuBadgeFor("/family-texts", ROLE);
     const badge = bar.locator("[data-menu-badge]");
@@ -435,9 +449,10 @@ test.describe(`the phone's tab bar, as ${ROLE}`, () => {
   });
 
   /**
-   * THE ACTIVE TAB (audit §2 item 6): a 2 px Teal top border and a Teal Ink label, and **no
-   * tinted block** — production filled the whole tab with the selected tint, which reads as a
-   * button being held down rather than as the page you are on.
+   * THE ACTIVE TAB. mockup: /workspace/ppec-redesign/mockups/shell-flow.html:75 (and
+   * plan-board.html:75), Vera's ruling 11:00 PM ET — `.nav a.on{background:transparent;
+   * font-weight:700;box-shadow:inset 0 3px 0 var(--brand)}`: an exact 3 px brand bar drawn as an
+   * inset shadow, bold text, **no fill** and no border. Same exact values as one-menu.spec.ts.
    */
   test("marks the page you are on with an edge, not a filled block", async ({ page }) => {
     await page.goto(MENU[0].href);
@@ -446,19 +461,42 @@ test.describe(`the phone's tab bar, as ${ROLE}`, () => {
     const style = await current.evaluate((el) => {
       const s = getComputedStyle(el);
       return {
+        shadow: s.boxShadow,
         border: s.borderTopWidth,
-        borderColor: s.borderTopColor,
-        ink: s.color,
         background: s.backgroundColor,
         weight: s.fontWeight,
       };
     });
-    expect(style.border).toBe("2px");
-    expect(style.borderColor).toBe("rgb(15, 118, 110)");
+    expect(style.shadow).toBe("rgb(15, 118, 110) 0px 3px 0px 0px inset");
+    expect(style.border).toBe("0px");
+    expect(style.background).toBe("rgba(0, 0, 0, 0)");
+    expect(style.weight).toBe("700");
+  });
+
+  /**
+   * THE ACTIVE RAIL ITEM at 1440. mockup: /workspace/ppec-redesign/mockups/shell-flow.html:32
+   * (`.nav a.on{background:var(--info-bg);color:var(--info-fg)}`), Vera's ruling 11:00 PM ET:
+   * no border, the --info-bg fill (#E6F2F1) and --info-fg text (#134E4A).
+   */
+  test("marks the current rail item with the info fill and no border", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(MENU[0].href);
+    // The rail, not the tab bar: both are in the DOM at every width; only the rail shows here.
+    const current = page.locator("nav:not([data-tab-bar]) [data-nav-item][aria-current='page']");
+    await expect(current).toHaveCount(1);
+    const style = await current.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return {
+        borders: [s.borderTopWidth, s.borderRightWidth, s.borderBottomWidth, s.borderLeftWidth],
+        shadow: s.boxShadow,
+        background: s.backgroundColor,
+        ink: s.color,
+      };
+    });
+    expect(style.borders).toEqual(["0px", "0px", "0px", "0px"]);
+    expect(style.shadow).toBe("none");
+    expect(style.background).toBe("rgb(230, 242, 241)");
     expect(style.ink).toBe("rgb(19, 78, 74)");
-    // Transparent, or the surface it sits on — never the selected tint.
-    expect(["rgba(0, 0, 0, 0)", "rgb(255, 255, 255)"]).toContain(style.background);
-    expect(Number(style.weight)).toBeGreaterThanOrEqual(600);
   });
 });
 

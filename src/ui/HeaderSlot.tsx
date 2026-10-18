@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
 
@@ -17,18 +17,28 @@ import type { ReactNode } from "react";
  * leaves one empty `[data-header-slot]` element, and a screen renders into it. The frame still
  * knows nothing about any screen — it owns a slot, not a toolbar.
  *
- * Portals only after mount, and renders nothing before: the slot is in the DOM the server sent,
- * but `document` is not, and a screen's controls appearing on hydration is better than a
- * hydration mismatch in the one bar every page has.
+ * It renders nothing until the browser has hydrated, and the hydration check is
+ * `useSyncExternalStore` rather than a `useState` an effect flips. Both would work; only one is
+ * allowed. React's own guidance — and the lint rule the repo runs with — is that an effect
+ * synchronises with an external system and does not call `setState` in its body, because that is
+ * a second render every time. A store whose snapshot is `false` on the server and `true` in the
+ * browser is the documented way to ask "am I hydrated yet", with no subscription and no cascade.
+ *
+ * Reading the DOM during render is safe for exactly the same reason: it only ever happens on the
+ * client pass, after hydration, where `[data-header-slot]` is already in the document the server
+ * sent. Before that the snapshot is `false` and this renders `null`, so the server's markup and
+ * the first client render agree.
  */
+
+/** Nothing to subscribe to: the question is only ever asked once, by rendering. */
+const subscribe = () => () => {};
+
 export function HeaderSlot({ children }: { children: ReactNode }) {
-  const [host, setHost] = useState<Element | null>(null);
-
-  useEffect(() => {
-    setHost(document.querySelector("[data-header-slot]"));
-    // The bar is mounted once per layout and lives as long as the screen does, so there is
-    // nothing to tear down: leaving the portal is React's own job when this unmounts.
-  }, []);
-
+  const hydrated = useSyncExternalStore(
+    subscribe,
+    () => true,
+    () => false,
+  );
+  const host = hydrated ? document.querySelector("[data-header-slot]") : null;
   return host ? createPortal(children, host) : null;
 }

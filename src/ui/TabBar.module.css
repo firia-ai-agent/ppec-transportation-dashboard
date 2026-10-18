@@ -25,11 +25,6 @@
   /* §9: ≥44 px target. The whole tab is the target, icon and label inside it. */
   min-height: var(--layout-tab-bar-height);
   padding: var(--space-2) var(--space-1);
-  /*
-   * The current tab's brand bar, reserved at every state: transparent here, painted below. A
-   * border that only exists on the current tab would move the other four by 2 px.
-   */
-  border-top: var(--border-current) solid transparent;
   color: var(--color-ink-muted);
   text-decoration: none;
   font-size: var(--text-12);
@@ -37,7 +32,7 @@
 }
 
 /*
- * §9 / §3: the current page is never marked by colour alone. Three cues — the 2 px Teal bar
+ * §9 / §3: the current page is never marked by colour alone. Three cues — the 3 px Teal bar
  * along the top, the weight of the label, and `aria-current="page"` for the ear.
  *
  * **No tinted block.** Audit §2 item 6: production filled the whole tab with the selected tint,
@@ -47,10 +42,14 @@
  * in a column of rows needs the fill to be found at all; a tab has a top edge and five
  * neighbours, so the edge is enough.
  */
+/* mockups/shell-flow.html:75 (and plan-board.html:75), Vera's ruling 11:00 PM ET:
+ * `.nav a.on{background:transparent;font-weight:700;box-shadow:inset 0 3px 0 var(--brand)}` —
+ * an inset bar takes no layout, so the other tabs never move. */
 .tab[aria-current="page"] {
-  border-top-color: var(--color-brand);
+  background: transparent;
+  box-shadow: inset 0 var(--border-current) 0 var(--color-brand);
   color: var(--color-ink-brand);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-bold);
 }
 
 /*

@@ -32,8 +32,13 @@ test.describe(`the rail as ${ROLE}`, () => {
     /*
      * Both halves: the names that are there, and the count — a rail that is missing one item is
      * a founder who cannot reach a screen, and a rail with one extra is a link to a 403.
+     *
+     * The *menu's* links, which is `[data-nav-item]` and not every anchor in the landmark: the
+     * rail's foot carries one more, the account block, which opens /whoami (REDESIGN-SPEC §9.2,
+     * audit §2 item 3). It is a link in the nav and it is not a destination on the menu, so
+     * counting it made every role's menu one item longer than their row in the table says.
      */
-    const links = rail.getByRole("link");
+    const links = rail.locator("[data-nav-item]");
     await expect(links).toHaveCount(EXPECTED.length);
     expect(await links.evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")))).toEqual(
       EXPECTED.map((item) => item.label),
@@ -41,9 +46,11 @@ test.describe(`the rail as ${ROLE}`, () => {
 
     /*
      * The director is the role in the screenshot, so say out loud what they should be getting.
-     * REDESIGN-SPEC §0's menu, in §0's order: nothing on it 404s and nothing on it opens an
-     * apology, so the two surfaces whose data is not built are on it as a title and a line
-     * (src/ui/nav-items.ts carries the flag and the reason; Setup is the one that is off).
+     * REDESIGN-SPEC §0's menu, in §0's order, and it is **five items at every width** (Firia,
+     * 2026-10-17 8:36 PM ET, over the 6:19 PM one): Exceptions & Approvals and Health & ROI came
+     * off the menu — neither is a destination of the day — and Setup was never on it. All three
+     * are still routes and still answer a typed URL; `inMenu` in src/ui/nav-items.ts carries the
+     * flag and the reason.
      */
     if (ROLE === "DIRECTOR") {
       expect(EXPECTED.map((item) => item.href)).toEqual([
@@ -52,8 +59,6 @@ test.describe(`the rail as ${ROLE}`, () => {
         "/live-map",
         "/ramp-ipad",
         "/family-texts",
-        "/exceptions",
-        "/health",
       ]);
     }
 

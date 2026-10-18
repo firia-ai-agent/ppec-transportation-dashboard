@@ -27,10 +27,25 @@ import styles from "./PageHeader.module.css";
  * The title is the screen's own label from the access table (src/ui/page-title.ts), which is
  * why this is a client component: the path is the only input, and `usePathname` is how a
  * component inside a server layout learns it.
+ *
+ * **One screen in the app has no row to read, and it is the refusal** (Veri's gate on #74: the
+ * card arrived with no h1 at all). "This page isn't part of your role" is rendered by a 403
+ * boundary at an address that is deliberately not a screen — no row in the access table, so no
+ * label — and before this it left the bar with nothing to print and the screen with no title.
+ * So a caller that *is* the title may say so: `title` is the frame's heading when the path
+ * cannot name it (src/ui/RefusedPage.tsx is the only one, and the card below it then carries no
+ * heading of its own, so the screen still has exactly one h1).
  */
-export function PageHeader({ account }: { account: RailAccount | null }) {
+export function PageHeader({
+  account,
+  title: given,
+}: {
+  account: RailAccount | null;
+  /** The screen's title when it has no row in the access table to read one from. */
+  title?: string;
+}) {
   const pathname = usePathname();
-  const title = pageTitleFor(pathname);
+  const title = given ?? pageTitleFor(pathname);
   return (
     <div className={styles.bar}>
       {/* A screen with no row in the table has no title to print, and prints none. */}

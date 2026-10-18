@@ -345,30 +345,37 @@ describe("the screen's own rules", () => {
   });
 
   it("holds no colour of its own and no demo violet (D-5)", () => {
-    // Every colour is a token custom property; the violet belongs to the DEMO bar, the
-    // Simulated chip and the shared demo control, and the browser check measures that on the
-    // real screen too. This screen's own stylesheet never names it, including through the
-    // scenario toggle — that control brings its own (src/ui/DemoControls.module.css).
+    // Every colour is a token custom property; the violet belongs to the DEMO bar and the
+    // Simulated chip in it, and nothing on this screen may wear it — the banner that did is
+    // deleted (#74). The browser check measures the computed colour of every element too.
     expect(css).not.toMatch(/#[0-9a-fA-F]{3}|rgb|demo-bg|demo-fg|src-sim/);
   });
 
   /**
-   * Vera's review, 2026-10-17: the scenario toggle is a demo control and has to look like one.
+   * THE VIOLET BANNER IS GONE — Vera's audit, and Firia's ruling on #74: no violet anywhere on
+   * Plan routes.
    *
-   * It used to be two of the screen's own outlined buttons in the header, beside the run
-   * switcher and above "Plan routes" — so a switch that exists only to steer the demo sat among
-   * the day's real decisions. It now renders in the DEMO bar's own styling, which is shared
-   * chrome in src/ui rather than something this screen paints: a screen cannot grant itself the
-   * violet (src/ui/tokens.test.ts holds the reservation).
+   * For one afternoon the scenario choice was painted as the demo it steers: a violet bar
+   * across the top of this header, in the DEMO bar's own fill and flask, from a shared
+   * component in src/ui. It read as a banner on a planning screen, and the reservation it spent
+   * now belongs to the bar and the one Simulated chip alone (src/ui/tokens.test.ts).
+   *
+   * So the choice is the screen's own: the two outlined buttons the run switcher beside it
+   * uses, in a named group, with the sentence about the chosen run under them. What is asserted
+   * is that it is still a choice of both runs, still says which one is on screen, and brings no
+   * violet and no banner component with it.
    */
-  it("renders the scenario toggle as a demo control in the DEMO bar's styling", () => {
-    expect(screen).toMatch(/import \{ DemoControls \} from "@\/ui\/DemoControls"/);
-    expect(screen).toMatch(/<DemoControls[\s\S]{0,300}legend=\{planRoutes\.demoScenarioLegend\}/);
-    expect(screen).toMatch(/options=\{DEMO_SCENARIOS\.map\(/);
-    expect(screen).toMatch(/note=\{planRoutes\.demoScenarioNote\[scenario\]\}/);
-    // Not the screen's own button, and not the screen's own date-shaped words any more.
+  it("renders the scenario choice as the screen's own buttons, with no violet and no banner", () => {
+    expect(screen).not.toMatch(/DemoControls/);
+    expect(screen).not.toMatch(/demo-bg|demo-fg|src-sim/);
+    expect(screen).toMatch(/aria-label=\{planRoutes\.demoScenarioLegend\}/);
+    expect(screen).toMatch(/DEMO_SCENARIOS\.map\(/);
+    expect(screen).toMatch(/label=\{planRoutes\.demoScenario\[value\]\}/);
+    expect(screen).toMatch(/\{planRoutes\.demoScenarioNote\[scenario\]\}/);
+    // The group is the one the screen's other switcher uses, and it is not a bar of its own.
+    expect(screen).toMatch(/className=\{styles\.actionRow\}[\s\S]{0,160}demoScenarioLegend/);
+    // Not the screen's own date-shaped words either (the date is computed once, below).
     expect(screen).not.toMatch(/demoDay/);
-    expect(screen).not.toMatch(/styles\.actionRow[\s\S]{0,120}demoScenario/);
   });
 
   /**

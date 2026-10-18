@@ -114,11 +114,12 @@ export const color = {
 
   /**
    * Violet is reserved for demo/simulated only (D-5) so it never reads as a status colour. The
-   * reservation is spent on three things and no others: the §7 DEMO bar, the §7.1 Simulated
-   * chip, and a control that exists only to steer the demo (src/ui/DemoControls) — which wears
-   * the bar's fill so a coordinator reads it as part of the demo rather than as one of the day's
-   * decisions. The pair is used both ways round there: white on violet for the control's text,
-   * violet on white for the option it is currently set to.
+   * reservation is spent on two things and no others: the §7 DEMO bar — with the controls that
+   * ride *inside* it, the reset and the scenario clock — and the §7.1 Simulated chip. No screen
+   * may spend it: the violet banner Plan routes carried is deleted (#74), so a control that
+   * steers the demo is either in the bar or in the screen's own clothes. The pair is used both
+   * ways round inside the bar: white on violet for a control's text, violet on white for the
+   * option it is currently set to.
    */
   "demo-fg": "#FFFFFF",
   "demo-bg": "#6D28D9",
@@ -245,7 +246,7 @@ export const contrastPairs: ReadonlyArray<{
   // Not a §8 row: an inactive control, which WCAG 2.1 exempts. Held to the 3:1 UI floor anyway.
   { fg: "disabled-fg", bg: "disabled-bg", documented: 4.34, needs: 3 },
   { fg: "demo-fg", bg: "demo-bg", documented: 7.1, needs: 4.5 },
-  // Not a §8 row either: the demo control's chosen option inverts the bar's pair (DemoControls).
+  // Not a §8 row either: a bar control's chosen option inverts the bar's pair (DemoClock).
   { fg: "demo-bg", bg: "demo-fg", documented: 7.1, needs: 4.5 },
   { fg: "ok-fg", bg: "surface", documented: 7.13, needs: 4.5 },
   { fg: "warn-fg", bg: "surface", documented: 6.85, needs: 4.5 },
@@ -354,7 +355,7 @@ export const fontSize = {
   "32": "32px",
 } as const;
 
-export const fontWeight = { regular: "400", medium: "500", semibold: "600" } as const;
+export const fontWeight = { regular: "400", medium: "500", semibold: "600", bold: "700" } as const;
 
 /**
  * `one` is the pill's own leading, and the audit's words: `font: 600 11px/1`. A chip is one
@@ -446,7 +447,7 @@ export const focusRing = { width: "2px", offset: "2px" } as const;
  * measures off the mockup ("a 2px Teal #0F766E top border and Teal Ink label"); `ring` is the
  * 3 px halo around the step the day is on, which the mockup draws at 3 (`.step.cur`).
  */
-export const border = { hairline: "1px", current: "2px", ring: "3px" } as const;
+export const border = { hairline: "1px", current: "3px", ring: "3px" } as const; // current: mockups/shell-flow.html:75 (inset 0 3px 0 var(--brand))
 
 /** Icon metrics. Lucide, single set, 1.75 stroke (§2). */
 export const icon = {
