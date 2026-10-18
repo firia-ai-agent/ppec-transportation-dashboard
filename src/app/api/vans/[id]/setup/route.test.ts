@@ -163,7 +163,7 @@ describe("what a Confirm leaves behind (§2)", () => {
 
     const rows = await memoryPlanStore().setupRows("site", TODAY, [VAN_ONE]);
     const today = rows.find((row) => row.serviceDate === TODAY);
-    expect(today).toMatchObject({ state: "CHECKED", setBy: "Frankie P." });
+    expect(today).toMatchObject({ state: "CHECKED", setBy: "Frankie L." });
     expect(today?.setup.seats).toBe(6);
   });
 

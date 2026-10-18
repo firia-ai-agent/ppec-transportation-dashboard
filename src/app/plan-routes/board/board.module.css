@@ -38,12 +38,12 @@
   min-height: 60px;
 }
 
-/* Headings are Teal Ink (Vera, 2026-10-17 6:14 PM ET), 9.48:1 on white. */
+/* Headings are Teal Ink — the frame's `ink-brand` (#71), 9.47:1 on white. */
 .heading {
   font-size: var(--text-24);
   font-weight: var(--weight-semibold);
   line-height: var(--leading-tight);
-  color: var(--color-teal-ink);
+  color: var(--color-ink-brand);
   margin: 0;
 }
 
@@ -80,11 +80,11 @@
   border-left: var(--border-hairline) solid var(--color-border-strong);
 }
 
-/* Selected is the brand tint with Teal Ink on it (Vera, 2026-10-17 6:14 PM ET) — plus the
+/* Selected is the frame's `selected-bg` tint with `ink-brand` on it — plus the
    weight and `aria-selected`, so it is never colour alone. */
 .segment[aria-current="page"] {
-  background: var(--color-teal-tint);
-  color: var(--color-teal-ink);
+  background: var(--color-selected-bg);
+  color: var(--color-ink-brand);
   font-weight: var(--weight-semibold);
 }
 
@@ -109,7 +109,7 @@
 }
 
 .chip[data-tone="ok"] { color: var(--color-ok-fg); background: var(--color-ok-bg); }
-.chip[data-tone="info"] { color: var(--color-teal-ink); background: var(--color-teal-tint); }
+.chip[data-tone="info"] { color: var(--color-ink-brand); background: var(--color-selected-bg); }
 .chip[data-tone="warn"] { color: var(--color-warn-fg); background: var(--color-warn-bg); }
 .chip[data-tone="crit"] { color: var(--color-crit-fg); background: var(--color-crit-bg); }
 .chip[data-tone="neutral"] { color: var(--color-neutral-fg); background: var(--color-neutral-bg); }
@@ -131,8 +131,8 @@
 }
 
 .button[data-variant="primary"] {
-  background: var(--color-teal);
-  border-color: var(--color-teal);
+  background: var(--color-brand);
+  border-color: var(--color-brand);
   color: var(--color-surface);
 }
 
@@ -158,7 +158,7 @@
   border-radius: var(--radius-md);
 }
 
-.banner[data-tone="info"] { color: var(--color-teal-ink); background: var(--color-teal-tint); }
+.banner[data-tone="info"] { color: var(--color-ink-brand); background: var(--color-selected-bg); }
 .banner[data-tone="warn"] { color: var(--color-warn-fg); background: var(--color-warn-bg); }
 
 .bannerLink {
@@ -209,14 +209,14 @@
 
 /* The van the address names (§9.3's `?van=`), which is where the ramp hands a leg back. */
 .column[data-selected="true"] {
-  box-shadow: inset 0 0 0 2px var(--color-teal);
+  box-shadow: inset 0 0 0 2px var(--color-brand);
 }
 
 /* Dragging: a van that can take the lifted child (§1.3). Outline + ring, with the chip below. */
 .column[data-fit="yes"] {
-  outline: 2px dashed var(--color-teal);
+  outline: 2px dashed var(--color-brand);
   outline-offset: -2px;
-  box-shadow: 0 0 0 4px var(--color-teal-tint);
+  box-shadow: 0 0 0 4px var(--color-selected-bg);
 }
 
 /* A van that cannot: dimmed, and the reason is a word in the chip (never colour alone). */
@@ -228,7 +228,7 @@
    Coral is the alert accent on the edge; the words and the crit chip inside carry the meaning. */
 .column[data-reject="hover"] {
   opacity: 1;
-  border: 2px dashed var(--color-coral);
+  border: 2px dashed var(--color-alert);
   background: repeating-linear-gradient(
     45deg,
     var(--color-surface),
@@ -336,7 +336,7 @@ a.meter:focus-visible {
 .barFill {
   display: block;
   height: 100%;
-  background: var(--color-teal);
+  background: var(--color-brand);
 }
 
 /* Full is ink, over is crit, and a van with none of a thing is dimmed (§1.2). */
@@ -344,7 +344,7 @@ a.meter:focus-visible {
 .meter[data-level="over"] .barFill { background: var(--color-crit-fg); }
 .meter[data-level="over"] .meterValue { color: var(--color-crit-fg); }
 /* An over count is ringed in coral as well as being crit text: an accent, never the only cue. */
-.meter[data-level="over"] { box-shadow: inset 0 0 0 1px var(--color-coral); border-radius: 4px; }
+.meter[data-level="over"] { box-shadow: inset 0 0 0 1px var(--color-alert); border-radius: 4px; }
 .meter[data-level="none"] { opacity: 0.45; }
 
 .liftRow {
@@ -578,8 +578,8 @@ a.meter:focus-visible {
 
 /* A value a person has changed away from the plan reads as changed (§1.3 "Setup open"). */
 .stepper[data-changed="true"] .stepperValue {
-  color: var(--color-teal-ink);
-  background: var(--color-teal-tint);
+  color: var(--color-ink-brand);
+  background: var(--color-selected-bg);
   border-radius: var(--radius-sm);
 }
 
@@ -734,9 +734,9 @@ a.meter:focus-visible {
  * a dashed teal edge and the brand tint, the same two cues a van that can take the child gets.
  */
 .group[data-over="true"] {
-  outline: 2px dashed var(--color-teal);
+  outline: 2px dashed var(--color-brand);
   outline-offset: -2px;
-  background: var(--color-teal-tint);
+  background: var(--color-selected-bg);
   border-radius: var(--radius-md);
 }
 
@@ -792,7 +792,7 @@ a.meter:focus-visible {
   font-size: var(--text-16);
   font-weight: var(--weight-semibold);
   line-height: var(--leading-tight);
-  color: var(--color-teal-ink);
+  color: var(--color-ink-brand);
 }
 
 .panelWhere {
@@ -851,7 +851,7 @@ a.meter:focus-visible {
 
 /* The chosen answer is a fill **and** `aria-pressed`, so it is never colour alone (§0 rule 2). */
 .panelOption[aria-pressed="true"] {
-  background: var(--color-teal);
+  background: var(--color-brand);
   color: var(--color-surface);
   font-weight: var(--weight-semibold);
 }

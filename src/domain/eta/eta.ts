@@ -27,7 +27,7 @@ import {
   type RouteStop,
 } from "@/domain/location/route";
 import { etaText, fill } from "@/ui/copy";
-import { SITE_TIME_ZONE } from "@/config/site";
+import { SITE_TIME_ZONE } from "@/ui/service-date";
 
 /** ASM-13: u is at least 5 minutes. */
 export const UNCERTAINTY_FLOOR_SECONDS = 300;

@@ -165,7 +165,7 @@ describe("saving a board", () => {
     expect(read.version).toBe(1);
     expect(read.savedAt).toBe(answer.savedAt);
     // Saved by the coordinator who asked, in the words a screen may print.
-    expect(read.savedBy).toBe("Casey O.");
+    expect(read.savedBy).toBe("Casey R.");
   });
 
   it("keeps where each child is, van by van", async () => {
@@ -182,7 +182,7 @@ describe("saving a board", () => {
     expect((await post(body(placements))).status).toBe(200);
     const stale = await post(body(placements, { version: 0 }));
     expect(stale.status).toBe(409);
-    expect(await stale.json()).toEqual({ ok: false, reason: "CHANGED", changedBy: "Casey O." });
+    expect(await stale.json()).toEqual({ ok: false, reason: "CHANGED", changedBy: "Casey R." });
     // And the plan is still the first one.
     expect((await board()).version).toBe(1);
   });

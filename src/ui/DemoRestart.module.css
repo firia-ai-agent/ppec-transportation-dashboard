@@ -1,0 +1,69 @@
+/*
+ * The one control in the DEMO bar. It wears the bar's own pair — a white outline and white text
+ * on the violet — rather than the screen's brand tone, for the reason the demo controls already
+ * follow (src/ui/DemoControls.module.css): a button that steers the *demo* must not look like
+ * one of the day's decisions. The violet is the bar's; this is inside it.
+ */
+.wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  /*
+   * 24 px, not the §9 44 px: the bar is 32 px tall and this is chrome about the build rather
+   * than a control on a screen — the same exception the §7.1 source chip beside it takes.
+   * The hit area is the whole pill, label included, and the text is 12 px like the bar's.
+   */
+  min-height: 24px;
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-hairline) solid var(--color-demo-fg);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-demo-fg);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--color-demo-fg);
+  color: var(--color-demo-bg);
+}
+
+/* §9: a ring in the brand tone would be a smudge on the violet. It is the bar's own ink. */
+.button:focus-visible {
+  outline: var(--focus-width) solid var(--color-demo-fg);
+  outline-offset: var(--focus-offset);
+}
+
+.button[aria-busy="true"] {
+  cursor: progress;
+}
+
+.label {
+  line-height: var(--leading-tight);
+}
+
+/*
+ * The reason the last press did nothing, beside the button it is about. On the bar, so it is
+ * in the bar's ink: a crit-toned chip up here would be the only red on the screen and would
+ * read as something wrong with the *day* rather than with one press of one button.
+ *
+ * Kept at every width, including the phone, where everything else in the bar that is only words
+ * is dropped: this one is the whole of the answer to "I pressed it and nothing happened", and a
+ * `display: none` would take it from the ear as well as from the eye. The bar has a *minimum*
+ * height rather than a height, so on the one screen in a hundred that needs this, it grows.
+ */
+.failed {
+  font-size: var(--text-12);
+  line-height: var(--leading-tight);
+  text-align: end;
+}

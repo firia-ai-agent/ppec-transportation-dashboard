@@ -4,7 +4,6 @@ import { app } from "./copy";
 import { AvatarMenu } from "./AvatarMenu";
 import { NavRail } from "./NavRail";
 import { NoticeToast } from "./NoticeToast";
-import { ScenarioClock } from "./ScenarioClock";
 import { TabBar } from "./TabBar";
 import styles from "./AppShell.module.css";
 
@@ -13,14 +12,16 @@ import styles from "./AppShell.module.css";
  * rendered by the root layout, so they also cover /login (§7, §7.1, NFR-09); the header sits
  * directly beneath them.
  *
- * **The header is one row** (Vera's review, 2026-10-17 2:44 PM ET): the site name, the demo
- * day's readout with its Start beside it, and one identity location at the trailing end. What
- * left it, and why:
+ * **The header is one row** (Vera's review, 2026-10-17 2:44 PM ET): the site name and one
+ * identity location at the trailing end. What left it, and why:
  *  - the four per-adapter freshness pills ("SMS · Simulated", "Teams · Simulated", …) and the
  *    "Times are simulated…" line under them — **one** Simulated chip on a screen, the one in
  *    the DEMO bar. Five of them saying it was four too many;
- *  - the "Scenario clock" label — a term from the build, above a readout that now says what it
- *    is a readout of ("Demo day · Not started");
+ *  - the scenario clock — a "Demo day · Not started" readout of a state nothing sets, with an
+ *    inert "Start demo day" beside it, which could not start anything because the demo-controls
+ *    dock was never built. The demo's one control is the DEMO bar's now, and it is the reset
+ *    the app already has ("Restart demo day", src/ui/DemoRestart.tsx, REDESIGN-SPEC §0). The
+ *    header holds no demo chrome at all: the bar above it is where the demo lives;
  *  - global search, which moved into Today, under the board's own title: it searches the board,
  *    so it belongs to the board (src/app/(app)/today/TodayBoard.tsx).
  * §2's service date is not in here either: it belongs to the board, which is the thing that has
@@ -74,8 +75,6 @@ export function AppShell({
       <header className={styles.header}>
         {/* Below 768 the screen's own <h1> names where you are; the product name yields the row. */}
         <span className={styles.siteName}>{app.siteName}</span>
-        {/* The demo day's readout and its Start — the one thing in the header that is a control. */}
-        <ScenarioClock />
         <div className={styles.spacer} />
         {/*
           One identity location, at every width now. It used to be hidden below 768 because the

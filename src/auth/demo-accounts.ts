@@ -6,37 +6,34 @@
  * the demo flags are on. Email, role, id and icon live here; the words shown on screen live in
  * src/ui/copy.ts (`demoLogins`), keyed by role.
  *
- * **`label` is the staff-visible name, and `name` is not.** `display_name` on the user row reads
- * "SYN Casey Coordinator": it carries the synthetic marker,
- * which is right for a seed and wrong on a screen — the plan board says who saved a plan and the
- * ramp iPad says whose count a van's setup is, and §1.5 / COPY-GUIDE §3 want a real first name
- * and a last initial there, with no fixture marker anywhere on the canvas. So the two live side
- * by side in the one list both the seed and /login already read, and nothing has to guess.
+ * Each stored name is the synthetic marker, a first name, a family name and the role — the form
+ * ADR-015 asks a seeded row to carry, so a developer reading `ops.app_user` can tell the three
+ * apart. None of that is what a screen shows: src/ui/display-name.ts turns the row into the
+ * person ("Dana M."), and the screen says their role in its own words beside it. The family
+ * name is there so there is an initial to say; before it, every demo account was a first name
+ * and a role, and the console could only ever read "Dana".
  */
 export const DEMO_ACCOUNTS = [
   {
     id: "01900000-0000-7000-8000-0000000000d1",
     email: "director@example.com",
-    name: "SYN Dana Director",
+    name: "SYN Dana Mercer Director",
     role: "DIRECTOR",
     icon: "shield-check",
-    label: "Dana M.",
   },
   {
     id: "01900000-0000-7000-8000-0000000000c1",
     email: "coordinator@example.com",
-    name: "SYN Casey Coordinator",
+    name: "SYN Casey Ruiz Coordinator",
     role: "COORDINATOR",
     icon: "clipboard-list",
-    label: "Casey O.",
   },
   {
     id: "01900000-0000-7000-8000-0000000000f1",
     email: "frontdesk@example.com",
-    name: "SYN Frankie FrontDesk",
+    name: "SYN Frankie Lowell FrontDesk",
     role: "FRONT_DESK",
     icon: "concierge-bell",
-    label: "Frankie P.",
   },
 ] as const;
 
@@ -67,14 +64,3 @@ export type DemoAccountIcon = DemoAccount["icon"];
 
 /** The three emails the shared password belongs to. Used by the migration test, so keep it exact. */
 export const DEMO_EMAILS: readonly string[] = DEMO_ACCOUNTS.map((a) => a.email);
-
-/**
- * The staff-visible name for a user id, or `null` for an id this list does not have — which is
- * every id outside the demo accounts, and also the browser-check session, which has no user at
- * all (src/auth/caller.ts). A screen that gets `null` says who did something in other words
- * ("Ramp staff") rather than inventing a person.
- */
-export function staffLabel(userId: string | null | undefined): string | null {
-  if (!userId) return null;
-  return DEMO_ACCOUNTS.find((account) => account.id === userId)?.label ?? null;
-}

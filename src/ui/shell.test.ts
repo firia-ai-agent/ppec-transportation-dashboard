@@ -1,13 +1,26 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
-import { demoBanner, login, nav, scenarioClock, unbuilt } from "./copy";
-import { DemoBanner } from "./DemoBanner";
+import { describe, expect, it, vi } from "vitest";
+
+/**
+ * The DEMO bar's one control is a client component and asks for the router it refreshes the
+ * screen with. There is no router in node, so this stands in for one: what is being rendered
+ * here is the bar's *markup* — which role gets a button and what it says — and the refresh
+ * after a reset is the browser check's to prove (e2e/rework-frame.spec.ts).
+ */
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => {} }),
+  usePathname: () => "/today",
+  useSearchParams: () => new URLSearchParams(),
+}));
+import { demoBanner, demoDay, login, nav, unbuilt } from "./copy";
+import { canRestartDemo, DemoBanner } from "./DemoBanner";
 import { Placeholder } from "./Placeholder";
-import { ScenarioClock } from "./ScenarioClock";
 import { SourceBadge } from "./SourceBadge";
 import { color, contrastRatio } from "./tokens";
+import { ROLE_LADDER } from "@/auth/access";
+import { RESET_ROLES } from "@/modules/demo/reset";
 
 /**
  * Shell contracts from Vera's review.
@@ -25,6 +38,11 @@ function read(...parts: string[]): string {
   return readFileSync(path.join(...parts), "utf8");
 }
 
+/** A file with its comments taken out: what it *does*, rather than what it says about itself. */
+function code(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+
 /** React escapes `'` in text nodes, so a copy string has to be escaped to be found in markup. */
 function escapeApostrophes(text: string): string {
   return text.replace(/'/g, "&#x27;");
@@ -35,7 +53,10 @@ describe("NFR-09 / §7.1: the source-mode chip sits next to the DEMO banner", ()
   const banner = read(UI, "DemoBanner.tsx");
 
   it("the root layout renders the bar, so /login and the developer pages carry it too", () => {
-    expect(rootLayout).toMatch(/<DemoBanner \/>/);
+    // `DemoBar` is the bar plus the one session read that tells it whether to draw its control
+    // (src/ui/DemoBar.tsx); `DemoBanner` is the markup under it, which is what is rendered here.
+    expect(rootLayout).toMatch(/<DemoBar \/>/);
+    expect(read(UI, "DemoBar.tsx")).toMatch(/<DemoBanner role=\{/);
   });
 
   it("places the chip in the bar, not in a strip of its own (Vera's answer, 2026-10-14)", () => {
@@ -70,7 +91,7 @@ describe("NFR-09 / §7.1: the source-mode chip sits next to the DEMO banner", ()
 
   it("renders the 'DEMO' bar and the Simulated chip in one row", () => {
     process.env.APP_DATA_CLASS = "SYNTHETIC";
-    const html = renderToStaticMarkup(DemoBanner());
+    const html = renderToStaticMarkup(DemoBanner({ role: "DIRECTOR" }));
     expect(html).toContain(demoBanner.text);
     expect(html).toContain('aria-label="DEMO"');
     // role="status" wraps the banner text only: the chip is announced as its own thing.
@@ -86,9 +107,14 @@ describe("NFR-09 / §7.1: the source-mode chip sits next to the DEMO banner", ()
     expect(css).toMatch(/min-height: var\(--layout-demo-banner-height\)/);
     expect(css).toMatch(/background: var\(--color-demo-bg\)/);
     expect(css).toMatch(/color: var\(--color-demo-fg\)/);
-    // Its own column, so the chip can neither overlap "DEMO" nor pull it off-centre.
-    expect(css).toMatch(/grid-template-columns: 1fr auto 1fr/);
-    expect(css).toMatch(/\.source \{[^}]*grid-column: 3/);
+    /*
+     * One row, leading words and trailing control, with one spacer between them. It was three
+     * grid columns with "DEMO" optically centred in the middle one; the centre stopped being
+     * worth keeping when the bar gained the control at its trailing end (REDESIGN-SPEC §0).
+     */
+    expect(css).toMatch(/\.banner \{[^}]*display: flex/);
+    expect(css).toMatch(/\.spacer \{[^}]*flex: 1 1 auto/);
+    expect(css).not.toMatch(/grid-template-columns/);
   });
 
   it("stays on screen while the page scrolls, which is what 'every screen' means", () => {
@@ -213,9 +239,11 @@ describe("§2 header: in demo mode no date in the chrome", () => {
  *
  * The header was two: the site name, a "Scenario clock" label over its readout and the avatar
  * above; four "<adapter> · Simulated" pills, the line "Times are simulated until the live board
- * is connected." and global search below. What is left is one row — the site name, the demo
- * day's readout with its Start, and the account — and the things that left it went somewhere
- * better or nowhere at all.
+ * is connected." and global search below. What is left is one row — the site name and the
+ * account — and the things that left it went somewhere better or nowhere at all. The scenario
+ * clock is the last of them: its readout said "Demo day · Not started" about a state nothing
+ * set, and its "Start demo day" was rendered inert because the control behind it did not exist.
+ * The demo's one control is the DEMO bar's now, and it is the reset this app already has.
  */
 describe("§2 header: one row", () => {
   const shell = read(UI, "AppShell.tsx");
@@ -230,11 +258,16 @@ describe("§2 header: one row", () => {
     expect(shell).not.toMatch(/styles\.topRow|styles\.bottomRow/);
   });
 
-  it("carries the readout and its Start, and no label above them", () => {
-    expect(shell).toMatch(/<ScenarioClock \/>/);
-    // "Scenario clock" was a term from the build; the readout says its own subject now.
-    expect(shell).not.toMatch(/scenarioClock\.label|factLabel/);
-    expect(scenarioClock.notStarted).toBe("Demo day · Not started");
+  it("carries no demo chrome at all: that is the bar above it", () => {
+    // The code, not the comments: the file explains where the demo's control went, and saying
+    // so is the opposite of mounting one.
+    expect(code(shell)).not.toMatch(/ScenarioClock|scenarioClock|DemoRestart|demoDay\./);
+    // The component and its stylesheet are deleted, not hidden: nothing can mount one again.
+    for (const gone of ["ScenarioClock.tsx", "ScenarioClock.module.css"]) {
+      expect(existsSync(path.join(UI, gone)), gone).toBe(false);
+    }
+    // ...and the copy went with it, so there is no "Demo not started" left to render.
+    expect(code(read(UI, "copy.ts"))).not.toMatch(/scenarioClock|Demo day · Not started/);
   });
 
   it("mounts no adapter pill and no search box", () => {
@@ -257,46 +290,74 @@ describe("§2 header: one row", () => {
   });
 });
 
-describe("§2 scenario clock", () => {
-  const component = read(UI, "ScenarioClock.tsx");
-  const css = read(UI, "ScenarioClock.module.css");
+/**
+ * THE ONE CONTROL IN THE DEMO BAR — "Restart demo day" (REDESIGN-SPEC §0, and the founder's
+ * mockups: png/shell-flow-1440.png, png/shell-flow-390.png).
+ *
+ * The bar reads `DEMO · Synthetic data · [Simulated] ……… [Restart demo day]`. Three claims are
+ * worth holding in a test and all three are below: the label is exactly that, the control is
+ * *in the bar* and nowhere else, and the roles it is drawn for are the roles the reset endpoint
+ * answers — so the front desk, whom §0 hides it from and whom the server refuses, cannot be
+ * shown a button that would 403 in their hands.
+ */
+describe("§7 the DEMO bar's one control", () => {
+  const banner = read(UI, "DemoBanner.tsx");
+  const restart = read(UI, "DemoRestart.tsx");
+  const css = read(UI, "DemoRestart.module.css");
 
-  it("reads 'Demo day · Not started' and offers 'Start demo day' beside it", () => {
-    // The readout carries its own subject now that the "Scenario clock" label above it is gone.
-    expect(scenarioClock.notStarted).toBe("Demo day · Not started");
-    // COPY-GUIDE §3: verb + object, ≤3 words — the button now says what it starts.
-    expect(scenarioClock.start).toBe("Start demo day");
+  it("reads exactly 'Restart demo day'", () => {
+    expect(demoDay.restart).toBe("Restart demo day");
+    // COPY-GUIDE §3: a button is a verb and an object, three words at most.
+    expect(demoDay.restart.split(" ")).toHaveLength(3);
   });
 
-  it("says honestly why Start does nothing", () => {
-    expect(scenarioClock.startUnavailable).toBe("Demo controls aren't connected yet.");
+  it("is rendered by the bar, and by nothing else in the app", () => {
+    expect(banner).toMatch(/<DemoRestart \/>/);
+    const mounts = readdirSync(UI)
+      .filter((f) => f.endsWith(".tsx") && !f.endsWith(".test.tsx"))
+      .filter((f) => /<DemoRestart\b/.test(read(UI, f)));
+    expect(mounts).toEqual(["DemoBanner.tsx"]);
+    // Not in the app header, which is where the thing it replaces used to live.
+    expect(code(read(UI, "AppShell.tsx"))).not.toMatch(/DemoRestart|Restart demo day/);
   });
 
-  it("is aria-disabled and still focusable, so the reason can be read", () => {
-    expect(component).toMatch(/aria-disabled="true"/);
-    // A real `disabled` would drop the button out of the tab order and silence the note.
-    expect(component).not.toMatch(/\sdisabled[=\s/>]/);
-    expect(component).toMatch(/aria-describedby=\{TOOLTIP_ID\}/);
-    expect(component).toMatch(/role="tooltip"/);
+  it("is drawn for exactly the roles the reset endpoint answers", () => {
+    // DIRECTOR today (src/auth/access.ts). Read from the table, so this follows a change to it.
+    expect(ROLE_LADDER.filter((role) => canRestartDemo(role))).toEqual(RESET_ROLES);
+    expect(canRestartDemo(null)).toBe(false);
   });
 
-  it("shows the note on hover and on focus", () => {
-    expect(css).toMatch(/\.start:hover \+ \.tooltip/);
-    expect(css).toMatch(/\.start:focus \+ \.tooltip/);
+  it("is never drawn for the front desk (REDESIGN-SPEC §0)", () => {
+    expect(canRestartDemo("FRONT_DESK")).toBe(false);
+    // And the bar leaves it out of the markup entirely rather than hiding it in CSS.
+    process.env.APP_DATA_CLASS = "SYNTHETIC";
+    const frontDesk = renderToStaticMarkup(DemoBanner({ role: "FRONT_DESK" }));
+    expect(frontDesk).not.toContain(demoDay.restart);
+    expect(frontDesk).not.toMatch(/<button/);
+    const director = renderToStaticMarkup(DemoBanner({ role: "DIRECTOR" }));
+    expect(director).toContain(demoDay.restart);
   });
 
-  it("renders a focusable, inert Start whose note is tied to it", () => {
-    const html = renderToStaticMarkup(ScenarioClock());
-    expect(html).toContain(scenarioClock.notStarted);
-    expect(html).toContain(scenarioClock.start);
-    expect(html).toContain(escapeApostrophes(scenarioClock.startUnavailable));
-    expect(html).toMatch(/aria-disabled="true"/);
-    // Nothing removes it from the tab order: no `disabled`, no negative tabindex.
-    expect(html).not.toMatch(/\sdisabled[=\s/>]/);
-    expect(html).not.toMatch(/tabindex="-1"/i);
-    const describedBy = /aria-describedby="([^"]+)"/.exec(html)?.[1];
-    expect(describedBy).toBeTruthy();
-    expect(html).toContain(`id="${describedBy}" role="tooltip"`);
+  it("calls the reset this app already has, by its row rather than by a written path", () => {
+    expect(restart).toMatch(/fetch\(API\.demoReset/);
+    expect(restart).toMatch(/method: "POST"/);
+    // src/ui/no-internals.test.ts bars the literal; this is the other half of that rule.
+    expect(restart).not.toMatch(/"\/api\//);
+  });
+
+  it("wears the bar's own pair, not the screen's action colour (D-5)", () => {
+    expect(css).toMatch(/\.button \{[^}]*border: var\(--border-hairline\) solid var\(--color-demo-fg\)/);
+    expect(css).toMatch(/\.button \{[^}]*color: var\(--color-demo-fg\)/);
+    expect(css).toMatch(/\.button:focus-visible \{[^}]*outline: var\(--focus-width\) solid var\(--color-demo-fg\)/);
+    expect(css).not.toMatch(/--color-brand/);
+  });
+
+  it("says what it is doing while it runs, and why it did not when it fails", () => {
+    expect(restart).toMatch(/busy \? demoDay\.restarting : demoDay\.restart/);
+    expect(demoDay.restarting.endsWith("…")).toBe(true);
+    expect(demoDay.failed).toBe("The demo day didn't restart. Try again.");
+    // The failure is announced where it is read, beside the control (§4.2).
+    expect(restart).toMatch(/role="status"/);
   });
 });
 
@@ -348,8 +409,10 @@ describe("§8 primary action token", () => {
     expect(submit).toMatch(/color: var\(--color-surface\)/);
   });
 
-  it("that pair is the §8 row that passes AA (6.70:1)", () => {
-    expect(color.brand).toBe("#1D4ED8");
+  it("that pair is the §8 row that passes AA", () => {
+    // The brand is the founder's teal now (tokens.ts); the pair is checked as a *ratio* rather
+    // than as a hex, so the palette can be answered without this file having an opinion on it.
     expect(color.surface).toBe("#FFFFFF");
+    expect(contrastRatio(color.surface, color.brand)).toBeGreaterThanOrEqual(4.5);
   });
 });

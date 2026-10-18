@@ -83,16 +83,16 @@ export function vanNameOf(slot: number): string {
 /**
  * The design token this van's colour comes from, as a CSS custom-property name.
  *
- * Van 1 keeps the blue the map has always drawn its first route in; **Van 2 is `route-2`**,
- * because the teal it used to wear is the brand's primary now and a van is not an action (Vera,
- * 2026-10-17 6:14 PM ET); Van 3 keeps the vermillion third route. The reserve has
- * no route colour of its own — a fourth would need a fourth contrast row, which is a design
+ * The three the map already draws with (src/ui/tokens.ts, the frame's palette since #71): the
+ * brand teal, the amber `map-route-2` and the vermillion `map-route-3`. There is no blue left in
+ * the app, so Van 1 is the brand colour rather than the mockup's blue. The reserve has no
+ * route colour of its own — a fourth would need a fourth contrast row, which is a design
  * decision and not this file's — so it borrows the muted ink.
  *
  * No hex is written here: every colour in src/ is a token (the no-hex test holds that).
  */
 export function vanColourToken(slot: number): string {
-  return slot === 1 ? "brand" : slot === 2 ? "route-2" : slot === 3 ? "map-route-3" : "ink-muted";
+  return slot === 1 ? "brand" : slot === 2 ? "map-route-2" : slot === 3 ? "map-route-3" : "ink-muted";
 }
 
 /** The config for a vehicle key, or `null` for a vehicle this centre does not have. */

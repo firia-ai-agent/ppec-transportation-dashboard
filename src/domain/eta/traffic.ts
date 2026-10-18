@@ -14,11 +14,11 @@
 /**
  * Times in this project are the centre's, unless stated (DECISION-LEDGER header).
  *
- * The zone is declared once, in src/config/site.ts: this module used to hold a second copy of
- * the string as `PROJECT_TIME_ZONE` beside `SITE_TIME_ZONE` in src/ui/service-date.ts, and two
- * constants with one value are one rename away from two values (Firia's rule 6).
+ * The zone is declared once, in src/ui/service-date.ts: this module used to hold a second copy
+ * of the string as `PROJECT_TIME_ZONE`, and two constants with one value are one rename away
+ * from two values (Firia's rule 6).
  */
-import { SITE_TIME_ZONE } from "@/config/site";
+import { SITE_TIME_ZONE } from "@/ui/service-date";
 
 export { SITE_TIME_ZONE };
 

@@ -1,0 +1,115 @@
+/*
+ * The strip sits under the board's own header, inside it (src/app/(app)/today/TodayBoard.tsx
+ * renders it there), so it has no top margin of its own — the header's gap is the space above
+ * it and the board's first row is what follows.
+ */
+.strip {
+  margin-bottom: var(--space-5);
+}
+
+/* Three equal cards in one row, at every width (REDESIGN-SPEC §9.2 and png/shell-flow-390.png). */
+.list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.item {
+  min-width: 0;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--target-console);
+  padding: var(--space-4);
+  border: var(--border-hairline) solid var(--color-neutral-bg);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  text-decoration: none;
+}
+
+.link {
+  cursor: pointer;
+}
+
+/*
+ * The brand ring §9.2 asks for, on the card you are pointing at. A ring rather than a fill, and
+ * `box-shadow` rather than a thicker border, so hovering a card does not move the two beside it.
+ */
+.link:hover {
+  border-color: var(--color-brand);
+  box-shadow: inset 0 0 0 var(--border-hairline) var(--color-brand);
+}
+
+.link:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+/*
+ * A step this role cannot open: no ring, no pointer, and the card reads as a label rather than
+ * a control. It keeps its place in the row, because the order of the day is the same three
+ * steps for everybody (§9.2, "the front desk sees all three cards").
+ */
+.plain {
+  cursor: default;
+  background: var(--color-neutral-bg);
+  border-color: var(--color-neutral-bg);
+}
+
+/* §9.2: a 32 px disc. The selected tint behind Teal Ink — 8.27:1, and the strip's only colour. */
+.disc {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--color-selected-bg);
+  color: var(--color-ink-brand);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  overflow-wrap: anywhere;
+}
+
+.chevron {
+  flex: none;
+  color: var(--color-ink-muted);
+}
+
+/*
+ * At 390 the three cards stay in one row — §9.2 is explicit about it — and stack inside: the
+ * disc on its own line with the chevron in the corner beside it, then the name under both.
+ */
+@media (max-width: 767px) {
+  .card {
+    position: relative;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3);
+  }
+
+  .chevron {
+    position: absolute;
+    top: var(--space-3);
+    inset-inline-end: var(--space-3);
+  }
+
+  .name {
+    flex: none;
+    font-size: var(--text-14);
+  }
+}

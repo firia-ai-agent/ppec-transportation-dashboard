@@ -37,7 +37,7 @@ export type SetupRow = {
   /**
    * Who set it, **in words** ("Ana P."), or null when nobody is recorded — which is the case for
    * the browser check's session, which has a role and no identity. The row itself holds a user
-   * id; the store turns it into a name on the way out (src/auth/demo-accounts.ts `staffLabel`),
+   * id; the store turns it into a name on the way out (src/modules/plan/staff.ts `staffLabel`),
    * because a screen may not print `display_name`: it carries the synthetic marker.
    */
   setBy: string | null;

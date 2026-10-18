@@ -11,7 +11,7 @@
  * never the server's idea of local time and never the browser's — a coordinator on a laptop still
  * set to Phoenix must be looking at the same day as the person next to them (PRD §6.1).
  */
-import { SITE_TIME_ZONE } from "@/config/site";
+import { SITE_TIME_ZONE } from "@/ui/service-date";
 import { defaultLeg, type Direction } from "@/domain/day/leg";
 import { serviceDateIso } from "@/ui/service-date";
 

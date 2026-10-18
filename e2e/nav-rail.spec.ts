@@ -13,7 +13,7 @@
  */
 import { expect, test } from "@playwright/test";
 import type { StaffRole } from "../src/auth/core";
-import { nav, scenarioClock, unbuilt } from "../src/ui/copy";
+import { demoDay, nav, stub } from "../src/ui/copy";
 import { navItemsFor } from "../src/ui/nav-items";
 import { expectDemoBarPinned, expectNoInternalCodes, shot } from "./helpers";
 
@@ -41,9 +41,9 @@ test.describe(`the rail as ${ROLE}`, () => {
 
     /*
      * The director is the role in the screenshot, so say out loud what they should be getting.
-     * Four, not seven, since Firia's 2:48 PM ET ruling on 2026-10-17: the menu lists only
-     * screens that work, and Exceptions & Approvals, Setup and Health & ROI are each still a
-     * page that says it is not built (src/ui/nav-items.ts carries the flag and the reason).
+     * REDESIGN-SPEC §0's menu, in §0's order: nothing on it 404s and nothing on it opens an
+     * apology, so the two surfaces whose data is not built are on it as a title and a line
+     * (src/ui/nav-items.ts carries the flag and the reason; Setup is the one that is off).
      */
     if (ROLE === "DIRECTOR") {
       expect(EXPECTED.map((item) => item.href)).toEqual([
@@ -51,6 +51,9 @@ test.describe(`the rail as ${ROLE}`, () => {
         "/plan-routes",
         "/live-map",
         "/ramp-ipad",
+        "/family-texts",
+        "/exceptions",
+        "/health",
       ]);
     }
 
@@ -100,34 +103,52 @@ test.describe(`the rail as ${ROLE}`, () => {
 });
 
 test.describe("the two copy fixes, on the screens that show them", () => {
-  /*
-   * Off the menu, not deleted: /health still answers for a role whose row opens it, and it
-   * still says the one honest thing it has to say. Typed, because no menu item leads here any
-   * more — e2e/role-pages.spec.ts is where "no menu item opens an unbuilt page" is measured.
+  /**
+   * A page whose data is not built is its own title and one line about what it will hold — not
+   * "Health & ROI isn't built yet" said twice (REDESIGN-SPEC §0: labels are short and a screen
+   * carries at most one line of prose). It is on the menu now, so a founder reaches it by
+   * clicking rather than by typing a URL, and what they find has to look like a screen.
    */
-  test("the health page says 'not built' once, with no chip repeating it", async ({ page }) => {
+  test("a page whose data is not built is a title and one line", async ({ page }) => {
     test.skip(ROLE === "FRONT_DESK", "the front desk's row does not open a console page");
     await page.goto("/health");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText(
-      unbuilt.heading.replace("{page}", nav.health),
-    );
-    // The chip that used to sit beside the heading said the same thing in smaller type.
-    await expect(page.getByText("Not built yet", { exact: false })).toHaveCount(0);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(nav.health);
     const text = await page.locator("main").innerText();
-    expect(text.match(/built yet/g), text).toHaveLength(1);
+    expect(text).toContain(stub.health);
+    // One line, and no apology repeating the heading in smaller type.
+    expect(text).not.toMatch(/built yet/i);
   });
 
-  test("the Start beside the demo readout says what it starts, and stays inert", async ({
-    page,
-  }) => {
-    test.skip(ROLE === "FRONT_DESK", "the board is not on the front desk's menu");
-    await page.goto("/today");
-    await expect(page.getByText(scenarioClock.notStarted)).toBeVisible();
-    const start = page.getByRole("button", { name: scenarioClock.start });
-    await expect(start).toBeVisible();
-    // Inert, not absent: it keeps its place in the tab order so the reason can be read (§9).
-    await expect(start).toHaveAttribute("aria-disabled", "true");
-    await start.focus();
-    await expect(page.getByRole("tooltip")).toHaveText(scenarioClock.startUnavailable);
+  /**
+   * The demo's one control is the DEMO bar's, and the white app header holds none of it
+   * (REDESIGN-SPEC §0). It used to be a "Demo day · Not started" readout in the header with an
+   * inert "Start demo day" beside it; both are deleted, so what is measured here is where the
+   * control *is* — inside the violet bar — and that the header has nothing of the demo left.
+   */
+  test("the demo's one control is in the DEMO bar, not in the app header", async ({ page }) => {
+    await page.goto(ROLE === "FRONT_DESK" ? "/live-map" : "/today");
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+
+    const header = page.locator("header").first();
+    await expect(header).toBeVisible();
+    // Nothing about the demo in the white row: no readout, no Start, no Restart.
+    expect(await header.innerText()).not.toMatch(/demo day/i);
+
+    const restart = page.locator("[data-demo-restart]");
+    if (ROLE === "DIRECTOR") {
+      await expect(restart).toBeVisible();
+      await expect(restart).toHaveText(demoDay.restart);
+      // In the bar: the element that carries the "DEMO" status is its sibling.
+      expect(
+        await restart.evaluate((el) => {
+          const bar = document.querySelector('[role="status"][aria-label="DEMO"]')?.parentElement;
+          return bar?.contains(el) ?? false;
+        }),
+      ).toBe(true);
+    } else {
+      // The reset answers one role, so one role is offered it (src/ui/DemoBanner.tsx).
+      await expect(restart).toHaveCount(0);
+      expect(await page.locator("body").innerText()).not.toMatch(/Restart demo day|Start demo day/);
+    }
   });
 });

@@ -17,6 +17,7 @@ import { expect, test } from "@playwright/test";
 import { flow, board as boardCopy, drawer, fill, sentence, serviceDate } from "../src/ui/copy";
 import { legStates } from "../src/ui/states";
 import { demoDay, serviceDayFor } from "../src/domain/board/day";
+import { demoDateIso } from "../src/ui/service-date";
 import {
   boxOf,
   expectDemoBarPinned,
@@ -330,15 +331,25 @@ for (const width of WIDTHS) {
       await page.goto("/today");
       await expect(page.getByRole("heading", { level: 1, name: boardCopy.heading })).toBeVisible();
 
-      // The one date, labelled: "Service date · Wed, Oct 14 · Demo day".
+      /*
+       * The one date, labelled: "Service date · Sat, Oct 17 · Demo day". The words are the day
+       * the demo is being *given* on — the scenario replays a seeded Wednesday and every screen
+       * re-dates it (Firia, 2026-10-17 4:50 PM ET; src/ui/service-date.ts) — and the `datetime`
+       * attribute says the same day the words do, which is the whole of that ruling.
+       */
       const dates = page.locator("time[datetime]");
       await expect(dates).toHaveCount(1);
       await expect(dates).toHaveText(demoDay().label);
-      await expect(dates).toHaveAttribute("datetime", demoDay().iso);
+      await expect(dates).toHaveAttribute("datetime", demoDateIso(demoDay().iso));
       await expect(page.getByText(serviceDate.groupLabel)).toBeVisible();
       await expect(page.getByText(serviceDate.phases.LIVE, { exact: true })).toBeVisible();
 
-      // Today's real date is nowhere on the screen — not in the board, not in the chrome.
+      /*
+       * The real date is the one the board shows now, so this is the check it has become: if
+       * the mapping ever stopped happening, the fixture's own day would be on screen instead
+       * and `realToday !== demoDay().label` would be true — and the board would be printing a
+       * date that is not today, which is what the walk caught.
+       */
       const realToday = new Intl.DateTimeFormat("en-US", {
         timeZone: "America/New_York",
         weekday: "short",
@@ -362,7 +373,7 @@ for (const width of WIDTHS) {
         return Array.from(document.querySelectorAll("a[href*='date=']")).filter(
           (link) => !strip?.contains(link),
         ).length;
-      }, flow.steps.aria);
+      }, flow.stepsAria);
       expect(dateLinksOutsideTheStrip).toBe(0);
       for (const name of [/previous day/i, /next day/i]) {
         await expect(page.getByRole("link", { name })).toHaveCount(0);
@@ -392,7 +403,10 @@ for (const width of WIDTHS) {
         }),
       ).toBeVisible();
       await expect(page.getByText(serviceDate.phases.ENDED)).toBeVisible();
-      await expect(page.locator("time[datetime]")).toHaveAttribute("datetime", FINISHED.iso);
+      await expect(page.locator("time[datetime]")).toHaveAttribute(
+        "datetime",
+        demoDateIso(FINISHED.iso),
+      );
       // …and that day's rides are the finished ones.
       await expect(page.getByText(/^Handed off to /).first()).toBeVisible();
     });

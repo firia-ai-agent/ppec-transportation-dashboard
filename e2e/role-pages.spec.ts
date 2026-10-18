@@ -21,6 +21,7 @@ import { API, canOpenPage, homePathFor } from "../src/auth/access";
 import type { StaffRole } from "../src/auth/core";
 import { nav, toast, unbuilt } from "../src/ui/copy";
 import { navItems, navItemsFor } from "../src/ui/nav-items";
+import { splitTabs } from "../src/ui/TabBar";
 import {
   boxOf,
   expectDemoBarPinned,
@@ -35,6 +36,9 @@ const ROLE = (process.env.E2E_DEMO_ROLE ?? "DIRECTOR") as StaffRole;
 
 /** This role's menu, and where the access table sends them when they need somewhere to be. */
 const MENU = navItemsFor(ROLE);
+
+/** What the phone bar's five slots carry (REDESIGN-SPEC §9.2): the rest is behind "More". */
+const TABS = splitTabs(MENU).tabs;
 const HOME = homePathFor({ kind: "STAFF", role: ROLE });
 
 /**
@@ -164,7 +168,7 @@ for (const width of [1280, 390] as const) {
         // The menu is on screen around it, which is the thing the refusal page did not have.
         const menu = menuOn(page, width);
         await expect(menu).toBeVisible();
-        await expect(menu.getByRole("link")).toHaveCount(MENU.length);
+        await expect(menu.getByRole("link")).toHaveCount(width < 768 ? TABS.length : MENU.length);
         await expectDemoBarPinned(page);
         await expectOneSimulatedChip(page);
         await expectHeaderIsOneRow(page);

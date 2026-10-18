@@ -367,6 +367,10 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/refusal-check": "SIGNED_IN",
       "/today": "DIRECTOR+COORDINATOR",
       "/exceptions": "DIRECTOR+COORDINATOR",
+      // The founder's redesign (REDESIGN-SPEC §0, §9.2): the family thread, and the approvals
+      // queue inside it. Both mirror /exceptions — the two console roles, not the front desk.
+      "/family-texts": "DIRECTOR+COORDINATOR",
+      "/approvals": "DIRECTOR+COORDINATOR",
       "/setup": "DIRECTOR+COORDINATOR",
       "/health": "DIRECTOR+COORDINATOR",
       "/plan-routes": "DIRECTOR+COORDINATOR",
@@ -432,12 +436,15 @@ describe("the policy itself, written out so a silent widening fails", () => {
 
   it("all five open questions are flagged in the source, in the one marker style", () => {
     /*
-     * All five are rows in this table (above). A sixth used to sit in src/ui/tokens.ts — the
-     * brand palette the brief named, which no token defined — and it was **answered** on
-     * 2026-10-17 at 6:14 PM ET (Vera, founder-approved): Teal, Teal Ink, the tint and Coral are
-     * tokens now, so the marker is gone with the question. Counted across the whole of src/ so a
-     * question cannot be answered by deleting its marker, and written out per file so a marker
-     * that lands somewhere unexpected fails here rather than passing a total.
+     * Five, and they are all rows in this table. There were six: the sixth was not about access
+     * at all — the brand palette the brief named, which no token in this repo defined — and it
+     * was marked in src/ui/tokens.ts where someone would act on it. The founder answered it on
+     * 2026-10-17 at 6:19 PM ET (teal, Teal Ink, the selected tint, coral for alerts), so the
+     * marker came off with the question, which is the rule this file holds everywhere else too.
+     *
+     * Counted across the whole of src/ so a question cannot be answered by deleting its marker,
+     * and written out per file so a marker that lands somewhere unexpected fails here rather
+     * than passing a total.
      */
     const flagged = walk(SRC)
       .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
@@ -590,14 +597,22 @@ describe("where each role lives", () => {
 
   it("offers each role only the nav items it can open", () => {
     /*
-     * The whole menu, for a role whose row opens everything: the board, the planning surface,
-     * the live map and the ramp iPad. The three console destinations whose pages are not built
-     * — Exceptions & Approvals, Setup, Health & ROI — are off the *menu* (Firia, 2026-10-17
-     * 2:48 PM ET, the `inMenu` flag in src/ui/nav-items.ts) while their rows and their routes
-     * stay exactly as they are; `rolesWhoCanOpen` below is still asked about all seven.
-     * Addresses only — no "preview" in any of them.
+     * The whole menu, for a role whose row opens everything, in REDESIGN-SPEC §0's order: the
+     * day's four screens, then Family texts, then the two surfaces that are about the day
+     * rather than in it. Setup is the one destination off the *menu* (the `inMenu` flag in
+     * src/ui/nav-items.ts), because §0 moves van counts onto the ramp iPad rather than because
+     * the page is unfinished; its row and its route are untouched, and `rolesWhoCanOpen` below
+     * is still asked about every destination. Addresses only — no "preview" in any of them.
      */
-    const everything = ["/today", "/plan-routes", "/live-map", "/ramp-ipad"];
+    const everything = [
+      "/today",
+      "/plan-routes",
+      "/live-map",
+      "/ramp-ipad",
+      "/family-texts",
+      "/exceptions",
+      "/health",
+    ];
     expect(navItemsFor("DIRECTOR").map((i) => i.href)).toEqual(everything);
     expect(navItemsFor("COORDINATOR").map((i) => i.href)).toEqual(everything);
     /*

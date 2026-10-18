@@ -16,48 +16,65 @@
 /* ───────────────────────────── colour (§8) ───────────────────────────── */
 
 /**
- * ANSWERED, 2026-10-17 6:14 PM ET (Vera, founder-approved): the brand palette **is** being
- * adopted — Teal `#0F766E` primary, Teal Ink `#134E4A` for headings, the tint `#E6F2F1` for a
- * selected thing, Coral `#E8735A` for alert accents, and violet still only on DEMO/Simulated.
+ * THE PALETTE, as the founder approved it on 2026-10-17 (6:19 PM ET).
  *
- * The four are added below rather than written over `brand`, `info-*` and the rest: the rebuilt
- * screens (Plan routes §1, Ramp iPad §2) read them, and recolouring `brand` itself would restyle
- * every screen this PR did not rebuild. The frame PR (Rework 1) owns the sweep of tokens.ts;
- * when it lands, `brand` becomes teal and these aliases collapse into it.
+ * The brief named a Teal / Teal Ink / Coral palette and this table used to define none of it —
+ * `brand` and `focus` were a blue nothing in the brief asked for, and the question
+ * "is the brand palette being adopted, or is §8 the palette?" stood in this comment unanswered.
+ * It is answered: the brand is Teal #0F766E, headings and the brand mark are Teal Ink #134E4A
+ * (`ink-brand`), the tint behind the thing you are on is #E6F2F1 (`selected-bg`, always with
+ * Teal Ink on it), coral #E8735A is for alerts and nothing else, and the page is pure white.
+ *
+ * There is no blue left anywhere under src/ — not in the tones, not on the map's route lines —
+ * which is the whole of the change: a screen that is teal except for one blue chip reads as two
+ * products. `info` moved to the teal-ink family for that reason, and the map's second van line
+ * to the amber family (its third was already a vermillion); the trio is still told apart by a
+ * colour-vision-deficient reader, and the van's own name is written along its line either way.
  */
 export const color = {
   ink: "#0F172A",
   "ink-muted": "#475569",
-  bg: "#F8FAFC",
+  /**
+   * Teal Ink: the headings and the brand mark (§2's h1, the product name in the shell). It is
+   * the brand at reading weight — 9.47:1 on white, where the brand itself is 5.47:1 — so a
+   * page title can be brand-coloured without being the one thing on the screen that is hardest
+   * to read.
+   */
+  "ink-brand": "#134E4A",
+  /** The page. Pure white, as the mockups are: there is no second off-white behind a surface. */
+  bg: "#FFFFFF",
   surface: "#FFFFFF",
   "border-strong": "#64748B",
-  brand: "#1D4ED8",
-  focus: "#1D4ED8",
-
+  brand: "#0F766E",
+  focus: "#0F766E",
   /**
-   * The brand palette (Vera, 2026-10-17 6:14 PM ET, founder-approved), read by the rebuilt
-   * Plan routes and Ramp iPad.
-   *
-   *  - `teal` is the primary: a primary button's fill, a selected tab's fill, the meter bar and
-   *    the dashed outline a van gets while it can take the child being dragged.
-   *  - `teal-ink` is a heading and the text on the tint.
-   *  - `teal-tint` is "this one is selected" — a fill, never the only cue (§0's rule 2).
-   *  - `coral` is an **alert accent only**: the rule down a won't-fit banner, the edge of a
-   *    column that is refusing a drop, the ring on an over count. It is 2.99:1 on white, which
-   *    is under even the 3:1 UI floor, so it is never text, never a chip's fill behind text and
-   *    never the only cue — the word, the icon and the crit tone beside it carry the meaning,
-   *    and this is the decoration that makes them findable. That is why it has no contrast row:
-   *    there is no pair it is required to pass, because nothing is read off it.
+   * The thing you are on: the current rail item, the current tab, the option a segmented
+   * control is set to. Always carrying `ink-brand`, never `brand` and never `ink` — the pair is
+   * 8.27:1 and is the one tint in the app that means "this one", so it is never decoration.
    */
-  teal: "#0F766E",
-  "teal-ink": "#134E4A",
-  "teal-tint": "#E6F2F1",
-  coral: "#E8735A",
+  "selected-bg": "#E6F2F1",
+  /**
+   * Coral, for alerts and for nothing else (the founder's palette, 6:19 PM ET). It is a fill
+   * with `ink` on it (5.97:1), never text and never a border on its own: at 2.99:1 against
+   * white it would be a mark nobody is sure they saw.
+   *
+   * TODO(data-model): the alert it is for is the count of things waiting on a person — the
+   * Family texts badge in the mockup — and that count is read from the day's readiness, which
+   * docs/DATA-MODEL.md has not signed. Nothing paints it until then: an alert colour on an
+   * invented number is worse than no alert colour.
+   */
+  alert: "#E8735A",
 
   "ok-fg": "#166534",
   "ok-bg": "#DCFCE7",
-  "info-fg": "#1E40AF",
-  "info-bg": "#DBEAFE",
+  /*
+   * `info` is the teal-ink family now, not a blue. Three of the five tones were already
+   * unmistakable (green, amber, red); the fourth was the one colour on a teal screen that
+   * belonged to another palette. It is still never the only cue — §3 gives every state an icon
+   * and a word — and it is darker and cooler than `ok`, which is the tone next to it.
+   */
+  "info-fg": "#115E59",
+  "info-bg": "#CCFBF1",
   "warn-fg": "#854D0E",
   "warn-bg": "#FEF9C3",
   "crit-fg": "#991B1B",
@@ -105,21 +122,18 @@ export const color = {
    *
    * Three because the demo day has three lanes, and the first of them is `brand` — the one route
    * colour the map already had (src/components/map/style.ts `MAP_TOKENS.route`) — so these are
-   * its second and third and there is no fourth copy of blue. Blue, bluish-green and vermillion
-   * is the colour-vision-deficient-safe trio, and it is still never the only cue: every line on
-   * the plan map carries the van's own name along it (§3, `planRoutes.mapVanRow`).
+   * its second and third. Teal, amber and vermillion: three hues a colour-vision-deficient
+   * reader still separates (the pair that is hardest for them, red and green, is not in it), and
+   * colour is never the only cue anyway — every line on the plan map carries the van's own name
+   * along it (§3, `planRoutes.mapVanRow`).
    *
-   * Not a status colour between them: green, amber and red are the truck tones above and the
-   * five chip tones, and violet is the demo's. A van is not a state.
+   * A van is not a state, and the second line is now in the amber family the stale-GPS truck
+   * tone also lives in — so the two are kept apart by what carries them rather than by hue: a
+   * route colour is only ever a *line* and the numbered circle on it, and a truck tone is only
+   * ever the *marker* for a van, which carries its freshness in words beside it (§3, §5). Violet
+   * is the demo's and is on neither.
    */
-  /**
-   * Van 2's route colour (Vera, 2026-10-17 6:14 PM ET). It replaces `map-route-2`, which was the
-   * same teal the palette now spends on "primary" — and a van is not an action. One van has one
-   * colour everywhere: the swatch on its board column, the number on its rider cards and its
-   * line on the map all read this through the shared van config (src/config/vans.ts). White
-   * text on it — the stop number a rider card carries — is 5.02:1.
-   */
-  "route-2": "#B45309",
+  "map-route-2": "#B45309",
   "map-route-3": "#9A3412",
 
   /**
@@ -152,17 +166,31 @@ export const contrastPairs: ReadonlyArray<{
   documented: number;
   needs: 3 | 4.5;
 }> = [
-  { fg: "ink", bg: "bg", documented: 17.06, needs: 4.5 },
+  { fg: "ink", bg: "bg", documented: 17.85, needs: 4.5 },
   { fg: "ink", bg: "surface", documented: 17.85, needs: 4.5 },
   { fg: "ink-muted", bg: "surface", documented: 7.58, needs: 4.5 },
-  { fg: "ink-muted", bg: "bg", documented: 7.24, needs: 4.5 },
+  { fg: "ink-muted", bg: "bg", documented: 7.58, needs: 4.5 },
   { fg: "border-strong", bg: "surface", documented: 4.76, needs: 3 },
-  { fg: "brand", bg: "surface", documented: 6.7, needs: 4.5 },
-  { fg: "surface", bg: "brand", documented: 6.7, needs: 4.5 },
-  { fg: "focus", bg: "surface", documented: 6.7, needs: 3 },
-  { fg: "focus", bg: "bg", documented: 6.41, needs: 3 },
+  { fg: "brand", bg: "surface", documented: 5.47, needs: 4.5 },
+  { fg: "surface", bg: "brand", documented: 5.47, needs: 4.5 },
+  { fg: "focus", bg: "surface", documented: 5.47, needs: 3 },
+  { fg: "focus", bg: "bg", documented: 5.47, needs: 3 },
+  /*
+   * The founder's palette, as three pairs rather than three hexes (6:19 PM ET). Teal Ink is a
+   * heading on the page and a heading on the tint behind the thing you are on; the brand itself
+   * is checked on that tint too, because the current rail item carries its icon.
+   */
+  { fg: "ink-brand", bg: "surface", documented: 9.48, needs: 4.5 },
+  { fg: "ink-brand", bg: "selected-bg", documented: 8.27, needs: 4.5 },
+  { fg: "brand", bg: "selected-bg", documented: 4.78, needs: 4.5 },
+  /*
+   * Coral is a fill with `ink` on it and never text of its own (see the token). The pair is
+   * written down here so that a future alert badge is built from a row that has been computed,
+   * rather than from a hex someone liked the look of.
+   */
+  { fg: "ink", bg: "alert", documented: 5.98, needs: 4.5 },
   { fg: "ok-fg", bg: "ok-bg", documented: 6.49, needs: 4.5 },
-  { fg: "info-fg", bg: "info-bg", documented: 7.15, needs: 4.5 },
+  { fg: "info-fg", bg: "info-bg", documented: 6.73, needs: 4.5 },
   { fg: "warn-fg", bg: "warn-bg", documented: 6.38, needs: 4.5 },
   { fg: "crit-fg", bg: "crit-bg", documented: 6.8, needs: 4.5 },
   { fg: "neutral-fg", bg: "neutral-bg", documented: 8.4, needs: 4.5 },
@@ -175,26 +203,18 @@ export const contrastPairs: ReadonlyArray<{
   { fg: "warn-fg", bg: "surface", documented: 6.85, needs: 4.5 },
   { fg: "crit-fg", bg: "surface", documented: 8.31, needs: 4.5 },
   { fg: "src-sim", bg: "surface", documented: 7.1, needs: 4.5 },
-  { fg: "src-sim", bg: "bg", documented: 6.79, needs: 4.5 },
+  { fg: "src-sim", bg: "bg", documented: 7.1, needs: 4.5 },
   { fg: "ink-muted", bg: "surface", documented: 7.58, needs: 4.5 },
   { fg: "ink", bg: "surface", documented: 17.85, needs: 4.5 },
-  { fg: "border-strong", bg: "bg", documented: 4.55, needs: 3 },
+  { fg: "border-strong", bg: "bg", documented: 4.76, needs: 3 },
   { fg: "map-truck-ok", bg: "surface", documented: 5.02, needs: 3 },
   { fg: "map-truck-stale", bg: "surface", documented: 4.92, needs: 3 },
   { fg: "map-truck-crit", bg: "surface", documented: 6.47, needs: 3 },
   // Not §8 rows: the second and third route lines, held to the 3:1 UI floor on the white the
   // basemap's lightest fill is, and to 4.5:1 besides, because the stop number a line's own
   // circle carries is `surface` text sitting on it.
+  { fg: "map-route-2", bg: "surface", documented: 5.02, needs: 3 },
   { fg: "map-route-3", bg: "surface", documented: 7.31, needs: 3 },
-  // The brand palette (6:14 PM ET). Teal is text and a button fill both ways round; the tint is
-  // only ever behind Teal Ink; Van 2's route carries a white stop number.
-  { fg: "teal", bg: "surface", documented: 5.47, needs: 4.5 },
-  { fg: "teal", bg: "bg", documented: 5.23, needs: 4.5 },
-  { fg: "surface", bg: "teal", documented: 5.47, needs: 4.5 },
-  { fg: "teal-ink", bg: "surface", documented: 9.48, needs: 4.5 },
-  { fg: "teal-ink", bg: "teal-tint", documented: 8.27, needs: 4.5 },
-  { fg: "route-2", bg: "surface", documented: 5.02, needs: 3 },
-  { fg: "surface", bg: "route-2", documented: 5.02, needs: 4.5 },
 ];
 
 /** WCAG 2.1 relative luminance of a `#RRGGBB` string. */

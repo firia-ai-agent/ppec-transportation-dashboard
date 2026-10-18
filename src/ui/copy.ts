@@ -43,6 +43,37 @@ export const app = {
 export const demoBanner = {
   text: "DEMO",
   ariaLabel: "DEMO",
+  /**
+   * The bar reads `DEMO · Synthetic data · [Simulated] ……… [Restart demo day]` (REDESIGN-SPEC
+   * §0). "Synthetic data" is what the demo *is*; the chip beside it is where this screen's data
+   * came from; the button at the end is the only control in the bar. Below 768 the words are
+   * dropped and the chip and the button stay — a phone has room for the two things that do
+   * something and not for the sentence about them.
+   */
+  syntheticData: "Synthetic data",
+} as const;
+
+/**
+ * THE ONE CONTROL IN THE DEMO BAR — "Restart demo day" (REDESIGN-SPEC §0, and the founder's
+ * mockups, which put it at the right-hand end of the violet bar).
+ *
+ * It used to be "Start demo day" in the white app header, beside a readout saying "Demo day ·
+ * Not started", and it did nothing: the demo-controls dock was never built, so the button was
+ * rendered inert with a note saying why. A button that cannot be pressed, next to a readout of
+ * a state nothing sets, is two pieces of chrome explaining each other. Both are gone; this is
+ * the reset the app already has (the demo reset endpoint), wearing the bar it belongs to.
+ *
+ * One label, not two: whether the day has been started is a fact about the day's readiness, and
+ * TODO(data-model) — docs/DATA-MODEL.md has not signed the section that says how it is read —
+ * so the button says the thing that is true either way. Re-running the reset on a day that has
+ * not started gives exactly the day a start would have.
+ */
+export const demoDay = {
+  restart: "Restart demo day",
+  /** While the reset is running. The button keeps its place and says what it is doing (§4.2). */
+  restarting: "Restarting…",
+  /** The reset refused or the network did. One line, no status code, and the way on is to retry. */
+  failed: "The demo day didn't restart. Try again.",
 } as const;
 
 /**
@@ -58,8 +89,65 @@ export const nav = {
   exceptions: "Exceptions & Approvals",
   setup: "Setup",
   health: "Health & ROI",
+  /** REDESIGN-SPEC §0, menu item 5: the family thread, and the approvals waiting inside it. */
+  familyTexts: "Family texts",
+  /** Not a menu item (§9.2): the "For you" half of Family texts, reachable from it. */
+  approvals: "Approvals",
   landmarkLabel: "Main",
   menuLabel: "Menu",
+  /**
+   * The phone's overflow tab. Below 768 the bar carries five equal tabs; a role with more
+   * destinations than that gets four and this, which opens the rest in a sheet over the screen
+   * (src/ui/TabBar.tsx). It is a tab like the others — not a hamburger, and not a side drawer,
+   * both of which Firia deleted on 2026-10-17 at 3:08 PM ET.
+   */
+  more: "More",
+  /** The sheet's own accessible name, and the button that closes it. */
+  moreLabel: "More destinations",
+  closeMore: "Close",
+} as const;
+
+/**
+ * The step strip under Today's header (REDESIGN-SPEC §9.2, §9.5). The three steps of the day, in
+ * order, each a link to the screen that does it. States (Done / Needed / Locked) are not shown yet:
+ * TODO(data-model): they are read from docs/DATA-MODEL.md once its van / day-counts / plan
+ * section is signed, and no screen decides them on its own before then.
+ */
+export const flow = {
+  stepsAria: "Today's steps",
+  steps: {
+    setup: "Van setup",
+    plan: "Plan routes",
+    live: "Live map",
+  },
+  /**
+   * What a screen says when the step before it is missing, and the one link that fixes it
+   * (redesign spec §9.5). The board and the ramp read these; the step strip above reads the
+   * two keys before them. One block, because the strip and the screens must say the same thing
+   * about the same day.
+   */
+  banner: {
+    /** An unconfirmed van is planned on its shared-config defaults (Firia/Veri, 6:00 PM ET). */
+    usingDefault: "Using default setup",
+    notStarted: "Day not started",
+  },
+  action: {
+    planRoutes: "Plan routes",
+    checkVans: "Check vans",
+    startDemo: "Start demo day",
+  },
+  empty: {
+    noRoutes: "No routes yet",
+    /** "9 riders · Morning" */
+    ridersLeg: "{n} riders · {leg}",
+    noRiders: "No riders today",
+    noRidersPlanned: "No riders planned",
+    noVans: "No vans yet",
+    allChecked: "All vans checked",
+  },
+  /** The one question a board with an unsaved change asks before it is left (§9.2). */
+  leave: { title: "Leave without saving?", stay: "Stay", leave: "Leave" },
+  error: { load: "Couldn’t load · Retry" },
 } as const;
 
 /** COPY-GUIDE §5: visible label "Search", placeholder "Child, route or vehicle". */
@@ -400,29 +488,6 @@ export function onDay(words: { today: string; otherDay: string }, day: LabelledD
 }
 
 /**
- * Scenario clock in the header (§2). The demo-controls dock (§6.1) owns the clock; until it
- * is wired the readout says the demo has not started and Start says honestly why it is inert.
- */
-export const scenarioClock = {
-  /**
-   * The readout itself, which now says what it is a readout of. It used to be "Demo not
-   * started" under a "Scenario clock" label — two lines, one of them a term from the build
-   * (Vera's review, 2026-10-17 2:44 PM ET). The label is gone and the readout carries the
-   * subject: "Demo day", then the state it is in.
-   */
-  notStarted: "Demo day · Not started",
-  /**
-   * COPY-GUIDE §3, "Buttons: verb + object, ≤3 words". It read "Start" — a verb with nothing
-   * after it, sitting next to "Demo not started", so the one thing a founder is about to click
-   * did not say what it starts. COPY-GUIDE §5 sketches this control as "[Start]"; that line
-   * predates §3's button rule and is the shorter of the two, so the rule wins.
-   */
-  start: "Start demo day",
-  /** Shown on hover and on focus; the button stays focusable so this can be read (§9). */
-  startUnavailable: "Demo controls aren't connected yet.",
-} as const;
-
-/**
  * Surfaces that exist in the nav but whose data and interactions are not built yet. Each one
  * says so in its heading and then says, in one plain sentence, what it will do. No ticket
  * codes: a build-step name means nothing to a coordinator (COPY-GUIDE §1).
@@ -438,6 +503,28 @@ export const unbuilt = {
   setup: "This page will hold the vans, their seat layouts, and the people allowed to receive a child.",
   health:
     "This page will show whether each part of the system is working, next to the time the demo says it saves.",
+} as const;
+
+/**
+ * A SCREEN THAT IS A TITLE AND ONE LINE.
+ *
+ * The difference between this and `unbuilt` above is what the screen is *for*. `unbuilt` is an
+ * apology — "Health & ROI isn't built yet" — which was right while those three were off the
+ * menu and reachable only by typing a URL. They are on the menu now (REDESIGN-SPEC §0 asks for
+ * nothing to 404 from it), and a founder clicking a menu item should land on a screen, not on a
+ * notice about the build. So each of these is the page's own name as its heading and one line
+ * saying what it will hold — the §0 copy rule, which allows a label and at most one short line.
+ *
+ * No ticket codes, no dates, no promises about when (COPY-GUIDE §1): what the page is for is
+ * true today; when it lands is not something this screen knows.
+ */
+export const stub = {
+  exceptions: "What needs action, who is handling it, and when it is due.",
+  health: "Whether each part of the system is working, and the time the demo saves.",
+  familyTexts: "Every text this day sent to a family, and what they sent back.",
+  approvals: "Changes waiting for a person to approve.",
+  /** The one link out of Family texts, to the half of it that is the approvals queue (§9.2). */
+  approvalsLink: "For you",
 } as const;
 
 /** Sign-in. §9: visible labels, errors in text next to the field with aria-describedby. */
@@ -630,11 +717,19 @@ export const notFound = {
   signIn: login.submit,
 } as const;
 
-/** Developer surface: confirms the signed-in identity against the database. */
+/**
+ * The account page: who you are signed in as, in one line.
+ *
+ * It used to carry `membership: "{role} at site {siteId}"` — a role *key* and a site UUID, on
+ * the grounds that a developer surface may show internals (COPY-GUIDE §2). It is not a
+ * developer surface: it is in the frame, on the menu's own account route, and a founder opens
+ * it in front of a customer. So the enum and the id are gone and what is left is the person and
+ * their role in the words the rest of the app already uses (`roleNames`).
+ */
 export const whoami = {
   heading: "Signed in",
-  /** Internal role enum names are allowed on developer surfaces only (COPY-GUIDE §2). */
-  membership: "{role} at site {siteId}",
+  /** "Dana M. · Director" — the §3 middle dot the board and the drawer already join with. */
+  separator: " · ",
 } as const;
 
 /**
@@ -1601,60 +1696,6 @@ export const vanArrival = {
   counterSr: "{thing}: {n}",
 } as const;
 
-/**
- * The order of the day, and what a screen says when the step before it is missing (redesign spec
- * §9.5, binding interim rules of 2026-10-17 3:00 PM ET).
- *
- * One block, because the step strip, every empty state and the server guards read the same
- * readiness object (src/domain/day/readiness.ts) and must say the same thing about it. No string
- * here is longer than six words, every state has a word as well as an icon, and the times are
- * 12-hour in centre time.
- */
-export const flow = {
-  steps: {
-    aria: "Today’s steps",
-    setup: "Van setup",
-    plan: planBoard.heading,
-    live: liveMap.heading,
-  },
-  state: { done: "Done", needed: "Needed", locked: "Locked", running: "Running" },
-  setup: {
-    /** "1/3 checked" — how many vans the ramp has confirmed today. */
-    detail: "{checked}/{total} checked",
-  },
-  plan: {
-    detailSaved: "Saved {time}",
-    detailNone: "Not saved",
-    detailNotStarted: "Start the day first",
-  },
-  live: {
-    detailLocked: "Plan first",
-    detailNeeded: "Not started",
-    detailRunning: "{n} vans out",
-    notStartedChip: "Not started",
-  },
-  empty: {
-    noRoutes: "No routes yet",
-    /** "9 riders · Morning" */
-    ridersLeg: "{n} riders · {leg}",
-    noRiders: "No riders today",
-    noRidersPlanned: vanArrival.noRidersPlanned,
-    noVans: "No vans yet",
-    allChecked: vanArrival.allChecked,
-  },
-  banner: {
-    /** One line, one wording, on the board and in the step strip (6:00 PM ET ruling). */
-    usingDefault: planBoard.usingDefault,
-    notStarted: "Day not started",
-  },
-  action: {
-    planRoutes: planBoard.heading,
-    checkVans: "Check vans",
-    startDemo: "Start demo day",
-  },
-  leave: { title: "Leave without saving?", stay: "Stay", leave: "Leave" },
-  error: { load: "Couldn’t load · Retry" },
-} as const;
 
 /*
  * `vanName(description)` — "the convertible van" — is gone with the screens that printed it.

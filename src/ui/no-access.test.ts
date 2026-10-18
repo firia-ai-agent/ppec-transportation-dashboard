@@ -186,9 +186,10 @@ describe("the DEMO bar and the Simulated chip, from the one place that mounts th
   const source = readFileSync(path.join(__dirname, "NoAccess.tsx"), "utf8");
 
   it("come from the root layout, which is above this card on this route like every other", () => {
-    expect(readFileSync(path.join(__dirname, "..", "app", "layout.tsx"), "utf8")).toMatch(/<DemoBanner \/>/);
-    // And the card mounts neither of them itself: one bar and one chip per screen (NFR-09).
-    expect(source).not.toMatch(/DemoBanner|ScreenSource|SourceBadge/);
+    // `DemoBar` is the bar plus the one session read that decides whether it draws its control.
+    expect(readFileSync(path.join(__dirname, "..", "app", "layout.tsx"), "utf8")).toMatch(/<DemoBar \/>/);
+    // And the card mounts none of them itself: one bar and one chip per screen (NFR-09).
+    expect(source).not.toMatch(/DemoBar|DemoBanner|ScreenSource|SourceBadge/);
   });
 });
 

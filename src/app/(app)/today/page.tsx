@@ -1,10 +1,6 @@
 import { requirePage } from "@/auth/page-guard";
 import { buildBoard, CLOCK_PARAM, requestedBoardDay } from "@/domain/board/board";
-import { canOpenPage } from "@/auth/access";
-import PlanBoard from "@/app/plan-routes/board/PlanBoard";
-import { siteOf } from "@/modules/plan/api";
-import { loadBoard, planStore } from "@/modules/plan/store";
-import { resolveDate, resolveLeg } from "@/modules/plan/when";
+import { stepsFor } from "@/ui/step-strip";
 import { TodayBoard } from "./TodayBoard";
 
 /** The guard reads a session, so this route is never statically rendered. */
@@ -61,30 +57,10 @@ export default async function Page({
     requestedBoardDay(one(params.date), one(params[CLOCK_PARAM]), process.env),
   );
 
-  /*
-   * Today's child list **is the plan board** (founder 2026-10-17 7:17 PM ET), not a second
-   * static table of the same children: one component, one set of drag targets, one child panel.
-   * A coordinator who moves somebody here has moved them on Plan routes, because it is the same
-   * plan and the same `plan_assignment` rows.
-   *
-   * It is read-only for a role that cannot open Plan routes — no grips, no Save on the panel —
-   * and the endpoints refuse that role as well (src/auth/access.ts).
-   */
-  const date = resolveDate(one(params.date));
-  const leg = resolveLeg(one(params.leg));
-  let plan: Awaited<ReturnType<typeof loadBoard>> | null = null;
-  try {
-    plan = await loadBoard(planStore(), siteOf(caller), date, leg);
-  } catch {
-    plan = null;
-  }
+  // The day's three steps, each a link to its screen — only where this role may open it.
+  const steps = stepsFor(caller.kind === "STAFF" ? caller.role : null);
 
-  return (
-    <>
-      {plan ? (
-        <PlanBoard view={plan} canEdit={canOpenPage(caller, "/plan-routes")} headingLevel={2} />
-      ) : null}
-      <TodayBoard board={board} query={query} />
-    </>
-  );
+  // The strip belongs under the board's own header (REDESIGN-SPEC §9.2), so it is handed to
+  // the board rather than rendered above everything: the board is what owns that header.
+  return <TodayBoard board={board} query={query} steps={steps} />;
 }

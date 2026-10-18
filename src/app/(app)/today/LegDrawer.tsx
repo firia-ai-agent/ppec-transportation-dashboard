@@ -11,10 +11,10 @@ import {
   needCategories,
   onDay,
   places,
+  screenReader,
 } from "@/ui/copy";
-import { SourceBadge } from "@/ui/SourceBadge";
 import { StateChip } from "@/ui/StateChip";
-import { capabilityStates, legStates, needItemStates, profileStates } from "@/ui/states";
+import { capabilityStates, legStates, needItemStates, profileStates, sourceModes } from "@/ui/states";
 import { clockLabel } from "@/ui/service-date";
 import { icon } from "@/ui/tokens";
 import { needsActionReasonText, nextStepText, stateValues } from "./next-step";
@@ -73,8 +73,15 @@ export function LegDrawer({
     >
       <header className={styles.drawerHeader}>
         <h2 className={styles.drawerTitle}>{child}</h2>
-        {/* §7.1: a record carries its source, and the drawer header is one of the named places. */}
-        <SourceBadge mode={row.sourceMode} />
+        {/*
+          §7.1: a record carries its source, and the drawer header is one of the named places —
+          for the ear. The one *visible* "Simulated" on a screen is the chip in the DEMO bar
+          (Vera's review, 2026-10-17); a second one over the board it opens on top of would be
+          the same word twice in one glance.
+        */}
+        <span className="srOnly">
+          {fill(screenReader.source, { label: sourceModes[row.sourceMode].label })}
+        </span>
         <button type="button" className={styles.drawerClose} onClick={onClose} ref={closeRef}>
           <X size={icon.inline} aria-hidden="true" />
           <span className="srOnly">{drawer.close}</span>

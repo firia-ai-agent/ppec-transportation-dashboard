@@ -17,7 +17,7 @@
  *    `ops.vehicle.id` (src/domain/plan/board.ts), which is exactly what these rows hold, so there
  *    is no translation in here to get wrong.
  *  - **Who did it is a user id, not a name.** The rows store `set_by` / `saved_by`, and the words
- *    a screen shows come from `staffLabel` (src/auth/demo-accounts.ts). A session with no user —
+ *    a screen shows come from `staffLabel` (src/modules/plan/staff.ts, over the frame's one name helper). A session with no user —
  *    the browser check's synthetic role — writes null and the screen says "Ramp staff", which is
  *    true, rather than inventing a person.
  *
@@ -25,7 +25,7 @@
  * write: that is the access table's answer, taken by the route before it gets this far.
  */
 import { uuidv7 } from "uuidv7";
-import { staffLabel } from "@/auth/demo-accounts";
+import { staffLabel } from "./staff";
 import type { Db, Exec } from "@/db/exec";
 import type { Placement } from "@/domain/plan/board";
 import type { SetupRow, SetupState } from "@/domain/plan/setup";

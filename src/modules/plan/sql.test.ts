@@ -6,6 +6,7 @@ import { VANS } from "@/config/vans";
 import { childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/standard";
 import { seedStandardScenario } from "@/modules/demo/seed";
 import { sqlPlanStore } from "./sql";
+import { staffLabel } from "./staff";
 import type { PlanStore } from "./types";
 
 /**
@@ -78,7 +79,7 @@ describe("ops.vehicle_setup_day", () => {
       now: NOW,
     });
     let rows = await store.setupRows(SITE, TODAY, [vanOne()]);
-    expect(rows[0]).toMatchObject({ serviceDate: TODAY, state: "CHECKED", setBy: DIRECTOR.label });
+    expect(rows[0]).toMatchObject({ serviceDate: TODAY, state: "CHECKED", setBy: staffLabel(DIRECTOR.id) });
     expect(rows[0].setup.seats).toBe(5);
     // The counts come back as numbers, not strings: a "4" would fail every comparison silently.
     expect(typeof rows[0].setup.seats).toBe("number");
@@ -150,7 +151,7 @@ describe("ops.plan_run + ops.plan_assignment", () => {
 
     const read = await store.loadPlan(SITE, TODAY, "PM");
     expect(read).not.toBeNull();
-    expect(read).toMatchObject({ version: 1, savedBy: DIRECTOR.label });
+    expect(read).toMatchObject({ version: 1, savedBy: staffLabel(DIRECTOR.id) });
     expect(read!.savedAt).toBe(NOW.toISOString());
     expect(read!.placements[childTokenOf("C1")]).toEqual({ bucket: "VAN", vanId: vanOne(), pinned: true });
     expect(read!.placements[childTokenOf("C3")]).toEqual({ bucket: "UNASSIGNED", vanId: null, pinned: false });
@@ -201,7 +202,7 @@ describe("ops.plan_run + ops.plan_assignment", () => {
       placements: { [childTokenOf("C2")]: { bucket: "UNASSIGNED", vanId: null, pinned: false } },
       savedBy: null, now: NOW,
     });
-    expect(stale).toEqual({ ok: false, conflict: true, changedBy: DIRECTOR.label, version: 2 });
+    expect(stale).toEqual({ ok: false, conflict: true, changedBy: staffLabel(DIRECTOR.id), version: 2 });
     // And the refused save changed nothing.
     const read = await store.loadPlan(SITE, TODAY, "PM");
     expect(Object.keys(read!.placements)).toEqual([childTokenOf("C1")]);

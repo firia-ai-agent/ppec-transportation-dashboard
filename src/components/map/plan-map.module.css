@@ -185,10 +185,10 @@
  * (§3: colour is the third cue, never the only one).
  */
 .vanButton[aria-pressed="true"] {
-  border-color: var(--color-teal);
-  background: var(--color-teal-tint);
-  color: var(--color-teal-ink);
-  box-shadow: inset 0 0 0 var(--border-hairline) var(--color-teal);
+  border-color: var(--color-brand);
+  background: var(--color-selected-bg);
+  color: var(--color-ink-brand);
+  box-shadow: inset 0 0 0 var(--border-hairline) var(--color-brand);
   font-weight: var(--weight-semibold);
 }
 

@@ -52,6 +52,7 @@ import {
 } from "@/domain/location/route";
 import { DEMO_RUNS } from "@/fixtures/replays";
 import { runRoute } from "@/fixtures/run-routes";
+import { withoutSyntheticMarker } from "@/ui/display-name";
 import { places } from "@/ui/copy";
 import { localTimeOn, type ServiceDay } from "./day";
 import {
@@ -125,7 +126,14 @@ export function solverVehicle(vehicle: DemoVehicle): SolverVehicle {
     label,
     description: rest.join(" "),
     providerId: provider.key,
-    providerName: provider.name,
+    /*
+     * The provider as a screen says it. The fixture's name carries ADR-015's `SYN` marker —
+     * right in a seeded row, and wrong in "SYN Palm Lift Transport · Marco D. driving", which
+     * is what Plan routes was printing three times (the founder's walk, 2026-10-17). Stripped
+     * here, at the one place a fixture provider becomes something the solver and every screen
+     * above it reads, rather than at each of the places that print it.
+     */
+    providerName: withoutSyntheticMarker(provider.name),
     liftEquipped: vehicle.liftEquipped,
     layouts: vehicle.layouts.map((l) => ({
       id: `${vehicle.key}/${l.code}`,

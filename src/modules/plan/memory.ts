@@ -21,7 +21,7 @@
  * right. That is proved directly instead, by running the real statements against the real
  * migrations (src/modules/plan/sql.test.ts).
  */
-import { staffLabel } from "@/auth/demo-accounts";
+import { staffLabel } from "./staff";
 import type { SetupRow } from "@/domain/plan/setup";
 import type { Direction } from "@/domain/day/leg";
 import type { PlanStore, SavedPlan, SavePlanInput, SavePlanOutcome } from "./types";

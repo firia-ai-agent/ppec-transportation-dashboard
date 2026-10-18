@@ -25,7 +25,7 @@ import {
   pluralize,
   rampIpad,
   sentence,
-  scenarioClock,
+  demoDay,
   serviceDate,
   screenReader,
   search,
@@ -472,13 +472,20 @@ describe("COPY-GUIDE strings, verbatim", () => {
     expect(login.error).toBe("Email or password is incorrect.");
   });
 
-  it("§1: the scenario clock says the demo has not started, and why Start is inert", () => {
-    // The readout carries its own subject now that the "Scenario clock" label above it is gone.
-    expect(scenarioClock.notStarted).toBe("Demo day · Not started");
-    // §3: verb + object, ≤3 words. "Start" alone did not say what it starts.
-    expect(scenarioClock.start).toBe("Start demo day");
-    expect(scenarioClock.start.split(" ").length).toBeLessThanOrEqual(3);
-    expect(scenarioClock.startUnavailable).toBe("Demo controls aren't connected yet.");
+  /**
+   * The scenario clock's three strings are gone with it: a readout of a state nothing set
+   * ("Demo day · Not started") and an inert "Start demo day" whose third string explained why
+   * it did nothing. What the demo has instead is one control, in the DEMO bar, that runs the
+   * reset this app already has (REDESIGN-SPEC §0).
+   */
+  it("§1/§3: the demo's one control is a verb and an object, and says what it is doing", () => {
+    expect(demoDay.restart).toBe("Restart demo day");
+    expect(demoDay.restart.split(" ").length).toBeLessThanOrEqual(3);
+    expect(demoDay.restarting).toBe("Restarting…");
+    // §1: a failure is one plain sentence with the way on in it, and no code.
+    expect(demoDay.failed).toBe("The demo day didn't restart. Try again.");
+    // And the bar's other words: what the demo is, beside the chip saying where its data is from.
+    expect(demoBanner.syntheticData).toBe("Synthetic data");
   });
 
   /**
@@ -913,7 +920,7 @@ function allStrings(): Array<[string, string]> {
     places,
     planRoutes,
     rampIpad,
-    scenarioClock,
+    demoDay,
     search,
     securement,
     solver,

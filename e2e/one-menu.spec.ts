@@ -27,6 +27,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { StaffRole } from "../src/auth/core";
 import { identity, nav, noAccess } from "../src/ui/copy";
 import { navItemsFor, type NavItem } from "../src/ui/nav-items";
+import { splitTabs } from "../src/ui/TabBar";
 import {
   boxOf,
   expectDemoBarPinned,
@@ -42,6 +43,14 @@ const ROLE = (process.env.E2E_DEMO_ROLE ?? "DIRECTOR") as StaffRole;
 
 /** This role's menu, from the access table: the list both rails are filtered to. */
 const MENU = navItemsFor(ROLE);
+
+/**
+ * The phone bar is five slots (REDESIGN-SPEC §9.2). A role with more destinations than that
+ * gets four tabs and a "More" that opens the rest in a sheet on the bar, so what is *in* the
+ * bar is not always the whole menu — `TABS` is what has a tab of its own and `OVERFLOW` is what
+ * is a tap further. The rail at 768 and up still carries every one of them.
+ */
+const { tabs: TABS, overflow: OVERFLOW } = splitTabs(MENU);
 
 /**
  * The reference screen — the one this role's menu is compared against. For the two console
@@ -106,9 +115,12 @@ async function expectFrame(page: Page, width: number, where: string): Promise<Lo
   return rail;
 }
 
-/** Somewhere else to go from here: the first item in the menu that is not this screen. */
+/**
+ * Somewhere else to go from here: the first item that is not this screen and has a tab of its
+ * own at every width, so the same target works on the rail and in the phone bar.
+ */
 function elsewhere(current: string): NavItem {
-  const item = MENU.find((i) => i.href !== current);
+  const item = TABS.find((i) => i.href !== current);
   expect(item, `${ROLE} has only one destination, so there is nothing to click to`).toBeDefined();
   return item as NavItem;
 }
@@ -201,10 +213,12 @@ test.describe(`the menu on every screen, as ${ROLE}`, () => {
 
         // The same destinations the rail offers this role, each one tappable and on one line.
         const tabs = bar.getByRole("link");
-        await expect(tabs).toHaveCount(MENU.length);
+        await expect(tabs).toHaveCount(TABS.length);
         expect(await tabs.evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ""))).toEqual(
-          MENU.map((item) => item.label),
+          TABS.map((item) => item.label),
         );
+        // ...and the rest are one tap away, behind a tab in the same bar (never a hamburger).
+        await expect(bar.locator("[data-more-tab]")).toHaveCount(OVERFLOW.length > 0 ? 1 : 0);
         for (const tab of await tabs.all()) {
           const box = await boxOf(tab);
           const label = (await tab.textContent())?.trim();
@@ -216,7 +230,7 @@ test.describe(`the menu on every screen, as ${ROLE}`, () => {
         }
 
         // Where you are, marked by more than colour: the attribute, and a brand bar on top.
-        const current = bar.getByRole("link", { name: MENU.find((i) => i.href === href)?.label });
+        const current = bar.getByRole("link", { name: TABS.find((i) => i.href === href)?.label });
         await expect(current).toHaveAttribute("aria-current", "page");
         const rule = await current.evaluate((el) => {
           const s = getComputedStyle(el);
@@ -310,9 +324,11 @@ for (const width of FRAME_WIDTHS) {
 
         const menu = await expectFrame(page, width, href);
         // This role's own destinations, and the one you are on marked as the one you are on.
-        await expect(menu.getByRole("link")).toHaveCount(MENU.length);
+        // Below 768 the bar carries five slots, so the list it shows is the tabs (§9.2).
+        const shown = width < 768 ? TABS : MENU;
+        await expect(menu.getByRole("link")).toHaveCount(shown.length);
         await expect(
-          menu.getByRole("link", { name: MENU.find((item) => item.href === href)?.label }),
+          menu.getByRole("link", { name: shown.find((item) => item.href === href)?.label }),
           `${href} is not marked on the menu at ${width}`,
         ).toHaveAttribute("aria-current", "page");
 
@@ -351,13 +367,15 @@ for (const width of FRAME_WIDTHS) {
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(noAccess.heading);
 
       const menu = await expectFrame(page, width, REFUSED);
-      // The menu is this role's own, in full: the refusal is not a screen with its own rules.
-      await expect(menu.getByRole("link")).toHaveCount(MENU.length);
+      // The menu is this role's own: the refusal is not a screen with its own rules. Below 768
+      // that is the bar's five slots, above it the whole rail (§9.2).
+      const shown = width < 768 ? TABS : MENU;
+      await expect(menu.getByRole("link")).toHaveCount(shown.length);
       expect(
         await menu.getByRole("link").evaluateAll((els) =>
           els.map((el) => el.getAttribute("aria-label") ?? el.textContent?.trim() ?? ""),
         ),
-      ).toEqual(MENU.map((item) => item.label));
+      ).toEqual(shown.map((item) => item.label));
       // Nothing on the menu is marked: the refusal is not one of this role's screens.
       await expect(menu.locator('[aria-current="page"]')).toHaveCount(0);
 
