@@ -111,6 +111,12 @@ export type PendingApproval = {
   readonly requestedTime: string | null;
   readonly stopToken: string;
   readonly rationaleCode: string;
+  /**
+   * The one line a coordinator reads about this proposal, in the model's own words
+   * (`propose_dropoff_change.alert_text`, stored rendered — names, no tokens). "" for a row that
+   * carries none.
+   */
+  readonly alertText: string;
 };
 
 type ApprovalRow = {
@@ -180,6 +186,10 @@ type DropoffProposal = {
    * fixed template reads this; nothing decides anything on it.
    */
   reply_text?: string;
+  /** The model's one line for the coordinator, as stored by the proposal writer. */
+  alert_text?: string;
+  /** The guardian whose message asked for this change: the receiver Approve records (PPE-98). */
+  requested_by_contact?: string | null;
   template_id?: string;
   vars?: Record<string, unknown>;
 };
@@ -228,6 +238,7 @@ function viewOf(row: ApprovalRow): PendingApproval {
     requestedTime: p.requested_dropoff_time ?? null,
     stopToken: String(p.stop_token ?? ""),
     rationaleCode: String(p.rationale_code ?? ""),
+    alertText: typeof p.alert_text === "string" ? p.alert_text : "",
   };
 }
 
@@ -616,6 +627,8 @@ export async function decideApproval(
           siteId: row.site_id,
           legId: leg.id,
           childToken: leg.child_token,
+          // The guardian whose message this proposal answers (PPE-98), off the row the agent wrote.
+          contactToken: typeof proposal.requested_by_contact === "string" ? proposal.requested_by_contact : null,
           now: req.now,
           by,
         });

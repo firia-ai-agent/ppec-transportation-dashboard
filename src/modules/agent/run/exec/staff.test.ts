@@ -519,7 +519,18 @@ describe("§11.2 summarize_thread_for_staff: a staff-only note, and nothing else
  * The reply the model writes to the parent — the one prose argument in the catalog that is meant
  * for a family, and the words the card is a decision about (Firia, 2026-10-18 11:04 AM ET).
  */
-const MODEL_REPLY = "Hi Dara, yes, we'll drop Noah off at 5 today. Thanks for letting us know!";
+/**
+ * The model's reply, as a model writes it: no roster name, because the prompt holds none — a name
+ * in a structured argument is a leak the policy engine blocks (policy.ts step 5). The round trip
+ * from the prompt's tokens to "Dara" and "Noah" is `demo/inbound-flow.db.test.ts`.
+ */
+const MODEL_REPLY = "Yes, we can drop them off at 5 today. Thank you for letting us know.";
+/**
+ * The model's one line for the coordinator, required beside the reply (Firia, 11:15 AM ET). No
+ * names: staff prose naming a person reads as choosing a recipient (policy.ts), and a live model
+ * never sees a name to write — it writes the prompt's tokens, which the writer turns into names.
+ */
+const MODEL_ALERT = "The family asked to move the afternoon drop-off to 5 PM.";
 
 describe("§11.2 propose_dropoff_change: the text a family would get, for a person to approve", () => {
   const approvals = async () =>
@@ -546,6 +557,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
        * proposal that carries none.
        */
       reply: MODEL_REPLY,
+      alert_text: MODEL_ALERT,
       source_message_id: sc.messageId,
       expected_version: 1,
     };
@@ -600,10 +612,13 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
      * place she did not ask about. One renderer still, so this is the sentence `decideApproval`
      * queues and the sentence the card shows.
      */
-    expect(body).toBe(MODEL_REPLY);
-    // Never the 24-hour clock, and never the machine's own prefix: `reply-text.ts` refuses both.
+    // The model's own words, behind the sender prefix every family text carries (COPY-GUIDE §5).
+    expect(body).toBe(`PPEC: ${MODEL_REPLY}`);
+    // Never the 24-hour clock. The prefix is the app's, once, at the front (COPY-GUIDE §5): the
+    // model's own words may not carry it (`reply-text.ts`), so it appears exactly once.
     expect(body).not.toContain("17:00");
-    expect(body).not.toContain("PPEC:");
+    expect(body.match(/PPEC:/g)).toHaveLength(1);
+    expect(String((approval.proposal.vars as Record<string, unknown>).replyText)).not.toContain("PPEC:");
     // The stop and the date are still ON the row, as the fields a coordinator's decision writes.
     expect(approval.proposal.vars).toMatchObject({ stopLabel: "GA-LIBRARY", eta: "17:00" });
 
@@ -639,6 +654,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
         requested_stop_token: null,
         rationale_code: "PARENT_REQUEST",
         reply: MODEL_REPLY,
+        alert_text: MODEL_ALERT,
         source_message_id: sc.messageId,
         expected_version: 1,
       }),
@@ -669,6 +685,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
         requested_stop_token: null,
         rationale_code: "PARENT_REQUEST",
         reply: MODEL_REPLY,
+        alert_text: MODEL_ALERT,
         source_message_id: sc.messageId,
         expected_version: 1,
       }),
@@ -691,6 +708,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
         requested_stop_token: "GA-LIBRARY",
         rationale_code: "PARENT_REQUEST",
         reply: MODEL_REPLY,
+        alert_text: MODEL_ALERT,
         source_message_id: sc.messageId,
         expected_version: 1,
       }),
@@ -708,7 +726,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
     const def = TOOL_REGISTRY.propose_dropoff_change;
     const nothing = {
       leg_id: "L-C1-PM", requested_dropoff_time: null, requested_stop_token: null,
-      rationale_code: "PARENT_REQUEST", reply: MODEL_REPLY, source_message_id: "MSG-1", expected_version: 1,
+      rationale_code: "PARENT_REQUEST", reply: MODEL_REPLY, alert_text: MODEL_ALERT, source_message_id: "MSG-1", expected_version: 1,
     };
     expect(def.schema.safeParse(nothing).success).toBe(false);
     expect(def.schema.safeParse({ ...nothing, requested_dropoff_time: "17:00" }).success).toBe(true);

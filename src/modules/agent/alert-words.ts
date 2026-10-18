@@ -30,19 +30,10 @@
  */
 import { sayClock } from "@/domain/eta/eta";
 import { childByKey } from "@/modules/demo/fixtures/standard";
-import { detokenizeNames, firstNameOfToken } from "@/modules/identity/names";
+import { firstNameOfToken, namedOrNull } from "@/modules/identity/names";
 import { agentBubble, fill } from "@/ui/copy";
 import { isAlertText } from "./alert-text";
 import { demoTokenForId } from "./run/scope-tokens";
-
-/**
- * A token the roster could not name, still sitting in a sentence: "C7", "F12", "T1". Any one of
- * them sends the whole line to the fallback (step 3 above).
- *
- * Shaped rather than listed, so a token this file has never heard of is caught too — the point is
- * that nothing code-shaped reaches a screen, not that these particular prefixes do not.
- */
-const LEFTOVER_TOKEN = /(?<![A-Za-z0-9])[A-Z]\d{1,3}(?![A-Za-z0-9])/;
 
 export type DropoffAlertInput = {
   /** `alert_text` as the call row stored it — the model's words, or nothing at all. */
@@ -55,12 +46,17 @@ export type DropoffAlertInput = {
 
 /** The one line the task row and the card carry. Never empty. */
 export function dropoffAlertWords(a: DropoffAlertInput): string {
-  const written = typeof a.alertText === "string" ? a.alertText.trim() : "";
-  if (isAlertText(written)) {
-    const named = detokenizeNames(written);
-    if (!LEFTOVER_TOKEN.test(named)) return named;
-  }
-  return namedLine(a);
+  return modelAlertWords(a.alertText) ?? namedLine(a);
+}
+
+/**
+ * The model's alert line in names, or null. This is what a live proposal stores: the gateway has
+ * already refused an `alert_text` this cannot name, so on the agent's own path it is never null and
+ * the named fallback below is reached only by the seed fixture, which has no model.
+ */
+export function modelAlertWords(alertText: unknown): string | null {
+  const written = typeof alertText === "string" ? alertText.trim() : "";
+  return isAlertText(written) ? namedOrNull(written) : null;
 }
 
 /** The fallback, from the row's own fields. */

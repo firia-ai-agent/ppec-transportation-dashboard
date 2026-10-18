@@ -37,7 +37,7 @@ import {
   boardPlacementPort,
   type PlanPlacementPortFor,
 } from "@/modules/approvals/plan-placement-port";
-import { childTokenOf, demoLegId, vehicleIdOf } from "@/modules/demo/fixtures/standard";
+import { KIND, childTokenOf, demoId, demoLegId, vehicleIdOf } from "@/modules/demo/fixtures/standard";
 import { seedStandardScenario } from "@/modules/demo/seed";
 import { setChildPlacement } from "@/modules/plan/place";
 import { siteInstantOn } from "@/modules/plan/leg-write";
@@ -59,6 +59,8 @@ const legId = () => demoLegId(CHILD_KEY, "PM");
 const vanTwo = () => vehicleIdOf("V2");
 /** The time the family asked for, as the proposal carries it and as the centre's clock reads it. */
 const AGREED = "17:00";
+/** F2's guardian contact, as the seed writes it (`seed.ts contactId`): the second family. */
+const DARA_CONTACT = () => demoId(KIND.contact, 2);
 
 const SEED_ENV = { APP_DATA_CLASS: "SYNTHETIC", DEMO_MODE: "1", HMAC_PEPPER: "p", DATA_KEY: "k" };
 
@@ -91,6 +93,13 @@ beforeEach(async () => {
   await db.query("DELETE FROM ops.outbound_message", []);
   await db.query("DELETE FROM ops.approval_request", []);
   await db.query("DELETE FROM ops.task", []);
+  // An approval records Noah's receiver on his file and his leg; put both back to the seeded hold,
+  // or the next case starts with the hold already cleared by the one before it.
+  await db.query(
+    "DELETE FROM ops.contact_authorization WHERE site_id = $1 AND child_token = $2 AND scope = 'RECEIVE_CHILD'",
+    [SITE, childToken()],
+  );
+  await db.query("UPDATE ops.trip_leg SET receiver_confirmed_at = NULL WHERE id = $1", [legId()]);
 }, 60_000);
 
 /** A saved plan with Noah in the van he already rides, as a coordinator's Save leaves it. */
@@ -145,6 +154,8 @@ async function seedProposal(over: { time?: string | null } = {}): Promise<string
         requested_dropoff_time: over.time === undefined ? AGREED : over.time,
         stop_token: "OKEE-PARK",
         rationale_code: "PARENT_REQUEST",
+        // Dara, F2's guardian: the adult whose text this answers, and the receiver Approve records.
+        requested_by_contact: DARA_CONTACT(),
         template_id: "dropoff.changed",
         vars: { legDate: SERVICE_DATE, eta: AGREED, stopLabel: "OKEE-PARK" },
         approval_key: "a-key",
@@ -308,7 +319,9 @@ describe("a refusal rolls the whole decision back", () => {
 });
 
 describe("Restart demo day puts the plan back", () => {
-  it("re-seeds the leg's window and the receiver file, and the proposal is pending again", async () => {
+  it("re-seeds the leg's window and the receiver file, and leaves no card for the model to have written", async () => {
+    // The seeded day, read off a fresh seed: earlier cases in this file moved the leg already.
+    await seedStandardScenario(db, { now: NOW, siteId: SITE, env: SEED_ENV });
     const seeded = await legRow();
     const seededReceivers = await receiversOnFile();
     await savedPlanWithNoahOnVanTwo();
@@ -325,11 +338,13 @@ describe("Restart demo day puts the plan back", () => {
 
     expect(await legRow()).toEqual(seeded);
     expect(await receiversOnFile()).toBe(seededReceivers);
-    // And Dara's card is pending again: the seed writes the proposal, undecided.
-    const pending = await db.query<{ n: number }>(
-      "SELECT count(*)::int AS n FROM ops.approval_request WHERE site_id = $1 AND decision IS NULL",
+    // And the decided card is gone with the day. Restart writes no card of its own (founder,
+    // 2026-10-18): the next one is the model's, proposed from Dara's text when it arrives
+    // (`demo/inbound-script.ts`), so a fresh day starts with nothing waiting.
+    const rows = await db.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM ops.approval_request WHERE site_id = $1",
       [SITE],
     );
-    expect(pending.rows[0].n).toBeGreaterThan(0);
+    expect(rows.rows[0].n).toBe(0);
   });
 });

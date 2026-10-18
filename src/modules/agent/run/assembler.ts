@@ -51,6 +51,7 @@
  * decided for itself.
  */
 import type { Db, Exec } from "@/db/exec";
+import { formatClock24 } from "@/domain/eta/eta";
 import { rosterFromDisplayName, tokenizeNames, type RosterEntry } from "@/modules/identity/names";
 import { activeSuppression, authorizedContactsForChild, FAMILY_SMS } from "@/modules/outbox/policy";
 import { serviceDateIso } from "@/ui/service-date";
@@ -174,7 +175,11 @@ export function dbContextAssembler(
         `service_date=${serviceDate}`,
         `thread=${t(thread.id)} state=${thread.state}`,
         ...legs.map(
-          (l) => `leg=${t(l.id)} child=${t(l.child_token)} part=${l.direction} state=${l.state} version=${l.plan_version}`,
+          (l) =>
+            `leg=${t(l.id)} child=${t(l.child_token)} part=${l.direction} state=${l.state} version=${l.plan_version}` +
+            // The drop-off (or pick-up) time the plan holds now, site-local: what a requested change
+            // would change *from*. A 24-hour clock, the same shape `requested_dropoff_time` takes.
+            (l.window_start ? ` window=${formatClock24(new Date(l.window_start).getTime())}` : ""),
         ),
       ].join(" "),
       t3: bodies.map((body) => tokenizeNames(body, familyNames)),
@@ -247,12 +252,19 @@ async function childProfiles(
   return r.rows;
 }
 
-type LegFact = { id: string; child_token: string; direction: string; state: string; plan_version: number };
+type LegFact = {
+  id: string;
+  child_token: string;
+  direction: string;
+  state: string;
+  plan_version: number;
+  window_start: Date | string | null;
+};
 
 async function legRows(db: Exec, children: readonly string[], siteId: string, serviceDate: string): Promise<LegFact[]> {
   if (children.length === 0) return [];
   const r = await db.query<LegFact>(
-    `SELECT id, child_token, direction, state, plan_version FROM ops.trip_leg
+    `SELECT id, child_token, direction, state, plan_version, window_start FROM ops.trip_leg
      WHERE site_id = $1 AND service_date = $2 AND child_token = ANY($3::uuid[])
      ORDER BY child_token, direction`,
     [siteId, serviceDate, children],

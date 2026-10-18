@@ -54,7 +54,7 @@ import {
 import { dropoffAlertWords } from "@/modules/agent/alert-words";
 import { raiseTask } from "@/modules/agent/run/exec/effects";
 import { CHANGE_DIRECTION, demoChangeRequests, type DemoChangeRequest } from "./change-request";
-import { KIND, childByKey, childTokenOf, demoId, stopByKey } from "./fixtures/standard";
+import { FAMILIES, KIND, childByKey, childTokenOf, demoId, stopByKey } from "./fixtures/standard";
 import type { ServiceDay } from "@/domain/board/day";
 
 /** `created_by` / `updated_by` on the rows this writes. Not `agent:…`: nobody ran a turn. */
@@ -188,6 +188,8 @@ async function writeOne(
     rationale_code: "PARENT_REQUEST",
     /** The alert's words, on the row the card is drawn from. The seed's fallback line, as above. */
     alert_text: alertWords,
+    /** The family's own guardian — the adult whose text this fixture row answers (PPE-98). */
+    requested_by_contact: demoId(KIND.contact, FAMILIES.findIndex((f) => f.key === child.familyKey) + 1),
     basis_message_id: null,
     /*
      * The text, as a template and its vars — rendered by the screen and by the outbox, once each,

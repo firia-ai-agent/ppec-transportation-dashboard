@@ -31,7 +31,8 @@ import {
 } from "@/modules/approvals/dropoff-change";
 import { isReplyText } from "@/modules/messaging/reply-text";
 import { childByKey, stopByKey } from "@/modules/demo/fixtures/standard";
-import { dropoffAlertWords } from "../../alert-words";
+import { modelAlertWords } from "../../alert-words";
+import { namedOrNull } from "@/modules/identity/names";
 import { agentTasks, fill } from "@/ui/copy";
 import { demoTokenForId } from "../scope-tokens";
 import { planStoreIn } from "@/modules/plan/store";
@@ -271,15 +272,22 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
   const sourceMessageId = String(input.args.source_message_id ?? "");
   const by = `agent:${input.runId}`;
   /*
-   * THE MODEL'S REPLY TO THE PARENT (Firia, 2026-10-18 11:04 AM ET).
+   * THE MODEL'S REPLY TO THE PARENT, IN NAMES (Firia, 2026-10-18 11:04 AM ET; founder 2026-10-18).
    *
-   * Checked here as well as at the gateway, because this is the field that becomes the words a
-   * family reads: the schema refused a reply of the wrong shape before this ran, and a row is
-   * worth writing even if some later caller reaches this writer another way. A reply that does
-   * not pass is simply absent, and the proposal falls back to the fixed template below — a card
-   * a coordinator can still decide, never a card with no words on it.
+   * The model wrote it in the prompt's tokens ("Hi F2, yes — C2 can be dropped at 5"), because every
+   * prompt is token-only; this is where the people come back as the first names the family uses
+   * (`identity/names.namedOrNull`, the roster that replaced them). Checked here as well as at the
+   * gateway, which already refused a reply that could not be named or breaks the shape: this is the
+   * field that becomes the words a family reads.
+   *
+   * There is NO TEMPLATE BEHIND IT. A reply that does not pass is no proposal at all — the call is
+   * recorded as refused and no card is written — because a card worded by this app while the model
+   * is up is exactly what the founder ruled out. On the agent's own path it cannot happen: the
+   * schema refuses the call first.
    */
-  const reply = isReplyText(input.args.reply) ? String(input.args.reply).trim() : null;
+  const named = namedOrNull(input.args.reply);
+  const reply = named !== null && isReplyText(named) ? named : null;
+  if (reply === null) return { proposal_refused: "NO_REPLY_IN_NAMES", mutated: false };
 
   /*
    * The leg, at this site. A leg at another site cannot be reached — the policy engine's scope
@@ -338,11 +346,25 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
    * here already replaced by a class placeholder — and a line carrying one fails `isAlertText` and
    * lands on the fallback rather than on a card.
    */
-  const alertWords = dropoffAlertWords({
-    alertText: input.args.alert_text,
-    childToken: row.child_token,
-    requestedTime: requestedTime,
-  });
+  const alertWords = modelAlertWords(input.args.alert_text);
+  if (alertWords === null) return { proposal_refused: "NO_ALERT_IN_NAMES", mutated: false };
+
+  /*
+   * WHO ASKED (PPE-98): the guardian on the thread of the message that started this run. Read off
+   * the trigger's own message row, never off an argument the model wrote, and carried on the
+   * proposal so Approve records *that* adult as the receiver rather than whichever contact the
+   * child's file lists first.
+   */
+  const asker =
+    input.trigger.type === "msg.inbound"
+      ? await tx.query<{ counterparty_token: string | null }>(
+          `SELECT t.counterparty_token FROM ops.message m
+           JOIN ops.conversation_thread t ON t.id = m.thread_id AND t.site_id = m.site_id
+           WHERE m.id = $1 AND m.site_id = $2`,
+          [isUuid(input.trigger.id) ? input.trigger.id : null, input.siteId],
+        )
+      : { rows: [] };
+  const requestedByContact = asker.rows[0]?.counterparty_token ?? null;
 
   const taskId = await raiseTask(tx, {
     id: effectId(input.idempotencyKey, "exception"),
@@ -378,24 +400,17 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
      * names, no tokens — because this field is read by screens and by nothing else.
      */
     alert_text: alertWords,
+    /** The guardian whose message asked for this, for Approve's receiver record (PPE-98). */
+    requested_by_contact: requestedByContact,
     basis_message_id: basis.rows[0]?.id ?? null,
     /**
-     * THE WORDS, and who wrote them.
-     *
-     * Still a template id and its vars — one renderer for the card and for the send, which is
-     * what the header above this function is about. What changed on Firia's 11:04 AM ET ruling is
-     * which template and where the sentence comes from: with a model-written reply the row
-     * carries `dropoff.reply`, whose whole body is that one var, and `reply_text` beside it so a
-     * reader can tell a drafted card from a fallback one without re-reading the vars.
-     *
-     * With no usable reply the row is exactly what it was — the fixed `dropoff.changed` body over
-     * the leg's own date and stop — so a model that proposes a change without saying anything
-     * still produces a decidable card rather than an empty one.
+     * THE WORDS: the model's reply, through the one renderer the card and the outbox share.
+     * `dropoff.reply`'s whole body is `replyText`; `reply_text` beside it is provenance.
      */
-    template_id: reply ? DROPOFF_REPLY_TEMPLATE : DROPOFF_CHANGE_TEMPLATE,
-    ...(reply ? { reply_text: reply } : {}),
+    template_id: DROPOFF_REPLY_TEMPLATE,
+    reply_text: reply,
     vars: {
-      ...(reply ? { replyText: reply } : {}),
+      replyText: reply,
       legDate: row.service_date,
       ...(requestedTime ? { eta: requestedTime } : {}),
       stopLabel: stopToken,

@@ -60,6 +60,20 @@ const BANNED: readonly { readonly what: string; readonly re: RegExp }[] = [
    * a number is treated as one, and a reply that loses on it is one proposal, not a PHI egress.
    */
   { what: "phone number", re: /\+\d[\d\s().-]{7,}\d|\(\d{3}\)\s*\d{3}[.\-\s]?\d{4}|\b\d{3}[.\-\s]\d{3}[.\-\s]\d{4}\b|\b\d{3}[-.]\d{4}\b/ },
+  /*
+   * PPE-97: the shapes the line above misses. Seven or more digits run together ("5551234567"),
+   * and ten or more digits with a single space, dot or dash between them ("5 6 1 5 5 5 0 1 7 7").
+   * Full-width digits ("５６１…") reach these too, because the text is NFKC-normalized first.
+   */
+  { what: "phone number", re: /\d{7,}|(?:\d[\s.\-]){9,}\d/ },
+  /*
+   * PPE-97: a web address without a scheme. A bare domain ("tokos.app/pay") and one spelled out
+   * to get past a filter ("example dot com", "example (dot) com") are both a link to a family.
+   */
+  {
+    what: "url",
+    re: /\b[a-z0-9-]+\s*(?:\.|[([]?\s*dot\s*[)\]]?)\s*(?:com|net|org|app|io|co|us|info|biz|me|ly|link|xyz|gov|edu)\b/i,
+  },
   {
     what: "street address",
     re: /\b\d{1,6}\s+(?:[A-Za-z0-9.'-]+\s+){0,3}(?:St|Street|Rd|Road|Ave|Avenue|Blvd|Boulevard|Dr|Drive|Ln|Lane|Ct|Court|Cir|Circle|Way|Pl|Place|Ter|Terrace|Pkwy|Parkway|Hwy|Highway|Trl|Trail)\b\.?|\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/,
@@ -81,7 +95,8 @@ const BANNED: readonly { readonly what: string; readonly re: RegExp }[] = [
  */
 export function replyTextIssue(value: unknown): string | null {
   if (typeof value !== "string") return "not text";
-  const text = value.trim();
+  // NFKC first, so full-width digits and letters ("５５５", "ｅｘａｍｐｌｅ") meet the same rules.
+  const text = value.normalize("NFKC").trim();
   if (text === "") return "empty";
   if (text.length > REPLY_TEXT_MAX) return `longer than ${REPLY_TEXT_MAX} characters`;
   const hit = BANNED.find((b) => b.re.test(text));

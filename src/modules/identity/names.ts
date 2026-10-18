@@ -180,3 +180,26 @@ export function detokenizeNames(text: string): string {
   }
   return out;
 }
+
+/**
+ * A token this roster could not name, still sitting in a sentence: "C7", "F12", "T1". Shaped rather
+ * than listed, so a token nobody has heard of is caught too.
+ */
+const LEFTOVER_TOKEN = /(?<![A-Za-z0-9])[A-Z]\d{1,3}(?![A-Za-z0-9])/;
+
+/**
+ * The model's sentence with every token turned back into a first name — or null when that cannot
+ * be done completely.
+ *
+ * Null rather than a repaired sentence: a token left over means the model is talking about somebody
+ * this roster cannot name, and a screen or a family reading "C7" is the one outcome the no-codes
+ * rule forbids. The gateway refuses such a call outright (`agent/tools.ts`), so a proposal carries
+ * the model's own words in names or it is not a proposal at all — never a template in their place.
+ */
+export function namedOrNull(text: unknown): string | null {
+  if (typeof text !== "string") return null;
+  const trimmed = text.trim();
+  if (trimmed === "") return null;
+  const named = detokenizeNames(trimmed);
+  return LEFTOVER_TOKEN.test(named) ? null : named;
+}

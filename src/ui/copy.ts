@@ -2738,7 +2738,7 @@ export const outboundSms = {
      * refuses a reply that carries one. The STOP/HELP footer is appended at send time as always
      * (`renderForSend`), so the words a coordinator approves are the words the family reads.
      */
-    "dropoff.reply": "{replyText}",
+    "dropoff.reply": "PPEC: {replyText}",
     /**
      * The afternoon's handoff, once the day has **recorded** one.
      *
@@ -3163,6 +3163,31 @@ export const assistantUnavailable = {
  * count is in the name rather than left to the coral dot, for the same reason the tab bar's
  * badge is in its tab's name: a dot says nothing to a screen reader.
  */
+/**
+ * WHAT THE MODEL IS TOLD ABOUT ITS TOOLS — the function descriptions in every vendor request
+ * (`agent/tools.ts` `description`, sent by `providers/remote.ts`).
+ *
+ * Not shown to anybody and never sent to a family: guidance about the job, in the prompt's own
+ * vocabulary (tokens like F2 and C2, which the app turns back into first names). Here rather than
+ * beside the tools because this file is the one owner of prose (`copy.test.ts`).
+ */
+export const agentGuidance = {
+  proposeDropoff:
+    "Propose moving a child's drop-off time and/or stop because their family asked for it. Nothing " +
+    "changes until a coordinator approves; then the plan moves and your reply is sent. Use this " +
+    "when a family's message asks for a different drop-off time or place that you can name.",
+  alertText:
+    "One plain sentence for the coordinator saying what the family asked for. Write the guardian " +
+    "as the family token and the child as the child token from the prompt; they are shown as first names.",
+  reply:
+    "The text message to the family, in your own words, sent only after a coordinator approves " +
+    "it. Answer exactly what they asked; greet the guardian by the family token and name the child " +
+    "by the child token from the prompt, which are replaced with first names before anyone reads " +
+    "it. Warm, short, one or two sentences, no exclamation marks, codes or links.",
+  getLegState: "Read one leg's current state, plan version, drop-off window and stop.",
+  readGuardianThread: "Read the last messages on a family's thread, oldest first, to see exactly what they asked.",
+} as const;
+
 export const agentBubble = {
   /** The closed button's accessible name with nothing waiting (agent-bubble.html, `.fab`). */
   open: "Agent",

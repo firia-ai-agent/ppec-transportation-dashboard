@@ -122,6 +122,12 @@ export type LegReceiverInput = {
   readonly siteId: string;
   readonly legId: string;
   readonly childToken: string;
+  /**
+   * WHO will receive the child: the guardian whose message asked for the change (PPE-98), carried
+   * on the proposal from the run's own trigger. Required — the earliest contact on the child's file
+   * is not a stand-in for the adult who said they would be home.
+   */
+  readonly contactToken: string | null;
   readonly now: Date;
   readonly by: string;
 };
@@ -153,6 +159,21 @@ export type LegReceiverWritten =
  * row already there and writes no duplicate.
  */
 export async function recordLegReceiver(tx: Exec, input: LegReceiverInput): Promise<LegReceiverWritten> {
+  /*
+   * EXACTLY THE ADULT WHO ASKED (PPE-98), and only if this child's file already knows them. A
+   * proposal that names nobody, or a contact who holds no authorization for this child at all, is
+   * `NO_CONTACT`: the hold stays and the decision rolls back. Adding a *new* adult to a child's file
+   * is `propose_contact_or_profile_change`'s job, decided on its own card — never a side effect here.
+   */
+  const contactToken = input.contactToken;
+  if (contactToken === null || contactToken === "") return { ok: false, reason: "NO_CONTACT" };
+  const known = await tx.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM ops.contact_authorization
+      WHERE site_id = $1 AND child_token = $2::uuid AND contact_token::text = $3`,
+    [input.siteId, input.childToken, contactToken],
+  );
+  if ((known.rows[0]?.n ?? 0) === 0) return { ok: false, reason: "NO_CONTACT" };
+
   const confirmed = await tx.query<{ id: string }>(
     `UPDATE ops.trip_leg
         SET receiver_confirmed_at = $3, updated_at = $3, updated_by = $4, version = version + 1
@@ -161,20 +182,6 @@ export async function recordLegReceiver(tx: Exec, input: LegReceiverInput): Prom
     [input.legId, input.siteId, input.now, input.by],
   );
   if (confirmed.rows.length !== 1) return { ok: false, reason: "NO_SUCH_LEG" };
-
-  // The guardian this child's file already knows, by any scope: the person who asked for the
-  // change is the person the thread is with, and in this model that is the family's one contact.
-  const contact = await tx.query<{ contact_token: string }>(
-    `SELECT contact_token::text AS contact_token
-       FROM ops.contact_authorization
-      WHERE site_id = $1 AND child_token = $2
-      GROUP BY contact_token
-      ORDER BY min(valid_from)
-      LIMIT 1`,
-    [input.siteId, input.childToken],
-  );
-  const contactToken = contact.rows[0]?.contact_token ?? null;
-  if (contactToken === null) return { ok: false, reason: "NO_CONTACT" };
 
   await tx.query(
     `INSERT INTO ops.contact_authorization

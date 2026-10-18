@@ -19,8 +19,6 @@ import { demoReset as copy } from "@/ui/copy";
 import type { Db } from "@/db/exec";
 import { isReadOnlyDbEnv } from "@/db/read-only";
 import { seedStandardScenario, type SeedResult } from "./seed";
-import { draftDemoProposal } from "./draft-proposal";
-import { demoDay } from "@/domain/board/day";
 import { clearMemoryPlanStore } from "@/modules/plan/memory";
 
 /**
@@ -58,7 +56,20 @@ export type ResetResponse =
  * Runs the standard-scenario reset for a signed-in DIRECTOR. Never throws for an authorization
  * problem: the caller maps {status, body} straight onto the HTTP response.
  */
-export async function handleDemoReset(db: Db, env: Record<string, string | undefined>, req: ResetRequest): Promise<ResetResponse> {
+/**
+ * What runs once the day is seeded and committed. The route passes `demo/inbound-script.ts`, which
+ * sends the scenario's one inbound text through the real webhook path; it is injected rather than
+ * imported so this module stays free of the queue transports (and so the CLI reset, which has no
+ * queue consumer to wake, seeds the day and nothing else).
+ */
+export type AfterSeed = (db: Db, seeded: SeedResult & { siteId: string; now: Date }) => Promise<void>;
+
+export async function handleDemoReset(
+  db: Db,
+  env: Record<string, string | undefined>,
+  req: ResetRequest,
+  afterSeed?: AfterSeed,
+): Promise<ResetResponse> {
   const gate = demoControlsGate(env);
   if (!gate.allowed) return { status: gate.status, body: { ok: false, error: gate.reason } };
   if (!req.userId) return { status: 401, body: { ok: false, error: copy.signIn } };
@@ -87,22 +98,12 @@ export async function handleDemoReset(db: Db, env: Record<string, string | undef
 
   const result = await seedStandardScenario(db, { now: req.now, siteId, env });
   /*
-   * THE DAY'S ONE PROPOSAL, DRAFTED BY THE MODEL — after the seed's transaction, never inside it
-   * (Firia, 2026-10-18 11:04 AM ET).
-   *
-   * The seed writes the day and no card; this is the real agent turn over the parent's text, and
-   * the reply on the card is the model's own words. It is awaited because a founder who presses
-   * Restart and opens Family texts should find the card already there — but it cannot fail this
-   * route and cannot hang it: `draftDemoProposal` never throws and gives up after
-   * `DRAFT_TIMEOUT_MS`, falling back to the copy reply. Restart always finishes.
+   * NO CARD AND NO ALERT ARE WRITTEN HERE (founder, 2026-10-18). The day's one decision is the
+   * model's to propose, from the parent's own text, so all Restart does after the seed is let that
+   * text arrive — `afterSeed`, which the route wires to the real inbound path. A card appears when
+   * the agent run has proposed one; a staff alert appears when no model could.
    */
-  await draftDemoProposal(db, {
-    siteId,
-    serviceDate: result.serviceDate,
-    day: demoDay(),
-    env,
-    now: req.now,
-  });
+  if (afterSeed) await afterSeed(db, { ...result, siteId, now: req.now });
   /*
    * The seed truncates the board's three tables and writes yesterday's van setups back
    * (src/modules/demo/seed.ts), so the plan itself is gone with the rest of the day's rows.

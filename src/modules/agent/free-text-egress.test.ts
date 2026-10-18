@@ -273,7 +273,8 @@ describe("check 1, part 2b: the approved reply is bounded and still carries no P
     const reply = "Hi Dara, yes, we'll drop Noah off at 5 today. Thanks for letting us know!";
     expect(rule(reply)).toBe(true);
     expect(disallowedVars(APPROVED_REPLY_TEMPLATE, { replyText: reply })).toEqual([]);
-    expect(renderTemplate(APPROVED_REPLY_TEMPLATE, { replyText: reply })).toBe(reply);
+    // Behind the sender prefix every family text carries (COPY-GUIDE §5); the words are hers.
+    expect(renderTemplate(APPROVED_REPLY_TEMPLATE, { replyText: reply })).toBe(`PPEC: ${reply}`);
   });
 
   it.each([
@@ -287,6 +288,12 @@ describe("check 1, part 2b: the approved reply is bounded and still carries no P
     ["a line break", "Yes, that works.\nSee you then."],
     ["nothing at all", "   "],
     ["more than 320 characters", `Yes, ${"that works. ".repeat(40)}`],
+    // PPE-97: the shapes a number or a link takes when somebody is trying to get it past a filter.
+    ["a spaced-out phone number", "Yes. Text us at 5 6 1 5 5 5 0 1 7 7 if anything changes."],
+    ["a full-width phone number", "Yes. Text us at ５６１５５５０１７７ if anything changes."],
+    ["digits run together", "Yes. Call 5551234567 when you are home."],
+    ["a domain spelled out", "Yes. Details are at example dot com."],
+    ["a bare domain", "Yes. Pay the fee at tokos.app/pay first."],
   ])("refuses a reply carrying %s", (_label, reply) => {
     expect(rule(reply)).toBe(false);
     expect(disallowedVars(APPROVED_REPLY_TEMPLATE, { replyText: reply })).toEqual([APPROVED_REPLY_VAR]);
@@ -301,6 +308,7 @@ describe("check 1, part 2b: the approved reply is bounded and still carries no P
       requested_stop_token: null,
       rationale_code: "PARENT_REQUEST",
       reply,
+      alert_text: "The family asked to move the afternoon drop-off to 5 PM.",
       source_message_id: "MSG-1",
       expected_version: 1,
     });

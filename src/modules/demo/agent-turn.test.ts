@@ -29,7 +29,18 @@ const ASK = "Can Noah be dropped at grandma's at 5?";
  * answer to what she actually asked — the five o'clock she named, in the names she uses. It is a
  * tool argument, so a reply of the wrong shape is refused at the gateway like any other.
  */
-const MODEL_REPLY = "Hi Dara, yes, we'll drop Noah off at 5 today. Thanks for letting us know!";
+/**
+ * The model's reply, as a model writes it: no roster name, because the prompt holds none — a name
+ * in a structured argument is a leak the policy engine blocks (policy.ts step 5). The round trip
+ * from the prompt's tokens to "Dara" and "Noah" is `demo/inbound-flow.db.test.ts`.
+ */
+const MODEL_REPLY = "Yes, we can drop them off at 5 today. Thank you for letting us know.";
+/**
+ * The model's one line for the coordinator, required beside the reply (Firia, 11:15 AM ET). No
+ * names: staff prose naming a person reads as choosing a recipient (policy.ts), and a live model
+ * never sees a name to write — it writes the prompt's tokens, which the writer turns into names.
+ */
+const MODEL_ALERT = "The family asked to move the afternoon drop-off to 5 PM.";
 
 /** The deployment that has confirmed demo-data operation but holds no key: no model can answer. */
 const NO_KEY = { [DEMO_DATA_ONLY_ENV_VAR]: DEMO_DATA_ONLY_REQUIRED_VALUE, [DATA_CLASS_ENV_VAR]: SYNTHETIC_DATA_CLASS };
@@ -82,6 +93,7 @@ const proposesDropoff = () =>
        * card is the model's own sentence, which is what answers the question the parent asked.
        */
       reply: MODEL_REPLY,
+      alert_text: MODEL_ALERT,
       source_message_id: "M-F2-1",
       expected_version: 1,
     }),

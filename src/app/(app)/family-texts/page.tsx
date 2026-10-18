@@ -8,8 +8,6 @@ import { demoDay, type ServiceDay } from "@/domain/board/day";
 import { modelReach } from "@/modules/agent/run/deps";
 import { openAssistantAlerts, type AssistantAlert } from "@/modules/agent/staff-alert";
 import { approvalQueue } from "./queue";
-import { draftDemoProposal } from "@/modules/demo/draft-proposal";
-import { demoChangeRequests, withRequestedTime, type DemoChangeRequest } from "@/modules/demo/change-request";
 import { familyTexts } from "@/ui/copy";
 import { NOT_ON_YOUR_MENU, withNotice } from "@/ui/notice";
 import { decideApprovalAction, takeAlertAction } from "./actions";
@@ -104,9 +102,23 @@ export default async function FamilyTextsPage({
 
   const day = demoDay();
   const phones = phonesForDay(day);
-  // The Edit control, applied once: every reader below sees the time that is on screen.
-  const requests = demoChangeRequests(day).map((r) => withRequestedTime(r, editedTime, day));
   const assistantReachable = modelReach().kind === "model";
+  const siteIds = caller.memberships.map((m) => m.siteId);
+  const board = mayApprove ? await readAlerts(siteIds) : { alerts: [], unreadable: false };
+  /*
+   * THE ONE READ OF THE PROPOSALS (S1-2). The tab's badge, the For you queue, the "Change ready"
+   * rows and the card inside the thread are all this list — matched to a thread on `threadKey` — so
+   * the screen cannot say "1 waiting" over a card that is about something else, and cannot draw a
+   * card with no row behind it for an Approve to post.
+   *
+   * READING THIS PAGE WRITES NOTHING AND CALLS NO MODEL (PPE-96). The card is the agent run's: an
+   * inbound text starts a run, the model proposes, and the proposal writer stores the row this
+   * reads (`agent/run/exec/proposals.ts`). With no model there is nothing to approve, because
+   * nothing read the family's text — gate 5 — and a role that may not decide does not have the
+   * queue read for them at all.
+   */
+  const queue =
+    mayApprove && assistantReachable ? await readQueue(siteIds, day, editedTime) : [];
 
   /*
    * Which thread is open, in order: the one the URL names; otherwise the one with something
@@ -115,7 +127,7 @@ export default async function FamilyTextsPage({
    */
   const selected =
     phones.find((p) => p.childKey === askedThread) ??
-    phones.find((p) => requests.some((r) => r.childKey === p.childKey)) ??
+    phones.find((p) => queue.some((q) => q.threadKey === p.childKey)) ??
     phones[0];
   const thread = selected
     ? await threadFor(getNeonDb, {
@@ -125,44 +137,11 @@ export default async function FamilyTextsPage({
       })
     : null;
 
-  const siteIds = caller.memberships.map((m) => m.siteId);
-  const board = mayApprove ? await readAlerts(siteIds) : { alerts: [], unreadable: false };
-  /*
-   * THE ONE READ OF THE PROPOSALS (S1-2). The tab's badge, the For you queue and the card inside
-   * the thread are all this list — matched to a thread on `threadKey` — so the screen cannot say
-   * "1 waiting" over a card that is about something else, and cannot draw a card with no row
-   * behind it for an Approve to post.
-   *
-   * Gate 5 is applied here, once: with no model there is nothing to approve, because nothing read
-   * the family's text. Gate 8's courtesy half likewise — a role that may not decide does not have
-   * the queue read for them at all.
-   */
-  /*
-   * THE DEMO DAY'S CARD IS DRAFTED BY THE MODEL, ON THE FIRST LOAD THAT FINDS IT MISSING (Firia,
-   * 2026-10-18 11:04 AM ET).
-   *
-   * "Restart demo day" drafts it too, right after the seed commits. This is the second door on
-   * the same idempotent step, for the two cases that door does not cover: a founder who reloads
-   * this screen before the route's own drafting answered, and a deployment where the day was
-   * seeded by the build rather than by the button. The row is written on one fixed id with `ON
-   * CONFLICT DO NOTHING`, so however many loads race here the day has exactly one card.
-   *
-   * It is gated the same way the queue below it is — a role that may not decide does not draft a
-   * decision — and it never throws: `draftDemoProposal` answers with the copy fallback when no
-   * model is reachable and with nothing at all on a read-only preview.
-   */
-  if (mayApprove && siteIds.length > 0) {
-    await draftDemoProposal(getNeonDb(), { siteId: siteIds[0], serviceDate: day.iso, day });
-  }
-  const queue =
-    mayApprove && assistantReachable ? await readQueue(siteIds, day, editedTime) : [];
-
   const view =
     selected && thread
       ? threadView({
           selected,
           thread,
-          request: requests.find((r) => r.childKey === selected.childKey),
           proposal: queue.find((p) => p.threadKey === selected.childKey) ?? null,
           day,
           assistantReachable,
@@ -183,10 +162,7 @@ export default async function FamilyTextsPage({
         * bdfaa8e): the chip, the card and For you read one list, so a fixture ask with no row
         * behind it shows as the text the day sent rather than as a decision nobody can make.
         */
-      rows={conversationRows(
-        phones,
-        requests.filter((r) => queue.some((p) => p.threadKey === r.childKey)),
-      )}
+      rows={conversationRows(phones, queue)}
       thread={view}
       /* The same rows the card in the thread came from: one read, two readers (S1-2). */
       proposals={queue}

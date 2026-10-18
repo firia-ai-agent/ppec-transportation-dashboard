@@ -157,6 +157,7 @@ async function viewOf(
       row.childLabel === "" ? null : row.childLabel,
     ),
     requestedHhmm: time,
+    alertText: row.alertText,
   };
 }
 

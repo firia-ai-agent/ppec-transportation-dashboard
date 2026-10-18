@@ -1,3 +1,7 @@
+import type { DecideAction } from "@/app/(app)/family-texts/actions";
+import type { ProposalView } from "@/app/(app)/family-texts/conversations";
+import { ProposalCard as DecisionCard } from "@/app/(app)/family-texts/ProposalCard";
+import { FAMILY_TEXTS_FOR_YOU } from "@/auth/access";
 import { agentBubble, fill } from "./copy";
 import { Pill, PillLabel } from "./Pill";
 import styles from "./AgentThread.module.css";
@@ -44,7 +48,22 @@ export type AgentThreadItem =
    */
   | { readonly kind: "proposal"; readonly id: string; readonly question: string };
 
-export function AgentThread({ items }: { items: readonly AgentThreadItem[] }) {
+export function AgentThread({
+  items,
+  cards = [],
+  decide,
+}: {
+  items: readonly AgentThreadItem[];
+  /**
+   * THE REAL CARDS, for the proposals in `items` (founder, 2026-10-18: "the card shows up fully
+   * rendered in two places: the bubble and Family texts"). The same `ProposalView`s Family texts
+   * draws — read once by the shell through the same queue (`family-texts/queue.ts`) — and the same
+   * card component, so the draft, the plan line and Approve are one thing in two places.
+   */
+  cards?: readonly ProposalView[];
+  /** The one decision action (`family-texts/actions.ts`). Without it a proposal stays compact. */
+  decide?: DecideAction;
+}) {
   return (
     <div className={styles.thread}>
       {items.length === 0 ? <p className={styles.empty}>{agentBubble.empty}</p> : null}
@@ -76,8 +95,20 @@ export function AgentThread({ items }: { items: readonly AgentThreadItem[] }) {
                 {item.text}
               </p>
             );
-          case "proposal":
-            return <ProposalCard key={item.id} question={item.question} />;
+          case "proposal": {
+            const card = cards.find((c) => c.approvalId === item.id);
+            return card && decide ? (
+              <DecisionCard
+                key={item.id}
+                proposal={card}
+                decide={decide}
+                // Edit opens the thread on Family texts, where the time field lives.
+                editHref={`${FAMILY_TEXTS_FOR_YOU}&thread=${encodeURIComponent(card.threadKey)}`}
+              />
+            ) : (
+              <ProposalCard key={item.id} question={item.question} />
+            );
+          }
         }
       })}
     </div>

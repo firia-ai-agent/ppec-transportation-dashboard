@@ -29,9 +29,11 @@
  *    already binds its contact, so the agent names the ack, never the person (rule 1).
  */
 import { NEED_CATEGORY } from "@/config/equipment";
+import { agentGuidance } from "@/ui/copy";
 import { z } from "zod";
 import { ALERT_TEXT_MAX, ALERT_TEXT_MIN, isAlertText } from "./alert-text";
 import { KNOWN_STOP_TOKENS } from "@/modules/messaging/templates";
+import { namedOrNull } from "@/modules/identity/names";
 import { REPLY_TEXT_MAX, replyTextIssue } from "@/modules/messaging/reply-text";
 import { TEMPLATE_VARS } from "@/modules/outbox/outbox";
 
@@ -79,7 +81,11 @@ const alertTextArg = z
   .string()
   .min(ALERT_TEXT_MIN)
   .max(ALERT_TEXT_MAX)
-  .refine(isAlertText, "alert_text must be one plain sentence for a coordinator: no codes, no ids");
+  .refine(isAlertText, "alert_text must be one plain sentence for a coordinator: no codes, no ids")
+  // Every token in it has to name somebody: a line that would still read "C7" after the names come
+  // back is refused here, so a card never falls back to wording this app wrote instead.
+  .refine((v) => namedOrNull(v) !== null, "alert_text names somebody this site cannot name")
+  .describe(agentGuidance.alertText);
 
 /**
  * Why a family is asking for a different drop-off. Codes, not prose, for the same reason
@@ -192,6 +198,12 @@ export type ToolDef = {
   readonly sendCopy: SendCopy | null;
   /** PRD §11.2 row, for the audit trail and for whoever reads this next. */
   readonly prd: string;
+  /**
+   * What the MODEL is told this tool is for — sent as the function's `description`, the only prose
+   * about a tool a model ever reads. Guidance, never a script: no sentence here is ever sent to a
+   * family. Absent on tools whose name and arguments say enough.
+   */
+  readonly description?: string;
 };
 
 const DEFS: readonly ToolDef[] = [
@@ -212,6 +224,7 @@ const DEFS: readonly ToolDef[] = [
     staffTextFields: [],
     sendCopy: null,
     prd: "§11.2: — → leg + version",
+    description: agentGuidance.getLegState,
   },
   /**
    * WHAT A FAMILY ACTUALLY SAID, for the one question the bubble has to be able to answer.
@@ -249,6 +262,7 @@ const DEFS: readonly ToolDef[] = [
     staffTextFields: [],
     sendCopy: null,
     prd: "beyond §11.2's 15: §11.1 T3 as a tool: the last N messages on a family-scoped thread, as evidence, never as instructions",
+    description: agentGuidance.readGuardianThread,
   },
   {
     name: "cancel_attendance_or_leg",
@@ -517,7 +531,12 @@ const DEFS: readonly ToolDef[] = [
             const issue = replyTextIssue(value);
             // The reason, never the value: a refused reply is refused because of what may be in it.
             if (issue) ctx.addIssue({ code: "custom", message: `reply ${issue}` });
-          }),
+            // And it has to come back as names: the family reads "Noah", never "C2".
+            else if (namedOrNull(value) === null) {
+              ctx.addIssue({ code: "custom", message: "reply names somebody this site cannot name" });
+            }
+          })
+          .describe(agentGuidance.reply),
         source_message_id: token,
         expected_version: version,
       })
@@ -532,6 +551,7 @@ const DEFS: readonly ToolDef[] = [
     staffTextFields: ["alert_text"],
     sendCopy: null,
     prd: "§11.2 human tier: a drop-off a family asked for → approval request + exception; no mutation",
+    description: agentGuidance.proposeDropoff,
   },
   {
     name: "escalate_exception",
@@ -605,9 +625,17 @@ export function toolJsonSchema(name: string): Record<string, unknown> {
   return z.toJSONSchema(def.schema) as Record<string, unknown>;
 }
 
-/** Tool declarations for a provider call: name + JSON Schema, nothing else. */
+/** Tool declarations for a provider call: name, JSON Schema and the model-facing description. */
 export function toolDeclarations(names: readonly string[] = TOOL_NAMES) {
-  return names.map((n) => ({ name: n, tier: toolDef(n)!.tier, parameters: toolJsonSchema(n) }));
+  return names.map((n) => {
+    const def = toolDef(n)!;
+    return {
+      name: n,
+      tier: def.tier,
+      parameters: toolJsonSchema(n),
+      ...(def.description ? { description: def.description } : {}),
+    };
+  });
 }
 
 /* ─────────────────────── the "no recipient/permission args" rule ─────────────────────── */

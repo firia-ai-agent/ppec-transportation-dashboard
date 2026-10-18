@@ -67,6 +67,26 @@ const projected: Thread = {
     })),
 };
 
+/**
+ * The same thread once the family has answered: their text is a message row like any other, read
+ * back by the thread reader — never a bubble the screen appends from a fixture.
+ */
+const answered: Thread = {
+  ...projected,
+  bubbles: [
+    ...projected.bubbles,
+    {
+      id: "inbound-1",
+      direction: "IN" as const,
+      author: "PARENT" as const,
+      timeLabel: "4:01 PM",
+      body: request.parentText,
+      delivery: null,
+      reachedPhone: true,
+    },
+  ],
+};
+
 const SITE = "00000000-0000-7000-8000-0000000000a1";
 
 /**
@@ -135,11 +155,10 @@ function render(a: {
   return renderToStaticMarkup(
     createElement(TextsScreen, {
       tab: a.tab ?? "all",
-      rows: conversationRows(texts, asked ? requests : []),
+      rows: conversationRows(texts, asked && mayApprove ? [PROPOSAL] : []),
       thread: threadView({
         selected,
-        thread: projected,
-        request: asked,
+        thread: asked ? answered : projected,
         // The card in the thread is the queue's own row, matched on the thread it belongs to —
         // which is the whole of "the badge and the card come from the same rows" (S1-2).
         proposal: asked && mayApprove ? PROPOSAL : null,
@@ -211,7 +230,7 @@ describe("the screen's shape", () => {
   it("renders both panes, with the thread beside the list", () => {
     const html = textOf(render({}));
     // The list carries a row per family the day texted, each with the adult, the child and a time.
-    for (const row of conversationRows(texts, requests)) {
+    for (const row of conversationRows(texts, [PROPOSAL])) {
       expect(html).toContain(row.adultName);
       expect(html).toContain(row.childFirstName);
       expect(html).toContain(row.initials);
@@ -241,7 +260,7 @@ describe("the screen's shape", () => {
      * parent's name, the message as a bubble, and the three buttons.
      */
     const card = html.indexOf(
-      `aria-label="${fill(approval.cardLabel, { adult: conversationRows(texts, requests)[0].adultName })}"`,
+      `aria-label="${fill(approval.cardLabel, { adult: conversationRows(texts, [PROPOSAL])[0].adultName })}"`,
     );
     const compose = html.indexOf(`aria-label="${familyTexts.composeAction}"`);
     expect(thread).toBeGreaterThan(-1);
@@ -397,6 +416,6 @@ describe("gate 8, the courtesy half: the front desk sees no For you tab", () => 
     // `?tab=for-you` with no right to it renders the list, never the queue.
     const html = textOf(render({ tab: "for-you", showForYouTab: false, proposals: [] }));
     expect(html).not.toContain(approval.approveAndSend);
-    expect(html).toContain(conversationRows(texts, requests)[0].adultName);
+    expect(html).toContain(conversationRows(texts, [PROPOSAL])[0].adultName);
   });
 });

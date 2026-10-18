@@ -19,7 +19,7 @@ export type ProviderCall = {
   readonly dataMode: DataMode;
   readonly prompt: string;
   /** JSON-Schema tool declarations (PRD §11.2 "JSON-schema tool calls only"). */
-  readonly tools: readonly { name: string; tier: string; parameters: Record<string, unknown> }[];
+  readonly tools: readonly { name: string; tier: string; parameters: Record<string, unknown>; description?: string }[];
   /** sha256 of the prompt, the only form of it a provider may log or key on. */
   readonly promptHash: string;
 };

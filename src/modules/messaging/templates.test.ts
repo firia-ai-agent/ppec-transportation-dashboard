@@ -22,7 +22,7 @@ const SAMPLE: Record<string, string> = {
    * a coordinator approved. The sample names nobody, so the name sweep below still means what it
    * says — what a real one names is the family's own child, which is the whole of the ruling.
    */
-  replyText: "Yes, that works. We will see you then!",
+  replyText: "Yes, that works. We will see you then.",
 };
 const sampleVars = (templateId: string, reasonCode = "WEATHER"): Record<string, string> =>
   Object.fromEntries(Object.keys(TEMPLATE_VARS[templateId]).map((v) => [v, v === "reasonCode" ? reasonCode : SAMPLE[v]]));
