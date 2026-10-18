@@ -205,8 +205,12 @@ export default function PlanBoard({
             : planBoard.unassigned;
       setToast({ text: movedLine(name, whereTo) });
       setAnnouncement(movedLine(name, whereTo));
-      // Nothing is written: the board is a draft until Save (option A).
-      setSave({ kind: "DIRTY" });
+      /*
+       * Nothing is written: the board is a draft until Save (option A). The last save's stamp
+       * is left as it is, so undoing every unsaved move puts "Saved <time>" back on the chip
+       * rather than leaving a board that is saved looking dirty for ever. The chip is derived
+       * from the queue where it is rendered, below.
+       */
     },
     [canEdit, day, plan],
   );
@@ -452,7 +456,6 @@ export default function PlanBoard({
                 NO_PENDING,
               ),
             );
-            setSave({ kind: "DIRTY" });
           }}
           autoPlanPrimary={placed === 0}
           onSave={trySave}

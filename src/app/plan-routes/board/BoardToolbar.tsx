@@ -105,6 +105,7 @@ export function BoardToolbar({
         className={[styles.button, styles.iconButton].join(" ")}
         aria-label={planBoard.undo}
         title={planBoard.undo}
+        data-undo=""
         disabled={!canUndo}
         onClick={onUndo}
       >

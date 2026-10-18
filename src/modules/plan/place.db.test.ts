@@ -44,6 +44,8 @@ const vanOne = () => vehicleIdOf(VANS[0].vehicleKey);
 const vanTwo = () => vehicleIdOf(VANS[1].vehicleKey);
 /** Theo V. (C8) rides the afternoon and needs nothing, so he fits anywhere. */
 const THEO = () => childTokenOf("C8");
+/** The van whose counters leave no wheelchair spot, which is what the fit rule refuses on. */
+const noWheelchairVan = () => vehicleIdOf(VANS[2].vehicleKey);
 
 const source = () => sqlDaySource(db, SITE);
 const board = (direction: "AM" | "PM" = "PM") =>
@@ -150,10 +152,38 @@ describe("a drag is a row, and a new version every time", () => {
     expect(after.version).toBe(1);
   });
 
+  /**
+   * Firia's option A (2026-10-17 10:29 PM ET): a stale draft is told "Plan changed, reload".
+   * The version is judged **first**, so a draft built on an old plan is never refused for a
+   * reason that belongs to a plan its author has not seen.
+   */
+  it("answers a stale draft with CHANGED even when its move would not fit either", async () => {
+    await startTheDay();
+    const kept = await setChildPlacement(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: THEO(), bucket: "VAN",
+        vehicleId: vanOne(), expectedVersion: 0, actor: null, now: NOW },
+      store,
+      source(),
+    );
+    expect(kept.ok).toBe(true);
+
+    // Noah B. rides in his own chair and this van has no spot for it: a 422 on a fresh board.
+    const stale = await setChildPlacement(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: childTokenOf("C2"),
+        bucket: "VAN", vehicleId: noWheelchairVan(), expectedVersion: 0, actor: null, now: NOW },
+      store,
+      source(),
+    );
+    expect(stale).toMatchObject({ ok: false, status: 409, reason: "CHANGED" });
+    const after = await board();
+    expect(after.version).toBe(1);
+    expect(after.plan[childTokenOf("C2")]?.bucket).not.toBe("VAN");
+  });
+
   it("refuses a drop the fit rule refuses, with the reason and no row", async () => {
     await startTheDay();
-    // Van 3 has no wheelchair spot and no lift; Noah B. rides in his own chair.
-    const vanThree = vehicleIdOf(VANS[2].vehicleKey);
+    // Noah B. rides in his own chair, and this van's counters leave no spot for it.
+    const vanThree = noWheelchairVan();
     const refused = await setChildPlacement(
       { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: childTokenOf("C2"),
         bucket: "VAN", vehicleId: vanThree, expectedVersion: 0, actor: null, now: NOW },

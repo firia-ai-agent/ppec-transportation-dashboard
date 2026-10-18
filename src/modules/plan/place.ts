@@ -155,6 +155,23 @@ export async function writePlan(
   const view = await loadBoard(store, input.siteId, input.serviceDate, input.direction, source);
   if (!view.started) return { ok: false, status: 409, reason: "NOT_STARTED" };
 
+  /*
+   * The caller's draft was built on a version somebody has already moved past: that is a 409
+   * naming them, decided **before** anything else. Judging their moves against a plan they have
+   * never seen would otherwise refuse the draft for the wrong reason — "Van 1 is full" when the
+   * honest answer is "Plan changed, reload" (Firia's option A, 2026-10-17 10:29 PM ET). The
+   * store compares the version again inside the write, so this is a better message, not the lock.
+   */
+  if (view.version !== input.expectedVersion) {
+    return {
+      ok: false,
+      status: 409,
+      reason: "CHANGED",
+      changedBy: view.savedBy,
+      version: view.version,
+    };
+  }
+
   const next = input.change(view);
   if (next === null) return { ok: false, status: 404, reason: "NOT_THIS_DAY" };
   if (!namesOnlyThisDay(view.day, next)) {
