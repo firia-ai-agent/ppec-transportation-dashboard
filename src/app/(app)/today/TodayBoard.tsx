@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Activity,
   ArrowDownRight,
@@ -15,7 +16,6 @@ import {
   UserCheck,
 } from "lucide-react";
 import type { RightNowTile } from "@/domain/health/right-now";
-import { healthNow } from "@/ui/copy";
 import { HealthTiles } from "./HealthTiles";
 import { formatDelta } from "@/domain/eta/eta";
 import {
@@ -25,7 +25,7 @@ import {
   type LegRow,
   type RideView,
 } from "@/domain/board/board";
-import { board as boardCopy, etaText, fill, onDay, screenReader } from "@/ui/copy";
+import { board as boardCopy, etaText, fill, healthNow, onDay, planRoutes, screenReader } from "@/ui/copy";
 import { SearchField } from "@/ui/SearchField";
 import { StepStrip } from "@/ui/StepStrip";
 import type { StripStep } from "@/ui/step-strip";
@@ -87,13 +87,33 @@ export function TodayBoard({
 }) {
   const { day } = board;
   const [tab, setTab] = useState<"board" | "health">("board");
+  /**
+   * Morning | Afternoon (png/today-saved-390.png). Null leaves both of a child's rides on the
+   * board: the table is the whole day, and the checks that count every ride read it that way.
+   * Choosing one keeps that run.
+   */
+  const [legChoice, setLegChoice] = useState<"AM" | "PM" | null>(null);
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+  const [wide, setWide] = useState(false);
+  useLayoutEffect(() => {
+    setHeaderSlot(document.getElementById("today-header-chrome"));
+    const query = window.matchMedia("(min-width: 768px)");
+    const apply = () => setWide(query.matches);
+    apply();
+    query.addEventListener("change", apply);
+    return () => query.removeEventListener("change", apply);
+  }, []);
   const [onlyNeedsAction, setOnlyNeedsAction] = useState(false);
   const [openChild, setOpenChild] = useState<string | null>(null);
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const matched = useMemo(
-    () => board.legs.filter((leg) => matchesQuery(leg, query)),
-    [board.legs, query],
+    () =>
+      board.legs.filter(
+        (leg) =>
+          matchesQuery(leg, query) && (legChoice === null || leg.ride.direction === legChoice),
+      ),
+    [board.legs, query, legChoice],
   );
   const visible = onlyNeedsAction ? matched.filter((l) => l.group === "NEEDS_ACTION") : matched;
 
@@ -117,6 +137,82 @@ export function TodayBoard({
 
   // The drawer is per child: its two rows are the one day it reads.
   const openLegs = board.legs.filter((l) => l.child.childKey === openChild);
+
+  const tabs = (
+    <div className={styles.tabs} role="tablist" aria-label={healthNow.tabsLabel}>
+      <button
+        type="button"
+        role="tab"
+        id="today-tab-board"
+        className={styles.tab}
+        aria-selected={tab === "board"}
+        aria-controls="today-panel-board"
+        onClick={() => setTab("board")}
+      >
+        <span className={styles.tabInner}>
+          <LayoutGrid size={icon.inline} aria-hidden="true" />
+          {healthNow.board}
+        </span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id="today-tab-health"
+        className={styles.tab}
+        aria-selected={tab === "health"}
+        aria-controls="today-panel-health"
+        onClick={() => setTab("health")}
+      >
+        <span className={styles.tabInner}>
+          <Activity size={icon.inline} aria-hidden="true" />
+          {healthNow.health}
+        </span>
+      </button>
+    </div>
+  );
+
+  const legs = (
+    <div className={styles.legs} role="group" aria-label={planRoutes.directionLegend}>
+      {(["AM", "PM"] as const).map((value) => (
+        <button
+          key={value}
+          type="button"
+          className={styles.leg}
+          aria-pressed={(legChoice ?? "AM") === value}
+          onClick={() => setLegChoice(value)}
+        >
+          {planRoutes.directionButton[value]}
+        </button>
+      ))}
+    </div>
+  );
+
+  const date = (
+    <p className={styles.date}>
+      <Calendar size={icon.inline} aria-hidden="true" />
+      {/*
+        The machine-readable date is the one the words say (Firia, 4:50 PM ET): the day the
+        demo is being given on, not the fixture day the rows are keyed by.
+      */}
+      <time dateTime={demoDateIso(day.iso)} className="tabularNums">
+        {day.label}
+      </time>
+    </p>
+  );
+
+  /*
+   * png/health-demo-1440.png: the title, the tabs and the date are one row, in the frame's
+   * bar. png/health-demo-390.png and png/today-saved-390.png: the title and the date stay on
+   * that row, and Board | Health with Morning | Afternoon sit on the next one. Until the bar
+   * is there (the first paint, and a render with no document) the same controls stay in the
+   * page so the board is never without them.
+   */
+  const headerChrome = (
+    <>
+      {wide ? tabs : null}
+      {date}
+    </>
+  );
 
   return (
     <div className={styles.page}>
@@ -142,55 +238,13 @@ export function TodayBoard({
         (src/ui/PageHeader.tsx, audit §2 item 1), so the board's own row is the date readout the
         mockup draws beside it — and the date is what names the day when it is not today.
       */}
-      <header className={styles.titleRow}>
-        {/*
-          Board | Health (png/today-saved-1440.png, png/health-demo-1440.png). The selected
-          tab is the tint the rest of the app uses for "this one". Health is the four tiles
-          and nothing else on that panel.
-        */}
-        <div className={styles.tabs} role="tablist" aria-label={healthNow.tabsLabel}>
-          <button
-            type="button"
-            role="tab"
-            id="today-tab-board"
-            className={styles.tab}
-            aria-selected={tab === "board"}
-            aria-controls="today-panel-board"
-            onClick={() => setTab("board")}
-          >
-            <span className={styles.tabInner}>
-              <LayoutGrid size={icon.inline} aria-hidden="true" />
-              {healthNow.board}
-            </span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            id="today-tab-health"
-            className={styles.tab}
-            aria-selected={tab === "health"}
-            aria-controls="today-panel-health"
-            onClick={() => setTab("health")}
-          >
-            <span className={styles.tabInner}>
-              <Activity size={icon.inline} aria-hidden="true" />
-              {healthNow.health}
-            </span>
-          </button>
+      {headerSlot ? createPortal(headerChrome, headerSlot) : <div className={styles.titleRow}>{tabs}{date}</div>}
+      {headerSlot && !wide ? (
+        <div className={styles.phoneTabs}>
+          {tabs}
+          {legs}
         </div>
-        <p className={styles.date}>
-          <Calendar size={icon.inline} aria-hidden="true" />
-          {/*
-            The machine-readable date is the one the words say (Firia, 4:50 PM ET): the day the
-            demo is being given on, not the fixture day the rows are keyed by. A `<time>` whose
-            attribute and whose text named two different days would be the bug this ruling
-            fixed, written down twice.
-          */}
-          <time dateTime={demoDateIso(day.iso)} className="tabularNums">
-            {day.label}
-          </time>
-        </p>
-      </header>
+      ) : null}
 
       <div
         role="tabpanel"

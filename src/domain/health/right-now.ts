@@ -3,8 +3,8 @@
  * (png/health-demo-1440.png, png/health-demo-390.png).
  *
  * Firia, 2026-10-17: Health is these four tiles on the Today page, and nothing else. No chart,
- * no Systems row, no Savings row. The hours and money this deployment cannot measure stay in
- * `metrics.ts` (`BASELINE_ROWS`) and are not drawn: an absent row is not a fifth tile.
+ * no Systems row, no Savings row. Hours and money are not a fifth tile: this deployment has
+ * no baseline to count them from, so they are absent rather than guessed.
  *
  * Pure. A `RightNowFacts` in, four tiles out. The facts are read from the day's own rows
  * (src/domain/health/right-now-facts.ts) — the same van check the step strip uses, the saved
@@ -21,7 +21,7 @@ export const RIGHT_NOW_TILES = [
 ] as const;
 export type RightNowKey = (typeof RIGHT_NOW_TILES)[number];
 
-/** Which mark the pill draws. The colour is the component's, and it is grey. */
+/** Which mark the pill draws. The colour is the component's: All is ok, a van is warn, Family texts is neutral. */
 export type RightNowPillKind = "all" | "van" | "family";
 
 export type RightNowPill = { text: string; kind: RightNowPillKind };

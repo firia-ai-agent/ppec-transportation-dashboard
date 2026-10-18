@@ -628,3 +628,18 @@ describe("the one primary action, and why it is not available", () => {
     });
   });
 });
+
+describe("Board | Health", () => {
+  /**
+   * png/health-demo-1440.png, png/health-demo-390.png, png/today-saved-1440.png: the selected
+   * tab is a filled pill, info-bg behind info-fg. The radius and the padding stay in two
+   * rules so this is a tab and not a second pill (src/ui/pill.test.ts).
+   */
+  it("fills the selected tab with the info tone", () => {
+    const css = readFileSync(path.join(__dirname, "today.module.css"), "utf8");
+    const selected = css.slice(css.indexOf('.tab[aria-selected="true"]'), css.indexOf(".tabInner"));
+    expect(selected).toMatch(/background:\s*var\(--color-info-bg\)/);
+    expect(selected).toMatch(/color:\s*var\(--color-info-fg\)/);
+    expect(selected).not.toMatch(/padding/);
+  });
+});

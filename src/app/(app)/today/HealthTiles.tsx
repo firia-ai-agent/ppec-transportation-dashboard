@@ -8,18 +8,21 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
+import Link from "next/link";
+import { FAMILY_TEXTS_FOR_YOU } from "@/auth/access";
 import type { RightNowKey, RightNowPillKind, RightNowTile } from "@/domain/health/right-now";
 import { healthNow } from "@/ui/copy";
 import { Pill, PillLabel } from "@/ui/Pill";
-import { icon } from "@/ui/tokens";
+import { icon, type Tone } from "@/ui/tokens";
 import styles from "./health.module.css";
 
 /**
  * THE FOUR TILES (png/health-demo-1440.png, png/health-demo-390.png).
  *
  * A label, a number, and at most one pill. The number was counted before this component was
- * called. The pills are grey (the neutral tone): colour is not how these four are told apart,
- * the icon and the word are. At 390 they sit two to a row; wider, they are one row of four.
+ * called. All is green and a van that is open or late is amber — the same ok and warn the
+ * step strip uses — and Family texts stays grey. At 390 they sit two to a row; wider, they
+ * are one row of four.
  */
 const TILE_ICONS: Record<RightNowKey, LucideIcon> = {
   KIDS_PLACED: Users,
@@ -34,6 +37,26 @@ const PILL_ICONS: Record<RightNowPillKind, LucideIcon> = {
   family: MessageSquare,
 };
 
+/**
+ * Where a tile goes (png/health-demo-1440.png, png/health-demo-390.png).
+ * The whole card is the link, chevron included, and the shell around it is the menu.
+ *
+ * All is the step strip's Done (ok, green). An open or late van is its Needed (warn, amber).
+ * Family texts is the grey chip the mockup draws; grey is not a status here.
+ */
+export const TILE_LINKS: Record<RightNowKey, string> = {
+  KIDS_PLACED: "/plan-routes",
+  VANS_CHECKED: "/ramp-ipad",
+  RUNNING_LATE: "/live-map",
+  NEEDS_YOU: FAMILY_TEXTS_FOR_YOU,
+};
+
+const PILL_TONE: Record<RightNowPillKind, Tone> = {
+  all: "ok",
+  van: "warn",
+  family: "neutral",
+};
+
 export function HealthTiles({ tiles }: { tiles: readonly RightNowTile[] }) {
   return (
     <section className={styles.health} aria-labelledby="right-now-heading">
@@ -46,7 +69,7 @@ export function HealthTiles({ tiles }: { tiles: readonly RightNowTile[] }) {
           const PillIcon = tile.pill ? PILL_ICONS[tile.pill.kind] : null;
           return (
             <li key={tile.key} className={styles.item}>
-              <article className={styles.tile}>
+              <Link href={TILE_LINKS[tile.key]} className={styles.tile}>
                 <div className={styles.head}>
                   <TileIcon size={icon.inline} aria-hidden="true" />
                   <span className={styles.label}>{tile.label}</span>
@@ -61,12 +84,12 @@ export function HealthTiles({ tiles }: { tiles: readonly RightNowTile[] }) {
                   {tile.outOf !== null ? <span className={`${styles.outOf} tabularNums`}>/{tile.outOf}</span> : null}
                 </p>
                 {tile.pill && PillIcon ? (
-                  <Pill tone="neutral">
+                  <Pill tone={PILL_TONE[tile.pill.kind]}>
                     <PillIcon size={icon.pill} aria-hidden="true" />
                     <PillLabel>{tile.pill.text}</PillLabel>
                   </Pill>
                 ) : null}
-              </article>
+              </Link>
             </li>
           );
         })}

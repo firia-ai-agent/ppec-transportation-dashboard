@@ -34,6 +34,19 @@
 }
 
 /*
+ * Today fills this from the board (png/health-demo-1440.png, png/health-demo-390.png).
+ * `display: contents` makes the portaled tabs and date flex items of the bar, so at 1440
+ * they sit on the title's row and the bar stays the 64 px the frame measures.
+ */
+.chrome {
+  display: contents;
+}
+
+.bar[data-screen="today"] .spacer {
+  display: none;
+}
+
+/*
  * The account's disc, below 768 only (audit §2 item 5). Above it the rail's account block is the
  * one identity location and this is not drawn — one per width, never two.
  */
