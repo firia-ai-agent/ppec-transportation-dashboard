@@ -28,7 +28,9 @@ import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
-import { F2_NUMBER, PEPPER } from "@/test/messaging";
+import { F2_NUMBER, PEPPER, seedStaff } from "@/test/messaging";
+import { decideApproval, pendingApprovals } from "@/modules/approvals/decide";
+import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { type AgentScenario, seedAgentScenario, seedSecondGuardian } from "@/test/agent-state";
 import { toolCall } from "../../providers/fake";
 import { toolCalls } from "../store";
@@ -123,13 +125,24 @@ describe("fixture validity windows are cut from the pinned test clock", () => {
     });
     const r = await h.start({ type: "msg.inbound", id: sc.messageId, siteId: sc.siteId });
 
-    expect([r.state, r.steps]).toEqual(["SUCCEEDED", 5]);
+    /*
+     * Four steps, and the fourth is PROPOSED: a run ends at a proposal (S1-7). The point of this
+     * case is that the fixtures' validity windows let a multi-step run get this far at all — a
+     * drifted window stops it at step one — and that is unchanged.
+     */
+    expect([r.state, r.steps]).toEqual(["SUCCEEDED", 4]);
     const calls = await toolCalls(db, r.runId);
-    expect(calls.map((c) => c.status)).toEqual(["EXECUTED", "EXECUTED", "EXECUTED", "EXECUTED", "EXECUTED"]);
+    expect(calls.map((c) => c.status)).toEqual(["EXECUTED", "EXECUTED", "EXECUTED", "PROPOSED"]);
     expect(calls[0].result).toMatchObject({ sender_known: true });
 
     // The send side reads the same windows back at the pinned clock when the outbox re-checks
-    // egress, so a drifted fixture would be blocked here even if the run had got this far.
+    // egress, so a drifted fixture would be blocked there even if the run had got this far. The
+    // approval is what puts the message in the outbox to be re-checked.
+    const coordinator = await seedStaff(db, "COORDINATOR", sc.siteId);
+    const [waiting] = await pendingApprovals(db, [sc.siteId]);
+    await decideApproval(db, new FakeOutboxTransport(), {
+      userId: coordinator, approvalId: waiting.id, decision: "APPROVED", approvedText: waiting.text, now,
+    });
     expect(await h.drainOutbox()).toEqual(["SENT"]);
     expect(h.provider.sent.map((m) => m.recipientToken)).toEqual([sc.contactToken]);
   });
