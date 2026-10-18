@@ -1,8 +1,10 @@
 import { requirePage } from "@/auth/page-guard";
 import { buildBoard, CLOCK_PARAM, requestedBoardDay } from "@/domain/board/board";
 import { getDayReadiness } from "@/domain/day/day-facts";
-import { stepsFor } from "@/ui/step-strip";
+import { readRightNow } from "@/domain/health/right-now-facts";
 import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
+import { rightNowTiles } from "@/domain/health/right-now";
+import { stepsFor } from "@/ui/step-strip";
 import { TodayBoard } from "./TodayBoard";
 
 /** The guard reads a session, so this route is never statically rendered. */
@@ -58,12 +60,6 @@ export default async function Page({
   const board = buildBoard(
     requestedBoardDay(one(params.date), one(params[CLOCK_PARAM]), process.env),
   );
-  /*
-   * Which children's families this day texted (PRD §18.2 step 7 / AT-03), from the same
-   * projection the phone panel renders. Computed here, on the server, so the drawer can offer the
-   * thread for a child that has one and say plainly that there is none for a child that does not.
-   */
-  const textedChildKeys = demoLateDropoffs(board.day).map((text) => text.childKey);
 
   /*
    * The day's three steps, as they actually stand (REDESIGN-SPEC §9.2, §9.4).
@@ -76,10 +72,34 @@ export default async function Page({
    *
    * Which card is a link is still the access table's answer, per role (`stepsFor`).
    */
-  const readiness = await getDayReadiness({ siteId: caller.memberships[0]?.siteId ?? null });
+  const siteId = caller.memberships[0]?.siteId ?? null;
+  const readiness = await getDayReadiness({ siteId });
   const steps = stepsFor(caller.kind === "STAFF" ? caller.role : null, readiness);
+  /*
+   * The Health tab's four numbers, from the same centre and the same day as the strip above.
+   * A session with no site — every browser check — reads nothing, and the tiles say so with
+   * zeros rather than with a figure the day does not have.
+   */
+  const tiles = rightNowTiles(await readRightNow({ siteId }));
 
   // The strip belongs under the board's own header (REDESIGN-SPEC §9.2), so it is handed to
   // the board rather than rendered above everything: the board is what owns that header.
-  return <TodayBoard board={board} query={query} steps={steps} textedChildKeys={textedChildKeys} />;
+  /*
+   * Which children's families this day texted (PRD §18.2 step 7 / AT-03), from the same
+   * projection the phone panel renders. Kept across the #73 merge: #73 rebuilt this screen and
+   * never carried this list, so it is re-handed here rather than dropped — the drawer offers a
+   * thread for a child that has one and says plainly there is none for a child that does not, and
+   * a link to an empty thread would be worse than the sentence.
+   */
+  const textedChildKeys = demoLateDropoffs(board.day).map((text) => text.childKey);
+
+  return (
+    <TodayBoard
+      board={board}
+      query={query}
+      steps={steps}
+      tiles={tiles}
+      textedChildKeys={textedChildKeys}
+    />
+  );
 }

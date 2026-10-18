@@ -20,8 +20,9 @@ import {
 } from "./board";
 import { fits, placeRiders, rejectReason } from "./fit";
 import { needsFromCategories } from "./needs";
+import { NEED_CATEGORY } from "@/config/equipment";
 import { needsOfDemoChild } from "@/modules/demo/day-source";
-import { childByKey } from "@/modules/demo/fixtures/standard";
+import { childByKey, type Child as DemoChild } from "@/modules/demo/fixtures/standard";
 import { resolveSetup, type SetupRow } from "./setup";
 import { CHILDREN, childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/standard";
 
@@ -53,17 +54,35 @@ describe("§6.4: a child's needs, from their approved profile only", () => {
     expect(needsOfKey("C6")).toMatchObject({ wheelchair: true, nurse: true });
   });
 
+  /**
+   * The rule, built here rather than borrowed from the day.
+   *
+   * The fresh seed (2026-10-17 8:02 PM ET) carries only approved needs, so there is no longer a
+   * reported item in the fixtures to point at — and the rule it used to demonstrate is exactly
+   * the one that must not weaken. So the test makes its own child with one approved need and one
+   * reported one, and asserts the planner reads the first and not the second.
+   */
   it("ignores a need nobody has approved (DECISION-LEDGER row 1)", async () => {
-    // Zoe B. (C6) carries the day's one reported-but-unapproved item, a portable suction
-    // (PRD l.1329). It is not oxygen, it is not any flag, and it must not reach the plan.
-    const suction = childByKey("C6").needs.find((need) => need.state === "REPORTED");
-    expect(suction?.category).toBe("MEDICAL_DEVICE_POWER");
-    expect(needsFromCategories([suction!.category])).toEqual({
+    const child: DemoChild = {
+      ...childByKey("C8"),
+      needs: [
+        { category: NEED_CATEGORY.carSeat, value: {}, state: "APPROVED" },
+        { category: NEED_CATEGORY.oxygen, value: {}, state: "REPORTED" },
+      ],
+    };
+    // What the adapter hands the planner: the approved car seat, and no oxygen at all.
+    expect(needsOfDemoChild(child)).toEqual({
       wheelchair: false,
-      carSeat: false,
+      carSeat: true,
       oxygen: false,
       nurse: false,
     });
+    // And the raw rule under it: a category only counts when the item carrying it is approved.
+    const approved = child.needs.filter((need) => need.state === "APPROVED").map((n) => n.category);
+    expect(needsFromCategories(approved).oxygen).toBe(false);
+    expect(needsFromCategories([NEED_CATEGORY.oxygen]).oxygen).toBe(true);
+    // The day itself has nothing unapproved left, which is the seed's own shape.
+    expect(CHILDREN.flatMap((c) => c.needs).filter((n) => n.state !== "APPROVED")).toEqual([]);
   });
 
   it("plans against oxygen, now that the day has an approved oxygen rider (7:17 PM ET)", async () => {
@@ -292,29 +311,44 @@ describe("§1.4: Auto-plan is the one placement function", () => {
 });
 
 describe("§1.7 #1: a refused drop changes nothing", () => {
-  it("refuses a chair onto the van with no spot and no lift, and names it", async () => {
+  /**
+   * The refusal is made of **counters**, not of a weaker van (Vera/Athena/Veri with Firia's
+   * sign-off, 2026-10-18 12:13 AM ET): all three vans are the same generic type, so the van that
+   * cannot take this chair is the van whose one wheelchair spot is already taken.
+   */
+  it("refuses a chair onto a van whose only wheelchair spot is used, and names it", async () => {
     const day = await testDay();
     const vanThree = day.vans.find((van) => van.slot === 3);
     if (!vanThree) throw new Error("no Van 3");
-    expect(vanThree.setup.wheelchairSpots).toBe(0);
-    expect(vanThree.setup.hasLift).toBe(false);
-    const chair = day.riders.find((rider) => rider.needs.wheelchair);
-    if (!chair) throw new Error("no chair rider in the day");
-    expect(rejectReason(vanThree.setup, [], chair)).toBe("WHEELCHAIR");
+    // One spot, and a lift — the same van as the other two.
+    expect(vanThree.setup.wheelchairSpots).toBe(1);
+    expect(vanThree.setup.hasLift).toBe(true);
+    const chairs = day.riders.filter((rider) => rider.needs.wheelchair);
+    expect(chairs.length, "the day has two children who ride in their own chair").toBeGreaterThan(1);
+    // Empty, it takes the first of them; with that one aboard, the second is refused by name.
+    expect(rejectReason(vanThree.setup, [], chairs[1])).toBe(null);
+    expect(rejectReason(vanThree.setup, [chairs[0]], chairs[1])).toBe("WHEELCHAIR");
   });
 
   it("refuses the whole save when a posted plan puts them there anyway", async () => {
     const day = await testDay();
     const vanThree = vanIdOfSlot(3);
-    const chair = day.riders.find((rider) => rider.needs.wheelchair);
-    if (!chair) throw new Error("no chair rider in the day");
-    const posted = moveTo(emptyPlan(day), chair.token, vanThree);
-    expect(checkPlan(day, posted)).toEqual({
-      ok: false,
-      childToken: chair.token,
-      vanId: vanThree,
-      reason: "WHEELCHAIR",
-    });
+    const chairs = day.riders.filter((rider) => rider.needs.wheelchair);
+    expect(chairs.length).toBeGreaterThan(1);
+    const posted = moveTo(
+      moveTo(emptyPlan(day), chairs[0].token, vanThree),
+      chairs[1].token,
+      vanThree,
+    );
+    const refused = checkPlan(day, posted);
+    // One spot and two chairs: the van is refused by name, with the reason, and the child it
+    // names is one of the two who would have ridden in it (the checker reports the first).
+    expect(refused).toMatchObject({ ok: false, vanId: vanThree, reason: "WHEELCHAIR" });
+    expect(chairs.map((rider) => rider.token)).toContain(
+      (refused as { childToken: string }).childToken,
+    );
+    // And one of them alone is a plan the rule agrees with, so it is the count that refused it.
+    expect(checkPlan(day, moveTo(emptyPlan(day), chairs[0].token, vanThree))).toEqual({ ok: true });
   });
 
   it("passes a plan the fit rule agrees with", async () => {

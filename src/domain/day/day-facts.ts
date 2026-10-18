@@ -87,16 +87,9 @@ export async function readDayFacts(
     date,
     leg,
     read: true,
-    // The day is started for a date the plan tables have anything for; this loader reads the two
-    // tables §9.4 names and nothing else, so a started day it cannot see stays Needed.
-    started: true,
     vans: Number(vans.rows[0]?.vans ?? 0),
-    vansCheckedToday: Number(vans.rows[0]?.checked ?? 0),
-    setupSource: Number(vans.rows[0]?.checked ?? 0) > 0 ? "CHECKED" : "DEFAULT",
-    planSavedAt: savedAt == null ? null : new Date(savedAt).toISOString(),
-    unassigned: 0,
-    vansOut: 0,
-    approvalsWaiting: 0,
+    vansChecked: Number(vans.rows[0]?.checked ?? 0),
+    planSavedAt: savedAt == null ? null : new Date(savedAt),
   };
 }
 

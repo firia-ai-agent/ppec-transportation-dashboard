@@ -55,6 +55,11 @@ const DAY = {
   keyboard: "2026-11-10",
   save: "2026-11-11",
   refusal: "2026-11-12",
+  undo: "2026-11-17",
+  autoplan: "2026-11-18",
+  conflict: "2026-11-19",
+  legs: "2026-11-20",
+  dragPhone: "2026-11-21",
 };
 
 /*
@@ -239,6 +244,24 @@ const card = (page: Page, name: string): Locator =>
   page.locator("[data-rider]").filter({ hasText: name }).first();
 const announced = (page: Page): Locator => page.locator("[data-announce]");
 
+/**
+ * The plan as the server has it, through the read-only board route (`GET /api/plan`, the same
+ * one the board itself reads). Nothing here writes: it is how a test says "and the rows did not
+ * change" without reaching past the app into a database.
+ */
+async function savedPlanOf(
+  page: Page,
+  day: string,
+): Promise<{ version: number; plan: Record<string, { bucket: string; vanId: string | null }> }> {
+  const response = await page.request.get(`/api/plan?date=${day}&leg=pm`);
+  expect(response.status()).toBe(200);
+  const body = (await response.json()) as {
+    version: number;
+    plan: Record<string, { bucket: string; vanId: string | null }>;
+  };
+  return { version: body.version, plan: body.plan };
+}
+
 async function openBoard(page: Page, day: string): Promise<void> {
   await page.goto(boardUrl(day));
   await expect(page.getByRole("heading", { name: planBoard.heading, level: 1 })).toBeVisible();
@@ -289,13 +312,39 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
     await expect(chip).toHaveAttribute("href", /\/ramp-ipad\?date=\d{4}-\d{2}-\d{2}&leg=pm&van=/);
   });
 
+  /**
+   * A VAN WITH NO SPOT **LEFT** — "Firia 8:02 PM seed ruling, exactly three generic vans"
+   * (d1334d2; the three are src/modules/demo/fixtures/standard.ts:320 `VEHICLES`).
+   *
+   * Van 3 used to be a sedan with no wheelchair place and no lift, so one chair was refused by
+   * what the van *was*. All three vans are the same generic van now — one wheelchair spot each,
+   * every one of them lift-equipped — so the refusal is made of counts: the spot is filled first,
+   * on screen, by dragging a chair rider into it, and the second chair is the one that will not
+   * fit. Nothing is seeded and no endpoint is posted to: the board does both moves.
+   */
   test("a chair over the van with no spot is refused, and the card goes back", async ({ page }) => {
     await openBoard(page, DAY.drag);
-    await page.locator("[data-auto-plan]").click();
     const vanThree = vans(page).nth(2);
-    const before = await vanThree.locator("[data-rider]").count();
+    const spots = vanThree.locator('[data-counter="wheelchairSpots"]');
+    // The van starts with its one spot free — the day is not auto-planned, so what fills it is
+    // the drag below and nothing else.
+    await expect(spots).toContainText("0/1");
+    const empty = await vanThree.locator("[data-rider]").count();
 
-    // Noah O. rides in his own chair; Van 3 has no wheelchair spot and no lift.
+    // 1. Zoe B. rides in her own chair, and a real drag puts her in the van's only spot.
+    await liftOver(page, card(page, "Zoe B."), vanThree);
+    await expect(vanThree).toHaveAttribute("data-fit", "yes");
+    await page.mouse.up();
+    await expect(vanThree.locator("[data-rider]").filter({ hasText: "Zoe B." })).toHaveCount(1);
+    await expect(vanThree.locator("[data-rider]")).toHaveCount(empty + 1);
+    await expect(spots).toContainText("1/1");
+
+    // The plan as the server has it, before the refused move: a draft is not a write (option A),
+    // so this is read back unchanged afterwards (the read-only board route, GET /api/plan).
+    const planBefore = await savedPlanOf(page, DAY.drag);
+
+    // 2. Noah O. rides in his own chair too, and the spot is gone.
+    const before = await vanThree.locator("[data-rider]").count();
     await liftOver(page, card(page, "Noah O."), vanThree);
     await expect(vanThree).toHaveAttribute("data-fit", "no");
     await expect(vanThree.locator("[data-reject-chip]")).toHaveText(planBoard.reject.WHEELCHAIR);
@@ -304,25 +353,62 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
 
     // Nothing moved, and the refusal was said as a sentence rather than only drawn.
     await expect(vanThree.locator("[data-rider]")).toHaveCount(before);
+    await expect(vanThree.locator("[data-rider]").filter({ hasText: "Noah O." })).toHaveCount(0);
     await expect(announced(page)).toContainText("Noah O.");
     await expect(announced(page)).toContainText(planBoard.rejectThing.WHEELCHAIR);
+    await expect(spots).toContainText("1/1");
 
-    /*
-     * The same refusal at 390, where there is no cross-column drag to make: a phone moves a
-     * child with `Move to…` (§9.3), and the refusal comes back the same way — nobody moves, and
-     * the reason is announced. The shot is the phone's rendering of that refusal.
-     */
+    // 3. And in the data: the refused move wrote nothing. Same version, same rows.
+    expect(await savedPlanOf(page, DAY.drag)).toEqual(planBefore);
+
+    // …and when the draft **is** saved, the save is the one move that landed: Zoe is in Van 3
+    // and Noah is in no van at all, because a refusal cannot be saved by pressing Save.
+    await page.locator("[data-save]").click();
+    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
+    const saved = await savedPlanOf(page, DAY.drag);
+    const vanThreeId = await vanThree.getAttribute("data-van");
+    const zoe = await card(page, "Zoe B.").getAttribute("data-rider");
+    const noah = await page
+      .locator('[data-role="unassigned"] [data-rider]')
+      .filter({ hasText: "Noah O." })
+      .getAttribute("data-rider");
+    expect(saved.plan[zoe ?? ""]).toMatchObject({ bucket: "VAN", vanId: vanThreeId });
+    expect(saved.plan[noah ?? ""]?.bucket).not.toBe("VAN");
+  });
+
+  /**
+   * The same refusal at 390, where there is no cross-column drag to make: a phone moves a child
+   * with `Move to…` (§9.3), and the refusal comes back the same way — nobody moves, and the
+   * reason is announced. The van's one spot is filled the same way first, through the sheet, so
+   * what refuses the second chair is a count a person can see (the 3-van rule, d1334d2).
+   */
+  test("at 390 the same chair is refused by Move to…, once the spot is taken", async ({ page }) => {
     await page.setViewportSize(PHONE);
-    await page.reload();
-    // Nobody is placed yet on a fresh load, so Noah O. is in the Unassigned column, which is the
-    // one a phone opens on — no switching, and the card is on screen to act on.
-    const noah = card(page, "Noah O.");
-    const token = await noah.getAttribute("data-rider");
+    // Its own day, with nothing saved on it: both chair riders start in Unassigned, which is
+    // the column a phone opens on, so both cards are on screen to act on.
+    await openBoard(page, DAY.dragPhone);
+    const vanThreeName = (await vans(page).nth(2).getAttribute("aria-label")) ?? "Van 3";
+
+    // The spot is filled on screen first: Zoe B., by the control a phone has.
+    const zoe = card(page, "Zoe B.");
+    const zoeToken = await zoe.getAttribute("data-rider");
+    await page.locator(`[data-move-to="${zoeToken}"]`).selectOption({ label: vanThreeName });
+    await expect(
+      vans(page).nth(2).locator("[data-rider]").filter({ hasText: "Zoe B." }),
+    ).toHaveCount(1);
+    await expect(vans(page).nth(2).locator('[data-counter="wheelchairSpots"]')).toContainText("1/1");
+
     // At 390 the `Move to…` select is on every card already (§9.3), so it is used directly:
     // the right-click that reveals it on a wide screen is a pointer affordance, not the control.
-    const vanThreeName = await vans(page).nth(2).getAttribute("aria-label");
-    await page.locator(`[data-move-to="${token}"]`).selectOption({ label: vanThreeName ?? "Van 3" });
+    const noah = card(page, "Noah O.");
+    const token = await noah.getAttribute("data-rider");
+    await page.locator(`[data-move-to="${token}"]`).selectOption({ label: vanThreeName });
+    await expect(announced(page)).toContainText("Noah O.");
     await expect(announced(page)).toContainText(planBoard.rejectThing.WHEELCHAIR);
+    // Nobody moved: the second chair is still where it was.
+    await expect(
+      vans(page).nth(2).locator("[data-rider]").filter({ hasText: "Noah O." }),
+    ).toHaveCount(0);
     await review(page, "board-dragreject");
     await page.setViewportSize(WIDE);
   });
@@ -377,8 +463,16 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
    */
   test("a child's panel: three answers, a Save, and a board that moved", async ({ page }) => {
     await openBoard(page, DAY.child);
+    /*
+     * Auto-plan proposes and Save keeps it (Firia's option A, 2026-10-17 9:41 PM ET): until
+     * Save the toolbar says "Not saved" (plan-board.html header, the amber dot). The panel's
+     * own Save re-plans the **saved** leg, so the board is saved first, as a coordinator would.
+     */
     await page.locator("[data-auto-plan]").click();
     await expect(page.locator("[data-unassigned-count]")).toHaveText("0");
+    await expect(page.locator("[data-save-state]")).toHaveText(planBoard.notSaved);
+    await page.locator("[data-save]").click();
+    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
 
     // Theo V. needs nothing today, so every van's oxygen meter reads 0 of what it carries.
     const card = card2(page, "Theo V.");
@@ -427,17 +521,28 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
     await openBoard(page, DAY.absent);
     await page.locator("[data-auto-plan]").click();
     const absent = page.locator('[data-bucket="ABSENT"]');
-    await expect(absent.locator('[data-bucket-count="ABSENT"]')).toHaveText("0");
+    const count = absent.locator('[data-bucket-count="ABSENT"]');
+    /*
+     * The count is read rather than assumed to be zero: one `next start` serves every spec and
+     * `reuseExistingServer` keeps it between runs, so a day this test saved on an earlier run
+     * is still saved. What is asserted is the **change** this test makes, which is the rule.
+     */
+    const before = Number((await count.innerText()).trim());
 
     const theo = card2(page, "Theo V.");
     await liftOver(page, theo, absent);
     await page.mouse.up();
-    await expect(absent.locator('[data-bucket-count="ABSENT"]')).toHaveText("1");
+    await expect(count).toHaveText(String(before + 1));
+    // A drop on a group is a draft like any other move (Firia option A, 9:41 PM ET)…
+    await expect(page.locator("[data-save-state]")).toHaveText(planBoard.notSaved);
+    await page.locator("[data-save]").click();
     await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
 
-    // It is a row, not a screen state.
+    // …and once saved it is a row, not a screen state.
     await page.reload();
-    await expect(page.locator('[data-bucket="ABSENT"] [data-bucket-count="ABSENT"]')).toHaveText("1");
+    await expect(page.locator('[data-bucket="ABSENT"] [data-bucket-count="ABSENT"]')).toHaveText(
+      String(before + 1),
+    );
 
     // And they come back out of it: open the group, then the card's own `Move to…` — which on
     // a wide screen is the context menu §1.2 puts it behind.
@@ -446,10 +551,18 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
     await expect(inGroup).toBeVisible();
     const token = await inGroup.getAttribute("data-rider");
     await inGroup.click({ button: "right" });
-    const vanName = await vans(page).first().getAttribute("aria-label");
-    await page.locator(`[data-move-to="${token}"]`).selectOption({ label: vanName ?? "Van 1" });
-    await expect(page.locator('[data-bucket="ABSENT"] [data-bucket-count="ABSENT"]')).toHaveText("0");
-    await expect(vans(page).first().locator("[data-rider]").filter({ hasText: "Theo V." })).toHaveCount(1);
+    /*
+     * Back to Unassigned, which is the move that is always allowed: the point here is that a
+     * child can be taken **out** of the group. A van may honestly refuse them, because the fit
+     * rule still decides and an earlier test in this run may have changed what they need.
+     */
+    await page.locator(`[data-move-to="${token}"]`).selectOption({ label: planBoard.unassigned });
+    await expect(page.locator('[data-bucket="ABSENT"] [data-bucket-count="ABSENT"]')).toHaveText(
+      String(before),
+    );
+    await expect(
+      page.locator('[data-role="unassigned"] [data-rider]').filter({ hasText: "Theo V." }),
+    ).toHaveCount(1);
   });
 
   test("no internal code, no fixture date, and the DEMO bar is the only violet", async ({ page }) => {
@@ -458,6 +571,128 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
     await expectVioletOnlyOnDemoChrome(page);
     await expectNoInternalCodes(page);
     await expectNoCodesOrOldDates(page);
+  });
+
+  /**
+   * Firia's option A (2026-10-17 9:41 PM ET), and the test contract's "Plan routes board,
+   * Layer 2": a drag is a **draft**. It changes the screen, writes nothing, and the toolbar
+   * says "Not saved" until somebody presses Save.
+   */
+  test("a drag is unsaved until Save, and a reload forgets it", async ({ page }) => {
+    await openBoard(page, DAY.undo);
+    const target = vans(page).nth(1);
+
+    await liftOver(page, card2(page, "Theo V."), target);
+    await page.mouse.up();
+    // On screen, in the van (plan-board.html: the card moves on drop)…
+    await expect(target.locator("[data-rider]").filter({ hasText: "Theo V." })).toHaveCount(1);
+    // …and the toolbar says it is a draft (plan-board.png header: the amber "Not saved").
+    await expect(page.locator("[data-save-state]")).toHaveText(planBoard.notSaved);
+
+    // Nothing was written: a reload is the saved plan again, which has nobody in it.
+    await page.reload();
+    await expect(
+      vans(page).nth(1).locator("[data-rider]").filter({ hasText: "Theo V." }),
+    ).toHaveCount(0);
+    await expect(page.locator("[data-save-state]")).toHaveText(planBoard.notSaved);
+  });
+
+  /** Option A: Undo reverses **unsaved** moves only, most recent first, and never a save. */
+  test("Undo takes back the last unsaved move, and nothing that was saved", async ({ page }) => {
+    await openBoard(page, DAY.undo);
+    const vanOne = vans(page).first();
+    const vanTwo = vans(page).nth(1);
+
+    // One move, then Save: this is the one Undo must never touch.
+    await liftOver(page, card2(page, "Theo V."), vanOne);
+    await page.mouse.up();
+    await page.locator("[data-save]").click();
+    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
+    await expect(vanOne.locator("[data-rider]").filter({ hasText: "Theo V." })).toHaveCount(1);
+    /*
+     * Undo is offered only while there is something unsaved: a bare icon button named "Undo"
+     * in the header (plan-board.html header; test contract, Plan routes Layer 1 #6). The move
+     * toast offers its own Undo, so the header one is pinned by its hook as well as its name.
+     */
+    const undoButton = page
+      .getByRole("button", { name: planBoard.undo })
+      .and(page.locator("[data-undo]"));
+    await expect(undoButton).toBeDisabled();
+
+    // One unsaved move, then Undo: the card goes back, and the saved one stays put.
+    await liftOver(page, card2(page, "Mia R."), vanTwo);
+    await page.mouse.up();
+    await expect(vanTwo.locator("[data-rider]").filter({ hasText: "Mia R." })).toHaveCount(1);
+    await undoButton.click();
+    await expect(vanTwo.locator("[data-rider]").filter({ hasText: "Mia R." })).toHaveCount(0);
+    await expect(vanOne.locator("[data-rider]").filter({ hasText: "Theo V." })).toHaveCount(1);
+    // With nothing unsaved left, the header says what is kept, not "Not saved".
+    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
+  });
+
+  /** Option A: Auto-plan proposes. Nothing is written until Save. */
+  test("Auto-plan fills unsaved moves, and the plan is written only on Save", async ({ page }) => {
+    await openBoard(page, DAY.autoplan);
+    await page.locator("[data-auto-plan]").click();
+    await expect(page.locator("[data-unassigned-count]")).toHaveText("0");
+    // Still a draft (plan-board.png: the amber dot and "Not saved").
+    await expect(page.locator("[data-save-state]")).toHaveText(planBoard.notSaved);
+
+    // A reload proves nothing was written: everybody is waiting again.
+    await page.reload();
+    await expect(page.locator("[data-unassigned-count]")).not.toHaveText("0");
+
+    await page.locator("[data-auto-plan]").click();
+    await page.locator("[data-save]").click();
+    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
+    const placed = await page.locator("[data-van] [data-rider]").allInnerTexts();
+    await page.reload();
+    expect(await page.locator("[data-van] [data-rider]").allInnerTexts()).toEqual(placed);
+  });
+
+  /**
+   * Two coordinators, one plan: the second Save loses and is **told**, and its draft survives
+   * (Firia option A; the test contract's "Plan changed, reload", simulated with a second tab).
+   */
+  test("a stale Save says 'Plan changed, reload' and keeps the unsaved moves", async ({
+    page,
+    context,
+  }) => {
+    await openBoard(page, DAY.conflict);
+    // This tab builds a draft…
+    await liftOver(page, card2(page, "Theo V."), vans(page).first());
+    await page.mouse.up();
+    await expect(page.locator("[data-save-state]")).toHaveText(planBoard.notSaved);
+
+    // …while a second tab saves one of its own, moving the version on.
+    const other = await context.newPage();
+    await other.setViewportSize(WIDE);
+    await openBoard(other, DAY.conflict);
+    await other.locator("[data-auto-plan]").click();
+    await other.locator("[data-save]").click();
+    await expect(other.locator("[data-save-state]")).toHaveText(/^Saved /);
+    await other.close();
+
+    // The first tab's Save is refused in words, and its own move is still on screen.
+    await page.locator("[data-save]").click();
+    await expect(page.locator("[data-save-state]")).toHaveText(planBoard.changedReload);
+    await expect(
+      vans(page).first().locator("[data-rider]").filter({ hasText: "Theo V." }),
+    ).toHaveCount(1);
+  });
+
+  /** The two legs are two plans (DATA-MODEL §1: `plan_run` is per site, date **and** direction). */
+  test("Morning and Afternoon keep separate plans", async ({ page }) => {
+    await openBoard(page, DAY.legs);
+    await page.locator("[data-auto-plan]").click();
+    await page.locator("[data-save]").click();
+    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
+
+    // The other leg of the same day has nothing saved on it.
+    await page.goto(`/plan-routes?date=${DAY.legs}&leg=am`);
+    await expect(page.getByRole("heading", { name: planBoard.heading, level: 1 })).toBeVisible();
+    await expect(page.locator("[data-save-state]")).toHaveText(planBoard.notSaved);
+    await expect(page.locator("[data-unassigned-count]")).not.toHaveText("0");
   });
 
   test("at 390: one column at a time, and the map does not cover the rider cards", async ({ page }) => {
@@ -480,33 +715,41 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
   });
 });
 
-/* ───────────────────────────── Today, on the same board ───────────────────────────── */
+/* ───────────────────────────── Today does not plan ───────────────────────────── */
 
-test.describe("Today's child list is the board, not a second table", () => {
+/*
+ * The two tests that lived here planned from Today — Auto-plan and Save on `/today`, and a
+ * copy of the board's columns on it. today-saved-1440.png has neither: Today's board is
+ * read-only and the planning toolbar belongs to Plan routes (Veri's alignment audit,
+ * 2026-10-17 10:53 PM ET; Firia's 8:36 PM scope). The UI half moves to Plan routes below, and
+ * the read-only board arrives with the Today PR, which is where its mockup assertions belong.
+ */
+test.describe("Today shows the day; Plan routes plans it", () => {
   test.skip(!CONSOLE_ROLE, "Today is not this role's screen");
 
-  test("renders the same columns and the same cards, at both widths", async ({ page }) => {
-    for (const size of [WIDE, PHONE]) {
-      await page.setViewportSize(size);
-      await page.goto(`/today?date=${DAY.today}&leg=pm`);
-      // The board component itself, with its vans and its Unassigned column.
-      await expect(page.locator("[data-van]")).toHaveCount(3);
-      await expect(page.locator('[data-role="unassigned"]')).toBeVisible();
-      await expect(page.locator("[data-rider]").first()).toBeVisible();
-      await review(page, "today");
-    }
-    await page.setViewportSize(WIDE);
-  });
-
-  test("plans from Today, and Plan routes shows the same plan", async ({ page }) => {
-    await page.goto(`/today?date=${DAY.today}&leg=pm`);
+  test("Today has no Auto-plan and no Save, and the plan kept on Plan routes stays kept", async ({
+    page,
+  }) => {
+    // Planning is a Plan routes toolbar (plan-board.html header; Firia option A).
+    await openBoard(page, DAY.today);
     await page.locator("[data-auto-plan]").click();
     await expect(page.locator("[data-unassigned-count]")).toHaveText("0");
+    await expect(page.locator("[data-save-state]")).toHaveText(planBoard.notSaved);
     await page.locator("[data-save]").click();
     await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
-    const moved = await page.locator("[data-van]").first().locator("[data-rider]").first().innerText();
+    const moved = await page
+      .locator("[data-van]")
+      .first()
+      .locator("[data-rider]")
+      .first()
+      .innerText();
 
-    // The same plan, because it is the same component over the same `plan_assignment` rows.
+    // Today carries neither control (today-saved-1440.png: a read-only board, no toolbar).
+    await page.goto(`/today?date=${DAY.today}&leg=pm`);
+    await expect(page.locator("[data-auto-plan]")).toHaveCount(0);
+    await expect(page.locator("[data-save]")).toHaveCount(0);
+
+    // And the plan is a row: the screen that keeps it reads the same one back.
     await page.goto(boardUrl(DAY.today));
     await expect(page.locator("[data-unassigned-count]")).toHaveText("0");
     await expect(page.locator("[data-van]").first()).toContainText(moved.split("\n")[0]);
@@ -549,7 +792,9 @@ async function expectNoCodesOrOldDates(page: Page): Promise<void> {
   const banned: [RegExp, string][] = [
     [/\bV\d\b/, "a vehicle code"],
     [/\d+WC\/\d+A/, "a layout code"],
-    [/\b\d{2}:\d{2}\b/, "a 24-hour time"],
+    // A 24-hour time is a clock time with no AM/PM after it, so "Saved 11:40 PM" is fine and
+    // "17:40" is not. This also catches a bare "9:30", which the \d{2} form used to let through.
+    [/\b\d{1,2}:\d{2}\b(?!\s*[AP]M)/, "a 24-hour time"],
     [/\bOct 14\b/, "the fixture date"],
     [/\bSYN\b|Palm Lift|Provider P\d/, "a provider name"],
   ];

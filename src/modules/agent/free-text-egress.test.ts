@@ -73,12 +73,28 @@ function code(file: string): string {
     .join("\n");
 }
 
-/** A file that composes a message: it calls `enqueue(`, or writes the outbound table itself. */
-const QUEUES_A_MESSAGE = /\benqueue\s*\(|INSERT\s+INTO\s+ops\.outbound_message/i;
+/**
+ * A file that composes a message: it writes `ops.outbound_message` itself, or it calls **the
+ * outbox's** `enqueue` — which means importing that name from that module.
+ *
+ * The import is part of the test, and has to be. A bare `/\benqueue\s*\(/` is a search for a
+ * *word*, and #73 landed a second function with that word on it: `domain/plan/pending.ts`'s
+ * `enqueue(queue, move)`, the board's in-memory list of drags waiting for a Save, called from
+ * `PlanBoard.tsx`. Nothing about it touches a message, a template or a phone — but on the word
+ * alone it read as a client component queueing a family text, which is the exact thing this file
+ * exists to forbid. Naming the door by its module rather than by its verb is the narrower check:
+ * a route that really did reach the outbox has to import from it to do so, and the `INSERT`
+ * branch catches anything that goes around the function instead.
+ */
+const IMPORTS_THE_OUTBOX = /import\s*\{[^}]*\benqueue\b[^}]*\}\s*from\s*["'][^"']*outbox\/outbox["']/;
+const WRITES_THE_TABLE = /INSERT\s+INTO\s+ops\.outbound_message/i;
+const CALLS_ENQUEUE = /\benqueue\s*\(/;
+const QUEUES_A_MESSAGE = (source: string): boolean =>
+  WRITES_THE_TABLE.test(source) || (IMPORTS_THE_OUTBOX.test(source) && CALLS_ENQUEUE.test(source));
 /** A file that hands a message to a transport: the second half of a send, after the outbox. */
 const SENDS_A_MESSAGE = /\bdrain\s*\(|\bprovider\s*\.\s*send\s*\(/;
 
-const queueingFiles = sourceFiles.filter((f) => QUEUES_A_MESSAGE.test(code(f)));
+const queueingFiles = sourceFiles.filter((f) => QUEUES_A_MESSAGE(code(f)));
 
 describe("check 1, part 1: no route and no server action can put a message in the outbox", () => {
   it("the scan reads the tree it claims to read", () => {
@@ -126,20 +142,28 @@ describe("check 1, part 1: no route and no server action can put a message in th
     // Draining is the outbox's own machinery: it re-checks consent, staleness and the vars, and
     // it cannot invent a message that is not already a row. Composing is what routes may not do.
     expect(appSenders.sort()).toEqual(["app/api/queues/outbox/route.ts"]);
-    for (const f of appSenders) expect(QUEUES_A_MESSAGE.test(code(f)), f).toBe(false);
+    for (const f of appSenders) expect(QUEUES_A_MESSAGE(code(f)), f).toBe(false);
   });
 
   it("the two phone-panel server actions write nothing at all", () => {
     const actions = code("app/(app)/family-texts/actions.ts");
-    expect(QUEUES_A_MESSAGE.test(actions)).toBe(false);
+    expect(QUEUES_A_MESSAGE(actions)).toBe(false);
     expect(SENDS_A_MESSAGE.test(actions)).toBe(false);
     expect(/INSERT\s+INTO|UPDATE\s+ops\./i.test(actions)).toBe(false);
   });
 
   it("would notice a route that acquired one", () => {
-    expect(QUEUES_A_MESSAGE.test("await enqueue(tx, afterCommit, transport, msg);")).toBe(true);
-    expect(QUEUES_A_MESSAGE.test("INSERT INTO ops.outbound_message (id) VALUES ($1)")).toBe(true);
+    const importLine = 'import { enqueue } from "@/modules/outbox/outbox";';
+    expect(QUEUES_A_MESSAGE(`${importLine}\nawait enqueue(tx, afterCommit, transport, msg);`)).toBe(true);
+    expect(QUEUES_A_MESSAGE("INSERT INTO ops.outbound_message (id) VALUES ($1)")).toBe(true);
     expect(SENDS_A_MESSAGE.test("await provider.send(payload, { signal });")).toBe(true);
+    /*
+     * And the two halves are both required, which is what keeps #73's board queue out of the
+     * list: a call with no import of this door is some other function with the same verb, and an
+     * import with no call is a module that has not used it yet.
+     */
+    expect(QUEUES_A_MESSAGE("await enqueue(queue, { childToken, bucket, vanId });")).toBe(false);
+    expect(QUEUES_A_MESSAGE(importLine)).toBe(false);
   });
 });
 

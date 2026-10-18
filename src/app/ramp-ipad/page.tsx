@@ -57,7 +57,7 @@ export default async function RampIpadPage({
   if (!view || !selected) {
     return (
       <main className={styles.page}>
-        <h1 className={styles.heading}>{vanArrival.heading}</h1>
+        {/* The frame draws this screen's one `h1` (src/ui/PageHeader.tsx, #74). */}
         <p className={styles.banner}>{view ? flow.empty.noVans : flow.error.load}</p>
       </main>
     );

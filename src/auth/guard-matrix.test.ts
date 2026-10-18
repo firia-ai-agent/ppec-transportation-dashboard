@@ -68,8 +68,9 @@ import { NOT_ON_YOUR_MENU, withNotice } from "@/ui/notice";
  *  - `@/auth` and `next-auth` — Auth.js's module scope wants `next/server`, which resolves only
  *    inside Next. Nothing here calls into it; the pages reach the session through `getCaller`,
  *    and /login only uses `AuthError` to tell a bad password from a real failure.
- *  - `@/components/map/LiveFleetMap` — a client component that pulls in MapLibre. The page is
- *    being called for its guard, and the pane has its own tests.
+ *  - `@/modules/live-map/LiveMapScreen` — a client component that pulls in MapLibre. The page is
+ *    being called for its guard, and the pane has its own tests (src/components/map/pane.test.ts).
+ *    It replaced #53's own screen component, which is deleted.
  *  - `@/db/exec` — `getNeonDb` throws a sentinel, so "the handler reached the database" is
  *    observable, and a refusal that was supposed to happen first shows up as a 200 or a throw.
  */
@@ -95,7 +96,7 @@ vi.mock("@/auth", () => ({
   handlers: { GET: vi.fn(), POST: vi.fn() },
 }));
 vi.mock("next-auth", () => ({ AuthError: class AuthError extends Error {} }));
-vi.mock("@/components/map/LiveFleetMap", () => ({ default: () => null }));
+vi.mock("@/modules/live-map/LiveMapScreen", () => ({ default: () => null }));
 vi.mock("@/db/exec", () => ({ getNeonDb, runAfterCommit: vi.fn() }));
 /*
  * The console shell, as a pass-through. Since Vera's review (2026-10-17 4:19 PM ET) the 403
@@ -140,6 +141,30 @@ vi.mock("next/link", () => ({
   default: (props: { href: string; className?: string; children?: ReactNode }) =>
     createElement("a", props),
 }));
+
+/**
+ * `useRouter`, and only `useRouter`, for the same reason as `next/link` above: it reads a router
+ * out of a React context that exists only inside a mounted Next app, and this file renders page
+ * trees with `renderToStaticMarkup`.
+ *
+ * It became necessary when #73's board started calling it (`plan-routes/board/PlanBoard.tsx`).
+ * The *harness* renders `/plan-routes` for a role that may open it — that is how it learns which
+ * of the page's own sentences a 403 must not echo back (`protectedPhrasesOf`) — so a client hook
+ * throwing in there took out three cells that are about the guard and not about the board at all:
+ * `/plan-routes as noRole`, `/plan-preview as noRole` (it redirects there) and the no-role sweep.
+ *
+ * The rest of the module is the real one, deliberately: `forbidden()`, `redirect()` and
+ * `notFound()` are precisely what this file measures, and a stub of those would be a harness
+ * marking its own homework. `importOriginal` keeps them.
+ */
+vi.mock("next/navigation", async (importOriginal) => {
+  const real = await importOriginal<typeof import("next/navigation")>();
+  const noop = () => {};
+  return {
+    ...real,
+    useRouter: () => ({ push: noop, replace: noop, refresh: noop, back: noop, forward: noop, prefetch: noop }),
+  };
+});
 
 /**
  * `forbidden()` is gated on the experiment that next.config.ts turns on; Next sets this variable

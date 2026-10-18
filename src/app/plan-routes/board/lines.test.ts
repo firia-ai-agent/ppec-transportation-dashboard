@@ -32,7 +32,7 @@ const van = (over: Partial<BoardVan> = {}): BoardVan => ({
   id: "van-id",
   slot: 3,
   name: "Van 3",
-  colourToken: "map-route-3",
+  colourToken: "van3",
   driverName: "Marco D.",
   defaultSetup: SETUP,
   setup: SETUP,
@@ -47,7 +47,7 @@ const readiness = (over: Partial<DayReadiness> = {}): DayReadiness => ({
   leg: "PM",
   started: true,
   setup: { state: "NEEDED", checked: 0, total: 3, source: "DEFAULT" },
-  plan: { state: "NEEDED", unassigned: 9 },
+  plan: { state: "NEEDED", savedAt: null, savedBy: null, unassigned: 9 },
   live: { state: "LOCKED", vansOut: 0, blockedBy: "PLAN" },
   approvals: { waiting: 0 },
   ...over,
@@ -114,10 +114,13 @@ describe("§1.3: the save state is a word, not a dot", () => {
       label: "Changed by Dana M. · Reload",
       tone: "warn",
     });
+    // With no name, the chip is the one that asks for a reload and keeps the draft
+    // (Firia's option A, 2026-10-17 10:29 PM ET).
     expect(saveLine({ kind: "CHANGED", by: null })).toEqual({
-      label: planBoard.changedAnon,
+      label: planBoard.changedReload,
       tone: "warn",
     });
+    expect(planBoard.changedReload).toBe("Plan changed, reload");
   });
 });
 
@@ -149,15 +152,55 @@ describe("§1.3 / §9.3: what a van and a day say about themselves", () => {
       action: { label: flow.action.checkVans, href: "/ramp-ipad?van=1" },
     });
     expect(flow.banner).not.toHaveProperty("usingYesterday");
-    // A day nobody has started is said first, and the DEMO bar is the only thing that starts one.
-    expect(boardBanner(readiness({ started: false }), "/ramp-ipad?van=1")).toEqual({
+    // A day nobody has started is said first, and it is said before the setup line.
+    expect(boardBanner(readiness({ started: false }), "/ramp-ipad?van=1")).toMatchObject({
       text: flow.banner.notStarted,
       tone: "warn",
-      action: null,
     });
     // Every van counted today: nothing to say, so nothing is said.
     expect(
       boardBanner(readiness({ setup: { state: "DONE", checked: 3, total: 3, source: "CHECKED" } }), null),
     ).toBeNull();
+  });
+
+  /**
+   * THE DAY-NOT-STARTED STRIP HAS ONE BUTTON — Firia's final scope, 2026-10-18 1:50 AM ET.
+   *
+   * "Start demo day" for the role that may start one (the director: `POST /api/demo/reset` is
+   * theirs, src/auth/access.ts), and for a coordinator the way to where it is started, because
+   * a button that answers 403 to the person reading it is worse than no button. The server
+   * checks the role again either way — this only decides what is offered.
+   */
+  describe("the day-not-started strip", () => {
+    const notStarted = readiness({ started: false });
+
+    it("offers the director the one button, and no link", () => {
+      const banner = boardBanner(notStarted, "/ramp-ipad?van=1", true);
+      expect(banner).toEqual({
+        text: flow.banner.notStarted,
+        tone: "warn",
+        action: { label: flow.action.startDemo, start: true },
+      });
+      expect(banner?.action).not.toHaveProperty("href");
+    });
+
+    it("offers the coordinator the way to it, and no button", () => {
+      const banner = boardBanner(notStarted, "/ramp-ipad?van=1", false);
+      expect(banner).toEqual({
+        text: flow.banner.notStarted,
+        tone: "warn",
+        action: { label: flow.action.whereDayStarts, href: "/today" },
+      });
+      expect(banner?.action).not.toHaveProperty("start");
+    });
+
+    it("says nothing else: one action, and the day's own words", () => {
+      for (const canStart of [true, false]) {
+        const banner = boardBanner(notStarted, "/ramp-ipad?van=1", canStart);
+        expect(banner?.text).toBe(flow.banner.notStarted);
+        // Not the setup line as well: a day that has not started has nothing to count yet.
+        expect(banner?.text).not.toBe(flow.banner.usingDefault);
+      }
+    });
   });
 });

@@ -30,22 +30,22 @@
 
 /* ───────────────────────────── toolbar (§1.1: 60 px) ───────────────────────────── */
 
+/*
+ * The board's controls, as they sit **in the frame's header bar** (src/ui/HeaderSlot.tsx):
+ * plan-board.png draws the date, Morning | Afternoon, the placed count, Undo, Auto-plan and
+ * Save on the title's own row. One line, no wrap and no height of its own — the bar sets the
+ * height, and a control that cannot fit scrolls with the row rather than pushing the bar taller.
+ */
 .toolbar {
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  flex-wrap: wrap;
-  min-height: 60px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
 /* Headings are Teal Ink — the frame's `ink-brand` (#71), 9.47:1 on white. */
-.heading {
-  font-size: var(--text-24);
-  font-weight: var(--weight-semibold);
-  line-height: var(--leading-tight);
-  color: var(--color-ink-brand);
-  margin: 0;
-}
 
 .date {
   display: inline-flex;
@@ -97,11 +97,15 @@
   flex: 1 1 auto;
 }
 
-/* The one pill, composed rather than redrawn (audit §4 item 1; src/ui/pill.test.ts holds the
-   line that no second stylesheet declares the shape). The tones below are this screen's own
-   §8 pairs on it. */
+/*
+ * The one pill (src/ui/Pill.module.css, Vera's audit §4 item 1): the board's chips are that
+ * shape and not a second one, so they cannot wrap or overlap at 390 the way the founder's walk
+ * found. Only the type scale is local — the board reads at desk distance, not arm's length.
+ */
 .chip {
   composes: pill from "../../../ui/Pill.module.css";
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
 }
 
 .chip[data-tone="ok"] { color: var(--color-ok-fg); background: var(--color-ok-bg); }
@@ -161,6 +165,28 @@
   color: inherit;
   font-weight: var(--weight-semibold);
   text-decoration: underline;
+}
+
+/*
+ * "Start demo day" — the strip's one button (Firia's final scope, 2026-10-18 1:50 AM ET). It is
+ * an action and not a destination, so it is a button; it sits in a sentence, so it is drawn as
+ * the word beside it rather than as a second primary on the screen.
+ */
+.bannerButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: var(--weight-semibold);
+  text-decoration: underline;
+  cursor: pointer;
+  min-height: var(--target-console);
+}
+
+.bannerButton:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 /* ───────────────────────────── the board (§1.1) ───────────────────────────── */
@@ -675,6 +701,53 @@ a.meter:focus-visible {
   display: none;
   gap: var(--space-2);
   overflow-x: auto;
+}
+
+/*
+ * 390 (png/plan-board-390.png): the toolbar's controls join the header bar's own wrapping row
+ * so row 1 is the title then Undo, Auto-plan and Save, and row 2 is the date then
+ * Morning | Afternoon (then the placed count and save state). Layout only — 1440 is above.
+ */
+@media (max-width: 767px) {
+  :global([data-header-slot]):has(> .toolbar) {
+    display: contents;
+  }
+
+  /*
+   * Vera 3:55 AM ET on b7e8eac: the title must read "Plan routes" in full at 390, so on the board
+   * it takes a row of its own and the buttons move to the row under it.
+   */
+  :global(h1):has(~ [data-header-slot] > .toolbar) {
+    flex: 0 0 100%;
+  }
+
+  .toolbar {
+    display: contents;
+  }
+
+  .toolbar > .button {
+    order: 1;
+    flex: none;
+  }
+
+  :global([data-header-slot]):has(> .toolbar) ~ :global([data-page-account]) {
+    order: 1;
+  }
+
+  .toolbar > .spacer {
+    order: 2;
+    flex: 0 0 100%;
+    height: 0;
+  }
+
+  .toolbar > .date,
+  .toolbar > .segmented,
+  .toolbar > .placed,
+  .toolbar > .chip {
+    order: 3;
+    flex: none;
+    white-space: nowrap;
+  }
 }
 
 @media (max-width: 767px) {

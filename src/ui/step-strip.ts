@@ -84,7 +84,13 @@ export function stepsFor(role: StaffRole | null, readiness: DayReadiness): reado
   const states: Readonly<Record<StepKey, StepState>> = {
     setup: readiness.setup.state,
     plan: readiness.plan.state,
-    live: readiness.live.state,
+    /*
+     * §9.2 draws a fourth state for a live map with vans moving on it, and the board's readiness
+     * can now produce it (`RUNNING`, from the vans that have reported a position today). The
+     * strip has three words — `flow.state` — so a running map reads as the unlocked step it is
+     * until that fourth word lands with its own copy, rather than printing an empty chip.
+     */
+    live: readiness.live.state === "RUNNING" ? "NEEDED" : readiness.live.state,
   };
   const firstUndone = stepItems.find((item) => states[item.key] !== "DONE")?.key;
 

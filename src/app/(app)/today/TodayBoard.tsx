@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import {
+  Activity,
   ArrowDownRight,
   ArrowUpRight,
   Calendar,
@@ -9,9 +11,12 @@ import {
   CirclePause,
   Clock,
   Hand,
+  LayoutGrid,
   Locate,
   UserCheck,
 } from "lucide-react";
+import type { RightNowTile } from "@/domain/health/right-now";
+import { HealthTiles } from "./HealthTiles";
 import { formatDelta } from "@/domain/eta/eta";
 import {
   matchesQuery,
@@ -20,7 +25,7 @@ import {
   type LegRow,
   type RideView,
 } from "@/domain/board/board";
-import { board as boardCopy, etaText, fill, onDay, screenReader } from "@/ui/copy";
+import { board as boardCopy, etaText, fill, healthNow, onDay, screenReader } from "@/ui/copy";
 import { SearchField } from "@/ui/SearchField";
 import { StepStrip } from "@/ui/StepStrip";
 import type { StripStep } from "@/ui/step-strip";
@@ -39,6 +44,19 @@ import { icon } from "@/ui/tokens";
 import { LegDrawer } from "./LegDrawer";
 import { nextStepCellText, stateValues } from "./next-step";
 import styles from "./today.module.css";
+
+/** The header slot is DOM the shell owns. Read it; do not copy it into state from an effect. */
+function subscribeHeaderChrome(): () => void {
+  return () => {};
+}
+
+function readHeaderChrome(): HTMLElement | null {
+  return document.getElementById("today-header-chrome");
+}
+
+function emptyHeaderChrome(): null {
+  return null;
+}
 
 /**
  * SURF-01, the board (DESIGN-DIRECTION §4.1).
@@ -63,10 +81,16 @@ export function TodayBoard({
   board,
   query,
   steps,
+  tiles,
   textedChildKeys = [],
 }: {
   board: Board;
   query: string;
+  /**
+   * The four Right now tiles, already counted from today's rows (src/domain/health).
+   * This component chooses the boxes. It does not decide a number.
+   */
+  tiles: readonly RightNowTile[];
   /**
    * The day's three steps, already filtered to what this role may open (src/ui/step-strip.ts).
    * Passed in rather than computed here because this is a client component and the access table
@@ -75,13 +99,25 @@ export function TodayBoard({
    */
   steps: readonly StripStep[];
   /**
-   * Children whose family the day has texted (PRD §18.2 step 7). Computed on the server and
-   * handed down, so the board carries no replay engine into the browser and the drawer's link to
-   * the §6.3 phone panel only exists where there is a text to read.
+   * The children whose families this day texted, from the server (`today/page.tsx`).
+   *
+   * Only the drawer reads it, and only to decide whether its Texts section is a link or a
+   * sentence. Optional with an empty default: a caller that does not know says nothing rather
+   * than offering a thread that would open empty.
    */
   textedChildKeys?: readonly string[];
 }) {
   const { day } = board;
+  const [tab, setTab] = useState<"board" | "health">("board");
+  const headerSlot = useSyncExternalStore(subscribeHeaderChrome, readHeaderChrome, emptyHeaderChrome);
+  const [wide, setWide] = useState(false);
+  useLayoutEffect(() => {
+    const query = window.matchMedia("(min-width: 768px)");
+    const apply = () => setWide(query.matches);
+    apply();
+    query.addEventListener("change", apply);
+    return () => query.removeEventListener("change", apply);
+  }, []);
   const [onlyNeedsAction, setOnlyNeedsAction] = useState(false);
   const [openChild, setOpenChild] = useState<string | null>(null);
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -113,6 +149,65 @@ export function TodayBoard({
   // The drawer is per child: its two rows are the one day it reads.
   const openLegs = board.legs.filter((l) => l.child.childKey === openChild);
 
+  const tabs = (
+    <div className={styles.tabs} role="tablist" aria-label={healthNow.tabsLabel}>
+      <button
+        type="button"
+        role="tab"
+        id="today-tab-board"
+        className={styles.tab}
+        aria-selected={tab === "board"}
+        aria-controls="today-panel-board"
+        onClick={() => setTab("board")}
+      >
+        <span className={styles.tabInner}>
+          <LayoutGrid size={icon.inline} aria-hidden="true" />
+          {healthNow.board}
+        </span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id="today-tab-health"
+        className={styles.tab}
+        aria-selected={tab === "health"}
+        aria-controls="today-panel-health"
+        onClick={() => setTab("health")}
+      >
+        <span className={styles.tabInner}>
+          <Activity size={icon.inline} aria-hidden="true" />
+          {healthNow.health}
+        </span>
+      </button>
+    </div>
+  );
+
+  const date = (
+    <p className={styles.date}>
+      <Calendar size={icon.inline} aria-hidden="true" />
+      {/*
+        The machine-readable date is the one the words say (Firia, 4:50 PM ET): the day the
+        demo is being given on, not the fixture day the rows are keyed by.
+      */}
+      <time dateTime={demoDateIso(day.iso)} className="tabularNums">
+        {day.label}
+      </time>
+    </p>
+  );
+
+  /*
+   * png/health-demo-1440.png: the title, the tabs and the date are one row, in the frame's
+   * bar. png/health-demo-390.png: the title and the date stay on that row, and Board | Health
+   * sit on the next one. Until the bar is there (the first paint, and a render with no
+   * document) the same controls stay in the page so the board is never without them.
+   */
+  const headerChrome = (
+    <>
+      {wide ? tabs : null}
+      {date}
+    </>
+  );
+
   return (
     <div className={styles.page}>
       {/*
@@ -137,21 +232,16 @@ export function TodayBoard({
         (src/ui/PageHeader.tsx, audit §2 item 1), so the board's own row is the date readout the
         mockup draws beside it — and the date is what names the day when it is not today.
       */}
-      <header className={styles.titleRow}>
-        <p className={styles.date}>
-          <Calendar size={icon.inline} aria-hidden="true" />
-          {/*
-            The machine-readable date is the one the words say (Firia, 4:50 PM ET): the day the
-            demo is being given on, not the fixture day the rows are keyed by. A `<time>` whose
-            attribute and whose text named two different days would be the bug this ruling
-            fixed, written down twice.
-          */}
-          <time dateTime={demoDateIso(day.iso)} className="tabularNums">
-            {day.label}
-          </time>
-        </p>
-      </header>
+      {headerSlot ? createPortal(headerChrome, headerSlot) : <div className={styles.titleRow}>{tabs}{date}</div>}
+      {headerSlot && !wide ? <div className={styles.phoneTabs}>{tabs}</div> : null}
 
+      <div
+        role="tabpanel"
+        id="today-panel-board"
+        aria-labelledby="today-tab-board"
+        hidden={tab !== "board"}
+        className={styles.panel}
+      >
       {/* The order of the day, under the header and above the board (REDESIGN-SPEC §9.2). */}
       <StepStrip steps={steps} />
 
@@ -263,6 +353,17 @@ export function TodayBoard({
           onClose={() => setOpenChild(null)}
         />
       ) : null}
+      </div>
+
+      <div
+        role="tabpanel"
+        id="today-panel-health"
+        aria-labelledby="today-tab-health"
+        hidden={tab !== "health"}
+        className={styles.panel}
+      >
+        <HealthTiles tiles={tiles} />
+      </div>
     </div>
   );
 }

@@ -128,9 +128,29 @@ describe("sweeping the demo day's crossings", () => {
     expect(await queued()).toHaveLength(0);
   });
 
+  /**
+   * A notice whose leg is not in this database: the sweep skips it rather than texting about a
+   * ride nobody is on.
+   *
+   * It used to name a child key the roster has never had ("C28") and delete a leg id that could
+   * not exist. `demoLegId` refuses an unknown child key since #73 (`requireChildIndex`), which is
+   * right — a leg id derived from a child nobody can name is a bug, not a lookup — so the case is
+   * posed the way it actually happens instead: a real rider of this day whose leg row is gone.
+   *
+   * C9's morning, because nothing else in this file reads it (the file's subject is C2's
+   * afternoon crossing), so the one delete cannot reach another case.
+   */
   it("skips a ride the day does not have", async () => {
-    const notSeeded: DueEtaNotice = { ...due(), childKey: "C28", direction: "AM" };
-    await db.query("DELETE FROM ops.trip_leg WHERE id = $1", [demoLegId("C28", "AM")]);
+    const notSeeded: DueEtaNotice = { ...due(), childKey: "C9", direction: "AM" };
+    // The position the leg holds on its manifest first: `manifest_reservation_trip_leg_id_fk` is
+    // RESTRICT (0000_init), which is the table saying a reserved seat may not outlive its ride.
+    await db.query("DELETE FROM ops.manifest_reservation WHERE trip_leg_id = $1", [demoLegId("C9", "AM")]);
+    await db.query("DELETE FROM ops.trip_leg WHERE id = $1", [demoLegId("C9", "AM")]);
+    // The delete really removed something, or "no-leg" below would be true for the wrong reason.
+    expect(
+      (await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.trip_leg WHERE id = $1", [demoLegId("C9", "AM")]))
+        .rows[0].n,
+    ).toBe(0);
     expect(
       await sweepEtaNotices(db, transport, {
         due: [notSeeded],

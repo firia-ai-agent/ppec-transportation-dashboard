@@ -42,6 +42,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import PlanMap from "@/components/map/PlanMap";
+import { useRouter } from "next/navigation";
 import { API } from "@/auth/access";
 import type { RejectReason } from "@/config/equipment";
 import {
@@ -58,11 +59,23 @@ import {
   type BoardRider,
 } from "@/domain/plan/board";
 import { panelNeedsOf, type PanelNeeds } from "@/domain/plan/needs";
+import {
+  applyPending,
+  clearPending,
+  enqueue,
+  hasPending,
+  movesToSave,
+  undoLast,
+  NO_PENDING,
+  type PendingMove,
+  type PendingQueue,
+} from "@/domain/plan/pending";
 import { isOver, rejectReason } from "@/domain/plan/fit";
 import type { BoardView } from "@/modules/plan/store";
 import { boardHref } from "@/modules/plan/when";
 import { flow, planBoard } from "@/ui/copy";
 import { NeedIcons } from "@/ui/equipment";
+import { HeaderSlot } from "@/ui/HeaderSlot";
 import { serviceDateLabel } from "@/ui/service-date";
 import { icon } from "@/ui/tokens";
 import { BoardToolbar } from "./BoardToolbar";
@@ -85,7 +98,7 @@ export default function PlanBoard({
   view,
   selectedVanId = null,
   canEdit = true,
-  headingLevel = 1,
+  canStartDay = false,
 }: {
   view: BoardView;
   /**
@@ -93,8 +106,12 @@ export default function PlanBoard({
    * no grips and no Save (founder 2026-10-17 7:17 PM ET). The endpoints refuse their role too.
    */
   canEdit?: boolean;
+  /**
+   * May this caller start the demo day? The director, which is the one role the reset endpoint
+   * allows (src/auth/access.ts). The server checks it again; this only decides what is offered.
+   */
+  canStartDay?: boolean;
   /** 1 where the board is the screen, 2 where it is Today's child list. */
-  headingLevel?: 1 | 2;
   /**
    * The van the address names (§9.3's `?van=`), which is where the ramp's Re-plan and the
    * board's own "Check vans" round trip come back to: that column is ringed, its route is the one
@@ -104,19 +121,26 @@ export default function PlanBoard({
 }) {
   /* ── the board as the server last answered, and the plan on screen ── */
   const [board, setBoard] = useState<BoardView>(view);
-  const [plan, setPlan] = useState<BoardPlan>(view.plan);
   const [savedPlan, setSavedPlan] = useState<BoardPlan>(view.plan);
   const [version, setVersion] = useState(view.version);
   /** The child whose panel is open, by token. One at a time (mockup plan-board-child-*.png). */
   const [openChild, setOpenChild] = useState<string | null>(null);
   const [savingChild, setSavingChild] = useState(false);
+  /** True while "Start demo day" is in flight, so the one button cannot be pressed twice. */
+  const [startingDay, setStartingDay] = useState(false);
   /** Which of the two groups the held card is over, so it can say it would take them. */
   const [overBucket, setOverBucket] = useState<Bucket | null>(null);
+  const router = useRouter();
   const [save, setSave] = useState<SaveState>(
     view.savedAt ? { kind: "SAVED", at: view.savedAt } : { kind: "DIRTY" },
   );
-  const [undoStack, setUndoStack] = useState<BoardPlan[]>([]);
-  const [toast, setToast] = useState<{ text: string; before: BoardPlan } | null>(null);
+  /**
+   * The moves nobody has saved yet (Firia's option A, 2026-10-17 10:29 PM ET). A drag goes on
+   * here and writes nothing; Save sends the whole queue in one transaction; Undo takes the last
+   * one back and never touches what is saved.
+   */
+  const [pending, setPending] = useState<PendingQueue>(NO_PENDING);
+  const [toast, setToast] = useState<{ text: string } | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [lifted, setLifted] = useState<BoardRider | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -130,7 +154,10 @@ export default function PlanBoard({
    */
   const day: BoardDay = board.day;
 
-  const dirty = useMemo(() => fingerprint(plan) !== fingerprint(savedPlan), [plan, savedPlan]);
+  /** What the screen shows: the saved plan with every unsaved move folded on, in order. */
+  const plan: BoardPlan = useMemo(() => applyPending(savedPlan, pending), [savedPlan, pending]);
+
+  const dirty = hasPending(pending);
   const placed = placedCount(day, plan);
   const waiting = unassignedRiders(day, plan);
   const map = useMemo(() => boardMap(day, plan), [day, plan]);
@@ -161,7 +188,7 @@ export default function PlanBoard({
    * round trip; the server asks it again, because a request did not come from this screen.
    */
   const applyPlacement = useCallback(
-    async (childToken: string, bucket: Bucket, vanId: string | null) => {
+    (childToken: string, bucket: Bucket, vanId: string | null) => {
       if (!canEdit) return;
       const rider = day.riders.find((r) => r.token === childToken);
       const other = day.others.find((o) => o.token === childToken);
@@ -170,19 +197,14 @@ export default function PlanBoard({
       if (van && rider) {
         const reason = rejectReason(van.setup, ridersInVan(day, plan, van.id), rider);
         if (reason) {
-          // Refused: the card goes back where it was and the reason is said, not only drawn.
+          // Refused before it is even a draft: the card goes back and the reason is said, not
+          // only drawn. The server asks the same question again at Save.
           setAnnouncement(rejectSr(rider.name, van.name, reason));
           return;
         }
       }
 
-      const before = plan;
-      const next: BoardPlan =
-        bucket === "VAN" || bucket === "UNASSIGNED"
-          ? moveTo(plan, childToken, bucket === "VAN" ? vanId : null)
-          : { ...plan, [childToken]: { bucket, vanId: null, pinned: true } };
-      setPlan(next);
-      setUndoStack((stack) => [...stack, before]);
+      setPending((queue) => enqueue(queue, { childToken, bucket, vanId }));
       const whereTo = van
         ? van.name
         : bucket === "ABSENT"
@@ -190,46 +212,16 @@ export default function PlanBoard({
           : bucket === "FAMILY_DRIVES"
             ? planBoard.familyDrives
             : planBoard.unassigned;
-      setToast({ text: movedLine(name, whereTo), before });
+      setToast({ text: movedLine(name, whereTo) });
       setAnnouncement(movedLine(name, whereTo));
-
-      try {
-        const response = await fetch(API.planPlace, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            date: day.date,
-            direction: day.direction,
-            childToken,
-            bucket,
-            vanId: bucket === "VAN" ? vanId : null,
-            version,
-          }),
-        });
-        const body = (await response.json().catch(() => null)) as
-          | { ok?: boolean; version?: number; savedAt?: string; reason?: string; changedBy?: string | null; view?: BoardView }
-          | null;
-        if (response.ok && body?.ok && body.view && typeof body.version === "number") {
-          setBoard(body.view);
-          setPlan(body.view.plan);
-          setSavedPlan(body.view.plan);
-          setVersion(body.version);
-          setSave({ kind: "SAVED", at: body.savedAt ?? new Date().toISOString() });
-          return;
-        }
-        if (response.status === 409 && body?.reason === "CHANGED") {
-          setSave({ kind: "CHANGED", by: body.changedBy ?? null });
-          return;
-        }
-        // The server refused the move: put the board back where it was and say so.
-        setPlan(before);
-        setSave({ kind: "FAILED" });
-      } catch {
-        setPlan(before);
-        setSave({ kind: "FAILED" });
-      }
+      /*
+       * Nothing is written: the board is a draft until Save (option A). The last save's stamp
+       * is left as it is, so undoing every unsaved move puts "Saved <time>" back on the chip
+       * rather than leaving a board that is saved looking dirty for ever. The chip is derived
+       * from the queue where it is rendered, below.
+       */
     },
-    [canEdit, day, plan, version],
+    [canEdit, day, plan],
   );
 
   const applyMove = useCallback(
@@ -265,7 +257,6 @@ export default function PlanBoard({
           | null;
         if (response.ok && body?.ok && body.view && typeof body.version === "number") {
           setBoard(body.view);
-          setPlan(body.view.plan);
           setSavedPlan(body.view.plan);
           setVersion(body.version);
           setSave({ kind: "SAVED", at: body.savedAt ?? new Date().toISOString() });
@@ -286,12 +277,29 @@ export default function PlanBoard({
     [day.date, day.direction, version],
   );
 
+  /** Undo takes back the most recent **unsaved** move, and only that (option A). */
+  /* ── "Start demo day": the same reset the DEMO bar calls, from the strip that is waiting on it ── */
+  const startDay = useCallback(async () => {
+    setStartingDay(true);
+    try {
+      const response = await fetch(API.demoReset, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      // The day on screen is the old one either way: a refusal is the server's answer to read,
+      // and a success is a new day to re-read. Both are a refresh.
+      if (response.ok) router.refresh();
+    } catch {
+      // Nothing to recover from and nothing to report: the strip still says the day is not
+      // started, which is the honest state of it.
+    } finally {
+      setStartingDay(false);
+    }
+  }, [router]);
+
   const undo = useCallback(() => {
-    setUndoStack((stack) => {
-      const previous = stack[stack.length - 1];
-      if (previous) setPlan(previous);
-      return stack.slice(0, -1);
-    });
+    setPending((queue) => undoLast(queue));
     setToast(null);
   }, []);
 
@@ -353,41 +361,39 @@ export default function PlanBoard({
     };
   }, []);
 
-  /* ── saving: Auto-plan's answer, accepted ── */
-  const onSave = useCallback(
-    async () => {
-      setSave({ kind: "SAVING" });
-      try {
-        const response = await fetch(API.planSave, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            date: day.date,
-            direction: day.direction,
-            version,
-            placements: plan,
-          }),
-        });
-        const body = (await response.json().catch(() => null)) as
-          | { ok?: boolean; version?: number; savedAt?: string; reason?: string; changedBy?: string | null }
-          | null;
-        if (response.ok && body?.ok && typeof body.savedAt === "string" && typeof body.version === "number") {
-          setVersion(body.version);
-          setSavedPlan(plan);
-          setSave({ kind: "SAVED", at: body.savedAt });
-          return;
-        }
-        if (response.status === 409 && body?.reason === "CHANGED") {
-          setSave({ kind: "CHANGED", by: body.changedBy ?? null });
-          return;
-        }
-        setSave({ kind: "FAILED" });
-      } catch {
-        setSave({ kind: "FAILED" });
+  /* ── saving: every pending move, in one transaction (option A) ── */
+  const onSave = useCallback(async () => {
+    const moves = movesToSave(savedPlan, pending);
+    if (moves.length === 0) return;
+    setSave({ kind: "SAVING" });
+    try {
+      const response = await fetch(API.planSave, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ date: day.date, direction: day.direction, version, moves }),
+      });
+      const body = (await response.json().catch(() => null)) as
+        | { ok?: boolean; version?: number; savedAt?: string; reason?: string; changedBy?: string | null; view?: BoardView }
+        | null;
+      if (response.ok && body?.ok && typeof body.version === "number") {
+        if (body.view) setBoard(body.view);
+        setSavedPlan(body.view ? body.view.plan : plan);
+        setVersion(body.version);
+        setPending(clearPending());
+        setSave({ kind: "SAVED", at: body.savedAt ?? new Date().toISOString() });
+        return;
       }
-    },
-    [day.date, day.direction, plan, version],
-  );
+      if (response.status === 409) {
+        // Somebody else moved the plan on. The queue is **kept** — it is this coordinator's
+        // draft — and the screen asks for a reload (Firia, 10:29 PM ET).
+        setSave({ kind: "CHANGED", by: body?.changedBy ?? null });
+        return;
+      }
+      setSave({ kind: "FAILED" });
+    } catch {
+      setSave({ kind: "FAILED" });
+    }
+  }, [day.date, day.direction, pending, plan, savedPlan, version]);
 
   /*
    * There is no "Save anyway?" (Veri, 2026-10-17 8:35 PM ET): a van can never be saved over its
@@ -428,7 +434,11 @@ export default function PlanBoard({
     applyMove(childToken, target === UNASSIGNED_ID ? null : target);
   };
 
-  const banner = boardBanner(view.readiness, firstUncheckedHref(day, day.date, day.direction));
+  const banner = boardBanner(
+    view.readiness,
+    firstUncheckedHref(day, day.date, day.direction),
+    canStartDay,
+  );
 
   return (
     <main className={styles.page}>
@@ -460,30 +470,61 @@ export default function PlanBoard({
           setOverBucket(null);
         }}
       >
-        <BoardToolbar
-          dateLabel={serviceDateLabel(new Date(`${day.date}T12:00:00Z`))}
-          direction={day.direction}
-          hrefFor={(next) => boardHref(BOARD_PATH, { date: day.date, leg: next })}
-          placed={placed}
-          total={ridersToPlace(day, plan).length}
-          save={dirty && save.kind === "SAVED" ? { kind: "DIRTY" } : save}
-          canUndo={undoStack.length > 0}
-          onUndo={undo}
-          onAutoPlan={() => {
-            setUndoStack((stack) => [...stack, plan]);
-            setPlan(autoPlan(day, plan));
-          }}
-          autoPlanPrimary={placed === 0}
-          onSave={trySave}
-          canSave={day.riders.length > 0 && (dirty || save.kind === "FAILED")}
-          headingLevel={headingLevel}
-        />
+        {/*
+          The board's controls ride in the frame's 64 px header bar, beside the one `h1` it
+          draws (src/ui/HeaderSlot.tsx, #74/#77): per plan-board.png the date, Morning |
+          Afternoon, the placed count, Undo, Auto-plan and Save are all on that row, not in a
+          second strip under it. The frame knows nothing about them — it owns a slot.
+        */}
+        <HeaderSlot>
+          <BoardToolbar
+            dateLabel={serviceDateLabel(new Date(`${day.date}T12:00:00Z`))}
+            direction={day.direction}
+            hrefFor={(next) => boardHref(BOARD_PATH, { date: day.date, leg: next })}
+            placed={placed}
+            total={ridersToPlace(day, plan).length}
+            save={dirty && save.kind === "SAVED" ? { kind: "DIRTY" } : save}
+            canUndo={hasPending(pending)}
+            onUndo={undo}
+            onAutoPlan={() => {
+              // Auto-plan proposes: its answer becomes unsaved moves, like a drag, and nothing
+              // is written until Save (option A).
+              const planned = autoPlan(day, plan);
+              setPending((queue) =>
+                movesToSave(savedPlan, [...queue, ...asMoves(plan, planned)]).reduce(
+                  (next, move) => enqueue(next, move),
+                  NO_PENDING,
+                ),
+              );
+            }}
+            autoPlanPrimary={placed === 0}
+            onSave={trySave}
+            canSave={day.riders.length > 0 && (dirty || save.kind === "FAILED")}
+          />
+        </HeaderSlot>
 
         {banner ? (
           <p className={styles.banner} data-tone={banner.tone} data-banner="">
             {banner.text}
-            {banner.action ? (
-              <a className={styles.bannerLink} href={banner.action.href}>
+            {banner.action && "start" in banner.action ? (
+              /*
+                The one button this strip has, and only for the role the reset endpoint allows
+                (Firia's final scope, 2026-10-18 1:50 AM ET). It calls the same path the DEMO
+                bar's "Restart demo day" calls — `POST /api/demo/reset`, DIRECTOR and
+                site-scoped — so the server is still the thing that decides, and the screen
+                re-reads the day it just started.
+              */
+              <button
+                type="button"
+                className={styles.bannerButton}
+                data-start-day=""
+                disabled={startingDay}
+                onClick={() => void startDay()}
+              >
+                {banner.action.label}
+              </button>
+            ) : banner.action ? (
+              <a className={styles.bannerLink} href={banner.action.href} data-banner-link="">
                 {banner.action.label}
               </a>
             ) : null}
@@ -649,6 +690,17 @@ function vanNameOfChild(day: BoardDay, plan: BoardPlan, token: string): string |
 /** The child-needs endpoint for one child, from the access table's own template. */
 function childNeedsPath(childToken: string): string {
   return API.childNeeds.replace("[token]", encodeURIComponent(childToken));
+}
+
+/** The difference between two plans, as the moves that would make it — what Auto-plan proposes. */
+function asMoves(before: BoardPlan, after: BoardPlan): PendingMove[] {
+  const moves: PendingMove[] = [];
+  for (const [token, placement] of Object.entries(after)) {
+    const was = before[token];
+    if (was && was.bucket === placement.bucket && was.vanId === placement.vanId) continue;
+    moves.push({ childToken: token, bucket: placement.bucket, vanId: placement.vanId });
+  }
+  return moves;
 }
 
 /** A rider's own name, for an announcement that must not contain an id. */

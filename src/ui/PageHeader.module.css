@@ -28,9 +28,34 @@
   white-space: nowrap;
 }
 
+/*
+ * The screen's own controls, beside the title. It is a flex row so whatever a screen puts in it
+ * lines up with the title's baseline, and it has no size of its own: a screen that fills nothing
+ * in leaves a 0 px element rather than a gap in the bar.
+ */
+.slot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
 /* The only thing allowed to grow: it is what puts the account at the trailing end. */
 .spacer {
   flex: 1 1 auto;
+}
+
+/*
+ * Today fills this from the board (png/health-demo-1440.png, png/health-demo-390.png).
+ * `display: contents` makes the portaled tabs and date flex items of the bar, so at 1440
+ * they sit on the title's row and the bar stays the 64 px the frame measures.
+ */
+.chrome {
+  display: contents;
+}
+
+.bar[data-screen="today"] .spacer {
+  display: none;
 }
 
 /*
@@ -42,8 +67,20 @@
 }
 
 @media (max-width: 767px) {
+  /*
+   * Below 768 the bar may wrap (png/plan-board-390.png): a screen whose controls cannot share
+   * the title's line gets a second row instead of cutting the title to "Pl…". A bar whose
+   * contents fit is one row, exactly as before.
+   */
   .bar {
-    padding: 0 var(--space-4);
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+  }
+
+  .title {
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .avatar {

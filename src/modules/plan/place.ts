@@ -37,6 +37,7 @@ import {
   type Placement,
 } from "@/domain/plan/board";
 import { isOver } from "@/domain/plan/fit";
+import { applyPending, childrenMoved, type PendingMove } from "@/domain/plan/pending";
 import type { DayDataSource } from "@/domain/day/source";
 import { dayDataSource, loadBoard, placementsToSave, planStore, type BoardView, type PlanStore } from "./store";
 
@@ -84,7 +85,7 @@ export async function setChildPlacement(
       expectedVersion: input.expectedVersion,
       actor: input.actor,
       now: input.now,
-      mayChangeBucketFor: input.childToken,
+      mayChangeBucketFor: [input.childToken],
       /** One child moves; everybody else is written back exactly as it was read. */
       change: (view) => {
         const known =
@@ -118,12 +119,12 @@ export type WritePlanInput = {
    */
   change: (view: BoardView) => BoardPlan | null;
   /**
-   * The one child this write may move into or out of Absent / Family drives.
+   * The children this write may move into or out of Absent / Family drives.
    *
-   * `setChildPlacement` names the child it is moving; a whole-board save names nobody, so a
-   * stale screen cannot mark somebody away by saving over them (Veri F1).
+   * A move names the child it is moving; a plan posted as a whole map names nobody, so a stale
+   * screen cannot mark somebody away by saving over them (Veri F1).
    */
-  mayChangeBucketFor?: string;
+  mayChangeBucketFor?: readonly string[];
 };
 
 /**
@@ -153,6 +154,23 @@ export async function writePlan(
   const now = input.now ?? new Date();
   const view = await loadBoard(store, input.siteId, input.serviceDate, input.direction, source);
   if (!view.started) return { ok: false, status: 409, reason: "NOT_STARTED" };
+
+  /*
+   * The caller's draft was built on a version somebody has already moved past: that is a 409
+   * naming them, decided **before** anything else. Judging their moves against a plan they have
+   * never seen would otherwise refuse the draft for the wrong reason — "Van 1 is full" when the
+   * honest answer is "Plan changed, reload" (Firia's option A, 2026-10-17 10:29 PM ET). The
+   * store compares the version again inside the write, so this is a better message, not the lock.
+   */
+  if (view.version !== input.expectedVersion) {
+    return {
+      ok: false,
+      status: 409,
+      reason: "CHANGED",
+      changedBy: view.savedBy,
+      version: view.version,
+    };
+  }
 
   const next = input.change(view);
   if (next === null) return { ok: false, status: 404, reason: "NOT_THIS_DAY" };
@@ -206,16 +224,71 @@ export async function writePlan(
 function bucketMovedOutsideTheWriter(
   before: BoardPlan,
   after: BoardPlan,
-  allowed: string | undefined,
+  allowed: readonly string[] | undefined,
 ): string | null {
   const away = (bucket: Bucket | undefined) => bucket === "ABSENT" || bucket === "FAMILY_DRIVES";
+  const named = new Set(allowed ?? []);
   for (const [token, placement] of Object.entries(after)) {
-    if (token === allowed) continue;
+    if (named.has(token)) continue;
     const was = before[token]?.bucket;
     if (was === placement.bucket) continue;
     if (away(was) || away(placement.bucket)) return token;
   }
   return null;
+}
+
+/**
+ * **Save: every pending move, in one transaction** (Firia's option A, 2026-10-17 10:29 PM ET).
+ *
+ * The board drags into a queue and writes nothing; Save sends the queue. Each move is applied
+ * through the same checks one drag would get — the child and the van have to be the day's, the
+ * fit rule has to agree, and a van can never end up over its counts — and the whole lot is then
+ * written as **one** new `plan_run` version. One bad move and nothing is written at all, which
+ * is what makes a draft safe to build up: a coordinator never gets half of what they asked for.
+ *
+ * A stale version is a 409 naming whoever moved it; the screen keeps the queue and says
+ * "Plan changed, reload" (copy.ts), so no work is lost to somebody else's save.
+ */
+export async function applyPendingMoves(
+  input: {
+    siteId: string;
+    serviceDate: string;
+    direction: Direction;
+    moves: readonly PendingMove[];
+    expectedVersion: number;
+    actor: string | null;
+    now?: Date;
+  },
+  store: PlanStore = planStore(),
+  source: DayDataSource = dayDataSource(input.siteId),
+): Promise<PlanWriteOutcome> {
+  return writePlan(
+    {
+      siteId: input.siteId,
+      serviceDate: input.serviceDate,
+      direction: input.direction,
+      expectedVersion: input.expectedVersion,
+      actor: input.actor,
+      now: input.now,
+      mayChangeBucketFor: childrenMoved(input.moves),
+      change: (view) => {
+        // Every move has to name this day's child, and a van move this day's van. One unknown
+        // id refuses the whole save, which is the same uniform 404 a single drag gets.
+        for (const move of input.moves) {
+          const known =
+            view.day.riders.some((rider) => rider.token === move.childToken) ||
+            view.day.others.some((other) => other.token === move.childToken);
+          if (!known) return null;
+          if (move.bucket === "VAN") {
+            if (!move.vanId || !view.day.vans.some((van) => van.id === move.vanId)) return null;
+          }
+        }
+        return applyPending(view.plan, input.moves);
+      },
+    },
+    store,
+    source,
+  );
 }
 
 /**

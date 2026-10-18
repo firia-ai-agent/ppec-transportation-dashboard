@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
  * interface (src/domain/day/source.ts) and never from `@/fixtures` or
  * `src/modules/demo/fixtures`. That is what stopped there being three rosters and three fleets:
  * a screen that reaches into a fixture is a screen that can disagree with the one the next
- * screen reached into ("Noah B." against "Noah O.", a board "Van 3" that was the map's V4).
+ * screen reached into ("Noah O." against "Noah O.", a board "Van 3" that was the map's V4).
  *
  * **Rule 2 — no solver in a screen.** The capacity solver makes no placement decision anywhere:
  * placement is `src/domain/plan/fit.ts`, once. A screen that imports `domain/solver` has either

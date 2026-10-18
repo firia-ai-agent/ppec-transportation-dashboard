@@ -42,6 +42,18 @@ const ALLOWED_SEED_IMPORTERS = [
   // An approved change or cancel saving the plan through the board's own writer (gap-5), which
   // needs the children and the vans the plan's foreign keys point at.
   "src/modules/approvals/plan-placement.test.ts",
+  // Two sessions saving at once, on the real local Postgres (`pnpm test:db`).
+  "src/modules/plan/race.db.test.ts",
+  // Ramp Confirm, proved against a seeded day to write one table and never the plan.
+  "src/modules/plan/confirm.db.test.ts",
+  /*
+   * The Live map's plan reader and its test (#77). They import the demo **site id** constant —
+   * `DEFAULT_DEMO_SITE`, which is where a synthetic day's rows live — and never the seeding
+   * function: the first test above is the one that holds the real rule, and it still shows no
+   * build or boot entry point reaching this module at all.
+   */
+  "src/modules/live-map/plan-read.ts",
+  "src/modules/live-map/plan-read.test.ts",
 ];
 
 const SRC_RE = /\.(ts|tsx|mjs|js)$/;

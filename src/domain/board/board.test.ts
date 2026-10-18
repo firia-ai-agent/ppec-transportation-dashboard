@@ -524,10 +524,14 @@ describe("the person who answers for a van is named", () => {
   });
 
   it("so the step on an unreported van is the one with somebody in it to ask", () => {
-    // C1's van is the unbound device: nothing has been reported about it all morning, so the
-    // step is to ask the dispatcher who can answer.
-    expect(legOf("C1", "AM").nextStep).toBe("ASK_ABOUT_VAN");
-    expect(legOf("C1", "AM").ride.providerDispatcher).toBe("Rae S.");
+    /*
+     * Every van is out in the morning now that the centre runs three of them and holds none
+     * back (Firia's 8:02 PM ET seed ruling), so the van nobody has reported on is the one in
+     * the afternoon: C1's, whose provider has a dispatcher to ring about it.
+     */
+    expect(legOf("C1", "PM").ride.capability).toBe("UNKNOWN");
+    expect(legOf("C1", "PM").nextStep).toBe("ASK_ABOUT_VAN");
+    expect(legOf("C1", "PM").ride.providerDispatcher).toBe("Rae S.");
     // C3 rides the centre's own van: same unanswered question in the afternoon, and the step
     // that sends it to the ramp, because there is no dispatcher on file to ring about it.
     expect(legOf("C3", "PM").nextStep).toBe("CHECK_VAN_AT_RAMP");
@@ -557,11 +561,13 @@ describe("the morning ride and the afternoon ride are separate things (AT-07)", 
 
 describe("the capacity solver answers for the van, and the board shows its answer", () => {
   it("a van nobody has reported on today cannot be solved, and says so (PRD §9)", () => {
+    // The afternoon: the three vans are on the road this morning, and nobody has reported on
+    // any of them for the run home yet.
     const row = rowOf("C1");
-    expect(am(row).capability).toBe("UNKNOWN");
-    expect(am(row).solver).toBe("CAPABILITY_PENDING");
-    expect(am(row).solverPendingReason).not.toBeNull();
-    expect(am(row).state).toBe("CAPABILITY_PENDING");
+    expect(pm(row).capability).toBe("UNKNOWN");
+    expect(pm(row).solver).toBe("CAPABILITY_PENDING");
+    expect(pm(row).solverPendingReason).not.toBeNull();
+    expect(pm(row).state).toBe("CAPABILITY_PENDING");
   });
 
   it("a van that is driving its run has been checked, and its riders fit", () => {
@@ -590,8 +596,10 @@ describe("the capacity solver answers for the van, and the board shows its answe
       const vehicle = solverVehicle(fixture);
       expect(vehicle.layouts.map((l) => l.code)).toEqual(fixture.layouts.map((l) => l.code));
       expect(vehicle.liftEquipped).toBe(fixture.liftEquipped);
-      // "V1 convertible van" is a label and then what it is; the tile shows the label alone.
-      expect(vehicle.label).toBe(fixture.key);
+      // The fixture names a vehicle "Van 3" — the one name every screen calls it (§1.5) — and
+      // the tile shows exactly that, never the key it is filed under.
+      expect(vehicle.label).toBe(fixture.label);
+      expect(vehicle.label).not.toMatch(/^V\d$/);
     }
   });
 
@@ -608,7 +616,9 @@ describe("the arrival window and the van's location come from the replayed run",
   it("a van with no displayable position has no age, and still a planned window (LOC-01)", () => {
     // LOC-01 is about a *position*: an unlinked device sends nothing we may draw. The family
     // still holds the window the plan gave them, which is not a thing the van's device knows.
-    const ride = am(rowOf("C1"));
+    // The afternoon run, which no device has reported on at all: the same "nothing we may
+    // draw", now that all three vans are replayed in the morning.
+    const ride = pm(rowOf("C1"));
     expect(ride.gpsAgeSeconds).toBeNull();
     expect(ride.gpsFreshness).toBeNull();
     expect(ride.windowText).toMatch(/^\d{1,2}:\d{2}–\d{1,2}:\d{2} [AP]M$/);
@@ -757,7 +767,7 @@ describe("the board is about one day, and says which", () => {
       expect(["NOTHING", "RECORD_RECEIVER"], leg.key).toContain(leg.nextStep);
     }
     // …and does ask on the day the vans are running, which is the contrast that makes it a rule.
-    expect(legOf("C1", "AM").nextStep).toBe("ASK_ABOUT_VAN");
+    expect(legOf("C1", "PM").nextStep).toBe("ASK_ABOUT_VAN");
   });
 
   /**
@@ -886,7 +896,9 @@ describe("the shell's search box, applied to the board", () => {
   });
 
   it("matches a van and a provider, which is what the box offers to search", () => {
-    expect(matchesQuery(leg, "V1")).toBe(true);
+    // The van by the name on screen, never by the key it is filed under (§1.5).
+    expect(matchesQuery(leg, "Van 1")).toBe(true);
+    expect(matchesQuery(leg, "van 1")).toBe(true);
     expect(matchesQuery(leg, "palm lift")).toBe(true);
   });
 

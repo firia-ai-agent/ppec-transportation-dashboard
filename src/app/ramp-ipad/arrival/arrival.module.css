@@ -21,12 +21,6 @@
 }
 
 /* Headings are Teal Ink — the frame's `ink-brand` (#71), 9.47:1 on white. */
-.heading {
-  font-size: var(--text-24);
-  font-weight: var(--weight-semibold);
-  color: var(--color-ink-brand);
-  margin: 0;
-}
 
 /* ───────────────────────────── the vans at the centre ───────────────────────────── */
 
@@ -282,11 +276,18 @@
   font-size: var(--text-14);
 }
 
-/* The one pill, composed rather than redrawn (audit §4 item 1). The ramp's chip reads at the
-   14 px step, which is the size variant on the shared rule, not a second shape. */
+/*
+ * The one pill (src/ui/Pill.module.css, Vera's audit §4 item 1), at the ramp's own size: this
+ * screen is read at arm's length on an iPad and its body text is 14 px, so the shape is the
+ * shared one and only the scale is local.
+ */
 .chip {
   composes: pill from "../../../ui/Pill.module.css";
+  height: auto;
+  min-height: var(--layout-pill-height);
+  padding-block: var(--space-2);
   font-size: var(--text-14);
+  font-weight: var(--weight-medium);
 }
 
 .chip[data-tone="ok"] { color: var(--color-ok-fg); background: var(--color-ok-bg); }

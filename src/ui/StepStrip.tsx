@@ -25,8 +25,6 @@ const STATE_MARKS: Readonly<Record<StepState, StateDescriptor>> = {
   DONE: { icon: CircleCheck, label: flow.state.done, tone: "ok" },
   NEEDED: { icon: CircleAlert, label: flow.state.needed, tone: "warn" },
   LOCKED: { icon: Lock, label: flow.state.locked, tone: "neutral" },
-  /** A van has moved today (§9.2's fourth chip; `readiness.live.vansOut`). */
-  RUNNING: { icon: CircleCheck, label: flow.state.running, tone: "info" },
 };
 
 /**

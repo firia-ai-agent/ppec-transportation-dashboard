@@ -204,7 +204,9 @@ describe("what the family reads, and what staff read beside it", () => {
     expect(text.relationship).toBe("parent");
     // A fiction number from the MOCKS §3 block, and the one this family is reachable on.
     expect(text.phone).toMatch(/^\+1-561-555-01\d\d$/);
-    expect(text.vanLabel).toBe("V2 center van");
+    // "Van 2" since #73 ("Exactly three vans, all of one generic kind"): the label a person reads
+    // is the van's slot, and the old "V2 center van" put an internal code and a fleet kind on it.
+    expect(text.vanLabel).toBe("Van 2");
     // Display-ready: the provider is the company a coordinator names out loud, and the ADR-015
     // `SYN ` marker stays in the fixture row it came from (copy.providerDisplayName).
     expect(text.providerName).toBe("Greenacres center fleet");

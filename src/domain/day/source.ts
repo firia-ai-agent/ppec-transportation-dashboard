@@ -5,7 +5,7 @@
  * SOURCE: Firia's rule 5 (2026-10-17 5:48 PM ET) — "rebuilt screens read day data through ONE
  * domain interface and NEVER import `@/fixtures` or `src/modules/demo/fixtures` directly;
  * fixtures sit only behind the demo adapter" — and Vera's differences list, which found three
- * rosters and three fleets in one app ("Noah B." against "Noah O.", a board "Van 3" that was the
+ * rosters and three fleets in one app ("Noah O." against "Noah O.", a board "Van 3" that was the
  * live map's V4).
  *
  * **Two** implementations: the database (src/modules/roster/sql.ts), which is what every

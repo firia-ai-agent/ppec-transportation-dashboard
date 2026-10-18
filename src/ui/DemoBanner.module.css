@@ -73,3 +73,32 @@
     display: none;
   }
 }
+
+/*
+ * THE PHONE BAR, AND IT FITS (Vera's walk, 2026-10-18 12:30 AM ET: at 390 the page measured 426
+ * and the clock painted over the Restart button).
+ *
+ * mockups/live-map.html tightens exactly these two things at this width — `.demo{gap:6px}` and
+ * `.demo .reset{padding:0 8px}` — and png/live-map-390.png is what it buys: DEMO, the Simulated
+ * chip, "3:24 PM" and "Restart demo day", on one 32 px row inside 390 px. 6 px is not a step on
+ * the §9 scale, so this takes the step below it (4 px) rather than inventing a seventh length;
+ * the row has more room than the mockup's, never less.
+ *
+ * The three `min-width: 0` rules are the structural half, and they are why this cannot come back
+ * as a *paint* bug even if a string grows: a flex child whose content is `white-space: nowrap`
+ * will not shrink below that content unless it is allowed to, and an unshrinkable child in a row
+ * that has run out of width is what draws one label across the next one. With them, the row runs
+ * out of width by eliding its own longest label instead of overrunning the viewport.
+ */
+@media (max-width: 480px) {
+  .banner {
+    gap: var(--space-2);
+    padding: 0 var(--space-3);
+  }
+
+  .demo,
+  .source {
+    min-width: 0;
+    flex: none;
+  }
+}

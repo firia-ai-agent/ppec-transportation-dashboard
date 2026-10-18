@@ -225,7 +225,7 @@ function readinessFrom(input: {
     leg: direction,
     started,
     vans: day.vans.length,
-    vansCheckedToday: checked,
+    vansChecked: checked,
     setupSource: source,
     planSavedAt: saved?.savedAt ?? null,
     planSavedBy: saved?.savedBy ?? null,

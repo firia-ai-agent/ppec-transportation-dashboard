@@ -249,53 +249,33 @@ describe("the SYN marker is in the data and on no screen", () => {
 });
 
 /**
- * The map preview's vehicle cards (src/components/map/FleetMap.tsx).
+ * THE VEHICLE-CARD SUITE IS DELETED, NOT ADAPTED.
  *
- * Each card lists the run's stops, and each stop in the fixtures carries a family code — the label
- * the notification gate uses to say which family it would text ("F1", "F5", "F8"). The card used to
- * print it after the place name, so a reviewer standing at the board read "Okeeheelee Park · F5"
- * and could do nothing with the second half. None of the three nets above could see it: the code is
- * neither a literal in the component nor a string in copy.ts — it is interpolated out of the
- * fixture at render time. So this suite reads the markup instead, and pins the shape: the words on
- * the card are the place, and the code, if it is anywhere, is in the `title` tooltip.
+ * It read src/components/map/FleetMap.tsx — #53's debug screen — and pinned the shape of its
+ * stop rows: the words are the place, and the family code, if it is anywhere, is in a `title`
+ * tooltip. That card printed "V1 · Convertible van" above those rows, which is one of the
+ * internal codes Vera's 2026-10-18 12:30 AM ET walk ruled off the screen, and the component and
+ * its sibling `LiveFleetMap.tsx` are deleted with this slice. A suite that reads a file that is
+ * gone is not a rule, it is a stale pointer.
+ *
+ * What it was really guarding — that a family code interpolated out of a fixture at render time
+ * cannot reach the screen, which none of the three literal nets in this file can see — is
+ * guarded harder now, and in two places rather than one:
+ *  - src/modules/live-map/screen.test.tsx renders the real Live map and scans every word of the
+ *    markup for a code of any shape, which is the check this suite could only approximate by
+ *    reading a regex out of a component;
+ *  - e2e/live-map.spec.ts does the same in a browser, at 390 and 1440 and for each role.
+ *
+ * The fixtures really do hang a code on their stops — that half of the old suite is kept below,
+ * because it is what makes the two tests above about something.
  */
-describe("a vehicle card names the stop, never the code behind it", () => {
-  const CARD = readFileSync(path.join(SRC, "components", "map", "FleetMap.tsx"), "utf8");
-  /** The stop-name element of a card's stop row: opening-tag attributes, then its children. */
-  const stopName = /className=\{styles\.stopName\}([\s\S]*?)>([\s\S]*?)<\/span>/.exec(CARD);
-
-  it("the fixtures really do hang a code on their stops, so this suite is about something", () => {
+describe("the fixtures hang a code on their stops, which is why the screen is scanned", () => {
+  it("every stop's family label is a code by this file's own scan", () => {
     const labels = FIXTURE_ROUTES.flatMap((r) => r.stops.map((stop) => stop.familyLabel)).filter(
       (label): label is string => label !== undefined,
     );
     expect(labels.length).toBeGreaterThan(2);
-    // Every one of them is a code by this file's own scan — F1..F99, the shape the card must not say.
     for (const label of labels) expect(codesIn(label), label).toEqual([label]);
-  });
-
-  it("prints the stop's name, and nothing but the stop's name", () => {
-    expect(stopName).not.toBeNull();
-    const [, , children] = stopName!;
-    expect(children.trim()).toBe("{stop.name}");
-    // Not the fill that pairs the place with its family code, and not the field either.
-    expect(children).not.toMatch(/familyLabel|stopFamily/);
-  });
-
-  it("carries the code in a title tooltip instead, where it is nobody's first reading", () => {
-    const [, attrs] = stopName!;
-    expect(attrs).toMatch(/title=/);
-    expect(attrs).toMatch(/copy\.stopFamily/);
-    expect(attrs).toMatch(/stop\.familyLabel/);
-  });
-
-  it("and the copy string it uses is still the one copy.ts documents as the tooltip", () => {
-    expect(copy.fleetMap.stopFamily).toBe("{stop} · {family}");
-    expect(copy.fill(copy.fleetMap.stopFamily, { stop: "Okeeheelee Park", family: "F5" })).toBe(
-      "Okeeheelee Park · F5",
-    );
-    // Which is a code — the point of keeping it out of the card's words.
-    expect(codesIn(copy.fill(copy.fleetMap.stopFamily, { stop: "Okeeheelee Park", family: "F5" })))
-      .toEqual(["F5"]);
   });
 });
 

@@ -7,12 +7,12 @@
  * equipment is a number, and Firia/Veri's 6:00 PM ET ruling that an unconfirmed van is planned on
  * **these** defaults — there is no carry-over from any earlier day.
  *
- * Why one file. Vera's differences list found "Van 3" meaning two different vehicles: the board called the
- * sedan Van 3 while the live map drew a V3 of its own, because the fleet was written down in
- * three fixtures (src/fixtures/fleet.ts, src/fixtures/map.ts, src/modules/demo/fixtures/standard.ts)
- * and once more in a config. This is the single list: a slot, a name, a colour and a default
- * setup per vehicle, for every screen that names a van. The slot is stable — the sedan is Van 3
- * and the reserve is Van 4 — so two screens naming the same vehicle say the same word.
+ * Why one file. Vera's differences list found "Van 3" meaning two different vehicles: the board
+ * called the sedan Van 3 while the live map drew a V3 of its own, because the fleet was written
+ * down in three fixtures (src/fixtures/fleet.ts, src/fixtures/map.ts,
+ * src/modules/demo/fixtures/standard.ts) and once more in a config. This is the single list: a
+ * slot, a name, a colour and a default setup per vehicle, for every screen that names a van.
+ * Slot N is vehicle V<N>, so two screens naming the same vehicle say the same word.
  *
  * Which of them are on the road on a given day is **not** here: that is the day's own runs, read
  * through the day data source (src/domain/day/source.ts). A config does not know who is driving.
@@ -20,6 +20,7 @@
  * Pure data and one name helper: no clock, no database, no React.
  */
 import { fill, planBoard } from "@/ui/copy";
+import { VAN_COLORS } from "@/ui/tokens";
 import type { VanSetup } from "@/domain/plan/fit";
 
 /** One van: the vehicle it is, the number it wears, and what it carries by default. */
@@ -28,42 +29,44 @@ export type VanConfig = {
   vehicleKey: string;
   /** 1-based, and both the number in the van's name and its colour slot. */
   slot: number;
+  /**
+   * Is this van on the road on an ordinary day?
+   *
+   * All three are, and there is no fourth (Firia's 8:02 PM ET seed ruling): the centre runs
+   * three vans and the board has three columns. The flag stays because both day sources read
+   * it, so "which vans are out" is one answer and not one per implementation.
+   */
+  onRoadToday: boolean;
   /** What this van has on board until the front desk counts it (§1.6's last rung). */
   defaultSetup: VanSetup;
 };
 
 /**
- * The four vans of the synthetic centre, in slot order.
+ * What a van carries when nobody has counted it today — **the same answer for every van**.
  *
- * Slots 1–3 are the three that run the day (src/modules/demo/fixtures/standard.ts `RUNS`:
- * V1, V2 and the sedan V4); slot 4 is the reserve, which is on no run and which the live map
- * draws parked. The numbers are synthetic and chosen so the demo day has a story: Van 1 and Van 2
- * can each take a chair, **Van 3 cannot and has no lift** — that is the drag the board has to
- * refuse (§1.7 #1) and the van the ramp's "won't fit" line is about.
+ * Vera/Athena/Veri with Firia's sign-off, 2026-10-18 12:13 AM ET: the three vans are one
+ * generic type (§6.1, "one generic van"), so there is no van that is weaker by construction and
+ * no sedan, convertible, centre van or substitute anywhere. A van that cannot take a chair today
+ * is a van whose one wheelchair spot is already **used** — a counted fact that the ramp can
+ * change and the board explains — and that is what the "won't fit" refusal is made of.
+ */
+const GENERIC_VAN: VanSetup = {
+  seats: 6,
+  wheelchairSpots: 1,
+  carSeats: 3,
+  oxygenMounts: 1,
+  hasLift: true,
+};
+
+/**
+ * The three vans of the synthetic centre, in slot order: slot N is vehicle V<N>, and each one
+ * runs the day (src/modules/demo/fixtures/standard.ts `RUNS`). There is no fourth vehicle in
+ * the fleet, the seed, the config or the map (Firia's 8:02 PM ET seed ruling).
  */
 export const VANS: readonly VanConfig[] = [
-  {
-    vehicleKey: "V1",
-    slot: 1,
-    defaultSetup: { seats: 6, wheelchairSpots: 1, carSeats: 3, oxygenMounts: 1, hasLift: true },
-  },
-  {
-    vehicleKey: "V2",
-    slot: 2,
-    defaultSetup: { seats: 5, wheelchairSpots: 2, carSeats: 2, oxygenMounts: 1, hasLift: true },
-  },
-  {
-    vehicleKey: "V4",
-    slot: 3,
-    defaultSetup: { seats: 4, wheelchairSpots: 0, carSeats: 2, oxygenMounts: 1, hasLift: false },
-  },
-  {
-    // The reserve. On no run in the synthetic day, so it is not a board column; it is in the list
-    // because the live map draws it and must call it by the same name this file gives it.
-    vehicleKey: "V3",
-    slot: 4,
-    defaultSetup: { seats: 2, wheelchairSpots: 1, carSeats: 1, oxygenMounts: 0, hasLift: true },
-  },
+  { vehicleKey: "V1", slot: 1, onRoadToday: true, defaultSetup: GENERIC_VAN },
+  { vehicleKey: "V2", slot: 2, onRoadToday: true, defaultSetup: GENERIC_VAN },
+  { vehicleKey: "V3", slot: 3, onRoadToday: true, defaultSetup: GENERIC_VAN },
 ];
 
 /** How far a counter can be pushed. A van with 13 seats is a typo, not a van. */
@@ -83,17 +86,20 @@ export function vanNameOf(slot: number): string {
 /**
  * The design token this van's colour comes from, as a CSS custom-property name.
  *
- * The three the map already draws with (src/ui/tokens.ts, the frame's palette since #71): the
- * brand teal, the amber `map-route-2` and the vermillion `map-route-3`. There is no blue left in
- * the app, so Van 1 is the brand colour rather than the mockup's blue. The reserve has no
- * route colour of its own — a fourth would need a fourth contrast row, which is a design
- * decision and not this file's — so it borrows the muted ink.
+ * `VAN_COLORS` in src/ui/tokens.ts is the one place the three are written (Firia's ruling,
+ * 2026-10-17 11:25 PM ET): blue, amber, magenta, one per van, emitted as `--color-van1/2/3`.
+ * The board's columns, the ramp's van chip and the live map's lines all read this, so a van is
+ * the same colour wherever it is drawn.
  *
  * No hex is written here: every colour in src/ is a token (the no-hex test holds that).
  */
 export function vanColourToken(slot: number): string {
-  return slot === 1 ? "brand" : slot === 2 ? "map-route-2" : slot === 3 ? "map-route-3" : "ink-muted";
+  const key = `van${slot}`;
+  return key in VAN_COLORS ? key : "ink-muted";
 }
+
+/** The vans on the road on an ordinary day, in slot order: the board's three columns. */
+export const DAY_VANS: readonly VanConfig[] = VANS.filter((van) => van.onRoadToday);
 
 /** The config for a vehicle key, or `null` for a vehicle this centre does not have. */
 export function vanConfigOf(vehicleKey: string): VanConfig | null {

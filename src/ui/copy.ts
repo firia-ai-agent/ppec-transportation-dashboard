@@ -172,34 +172,6 @@ export const flow = {
     live: "Live map",
   },
   /**
-   * What a screen says when the step before it is missing, and the one link that fixes it
-   * (redesign spec §9.5). The board and the ramp read these; the step strip above reads the
-   * two keys before them. One block, because the strip and the screens must say the same thing
-   * about the same day.
-   */
-  banner: {
-    /** An unconfirmed van is planned on its shared-config defaults (Firia/Veri, 6:00 PM ET). */
-    usingDefault: "Using default setup",
-    notStarted: "Day not started",
-  },
-  action: {
-    planRoutes: "Plan routes",
-    checkVans: "Check vans",
-    startDemo: "Start demo day",
-  },
-  empty: {
-    noRoutes: "No routes yet",
-    /** "9 riders · Morning" */
-    ridersLeg: "{n} riders · {leg}",
-    noRiders: "No riders today",
-    noRidersPlanned: "No riders planned",
-    noVans: "No vans yet",
-    allChecked: "All vans checked",
-  },
-  /** The one question a board with an unsaved change asks before it is left (§9.2). */
-  leave: { title: "Leave without saving?", stay: "Stay", leave: "Leave" },
-  error: { load: "Couldn’t load · Retry" },
-  /**
    * The three words a step's chip can say (REDESIGN-SPEC §9.2's table, and §9.5's `state.*`).
    *
    * §9.2 draws a fourth, `Running`, for a live map with vans moving on it. There is no word for
@@ -251,6 +223,72 @@ export const flow = {
   tabbar: {
     waiting: "{label}, {count} waiting",
   },
+
+  /**
+   * What a screen says when the step before it is missing, and the one link that fixes it
+   * (redesign spec §9.5). The board and the ramp read these; the step strip above reads the
+   * two keys before them. One block, because the strip and the screens must say the same thing
+   * about the same day.
+   */
+  banner: {
+    /** An unconfirmed van is planned on its shared-config defaults (Firia/Veri, 6:00 PM ET). */
+    usingDefault: "Using default setup",
+    notStarted: "Day not started",
+  },
+  action: {
+    planRoutes: "Plan routes",
+    checkVans: "Check vans",
+    startDemo: "Start demo day",
+    /**
+     * For a coordinator, who may not start the day: the day is started from the DEMO bar by a
+     * director, and Today is the screen that carries the order of the day beside it (§9.2's
+     * step strip). The label says where to look, because a button that answers 403 to the
+     * person reading it is worse than no button (Firia's final scope, 2026-10-18 1:50 AM ET).
+     */
+    whereDayStarts: "Where the day is started",
+  },
+  empty: {
+    noRoutes: "No routes yet",
+    /** "9 riders · Morning" */
+    ridersLeg: "{n} riders · {leg}",
+    noRiders: "No riders today",
+    noRidersPlanned: "No riders planned",
+    noVans: "No vans yet",
+    allChecked: "All vans checked",
+  },
+  /** The one question a board with an unsaved change asks before it is left (§9.2). */
+  leave: { title: "Leave without saving?", stay: "Stay", leave: "Leave" },
+  error: { load: "Couldn’t load · Retry" },
+} as const;
+
+/**
+ * THE HEALTH TAB ON TODAY — four "Right now" tiles and nothing else
+ * (png/health-demo-1440.png, png/health-demo-390.png; Firia, 2026-10-17: Health is these four
+ * tiles on Today, not a page of its own).
+ *
+ * The tab says "Health", which is the word on the mockup. `nav.health` stays "Health & ROI"
+ * because that is still the access-table label of the old address; this tab is not that page.
+ */
+export const healthNow = {
+  /** The tab list, named as the screen it sits on. */
+  tabsLabel: "Today",
+  board: "Board",
+  health: "Health",
+  /** The one section heading over the four tiles. */
+  rightNow: "Right now",
+  kidsPlaced: "Kids placed",
+  vansChecked: "Vans checked",
+  runningLate: "Running late",
+  needsYou: "Needs you",
+  /** Every child who rides with us is in a van, or every van is checked. */
+  all: "All",
+  /** A tile whose count is 0 (png/health-demo-1440.png, png/health-demo-390.png). Grey, never a bare number. */
+  none: "None",
+  /**
+   * A stored van label that starts with an internal code ("V3 sedan") is said as "Van 3".
+   * The code itself is never the word on the pill.
+   */
+  van: "Van {n}",
 } as const;
 
 /** COPY-GUIDE §5: visible label "Search", placeholder "Child, route or vehicle". */
@@ -450,8 +488,6 @@ export const board = {
   pmSpoken: "afternoon",
   /** A ride the family drives themselves: there is no van to show, and that is not a gap. */
   familyDrives: "Family drives",
-  /** "V2 · SYN Greenacres center fleet" — the van, then who runs it. Drawer only (§4.1 density). */
-  vanAndProvider: "{van} · {provider}",
   /** The vehicle is assigned but has sent nothing we may draw (an unlinked device, LOC-01). */
   noPosition: "No van location yet",
   /**
@@ -657,6 +693,8 @@ export const login = {
  */
 export const liveMap = {
   heading: "Live map",
+  /** The one state chip per van (mockups/live-map.html). No ETAs on this screen. */
+  chips: { onRoute: "On route", atStop: "At stop", late: "Late", noGps: "No GPS" },
   /** <title> for the route, so the tab says which screen is open. */
   documentTitle: "Live map · PPEC transportation dashboard",
   /*
@@ -671,7 +709,23 @@ export const liveMap = {
    * src/ui/DemoClock.tsx). The words stay under `liveMap` because the live map is the screen the
    * clock moves and the only one it is drawn on.
    */
-  clock: "Scenario clock {time} ET",
+  /**
+   * THE READOUT IN THE DEMO BAR, and it is the time and nothing else.
+   *
+   * png/live-map-390.png and png/live-map.png both draw it as "3:24 PM" — four or five
+   * characters between the Simulated chip and "Restart demo day" — and the test contract says
+   * the same in words: "The clock sits inside the DEMO bar and reads as a 12-hour time (for
+   * example '2:47 PM')". It used to read "Scenario clock 7:31 AM ET", which is three words and
+   * a zone more than the mockup has room for: at 390 the bar overran the viewport by 36 px and
+   * the readout painted over the button beside it (Vera's walk, 2026-10-18 12:30 AM ET).
+   *
+   * What the extra words were doing is not lost, it moved to where width is free: `clockLabel`
+   * is the readout's accessible name, so a screen reader still hears what the number is while
+   * the eye reads the mockup's four characters.
+   */
+  clock: "{time}",
+  /** The accessible name of the readout above — said to the ear, never drawn. */
+  clockLabel: "Scenario clock",
   pause: "Pause",
   play: "Play",
   restart: "Restart",
@@ -719,6 +773,109 @@ export const liveMap = {
   /** A device with no active binding has no position to show, so it is absent, not faint. */
   unbound:
     "{vehicle}'s device has no active binding: {unbound} points ingested and stored as unbound, {accepted} displayable. It has no marker, no row and no ETA.",
+
+  /* ───────────────── the screen the founder's mockup draws (goal 5) ─────────────────
+   *
+   * mockups/live-map.html, png/live-map.png (1440), png/live-map-390.png. About 25 words
+   * visible, which is REDESIGN-SPEC §3's own budget for this screen, and **no ETA among them**:
+   * the words above this block are the M5 debug screen's and are being taken off the page.
+   */
+
+  /**
+   * THE VAN, as a person says it: "Van 1 · Marco D.".
+   *
+   * Never "V1". A V-code is the database's name for a van and the test contract lints the DOM
+   * for it (`/\bV\d\b/`); the number a driver and a coordinator both use is the one painted on
+   * the door. The driver is first name + family initial, through the one name helper
+   * (src/ui/display-name.ts `shortName`), so this screen cannot write a person's name a second
+   * way.
+   *
+   * The two halves are also drawn apart — the number in ink, the driver muted beside it, as the
+   * mockup draws them — so this string is the row's *accessible name*, which is the one place
+   * the two are one phrase.
+   */
+  vanName: "Van {number} · {driver}",
+  /** Just the number, which is what the eye reads first in the list and on the map pin. */
+  vanNumber: "Van {number}",
+
+  /**
+   * The line under a van's name: where it is going and who is still aboard. The mockup's
+   * "John Prince Park · 2 kids" — no ETA, no "+12 min", no clock.
+   */
+  vanNext: "{stop} · {kids}",
+  /**
+   * A van with nothing left to arrive at: every stop driven, on its way back to the centre.
+   * The row still says something true rather than printing " · 0 kids" after an empty space,
+   * which is what an unguarded "{stop} · {kids}" renders at the end of a run.
+   */
+  vanNextDone: "All stops done",
+  kids: "{count} kids",
+  kidsOne: "1 kid",
+
+  /**
+   * How far along the run is, for the stop-progress bar. The bar is a picture of the same fact
+   * the chip and the next stop already carry in words (§9: never a graphic alone), so this is
+   * its accessible name rather than a visible string.
+   */
+  progress: "Stop {done} of {total}",
+
+  /**
+   * The counts at the top, which are also the filters. "1 on route · 1 late · 1 no GPS" in the
+   * mockup, and each is a filter in the list's own row ("All 3 / Late / No GPS").
+   *
+   * There is no "At stop" count and no "At stop" filter, which is the mockup: a van at a stop is
+   * a van that is fine, so the header counts the two things a coordinator acts on and the one
+   * that is simply running.
+   */
+  countOnRoute: "{count} on route",
+  countLate: "{count} late",
+  countNoGps: "{count} no GPS",
+  filterAll: "All {count}",
+  filterLate: "Late",
+  filterNoGps: "No GPS",
+  /** The filter row is a group of toggles, so it needs a name of its own (§9). */
+  filterLabel: "Show vans",
+  /** When a filter leaves the list empty, the list says so rather than being blank. */
+  filterEmpty: "No vans in this filter.",
+
+  /** The list of vans, as a region a screen reader can jump to. */
+  vansHeading: "Vans",
+
+  /** The feed under the list: what went out to families, time first. Never an ETA. */
+  feedHeading: "Auto texts",
+  /** The row's middle column: who it went to, and which van it was about. */
+  feedWho: "{family} · {van}",
+  feedEmpty: "No family text yet today.",
+  /** The leg switch in the header bar needs a name of its own, being a group of two (§9). */
+  legLabel: "Which leg",
+
+  /**
+   * The map's legend, which is the four chips again as four marker shapes — so the colour of a
+   * marker is never the only thing that says what it means (§3, §9).
+   */
+  legendHeading: "What the markers mean",
+
+  /**
+   * MAP CREDITS, collapsed behind an (i) that opens them.
+   *
+   * ADR-008 and §5.1 require the basemap's attribution to be present and never removed; the
+   * founder's mockup has no licence text across the bottom of the map. Both hold at once the way
+   * MapLibre itself does it: the credits are always in the page, behind a labelled button, and
+   * one click opens them. The label is the button's accessible name — the button's face is the
+   * letter i — so this is the one place the words exist.
+   */
+  credits: "Map credits",
+
+  /**
+   * LOCKED UNTIL A PLAN IS SAVED (REDESIGN-SPEC §9.1: "Plan saved -> Live map" is a *hard*
+   * gate). No saved plan for this leg means no routes to draw, so the map shows the centre and
+   * this card over it — never a blank map, and never an invented route.
+   */
+  lockedHeading: "No routes yet",
+  lockedBody: "Save a plan for this leg and the vans show up here.",
+  lockedAction: "Plan routes",
+  /** The same fact for a role whose menu does not carry Plan routes (front desk). */
+  lockedBodyNoPlanAccess: "A coordinator saves the plan, and the vans show up here.",
 } as const;
 
 /**
@@ -1375,19 +1532,23 @@ export function layoutName(code: string): string {
 export const fleetMap = {
   /** Accessible name for the map region when the caller supplies none. */
   label: "Fleet map",
-  fitAll: "Fit all vehicles",
   retry: "Retry",
-  vehiclesHeading: "Vehicles",
-  /** "V1 · Convertible van" — the id, then the vehicle in plain words. */
-  vehicleRow: "{id} · {description}",
-  /** "Provider P1 · In transit" */
-  vehicleMeta: "{owner} · {state}",
-  gps: "GPS: {age}",
-  source: "Source: {label}",
-  /** §5.1: a stall is words and a clock, never a colour. */
-  stopped: "Stopped {minutes} min",
-  /** LOC-03: the 600 s band, said out loud rather than shown only in red. */
-  locationLost: "Location lost · dispatcher pinged",
+  /*
+   * THE VEHICLE CARD'S WORDS ARE DELETED — `vehicleRow` ("{id} · {description}"),
+   * `vehicleMeta` ("{owner} · {state}"), `gps`, `source`, `stopped`, `fitAll`,
+   * `vehiclesHeading`, `locationLost` and `stopFamily`.
+   *
+   * They were #53's debug screen's, and they rendered the three things Vera's walk of
+   * 2026-10-18 12:30 AM ET ruled off the screen: "V1 · Convertible van" (a V-code and a vehicle
+   * description), "Provider P1 · In transit" (a vendor) and "V2 · Live 2 s". The components that
+   * printed them — src/components/map/{FleetMap,LiveFleetMap}.tsx — are deleted with this slice,
+   * and a template whose first placeholder is an internal id is not a string to keep lying
+   * around for somebody to reach for.
+   *
+   * A van is written one way now, and it is the founder's: "Van 1 · Marco D." (`liveMap.vanName`,
+   * over the frame's one name helper). No id, no description, no provider — the demo shows no
+   * vendor name at all (REDESIGN-SPEC §6 item 5).
+   */
   /** A stop the vehicle reached. Never "Handed off": a geofence cannot complete a handoff. */
   arrived: "Arrived (vehicle)",
   passed: "Passed",
@@ -1398,12 +1559,6 @@ export const fleetMap = {
   tilesFailed: "Map tiles did not load.",
   /** The style request failed: say what still works, so nobody assumes the board is down. */
   tilesFailedDetail: "Map tiles did not load. The board below is unaffected.",
-  /**
-   * "Okeeheelee Park · F4" — the stop, then the family it belongs to. The `title` tooltip on a
-   * vehicle card's stop row, and nothing else: a family code is a build-internal label, so the
-   * card's visible words are the place name alone (COPY-GUIDE §1–§2, src/ui/no-codes.test.ts).
-   */
-  stopFamily: "{stop} · {family}",
 } as const;
 
 /**
@@ -1664,10 +1819,14 @@ export const planRoutes = {
   heading: "Plan routes",
   /** <title> for the route, so the tab says which screen is open. */
   documentTitle: "Plan routes · PPEC transportation dashboard",
-  /** "Tue, Oct 14 · morning pickups" (§3 date format). */
-  subtitle: "{date} · {direction}",
-  directionLegend: "Which run?",
-  direction: { AM: "morning pickups", PM: "afternoon drop-offs" },
+  /*
+   * The old screen's subtitle and its "Which run?" radio — "{date} · morning pickups" and
+   * "afternoon drop-offs" — are gone with the screen that printed them (Firia, 2026-10-18
+   * 1:28 AM ET). The two words of the leg toggle stay: the Live map's own Morning | Afternoon
+   * control reads them (#77, src/modules/live-map/LiveMapScreen.tsx), and the board's toggle
+   * reads `planBoard.morning` / `planBoard.afternoon`. Either way the pair switches between the
+   * two saved plans a day has (DATA-MODEL §1, `plan_run` per direction).
+   */
   directionButton: { AM: "Morning", PM: "Afternoon" },
   /**
    * The one primary action on the screen, and it says the same thing every time it is read.
@@ -2017,6 +2176,12 @@ export const planBoard = {
    * a board that filled the name in with a guess would be naming the wrong person.
    */
   changedAnon: "Someone else saved · Reload",
+  /**
+   * The line a Save gets when somebody else moved the plan on while this board was being built
+   * (Firia, 2026-10-17 10:29 PM ET). The unsaved moves are **kept** — the board is still the
+   * coordinator's draft — so the words ask for a reload rather than announcing a loss.
+   */
+  changedReload: "Plan changed, reload",
   overChip: "Full",
   undo: "Undo",
   /** The dashed target inside an empty van column. */

@@ -134,7 +134,10 @@ export default function VanArrival({
 
   return (
     <main className={styles.page}>
-      <h1 className={styles.heading}>{vanArrival.heading}</h1>
+      {/*
+        No title here: the frame draws the one `h1` this screen has, out of the same access-table
+        label (src/ui/PageHeader.tsx, #74), so a second one was the same words twice.
+      */}
 
       {/* The vans at the centre this afternoon, in the order they leave. */}
       <nav className={styles.tabs} aria-label={vanArrival.ridersHeading}>

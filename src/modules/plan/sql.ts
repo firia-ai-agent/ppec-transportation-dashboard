@@ -255,22 +255,42 @@ async function savePlanIn(
   if (row) {
     runId = row.id;
     version = Number(row.version) + 1;
-    await tx.query(
+    /*
+     * The version is in the WHERE clause, so the bump is the lock and not a read followed by a
+     * hopeful write: `version = version + 1 WHERE id = … AND version = <the one the board had>`
+     * lands on exactly one of two saves that arrive together, and the other one gets no row
+     * back and is told. Nothing before this statement has written anything, so "no row back"
+     * is a 409 and the transaction ends having changed nothing.
+     */
+    const bumped = await tx.query<{ id: string }>(
       `UPDATE ops.plan_run
-          SET version = $2, saved_at = $3, saved_by = $4, updated_at = now(), updated_by = $5
-        WHERE id = $1`,
-      [runId, version, savedAt, input.savedBy, BY],
+          SET version = version + 1, saved_at = $3, saved_by = $4, updated_at = now(), updated_by = $5
+        WHERE id = $1 AND version = $2
+      RETURNING id::text AS id`,
+      [runId, input.version, savedAt, input.savedBy, BY],
     );
+    if (bumped.rows.length !== 1) return await conflictOn(tx, siteId, input);
     await tx.query(`DELETE FROM ops.plan_assignment WHERE plan_run_id = $1`, [runId]);
   } else {
     runId = uuidv7();
     version = 1;
-    await tx.query(
+    /*
+     * Two boards saving the **first** plan of a day both see no row, so both try to insert it.
+     * `ON CONFLICT … DO NOTHING` makes the loser's answer a row count rather than a duplicate-key
+     * error: no row back is the same 409 as any other stale save ("Plan changed, reload"), where
+     * a thrown unique violation would have surfaced as a 503 that claims the save broke
+     * (Firia/Athena, 2026-10-18 12:12 AM ET, S2 F1). The index it conflicts on is 0009's
+     * `plan_run_site_date_dir_uq`; no migration is involved.
+     */
+    const inserted = await tx.query<{ id: string }>(
       `INSERT INTO ops.plan_run
          (id, site_id, service_date, direction, saved_by, saved_at, version, created_by, updated_by)
-       VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $8)`,
+       VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $8)
+       ON CONFLICT (site_id, service_date, direction) DO NOTHING
+       RETURNING id::text AS id`,
       [runId, siteId, input.date, input.direction, input.savedBy, savedAt, version, BY],
     );
+    if (inserted.rows.length !== 1) return await conflictOn(tx, siteId, input);
   }
 
   const entries = Object.entries(input.placements);
@@ -293,4 +313,31 @@ async function savePlanIn(
     );
   }
   return { ok: true, version, savedAt };
+}
+
+/**
+ * The 409 for a save that lost the race, with whoever won it named.
+ *
+ * It re-reads the row the winner left behind rather than guessing, so the screen can say who
+ * moved the plan on; if the row has gone (a reset between the two statements), the answer is
+ * still a conflict, because what the caller was holding is certainly not what is there now.
+ */
+async function conflictOn(
+  tx: Exec,
+  siteId: string,
+  input: SavePlanInput,
+): Promise<SavePlanOutcome> {
+  const now = await tx.query<RunRow>(
+    `SELECT id::text AS id, version, saved_at::text AS saved_at, saved_by::text AS saved_by
+       FROM ops.plan_run
+      WHERE site_id = $1 AND service_date = $2::date AND direction = $3`,
+    [siteId, input.date, input.direction],
+  );
+  const row = now.rows[0];
+  return {
+    ok: false,
+    conflict: true,
+    changedBy: staffLabel(row?.saved_by ?? null),
+    version: Number(row?.version ?? input.version),
+  };
 }

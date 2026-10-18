@@ -22,7 +22,14 @@
  *
  * Site-scoped and parameterised, like every other statement in this app.
  */
-import { VANS, defaultSetupOf, vanColourToken, vanNameOf } from "@/config/vans";
+/*
+ * `DAY_VANS` is main's (#73: exactly three vans, declared rather than filtered), and `Exec` is
+ * ours (S1-3: this file is all reads, so the approval transaction can use it as its own day
+ * source — `boardPlacementPort({ source: (tx, siteId) => sqlDaySource(tx, siteId) })`). Taking
+ * main's `Db` here would make the plan write inside the approval tx unwireable; the two changes
+ * are independent and both are kept.
+ */
+import { DAY_VANS, defaultSetupOf, vanColourToken, vanNameOf } from "@/config/vans";
 import type { Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import type { DayDataSource, DayRider, DayVan, OtherChild } from "@/domain/day/source";
@@ -43,11 +50,13 @@ type ChildRow = {
 
 type NeedRow = { child_token: string; category: string };
 
-/** The vans the shared config runs today, by id, in slot order. */
+/** The vans the shared config runs today, by id, in slot order (the reserve is not one). */
 function configuredVans(): { id: string; key: string; slot: number }[] {
-  return VANS.map((van) => ({ id: vehicleIdOf(van.vehicleKey), key: van.vehicleKey, slot: van.slot })).sort(
-    (a, b) => a.slot - b.slot,
-  );
+  return DAY_VANS.map((van) => ({
+    id: vehicleIdOf(van.vehicleKey),
+    key: van.vehicleKey,
+    slot: van.slot,
+  })).sort((a, b) => a.slot - b.slot);
 }
 
 /**

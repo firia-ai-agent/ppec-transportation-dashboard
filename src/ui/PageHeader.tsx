@@ -46,10 +46,28 @@ export function PageHeader({
 }) {
   const pathname = usePathname();
   const title = given ?? pageTitleFor(pathname);
+  const today = pathname === "/today";
   return (
-    <div className={styles.bar}>
+    <div className={styles.bar} data-screen={today ? "today" : undefined}>
       {/* A screen with no row in the table has no title to print, and prints none. */}
       {title ? <h1 className={styles.title}>{title}</h1> : null}
+      {/*
+        Today's tabs and date are portaled here so they share this bar with the title
+        (png/health-demo-1440.png: one row). The slot is empty on every other screen.
+      */}
+      {today ? <div id="today-header-chrome" className={styles.chrome} /> : null}
+      {/*
+        THE BAR'S ONE SLOT, and it is empty on every screen that does not fill it.
+        The founder's mockups draw a screen's own switch *inside* this bar rather than in a
+        second strip under it — the Live map's Morning|Afternoon and its three state counts
+        (mockups/live-map.html, png/live-map.png), the board's date and segmented leg. A screen
+        is a child of the layout that mounts this bar, so it cannot pass them up as props; it
+        renders them into here instead (src/ui/HeaderSlot.tsx), which is how one 64 px bar can
+        carry both the frame's title and one screen's controls without the frame knowing what
+        they are. No screen's content is in this file, and a screen that fills nothing in leaves
+        an empty element that takes no space.
+      */}
+      <div className={styles.slot} data-header-slot />
       <span className={styles.spacer} />
       {account ? (
         <Link

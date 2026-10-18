@@ -38,7 +38,14 @@ export function DemoClock({ role }: { role: StaffRole | null }) {
   const nowMs = SCENARIO_START_MS + seconds * 1000;
   return (
     <div className={styles.clock} data-demo-clock>
-      <span className={styles.time}>{fill(liveMap.clock, { time: formatClock(nowMs) })}</span>
+      {/*
+        The time, and only the time (png/live-map-390.png, png/live-map.png: "3:24 PM"). The
+        words that used to sit in front of it are the element's accessible name now — free at
+        any width, and the reason the bar fits a 390 px phone.
+      */}
+      <span className={styles.time} aria-label={liveMap.clockLabel}>
+        {fill(liveMap.clock, { time: formatClock(nowMs) })}
+      </span>
       {canSeeMapData(viewer, "clockControls") ? (
         <>
           <button type="button" className={styles.button} onClick={() => demoClock.toggle()}>

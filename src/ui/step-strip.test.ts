@@ -20,14 +20,9 @@ function day(over: Partial<DayFacts> = {}) {
     date: DATE,
     leg: "PM",
     read: true,
-    started: true,
     vans: 3,
-    vansCheckedToday: 0,
-    setupSource: "DEFAULT",
+    vansChecked: 0,
     planSavedAt: null,
-    unassigned: 0,
-    vansOut: 0,
-    approvalsWaiting: 0,
     ...over,
   });
 }
@@ -35,7 +30,7 @@ function day(over: Partial<DayFacts> = {}) {
 /** A day with nothing done on it — the fresh day, and what a shell with no database shows. */
 const FRESH = deriveReadiness(unreadFacts(DATE, "PM"));
 /** A day whose plan is saved, so the live map is unlocked and opens itself. */
-const PLANNED = day({ vansCheckedToday: 3, planSavedAt: "2026-10-17T18:41:00Z" });
+const PLANNED = day({ vansChecked: 3, planSavedAt: new Date("2026-10-17T18:41:00Z") });
 
 const byKey = (steps: readonly StripStep[], key: StepKey): StripStep =>
   steps.find((step) => step.key === key)!;
@@ -59,7 +54,7 @@ describe("what each card says", () => {
     [2, 3, "2/3 checked"],
     [3, 3, "3/3 checked"],
   ] as const)("van setup with %i of %i checked reads %s", (vansChecked, vans, detail) => {
-    const setup = byKey(stepsFor("DIRECTOR", day({ vans, vansCheckedToday: vansChecked })), "setup");
+    const setup = byKey(stepsFor("DIRECTOR", day({ vans, vansChecked })), "setup");
     expect(setup.detail).toBe(detail);
     expect(setup.state).toBe(vansChecked === vans ? "DONE" : "NEEDED");
   });
@@ -94,7 +89,7 @@ describe("the step to do next", () => {
       "setup",
     ]);
     expect(
-      stepsFor("DIRECTOR", day({ vans: 3, vansCheckedToday: 3 }))
+      stepsFor("DIRECTOR", day({ vans: 3, vansChecked: 3 }))
         .filter((s) => s.current)
         .map((s) => s.key),
     ).toEqual(["plan"]);

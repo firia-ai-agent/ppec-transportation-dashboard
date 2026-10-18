@@ -207,7 +207,9 @@ describe("approving the proposal", () => {
     expect(approved.beforeWindowText).toMatch(/4:\d\d/);
     expect(approved.afterWindowText).toBe("5:00–5:10 PM");
     expect(approved.place).toBe("Okeeheelee Park");
-    expect(approved.vanLabel).toBe("V2 center van");
+    // "Van 2" since #73: the label a person reads is the van's slot, not "V2 center van" — that
+    // put an internal code and a fleet kind on a staff screen.
+    expect(approved.vanLabel).toBe("Van 2");
   });
 
   it("confirms it with an allow-listed template, not with words a model wrote", () => {

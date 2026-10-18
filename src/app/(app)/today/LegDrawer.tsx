@@ -9,6 +9,7 @@ import {
   drawer,
   etaText,
   fill,
+  liveMap,
   needCategories,
   onDay,
   places,
@@ -260,14 +261,7 @@ function Ride({ leg }: { leg: LegRow }) {
           )}
         </p>
         <StateChip state={legStates[ride.state]} values={stateValues(leg)} />
-        <p className={styles.muted}>
-          {ride.vehicleLabel === null
-            ? boardCopy.familyDrives
-            : fill(boardCopy.vanAndProvider, {
-                van: ride.vehicleLabel,
-                provider: ride.providerName ?? "",
-              })}
-        </p>
+        <p className={styles.muted}>{vanLine(ride)}</p>
         {/*
           The published window, and only when a van on the road is publishing one: on a ride
           nobody has moved yet it is the plan's own time, which the row already carries in its
@@ -300,6 +294,25 @@ function ends(ride: RideView): string {
   return ride.direction === "AM"
     ? fill(drawer.rideFromTo, { from: stop, to: places.center })
     : fill(drawer.rideFromTo, { from: places.center, to: stop });
+}
+
+/**
+ * THE VAN, NAMED THE WAY THE REST OF THE APP NAMES ONE — "Van 3 · Nadia P.".
+ *
+ * This line said "Van 3 · Coastal Car Service" until Firia read it (2026-10-18 3:04 AM ET).
+ * The provider is a fact about who is contracted, not the person a coordinator is trying to
+ * reach about a child on the road — and the board and the live map had already settled on the
+ * number on the door and the driver (`liveMap.vanName`, the one key for this phrase, filled
+ * with the driver through the one name helper, src/ui/display-name.ts `shortName`). A second
+ * phrasing in the drawer is the same van with two names in one app.
+ *
+ * The van that the fleet config does not number is named by its label alone rather than
+ * "Van 3 · " with nobody after it: the drawer says what it knows.
+ */
+function vanLine(ride: RideView): string {
+  if (ride.vehicleLabel === null) return boardCopy.familyDrives;
+  if (ride.vanNumber === null || ride.driverName === null) return ride.vehicleLabel;
+  return fill(liveMap.vanName, { number: ride.vanNumber, driver: ride.driverName });
 }
 
 function Need({ need }: { need: NeedView }) {

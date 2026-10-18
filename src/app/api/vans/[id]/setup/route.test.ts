@@ -127,11 +127,14 @@ describe("who may count a van", () => {
 
   it("answers a uniform 404 for a van this board does not run", async () => {
     getCaller.mockResolvedValue(CALLERS.coordinator);
-    const res = await post(vehicleIdOf("V3"), counted());
+    // A well-formed vehicle id that is not one of the centre's three: every van it has is on
+    // the road, and there is no reserve to name (Firia's 8:02 PM ET seed ruling).
+    const notAVan = "01900000-0000-7000-8000-001c0000beef";
+    const res = await post(notAVan, counted());
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ ok: false, reason: "NO_SUCH_VAN" });
     const text = JSON.stringify(await (await post("not-a-van", counted())).json());
-    expect(text).not.toContain("V3");
+    expect(text).not.toContain(notAVan);
   });
 
   it("is a 400 when the body cannot be read, or asks for a count nobody has", async () => {

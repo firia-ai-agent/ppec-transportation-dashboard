@@ -38,9 +38,13 @@ export function saveLine(state: SaveState): { label: string; tone: Tone } {
     case "FAILED":
       return { label: planBoard.saveFailed, tone: "crit" };
     case "CHANGED":
-      // A name when the server knows one, and the chip that names nobody when it does not.
+      /*
+       * Somebody else saved while this board was being built. The unsaved moves are kept, so
+       * the chip asks for a reload rather than announcing a loss (Firia, 10:29 PM ET) — and it
+       * names whoever moved it when the server knows a name.
+       */
       return {
-        label: state.by ? fill(planBoard.changedBy, { name: state.by }) : planBoard.changedAnon,
+        label: state.by ? fill(planBoard.changedBy, { name: state.by }) : planBoard.changedReload,
         tone: "warn",
       };
     default:
@@ -102,18 +106,34 @@ export function footerLines(stops: number, minutes: number): { stops: string; mi
 export type BoardBanner = {
   text: string;
   tone: Tone;
-  /** The step this banner is about, as a word and an address, or null when the fix is the DEMO bar. */
-  action: { label: string; href: string } | null;
+  /**
+   * The step this banner is about: a word and an address, a word and a button, or nothing.
+   * `start: true` is the one button this strip has — "Start demo day", for the role the reset
+   * endpoint allows (Firia's final scope, 2026-10-18 1:50 AM ET).
+   */
+  action: { label: string; href: string } | { label: string; start: true } | null;
 };
 
+/**
+ * @param canStartDay the caller may start the demo day — the director, which is the one role
+ * `POST /api/demo/reset` allows (src/auth/access.ts). A coordinator is offered the way to it
+ * instead of a button that would answer 403, and the server still decides either way.
+ */
 export function boardBanner(
   readiness: DayReadiness,
   firstUncheckedVanHref: string | null,
+  canStartDay = false,
 ): BoardBanner | null {
   if (!readiness.started) {
-    // Only the DEMO bar can start a day, and it is on every screen already (§9.3), so this
-    // banner names the step and offers no second button for it.
-    return { text: flow.banner.notStarted, tone: "warn", action: null };
+    // One button, and only for the role that may press it (Firia, 1:50 AM ET). For everybody
+    // else the strip says where the day is started rather than offering a refusal.
+    return {
+      text: flow.banner.notStarted,
+      tone: "warn",
+      action: canStartDay
+        ? { label: flow.action.startDemo, start: true }
+        : { label: flow.action.whereDayStarts, href: "/today" },
+    };
   }
   if (readiness.setup.source === "DEFAULT") {
     return {
