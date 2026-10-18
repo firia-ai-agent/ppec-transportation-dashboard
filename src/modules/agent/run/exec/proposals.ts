@@ -27,7 +27,9 @@ import {
   DROPOFF_CHANGE_KIND,
   DROPOFF_CHANGE_TASK_CATEGORY,
   DROPOFF_CHANGE_TEMPLATE,
+  DROPOFF_REPLY_TEMPLATE,
 } from "@/modules/approvals/dropoff-change";
+import { isReplyText } from "@/modules/messaging/reply-text";
 import { childByKey, stopByKey } from "@/modules/demo/fixtures/standard";
 import { dropoffAlertWords } from "../../alert-words";
 import { agentTasks, fill } from "@/ui/copy";
@@ -268,6 +270,16 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
   const rationale = String(input.args.rationale_code ?? "");
   const sourceMessageId = String(input.args.source_message_id ?? "");
   const by = `agent:${input.runId}`;
+  /*
+   * THE MODEL'S REPLY TO THE PARENT (Firia, 2026-10-18 11:04 AM ET).
+   *
+   * Checked here as well as at the gateway, because this is the field that becomes the words a
+   * family reads: the schema refused a reply of the wrong shape before this ran, and a row is
+   * worth writing even if some later caller reaches this writer another way. A reply that does
+   * not pass is simply absent, and the proposal falls back to the fixed template below — a card
+   * a coordinator can still decide, never a card with no words on it.
+   */
+  const reply = isReplyText(input.args.reply) ? String(input.args.reply).trim() : null;
 
   /*
    * The leg, at this site. A leg at another site cannot be reached — the policy engine's scope
@@ -367,9 +379,23 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
      */
     alert_text: alertWords,
     basis_message_id: basis.rows[0]?.id ?? null,
-    /** The text, as a template and its vars. Rendered by the screen and by the outbox, once each. */
-    template_id: DROPOFF_CHANGE_TEMPLATE,
+    /**
+     * THE WORDS, and who wrote them.
+     *
+     * Still a template id and its vars — one renderer for the card and for the send, which is
+     * what the header above this function is about. What changed on Firia's 11:04 AM ET ruling is
+     * which template and where the sentence comes from: with a model-written reply the row
+     * carries `dropoff.reply`, whose whole body is that one var, and `reply_text` beside it so a
+     * reader can tell a drafted card from a fallback one without re-reading the vars.
+     *
+     * With no usable reply the row is exactly what it was — the fixed `dropoff.changed` body over
+     * the leg's own date and stop — so a model that proposes a change without saying anything
+     * still produces a decidable card rather than an empty one.
+     */
+    template_id: reply ? DROPOFF_REPLY_TEMPLATE : DROPOFF_CHANGE_TEMPLATE,
+    ...(reply ? { reply_text: reply } : {}),
     vars: {
+      ...(reply ? { replyText: reply } : {}),
       legDate: row.service_date,
       ...(requestedTime ? { eta: requestedTime } : {}),
       stopLabel: stopToken,

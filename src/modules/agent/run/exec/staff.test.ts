@@ -47,6 +47,7 @@ import {
   DROPOFF_CHANGE_TEMPLATE,
   REALLOCATION_TASK_CATEGORY,
 } from "./proposals";
+import { DROPOFF_REPLY_TEMPLATE } from "@/modules/approvals/dropoff-change";
 import { CLOSE_REFUSED_OPEN, THREAD_NOTE_TASK_CATEGORY } from "./staff";
 import { type LiveHarness, liveHarness } from "./live-harness";
 
@@ -514,6 +515,12 @@ describe("§11.2 summarize_thread_for_staff: a staff-only note, and nothing else
  * template and the vars the outbox itself renders, so the approval screen and the send cannot show
  * two different sentences.
  */
+/**
+ * The reply the model writes to the parent — the one prose argument in the catalog that is meant
+ * for a family, and the words the card is a decision about (Firia, 2026-10-18 11:04 AM ET).
+ */
+const MODEL_REPLY = "Hi Dara, yes, we'll drop Noah off at 5 today. Thanks for letting us know!";
+
 describe("§11.2 propose_dropoff_change: the text a family would get, for a person to approve", () => {
   const approvals = async () =>
     (await db.query<{ id: string; site_id: string; task_id: string; proposal: Record<string, unknown>; decision: string | null }>(
@@ -533,6 +540,12 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
       requested_dropoff_time: "17:00",
       requested_stop_token: "GA-LIBRARY",
       rationale_code: "PARENT_REQUEST",
+      /*
+       * THE MODEL'S OWN REPLY to the parent (Firia, 2026-10-18 11:04 AM ET). Required, and it is
+       * what the card shows and what Approve sends — the fixed template is the fallback for a
+       * proposal that carries none.
+       */
+      reply: MODEL_REPLY,
       source_message_id: sc.messageId,
       expected_version: 1,
     };
@@ -564,7 +577,13 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
       stop_token: "GA-LIBRARY",
       rationale_code: "PARENT_REQUEST",
       basis_message_id: sc.messageId,
-      template_id: DROPOFF_CHANGE_TEMPLATE,
+      /*
+       * The reply template, not the fixed one, because this call carried a reply (Firia, 11:04 AM
+       * ET): the body is the model's sentence, placed whole by the one renderer the card and the
+       * outbox share. `reply_text` is beside it as provenance.
+       */
+      template_id: DROPOFF_REPLY_TEMPLATE,
+      reply_text: MODEL_REPLY,
       approval_key: approvalKey("propose_dropoff_change", args),
     });
     // The key on the row is the key on the call: one human decision releases one exact call.
@@ -576,15 +595,17 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
       approval.proposal.vars as Record<string, unknown>,
     );
     /*
-     * The body is the one Firia asked for at 10:51 PM ET: it opens with the answer and names the
-     * child and the stop ("Model draft is human and uses the child's name"). The assertion is on
-     * the stop and on the shape rather than on the whole sentence, because the *words* are
-     * src/ui/copy.ts's to change and this test is about the vars reaching the renderer.
+     * The body is the model's own reply, word for word (Firia, 2026-10-18 11:04 AM ET) — which is
+     * the whole of the ruling: the card answers what the parent asked instead of confirming a
+     * place she did not ask about. One renderer still, so this is the sentence `decideApproval`
+     * queues and the sentence the card shows.
      */
-    expect(body).toContain("Greenacres Branch Library");
-    expect(body).toMatch(/^PPEC: Yes/);
-    // Still no name of a person in it, and never the 24-hour clock (COPY-GUIDE §3).
+    expect(body).toBe(MODEL_REPLY);
+    // Never the 24-hour clock, and never the machine's own prefix: `reply-text.ts` refuses both.
     expect(body).not.toContain("17:00");
+    expect(body).not.toContain("PPEC:");
+    // The stop and the date are still ON the row, as the fields a coordinator's decision writes.
+    expect(approval.proposal.vars).toMatchObject({ stopLabel: "GA-LIBRARY", eta: "17:00" });
 
     // An AMBER task for the board, and nothing else in the database moved.
     expect((await tasks()).map((t) => [t.category, t.severity])).toEqual([[DROPOFF_CHANGE_TASK_CATEGORY, "AMBER"]]);
@@ -617,6 +638,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
         requested_dropoff_time: "17:15",
         requested_stop_token: null,
         rationale_code: "PARENT_REQUEST",
+        reply: MODEL_REPLY,
         source_message_id: sc.messageId,
         expected_version: 1,
       }),
@@ -627,7 +649,9 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
     const [approval] = await approvals();
     // C2's own stop, out of the fixtures: Okeeheelee Park.
     expect(approval.proposal.stop_token).toBe("OKEE-PARK");
-    expect(renderTemplate(DROPOFF_CHANGE_TEMPLATE, approval.proposal.vars as Record<string, unknown>))
+    // The fixed template is still what the stop token renders through when it is the body: the
+    // proposal records the stop either way, and this is the fallback sentence over the same var.
+    expect(renderTemplate(DROPOFF_CHANGE_TEMPLATE, { legDate: sc.serviceDate, stopLabel: String(approval.proposal.stop_token) }))
       .toContain("Okeeheelee Park");
   });
 
@@ -644,6 +668,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
         requested_dropoff_time: "17:00",
         requested_stop_token: null,
         rationale_code: "PARENT_REQUEST",
+        reply: MODEL_REPLY,
         source_message_id: sc.messageId,
         expected_version: 1,
       }),
@@ -665,6 +690,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
         requested_dropoff_time: "17:00",
         requested_stop_token: "GA-LIBRARY",
         rationale_code: "PARENT_REQUEST",
+        reply: MODEL_REPLY,
         source_message_id: sc.messageId,
         expected_version: 1,
       }),
@@ -682,7 +708,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
     const def = TOOL_REGISTRY.propose_dropoff_change;
     const nothing = {
       leg_id: "L-C1-PM", requested_dropoff_time: null, requested_stop_token: null,
-      rationale_code: "PARENT_REQUEST", source_message_id: "MSG-1", expected_version: 1,
+      rationale_code: "PARENT_REQUEST", reply: MODEL_REPLY, source_message_id: "MSG-1", expected_version: 1,
     };
     expect(def.schema.safeParse(nothing).success).toBe(false);
     expect(def.schema.safeParse({ ...nothing, requested_dropoff_time: "17:00" }).success).toBe(true);

@@ -1250,6 +1250,24 @@ export const familyTexts = {
    * rather than in the fixture file because it is a sentence somebody reads.
    */
   demoReply: "Can you drop {child} at 5 instead? Someone is home then.",
+  /**
+   * THE REPLY WHEN NO MODEL ANSWERED — the demo day's card, drafted from copy instead of by the
+   * assistant (Firia, 2026-10-18 11:04 AM ET).
+   *
+   * The card the walked demo opens on is written by the real model turn
+   * (`demo/draft-proposal.ts`). A model that errors or takes longer than the drafting timeout
+   * leaves the demo needing a card anyway — Restart must always finish — so this is the sentence
+   * that goes in it: the same answer in the same voice, naming the parent, the child and the time
+   * they actually asked for, rather than the fixed template's "gets off at {stopLabel} today",
+   * which is the sentence the founder's complaint was about.
+   *
+   * Filled here, by `fill`, from the day's own fixtures — never by a caller and never by a model.
+   * It is code-owned copy on the staff-approval path, so it reaches a family only if a
+   * coordinator approves those exact words, and `messaging/reply-text.ts` holds it to the same
+   * shape it holds the model's own reply to (no codes, no tokens, no `PPEC:` prefix).
+   */
+  dropoffReplyFallback:
+    "Hi {parentName}, yes, we'll drop {childName} off at {eta} today. Thanks for letting us know!",
   /** A tab with nothing in it. One line, and it is about the day rather than the build. */
   noneForYou: "Nothing is waiting for you.",
   noneSent: "No texts have gone out today.",
@@ -2667,6 +2685,29 @@ export const outboundSms = {
      */
     "dropoff.changed":
       "PPEC: Yes — {childName} gets off at {stopLabel} today.",
+    /**
+     * THE MODEL'S OWN REPLY to a parent who asked for a different drop-off — the body that is
+     * nothing but the words somebody wrote (Firia, 2026-10-18 11:04 AM ET).
+     *
+     * The template above is a fixed sentence, and the founder's complaint is that it answers a
+     * question the parent did not ask: Dara asked for five o'clock and the card confirmed a place.
+     * So on this one path — a drop-off change a coordinator has to approve — the model that
+     * proposes the change also writes the reply, and this body is how those words reach the same
+     * renderer as every other text: one var, placed whole.
+     *
+     * It does not weaken "no free text to a family". §11.2's rule is free text *without human
+     * approval*, and `replyText` is permitted on this template and on no other
+     * (`outbox.TEMPLATE_VARS`), the template is sendable only by `approvals/decide.ts` after a
+     * director or coordinator has pressed Approve on those exact words, and the shape of the var
+     * itself is checked four times over (`messaging/reply-text.ts`). Every auto-send — the GPS
+     * late notice, the HELP/STOP answers, the day's arrival notices — is still a fixed template
+     * with code-shaped vars, and nothing the model writes can reach one.
+     *
+     * No `PPEC:` prefix, deliberately: the prefix is the machine's voice, and `reply-text.ts`
+     * refuses a reply that carries one. The STOP/HELP footer is appended at send time as always
+     * (`renderForSend`), so the words a coordinator approves are the words the family reads.
+     */
+    "dropoff.reply": "{replyText}",
     /**
      * The afternoon's handoff, once the day has **recorded** one.
      *

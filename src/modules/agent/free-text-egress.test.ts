@@ -28,6 +28,8 @@
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { MESSAGE_SEND_KIND } from "@/modules/approvals/message-send";
+import { DROPOFF_REPLY_TEMPLATE } from "@/modules/approvals/dropoff-change";
+import { toolDef } from "./tools";
 import { testIdentityGateway } from "@/test/identity-gateway";
 
 /**
@@ -189,6 +191,28 @@ const PROSE = "Sure — I asked the driver to drop at grandma's at 5, see you th
 /** The var names a free-text field would plausibly arrive under. */
 const PROSE_VAR_NAMES = ["body", "text", "message", "note", "reason", "summary", "childFirstName"] as const;
 
+/**
+ * THE ONE TEMPLATE WHOSE BODY IS PROSE — and the one var on it that may be (Firia, 2026-10-18
+ * 11:04 AM ET).
+ *
+ * §11.2 bans free text to parents **without human approval**, and `dropoff.reply` is the approved
+ * path: the only writer is `propose_dropoff_change`'s proposal row and the only sender is
+ * `approvals/decide.ts`, after a director or a coordinator has pressed Approve on those exact
+ * words (`decideApproval` refuses a decision whose text does not match what the row renders).
+ *
+ * So the blanket assertions below are scoped around this pair, and around nothing else: every
+ * other template is held to the same ban it was, this template is held to the ban on every *other*
+ * var name, and the reply var itself is held to its own shape — bounded length, no phone number,
+ * no address, no URL, no uuid, no internal code, no `PPEC:` prefix (`messaging/reply-text.ts`),
+ * asserted in the describe that follows this one. Two things went from "nothing can" to "one
+ * thing can, and here is what it cannot"; nothing went from banned to unchecked.
+ */
+const APPROVED_REPLY_TEMPLATE = DROPOFF_REPLY_TEMPLATE;
+const APPROVED_REPLY_VAR = "replyText";
+/** Is this (template, var) the approved-reply pair? Everything else is still prose-free. */
+const isApprovedReply = (templateId: string, name: string) =>
+  templateId === APPROVED_REPLY_TEMPLATE && name === APPROVED_REPLY_VAR;
+
 describe("check 1, part 2: the egress door takes a template id and codes, never prose", () => {
   it("refuses a template that is not on the outbox's own list", () => {
     expect(disallowedVars("free.text", { body: PROSE })).toEqual(["body"]);
@@ -206,18 +230,87 @@ describe("check 1, part 2: the egress door takes a template id and codes, never 
     "refuses prose in %s's own declared vars, which are codes and clock times",
     (templateId, vars) => {
       for (const name of Object.keys(vars)) {
+        if (isApprovedReply(templateId, name)) continue;
         expect(disallowedVars(templateId, { [name]: PROSE }), `${templateId}.${name}`).toEqual([name]);
       }
     },
   );
 
-  it("no template declares a var whose rule a sentence can satisfy", () => {
+  it("no template declares a var whose rule a sentence can satisfy, bar the approved reply", () => {
     for (const [templateId, vars] of Object.entries(TEMPLATE_VARS)) {
       for (const [name, rule] of Object.entries(vars)) {
+        if (isApprovedReply(templateId, name)) continue;
         expect(rule(PROSE), `${templateId}.${name}`).toBe(false);
         expect(rule("your child is running late because the van broke down"), `${templateId}.${name}`).toBe(false);
       }
     }
+  });
+
+  it("is the ONLY pair that takes prose: one template, one var name", () => {
+    // The exception is enumerated rather than described, so a second one cannot appear quietly.
+    const prosePairs = Object.entries(TEMPLATE_VARS).flatMap(([templateId, vars]) =>
+      Object.entries(vars)
+        .filter(([, rule]) => rule(PROSE) || rule("yes that is fine, see you then"))
+        .map(([name]) => `${templateId}.${name}`),
+    );
+    expect(prosePairs).toEqual([`${APPROVED_REPLY_TEMPLATE}.${APPROVED_REPLY_VAR}`]);
+    // And on that template every other prose name is refused exactly as it is everywhere else.
+    for (const name of PROSE_VAR_NAMES) {
+      expect(disallowedVars(APPROVED_REPLY_TEMPLATE, { [name]: PROSE }), name).toContain(name);
+    }
+  });
+});
+
+/**
+ * The shape of the one prose field, which is what replaces the blanket ban on this path (Firia,
+ * 11:04 AM ET). A reply is words a person approved, so what it may not contain is everything a
+ * family's text must never carry whoever wrote it.
+ */
+describe("check 1, part 2b: the approved reply is bounded and still carries no PHI", () => {
+  const rule = TEMPLATE_VARS[APPROVED_REPLY_TEMPLATE][APPROVED_REPLY_VAR];
+
+  it("takes the reply the ruling asks for: warm, short, and the time the parent asked for", () => {
+    const reply = "Hi Dara, yes, we'll drop Noah off at 5 today. Thanks for letting us know!";
+    expect(rule(reply)).toBe(true);
+    expect(disallowedVars(APPROVED_REPLY_TEMPLATE, { replyText: reply })).toEqual([]);
+    expect(renderTemplate(APPROVED_REPLY_TEMPLATE, { replyText: reply })).toBe(reply);
+  });
+
+  it.each([
+    ["a phone number", "Yes, that is fine. Call the driver on (561) 555-0177 if you need to."],
+    ["a street address", "Yes, we will drop at 2216 Jog Rd instead."],
+    ["a link", "Yes — track the van at https://example.com/track"],
+    ["an internal code", "Yes, we will set the leg to BOARDED_VERIFIED at OKEE-PARK."],
+    ["a uuid", "Yes, approved as 0199a1b2-c3d4-7000-8000-00000000abcd."],
+    ["the machine's own prefix", "PPEC: Yes, that works."],
+    ["a placeholder", "Yes, {childName} gets off at 5."],
+    ["a line break", "Yes, that works.\nSee you then."],
+    ["nothing at all", "   "],
+    ["more than 320 characters", `Yes, ${"that works. ".repeat(40)}`],
+  ])("refuses a reply carrying %s", (_label, reply) => {
+    expect(rule(reply)).toBe(false);
+    expect(disallowedVars(APPROVED_REPLY_TEMPLATE, { replyText: reply })).toEqual([APPROVED_REPLY_VAR]);
+    // Refused at render too, so a row written around the door sends nothing (defence in depth).
+    expect(() => renderTemplate(APPROVED_REPLY_TEMPLATE, { replyText: reply })).toThrow();
+  });
+
+  it("is refused at the gateway as a tool argument before it can ever become a row", () => {
+    const args = (reply: unknown) => ({
+      leg_id: "L-C1-PM",
+      requested_dropoff_time: "17:00",
+      requested_stop_token: null,
+      rationale_code: "PARENT_REQUEST",
+      reply,
+      source_message_id: "MSG-1",
+      expected_version: 1,
+    });
+    const schema = toolDef("propose_dropoff_change")!.schema;
+    expect(schema.safeParse(args("Hi Dara, yes, five works. Thanks for letting us know!")).success).toBe(true);
+    expect(schema.safeParse(args("PPEC: Yes.")).success).toBe(false);
+    expect(schema.safeParse(args("Call us on 561-555-0177.")).success).toBe(false);
+    // And the reply is not optional: the card is the model's sentence or the copy fallback, never
+    // the fixed template dressed up as a draft (Firia, 11:04 AM ET).
+    expect(schema.safeParse({ ...args("x"), reply: undefined }).success).toBe(false);
   });
 });
 

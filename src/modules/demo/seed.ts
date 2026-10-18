@@ -22,7 +22,6 @@ import {
   type AuthScope, type Child,
 } from "./fixtures/standard";
 
-import { seedDemoChangeRequest } from "./approval-seed";
 
 export class SeedRefused extends Error {}
 
@@ -401,15 +400,20 @@ export async function seedStandardScenario(db: Db, opts: SeedOptions): Promise<S
       ["id", "site_id", "manifest_id", "trip_leg_id", "state", "position_id", "created_by", "updated_by", "source_mode"], reservations);
 
     /*
-     * 8b. THE DAY'S ONE PROPOSAL, as a real `ops.approval_request` row (Firia's S1-2, 11:00 PM ET:
-     *     "Demo data seeds real approval rows via the demo adapter, not UI fixtures").
+     * 8b. THE DAY'S ONE PROPOSAL IS NOT WRITTEN HERE ANY MORE (Firia, 2026-10-18 11:04 AM ET).
      *
-     *     After the legs, because the row names one of them and reads it back to prove it exists.
-     *     The row shape is `agent/run/exec/proposals.ts`'s, so the screen, `pendingApprovals` and
-     *     `decideApproval` all handle it exactly as they handle one the agent wrote — the demo
-     *     walks the real approval path rather than a picture of it.
+     *     It used to be: `seedDemoChangeRequest` wrote the row in this transaction, with the fixed
+     *     `dropoff.changed` sentence on it. That sentence is the founder's complaint — it answers a
+     *     question Dara did not ask — and the fix is that the **model** writes the reply. A model
+     *     call cannot be in here: this is the reset's own transaction, and Restart must finish on
+     *     time whatever the vendor is doing.
+     *
+     *     So the drafting is a step of its own, after the commit, with its own timeout and its own
+     *     fallback: `demo/draft-proposal.ts`, run by the reset route and again on the first Family
+     *     texts load, idempotent on the demo's one approval id so the day has exactly one card.
+     *     `ops.approval_request` is still in `RESET_TABLES`, so the row a previous day left is
+     *     truncated here and the drafting step writes the new one.
      */
-    await seedDemoChangeRequest(tx, { siteId, serviceDate: clock.serviceDate });
 
     // 9. Rewind the scenario clock to 06:00 site-local today (MOCKS §6), paused so the demo starts on cue.
     await insert(tx, "ops.scenario_clock", ["site_id", "scenario", "anchor_real", "anchor_scenario", "speed", "paused"],

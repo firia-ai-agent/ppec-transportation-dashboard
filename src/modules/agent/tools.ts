@@ -32,6 +32,7 @@ import { NEED_CATEGORY } from "@/config/equipment";
 import { z } from "zod";
 import { ALERT_TEXT_MAX, ALERT_TEXT_MIN, isAlertText } from "./alert-text";
 import { KNOWN_STOP_TOKENS } from "@/modules/messaging/templates";
+import { REPLY_TEXT_MAX, replyTextIssue } from "@/modules/messaging/reply-text";
 import { TEMPLATE_VARS } from "@/modules/outbox/outbox";
 
 /** §11.2 tier column. `human` tools may only ever produce a proposal (see policy.ts). */
@@ -485,6 +486,38 @@ const DEFS: readonly ToolDef[] = [
          * exactly the thing the 11:15 ruling took off the board (`alert-text.ts`).
          */
         alert_text: alertTextArg,
+        /**
+         * THE REPLY TO THE PARENT, IN THE MODEL'S OWN WORDS (Firia, 2026-10-18 11:04 AM ET).
+         *
+         * The only prose argument in this catalog that is meant for a *family*, and the only one
+         * there will be: the proposal it rides on is `human` tier, so these words reach nobody
+         * until a director or a coordinator has approved that exact call. §11.2 bans free text to
+         * parents **without human approval**, and this is the path that has one — rule 2 in this
+         * file's header is unchanged for every `sendCopy` tool, all four of which still declare
+         * `template` or `fixed`.
+         *
+         * It is here rather than on the card because of what the founder's complaint was: the
+         * fixed template answered a question Dara did not ask. A model that has understood the
+         * text well enough to propose five o'clock can say so in a sentence, and a model that
+         * cannot has not understood it — in which case there is no proposal at all and the staff
+         * alert is what a coordinator gets (`agent/staff-alert.ts`).
+         *
+         * Bounded and shape-checked by `messaging/reply-text.ts`, so a reply carrying a phone
+         * number, an address, a URL, a uuid, an internal code or the machine's own `PPEC:` prefix
+         * is refused at the gateway as invalid arguments and never becomes a row. It is NOT in
+         * `staffTextFields`: `redact()` would replace the two names the ruling requires with
+         * `[REDACTED:NAME]`, and this text is a message to a family about their own child rather
+         * than a note kept in a log (see reply-text.ts).
+         */
+        reply: z
+          .string()
+          .min(1)
+          .max(REPLY_TEXT_MAX)
+          .superRefine((value, ctx) => {
+            const issue = replyTextIssue(value);
+            // The reason, never the value: a refused reply is refused because of what may be in it.
+            if (issue) ctx.addIssue({ code: "custom", message: `reply ${issue}` });
+          }),
         source_message_id: token,
         expected_version: version,
       })

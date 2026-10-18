@@ -49,7 +49,7 @@ import { agentTasks } from "@/ui/copy";
 import {
   DROPOFF_CHANGE_KIND,
   DROPOFF_CHANGE_TASK_CATEGORY,
-  DROPOFF_CHANGE_TEMPLATE,
+  DROPOFF_REPLY_TEMPLATE,
 } from "@/modules/approvals/dropoff-change";
 import { dropoffAlertWords } from "@/modules/agent/alert-words";
 import { raiseTask } from "@/modules/agent/run/exec/effects";
@@ -80,7 +80,24 @@ export type SeededApproval = {
  */
 export async function seedDemoChangeRequest(
   tx: Exec,
-  a: { readonly siteId: string; readonly serviceDate: string; readonly day?: ServiceDay },
+  a: {
+    readonly siteId: string;
+    readonly serviceDate: string;
+    readonly day?: ServiceDay;
+    /**
+     * THE WORDS ON THE CARD (Firia, 2026-10-18 11:04 AM ET).
+     *
+     * The model's own reply, written by the real turn `demo/draft-proposal.ts` runs over Dara's
+     * text, or the copy fallback that module uses when no model answered. Required: there is no
+     * version of this row any more that invents the fixed template's sentence for itself, because
+     * that sentence is what the founder's complaint was about.
+     *
+     * The model call is NOT in this transaction and must never be. Restart has to finish whatever
+     * the vendor does, so the drafting happens first, with its own timeout, and this writer is
+     * handed a string (see `draft-proposal.ts`).
+     */
+    readonly replyText: string;
+  },
 ): Promise<SeededApproval | null> {
   const request = demoChangeRequests(a.day)[0];
   if (!request) return null;
@@ -89,7 +106,12 @@ export async function seedDemoChangeRequest(
 
 async function writeOne(
   tx: Exec,
-  a: { readonly siteId: string; readonly serviceDate: string; readonly request: DemoChangeRequest },
+  a: {
+    readonly siteId: string;
+    readonly serviceDate: string;
+    readonly request: DemoChangeRequest;
+    readonly replyText: string;
+  },
 ): Promise<SeededApproval | null> {
   const child = childByKey(a.request.childKey);
   if (!child) return null;
@@ -167,9 +189,24 @@ async function writeOne(
     /** The alert's words, on the row the card is drawn from. The seed's fallback line, as above. */
     alert_text: alertWords,
     basis_message_id: null,
-    /* The text, as a template and its vars. Rendered by the screen and by the outbox, once each. */
-    template_id: DROPOFF_CHANGE_TEMPLATE,
-    vars: { legDate: a.serviceDate, eta: a.request.requestedHhmm, stopLabel: stopToken },
+    /*
+     * The text, as a template and its vars — rendered by the screen and by the outbox, once each,
+     * exactly as the agent's own writer stores it (`agent/run/exec/proposals.ts`).
+     *
+     * `dropoff.reply` and not `dropoff.changed`: the reply is the words the drafting step was
+     * handed, which on a deployment with a model are the model's own (Firia, 11:04 AM ET). The
+     * fixed template is still the fallback body and is still what `reply-text.ts` holds the
+     * fallback sentence to the shape of; what is gone is the row that rendered the fixed sentence
+     * as if somebody had written it.
+     */
+    template_id: DROPOFF_REPLY_TEMPLATE,
+    reply_text: a.replyText,
+    vars: {
+      replyText: a.replyText,
+      legDate: a.serviceDate,
+      eta: a.request.requestedHhmm,
+      stopLabel: stopToken,
+    },
   };
   await tx.query(
     `INSERT INTO ops.approval_request (id, site_id, task_id, proposal, created_by, updated_by, source_mode)
