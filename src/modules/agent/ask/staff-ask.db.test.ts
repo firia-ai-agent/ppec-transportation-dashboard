@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
@@ -314,6 +314,9 @@ describe("(e) with no model there is a staff alert, and nothing else", () => {
 
   it("raises the same alert when the model is reached and fails", async () => {
     const before = await tasks();
+    const drive = vi.fn(async () => {
+      throw new Error("provider unreachable");
+    });
     const r = await askAgent(
       db,
       { siteId: sc.siteId, text: "Tell the family we are late", by: "u1" },
@@ -321,11 +324,11 @@ describe("(e) with no model there is a staff alert, and nothing else", () => {
         env: {},
         // A runner that exists and a drive that throws: a PROVIDER_ERROR, a missing key, a refusal.
         runner: () => ({ ok: true as const, refused: false, reason: null, deps: { gateway: { config: { askTimeoutMs: 5_000 } } } as never }),
-        drive: async () => {
-          throw new Error("provider unreachable");
-        },
+        drive,
       },
     );
+    // The alert comes from the model-failure path: the run was really driven, once.
+    expect(drive).toHaveBeenCalledTimes(1);
     expect(r.ok === false && r.outcome).toBe("unavailable");
     const added = (await tasks()).filter((t) => !before.some((b) => b.id === t.id));
     expect(added.map((t) => [t.category, t.severity, t.state])).toEqual([
