@@ -38,6 +38,8 @@ const ALLOWED_SEED_IMPORTERS = [
   "src/modules/plan/sql.test.ts",
   // Two sessions saving at once, on the real local Postgres (`pnpm test:db`).
   "src/modules/plan/race.db.test.ts",
+  // Ramp Confirm, proved against a seeded day to write one table and never the plan.
+  "src/modules/plan/confirm.db.test.ts",
 ];
 
 const SRC_RE = /\.(ts|tsx|mjs|js)$/;

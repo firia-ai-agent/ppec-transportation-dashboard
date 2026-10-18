@@ -13,7 +13,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:db": "vitest run src/modules/plan/sql.test.ts src/modules/plan/place.db.test.ts src/modules/plan/race.db.test.ts src/modules/demo/reset.db.test.ts src/modules/demo/seed.test.ts --maxWorkers=1",
+    "test:db": "vitest run src/modules/plan/sql.test.ts src/modules/plan/place.db.test.ts src/modules/plan/race.db.test.ts src/modules/plan/confirm.db.test.ts src/modules/demo/reset.db.test.ts src/modules/demo/seed.test.ts --maxWorkers=1",
     "e2e": "playwright test",
     "seed:lint": "node scripts/seed-lint.mjs",
     "db:generate": "drizzle-kit generate",
