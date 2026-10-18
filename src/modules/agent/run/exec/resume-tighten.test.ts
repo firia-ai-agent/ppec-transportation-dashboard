@@ -31,6 +31,11 @@ import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
 import { type AgentScenario, seedAgentScenario } from "@/test/agent-state";
 import { recordConsent } from "@/modules/messaging/consent";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/** The suites' identity gateway (S1-6); see src/test/identity-gateway.ts. */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
+import { PEPPER } from "@/test/messaging";
 import type { PolicyContext } from "../../policy";
 import { toolCall } from "../../providers/fake";
 import type { ProviderResponseBody } from "../../providers/provider";
@@ -88,6 +93,7 @@ const NOTE_EXECUTOR = { summarize_thread_for_staff: async () => ({ data: { note:
  */
 const crashingOn = (tool: string, script: readonly ProviderResponseBody[]): LiveHarness =>
   liveHarness({
+    gateway: GATEWAY,
     db, script: [...script, NOTE_TURN()], facts: facts(), policy: policy(), now: () => now, isFatal,
     overrides: {
       ...NOTE_EXECUTOR,
@@ -100,6 +106,7 @@ const crashingOn = (tool: string, script: readonly ProviderResponseBody[]): Live
 /** The process that comes back, with the real executors and the context as it is **now**. */
 const resumingWith = (over: Partial<PolicyContext>, script: readonly ProviderResponseBody[]): LiveHarness =>
   liveHarness({
+    gateway: GATEWAY,
     db, script: [...script, NOTE_TURN()], facts: facts(), policy: policy(over), now: () => now,
     overrides: NOTE_EXECUTOR,
   });
@@ -217,7 +224,13 @@ describe("F1 a consent withdrawal that lands between the persist and the resume"
     const runId = (await db.query<{ id: string }>("SELECT id FROM ops.agent_run", [])).rows[0].id;
 
     // The family texts STOP while the process is down: one consent event, one suppression row.
-    const consent = await db.tx((tx) => recordConsent(tx, {
+    /*
+     * The suites' gateway (S1-6): `recordConsent` appends the consent event through one now. In
+     * memory, because this call is inside `db.tx` and a second transaction on the same PGlite
+     * connection would wait on the first forever. What the test is about is unchanged — the
+     * `ops.suppression` row, written in this transaction.
+     */
+    const consent = await db.tx((tx) => recordConsent(tx, GATEWAY, {
       siteId: sc.siteId, contactToken: sc.contactToken, channel: "SMS_1TO1", kind: "STOP",
       at: now, by: "test",
     }));

@@ -8,6 +8,15 @@
  * leg named at all, and an unrecognized number resolves to a staff task and nothing else.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). `read_message`, the capability report and the drain's
+ * consent check all ask `IdentityGateway` now rather than the connection — and this one answers
+ * from the rows `seedAgentScenario` just wrote. See src/test/identity-gateway.ts for why it is in
+ * memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
@@ -42,6 +51,7 @@ afterEach(async () => {
 /** One live executor, called directly: the loop's contract, without the loop. */
 const run = async (tool: string, args: Record<string, unknown>, seq = 0): Promise<ToolExecution> => {
   const deps: ExecutorDeps = liveHarness({
+    gateway: GATEWAY,
     db, script: [], facts: { t1: "", t2: "", t3: [], t4: "" },
     policy: { scope: sc.scope, sendableSubjects: new Set() }, now: () => now,
   }).execDeps;
@@ -230,6 +240,7 @@ describe("the live registry accounts for every catalog tool", () => {
   it("every §11.2 tool is live, proposal-only, or named as deferred — exactly once", async () => {
     sc = await seedAgentScenario(db);
     const deps: ExecutorDeps = liveHarness({
+    gateway: GATEWAY,
       db, script: [], facts: { t1: "", t2: "", t3: [], t4: "" },
       policy: { scope: sc.scope, sendableSubjects: new Set() }, now: () => now,
     }).execDeps;

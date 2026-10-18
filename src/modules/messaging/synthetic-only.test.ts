@@ -20,6 +20,15 @@
  * PGlite rather than against a mock of the thing being proved.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { registerTestGuardian, testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). Every `identity.*` statement moved behind
+ * `IdentityGateway`, so the code under test asks this rather than the connection — and it answers
+ * from the rows `seedPersona` / `seedAgentScenario` just wrote. See src/test/identity-gateway.ts
+ * for why it is in memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { FAMILIES } from "@/modules/demo/fixtures/standard";
@@ -49,7 +58,7 @@ afterEach(async () => {
 const scheduler = { schedule: async () => {} };
 
 function provider(): DbSimMessagingProvider {
-  return new DbSimMessagingProvider(db, scheduler as never, { pepper: PEPPER });
+  return new DbSimMessagingProvider(db, scheduler as never, { pepper: PEPPER, gateway: GATEWAY });
 }
 
 const payload = (recipientToken: string) => ({
@@ -117,10 +126,22 @@ describe("the send refuses a family it cannot name", () => {
     const persona = await seedPersona(db, SIM_PERSONA_NUMBERS[2], { siteId: SITE, now: TEST_NOW });
     // The same contact, re-pointed at a number the fiction block does not hold. Everything else
     // about the send is unchanged, so the refusal is about the number and nothing else.
+    const notAPersona = "not-a-persona-blind-index";
     await db.query(
       "UPDATE identity.guardian_contact SET phone_hmac = $1 WHERE contact_token = $2",
-      ["not-a-persona-blind-index", persona.contactToken],
+      [notAPersona, persona.contactToken],
     );
+    // And in the gateway, which is where the provider reads it from since S1-6. Both, because the
+    // row and the gateway's answer are the same fact and a test that moved only one of them would
+    // be asserting against a state no deployment can be in.
+    registerTestGuardian({
+      siteId: SITE,
+      contactToken: persona.contactToken,
+      familyGroupId: persona.familyGroupId,
+      phoneHmac: notAPersona,
+      legalName: "SYN Guardian",
+      canReceiveUpdates: true,
+    });
     await expect(
       provider().send(payload(persona.contactToken), { signal: new AbortController().signal }),
     ).rejects.toBeInstanceOf(ProviderRejected);

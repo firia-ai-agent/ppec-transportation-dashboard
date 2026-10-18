@@ -20,6 +20,15 @@
  * its recipients from the same table, so a lapsed or unlisted contact is not a recipient.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). `read_message`, the capability report and the drain's
+ * consent check all ask `IdentityGateway` now rather than the connection — and this one answers
+ * from the rows `seedAgentScenario` just wrote. See src/test/identity-gateway.ts for why it is in
+ * memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { phoneHmac } from "@/modules/identity/phone";
@@ -85,6 +94,7 @@ const harness = (script: readonly ProviderResponseBody[], messageId = sc.message
     sourceMessageId: messageId,
   };
   return liveHarness({
+    gateway: GATEWAY,
     db, script: [...script, NOTE_TURN()], facts: facts(), policy,
     overrides: NOTE_EXECUTOR, now: () => now,
   });

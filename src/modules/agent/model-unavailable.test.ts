@@ -34,6 +34,15 @@
  * keyword reader can come back, is `no-keyword-fallback.test.ts`.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). `read_message`, the capability report and the drain's
+ * consent check all ask `IdentityGateway` now rather than the connection — and this one answers
+ * from the rows `seedAgentScenario` just wrote. See src/test/identity-gateway.ts for why it is in
+ * memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
@@ -203,7 +212,8 @@ function harnessWithLiveAdapter(
   const read = () => opts.providerEnv ?? env;
   const eager = opts.eager ? liveProviderOrRefusal(config, read()) : null;
   const provider = (): LlmProvider => eager ?? liveProviderOrRefusal(config, read());
-  return liveHarness({ db, script: [], facts: facts(), policy: policy(), now: () => now, provider });
+  return liveHarness({
+    gateway: GATEWAY, db, script: [], facts: facts(), policy: policy(), now: () => now, provider });
 }
 
 /** Everything that would mean the agent *did* something. All of it must be empty. */

@@ -1,4 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). Every `identity.*` statement moved behind
+ * `IdentityGateway`, so the code under test asks this rather than the connection — and it answers
+ * from the rows `seedPersona` / `seedAgentScenario` just wrote. See src/test/identity-gateway.ts
+ * for why it is in memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import { uuidv7 } from "uuidv7";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db, Exec } from "@/db/exec";
@@ -11,7 +20,7 @@ import { FakeTransport } from "@/modules/jobs/fake-transport";
 import { VercelQueueScheduler } from "@/modules/jobs/scheduler";
 import { fire, type Handlers } from "@/modules/jobs/runner";
 import { drain, enqueue, type DrainDeps, type EnqueueInput } from "@/modules/outbox/outbox";
-import { dbRecipientAuthorizer } from "@/modules/outbox/policy";
+import { gatewayRecipientAuthorizer } from "@/modules/outbox/policy";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { ingestInbound, parseInboundForm, type InboundDeps } from "./inbound";
 import { clampLimit, DEFAULT_LIMIT, MAILBOX_ROLES, MAX_LIMIT, personaMailboxResponse, personaMessages, resolvePersona } from "./mailbox";
@@ -51,10 +60,10 @@ beforeEach(async () => {
   ({ pg, db } = await freshDb());
   now = new Date(); outboxTransport = new FakeOutboxTransport();
   drainDeps = {
-    provider: new DbSimMessagingProvider(db, new VercelQueueScheduler(db, new FakeTransport(), () => now), { clock: () => now, pepper: PEPPER }),
-    authorizer: dbRecipientAuthorizer(db), clock: () => now, timeoutMs: 500,
+    provider: new DbSimMessagingProvider(db, new VercelQueueScheduler(db, new FakeTransport(), () => now), { clock: () => now, pepper: PEPPER, gateway: GATEWAY }),
+    authorizer: gatewayRecipientAuthorizer(GATEWAY), clock: () => now, timeoutMs: 500,
   };
-  inboundDeps = { pepper: PEPPER, transport: outboxTransport, clock: () => now };
+  inboundDeps = { pepper: PEPPER, transport: outboxTransport, clock: () => now, gateway: GATEWAY };
   f1 = await seedPersona(db, F1_NUMBER, { now });
 }, 60_000);
 

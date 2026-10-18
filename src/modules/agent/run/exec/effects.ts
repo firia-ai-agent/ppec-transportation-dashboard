@@ -21,6 +21,7 @@
  * `policy.evaluate` returned ALLOW (loop.ts).
  */
 import type { Db, Exec } from "@/db/exec";
+import { identityGateway, type IdentityGateway } from "@/modules/identity/gateway";
 import type { JobScheduler } from "@/modules/jobs/scheduler";
 import type { OutboxTransport } from "@/modules/outbox/outbox";
 import { sha256Hex } from "../../redact";
@@ -54,7 +55,23 @@ export type ExecutorDeps = {
   readonly transport: OutboxTransport;
   /** Optional, and absent in P1 — see `DispatcherLinkSigner`. */
   readonly linkSigner?: DispatcherLinkSigner;
+  /**
+   * THE AGENT'S ONE DOOR TO `identity` (S1-6; Firia's ruling 2, 2026-10-18 2:48 AM ET).
+   *
+   * Two steps of the run need a fact that lives behind the restricted schema — `read_message`
+   * resolving who texted (`reads.ts`) and `record_provider_capability` checking a report really
+   * came from that van's dispatcher (`capability.ts`) — and both used to ask `deps.db`, which is
+   * the application connection and has no SELECT there (src/db/schema.ts:104).
+   *
+   * Optional, defaulting to this data class's own gateway, so every existing construction of these
+   * deps is unchanged and a suite can still hand the deployed gateway over a connection that may
+   * run its SQL.
+   */
+  readonly gateway?: IdentityGateway;
 };
+
+/** The gateway these deps were given, or this data class's own (ADR-015). */
+export const gatewayOf = (deps: ExecutorDeps): IdentityGateway => deps.gateway ?? identityGateway();
 
 /**
  * The id of a row this call writes, derived from the call's idempotency key rather than freshly

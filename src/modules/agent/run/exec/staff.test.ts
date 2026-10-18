@@ -12,6 +12,16 @@
  * the call row carries, and that **nothing else in the database moved**.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). `read_message`, the capability report and the drain's
+ * consent check all ask `IdentityGateway` now rather than the connection — and this one answers
+ * from the rows `seedAgentScenario` just wrote. See src/test/identity-gateway.ts for why it is in
+ * memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
+import { PEPPER } from "@/test/messaging";
 import { uuidv7 } from "uuidv7";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
@@ -73,7 +83,8 @@ const policy = (over: Partial<PolicyContext> = {}): PolicyContext => ({
 });
 
 const harness = (script: readonly ProviderResponseBody[], over: Partial<PolicyContext> = {}): LiveHarness =>
-  liveHarness({ db, script, facts: facts(), policy: policy(over), now: () => now });
+  liveHarness({
+    gateway: GATEWAY, db, script, facts: facts(), policy: policy(over), now: () => now });
 
 const tasks = async () =>
   (await db.query<{
@@ -179,6 +190,7 @@ describe("§11.2 close_task: evidence satisfies the predicate, else stays open",
 
   const closeHarness = (taskId: string, evidenceRef: string) =>
     liveHarness({
+    gateway: GATEWAY,
       db,
       script: [closeCall(taskId, evidenceRef)],
       facts: facts(),

@@ -9,6 +9,15 @@
  * which is why `send_followup` refused the audience outright.
  */
 import { NEED_CATEGORY } from "@/config/equipment";
+import { moveTestPerson, registerTestConsent, unregisterTestPerson, testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). `read_message`, the capability report and the drain's
+ * consent check all ask `IdentityGateway` now rather than the connection — and this one answers
+ * from the rows `seedAgentScenario` just wrote. See src/test/identity-gateway.ts for why it is in
+ * memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import { uuidv7 } from "uuidv7";
@@ -87,7 +96,8 @@ const policy = (): PolicyContext => ({
 });
 
 const harness = (script: readonly ProviderResponseBody[], deps: { linkSigner?: DispatcherLinkSigner } = {}): LiveHarness =>
-  liveHarness({ db, script, facts: facts(), policy: policy(), now: () => now, ...deps });
+  liveHarness({
+    gateway: GATEWAY, db, script, facts: facts(), policy: policy(), now: () => now, ...deps });
 
 const requestCall = (over: Record<string, unknown> = {}) =>
   toolCall("request_provider_capability", {
@@ -304,6 +314,9 @@ describe("§11.2 the capability question: at T−90, to the dispatcher, state RE
        VALUES ($1,$2,$3,'STOP','SMS_1TO1',$4,'SIMULATED')`,
       ["0199e5f0-0000-7000-8000-00000000c001", sc.siteId, route.dispatcherToken, now.toISOString()],
     );
+    // And into the suites' ledger, which is where the send-time check reads it since
+    // S1-6: the row above is the record, this is the gateway's answer about it.
+    registerTestConsent({ id: "0199e5f0-0000-7000-8000-00000000c001", siteId: sc.siteId, contactToken: route.dispatcherToken!, channel: "SMS_1TO1", kind: "STOP", at: new Date(now.toISOString()) });
     const h = harness([requestCall()], { linkSigner: signer });
     await h.start(trigger());
 
@@ -326,6 +339,8 @@ describe("§11.2 the capability question: at T−90, to the dispatcher, state RE
     ]);
 
     await db.query("DELETE FROM identity.external_person_identity WHERE person_token = $1", [route.dispatcherToken]);
+    // And out of the suites' gateway, which is where `egressFacts` looks since S1-6.
+    unregisterTestPerson({ siteId: sc.siteId, personToken: route.dispatcherToken! });
     expect(await h.drainOutbox()).toEqual(["BLOCKED_EGRESS"]);
     expect(h.provider.sent).toEqual([]);
     const [msg] = await outbound();
@@ -346,6 +361,8 @@ describe("§11.2 the capability question: at T−90, to the dispatcher, state RE
       "UPDATE identity.external_person_identity SET site_id = $2 WHERE person_token = $1",
       [route.dispatcherToken, otherSite],
     );
+    // The same move in the gateway: on file, but at another site, which is the refusal under test.
+    moveTestPerson({ personToken: route.dispatcherToken!, toSiteId: otherSite });
     // Still this site's dispatcher as far as ops is concerned: the refusal is identity's.
     expect(await recipientKind(db, { siteId: sc.siteId, recipientToken: route.dispatcherToken! })).toBe("dispatcher");
     expect(await h.drainOutbox()).toEqual(["BLOCKED_EGRESS"]);
@@ -388,6 +405,7 @@ const reportCall = (messageId: string, over: Record<string, unknown> = {}) =>
 
 const reportHarness = (messageId: string, over: Record<string, unknown> = {}): LiveHarness =>
   liveHarness({
+    gateway: GATEWAY,
     db,
     script: [reportCall(messageId, over)],
     facts: facts(),

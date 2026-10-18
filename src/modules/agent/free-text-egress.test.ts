@@ -27,6 +27,15 @@
  * of `messaging/templates.ts`.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). `read_message`, the capability report and the drain's
+ * consent check all ask `IdentityGateway` now rather than the connection — and this one answers
+ * from the rows `seedAgentScenario` just wrote. See src/test/identity-gateway.ts for why it is in
+ * memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
@@ -245,6 +254,7 @@ const NOTE_EXECUTOR = { summarize_thread_for_staff: async () => ({ data: { note:
 
 const harness = (script: readonly ProviderResponseBody[]): LiveHarness =>
   liveHarness({
+    gateway: GATEWAY,
     db,
     script: [...script, NOTE_TURN()],
     facts: facts(),
@@ -382,7 +392,8 @@ describe("check 1, part 5: a direct post of a parent's text sends nothing back i
 
   beforeEach(async () => {
     transport = new FakeOutboxTransport();
-    deps = { pepper: PEPPER, transport, clock: () => now };
+    // S1-6: the webhook resolves its sender through the gateway, not through this connection.
+    deps = { pepper: PEPPER, transport, clock: () => now, gateway: GATEWAY };
     sc = await seedAgentScenario(db, { number: F1_NUMBER, receivedAt: now });
   });
 

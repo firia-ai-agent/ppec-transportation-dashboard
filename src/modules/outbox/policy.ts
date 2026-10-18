@@ -1,4 +1,5 @@
 import type { Exec } from "@/db/exec";
+import { dbIdentityGateway, type IdentityGateway } from "@/modules/identity/gateway";
 
 /** Purposes that bypass ALL_NON_SAFETY suppression (PRD §10). Scope ALL still blocks them. */
 export const SAFETY_PURPOSES = new Set(["SAFETY_ALERT", "CHILD_NOT_RECEIVED"]);
@@ -115,40 +116,48 @@ export interface RecipientAuthorizer {
 }
 
 /**
- * Reads identity.guardian_contact, or — for a therapist or a provider's dispatcher —
- * identity.external_person_identity. In deployed envs it runs on the identity_gateway connection
- * (0001_roles).
+ * The egress door, over the IdentityGateway (S1-6; Firia's ruling 2, 2026-10-18 2:48 AM ET).
  *
- * The dispatcher branch is what makes an egress to `identity.external_person_identity` possible at
- * all (B-08 §11.2 `request_provider_capability`): the person has to still be on file **for this
- * site**, and their consent is then checked exactly like anyone else's, because a dispatcher can
- * text STOP too. A therapist is checked against the same table by the *ops* side instead
+ * This module used to hold the three identity statements itself and be handed a connection that
+ * could run them. In P1 it was handed `getNeonDb()` — `outbox/deps.ts` built it that way — and
+ * `app_rw` has no SELECT on `identity` (src/db/schema.ts:104), so the drain's own consent check
+ * was `permission denied for schema identity` on any real deployment. It is the same bug S1-0
+ * fixed on the Family texts page, on the path that decides whether a family may be texted at all.
+ *
+ * The statements are not gone: they are `dbIdentityGateway.egressFacts`, unchanged, and the
+ * fixture gateway answers the same questions from the seed's own rows. What this function keeps is
+ * the part that was always its own — the *policy*: which purposes a guardian's two flags permit,
+ * and which opt-out scopes suppress which purpose.
+ *
+ * The dispatcher branch is what makes an egress to a provider's dispatcher possible at all (B-08
+ * §11.2 `request_provider_capability`): the person has to still be on file **for this site**, and
+ * their consent is then checked exactly like anyone else's, because a dispatcher can text STOP
+ * too. A therapist is checked against the same table by the *ops* side instead
  * (`therapistAuthorized`: they must still own a session for that child), which is why that kind
  * needs no identity row of its own here.
  */
-export function dbRecipientAuthorizer(identityDb: Exec): RecipientAuthorizer {
+export function gatewayRecipientAuthorizer(gateway: IdentityGateway): RecipientAuthorizer {
   return {
     async authorize({ siteId, recipientToken, purpose, channel, at, kind }) {
-      if (kind === "dispatcher") {
-        const p = await identityDb.query<{ n: number }>(
-          "SELECT count(*)::int n FROM identity.external_person_identity WHERE person_token = $1 AND site_id = $2",
-          [recipientToken, siteId]);
-        if (p.rows[0].n === 0) return { ok: false, reason: "recipient not found or other site" };
+      const facts = await gateway.egressFacts({ siteId, recipientToken, kind, channel, at });
+      if (!facts.onFile) {
+        return {
+          ok: false,
+          reason:
+            kind === "dispatcher"
+              ? "recipient not found or other site"
+              : "recipient not found, revoked, expired or other site",
+        };
       }
       if (kind === "guardian") {
-      const r = await identityDb.query<{ ok_updates: boolean; ok_emergency: boolean }>(
-        `SELECT can_receive_updates ok_updates, is_emergency ok_emergency FROM identity.guardian_contact
-         WHERE contact_token = $1 AND site_id = $2 AND revoked_at IS NULL
-           AND valid_from <= $3 AND (valid_to IS NULL OR valid_to > $3)`, [recipientToken, siteId, at.toISOString()]);
-      const c = r.rows[0];
-      if (!c) return { ok: false, reason: "recipient not found, revoked, expired or other site" };
-      if (!(c.ok_updates || (SAFETY_PURPOSES.has(purpose) && c.ok_emergency))) return { ok: false, reason: "recipient not authorized for this purpose" };
+        const c = facts.guardian;
+        if (!c) return { ok: false, reason: "recipient not found, revoked, expired or other site" };
+        if (!(c.canReceiveUpdates || (SAFETY_PURPOSES.has(purpose) && c.isEmergency))) {
+          return { ok: false, reason: "recipient not authorized for this purpose" };
+        }
       }
-      // Consent at send time: the latest consent event for this contact on this channel wins (append-only log).
-      const ev = await identityDb.query<{ kind: string }>(
-        `SELECT kind FROM identity.consent_event WHERE contact_token = $1 AND site_id = $2 AND channel = $3 AND at <= $4
-         ORDER BY at DESC, id DESC LIMIT 1`, [recipientToken, siteId, channel, at.toISOString()]);
-      const k = ev.rows[0]?.kind;
+      // Consent at send time: the latest consent event for this contact on this channel wins.
+      const k = facts.latestConsentKind;
       // PRD l.218 §2.6: an opt-out "suppresses non-safety", so this check is scoped by purpose and never
       // stricter than the ledger projection the drainer reads (activeSuppression). A safety purpose is
       // blocked only by a carrier STOP (scope ALL), where it "falls back to staff voice task" instead.
@@ -157,6 +166,15 @@ export function dbRecipientAuthorizer(identityDb: Exec): RecipientAuthorizer {
       return { ok: true };
     },
   };
+}
+
+/**
+ * The deployed shape, for the suites that prove the SQL still matches the schema: the same
+ * authorizer over `dbIdentityGateway`, which must be handed a connection running as
+ * `identity_gateway` (0001_roles) and never the application's.
+ */
+export function dbRecipientAuthorizer(identityDb: Exec): RecipientAuthorizer {
+  return gatewayRecipientAuthorizer(dbIdentityGateway(identityDb, { pepper: "" }));
 }
 
 /** Active suppression for this contact and purpose (ops.suppression, written from consent events). */

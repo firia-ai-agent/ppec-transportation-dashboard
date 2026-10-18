@@ -14,7 +14,8 @@ import type { Db } from "@/db/exec";
 import { FakeTransport } from "@/modules/jobs/fake-transport";
 import { type JobScheduler, VercelQueueScheduler } from "@/modules/jobs/scheduler";
 import { type DrainDeps, type DrainResult, drain } from "@/modules/outbox/outbox";
-import { dbRecipientAuthorizer } from "@/modules/outbox/policy";
+import { identityGateway, type IdentityGateway } from "@/modules/identity/gateway";
+import { gatewayRecipientAuthorizer } from "@/modules/outbox/policy";
 import { SimMessagingProvider } from "@/modules/outbox/provider";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import type { ToolExecutor } from "../executors";
@@ -30,6 +31,12 @@ export type LiveHarnessInput = Omit<HarnessInput, "executors" | "overrides"> & {
    * a link row supplies one of its own — exactly as it supplies the clock.
    */
   readonly linkSigner?: DispatcherLinkSigner;
+  /**
+   * The identity gateway the drain's consent check asks (S1-6). Defaults to this data class's own
+   * (`identityGateway()`, the fixture in P1), and is a seam so a DB suite can hand the deployed
+   * gateway over a connection that may actually run its SQL.
+   */
+  readonly gateway?: IdentityGateway;
 };
 
 export type LiveHarness = Harness & {
@@ -49,11 +56,17 @@ export function liveHarness(input: LiveHarnessInput): LiveHarness {
   const scheduler = new VercelQueueScheduler(input.db, wake, () => input.now());
   const execDeps: ExecutorDeps = {
     db: input.db, scheduler, transport: outboxTransport, linkSigner: input.linkSigner,
+    // The same gateway the drain below gets (S1-6): `read_message` and the capability report both
+    // ask it, and a run whose two halves disagreed about who somebody is would be worse than one
+    // that cannot name them at all.
+    gateway: input.gateway,
   };
   const provider = new SimMessagingProvider();
   const drainDeps: DrainDeps = {
     provider,
-    authorizer: dbRecipientAuthorizer(input.db),
+    // S1-6: the gateway, never `input.db` — that is the app connection and it may not read
+    // `identity` (src/db/schema.ts:104). The harness takes one so a test can hand its own.
+    authorizer: gatewayRecipientAuthorizer(input.gateway ?? identityGateway()),
     clock: () => input.now(),
     timeoutMs: 500,
   };

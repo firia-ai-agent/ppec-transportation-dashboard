@@ -13,6 +13,16 @@
  * DECLINED → AMBER).
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { registerTestConsent, testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). `read_message`, the capability report and the drain's
+ * consent check all ask `IdentityGateway` now rather than the connection — and this one answers
+ * from the rows `seedAgentScenario` just wrote. See src/test/identity-gateway.ts for why it is in
+ * memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
+import { PEPPER } from "@/test/messaging";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
@@ -71,7 +81,8 @@ const policy = (over: Partial<PolicyContext> = {}): PolicyContext => ({
 });
 
 const harness = (script: readonly ProviderResponseBody[], over: Partial<PolicyContext> = {}): LiveHarness =>
-  liveHarness({ db, script, facts: facts(), policy: policy(over), now: () => now });
+  liveHarness({
+    gateway: GATEWAY, db, script, facts: facts(), policy: policy(over), now: () => now });
 
 const clarifyCall = (over: Record<string, unknown> = {}) =>
   toolCall("request_clarification", {
@@ -148,6 +159,9 @@ describe("AT-06 sibling ambiguity: the agent asks, and mutates nothing", () => {
        VALUES ($1,$2,$3,'STOP','SMS_1TO1',$4,'SIMULATED')`,
       ["0199e5f0-0000-7000-8000-00000000a001", sc.siteId, sc.contactToken, now.toISOString()],
     );
+    // And into the suites' ledger, which is where the send-time check reads it since
+    // S1-6: the row above is the record, this is the gateway's answer about it.
+    registerTestConsent({ id: "0199e5f0-0000-7000-8000-00000000a001", siteId: sc.siteId, contactToken: sc.contactToken, channel: "SMS_1TO1", kind: "STOP", at: new Date(now.toISOString()) });
     const h = harness([toolCall("resolve_sender", { message_id: sc.messageId }), clarifyCall()]);
     await h.start(trigger());
 
@@ -276,6 +290,7 @@ describe("§11.2 record_acknowledgment: matching PENDING ack → close, cancel t
       dueAt: new Date(now.getTime() + 10 * 60_000),
     });
     const h = liveHarness({
+    gateway: GATEWAY,
       db,
       script: [toolCall("record_acknowledgment", {
         ack_id: ack.ackId, status, source_message_id: sc.messageId,
@@ -334,6 +349,7 @@ describe("§11.2 record_acknowledgment: matching PENDING ack → close, cancel t
     // The same call against an ack already in the state it wanted: executed, idempotent, no write.
     await db.query("UPDATE ops.acknowledgment SET state = 'ACKNOWLEDGED' WHERE id = $1", [ack.ackId]);
     const second = liveHarness({
+    gateway: GATEWAY,
       db,
       script: [toolCall("record_acknowledgment", {
         ack_id: ack.ackId, status: "CONFIRMED", source_message_id: sc.messageId,
@@ -359,6 +375,7 @@ describe("§11.2 record_acknowledgment: matching PENDING ack → close, cancel t
     sc = await seedAgentScenario(db);
     const { ack, h } = await ackHarness("CONFIRMED");
     const missingEvidence = liveHarness({
+    gateway: GATEWAY,
       db,
       script: [toolCall("record_acknowledgment", {
         ack_id: ack.ackId, status: "CONFIRMED", source_message_id: "0199e5f0-0000-7000-8000-0000000000aa",

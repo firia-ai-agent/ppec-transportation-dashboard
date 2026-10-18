@@ -29,13 +29,14 @@
  *     a module nobody thought of as "the page", which is how it got there the first time.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { appRoleDb, freshDb, SITE } from "@/test/pglite";
 import { PEPPER } from "@/test/messaging";
-import { seedAgentScenario, type AgentScenario } from "@/test/agent-state";
+import { normalizeE164, phoneHmac } from "./phone";
+import { seedAgentScenario, seedProviderRoute, type AgentScenario } from "@/test/agent-state";
 import { resolvePersona } from "@/modules/messaging/mailbox";
 import { openAssistantAlerts, raiseModelUnavailableAlert } from "@/modules/agent/staff-alert";
 import { FAMILIES, KIND, demoId, synLegalName } from "@/modules/demo/fixtures/standard";
@@ -187,35 +188,28 @@ const ENTRIES = [
   "src/app/(app)/family-texts/actions.ts",
 ];
 /**
- * The modules that may name an `identity` table, each because of the connection it runs on —
- * and this is an EXACT set, not a floor: a module that starts naming one has to be argued for
- * here, which is the step that was missing when `mailbox.ts` and `staff-alert.ts` grew theirs.
+ * The modules that may name an `identity` table. **There is exactly one** (S1-6; Firia's ruling 2,
+ * 2026-10-18 2:48 AM ET), and the list being a single item is the whole claim.
  *
- *  - the gateway, whose whole job is to be the one place that holds the SQL. A page reaches it
- *    only through `identityGateway()`, which in this data class is the synthetic implementation
- *    and runs none of it.
+ * It used to have four entries. Three of them — `outbox/policy.ts`, `agent/run/exec/reads.ts` and
+ * `agent/run/exec/capability.ts` — were argued for on the grounds that they run on the drain or
+ * the agent's run path rather than on a page render, and the argument was wrong: those paths were
+ * handed the application connection too (`outbox/deps.ts` built the authorizer from `getNeonDb()`,
+ * and `ExecutorDeps.db` *is* that connection), so `permission denied for schema identity` was
+ * waiting on each of them as surely as it was on the page. Three more were never in this graph at
+ * all and had the same bug: `messaging/inbound.ts`, `messaging/consent.ts` and
+ * `messaging/sim-provider.ts`.
+ *
+ * All six are the gateway's questions now, so the exception list is empty and what is left is the
+ * gateway itself, whose whole job is to be the one place that holds the SQL. A page reaches it
+ * only through `identityGateway()`, which in this data class is the synthetic implementation and
+ * runs none of it.
  *
  * (`src/db/schema.ts` is NOT on the list and does not need to be: `identity.table(…)` is
- * drizzle's schema builder rather than a table name, and `identityTablesIn` drops it. The file
- * is the *declaration* of the restriction, at line 104.)
- *  - `outbox/policy.ts` (`dbRecipientAuthorizer`) — the send-time consent check. It is the
- *    original form of this same seam ("ops never reads identity directly", B-08) and it runs on
- *    the outbox drain, never on a page render. Its own comment, :119, says it runs on the
- *    `identity_gateway` connection in deployed envs.
- *  - `agent/run/exec/reads.ts`, `agent/run/exec/capability.ts` — the agent's run path, driven by
- *    the inbound webhook and the job queue. Also not a page render.
- *
- * All three of the last group are in the page's *import* graph (the page imports the agent's
- * alert module, which imports its config, and so on) without being on the page's *call* path.
- * They are S2s of the same family and are listed as follow-ups; what this file holds is that the
- * render path has none.
+ * drizzle's schema builder rather than a table name, and `identityTablesIn` drops it. The file is
+ * the *declaration* of the restriction, at line 104.)
  */
-const MAY_NAME_IDENTITY = [
-  "src/modules/identity/gateway.ts",
-  "src/modules/outbox/policy.ts",
-  "src/modules/agent/run/exec/reads.ts",
-  "src/modules/agent/run/exec/capability.ts",
-];
+const MAY_NAME_IDENTITY = ["src/modules/identity/gateway.ts"];
 
 /** The two modules the preview actually died in. Named on their own so a regression is obvious. */
 const THE_TWO_THAT_BROKE = [
@@ -304,3 +298,262 @@ describe("nothing the Family texts page can reach queries identity (src/db/schem
     expect(identityTablesIn("src/modules/identity/gateway.ts")).toContain("identity.guardian_contact");
   });
 });
+
+/* ───────────── S1-6: the drain, the webhook and the agent's run path, too ───────────── */
+
+/**
+ * **EVERY PATH, NOT JUST THE PAGE** — Firia's ruling 2, 2026-10-18 2:48 AM ET:
+ *
+ *   "S1, BLOCKS MERGE: the drain, webhook and agent paths still read identity.* on the APP
+ *    connection: src/modules/outbox/policy.ts:134, and inbound.ts:126, consent.ts:88,
+ *    sim-provider.ts:160, reads.ts:194, capability.ts:406. Route every one through the EXISTING
+ *    identity gateway, the same way S1-0 did mailbox.ts and staff-alert.ts. … Add a test citing
+ *    src/db/schema.ts:104 that FAILS if any drain, webhook or agent path (and ideally any
+ *    non-gateway module) queries identity.* on the app connection."
+ *
+ * The rule is src/db/schema.ts:104: "App role `app_rw` gets NO select on these; only
+ * `identity_gateway` role (used by IdentityGateway) does."
+ *
+ * The block above walks the Family texts page's import graph. That was the right net for S1-0 and
+ * it is the wrong one for this, because none of these six is on a page at all — they are the SMS
+ * webhook, the outbox drain and the agent's run. So the net here is **the whole tree**: no file
+ * under `src/` outside `MAY_NAME_IDENTITY` may name an identity table, which is a rule no new
+ * module can be outside of by accident.
+ *
+ * The three assertions after it are the other half, because a file can be free of identity SQL
+ * and still be wrong: what matters at the call site is which *connection* the gateway is built
+ * from. `outbox/deps.ts` built its authorizer from `getNeonDb()` and that one line was the drain's
+ * whole bug.
+ */
+describe("no module outside the gateway queries identity, on any path (src/db/schema.ts:104)", () => {
+  /**
+   * Every **production** `.ts`/`.tsx` under `src/`: no `*.test.ts` and nothing under `src/test/`.
+   *
+   * Deliberately not the tests. A suite that inserts an `identity` row does so on the
+   * migrator/superuser handle it owns, is in no build or boot graph, and is usually writing the
+   * very rows the gateway is then asked about (`src/test/messaging.ts`, `migrations.test.ts`).
+   * Including them would turn this rule into a list of exceptions, which is how the four-entry
+   * list this file used to carry stopped meaning anything.
+   */
+  function productionSources(): string[] {
+    const out: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) {
+          if (relative(ROOT, full) !== join("src", "test")) walk(full);
+        } else if (/\.(ts|tsx)$/.test(full) && !/\.test\.tsx?$/.test(full)) {
+          out.push(relative(ROOT, full));
+        }
+      }
+    };
+    walk(join(ROOT, "src"));
+    return out;
+  }
+
+  it("scans the whole tree, so the rule cannot be satisfied by a short list", () => {
+    const files = productionSources();
+    expect(files.length).toBeGreaterThan(200);
+    // The six modules ruling 2 named are all really in it, whatever they contain now.
+    for (const named of THE_SIX_RULING_2_NAMED) expect(files, named).toContain(named);
+  });
+
+  it("knows the identity schema's own four tables, so the scan is not matching a variable", () => {
+    /*
+     * `identity` is also the name of a *copy object* (`copy.identity.account`, read by
+     * ConsoleShell) and of a drizzle schema builder, so "the word `identity` followed by a dot"
+     * finds things that are not tables at all. The scan is keyed on the four real table names
+     * instead, and those are read off the schema file that declares them — src/db/schema.ts:104's
+     * block — so a fifth identity table cannot appear without appearing here.
+     */
+    const declared = [...codeOf("src/db/schema.ts").matchAll(/identity\.table\("([a-z_]+)"/g)].map((m) => m[1]);
+    expect([...declared].sort()).toEqual([...IDENTITY_TABLES].sort());
+  });
+
+  it("the ONLY production module naming an identity table is the gateway", () => {
+    const naming = productionSources()
+      .filter((f) => identityTablesNamedIn(f).length > 0)
+      .sort();
+    expect(
+      naming,
+      "a module grew identity SQL. It runs as app_rw, which has no SELECT on that schema " +
+        "(src/db/schema.ts:104) — route it through IdentityGateway",
+    ).toEqual([...MAY_NAME_IDENTITY_IN_PRODUCTION].sort());
+  });
+
+  it("and none of the six ruling 2 named has any left", () => {
+    // The mutation proof in standing form: put `FROM identity.guardian_contact` back into any one
+    // of these and this line fails, naming the file.
+    for (const file of THE_SIX_RULING_2_NAMED) {
+      expect(identityTablesNamedIn(file), `${file} queries identity on the app connection`).toEqual([]);
+    }
+  });
+
+  it("the drain builds its authorizer from the GATEWAY, never from getNeonDb()", () => {
+    /*
+     * src/modules/outbox/deps.ts was the drain's bug in one line: `dbRecipientAuthorizer(db)`,
+     * where `db` is `getNeonDb()`. It still calls `getNeonDb()` — the SIM provider needs an `ops`
+     * connection — so the check is about what reaches the *authorizer*.
+     */
+    const deps = codeOf("src/modules/outbox/deps.ts");
+    expect(deps).toMatch(/authorizer:\s*gatewayRecipientAuthorizer\(identityGateway\(\)\)/);
+    expect(deps).not.toMatch(/dbRecipientAuthorizer\s*\(\s*db\s*\)/);
+  });
+
+  it("the webhook and the agent's executors both carry a gateway of their own", () => {
+    // Optional, defaulting to this data class's own — so a call site cannot silently have none.
+    expect(codeOf("src/modules/messaging/inbound.ts")).toMatch(/gateway\?:\s*IdentityGateway/);
+    expect(codeOf("src/modules/messaging/inbound.ts")).toMatch(/deps\.gateway \?\? identityGateway\(\)/);
+    expect(codeOf("src/modules/agent/run/exec/effects.ts")).toMatch(/gateway\?:\s*IdentityGateway/);
+    expect(codeOf("src/modules/agent/run/exec/effects.ts")).toMatch(/deps\.gateway \?\? identityGateway\(\)/);
+  });
+});
+
+/** The identity schema's tables, asserted above against the ones src/db/schema.ts declares. */
+const IDENTITY_TABLES = ["child_identity", "guardian_contact", "consent_event", "external_person_identity"];
+
+/**
+ * Where an identity table may be named in production code, and why each one is here.
+ *
+ *  - the **gateway**, whose whole job is to be the one place that holds the SQL;
+ *  - the **demo seed**, which *writes* the rows. It is the source of every identity row in this
+ *    data class (ADR-015) and it runs on the reset path as the migrator, never on a request. It is
+ *    also already fenced in by `build-isolation.test.ts`, which holds that no build or boot entry
+ *    point can reach it at all.
+ */
+const MAY_NAME_IDENTITY_IN_PRODUCTION = [
+  "src/modules/identity/gateway.ts",
+  "src/modules/demo/seed.ts",
+];
+
+/** The identity tables a file names in code — by table name, so a copy object is not a query. */
+function identityTablesNamedIn(file: string): string[] {
+  const code = codeOf(file);
+  return IDENTITY_TABLES.filter((t) => new RegExp(`\\bidentity\\.${t}\\b`).test(code)).sort();
+}
+
+/**
+ * THE FIVE STATEMENTS ARE STILL REAL SQL, AND STILL REFUSED ON THE APP ROLE.
+ *
+ * Moving a query behind an interface is only a fix if the query still runs. Each of S1-6's five
+ * questions is exercised twice here: once on `root`, which may read `identity` and therefore
+ * proves the statement matches the migrations, and once on `app`, which is `app_rw` and gives the
+ * exact `permission denied for schema identity` a deployment gives.
+ *
+ * That second half is the mutation proof in permanent form. Re-introducing any of these as a
+ * direct query — on `deps.db`, on the webhook's `tx`, on `outboxDeps()`'s connection — is the
+ * same thing as calling `dbIdentityGateway(app, …)`, and it fails here.
+ */
+describe("S1-6's five statements run on a gateway connection and are refused on the app's", () => {
+  const refused = /permission denied for schema identity/i;
+
+  /** The blind index of the scenario's own number, the way every caller derives it. */
+  const senderHmac = () => phoneHmac(normalizeE164(sc.number)!, PEPPER);
+
+  it("senderForPhoneHmac — the webhook's and the agent's sender lookup", async () => {
+    const at = new Date();
+    const viaRoot = await dbIdentityGateway(root, { pepper: PEPPER }).senderForPhoneHmac({
+      siteId: sc.siteId, phoneHmac: senderHmac(), at,
+    });
+    expect(viaRoot?.contactToken).toBe(sc.contactToken);
+    await expect(
+      dbIdentityGateway(app, { pepper: PEPPER }).senderForPhoneHmac({ siteId: sc.siteId, phoneHmac: senderHmac(), at }),
+    ).rejects.toThrow(refused);
+  });
+
+  it("routeForRecipient — the SIM provider's addressing", async () => {
+    const viaRoot = await dbIdentityGateway(root, { pepper: PEPPER }).routeForRecipient({
+      siteId: sc.siteId, recipientToken: sc.contactToken,
+    });
+    expect(viaRoot.phoneHmac).toBe(senderHmac());
+    await expect(
+      dbIdentityGateway(app, { pepper: PEPPER }).routeForRecipient({ siteId: sc.siteId, recipientToken: sc.contactToken }),
+    ).rejects.toThrow(refused);
+  });
+
+  it("egressFacts — the drain's own consent check", async () => {
+    const at = new Date();
+    const viaRoot = await dbIdentityGateway(root, { pepper: PEPPER }).egressFacts({
+      siteId: sc.siteId, recipientToken: sc.contactToken, kind: "guardian", channel: "SMS_1TO1", at,
+    });
+    expect(viaRoot.onFile).toBe(true);
+    expect(viaRoot.guardian?.canReceiveUpdates).toBe(true);
+    await expect(
+      dbIdentityGateway(app, { pepper: PEPPER }).egressFacts({
+        siteId: sc.siteId, recipientToken: sc.contactToken, kind: "guardian", channel: "SMS_1TO1", at,
+      }),
+    ).rejects.toThrow(refused);
+  });
+
+  it("appendConsent — the consent ledger, which WRITES", async () => {
+    const at = new Date();
+    const wrote = await dbIdentityGateway(root, { pepper: PEPPER }).appendConsent({
+      siteId: sc.siteId, contactToken: sc.contactToken, channel: "SMS_1TO1", kind: "STOP", at,
+      evidenceMessageId: null,
+    });
+    expect(wrote.newest?.kind).toBe("STOP");
+    // The row is really in the ledger, which is what makes the refusal below about privilege.
+    const rows = await root.query<{ kind: string }>(
+      "SELECT kind FROM identity.consent_event WHERE id = $1", [wrote.consentEventId],
+    );
+    expect(rows.rows[0].kind).toBe("STOP");
+    await expect(
+      dbIdentityGateway(app, { pepper: PEPPER }).appendConsent({
+        siteId: sc.siteId, contactToken: sc.contactToken, channel: "SMS_1TO1", kind: "STOP", at,
+        evidenceMessageId: null,
+      }),
+    ).rejects.toThrow(refused);
+  });
+
+  it("phoneHmacForPerson — the capability report's dispatcher check", async () => {
+    /*
+     * A provider route with a dispatcher, which is the shape `record_provider_capability` reads:
+     * the van's provider's `dispatcher_person_token`, and that person's blind index. Seeded here
+     * rather than assumed, because the base scenario has no provider in it.
+     */
+    const route = await seedProviderRoute(root, {
+      siteId: sc.siteId,
+      serviceDate: sc.serviceDate,
+      windowStart: sc.receivedAt,
+    });
+    const dispatcherToken = route.dispatcherToken;
+    expect(dispatcherToken, "seedProviderRoute gives the provider a dispatcher").toBeTruthy();
+    const viaRoot = await dbIdentityGateway(root, { pepper: PEPPER }).phoneHmacForPerson({
+      siteId: sc.siteId, personToken: dispatcherToken!,
+    });
+    expect(viaRoot).not.toBeNull();
+    await expect(
+      dbIdentityGateway(app, { pepper: PEPPER }).phoneHmacForPerson({ siteId: sc.siteId, personToken: dispatcherToken! }),
+    ).rejects.toThrow(refused);
+  });
+});
+
+/** The six modules Firia's ruling 2 named, by path, so the scan above cannot miss one. */
+const THE_SIX_RULING_2_NAMED = [
+  "src/modules/outbox/policy.ts",
+  "src/modules/messaging/inbound.ts",
+  "src/modules/messaging/consent.ts",
+  "src/modules/messaging/sim-provider.ts",
+  "src/modules/agent/run/exec/reads.ts",
+  "src/modules/agent/run/exec/capability.ts",
+];
+
+/**
+ * Test helpers that INSERT identity rows, which is a different act from querying one on the app
+ * connection: they run on the migrator/superuser handle a suite owns, they are not in any build or
+ * boot graph, and the rows they write are what the gateway is then asked about. Named one at a
+ * time rather than excluded by a `test/` prefix, so a *production* module cannot hide behind the
+ * same rule.
+ */
+const TEST_FILES_THAT_SEED_IDENTITY = [
+  "src/test/agent-state.ts",
+  "src/test/messaging.ts",
+  "src/modules/demo/seed.ts",
+  "src/modules/identity/identity-off-the-app-connection.test.ts",
+];
+
+/** A file's code, comments stripped — prose about a table is not a query. */
+function codeOf(file: string): string {
+  const source = readFileSync(join(ROOT, file), "utf8");
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}

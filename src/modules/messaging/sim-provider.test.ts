@@ -1,4 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). Every `identity.*` statement moved behind
+ * `IdentityGateway`, so the code under test asks this rather than the connection — and it answers
+ * from the rows `seedPersona` / `seedAgentScenario` just wrote. See src/test/identity-gateway.ts
+ * for why it is in memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import { uuidv7 } from "uuidv7";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db, Exec } from "@/db/exec";
@@ -8,7 +17,7 @@ import { FakeTransport } from "@/modules/jobs/fake-transport";
 import { VercelQueueScheduler } from "@/modules/jobs/scheduler";
 import { fire, type Handlers } from "@/modules/jobs/runner";
 import { drain, enqueue, type DrainDeps, type EnqueueInput } from "@/modules/outbox/outbox";
-import { dbRecipientAuthorizer } from "@/modules/outbox/policy";
+import { gatewayRecipientAuthorizer } from "@/modules/outbox/policy";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { InMemorySimFaultStore } from "./faults";
 import { SEND_FOOTER } from "./templates";
@@ -36,8 +45,8 @@ beforeEach(async () => {
   ({ pg, db } = await freshDb());
   now = new Date();
   outboxTransport = new FakeOutboxTransport(); wake = new FakeTransport(); faults = new InMemorySimFaultStore();
-  provider = new DbSimMessagingProvider(db, new VercelQueueScheduler(db, wake, () => now), { faults, clock: () => now, pepper: PEPPER, seed: "test-seed" });
-  deps = { provider, authorizer: dbRecipientAuthorizer(db), clock: () => now, timeoutMs: 500 };
+  provider = new DbSimMessagingProvider(db, new VercelQueueScheduler(db, wake, () => now), { faults, clock: () => now, pepper: PEPPER, seed: "test-seed", gateway: GATEWAY });
+  deps = { provider, authorizer: gatewayRecipientAuthorizer(GATEWAY), clock: () => now, timeoutMs: 500 };
   f1 = await seedPersona(db, F1_NUMBER, { now });
   now = new Date(Date.now() + 1000); // after the contact's valid_from
 }, 60_000);

@@ -23,6 +23,15 @@
  *     through `messaging/mailbox.ts`, with the outbox's own rendered body.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). `read_message`, the capability report and the drain's
+ * consent check all ask `IdentityGateway` now rather than the connection — and this one answers
+ * from the rows `seedAgentScenario` just wrote. See src/test/identity-gateway.ts for why it is in
+ * memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
@@ -192,6 +201,7 @@ describe("check 2, part 3: a real send lands in the simulator, not on a wire", (
   it("drains to SIM, writes a SIMULATED outbound row, and never calls fetch", async () => {
     sc = await seedAgentScenario(db, { number: F1_NUMBER, receivedAt: now });
     const h = liveHarness({
+    gateway: GATEWAY,
       db,
       script: script(),
       facts: facts(),
@@ -228,6 +238,7 @@ describe("check 2, part 3: a real send lands in the simulator, not on a wire", (
   it("the delivery status is a durable job in our own tables, not a vendor webhook", async () => {
     sc = await seedAgentScenario(db, { number: F1_NUMBER, receivedAt: now });
     const h = liveHarness({
+    gateway: GATEWAY,
       db,
       script: script(),
       facts: facts(),
@@ -259,6 +270,7 @@ describe("check 2, part 4: the phone panel is reading that same simulated row", 
   it("the family's phone shows the message, in the outbox's own words", async () => {
     sc = await seedAgentScenario(db, { number: F1_NUMBER, receivedAt: now });
     const h = liveHarness({
+    gateway: GATEWAY,
       db,
       script: script(),
       facts: facts(),
@@ -290,6 +302,7 @@ describe("check 2, part 4: the phone panel is reading that same simulated row", 
       [sc.siteId, sc.contactToken],
     );
     const h = liveHarness({
+    gateway: GATEWAY,
       db,
       script: script(),
       facts: facts(),

@@ -15,11 +15,20 @@
  * database's clock or `Date.now()` instead of the clock the test runs on.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). `read_message`, the capability report and the drain's
+ * consent check all ask `IdentityGateway` now rather than the connection — and this one answers
+ * from the rows `seedAgentScenario` just wrote. See src/test/identity-gateway.ts for why it is in
+ * memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
-import { F2_NUMBER } from "@/test/messaging";
+import { F2_NUMBER, PEPPER } from "@/test/messaging";
 import { type AgentScenario, seedAgentScenario, seedSecondGuardian } from "@/test/agent-state";
 import { toolCall } from "../../providers/fake";
 import { toolCalls } from "../store";
@@ -83,6 +92,7 @@ describe("fixture validity windows are cut from the pinned test clock", () => {
     sc = await seedAgentScenario(db);
     const child = sc.children[0];
     const h = liveHarness({
+    gateway: GATEWAY,
       db,
       script: [
         toolCall("resolve_sender", { message_id: sc.messageId }),

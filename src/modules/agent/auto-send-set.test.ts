@@ -30,6 +30,10 @@ import { DbSimMessagingProvider } from "@/modules/messaging/sim-provider";
 import { SIM_PERSONA_NUMBERS } from "@/modules/messaging/sim-numbers";
 import { FOLLOWUP_TEMPLATE_FAMILIES, FOLLOWUP_TEMPLATE_IDS } from "./tools";
 import { GUARDIAN_SEND_TEMPLATES } from "./run/exec/followup";
+import { registerTestGuardian, testIdentityGateway } from "@/test/identity-gateway";
+
+/** The suites' identity gateway (S1-6); see src/test/identity-gateway.ts. */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 
 /** The two bodies that tell a family their child's ride is different. A person signs these. */
 const APPROVAL_ONLY = ["dropoff.changed", "leg.changed"] as const;
@@ -114,7 +118,7 @@ describe("the late notice goes to a synthetic number or nowhere (MOCKS §3)", ()
   });
 
   const provider = () =>
-    new DbSimMessagingProvider(db, { schedule: async () => {} } as never, { pepper: PEPPER });
+    new DbSimMessagingProvider(db, { schedule: async () => {} } as never, { pepper: PEPPER, gateway: GATEWAY });
 
   const lateNotice = (recipientToken: string) => ({
     messageId: "00000000-0000-7000-8000-00000000e101",
@@ -139,10 +143,21 @@ describe("the late notice goes to a synthetic number or nowhere (MOCKS §3)", ()
     const persona = await seedPersona(db, SIM_PERSONA_NUMBERS[4], { siteId: SITE, now: TEST_NOW });
     // The same contact, re-pointed at a number outside 555-01xx. Everything else is unchanged,
     // so the refusal is about the number.
+    const notAPersona = "not-a-persona-blind-index";
     await db.query("UPDATE identity.guardian_contact SET phone_hmac = $1 WHERE contact_token = $2", [
-      "not-a-persona-blind-index",
+      notAPersona,
       persona.contactToken,
     ]);
+    // And in the gateway, which is where the provider reads it from since S1-6. Both, because the
+    // row and the gateway's answer are the same fact.
+    registerTestGuardian({
+      siteId: SITE,
+      contactToken: persona.contactToken,
+      familyGroupId: persona.familyGroupId,
+      phoneHmac: notAPersona,
+      legalName: "SYN Guardian",
+      canReceiveUpdates: true,
+    });
     await expect(
       provider().send(lateNotice(persona.contactToken), { signal: new AbortController().signal }),
     ).rejects.toBeInstanceOf(ProviderRejected);

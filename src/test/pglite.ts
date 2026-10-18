@@ -1,4 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
+import { resetTestIdentity } from "./identity-gateway";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runAfterCommit, type Db } from "@/db/exec";
@@ -34,6 +35,8 @@ export function assertLocal(url: string): void {
 
 /** Fresh DB with all drizzle/ migrations applied, plus one SYN org + site. Test-only. */
 export async function freshDb(): Promise<{ pg: PGlite; db: Db }> {
+  // A new database means a new identity: the suites' in-memory gateway starts empty too (S1-6).
+  resetTestIdentity();
   const pg = new PGlite();
   const dir = join(__dirname, "..", "..", "drizzle");
   const j = JSON.parse(readFileSync(join(dir, "meta", "_journal.json"), "utf8")) as { entries: { tag: string }[] };

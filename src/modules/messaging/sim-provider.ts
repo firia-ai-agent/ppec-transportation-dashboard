@@ -15,6 +15,7 @@ import type { Handler } from "@/modules/jobs/runner";
 import { systemClock, type Clock, type JobScheduler } from "@/modules/jobs/scheduler";
 import { applyProviderStatus } from "@/modules/outbox/outbox";
 import { ProviderRejected, ProviderTimeout, type MessagingProvider, type OutboundPayload } from "@/modules/outbox/provider";
+import { identityGateway, type IdentityGateway } from "@/modules/identity/gateway";
 import { phoneHmac } from "@/modules/identity/phone";
 import { NO_FAULTS, simFaultStore, type SimFaultStore } from "./faults";
 import { SIM_CENTER_NUMBER, simNumberByHmac } from "./sim-numbers";
@@ -46,6 +47,12 @@ export type SimProviderOptions = {
   clock?: Clock;
   /** Phone blind-index pepper; defaults to the HMAC_PEPPER env value. */
   pepper?: string;
+  /**
+   * The identity gateway this provider asks where a message goes (S1-6). Defaults to this data
+   * class's own; a seam so a DB suite can hand the deployed gateway over a connection that may
+   * run its SQL.
+   */
+  gateway?: IdentityGateway;
 };
 
 type Recipient = { familyGroupId: string | null; phoneHmac: string | null };
@@ -55,11 +62,13 @@ export class DbSimMessagingProvider implements MessagingProvider {
   private readonly seed: string;
   private readonly clock: Clock;
   private readonly faults: SimFaultStore;
+  private readonly gateway: IdentityGateway;
 
   constructor(private db: Db, private scheduler: JobScheduler, private opts: SimProviderOptions = {}) {
     this.seed = opts.seed ?? "ppec-sim";
     this.clock = opts.clock ?? systemClock;
     this.faults = opts.faults ?? simFaultStore();
+    this.gateway = opts.gateway ?? identityGateway();
   }
 
   private pepper(): string {
@@ -154,16 +163,19 @@ export class DbSimMessagingProvider implements MessagingProvider {
     return { providerMessageId };
   }
 
-  /** Identity lookup for addressing only: the family group the thread belongs to and the blind index. */
+  /**
+   * Identity lookup for addressing only — through the IdentityGateway (S1-6).
+   *
+   * The two statements ran on `this.db`, which `outbox/deps.ts` builds from `getNeonDb()`: the
+   * application connection, which may not read `identity` (src/db/schema.ts:104). So every
+   * simulated send on a deployment with the real role split failed while working out which thread
+   * the message belonged in.
+   *
+   * Addressing, and nothing else. Whether this recipient may be sent anything was decided before
+   * this point by the egress door (`outbox/policy`), which asks the same gateway its own question.
+   */
   private async recipient(msg: OutboundPayload): Promise<Recipient> {
-    const g = await this.db.query<{ family_group_id: string; phone_hmac: string }>(
-      `SELECT family_group_id, phone_hmac FROM identity.guardian_contact
-       WHERE contact_token = $1 AND site_id = $2 ORDER BY valid_from DESC LIMIT 1`, [msg.recipientToken, msg.siteId]);
-    if (g.rows[0]) return { familyGroupId: g.rows[0].family_group_id, phoneHmac: g.rows[0].phone_hmac };
-    // Therapists and provider dispatchers have no family group; they still get a thread of their own.
-    const p = await this.db.query<{ phone_hmac: string | null }>(
-      "SELECT phone_hmac FROM identity.external_person_identity WHERE person_token = $1 AND site_id = $2", [msg.recipientToken, msg.siteId]);
-    return { familyGroupId: null, phoneHmac: p.rows[0]?.phone_hmac ?? null };
+    return this.gateway.routeForRecipient({ siteId: msg.siteId, recipientToken: msg.recipientToken });
   }
 }
 

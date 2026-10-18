@@ -9,11 +9,20 @@
  * template id and two codes: no name, no number, no prose.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { registerTestConsent, testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). `read_message`, the capability report and the drain's
+ * consent check all ask `IdentityGateway` now rather than the connection — and this one answers
+ * from the rows `seedAgentScenario` just wrote. See src/test/identity-gateway.ts for why it is in
+ * memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
-import { F2_NUMBER } from "@/test/messaging";
+import { F2_NUMBER, PEPPER } from "@/test/messaging";
 import {
   type AgentScenario,
   seedAgentScenario,
@@ -74,6 +83,7 @@ const NOTE_EXECUTOR = { summarize_thread_for_staff: async () => ({ data: { note:
 
 const harness = (script: readonly ProviderResponseBody[], over: Partial<PolicyContext> = {}): LiveHarness =>
   liveHarness({
+    gateway: GATEWAY,
     db, script: [...script, NOTE_TURN()], facts: facts(), policy: policy(over),
     overrides: NOTE_EXECUTOR, now: () => now,
   });
@@ -309,6 +319,9 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
        VALUES ($1,$2,$3,'STOP','SMS_1TO1',$4,'SIMULATED')`,
       ["0199e5f0-0000-7000-8000-00000000d001", sc.siteId, second, now.toISOString()],
     );
+    // And into the suites' ledger, which is where the send-time check reads it since
+    // S1-6: the row above is the record, this is the gateway's answer about it.
+    registerTestConsent({ id: "0199e5f0-0000-7000-8000-00000000d001", siteId: sc.siteId, contactToken: second, channel: "SMS_1TO1", kind: "STOP", at: new Date(now.toISOString()) });
     const h = harness([
       toolCall("resolve_sender", { message_id: sc.messageId }),
       followupCall({ template_id: "pickup.eta", vars: { eta: "08:15" } }),
@@ -382,6 +395,9 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
        VALUES ($1,$2,$3,'STOP','SMS_1TO1',$4,'SIMULATED')`,
       ["0199e5f0-0000-7000-8000-00000000b001", sc.siteId, sc.contactToken, now.toISOString()],
     );
+    // And into the suites' ledger, which is where the send-time check reads it since
+    // S1-6: the row above is the record, this is the gateway's answer about it.
+    registerTestConsent({ id: "0199e5f0-0000-7000-8000-00000000b001", siteId: sc.siteId, contactToken: sc.contactToken, channel: "SMS_1TO1", kind: "STOP", at: new Date(now.toISOString()) });
     expect(await h.drainOutbox()).toEqual(["BLOCKED_EGRESS"]);
     expect(h.provider.sent).toEqual([]);
   });
@@ -407,6 +423,7 @@ describe("§11.2 the template allow-list is read per audience", () => {
       siteId: sc.siteId, childToken: child, startsAt: new Date("2026-10-15T13:00:00.000Z"),
     });
     const h = liveHarness({
+    gateway: GATEWAY,
       db,
       script: [toolCall("send_followup", {
         audience: "THERAPIST_OF_SESSION", subject_token: session.sessionId,

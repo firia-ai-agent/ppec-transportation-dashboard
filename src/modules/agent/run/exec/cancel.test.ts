@@ -13,13 +13,22 @@
  * and the executor takes its authority from the committed `resolve_sender` result.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). `read_message`, the capability report and the drain's
+ * consent check all ask `IdentityGateway` now rather than the connection — and this one answers
+ * from the rows `seedAgentScenario` just wrote. See src/test/identity-gateway.ts for why it is in
+ * memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import { uuidv7 } from "uuidv7";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
 import { type AgentScenario, seedAgentScenario } from "@/test/agent-state";
-import { F2_NUMBER } from "@/test/messaging";
+import { F2_NUMBER, PEPPER } from "@/test/messaging";
 import { drain, enqueue } from "@/modules/outbox/outbox";
 import type { PolicyContext } from "../../policy";
 import { toolCall } from "../../providers/fake";
@@ -76,6 +85,7 @@ const NOTE_EXECUTOR = { summarize_thread_for_staff: async () => ({ data: { note:
 
 const harness = (script: readonly ProviderResponseBody[]): LiveHarness =>
   liveHarness({
+    gateway: GATEWAY,
     db, script: [...script, NOTE_TURN()], facts: facts(), policy: policy(),
     overrides: NOTE_EXECUTOR, now: () => now,
   });
@@ -438,6 +448,7 @@ describe("AT-06 the guard in front of every cancel: a verified, unambiguous guar
     const theirChild = theirs.children[0];
     sc = mine;
     const h = liveHarness({
+    gateway: GATEWAY,
       db,
       script: [
         toolCall("resolve_sender", { message_id: mine.messageId }),

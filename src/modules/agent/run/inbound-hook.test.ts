@@ -10,6 +10,10 @@ import { SIM_CENTER_NUMBER } from "@/modules/messaging/sim-numbers";
 import { agentRunInboundHook, configuredRouting } from "./inbound-hook";
 import type { AgentWake } from "./queue";
 import { runWakeKey } from "./queue";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/** The suites' identity gateway (S1-6); see src/test/identity-gateway.ts. */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 
 /**
  * The §11.1 `msg.inbound` trigger, through the real webhook ingest (PRD l.924, MSG-01, MSG-03,
@@ -37,7 +41,14 @@ const ROUTING = { model: "test-model", provider: "test-vendor" };
 async function post(body: string, opts: { from?: string; sid?: string } = {}) {
   return ingestInbound(
     db,
-    { pepper: PEPPER, transport: outbox, hook: agentRunInboundHook(transport, ROUTING), clock: () => TEST_NOW },
+    {
+      pepper: PEPPER,
+      transport: outbox,
+      hook: agentRunInboundHook(transport, ROUTING),
+      clock: () => TEST_NOW,
+      // S1-6: the webhook resolves its sender through the gateway, not through this connection.
+      gateway: GATEWAY,
+    },
     "raw",
     {
       MessageSid: opts.sid ?? "SM-run-1",

@@ -9,6 +9,16 @@
  * an hour out under TZ=UTC.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). `read_message`, the capability report and the drain's
+ * consent check all ask `IdentityGateway` now rather than the connection — and this one answers
+ * from the rows `seedAgentScenario` just wrote. See src/test/identity-gateway.ts for why it is in
+ * memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
+import { PEPPER } from "@/test/messaging";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
@@ -58,7 +68,8 @@ const policy = (): PolicyContext => ({
 });
 
 const harness = (script: readonly ProviderResponseBody[]): LiveHarness =>
-  liveHarness({ db, script, facts: facts(), policy: policy(), now: () => now });
+  liveHarness({
+    gateway: GATEWAY, db, script, facts: facts(), policy: policy(), now: () => now });
 
 const notifyCall = (over: Record<string, unknown> = {}) =>
   toolCall("notify_affected_therapist", {
