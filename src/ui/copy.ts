@@ -3101,6 +3101,20 @@ export const assistantUnavailable = {
    */
   card: "{adult} texted about {child}'s {leg}.",
   /**
+   * THE SAME LINE WITH THE TIME IN IT, when a proposal row for that ride says the time (founder,
+   * 2026-10-18, on the card as commit ea840a5 left it).
+   *
+   * The line above says what the *rows about the text* can say, and that is all they can say: no
+   * model read the message, so "to 5" would be the screen guessing. A proposal row is different.
+   * `requested_dropoff_time` on an undecided `ops.approval_request` for this child and this ride
+   * is a stored field written by a turn that did reach a model (or by the demo seed), so where one
+   * exists the card may name it, and a coordinator reads the ask without opening the thread.
+   *
+   * `{time}` is `sayClock`, the helper {@link agentBubble.dropoffWaiting} already words a proposal
+   * with — "5", not "5:00 PM" and not "17:00". One format for one fact, in both places.
+   */
+  cardAsked: "{adult} asked to move {child}'s {leg} to {time}.",
+  /**
    * The same card for a text we cannot tie to one child from the rows alone — a contact who is
    * authorized for two children, say. The child is left out rather than guessed at: choosing
    * between siblings would mean reading the message, which is the thing the rule forbids.

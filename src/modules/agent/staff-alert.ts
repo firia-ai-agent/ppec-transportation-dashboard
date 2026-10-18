@@ -59,6 +59,8 @@
  * already does not.
  */
 import type { Exec } from "@/db/exec";
+import { sayClock } from "@/domain/eta/eta";
+import { DROPOFF_CHANGE_KIND } from "@/modules/approvals/dropoff-change";
 import { agentAsk, assistantUnavailable } from "@/ui/copy";
 import { childFirstName, guardianShortName } from "@/modules/identity/display-name";
 import type { IdentityGateway } from "@/modules/identity/gateway";
@@ -555,6 +557,13 @@ type AlertRow = {
   /** The thread's counterparty. A *name* for it is the gateway's answer, not this query's. */
   counterparty_token: string | null;
   leg_direction: string | null;
+  /**
+   * `requested_dropoff_time` off an undecided proposal for this same child and ride, "HH:MM", or
+   * null when there is no proposal (the ordinary case for an alert: the model was unreachable, so
+   * nothing proposed anything). The one fact the card may say about *what was asked*, because a
+   * row said it rather than a reader of the family's sentence.
+   */
+  requested_dropoff_time: string | null;
 };
 
 /**
@@ -565,6 +574,12 @@ type AlertRow = {
  * is simply not selected. Both `OPEN` and `IN_PROGRESS`: opening an alert marks it taken, it does
  * not make it disappear, because the thing it is about — a family waiting for an answer — has not
  * happened yet.
+ *
+ * The proposal's time (`requested_dropoff_time`) rides along as a **scalar subquery** and not as a
+ * fifth LEFT JOIN: a family with two undecided proposals would otherwise turn one alert into two
+ * cards. One row at most, the newest, matched on the child and — where the task names one — the
+ * ride, which is as close as these two rows are tied together: the alert points at a message and
+ * the proposal points at a leg, and nothing links the two directly (see `toAlert`).
  */
 export async function openAssistantAlerts(
   db: Exec, siteIds: readonly string[], gateway: IdentityGateway,
@@ -575,7 +590,16 @@ export async function openAssistantAlerts(
             m.id AS message_id, m.thread_id, m.body_tokenized,
             c.display_name AS child_display_name,
             th.counterparty_token,
-            l.direction::text AS leg_direction
+            l.direction::text AS leg_direction,
+            (SELECT a.proposal ->> 'requested_dropoff_time'
+               FROM ops.approval_request a
+              WHERE a.site_id = t.site_id
+                AND a.decided_at IS NULL
+                AND a.proposal ->> 'kind' = $3
+                AND (a.proposal ->> 'child_token')::uuid = t.child_token
+                AND (t.trip_leg_id IS NULL OR (a.proposal ->> 'leg_id')::uuid = t.trip_leg_id)
+              ORDER BY a.created_at DESC, a.id DESC
+              LIMIT 1) AS requested_dropoff_time
      FROM ops.task t
      LEFT JOIN ops.message m
        ON m.id = (t.completion_evidence -> 'locator' ->> 'message_id')::uuid AND m.site_id = t.site_id
@@ -586,7 +610,7 @@ export async function openAssistantAlerts(
        AND t.category = $2
        AND t.state IN (${LIVE_ALERT_STATES_SQL})
      ORDER BY t.created_at, t.id`,
-    [siteIds, MODEL_UNAVAILABLE_CATEGORY],
+    [siteIds, MODEL_UNAVAILABLE_CATEGORY, DROPOFF_CHANGE_KIND],
   );
   /*
    * One gateway call for the whole page, not one per card: the names are asked for in a batch
@@ -627,6 +651,24 @@ function toAlert(row: AlertRow, names: ReadonlyMap<string, string>): AssistantAl
       ? assistantUnavailable.legWord[row.leg_direction]
       : assistantUnavailable.legWordUnknown;
 
+  /*
+   * THE TIME, WHEN A PROPOSAL ROW SAYS IT (founder, 2026-10-18, on commit ea840a5).
+   *
+   * The card is one line from the rows, and until now it could only say who texted and about
+   * which ride: nothing read the message, so there was nothing to say about *what was asked*. A
+   * proposal row for that same child and ride is a row that says it — `requested_dropoff_time`,
+   * written by `propose_dropoff_change` from a turn that did reach a model, or by the demo seed —
+   * so where one exists the line names it and the coordinator reads the ask without opening the
+   * thread.
+   *
+   * Through `sayClock`, which is the helper the proposal's own wording already uses
+   * (`agent/alert-words.ts` `dropoffAlertWords` → `agentBubble.dropoffWaiting`), so "17:00" reads
+   * "5" here exactly as it reads "5" there. No second format, no clock read, and still not one
+   * word out of the family's sentence: a `null` from `sayClock` — a stored value that is not a
+   * wall clock — leaves the line as it was rather than printing the raw field.
+   */
+  const asked = row.requested_dropoff_time === null ? null : sayClock(row.requested_dropoff_time);
+
   return {
     id: row.id,
     state: row.state === "IN_PROGRESS" ? "IN_PROGRESS" : "OPEN",
@@ -635,7 +677,9 @@ function toAlert(row: AlertRow, names: ReadonlyMap<string, string>): AssistantAl
     sentence:
       child === ""
         ? fillCard(assistantUnavailable.cardNoChild, { adult })
-        : fillCard(assistantUnavailable.card, { adult, child, leg }),
+        : asked === null
+          ? fillCard(assistantUnavailable.card, { adult, child, leg })
+          : fillCard(assistantUnavailable.cardAsked, { adult, child, leg, time: asked }),
     theirWords: row.body_tokenized ?? "",
     threadId: row.thread_id,
     messageId: row.message_id ?? null,
