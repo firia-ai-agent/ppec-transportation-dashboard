@@ -118,23 +118,17 @@ export const color = {
   "map-truck-crit": "#B91C1C",
 
   /**
-   * The route palette: one colour per van, so three vans' lines on one map are told apart.
+   * The second route line, kept as a token because §8 prints its contrast row.
    *
-   * Three because the demo day has three lanes, and the first of them is `brand` — the one route
-   * colour the map already had (src/components/map/style.ts `MAP_TOKENS.route`) — so these are
-   * its second and third. Teal, amber and vermillion: three hues a colour-vision-deficient
-   * reader still separates (the pair that is hardest for them, red and green, is not in it), and
-   * colour is never the only cue anyway — every line on the plan map carries the van's own name
-   * along it (§3, `planRoutes.mapVanRow`).
-   *
-   * A van is not a state, and the second line is now in the amber family the stale-GPS truck
-   * tone also lives in — so the two are kept apart by what carries them rather than by hue: a
-   * route colour is only ever a *line* and the numbered circle on it, and a truck tone is only
-   * ever the *marker* for a van, which carries its freshness in words beside it (§3, §5). Violet
-   * is the demo's and is on neither.
+   * A van's own colour is {@link VAN_COLORS} below — Firia's ruling, 2026-10-17 11:25 PM ET —
+   * and this amber is the same value Van 2 wears there, so the map and the board cannot drift
+   * apart. A van is not a state, and this amber is the family the stale-GPS truck tone also
+   * lives in, so the two are kept apart by what carries them rather than by hue: a route colour
+   * is only ever a *line* and the numbered circle on it, and a truck tone is only ever the
+   * *marker* for a van, which carries its freshness in words beside it (§3, §5). Violet is the
+   * demo's and is on neither.
    */
   "map-route-2": "#B45309",
-  "map-route-3": "#9A3412",
 
   /**
    * The two positron basemap fills we name (§5.1, §8): `osm-bg` is positron's land, kept as-is
@@ -146,6 +140,23 @@ export const color = {
   "osm-bg": "#F2F3F0",
   "osm-water": "#D9E2E7",
 } as const;
+
+export const VAN_COLORS = { van1: "#1D4ED8", van2: "#B45309", van3: "#BE185D" } as const;
+
+/*
+ * ↑ Van identity, and the only blue in the app (Firia's ruling, 2026-10-17 11:25 PM ET).
+ *
+ * One colour per van, read by the shared van config (src/config/vans.ts `vanColourToken`), the
+ * board's van columns and the live map's route lines — so a van is the same colour wherever it
+ * is drawn. They are emitted as `--color-van1/2/3` with every other token, which is how a
+ * stylesheet reaches them: no hex is written anywhere but this file.
+ *
+ * Blue is van identity and nothing else: no state, no action, no link wears it (the token test
+ * holds that). The rust `map-route-3` these replaced is gone with them.
+ *
+ * Colour is never the only cue either: every line on the plan map carries the van's own name
+ * along it and every lane beside the map says the same name in words (§3, `planRoutes.mapVanRow`).
+ */
 
 export type ColorToken = keyof typeof color;
 
@@ -214,7 +225,6 @@ export const contrastPairs: ReadonlyArray<{
   // basemap's lightest fill is, and to 4.5:1 besides, because the stop number a line's own
   // circle carries is `surface` text sitting on it.
   { fg: "map-route-2", bg: "surface", documented: 5.02, needs: 3 },
-  { fg: "map-route-3", bg: "surface", documented: 7.31, needs: 3 },
 ];
 
 /** WCAG 2.1 relative luminance of a `#RRGGBB` string. */
@@ -325,6 +335,7 @@ export const icon = {
 
 const cssVars: Record<string, string> = {
   ...Object.fromEntries(Object.entries(color).map(([k, v]) => [`--color-${k}`, v])),
+  ...Object.fromEntries(Object.entries(VAN_COLORS).map(([k, v]) => [`--color-${k}`, v])),
   ...Object.fromEntries(Object.entries(fontSize).map(([k, v]) => [`--text-${k}`, v])),
   ...Object.fromEntries(Object.entries(fontWeight).map(([k, v]) => [`--weight-${k}`, v])),
   ...Object.fromEntries(Object.entries(lineHeight).map(([k, v]) => [`--leading-${k}`, v])),

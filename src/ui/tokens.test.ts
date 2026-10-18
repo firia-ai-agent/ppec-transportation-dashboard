@@ -14,6 +14,7 @@ import {
   tokenCss,
   tones,
   space,
+  VAN_COLORS,
 } from "./tokens";
 
 const SRC_ROOT = path.resolve(__dirname, "..");
@@ -34,7 +35,7 @@ function walkSrc(dir: string = SRC_ROOT): string[] {
  */
 describe("§8 contrast", () => {
   it("covers every colour pair the doc lists, plus the palette, inactive-control, demo-control and route-line pairs", () => {
-    expect(contrastPairs).toHaveLength(34);
+    expect(contrastPairs).toHaveLength(33);
   });
 
   it.each(contrastPairs)(
@@ -113,7 +114,6 @@ describe("token shape", () => {
         "ink-brand",
         "ink-muted",
         "map-route-2",
-        "map-route-3",
         "map-truck-crit",
         "map-truck-ok",
         "map-truck-stale",
@@ -297,6 +297,54 @@ describe("token shape", () => {
       VIOLET_VARS.test(readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, "")),
     );
     expect(offenders.map((f) => path.relative(SRC_ROOT, f))).toEqual([]);
+  });
+});
+
+/**
+ * Van identity — Firia's ruling, 2026-10-17 11:25 PM ET.
+ *
+ * Three colours, written once in tokens.ts and read by the shared van config, the board and the
+ * live map. The values are asserted literally: this is the ruling, so a "tidy-up" that changes
+ * one has to change the ruling here too, in words, and not by accident.
+ */
+describe("VAN_COLORS", () => {
+  it("is exactly the three the ruling names", () => {
+    expect(VAN_COLORS).toEqual({ van1: "#1D4ED8", van2: "#B45309", van3: "#BE185D" });
+  });
+
+  it("emits one custom property per van, so a stylesheet never needs a hex", () => {
+    const css = tokenCss();
+    for (const [name, value] of Object.entries(VAN_COLORS)) {
+      expect(css).toContain(`--color-${name}:${value}`);
+    }
+  });
+
+  it("every van colour is legible as a line or a square on the surface it is drawn on", () => {
+    for (const [name, value] of Object.entries(VAN_COLORS)) {
+      // §8's threshold for a graphic object: a route line, a column rule, a colour square.
+      expect(contrastRatio(value, color.surface), name).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  /**
+   * The blue is **van identity and nothing else**. It is not a state, an action or a link, so
+   * no other token carries it and nothing in src/ writes it except tokens.ts — which is where
+   * the three live and where the no-hex rule already points everything.
+   */
+  it("keeps the blue out of every token and every other file", () => {
+    for (const [name, value] of Object.entries(color)) {
+      expect(value, `${name} must not be van identity blue`).not.toBe(VAN_COLORS.van1);
+    }
+    const offenders = walkSrc().filter(
+      (f) =>
+        f !== path.join(SRC_ROOT, "ui", "tokens.ts") &&
+        readFileSync(f, "utf8").includes(VAN_COLORS.van1),
+    );
+    expect(offenders.map((f) => path.relative(SRC_ROOT, f))).toEqual([]);
+  });
+
+  it("left no rust route line behind", () => {
+    expect(Object.keys(color)).not.toContain("map-route-3");
   });
 });
 

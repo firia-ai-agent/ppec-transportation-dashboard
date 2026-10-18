@@ -32,7 +32,7 @@ const van = (over: Partial<BoardVan> = {}): BoardVan => ({
   id: "van-id",
   slot: 3,
   name: "Van 3",
-  colourToken: "map-route-3",
+  colourToken: "van3",
   driverName: "Marco D.",
   defaultSetup: SETUP,
   setup: SETUP,

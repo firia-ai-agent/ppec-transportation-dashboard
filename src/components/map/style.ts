@@ -19,7 +19,7 @@ import {
   GPS_STALE_SECONDS,
   type GpsBand,
 } from "@/domain/location/freshness";
-import { color } from "@/ui/tokens";
+import { color, VAN_COLORS } from "@/ui/tokens";
 
 // ---------------------------------------------------------------------------
 // Tokens (DESIGN-DIRECTION §8)
@@ -38,8 +38,8 @@ export const MAP_TOKENS = {
   inkMuted: color["ink-muted"],
   /** `surface` — white halos and stop fills. */
   surface: color.surface,
-  /** `route`/`brand` — planned and driven route lines. */
-  route: color.brand,
+  /** `van1` — the first van's planned and driven route lines ({@link VAN_COLORS}). */
+  route: VAN_COLORS.van1,
   /** `osm-water` — the §5.1 water override (positron's default fails 3:1 vs trucks). */
   water: color["osm-water"],
   /** `map-truck-ok` — GPS fresh/aging. */
@@ -48,9 +48,9 @@ export const MAP_TOKENS = {
   truckStale: color["map-truck-stale"],
   /** `map-truck-crit` — GPS lost. */
   truckCrit: color["map-truck-crit"],
-  /** `map-route-2` / `map-route-3` — the second and third lines of {@link ROUTE_COLORS}. */
-  route2: color["map-route-2"],
-  route3: color["map-route-3"],
+  /** `van2` / `van3` — the second and third lines of {@link ROUTE_COLORS}. */
+  route2: VAN_COLORS.van2,
+  route3: VAN_COLORS.van3,
 } as const;
 
 /**

@@ -20,6 +20,7 @@
  * Pure data and one name helper: no clock, no database, no React.
  */
 import { fill, planBoard } from "@/ui/copy";
+import { VAN_COLORS } from "@/ui/tokens";
 import type { VanSetup } from "@/domain/plan/fit";
 
 /** One van: the vehicle it is, the number it wears, and what it carries by default. */
@@ -95,16 +96,16 @@ export function vanNameOf(slot: number): string {
 /**
  * The design token this van's colour comes from, as a CSS custom-property name.
  *
- * The three the map already draws with (src/ui/tokens.ts, the frame's palette since #71): the
- * brand teal, the amber `map-route-2` and the vermillion `map-route-3`. There is no blue left in
- * the app, so Van 1 is the brand colour rather than the mockup's blue. The reserve has no
- * route colour of its own — a fourth would need a fourth contrast row, which is a design
- * decision and not this file's — so it borrows the muted ink.
+ * `VAN_COLORS` in src/ui/tokens.ts is the one place the three are written (Firia's ruling,
+ * 2026-10-17 11:25 PM ET): blue, amber, magenta, one per van, emitted as `--color-van1/2/3`.
+ * The board's columns, the ramp's van chip and the live map's lines all read this, so a van is
+ * the same colour wherever it is drawn.
  *
  * No hex is written here: every colour in src/ is a token (the no-hex test holds that).
  */
 export function vanColourToken(slot: number): string {
-  return slot === 1 ? "brand" : slot === 2 ? "map-route-2" : slot === 3 ? "map-route-3" : "ink-muted";
+  const key = `van${slot}`;
+  return key in VAN_COLORS ? key : "ink-muted";
 }
 
 /** The vans on the road on an ordinary day, in slot order: the board's three columns. */
