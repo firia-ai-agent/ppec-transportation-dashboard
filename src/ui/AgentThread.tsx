@@ -12,8 +12,9 @@ import styles from "./AgentThread.module.css";
  *  - a driver's message as a **grey bubble on the left**, with "Name · Van N" above it;
  *  - a staff message as a **teal bubble on the right**;
  *  - a proposal as the **compact card** from mockups/family-texts.html (`.prop`): the question is
- *    the title and the one row under it is Approve · Edit · Skip. No details table and no clock
- *    times — that is the full For you card (mockups/approvals.html), which this is not.
+ *    the title and the one row under it is a single amber "Needs approval" chip. No details table
+ *    and no clock times — that is the full For you card (mockups/approvals.html), which this is
+ *    not; and no Approve · Edit · Skip, which is the ruling below.
  *
  * Presentational and pure: it renders the items it is handed and invents nothing. Where those
  * items come from is src/modules/agent/ask/thread.ts, which reads rows this app actually holds;
@@ -70,29 +71,28 @@ export function AgentThread({ items }: { items: readonly AgentThreadItem[] }) {
 }
 
 /**
- * The compact proposal card, and the one honest thing about its three buttons: **this branch has
- * no decide write path.** Approving, editing and skipping all change a row, and the module that
- * writes that change (`modules/approvals/decide.ts`) is being rebuilt on #75 and is not on main.
+ * The compact proposal card, and the one thing that is NOT on it: Approve, Edit and Skip.
  *
- * So the three are links to the one place a decision can be made and recorded — Family texts →
- * For you, which is already where `/approvals` sends a person and already carries its own server
- * guard. Nothing here auto-applies, nothing here half-applies, and when #75 lands the three get
- * its writer and keep their words. The bubble as a whole is only drawn for somebody
- * `canOpenForYou` allows, so these never offer a door the person cannot open.
+ * FIRIA AND VERA, 2026-10-18 9:17 AM ET. The mockup draws the three (png/agent-bubble-open-1440
+ * .png), and this branch cannot honour any of them: approving, editing and skipping all change a
+ * row, and the module that writes that change (`modules/approvals/decide.ts`) is being rebuilt on
+ * #75 and is not on main. Three buttons that quietly navigate instead of deciding are a worse
+ * answer than no buttons — somebody presses Approve, lands on another screen, and does not know
+ * whether the thing was approved. So the row is one **amber chip** reading "Needs approval",
+ * which is a statement of where the proposal is rather than an offer to act on it here.
+ *
+ * It is still a link, to the one place a decision is made and recorded: Family texts → For you,
+ * which is what `/approvals` redirects to and which carries its own server guard. The bubble as a
+ * whole is only drawn for somebody `canOpenForYou` allows, so this never offers a door the person
+ * cannot open. The three come back, with their words and with #75's writer, when #75 merges.
  */
 function ProposalCard({ question }: { question: string }) {
   return (
     <div className={styles.proposal} data-agent-proposal>
       <p className={styles.question}>{question}</p>
       <p className={styles.actions}>
-        <Link className={`${styles.action} ${styles.primary}`} href={FAMILY_TEXTS_FOR_YOU}>
-          {agentBubble.approve}
-        </Link>
-        <Link className={styles.action} href={FAMILY_TEXTS_FOR_YOU}>
-          {agentBubble.edit}
-        </Link>
-        <Link className={styles.quiet} href={FAMILY_TEXTS_FOR_YOU}>
-          {agentBubble.skip}
+        <Link className={styles.chip} href={FAMILY_TEXTS_FOR_YOU}>
+          {agentBubble.needsApproval}
         </Link>
       </p>
     </div>

@@ -135,13 +135,36 @@ describe("the thread is the one in the mockup", () => {
 /* ──────────── the COMPACT proposal card, not the full For you card ──────────── */
 
 describe("a waiting proposal is the compact card from family-texts.html", () => {
-  it("is the question as the title, then Approve · Edit · Skip in one row", () => {
+  it("is the question as the title, then one amber 'Needs approval' chip", () => {
     const html = thread([PROPOSAL]);
     expect(html).toContain("data-agent-proposal");
     expect(html).toContain(PROPOSAL.kind === "proposal" ? PROPOSAL.question : "");
-    expect(html).toContain(agentBubble.approve);
-    expect(html).toContain(agentBubble.edit);
-    expect(html).toContain(agentBubble.skip);
+    expect(html).toContain(agentBubble.needsApproval);
+  });
+
+  /**
+   * FIRIA AND VERA, 2026-10-18 9:17 AM ET. The mockup's three actions are OFF the card until #75
+   * merges: acting in place is a write and the writer is #75's. This is not a loosened assertion —
+   * the old test asserted the three words were present and this asserts they are absent, which is
+   * the stronger statement of the two, and it is checked as words *and* as controls.
+   */
+  it("offers no Approve, Edit or Skip in the bubble — the buttons return after #75", () => {
+    const html = thread([PROPOSAL, DRIVER, STAFF]);
+    for (const word of ["Approve", "Edit", "Skip"]) {
+      expect(html, `"${word}" is still on the card`).not.toContain(word);
+    }
+    // Neither as a button nor as a link that merely looks like one: the chip is the only control.
+    expect(html).not.toMatch(/<button/);
+    expect([...html.matchAll(/href="/g)]).toHaveLength(1);
+  });
+
+  /** The amber is the `warn` tone of §8 — the pair the board's own hints wear — and never a hex. */
+  it("wears the system's amber, at the one pill height", () => {
+    const block = css.slice(css.indexOf(".chip {"), css.indexOf(".chip:focus-visible"));
+    expect(block).toMatch(/color: var\(--color-warn-fg\)/);
+    expect(block).toMatch(/background: var\(--color-warn-bg\)/);
+    expect(block).toMatch(/height: var\(--layout-pill-height\)/);
+    expect(block).not.toMatch(/#[0-9a-f]{3,8}/i);
   });
 
   /**
@@ -156,14 +179,15 @@ describe("a waiting proposal is the compact card from family-texts.html", () => 
 
   /**
    * NOTHING AUTO-APPLIES, and on this branch nothing can: there is no decide write path on main
-   * (it is being rebuilt on #75), so the three actions are links to the one place a decision is
-   * made and recorded — Family texts → For you, which carries its own server guard. The bubble is
-   * only drawn for somebody `canOpenForYou` allows, so this is never a door they cannot open.
+   * (it is being rebuilt on #75), so the one chip is a link to the place a decision is made and
+   * recorded — Family texts → For you, which carries its own server guard. The bubble is only
+   * drawn for somebody `canOpenForYou` allows, so this is never a door they cannot open.
    */
   it("takes a decision to For you rather than writing one from here", () => {
     const html = thread([PROPOSAL]);
     const hrefs = [...html.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
-    expect(hrefs).toEqual([FAMILY_TEXTS_FOR_YOU, FAMILY_TEXTS_FOR_YOU, FAMILY_TEXTS_FOR_YOU]);
+    // One chip, one destination: the tab `/approvals` already redirects to (src/auth/access.ts).
+    expect(hrefs).toEqual([FAMILY_TEXTS_FOR_YOU]);
     // No form, no button, no action: a decision from here would be a write this branch has not got.
     expect(html).not.toMatch(/<form|<button/);
   });

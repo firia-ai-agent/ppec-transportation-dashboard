@@ -11,7 +11,10 @@
  *   /workspace/ppec-redesign/png/agent-bubble-open-390.png
  * and, for the compact proposal card inside the panel,
  *   /workspace/ppec-redesign/mockups/family-texts.html   (`.prop`: the question as the title,
- *                                                         then one row of actions)
+ *                                                         then one row under it — which on this
+ *                                                         branch is ONE amber "Needs approval"
+ *                                                         chip, never the mockup's three
+ *                                                         buttons: Firia and Vera, 9:17 AM ET)
  *
  * WHAT ONLY A BROWSER CAN SAY. src/ui/agent-bubble.test.ts proves the rules are written — the
  * disc is mounted once, in the shell every route's layout renders; the stylesheet puts it 16 px
@@ -183,6 +186,40 @@ test.describe("the panel", () => {
     await expect(panel(page).locator("table")).toHaveCount(0);
     await expect(panel(page).getByText(/\d{1,2}:\d{2}\s?(?:AM|PM)/)).toHaveCount(0);
     await expectNoInternalCodes(page);
+  });
+
+  /**
+   * FIRIA AND VERA, 2026-10-18 9:17 AM ET. The mockup draws Approve · Edit · Skip on the compact
+   * card (png/agent-bubble-open-1440.png) and this branch may not honour any of them: the decide
+   * writer is #75's and is not on main. A button that navigates instead of deciding is the bug —
+   * so the row is one amber "Needs approval" chip, linking to where the decision is recorded.
+   * The three come back after #75 merges.
+   *
+   * The absence is asserted over the WHOLE panel rather than over one card, because the panel is
+   * where a person would press them.
+   */
+  test("offers no Approve, Edit or Skip — one 'Needs approval' chip to For you instead", async ({ page }) => {
+    await page.setViewportSize(DESK);
+    await page.goto("/today");
+    await bubble(page).click();
+
+    for (const word of ["Approve", "Edit", "Skip"]) {
+      await expect(
+        panel(page).getByRole("button", { name: word, exact: true }),
+        `"${word}" is still a control in the bubble`,
+      ).toHaveCount(0);
+      await expect(panel(page).getByRole("link", { name: word, exact: true })).toHaveCount(0);
+    }
+
+    /*
+     * The chip is only drawn when something is actually waiting, and the demo day decides that —
+     * so this asserts the shape of every chip there is rather than that there is one. Where one
+     * is drawn it is a link to FAMILY_TEXTS_FOR_YOU, which is what `/approvals` redirects to.
+     */
+    const chips = panel(page).getByRole("link", { name: agentBubble.needsApproval, exact: true });
+    for (let i = 0; i < (await chips.count()); i += 1) {
+      await expect(chips.nth(i)).toHaveAttribute("href", FAMILY_TEXTS_FOR_YOU);
+    }
   });
 
   test("stays open across a navigation between tabs", async ({ page }) => {

@@ -2416,14 +2416,14 @@ export const agentBubble = {
   ask: "Ask the agent…",
   send: "Send",
   /**
-   * The compact proposal card (mockups/family-texts.html, `.prop`): the question is the title and
-   * the one row under it is these three. "Skip" is the bubble's word for the quiet third option;
-   * the full For you card says "Don't send", which is a decision about one text rather than about
-   * every kind of proposal.
+   * The compact proposal card (mockups/family-texts.html, `.prop`) carries ONE amber chip, not
+   * the mockup's Approve · Edit · Skip row (Firia and Vera, 2026-10-18 9:17 AM ET). Acting in
+   * place is a write, the write path is #75's, and a button that cannot write is a worse answer
+   * than a chip that says where the decision is made. The chip is a link to Family texts → For
+   * you, which is where `/approvals` already sends a person; the three words come back when #75
+   * merges and the card gets its writer.
    */
-  approve: "Approve",
-  edit: "Edit",
-  skip: "Skip",
+  needsApproval: "Needs approval",
   /** Nothing has been said today. The thread shows what exists and never invents a message. */
   empty: "Nothing yet today.",
 } as const;
