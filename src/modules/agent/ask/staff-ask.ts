@@ -54,16 +54,13 @@ import type { RunDeps, RunResult } from "../run/loop";
 import { startAndDriveRun } from "../run/loop";
 import { type Trigger, assertTrigger } from "../run/triggers";
 
-/** `ops.task.category` for the ask itself. Free text in the column; no migration. */
-export const STAFF_ASK_TASK_CATEGORY = "STAFF_ASK";
-
-/**
- * `ops.task.category` for the staff alert (docs/DATA-MODEL.md: "kind NEEDS_PERSON, reason
- * MODEL_UNAVAILABLE"). Severity RED, state OPEN, no proposal attached — it is read in Family
- * texts → For you by the two roles that may decide, which is the same gate the bubble itself is
- * drawn behind.
+/*
+ * The ask's two task categories and `askTextOf` are defined in `ask/ask-text.ts` and re-exported
+ * here, where every caller already reads them from. They moved because the context assembler needs
+ * the words of an ask (`run/staff-ask-context.ts`) and this module imports the run loop: defining
+ * them here made that a cycle. See the header of `ask-text.ts`.
  */
-export const STAFF_ALERT_TASK_CATEGORY = "NEEDS_PERSON";
+export { STAFF_ASK_TASK_CATEGORY, STAFF_ALERT_TASK_CATEGORY, askTextOf };
 
 /** The one longest ask the compose bar accepts. Longer is a document, not a question. */
 export const MAX_ASK_LENGTH = 500;
@@ -117,21 +114,6 @@ export function normalizeAsk(text: string): string | null {
   const trimmed = text.trim().replace(/\s+/g, " ");
   if (!trimmed || trimmed.length > MAX_ASK_LENGTH) return null;
   return redact(trimmed);
-}
-
-/**
- * The words of the ask, back out of the row it was stored in.
- *
- * `raiseTask` has one `summary` column and a board row has to say *what it is*, so an ask is
- * stored as "<what this row is>: <what was asked>". The thread in the bubble wants only the
- * second half — it already knows what the row is, because it is drawing it as a message — so the
- * prefix is taken off here rather than parsed at the far end. One function, both directions.
- */
-export function askTextOf(summary: string): string {
-  for (const prefix of [agentAsk.asked.summary, agentAsk.unavailable.summary]) {
-    if (summary.startsWith(`${prefix}: `)) return summary.slice(prefix.length + 2);
-  }
-  return summary;
 }
 
 /**

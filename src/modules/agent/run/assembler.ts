@@ -58,6 +58,7 @@ import { familyScope, type FamilyScope } from "../policy";
 import type { AssembleInput, AssembledContext, ContextAssembler, TierFacts } from "./context";
 import { tierPrompt } from "./context";
 import { demoPairsFor, demoTokenForId, scopeTokens, type ScopeTokenPair, type ScopeTokens } from "./scope-tokens";
+import { staffAskContext } from "./staff-ask-context";
 
 /** How many thread messages reach T3. §11.1 says "last N"; this is N. */
 export const THREAD_MESSAGES_IN_CONTEXT = 5;
@@ -83,12 +84,18 @@ type MessageRow = {
 type ThreadRow = { id: string; family_group_id: string | null; counterparty_token: string | null; state: string };
 
 /**
- * The §11.1 assembler for an inbound family message.
+ * The §11.1 assembler for an inbound family message, and for a staff ask.
  *
- * Only `msg.inbound` for now, and the refusal for every other trigger type is deliberate: a timer,
- * a sweeper and a reconciliation each resolve their family from a different row, and an assembler
- * that guessed would be the scope-invention `deps.ts` refuses to allow. Each one is a reader to
- * add here when its trigger is wired.
+ * **Two readers now, and still no guessing.** `msg.inbound` resolves its family from the thread
+ * the trigger's message arrived on; `staff.ask` resolves the *site* from the `ops.task` row the
+ * ask was recorded as, and is scoped to that site's own rows rather than to one family — because
+ * an ask does not name a family, and picking one would mean parsing the ask, which this app does
+ * not do. The reasons are at length in `run/staff-ask-context.ts`.
+ *
+ * The refusal for the remaining trigger types is unchanged and is deliberate: a timer, a sweeper
+ * and a reconciliation each resolve their family from a different row, and an assembler that
+ * guessed would be the scope-invention `deps.ts` refuses to allow. Each one is a reader to add
+ * here when its trigger is wired.
  */
 export function dbContextAssembler(
   db: Db,
@@ -98,6 +105,9 @@ export function dbContextAssembler(
   const limit = opts.messages ?? THREAD_MESSAGES_IN_CONTEXT;
 
   return async (input: AssembleInput): Promise<AssembledContext> => {
+    if (input.trigger.type === "staff.ask") {
+      return staffAskContext(db, input, { paused: agentPaused(env) });
+    }
     if (input.trigger.type !== "msg.inbound") {
       throw new AssemblerRefusal(`no context reader for trigger type ${input.trigger.type}`);
     }
