@@ -22,7 +22,9 @@ import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
-import { F2_NUMBER, PEPPER } from "@/test/messaging";
+import { F2_NUMBER, PEPPER, seedStaff } from "@/test/messaging";
+import { decideApproval, pendingApprovals } from "@/modules/approvals/decide";
+import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import {
   type AgentScenario,
   seedAgentScenario,
@@ -49,12 +51,18 @@ let pg: PGlite;
 let db: Db;
 let now: Date;
 let sc: AgentScenario;
+/** The coordinator who approves what the agent proposes (S1-7); seeded on first use. */
+let coordinator: string | null;
+/** The outbox transport the approval queues through; the harness has its own for the run. */
+let approvalTransport: FakeOutboxTransport;
 const open: PGlite[] = [];
 
 beforeEach(async () => {
   ({ pg, db } = await freshDb());
   open.push(pg);
   now = new Date(TEST_NOW);
+  approvalTransport = new FakeOutboxTransport();
+  coordinator = null;
 }, 60_000);
 
 afterEach(async () => {
@@ -121,6 +129,39 @@ const tasks = async () =>
   (await db.query<{ category: string; severity: string }>(
     "SELECT category, severity FROM ops.task ORDER BY created_at", [])).rows;
 
+/**
+ * WHAT A COORDINATOR DOES NEXT (S1-7, Firia 2026-10-18).
+ *
+ * `send_followup` proposes now; the message is queued by `modules/approvals/decide.ts` when a
+ * person approves it. So the cases below run exactly as they did — the same scripts, the same
+ * audiences, the same fan-out and consent facts — and then call this, which is the Approve
+ * button: it reads what is waiting through the screen's own query and approves each row with the
+ * exact words that row renders, which is what the card posts back (`MESSAGE_CHANGED` otherwise).
+ *
+ * Everything asserted about the outbox after it is therefore unchanged from before the ruling,
+ * which is the point: the tier moved, the addressing did not.
+ */
+async function approveWaiting(): Promise<readonly number[]> {
+  // Seeded against the scenario's own site, which each case creates for itself.
+  coordinator ??= await seedStaff(db, "COORDINATOR", sc.siteId);
+  const waiting = await pendingApprovals(db, [sc.siteId]);
+  const queued: number[] = [];
+  for (const p of waiting) {
+    const answer = await decideApproval(db, approvalTransport, {
+      userId: coordinator,
+      approvalId: p.id,
+      decision: "APPROVED",
+      approvedText: p.text,
+      now,
+    });
+    queued.push(answer.body.ok ? answer.body.queued : -1);
+  }
+  return queued;
+}
+
+/** The pending proposals, as the "For you" tab reads them. */
+const proposals = async () => pendingApprovals(db, [sc.siteId]);
+
 describe("AT-01 message → state → notify, through the real outbox", () => {
   it("cancels the ride and notifies the guardian who asked, in codes only", async () => {
     sc = await seedAgentScenario(db);
@@ -128,7 +169,20 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     const h = harness(at01Script());
     const r = await h.start(trigger());
 
-    expect([r.state, r.steps]).toEqual(["SUCCEEDED", 5]);
+    /*
+     * FOUR steps, not five: a proposal finishes the run (loop.ts — §11.1 has no notion of a run
+     * that waits for an approval, it has a proposal row and a task), so the staff note that used
+     * to follow the send is not reached. The cancel before it executed; the follow-up proposed.
+     */
+    expect([r.state, r.steps]).toEqual(["SUCCEEDED", 4]);
+
+    // Nothing in the outbox yet, which is the ruling in one line.
+    expect(await outbound()).toEqual([]);
+    // One proposal, with the words a coordinator would read.
+    const waiting = await proposals();
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0].text.length).toBeGreaterThan(0);
+    expect(await approveWaiting()).toEqual([1]);
 
     // The state half.
     const legRow = (await db.query<{ state: string; plan_version: number }>(
@@ -149,7 +203,10 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
       trip_leg_id: sc.legs[child].AM,
       plan_version_basis: 2,
       state: "QUEUED",
-      idempotency_key: `agent:${r.runId}:3`,
+      // Keyed on the approval and the recipient now, not on the call: the decision is what
+      // queued it, and one key per approval per contact is what makes a redelivered press
+      // queue nothing new (`decide.ts`).
+      idempotency_key: `approval:${waiting[0].id}:${sc.contactToken}`,
     });
     expect(msg.vars).toEqual({ legDate: sc.serviceDate, reasonCode: "FAMILY_REQUEST" });
 
@@ -172,10 +229,10 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
       ["resolve_sender", "EXECUTED"],
       ["get_leg_state", "EXECUTED"],
       ["cancel_attendance_or_leg", "EXECUTED"],
-      ["send_followup", "EXECUTED"],
-      ["summarize_thread_for_staff", "EXECUTED"],
+      // PROPOSED, and the run ended there.
+      ["send_followup", "PROPOSED"],
     ]);
-    expect(calls[3].result).toMatchObject({ audience: "GUARDIAN_OF_CHILD", plan_version_basis: 2 });
+    expect(calls[3].result).toMatchObject({ approval_request_id: waiting[0].id, queued: 0, mutated: false });
   });
 
   it("the confirmation goes back to the guardian who texted, and the other contact gets nothing", async () => {
@@ -195,22 +252,31 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     const r = await h.start(trigger());
     expect(r.state).toBe("SUCCEEDED");
 
+    /*
+     * The recipient is decided when the proposal is written (S1-7) — the asker, and only the
+     * asker — so the claim about the other parent is made of the row first and of the outbox
+     * after the approval. A card that named both would be the bug, one press later.
+     */
+    const [waiting] = await proposals();
+    expect(await approveWaiting()).toEqual([1]);
+
     const rows = await outbound();
     expect(rows.map((m) => m.recipient_token)).toEqual([sc.contactToken]);
     expect(rows.filter((m) => m.recipient_token === second)).toEqual([]);
-    // Not even under the derived fan-out key, which is the only other id a second message to
-    // them could be written against.
-    expect(rows.map((m) => m.idempotency_key)).toEqual([`agent:${r.runId}:3`]);
-    // And the result the next model turn reads counts one recipient, with no fan-out to name.
+    // Not even under a second key, which is the only other id a message to them could be
+    // written against.
+    expect(rows.map((m) => m.idempotency_key)).toEqual([`approval:${waiting.id}:${sc.contactToken}`]);
+    // And the call the run recorded proposed one message, to nobody it named itself.
     const call = (await toolCalls(db, r.runId))[3];
-    expect(call.result).toMatchObject({ audience: "GUARDIAN_OF_CHILD", recipients: 1 });
-    expect(call.result).not.toHaveProperty("outbound_message_ids");
+    expect(call.result).toMatchObject({ approval_request_id: waiting.id, queued: 0 });
 
     // The send-time half: one message leaves, to the asker. The other parent is on no wire.
     expect(await h.drainOutbox()).toEqual(["SENT"]);
     expect(h.provider.sent.map((m) => m.recipientToken)).toEqual([sc.contactToken]);
     expect(JSON.stringify(h.provider.sent)).not.toContain(second);
-    expect(await tasks()).toEqual([]);
+    // The one task is the proposal's own: a message waiting for a person (S1-7). No
+    // two-guardian exception, which is what this case is about — there was an asker.
+    expect(await tasks()).toEqual([{ category: "FAMILY_MESSAGE", severity: "AMBER" }]);
   });
 
   /**
@@ -275,6 +341,10 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
       followupCall({ template_id: "leg.canceled", vars: { legDate: sc.serviceDate, reasonCode: "FAMILY_REQUEST" } }),
     ]);
     await h.start(trigger());
+    // Proposed, approved, queued — the refusals above are about those two ids and not about the
+    // path, which still carries an allow-listed confirmation all the way to the outbox.
+    expect((await proposals()).map((p) => p.templateId)).toEqual(["leg.canceled"]);
+    expect(await approveWaiting()).toEqual([1]);
     expect((await outbound()).map((m) => m.template_id)).toEqual(["leg.canceled"]);
   });
 
@@ -291,17 +361,22 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     const r = await h.start(trigger());
     expect(r.state).toBe("SUCCEEDED");
 
+    /*
+     * The fan-out is decided where it always was — in `resolveFollowup`, from §6.4's authorized
+     * contacts with the asker first — and is recorded on the proposal, so one approval releases
+     * one message per contact (S1-7).
+     */
+    const [waiting] = await proposals();
+    expect(await approveWaiting()).toEqual([2]);
+
     const rows = await outbound();
     expect(rows).toHaveLength(2);
     expect(rows.map((m) => m.recipient_token)).toEqual([sc.contactToken, second]);
-    // The call's own key addresses the asker's message; each further contact's is derived from it.
+    // One key per approval per contact, so a redelivered press queues nothing twice.
     expect(rows.map((m) => m.idempotency_key)).toEqual([
-      `agent:${r.runId}:1`, `agent:${r.runId}:1:${second}`,
+      `approval:${waiting.id}:${sc.contactToken}`, `approval:${waiting.id}:${second}`,
     ]);
-    expect((await toolCalls(db, r.runId))[1].result).toMatchObject({
-      recipients: 2, outbound_message_ids: rows.map((m) => m.id),
-    });
-    expect(await tasks()).toEqual([]);
+    expect(await tasks()).toEqual([{ category: "FAMILY_MESSAGE", severity: "AMBER" }]);
 
     // Consent is re-checked per contact at send time, so both go out on their own account.
     expect(await h.drainOutbox()).toEqual(["SENT", "SENT"]);
@@ -327,6 +402,10 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
       followupCall({ template_id: "pickup.eta", vars: { eta: "08:15" } }),
     ]);
     await h.start(trigger());
+    // The proposal names both contacts; consent is re-checked per contact at DRAIN, which is
+    // where the opted-out parent is refused (Firia, S1-7: "recipient consent/suppression
+    // re-checked at drain"). Approving is not a decision about consent.
+    expect(await approveWaiting()).toEqual([2]);
 
     expect(await outbound()).toHaveLength(2);
     expect(await h.drainOutbox()).toEqual(["SENT", "BLOCKED_EGRESS"]);
@@ -343,20 +422,31 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
       toolCall("resolve_sender", { message_id: sc.messageId }),
       followupCall({ template_id: "pickup.eta", vars: { eta: "08:15" } }),
     ]);
-    const r = await h.start(trigger());
-    const key = `agent:${r.runId}:1`;
+    await h.start(trigger());
+    const [waiting] = await proposals();
+    expect(await approveWaiting()).toEqual([2]);
+    const key = `approval:${waiting.id}`;
 
-    // Derived rather than generated: the asker's message carries the call's key and the other
-    // contact's is that key plus their token, which is what the unique index then fences.
-    expect(fanOutKey(key, [sc.contactToken, second], sc.contactToken)).toBe(key);
-    expect(fanOutKey(key, [sc.contactToken, second], second)).toBe(`${key}:${second}`);
+    /*
+     * Derived rather than generated, and derived from the APPROVAL now (S1-7): one key per
+     * approval per contact, which is what the unique index fences. A redelivered Approve — the
+     * server action posted twice, the page reloaded on a POST — queues nothing new.
+     *
+     * `fanOutKey` is still the agent's own rule for a send it makes itself, so it is asserted
+     * here beside the one that replaced it for approvals.
+     */
+    expect(fanOutKey("k", [sc.contactToken, second], sc.contactToken)).toBe("k");
     const perKey = await db.query<{ idempotency_key: string; n: number }>(
       `SELECT idempotency_key, count(*)::int n FROM ops.outbound_message
        GROUP BY idempotency_key ORDER BY idempotency_key`, []);
     expect(perKey.rows).toEqual([
-      { idempotency_key: key, n: 1 },
+      { idempotency_key: `${key}:${sc.contactToken}`, n: 1 },
       { idempotency_key: `${key}:${second}`, n: 1 },
     ]);
+    // And pressing Approve again writes nothing: the row is decided, so there is no second send
+    // to key at all.
+    expect(await approveWaiting()).toEqual([]);
+    expect(await outbound()).toHaveLength(2);
   });
 
   it("two authorized contacts and nobody asked: an exception, not a guess (§10.3)", async () => {
@@ -369,9 +459,16 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     const h = harness([followupCall()]);
     const r = await h.start({ type: "sweeper.overdue", id: "SWEEP-1", siteId: sc.siteId });
 
-    expect(r.state).toBe("FAILED");
+    /*
+     * SUCCEEDED rather than FAILED since S1-7, and the claim is unchanged: the agent does not
+     * pick which parent to text, and now it does not propose a guess either. The call is
+     * recorded PROPOSED with the refusal on it, there is no approval row for anybody to press,
+     * and the §10.3 exception is on the board.
+     */
+    expect(r.state).toBe("SUCCEEDED");
     const [call] = await toolCalls(db, r.runId);
-    expect(call.result).toMatchObject({ error_code: "TWO_GUARDIAN_CONFLICT", authorized_contacts: 2 });
+    expect(call.result).toMatchObject({ proposal_refused: "TWO_GUARDIAN_CONFLICT", authorized_contacts: 2 });
+    expect(await proposals()).toEqual([]);
     expect(await outbound()).toEqual([]);
     expect(await tasks()).toEqual([{ category: TWO_GUARDIAN_TASK_CATEGORY, severity: "AMBER" }]);
   });
@@ -381,8 +478,10 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     await db.query("DELETE FROM ops.contact_authorization WHERE child_token = $1", [sc.children[0]]);
     const h = harness([followupCall()]);
     const r = await h.start({ type: "sweeper.overdue", id: "SWEEP-2", siteId: sc.siteId });
-    expect(r.state).toBe("FAILED");
-    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({ error_code: "NO_AUTHORIZED_CONTACT" });
+    // Nothing to send to, so nothing to propose either (S1-7): the refusal is on the call.
+    expect(r.state).toBe("SUCCEEDED");
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({ proposal_refused: "NO_AUTHORIZED_CONTACT" });
+    expect(await proposals()).toEqual([]);
     expect(await outbound()).toEqual([]);
   });
 
@@ -390,6 +489,9 @@ describe("AT-01 message → state → notify, through the real outbox", () => {
     sc = await seedAgentScenario(db);
     const h = harness(at01Script());
     await h.start(trigger());
+    // Approved while the family still had consent; the STOP lands between the press and the
+    // drain, which is exactly the window the drain-time re-check exists for.
+    expect(await approveWaiting()).toEqual([1]);
     await db.query(
       `INSERT INTO identity.consent_event (id, site_id, contact_token, kind, channel, at, source_mode)
        VALUES ($1,$2,$3,'STOP','SMS_1TO1',$4,'SIMULATED')`,
@@ -409,10 +511,13 @@ describe("§11.2 the template allow-list is read per audience", () => {
     const toFamily = harness([followupCall({ template_id: "therapist.absence_alert", vars: { sessionStart: "09:00" } })]);
     const r = await toFamily.start({ type: "sweeper.overdue", id: "SWEEP-3", siteId: sc.siteId });
     expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
-      error_code: "TEMPLATE_NOT_FOR_AUDIENCE",
+      proposal_refused: "TEMPLATE_NOT_FOR_AUDIENCE",
       audience: "GUARDIAN_OF_CHILD",
       template_id: "therapist.absence_alert",
     });
+    // Not proposed either: a template for the wrong kind of person is not a thing to put in
+    // front of a coordinator and ask about.
+    expect(await proposals()).toEqual([]);
     expect(await outbound()).toEqual([]);
   });
 
@@ -440,6 +545,9 @@ describe("§11.2 the template allow-list is read per audience", () => {
     const r = await h.start({ type: "operational.event", id: "EV-1", siteId: sc.siteId });
 
     expect(r.state).toBe("SUCCEEDED");
+    // A therapist is not a family, and the ruling is the tool's rather than the audience's, so
+    // this one waits for a person too (S1-7). Where it goes is decided the same way it was.
+    expect(await approveWaiting()).toEqual([1]);
     const [msg] = await outbound();
     expect(msg).toMatchObject({
       purpose: "THERAPIST_ALERT",
@@ -465,9 +573,15 @@ describe("§11.2 the template allow-list is read per audience", () => {
     })], { sendableSubjects: new Set([legId, ...sc.children]) });
     const r = await h.start({ type: "sweeper.overdue", id: "SWEEP-STAFF", siteId: sc.siteId });
 
-    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
-      audience: "STAFF", delivered_as: "staff_task", child_token: sc.children[0], trip_leg_id: legId,
-    });
+    /*
+     * The STAFF audience is the one that is not a message, so S1-7 left it alone in substance:
+     * the task is written, nothing is queued, and — because there is no egress — there is
+     * nothing for anybody to approve. The writer moved from the executor to the proposal writer
+     * (`agent/run/exec/proposals.ts`), which is why the result says `staff_task` and names no
+     * approval row.
+     */
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({ delivered_as: "staff_task", mutated: false });
+    expect(await proposals()).toEqual([]);
     expect(await outbound()).toEqual([]);
     const [task] = await db.query<{ category: string; severity: string; child_token: string; trip_leg_id: string; summary: string; next_step: string }>(
       "SELECT category, severity, child_token, trip_leg_id, summary, next_step FROM ops.task", []).then((x) => x.rows);
@@ -488,8 +602,9 @@ describe("§11.2 the template allow-list is read per audience", () => {
     });
     const r = await h.start({ type: "sweeper.overdue", id: "SWEEP-STAFF-404", siteId: sc.siteId });
 
-    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({ error_code: "NOT_FOUND", object: "subject" });
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({ proposal_refused: "NOT_FOUND", object: "subject" });
     expect(await tasks()).toEqual([]);
+    expect(await proposals()).toEqual([]);
   });
 
   it("a PROVIDER_DISPATCHER follow-up reaches the provider's dispatcher, in fixed copy", async () => {
@@ -505,6 +620,7 @@ describe("§11.2 the template allow-list is read per audience", () => {
       sendableSubjects: new Set([route.providerId]),
     });
     const r = await h.start({ type: "sweeper.overdue", id: "SWEEP-DISPATCH", siteId: sc.siteId });
+    expect(await approveWaiting()).toEqual([1]);
 
     const [msg] = await outbound();
     expect(msg).toMatchObject({
@@ -514,7 +630,7 @@ describe("§11.2 the template allow-list is read per audience", () => {
       template_id: "generic.notice",
       child_token: null,
     });
-    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({ recipients: 1 });
+    expect((await toolCalls(db, r.runId))[0].result).toMatchObject({ queued: 0, mutated: false });
     // The egress authorizer knows what a dispatcher is, so the message actually goes.
     expect(await h.drainOutbox()).toEqual(["SENT"]);
     expect(h.provider.sent.map((m) => m.recipientToken)).toEqual([route.dispatcherToken]);
@@ -536,7 +652,7 @@ describe("§11.2 the template allow-list is read per audience", () => {
     })], scope);
     const r = await childCopy.start({ type: "sweeper.overdue", id: "SWEEP-DISPATCH-CHILD", siteId: sc.siteId });
     expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
-      error_code: "TEMPLATE_NOT_FOR_AUDIENCE", audience: "PROVIDER_DISPATCHER",
+      proposal_refused: "TEMPLATE_NOT_FOR_AUDIENCE", audience: "PROVIDER_DISPATCHER",
     });
 
     const noContact = harness([followupCall({
@@ -545,8 +661,10 @@ describe("§11.2 the template allow-list is read per audience", () => {
     })], scope);
     const r2 = await noContact.start({ type: "sweeper.overdue", id: "SWEEP-DISPATCH-NONE", siteId: sc.siteId });
     expect((await toolCalls(db, r2.runId))[0].result).toMatchObject({
-      error_code: "NO_DISPATCHER_CONTACT", provider_token: route.providerId,
+      proposal_refused: "NO_DISPATCHER_CONTACT", provider_token: route.providerId,
     });
+    // Neither one is proposed: a refusal is a refusal, not a card (S1-7).
+    expect(await proposals()).toEqual([]);
     expect(await outbound()).toEqual([]);
   });
 });
@@ -557,6 +675,10 @@ describe("§11.2 canceled_stale → recompute", () => {
     const child = sc.children[0];
     const first = harness(at01Script());
     await first.start(trigger());
+    // Approved, which is what queues it now (S1-7). The basis is the LEG's version read at the
+    // moment of queueing — the outbox's staleness rule, which the ruling left alone: what it
+    // dropped is the `plan_run` version check on the approval itself.
+    expect(await approveWaiting()).toEqual([1]);
     const [queued] = await outbound();
     expect(queued.plan_version_basis).toBe(2);
 
@@ -576,14 +698,13 @@ describe("§11.2 canceled_stale → recompute", () => {
     ]);
     const r = await again.start({ ...trigger(), id: "MSG-RECOMPUTE" });
     expect(r.state).toBe("SUCCEEDED");
+    expect(await approveWaiting()).toEqual([1]);
 
     const rows = await outbound();
     expect(rows).toHaveLength(2);
+    // Read again at approval time, so the recompute is "read the state again" exactly as it was
+    // — one press later.
     expect(rows[1]).toMatchObject({ plan_version_basis: 3, state: "QUEUED" });
-    expect((await toolCalls(db, r.runId))[2].result).toMatchObject({
-      plan_version_basis: 3,
-      recomputed_after_stale: 1,
-    });
     expect(await again.drainOutbox()).toEqual(["SENT"]);
     expect(again.provider.sent).toHaveLength(1);
   });
@@ -591,14 +712,19 @@ describe("§11.2 canceled_stale → recompute", () => {
   it("the same follow-up call driven twice queues one message", async () => {
     sc = await seedAgentScenario(db);
     const h = harness(at01Script());
-    const r = await h.start(trigger());
+    await h.start(trigger());
+    const [waiting] = await proposals();
+    expect(await approveWaiting()).toEqual([1]);
     expect(await outbound()).toHaveLength(1);
 
-    // The row the outbox keyed on this call: a second attempt finds it instead of queueing again.
-    const key = `agent:${r.runId}:3`;
+    // The row the outbox keyed on this approval: a second attempt finds it instead of queueing
+    // again — and a second Approve cannot even reach it, because the row is decided (409).
+    const key = `approval:${waiting.id}:${sc.contactToken}`;
     const dup = await db.query<{ n: number }>(
       "SELECT count(*)::int n FROM ops.outbound_message WHERE idempotency_key = $1", [key]);
     expect(dup.rows[0].n).toBe(1);
+    expect(await approveWaiting()).toEqual([]);
+    expect(await outbound()).toHaveLength(1);
     expect(await h.drainOutbox()).toEqual(["SENT"]);
     expect(await h.drainOutbox()).toEqual([]);
     expect(h.provider.sent).toHaveLength(1);
