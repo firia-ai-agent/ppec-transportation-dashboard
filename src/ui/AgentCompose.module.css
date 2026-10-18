@@ -49,9 +49,16 @@
   outline-offset: var(--focus-offset);
 }
 
+/*
+ * GREY UNTIL THERE IS SOMETHING TO SEND. A control that cannot be used has to look like one
+ * before it is clicked (§4.2), and the two tokens are the pair tokens.ts documents at 4.34:1 so
+ * the arrow inside the disc is still legible rather than a ghost — a grey nobody can read is no
+ * kinder than a teal that lies. Both colours are tokens; no hex may appear in this file
+ * (src/ui/no-hex.test.ts). The disc is grey while the field is empty or whitespace-only, and
+ * while a request is in flight (src/ui/AgentCompose.tsx `blocked`).
+ */
 .send:disabled,
 .field:disabled {
-  /* A control that cannot be used has to look like one before it is clicked (§4.2, tokens.ts). */
   background: var(--color-disabled-bg);
   color: var(--color-disabled-fg);
   cursor: default;

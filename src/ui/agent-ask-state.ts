@@ -103,6 +103,24 @@ export function addNoAnswer(askId: string): void {
   emit();
 }
 
+/**
+ * IS THERE ANYTHING TO SEND? One predicate, so the greyed-out button and the handler that would
+ * do the sending cannot disagree about it.
+ *
+ * Whitespace is not an ask. A field holding three spaces looks identical to an empty one, so a
+ * send button that is bright teal over it is an offer the app cannot keep: `askAgent` rejects an
+ * empty ask on the server (src/modules/agent/ask/staff-ask.ts writes nothing for one), so pressing
+ * it would put a teal bubble of three spaces in the thread and then one grey "I can't answer right
+ * now." under it — the panel answering a question nobody asked.
+ *
+ * It is a function here rather than a `text.trim()` in the component because two places need the
+ * same answer: the button's `disabled`, and the guard in front of the fetch (`sendAsk` below).
+ * Enter in a one-field form is a submit, so without the second one an empty box could still send.
+ */
+export function canSendAsk(text: string): boolean {
+  return text.trim().length > 0;
+}
+
 /** How the ask is sent. The address is the caller's (`API.agentAsk`): no screen holds a path. */
 export type AskPost = (text: string) => Promise<Response>;
 
@@ -118,8 +136,14 @@ export type AskPost = (text: string) => Promise<Response>;
  * key — the panel says one line for all of them, because the difference between them is the
  * server's to record and a coordinator's to be spared. The route already reduces them to `ok`
  * (src/app/api/agent/ask/route.ts), so this reads that and never a reason, a code or a status.
+ *
+ * …and nothing at all happens for an empty or whitespace-only ask: no bubble, and **no request**.
+ * The button for it is greyed out (`canSendAsk` above, src/ui/AgentCompose.tsx), but Enter in a
+ * one-field form is a submit and a disabled button is not the only way in, so the refusal is here
+ * too — in the one function that holds the `post`, which is the only place it can be guaranteed.
  */
 export async function sendAsk(text: string, post: AskPost): Promise<void> {
+  if (!canSendAsk(text)) return;
   const id = addAsk(text);
   try {
     const res = await post(text);

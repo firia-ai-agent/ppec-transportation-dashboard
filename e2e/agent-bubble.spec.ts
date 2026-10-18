@@ -238,6 +238,54 @@ test.describe("the panel", () => {
     await expect(panel(page).locator(`a[href="${FAMILY_TEXTS_FOR_YOU}"]`)).toHaveCount(0);
   });
 
+  /**
+   * THE SEND BUTTON IS GREY UNTIL THERE IS SOMETHING TO SEND (src/ui/agent-send-disabled.test.ts
+   * holds the markup and the predicate; this is the half only a browser can say).
+   *
+   * What a browser adds is that the disabled disc actually *paints* the §4.2 grey rather than the
+   * teal, that it is out of the tab order, and that Enter on an empty field fires no request —
+   * three things a static render cannot show. The request is watched rather than inferred.
+   */
+  test("greys the send button until something is typed, and Enter on an empty box sends nothing", async ({
+    page,
+  }) => {
+    const asks: string[] = [];
+    await page.route("**/*", async (route) => {
+      if (route.request().method() === "POST") asks.push(route.request().url());
+      await route.continue();
+    });
+
+    await page.setViewportSize(DESK);
+    await page.goto("/today");
+    await bubble(page).click();
+
+    const field = page.getByRole("textbox", { name: agentBubble.ask });
+    const send = page.getByRole("button", { name: agentBubble.send });
+
+    // Empty: disabled, announced as disabled, and wearing the disabled fill and not the brand's.
+    await expect(send).toBeDisabled();
+    await expect(send).toHaveAttribute("aria-disabled", "true");
+    const greyFill = await send.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+    // Whitespace only is the same case: it looks exactly like empty, so it behaves like empty.
+    await field.fill("   ");
+    await expect(send).toBeDisabled();
+    await field.press("Enter");
+    expect(asks, "an empty box sent an ask on Enter").toEqual([]);
+
+    // A word in the field, and the disc comes back to teal.
+    await field.fill("hi");
+    await expect(send).toBeEnabled();
+    await expect(send).toHaveAttribute("aria-disabled", "false");
+    const liveFill = await send.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(liveFill, "the live button is still wearing the disabled grey").not.toBe(greyFill);
+
+    // …and back to grey when it is emptied again, without a reload.
+    await field.fill("");
+    await expect(send).toBeDisabled();
+    expect(asks).toEqual([]);
+  });
+
   test("stays open across a navigation between tabs", async ({ page }) => {
     await page.setViewportSize(DESK);
     await page.goto("/today");
