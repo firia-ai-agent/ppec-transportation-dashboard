@@ -130,7 +130,7 @@ export function memoryPlanStore(env: Record<string, string | undefined> = proces
     async dayContext(_siteId, date) {
       // No database means no demo reset to press and no vans reporting positions: the day the
       // fixtures describe is the day, it is started, and nobody is away on it.
-      return { startedDate: date, absentTokens: [], vansOut: 0, approvalsWaiting: 0 };
+      return { startedDate: date, vansOut: 0, approvalsWaiting: 0 };
     },
   };
 }

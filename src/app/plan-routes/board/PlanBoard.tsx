@@ -69,7 +69,7 @@ import { BoardToolbar } from "./BoardToolbar";
 import { ChildPanel, whereLine } from "./ChildPanel";
 import { UNASSIGNED_ID, UnassignedColumn } from "./UnassignedColumn";
 import { VanColumn } from "./VanColumn";
-import { boardBanner, movedLine, rejectSr, overConfirm, type SaveState } from "./lines";
+import { boardBanner, movedLine, rejectSr, type SaveState } from "./lines";
 import styles from "./board.module.css";
 
 /** How long the "Mia R. → Van 2 · Undo" toast stays (§1.3's four seconds). */
@@ -353,11 +353,9 @@ export default function PlanBoard({
     };
   }, []);
 
-  /* ── saving ── */
-  const vansOver = day.vans.filter((van) => isOver(van.setup, ridersInVan(day, plan, van.id)));
-
+  /* ── saving: Auto-plan's answer, accepted ── */
   const onSave = useCallback(
-    async (allowOver: boolean) => {
+    async () => {
       setSave({ kind: "SAVING" });
       try {
         const response = await fetch(API.planSave, {
@@ -368,7 +366,6 @@ export default function PlanBoard({
             direction: day.direction,
             version,
             placements: plan,
-            ...(allowOver ? { allowOver: true } : {}),
           }),
         });
         const body = (await response.json().catch(() => null)) as
@@ -392,16 +389,14 @@ export default function PlanBoard({
     [day.date, day.direction, plan, version],
   );
 
+  /*
+   * There is no "Save anyway?" (Veri, 2026-10-17 8:35 PM ET): a van can never be saved over its
+   * own counts, so the only answer to an over-capacity board is to move somebody, and the
+   * server refuses it with the same 422 a drag gets.
+   */
   const trySave = useCallback(() => {
-    if (vansOver.length > 0) {
-      // The one confirm this screen asks for (§1.3): a van over its own counts still saves,
-      // because the ramp check is what stops anybody boarding — but a person says so first.
-      if (!window.confirm(overConfirm(vansOver[0].name))) return;
-      void onSave(true);
-      return;
-    }
-    void onSave(false);
-  }, [onSave, vansOver]);
+    void onSave();
+  }, [onSave]);
 
   /* ── the drag itself ── */
   const sensors = useSensors(

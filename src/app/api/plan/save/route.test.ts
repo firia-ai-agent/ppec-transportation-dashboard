@@ -157,7 +157,7 @@ describe("saving a board", () => {
     const res = await post(body(placements));
     expect(res.status).toBe(200);
     const answer = await res.json();
-    expect(answer).toMatchObject({ ok: true, version: 1, over: [] });
+    expect(answer).toMatchObject({ ok: true, version: 1 });
     expect(answer.savedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     expect(res.headers.get("cache-control")).toBe("no-store");
 
@@ -232,7 +232,12 @@ describe("a refused drop cannot be saved by posting it directly (§1.7 #1)", () 
     expect((await board()).savedAt).toBeNull();
   });
 
-  it("saves an over-capacity van only when a person answered the confirm (§1.3)", async () => {
+  /**
+   * Veri, 2026-10-17 8:35 PM ET: **a van can never be saved over its counts.** `allowOver` was a
+   * flag that let a board post its way past the fit rule; it is gone, and the answer is the same
+   * 422 a drag gets.
+   */
+  it("never saves a van over its own counts, with or without a flag", async () => {
     // Five children into Van 3, which has four seats: over, not impossible. Without the
     // confirm it is refused; with it, it is kept and the answer names the van that is over.
     const placements = await emptyPlacements();
@@ -240,9 +245,10 @@ describe("a refused drop cannot be saved by posting it directly (§1.7 #1)", () 
     const overloaded = { ...placements };
     for (const token of five) overloaded[token] = { bucket: "VAN", vanId: VAN(2), pinned: true } as never;
     expect((await post(body(overloaded))).status).toBe(422);
-    const allowed = await post(body(overloaded, { allowOver: true }));
-    expect(allowed.status).toBe(200);
-    expect(await allowed.json()).toMatchObject({ ok: true, over: [VAN(2)] });
+    // The flag is not in the schema at all, so asking for it is a 400 rather than a way round.
+    const asked = await post(body(overloaded, { allowOver: true }));
+    expect(asked.status).toBe(400);
+    expect((await board()).savedAt).toBeNull();
   });
 });
 

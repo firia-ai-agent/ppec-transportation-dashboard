@@ -91,11 +91,6 @@ export function footerLines(stops: number, minutes: number): { stops: string; mi
   };
 }
 
-/** "Van 3 is over. Save anyway?" — the one confirm this screen asks for (§1.3). */
-export function overConfirm(van: string): string {
-  return fill(planBoard.overConfirm, { van });
-}
-
 /**
  * The one banner a board can carry, and the link that fixes it (§9.3's Plan routes rows).
  *

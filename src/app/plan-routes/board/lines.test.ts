@@ -10,7 +10,6 @@ import {
   initialsOf,
   meterSr,
   movedLine,
-  overConfirm,
   placedLine,
   rejectChip,
   rejectSr,
@@ -85,8 +84,9 @@ describe("§1.5: the toolbar and the cards", () => {
     expect(rejectSr("Mia R.", "Van 3", "CAR_SEAT")).toBe("Mia R. won’t fit Van 3: no car seat");
   });
 
-  it("asks before saving a van that is over its own counts", () => {
-    expect(overConfirm("Van 3")).toBe("Van 3 is over. Save anyway?");
+  it("has no words for saving a van over its counts, because that is not a thing", () => {
+    // Veri, 2026-10-17 8:35 PM ET: `allowOver` is gone and so is the confirm it asked for.
+    expect(planBoard).not.toHaveProperty("overConfirm");
   });
 
   it("writes a read-only count chip, and says where tapping it goes", () => {

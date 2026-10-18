@@ -126,11 +126,6 @@ export function sqlPlanStore(db: Db): PlanStore {
           WHERE c.site_id = $1`,
         [siteId],
       );
-      const absent = await db.query<{ child_token: string }>(
-        `SELECT child_token::text AS child_token FROM ops.attendance_exception
-          WHERE site_id = $1 AND service_date = $2::date AND scope = 'FULL_DAY'`,
-        [siteId, date],
-      );
       // A van is "out" once it has reported a position on this service date. The live map owns
       // what that position means; this only counts how many vans have sent one (§9.4's `vansOut`).
       const out = await db.query<{ n: number }>(
@@ -146,8 +141,11 @@ export function sqlPlanStore(db: Db): PlanStore {
         [siteId],
       );
       return {
+        // Nothing reads `ops.attendance_exception` here any more (Veri F5, 2026-10-17): being
+        // away on a leg is a placement on that leg's plan (`plan_assignment.bucket = 'ABSENT'`)
+        // and the board is the only thing that writes it. A second source of "who is away" is
+        // a second answer, and the one in the plan is the one every screen shows.
         startedDate: started.rows[0]?.d ?? null,
-        absentTokens: absent.rows.map((row) => row.child_token),
         vansOut: Number(out.rows[0]?.n ?? 0),
         approvalsWaiting: Number(waiting.rows[0]?.n ?? 0),
       } satisfies DayContext;

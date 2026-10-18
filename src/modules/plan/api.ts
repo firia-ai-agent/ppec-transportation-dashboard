@@ -13,12 +13,16 @@
  */
 import { z } from "zod";
 import { NO_NEEDS, type NeedFlags } from "@/config/equipment";
+import { demoReset } from "@/ui/copy";
 import { COUNTER_MAX } from "@/config/vans";
-import { getNeonDb, type Db } from "@/db/exec";
+import { getNeonDb, type Db, type Exec } from "@/db/exec";
 import { autoPlan, BUCKETS, checkPlan, namesOnlyThisDay, ridersInVan, type BoardPlan, type Placement } from "@/domain/plan/board";
+import { isReadOnlyDbEnv } from "@/db/read-only";
 import { setChildNeeds } from "@/modules/roster/needs-write";
 import { setDemoNeedsOverride } from "@/modules/demo/needs-store";
-import { setChildPlacement, type SetChildPlacementOutcome } from "./place";
+import { setChildPlacement, writePlan, type SetChildPlacementOutcome } from "./place";
+import { sqlDaySource } from "@/modules/roster/sql";
+import { sqlPlanStore } from "./sql";
 import { isOver } from "@/domain/plan/fit";
 import { CONFIRMED_STATE } from "@/domain/plan/setup";
 import type { DayReadiness } from "@/domain/day/readiness";
@@ -81,35 +85,21 @@ export const savePlanBody = z.strictObject({
   /** The version the board was showing; 0 when it started from no saved plan. */
   version: z.number().int().min(0).max(1_000_000),
   placements: z.record(z.string().min(1).max(64), placement),
-  /**
-   * The coordinator answered "Save anyway?" about a van that is over its own counts (§1.3).
-   *
-   * Over-capacity is the one state the spec saves *with* a confirm rather than refusing: it
-   * happens when a setup is lowered under the riders already in a van, and the thing that stops
-   * anybody boarding is the ramp check, not this endpoint. So the override is explicit and comes
-   * from a person answering a question — a body without it is held to the fit rule exactly.
-   */
-  allowOver: z.boolean().optional(),
 });
 
 export type SavePlanAnswer =
-  | { status: 200; body: { ok: true; version: number; savedAt: string; over: string[] } }
+  | { status: 200; body: { ok: true; version: number; savedAt: string } }
   | { status: 404 | 409 | 422 | 503; body: { ok: false; error?: string; reason?: string; changedBy?: string | null; childToken?: string; vanId?: string } };
 
 /**
- * One save (§1.6's `POST /api/plan/save`).
+ * The board's Save (§1.6's `POST /api/plan/save`) — which is Auto-plan's answer being accepted,
+ * and nothing else.
  *
- * The order is the order the answers differ in:
- *  1. the day has not been started, so there is nothing to save a plan of — 409 `NOT_STARTED`
- *     (§9.4's own wording for this guard);
- *  2. the plan names a child or a van this day does not have — 404, one uniform refusal, so the
- *     answer cannot be used to find out which of them exists somewhere else;
- *  3. the fit rule refuses a van — 422, naming the child and the van, which are both already on
- *     the caller's screen;
- *  4. somebody else saved first — 409 with their name, so the board reloads rather than writing
- *     over them;
- *  5. otherwise it is kept, and the answer carries the new version, the instant the server wrote
- *     it, and any van that is over (which the screen shows as a chip rather than as an error).
+ * It is the **same writer** every drag uses (`writePlan`, src/modules/plan/place.ts), so it has
+ * the same refusals and no others: the fit rule always decides (there is no `allowOver` any
+ * more — a van can never be saved over its counts), and a whole-board save may not move anybody
+ * into or out of Absent or Family drives, because those are one-child moves through
+ * `setChildPlacement` (Veri F1, 2026-10-17).
  */
 export async function savePlanRequest(
   siteId: string,
@@ -117,43 +107,39 @@ export async function savePlanRequest(
   input: z.infer<typeof savePlanBody>,
   now: Date = new Date(),
   store: PlanStore = planStore(),
+  source: DayDataSource = dayDataSource(siteId),
 ): Promise<SavePlanAnswer> {
-  const view = await loadBoard(store, siteId, input.date, input.direction);
-  if (!view.started) {
-    return { status: 409, body: { ok: false, reason: "NOT_STARTED" } };
+  const written = await writePlan(
+    {
+      siteId,
+      serviceDate: input.date,
+      direction: input.direction,
+      expectedVersion: input.version,
+      actor: caller.userId ?? null,
+      now,
+      change: () => input.placements as BoardPlan,
+    },
+    store,
+    source,
+  );
+  if (written.ok) {
+    return { status: 200, body: { ok: true, version: written.version, savedAt: written.savedAt } };
   }
-
-  const plan = input.placements as BoardPlan;
-  if (!namesOnlyThisDay(view.day, plan)) {
-    return { status: 404, body: { ok: false, reason: "NOT_THIS_DAY" } };
+  if (written.status === 422) {
+    return {
+      status: 422,
+      body: {
+        ok: false,
+        reason: written.reason,
+        childToken: written.childToken,
+        ...("vanId" in written ? { vanId: written.vanId } : {}),
+      },
+    };
   }
-
-  const over = view.day.vans
-    .filter((van) => isOver(van.setup, ridersInVan(view.day, plan, van.id)))
-    .map((van) => van.id);
-
-  if (!(input.allowOver && over.length > 0)) {
-    const checked = checkPlan(view.day, plan);
-    if (!checked.ok) {
-      return {
-        status: 422,
-        body: { ok: false, reason: checked.reason, childToken: checked.childToken, vanId: checked.vanId },
-      };
-    }
+  if (written.status === 409 && written.reason === "CHANGED") {
+    return { status: 409, body: { ok: false, reason: written.reason, changedBy: written.changedBy } };
   }
-
-  const saved = await store.savePlan(siteId, {
-    date: input.date,
-    direction: input.direction,
-    version: input.version,
-    placements: placementsToSave(view.day, plan),
-    savedBy: caller.userId ?? null,
-    now,
-  });
-  if (!saved.ok) {
-    return { status: 409, body: { ok: false, reason: "CHANGED", changedBy: saved.changedBy } };
-  }
-  return { status: 200, body: { ok: true, version: saved.version, savedAt: saved.savedAt, over } };
+  return { status: written.status, body: { ok: false, reason: written.reason } };
 }
 
 /* ───────────────────────────── one van's setup ───────────────────────────── */
@@ -241,6 +227,21 @@ export type PostedPlacement = Placement;
 
 /* ───────────────────────── one child's place, and one child's needs ───────────────────────── */
 
+/**
+ * A preview shares the one Neon database with production and every transaction on it is
+ * `BEGIN READ ONLY` (src/db/read-only.ts, DECISION-LEDGER #43). A write there cannot land, so it
+ * is **refused in words** rather than attempted and reported as a 503: the same 403 and the same
+ * sentence the demo reset gives (`demoReset.previewRefusal`, read from copy.ts rather than from
+ * the reset module, which may not be imported outside its two entry points).
+ */
+export function previewRefusal(
+  env: Record<string, string | undefined> = process.env,
+): { status: 403; body: { ok: false; reason: string } } | null {
+  return isReadOnlyDbEnv(env)
+    ? { status: 403, body: { ok: false, reason: demoReset.previewRefusal } }
+    : null;
+}
+
 export const placeChildBody = z.strictObject({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   direction: z.enum(["AM", "PM"]),
@@ -257,7 +258,7 @@ export const placeChildBody = z.strictObject({
 export type PlaceChildAnswer =
   | { status: 200; body: { ok: true; version: number; savedAt: string; view: BoardBody; alsoAM?: boolean } }
   | {
-      status: 404 | 409 | 422;
+      status: 403 | 404 | 409 | 422;
       body: { ok: false; reason: string; changedBy?: string | null; childToken?: string; vanId?: string };
     };
 
@@ -274,7 +275,11 @@ export async function placeChildRequest(
   input: z.infer<typeof placeChildBody>,
   now: Date = new Date(),
   store: PlanStore = planStore(),
+  env: Record<string, string | undefined> = process.env,
 ): Promise<PlaceChildAnswer> {
+  const refused = previewRefusal(env);
+  if (refused) return refused;
+
   const outcome = await setChildPlacement(
     {
       siteId,
@@ -331,7 +336,7 @@ function refusal(outcome: Exclude<SetChildPlacementOutcome, { ok: true }>): Plac
         ok: false,
         reason: outcome.reason,
         childToken: outcome.childToken,
-        vanId: outcome.vanId,
+        ...("vanId" in outcome ? { vanId: outcome.vanId } : {}),
       },
     };
   }
@@ -353,7 +358,7 @@ export const childNeedsBody = z.strictObject({
 
 export type ChildNeedsAnswer =
   | { status: 200; body: { ok: true; needs: NeedFlags; version: number; savedAt: string; view: BoardBody } }
-  | { status: 404 | 409 | 503; body: { ok: false; reason: string; changedBy?: string | null } };
+  | { status: 403 | 404 | 409 | 503; body: { ok: false; reason: string; changedBy?: string | null } };
 
 /**
  * The child panel's Save (founder 7:17 PM ET): three Yes/No answers, written to the child's
@@ -366,6 +371,30 @@ export type ChildNeedsAnswer =
  * got by dragging — children a person pinned stay where they were put, and anybody who no longer
  * fits their pin comes out of it with a shortfall rather than quietly over-filling the van.
  */
+/** Thrown to roll a needs transaction back; carries the refusal the caller should see. */
+class NeedsSaveRefused extends Error {
+  constructor(public readonly outcome: Awaited<ReturnType<typeof writePlan>> | null) {
+    super("needs save refused");
+    this.name = "NeedsSaveRefused";
+  }
+}
+
+/**
+ * The same database, seen as a `Db`, inside a transaction that is already open.
+ *
+ * `sqlPlanStore` and `sqlDaySource` take a `Db`; inside `db.tx` what exists is an `Exec`. A
+ * nested `tx` runs inline on the same connection, so everything the callback does is part of the
+ * one transaction — which is the whole point: the needs and the re-plan commit together.
+ */
+function asDb(tx: Exec): Db {
+  return {
+    query: tx.query,
+    async tx(fn) {
+      return fn(tx, () => undefined);
+    },
+  };
+}
+
 export async function setChildNeedsRequest(
   siteId: string,
   caller: Pick<StaffCaller, "userId">,
@@ -379,6 +408,9 @@ export async function setChildNeedsRequest(
   /** The roster this board reads. Injected by the DB tests; the default is the request's own. */
   source: DayDataSource = dayDataSource(siteId),
 ): Promise<ChildNeedsAnswer> {
+  const refused = previewRefusal(env);
+  if (refused) return refused;
+
   const panel = { wheelchair: input.wheelchair, carSeat: input.carSeat, oxygen: input.oxygen };
 
   const before = await loadBoard(store, siteId, input.date, input.direction, source);
@@ -387,46 +419,90 @@ export async function setChildNeedsRequest(
     before.day.others.some((other) => other.token === childToken);
   if (!known) return { status: 404, body: { ok: false, reason: "NOT_THIS_DAY" } };
 
+  /*
+   * **One transaction, or neither change.** (Veri F3, 2026-10-17.)
+   *
+   * The need rows and the re-planned plan are one decision: a coordinator who is told "somebody
+   * else saved first" must not find, on reload, that the child's needs changed anyway and a
+   * pinned rider is now in a van that cannot carry them. So on a database both writes run inside
+   * the same transaction, and a 409 from the version check rolls the item rows back with it.
+   *
+   * With no database at all (the browser check) there is nothing to roll back: the override is
+   * one `Map.set`, and it is applied after the re-plan has been accepted for the same reason.
+   */
+  const runWrite = async (
+    writeNeeds: () => Promise<{ ok: boolean; reason?: string }>,
+    place: PlanStore,
+    read: DayDataSource,
+  ) => {
+    const needsWritten = await writeNeeds();
+    if (!needsWritten.ok) return { kind: "NO_PROFILE" as const };
+    const replanned = await writePlan(
+      {
+        siteId,
+        serviceDate: input.date,
+        direction: input.direction,
+        expectedVersion: input.version,
+        actor: caller.userId ?? null,
+        now,
+        change: (view) => autoPlan(view.day, view.plan),
+      },
+      place,
+      read,
+    );
+    return { kind: "WRITTEN" as const, replanned };
+  };
+
+  let written: Awaited<ReturnType<typeof writePlan>>;
   if (env.DATABASE_URL) {
-    const written = await setChildNeeds(db ?? getNeonDb(), {
-      siteId,
-      childToken,
-      panel,
-      actor: caller.userId ?? null,
-      now,
+    const database = db ?? getNeonDb();
+    const outcome = await database.tx(async (tx) => {
+      const inTx = asDb(tx);
+      const result = await runWrite(
+        () => setChildNeeds(inTx, { siteId, childToken, panel, actor: caller.userId ?? null, now }),
+        sqlPlanStore(inTx),
+        sqlDaySource(inTx, siteId),
+      );
+      // A refusal rolls the whole transaction back, needs included.
+      if (result.kind === "NO_PROFILE" || !result.replanned.ok) {
+        throw new NeedsSaveRefused(result.kind === "NO_PROFILE" ? null : result.replanned);
+      }
+      return result.replanned;
+    }).catch((error: unknown) => {
+      if (error instanceof NeedsSaveRefused) return error.outcome;
+      throw error;
     });
-    if (!written.ok) return { status: 404, body: { ok: false, reason: written.reason } };
+    if (outcome === null) return { status: 404, body: { ok: false, reason: "NO_PROFILE" } };
+    written = outcome;
   } else {
     // No database at all: the browser check's server (src/modules/demo/needs-store.ts).
-    setDemoNeedsOverride(childToken, panel, env);
+    const result = await runWrite(
+      async () => {
+        setDemoNeedsOverride(childToken, panel, env);
+        return { ok: true };
+      },
+      store,
+      source,
+    );
+    if (result.kind === "NO_PROFILE") return { status: 404, body: { ok: false, reason: "NO_PROFILE" } };
+    written = result.replanned;
+  }
+  if (!written.ok) {
+    if (written.status === 409 && written.reason === "CHANGED") {
+      return { status: 409, body: { ok: false, reason: written.reason, changedBy: written.changedBy } };
+    }
+    return { status: written.status === 404 ? 404 : 409, body: { ok: false, reason: written.reason } };
   }
 
-  // Read the day again — the needs are rows (or the override) now — and re-run the one
-  // placement function over it, keeping everybody a person placed by hand.
-  const after = await loadBoard(store, siteId, input.date, input.direction, source);
-  const replanned = autoPlan(after.day, after.plan);
-  const saved = await store.savePlan(siteId, {
-    date: input.date,
-    direction: input.direction,
-    version: input.version,
-    placements: placementsToSave(after.day, replanned),
-    savedBy: caller.userId ?? null,
-    now,
-  });
-  if (!saved.ok) {
-    return { status: 409, body: { ok: false, reason: "CHANGED", changedBy: saved.changedBy } };
-  }
-
-  const view = await loadBoard(store, siteId, input.date, input.direction, source);
-  const rider = view.day.riders.find((candidate) => candidate.token === childToken);
+  const rider = written.view.day.riders.find((candidate) => candidate.token === childToken);
   return {
     status: 200,
     body: {
       ok: true,
       needs: rider?.needs ?? { ...NO_NEEDS, ...panel },
-      version: saved.version,
-      savedAt: saved.savedAt,
-      view,
+      version: written.version,
+      savedAt: written.savedAt,
+      view: written.view,
     },
   };
 }

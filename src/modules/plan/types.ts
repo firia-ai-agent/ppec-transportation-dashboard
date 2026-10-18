@@ -76,8 +76,6 @@ export type PutSetupInput = {
 export type DayContext = {
   /** The service date the demo day is currently started on, or null when none is. */
   startedDate: string | null;
-  /** Children recorded away for the whole of this date. */
-  absentTokens: readonly string[];
   /** Vans that have reported a position today. */
   vansOut: number;
   /** Approvals waiting for a person. */

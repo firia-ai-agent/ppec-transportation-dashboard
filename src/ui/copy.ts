@@ -1569,8 +1569,6 @@ export const planBoard = {
    * a board that filled the name in with a guess would be naming the wrong person.
    */
   changedAnon: "Someone else saved · Reload",
-  /** A van is over its own counts and the save asks first (§1.3 "Over capacity"). */
-  overConfirm: "{van} is over. Save anyway?",
   overChip: "Full",
   undo: "Undo",
   /** The dashed target inside an empty van column. */

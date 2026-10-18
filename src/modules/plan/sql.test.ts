@@ -231,24 +231,28 @@ describe("ops.plan_run + ops.plan_assignment", () => {
 });
 
 describe("the day's other facts", () => {
-  it("reads the day the demo is started on, and who is away", async () => {
+  it("reads the day the demo is started on", async () => {
     const context = await store.dayContext(SITE, TODAY);
     // The seed rewinds the scenario clock to 06:00 on the day it was run for: that is the started day.
     expect(context.startedDate).toBe(TODAY);
-    expect(context.absentTokens).toEqual([]);
     expect(context.vansOut).toBe(0);
     expect(context.approvalsWaiting).toBe(0);
   });
 
-  it("counts a child with a full-day exception as away on that date", async () => {
+  /**
+   * Veri F5, 2026-10-17: there is **one** source of "who is away", and it is this leg's plan.
+   * A full-day `ops.attendance_exception` row used to be read into the day's context and is not
+   * read by anything now — a second source is a second answer, and the board can only show one.
+   */
+  it("does not read attendance_exception: absence is a placement on the plan", async () => {
     await db.query(
       `INSERT INTO ops.attendance_exception (id, site_id, child_token, service_date, scope, created_by, updated_by)
-       VALUES ('01900000-0000-7000-8000-00000000fe03', $1, $2, $3::date, 'FULL_DAY', 'test', 'test')`,
+       VALUES ('01900000-0000-7000-8000-00000000fe03', $1, $2, $3::date, 'FULL_DAY', 'test', 'test')
+       ON CONFLICT (id) DO NOTHING`,
       [SITE, childTokenOf("C9"), TODAY],
     );
     const context = await store.dayContext(SITE, TODAY);
-    expect(context.absentTokens).toEqual([childTokenOf("C9")]);
-    // And not on another date.
-    expect((await store.dayContext(SITE, "2026-10-14")).absentTokens).toEqual([]);
+    expect(context).not.toHaveProperty("absentTokens");
+    expect(Object.keys(context).sort()).toEqual(["approvalsWaiting", "startedDate", "vansOut"]);
   });
 });
