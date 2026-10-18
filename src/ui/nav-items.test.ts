@@ -191,7 +191,13 @@ describe("the menu lists only screens that work", () => {
       // ...and the list is the menu narrowed by the access table, nothing else.
       expect(theirs).toEqual(menuItems.filter((item) => theirs.includes(item)));
     }
+    /*
+     * Two, and the phone render that shows five tabs is a director's phone (Vera, 2026-10-17
+     * 8:46 PM ET — png/live-map-390.png). The menu is the access table narrowed, so a mockup
+     * cannot widen it: Today is not on this list because `/today` is not in their row.
+     */
     expect(navItemsFor("FRONT_DESK").map((i) => i.href)).toEqual(["/live-map", "/ramp-ipad"]);
+    expect(navItemsFor("FRONT_DESK").map((i) => i.href)).not.toContain("/today");
     expect(navItemsFor(null)).toEqual([]);
   });
 

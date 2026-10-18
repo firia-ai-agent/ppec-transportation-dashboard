@@ -56,6 +56,41 @@ describe("the store", () => {
   });
 });
 
+/**
+ * WHAT THE BAR READS, against the founder's own live map renders (png/live-map.png and
+ * png/live-map-390.png): `… 3:24 PM [Restart demo day]`. A bare time, at the trailing end,
+ * immediately before the reset — no "Scenario clock" label, no "ET", no chip around it.
+ */
+describe("the readout matches the mockup", () => {
+  /** The visible text is the time and nothing else. */
+  it("draws the time alone, with the sentence kept for the ear", () => {
+    const html = render("DIRECTOR");
+    const visible = html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+    expect(visible).toMatch(/\d{1,2}:\d{2} (AM|PM)/);
+    expect(visible, "the label is back on the screen").not.toContain("Scenario clock");
+    expect(visible, "the timezone is back on the screen").not.toMatch(/\bET\b/);
+    // ...and the whole sentence is the accessible name, where a loose time would say nothing.
+    expect(html).toMatch(/aria-label="Scenario clock \d{1,2}:\d{2} (AM|PM) ET"/);
+  });
+
+  /**
+   * The time is the last thing in the clock's box, so the next thing on the bar is the reset —
+   * which is the order both renders draw. The §6.2 controls sit to the left of the readout.
+   */
+  it("puts the controls before the time, so the time is beside Restart demo day", () => {
+    const html = render("DIRECTOR");
+    expect(html.indexOf(liveMap.restart)).toBeLessThan(html.lastIndexOf("aria-label=\"Scenario"));
+    expect(html.trimEnd().endsWith("</span></div>")).toBe(true);
+  });
+
+  /** A role without the controls gets the time on its own, which is the mockup exactly. */
+  it("is the time on its own for a role that holds no controls", () => {
+    const html = render("FRONT_DESK");
+    expect(html).not.toContain(liveMap.pause);
+    expect(html.replace(/<[^>]*>/g, "").trim()).toMatch(/^\d{1,2}:\d{2} (AM|PM)$/);
+  });
+});
+
 describe("where the clock is drawn", () => {
   it("is on the live map, which is the screen it moves", () => {
     const html = render("DIRECTOR");

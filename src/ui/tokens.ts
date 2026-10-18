@@ -84,6 +84,16 @@ export const color = {
    */
   "info-fg": "#115E59",
   "info-bg": "#CCFBF1",
+  /**
+   * AMBER, and the one place a step is "saved but not finished".
+   *
+   * §3's warn tone carries every "needs a person soon" state, and since Vera's 8:46 PM ET rules
+   * (2026-10-17) it also carries the step strip's `Saved · 2 unplaced` — a board that exists
+   * with a child still on the bench. That card must not be green and must not be red: nothing
+   * is broken and nobody is stranded yet, somebody simply has no ride. The pair is 6.38:1 as a
+   * chip and 6.85:1 on the page, and it is read from here by every chip in the app
+   * (src/ui/Pill.module.css) — a second amber written down somewhere else is a finding.
+   */
   "warn-fg": "#854D0E",
   "warn-bg": "#FEF9C3",
   "crit-fg": "#991B1B",

@@ -23,6 +23,7 @@ function day(over: Partial<DayFacts> = {}) {
     vans: 3,
     vansChecked: 0,
     planSavedAt: null,
+    planUnplaced: null,
     ...over,
   });
 }
@@ -30,7 +31,17 @@ function day(over: Partial<DayFacts> = {}) {
 /** A day with nothing done on it — the fresh day, and what a shell with no database shows. */
 const FRESH = deriveReadiness(unreadFacts(DATE, "PM"));
 /** A day whose plan is saved, so the live map is unlocked and opens itself. */
-const PLANNED = day({ vansChecked: 3, planSavedAt: new Date("2026-10-17T18:41:00Z") });
+const PLANNED = day({
+  vansChecked: 3,
+  planSavedAt: new Date("2026-10-17T18:41:00Z"),
+  planUnplaced: 0,
+});
+/** The same day, saved with two children still on the bench: saved, and not finished. */
+const PLANNED_WITH_UNPLACED = day({
+  vansChecked: 3,
+  planSavedAt: new Date("2026-10-17T18:41:00Z"),
+  planUnplaced: 2,
+});
 
 const byKey = (steps: readonly StripStep[], key: StepKey): StripStep =>
   steps.find((step) => step.key === key)!;
@@ -66,6 +77,58 @@ describe("what each card says", () => {
     // The minute in centre time, the way every other time on the console is written.
     expect(saved.detail).toBe(`Saved ${siteTimeLabel(new Date("2026-10-17T18:41:00Z"))}`);
     expect(saved.detail).toMatch(/^Saved \d{1,2}:\d{2} (AM|PM)$/);
+  });
+
+  /**
+   * A BOARD SAVED WITH SOMEBODY ON THE BENCH (Vera, 2026-10-17 8:46 PM ET): the card says how
+   * many and stays Needed, which is the amber chip — `STATE_MARKS` in src/ui/StepStrip.tsx maps
+   * Needed to the warn tone, and src/ui/tokens.ts is the only place that amber is written down.
+   */
+  it("says how many are unplaced when a saved plan left somebody off it", () => {
+    const plan = byKey(stepsFor("DIRECTOR", PLANNED_WITH_UNPLACED), "plan");
+    expect(plan.detail).toBe("Saved · 2 unplaced");
+    expect(plan.state).toBe("NEEDED");
+    // Not a tick, and not the minute either: the number is the work left.
+    expect(plan.detail).not.toMatch(/\d{1,2}:\d{2}/);
+  });
+
+  it("says one of them for one, with no sentence built around it", () => {
+    const one = day({ planSavedAt: new Date("2026-10-17T18:41:00Z"), planUnplaced: 1 });
+    expect(byKey(stepsFor("DIRECTOR", one), "plan").detail).toBe("Saved · 1 unplaced");
+  });
+
+  /**
+   * And when the bench could not be counted: the card says the one thing that is known — the
+   * minute it was saved at — and the chip still says Needed. A count that failed must never be
+   * allowed to look like a board with everybody placed.
+   */
+  it("falls back to the minute, still Needed, when the bench is unreadable", () => {
+    const unknown = day({ planSavedAt: new Date("2026-10-17T18:41:00Z"), planUnplaced: null });
+    const plan = byKey(stepsFor("DIRECTOR", unknown), "plan");
+    expect(plan.state).toBe("NEEDED");
+    expect(plan.detail).toBe(`Saved ${siteTimeLabel(new Date("2026-10-17T18:41:00Z"))}`);
+  });
+
+  /**
+   * THE LIVE MAP UNLOCKS ANYWAY. §9.1's hard arrow is about a plan *existing*; a child on the
+   * bench does not take the vans off the road, so the map opens and the plan card is the one
+   * carrying the unfinished work.
+   */
+  it("unlocks the live map on a saved plan that still has children unplaced", () => {
+    const live = byKey(stepsFor("DIRECTOR", PLANNED_WITH_UNPLACED), "live");
+    expect(live.state).toBe("NEEDED");
+    expect(live.detail).toBe(flow.detail.liveNeeded);
+    expect(live.href).toBe("/live-map");
+    expect(live.linked).toBe(true);
+  });
+
+  /** The step to do next is then the plan, not the map: the first card that is not Done. */
+  it("marks the plan as the step to do next while somebody is unplaced", () => {
+    expect(
+      stepsFor("DIRECTOR", PLANNED_WITH_UNPLACED)
+        .filter((step) => step.current)
+        .map((step) => step.key),
+    ).toEqual(["plan"]);
   });
 
   it("says what the live map is waiting for, and what it is waiting at", () => {

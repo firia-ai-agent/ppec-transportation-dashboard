@@ -51,6 +51,14 @@ export type DayFacts = {
   vansChecked: number;
   /** When a plan was saved for this date and leg, or null when none was. */
   planSavedAt: Date | null;
+  /**
+   * How many children on that saved plan are still in the `UNASSIGNED` bucket — nobody's van.
+   *
+   * `null` is "the plan is there and this could not be read", which is a third answer and not a
+   * zero: a count that failed must never be allowed to look like a plan with everybody placed.
+   * It is `null` as well when there is no plan at all, because there is then nothing to count.
+   */
+  planUnplaced: number | null;
 };
 
 export type DayReadiness = {
@@ -58,14 +66,20 @@ export type DayReadiness = {
   leg: Leg;
   /** Never Locked: §9.1 makes Van setup → Plan routes a *soft* arrow, so it never blocks. */
   setup: { state: "DONE" | "NEEDED"; checked: number; total: number };
-  plan: { state: "DONE" | "NEEDED"; savedAt: Date | null };
+  /**
+   * `savedAt` is the minute a plan exists from; `unplaced` is how many children it left in
+   * nobody's van, `null` when there is no plan or the count could not be read. A plan is Done
+   * only at `unplaced === 0`: saving a board with a child on the bench is a step that is not
+   * finished, and the card says so in amber rather than ticking.
+   */
+  plan: { state: "DONE" | "NEEDED"; savedAt: Date | null; unplaced: number | null };
   /** §9.1's one hard arrow in this slice: no saved plan for this leg, no live map. */
   live: { state: "NEEDED" | "LOCKED"; blockedBy: "PLAN" | null };
 };
 
 /** The day as it reads when nothing could be read: the fail-safe every caller falls back to. */
 export function unreadFacts(date: string, leg: Leg): DayFacts {
-  return { date, leg, read: false, vans: 0, vansChecked: 0, planSavedAt: null };
+  return { date, leg, read: false, vans: 0, vansChecked: 0, planSavedAt: null, planUnplaced: null };
 }
 
 /**
@@ -74,11 +88,17 @@ export function unreadFacts(date: string, leg: Leg): DayFacts {
  *  - **Van setup** is Done only when there are vans and every one of them has today's `CHECKED`
  *    row. Zero vans is Needed, not Done: "0/0 checked" is a site with no vans in it (§9.3 gives
  *    that its own empty state), and a tick beside it would be congratulating nobody.
- *  - **Plan routes** is Done when a `plan_run` exists for this date and leg. The minute it was
- *    saved at rides along, because the card says it ("Saved 2:41 PM", §9.5).
+ *  - **Plan routes** is Done when a `plan_run` exists for this date and leg **and nobody is
+ *    left on the bench**. A board saved with a child still in `UNASSIGNED` is a step that is not
+ *    finished — somebody has no ride — so the card stays Needed and says how many
+ *    ("Saved · 2 unplaced", §9.5), which is the amber tone rather than the tick. A count that
+ *    could not be read is `null` and is also not Done: the fail-safe is "we do not know", never
+ *    "everybody is placed" (Vera, 2026-10-17 8:46 PM ET).
  *  - **Live map** is Locked until that plan exists — §9.1's hard arrow, "no saved plan = no
- *    routes, no ETAs" — and Needed once it does. It is never Done, because watching is not a
- *    thing that finishes.
+ *    routes, no ETAs" — and Needed once it does. It unlocks on the plan being **saved**, not on
+ *    Plan routes being Done: a day with one child unplaced still has routes, ETAs and vans to
+ *    watch, and locking the map over it would hide the day from the person running it. It is
+ *    never Done, because watching is not a thing that finishes.
  */
 export function deriveReadiness(facts: DayFacts): DayReadiness {
   const checked = facts.read ? facts.vansChecked : 0;
@@ -86,14 +106,17 @@ export function deriveReadiness(facts: DayFacts): DayReadiness {
   const setupDone = facts.read && total > 0 && checked === total;
 
   const savedAt = facts.read ? facts.planSavedAt : null;
-  const planDone = savedAt !== null;
+  const planSaved = savedAt !== null;
+  // No plan, no count: `unplaced` is about the children on a board that exists.
+  const unplaced = planSaved && facts.read ? facts.planUnplaced : null;
+  const planDone = planSaved && unplaced === 0;
 
   return {
     date: facts.date,
     leg: facts.leg,
     setup: { state: setupDone ? "DONE" : "NEEDED", checked, total },
-    plan: { state: planDone ? "DONE" : "NEEDED", savedAt },
-    live: planDone
+    plan: { state: planDone ? "DONE" : "NEEDED", savedAt, unplaced },
+    live: planSaved
       ? { state: "NEEDED", blockedBy: null }
       : { state: "LOCKED", blockedBy: "PLAN" },
   };

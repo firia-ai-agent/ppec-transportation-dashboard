@@ -143,6 +143,14 @@ export const flow = {
   detail: {
     setup: "{checked}/{total} checked",
     planSaved: "Saved {time}",
+    /**
+     * A board that is saved with somebody still on the bench (Vera, 2026-10-17 8:46 PM ET).
+     *
+     * It says the number because the number is the work left: "Saved · 2 unplaced" is two
+     * children with no ride, and the card stays amber until it is none. It is one string for
+     * one and for many — "1 unplaced" is the count and the word, not a sentence needing a verb.
+     */
+    planUnplaced: "Saved · {count} unplaced",
     planNone: "Not saved",
     liveLocked: "Plan first",
     liveNeeded: "Not started",

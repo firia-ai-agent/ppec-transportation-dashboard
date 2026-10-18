@@ -178,7 +178,12 @@ export function isCurrent(pathname: string, href: string): boolean {
  *  - FRONT_DESK — the ramp iPad (PRD §6.2, ARCHITECTURE §1: their own surface) and the live
  *    map, whose row is all staff because a person at the door needs to see where the vans
  *    are; the per-key matrix in src/domain/access/map-view.ts then withholds the family labels
- *    and the notification queue from them. No console destination, which is correct.
+ *    and the notification queue from them. No console destination, which is correct — and it
+ *    stays that way even though the founder's phone render draws a five-tab bar with Today on
+ *    it (png/live-map-390.png): that render is a *director's* phone. Vera, 2026-10-17 8:46 PM
+ *    ET: the front desk's menu is Live map and Ramp iPad, from the access table as it stands.
+ *    Their bar is two tabs because their row opens two pages, so a mockup cannot widen it —
+ *    only `access.ts` can, and nothing in this PR touches it.
  *  - `null` (signed in, no membership anywhere) — nothing.
  *
  * This is a courtesy, not a guard. Every page checks the server again, and guard-matrix.test.ts

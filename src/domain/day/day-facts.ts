@@ -7,10 +7,12 @@
  * needs a connection — and because the step strip imports the *types* from `readiness.ts`, which
  * a client bundle must be able to do without dragging `pg` along with them.
  *
- * **Read-only, and two statements.** Both are `SELECT`s against tables migration 0009 already
- * created (`ops.vehicle_setup_day`, `ops.plan_run`); nothing here inserts, updates or migrates,
- * and no seed is run to make them answer. If they are empty, the honest answer is the one the
- * strip shows: nothing is checked and nothing is saved.
+ * **Read-only, and three statements.** All three are `SELECT`s against tables migration 0009
+ * already created (`ops.vehicle_setup_day`, `ops.plan_run`, `ops.plan_assignment`); nothing here
+ * inserts, updates or migrates, and no seed is run to make them answer. If they are empty, the
+ * honest answer is the one the strip shows: nothing is checked and nothing is saved. The third
+ * read only runs when there is a plan to count children on, and its failure is contained — see
+ * `countUnplaced`.
  *
  * **It never throws at the page.** A module that fails must not blank the shell (§9.4), so a
  * missing site, an absent database and a query that raises all land on the same answer —
@@ -69,11 +71,30 @@ const VANS_CHECKED = `
  * `plan_run` is unique on those three columns, so one row is all there can be.
  */
 const PLAN_SAVED = `
-  SELECT saved_at FROM ops.plan_run
+  SELECT id, saved_at FROM ops.plan_run
    WHERE site_id = $1 AND service_date = $2::date AND direction::text = $3
    LIMIT 1`;
 
-/** The two reads, as the facts `deriveReadiness` takes. Throws nothing: see `getDayReadiness`. */
+/**
+ * How many children that saved board left in nobody's van.
+ *
+ * `plan_assignment` holds one row per child per plan and `bucket` says where they are: a van, a
+ * family driving them, away today, or `UNASSIGNED` — the bench. The bench is the only one that
+ * means "this child has no ride", so it is the only one counted, and the count is what keeps
+ * Plan routes off Done while somebody is on it (§9.5, Vera 2026-10-17 8:46 PM ET).
+ *
+ * Scoped by the site as well as the plan, like every other read in this app: the plan id comes
+ * from a row that was already filtered by site, and asking for both means a plan id from
+ * somewhere else cannot be used to count another centre's children (DATA-MODEL §5).
+ *
+ * `bucket` is plain text with a check constraint rather than an enum (src/db/schema.ts), so the
+ * literal is compared as text and this read works on both executors the app has.
+ */
+const PLAN_UNPLACED = `
+  SELECT count(*)::int AS unplaced FROM ops.plan_assignment
+   WHERE plan_run_id = $1 AND site_id = $2 AND bucket = 'UNASSIGNED'`;
+
+/** The reads, as the facts `deriveReadiness` takes. Throws nothing: see `getDayReadiness`. */
 export async function readDayFacts(
   exec: Exec,
   siteId: string,
@@ -81,16 +102,40 @@ export async function readDayFacts(
   leg: Leg,
 ): Promise<DayFacts> {
   const vans = await exec.query<{ vans: number; checked: number }>(VANS_CHECKED, [siteId, date]);
-  const plan = await exec.query<{ saved_at: Date | string }>(PLAN_SAVED, [siteId, date, leg]);
-  const savedAt = plan.rows[0]?.saved_at;
+  const plan = await exec.query<{ id: string; saved_at: Date | string }>(PLAN_SAVED, [
+    siteId,
+    date,
+    leg,
+  ]);
+  const saved = plan.rows[0];
   return {
     date,
     leg,
     read: true,
     vans: Number(vans.rows[0]?.vans ?? 0),
     vansChecked: Number(vans.rows[0]?.checked ?? 0),
-    planSavedAt: savedAt == null ? null : new Date(savedAt),
+    planSavedAt: saved?.saved_at == null ? null : new Date(saved.saved_at),
+    planUnplaced: saved ? await countUnplaced(exec, saved.id, siteId) : null,
   };
+}
+
+/**
+ * The bench count, or `null` when it could not be read.
+ *
+ * Its own try/catch, and that is the whole point of it: if this one read fails we still know a
+ * plan was saved, so the live map stays unlocked (§9.1 — it unlocks on the plan existing) while
+ * Plan routes falls back to "not Done" rather than to a tick nobody checked. A failure here is
+ * never allowed to look like a board with everybody placed, and it is never allowed to take the
+ * two reads above down with it.
+ */
+async function countUnplaced(exec: Exec, planRunId: string, siteId: string): Promise<number | null> {
+  try {
+    const rows = await exec.query<{ unplaced: number }>(PLAN_UNPLACED, [planRunId, siteId]);
+    const count = Number(rows.rows[0]?.unplaced ?? 0);
+    return Number.isFinite(count) ? count : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

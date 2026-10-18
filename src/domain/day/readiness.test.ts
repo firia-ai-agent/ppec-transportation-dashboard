@@ -16,7 +16,16 @@ import { legAt, serviceDateAt } from "./day-facts";
 const DATE = "2026-10-17";
 
 function facts(over: Partial<DayFacts> = {}): DayFacts {
-  return { date: DATE, leg: "PM", read: true, vans: 3, vansChecked: 0, planSavedAt: null, ...over };
+  return {
+    date: DATE,
+    leg: "PM",
+    read: true,
+    vans: 3,
+    vansChecked: 0,
+    planSavedAt: null,
+    planUnplaced: null,
+    ...over,
+  };
 }
 
 describe("van setup", () => {
@@ -52,18 +61,59 @@ describe("van setup", () => {
   });
 });
 
+/**
+ * PLAN ROUTES, and the rule Vera added on 2026-10-17 at 8:46 PM ET: a board that is saved is
+ * not a board that is *finished*. A child still in the `UNASSIGNED` bucket has no ride, so the
+ * step stays Needed and says how many — which is the amber card rather than the tick.
+ */
 describe("plan routes", () => {
-  it("is Needed with no saved plan for this leg", () => {
-    const day = deriveReadiness(facts({ planSavedAt: null }));
+  const SAVED_AT = new Date("2026-10-17T18:41:00Z");
+
+  it("is Needed with no saved plan for this leg, and counts nobody", () => {
+    const day = deriveReadiness(facts({ planSavedAt: null, planUnplaced: 0 }));
     expect(day.plan.state).toBe("NEEDED");
     expect(day.plan.savedAt).toBeNull();
+    // No plan, no count: `unplaced` is about the children on a board that exists.
+    expect(day.plan.unplaced).toBeNull();
   });
 
-  it("is Done once a plan is saved, and carries the minute it was saved at", () => {
-    const at = new Date("2026-10-17T18:41:00Z");
-    const day = deriveReadiness(facts({ planSavedAt: at }));
+  it("is Done once a plan is saved with everybody placed, and carries the minute", () => {
+    const day = deriveReadiness(facts({ planSavedAt: SAVED_AT, planUnplaced: 0 }));
     expect(day.plan.state).toBe("DONE");
-    expect(day.plan.savedAt).toEqual(at);
+    expect(day.plan.savedAt).toEqual(SAVED_AT);
+    expect(day.plan.unplaced).toBe(0);
+  });
+
+  it.each([1, 2, 7])("is Needed when the saved plan left %i on the bench", (unplaced) => {
+    const day = deriveReadiness(facts({ planSavedAt: SAVED_AT, planUnplaced: unplaced }));
+    expect(day.plan.state).toBe("NEEDED");
+    // ...and it still knows the plan is there, and how many are not on it.
+    expect(day.plan.savedAt).toEqual(SAVED_AT);
+    expect(day.plan.unplaced).toBe(unplaced);
+  });
+
+  /**
+   * THE FAIL-SAFE ON THE COUNT. A bench count that could not be read is `null`, and `null` is
+   * not zero: the one answer that must never fall out of a failed read is "everybody is
+   * placed", because that is the one that ticks the card.
+   */
+  it("is Needed when the plan is saved and the bench could not be counted", () => {
+    const day = deriveReadiness(facts({ planSavedAt: SAVED_AT, planUnplaced: null }));
+    expect(day.plan.state).toBe("NEEDED");
+    expect(day.plan.savedAt).toEqual(SAVED_AT);
+    expect(day.plan.unplaced).toBeNull();
+  });
+
+  it("is Done for exactly one of the four, and it is the one with an empty bench", () => {
+    const states = [null, 0, 2, undefined].map((unplaced) =>
+      deriveReadiness(
+        facts({
+          planSavedAt: unplaced === undefined ? null : SAVED_AT,
+          planUnplaced: unplaced === undefined ? null : unplaced,
+        }),
+      ).plan.state,
+    );
+    expect(states).toEqual(["NEEDED", "DONE", "NEEDED", "NEEDED"]);
   });
 
   it("answers for the leg it was asked about, and says which that was", () => {
@@ -82,10 +132,26 @@ describe("live map", () => {
   });
 
   it("unlocks to Needed the moment a plan exists, however little else does", () => {
-    const day = deriveReadiness(facts({ vansChecked: 0, planSavedAt: new Date() }));
+    const day = deriveReadiness(facts({ vansChecked: 0, planSavedAt: new Date(), planUnplaced: 0 }));
     expect(day.live.state).toBe("NEEDED");
     expect(day.live.blockedBy).toBeNull();
   });
+
+  /**
+   * IT UNLOCKS ON SAVED, NOT ON DONE (Vera, 2026-10-17 8:46 PM ET). A board with one child on
+   * the bench still has routes, ETAs and vans on the road: locking the map over it would hide
+   * the day from the person running it, and the thing that is unfinished is said on the card
+   * that is unfinished.
+   */
+  it.each([1, 5, null] as const)(
+    "unlocks with a saved plan even when the bench reads %s",
+    (unplaced) => {
+      const day = deriveReadiness(facts({ planSavedAt: new Date(), planUnplaced: unplaced }));
+      expect(day.plan.state, "the plan card is the one that says it is unfinished").toBe("NEEDED");
+      expect(day.live.state).toBe("NEEDED");
+      expect(day.live.blockedBy).toBeNull();
+    },
+  );
 
   /**
    * §9.2 draws a fourth state, `Running`, for a live map with vans moving on it. Nothing in this
@@ -94,7 +160,12 @@ describe("live map", () => {
    * have it. It lands with the fact that would back it.
    */
   it("is never Running, because no fact in this build says a van has moved", () => {
-    const every = [facts(), facts({ planSavedAt: new Date() }), unreadFacts(DATE, "PM")];
+    const every = [
+      facts(),
+      facts({ planSavedAt: new Date(), planUnplaced: 0 }),
+      facts({ planSavedAt: new Date(), planUnplaced: 3 }),
+      unreadFacts(DATE, "PM"),
+    ];
     for (const f of every) expect(String(deriveReadiness(f).live.state)).not.toBe("RUNNING");
   });
 });
@@ -115,6 +186,7 @@ describe("a day that could not be read", () => {
   it("counts nothing rather than counting what it did not read", () => {
     expect(unread.setup).toMatchObject({ checked: 0, total: 0 });
     expect(unread.plan.savedAt).toBeNull();
+    expect(unread.plan.unplaced).toBeNull();
   });
 
   /** Even handed counts, an unread day reports none: `read: false` is the whole answer. */
@@ -126,9 +198,10 @@ describe("a day that could not be read", () => {
       vans: 3,
       vansChecked: 3,
       planSavedAt: new Date(),
+      planUnplaced: 0,
     });
     expect(day.setup).toMatchObject({ state: "NEEDED", checked: 0, total: 0 });
-    expect(day.plan.state).toBe("NEEDED");
+    expect(day.plan).toMatchObject({ state: "NEEDED", savedAt: null, unplaced: null });
     expect(day.live.state).toBe("LOCKED");
   });
 

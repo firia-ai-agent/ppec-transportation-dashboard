@@ -25,6 +25,12 @@ import styles from "./DemoClock.module.css";
  * the screen whose content it moves, and a time ticking over a page it does not touch is a
  * readout nobody can act on. `usePathname` is how a component in the root layout knows.
  *
+ * **What it reads, and where it sits**, measured against the founder's own live map renders
+ * (png/live-map.png, png/live-map-390.png): the bare time — "3:24 PM" — at the trailing end of
+ * the bar, immediately before "Restart demo day", at both widths. No label, no timezone, no
+ * chip around it. The accessible name is still the whole sentence, because the ear does not get
+ * the violet bar that makes a loose time obvious.
+ *
  * **The controls are a demo control (§6.2), the readout is not.** So Pause, the three speeds and
  * Restart are drawn only for a role that holds `clockControls` in the map matrix
  * (src/domain/access/map-view.ts) — the same condition that drew them on the map — and the time
@@ -36,9 +42,15 @@ export function DemoClock({ role }: { role: StaffRole | null }) {
   const viewer = role ?? "ANONYMOUS";
   if (pathname !== "/live-map") return null;
   const nowMs = SCENARIO_START_MS + seconds * 1000;
+  const time = formatClock(nowMs);
   return (
     <div className={styles.clock} data-demo-clock>
-      <span className={styles.time}>{fill(liveMap.clock, { time: formatClock(nowMs) })}</span>
+      {/*
+        THE CONTROLS COME FIRST, SO THE TIME IS THE THING BESIDE THE RESET. The mockups draw
+        `… 3:24 PM [Restart demo day]` at both widths (png/live-map.png, png/live-map-390.png),
+        and a row of speed buttons between the two would be a different bar. §6.2's controls are
+        still here for the role that holds them; they sit to the left of the readout they steer.
+      */}
       {canSeeMapData(viewer, "clockControls") ? (
         <>
           <button type="button" className={styles.button} onClick={() => demoClock.toggle()}>
@@ -61,6 +73,16 @@ export function DemoClock({ role }: { role: StaffRole | null }) {
           </button>
         </>
       ) : null}
+      {/*
+        THE READOUT IS THE TIME AND NOTHING ELSE — "3:24 PM", as both mockups draw it. It used
+        to read "Scenario clock 7:30 AM ET", which is a label, a time and a timezone where the
+        founder's bar has a clock. The sentence is kept for the ear, where there is no violet
+        bar to make the context obvious: a bare time announced on its own says nothing about
+        what is moving (§9).
+      */}
+      <span className={styles.time} aria-label={fill(liveMap.clock, { time })}>
+        <span aria-hidden="true">{time}</span>
+      </span>
     </div>
   );
 }

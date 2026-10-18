@@ -127,9 +127,19 @@ function detailFor(key: StepKey, state: StepState, readiness: DayReadiness): str
     });
   }
   if (key === "plan") {
-    return readiness.plan.savedAt
-      ? fill(flow.detail.planSaved, { time: siteTimeLabel(readiness.plan.savedAt) })
-      : flow.detail.planNone;
+    const { savedAt, unplaced } = readiness.plan;
+    if (!savedAt) return flow.detail.planNone;
+    /*
+     * A board saved with children on the bench says how many, and the card is Needed rather than
+     * Done (src/domain/day/readiness.ts): somebody has no ride, which is work left whatever the
+     * clock says. `unplaced` is null when the count could not be read — the line then says the
+     * one thing that *is* known, the minute it was saved at, and the amber chip beside it says
+     * the step is not finished rather than claiming a board nobody counted is complete.
+     */
+    if (unplaced !== null && unplaced > 0) {
+      return fill(flow.detail.planUnplaced, { count: unplaced });
+    }
+    return fill(flow.detail.planSaved, { time: siteTimeLabel(savedAt) });
   }
   return state === "LOCKED" ? flow.detail.liveLocked : flow.detail.liveNeeded;
 }
