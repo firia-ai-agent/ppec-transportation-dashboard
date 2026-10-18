@@ -36,6 +36,7 @@ import { resolveScopeTokens, type ScopeTokens } from "./scope-tokens";
 import type { ContextAssembler } from "./context";
 import type { ProposalWriter } from "./exec/proposals";
 import type { ExecutorCall, ToolExecution, ToolExecutors } from "./executors";
+import type { ToolEffect } from "../tools";
 import {
   AgentRunError,
   type CommittedCall,
@@ -680,9 +681,12 @@ async function fail(
  *
  *  1. **Somebody has to be waiting.** A timer, a sweeper or a reconciliation run has nobody on
  *     the other end of it — the same test `modelDown` makes — so those fail quietly as before.
- *  2. **The run must have produced nothing.** A run that wrote a proposal before a later step
- *     failed has already put a decision in front of a coordinator; a second card saying nobody
- *     answered would be the screen contradicting the card beside it.
+ *  2. **The run must have produced nothing.** A run that proposed a change has put a decision in
+ *     front of a coordinator, and a run that executed a `mutate` or a `send` has moved a ride or
+ *     answered the family itself; a card saying nobody answered beside either of those would be
+ *     the board contradicting the row next to it. A `read` is not producing anything — a run that
+ *     looked the leg up and then failed has answered nobody — which is why this asks the policy
+ *     decision each committed call was settled with rather than counting rows.
  *  3. **It must not take the run down with it.** The alert is a courtesy on top of the failure,
  *     never a reason the failure cannot be recorded, so the write is caught and dropped.
  *
@@ -692,7 +696,7 @@ async function fail(
 async function alertUnanswered(deps: RunDeps, run: RunRow): Promise<void> {
   if (run.trigger.type !== "msg.inbound" && run.trigger.type !== "staff.ask") return;
   try {
-    if (await hasProposal(deps.db, run.id)) return;
+    if (await producedSomething(deps.db, run.id)) return;
     if (run.trigger.type === "msg.inbound") {
       await raiseModelUnavailableAlert(deps.db, {
         siteId: run.trigger.siteId,
@@ -713,14 +717,26 @@ async function alertUnanswered(deps: RunDeps, run: RunRow): Promise<void> {
   }
 }
 
-/** Did this run put a decision in front of a person? One PROPOSED call row is enough. */
-async function hasProposal(db: Db, runId: string): Promise<boolean> {
+/**
+ * Did this run produce anything for the person waiting?
+ *
+ * A PROPOSED call is a decision on the board. An EXECUTED call is only an answer if it *did*
+ * something — `decisionLabel` writes `ALLOW:<effect>`, so a committed `ALLOW:read` is the run
+ * having looked something up and nothing more. The read exclusion is the difference between "the
+ * agent dealt with this" and "the agent got as far as a query".
+ */
+async function producedSomething(db: Db, runId: string): Promise<boolean> {
   const r = await db.query<{ n: string }>(
-    `SELECT count(*)::text AS n FROM ops.agent_tool_call WHERE run_id = $1 AND status = 'PROPOSED'`,
-    [runId],
+    `SELECT count(*)::text AS n FROM ops.agent_tool_call
+      WHERE run_id = $1
+        AND (status = 'PROPOSED' OR (status = 'EXECUTED' AND policy_decision <> $2))`,
+    [runId, `ALLOW:${READ_EFFECT}`],
   );
   return Number(r.rows[0]?.n ?? 0) > 0;
 }
+
+/** `tools.ToolEffect`'s read, named once so the SQL above and the label agree. */
+const READ_EFFECT: ToolEffect = "read";
 
 /**
  * No model could be reached: log one non-secret line, raise one staff alert, and fail the run.

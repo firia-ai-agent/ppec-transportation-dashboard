@@ -49,6 +49,7 @@ import {
 } from "./proposals";
 import { DROPOFF_REPLY_TEMPLATE } from "@/modules/approvals/dropoff-change";
 import { CLOSE_REFUSED_OPEN, THREAD_NOTE_TASK_CATEGORY } from "./staff";
+import { MODEL_UNAVAILABLE_CATEGORY } from "../../staff-alert";
 import { type LiveHarness, liveHarness } from "./live-harness";
 
 let pg: PGlite;
@@ -478,7 +479,18 @@ describe("§11.2 summarize_thread_for_staff: a staff-only note, and nothing else
     expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
       error_code: "NOT_FOUND", object: "conversation_thread",
     });
-    expect(await tasks()).toEqual([]);
+    // No NOTE, which is what this case is about: nothing about another site's thread is written.
+    expect((await tasks()).map((t) => t.category)).not.toContain(THREAD_NOTE_TASK_CATEGORY);
+    /*
+     * What IS written is the "needs a person" card, and it is not this case's doing: the trigger
+     * is a family's inbound text, the run ended FAILED, and nothing was proposed or changed — so
+     * the family is sitting there unanswered and `run/loop.ts` says so on the board (Vera 3a,
+     * 2026-10-18). It carries no word of the refused thread: the class, and the *triggering*
+     * message's own locator.
+     */
+    const [card] = await tasks();
+    expect([card.category, card.severity]).toEqual([MODEL_UNAVAILABLE_CATEGORY, "RED"]);
+    expect(JSON.stringify(card)).not.toContain(other);
   });
 
   it("the same note driven twice is one row, and the agent cannot close it", async () => {

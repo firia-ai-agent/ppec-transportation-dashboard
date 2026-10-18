@@ -42,6 +42,7 @@ import type { ProviderResponseBody } from "../../providers/provider";
 import type { TierFacts } from "../context";
 import { toolCalls } from "../store";
 import { policyTaskId } from "../tasks";
+import { MODEL_UNAVAILABLE_CATEGORY } from "../../staff-alert";
 import type { Trigger } from "../triggers";
 import { type LiveHarness, liveHarness } from "./live-harness";
 
@@ -216,7 +217,16 @@ describe("F1 a pause that lands between the persist and the resume", () => {
     // And the refusal is a task a coordinator can act on (AGT-02), not just a log line.
     const tasks = await db.query<{ category: string; severity: string }>(
       "SELECT category, severity FROM ops.task", []);
-    expect(tasks.rows).toHaveLength(1);
+    const categories = tasks.rows.map((t) => t.category);
+    expect(categories).toContain("AGENT_POLICY_STAFF_REVIEW");
+    /*
+     * Beside it, since Vera 3a (2026-10-18): the "needs a person" card. This run was a family's
+     * own text, it ended FAILED, and it proposed nothing and changed nothing — so that family is
+     * sitting unanswered, and the board says so rather than leaving For you empty. Two rows, and
+     * they are two different facts: what the agent refused, and who is still waiting.
+     */
+    expect(categories).toContain(MODEL_UNAVAILABLE_CATEGORY);
+    expect(tasks.rows).toHaveLength(2);
   });
 
   it("still lets a paused run say why it stopped: escalate_exception is always allowed", async () => {
