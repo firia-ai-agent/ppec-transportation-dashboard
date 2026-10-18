@@ -248,6 +248,9 @@ describe("a waiting proposal, with the card the shell read, is the Family texts 
     pickupLabel: "Dara O.",
     checks: [],
     draftText: "PPEC: Hi Dara, yes, we can drop Noah off at 5 today.",
+    // The sentence inside the body, which is what the Edit field holds (PPE-97). The bubble's own
+    // card has no Edit state — Edit there is a link to Family texts — so nothing here renders it.
+    draftReplyText: "Hi Dara, yes, we can drop Noah off at 5 today.",
     requestedHhmm: "17:00",
     alertText: "Dara asked to move Noah's drop-off to 5 PM.",
   };

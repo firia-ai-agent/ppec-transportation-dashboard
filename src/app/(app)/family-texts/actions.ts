@@ -77,6 +77,8 @@ const REFUSALS: Readonly<Record<DecideError, string>> = {
   PLAN_MOVED: approvalCopy.planMoved,
   NOT_A_TIME: approvalCopy.notATime,
   MESSAGE_CHANGED: approvalCopy.messageChanged,
+  TEXT_NOT_SENDABLE: approvalCopy.textNotSendable,
+  TEXT_NOT_EDITABLE: approvalCopy.textNotEditable,
   PLAN_NOT_SAVED: approvalCopy.planNotSaved,
   TIME_NOT_SAVED: approvalCopy.timeNotSaved,
 };
@@ -111,6 +113,19 @@ export async function decideApprovalAction(
    * habit of the screen.
    */
   const shown = form.get("text");
+  /*
+   * THE REPLY THE COORDINATOR WROTE (PPE-97, founder's ruling of 2026-10-18).
+   *
+   * The card's Edit state carries the whole draft as a `<textarea>` **inside this form**, so the
+   * press that approves is the press that carries the words — there is no save-the-draft endpoint
+   * and no second send path, which is the ruling's own condition. Absent on an ordinary press,
+   * and then the agent's draft is what goes out.
+   *
+   * Passed through untouched. Nothing is validated, stripped or shortened here: the shape check
+   * and the 320-character cap are `decideApproval`'s, on the server, beside the decision they
+   * guard — a check in this file would be a check a different caller could skip.
+   */
+  const written = form.get("replyText");
   const answer = await decideApproval(
     getNeonDb(),
     vercelQueueOutboxTransport,
@@ -123,6 +138,7 @@ export async function decideApprovalAction(
       decision: decision as ApprovalDecision,
       editedTime: typed === "" ? null : typed,
       approvedText: shown === null ? undefined : String(shown),
+      editedText: written === null ? null : String(written),
       now: new Date(),
     },
   );

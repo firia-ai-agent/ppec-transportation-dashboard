@@ -305,15 +305,35 @@ function Thread({
         <ThreadEnd />
       </div>
 
+      {/*
+        * THE COMPOSE BAR IS INERT WHILE THE REPLY IS BEING REWRITTEN (PPE-97).
+        *
+        * Its Send *is* an Approve of the words it shows (gate 3), and the words it shows are the
+        * agent's draft — it cannot carry what a coordinator has typed into the card's own field,
+        * because that field is in the card's form. With both live, the bar would be a second
+        * Approve that quietly sends the draft a person was in the middle of rewriting. So while
+        * the card holds an editable reply, the card's Approve is the only live one: the bar has no
+        * approval to send and says nothing, which is the state it is already in with no proposal
+        * open. There is still exactly one write path (gate 1) and no press that skips the checks.
+        */}
       <Composer
         adultName={thread.adultName}
-        approvalId={thread.proposal?.approvalId ?? null}
-        draftText={thread.proposal?.draftText ?? ""}
+        approvalId={rewriting(thread, editing) ? null : thread.proposal?.approvalId ?? null}
+        draftText={rewriting(thread, editing) ? "" : thread.proposal?.draftText ?? ""}
         editedTime={editedTime ?? thread.proposal?.requestedHhmm ?? null}
         decide={decide}
       />
     </section>
   );
+}
+
+/**
+ * Whether the card below is holding a reply a coordinator is rewriting (PPE-97) — the one state in
+ * which the compose bar above is not an approval. `draftReplyText` is `decide.editableReply`'s
+ * answer, so this is the same condition the card renders its field on.
+ */
+function rewriting(thread: ThreadView, editing: boolean): boolean {
+  return editing && thread.proposal !== null && thread.proposal.draftReplyText !== null;
 }
 
 /** One run of bubbles: a centred timestamp, the bubbles, a tail on the last, one meta line. */

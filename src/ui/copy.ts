@@ -1359,11 +1359,27 @@ export const approval = {
     SCHEDULE_CONFLICT: "The family has a conflict at the usual time.",
     OTHER: "The family asked for a change.",
   },
-  /** The Edit control: the one thing a person may change, and it is not the words. */
+  /** The Edit control's first field: the time the plan will be moved to. */
   editTimeLabel: "New drop-off time",
   /** The button inside the Edit state: it re-renders the draft and approves nothing (gate 2). */
   editApply: "Update the time",
   editCancel: "Keep the time the assistant suggested",
+  /**
+   * THE EDIT CONTROL'S OTHER FIELD: the whole reply, as prose (founder's ruling of 2026-10-18 —
+   * "the coordinator CAN edit the whole draft reply text").
+   *
+   * The time used to be the only thing a person could change on this card. Now the sentence is
+   * theirs too: the field holds the drafted reply, they rewrite as much of it as they like, and
+   * **Approve & send sends exactly what is in the box**. The label says whose words they are
+   * about to become, because that is the fact that makes the press safe to make — there is no
+   * "save the draft" step and nothing is sent until the same press that approves it.
+   *
+   * It does NOT say "320 characters" or list what a text may not carry. The limit and the
+   * refusals are real and are enforced server-side (`modules/approvals/decide.ts`), and a field
+   * label is not the place to teach them; {@link textNotSendable} is what a person reads if they
+   * hit one.
+   */
+  editTextLabel: "The reply, in your words",
 
   /* ── what came back ── */
 
@@ -1381,6 +1397,26 @@ export const approval = {
   alreadyDecided: "Somebody decided this one already. Reload to see what they chose.",
   planMoved: "This ride changed while you were reading, so the text would have been wrong. Nothing was sent — reload and decide again.",
   notATime: "Write the time as a clock time, like 5:00 PM.",
+  /**
+   * The coordinator's own words cannot go to a family (`TEXT_NOT_SENDABLE`, founder's ruling of
+   * 2026-10-18).
+   *
+   * Names the four kinds of thing that lose and the length, because unlike every other refusal
+   * here this one is about something the person reading it just typed and can fix in the box in
+   * front of them. It does not quote their words back at them and it does not say which rule
+   * they hit: the reason a reply is refused is that it may carry something that must not be
+   * repeated, in a log line or on a screen (`messaging/reply-text.ts`).
+   *
+   * Says plainly that nothing went out, like every other refusal on this card.
+   */
+  textNotSendable:
+    "Nothing was sent. A text to a family can't carry a phone number, a link, an address or a code, and has to fit in 320 characters. Edit the reply and approve again.",
+  /**
+   * An edited reply on a card whose words are the centre's fixed copy (`TEXT_NOT_EDITABLE`). The
+   * screen offers no field there, so this is what a hand-made post reads — and it still says what
+   * happened and what the person can do.
+   */
+  textNotEditable: "This message isn't one you can rewrite. Approve it as it is, or don't send it.",
   /**
    * The words changed under the person deciding them (S1-7). Said as what happened and what to do,
    * like every other refusal here — and it says plainly that nothing went out, because the first

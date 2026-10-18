@@ -64,6 +64,7 @@ import type { Direction } from "@/domain/day/leg";
 import { boardPlacementPort, type PlacementBucket, type PlanPlacementPortFor } from "./plan-placement-port";
 import { DROPOFF_CHANGE_KIND, DROPOFF_CHANGE_TEMPLATE, DROPOFF_REPLY_TEMPLATE } from "./dropoff-change";
 import { MESSAGE_SEND_KIND } from "./message-send";
+import { replyTextIssue } from "@/modules/messaging/reply-text";
 import { renderTemplate } from "@/modules/messaging/templates";
 import { enqueue, type OutboxTransport } from "@/modules/outbox/outbox";
 import { FAMILY_SMS, authorizedContactsForChild } from "@/modules/outbox/policy";
@@ -253,18 +254,47 @@ function msOf(at: Date | string | null | undefined): number {
 }
 
 /**
- * The words, through the outbox's own renderer — never a string stored at proposal time.
+ * WHAT ONE DECISION SENDS: the template and the vars, from the row and the coordinator's edits.
  *
- * `overrideTime` is the Edit control: a coordinator who moves the time sees the sentence they are
- * about to approve, not the one the agent drafted. One renderer, so what is read and what is sent
- * are the same words whichever of the two produced the time in them.
+ * The one place those two are combined, because two places were one too many. `bodyOf` below
+ * renders from this and the `enqueue` at the end of `decideApproval` queues from this, so the
+ * sentence a coordinator read and the sentence that leaves the building are the same string by
+ * construction rather than by two functions agreeing. (They did not agree: until PPE-97 the
+ * enqueue passed the row's own template and vars untouched, so an edited time showed the fixed
+ * template on the card and queued the model's original sentence — the old words, to the family,
+ * about the old time.)
+ *
+ * Nothing here reads the database and nothing here is free text from a caller: `overrideText` has
+ * already been through `replyTextIssue` in `decideApproval`, which is the same door the model's
+ * own reply went through, and the outbox re-checks it at enqueue and again at drain.
  */
-export function bodyOf(
+function sendShape(
   proposal: DropoffProposal,
-  overrideTime?: string | null,
-  child?: string | null,
-): string {
+  overrideTime: string | null,
+  overrideText: string | null,
+): { readonly templateId: string; readonly vars: Record<string, unknown> } {
   const vars = { ...(proposal.vars ?? {}) };
+  const own = String(proposal.template_id ?? "");
+
+  /*
+   * THE COORDINATOR'S OWN WORDS WIN (PPE-97, founder's ruling of 2026-10-18).
+   *
+   * The whole draft reply is editable on the Family texts card (mockups/family-texts.html, and
+   * the same card drawn in mockups/agent-bubble.html), and Approve sends **exactly** the edited
+   * text. So the edited sentence replaces `replyText` on the one template whose body is a
+   * sentence somebody wrote (`dropoff.reply` — "PPEC: {replyText}"), and it survives the
+   * retirement rule below: a coordinator who moves the time *and* rewrites the words has already
+   * answered the question the retirement exists to answer.
+   *
+   * The prefix is not theirs to type and is not in the field: `PPEC:` is the template's, and
+   * `replyTextIssue` refuses a reply that carries it.
+   */
+  if (overrideText !== null && overrideText !== "") {
+    vars.replyText = overrideText;
+    if (overrideTime) vars.eta = overrideTime;
+    return { templateId: own, vars };
+  }
+
   /*
    * AN EDITED TIME RETIRES THE MODEL'S SENTENCE (Firia, 2026-10-18 11:04 AM ET).
    *
@@ -278,14 +308,31 @@ export function bodyOf(
    * and an edit still needs a fresh press because the rendered text has changed.
    */
   const retired =
-    String(proposal.template_id ?? "") === DROPOFF_REPLY_TEMPLATE &&
+    own === DROPOFF_REPLY_TEMPLATE &&
     typeof overrideTime === "string" &&
     overrideTime !== "" &&
     overrideTime !== String(vars.eta ?? "");
-  const templateId = retired ? DROPOFF_CHANGE_TEMPLATE : String(proposal.template_id ?? "");
-  if (!templateId) return "";
   if (retired) delete vars.replyText;
   if (overrideTime) vars.eta = overrideTime;
+  return { templateId: retired ? DROPOFF_CHANGE_TEMPLATE : own, vars };
+}
+
+/**
+ * The words, through the outbox's own renderer — never a string stored at proposal time.
+ *
+ * `overrideTime` is the Edit control's time field and `overrideText` is its reply field: a
+ * coordinator who moves the time, or rewrites the sentence, reads the message they are about to
+ * approve rather than the one the agent drafted. One renderer and one `sendShape`, so what is
+ * read and what is sent are the same words whichever of the three produced them.
+ */
+export function bodyOf(
+  proposal: DropoffProposal,
+  overrideTime?: string | null,
+  child?: string | null,
+  overrideText?: string | null,
+): string {
+  const { templateId, vars } = sendShape(proposal, overrideTime ?? null, overrideText ?? null);
+  if (!templateId) return "";
   try {
     /*
      * A staff surface: the child's name in the sentence, and no STOP/HELP footer or `[DEMO]` tag
@@ -301,12 +348,50 @@ export function bodyOf(
   }
 }
 
+/**
+ * THE SENTENCE A COORDINATOR MAY REWRITE, or null when this card's words are not theirs to write.
+ *
+ * One definition, read by both halves of PPE-97: `family-texts/queue.ts` asks it whether to put a
+ * field on the card at all, and `decideApproval` asks it whether to accept an edited text at all.
+ * A screen that offered the field where the decision would refuse it — or, far worse, a decision
+ * that accepted words the screen never offered to take — is exactly the gap one function closes.
+ *
+ * Non-null for the one template whose body **is** a drafted sentence (`dropoff.reply`, "PPEC:
+ * {replyText}"), and null for everything else: the fixed-copy templates say what the centre says
+ * in the centre's own words, and rewriting one of those is not an edit, it is a different message.
+ * The value is the sentence alone, without the `PPEC:` prefix the template adds — the prefix is
+ * the machine's voice, and `reply-text.ts` refuses a reply that carries it.
+ */
+export function editableReply(
+  templateId: string,
+  vars: Readonly<Record<string, unknown>>,
+): string | null {
+  if (templateId !== DROPOFF_REPLY_TEMPLATE) return null;
+  const drafted = typeof vars.replyText === "string" ? vars.replyText.trim() : "";
+  return drafted === "" ? null : drafted;
+}
+
 export type DecideRequest = {
   readonly userId?: string;
   readonly approvalId: string;
   readonly decision: ApprovalDecision;
   /** A time a coordinator typed instead of the one proposed ("Edit"). Null keeps the proposal's. */
   readonly editedTime?: string | null;
+  /**
+   * THE WHOLE REPLY, REWRITTEN BY THE COORDINATOR (PPE-97, founder's ruling of 2026-10-18).
+   *
+   * The draft on the Family texts card is editable prose, and "Approve & send" sends exactly
+   * these words. Absent or null is the draft as the agent wrote it — the ordinary press, and the
+   * only shape every caller before PPE-97 ever sent.
+   *
+   * **It is checked here and nowhere else that matters.** The same `replyTextIssue` shape the
+   * model's own reply is held to (no phone number, no link, no address, no code, no `PPEC:`
+   * prefix, no line break, and `REPLY_TEXT_MAX`) runs on this value **server-side**, inside this
+   * function, before anything is claimed: the field is a `<textarea>` on a page, so a client
+   * check is a courtesy and this is the rule. The edit and the press are one act — there is no
+   * second endpoint that stores an edited draft and no way to approve one that was not checked.
+   */
+  readonly editedText?: string | null;
   /**
    * The exact words the screen showed when the button was pressed (S1-7).
    *
@@ -329,6 +414,25 @@ export type DecideError =
   | "ALREADY_DECIDED"
   | "PLAN_MOVED"
   | "NOT_A_TIME"
+  /**
+   * The coordinator's own words may not be sent (PPE-97): longer than `REPLY_TEXT_MAX`, or
+   * carrying one of the things `messaging/reply-text.ts` keeps out of a family's text — a phone
+   * number, a link, a street address, an internal code, the `PPEC:` prefix.
+   *
+   * A refusal and never a repair: nothing is stripped, nothing is shortened and nothing is
+   * claimed. The card comes back pending with the words still in the field, and the reason is a
+   * class — this code — rather than the value, which is the one thing a log line may not carry.
+   */
+  | "TEXT_NOT_SENDABLE"
+  /**
+   * An edited reply on a proposal whose words are not a drafted sentence — a fixed-copy template
+   * (`dropoff.changed`, `leg.canceled`) or a message approval.
+   *
+   * Unreachable from the screen, which renders the field only where `editableReply` answers one,
+   * and refused here anyway: a hand-posted form is the reason this check is server-side at all.
+   * Rewriting the centre's fixed copy is not an edit, it is a different message.
+   */
+  | "TEXT_NOT_EDITABLE"
   /**
    * The words moved under the person deciding them (S1-7). An edit that re-rendered the message,
    * a copy change deployed while the tab was open, a proposal re-drafted since it was read — all
@@ -407,7 +511,46 @@ export async function decideApproval(
   if (kind !== DROPOFF_CHANGE_KIND && kind !== MESSAGE_SEND_KIND) {
     return { status: 404, body: { ok: false, error: "NO_SUCH_APPROVAL" } };
   }
-  const text = bodyOf(proposal, req.editedTime ?? null, row.display_name);
+
+  /*
+   * THE EDITED REPLY, CHECKED BEFORE ANYTHING IS CLAIMED (PPE-97, founder's ruling of
+   * 2026-10-18: the coordinator can edit the whole draft, and the same safety refusals and the
+   * 320-character cap run on the edited text server-side, in this function).
+   *
+   * Two refusals, in this order, and both before the transaction opens:
+   *
+   *  1. **may these words be rewritten at all** — only where the card's body *is* a drafted
+   *     sentence (`editableReply`). A fixed-copy template is the centre's own words.
+   *  2. **may these words be sent** — `replyTextIssue`, the one shape check, the same one the
+   *     model's reply passed at the gateway and the same one the outbox's var rule applies at
+   *     enqueue and the renderer applies at drain. Three doors, one definition; this is the door
+   *     a person's typing comes through.
+   *
+   * Trimmed and not otherwise touched: what is checked is what is sent, to the character, which
+   * is what "Approve sends exactly the edited text" means. An empty field is `"empty"` from the
+   * check above rather than a silent fall back to the agent's draft — a coordinator who cleared
+   * the box did not mean to send the sentence they cleared.
+   */
+  const editedText = typeof req.editedText === "string" ? req.editedText.trim() : null;
+  if (editedText !== null) {
+    const editable = editableReply(String(proposal.template_id ?? ""), proposal.vars ?? {});
+    if (kind !== DROPOFF_CHANGE_KIND || editable === null) {
+      return { status: 422, body: { ok: false, error: "TEXT_NOT_EDITABLE" } };
+    }
+    if (replyTextIssue(editedText) !== null) {
+      return { status: 422, body: { ok: false, error: "TEXT_NOT_SENDABLE" } };
+    }
+  }
+
+  /*
+   * The draft as the card showed it (no edited text in it), which is what the press is checked
+   * against below, and the message as it will go out (the edited text in it), which is what is
+   * rendered, returned and queued. Both from `sendShape`, so they cannot be two answers.
+   */
+  const draft = bodyOf(proposal, req.editedTime ?? null, row.display_name);
+  const text = editedText === null
+    ? draft
+    : bodyOf(proposal, req.editedTime ?? null, row.display_name, editedText);
 
   /*
    * THE EXACT TEXT APPROVED (Firia's S1-7 ruling, 2026-10-18).
@@ -426,7 +569,7 @@ export async function decideApproval(
    * change and is held to the version check below instead — but a caller that carries one must
    * be right about it.
    */
-  if (req.approvedText !== undefined && req.approvedText !== text) {
+  if (req.approvedText !== undefined && req.approvedText !== draft) {
     return { status: 409, body: { ok: false, error: "MESSAGE_CHANGED" } };
   }
   if (kind === MESSAGE_SEND_KIND && req.approvedText === undefined) {
@@ -637,6 +780,7 @@ export async function decideApproval(
     }
 
     let queued = 0;
+    const outgoing = sendShape(proposal, req.editedTime ?? null, editedText);
     for (const recipientToken of contacts) {
       const sent = await enqueue(tx, afterCommit, transport, {
         siteId: row.site_id,
@@ -644,8 +788,17 @@ export async function decideApproval(
         recipientRule: FAMILY_SMS.recipientRule,
         recipientToken,
         channel: FAMILY_SMS.channel,
-        templateId: String(proposal.template_id ?? ""),
-        vars: { ...(proposal.vars ?? {}), ...(req.editedTime ? { eta: req.editedTime } : {}) },
+        /*
+         * THE SHAPE THE CARD WAS RENDERED FROM, and not the row's own (PPE-97).
+         *
+         * `sendShape` is what `bodyOf` rendered `text` from a few lines above, so the message
+         * queued here is the message the coordinator read — their edited sentence when they wrote
+         * one, the fixed template when an edited time retired the model's. It used to be the row's
+         * template and vars untouched, which meant an edited time showed one sentence on the card
+         * and queued another.
+         */
+        templateId: outgoing.templateId,
+        vars: outgoing.vars,
         childToken: leg.child_token,
         tripLegId: leg.id,
         // The version the ride now has: a later correction makes this text stale, as it should.

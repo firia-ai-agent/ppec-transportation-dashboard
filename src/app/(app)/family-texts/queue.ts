@@ -42,7 +42,7 @@
 import { localTimeOn, type ServiceDay } from "@/domain/board/day";
 import type { Exec } from "@/db/exec";
 import { formatClock } from "@/domain/eta/eta";
-import { bodyOf, pendingApprovals } from "@/modules/approvals/decide";
+import { bodyOf, editableReply, pendingApprovals } from "@/modules/approvals/decide";
 import { approval, fill } from "@/ui/copy";
 import { proposalFacts } from "./checks";
 import type { ProposalView } from "./conversations";
@@ -156,6 +156,13 @@ async function viewOf(
       time,
       row.childLabel === "" ? null : row.childLabel,
     ),
+    /*
+     * The sentence the Edit field holds (PPE-97). `decide.editableReply` answers it, which is the
+     * same function `decideApproval` asks before it accepts an edited reply — so the card cannot
+     * offer a field on a message the decision would refuse to take one for, and cannot withhold
+     * one it would.
+     */
+    draftReplyText: editableReply(row.templateId, row.vars),
     requestedHhmm: time,
     alertText: row.alertText,
   };

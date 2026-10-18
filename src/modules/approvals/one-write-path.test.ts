@@ -21,6 +21,15 @@
  * card comes back *pending*: still "Approve and send", still "the family hears nothing until you
  * approve". Nothing is claimed and nothing is queued, so the edited words are a proposal a person
  * still has to sign. An Edit that approved-with-a-different-time would be a send nobody signed.
+ *
+ * ## What PPE-97 added, and why it does not weaken either gate
+ *
+ * The Edit state also holds the **reply itself** as a field now (founder, 2026-10-18: the
+ * coordinator can edit the whole draft, and Approve sends exactly the edited text). That field is
+ * inside the form that approves, so it is not a third write path and not a second press: the words
+ * and the decision arrive in the same POST, to the same action, which still calls `decideApproval`
+ * and nothing else. The shape check those words are held to — the one the model's own reply passed
+ * — runs inside that function (`modules/approvals/edited-reply.test.ts`).
  */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -194,14 +203,19 @@ describe("gate 2: an edited message needs a fresh approval", () => {
   const request = demoChangeRequests(day)[0];
 
   /**
-   * An Edit moves the time the proposal *records* and cannot move the words.
+   * An Edit *navigation* moves the time the proposal records, and the body it re-renders is still
+   * the template's.
    *
    * It used to move both — `dropoff.changed` said "at 5:30 PM", so a re-render showed the edit in
-   * the sentence. The COPY RULE took the clock out of that body (Vera's S1-2 item b), and the
-   * result is a sharper version of gate 2 rather than a weaker one: the only thing an Edit can
-   * change is a time field, the reply itself is `renderTemplate`'s output over a fixed template
-   * either way, and there is now no route at all by which a person's keystrokes reach a family's
-   * phone. Both halves are asserted — the time moves, the words do not.
+   * the sentence. The COPY RULE took the clock out of that body (Vera's S1-2 item b), so moving
+   * the time moves a field and a recorded value and not a word of copy, which is what this holds.
+   *
+   * What it no longer claims is that a person's keystrokes cannot reach a family's phone at all.
+   * Since PPE-97 there is exactly one route by which they can — the staff-approval path, the
+   * reply field on this card, submitted with the decision and held to `replyTextIssue`
+   * server-side — which is §11.2's rule read as written: free text to parents *without human
+   * approval* is what is banned. Every automatic send is still a fixed template with code-shaped
+   * vars (`free-text-egress.test.ts`).
    */
   it("moves the time and not the words: the reply is the template's, before and after", () => {
     const edited = withRequestedTime(request, "17:30", day);
@@ -227,12 +241,31 @@ describe("gate 2: an edited message needs a fresh approval", () => {
      * `.acts`; Firia, 2026-10-17 10:51 PM ET) — so the Edit navigation sits *between* the two
      * posting forms. What gate 1 claims is that no posting form carries Edit, and this is that
      * claim rather than a claim about where Edit appears in the source.
+     *
+     * Three of them since PPE-97: the two above, plus the form the Edit state renders instead,
+     * which carries the reply field and both decision buttons. It posts to the same `submit` and
+     * carries no Edit control either, which is the whole of what is asserted here.
      */
     const posted = [...card.matchAll(/<form action=\{submit\}([\s\S]*?)<\/form>/g)].map((m) => m[1]);
-    expect(posted).toHaveLength(2);
-    for (const form of posted) expect(form).not.toContain("approval.edit");
-    expect(posted.join("")).toContain("approval.approveAndSend");
-    expect(posted.join("")).toContain("approval.dontSend");
+    expect(posted).toHaveLength(3);
+    // The Edit control's own label, as the card renders it (`{approval.edit}`) — spelled with the
+    // braces so it is not matched by `approval.editTextLabel`, the label on the reply field, which
+    // IS inside a posting form and is the point of PPE-97.
+    for (const form of posted) expect(form).not.toContain("{approval.edit}");
+    /*
+     * The two decisions are in those forms, by the names the card gives them: since PPE-97 the
+     * buttons are two one-line components, because the card posts the decision from two places
+     * (the action row, and the Edit state's one form) and a second copy of a submit button is a
+     * second place for its `value` to be wrong. The words are still `copy.ts`'s, which is the half
+     * that matters here, so both halves are read.
+     */
+    expect(posted.join("")).toContain("<ApproveButton");
+    expect(posted.join("")).toContain("<DontSendButton");
+    expect(card).toMatch(/function ApproveButton[\s\S]*?approval\.approveAndSend/);
+    expect(card).toMatch(/function DontSendButton[\s\S]*?approval\.dontSend/);
+    // And each one carries the decision it stands for, which is what the action reads.
+    expect(card).toMatch(/function ApproveButton[\s\S]*?value="APPROVED"/);
+    expect(card).toMatch(/function DontSendButton[\s\S]*?value="DECLINED"/);
   });
 
   it("comes back pending, with Approve still to press", async () => {

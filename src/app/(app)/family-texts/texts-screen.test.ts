@@ -33,6 +33,7 @@ import { approval, assistantUnavailable, familyTexts, fill } from "@/ui/copy";
 import type { ThreadContext } from "@/app/(app)/family-texts/context";
 import { childTokenOf, stopByKey, childByKey } from "@/modules/demo/fixtures/standard";
 import { DROPOFF_CHANGE_KIND } from "@/modules/agent/run/exec/proposals";
+import { DROPOFF_REPLY_TEMPLATE } from "@/modules/approvals/dropoff-change";
 import type { Exec } from "@/db/exec";
 import { TextsScreen } from "./TextsScreen";
 import { approvalQueue } from "./queue";
@@ -127,9 +128,33 @@ const SEEDED_ROW = {
 /** `pendingApprovals`'s query, answered with the one row above and nothing else. */
 const oneRow: Exec = { query: async () => ({ rows: [SEEDED_ROW] as never[] }) };
 
+/**
+ * THE SAME ROW WITH A MODEL-WRITTEN REPLY ON IT (PPE-97) — `dropoff.reply`, whose body is
+ * `"PPEC: {replyText}"` and whose one var is the sentence itself.
+ *
+ * The row above carries the fixed-copy template, which is what the log-free demo projection
+ * builds; this is what the agent's own writer and the demo seed write
+ * (`agent/run/exec/proposals.ts`, `demo/approval-seed.ts`), and it is the only flavour with an
+ * editable reply on it. Both are rendered below, because "which cards offer the field" is half of
+ * what the ruling settles.
+ */
+const DRAFTED_REPLY = "Hi Dara, yes, we'll drop Noah off at 5 today. Thanks for letting us know!";
+const REPLY_ROW = {
+  ...SEEDED_ROW,
+  proposal: {
+    ...SEEDED_ROW.proposal,
+    template_id: DROPOFF_REPLY_TEMPLATE,
+    reply_text: DRAFTED_REPLY,
+    vars: { ...SEEDED_ROW.proposal.vars, replyText: DRAFTED_REPLY },
+  },
+};
+const replyRow: Exec = { query: async () => ({ rows: [REPLY_ROW] as never[] }) };
+
 let PROPOSAL: ProposalView;
+let REPLY_PROPOSAL: ProposalView;
 beforeAll(async () => {
   PROPOSAL = (await approvalQueue({ db: oneRow, siteIds: [SITE], day, editedTime: null }))[0];
+  REPLY_PROPOSAL = (await approvalQueue({ db: replyRow, siteIds: [SITE], day, editedTime: null }))[0];
 });
 
 /** The action is never called in a static render; it is here to satisfy the prop. */
@@ -149,13 +174,16 @@ function render(a: {
   proposals?: readonly ProposalView[];
   /** The third pane (approvals.html `aside.ctx`), when a case is about it. */
   context?: ThreadContext | null;
-  /** The Edit state, which is the only state with a time field on the card. */
+  /** The Edit state, which is the only state with a field on the card. */
   editing?: boolean;
+  /** Which card: the fixed-copy row by default, or the model-written reply (PPE-97). */
+  proposal?: ProposalView;
   request?: typeof request | undefined;
 }): string {
   const reachable = a.assistantReachable ?? true;
   const mayApprove = a.showForYouTab ?? true;
   const asked = "request" in a ? a.request : request;
+  const card = a.proposal ?? PROPOSAL;
   /*
    * ONE READ, as the page makes it (#B5): the rows preview the threads the pane renders, so a row
    * and the conversation beside it cannot be two different answers about what was last said.
@@ -165,18 +193,18 @@ function render(a: {
   return renderToStaticMarkup(
     createElement(TextsScreen, {
       tab: a.tab ?? "all",
-      rows: conversationRows(texts, asked && mayApprove ? [PROPOSAL] : [], threads),
+      rows: conversationRows(texts, asked && mayApprove ? [card] : [], threads),
       thread: threadView({
         selected,
         thread: open,
         // The card in the thread is the queue's own row, matched on the thread it belongs to —
         // which is the whole of "the badge and the card come from the same rows" (S1-2).
-        proposal: asked && mayApprove ? PROPOSAL : null,
+        proposal: asked && mayApprove ? card : null,
         day,
         assistantReachable: reachable,
         mayApprove,
       }),
-      proposals: a.proposals ?? (mayApprove && asked ? [PROPOSAL] : []),
+      proposals: a.proposals ?? (mayApprove && asked ? [card] : []),
       alerts: a.alerts ?? [],
       alertsUnreadable: false,
       assistantReachable: reachable,
@@ -314,6 +342,110 @@ describe("the screen's shape", () => {
     const html = render({});
     // The bar itself, by its own class: one per screen (Vera 3.5 — "**One** compose bar").
     expect(html.match(/class="[^"]*_compose_[^"]*"/g) ?? []).toHaveLength(1);
+  });
+});
+
+/* ───────────────── PPE-97: the whole draft reply is editable, and Approve sends it ───────────────── */
+
+/**
+ * The founder's ruling of 2026-10-18, on the card in mockups/family-texts.html (and on the same
+ * card as it is drawn inside mockups/agent-bubble.html): **the coordinator can edit the whole
+ * draft reply text, and Approve sends exactly the edited text.**
+ *
+ * This is the screen's half of it. The rules the ruling puts on the *decision* — the same safety
+ * refusals and the 320-character cap, server-side, inside the Approvals decision function — are
+ * `modules/approvals/edited-reply.test.ts`, over rows. What has to be true of the markup is
+ * narrower and just as load-bearing:
+ *
+ *  - the field holds the **whole reply**, prefilled with the sentence a person would rewrite;
+ *  - it is **inside the form that approves**, because "the edit + Approve press is the approval"
+ *    is a fact about which form the textarea is in and nothing else;
+ *  - the **plan line** beside it is still built from the proposal;
+ *  - and there is still no second Approve on screen that would send the draft instead.
+ */
+describe("PPE-97: the draft reply is a field, and the press that approves carries it", () => {
+  /** The card's own markup, sliced out of the screen so a `<form>` can be read whole. */
+  function cardOf(html: string): string {
+    const start = html.indexOf('aria-label="Proposed reply');
+    expect(start).toBeGreaterThan(-1);
+    return html.slice(start, html.indexOf("</section>", start));
+  }
+
+  it("puts the whole drafted sentence in the field, without the template's own prefix", () => {
+    const html = render({ editing: true, proposal: REPLY_PROPOSAL });
+    expect(html).toContain('name="replyText"');
+    // Prefilled with the sentence. NOT with "PPEC: …", which `messaging/reply-text.ts` refuses —
+    // a box holding the rendered body would hand back a refusal nobody earned.
+    expect(textOf(html)).toContain(DRAFTED_REPLY);
+    expect(html).not.toMatch(/<textarea[^>]*>PPEC:/);
+    expect(textOf(html)).toContain(approval.editTextLabel);
+  });
+
+  it("has that field inside the form that approves — one press, one approval", () => {
+    const card = cardOf(render({ editing: true, proposal: REPLY_PROPOSAL }));
+    const forms = card.match(/<form[\s\S]*?<\/form>/g) ?? [];
+    const withField = forms.filter((f) => f.includes('name="replyText"'));
+    expect(withField).toHaveLength(1);
+    /*
+     * The one form holding the words is the one holding the decision: the hidden approval id, the
+     * Approve button and the Don't send button. So the typed sentence is submitted by the button
+     * that decides — there is no save-the-draft press in between and nothing is stored between
+     * the two.
+     */
+    expect(withField[0]).toContain('value="APPROVED"');
+    expect(withField[0]).toContain('value="DECLINED"');
+    expect(withField[0]).toContain('name="approval"');
+    // And it is a POST to the action, never the GET the time field uses.
+    expect(withField[0]).not.toMatch(/method="get"/);
+  });
+
+  it("offers no field on a card whose words are the centre's fixed copy", () => {
+    // `dropoff.changed` has no prose var: its body is copy, not a draft (`decide.editableReply`).
+    expect(PROPOSAL.draftReplyText).toBeNull();
+    const html = render({ editing: true });
+    expect(html).not.toContain('name="replyText"');
+    // The time field is still there: that card is editable in the one way it always was.
+    expect(textOf(html)).toContain(approval.editTimeLabel);
+  });
+
+  it("shows no field at all until Edit is pressed", () => {
+    const html = render({ proposal: REPLY_PROPOSAL });
+    expect(html).not.toContain('name="replyText"');
+    expect(html).toContain(approval.edit);
+  });
+
+  it("keeps the plan line beside it, built from the proposal and not from the draft", () => {
+    const html = textOf(render({ editing: true, proposal: REPLY_PROPOSAL }));
+    // The same line the card carries in every other state, off the proposal's own time and the
+    // placement the plan holds (`queue.ts`). Rewriting the sentence changes nothing about it.
+    expect(REPLY_PROPOSAL.changeLine).not.toBe("");
+    expect(html).toContain(REPLY_PROPOSAL.changeLine);
+  });
+
+  it("leaves the compose bar's Send out of it, so the draft cannot go out under a rewrite", () => {
+    /*
+     * The bar's Send *is* an Approve of the words it shows (gate 3) and those words are the
+     * agent's draft — it cannot carry what is in the card's field. While the card holds an
+     * editable reply the bar is inert, so the only live Approve on the screen is the one the
+     * typed words are submitted with.
+     */
+    const html = render({ editing: true, proposal: REPLY_PROPOSAL });
+    expect(html).toMatch(/id="compose"[^>]*disabled/);
+    expect(html).not.toMatch(/id="compose"[^>]*value="PPEC/);
+    // Still exactly one bar, and still exactly one Approve control on the card.
+    expect(html.match(/class="[^"]*_compose_[^"]*"/g) ?? []).toHaveLength(1);
+    // One Approve *control*. (The inert bar still carries a hidden `decision` field, which is
+    // not a control: its own Send is disabled and it has no approval id to send.)
+    expect(html.match(/<button[^>]*value="APPROVED"/g) ?? []).toHaveLength(1);
+  });
+
+  it("is still the one write path: every control posts the same action", () => {
+    const card = cardOf(render({ editing: true, proposal: REPLY_PROPOSAL }));
+    // Two forms on the card in this state: the decision (POST, with the words) and the time
+    // field's own navigation (GET). No third, and no form with an action of its own.
+    const forms = card.match(/<form[^>]*>/g) ?? [];
+    expect(forms).toHaveLength(2);
+    expect(forms.filter((f) => f.includes('method="get"'))).toHaveLength(1);
   });
 });
 

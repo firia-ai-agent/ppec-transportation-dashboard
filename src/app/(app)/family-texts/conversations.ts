@@ -110,6 +110,21 @@ export type ProposalView = {
   readonly checks: readonly string[];
   /** The exact words the family would get. */
   readonly draftText: string;
+  /**
+   * THE SAME REPLY AS AN EDITABLE SENTENCE, or null when this card's words are not a draft a
+   * person may rewrite (PPE-97, founder's ruling of 2026-10-18).
+   *
+   * `draftText` above is the whole rendered body — "PPEC: Hi Dara, …" — and this is the sentence
+   * inside it, which is what the Edit field holds and what Approve replaces. The `PPEC:` prefix is
+   * the template's own voice and is deliberately not in the field: `messaging/reply-text.ts`
+   * refuses a reply that carries it, so a field prefilled with the whole body would hand the
+   * coordinator a refusal they did not earn.
+   *
+   * `null` for a fixed-copy template (`dropoff.changed`, `leg.canceled`) and for a message
+   * approval — `decide.editableReply` is the one definition, so the field appears exactly where
+   * the decision would accept one.
+   */
+  readonly draftReplyText: string | null;
   /** The model's one line about this proposal, for the coordinator ("" when the row has none). */
   readonly alertText: string;
   /** The proposed time as a 24-hour clock — the only shape the Edit control takes. */

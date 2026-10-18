@@ -592,6 +592,39 @@
   font: inherit;
 }
 
+/*
+ * THE REPLY FIELD AND THE BUTTONS THAT SEND IT, as one form (PPE-97).
+ *
+ * The form is a column so the action row below keeps the hairline and the padding it has in every
+ * other state — it is the same `.actions` bar, inside the form rather than beside it, which is
+ * what makes the typed words part of the press (see ProposalCard.tsx).
+ */
+.editReply {
+  display: flex;
+  flex-direction: column;
+}
+
+.editReplyField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 var(--space-5) var(--space-4);
+}
+
+/*
+ * The draft, editable, in the bubble's own measure: a coordinator is rewriting a text message, so
+ * the box is as wide as the card and three lines tall — the length of a reply that fits in the 320
+ * characters the server allows. Resizable down the page and never across it.
+ */
+.editText {
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline) solid var(--color-disabled-border);
+  border-radius: var(--radius-md);
+  font: inherit;
+  line-height: var(--leading-normal);
+  resize: vertical;
+}
+
 .outcome {
   margin: 0 var(--space-5) var(--space-5);
   font-size: var(--text-14);

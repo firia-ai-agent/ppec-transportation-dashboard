@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { Check, Pencil, X } from "lucide-react";
+import { REPLY_TEXT_MAX } from "@/modules/messaging/reply-text";
 import { approval, fill } from "@/ui/copy";
 import { icon } from "@/ui/tokens";
 import type { DecideAction, DecisionState } from "./actions";
@@ -42,9 +43,27 @@ import styles from "./texts.module.css";
  *  - **Don't send** posts the same action with `DECLINED`: the decision is written and nothing
  *    else happens.
  *
- * The words themselves are always `renderTemplate`'s output over the proposal's own template.
- * That is what keeps "no free text to a family" true of the approval path as well as the
- * automatic one.
+ * ## The reply itself is editable (PPE-97, founder's ruling of 2026-10-18)
+ *
+ * In the Edit state the draft is a `<textarea>` holding the whole sentence, and that field is
+ * **inside the Approve form**. So there is one press and it is the approval: the words a
+ * coordinator typed are submitted by the button that decides, and there is no save-the-draft
+ * endpoint, no second send path and nothing stored between the two. The same shape check the
+ * model's own reply passed and the 320-character cap run server-side in `decideApproval` on
+ * exactly these words; `maxLength` here is a courtesy to the typist and nothing is enforced in
+ * this file.
+ *
+ * The field appears only where `proposal.draftReplyText` is non-null — `decide.editableReply`'s
+ * answer, the same function the decision asks — so the card cannot offer to rewrite the centre's
+ * own fixed copy, and the prefix the template adds (`PPEC:`) is not in the box.
+ *
+ * The plan line under the bubble is untouched by any of it: it is built from the **proposal** and
+ * the placement the plan holds (`queue.ts`), never from the draft, because what a coordinator
+ * signs for is the ride and not the sentence.
+ *
+ * Everything else is still `renderTemplate`'s output over the proposal's own template, which is
+ * what keeps "no free text to a family" true of the approval path as well as the automatic one:
+ * the one prose var on the one template, checked at every door it passes.
  */
 export function ProposalCard({
   proposal,
@@ -62,6 +81,12 @@ export function ProposalCard({
   readonly className?: string;
 }) {
   const [state, submit, pending] = useActionState<DecisionState, FormData>(decide, { status: "idle" });
+  /*
+   * Whether this press carries a rewritten reply: the Edit state, on a card whose words are a
+   * draft somebody may rewrite (PPE-97). `draftReplyText` is `decide.editableReply`'s answer, so
+   * the field is offered exactly where the decision would accept one.
+   */
+  const rewritable = editing && proposal.draftReplyText !== null;
 
   return (
     <section
@@ -106,10 +131,10 @@ export function ProposalCard({
       )}
 
       {/*
-        * Edit's one field, in the state Edit navigates to and nowhere else. It is the message
-        * that changes: the time is the one thing in these words a coordinator may move, so
-        * moving it re-renders the sentence through the same template and leaves the proposal
-        * PENDING, waiting for an approval of the new words.
+        * Edit's TIME field, in the state Edit navigates to and nowhere else, and a GET: moving the
+        * time re-renders the sentence through the same template and leaves the proposal PENDING,
+        * waiting for an approval of the new words (gate 2). It is its own little form because it
+        * is a navigation and not a decision — the reply field below is the other way round.
         */}
       {editing ? (
         <form method="get" action={editHref} className={styles.editForm}>
@@ -131,58 +156,130 @@ export function ProposalCard({
         </form>
       ) : null}
 
-      {/*
-        * The one action row (mockups/approvals.html `.acts`): three controls, teal first. Two
-        * forms, because the three are two different kinds of thing — Edit is a navigation and the
-        * other two are the decision — and HTML forms cannot nest, so they sit side by side in one
-        * row and read as one bar.
-        */}
-      <div className={styles.actions}>
-        {/* Approve and Don't send: the one write path, twice. */}
-        <form action={submit} className={styles.decideForm}>
-          <input type="hidden" name="approval" value={proposal.approvalId} />
-          <input type="hidden" name="time" value={proposal.requestedHhmm ?? ""} />
-          {/* The words this card is showing, so the decision is a signature on them and not on
-            * whatever the row says by the time it is read (S1-7). */}
-          <input type="hidden" name="text" value={proposal.draftText} />
-          <button type="submit" name="decision" value="APPROVED" className={styles.primary} disabled={pending}>
-            <Check size={icon.inline} aria-hidden="true" />
-            {approval.approveAndSend}
-          </button>
+      {rewritable ? (
+        /*
+         * EDIT'S REPLY FIELD, AND THE TWO DECISION BUTTONS, IN ONE FORM (PPE-97).
+         *
+         * One form on purpose, and it is the whole of "the edit + Approve press is the approval":
+         * the textarea is submitted by the button that decides, so the words a coordinator typed
+         * and the decision about them arrive in the same POST, to the same action, through the one
+         * write path. Nothing is stored in between, there is nothing to approve twice, and there
+         * is no second endpoint that could send these words without `decideApproval`'s checks.
+         *
+         * The time field above stays a separate GET for the same reason it always was: it
+         * re-renders and decides nothing. Pressing it reloads the card, so a reply typed first is
+         * typed again — which is the right order of operations anyway (set the time, then write
+         * the words about it) and is a smaller surprise than a form that both navigates and sends.
+         */
+        <form action={submit} className={styles.editReply}>
+          <DecisionFields proposal={proposal} />
+          <div className={styles.editReplyField}>
+            <label className={styles.diffKey} htmlFor={`reply-${proposal.approvalId}`}>
+              {approval.editTextLabel}
+            </label>
+            {/*
+              * The sentence, not the rendered body: `PPEC:` is the template's own prefix and
+              * `messaging/reply-text.ts` refuses a reply that carries it, so a box prefilled with
+              * the whole bubble would hand back a refusal nobody earned.
+              *
+              * `maxLength` is the one number this file knows, read from the same constant the
+              * server checks against — a courtesy, so the box stops rather than the decision.
+              */}
+            <textarea
+              id={`reply-${proposal.approvalId}`}
+              className={styles.editText}
+              name="replyText"
+              rows={3}
+              maxLength={REPLY_TEXT_MAX}
+              defaultValue={proposal.draftReplyText ?? ""}
+            />
+          </div>
+          <div className={styles.actions}>
+            <ApproveButton pending={pending} />
+            <span className={styles.actionSpacer} />
+            <DontSendButton pending={pending} />
+          </div>
         </form>
-
-        {/* Edit: a navigation, not a decision. It writes nothing and sends nothing (gate 2). */}
-        {editing ? null : (
-          <form method="get" action={editHref} className={styles.editForm}>
-            <input type="hidden" name="edit" value={proposal.approvalId} />
-            <button type="submit" className={styles.secondary}>
-              <Pencil size={icon.inline} aria-hidden="true" />
-              {approval.edit}
-            </button>
+      ) : (
+        /*
+         * The one action row (mockups/approvals.html `.acts`): three controls, teal first. Two
+         * forms, because the three are two different kinds of thing — Edit is a navigation and the
+         * other two are the decision — and HTML forms cannot nest, so they sit side by side in one
+         * row and read as one bar.
+         */
+        <div className={styles.actions}>
+          {/* Approve and Don't send: the one write path, twice. */}
+          <form action={submit} className={styles.decideForm}>
+            <DecisionFields proposal={proposal} />
+            <ApproveButton pending={pending} />
           </form>
-        )}
 
-        {/* approvals.html `.acts .sp`: Don't send sits at the far end, away from the two
-          * controls that go on with the change. */}
-        <span className={styles.actionSpacer} />
+          {/* Edit: a navigation, not a decision. It writes nothing and sends nothing (gate 2). */}
+          {editing ? null : (
+            <form method="get" action={editHref} className={styles.editForm}>
+              <input type="hidden" name="edit" value={proposal.approvalId} />
+              <button type="submit" className={styles.secondary}>
+                <Pencil size={icon.inline} aria-hidden="true" />
+                {approval.edit}
+              </button>
+            </form>
+          )}
 
-        <form action={submit} className={styles.decideForm}>
-          <input type="hidden" name="approval" value={proposal.approvalId} />
-          <input type="hidden" name="time" value={proposal.requestedHhmm ?? ""} />
-          {/* The words this card is showing, so the decision is a signature on them and not on
-            * whatever the row says by the time it is read (S1-7). */}
-          <input type="hidden" name="text" value={proposal.draftText} />
-          <button type="submit" name="decision" value="DECLINED" className={styles.quiet} disabled={pending}>
-            <X size={icon.inline} aria-hidden="true" />
-            {approval.dontSend}
-          </button>
-        </form>
-      </div>
+          {/* approvals.html `.acts .sp`: Don't send sits at the far end, away from the two
+            * controls that go on with the change. */}
+          <span className={styles.actionSpacer} />
+
+          <form action={submit} className={styles.decideForm}>
+            <DecisionFields proposal={proposal} />
+            <DontSendButton pending={pending} />
+          </form>
+        </div>
+      )}
 
       <p className={styles.outcome} role="status">
         {outcomeOf(state)}
       </p>
     </section>
+  );
+}
+
+/**
+ * The hidden half of a decision: which approval, which time, and the words the card was showing.
+ *
+ * One component because the card posts the decision from two or three places depending on its
+ * state, and three copies of these inputs is three places for one of them to go missing — which
+ * on the `text` field would mean a press that is not checked against what was on screen (S1-7).
+ */
+function DecisionFields({ proposal }: { readonly proposal: ProposalView }) {
+  return (
+    <>
+      <input type="hidden" name="approval" value={proposal.approvalId} />
+      <input type="hidden" name="time" value={proposal.requestedHhmm ?? ""} />
+      {/* The words this card is showing, so the decision is a signature on them and not on
+        * whatever the row says by the time it is read (S1-7). With a rewritten reply this is
+        * still the DRAFT: it answers "was the card current", and `replyText` is what replaces it. */}
+      <input type="hidden" name="text" value={proposal.draftText} />
+    </>
+  );
+}
+
+/** The teal control, wherever the card's state puts it. */
+function ApproveButton({ pending }: { readonly pending: boolean }) {
+  return (
+    <button type="submit" name="decision" value="APPROVED" className={styles.primary} disabled={pending}>
+      <Check size={icon.inline} aria-hidden="true" />
+      {approval.approveAndSend}
+    </button>
+  );
+}
+
+/** And the quiet one at the far end: the decision is written and nothing else happens. */
+function DontSendButton({ pending }: { readonly pending: boolean }) {
+  return (
+    <button type="submit" name="decision" value="DECLINED" className={styles.quiet} disabled={pending}>
+      <X size={icon.inline} aria-hidden="true" />
+      {approval.dontSend}
+    </button>
   );
 }
 
