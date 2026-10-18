@@ -2,6 +2,8 @@
  * The site's operational "service date". PRD §6.1: service dates are calendar dates in the
  * site's timezone (America/New_York), not instants.
  */
+import { SCENARIO_START_MS } from "@/fixtures/replays";
+
 export const SITE_TIME_ZONE = "America/New_York";
 
 /** "Tue, Oct 14" — the format COPY-GUIDE §5 uses in the board's empty state. */
@@ -68,3 +70,59 @@ export function serviceDateIso(now: Date = new Date()): string {
     day: "2-digit",
   }).format(now);
 }
+
+/* ─────────────────── the day the demo is given on (4:50 PM ET ruling) ─────────────────── */
+
+/**
+ * THE ONE DATE HELPER. Every date a screen prints goes through here.
+ *
+ * The scenario is a recording: its runs, its texts and its stalls are all measured from one
+ * seeded Wednesday, and that is what makes the board worth a screenshot. But a recording of a
+ * Wednesday shown on a Saturday says "Wed, Oct 14" at the top of a screen somebody is looking
+ * at on the 17th, which is the first thing the founder's walk caught (and the only sentence on
+ * the board that was false). Firia's ruling, 2026-10-17 4:50 PM ET: the scenario day *is*
+ * today, in the centre's own timezone, written "Sat, Oct 17". The times on it do not move —
+ * 06:50 is still 06:50 — because the day is being re-dated, not re-timed.
+ *
+ * So a fixture date is a *key* and never a label: the board, the plan and the ramp look their
+ * rows up by the seeded date and then ask this for the words. A fixture day either side of the
+ * scenario's keeps its distance, so "the day before the demo day" is still yesterday.
+ */
+export const SCENARIO_SERVICE_DATE = serviceDateIso(new Date(SCENARIO_START_MS));
+
+/** Whole days between two `YYYY-MM-DD` dates, as calendar days rather than as instants. */
+function isoMidday(iso: string): number {
+  const [year, month, day] = iso.split("-").map(Number);
+  // Noon, so a timezone offset either way lands on the same calendar day.
+  return Date.UTC(year, month - 1, day, 12);
+}
+
+/** The date this fixture day stands in for: the scenario's own day is today in New York. */
+export function demoDateIso(scenarioIso: string, now: Date = new Date()): string {
+  const shift = isoMidday(scenarioIso) - isoMidday(SCENARIO_SERVICE_DATE);
+  return ISO_FMT.format(new Date(isoMidday(serviceDateIso(now)) + shift));
+}
+
+/** "Sat, Oct 17" — {@link demoDateIso}, in the words every screen writes a date in. */
+export function demoDateLabel(scenarioIso: string, now: Date = new Date()): string {
+  return LABEL_FMT.format(new Date(isoMidday(demoDateIso(scenarioIso, now))));
+}
+
+/*
+ * Both formatters read UTC, not the site timezone: their input is already a calendar date
+ * pinned to noon UTC, so there is nothing left to convert and converting again would move the
+ * day at either end of the clock.
+ */
+const ISO_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+const LABEL_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+});

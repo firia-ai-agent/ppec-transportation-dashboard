@@ -1,0 +1,19 @@
+/* The same shape the screens around it use: a title at the §2 24 px step, one muted line
+   under it, and a column no wider than a comfortable measure. */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 60ch;
+}
+
+.heading {
+  font-size: var(--text-24);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.line {
+  font-size: var(--text-16);
+  color: var(--color-ink-muted);
+}

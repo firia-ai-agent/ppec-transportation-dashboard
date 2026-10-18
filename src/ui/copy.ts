@@ -42,18 +42,83 @@ export const app = {
 export const demoBanner = {
   text: "DEMO",
   ariaLabel: "DEMO",
+  /**
+   * The bar reads `DEMO · Synthetic data · [Simulated] ……… [Restart demo day]` (REDESIGN-SPEC
+   * §0). "Synthetic data" is what the demo *is*; the chip beside it is where this screen's data
+   * came from; the button at the end is the only control in the bar. Below 768 the words are
+   * dropped and the chip and the button stay — a phone has room for the two things that do
+   * something and not for the sentence about them.
+   */
+  syntheticData: "Synthetic data",
 } as const;
 
-/** DESIGN-DIRECTION §2 nav labels. Exceptions carries a count badge once the live board lands. */
+/**
+ * THE ONE CONTROL IN THE DEMO BAR — "Restart demo day" (REDESIGN-SPEC §0, and the founder's
+ * mockups, which put it at the right-hand end of the violet bar).
+ *
+ * It used to be "Start demo day" in the white app header, beside a readout saying "Demo day ·
+ * Not started", and it did nothing: the demo-controls dock was never built, so the button was
+ * rendered inert with a note saying why. A button that cannot be pressed, next to a readout of
+ * a state nothing sets, is two pieces of chrome explaining each other. Both are gone; this is
+ * the reset the app already has (the demo reset endpoint), wearing the bar it belongs to.
+ *
+ * One label, not two: whether the day has been started is a fact about the day's readiness, and
+ * TODO(data-model) — docs/DATA-MODEL.md has not signed the section that says how it is read —
+ * so the button says the thing that is true either way. Re-running the reset on a day that has
+ * not started gives exactly the day a start would have.
+ */
+export const demoDay = {
+  restart: "Restart demo day",
+  /** While the reset is running. The button keeps its place and says what it is doing (§4.2). */
+  restarting: "Restarting…",
+  /** The reset refused or the network did. One line, no status code, and the way on is to retry. */
+  failed: "The demo day didn't restart. Try again.",
+} as const;
+
+/**
+ * DESIGN-DIRECTION §2 nav labels. Exceptions carries a count badge once the live board lands.
+ *
+ * Two landmark names, because there are two menus and never both at once: `landmarkLabel` is the
+ * left rail at 768 and up, `menuLabel` the bottom tab bar below it (Firia's final ruling,
+ * 2026-10-17 3:08 PM ET). "Open menu" and "Close menu" went with the hamburger: a tab bar is
+ * always on screen, so there is nothing to open.
+ */
 export const nav = {
   today: "Today",
   exceptions: "Exceptions & Approvals",
   setup: "Setup",
   health: "Health & ROI",
+  /** REDESIGN-SPEC §0, menu item 5: the family thread, and the approvals waiting inside it. */
+  familyTexts: "Family texts",
+  /** Not a menu item (§9.2): the "For you" half of Family texts, reachable from it. */
+  approvals: "Approvals",
   landmarkLabel: "Main",
-  openMenu: "Open menu",
-  closeMenu: "Close menu",
   menuLabel: "Menu",
+  /**
+   * The phone's overflow tab. Below 768 the bar carries five equal tabs; a role with more
+   * destinations than that gets four and this, which opens the rest in a sheet over the screen
+   * (src/ui/TabBar.tsx). It is a tab like the others — not a hamburger, and not a side drawer,
+   * both of which Firia deleted on 2026-10-17 at 3:08 PM ET.
+   */
+  more: "More",
+  /** The sheet's own accessible name, and the button that closes it. */
+  moreLabel: "More destinations",
+  closeMore: "Close",
+} as const;
+
+/**
+ * The step strip under Today's header (REDESIGN-SPEC §9.2, §9.5). The three steps of the day, in
+ * order, each a link to the screen that does it. States (Done / Needed / Locked) are not shown yet:
+ * TODO(data-model): they are read from docs/DATA-MODEL.md once its van / day-counts / plan
+ * section is signed, and no screen decides them on its own before then.
+ */
+export const flow = {
+  stepsAria: "Today's steps",
+  steps: {
+    setup: "Van setup",
+    plan: "Plan routes",
+    live: "Live map",
+  },
 } as const;
 
 /** COPY-GUIDE §5: visible label "Search", placeholder "Child, route or vehicle". */
@@ -70,21 +135,29 @@ export const identity = {
 } as const;
 
 /**
- * COPY-GUIDE §5 header: freshness pills read "<adapter> · Simulated" until the live board
- * wires real ages.
+ * A one-line notice about something the app just did for you (§9.3, §9.5 `toast.notOnMenu`).
+ *
+ * `notOnMenu` is the answer to a typed URL for a page this person's menu does not carry: the
+ * page guard sends them to their own home and this says why, in place of the 403 card that used
+ * to be the end of the road (src/auth/page-guard.ts, src/ui/NoticeToast.tsx). It is a sentence
+ * for a person and not a change to what the server allows — the API still answers 403.
+ *
+ * No role name, no path and no status code: which page it was is not the point, and "your menu"
+ * is the thing a founder can act on.
  */
-export const adapters = {
-  sms: "SMS",
-  teams: "Teams",
-  gps: "GPS",
-  agent: "Agent",
-  /** Interim value, approved for build (DESIGN-DIRECTION §2); replaced by real ages later. */
-  simulatedValue: "Simulated",
-  separator: " · ",
-  groupLabel: "Adapter freshness",
-  /** Says out loud that no time on this screen is real, so the header never over-claims. */
-  interimNote: "Times are simulated until the live board is connected.",
+export const toast = {
+  notOnMenu: "Not on your menu",
+  dismiss: "Dismiss",
 } as const;
+
+/*
+ * The four per-adapter freshness pills ("SMS · Simulated", "Teams · Simulated", …), their group
+ * label and the "Times are simulated until the live board is connected." line under them are
+ * gone from the header — Vera's review, 2026-10-17 2:44 PM ET: **one** Simulated chip, the §7.1
+ * one in the DEMO bar (src/ui/ScreenSource.tsx), and no second or sixth thing saying it. The
+ * pill component went with them. When the live stream can carry real ages (§10) what lands is
+ * an age, which is a different claim and gets its own words then.
+ */
 
 /**
  * Ages, humanized (COPY-GUIDE §1 "durations as '6 min'", §3 "'2 min ago'"). Raw seconds never
@@ -132,7 +205,6 @@ export const screenReader = {
   state: "State: {label}",
   /** §7.1 */
   source: "Source: {label}",
-  freshness: "{adapter}: {value}",
 } as const;
 
 /**
@@ -333,8 +405,6 @@ export const board = {
     CHECK_VAN_AT_RAMP: "Check {child}'s van at the ramp.",
     NOTHING: "Nothing to do",
   },
-  /** §4.1 keyboard: j / k move, Enter opens. Said once, above the rows. */
-  keyboardHint: "Use J and K to move between rides, Enter to open one.",
   /** "Open Mia R., morning ride" — one opener per row, so two rows are two distinct buttons. */
   openRow: "Open {child}, {ride} ride",
 } as const;
@@ -389,24 +459,6 @@ export function onDay(words: { today: string; otherDay: string }, day: LabelledD
 }
 
 /**
- * Scenario clock in the header (§2). The demo-controls dock (§6.1) owns the clock; until it
- * is wired the readout says the demo has not started and Start says honestly why it is inert.
- */
-export const scenarioClock = {
-  label: "Scenario clock",
-  notStarted: "Demo not started",
-  /**
-   * COPY-GUIDE §3, "Buttons: verb + object, ≤3 words". It read "Start" — a verb with nothing
-   * after it, sitting next to "Demo not started", so the one thing a founder is about to click
-   * did not say what it starts. COPY-GUIDE §5 sketches this control as "[Start]"; that line
-   * predates §3's button rule and is the shorter of the two, so the rule wins.
-   */
-  start: "Start demo day",
-  /** Shown on hover and on focus; the button stays focusable so this can be read (§9). */
-  startUnavailable: "Demo controls aren't connected yet.",
-} as const;
-
-/**
  * Surfaces that exist in the nav but whose data and interactions are not built yet. Each one
  * says so in its heading and then says, in one plain sentence, what it will do. No ticket
  * codes: a build-step name means nothing to a coordinator (COPY-GUIDE §1).
@@ -422,6 +474,28 @@ export const unbuilt = {
   setup: "This page will hold the vans, their seat layouts, and the people allowed to receive a child.",
   health:
     "This page will show whether each part of the system is working, next to the time the demo says it saves.",
+} as const;
+
+/**
+ * A SCREEN THAT IS A TITLE AND ONE LINE.
+ *
+ * The difference between this and `unbuilt` above is what the screen is *for*. `unbuilt` is an
+ * apology — "Health & ROI isn't built yet" — which was right while those three were off the
+ * menu and reachable only by typing a URL. They are on the menu now (REDESIGN-SPEC §0 asks for
+ * nothing to 404 from it), and a founder clicking a menu item should land on a screen, not on a
+ * notice about the build. So each of these is the page's own name as its heading and one line
+ * saying what it will hold — the §0 copy rule, which allows a label and at most one short line.
+ *
+ * No ticket codes, no dates, no promises about when (COPY-GUIDE §1): what the page is for is
+ * true today; when it lands is not something this screen knows.
+ */
+export const stub = {
+  exceptions: "What needs action, who is handling it, and when it is due.",
+  health: "Whether each part of the system is working, and the time the demo saves.",
+  familyTexts: "Every text this day sent to a family, and what they sent back.",
+  approvals: "Changes waiting for a person to approve.",
+  /** The one link out of Family texts, to the half of it that is the approvals queue (§9.2). */
+  approvalsLink: "For you",
 } as const;
 
 /** Sign-in. §9: visible labels, errors in text next to the field with aria-describedby. */
@@ -614,11 +688,19 @@ export const notFound = {
   signIn: login.submit,
 } as const;
 
-/** Developer surface: confirms the signed-in identity against the database. */
+/**
+ * The account page: who you are signed in as, in one line.
+ *
+ * It used to carry `membership: "{role} at site {siteId}"` — a role *key* and a site UUID, on
+ * the grounds that a developer surface may show internals (COPY-GUIDE §2). It is not a
+ * developer surface: it is in the frame, on the menu's own account route, and a founder opens
+ * it in front of a customer. So the enum and the id are gone and what is left is the person and
+ * their role in the words the rest of the app already uses (`roleNames`).
+ */
 export const whoami = {
   heading: "Signed in",
-  /** Internal role enum names are allowed on developer surfaces only (COPY-GUIDE §2). */
-  membership: "{role} at site {siteId}",
+  /** "Dana M. · Director" — the §3 middle dot the board and the drawer already join with. */
+  separator: " · ",
 } as const;
 
 /**

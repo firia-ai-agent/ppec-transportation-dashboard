@@ -4,7 +4,7 @@ import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { UserLock, type LucideIcon } from "lucide-react";
-import { fill, nav, noAccess, rampIpad, roleNames } from "./copy";
+import { fill, liveMap, nav, noAccess, rampIpad, roleNames } from "./copy";
 import { sourceModes, vocabularies } from "./states";
 import { whoCanOpenLine, type Caller } from "@/auth/access";
 
@@ -118,9 +118,11 @@ describe("the card", () => {
   });
 
   it("offers one way out: the first page this person's own role can open", async () => {
+    // The live map, since Firia's final ruling of 2026-10-17 3:08 PM ET made it the front
+    // desk's home. The card reads `homePathFor`, so it moved with it.
     const frontDesk = await render(CALLERS.frontDesk, { path: "/today" });
-    expect(frontDesk).toContain(`href="/ramp-ipad"`);
-    expect(frontDesk).toContain(fill(noAccess.back, { page: rampIpad.heading }));
+    expect(frontDesk).toContain(`href="/live-map"`);
+    expect(frontDesk).toContain(fill(noAccess.back, { page: liveMap.heading }));
     expect(frontDesk.match(/<a /g)).toHaveLength(1);
 
     // A coordinator can be refused a page too (a director-only one, when there is one), and
@@ -169,7 +171,7 @@ describe("the card", () => {
         expect(words).not.toMatch(page);
         // The one path in the markup at all is the href of the way out — where they *can* go.
         const hrefs = [...html.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
-        expect(hrefs).toEqual([caller.kind === "STAFF" && caller.role === "FRONT_DESK" ? "/ramp-ipad" : caller.kind === "STAFF" ? "/today" : "/login"]);
+        expect(hrefs).toEqual([caller.kind === "STAFF" && caller.role === "FRONT_DESK" ? "/live-map" : caller.kind === "STAFF" ? "/today" : "/login"]);
       }
     }
   });
@@ -184,9 +186,10 @@ describe("the DEMO bar and the Simulated chip, from the one place that mounts th
   const source = readFileSync(path.join(__dirname, "NoAccess.tsx"), "utf8");
 
   it("come from the root layout, which is above this card on this route like every other", () => {
-    expect(readFileSync(path.join(__dirname, "..", "app", "layout.tsx"), "utf8")).toMatch(/<DemoBanner \/>/);
-    // And the card mounts neither of them itself: one bar and one chip per screen (NFR-09).
-    expect(source).not.toMatch(/DemoBanner|ScreenSource|SourceBadge/);
+    // `DemoBar` is the bar plus the one session read that decides whether it draws its control.
+    expect(readFileSync(path.join(__dirname, "..", "app", "layout.tsx"), "utf8")).toMatch(/<DemoBar \/>/);
+    // And the card mounts none of them itself: one bar and one chip per screen (NFR-09).
+    expect(source).not.toMatch(/DemoBar|DemoBanner|ScreenSource|SourceBadge/);
   });
 });
 

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { buildBoard, demoDay, serviceDayFor, type LegRow } from "@/domain/board/board";
+import { DEMO_SERVICE_DATE } from "@/domain/board/day";
 import {
   board as boardCopy,
   drawer,
@@ -13,7 +14,8 @@ import {
   serviceDate,
 } from "@/ui/copy";
 import { legStates, therapySessionStates } from "@/ui/states";
-import { clockLabel } from "@/ui/service-date";
+import { clockLabel, demoDateIso, demoDateLabel } from "@/ui/service-date";
+import { stepsFor } from "@/ui/step-strip";
 import { TodayBoard } from "./TodayBoard";
 import { LegDrawer } from "./LegDrawer";
 import { nextStepCellText } from "./next-step";
@@ -52,8 +54,14 @@ const legOf = (key: string, direction: "AM" | "PM"): LegRow => {
   return leg;
 };
 
+/**
+ * The board as a director sees it, strip included: the strip lives under the board's own header
+ * now (REDESIGN-SPEC §9.2), so it is one of the board's props rather than a sibling of it.
+ */
 function boardHtml(query = "", of: typeof board = board): string {
-  return renderToStaticMarkup(createElement(TodayBoard, { board: of, query }));
+  return renderToStaticMarkup(
+    createElement(TodayBoard, { board: of, query, steps: stepsFor("DIRECTOR") }),
+  );
 }
 
 function drawerHtml(key: string, of: typeof board = board): string {
@@ -72,8 +80,13 @@ describe("the board renders the day", () => {
    */
   it("has one heading and one date, the demo day, labelled as the demo day", () => {
     expect(html).toContain(`>${boardCopy.heading}<`);
-    expect(html).toMatch(/datetime="2026-10-14"/i);
-    expect(html).toContain("Wed, Oct 14");
+    /*
+     * The day is read, not written down: the board prints the day the demo is being given on
+     * (Firia, 2026-10-17 4:50 PM ET), so this asks the one helper what that is rather than
+     * naming a date that is true for one day a year (src/ui/no-fixed-dates.test.ts bars one).
+     */
+    expect(html).toMatch(new RegExp(`datetime="${demoDateIso(DEMO_SERVICE_DATE)}"`, "i"));
+    expect(html).toContain(demoDateLabel(DEMO_SERVICE_DATE));
     expect(html).toContain(serviceDate.phases.LIVE);
     // One date, once: the label, the date and the kind of day, and nothing else dated.
     expect(html.match(/<time/g)).toHaveLength(1);
@@ -229,8 +242,17 @@ describe("the board renders the day", () => {
     expect(html).toContain(boardCopy.noReceiver);
   });
 
-  it("says plainly how the keyboard moves through it (§4.1)", () => {
-    expect(html).toContain(boardCopy.keyboardHint);
+  /**
+   * The hint line is gone (Vera's review, 2026-10-17 2:44 PM ET) and the keys are not: J and K
+   * still move between rides and Enter still opens one (`onKeyDown` below), and every row is
+   * reachable by Tab and by its own button, so nothing on this board is keyboard-only.
+   */
+  it("says nothing about J and K above the rows, and still moves on them", () => {
+    expect(html).not.toMatch(/J and K/);
+    expect(boardCopy).not.toHaveProperty("keyboardHint");
+    const source = readFileSync(path.join(__dirname, "TodayBoard.tsx"), "utf8");
+    expect(source).toMatch(/case "j"|=== "j"/i);
+    expect(source).toMatch(/case "k"|=== "k"/i);
   });
 
   /**
@@ -321,7 +343,7 @@ describe("the board renders the day", () => {
     const none = boardHtml("no child is called this");
     expect(none).toContain(escaped(fill(boardCopy.emptySearch, { query: "no child is called this" })));
     expect(none).not.toContain("<table");
-    expect(none).not.toContain(fill(boardCopy.empty, { date: "Wed, Oct 14" }));
+    expect(none).not.toContain(fill(boardCopy.empty, { date: demoDateLabel(DEMO_SERVICE_DATE) }));
   });
 
   it("and each of those lines is one line that ends in something to do", () => {

@@ -40,7 +40,7 @@ import {
   tickAtScenarioSeconds,
 } from "@/domain/eta/scenario-clock";
 import { SCENARIO_START_MS } from "@/fixtures/replays";
-import { serviceDateIso, serviceDateLabel, SITE_TIME_ZONE } from "@/ui/service-date";
+import { demoDateLabel, serviceDateIso, SITE_TIME_ZONE } from "@/ui/service-date";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
@@ -82,7 +82,7 @@ export type DayPhase = "ENDED" | "LIVE" | "PLANNED";
 export type ServiceDay = {
   /** "2026-10-14", the `<time dateTime>` and what the date override names a day by. */
   iso: string;
-  /** "Wed, Oct 14" — the format COPY-GUIDE §5 uses. */
+  /** The date in words, as the screen prints it: the day this fixture day stands in for. */
   label: string;
   phase: DayPhase;
   /** The instant the board reads this day at, epoch ms. */
@@ -130,9 +130,17 @@ function dayAtOffset(offsetDays: number): ServiceDay {
   const instantMs = instantOn(offsetDays, INSTANT_MINUTE[phase]);
   const weekday = WEEKDAY.format(new Date(instantMs));
   const inRange = (n: number) => Math.abs(n) <= DAY_RANGE_DAYS;
+  const iso = serviceDateIso(new Date(instantMs));
   return {
-    iso: serviceDateIso(new Date(instantMs)),
-    label: serviceDateLabel(new Date(instantMs)),
+    iso,
+    /*
+     * The *words*, which are not this day's fixture date: the demo is given today, so the
+     * seeded Wednesday is shown as today in New York and the day either side of it keeps its
+     * distance (Firia, 4:50 PM ET; src/ui/service-date.ts is the one helper that does it).
+     * `iso` above stays the fixture's key — it is what `?date=` names and what the replays are
+     * looked up by — so nothing about the day the board computes moves.
+     */
+    label: demoDateLabel(iso),
     phase,
     instantMs,
     offsetDays,

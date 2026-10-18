@@ -341,7 +341,7 @@ describe("the screen's own rules", () => {
   it("marks a chosen answer with a fill and a check, never colour alone (§3)", () => {
     expect(screen).toMatch(/aria-pressed=\{pressed\}/);
     expect(screen).toMatch(/\{pressed \? <Check size=\{icon\.inline\}/);
-    expect(css).toMatch(/\.button\[aria-pressed="true"\] \{[^}]*background: var\(--color-brand\)/);
+    expect(css).toMatch(/\.button\[aria-pressed="true"\] \{[^}]*background: var\(--color-selected-bg\)/);
   });
 
   it("holds no colour of its own and no demo violet (D-5)", () => {
@@ -381,8 +381,8 @@ describe("the screen's own rules", () => {
       planLanes(scenario).map((lane) => lane.capability.serviceDate),
     );
     expect([...new Set(dates)]).toEqual([PLAN_SERVICE_DATE]);
-    expect(screen.match(/serviceDateLabel\(/g)).toHaveLength(1);
-    expect(screen).toMatch(/const SERVICE_DATE_LABEL = serviceDateLabel\(/);
+    expect(screen.match(/demoDateLabel\(/g)).toHaveLength(1);
+    expect(screen).toMatch(/const SERVICE_DATE_LABEL = demoDateLabel\(/);
     expect(screen).toMatch(/date: SERVICE_DATE_LABEL/);
   });
 

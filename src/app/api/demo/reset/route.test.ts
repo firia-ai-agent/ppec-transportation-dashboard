@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { PREVIEW_REFUSAL } from "@/modules/demo/reset";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PREVIEW_REFUSAL, RESET_ROLES } from "@/modules/demo/reset";
 
 /**
  * A preview deployment is served production's DATABASE_URL (single-DB directive, DECISION-LEDGER #43),
@@ -84,4 +84,81 @@ it("a signed-out caller is 401 and a wrong role is 403, before the DB is opened"
     expect(text).not.toMatch(/DIRECTOR|COORDINATOR|FRONT_DESK|demo\/reset/);
     expect(res.headers.get("cache-control")).toBe("no-store");
   }
+});
+
+/**
+ * WHO MAY RESET THE DEMO — the front desk may not, and the check is the route's own.
+ *
+ * REDESIGN-SPEC §0 hides "Restart demo day" from the front desk, and §9.3 is explicit that
+ * hiding is not the answer: "APIs keep returning 403, including POST /api/demo/reset for front
+ * desk". So this asks the real route handler, with a real `Request`, for both ends of that
+ * sentence — a front-desk caller is refused and a director gets the reset — rather than asking
+ * the access table what it says about itself.
+ *
+ * The DB write is the only thing stubbed: `handleDemoReset` is what truncates and reseeds, so
+ * it is replaced by a spy that records whether it was reached. That is what makes the two
+ * assertions a pair — the refusal must not reach it, and the success must.
+ *
+ * Deleting the guard fails this: with `requireApiSession(API.demoReset)` taken out of the
+ * handler, the front-desk request falls through to the reset and this reads 200 with the spy
+ * called, not 403 with it untouched.
+ */
+describe("the reset is the director's, and the front desk is refused there too", () => {
+  const RESET = { status: 200 as const, body: { ok: true as const, seeded: true } };
+  const handleDemoReset = vi.fn(async () => RESET);
+
+  /** The one side effect, stubbed. The gate beside it is the real module's. */
+  beforeEach(() => {
+    handleDemoReset.mockClear();
+    vi.doMock("@/modules/demo/reset", async () => ({
+      ...(await vi.importActual<typeof import("@/modules/demo/reset")>("@/modules/demo/reset")),
+      handleDemoReset,
+    }));
+    // The reset's own DB handle: never opened on the refusal, harmless on the success because
+    // the handler above it is the stub.
+    getNeonDb.mockReturnValue({} as never);
+  });
+
+  afterEach(() => {
+    vi.doUnmock("@/modules/demo/reset");
+    vi.resetModules();
+    getNeonDb.mockReset();
+    getNeonDb.mockImplementation(() => { throw new Error(DB_OPENED); });
+  });
+
+  it("answers 403 to a FRONT_DESK caller and never runs the reset", async () => {
+    getCaller.mockResolvedValue({
+      kind: "STAFF", role: "FRONT_DESK", userId: "00000000-0000-7000-8000-0000000000f1", memberships: [],
+    } as never);
+    const res = await post({});
+    expect(res.status).toBe(403);
+    expect(handleDemoReset).not.toHaveBeenCalled();
+    // And the refusal names no role and no route (COPY-GUIDE §2, the ID-swap rules).
+    expect(JSON.stringify(await res.json())).not.toMatch(/DIRECTOR|FRONT_DESK|demo\/reset/);
+  });
+
+  it("answers 403 to a COORDINATOR too: the row is one role, not 'a console role'", async () => {
+    getCaller.mockResolvedValue({
+      kind: "STAFF", role: "COORDINATOR", userId: "00000000-0000-7000-8000-0000000000c1", memberships: [],
+    } as never);
+    expect((await post({})).status).toBe(403);
+    expect(handleDemoReset).not.toHaveBeenCalled();
+  });
+
+  it("runs the reset for a DIRECTOR", async () => {
+    getCaller.mockResolvedValue({
+      kind: "STAFF", role: "DIRECTOR", userId: "00000000-0000-7000-8000-0000000000d1", memberships: [],
+    } as never);
+    const res = await post({});
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(RESET.body);
+    expect(handleDemoReset).toHaveBeenCalledTimes(1);
+    // The caller the handler is given is the one the guard resolved, not the one in the body.
+    const args = handleDemoReset.mock.calls[0] as unknown as [unknown, unknown, { userId?: string }];
+    expect(args[2]).toMatchObject({ userId: "00000000-0000-7000-8000-0000000000d1" });
+  });
+
+  it("is the set of roles the access table names, so the button in the bar matches it", () => {
+    expect(RESET_ROLES).toEqual(["DIRECTOR"]);
+  });
 });

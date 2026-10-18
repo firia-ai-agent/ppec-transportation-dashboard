@@ -1,0 +1,18 @@
+/* A title, one line and the way out. The same column the other screens in this group use. */
+.page {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-5);
+  max-width: 60ch;
+}
+
+.heading {
+  font-size: var(--text-24);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.identity {
+  font-size: var(--text-16);
+}

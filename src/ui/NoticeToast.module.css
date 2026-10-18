@@ -1,0 +1,54 @@
+/*
+ * In the flow, between the header and the page, and sticky under the DEMO bar once the page
+ * scrolls.
+ *
+ * It was `position: fixed` under the bar, and at 390 px it landed on top of the header — over
+ * the demo readout and the Start beside it. A notice that covers the chrome to explain the
+ * chrome is its own small joke, and there is no width where "float it near the top" is safe:
+ * in the flow it cannot overlap anything, and `sticky` is what keeps it on screen while the
+ * board behind it moves.
+ */
+.toast {
+  position: sticky;
+  top: calc(var(--layout-demo-banner-height) + var(--space-3));
+  z-index: 19;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: fit-content;
+  max-width: calc(100% - var(--space-6));
+  margin: var(--space-3) auto 0;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-5);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  /* Lifted off the screen with the token palette's own ink, not a colour literal (§10). */
+  box-shadow: 0 0 0 var(--border-hairline) var(--color-border-strong);
+}
+
+.message {
+  margin: 0;
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+  color: var(--color-ink);
+}
+
+.dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* §9: ≥44 px target, on a control a thumb has to find on a phone. */
+  min-width: var(--target-console);
+  min-height: var(--target-console);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+}
+
+.dismiss:hover {
+  background: var(--color-neutral-bg);
+  color: var(--color-ink);
+}

@@ -18,7 +18,7 @@ import type { AlternateCandidate, Child, LayoutPosition, SolveResult } from "@/d
 import { chairFitsPosition } from "@/domain/solver";
 import { ARRIVING_VEHICLES, SERVICE_DATE, fullyAvailable } from "@/fixtures/fleet";
 import { fill, layoutName, rampIpad, sentence } from "@/ui/copy";
-import { serviceDateLabel } from "@/ui/service-date";
+import { demoDateLabel } from "@/ui/service-date";
 import { toneVars } from "@/ui/tokens";
 import type { Tone } from "@/ui/tokens";
 import {
@@ -34,10 +34,11 @@ type QueueEntry = { id: string; idempotencyKey: string; label: string; at: strin
 type Snack = { id: string; text: string; riderKey: string };
 
 /**
- * The service date the fixtures describe, as "Tue, Oct 14" (COPY-GUIDE §3). Read at noon UTC so
- * the site timezone (America/New_York) lands on the same calendar day the fixture names.
+ * The date this check is for, in words (COPY-GUIDE §3): the fixture's day shown as the day the
+ * demo is being given on (Firia, 2026-10-17 4:50 PM ET). `SERVICE_DATE` itself is untouched —
+ * it is the key the checklist and the capability rows are read by.
  */
-const SERVICE_DATE_LABEL = serviceDateLabel(new Date(`${SERVICE_DATE}T12:00:00Z`));
+const SERVICE_DATE_LABEL = demoDateLabel(SERVICE_DATE);
 
 /** §4.4: the checklist is 64 px toggle rows, and the vehicle tiles are big segmented tiles. */
 const CHECKLIST_ROW_HEIGHT = 64;

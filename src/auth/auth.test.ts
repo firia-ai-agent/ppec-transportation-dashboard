@@ -118,7 +118,10 @@ describe("credentials + roles from DB", () => {
     expect(await getActiveUser(db, fd)).toBeNull(); // /whoami redirects on null
     await expect(requireUser(db, fd)).rejects.toBeInstanceOf(Forbidden);
     expect(await getActiveUser(db, "01900000-0000-7000-8000-0000000000ee")).toBeNull(); // deleted / unknown uid
-    expect(await getActiveUser(db, dir)).toMatchObject({ id: dir, displayName: "SYN Dana Director" });
+    // The stored name, marker and role included — turning it into "Dana M." is the console's
+    // job (src/ui/display-name.ts), not the database's. Read from the account itself so a
+    // renamed demo account is tested as it is.
+    expect(await getActiveUser(db, dir)).toMatchObject({ id: dir, displayName: DEMO_USERS[0].name });
   });
 });
 

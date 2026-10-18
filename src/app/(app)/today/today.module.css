@@ -87,8 +87,7 @@
 }
 
 .searchEcho,
-.showing,
-.hint {
+.showing {
   font-size: var(--text-12);
   color: var(--color-ink-muted);
 }
@@ -151,9 +150,6 @@
   width: 14%;
 }
 
-.colSource {
-  width: 9%;
-}
 
 /*
  * A chip is written to sit on one line (src/ui/StateChip.module.css), which is right in a
@@ -194,8 +190,7 @@
   /* Their cells are gone, so their columns must be too, or the board keeps a third of its
      width for three columns nobody can see. */
   .colReceiver,
-  .colNextStep,
-  .colSource {
+  .colNextStep {
     width: 0;
   }
 }

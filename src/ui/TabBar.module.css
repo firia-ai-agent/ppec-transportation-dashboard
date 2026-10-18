@@ -1,0 +1,160 @@
+/* The rail is the menu at 768 and up; this bar only exists below it (§2, Firia 3:08 PM ET). */
+.bar {
+  display: none;
+}
+
+.list {
+  display: flex;
+  align-items: stretch;
+  /* Above the scrim, so the four tabs beside "More" are still tappable while it is open. */
+  position: relative;
+  z-index: 2;
+}
+
+.item {
+  /* Equal tabs: four or two, they divide the window between them. */
+  flex: 1 1 0;
+  display: flex;
+  min-width: 0;
+}
+
+.tab {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  /* §9: ≥44 px target. The whole tab is the target, icon and label inside it. */
+  min-height: var(--layout-tab-bar-height);
+  padding: var(--space-2) var(--space-1);
+  /*
+   * The current tab's brand bar, reserved at every state: transparent here, painted below. A
+   * border that only exists on the current tab would move the other four by 3 px.
+   */
+  border-top: var(--border-current) solid transparent;
+  color: var(--color-ink-muted);
+  text-decoration: none;
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+}
+
+/*
+ * §9 / §3: the current page is never marked by colour alone. Three cues — the bar along the
+ * top, the weight of the label, and `aria-current="page"` for the ear.
+ */
+.tab[aria-current="page"] {
+  border-top-color: var(--color-brand);
+  /* The same tint the rail's current item takes, so "where I am" looks the same at both widths. */
+  background: var(--color-selected-bg);
+  color: var(--color-ink-brand);
+  font-weight: var(--weight-semibold);
+}
+
+/*
+ * The "More" tab is a button, not a link: it opens the sheet above the bar rather than going
+ * anywhere. It takes the same box as a tab so the five slots are five equal columns.
+ */
+button.tab {
+  border-inline: 0;
+  border-bottom: 0;
+  background: none;
+  cursor: pointer;
+}
+
+/*
+ * The sheet the "More" tab opens: the rest of this role's destinations, in the frame, above the
+ * bar. Not a side panel and not a drawer (Firia, 3:08 PM ET) — it sits on the menu it belongs
+ * to, the four tabs beside it stay on screen, and tapping any of them closes it.
+ */
+.sheet {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 100%;
+  z-index: 1;
+  background: var(--color-surface);
+  /* A hairline in the strong border tone rather than a shadow: no-hex.test.ts allows no colour
+     function anywhere but tokens.ts, and an edge the eye can find is what a shadow was for. */
+  border-top: var(--border-hairline) solid var(--color-border-strong);
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.sheetList {
+  display: flex;
+  flex-direction: column;
+}
+
+.sheetItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  /* §9: ≥44 px, and the whole row is the target. */
+  min-height: var(--target-console);
+  padding: var(--space-3) var(--space-5);
+  color: var(--color-ink);
+  text-decoration: none;
+  font-size: var(--text-16);
+  font-weight: var(--weight-medium);
+}
+
+.sheetItem[aria-current="page"] {
+  background: var(--color-selected-bg);
+  color: var(--color-ink-brand);
+  font-weight: var(--weight-semibold);
+}
+
+.sheetClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--target-console);
+  padding: var(--space-3) var(--space-5);
+  border: 0;
+  border-top: var(--border-hairline) solid var(--color-neutral-bg);
+  background: none;
+  color: var(--color-ink-muted);
+  font-size: var(--text-14);
+  cursor: pointer;
+}
+
+/* Tapping the page behind the sheet closes it. Under the sheet, over everything else. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+}
+
+.label {
+  line-height: var(--leading-tight);
+  /* One line per tab: a label broken in half is the phone drawer's bug in a smaller box. */
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 767px) {
+  .bar {
+    display: block;
+    /*
+     * Fixed, not sticky: the menu is on screen while the board behind it scrolls, which is the
+     * whole point of a tab bar. Under the DEMO bar's z-index (20) — the bar above everything is
+     * NFR-09 — and above the page's own chrome.
+     */
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 15;
+    background: var(--color-surface);
+    border-top: var(--border-hairline) solid var(--color-border-strong);
+    /*
+     * The iPhone home bar. Padding rather than a margin, so the bar's fill still reaches the
+     * bottom edge of the screen and the tabs sit above the inset instead of under the gesture
+     * area. `0px`, with the unit, because `calc()` elsewhere needs a length even where the
+     * device reserves nothing.
+     */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}

@@ -37,9 +37,14 @@
   background: var(--color-neutral-bg);
 }
 
+/*
+ * The item you are on, in the one tint that means "this one" (founder's palette, 6:19 PM ET):
+ * the selected tint behind Teal Ink, 8.27:1. It used to be the `info` pair, a *state* tone — the
+ * rail would have gone on reading as a status light when `info` changed hue.
+ */
 .link[aria-current="page"] {
-  background: var(--color-info-bg);
-  color: var(--color-info-fg);
+  background: var(--color-selected-bg);
+  color: var(--color-ink-brand);
   font-weight: var(--weight-semibold);
 }
 
@@ -126,7 +131,7 @@
   }
 }
 
-/* <768: the hamburger drawer in MobileNav replaces the rail entirely (§2). */
+/* <768: the bottom tab bar (src/ui/TabBar.tsx) replaces the rail entirely (Firia, 3:08 PM ET). */
 @media (max-width: 767px) {
   .rail {
     display: none;

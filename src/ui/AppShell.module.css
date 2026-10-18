@@ -8,73 +8,34 @@
   min-height: calc(100vh - var(--layout-demo-banner-height));
 }
 
+/*
+ * One row (Vera, 2026-10-17 2:44 PM ET). It used to be two: the site name, the scenario clock
+ * and the avatar above; four "· Simulated" pills, their note and global search below. The pills
+ * and the note are gone — one Simulated chip per screen, the one in the DEMO bar — and search
+ * moved into Today, under the board's own title.
+ */
 .header {
   position: relative;
   display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
+  align-items: center;
+  gap: var(--space-5);
+  min-height: var(--layout-header-height);
+  padding: var(--space-3) var(--space-5);
   background: var(--color-surface);
   border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
 }
 
-.topRow,
-.bottomRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-5);
-  flex-wrap: wrap;
-}
-
 .siteName {
+  /* The brand mark, in the brand's own ink (founder's palette, 6:19 PM ET). */
+  color: var(--color-ink-brand);
   font-size: var(--text-20);
   font-weight: var(--weight-semibold);
   line-height: var(--leading-tight);
-}
-
-.facts {
-  display: flex;
-  align-items: center;
-  gap: var(--space-5);
-  margin: 0;
-}
-
-.fact {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.factLabel {
-  font-size: var(--text-12);
-  color: var(--color-ink-muted);
-}
-
-.factValue {
-  margin: 0;
-  font-size: var(--text-14);
-  font-weight: var(--weight-medium);
+  white-space: nowrap;
 }
 
 .spacer {
   flex: 1 1 auto;
-}
-
-.bottomRow {
-  justify-content: space-between;
-  align-items: flex-end;
-}
-
-.adapters {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-
-.adaptersNote {
-  font-size: var(--text-12);
-  color: var(--color-ink-muted);
 }
 
 .body {
@@ -90,18 +51,48 @@
   padding: var(--space-6) var(--space-5);
 }
 
+/*
+ * The content area for a screen that brings its own `<main>` and its own padding (Plan routes,
+ * the live map, the ramp iPad — all three built before this shell reached them). Same box in the
+ * layout as `.main`, no padding of its own: doubling it would reindent three finished screens.
+ */
+.contentSlot {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 @media (max-width: 767px) {
   .header {
-    padding: var(--space-4);
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-3);
   }
 
-  .facts {
-    gap: var(--space-4);
+  /*
+   * The product's name stays on a phone and gets smaller.
+   *
+   * It used to be `display: none` here, because the row also carried the demo readout and its
+   * "Start demo day" and there was no room for four things. Those two are gone — the demo's one
+   * control is the DEMO bar's now — and a header whose only content is a circle of initials is
+   * not a header: the mark at one end and the account at the other is the row the mockups draw
+   * (png/shell-flow-390.png), and it is what tells a person at 390 px that the thing above the
+   * screen is this app's chrome rather than part of the screen.
+   */
+  .siteName {
+    font-size: var(--text-16);
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .bottomRow {
-    align-items: stretch;
-    flex-direction: column;
+  /*
+   * Clearance for the bottom tab bar, which is `position: fixed` and would otherwise sit on
+   * top of the last rows of the page (Firia, 3:08 PM ET: "page content padded so nothing hides
+   * behind it"). The bar's own height plus the device's safe-area inset — the same two lengths
+   * the bar pads itself with, so the two agree by construction.
+   */
+  .body {
+    padding-bottom: calc(var(--layout-tab-bar-height) + env(safe-area-inset-bottom, 0px));
   }
 
   .main {

@@ -145,8 +145,21 @@ export type EndpointRow = {
  * is not something a screen may print, and `no-internals.test.ts` holds that line by scanning
  * those two trees for the literal. The routes name their row through these constants.
  */
-/** Layout keys. A layout has no URL of its own, but it is a guard point and needs a row. */
-export const LAYOUT = { root: "layout:root", console: "layout:console" } as const;
+/**
+ * Layout keys. A layout has no URL of its own, but it is a guard point and needs a row.
+ *
+ * Four of them mount the console shell: the `(app)` group, and one per route folder for the
+ * three screens that are outside it (`/plan-routes`, `/live-map`, `/ramp-ipad`). Every one of
+ * those four asks for a session and nothing more — the role belongs to the page inside, so the
+ * refusal is rendered by the page that was asked for and can say who it is for.
+ */
+export const LAYOUT = {
+  root: "layout:root",
+  console: "layout:console",
+  planRoutes: "layout:plan-routes",
+  liveMap: "layout:live-map",
+  rampIpad: "layout:ramp-ipad",
+} as const;
 
 export const API = {
   auth: "/api/auth/[...nextauth]",
@@ -216,6 +229,34 @@ export const PAGES: readonly PageRow[] = [
     access: { signedIn: true },
   },
   /**
+   * The same shell, on the three screens that are routes of their own outside that group. They
+   * rendered with no menu at all until 2026-10-17, which is how a founder walking production
+   * reached Plan routes and found the browser's Back button was the only way out of it.
+   *
+   * Each is a session check and nothing more, exactly as the group's row is: the page inside
+   * checks its own row — the two console roles for /plan-routes, every staff role for the other
+   * two — so no role gains or loses a screen by these three rows existing. That is the point of
+   * them being `signedIn`, and src/auth/guard-matrix.test.ts asks all four layouts directly.
+   */
+  {
+    kind: "layout",
+    file: "src/app/plan-routes/layout.tsx",
+    path: LAYOUT.planRoutes,
+    access: { signedIn: true },
+  },
+  {
+    kind: "layout",
+    file: "src/app/live-map/layout.tsx",
+    path: LAYOUT.liveMap,
+    access: { signedIn: true },
+  },
+  {
+    kind: "layout",
+    file: "src/app/ramp-ipad/layout.tsx",
+    path: LAYOUT.rampIpad,
+    access: { signedIn: true },
+  },
+  /**
    * SURF-01 board + SURF-02 drawer + SURF-03 inbox (PRD §14, l.1055). ARCHITECTURE §1 gives the
    * web console to the coordinator and director; the front desk's surface is the ramp iPad
    * (SURF-04). PRD §6.2: the attendance plan and the legs are written by coordinators.
@@ -242,6 +283,33 @@ export const PAGES: readonly PageRow[] = [
     path: "/exceptions",
     access: { roles: CONSOLE },
     label: nav.exceptions,
+  },
+  /**
+   * Family texts (REDESIGN-SPEC §0, menu item 5): the day's outbound family messages and the
+   * replies to them. The two console roles, and the front desk is out — mirroring /exceptions,
+   * and for the same reason the map matrix already withholds family labels from the door
+   * (src/domain/access/map-view.ts): a person at the ramp is given the child in front of them,
+   * not the family's conversation.
+   */
+  {
+    kind: "page",
+    file: "src/app/(app)/family-texts/page.tsx",
+    path: "/family-texts",
+    access: { roles: CONSOLE },
+    label: nav.familyTexts,
+  },
+  /**
+   * Approvals — the "For you" half of Family texts, at an address of its own (REDESIGN-SPEC
+   * §9.2 keeps it off the menu and reachable from that page). Same roles as the page it is part
+   * of, and the same roles PRD l.774 gives the decision to: a front-desk approval is an
+   * expected 403 in BUILD-PLAN §4.
+   */
+  {
+    kind: "page",
+    file: "src/app/(app)/approvals/page.tsx",
+    path: "/approvals",
+    access: { roles: CONSOLE },
+    label: nav.approvals,
   },
   /**
    * Children/needs, providers/vehicles/layouts, contacts, therapists (PRD §14). PRD §6.2:
@@ -277,19 +345,42 @@ export const PAGES: readonly PageRow[] = [
     founderQuestion: true,
   },
   /**
-   * A developer page that shows the signed-in person their own name and their own memberships,
-   * and nothing about anyone else.
+   * The account page: the signed-in person's own name and role, and nothing about anyone else.
+   * Inside the console frame since the founder's 2026-10-17 redesign — it was a route of its
+   * own with no menu on it — and on no role's menu: the account is reached from the identity
+   * menu in the header, which every screen carries.
    *
-   * OPEN QUESTION for the founder: Keep this developer page in the deployed app for all three
-   * roles, or drop it once the console is real?
+   * OPEN QUESTION for the founder: Keep this page in the deployed app for all three roles, or
+   * fold it into the identity menu once the console is real?
    */
   {
     kind: "page",
-    file: "src/app/whoami/page.tsx",
+    file: "src/app/(app)/whoami/page.tsx",
     path: "/whoami",
     access: { roles: ALL_STAFF },
     label: whoami.heading,
     founderQuestion: true,
+  },
+  /**
+   * The refusal card itself, at an address (src/app/refusal-check/page.tsx). It reads nothing,
+   * renders nothing, and answers 403 to every session: its body is `forbidden()`.
+   *
+   * `signedIn` is the whole of its policy, and it is the narrowest row that still does the one
+   * job this route has. The card is the only screen in the app no staff role can reach — a
+   * wrong-role URL is a 307 to that person's own home now (§9.3) — so there was no way to look
+   * at it in a browser, and "the refusal has a frame around it" could be asserted from the
+   * source and nowhere else. Asking for a session first means a signed-out visitor is sent to
+   * sign-in here exactly as on every other page, rather than being told this address exists;
+   * everyone past that point is refused, so the row grants no access to anything.
+   *
+   * No label, because it is on no menu and is no role's home: it is in neither
+   * src/ui/nav-items.ts nor `HOME_ORDER`.
+   */
+  {
+    kind: "page",
+    file: "src/app/refusal-check/page.tsx",
+    path: "/refusal-check",
+    access: { signedIn: true },
   },
   /**
    * The live map (DESIGN-DIRECTION §5). Open to all staff; what each role actually sees on it is
@@ -324,10 +415,11 @@ export const PAGES: readonly PageRow[] = [
    * SURF-04, the ramp iPad: the front desk's own surface (PRD §6.2, ARCHITECTURE §1), and a
    * coordinator and a director both walk it.
    *
-   * OPEN QUESTION for the founder: This is also the front desk's *home* — they can open no
-   * console page, so `HOME_ORDER` below resolves their landing page to this one, which is where
-   * sign-in now puts them. The screen is a walk-through of SURF-04 and records nothing. Correct
-   * until SURF-04 is real?
+   * It was the front desk's home, and the open question on this row was whether that was right
+   * until SURF-04 is real. Firia answered it on 2026-10-17 at 3:08 PM ET — "Front desk gets two
+   * tabs, Live map (their home) and Ramp iPad" — so the question is closed and the flag is off
+   * the row. This is still their second tab, and the surface the PRD names them after; the
+   * screen is a walk-through of SURF-04 and records nothing.
    */
   {
     kind: "page",
@@ -335,7 +427,6 @@ export const PAGES: readonly PageRow[] = [
     path: "/ramp-ipad",
     access: { roles: ALL_STAFF },
     label: rampIpad.heading,
-    founderQuestion: true,
   },
   /* ── the three old addresses, kept as permanent redirects ── */
   /**
@@ -675,12 +766,16 @@ export function apiOutcome(caller: Caller, path: string): ApiOutcome {
 /* ───────────────────────────── where a role lives ───────────────────────────── */
 
 /**
- * The order a role's own pages are offered in: the nav order first (DESIGN-DIRECTION §2), then
- * the two surfaces that are not in the rail. The first entry a role may open is their home — so
- * the front desk, who has no console page, lands on the ramp check rather than on a refusal.
- * That landing page is the `/ramp-ipad` row's open question above.
+ * The order a role's own pages are offered in. The first entry a role may open is their home —
+ * so a director and a coordinator land on the board, and the front desk, who may open no
+ * console page, lands on a screen of their own rather than on a refusal.
+ *
+ * **The front desk's home is the live map**, Firia's final ruling of 2026-10-17 3:08 PM ET:
+ * "Front desk gets two tabs, Live map (their home) and Ramp iPad." That is why `/live-map` sits
+ * ahead of `/ramp-ipad` here — it used to be the other way round, and sign-in, `/` and every
+ * "send them home" redirect read this one list, so moving it moves all of them at once.
  */
-const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/plan-routes", "/ramp-ipad", "/live-map", "/whoami"] as const;
+const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/plan-routes", "/live-map", "/ramp-ipad", "/whoami"] as const;
 
 /** Where this caller is sent when they need somewhere to be: their own first page, or sign-in. */
 export function homePathFor(caller: Caller): string {

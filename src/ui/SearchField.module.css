@@ -1,8 +1,14 @@
+/*
+ * It lives under the board's title now, not in the shell's header (Vera, 2026-10-17 2:44 PM
+ * ET), so it is capped: in a header row it took the width left over, and in a page it would
+ * take the whole page and read as a banner rather than as one field.
+ */
 .form {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   min-width: 240px;
+  max-width: 420px;
 }
 
 .label {

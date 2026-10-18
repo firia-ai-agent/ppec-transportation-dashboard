@@ -13,12 +13,13 @@
  */
 import { expect, test, type Locator } from "@playwright/test";
 import { fill, fleetMap, liveMap, nav, planRoutes, rampIpad } from "../src/ui/copy";
-import { navItems } from "../src/ui/nav-items";
+import { menuItems } from "../src/ui/nav-items";
 import {
   boxOf,
   contains,
   expectDemoBarPinned,
   expectNoInternalCodes,
+  expectOneSimulatedChip,
   expectVioletOnlyOnDemoChrome,
   overlaps,
   shot,
@@ -48,7 +49,7 @@ for (const width of WIDTHS) {
       expect(railBox.width).toBe(width < 1280 ? 64 : 232);
 
       // §2 / §9: every item is reachable and named, and nothing hangs off the rail's edge.
-      for (const item of navItems) {
+      for (const item of menuItems) {
         const link = rail.getByRole("link", { name: item.label });
         await expect(link).toHaveAttribute("title", item.label);
         const icon = link.locator("svg");
@@ -62,10 +63,11 @@ for (const width of WIDTHS) {
       /*
        * D-5, on the screen the reservation was being spent on: the header's four adapter pills
        * used to carry the demo violet, beside a bar that says "DEMO" and a chip that says
-       * "Simulated". The violet is now on those two and nothing else, so it still means what it
-       * is for. The pills keep the §2 interim text, which is true, and the outline.
+       * "Simulated". The pills are gone altogether now (Vera, 2026-10-17 2:44 PM ET) — one
+       * Simulated chip on a screen — so the violet is on the bar and that chip and nothing else.
        */
       await expectVioletOnlyOnDemoChrome(page);
+      await expectOneSimulatedChip(page);
 
       await expectNoInternalCodes(page);
       console.log("screenshot:", await shot(page, `today-${width}`));

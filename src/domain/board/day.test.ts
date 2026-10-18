@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SCENARIO_START_MS } from "@/fixtures/replays";
 import { serviceDate } from "@/ui/copy";
-import { serviceDateIso, serviceDateLabel } from "@/ui/service-date";
+import { demoDateLabel, serviceDateIso, serviceDateLabel } from "@/ui/service-date";
 import {
   BOARD_SCENARIO_SECONDS,
   BOARD_SCENARIO_TICK,
@@ -51,7 +51,7 @@ describe("the demo day", () => {
     expect(day.instantMs).toBe(SCENARIO_START_MS + BOARD_SCENARIO_SECONDS * 1000);
     expect(boardInstantMs()).toBe(day.instantMs);
     expect(day.offsetDays).toBe(0);
-    expect(day.label).toBe(serviceDateLabel(new Date(day.instantMs)));
+    expect(day.label).toBe(demoDateLabel(day.iso));
   });
 
   it("is a weekday the scenario runs, with a day each side of it", () => {

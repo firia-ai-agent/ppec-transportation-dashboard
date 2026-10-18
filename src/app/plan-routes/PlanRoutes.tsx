@@ -67,7 +67,7 @@ import {
 } from "@/domain/solver";
 import { board, fill, needCategories, places, planRoutes, rampIpad, vanName } from "@/ui/copy";
 import { DemoControls } from "@/ui/DemoControls";
-import { serviceDateLabel } from "@/ui/service-date";
+import { demoDateLabel } from "@/ui/service-date";
 import { StateChip } from "@/ui/StateChip";
 import { icon } from "@/ui/tokens";
 import { loadSavedPlan, planFingerprint, savePlan } from "./save-plan";
@@ -94,13 +94,14 @@ import {
 import styles from "./plan.module.css";
 
 /**
- * The service date the demo replays, as "Tue, Oct 14". Read at noon UTC so the site timezone
- * (America/New_York) lands on the calendar day the fixture names.
+ * The date this plan is for, in words: the fixture's day shown as the day the demo is being
+ * given on (Firia, 2026-10-17 4:50 PM ET; src/ui/service-date.ts is the one helper that maps
+ * it). The fixture's own date is still the key every row is looked up by — only the words move.
  *
  * One date, for both scenarios: the demo control below switches which run of this day is on
  * screen, and the screen never shows a second one (Vera's review, 2026-10-17).
  */
-const SERVICE_DATE_LABEL = serviceDateLabel(new Date(`${PLAN_SERVICE_DATE}T12:00:00Z`));
+const SERVICE_DATE_LABEL = demoDateLabel(PLAN_SERVICE_DATE);
 
 /** The drop zone that is the group at the top of the screen: in no van at all. */
 const NO_LANE = "none";

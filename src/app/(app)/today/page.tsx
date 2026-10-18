@@ -1,5 +1,6 @@
 import { requirePage } from "@/auth/page-guard";
 import { buildBoard, CLOCK_PARAM, requestedBoardDay } from "@/domain/board/board";
+import { stepsFor } from "@/ui/step-strip";
 import { TodayBoard } from "./TodayBoard";
 
 /** The guard reads a session, so this route is never statically rendered. */
@@ -42,7 +43,7 @@ export default async function Page({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requirePage("/today");
+  const caller = await requirePage("/today");
 
   const params = await searchParams;
   const one = (value: string | string[] | undefined): string | undefined =>
@@ -56,5 +57,10 @@ export default async function Page({
     requestedBoardDay(one(params.date), one(params[CLOCK_PARAM]), process.env),
   );
 
-  return <TodayBoard board={board} query={query} />;
+  // The day's three steps, each a link to its screen — only where this role may open it.
+  const steps = stepsFor(caller.kind === "STAFF" ? caller.role : null);
+
+  // The strip belongs under the board's own header (REDESIGN-SPEC §9.2), so it is handed to
+  // the board rather than rendered above everything: the board is what owns that header.
+  return <TodayBoard board={board} query={query} steps={steps} />;
 }

@@ -28,6 +28,7 @@ import {
 } from "./access";
 import type { Membership } from "./core";
 import { apiAccess, fill, noAccess } from "@/ui/copy";
+import { NOT_ON_YOUR_MENU, withNotice } from "@/ui/notice";
 
 /**
  * THE MATRIX: every role × every page, and every role × every endpoint, asked of the server.
@@ -42,8 +43,14 @@ import { apiAccess, fill, noAccess } from "@/ui/copy";
  * What a cell asserts, per outcome:
  *  - ALLOW      → the page function returns, i.e. it rendered for that role;
  *  - SIGN_IN    → it threw Next's redirect, to /login;
- *  - NO_ACCESS  → **both halves of the answer**, because a status code with the page still in
- *                 the body is not a refusal:
+ *  - NO_ACCESS, caller holds a role → it threw Next's redirect, to **their own home** carrying
+ *                 `?notice=not-on-your-menu` (§9.3, Firia/Vera 2026-10-17). The refusal page was
+ *                 a dead end on production — a card and no way back — so a person who has a
+ *                 screen of their own is put on it and told why. Nothing is loosened: the page
+ *                 still does not render for them, and the API cells below still answer 403 to
+ *                 the same caller;
+ *  - NO_ACCESS, caller holds no role anywhere → **both halves of the answer**, because a status
+ *                 code with the page still in the body is not a refusal:
  *                   · the status — Next's own `getAccessFallbackHTTPStatus` on the thrown
  *                     interrupt, which must be exactly 403;
  *                   · the body — the `forbidden.tsx` Next would render for that page, rendered
@@ -89,6 +96,22 @@ vi.mock("@/auth", () => ({
 vi.mock("next-auth", () => ({ AuthError: class AuthError extends Error {} }));
 vi.mock("@/components/map/LiveFleetMap", () => ({ default: () => null }));
 vi.mock("@/db/exec", () => ({ getNeonDb, runAfterCommit: vi.fn() }));
+/*
+ * The console shell, as a pass-through. Since Vera's review (2026-10-17 4:19 PM ET) the 403
+ * boundaries render the refusal card *inside the app frame* — header, account menu, and this
+ * role's own menu — so that a refusal is not a dead end (src/ui/RefusedPage.tsx). On most
+ * routes that frame comes from the folder's layout and the boundary is only the card; on the
+ * rest the boundary mounts it. What this file reads is the card either way: the body a 403
+ * answers with, asserted as an equality so that nothing else can be hiding in it. The frame is
+ * chrome — it carries the signed-in person's own name on purpose — and its rules are
+ * src/ui/refused-frame.test.ts and e2e/one-menu.spec.ts, which measures it in a browser.
+ *
+ * It is `async` so that `toHtml` below unwraps it the way it unwraps any server component and
+ * reaches the card inside.
+ */
+vi.mock("@/ui/ConsoleShell", () => ({
+  ConsoleShell: async ({ children }: { children: ReactNode }) => children,
+}));
 /*
  * The real `next/link` wants a router from React context that exists only inside Next, and the
  * no-access card and two of the pages hold one. A plain anchor is enough: what is read off the
@@ -325,8 +348,10 @@ describe("the harness itself works", () => {
     const paths = pageFiles.map((p) => p.path).sort();
     expect(paths).toEqual(
       [
-        "/", "/_not-found", "/exceptions", "/health", "/login", "/live-map", "/plan-routes",
-        "/ramp-ipad", "/setup", "/today", "/whoami",
+        "/", "/_not-found", "/approvals", "/exceptions", "/family-texts", "/health", "/login",
+        "/live-map", "/plan-routes", "/ramp-ipad", "/setup", "/today", "/whoami",
+        // The refusal card at an address: a session, and then 403 for every one of them.
+        "/refusal-check",
         // The three old addresses, which are pages too: a guard, then a permanent redirect.
         ...Object.keys(MOVED_PAGES),
       ].sort(),
@@ -359,6 +384,22 @@ describe("every page, for every role and for a signed-out visitor", () => {
           expect(result).toEqual({ rendered: false, interrupt: { kind: "redirect", to: homePathFor(caller) } });
           return;
         }
+        if (page.path === "/refusal-check") {
+          /*
+           * The refusal card at an address (src/app/refusal-check/page.tsx). Its row is a bare
+           * session, so the guard lets every signed-in caller through and sends a signed-out
+           * one to sign-in like any other page — and then the body refuses them all, which is
+           * the only reason the route exists: the card is otherwise unreachable in a browser
+           * for any staff role (§9.3 sends them home instead), so there was no way to look at
+           * it. Nothing is read and nothing is rendered, so there is nothing here to leak.
+           */
+          expect(result).toEqual(
+            expected === "SIGN_IN"
+              ? { rendered: false, interrupt: { kind: "redirect", to: "/login" } }
+              : { rendered: false, interrupt: { kind: "http", status: 403 } },
+          );
+          return;
+        }
         if (expected === "ALLOW") {
           /*
            * The three old addresses are pages whose whole body is a redirect: a caller who may
@@ -379,6 +420,22 @@ describe("every page, for every role and for a signed-out visitor", () => {
           return;
         }
         expect(expected).toBe("NO_ACCESS");
+        if (caller.kind === "STAFF") {
+          /*
+           * A role with pages of its own is moved to the first of them and told why, rather
+           * than shown a card it cannot leave (§9.3). The destination is `homePathFor`, which
+           * reads the same table that just refused, so it is never a page they would be
+           * refused again.
+           */
+          expect(result).toEqual({
+            rendered: false,
+            interrupt: {
+              kind: "redirect",
+              to: withNotice(homePathFor(caller), NOT_ON_YOUR_MENU),
+            },
+          });
+          return;
+        }
         // Half one: the status line is a real 403, as Next's own reader reports it.
         expect(result).toEqual({ rendered: false, interrupt: { kind: "http", status: 403 } });
         // Half two: and the body it answers with holds nothing the page would have shown.
@@ -387,25 +444,37 @@ describe("every page, for every role and for a signed-out visitor", () => {
     }
   }
 
-  it("the front desk is refused all four console pages, with a 403 and never an empty frame", async () => {
-    for (const p of ["/today", "/exceptions", "/setup", "/health"]) {
+  /**
+   * The front desk, on the four console pages their row does not open. None of them renders —
+   * which is the half that matters — and none of them answers with the refusal card either:
+   * they land on the live map, their own home since Firia's 3:08 PM ET ruling, with the one
+   * line that says why. The page module is still the thing being called, so this is the
+   * server's answer and not a rail's.
+   */
+  it("the front desk is sent home from every console page, never shown a refusal", async () => {
+    const home = withNotice(homePathFor(CALLERS.frontDesk), NOT_ON_YOUR_MENU);
+    expect(home).toBe("/live-map?notice=not-on-your-menu");
+    for (const p of [
+      "/today", "/exceptions", "/setup", "/health", "/plan-routes", "/family-texts", "/approvals",
+    ]) {
       const page = pageFiles.find((f) => f.path === p) as { file: string; path: string };
       getCaller.mockResolvedValue(CALLERS.frontDesk);
       expect({ p, ...(await openPage(page.file)) }).toEqual({
-        p, rendered: false, interrupt: { kind: "http", status: 403 },
+        p, rendered: false, interrupt: { kind: "redirect", to: home },
       });
-      await expectNothingLeaked(page, "frontDesk", CALLERS.frontDesk);
     }
   });
 
   it("a signed-in person with no role anywhere is refused every staff page, body and all", async () => {
     const staffPages = pageFiles.filter((p) => pageOutcome(CALLERS.noRole, p.path) === "NO_ACCESS");
-    // Every page that asks for a role at all: the four console pages, the three screens outside
-    // the console shell, /whoami, and the three redirects that stand in front of those screens.
+    // Every page that asks for a role at all: the console pages (the founder's redesign adds
+    // Family texts and the approvals queue inside it), the three screens that are routes
+    // outside that group, the account page, and the three redirects standing in front of them.
     expect(staffPages.map((p) => p.path).sort()).toEqual(
       [
-        "/exceptions", "/health", "/live-map", "/map-preview", "/plan-preview", "/plan-routes",
-        "/ramp-ipad", "/ramp-preview", "/setup", "/today", "/whoami",
+        "/approvals", "/exceptions", "/family-texts", "/health", "/live-map", "/map-preview",
+        "/plan-preview", "/plan-routes", "/ramp-ipad", "/ramp-preview", "/setup", "/today",
+        "/whoami",
       ],
     );
     for (const page of staffPages) {
@@ -425,26 +494,43 @@ describe("every page, for every role and for a signed-out visitor", () => {
      * neither the guard nor the copy may name a code (no-access.test.ts scans the copy too).
      */
     const page = pageFiles.find((f) => f.path === "/today") as { file: string; path: string };
-    getCaller.mockResolvedValue(CALLERS.frontDesk);
+    // The caller who still gets the card: signed in, no membership anywhere, no home to go to.
+    getCaller.mockResolvedValue(CALLERS.noRole);
     const refused = await openPage(page.file);
     expect(refused).toEqual({ rendered: false, interrupt: { kind: "http", status: 403 } });
-    getCaller.mockResolvedValue(CALLERS.frontDesk);
+    getCaller.mockResolvedValue(CALLERS.noRole);
     const body = readable(await toHtml((await import(/* @vite-ignore */ boundaryFor(page.file))).default({})));
-    expect(body).toContain(noAccess.heading);
+    expect(body).toContain(noAccess.noRoleHeading);
     expect(body).not.toMatch(/40\d/);
     expect(readFileSync(path.join(SRC, "auth", "page-guard.ts"), "utf8")).toMatch(/forbidden\(\)/);
   });
 
-  it("the console shell lets any session in and leaves the role to the page inside it", async () => {
-    const layout = path.join(APP, "(app)", "layout.tsx");
-    getCaller.mockResolvedValue(CALLERS.frontDesk);
-    expect(await openPage(layout)).toEqual({ rendered: true });
-    getCaller.mockResolvedValue(CALLERS.signedOut);
-    expect(await openPage(layout)).toEqual({
-      rendered: false,
-      interrupt: { kind: "redirect", to: "/login" },
-    });
-  });
+  /**
+   * The console shell, asked directly — and there are four layouts mounting it now: the `(app)`
+   * group, and one each for Plan routes, the live map and the ramp iPad, which are routes
+   * outside that group and rendered with no shell (and so no menu) until 2026-10-17.
+   *
+   * Every one of them must behave the same way: any session in, no session to sign-in, and the
+   * *role* left to the page inside. The front desk is the caller that proves the second half —
+   * they may not open /plan-routes, and the layout must still let them in so the refusal comes
+   * from the page and the no-access card can say who the page is for. The menu these layouts
+   * draw is a courtesy either way; src/ui/nav-items.ts filters it with this same table.
+   */
+  it.each([["(app)"], ["plan-routes"], ["live-map"], ["ramp-ipad"]])(
+    "the %s shell lets any session in and leaves the role to the page inside it",
+    async (dir) => {
+      const layout = path.join(APP, dir, "layout.tsx");
+      for (const caller of [CALLERS.director, CALLERS.coordinator, CALLERS.frontDesk, CALLERS.noRole]) {
+        getCaller.mockResolvedValue(caller);
+        expect({ dir, ...(await openPage(layout)) }).toEqual({ dir, rendered: true });
+      }
+      getCaller.mockResolvedValue(CALLERS.signedOut);
+      expect(await openPage(layout)).toEqual({
+        rendered: false,
+        interrupt: { kind: "redirect", to: "/login" },
+      });
+    },
+  );
 });
 
 /* ───────────────────────────── the endpoints ───────────────────────────── */
