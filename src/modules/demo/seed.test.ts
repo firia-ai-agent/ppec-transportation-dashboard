@@ -1,3 +1,4 @@
+import { NEED_CATEGORY } from "@/config/equipment";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
@@ -129,7 +130,7 @@ describe("standard scenario seed (PRD §18.1)", () => {
     expect(needs).toEqual([
       { category: "EQUIPMENT_DIMENSIONS", state: "APPROVED" },
       { category: "LIFT_OR_RAMP", state: "APPROVED" },
-      { category: "WHEELCHAIR_SECUREMENT", state: "APPROVED" },
+      { category: NEED_CATEGORY.wheelchair, state: "APPROVED" },
     ]);
     const seat = await rows<{ lift_equipped: boolean; lift_required: boolean; securement: string; max_length_cm: number; max_width_cm: number }>(`
       SELECT v.lift_equipped, vl.lift_required, pos.securement, pos.max_length_cm, pos.max_width_cm

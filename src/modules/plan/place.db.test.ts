@@ -1,0 +1,327 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { NEED_CATEGORY } from "@/config/equipment";
+import { VANS } from "@/config/vans";
+import type { Db } from "@/db/exec";
+import { ridersInVan, usedInVan } from "@/domain/plan/board";
+import { freshPlanDb, SITE } from "@/test/pglite";
+import { childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/standard";
+import { seedStandardScenario } from "@/modules/demo/seed";
+import { sqlDaySource } from "@/modules/roster/sql";
+import { setChildNeeds } from "@/modules/roster/needs-write";
+import { setChildAwayAllDay, setChildPlacement } from "./place";
+import { setChildNeedsRequest } from "./api";
+import { loadBoard } from "./store";
+import { sqlPlanStore } from "./sql";
+import type { PlanStore } from "./types";
+
+/**
+ * The drags and the saves, **against a database** — the only place they are proved (Firia,
+ * 2026-10-17 7:18 PM ET).
+ *
+ * It runs on PGlite by default: a throwaway Postgres in this process, with every migration in
+ * `drizzle/` applied, no server to start and nothing anybody can point at the wrong database.
+ * `pnpm test:db` runs the same file, and with `TEST_DATABASE_URL` set it runs against a local
+ * Postgres instead (src/test/pglite.ts, which refuses any host that is not loopback). The shared
+ * Neon database is never touched by either: previews are read-only and nothing here knows its
+ * name.
+ *
+ * What it is here to prove, end to end and in rows:
+ *  - a drag writes `plan_assignment` and bumps `plan_run.version` — every time, never silently;
+ *  - Absent and Family drives are **placements on this day's plan**, per leg, with no vehicle;
+ *  - a stale version is a 409 and changes nothing;
+ *  - the child panel's Save writes `transport_need_item` on the approved profile and the plan
+ *    the board reads back has moved (gate (c): wheelchair, car seat and oxygen each do it).
+ */
+
+let db: Db;
+let close: () => Promise<void>;
+let store: PlanStore;
+
+const NOW = new Date("2026-10-16T17:45:00.000Z");
+const DATE = "2026-10-16";
+const vanOne = () => vehicleIdOf(VANS[0].vehicleKey);
+const vanTwo = () => vehicleIdOf(VANS[1].vehicleKey);
+/** Theo V. (C8) rides the afternoon and needs nothing, so he fits anywhere. */
+const THEO = () => childTokenOf("C8");
+
+const source = () => sqlDaySource(db, SITE);
+const board = (direction: "AM" | "PM" = "PM") =>
+  loadBoard(store, SITE, DATE, direction, source());
+
+beforeAll(async () => {
+  ({ db, close } = await freshPlanDb());
+  await seedStandardScenario(db, {
+    now: NOW,
+    siteId: SITE,
+    env: { APP_DATA_CLASS: "SYNTHETIC", DEMO_MODE: "1", HMAC_PEPPER: "p", DATA_KEY: "k" },
+  });
+  store = sqlPlanStore(db);
+}, 180_000);
+
+afterAll(async () => {
+  await close();
+});
+
+beforeEach(async () => {
+  // Each test starts from no plan at all, which is what a reset leaves behind.
+  await db.query("DELETE FROM ops.plan_assignment", []);
+  await db.query("DELETE FROM ops.plan_run", []);
+});
+
+/** The day's own clock has to say the day is started, or every write is a 409 by design. */
+async function startTheDay(): Promise<void> {
+  const started = await board();
+  expect(started.started, "the seeded scenario clock starts the day").toBe(true);
+}
+
+describe("a drag is a row, and a new version every time", () => {
+  it("puts a child in a van, bumps the version, and reads back after a reload", async () => {
+    await startTheDay();
+    const first = await setChildPlacement(
+      {
+        siteId: SITE,
+        serviceDate: DATE,
+        direction: "PM",
+        childToken: THEO(),
+        bucket: "VAN",
+        vehicleId: vanOne(),
+        expectedVersion: 0,
+        actor: null,
+        now: NOW,
+      },
+      store,
+      source(),
+    );
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.version).toBe(1);
+
+    // The row is what the next read sees, which is what "survives a reload" means.
+    const reloaded = await board();
+    expect(reloaded.plan[THEO()]).toMatchObject({ bucket: "VAN", vanId: vanOne() });
+    expect(ridersInVan(reloaded.day, reloaded.plan, vanOne()).map((r) => r.token)).toContain(THEO());
+
+    const rows = await db.query<{ bucket: string; vehicle_id: string | null }>(
+      `SELECT bucket, vehicle_id::text AS vehicle_id FROM ops.plan_assignment
+        WHERE child_token = $1::uuid`,
+      [THEO()],
+    );
+    expect(rows.rows[0]).toMatchObject({ bucket: "VAN", vehicle_id: vanOne() });
+
+    // A second move is a second version — never an overwrite of the first.
+    const second = await setChildPlacement(
+      {
+        siteId: SITE,
+        serviceDate: DATE,
+        direction: "PM",
+        childToken: THEO(),
+        bucket: "VAN",
+        vehicleId: vanTwo(),
+        expectedVersion: first.version,
+        actor: null,
+        now: NOW,
+      },
+      store,
+      source(),
+    );
+    expect(second.ok && second.version).toBe(2);
+  });
+
+  it("refuses a stale version with a 409 and leaves the plan alone", async () => {
+    await startTheDay();
+    const first = await setChildPlacement(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: THEO(), bucket: "VAN",
+        vehicleId: vanOne(), expectedVersion: 0, actor: null, now: NOW },
+      store,
+      source(),
+    );
+    expect(first.ok).toBe(true);
+
+    const stale = await setChildPlacement(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: THEO(), bucket: "VAN",
+        vehicleId: vanTwo(), expectedVersion: 0, actor: null, now: NOW },
+      store,
+      source(),
+    );
+    expect(stale).toMatchObject({ ok: false, status: 409, reason: "CHANGED" });
+    const after = await board();
+    expect(after.plan[THEO()].vanId).toBe(vanOne());
+    expect(after.version).toBe(1);
+  });
+
+  it("refuses a drop the fit rule refuses, with the reason and no row", async () => {
+    await startTheDay();
+    // Van 3 has no wheelchair spot and no lift; Noah O. rides in his own chair.
+    const vanThree = vehicleIdOf(VANS[2].vehicleKey);
+    const refused = await setChildPlacement(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: childTokenOf("C2"),
+        bucket: "VAN", vehicleId: vanThree, expectedVersion: 0, actor: null, now: NOW },
+      store,
+      source(),
+    );
+    expect(refused).toMatchObject({ ok: false, status: 422, reason: "WHEELCHAIR" });
+    expect((await db.query("SELECT 1 FROM ops.plan_run", [])).rows).toHaveLength(0);
+  });
+});
+
+describe("Absent and Family drives are placements on this day's plan", () => {
+  it("writes the bucket with no van, and the board reads it back", async () => {
+    await startTheDay();
+    const away = await setChildPlacement(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: THEO(), bucket: "ABSENT",
+        expectedVersion: 0, actor: null, now: NOW },
+      store,
+      source(),
+    );
+    expect(away.ok).toBe(true);
+    const rows = await db.query<{ bucket: string; vehicle_id: string | null }>(
+      `SELECT bucket, vehicle_id::text AS vehicle_id FROM ops.plan_assignment WHERE child_token = $1::uuid`,
+      [THEO()],
+    );
+    expect(rows.rows[0]).toEqual({ bucket: "ABSENT", vehicle_id: null });
+
+    // And they come back: a drag out of the group is the same one writer.
+    const back = await setChildPlacement(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: THEO(), bucket: "VAN",
+        vehicleId: vanOne(), expectedVersion: (away as { version: number }).version, actor: null, now: NOW },
+      store,
+      source(),
+    );
+    expect(back.ok).toBe(true);
+    expect((await board()).plan[THEO()]).toMatchObject({ bucket: "VAN", vanId: vanOne() });
+  });
+
+  it("is per leg: away this afternoon is not away this morning", async () => {
+    await startTheDay();
+    await setChildPlacement(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: THEO(), bucket: "ABSENT",
+        expectedVersion: 0, actor: null, now: NOW },
+      store,
+      source(),
+    );
+    expect((await board("PM")).plan[THEO()].bucket).toBe("ABSENT");
+    expect((await board("AM")).plan[THEO()].bucket).not.toBe("ABSENT");
+  });
+
+  it("marks a child away for the whole day by writing both legs", async () => {
+    await startTheDay();
+    const both = await setChildAwayAllDay(
+      { siteId: SITE, serviceDate: DATE, childToken: THEO(), actor: null, now: NOW,
+        expectedVersions: { AM: 0, PM: 0 } },
+      store,
+      source(),
+    );
+    expect(both.AM.ok && both.PM.ok).toBe(true);
+    expect((await board("AM")).plan[THEO()].bucket).toBe("ABSENT");
+    expect((await board("PM")).plan[THEO()].bucket).toBe("ABSENT");
+
+    // Tomorrow starts clean: nothing carries over, because a plan is per date.
+    const tomorrow = await loadBoard(store, SITE, "2026-10-17", "PM", source());
+    expect(tomorrow.plan[THEO()].bucket).not.toBe("ABSENT");
+  });
+});
+
+describe("gate (c): the child panel's Save moves the board", () => {
+  const needsOf = async (token: string) => {
+    const view = await board();
+    return view.day.riders.find((rider) => rider.token === token)?.needs;
+  };
+
+  it("writes the three categories on the approved profile, and nothing else", async () => {
+    const written = await setChildNeeds(db, {
+      siteId: SITE,
+      childToken: THEO(),
+      panel: { wheelchair: false, carSeat: true, oxygen: true },
+      actor: null,
+      now: NOW,
+    });
+    expect(written).toMatchObject({ ok: true });
+    const rows = await db.query<{ category: string; state: string }>(
+      `SELECT ni.category, ni.state::text AS state
+         FROM ops.transport_need_item ni
+         JOIN ops.transport_profile tp ON tp.id = ni.profile_id
+        WHERE tp.child_token = $1::uuid ORDER BY ni.category`,
+      [THEO()],
+    );
+    const byCategory = Object.fromEntries(rows.rows.map((row) => [row.category, row.state]));
+    expect(byCategory[NEED_CATEGORY.carSeat]).toBe("APPROVED");
+    expect(byCategory[NEED_CATEGORY.oxygen]).toBe("APPROVED");
+    expect(byCategory[NEED_CATEGORY.wheelchair]).toBeUndefined();
+
+    // One approved profile, still version 1: the panel edits items, it does not supersede.
+    const profiles = await db.query<{ n: number; version: number }>(
+      `SELECT count(*)::int AS n, max(profile_version) AS version FROM ops.transport_profile
+        WHERE child_token = $1::uuid`,
+      [THEO()],
+    );
+    expect(profiles.rows[0]).toMatchObject({ n: 1, version: 1 });
+  });
+
+  it("leaves transport_profile.mobility exactly as intake left it", async () => {
+    const before = await db.query<{ mobility: string }>(
+      `SELECT mobility::text AS mobility FROM ops.transport_profile WHERE child_token = $1::uuid`,
+      [childTokenOf("C2")],
+    );
+    await setChildNeeds(db, {
+      siteId: SITE,
+      childToken: childTokenOf("C2"),
+      panel: { wheelchair: false, carSeat: false, oxygen: false },
+      actor: null,
+      now: NOW,
+    });
+    const after = await db.query<{ mobility: string }>(
+      `SELECT mobility::text AS mobility FROM ops.transport_profile WHERE child_token = $1::uuid`,
+      [childTokenOf("C2")],
+    );
+    expect(after.rows[0].mobility).toBe(before.rows[0].mobility);
+    // …and the flag the planner reads has still changed, because it is the item that counts.
+    expect((await needsOf(childTokenOf("C2")))?.wheelchair).toBe(false);
+  });
+
+  it("each of the three flags changes the plan it is saved into", async () => {
+    await startTheDay();
+    for (const [flag, counter] of [
+      ["wheelchair", "wheelchairSpots"],
+      ["carSeat", "carSeats"],
+      ["oxygen", "oxygenMounts"],
+    ] as const) {
+      // Start from nothing, then turn exactly one on and re-plan through the same request the
+      // panel's Save makes.
+      await db.query("DELETE FROM ops.plan_assignment", []);
+      await db.query("DELETE FROM ops.plan_run", []);
+      await setChildNeeds(db, {
+        siteId: SITE, childToken: THEO(), actor: null, now: NOW,
+        panel: { wheelchair: false, carSeat: false, oxygen: false },
+      });
+      const answer = await setChildNeedsRequest(
+        SITE,
+        { userId: undefined },
+        THEO(),
+        {
+          date: DATE,
+          direction: "PM",
+          wheelchair: flag === "wheelchair",
+          carSeat: flag === "carSeat",
+          oxygen: flag === "oxygen",
+          version: 0,
+        },
+        NOW,
+        store,
+        { DATABASE_URL: "configured" },
+        db,
+        source(),
+      );
+      expect({ flag, status: answer.status }).toEqual({ flag, status: 200 });
+      if (answer.status !== 200) continue;
+
+      // The flag came back on the rider…
+      expect({ flag, on: answer.body.needs[flag] }).toEqual({ flag, on: true });
+      // …and the van they were re-planned into is counting it.
+      const view = answer.body.view;
+      const vanId = view.plan[THEO()]?.vanId ?? "";
+      expect({ flag, placed: vanId !== "" }).toEqual({ flag, placed: true });
+      const used = usedInVan(view.day, view.plan, vanId);
+      expect({ flag, used: used[counter] > 0 }).toEqual({ flag, used: true });
+    }
+  });
+});

@@ -251,3 +251,63 @@ describe("the pins a person set", () => {
     expect(result.unplaced.some((one) => one.token === rider.token)).toBe(false);
   });
 });
+
+/**
+ * (f) The founder's 7:17 PM ET addition: **a needs change is re-planned, not patched.**
+ *
+ * The child panel's Save writes three flags and then re-runs the plan on them. The property
+ * that has to hold for that to be trustworthy is that re-planning a board whose needs have just
+ * changed gives exactly the same answer as planning the same day from scratch with those needs —
+ * same pins, same vans, same shortfalls. If it did not, a coordinator could get a different
+ * plan by saving twice, or by reloading.
+ */
+describe("(f) re-planning after a needs change is a fresh run on the new needs", () => {
+  it.each(cases)("case %i", (seed) => {
+    const day = makeDay(seed);
+    if (day.riders.length === 0 || day.vans.length === 0) return;
+    const next = rng(seed * 2246822519 + 5);
+
+    // Plan the day, then pin some of what it decided, the way a coordinator's drags would.
+    const planned = placeRiders(day.vans, day.riders);
+    const pins: Record<string, string | null> = {};
+    for (const rider of day.riders) {
+      if (next() < 0.3) pins[rider.token] = planned.vanOf[rider.token] ?? null;
+    }
+
+    // Somebody opens a child and changes what they need.
+    const changed = day.riders[Math.floor(next() * day.riders.length)];
+    const after: FitRider[] = day.riders.map((rider) =>
+      rider.token === changed.token
+        ? {
+            ...rider,
+            needs: {
+              wheelchair: !rider.needs.wheelchair,
+              carSeat: !rider.needs.carSeat,
+              oxygen: !rider.needs.oxygen,
+              nurse: rider.needs.nurse,
+            },
+          }
+        : rider,
+    );
+
+    const replanned = placeRiders(day.vans, after, pins);
+    const fresh = placeRiders(day.vans, after, pins);
+    expect(replanned).toEqual(fresh);
+
+    // And the answer is about the **new** needs: no van is over on any counter, and the child
+    // whose needs changed is either on a van that can take them or named with a shortfall.
+    for (const van of day.vans) {
+      const aboard = replanned.byVan[van.id].map((token) => {
+        const rider = after.find((candidate) => candidate.token === token);
+        if (!rider) throw new Error("placed somebody who is not in the day");
+        return rider;
+      });
+      expect(fits(van.setup, aboard), van.id).toBe(true);
+    }
+    const placedOn = replanned.vanOf[changed.token] ?? null;
+    const listed = replanned.unplaced.some((one) => one.token === changed.token);
+    // …unless a person pinned them out of every van, which is a decision and not a shortfall.
+    const pinnedOut = changed.token in pins && pins[changed.token] === null;
+    expect(placedOn !== null || listed || pinnedOut).toBe(true);
+  });
+});

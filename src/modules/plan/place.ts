@@ -36,7 +36,8 @@ import {
   type Placement,
 } from "@/domain/plan/board";
 import { isOver } from "@/domain/plan/fit";
-import { loadBoard, placementsToSave, planStore, type BoardView, type PlanStore } from "./store";
+import type { DayDataSource } from "@/domain/day/source";
+import { dayDataSource, loadBoard, placementsToSave, planStore, type BoardView, type PlanStore } from "./store";
 
 export { BUCKETS };
 export type PlacementBucket = Bucket;
@@ -67,9 +68,10 @@ export type SetChildPlacementOutcome =
 export async function setChildPlacement(
   input: SetChildPlacementInput,
   store: PlanStore = planStore(),
+  source: DayDataSource = dayDataSource(input.siteId),
 ): Promise<SetChildPlacementOutcome> {
   const now = input.now ?? new Date();
-  const view = await loadBoard(store, input.siteId, input.serviceDate, input.direction);
+  const view = await loadBoard(store, input.siteId, input.serviceDate, input.direction, source);
   if (!view.started) return { ok: false, status: 409, reason: "NOT_STARTED" };
 
   const known = view.day.riders.some((rider) => rider.token === input.childToken) ||
@@ -115,7 +117,7 @@ export async function setChildPlacement(
     };
   }
 
-  const after = await loadBoard(store, input.siteId, input.serviceDate, input.direction);
+  const after = await loadBoard(store, input.siteId, input.serviceDate, input.direction, source);
   return { ok: true, version: saved.version, savedAt: saved.savedAt, view: after };
 }
 
@@ -133,6 +135,7 @@ export async function setChildAwayAllDay(
     expectedVersions: Readonly<Record<Direction, number>>;
   },
   store: PlanStore = planStore(),
+  source: DayDataSource = dayDataSource(input.siteId),
 ): Promise<Record<Direction, SetChildPlacementOutcome>> {
   const legs: Direction[] = ["AM", "PM"];
   const answers = {} as Record<Direction, SetChildPlacementOutcome>;
@@ -140,6 +143,7 @@ export async function setChildAwayAllDay(
     answers[leg] = await setChildPlacement(
       { ...input, direction: leg, bucket: "ABSENT", expectedVersion: input.expectedVersions[leg] },
       store,
+      source,
     );
   }
   return answers;

@@ -14,7 +14,7 @@
 import { z } from "zod";
 import { NO_NEEDS, type NeedFlags } from "@/config/equipment";
 import { COUNTER_MAX } from "@/config/vans";
-import { getNeonDb } from "@/db/exec";
+import { getNeonDb, type Db } from "@/db/exec";
 import { autoPlan, BUCKETS, checkPlan, namesOnlyThisDay, ridersInVan, type BoardPlan, type Placement } from "@/domain/plan/board";
 import { setChildNeeds } from "@/modules/roster/needs-write";
 import { setDemoNeedsOverride } from "@/modules/demo/needs-store";
@@ -25,7 +25,8 @@ import type { DayReadiness } from "@/domain/day/readiness";
 import type { Direction } from "@/domain/solver";
 import type { StaffCaller } from "@/auth/api-guard";
 import { DEMO_SITE_ID } from "@/modules/demo/fixtures/standard";
-import { loadBoard, placementsToSave, planStore, type BoardView, type PlanStore } from "./store";
+import type { DayDataSource } from "@/domain/day/source";
+import { dayDataSource, loadBoard, placementsToSave, planStore, type BoardView, type PlanStore } from "./store";
 
 /* ───────────────────────────── which site ───────────────────────────── */
 
@@ -373,17 +374,21 @@ export async function setChildNeedsRequest(
   now: Date = new Date(),
   store: PlanStore = planStore(),
   env: Record<string, string | undefined> = process.env,
+  /** The database the needs are written to. Taken as an argument so a test can hand it one. */
+  db: Db | null = null,
+  /** The roster this board reads. Injected by the DB tests; the default is the request's own. */
+  source: DayDataSource = dayDataSource(siteId),
 ): Promise<ChildNeedsAnswer> {
   const panel = { wheelchair: input.wheelchair, carSeat: input.carSeat, oxygen: input.oxygen };
 
-  const before = await loadBoard(store, siteId, input.date, input.direction);
+  const before = await loadBoard(store, siteId, input.date, input.direction, source);
   const known =
     before.day.riders.some((rider) => rider.token === childToken) ||
     before.day.others.some((other) => other.token === childToken);
   if (!known) return { status: 404, body: { ok: false, reason: "NOT_THIS_DAY" } };
 
   if (env.DATABASE_URL) {
-    const written = await setChildNeeds(getNeonDb(), {
+    const written = await setChildNeeds(db ?? getNeonDb(), {
       siteId,
       childToken,
       panel,
@@ -398,7 +403,7 @@ export async function setChildNeedsRequest(
 
   // Read the day again — the needs are rows (or the override) now — and re-run the one
   // placement function over it, keeping everybody a person placed by hand.
-  const after = await loadBoard(store, siteId, input.date, input.direction);
+  const after = await loadBoard(store, siteId, input.date, input.direction, source);
   const replanned = autoPlan(after.day, after.plan);
   const saved = await store.savePlan(siteId, {
     date: input.date,
@@ -412,7 +417,7 @@ export async function setChildNeedsRequest(
     return { status: 409, body: { ok: false, reason: "CHANGED", changedBy: saved.changedBy } };
   }
 
-  const view = await loadBoard(store, siteId, input.date, input.direction);
+  const view = await loadBoard(store, siteId, input.date, input.direction, source);
   const rider = view.day.riders.find((candidate) => candidate.token === childToken);
   return {
     status: 200,

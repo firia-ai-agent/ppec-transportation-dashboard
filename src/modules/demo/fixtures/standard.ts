@@ -54,7 +54,7 @@ export type AuthScope =
  *
  * The five the product actually reads and writes come from the shared list
  * (src/config/equipment.ts `NEED_CATEGORY`) rather than being spelled a second time here: a
- * fixture that says `"OXYGEN"` in its own words is a fixture that can drift from the panel, the
+ * fixture that spells a category in its own words is a fixture that can drift from the panel, the
  * write path and the planner, which is the gate Veri set on 2026-10-17 at 7:27 PM ET. The rest
  * are the deferred ones — written by the seed, read by nothing (conflicts C3 and C7).
  */
@@ -167,7 +167,7 @@ const SCENARIO_CHILDREN: Child[] = [
   {
     key: "C1", familyKey: "F1", firstName: "Mia", lastInitial: "R", label: "Mia R.", dob: "2022-03-14",
     stopKey: "S1", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:10", pmWindow: "15:55",
-    needs: [{ category: "CAR_SEAT_OR_BOOSTER", value: { type: "FORWARD_FACING_CAR_SEAT" }, state: "APPROVED", evidenceRef: "intake/C1" }],
+    needs: [{ category: NEED_CATEGORY.carSeat, value: { type: "FORWARD_FACING_CAR_SEAT" }, state: "APPROVED", evidenceRef: "intake/C1" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
@@ -175,7 +175,7 @@ const SCENARIO_CHILDREN: Child[] = [
     stopKey: "S2", mobility: "WC", wcLengthCm: 108, wcWidthCm: 64, securement: "L_TRACK", tether: false,
     amMode: "CENTER", pmMode: "CENTER", amWindow: "06:50", pmWindow: "16:20",
     needs: [
-      { category: "WHEELCHAIR_SECUREMENT", value: { securement: "L_TRACK", position: "FIXED" }, state: "APPROVED", evidenceRef: "intake/C2" },
+      { category: NEED_CATEGORY.wheelchair, value: { securement: "L_TRACK", position: "FIXED" }, state: "APPROVED", evidenceRef: "intake/C2" },
       { category: "LIFT_OR_RAMP", value: { required: "LIFT" }, state: "APPROVED", evidenceRef: "intake/C2" },
       { category: "EQUIPMENT_DIMENSIONS", value: { lengthCm: 108, widthCm: 64 }, state: "APPROVED", evidenceRef: "intake/C2" },
     ],
@@ -190,13 +190,13 @@ const SCENARIO_CHILDREN: Child[] = [
   {
     key: "C4", familyKey: "F4", firstName: "Ava", lastInitial: "N", label: "Ava N.", dob: "2020-11-19",
     stopKey: "S4", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:25", pmWindow: "15:40",
-    needs: [{ category: "CAR_SEAT_OR_BOOSTER", value: { type: "BOOSTER" }, state: "APPROVED", evidenceRef: "intake/C4" }],
+    needs: [{ category: NEED_CATEGORY.carSeat, value: { type: "BOOSTER" }, state: "APPROVED", evidenceRef: "intake/C4" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
     key: "C5", familyKey: "F4", firstName: "Eli", lastInitial: "N", label: "Eli N.", dob: "2022-06-08",
     stopKey: "S4", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:25", pmWindow: "15:40",
-    needs: [{ category: "CAR_SEAT_OR_BOOSTER", value: { type: "REAR_FACING_CAR_SEAT" }, state: "APPROVED", evidenceRef: "intake/C5" }],
+    needs: [{ category: NEED_CATEGORY.carSeat, value: { type: "REAR_FACING_CAR_SEAT" }, state: "APPROVED", evidenceRef: "intake/C5" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
@@ -204,14 +204,14 @@ const SCENARIO_CHILDREN: Child[] = [
     stopKey: "S5", mobility: "WC", wcLengthCm: 128, wcWidthCm: 70, securement: "FOUR_POINT_STRAP", tether: true,
     escortRequired: true, amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "06:45", pmWindow: "16:15",
     needs: [
-      { category: "WHEELCHAIR_SECUREMENT", value: { securement: "FOUR_POINT_STRAP", position: "TILT_IN_SPACE" }, state: "APPROVED", evidenceRef: "intake/C6" },
+      { category: NEED_CATEGORY.wheelchair, value: { securement: "FOUR_POINT_STRAP", position: "TILT_IN_SPACE" }, state: "APPROVED", evidenceRef: "intake/C6" },
       { category: "LIFT_OR_RAMP", value: { required: "LIFT" }, state: "APPROVED", evidenceRef: "intake/C6" },
-      { category: "ATTENDANT_ESCORT", value: { escort: "NURSE" }, state: "APPROVED", evidenceRef: "intake/C6" },
+      { category: NEED_CATEGORY.nurse, value: { escort: "NURSE" }, state: "APPROVED", evidenceRef: "intake/C6" },
       { category: "EQUIPMENT_DIMENSIONS", value: { lengthCm: 128, widthCm: 70 }, state: "APPROVED", evidenceRef: "intake/C6" },
       // Oxygen, approved (founder 2026-10-17 7:17 PM ET). It was `MEDICAL_DEVICE_POWER` and
       // `REPORTED`, which meant the day's one oxygen rider was planned against nothing and every
       // van's Oxygen meter read 0 of what it carries. The category comes from the shared list.
-      { category: NEED_CATEGORY.oxygen, value: { device: "OXYGEN" }, state: "APPROVED", evidenceRef: "intake/C6" },
+      { category: NEED_CATEGORY.oxygen, value: { device: "PORTABLE_CONCENTRATOR" }, state: "APPROVED", evidenceRef: "intake/C6" },
       // The one reported-but-unapproved item (PRD l.1329 "needs with statuses incl. one unapproved
       // reported item"). Fulfilment counts approved needs only (DECISION-LEDGER row 1), so this
       // must not change today's plan — and now that oxygen is approved, the suction is what keeps
@@ -223,7 +223,7 @@ const SCENARIO_CHILDREN: Child[] = [
   {
     key: "C7", familyKey: "F6", firstName: "Owen", lastInitial: "C", label: "Owen C.", dob: "2021-12-05",
     stopKey: "S6", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:00", pmWindow: "16:00",
-    needs: [{ category: "HARNESS_OR_VEST", value: { type: "VEST" }, state: "APPROVED", evidenceRef: "intake/C7" }],
+    needs: [{ category: NEED_CATEGORY.harness, value: { type: "VEST" }, state: "APPROVED", evidenceRef: "intake/C7" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
