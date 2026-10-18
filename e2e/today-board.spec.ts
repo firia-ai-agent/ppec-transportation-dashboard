@@ -27,7 +27,7 @@ import {
 } from "../src/ui/copy";
 import { legStates } from "../src/ui/states";
 import { demoDay, serviceDayFor } from "../src/domain/board/day";
-import { CHILDREN } from "../src/modules/demo/fixtures/standard";
+import { CHILDREN, RUNS } from "../src/modules/demo/fixtures/standard";
 import { demoDateIso } from "../src/ui/service-date";
 import {
   boxOf,
@@ -87,6 +87,23 @@ const FINISHED_URL = `/today?date=${FINISHED.iso}`;
  * asserted exactly, as before.
  */
 const RIDES = CHILDREN.length * 2;
+
+/**
+ * The rows "Only needs action" leaves on the demo day, **derived from the seed**, not written
+ * down:
+ *  - Van 3's riders, one morning row each. R3 is Van 3's run (src/modules/demo/fixtures/
+ *    standard.ts:352, `childKeys: ["C1", "C4", "C5"]`), and its all-ambulatory layout has two
+ *    tether-capable seats for three children who all ride anchored (standard.ts:424-427), so the
+ *    solver says the van does not fit them and each morning ride is "Does not fit". Their
+ *    afternoon rides are not flagged on top of that.
+ *  - Noah O.'s afternoon ride (`NO_RECEIVER_CHILD`): F2 holds every scope except RECEIVE_CHILD
+ *    (standard.ts:163 `NO_RECEIVER_SCOPES`, :182), so nobody on file may receive him (AT-13).
+ *    His morning ride needs nothing.
+ */
+const VAN3_RIDERS = (RUNS.find((run) => run.vehicleKey === "V3")?.childKeys ?? []).map(
+  (key) => CHILDREN.find((child) => child.key === key)?.label ?? key,
+);
+const NEEDS_ACTION_ROWS = VAN3_RIDERS.length + 1;
 
 /** One row's opener: a child and which of their two rides this row is. */
 const opener = (child: string, ride: string = boardCopy.amSpoken) =>
@@ -727,10 +744,15 @@ for (const width of WIDTHS) {
       await expect(toggle).toHaveAttribute("aria-checked", "true");
 
       /*
-       * One row, not one child: the ride that needs a person is the afternoon one, because
-       * that is the ride nobody on file may receive this child off (AT-13). The morning ride
-       * is on the road and needs nothing, so it is not in here.
+       * One row per ride, not per child (see NEEDS_ACTION_ROWS): Van 3's three riders on their
+       * morning rides, which do not fit the van, and Noah O.'s afternoon ride, the one nobody on
+       * file may receive him off (AT-13). His morning ride needs nothing, so it is not in here,
+       * and neither is a child whose van is simply on the road.
        */
+      expect(VAN3_RIDERS, "the seed's Van 3 riders").toEqual(["Mia R.", "Ava N.", "Eli N."]);
+      for (const child of VAN3_RIDERS) {
+        await expect(page.getByRole("button", { name: opener(child) })).toBeVisible();
+      }
       await expect(
         page.getByRole("button", { name: opener(NO_RECEIVER_CHILD, boardCopy.pmSpoken) }),
       ).toBeVisible();
@@ -739,7 +761,7 @@ for (const width of WIDTHS) {
       ).toHaveCount(0);
       await expect(page.getByRole("button", { name: opener(RIDING_CHILD) })).toHaveCount(0);
       await expect(
-        page.getByText(fill(boardCopy.showing, { shown: 1, total: RIDES })),
+        page.getByText(fill(boardCopy.showing, { shown: NEEDS_ACTION_ROWS, total: RIDES })),
       ).toBeVisible();
 
       console.log("screenshot:", await shot(page, `today-needs-action-${width}`));
