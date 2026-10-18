@@ -13,7 +13,7 @@ import { approvalKey } from "../policy";
 import { toolCall } from "../providers/fake";
 import type { TierFacts } from "../run/context";
 import type { PolicyContext } from "../policy";
-import { AGENT_RUNNER_NO_CONTEXT_SOURCE, agentRunner } from "./no-runner";
+import { type AgentRunner, agentRunner } from "../run/deps";
 import { liveHarness } from "../run/exec/live-harness";
 import { toolCalls } from "../run/store";
 import { TRIGGER_TYPES } from "../run/triggers";
@@ -87,6 +87,13 @@ const tasks = async () =>
     )
   ).rows;
 
+/**
+ * The runner's own sentence about why it refused, whichever half of the union it came back as.
+ * It is the *log* channel on both: it names env vars and build conditions, never a value, and the
+ * tests below check it reaches no row and no answer.
+ */
+const runnerReason = (r: AgentRunner): string | null => r.reason;
+
 /** The arguments the model answers an ask with: a reallocation nobody but a person may apply. */
 const REALLOCATION = () => ({
   infeasible_vehicle_token: "V-SYN-1",
@@ -95,13 +102,19 @@ const REALLOCATION = () => ({
   rationale_code: "SECUREMENT",
 });
 
-/** The ask path, with a harness's deps in place of the runner this deployment refuses. */
+/**
+ * The ask path with a model, as a harness's deps in place of `agentRunner(db, env)`'s.
+ *
+ * `refused: false, reason: null` is the "a vendor will answer this turn" half of the runner's
+ * union (run/deps.ts) — the shape the ask requires before it will drive anything, and the reason
+ * the suite has to say it rather than leave it off.
+ */
 function withModel(script: Parameters<typeof liveHarness>[0]["script"], over: Partial<PolicyContext> = {}) {
   const h = liveHarness({ db, script, facts: facts(), policy: policy(over), now: () => now });
   return {
     harness: h,
     deps: {
-      runner: () => ({ ok: true as const, deps: h.deps(0) }),
+      runner: () => ({ ok: true as const, refused: false, reason: null, deps: h.deps(0) }),
       env: {} as Record<string, string | undefined>,
     },
   };
@@ -214,14 +227,31 @@ describe("(d) an ask that makes a proposal leaves a pending approval and changes
 
 describe("(e) with no model there is a staff alert, and nothing else", () => {
   /**
-   * This deployment's real answer: `agentRunner()` refuses, because there is no §11.1 context
-   * assembler and a run driven against an invented scope is worse than no run (run/deps.ts).
-   * So the production path through the bubble is this test, not the one above.
+   * This deployment's real answer, from the real runner (`agentRunner(db, env)`, the one the agent
+   * queue consumer drives with) rather than from a stub standing in for it.
+   *
+   * With no model env there are two shapes it can refuse in and the ask treats them alike: no
+   * provider could be built at all (`ok: false`), or one was built that may not be *called*
+   * (`ok: true, refused: true` — no key, no demo-data confirmation, a base URL off the host
+   * allow-list), which is a provider that throws on the first turn. Neither is a runnable result,
+   * so neither starts a run.
    */
-  it("is what this deployment actually does: the runner refuses by name", () => {
-    const runner = agentRunner();
-    expect(runner.ok).toBe(false);
-    expect(runner.ok === false && runner.reason).toBe(AGENT_RUNNER_NO_CONTEXT_SOURCE);
+  it("is what this deployment actually does: the real runner has no model to drive", async () => {
+    const runner = agentRunner(db, {});
+    expect(runner.ok && !runner.refused).toBe(false);
+    // And it says why, for the log — which the test below proves goes nowhere near a screen.
+    expect(runnerReason(runner) ?? "").toMatch(/\S/);
+
+    // The whole of what the ask does with that: one STAFF_ALERT row and nothing driven.
+    const r = await askAgent(db, { siteId: sc.siteId, text: "Tell the family we are late", by: "u1" }, { env: {} });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.outcome).toBe("unavailable");
+    expect((await tasks()).map((t) => [t.category, t.severity, t.state])).toEqual([
+      [STAFF_ALERT_TASK_CATEGORY, "RED", "OPEN"],
+    ]);
+    for (const table of ["ops.agent_run", "ops.approval_request", "ops.change_request"]) {
+      expect((await db.query(`SELECT id FROM ${table}`, [])).rows, table).toEqual([]);
+    }
   });
 
   it("raises the NEEDS_PERSON alert, RED and open, and drives no run", async () => {
@@ -274,7 +304,9 @@ describe("(e) with no model there is a staff alert, and nothing else", () => {
     expect(said).not.toMatch(/sk-[a-z0-9]/);
     expect(said).not.toMatch(/https?:\/\//);
     expect(said).not.toMatch(/\bai\b/);
-    expect(said).not.toContain(AGENT_RUNNER_NO_CONTEXT_SOURCE.toLowerCase());
+    const reason = runnerReason(agentRunner(db, {})) ?? "";
+    expect(reason).toMatch(/\S/);
+    expect(said).not.toContain(reason.toLowerCase());
   });
 
   it("raises the same alert when the model is reached and fails", async () => {
@@ -285,7 +317,7 @@ describe("(e) with no model there is a staff alert, and nothing else", () => {
       {
         env: {},
         // A runner that exists and a drive that throws: a PROVIDER_ERROR, a missing key, a refusal.
-        runner: () => ({ ok: true as const, deps: {} as never }),
+        runner: () => ({ ok: true as const, refused: false, reason: null, deps: {} as never }),
         drive: async () => {
           throw new Error("provider unreachable");
         },
@@ -300,12 +332,47 @@ describe("(e) with no model there is a staff alert, and nothing else", () => {
   });
 
   /**
-   * NO KEYWORD PARSER. `providers/keyword.ts` is on this branch and the remote adapter's model
-   * chain can still reach it, but nothing the bubble's ask path imports does — the degraded mode
-   * is a person, not a worse machine (founder's rule, docs/DATA-MODEL.md M3).
+   * The third shape of "no model", and the one that is a *throw* rather than an answer: a
+   * configuration no provider can be built from at all. `run/deps.ts` reads the config outside the
+   * `try` that turns this into `ok: false`, so it escapes the runner — and an ask that let it
+   * escape would be a 503 with nothing on the board, which is the founder's rule broken by a
+   * construction order rather than by a decision.
+   */
+  it("raises the alert, and no run, when the runner cannot be built at all", async () => {
+    const r = await askAgent(
+      db,
+      { siteId: sc.siteId, text: "Tell the family we are late", by: "u1" },
+      {
+        env: {},
+        runner: () => {
+          throw new Error("Invalid agent config [baseUrl: host is not on the allow-list]");
+        },
+      },
+    );
+    expect(r.ok === false && r.outcome).toBe("unavailable");
+    expect((await tasks()).map((t) => [t.category, t.severity, t.state])).toEqual([
+      [STAFF_ALERT_TASK_CATEGORY, "RED", "OPEN"],
+    ]);
+    expect((await db.query("SELECT id FROM ops.agent_run", [])).rows).toEqual([]);
+  });
+
+  /**
+   * NO KEYWORD PARSER ON THE ASK PATH — the degraded mode is a person, not a worse machine
+   * (founder's rule, docs/DATA-MODEL.md M3).
    *
    * Walked rather than grepped: a direct `import` is easy to not write, and the thing that would
    * actually reintroduce the parser is a module three hops away picking it up.
+   *
+   * What is forbidden is a **text parser standing in for the model**, and that is now said as
+   * three things rather than as a ban on one file: the deleted reader's own path, any reachable
+   * module *named* for the job it did, and any reachable module that names one of its exports.
+   *
+   * `providers/remote.ts` used to be forbidden here as a proxy for the ban, because its §18.1
+   * model chain once ended in the parser. It does not any more — the chain ends in
+   * `RemoteProviderUnavailable` and `no-keyword-fallback.test.ts` holds that structurally — and
+   * since the founder's ruling of 2026-10-18 the ask drives the **real** runner, whose gateway is
+   * built on that adapter. So the adapter is asserted to be *present*: it is the thing that calls
+   * the model, and an ask that could not reach it could not reach a model at all.
    */
   it("cannot reach the keyword parser from the ask path", () => {
     const SRC = path.resolve(__dirname, "..", "..", "..");
@@ -340,10 +407,38 @@ describe("(e) with no model there is a staff alert, and nothing else", () => {
     walk(path.join(__dirname, "staff-ask.ts"));
 
     expect(seen.size).toBeGreaterThan(5);
-    const keyword = path.join(SRC, "modules", "agent", "providers", "keyword.ts");
-    expect([...seen].filter((f) => f === keyword)).toEqual([]);
-    // And the remote adapter, which is what *does* reach it, is not on this path either.
-    expect([...seen].filter((f) => f.endsWith(path.join("providers", "remote.ts")))).toEqual([]);
+    const rel = (f: string) => path.relative(SRC, f).split(path.sep).join("/");
+    const reachable = [...seen].map(rel);
+
+    // 1. The deleted reader, by the path it had.
+    expect(reachable.filter((f) => f === "modules/agent/providers/keyword.ts")).toEqual([]);
+
+    // 2. No reachable module is NAMED for a keyword or text parser — the same four words
+    //    `no-keyword-fallback.test.ts` bans a new provider file for, applied to this whole graph
+    //    rather than to one directory.
+    expect(reachable.filter((f) => /[^/]*(?:keyword|parser|fallback|degraded)[^/]*\.tsx?$/i.test(f))).toEqual([]);
+
+    // 3. And no reachable module NAMES one of the reader's exports. Comments stripped, so the
+    //    prose about why it is gone — this module has plenty — is not read as a use of it.
+    // The finish reason the reader used to produce is deliberately NOT spelled here: the src-wide
+    // scan for it lives in `no-keyword-fallback.test.ts`, and that scan reads this file too — a
+    // literal copy of the string would make this suite its own offender.
+    const banned = [/\bkeywordResponse\b/, /\bkeywordProvider\b/, /\bKEYWORD_RULES\b/, /\bclassifyKeywords\b/];
+    const uses = [...seen]
+      .filter((f) => {
+        const code = readFileSync(f, "utf8")
+          .replace(/\/\*[\s\S]*?\*\//g, "")
+          .split("\n")
+          .map((line) => line.replace(/(^|\s)\/\/.*$/, "$1"))
+          .join("\n");
+        return banned.some((b) => b.test(code));
+      })
+      .map(rel);
+    expect(uses).toEqual([]);
+
+    // And the live vendor adapter IS here, because the ask drives the real runner: the refusal
+    // this path takes is "no model would answer", not "no model was ever asked".
+    expect(reachable).toContain("modules/agent/providers/remote.ts");
   });
 });
 
