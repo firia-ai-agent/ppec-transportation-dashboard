@@ -406,6 +406,27 @@
   color: var(--color-ink);
 }
 
+/*
+ * …and the step that is a press rather than a sentence: a guardian has written and is waiting,
+ * so the step is answering them and this opens their thread (Vera, 2026-10-18). Styled as the
+ * drawer's own link, because it is the same kind of thing — a way out of this screen into the
+ * conversation — and sized to the console's target so it can be hit with a thumb.
+ */
+.nextStepReply {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target-console);
+  font-weight: var(--weight-medium);
+  color: var(--color-brand);
+  text-underline-offset: 2px;
+}
+
+.nextStepReply:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
 .nextStep[data-step="NOTHING"] {
   font-weight: var(--weight-regular);
   color: var(--color-ink-muted);

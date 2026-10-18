@@ -288,6 +288,52 @@ export function openThreadOf(
   return texts.find((t) => t.childKey === a.askedThread) ?? waiting ?? alerted ?? top ?? texts[0] ?? null;
 }
 
+/* ─────────────── an ask nobody has answered, for the screens that are not this one ─────────────── */
+
+/**
+ * The address of one family's thread on this screen. One builder, so a link from another screen
+ * and a link from the list cannot drift to two different URLs for the same conversation.
+ *
+ * No tab on it: `tabFrom` reads an absent `?tab=` as the whole list, which is where a person
+ * following a link to *a conversation* should land.
+ */
+export function threadHref(childKey: string): string {
+  return `/family-texts?thread=${encodeURIComponent(childKey)}`;
+}
+
+/**
+ * A family whose newest message is their own, with nobody having answered it yet.
+ *
+ * The same reading the row's pill makes ("Needs you", `conversationRows`), exported because
+ * Today asks the same question for its "Next step" column: a child whose guardian has written
+ * and is waiting has one next step, and it is not ringing their contacts.
+ */
+export type UnansweredAsk = {
+  readonly childKey: string;
+  /** "Dara O." — the adult to answer, as every staff screen names them. */
+  readonly adultName: string;
+  readonly href: string;
+};
+
+/** True when the last thing said on this thread was said by the family. */
+export function awaitingReply(thread: Thread | undefined): boolean {
+  return thread?.bubbles.at(-1)?.direction === "IN";
+}
+
+/** Every family the day has texted whose own text is the newest thing on their thread. */
+export function unansweredAsks(
+  texts: readonly DayPhone[],
+  threads: ReadonlyMap<string, Thread>,
+): readonly UnansweredAsk[] {
+  return texts
+    .filter((text) => awaitingReply(threads.get(text.childKey)))
+    .map((text) => ({
+      childKey: text.childKey,
+      adultName: text.guardianName,
+      href: threadHref(text.childKey),
+    }));
+}
+
 /* ───────────────────────────── the thread ───────────────────────────── */
 
 /** How long a pause has to be before the thread starts a new run (the mockup's grouping). */

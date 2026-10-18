@@ -38,10 +38,13 @@ import type { Exec } from "@/db/exec";
 import { TextsScreen } from "./TextsScreen";
 import { approvalQueue } from "./queue";
 import {
+  awaitingReply,
   conversationRows,
   openThreadOf,
   runsOf,
+  threadHref,
   threadView,
+  unansweredAsks,
   type ProposalView,
   type TabKey,
 } from "./conversations";
@@ -792,6 +795,27 @@ describe("Vera: the pill describes the row's newest message", () => {
     // so the row is the unanswered ask it is rather than a decision.
     const html = textOf(render({ tab: "all", showForYouTab: false }));
     expect(html).toContain(familyTexts.rowState.needsYou);
+  });
+});
+
+/**
+ * The same reading, exported for the screens that are not this one — Today's "Next step" asks it
+ * (mockups/family-texts.html is the thread it links into).
+ */
+describe("Vera: which families are waiting on an answer", () => {
+  it("names a family whose own text is the newest thing on their thread", () => {
+    const asks = unansweredAsks(texts, new Map([[selected.childKey, answered]]));
+    expect(asks).toEqual([
+      { childKey: selected.childKey, adultName: selected.guardianName, href: threadHref(selected.childKey) },
+    ]);
+    expect(awaitingReply(answered)).toBe(true);
+  });
+
+  it("names nobody when the centre spoke last, and nobody for a thread it could not read", () => {
+    expect(unansweredAsks(texts, new Map([[selected.childKey, projected]]))).toEqual([]);
+    expect(unansweredAsks(texts, new Map())).toEqual([]);
+    expect(awaitingReply(projected)).toBe(false);
+    expect(awaitingReply(undefined)).toBe(false);
   });
 });
 

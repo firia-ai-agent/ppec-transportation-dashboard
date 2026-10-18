@@ -19,6 +19,8 @@ import { stepsFor } from "@/ui/step-strip";
 import { TodayBoard } from "./TodayBoard";
 import { LegDrawer } from "./LegDrawer";
 import { nextStepCellText } from "./next-step";
+import { threadHref, type UnansweredAsk } from "@/app/(app)/family-texts/conversations";
+import { assistantUnavailable } from "@/ui/copy";
 
 /**
  * The board and the drawer as markup (SURF-01 / SURF-02).
@@ -65,13 +67,18 @@ const legOf = (key: string, direction: "AM" | "PM"): LegRow => {
  * The board as a director sees it, strip included: the strip lives under the board's own header
  * now (REDESIGN-SPEC §9.2), so it is one of the board's props rather than a sibling of it.
  */
-function boardHtml(query = "", of: typeof board = board): string {
+function boardHtml(
+  query = "",
+  of: typeof board = board,
+  unansweredAsks: readonly UnansweredAsk[] = [],
+): string {
   return renderToStaticMarkup(
     createElement(TodayBoard, {
       board: of,
       query,
       steps: stepsFor("DIRECTOR", READINESS),
       tiles: rightNowTiles(unreadRightNow()),
+      unansweredAsks,
     }),
   );
 }
@@ -233,6 +240,40 @@ describe("the board renders the day", () => {
     expect(html).toMatch(/State: Stopped \d+ min/);
     // One icon per chip, and there are several chips a row.
     expect(html.match(/class="lucide/g)?.length ?? 0).toBeGreaterThan(board.legs.length * 3);
+  });
+
+  /**
+   * VERA, 2026-10-18 — the "Next step" for a child whose guardian has already written.
+   *
+   * The column was telling a coordinator to "Call Noah O.'s contacts and record who receives
+   * them" while Noah's mother had texted and was sitting unanswered: a phone call to ask a
+   * question already answered in a thread two clicks away. Where the rows say a family is
+   * waiting (`family-texts/conversations.ts` `unansweredAsks`, the same reading that screen's row
+   * pill makes), the step is answering them — and it is a *press*, a link into that thread, not a
+   * sentence about one.
+   */
+  describe("Vera: a guardian who has written and is waiting is the next step", () => {
+    const ask: UnansweredAsk = { childKey: "C2", adultName: "Dara O.", href: threadHref("C2") };
+    const waiting = () => boardHtml("", board, [ask]);
+
+    it("replaces the call step with a verb button naming the adult", () => {
+      const html = waiting();
+      expect(html).toContain(escaped(fill(assistantUnavailable.reply, { adult: "Dara O." })));
+      expect(html).not.toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
+    });
+
+    it("links to that family's own thread", () => {
+      expect(waiting()).toContain(`href="${threadHref("C2")}"`);
+    });
+
+    it("changes nobody else's step", () => {
+      const html = waiting();
+      expect(html).toContain(
+        escaped(fill(boardCopy.nextSteps.ASK_ABOUT_VAN, { dispatcher: "Rae S.", child: "Mia R." })),
+      );
+      // …and with nobody waiting, the column is exactly what it was.
+      expect(boardHtml()).toContain(escaped(fill(boardCopy.nextSteps.CALL_CONTACTS, { child: "Noah O." })));
+    });
   });
 
   it("every row carries a source chip (NFR-09)", () => {

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -14,6 +15,7 @@ import {
   Hand,
   LayoutGrid,
   Locate,
+  MessagesSquare,
   UserCheck,
 } from "lucide-react";
 import type { RightNowTile } from "@/domain/health/right-now";
@@ -27,6 +29,7 @@ import {
   type RideView,
 } from "@/domain/board/board";
 import {
+  assistantUnavailable,
   board as boardCopy,
   etaText,
   fill,
@@ -35,6 +38,7 @@ import {
   planBoard,
   screenReader,
 } from "@/ui/copy";
+import type { UnansweredAsk } from "@/app/(app)/family-texts/conversations";
 import { SearchField } from "@/ui/SearchField";
 import { StepStrip } from "@/ui/StepStrip";
 import type { StripStep } from "@/ui/step-strip";
@@ -92,6 +96,7 @@ export function TodayBoard({
   steps,
   tiles,
   textedChildKeys = [],
+  unansweredAsks = [],
 }: {
   board: Board;
   query: string;
@@ -115,6 +120,15 @@ export function TodayBoard({
    * than offering a thread that would open empty.
    */
   textedChildKeys?: readonly string[];
+  /**
+   * The families whose own text is the newest thing on their thread, with nobody having answered
+   * it (`family-texts/conversations.ts` `unansweredAsks`, the same reading the row pill on that
+   * screen makes).
+   *
+   * It changes one cell: the "Next step" for that child becomes answering them. Empty by default
+   * — a caller that cannot read the threads says nothing rather than offering a link into one.
+   */
+  unansweredAsks?: readonly UnansweredAsk[];
 }) {
   const { day } = board;
   const [tab, setTab] = useState<"board" | "health">("board");
@@ -346,6 +360,7 @@ export function TodayBoard({
                     register={registerRow(order.indexOf(leg))}
                     onMove={focusRow}
                     onOpen={() => setOpenChild(leg.child.childKey)}
+                    ask={unansweredAsks.find((a) => a.childKey === leg.child.childKey)}
                   />
                 ))}
               </tbody>
@@ -408,6 +423,7 @@ function Row({
   register,
   onMove,
   onOpen,
+  ask,
 }: {
   leg: LegRow;
   /** Which kind of day this row is on: a finished day has no live van to locate. */
@@ -416,6 +432,8 @@ function Row({
   register: (el: HTMLButtonElement | null) => void;
   onMove: (index: number) => void;
   onOpen: () => void;
+  /** This child's guardian, if they have written and are waiting. Changes the next step. */
+  ask?: UnansweredAsk;
 }) {
   const { child, ride } = leg;
   const opener = fill(boardCopy.openRow, {
@@ -480,7 +498,7 @@ function Row({
         <ReceiverCell leg={leg} />
       </td>
       <td className={styles.hideNarrow}>
-        <NextStepCell leg={leg} />
+        <NextStepCell leg={leg} ask={ask} />
       </td>
     </tr>
   );
@@ -681,8 +699,29 @@ function ReceiverCell({ leg }: { leg: LegRow }) {
   );
 }
 
-/** The one thing to do next: a verb, and the name of the child it is done for. */
-function NextStepCell({ leg }: { leg: LegRow }) {
+/**
+ * The one thing to do next: a verb, and the name of the child it is done for.
+ *
+ * **An adult who has written and is waiting outranks the board's own step** (Vera, 2026-10-18;
+ * mockups/family-texts.html, the thread this links into). The column was telling a coordinator to
+ * "Call Noah O.'s contacts and record who receives them" while Noah's mother had already texted
+ * and was sitting unanswered — asking them to pick up a phone to ask a question that is already
+ * answered in a thread two clicks away. So where the rows say a family is waiting, the step is to
+ * answer them, and it is a link to that thread rather than a sentence about one: the step is the
+ * press.
+ *
+ * `assistantUnavailable.reply` is the same "Reply to {adult}" the needs-a-person card's own
+ * control says, because it is the same act. One sentence for one thing.
+ */
+function NextStepCell({ leg, ask }: { leg: LegRow; ask?: UnansweredAsk }) {
+  if (ask) {
+    return (
+      <Link className={styles.nextStepReply} href={ask.href} data-step="REPLY_TO_ADULT">
+        <MessagesSquare size={icon.inline} aria-hidden="true" />
+        {fill(assistantUnavailable.reply, { adult: ask.adultName })}
+      </Link>
+    );
+  }
   return (
     <span className={styles.nextStep} data-step={leg.nextStep}>
       {nextStepCellText(leg)}

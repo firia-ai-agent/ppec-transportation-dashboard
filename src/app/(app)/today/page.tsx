@@ -1,4 +1,7 @@
 import { requirePage } from "@/auth/page-guard";
+import { getNeonDb } from "@/db/exec";
+import { unansweredAsks } from "@/app/(app)/family-texts/conversations";
+import { phonesForDay, threadsForDay } from "@/app/(app)/family-texts/thread";
 import { buildBoard, CLOCK_PARAM, requestedBoardDay } from "@/domain/board/board";
 import { getDayReadiness, serviceDateAt } from "@/domain/day/day-facts";
 import { readRightNow } from "@/domain/health/right-now-facts";
@@ -161,6 +164,25 @@ export default async function Page({
    */
   const textedChildKeys = demoLateDropoffs(board.day).map((text) => text.childKey);
 
+  /*
+   * AND WHICH OF THOSE FAMILIES IS WAITING ON AN ANSWER (Vera, 2026-10-18).
+   *
+   * The same threads Family texts reads, through the same module, so the two screens cannot
+   * disagree about whether a family has been answered — the board's "Next step" for a child whose
+   * guardian has written and is waiting is to answer them, not to ring their contacts for
+   * something that is already in the thread.
+   *
+   * It fails soft the way that module always has: a log it cannot read falls back to the day's
+   * own projection, whose bubbles are all outbound, so the honest answer there is "nobody is
+   * waiting" and the column says exactly what it said before.
+   */
+  const phones = phonesForDay(board.day);
+  const threads = await threadsForDay(getNeonDb, {
+    phones,
+    pepper: process.env.HMAC_PEPPER,
+    userId: caller.kind === "STAFF" ? caller.userId : undefined,
+  });
+
   return (
     <TodayBoard
       board={board}
@@ -168,6 +190,7 @@ export default async function Page({
       steps={steps}
       tiles={tiles}
       textedChildKeys={textedChildKeys}
+      unansweredAsks={unansweredAsks(phones, threads)}
     />
   );
 }
