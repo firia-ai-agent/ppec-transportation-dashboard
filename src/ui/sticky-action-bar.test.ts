@@ -103,8 +103,10 @@ describe("the disc's bottom offset includes the page's sticky action bar", () =>
       expect(css, `${name} names the ramp iPad`).not.toMatch(/ramp-ipad|confirmBar|data-confirm/);
       expect(css).not.toMatch(/\[data-page/);
     }
-    // …and the ramp iPad holds no bubble geometry either: it declares a height and stops there.
-    expect(arrivalCss).not.toMatch(/agent-bubble|agentBubble/);
+    // …and the ramp iPad holds no bubble geometry: the one mention allowed is the demo ruling's
+    // hide (Firia, 2026-10-18 10:10 AM ET), which sets display and nothing else.
+    expect(arrivalCss.match(/agent-bubble/g) ?? []).toHaveLength(1);
+    expect(arrivalCss).toMatch(/:global\(body\):has\(\.confirmBar\) :global\(\[data-agent-bubble\]\) \{\s*display: none;\s*\}/);
   });
 });
 
@@ -119,7 +121,7 @@ describe("the ramp iPad's arrival page declares its Confirm bar's height", () =>
     expect(before).not.toMatch(/--sticky-action-bar-height/);
 
     expect(phone(arrivalCss)).toMatch(
-      /:global\(:root:root\) \{\s*--sticky-action-bar-height: calc\(\s*var\(--border-hairline\) \+ var\(--space-3\) \+ var\(--ramp-confirm-height\) \+ var\(--space-3\)\s*\),?\s*;?\s*\}/,
+      /:global\(:root\) \{\s*--sticky-action-bar-height: calc\(\s*var\(--border-hairline\) \+ var\(--space-3\) \+ var\(--ramp-confirm-height\) \+ var\(--space-3\)\s*\),?\s*;?\s*\}/,
     );
   });
 

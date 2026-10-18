@@ -106,24 +106,17 @@ test.describe("the closed disc", () => {
    * src/ui/sticky-action-bar.test.ts; what only a browser can say is that the two boxes a person
    * actually touches do not intersect.
    */
-  test("does not cover the ramp iPad's pinned Confirm at 390", async ({ page }) => {
+  test("is hidden on the ramp iPad at 390 while Confirm is pinned (demo ruling)", async ({ page }) => {
+    // Mockup: png/ramp-arrival-390.png. Firia 2026-10-18 10:10 AM ET: hide, not lift, until after the demo.
     await page.setViewportSize(PHONE);
     await page.goto("/ramp-ipad");
 
-    const confirm = page.locator("[data-confirm]");
-    if ((await confirm.count()) === 0) {
-      test.skip(true, "no van has arrived on the demo day, so there is no Confirm to clear");
+    const bar = page.locator("[data-confirm-bar]");
+    if ((await bar.count()) === 0) {
+      test.skip(true, "no van has arrived on the demo day, so there is no Confirm bar");
     }
-
-    const disc = await boxOf(bubble(page));
-    const button = await boxOf(confirm.first());
-    const bar = await boxOf(page.locator("[data-confirm-bar]"));
-
-    expect(overlaps(disc, button), "the disc is on top of Confirm").toBe(false);
-    // The whole bar, not just the button: the disc must clear the padded box the bar paints.
-    expect(overlaps(disc, bar), "the disc is on top of the Confirm bar").toBe(false);
-    // And it is above the bar rather than beside it, which is the offset doing the work.
-    expect(verticalGap(disc, bar)).toBeGreaterThan(0);
+    await expect(bar.first()).toBeVisible();
+    await expect(bubble(page)).toBeHidden();
 
     await shot(page, "agent-bubble-ramp-confirm-390");
   });
