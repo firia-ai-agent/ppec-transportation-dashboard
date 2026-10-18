@@ -43,7 +43,9 @@ import {
   escalateTimerKey,
 } from "./exec/escalate";
 import type { AwaitExternal } from "./executors";
-import { type AgentWakeTransport, runWakeKey } from "./queue";
+// `./wake`, not `./queue`: publishing a wake-up must not pull the module that consumes one back
+// into this graph (loop.ts → timers.ts → queue.ts → lease.ts → loop.ts). See wake.ts.
+import { type AgentWakeTransport, runWakeKey } from "./wake";
 import { type RunRow, type ToolCallRow, commitCall, runActor, setRunState } from "./store";
 import { triggerLabel } from "./triggers";
 

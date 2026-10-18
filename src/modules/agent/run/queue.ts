@@ -26,13 +26,13 @@
  * one. What *does* throw is a drive that failed unexpectedly, which is the only case where trying
  * again later is the right answer.
  */
-import { z } from "zod";
 import type { Db } from "@/db/exec";
 import { MAX_DELIVERIES } from "@/modules/jobs/scheduler";
 import { AGENT_RUN_LEASE_SECONDS, type LeaseRefusal, driveRunLeased } from "./lease";
 import type { RunDeps, RunResult } from "./loop";
 import { startRun } from "./store";
 import type { Trigger } from "./triggers";
+import { agentWakeSchema, runWakeKey, type AgentWake, type AgentWakeTransport } from "./wake";
 
 /** The Vercel Queues topic, and the `experimentalTriggers` entry in vercel.json. */
 export const AGENT_TOPIC = "ppec-agent";
@@ -81,32 +81,12 @@ export function agentRetryDirective(deliveryCount: number): { afterSeconds: numb
 }
 
 /**
- * What one message says: **which run, in which tenant**.
- *
- * The site is on the payload and is not read off the run row, which is the F3 rule stated once more
- * at the queue boundary: the publisher knows whose run it is, and the consumer's claim is fenced on
- * what the publisher said. A payload that names another tenant's run is refused `wrong-site`
- * rather than driven — so a forged or mis-copied message is a no-op instead of a cross-tenant
- * drive.
- *
- * The *trigger* is deliberately not on it. A trigger makes a run (`startRun`, idempotent on
- * `(trigger_type, trigger_id)`) and the run id is what the queue carries, so a duplicate delivery
- * cannot make a second run however the payload is replayed.
+ * The message, its idempotency key and the transport that publishes one: `wake.ts`, which is a
+ * leaf so that `timers.ts` can publish a wake-up without importing the consumer that handles it.
+ * Re-exported here because the queue is still the one name to import for the delivery itself; see
+ * that file for the cycle this split breaks and what it was costing.
  */
-export const agentWakeSchema = z.object({
-  runId: z.string().uuid(),
-  siteId: z.string().uuid(),
-});
-export type AgentWake = z.infer<typeof agentWakeSchema>;
-
-/** Queues-side idempotency: one in-flight wake-up per run, whoever publishes it. */
-export function runWakeKey(runId: string): string {
-  return `agent:run:${runId}`;
-}
-
-export interface AgentWakeTransport {
-  publish(msg: AgentWake, opts: { idempotencyKey: string }): Promise<void>;
-}
+export { agentWakeSchema, runWakeKey, type AgentWake, type AgentWakeTransport } from "./wake";
 
 /**
  * The §11.1 start, as a queue job: make (or find) the run for this trigger and publish one wake-up
