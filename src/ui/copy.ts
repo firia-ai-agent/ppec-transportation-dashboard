@@ -577,30 +577,30 @@ export const liveMap = {
   heading: "Live map",
   /** <title> for the route, so the tab says which screen is open. */
   documentTitle: "Live map · PPEC transportation dashboard",
-  /**
-   * What the surface is, in one sentence a reviewer reads once. It used to carry the build's
-   * own surface code and a paragraph of fixture provenance; neither means anything to the
-   * people who stand in front of this screen, so both are gone (COPY-GUIDE §1–§2). It also used
-   * to end "Nothing here is live", which was the honest half of a screen called "Map preview";
-   * the sentence below says where the vans are from, and `signedInOnly` says the data is
-   * simulated, so the screen never claims a live feed it does not have.
+  /*
+   * `intro` and `signedInOnly` are deleted (Firia, 2026-10-17 8:36 PM ET; audit §3 and §4 item
+   * 9). They were the two sentences under this screen's heading — what the map is for, and that
+   * its data is simulated — and a screen keeps its title and no paragraph about itself. Neither
+   * fact is lost: the title is the frame's page header bar, and the one Simulated chip in the
+   * DEMO bar says where the positions come from, on this screen as on every other.
    */
-  intro: "Where every van is, on the demo's own routes and clock.",
-  /** Said on the page itself: this surface is still behind staff sign-in, and still simulated. */
-  signedInOnly: "Staff sign-in only. The data below is simulated, and the roles still apply.",
+  /*
+   * The clock, which is the DEMO bar's now rather than this screen's (Firia, 8:36 PM ET;
+   * src/ui/DemoClock.tsx). The words stay under `liveMap` because the live map is the screen the
+   * clock moves and the only one it is drawn on.
+   */
   clock: "Scenario clock {time} ET",
   pause: "Pause",
   play: "Play",
   restart: "Restart",
   /** Clock speed buttons (§6.2): ×1 / ×10 / ×60. */
   speed: "×{factor}",
-  motionReduced: "Reduced motion: markers step, no tween",
-  /**
-   * What the markers are doing when motion is not reduced. It used to say "Tweened along route
-   * geometry" — the implementation, in two words nobody outside this repo uses. The screen says
-   * what a reviewer sees instead (COPY-GUIDE §1: plain words, no jargon).
+  /*
+   * The two motion lines went with the clock row (audit §3: "delete the helper lines, links and
+   * clock row"). What they said is visible in the thing itself — the vans either slide along
+   * their routes or step along them, and §9's reduced-motion rule is honoured either way
+   * (src/components/map/LiveFleetMap.tsx).
    */
-  motionTweened: "Vans follow their routes.",
   mapLabel: "Fleet map: simulated vehicles near the PPEC center",
   centerLabel: places.center,
   decisionsHeading: "Notification decisions",
@@ -773,7 +773,13 @@ export const rampIpad = {
   /** `{date}` is the site-timezone service date, "Tue, Oct 14" (§3). */
   subtitle: "{date} · afternoon rides",
   /** Says plainly that this surface records nothing, so nobody waits for a send that never happens. */
-  localOnly: "Nothing here is sent. Answers stay on this iPad.",
+  /*
+   * "Nothing here is sent. Answers stay on this iPad." is deleted (Firia, 2026-10-17 8:36 PM
+   * ET; audit §4 item 9): it was the explanatory sentence under the screen's heading, and a
+   * screen keeps its title and no paragraph about itself. What it was honest about is still
+   * said — the one Simulated chip in the DEMO bar says where this data comes from, on this
+   * screen as on every other.
+   */
 
   arrivalsHeading: "Which vehicle is at the ramp?",
   /** §5: the vehicle tile reads "V1 · Provider P1 · arriving 8:52 · 3 riders", over two lines. */

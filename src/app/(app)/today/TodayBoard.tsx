@@ -125,10 +125,12 @@ export function TodayBoard({
         "Today" on the day that is true of and names the day on any other, because a board of
         finished rides under "Today" would be the one false sentence on the screen.
       */}
+      {/*
+        No heading here: the screen's title is the frame's 64 px page header bar
+        (src/ui/PageHeader.tsx, audit §2 item 1), so the board's own row is the date readout the
+        mockup draws beside it — and the date is what names the day when it is not today.
+      */}
       <header className={styles.titleRow}>
-        <h1 className={styles.heading}>
-          {onDay({ today: boardCopy.heading, otherDay: boardCopy.headingOtherDay }, day)}
-        </h1>
         <p className={styles.date}>
           <Calendar size={icon.inline} aria-hidden="true" />
           {/*

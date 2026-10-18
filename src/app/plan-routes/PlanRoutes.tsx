@@ -942,8 +942,8 @@ export default function PlanRoutes() {
   return (
     <main className={styles.page}>
       <header className={styles.header}>
+        {/* The title is the frame's page header bar (audit §2 item 1); the day and the leg stay. */}
         <div className={styles.titleRow}>
-          <h1 className={styles.title}>{planRoutes.heading}</h1>
           <span className={styles.subtitle}>
             {fill(planRoutes.subtitle, {
               date: SERVICE_DATE_LABEL,

@@ -234,15 +234,19 @@ describe("a vehicle card names the stop, never the code behind it", () => {
 });
 
 describe("the strings the review fixed, verbatim", () => {
-  it("the live map says what it is in one line, and says the data is simulated in the next", () => {
-    expect(copy.liveMap.intro).toBe("Where every van is, on the demo's own routes and clock.");
-    expect(copy.liveMap.signedInOnly).toBe(
-      "Staff sign-in only. The data below is simulated, and the roles still apply.",
-    );
-  });
-
-  it("the ramp check says where the answers go, in one line", () => {
-    expect(copy.rampIpad.localOnly).toBe("Nothing here is sent. Answers stay on this iPad.");
+  /**
+   * The live map's two sentences and the ramp check's one are deleted (Firia, 2026-10-17 8:36 PM
+   * ET; audit §3 and §4 item 9: a screen keeps its title and no paragraph about itself). What
+   * they were honest about is still said, by the one §7.1 chip in the DEMO bar — so the thing to
+   * hold now is that they are gone and that nothing wrote them again somewhere else.
+   */
+  it("neither screen explains itself under its own title any more", () => {
+    expect(copy.liveMap).not.toHaveProperty("intro");
+    expect(copy.liveMap).not.toHaveProperty("signedInOnly");
+    expect(copy.rampIpad).not.toHaveProperty("localOnly");
+    const everyString = JSON.stringify(copy);
+    expect(everyString).not.toContain("Staff sign-in only");
+    expect(everyString).not.toContain("Answers stay on this iPad");
   });
 
   it("a fault row names the run in words, with no reference trailing it", () => {

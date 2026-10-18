@@ -84,8 +84,14 @@ describe("the board renders the day", () => {
    * above every screen. The date is still a fact to read, so it is still a `<time>`; there is no
    * arrow, no link and no form that would offer another day.
    */
-  it("has one heading and one date, the demo day, and no label or tag around it", () => {
-    expect(html).toContain(`>${boardCopy.heading}<`);
+  it("has one date, the demo day, and no heading, label or tag around it", () => {
+    /*
+     * No heading on the board itself: the screen's title is the frame's 64 px page header bar
+     * (src/ui/PageHeader.tsx, audit §2 item 1), so what is left in this row is the date — which
+     * is also what names the day when the board is not showing today.
+     */
+    expect(html).not.toContain(`>${boardCopy.heading}<`);
+    expect(html.match(/<h1/g)).toBeNull();
     /*
      * The day is read, not written down: the board prints the day the demo is being given on
      * (Firia, 2026-10-17 4:50 PM ET), so this asks the one helper what that is rather than

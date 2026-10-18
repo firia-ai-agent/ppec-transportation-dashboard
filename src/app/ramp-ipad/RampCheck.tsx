@@ -301,7 +301,7 @@ export default function RampCheck() {
         display: "flex", alignItems: "center", gap: "var(--space-4)", flexWrap: "wrap",
         marginBottom: "var(--space-5)",
       }}>
-        <h1 style={{ fontSize: "var(--text-24)", margin: 0 }}>{rampIpad.heading}</h1>
+        {/* The title is the frame's page header bar (audit §2 item 1); the day stays. */}
         <span style={{ color: "var(--color-ink-muted)" }}>
           {fill(rampIpad.subtitle, { date: SERVICE_DATE_LABEL })}
         </span>
@@ -313,7 +313,6 @@ export default function RampCheck() {
           </span>
         ) : null}
       </div>
-      <p style={{ color: "var(--color-ink-muted)", marginTop: 0 }}>{rampIpad.localOnly}</p>
 
       {/* Arriving-vehicle selector */}
       <h2 style={{ fontSize: "var(--text-20)" }}>{rampIpad.arrivalsHeading}</h2>
