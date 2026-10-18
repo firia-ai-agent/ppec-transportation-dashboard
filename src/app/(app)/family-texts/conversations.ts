@@ -162,10 +162,23 @@ export function conversationRows(
    * family asked for is a message row, and whether anything is waiting on it is an approval row.
    */
   proposals: readonly ProposalView[],
+  /**
+   * THE THREADS THEMSELVES, keyed by child — the same objects the pane renders (#B5).
+   *
+   * A row's preview and its time are the newest bubble of the thread it opens, so the list and
+   * the thread cannot disagree about what was last said to a family. They did: the rows previewed
+   * the demo day's *projection* ("PPEC: Noah's van home is running about 10 minutes late", 4:08 PM)
+   * while the pane rendered the **log**, whose only message on that thread was Dara's own, at
+   * 12:57 — one screen, two sources, two answers.
+   *
+   * Empty map ⇒ the day's own texts, which is what a caller with no database has.
+   */
+  threads: ReadonlyMap<string, Thread> = new Map(),
 ): readonly ConversationRow[] {
   const rows = texts.map((text) => {
     const proposal = proposals.find((p) => p.threadKey === text.childKey);
-    const atMs = text.atMs;
+    const newest = threads.get(text.childKey)?.bubbles.at(-1) ?? null;
+    const atMs = newest?.atMs ?? text.atMs;
     return {
       atMs,
       row: {
@@ -174,7 +187,8 @@ export function conversationRows(
         adultName: text.guardianName,
         childFirstName: text.childFirstName,
         timeLabel: formatClock(atMs),
-        preview: proposal && proposal.alertText !== "" ? proposal.alertText : text.body,
+        preview:
+          proposal && proposal.alertText !== "" ? proposal.alertText : newest?.body ?? text.body,
         /*
          * What has happened to this family, in that order: a change they asked for and nobody
          * has decided; a van running late; a child handed over at their stop. The state is read

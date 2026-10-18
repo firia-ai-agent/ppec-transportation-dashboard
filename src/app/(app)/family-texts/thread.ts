@@ -60,6 +60,12 @@ export type Bubble = {
   readonly author: BubbleAuthor;
   /** "4:08 PM" in the site's timezone — a real time, never a relative one. */
   readonly timeLabel: string;
+  /**
+   * The same instant as a number, for ordering — the list's rows are sorted on it and take their
+   * own time label from it, so a conversation row and the thread it opens cannot disagree about
+   * when this family was last spoken to (see `conversationRows`).
+   */
+  readonly atMs: number;
   /** The rendered body. Outbound text is the outbox's own copy; inbound is as received. */
   readonly body: string;
   /** The §3 outbound state, when it is known. Null on a projected bubble (nothing was sent). */
@@ -204,6 +210,7 @@ export function bubbleOf(message: PersonaMessage): Bubble {
     direction: message.direction,
     author: message.direction === "IN" ? "PARENT" : isAutoSend(message.templateId) ? "AUTO" : "STAFF",
     timeLabel: formatClock(Date.parse(message.at)),
+    atMs: Date.parse(message.at),
     body: message.body ?? "",
     delivery: message.state ? outboundStates[message.state as keyof typeof outboundStates] ?? null : null,
     reachedPhone: message.reachedPhone,
@@ -218,10 +225,37 @@ function projected(dropoff: DayPhone): Bubble {
     // The §8 notice, which is on the auto allow-list: the day sends it with nobody in the loop.
     author: isAutoSend(dropoff.templateId) ? "AUTO" : "STAFF",
     timeLabel: formatClock(dropoff.atMs),
+    atMs: dropoff.atMs,
     body: dropoff.body,
     delivery: null,
     reachedPhone: true,
   };
+}
+
+/**
+ * EVERY THREAD ON THE DAY'S LIST, read the one way (#B5).
+ *
+ * The list's rows used to preview the *projection* — the text the demo day will send — while the
+ * pane beside them rendered the **log**. On production that showed as Dara's row previewing
+ * "PPEC: Noah's van home is running about 10 minutes late" at 4:08 PM over a thread whose only
+ * message was her own, at 12:57: one screen, two sources, two different answers about what was
+ * last said to a family.
+ *
+ * So the page reads every thread once, through `threadFor` — the same function, with the same
+ * log-first rule and the same three answers — and both surfaces are drawn from it. A row whose
+ * thread could not be read falls back exactly as the pane does, because it *is* the pane's read.
+ *
+ * In parallel: five independent reads, none of which depends on another, on a screen a
+ * coordinator opens between phone calls.
+ */
+export async function threadsForDay(
+  db: () => Db,
+  a: { phones: readonly DayPhone[]; pepper: string | undefined; userId: string | undefined },
+): Promise<ReadonlyMap<string, Thread>> {
+  const read = await Promise.all(
+    a.phones.map(async (dropoff) => [dropoff.childKey, await threadFor(db, { ...a, dropoff })] as const),
+  );
+  return new Map(read);
 }
 
 /** The families the demo day has a text for, in the order the van reaches them. */

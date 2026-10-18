@@ -14,7 +14,7 @@ import { decideApprovalAction, takeAlertAction } from "./actions";
 import { contextFor } from "./context";
 import { conversationRows, openThreadOf, tabFrom, threadView, type ProposalView } from "./conversations";
 import { TextsScreen } from "./TextsScreen";
-import { phonesForDay, threadFor } from "./thread";
+import { phonesForDay, threadsForDay } from "./thread";
 
 export const metadata = { title: familyTexts.documentTitle };
 
@@ -127,13 +127,18 @@ export default async function FamilyTextsPage({
    * rest of the view model, where it can be asked about without a database.
    */
   const selected = openThreadOf(phones, { askedThread, proposals: queue, alerts: board.alerts });
-  const thread = selected
-    ? await threadFor(getNeonDb, {
-        dropoff: selected,
-        pepper: process.env.HMAC_PEPPER,
-        userId: caller.kind === "STAFF" ? caller.userId : undefined,
-      })
-    : null;
+  /*
+   * ONE READ OF THE DAY'S THREADS, for the list and for the pane alike (#B5). A row's preview is
+   * the newest bubble of the thread that row opens; before this the rows previewed the demo day's
+   * projection while the pane rendered the log, so Dara's row said the van was running late at
+   * 4:08 over a thread whose only message was her own, at 12:57.
+   */
+  const threads = await threadsForDay(getNeonDb, {
+    phones,
+    pepper: process.env.HMAC_PEPPER,
+    userId: caller.kind === "STAFF" ? caller.userId : undefined,
+  });
+  const thread = selected ? threads.get(selected.childKey) ?? null : null;
 
   const view =
     selected && thread
@@ -160,7 +165,7 @@ export default async function FamilyTextsPage({
         * bdfaa8e): the chip, the card and For you read one list, so a fixture ask with no row
         * behind it shows as the text the day sent rather than as a decision nobody can make.
         */
-      rows={conversationRows(phones, queue)}
+      rows={conversationRows(phones, queue, threads)}
       thread={view}
       /* The same rows the card in the thread came from: one read, two readers (S1-2). */
       proposals={queue}

@@ -24,6 +24,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it } from "vitest";
 import { demoDay } from "@/domain/board/day";
+import { formatClock } from "@/domain/eta/eta";
 import { demoChangeRequests } from "@/modules/demo/change-request";
 import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
 import type { AssistantAlert } from "@/modules/agent/staff-alert";
@@ -62,6 +63,7 @@ const projected: Thread = {
       direction: "OUT" as const,
       author: "AUTO" as const,
       timeLabel: "3:52 PM",
+      atMs: t.atMs,
       body: t.body,
       delivery: null,
       reachedPhone: true,
@@ -81,6 +83,7 @@ const answered: Thread = {
       direction: "IN" as const,
       author: "PARENT" as const,
       timeLabel: "4:01 PM",
+      atMs: selected.atMs + 9 * 60_000,
       body: request.parentText,
       delivery: null,
       reachedPhone: true,
@@ -153,13 +156,19 @@ function render(a: {
   const reachable = a.assistantReachable ?? true;
   const mayApprove = a.showForYouTab ?? true;
   const asked = "request" in a ? a.request : request;
+  /*
+   * ONE READ, as the page makes it (#B5): the rows preview the threads the pane renders, so a row
+   * and the conversation beside it cannot be two different answers about what was last said.
+   */
+  const open = asked ? answered : projected;
+  const threads = new Map([[selected.childKey, open]]);
   return renderToStaticMarkup(
     createElement(TextsScreen, {
       tab: a.tab ?? "all",
-      rows: conversationRows(texts, asked && mayApprove ? [PROPOSAL] : []),
+      rows: conversationRows(texts, asked && mayApprove ? [PROPOSAL] : [], threads),
       thread: threadView({
         selected,
-        thread: asked ? answered : projected,
+        thread: open,
         // The card in the thread is the queue's own row, matched on the thread it belongs to —
         // which is the whole of "the badge and the card come from the same rows" (S1-2).
         proposal: asked && mayApprove ? PROPOSAL : null,
@@ -312,9 +321,9 @@ describe("gate 4: Auto · Delivered is earned", () => {
   it("labels a templated follow-up and nothing else", () => {
     const runs = runsOf(
       [
-        { id: "a", direction: "OUT", author: "AUTO", timeLabel: "3:52 PM", body: "x", delivery: null, reachedPhone: true },
-        { id: "b", direction: "IN", author: "PARENT", timeLabel: "3:58 PM", body: "y", delivery: null, reachedPhone: true },
-        { id: "c", direction: "OUT", author: "STAFF", timeLabel: "4:10 PM", body: "z", delivery: null, reachedPhone: true },
+        { id: "a", direction: "OUT", author: "AUTO", timeLabel: "3:52 PM", atMs: 0, body: "x", delivery: null, reachedPhone: true },
+        { id: "b", direction: "IN", author: "PARENT", timeLabel: "3:58 PM", atMs: 0, body: "y", delivery: null, reachedPhone: true },
+        { id: "c", direction: "OUT", author: "STAFF", timeLabel: "4:10 PM", atMs: 0, body: "z", delivery: null, reachedPhone: true },
       ],
       day.label,
     );
@@ -522,5 +531,50 @@ describe("the thread the tab opens on", () => {
 
   it("has no thread to open on a day with no family texts at all", () => {
     expect(openThreadOf([], { proposals: [], alerts: alertAbout("C2") })).toBeNull();
+  });
+});
+
+/* ──────────── the list and the thread read one source (mockups/family-texts.html) ──────────── */
+
+/**
+ * The mockup's list row is a preview *of the conversation beside it* — the same message, the same
+ * time (/workspace/ppec-redesign/mockups/family-texts.html `.th .pv`). On production they were two
+ * different reads: the row previewed the demo day's projected text ("PPEC: Noah's van home is
+ * running about 10 minutes late", 4:08 PM) while the pane rendered the message log, whose only
+ * message on that thread was Dara's own, at 12:57. One screen, two sources, two answers about what
+ * was last said to a family.
+ */
+describe("a row previews the thread it opens", () => {
+  const newest = answered.bubbles[answered.bubbles.length - 1];
+  const threads = new Map([[selected.childKey, answered]]);
+
+  it("shows that thread's newest message, and its time", () => {
+    const [row] = conversationRows([selected], [], threads);
+
+    expect(row.preview).toBe(newest.body);
+    expect(row.timeLabel).toBe(formatClock(newest.atMs));
+    // Which is **not** the day's own projected text, the thing it used to show over this thread.
+    expect(row.preview).not.toBe(selected.body);
+  });
+
+  it("falls back to the day's own text when there is no thread to read", () => {
+    // A deployment that has not run the day yet, or a laptop with no database: the row and the
+    // pane are both the projection, which is still one source.
+    const [row] = conversationRows([selected], []);
+    expect(row.preview).toBe(selected.body);
+    expect(row.timeLabel).toBe(formatClock(selected.atMs));
+  });
+
+  it("still previews the model's line where a proposal is waiting on that thread", () => {
+    // The one case the newest message does not win: a decision is waiting, and what the row has
+    // to say is what it is about (`agent/alert-words.ts` writes this line onto the row).
+    const waiting = texts.find((t) => t.childKey === PROPOSAL.threadKey)!;
+    const asked = { ...PROPOSAL, alertText: "Dara asked to move Noah's drop-off to 5." };
+    const [row] = conversationRows([waiting], [asked], new Map([[waiting.childKey, answered]]));
+
+    expect(row.preview).toBe(asked.alertText);
+    // …and a row whose proposal carries no line falls back to the thread, not to a blank preview.
+    const [plain] = conversationRows([waiting], [PROPOSAL], new Map([[waiting.childKey, answered]]));
+    expect(plain.preview).toBe(newest.body);
   });
 });

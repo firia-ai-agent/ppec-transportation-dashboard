@@ -96,6 +96,7 @@ const threadFor = (childKey: string): Thread => ({
       direction: "OUT" as const,
       author: "AUTO" as const,
       timeLabel: "3:52 PM",
+      atMs: t.atMs,
       body: t.body,
       delivery: null,
       reachedPhone: true,
