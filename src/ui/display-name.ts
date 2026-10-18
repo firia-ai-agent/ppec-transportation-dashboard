@@ -85,11 +85,11 @@ export function shortName(displayName: string): string {
 /**
  * THE INITIALS IN A DISC — "DM" for Dana Mercer, "S" for the brand mark.
  *
- * The avatar in the header had its own copy of this (a three-line `initials` inside
- * src/ui/AvatarMenu.tsx) and the rail's account block would have been a second; the founder's
- * mockups draw the same two letters in both (png/shell-flow-1440.png: `DM` beside "Dana M." in
- * the rail, `DM` alone in the phone's header). One function, so the two cannot disagree about a
- * person — and `max` is here for the brand mark, which is the same rule over one letter.
+ * The deleted avatar menu had its own copy of this and the rail's account block would have been
+ * a second; the founder's mockups draw the same two letters in both (png/shell-flow-1440.png:
+ * `DM` beside "Dana M." at the foot of the rail, png/shell-flow-390.png: `DM` alone at the
+ * trailing end of the page header bar). One function, so the two cannot disagree about a person
+ * — and `max` is here for the brand mark, which is the same rule over one letter.
  *
  * Built on the name a screen *shows* rather than the row's: "SYN Dana Mercer Director" would
  * otherwise read "SD", which is the marker and the person's family name.

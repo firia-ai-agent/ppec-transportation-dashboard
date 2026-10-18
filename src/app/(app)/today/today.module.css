@@ -127,6 +127,22 @@
 }
 
 /*
+ * Below 1280 there is not enough window for nine columns of chips, and a chip may not wrap to
+ * make room any more (audit §4.1). So the *table* scrolls inside its own box rather than the
+ * chips painting over each other or the page scrolling sideways and taking the frame with it:
+ * `display: block` keeps the rows and the columns exactly as they are and makes the element a
+ * scroll box around them. The board's rebuild replaces this table with the mockup's board and
+ * this rule with it (audit §4 item 3).
+ */
+@media (max-width: 1279px) {
+  .table {
+    display: block;
+    overflow-x: auto;
+    table-layout: auto;
+  }
+}
+
+/*
  * The widths are the §3 labels' own widths, measured rather than guessed: a chip that reads
  * "Vehicle check pending" or "No adult on file to receive" takes two lines at 12 px in about
  * 140 px, and a column narrower than that spends a third line on one word. Two lines is the

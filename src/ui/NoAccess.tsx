@@ -26,8 +26,8 @@ import styles from "./NoAccess.module.css";
  * The DEMO bar and the one Simulated chip are above it, from the root layout, on this route as on
  * every other (§7, §7.1, NFR-09) — this card must not mount a second pair.
  *
- * It is a card, not a page: every boundary that renders it is inside the app shell, so the menu,
- * the header and Sign out are on screen around it and a refusal is not the dead end the
+ * It is a card, not a page: every boundary that renders it is inside the app shell, so the menu
+ * and the account are on screen around it and a refusal is not the dead end the
  * founder's walk of production found (Vera's review, 2026-10-17). That is also why there is no
  * `<main>` here — the shell's `#content` is the landmark, and two would be one too many.
  *

@@ -9,10 +9,11 @@ import { shellComesFromLayout } from "./refused-frame";
  *
  * Vera's review, 2026-10-17 4:19 PM ET: "This page isn't part of your role" must never be a
  * bare page whose only exit is the "Go to …" link. A refusal is a screen like any other, so it
- * carries the furniture every screen carries — the header, the account menu with Sign out in
- * it, and the menu this person's own role holds (the bottom tab bar on a phone, the left rail
- * at a desk). One line of the card says where you may go; the frame around it is how you
- * actually go there, and how you reach Sign out when the answer is "this account is wrong".
+ * carries the furniture every screen carries — the page header bar with that screen's title in
+ * it, the account block, and the menu this person's own role holds (the bottom tab bar on a
+ * phone, the left rail at a desk). One line of the card says where you may go; the frame around
+ * it is how you actually go there, and how you reach Sign out when the answer is "this account
+ * is wrong" (the account block opens /whoami, where Sign out is).
  *
  * It replaces twelve copies of the same decision with one. Before this, src/app/forbidden.tsx
  * mounted the shell itself and the eleven boundaries beside the pages rendered a bare
