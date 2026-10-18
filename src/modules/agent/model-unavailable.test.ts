@@ -43,6 +43,8 @@ import { CHILDREN, FAMILIES, synLegalName } from "@/modules/demo/fixtures/standa
 import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
 import { type AgentScenario, seedAgentScenario } from "@/test/agent-state";
+import { PEPPER } from "@/test/messaging";
+import { dbIdentityGateway } from "@/modules/identity/gateway";
 import {
   type AgentConfig,
   DATA_MODE_ENV_VAR,
@@ -226,7 +228,7 @@ async function legs() {
 }
 
 /** The alerts a caller at this site sees. One list, read exactly as the board reads it. */
-const alerts = () => openAssistantAlerts(db, [sc.siteId]);
+const alerts = () => openAssistantAlerts(db, [sc.siteId], dbIdentityGateway(db, { pepper: PEPPER }));
 
 /* ─────────────────────────────── the shared outcome assertions ─────────────────────────────── */
 
@@ -667,10 +669,10 @@ describe("roles: only a director or a coordinator sees the alert or its count", 
     // The front desk cannot open /exceptions at all, so the board never asks on their behalf —
     // and the reads themselves are site-scoped, so an empty site list is an empty answer. Both
     // halves matter: the page guard is the door, and this is the lock behind it.
-    expect(await openAssistantAlerts(db, [])).toEqual([]);
+    expect(await openAssistantAlerts(db, [], dbIdentityGateway(db, { pepper: PEPPER }))).toEqual([]);
     expect(await assistantAlertCount(db, [])).toBe(0);
     // A site this caller is not a member of is not "forbidden", it is simply not selected.
-    expect(await openAssistantAlerts(db, ["00000000-0000-7000-8000-0000000000b1"])).toEqual([]);
+    expect(await openAssistantAlerts(db, ["00000000-0000-7000-8000-0000000000b1"], dbIdentityGateway(db, { pepper: PEPPER }))).toEqual([]);
     expect(await assistantAlertCount(db, ["00000000-0000-7000-8000-0000000000b1"])).toBe(0);
     // And a member of the real site sees exactly one.
     expect(await assistantAlertCount(db, [sc.siteId])).toBe(1);

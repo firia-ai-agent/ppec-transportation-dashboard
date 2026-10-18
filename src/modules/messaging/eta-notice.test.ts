@@ -22,6 +22,7 @@ import { TEST_NOW } from "@/test/clock";
 import { PEPPER } from "@/test/messaging";
 import { freshDb } from "@/test/pglite";
 import { personaMessages, resolvePersona } from "./mailbox";
+import { dbIdentityGateway } from "@/modules/identity/gateway";
 import {
   ETA_NOTICE_NOT_AFTER_MS,
   enqueueEtaNotice,
@@ -258,7 +259,7 @@ describe("what the family actually reads", () => {
     });
     expect(outcome).toBe("SENT");
 
-    const persona = await resolvePersona(db, { number: scenario.number, pepper: PEPPER });
+    const persona = await resolvePersona(db, { number: scenario.number, pepper: PEPPER, gateway: dbIdentityGateway(db, { pepper: PEPPER }) });
     const thread = await personaMessages(db, persona!);
     const text = thread.find((m) => m.direction === "OUT")!;
     expect(text.reachedPhone).toBe(true);
@@ -296,7 +297,7 @@ describe("what the family actually reads", () => {
     });
     expect(outcome).toBe("BLOCKED_EGRESS");
 
-    const persona = await resolvePersona(db, { number: scenario.number, pepper: PEPPER });
+    const persona = await resolvePersona(db, { number: scenario.number, pepper: PEPPER, gateway: dbIdentityGateway(db, { pepper: PEPPER }) });
     const thread = await personaMessages(db, persona!);
     expect(thread.find((m) => m.direction === "OUT")!.reachedPhone).toBe(false);
   });

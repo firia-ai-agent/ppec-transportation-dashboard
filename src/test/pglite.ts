@@ -54,6 +54,43 @@ export async function freshDb(): Promise<{ pg: PGlite; db: Db }> {
 }
 
 /**
+ * THE SAME DATABASE, SEEN THE WAY THE APPLICATION SEES IT: as `app_rw`.
+ *
+ * `freshDb()` hands back a connection running as the PGlite superuser, which can read
+ * everything — including `identity`, which the deployed application role cannot
+ * (0001_roles.sql; src/db/schema.ts:104 "App role `app_rw` gets NO select on these"). That gap
+ * is why a query against `identity.*` on the app connection passed every local suite and then
+ * answered `permission denied for schema identity` on the preview, taking Family texts down
+ * with it (12:13 AM ET).
+ *
+ * So this wraps the same `PGlite` instance in a `Db` whose every statement — autocommit and
+ * transactional — runs after `SET LOCAL ROLE app_rw`. `LOCAL`, so the role is scoped to the
+ * transaction and nothing is left on the connection for the next caller.
+ *
+ * Seed with `freshDb()`'s own `db` (the migrator and the gateway write identity rows); *read*
+ * through this one wherever the thing under test is something a page or a route handler does.
+ * A read that needs identity then fails here, locally, instead of on a deployment.
+ */
+export function appRoleDb(pg: PGlite): Db {
+  const inRole = async <T,>(fn: (t: { query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }> }) => Promise<T>): Promise<T> =>
+    pg.transaction(async (t) => {
+      await t.query("SET LOCAL ROLE app_rw");
+      return fn(t);
+    }) as Promise<T>;
+  return {
+    query: async (sql, params) =>
+      inRole(async (t) => ({ rows: (await t.query(sql as string, params as unknown[])).rows as never[] })),
+    async tx(fn) {
+      const hooks: (() => Promise<void>)[] = [];
+      const r = await inRole((t) =>
+        fn({ query: async (sql, params) => ({ rows: (await t.query(sql as string, params as unknown[])).rows as never[] }) }, (h) => hooks.push(h)));
+      await runAfterCommit(hooks);
+      return r;
+    },
+  };
+}
+
+/**
  * The same fresh database, over **either** engine — for the suites a reviewer may want to run
  * against a real Postgres (`pnpm test:db`, README "Database tests").
  *

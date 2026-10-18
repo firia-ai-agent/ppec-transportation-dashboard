@@ -33,7 +33,10 @@
  * copied into the task row, the summary or a log line. `ops.message` is the row the retention
  * window and the tokenizer already apply to; a second copy of a family's sentence in `ops.task`
  * would be outside both. The names on the card are read from `ops.child_profile.display_name`
- * and `identity.guardian_contact.legal_name` the same way, through the shared display helpers.
+ * and from the `IdentityGateway` (src/modules/identity/gateway.ts) the same way, through the
+ * shared display helpers — never by joining `identity.guardian_contact` here, because `app_rw`
+ * has no SELECT on that schema (src/db/schema.ts:104) and the join took the whole "For you" tab
+ * down with `permission denied for schema identity`.
  *
  * (`completion_evidence` is also the column the `task_closed_needs_evidence` check reads. Writing
  * a locator into it means a row of this category can reach `CLOSED_VERIFIED` without the check
@@ -58,6 +61,7 @@
 import type { Exec } from "@/db/exec";
 import { assistantUnavailable } from "@/ui/copy";
 import { childFirstName, guardianShortName } from "@/modules/identity/display-name";
+import type { IdentityGateway } from "@/modules/identity/gateway";
 import { type DemoDataGuardCode, DATA_MODE_ENV_VAR } from "./config";
 import { type GatewayOutcome, GatewayError } from "./gateway";
 import { effectId } from "./run/exec/effects";
@@ -461,7 +465,8 @@ type AlertRow = {
   thread_id: string | null;
   body_tokenized: string | null;
   child_display_name: string | null;
-  guardian_legal_name: string | null;
+  /** The thread's counterparty. A *name* for it is the gateway's answer, not this query's. */
+  counterparty_token: string | null;
   leg_direction: string | null;
 };
 
@@ -474,21 +479,21 @@ type AlertRow = {
  * not make it disappear, because the thing it is about — a family waiting for an answer — has not
  * happened yet.
  */
-export async function openAssistantAlerts(db: Exec, siteIds: readonly string[]): Promise<AssistantAlert[]> {
+export async function openAssistantAlerts(
+  db: Exec, siteIds: readonly string[], gateway: IdentityGateway,
+): Promise<AssistantAlert[]> {
   if (siteIds.length === 0) return [];
   const r = await db.query<AlertRow>(
     `SELECT t.id, t.state,
             m.id AS message_id, m.thread_id, m.body_tokenized,
             c.display_name AS child_display_name,
-            g.legal_name   AS guardian_legal_name,
+            th.counterparty_token,
             l.direction::text AS leg_direction
      FROM ops.task t
      LEFT JOIN ops.message m
        ON m.id = (t.completion_evidence -> 'locator' ->> 'message_id')::uuid AND m.site_id = t.site_id
      LEFT JOIN ops.conversation_thread th ON th.id = m.thread_id AND th.site_id = t.site_id
      LEFT JOIN ops.child_profile c ON c.child_token = t.child_token AND c.site_id = t.site_id
-     LEFT JOIN identity.guardian_contact g
-       ON g.contact_token = th.counterparty_token AND g.site_id = t.site_id
      LEFT JOIN ops.trip_leg l ON l.id = t.trip_leg_id AND l.site_id = t.site_id
      WHERE t.site_id = ANY($1::uuid[])
        AND t.category = $2
@@ -496,7 +501,14 @@ export async function openAssistantAlerts(db: Exec, siteIds: readonly string[]):
      ORDER BY t.created_at, t.id`,
     [siteIds, MODEL_UNAVAILABLE_CATEGORY],
   );
-  return r.rows.map(toAlert);
+  /*
+   * One gateway call for the whole page, not one per card: the names are asked for in a batch
+   * after the ops read, so a tab with six alerts on it is still two round trips.
+   */
+  const names = await gateway.namesForContacts(
+    r.rows.map((row) => row.counterparty_token).filter((t): t is string => t !== null),
+  );
+  return r.rows.map((row) => toAlert(row, names));
 }
 
 /** How many alerts are waiting. The number the rail's badge shows, and the only thing it shows. */
@@ -537,8 +549,13 @@ export async function openAlert(
  * the display helpers and the fallback for a family whose text names no single child are decided
  * once, server-side, and asserted in one test.
  */
-function toAlert(row: AlertRow): AssistantAlert {
-  const adult = guardianShortName(row.guardian_legal_name);
+function toAlert(row: AlertRow, names: ReadonlyMap<string, string>): AssistantAlert {
+  /*
+   * A name the gateway did not have is "" and `assistantUnavailable.card` renders without it,
+   * which is `display-name.ts`'s fail-soft rule: a card that cannot name the adult is a smaller
+   * harm than a tab that throws (and than a made-up name).
+   */
+  const adult = guardianShortName(row.counterparty_token === null ? null : names.get(row.counterparty_token) ?? null);
   const child = childFirstName(row.child_display_name);
   const leg =
     row.leg_direction === "AM" || row.leg_direction === "PM"

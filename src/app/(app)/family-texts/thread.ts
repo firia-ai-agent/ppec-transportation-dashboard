@@ -36,6 +36,7 @@ import { demoLateDropoffs, type LateDropoff } from "@/modules/demo/late-dropoff"
 export type DayPhone = LateDropoff | HandoffNotice;
 import { personaMailboxResponse, type PersonaMessage } from "@/modules/messaging/mailbox";
 import { normalizeE164 } from "@/modules/identity/phone";
+import { identityGateway } from "@/modules/identity/gateway";
 import { isAutoSend } from "@/modules/messaging/auto-sends";
 import { fill, familyTexts } from "@/ui/copy";
 import { outboundStates } from "@/ui/states";
@@ -154,6 +155,10 @@ async function loggedThread(
       number: e164Of(a.dropoff),
       pepper: a.pepper,
       userId: a.userId,
+      // Who holds this number is the gateway's answer. Asking `db()` for it is `permission
+      // denied for schema identity` (src/db/schema.ts:104), which is the fault this `catch`
+      // used to turn into "the message log could not be read" on every single render.
+      gateway: identityGateway(),
     });
     // A refusal the read model *can* answer with — another site's phone, a caller it will not
     // serve. It answered, so this is a fact about the data and not a fault.

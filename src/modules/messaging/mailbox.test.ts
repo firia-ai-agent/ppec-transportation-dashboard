@@ -15,8 +15,16 @@ import { dbRecipientAuthorizer } from "@/modules/outbox/policy";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { ingestInbound, parseInboundForm, type InboundDeps } from "./inbound";
 import { clampLimit, DEFAULT_LIMIT, MAILBOX_ROLES, MAX_LIMIT, personaMailboxResponse, personaMessages, resolvePersona } from "./mailbox";
+import { dbIdentityGateway } from "@/modules/identity/gateway";
 import { SIM_CENTER_NUMBER } from "./sim-numbers";
 import { DbSimMessagingProvider, SIM_STATUS_JOB_KIND, simStatusHandler } from "./sim-provider";
+
+/**
+ * The DEPLOYED gateway, over PGlite — where one role sees both schemas, so these suites still
+ * exercise the real `identity.guardian_contact` statements. Production hands the same callers
+ * `identityGateway()` instead, which never touches the restricted schema (src/db/schema.ts:104).
+ */
+const gw = (e: Exec) => dbIdentityGateway(e, { pepper: PEPPER });
 
 let pg: PGlite; let db: Db; let now: Date; let f1: Fixture; let drainDeps: DrainDeps; let inboundDeps: InboundDeps; let outboxTransport: FakeOutboxTransport;
 const handlers: Handlers = { [SIM_STATUS_JOB_KIND]: simStatusHandler };
@@ -34,7 +42,7 @@ const inbound = (body: string, sid: string, from: string = F1_NUMBER) => {
   return ingestInbound(db, inboundDeps, raw, p.form);
 };
 const box = async (number: string = F1_NUMBER) => {
-  const persona = await resolvePersona(db, { number, pepper: PEPPER });
+  const persona = await resolvePersona(db, { number, pepper: PEPPER, gateway: gw(db) });
   if (!persona) throw new Error("persona not found");
   return personaMessages(db, persona);
 };
@@ -55,11 +63,11 @@ afterEach(async () => { await pg.close(); });
 
 describe("persona phone read model (MOCKS §3, DESIGN-DIRECTION §6.3)", () => {
   it("resolves only the 555-01xx persona phones, and only ones with a contact", async () => {
-    expect(await resolvePersona(db, { number: F1_NUMBER, pepper: PEPPER })).toMatchObject({ label: "F1", contactToken: f1.contactToken, siteId: SITE });
-    expect(await resolvePersona(db, { number: "%2B15615550101", pepper: PEPPER })).toMatchObject({ label: "F1" });
-    expect(await resolvePersona(db, { number: UNKNOWN_NUMBER, pepper: PEPPER })).toBeNull(); // a persona number with no contact yet
-    expect(await resolvePersona(db, { number: SIM_CENTER_NUMBER, pepper: PEPPER })).toBeNull(); // the center is not a persona
-    expect(await resolvePersona(db, { number: "nonsense", pepper: PEPPER })).toBeNull();
+    expect(await resolvePersona(db, { number: F1_NUMBER, pepper: PEPPER, gateway: gw(db) })).toMatchObject({ label: "F1", contactToken: f1.contactToken, siteId: SITE });
+    expect(await resolvePersona(db, { number: "%2B15615550101", pepper: PEPPER, gateway: gw(db) })).toMatchObject({ label: "F1" });
+    expect(await resolvePersona(db, { number: UNKNOWN_NUMBER, pepper: PEPPER, gateway: gw(db) })).toBeNull(); // a persona number with no contact yet
+    expect(await resolvePersona(db, { number: SIM_CENTER_NUMBER, pepper: PEPPER, gateway: gw(db) })).toBeNull(); // the center is not a persona
+    expect(await resolvePersona(db, { number: "nonsense", pepper: PEPPER, gateway: gw(db) })).toBeNull();
   });
 
   it("shows a bubble from QUEUED and follows it to Delivered, with the rendered body", async () => {
@@ -114,14 +122,14 @@ describe("persona phone read model (MOCKS §3, DESIGN-DIRECTION §6.3)", () => {
 
   it("caps the page size", async () => {
     for (let i = 0; i < 4; i++) await inbound(`note ${i}`, `SM-${i}`);
-    const persona = await resolvePersona(db, { number: F1_NUMBER, pepper: PEPPER });
+    const persona = await resolvePersona(db, { number: F1_NUMBER, pepper: PEPPER, gateway: gw(db) });
     expect((await personaMessages(db, persona!, 2)).map((r) => r.body)).toEqual(["note 2", "note 3"]);
     expect((await personaMessages(db, persona!, 10_000)).length).toBe(4);
   });
 
   it("needs a staff session, a known phone and a membership at that site", async () => {
     const staff = await seedStaff(db);
-    const req = (userId: string | undefined, number: string = F1_NUMBER) => personaMailboxResponse(db, { number, pepper: PEPPER, userId });
+    const req = (userId: string | undefined, number: string = F1_NUMBER) => personaMailboxResponse(db, { number, pepper: PEPPER, userId, gateway: gw(db) });
 
     expect((await req(undefined)).status).toBe(401);
     expect((await req(uuidv7())).status).toBe(401); // a token for a user who is gone
@@ -155,7 +163,7 @@ describe("persona phone read model (MOCKS §3, DESIGN-DIRECTION §6.3)", () => {
  */
 describe("the persona phone's access rules (PRD §1.1, BUILD-PLAN §4)", () => {
   const req = (userId: string | undefined, number: string = F1_NUMBER, limit?: number) =>
-    personaMailboxResponse(db, { number, pepper: PEPPER, userId, limit });
+    personaMailboxResponse(db, { number, pepper: PEPPER, userId, limit, gateway: gw(db) });
 
   it("is open to the console roles and to nobody else, and says so from the access table", () => {
     expect([...MAILBOX_ROLES]).toEqual(["DIRECTOR", "COORDINATOR"]);
@@ -179,7 +187,7 @@ describe("the persona phone's access rules (PRD §1.1, BUILD-PLAN §4)", () => {
   it("a signed-out caller is 401 and the phone is never looked up", async () => {
     const sql: string[] = [];
     const watched: Exec = { query: (q, p) => { sql.push(q as string); return db.query(q, p); } };
-    const r = await personaMailboxResponse(watched, { number: F1_NUMBER, pepper: PEPPER, userId: undefined });
+    const r = await personaMailboxResponse(watched, { number: F1_NUMBER, pepper: PEPPER, userId: undefined, gateway: gw(watched) });
     expect(r).toEqual({ status: 401, body: { error: "UNAUTHENTICATED" } });
     // No session, no blind-index lookup: the number is not even hashed against the contacts table.
     expect(sql.join(" ")).not.toContain("guardian_contact");

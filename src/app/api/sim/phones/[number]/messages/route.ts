@@ -2,6 +2,7 @@ import { API } from "@/auth/access";
 import { requireApiSession } from "@/auth/api-guard";
 import { getNeonDb } from "@/db/exec";
 import { clampLimit, personaMailboxResponse } from "@/modules/messaging/mailbox";
+import { identityGateway } from "@/modules/identity/gateway";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ number: string 
   const { number } = await ctx.params;
   const r = await personaMailboxResponse(getNeonDb(), {
     number, pepper, userId: guard.caller.userId, limit: clampLimit(new URL(req.url).searchParams.get("limit")),
+    // The number→contact lookup is the gateway's; `app_rw` may not read `identity` (schema.ts:104).
+    gateway: identityGateway(),
   });
   return Response.json(r.body, { status: r.status, headers: noStore });
 }

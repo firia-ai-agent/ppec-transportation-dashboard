@@ -30,6 +30,7 @@ import type { Db } from "@/db/exec";
 import { FakeTransport } from "@/modules/jobs/fake-transport";
 import { VercelQueueScheduler } from "@/modules/jobs/scheduler";
 import { personaMessages, resolvePersona } from "@/modules/messaging/mailbox";
+import { dbIdentityGateway } from "@/modules/identity/gateway";
 import { DbSimMessagingProvider, SIM_STATUS_JOB_KIND, simStatusHandler } from "@/modules/messaging/sim-provider";
 import { renderTemplate } from "@/modules/messaging/templates";
 import { type DrainDeps, drain } from "@/modules/outbox/outbox";
@@ -267,7 +268,7 @@ describe("check 2, part 4: the phone panel is reading that same simulated row", 
     const [queued] = (await db.query<{ id: string }>("SELECT id FROM ops.outbound_message", [])).rows;
     await drain(db, queued.id, simDeps());
 
-    const persona = await resolvePersona(db, { number: F1_NUMBER, pepper: PEPPER });
+    const persona = await resolvePersona(db, { number: F1_NUMBER, pepper: PEPPER, gateway: dbIdentityGateway(db, { pepper: PEPPER }) });
     expect(persona?.contactToken).toBe(sc.contactToken);
     const shown = await personaMessages(db, persona!);
     const bubbles = shown.filter((m) => m.direction === "OUT");
@@ -299,7 +300,7 @@ describe("check 2, part 4: the phone panel is reading that same simulated row", 
     const queued = (await db.query<{ id: string }>("SELECT id FROM ops.outbound_message", [])).rows;
     for (const q of queued) expect(await drain(db, q.id, simDeps())).toBe("BLOCKED_EGRESS");
 
-    const persona = await resolvePersona(db, { number: F1_NUMBER, pepper: PEPPER });
+    const persona = await resolvePersona(db, { number: F1_NUMBER, pepper: PEPPER, gateway: dbIdentityGateway(db, { pepper: PEPPER }) });
     const shown = persona ? await personaMessages(db, persona) : [];
     for (const bubble of shown.filter((m) => m.direction === "OUT")) expect(bubble.reachedPhone).toBe(false);
     expect(

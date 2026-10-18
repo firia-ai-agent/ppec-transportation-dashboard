@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { APPROVAL_ROLES, FOR_YOU_TAB, canOpenForYou, homePathFor } from "@/auth/access";
 import { getExec } from "@/auth/exec";
+import { identityGateway } from "@/modules/identity/gateway";
 import { requirePage } from "@/auth/page-guard";
 import { getNeonDb } from "@/db/exec";
 import { demoDay } from "@/domain/board/day";
@@ -233,7 +234,7 @@ async function readAlerts(
 ): Promise<{ alerts: readonly AssistantAlert[]; unreadable: boolean }> {
   if (siteIds.length === 0) return { alerts: [], unreadable: false };
   try {
-    return { alerts: await openAssistantAlerts(getExec(), siteIds), unreadable: false };
+    return { alerts: await openAssistantAlerts(getExec(), siteIds, identityGateway()), unreadable: false };
   } catch {
     return { alerts: [], unreadable: true };
   }
