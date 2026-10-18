@@ -204,10 +204,10 @@ export async function askAgent(
      * `askTimeoutMs` (config, default 45 s) and, if the model has not finished by then, it ends
      * the same way a model that could not be reached does: one alert, a person told.
      */
-    const run = await withDeadline(
-      (deps.drive ?? startAndDriveRun)(answer.deps, trigger),
-      answer.deps.gateway.config.askTimeoutMs,
-    );
+    // Read the deadline BEFORE starting the run: if this throws after the run's promise exists,
+    // that promise is left floating and its rejection is unhandled.
+    const askTimeoutMs = answer.deps.gateway.config.askTimeoutMs;
+    const run = await withDeadline((deps.drive ?? startAndDriveRun)(answer.deps, trigger), askTimeoutMs);
     if (run === TIMED_OUT) throw new AskTimedOut();
     const said = await askAnswer(db, run.runId);
     return { ok: true, outcome: "ran", taskId, run, answer: said.answer, proposalId: said.proposalId };

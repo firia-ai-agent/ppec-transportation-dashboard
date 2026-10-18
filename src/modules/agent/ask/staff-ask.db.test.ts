@@ -320,7 +320,7 @@ describe("(e) with no model there is a staff alert, and nothing else", () => {
       {
         env: {},
         // A runner that exists and a drive that throws: a PROVIDER_ERROR, a missing key, a refusal.
-        runner: () => ({ ok: true as const, refused: false, reason: null, deps: {} as never }),
+        runner: () => ({ ok: true as const, refused: false, reason: null, deps: { gateway: { config: { askTimeoutMs: 5_000 } } } as never }),
         drive: async () => {
           throw new Error("provider unreachable");
         },
