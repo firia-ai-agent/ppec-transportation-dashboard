@@ -713,6 +713,14 @@ a.meter:focus-visible {
     display: contents;
   }
 
+  /*
+   * Vera 3:55 AM ET on b7e8eac: the title must read "Plan routes" in full at 390, so on the board
+   * it takes a row of its own and the buttons move to the row under it.
+   */
+  :global(h1):has(~ [data-header-slot] > .toolbar) {
+    flex: 0 0 100%;
+  }
+
   .toolbar {
     display: contents;
   }
