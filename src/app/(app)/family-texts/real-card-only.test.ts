@@ -56,7 +56,7 @@ const texts = demoLateDropoffs(day);
 const SITE = "00000000-0000-7000-8000-0000000000a1";
 
 /** `ops.approval_request`, in the shape the demo seed and the agent's writer both write. */
-function row(childKey: string, over: { id?: string; hhmm?: string } = {}) {
+function row(childKey: string, over: { id?: string; hhmm?: string; reply?: string } = {}) {
   const child = childByKey(childKey)!;
   return {
     id: over.id ?? "00000000-0000-7000-8000-00000000a001",
@@ -74,8 +74,14 @@ function row(childKey: string, over: { id?: string; hhmm?: string } = {}) {
       requested_dropoff_time: over.hhmm ?? "17:00",
       stop_token: child.stopKey ? stopByKey(child.stopKey).smsToken : "",
       rationale_code: "PARENT_REQUEST",
-      template_id: "dropoff.changed",
-      vars: { legDate: day.iso, eta: over.hhmm ?? "17:00", stopLabel: child.stopKey ? stopByKey(child.stopKey).smsToken : "" },
+      // A model-drafted reply when the case gives one; the fixed template otherwise.
+      template_id: over.reply === undefined ? "dropoff.changed" : "dropoff.reply",
+      vars: {
+        legDate: day.iso,
+        eta: over.hhmm ?? "17:00",
+        stopLabel: child.stopKey ? stopByKey(child.stopKey).smsToken : "",
+        ...(over.reply === undefined ? {} : { replyText: over.reply }),
+      },
     },
   };
 }
@@ -84,7 +90,7 @@ function row(childKey: string, over: { id?: string; hhmm?: string } = {}) {
 const execOf = (rows: unknown[]): Exec => ({ query: async () => ({ rows: rows as never[] }) });
 
 const queueOf = (rows: unknown[]) =>
-  approvalQueue({ db: execOf(rows), siteIds: [SITE], day, editedTime: null });
+  approvalQueue({ db: execOf(rows), siteIds: [SITE], day });
 
 /** One pane of bubbles, from the day's own replay. The card is what these tests are about. */
 const threadFor = (childKey: string): Thread => ({
@@ -125,8 +131,7 @@ function render(a: {
       alertsUnreadable: false,
       assistantReachable: true,
       context: null,
-      editing: false,
-      editedTime: null,
+      editingId: null,
       threadOpen: false,
       decide: async (): Promise<DecisionState> => ({ status: "idle" }),
       takeAlert: async () => {},
@@ -228,8 +233,7 @@ describe("a model that cannot be reached means the alert, never a scripted card 
           alertsUnreadable: false,
           assistantReachable: false,
           context: null,
-          editing: false,
-          editedTime: null,
+          editingId: null,
           threadOpen: false,
           decide: async (): Promise<DecisionState> => ({ status: "idle" }),
           takeAlert: async () => {},
@@ -358,7 +362,7 @@ const OPEN_STOP = stopByKey(childByKey(OPEN)!.stopKey!);
  */
 describe("the card is one approve row, labelled Agent, with no codes on it (S1-2 item a)", () => {
   it("renders exactly one approve row, and one of each control in it", async () => {
-    const queue = await queueOf([row(OPEN)]);
+    const queue = await queueOf([row(OPEN, { reply: "Yes, we can drop Noah off at 5 today." })]);
     const text = textOf(render({ openKey: OPEN, proposals: queue }));
     // One card (`.prop`) is one row of controls: `.acts`, as the mockup draws it. The card has no
     // heading of its own to count any more (Vera, 7:51 AM ET) — it is the parent's name, the
@@ -366,6 +370,12 @@ describe("the card is one approve row, labelled Agent, with no codes on it (S1-2
     expect(countOf(text, approval.approveAndSend)).toBe(1);
     expect(countOf(text, approval.edit)).toBe(1);
     expect(countOf(text, approval.dontSend)).toBe(1);
+  });
+
+  it("offers no Edit on fixed copy, which has no words of its own to edit", async () => {
+    const text = textOf(render({ openKey: OPEN, proposals: await queueOf([row(OPEN)]) }));
+    expect(countOf(text, approval.approveAndSend)).toBe(1);
+    expect(countOf(text, approval.edit)).toBe(0);
   });
 
   it("keeps the author 'Agent' in copy.ts, and heads the card with who the reply goes to", async () => {
@@ -496,20 +506,5 @@ describe("no draft carries a clock time (S1-2 item b)", () => {
     const text = textOf(render({ openKey: OPEN, proposals: queue }));
     expect(text).toContain(queue[0].draftText);
     expect(queue[0].draftText).not.toMatch(CLOCK);
-  });
-
-  it("an Edit to the time changes the card's Time row and not the words", async () => {
-    /*
-     * The one case where a clock could leak in by the back door: Edit re-renders the body for a
-     * new time. It must move the row a coordinator reads and leave the sentence alone.
-     */
-    const edited = await approvalQueue({
-      db: execOf([row(OPEN)]),
-      siteIds: [SITE],
-      day,
-      editedTime: "17:45",
-    });
-    expect(edited[0].timeTo).toBe("5:45 PM");
-    expect(edited[0].draftText).not.toMatch(CLOCK);
   });
 });

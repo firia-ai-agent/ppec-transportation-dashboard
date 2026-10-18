@@ -215,7 +215,7 @@ describe("Restart → Dara's text → the model's card → Approve", () => {
   });
 
   it("Family texts and the bubble read the same one row", async () => {
-    const queue = await approvalQueue({ db, siteIds: [SITE], day: demoDay(), editedTime: null });
+    const queue = await approvalQueue({ db, siteIds: [SITE], day: demoDay() });
     expect(queue).toHaveLength(1);
     expect(queue[0]).toMatchObject({
       threadKey: "C2",

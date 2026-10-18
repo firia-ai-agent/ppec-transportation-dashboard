@@ -1,7 +1,7 @@
 import type { DecideAction } from "@/app/(app)/family-texts/actions";
 import type { ProposalView } from "@/app/(app)/family-texts/conversations";
 import { ProposalCard as DecisionCard } from "@/app/(app)/family-texts/ProposalCard";
-import { FAMILY_TEXTS_FOR_YOU } from "@/auth/access";
+import { familyThreadHref } from "@/auth/access";
 import { agentBubble, fill } from "./copy";
 import { Pill, PillLabel } from "./Pill";
 import styles from "./AgentThread.module.css";
@@ -103,7 +103,7 @@ export function AgentThread({
                 proposal={card}
                 decide={decide}
                 // Edit opens the thread on Family texts, where the time field lives.
-                editHref={`${FAMILY_TEXTS_FOR_YOU}&thread=${encodeURIComponent(card.threadKey)}`}
+                threadHref={familyThreadHref(card.threadKey)}
               />
             ) : (
               <ProposalCard key={item.id} question={item.question} />

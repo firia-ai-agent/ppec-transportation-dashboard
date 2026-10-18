@@ -14,13 +14,13 @@
  * `free-text-egress.test.ts` part 1 scans the whole tree and names every caller of
  * `outbox.enqueue`, and asserts that none of them is a route or a server action.)
  *
- * ## Gate 2 — an edited message needs a fresh approval
+ * ## Gate 2 — an edited message is approved by the press that sends it
  *
- * Edit is a **navigation**. The control is a `GET` form to the same screen with `?time=`, the page
- * re-renders the proposal with the new time through the decision model's own renderer, and the
- * card comes back *pending*: still "Approve and send", still "the family hears nothing until you
- * approve". Nothing is claimed and nothing is queued, so the edited words are a proposal a person
- * still has to sign. An Edit that approved-with-a-different-time would be a send nobody signed.
+ * Edit is a **navigation**: a link to the same screen with `?edit=<approval id>`. The card comes back
+ * *pending* with the reply's own words in a text box inside the Approve form, so the words a
+ * coordinator types travel only in that POST — never in a URL — and nothing is claimed or queued
+ * until Approve & send is pressed. Edit = the message text (user ruling, 2026-10-18): the words go
+ * out in the reply's one free-text slot, held to the model's own reply rule.
  */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -28,7 +28,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { demoDay } from "@/domain/board/day";
-import { demoChangeRequests, withRequestedTime } from "@/modules/demo/change-request";
+import { demoChangeRequests } from "@/modules/demo/change-request";
 import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
 import { approval } from "@/ui/copy";
 import type { DecisionState } from "@/app/(app)/family-texts/actions";
@@ -64,11 +64,11 @@ beforeEach(() => {
   });
 });
 
-const form = (decision: string, time = "") => {
+const form = (decision: string, edited?: string) => {
   const f = new FormData();
   f.set("approval", "01900000-0000-7000-8000-002600000001");
   f.set("decision", decision);
-  f.set("time", time);
+  if (edited !== undefined) f.set("edited", edited);
   return f;
 };
 
@@ -91,11 +91,11 @@ describe("gate 1: one write path for all three controls", () => {
     expect(decideApproval.mock.calls[0][2]).toMatchObject({ decision: "DECLINED" });
   });
 
-  it("carries the edited time into that same call rather than a second one", async () => {
+  it("carries the edited words into that same call rather than a second one", async () => {
     const { decideApprovalAction } = await import("@/app/(app)/family-texts/actions");
-    await decideApprovalAction({ status: "idle" }, form("APPROVED", "17:30"));
+    await decideApprovalAction({ status: "idle" }, form("APPROVED", "See you at 5."));
     expect(decideApproval).toHaveBeenCalledTimes(1);
-    expect(decideApproval.mock.calls[0][2]).toMatchObject({ editedTime: "17:30" });
+    expect(decideApproval.mock.calls[0][2]).toMatchObject({ editedText: "See you at 5." });
   });
 
   it("has no write of its own in the decision action at all", () => {
@@ -189,53 +189,25 @@ describe("a send is refused while the message awaits approval", () => {
   });
 });
 
-describe("gate 2: an edited message needs a fresh approval", () => {
+describe("gate 2: an edited message is approved by the press that sends it", () => {
   const day = demoDay();
   const request = demoChangeRequests(day)[0];
+  const REPLY = "Hi Dara, yes, we can drop Noah off at 5 today.";
 
-  /**
-   * An Edit moves the time the proposal *records* and cannot move the words.
-   *
-   * It used to move both — `dropoff.changed` said "at 5:30 PM", so a re-render showed the edit in
-   * the sentence. The COPY RULE took the clock out of that body (Vera's S1-2 item b), and the
-   * result is a sharper version of gate 2 rather than a weaker one: the only thing an Edit can
-   * change is a time field, the reply itself is `renderTemplate`'s output over a fixed template
-   * either way, and there is now no route at all by which a person's keystrokes reach a family's
-   * phone. Both halves are asserted — the time moves, the words do not.
-   */
-  it("moves the time and not the words: the reply is the template's, before and after", () => {
-    const edited = withRequestedTime(request, "17:30", day);
-    expect(edited.requestedHhmm).toBe("17:30");
-    expect(edited.timeTo).toBe("5:30 PM");
-    expect(request.requestedHhmm).not.toBe("17:30");
-    // The sentence is unchanged, because it names no minute to change (COPY RULE).
-    expect(edited.draftText).toBe(request.draftText);
-    expect(edited.draftText).not.toMatch(/\d{1,2}:\d{2}/);
-    // Same template, so the words are still the outbox's and not a person's.
-    expect(edited.templateId).toBe(request.templateId);
-  });
-
-  it("sends nothing: Edit is a GET navigation, not the decision", () => {
+  it("sends nothing: Edit is a link, and the text box lives inside the Approve form", () => {
     const card = readFileSync(CARD_FILE, "utf8");
-    // The Edit control's form posts nowhere: it is a `GET` to this screen.
-    expect(card).toMatch(/<form method="get" action=\{editHref\}/);
-    /*
-     * Every form that reaches the server action, taken one at a time.
-     *
-     * Asserted per form rather than over the tail of the file because the row is now three
-     * controls in the mockup's order — Approve & send, Edit, Don't send (mockups/approvals.html
-     * `.acts`; Firia, 2026-10-17 10:51 PM ET) — so the Edit navigation sits *between* the two
-     * posting forms. What gate 1 claims is that no posting form carries Edit, and this is that
-     * claim rather than a claim about where Edit appears in the source.
-     */
+    // Edit navigates; it is not a form and it posts nothing.
+    expect(card).toMatch(/<Link href=\{editHref\}/);
+    expect(card).not.toMatch(/method="get"/);
     const posted = [...card.matchAll(/<form action=\{submit\}([\s\S]*?)<\/form>/g)].map((m) => m[1]);
     expect(posted).toHaveLength(2);
-    for (const form of posted) expect(form).not.toContain("approval.edit");
-    expect(posted.join("")).toContain("approval.approveAndSend");
-    expect(posted.join("")).toContain("approval.dontSend");
+    // The edited words ride the Approve POST and nothing else — never a query string.
+    expect(posted.filter((f) => f.includes('name="edited"'))).toHaveLength(1);
+    expect(card).toContain("approval.approveAndSend");
+    expect(card).toContain("approval.dontSend");
   });
 
-  it("comes back pending, with Approve still to press", async () => {
+  it("comes back pending, the reply's own words in the box, with Approve still to press", async () => {
     const { TextsScreen } = await import("@/app/(app)/family-texts/TextsScreen");
     const { conversationRows, threadView } = await import(
       "@/app/(app)/family-texts/conversations"
@@ -245,13 +217,6 @@ describe("gate 2: an edited message needs a fresh approval", () => {
     const { childTokenOf } = await import("@/modules/demo/fixtures/standard");
     const texts = demoLateDropoffs(day);
     const selected = texts[texts.length - 1];
-    const edited = withRequestedTime(request, "17:30", day);
-    /*
-     * The card comes from a real approval row and the Edit time is applied over it by the queue
-     * (S1-2: the fixture card is gone). `editedTime` is the only thing that moves — the row still
-     * says 17:00 — which is exactly the claim: an edit changes the words on screen and writes
-     * nothing, so what is rendered is still a PENDING proposal.
-     */
     const site = "00000000-0000-7000-8000-0000000000a1";
     const row = {
       id: request.approvalId,
@@ -269,15 +234,14 @@ describe("gate 2: an edited message needs a fresh approval", () => {
         requested_dropoff_time: request.requestedHhmm,
         stop_token: "PBSC-LW",
         rationale_code: "PARENT_REQUEST",
-        template_id: request.templateId,
-        vars: request.vars,
+        template_id: "dropoff.reply",
+        vars: { ...request.vars, replyText: REPLY },
       },
     };
     const queue = await approvalQueue({
       db: { query: async () => ({ rows: [row] as never[] }) },
       siteIds: [site],
       day,
-      editedTime: "17:30",
     });
     const html = renderToStaticMarkup(
       createElement(TextsScreen, {
@@ -296,23 +260,18 @@ describe("gate 2: an edited message needs a fresh approval", () => {
         alertsUnreadable: false,
         assistantReachable: true,
         context: null,
-        editing: false,
-        editedTime: "17:30",
+        editingId: request.approvalId,
         threadOpen: false,
         decide: async (): Promise<DecisionState> => ({ status: "idle" }),
         takeAlert: async () => {},
         showForYouTab: true,
       }),
     );
-    /*
-     * The new time is what Approve would carry, and the card is in its edit state around it.
-     *
-     * Not "5:30 PM" any more: Vera's card has no Time row (7:51 AM ET) and no clock time
-     * anywhere on it, and `dropoff.changed` places no hour in the words either — so the edited
-     * time lives on the decision the three buttons post, which is what this reads.
-     */
-    expect(html).toContain('value="17:30"');
-    expect(html).toContain(approval.edit);
+    // The box holds the reply's own words — not the "PPEC:" prefix, which the reply rule refuses.
+    expect(html).toMatch(/<textarea[^>]*name="edited"/);
+    expect(html).toContain(`>${REPLY}</textarea>`);
+    expect(html).toContain('value="APPROVED"');
+    expect(html).toContain(`>${approval.editCancel}</a>`);
     // And the family still has not been told anything.
     expect(html).toContain(approval.nothingUntilApproved);
     // The edit itself queued nothing: the decision model was never called.

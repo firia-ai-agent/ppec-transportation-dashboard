@@ -118,7 +118,7 @@ export async function ConsoleShell({
 async function cardsOrEmpty(siteId: string): Promise<readonly ProposalView[]> {
   if (modelReach().kind !== "model") return [];
   try {
-    return await approvalQueue({ db: getNeonDb(), siteIds: [siteId], day: demoDay(), editedTime: null });
+    return await approvalQueue({ db: getNeonDb(), siteIds: [siteId], day: demoDay() });
   } catch {
     return [];
   }

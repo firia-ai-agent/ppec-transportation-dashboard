@@ -218,6 +218,15 @@ export const FOR_YOU_TAB = "for-you";
 export const FAMILY_TEXTS_FOR_YOU = `/family-texts?tab=${FOR_YOU_TAB}`;
 
 /**
+ * One family's thread on the For you tab, keyed by the child (`?thread=<childKey>`, which is what
+ * the thread pane is keyed by). The one builder for every link into a thread — the Today drawer,
+ * the assistant bubble's card — so they cannot drift to a parameter the page does not read.
+ */
+export function familyThreadHref(childKey: string): string {
+  return `${FAMILY_TEXTS_FOR_YOU}&thread=${encodeURIComponent(childKey)}`;
+}
+
+/**
  * MAY THIS CALLER OPEN "FOR YOU"? — the server's answer, asked by the page before it renders
  * the tab (src/app/(app)/family-texts/page.tsx).
  *

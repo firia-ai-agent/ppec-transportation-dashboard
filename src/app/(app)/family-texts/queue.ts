@@ -47,18 +47,11 @@ import { approval, fill } from "@/ui/copy";
 import { proposalFacts } from "./checks";
 import type { ProposalView } from "./conversations";
 
-/**
- * The proposals waiting at these sites, oldest first, as the card renders them.
- *
- * `editedTime` is the Edit control, applied once here so that every reader below — the card in the
- * thread, the card on the tab, the compose bar's hidden field — shows the time that is on screen.
- * It writes nothing: an edited proposal is still a pending proposal (Firia's gate 2).
- */
+/** The proposals waiting at these sites, oldest first, as the card renders them. */
 export async function approvalQueue(a: {
   readonly db: Exec;
   readonly siteIds: readonly string[];
   readonly day: ServiceDay;
-  readonly editedTime: string | null;
 }): Promise<readonly ProposalView[]> {
   const rows = await pendingApprovals(a.db, a.siteIds);
   return Promise.all(rows.map((row) => viewOf(row, a)));
@@ -68,21 +61,15 @@ type Row = Awaited<ReturnType<typeof pendingApprovals>>[number];
 
 async function viewOf(
   row: Row,
-  a: { readonly day: ServiceDay; readonly editedTime: string | null },
+  a: { readonly day: ServiceDay },
 ): Promise<ProposalView> {
   const facts = await proposalFacts({
     childToken: row.childToken,
     stopToken: row.stopToken,
     day: a.day,
   });
-  const time = a.editedTime ?? row.requestedTime;
-  /*
-   * The child, as the SENT text names them: `ops.child_profile.display_name` ("Noah O."), which is
-   * what `pendingApprovals` already renders `row.text` with. Passed here too, because the Edit
-   * control re-renders the body for a new time and a body re-rendered without the name would say
-   * "your child" on the card while the queued message said "Noah O." — one renderer, one set of
-   * words, including the name in them.
-   */
+  const time = row.requestedTime;
+  // The child, as the SENT text names them: `ops.child_profile.display_name` ("Noah O.").
   const childLabel = row.childLabel === "" ? facts.childLabel : row.childLabel;
   /*
    * WHAT THE PLAN CHANGES, in one line, under the draft (Firia, 11:11 AM ET 2026-10-18).
@@ -153,10 +140,11 @@ async function viewOf(
      */
     draftText: bodyOf(
       { template_id: row.templateId, vars: { ...row.vars } },
-      time,
+      null,
       row.childLabel === "" ? null : row.childLabel,
     ),
-    requestedHhmm: time,
+    // The reply's own words, for Edit's text box; null for fixed copy, which has no Edit.
+    replyText: row.replyText,
     alertText: row.alertText,
   };
 }

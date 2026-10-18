@@ -6,8 +6,9 @@
  * Approve, Edit and Don't send are **one** action and **one** write path: `decideApproval` in
  * `@/modules/approvals/decide`. Firia's gate 1 is that there is no second one, and the shape of
  * this file is how that is true rather than merely intended — it reads a form, calls that one
- * function, and turns a status into the sentence the screen shows. Edit is the same call with a
- * time on it; Don't send is the same call with `DECLINED`. Nothing here writes anything.
+ * function, and turns a status into the sentence the screen shows. Edit is the same call with the
+ * coordinator's words on it; Don't send is the same call with `DECLINED`. Nothing here writes
+ * anything.
  *
  * A server action rather than an API route because it is this screen's own button, and it carries
  * its own row in the one access table (`action:approval-decision`): a server action **is** a POST
@@ -74,7 +75,8 @@ const REFUSALS: Readonly<Record<DecideError, string>> = {
   NO_SUCH_APPROVAL: approvalCopy.noSuchApproval,
   ALREADY_DECIDED: approvalCopy.alreadyDecided,
   PLAN_MOVED: approvalCopy.planMoved,
-  NOT_A_TIME: approvalCopy.notATime,
+  NOT_EDITABLE: approvalCopy.notEditable,
+  EDIT_NOT_SENDABLE: approvalCopy.editNotSendable,
   MESSAGE_CHANGED: approvalCopy.messageChanged,
   PLAN_NOT_SAVED: approvalCopy.planNotSaved,
   TIME_NOT_SAVED: approvalCopy.timeNotSaved,
@@ -99,7 +101,11 @@ export async function decideApprovalAction(
   const decision = String(form.get("decision") ?? "");
   if (!approvalId || (decision !== "APPROVED" && decision !== "DECLINED")) return { status: "idle" };
 
-  const typed = String(form.get("time") ?? "").trim();
+  /*
+   * THE COORDINATOR'S WORDS, when the card was in its Edit state. Not trusted as anything but a
+   * candidate: `decideApproval` holds them to the reply rule and refuses the decision otherwise.
+   */
+  const edited = form.get("edited");
   /*
    * THE WORDS THE SCREEN SHOWED, carried with the decision (S1-7).
    *
@@ -120,7 +126,7 @@ export async function decideApprovalAction(
       userId: caller.kind === "STAFF" ? caller.userId : undefined,
       approvalId,
       decision: decision as ApprovalDecision,
-      editedTime: typed === "" ? null : typed,
+      editedText: typeof edited === "string" ? edited : null,
       approvedText: shown === null ? undefined : String(shown),
       now: new Date(),
     },

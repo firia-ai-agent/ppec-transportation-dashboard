@@ -135,25 +135,6 @@ function requestFrom(text: LateDropoff, day: ServiceDay): DemoChangeRequest {
   };
 }
 
-/**
- * The same request with a different time on it — the Edit control, as a pure function.
- *
- * It re-renders the reply through the same template and the same renderer, so what a coordinator
- * reads after editing is exactly what would be queued. It writes nothing and sends nothing: an
- * edited proposal is still a pending proposal and still needs a fresh approval (Firia's gate 2).
- */
-export function withRequestedTime(request: DemoChangeRequest, hhmm: string | null, day: ServiceDay = demoDay()): DemoChangeRequest {
-  if (hhmm === null) return request;
-  const vars = { ...request.vars, eta: hhmm };
-  return {
-    ...request,
-    requestedHhmm: hhmm,
-    timeTo: formatClock(localTimeOn(day, hhmm)),
-    vars,
-    draftText: renderTemplate(request.templateId, vars, { child: request.childFirstName }),
-  };
-}
-
 /** The direction these requests are about: the afternoon, like the texts they answer. */
 export const CHANGE_DIRECTION = LATE_DIRECTION;
 

@@ -51,20 +51,31 @@
  *
  * Because it queues a message, and `free-text-egress.test.ts` holds a rule about that: **no route
  * and no server action may put a message in the outbox.** Every caller of `enqueue` is a domain
- * module that composes from a template id and codes, and none of them takes copy from a caller —
- * which is what makes "no free text to a family" structural rather than a habit. A decision model
- * that queued from under `src/app/` would have been the first exception to that rule, and the
- * first exception is how a rule stops being one. So it lives here, the screen's action is the thin
- * part that maps a status to a sentence, and the invariant holds for everything.
+ * module that composes from a template id and codes. A decision model that queued from under
+ * `src/app/` would have been the first exception to that rule, and the first exception is how a
+ * rule stops being one. So it lives here, the screen's action is the thin part that maps a status
+ * to a sentence, and the invariant holds for everything.
+ *
+ * ## The one place a person's words reach a family: Edit (user ruling, 2026-10-18)
+ *
+ * Edit changes the reply's words. They go out as `dropoff.reply`'s `replyText` — the same template
+ * and the same var the model's own reply fills — and they are held to the same rule the model's
+ * words are (`messaging/reply-text.ts`: no links, numbers, addresses or codes, one short line),
+ * checked here, again at enqueue and again at render. So an edited reply is a person filling the
+ * one free-text slot the model fills, never a new way to send arbitrary copy. The edit is recorded
+ * on the row (`approval_request.edited_text`), beside who decided and when.
  */
 import { Forbidden, SiteNotFound, Unauthenticated, requireSiteAccess } from "@/auth/core";
 import { APPROVAL_ROLES } from "@/auth/access";
 import type { Db, Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import { boardPlacementPort, type PlacementBucket, type PlanPlacementPortFor } from "./plan-placement-port";
-import { DROPOFF_CHANGE_KIND, DROPOFF_CHANGE_TEMPLATE, DROPOFF_REPLY_TEMPLATE } from "./dropoff-change";
+import { DROPOFF_CHANGE_KIND, DROPOFF_REPLY_TEMPLATE } from "./dropoff-change";
 import { MESSAGE_SEND_KIND } from "./message-send";
 import { renderTemplate } from "@/modules/messaging/templates";
+import { replyTextIssue } from "@/modules/messaging/reply-text";
+import { TASK } from "@/domain/machines";
+import { transition } from "@/domain/transition";
 import { enqueue, type OutboxTransport } from "@/modules/outbox/outbox";
 import { FAMILY_SMS, authorizedContactsForChild } from "@/modules/outbox/policy";
 
@@ -107,7 +118,12 @@ export type PendingApproval = {
    */
   readonly templateId: string;
   readonly vars: Readonly<Record<string, unknown>>;
-  /** The time being proposed, 24-hour, for the Edit control. Null when only the place moved. */
+  /**
+   * The reply's own words, without the template's fixed prefix — what Edit opens with. Null for a
+   * card whose words are fixed copy, which therefore has no Edit (`editableReplyOf`).
+   */
+  readonly replyText: string | null;
+  /** The time being proposed, 24-hour. Null when only the place moved. */
   readonly requestedTime: string | null;
   readonly stopToken: string;
   readonly rationaleCode: string;
@@ -123,6 +139,7 @@ type ApprovalRow = {
   id: string;
   site_id: string;
   decided_at: Date | string | null;
+  task_id?: string;
   proposal: DropoffProposal & MessageProposal;
   display_name: string | null;
   /** Absent on the decide path's own read, which does not need it. */
@@ -235,6 +252,7 @@ function viewOf(row: ApprovalRow): PendingApproval {
     text: bodyOf(p, null, row.display_name),
     templateId: String(p.template_id ?? ""),
     vars: p.vars ?? {},
+    replyText: editableReplyOf(p),
     requestedTime: p.requested_dropoff_time ?? null,
     stopToken: String(p.stop_token ?? ""),
     rationaleCode: String(p.rationale_code ?? ""),
@@ -253,39 +271,34 @@ function msOf(at: Date | string | null | undefined): number {
 }
 
 /**
+ * The reply's editable words, or null when this card's words are fixed copy.
+ *
+ * Only `dropoff.reply` has words of its own — `replyText`, the one free-text slot a template
+ * allows. Every other template is fixed copy over codes, so there is nothing a person could edit
+ * that the template would carry, and the card offers no Edit.
+ */
+export function editableReplyOf(proposal: DropoffProposal | MessageProposal): string | null {
+  if (String(proposal.template_id ?? "") !== DROPOFF_REPLY_TEMPLATE) return null;
+  const words = proposal.vars?.replyText;
+  return typeof words === "string" ? words : null;
+}
+
+/**
  * The words, through the outbox's own renderer — never a string stored at proposal time.
  *
- * `overrideTime` is the Edit control: a coordinator who moves the time sees the sentence they are
- * about to approve, not the one the agent drafted. One renderer, so what is read and what is sent
- * are the same words whichever of the two produced the time in them.
+ * `editedReply` is Edit: the coordinator's words in the reply's own slot (`vars.replyText`), so the
+ * card, the decision and the outbox render one sentence from one template. Ignored for a card whose
+ * words are fixed copy (`editableReplyOf`), which `decideApproval` refuses before it gets here.
  */
 export function bodyOf(
   proposal: DropoffProposal,
-  overrideTime?: string | null,
+  editedReply?: string | null,
   child?: string | null,
 ): string {
   const vars = { ...(proposal.vars ?? {}) };
-  /*
-   * AN EDITED TIME RETIRES THE MODEL'S SENTENCE (Firia, 2026-10-18 11:04 AM ET).
-   *
-   * The reply on the card names the time the parent asked for, in the model's own words ("we'll
-   * drop Noah off at 5 today"), because that is the ruling: the text answers what she asked. A
-   * coordinator who moves the time to 5:45 has made those words wrong, and nobody re-asks the
-   * model from a form post — so the body falls back to the fixed template for the edited time,
-   * which is exactly the sentence an edited drop-off has always sent. Keyed off `vars.eta` and not
-   * off the row's own column, so this screen's renderer and `decideApproval`'s reach the same
-   * answer from the same two inputs: the words a coordinator read stay the words that are sent,
-   * and an edit still needs a fresh press because the rendered text has changed.
-   */
-  const retired =
-    String(proposal.template_id ?? "") === DROPOFF_REPLY_TEMPLATE &&
-    typeof overrideTime === "string" &&
-    overrideTime !== "" &&
-    overrideTime !== String(vars.eta ?? "");
-  const templateId = retired ? DROPOFF_CHANGE_TEMPLATE : String(proposal.template_id ?? "");
+  const templateId = String(proposal.template_id ?? "");
   if (!templateId) return "";
-  if (retired) delete vars.replyText;
-  if (overrideTime) vars.eta = overrideTime;
+  if (typeof editedReply === "string" && templateId === DROPOFF_REPLY_TEMPLATE) vars.replyText = editedReply;
   try {
     /*
      * A staff surface: the child's name in the sentence, and no STOP/HELP footer or `[DEMO]` tag
@@ -305,8 +318,11 @@ export type DecideRequest = {
   readonly userId?: string;
   readonly approvalId: string;
   readonly decision: ApprovalDecision;
-  /** A time a coordinator typed instead of the one proposed ("Edit"). Null keeps the proposal's. */
-  readonly editedTime?: string | null;
+  /**
+   * The reply's words as a coordinator edited them ("Edit"). Null or absent keeps the model's.
+   * Held to the model's own rule (`replyTextIssue`); only a `dropoff.reply` card takes one.
+   */
+  readonly editedText?: string | null;
   /**
    * The exact words the screen showed when the button was pressed (S1-7).
    *
@@ -328,7 +344,10 @@ export type DecideError =
   | "NO_SUCH_APPROVAL"
   | "ALREADY_DECIDED"
   | "PLAN_MOVED"
-  | "NOT_A_TIME"
+  /** Edit on a card whose words are fixed copy: there is no slot for a person's words to go in. */
+  | "NOT_EDITABLE"
+  /** The edited words break the reply rule: a link, a number, an address, a code, or too long. */
+  | "EDIT_NOT_SENDABLE"
   /**
    * The words moved under the person deciding them (S1-7). An edit that re-rendered the message,
    * a copy change deployed while the tab was open, a proposal re-drafted since it was read — all
@@ -355,9 +374,6 @@ export type DecideError =
    */
   | "TIME_NOT_SAVED";
 
-/** A 24-hour wall-clock time, the only shape a coordinator's edit may take. */
-const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
-
 /**
  * The plan port this decision writes through (`plan-placement-port.ts`).
  *
@@ -375,12 +391,14 @@ export async function decideApproval(
   deps: ApprovalDeps = { placement: boardPlacementPort() },
 ): Promise<DecideResponse> {
   if (!req.userId) return { status: 401, body: { ok: false, error: "SIGN_IN" } };
-  if (req.editedTime !== undefined && req.editedTime !== null && !CLOCK.test(req.editedTime)) {
-    return { status: 422, body: { ok: false, error: "NOT_A_TIME" } };
+  // One line, as the reply rule wants it: a line break typed in the box is a space, not a refusal.
+  const edited = typeof req.editedText === "string" ? req.editedText.normalize("NFKC").replace(/\s+/g, " ").trim() : null;
+  if (edited !== null && replyTextIssue(edited) !== null) {
+    return { status: 422, body: { ok: false, error: "EDIT_NOT_SENDABLE" } };
   }
 
   const found = await db.query<ApprovalRow>(
-    `SELECT a.id, a.site_id, a.decided_at, a.proposal, c.display_name
+    `SELECT a.id, a.site_id, a.task_id, a.decided_at, a.proposal, c.display_name
      FROM ops.approval_request a
      LEFT JOIN ops.child_profile c
        ON c.child_token = (a.proposal ->> 'child_token')::uuid AND c.site_id = a.site_id
@@ -407,7 +425,10 @@ export async function decideApproval(
   if (kind !== DROPOFF_CHANGE_KIND && kind !== MESSAGE_SEND_KIND) {
     return { status: 404, body: { ok: false, error: "NO_SUCH_APPROVAL" } };
   }
-  const text = bodyOf(proposal, req.editedTime ?? null, row.display_name);
+  if (edited !== null && editableReplyOf(proposal) === null) {
+    return { status: 422, body: { ok: false, error: "NOT_EDITABLE" } };
+  }
+  const text = bodyOf(proposal, edited, row.display_name);
 
   /*
    * THE EXACT TEXT APPROVED (Firia's S1-7 ruling, 2026-10-18).
@@ -417,19 +438,19 @@ export async function decideApproval(
    * changed — an edit the coordinator did not read, a copy change deployed while the tab was
    * open, a proposal that was re-drafted under them.
    *
-   * That is also the whole of "an edit resets to pending and needs fresh approval": Edit writes
-   * nothing and sends nothing, it re-renders, and the re-rendered words no longer match what the
-   * old form carried. The stale press is refused here rather than sending the earlier text.
+   * An edited reply is its own signature: the words the coordinator typed are the words decided
+   * on, so there is nothing older for them to disagree with, and the check is the model's draft
+   * only when the decision carries no edit.
    *
    * Required for a message approval, where the text IS the thing being decided. Optional for a
    * drop-off change, which also moves a ride, so a caller that carries no text is deciding the
    * change and is held to the version check below instead — but a caller that carries one must
    * be right about it.
    */
-  if (req.approvedText !== undefined && req.approvedText !== text) {
+  if (edited === null && req.approvedText !== undefined && req.approvedText !== text) {
     return { status: 409, body: { ok: false, error: "MESSAGE_CHANGED" } };
   }
-  if (kind === MESSAGE_SEND_KIND && req.approvedText === undefined) {
+  if (edited === null && kind === MESSAGE_SEND_KIND && req.approvedText === undefined) {
     return { status: 409, body: { ok: false, error: "MESSAGE_CHANGED" } };
   }
   const by = `staff:${req.userId}`;
@@ -438,14 +459,17 @@ export async function decideApproval(
     // 1. Claim the decision. The second presser gets 409 and no second send (schema note on the table).
     const claimed = await tx.query<{ id: string }>(
       `UPDATE ops.approval_request
-       SET decision = $3, decided_by = $4, decided_at = $5, updated_at = $5, updated_by = $6, version = version + 1
+       SET decision = $3, decided_by = $4, decided_at = $5, updated_at = $5, updated_by = $6, version = version + 1,
+           edited_text = $7
        WHERE id = $1 AND site_id = $2 AND decided_at IS NULL
        RETURNING id`,
-      [row.id, row.site_id, req.decision, req.userId, req.now, by],
+      [row.id, row.site_id, req.decision, req.userId, req.now, by, req.decision === "APPROVED" ? edited : null],
     );
     if (claimed.rows.length !== 1) {
       return { status: 409, body: { ok: false, error: "ALREADY_DECIDED" } } as const;
     }
+    // The exception the proposal was raised on is answered by this decision, whichever way it went.
+    if (row.task_id) await resolveTask(tx, row.task_id, req.decision, by);
     if (req.decision === "DECLINED") {
       // Nothing else. No ride moves and the family is not texted — that is what "Don't send" is.
       return { status: 200, body: { ok: true, decision: req.decision, text, queued: 0 } } as const;
@@ -585,7 +609,7 @@ export async function decideApproval(
      * A cancel writes no time: the ride is not happening, so there is no arrival to agree.
      */
     const requestedTime = String(proposal.requested_dropoff_time ?? "").trim();
-    const agreedTime = req.editedTime ?? (requestedTime === "" ? null : requestedTime);
+    const agreedTime = requestedTime === "" ? null : requestedTime;
     if (proposal.cancel !== true && agreedTime !== null) {
       const moved = await plan.setDropoffWindow({
         siteId: row.site_id,
@@ -645,7 +669,7 @@ export async function decideApproval(
         recipientToken,
         channel: FAMILY_SMS.channel,
         templateId: String(proposal.template_id ?? ""),
-        vars: { ...(proposal.vars ?? {}), ...(req.editedTime ? { eta: req.editedTime } : {}) },
+        vars: { ...(proposal.vars ?? {}), ...(edited !== null ? { replyText: edited } : {}) },
         childToken: leg.child_token,
         tripLegId: leg.id,
         // The version the ride now has: a later correction makes this text stale, as it should.
@@ -726,6 +750,38 @@ async function queueApprovedMessage(
     if (!sent.duplicate) queued += 1;
   }
   return queued;
+}
+
+/**
+ * CLOSE THE EXCEPTION THE PROPOSAL WAS RAISED ON — in the decision's own transaction.
+ *
+ * Every proposal hangs off an `ops.task` (`approval_request.task_id`), and a decided proposal left
+ * that task OPEN: still on the board, still in the model's own context as unfinished work. The task
+ * machine's staff path is the only way out (`domain/machines.ts`): `OPEN → IN_PROGRESS →
+ * RESOLVED_*`, with a snoozed task woken first. Approve is `RESOLVED_APPROVED`; Don't send is the
+ * staff overriding the agent, `RESOLVED_OVERRIDE`. `CLOSED_VERIFIED` stays the system's to set.
+ *
+ * The row is locked before it is read, so the version handed to each `transition` is this
+ * transaction's own and a concurrent writer waits rather than racing it. A task already resolved
+ * is left as it is.
+ */
+async function resolveTask(tx: Exec, taskId: string, decision: ApprovalDecision, by: string): Promise<void> {
+  const found = await tx.query<{ state: string; version: number }>(
+    "SELECT state, version FROM ops.task WHERE id = $1 FOR UPDATE",
+    [taskId],
+  );
+  const task = found.rows[0];
+  if (!task) return;
+  type TaskState = (typeof TASK.states)[number];
+  let state = task.state as TaskState;
+  let version = task.version;
+  const step = async (to: TaskState) => {
+    ({ version } = await transition(tx, TASK, "ops.task", { id: taskId, version, from: state, to, actor: "S", by }));
+    state = to;
+  };
+  if (state === "SNOOZED") await step("OPEN");
+  if (state === "OPEN") await step("IN_PROGRESS");
+  if (state === "IN_PROGRESS") await step(decision === "APPROVED" ? "RESOLVED_APPROVED" : "RESOLVED_OVERRIDE");
 }
 
 /**

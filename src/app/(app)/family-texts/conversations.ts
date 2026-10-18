@@ -111,8 +111,11 @@ export type ProposalView = {
   readonly draftText: string;
   /** The model's one line about this proposal, for the coordinator ("" when the row has none). */
   readonly alertText: string;
-  /** The proposed time as a 24-hour clock — the only shape the Edit control takes. */
-  readonly requestedHhmm: string | null;
+  /**
+   * The reply's own words, without the template's "PPEC:" prefix — what Edit's text box opens with.
+   * Null when the message is fixed copy, which has no Edit (`decide.editableReplyOf`).
+   */
+  readonly replyText: string | null;
 };
 
 /** The thread pane: who it is with, the bubbles, and the proposal inside it. */

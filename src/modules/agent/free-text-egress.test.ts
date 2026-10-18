@@ -198,7 +198,10 @@ const PROSE_VAR_NAMES = ["body", "text", "message", "note", "reason", "summary",
  * §11.2 bans free text to parents **without human approval**, and `dropoff.reply` is the approved
  * path: the only writer is `propose_dropoff_change`'s proposal row and the only sender is
  * `approvals/decide.ts`, after a director or a coordinator has pressed Approve on those exact
- * words (`decideApproval` refuses a decision whose text does not match what the row renders).
+ * words (`decideApproval` refuses a decision whose text does not match what the row renders) —
+ * or on their own edit of them (Edit = the message text, user ruling 2026-10-18), which fills
+ * this same var and is held to the same rule below, checked in `decideApproval` before anything
+ * is written.
  *
  * So the blanket assertions below are scoped around this pair, and around nothing else: every
  * other template is held to the same ban it was, this template is held to the ban on every *other*

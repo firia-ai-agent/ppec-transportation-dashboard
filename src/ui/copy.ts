@@ -1348,11 +1348,12 @@ export const approval = {
     SCHEDULE_CONFLICT: "The family has a conflict at the usual time.",
     OTHER: "The family asked for a change.",
   },
-  /** The Edit control: the one thing a person may change, and it is not the words. */
-  editTimeLabel: "New drop-off time",
-  /** The button inside the Edit state: it re-renders the draft and approves nothing (gate 2). */
-  editApply: "Update the time",
-  editCancel: "Keep the time the assistant suggested",
+  /** The Edit state's text box: the reply's own words, which Approve & send sends as typed. */
+  editLabel: "Your reply",
+  /** Under the box: the reply rule (`messaging/reply-text.ts`), in the words a person needs. */
+  editHint: "One short line. No links, phone numbers or addresses.",
+  /** Leaves the Edit state with nothing changed: the drafted reply is back on the card. */
+  editCancel: "Cancel",
 
   /* ── what came back ── */
 
@@ -1369,7 +1370,10 @@ export const approval = {
   noSuchApproval: "That decision is not here any more.",
   alreadyDecided: "Somebody decided this one already. Reload to see what they chose.",
   planMoved: "This ride changed while you were reading, so the text would have been wrong. Nothing was sent — reload and decide again.",
-  notATime: "Write the time as a clock time, like 5:00 PM.",
+  /** Edit on a card whose words are fixed copy (`decide.ts` NOT_EDITABLE). */
+  notEditable: "This message can't be edited. Approve it as it is, or don't send it.",
+  /** The edited words break the reply rule (`decide.ts` EDIT_NOT_SENDABLE). Nothing was sent. */
+  editNotSendable: "That reply can't be sent: keep it to one short line with no links, phone numbers or addresses. Nothing was sent.",
   /**
    * The words changed under the person deciding them (S1-7). Said as what happened and what to do,
    * like every other refusal here — and it says plainly that nothing went out, because the first

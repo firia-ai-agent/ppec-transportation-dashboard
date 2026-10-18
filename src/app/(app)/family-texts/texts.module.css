@@ -536,7 +536,6 @@
   background: var(--color-canvas);
 }
 
-.editForm,
 .decideForm {
   display: flex;
   align-items: center;
@@ -573,6 +572,7 @@
 }
 
 .secondary {
+  text-decoration: none;
   background: var(--color-surface);
   border: var(--border-hairline) solid var(--color-disabled-border);
   color: var(--color-ink);
@@ -584,12 +584,34 @@
   color: var(--color-crit-fg);
 }
 
-.editTime {
-  min-height: var(--target-console);
-  padding: 0 var(--space-4);
-  border: var(--border-hairline) solid var(--color-disabled-border);
+/* Approve's form: empty at rest (only hidden fields), the text box and its hint in the Edit state. */
+.approveForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 var(--space-5);
+}
+
+.approveForm:has(textarea) {
+  padding-bottom: var(--space-4);
+}
+
+/* The reply as a coordinator edits it: the bubble's own width and type, in a field. */
+.editText {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline) solid var(--color-brand);
   border-radius: var(--radius-md);
   font: inherit;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.editHint {
+  margin: 0;
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
 }
 
 .outcome {
@@ -792,7 +814,6 @@
     flex-wrap: wrap;
   }
 
-  .editForm,
   .decideForm {
     flex: 1 1 100%;
     flex-wrap: wrap;
