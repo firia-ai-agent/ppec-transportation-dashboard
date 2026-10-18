@@ -33,10 +33,22 @@ import {
   dispatcherOf,
   manifestFor,
   receivingAdultOf,
+  runOfVehicle,
   solverChild,
   solverVehicle,
   vehicleOf,
 } from "./scenario";
+import { driverFor } from "@/domain/plan/day";
+import { shortName } from "@/ui/display-name";
+import { vanConfigOf } from "@/config/vans";
+import type { SavedBoardPlan } from "./board";
+
+/** The run a van drives, for the facts a moved child's row has to take from it. */
+const runOn = (vehicleKey: string) => {
+  const run = runOfVehicle(vehicleKey);
+  if (!run) throw new Error(`no run on ${vehicleKey}`);
+  return run;
+};
 
 /**
  * The board, as a projection (PRD §14 SURF-01).
@@ -913,5 +925,125 @@ describe("the shell's search box, applied to the board", () => {
   it("a search for a child brings back both of their rides", () => {
     const found = board.legs.filter((l) => matchesQuery(l, "Zoe"));
     expect(found.map((l) => l.key)).toEqual(["C6/AM", "C6/PM"]);
+  });
+});
+
+/**
+ * THE SAVED PLAN, ON THE BOARD (Firia, 2026-10-17 6:02 PM ET and the S1 ruling of 2026-10-18
+ * 4:45 AM ET).
+ *
+ * Veri's prod check, on a34ce49: the director saved the morning plan and Today's van column
+ * disagreed with it for five of nine children, because the van on a row came from the scenario's
+ * own runs (`runOfChild`) and the plan lives in `ops.plan_assignment`. These are the assertions
+ * about the half of that fix which is pure: given the plan, what a row says. The other half —
+ * the read, and the ids it joins on — is src/app/(app)/today/saved-plan.test.ts, which saves a
+ * plan through the real save path and reads it back through `loadBoard`.
+ *
+ * The plan arrives in this scenario's vocabulary (a fixture child key, a fixture vehicle key),
+ * which is what the translation in `savedSpotsFrom` (src/modules/plan/store.ts) produces.
+ */
+describe("a saved plan decides which van a child is on", () => {
+  const savedOn = (vehicleKey: string, ...childKeys: string[]): SavedBoardPlan => ({
+    AM: Object.fromEntries(
+      childKeys.map((key) => [key, { bucket: "VAN" as const, vehicleKey }]),
+    ),
+  });
+
+  /**
+   * **The fallback is the day this whole file is about.** With no saved plan — and with a plan
+   * object that says nothing, which is what a leg nobody has saved looks like — `buildBoard`
+   * returns exactly what it returned before it could read one. Deep equality against the no-
+   * argument call is the strongest form of that claim available here, and every other test in
+   * this file is an assertion about that same no-argument board.
+   */
+  it("is the seeded day, to the row, when nothing is saved for the leg", () => {
+    for (const day of [demoDay(), serviceDayFor(demoDay().previousIso), serviceDayFor(demoDay().nextIso)]) {
+      const seeded = buildBoard(day);
+      expect(buildBoard(day, {}), day.iso).toEqual(seeded);
+      expect(buildBoard(day, { AM: {}, PM: {} }), day.iso).toEqual(seeded);
+    }
+  });
+
+  it("puts a moved child on the van the plan moved them to, with that van's own facts", () => {
+    // Ivy H. is seeded on Van 1 (R1) and the plan puts her on Van 2 — one of Veri's five.
+    expect(runOn("V1").childKeys).toContain("C8");
+    const moved = buildBoard(demoDay(), savedOn("V2", "C8"));
+    const ride = legIn(moved, "C8", "AM").ride;
+    const van = vehicleOf(runOn("V2"));
+
+    expect(ride.vehicleLabel).toBe(van.label);
+    expect(ride.vanNumber).toBe(vanConfigOf("V2")?.slot);
+    expect(ride.driverName).toBe(shortName(driverFor("V2")));
+    expect(ride.providerName).toBe(solverVehicle(van).providerName);
+    expect(ride.providerDispatcher).toBe(dispatcherOf(van));
+    expect(ride.layoutCode).toBe(runOn("V2").layoutCode);
+    // The van she is on is driven by the centre's own fleet, so that is who drives her leg —
+    // not the provider the fixture seeded her with.
+    expect(ride.mode).toBe("CENTER");
+    expect(legIn(buildBoard(demoDay()), "C8", "AM").ride.mode).toBe("PROVIDER");
+  });
+
+  /**
+   * …and it does not take the *old* van's window with it. An arrival is a fact about a route,
+   * and the committed geometry of Van 2's run does not pass Ivy H.'s kerb: the honest answer is
+   * that nobody has worked her window out, which is the state the board already has words for.
+   */
+  it("leaves a fact that can only come from the old van pending, rather than borrowing it", () => {
+    const planned = serviceDayFor(demoDay().nextIso);
+    expect(legIn(buildBoard(planned), "C8", "AM").ride.windowText).not.toBeNull();
+    const moved = buildBoard(planned, savedOn("V2", "C8"));
+    expect(legIn(moved, "C8", "AM").ride.windowText).toBeNull();
+  });
+
+  it("puts a child the plan leaves unassigned on no van, and asks for one", () => {
+    const moved = buildBoard(demoDay(), { AM: { C8: { bucket: "UNASSIGNED" } } });
+    const leg = legIn(moved, "C8", "AM");
+    expect(leg.ride.vehicleLabel).toBeNull();
+    expect(leg.ride.vanNumber).toBeNull();
+    expect(leg.ride.driverName).toBeNull();
+    expect(leg.ride.windowText).toBeNull();
+    // Not "the family drives": nobody has given this child a van yet, which is a thing to do.
+    expect(leg.ride.mode).not.toBe("FAMILY");
+    expect(leg.nextStep).toBe("FIND_VAN");
+  });
+
+  it("shows a child whose family drives this leg as not riding with us", () => {
+    const moved = buildBoard(demoDay(), { AM: { C8: { bucket: "FAMILY_DRIVES" } } });
+    const leg = legIn(moved, "C8", "AM");
+    expect(leg.ride.mode).toBe("FAMILY");
+    expect(leg.ride.vehicleLabel).toBeNull();
+    expect(leg.group).toBe("NOT_RIDING");
+    expect(leg.nextStep).toBe("NOTHING");
+  });
+
+  it("shows a child the plan marks away as not attending, on no van and waiting on nobody", () => {
+    const moved = buildBoard(demoDay(), { AM: { C8: { bucket: "ABSENT" } } });
+    const leg = legIn(moved, "C8", "AM");
+    expect(leg.ride.state).toBe("CANCELED_ATTENDANCE");
+    expect(legStates[leg.ride.state].label).toBe("Not attending today");
+    expect(leg.ride.vehicleLabel).toBeNull();
+    expect(leg.group).toBe("NOT_RIDING");
+    expect(leg.needsActionReasons).toEqual([]);
+    expect(leg.nextStep).toBe("NOTHING");
+    // The walk is the machine's own edge, not a state written down (PRD §6.3).
+    expect(leg.ride.path).toEqual(["SCHEDULED", "CANCELED_ATTENDANCE"]);
+    expect(canTransition(LEG, "SCHEDULED", "CANCELED_ATTENDANCE", "Y")).toBe(true);
+  });
+
+  /** A plan is per date **and** per leg: a saved morning says nothing about the afternoon. */
+  it("changes only the leg it was saved for", () => {
+    const seeded = buildBoard(demoDay());
+    const moved = buildBoard(demoDay(), savedOn("V2", "C8"));
+    expect(legIn(moved, "C8", "PM").ride).toEqual(legIn(seeded, "C8", "PM").ride);
+    const pmRows = (of: typeof seeded) => of.legs.filter((l) => l.ride.direction === "PM");
+    expect(pmRows(moved).map((l) => `${l.key}:${l.ride.vehicleLabel}`)).toEqual(
+      pmRows(seeded).map((l) => `${l.key}:${l.ride.vehicleLabel}`),
+    );
+  });
+
+  /** A van this scenario does not run is no van: a row cannot draw a vehicle it has not got. */
+  it("shows no van for a van the day does not have", () => {
+    const moved = buildBoard(demoDay(), savedOn("V9", "C8"));
+    expect(legIn(moved, "C8", "AM").ride.vehicleLabel).toBeNull();
   });
 });
