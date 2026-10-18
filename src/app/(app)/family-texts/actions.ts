@@ -77,7 +77,14 @@ const REFUSALS: Readonly<Record<DecideError, string>> = {
   NOT_A_TIME: approvalCopy.notATime,
   MESSAGE_CHANGED: approvalCopy.messageChanged,
   PLAN_NOT_SAVED: approvalCopy.planNotSaved,
+  TIME_NOT_SAVED: approvalCopy.timeNotSaved,
 };
+
+/**
+ * The pages a decision changes. `APPROVALS_PAGE` is the card's own; the other three read the plan
+ * this decision just moved (`modules/plan/leg-facts.ts`, `modules/plan/store.ts`).
+ */
+const CHANGED_BY_A_DECISION = [APPROVALS_PAGE, "/today", "/plan-routes", "/live-map"] as const;
 
 export async function decideApprovalAction(
   _previous: DecisionState,
@@ -120,7 +127,18 @@ export async function decideApprovalAction(
   );
 
   if (!answer.body.ok) return { status: "refused", message: REFUSALS[answer.body.error] };
-  revalidatePath(APPROVALS_PAGE);
+  /*
+   * EVERY SCREEN THAT SHOWS THE RIDE, not just the one the button is on (Firia, 11:11 AM ET
+   * 2026-10-18: "without a second Save").
+   *
+   * An approved change writes the plan — the placement, the leg's drop-off time, the receiver on
+   * the child's file — and three screens render that plan from rows: the board, the plan routes
+   * board and the live map. They are server components behind `force-dynamic`, so what they need
+   * is for this request to drop their cached render, which is what each of these does. Same
+   * mechanism the rest of the app uses after a write; a coordinator who presses Approve and walks
+   * to Today must not have to save anything to see the time they just agreed.
+   */
+  for (const path of CHANGED_BY_A_DECISION) revalidatePath(path);
   return {
     status: "decided",
     decision: answer.body.decision,

@@ -50,7 +50,7 @@ import { setupFor, type VanSetups } from "@/domain/plan/setup";
 import { needsOfDemoChild } from "@/modules/demo/day-source";
 import { solver as solverCopy } from "@/ui/copy";
 import { gpsFreshnessFor, type GpsFreshness } from "@/ui/states";
-import { serviceDateIso } from "@/ui/service-date";
+import { clockLabel, serviceDateIso } from "@/ui/service-date";
 import type { attendanceState, capabilityState, legState } from "@/db/schema";
 import {
   childByKey,
@@ -72,6 +72,7 @@ import {
   CENTER_STOP_ID,
   dispatcherOf,
   legModeOf,
+  guardianAdultOf,
   plannedWindow,
   plannedWindowFor,
   receivingAdultOf,
@@ -636,7 +637,15 @@ function etaViewFor(
   run: DemoRun,
   direction: Direction,
   day: ServiceDay,
+  agreed: string | null = null,
 ): EtaView {
+  /*
+   * A third answer, and it beats both of the two above: the drop-off a coordinator approved. It
+   * is not an estimate and not a geometry read — it is the minute the family was promised and the
+   * plan was given (`trip_leg.window_start`) — so it is shown as that one time rather than as a
+   * published window, and with no shift, because nothing has moved it.
+   */
+  if (agreed !== null) return { ...NO_ETA, windowText: clockLabel(agreed) };
   const live = day.phase === "LIVE" && direction === "AM" ? frameFor(run, day.instantMs) : null;
   if (!live) {
     return { ...NO_ETA, windowText: plannedWindowFor(child, run, direction, day) };
@@ -785,14 +794,19 @@ function rideFor(
   day: ServiceDay,
   setups: VanSetups,
   plan?: SavedLegPlan,
+  fact?: LegFact,
 ): RideView {
   const spot = plan?.[child.key];
   const run = runFor(child, spot);
   const mode = modeFor(child, direction, run, spot);
+  // The agreed time a decision wrote to this leg, when there is one: it is the planned window
+  // now, because a coordinator and a family agreed it and the plan holds it.
+  const agreed = agreedDropoffOf(child, direction, fact);
+  const onFile = receivingAdultOf(child) !== null || fact?.receiverOnFile === true;
   const base = {
     direction,
     mode,
-    plannedWindow: plannedWindow(child, direction),
+    plannedWindow: agreed ?? plannedWindow(child, direction),
     stop: stopLabel(child),
   };
 
@@ -806,7 +820,7 @@ function rideFor(
       departed: false,
       pickupArrived: false,
       dropoffArrived: false,
-      receivingAdultOnFile: receivingAdultOf(child) !== null,
+      receivingAdultOnFile: onFile,
       ...NOTHING_REPORTED,
     });
     return {
@@ -854,7 +868,7 @@ function rideFor(
       frame?.stops.some((s) => s.stopName === ownStop && s.status === "arrived") ?? false,
     dropoffArrived:
       frame?.stops.some((s) => s.stopId === CENTER_STOP_ID && s.status === "arrived") ?? false,
-    receivingAdultOnFile: receivingAdultOf(child) !== null,
+    receivingAdultOnFile: onFile,
     // Last, so a day that recorded its own arrival says so rather than the live frame.
     ...acts,
   });
@@ -874,7 +888,7 @@ function rideFor(
     solver: status,
     solverPendingReason: pendingReason,
     receivedBy: record?.receivedBy ?? null,
-    ...etaViewFor(child, run, direction, day),
+    ...etaViewFor(child, run, direction, day, agreed),
   };
 }
 
@@ -900,7 +914,7 @@ function attendanceFor(child: DemoChild): AttendanceS {
  * recorded on a board read after the last van is in.
  */
 function needsActionFor(
-  child: DemoChild,
+  row: BoardRow,
   ride: RideView,
   phase: DayPhase,
 ): NeedsActionReason[] {
@@ -930,7 +944,7 @@ function needsActionFor(
     !held &&
     ride.direction === "PM" &&
     ride.mode !== "FAMILY" &&
-    receivingAdultOf(child) === null
+    row.receivingAdult === null
   ) {
     reasons.push("NO_RECEIVING_ADULT");
   }
@@ -1009,17 +1023,26 @@ function rowFor(
   therapy: BoardRow["therapy"],
   saved: SavedBoardPlan,
   setups: VanSetups,
+  legFacts: BoardLegFacts = {},
 ): BoardRow {
+  const am = legFacts.AM?.[child.key];
+  const pm = legFacts.PM?.[child.key];
   const rides: RideView[] = [
-    rideFor(child, "AM", day, setups, saved.AM),
-    rideFor(child, "PM", day, setups, saved.PM),
+    rideFor(child, "AM", day, setups, saved.AM, am),
+    rideFor(child, "PM", day, setups, saved.PM, pm),
   ];
+  /*
+   * Who may receive this child: the fixture's own file, or the row a decision wrote to it. The
+   * receiver is a fact about the child's day and not about one ride (AT-13 is the rule that staff
+   * see a missing receiving adult in the morning), so either leg's row answers for both.
+   */
+  const receiverOnFile = am?.receiverOnFile === true || pm?.receiverOnFile === true;
   return {
     childKey: child.key,
     childLabel: child.label,
     attendance: attendanceFor(child),
     rides,
-    receivingAdult: receivingAdultOf(child),
+    receivingAdult: receivingAdultOf(child) ?? (receiverOnFile ? guardianAdultOf(child) : null),
     therapy,
     needs: child.needs.map((n) => ({
       category: n.category,
@@ -1033,7 +1056,7 @@ function rowFor(
 
 /** One row of the board: this child, this ride, and what it is waiting for. */
 function legFor(child: DemoChild, row: BoardRow, ride: RideView, phase: DayPhase): LegRow {
-  const needsActionReasons = needsActionFor(child, ride, phase);
+  const needsActionReasons = needsActionFor(row, ride, phase);
   return {
     key: `${row.childKey}/${ride.direction}`,
     child: row,
@@ -1090,15 +1113,61 @@ function therapyByChild(): Map<string, BoardRow["therapy"]> {
  * their names would be inventing a day. The screen says which kind of nothing it is
  * (COPY-GUIDE §5 "No rides scheduled for {date}").
  */
+/**
+ * WHAT A SAVED LEG SAYS THAT THE SCENARIO CANNOT — one child, one leg, out of `ops.trip_leg`.
+ *
+ * SOURCE: Firia's 11:11 AM ET ruling of 2026-10-18. An approved drop-off change writes the agreed
+ * time to the leg (`modules/plan/leg-write.ts`) and the receiver to the family's file, and this
+ * board is computed from a fixture day — so without an overlay the one screen a coordinator
+ * checks after pressing Approve would still show the scheduled window and the hold. Same shape
+ * and same reason as `SavedBoardPlan` above: the plan a person saved beats the plan the scenario
+ * describes, and nothing else about the row changes.
+ *
+ * `modules/plan/leg-facts.ts` is the read, and it answers `{}` for a session with no centre and a
+ * server with no database — which is every browser check, and which is the seeded day exactly as
+ * before.
+ */
+export type LegFact = {
+  /** Site-local "HH:MM" from `trip_leg.window_start`, when the leg carries one. */
+  readonly dropoffTime?: string | null;
+  /** The file has an adult who may receive this child (§6.4 `RECEIVE_CHILD`). */
+  readonly receiverOnFile?: boolean;
+};
+
+/** The legs of one date, by direction and then by fixture child key. */
+export type BoardLegFacts = { readonly [D in Direction]?: Readonly<Record<string, LegFact>> };
+
+/**
+ * The time this ride is really planned for: the leg's own, when a decision has moved it off the
+ * scheduled window, and otherwise nothing at all.
+ *
+ * The comparison is what keeps this honest. Every seeded leg carries a `window_start` equal to the
+ * child's scheduled window (`demo/seed.ts` writes `clock.at(c.pmWindow)`), so "the leg has a
+ * window" is true of all of them and says nothing; what a coordinator needs to see is the one that
+ * **somebody changed**. So a leg that still holds its scheduled time is left to the committed
+ * geometry, which is the richer answer (a published 10-minute window), and a leg that does not is
+ * shown the agreed minute a person approved.
+ */
+function agreedDropoffOf(
+  child: DemoChild,
+  direction: Direction,
+  fact: LegFact | undefined,
+): string | null {
+  const time = fact?.dropoffTime ?? null;
+  if (time === null || time === plannedWindow(child, direction)) return null;
+  return time;
+}
+
 export function buildBoard(
   day: ServiceDay = demoDay(),
   saved: SavedBoardPlan = {},
   setups: VanSetups = {},
+  legFacts: BoardLegFacts = {},
 ): Board {
   const therapy = therapyByChild();
   const children = day.scheduled ? boardChildren : [];
   const rows = children.map((child) =>
-    rowFor(child, day, therapy.get(child.key) ?? null, saved, setups),
+    rowFor(child, day, therapy.get(child.key) ?? null, saved, setups, legFacts),
   );
   const legs = children.flatMap((child, i) =>
     rows[i].rides.map((ride) => legFor(child, rows[i], ride, day.phase)),

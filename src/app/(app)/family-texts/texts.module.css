@@ -493,6 +493,17 @@
   margin: var(--space-4) var(--space-5) var(--space-4);
 }
 
+/*
+ * What the PLAN changes, one line under the bubble (Firia, 11:11 AM ET 2026-10-18). Quiet and
+ * small: the bubble is what a coordinator reads first, and this is the fact they are signing for
+ * beside it — not a second heading competing with it.
+ */
+.changeLine {
+  margin: calc(-1 * var(--space-2)) var(--space-5) var(--space-4);
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
 
 
 .diffKey {

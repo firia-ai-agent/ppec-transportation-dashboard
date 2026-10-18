@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { Bot, Check, Pencil, X } from "lucide-react";
+import { Check, Pencil, X } from "lucide-react";
 import { approval, fill } from "@/ui/copy";
 import { icon } from "@/ui/tokens";
 import type { DecideAction, DecisionState } from "./actions";
@@ -11,11 +11,12 @@ import styles from "./texts.module.css";
 /**
  * THE APPROVE CARD, rendered inside the thread, under the message it answers.
  *
- * Three things and nothing else (Firia relaying Vera, 2026-10-18 7:51 AM ET): **the parent's
- * name**, **the message as a bubble**, and **the three buttons**, worded exactly as
- * mockups/approvals.html words them. A coordinator decides one question — do these words go to
- * this family — and everything the card used to put above that question was answering a
- * different one.
+ * Four things and nothing else: **who the reply goes to** ("Reply to Dara"), **the message as a
+ * bubble**, **one line of what the plan changes**, and **the three buttons**, worded exactly as
+ * mockups/approvals.html words them. Vera's card (7:51 AM ET) was the first three minus the line;
+ * the line arrived with Firia's 11:11 AM ruling, because Approve stopped being only a send — it
+ * moves the leg's drop-off time, the placement and the receiver on the child's file, and a
+ * coordinator signing for that has to be able to read it without knowing the plan by heart.
  *
  * ## What came off it, and why that is not a loss
  *
@@ -68,14 +69,17 @@ export function ProposalCard({
       aria-label={fill(approval.cardLabel, { adult: proposal.adultName })}
     >
       {/*
-        * The parent's name, and the agent's mark beside it. The mark carries the author for a
-        * screen reader (`approval.agentLabel`, Vera's S1-2 item a) — without it the card would
-        * reach a non-sighted reader with no idea who wrote the words, because the one thing on
-        * this row that says "the agent drafted this" is an icon.
+        * WHAT THIS CARD IS FOR, and who it goes to: "Reply to Dara" (Firia, 11:11 AM ET
+        * 2026-10-18).
+        *
+        * The robot icon and the bare name are both gone. The icon said who *drafted* the words,
+        * which is a fact about the build rather than about the decision — and it was the only
+        * thing on the row a screen reader could be told, so a non-sighted reader got "Agent" and
+        * the parent's name and had to infer the rest. The heading now says the act, in words, for
+        * every reader: this is a reply, and it is going to this parent.
         */}
       <div className={styles.cardHead}>
-        <Bot size={icon.inline} role="img" aria-label={approval.agentLabel} />
-        <h3 className={styles.cardTitle}>{proposal.adultName}</h3>
+        <h3 className={styles.cardTitle}>{fill(approval.replyTo, { parent: proposal.parentFirstName })}</h3>
       </div>
 
       {/*
@@ -87,6 +91,19 @@ export function ProposalCard({
       <p className={[styles.bubble, styles.out, styles.cardBubble].join(" ")}>
         {proposal.draftText === "" ? approval.draftFailed : proposal.draftText}
       </p>
+
+      {/*
+        * ONE LINE OF WHAT THE PLAN DOES, under the words the family reads (same ruling).
+        *
+        * Approve is not a send any more — it moves the plan: the leg's drop-off time, the van the
+        * child stays on, the adult recorded as receiving them (`modules/approvals/decide.ts`). The
+        * bubble above says what the family is told; this says what a coordinator is signing for,
+        * computed from the proposal and the placement the plan holds (`queue.ts`). Absent, rather
+        * than vague, when those facts cannot be answered.
+        */}
+      {proposal.changeLine === "" ? null : (
+        <p className={styles.changeLine}>{proposal.changeLine}</p>
+      )}
 
       {/*
         * Edit's one field, in the state Edit navigates to and nowhere else. It is the message
