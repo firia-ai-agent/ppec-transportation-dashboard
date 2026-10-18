@@ -4,32 +4,113 @@
   background: var(--color-surface);
 }
 
+/*
+ * ≥1280: the rail is the height of the window, and stays there while the board scrolls.
+ *
+ * Without this the rail is as tall as the *page*, so on a 56-row board its foot — and the
+ * account block standing on it — is two screens below the fold, which is not where the mockup
+ * draws it (png/shell-flow-1440.png: the rail runs from under the DEMO bar to the bottom of the
+ * window, with "Dana M." on its floor). Sticky under the bar rather than fixed, so it keeps its
+ * column in the layout and the board never reflows; the bar's own height is what it sticks
+ * below, because that bar is sticky too (src/ui/DemoBanner.module.css).
+ */
+@media (min-width: 1280px) {
+  .rail {
+    position: sticky;
+    top: var(--layout-demo-banner-height);
+    align-self: flex-start;
+    height: calc(100vh - var(--layout-demo-banner-height));
+  }
+}
+
+/*
+ * Three blocks down one column: brand, menu, account (REDESIGN-SPEC §9.2, and the mockup's
+ * `.rail > .brand / .nav / .grow / .me`). The spacer between the menu and the account is what
+ * puts the account on the floor of the rail at any height.
+ */
 .panel {
   height: 100%;
+  display: flex;
+  flex-direction: column;
   padding: var(--space-4) var(--space-3);
   border-right: var(--border-hairline) solid var(--color-neutral-bg);
   background: var(--color-surface);
 }
 
-.list {
-  /* §9: 8 px between targets. */
+.grow {
+  flex: 1 1 auto;
+}
+
+/* ───────────────────────────── the brand block ───────────────────────────── */
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-5);
+  padding: 0 var(--space-3);
+}
+
+/* The square mark: the centre's initial, in the brand's own teal (founder's palette, 6:19 PM). */
+.mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--color-ink-brand);
+  color: var(--color-surface);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+
+.brandText {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  min-width: 0;
+  line-height: var(--leading-tight);
+}
+
+.brandName {
+  color: var(--color-ink-brand);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+.brandLine {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+  white-space: nowrap;
+}
+
+/* ───────────────────────────── the menu ───────────────────────────── */
+
+/*
+ * Audit §2 item 2, measured off the mockup: rows of 40 px with a 2 px gap, not 44 with 8. Five
+ * menu items at the old pitch pushed the account block off the floor of a 1440×900 window,
+ * which is the thing item 3 is about.
+ */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 .link {
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  /* §9: ≥44 px targets. */
-  min-height: var(--target-console);
+  min-height: var(--layout-rail-item);
   padding: 0 var(--space-4);
   border-radius: var(--radius-md);
-  color: var(--color-ink);
+  /* 14 px regular in the neutral ink (audit §2 item 2), not the page's own ink at medium. */
+  color: var(--color-neutral-fg);
   text-decoration: none;
   font-size: var(--text-14);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-regular);
   transition: background-color 120ms ease;
 }
 
@@ -53,6 +134,83 @@
   white-space: nowrap;
 }
 
+/*
+ * THE COUNT ON FAMILY TEXTS (audit §2 item 2, REDESIGN-SPEC §9.2): a 20 px Teal disc with white
+ * text, at the trailing end of the row, as the mockup draws it (`.nav a .n`). 5.47:1, and the
+ * number is in the link's accessible name as words — "Family texts, 2 waiting" — so it is never
+ * colour or shape alone (§9).
+ */
+.badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  width: var(--layout-badge-size);
+  height: var(--layout-badge-size);
+  border-radius: var(--radius-pill);
+  background: var(--color-brand);
+  color: var(--color-surface);
+  font-size: var(--text-11);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-one);
+}
+
+/* ───────────────────────────── the account block ───────────────────────────── */
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--target-console);
+  padding: var(--space-3);
+  border-top: var(--border-hairline) solid var(--color-neutral-bg);
+  color: var(--color-ink);
+  text-decoration: none;
+}
+
+.account:hover {
+  background: var(--color-neutral-bg);
+}
+
+.account:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral-fg);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+}
+
+.accountText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: var(--leading-tight);
+}
+
+.accountName {
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+.accountRole {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+  white-space: nowrap;
+}
+
 /* 768–1279 (§2): the rail keeps a 64 px footprint — the board must not reflow — and the panel
    inside it expands over the content to the full labelled width on hover or on keyboard focus
    anywhere inside it. The labels stay in the DOM throughout; they are clipped, not removed. */
@@ -68,6 +226,7 @@
     inset-block: 0;
     inset-inline-start: 0;
     width: var(--layout-rail-icon);
+    padding: var(--space-4) var(--space-3);
     overflow: hidden;
     transition: width 120ms ease;
   }
@@ -77,6 +236,69 @@
     width: var(--layout-rail-wide);
     /* A hairline is enough separation; the panel is opaque surface over the content. */
     border-inline-end: var(--border-hairline) solid var(--color-border-strong);
+  }
+
+  /* The icon rail shows the mark and nothing else (§9.2): 64 px has no room for a name. */
+  .brand {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .brandText {
+    display: none;
+  }
+
+  /*
+   * ONE IDENTITY ENTRY POINT, and between 768 and 1279 it is this block — a bare disc on the
+   * rail's centre line, with the name appearing when the panel expands.
+   *
+   * It used to be `display: none` here, because the white header carried an avatar menu at
+   * these widths. There is no header any more (audit §2 items 1 and 5), so hiding it would
+   * leave the icon rail with no account at all: an iPad would be the one width with no way to
+   * reach /whoami and no Sign out. The mockup's compact rail keeps the same block
+   * (mockups/shell-flow.html `body.compact .me`), and below 768 the page header's 36 px disc
+   * is the one instead (src/ui/PageHeader.tsx). One per width, never two, never none.
+   */
+  .account {
+    justify-content: center;
+    padding: var(--space-3) 0;
+  }
+
+  .rail:hover .account,
+  .rail:focus-within .account {
+    justify-content: flex-start;
+    padding: var(--space-3);
+  }
+
+  .accountText {
+    display: none;
+  }
+
+  .rail:hover .accountText,
+  .rail:focus-within .accountText {
+    display: flex;
+  }
+
+  /*
+   * The count, collapsed: `margin-left: auto` would push it off a 48 px row, so it rides on the
+   * icon the way the phone's does, and takes its place at the end of the row when the labels
+   * appear.
+   */
+  .badge {
+    position: absolute;
+    top: var(--space-1);
+    inset-inline-end: var(--space-1);
+    margin-left: 0;
+    width: var(--space-5);
+    height: var(--space-5);
+  }
+
+  .rail:hover .badge,
+  .rail:focus-within .badge {
+    position: static;
+    margin-left: auto;
+    width: var(--layout-badge-size);
+    height: var(--layout-badge-size);
   }
 
   /* Collapsed, the icon sits on the rail's centre line; expanded, the row reads icon → label. */

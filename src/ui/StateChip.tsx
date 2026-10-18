@@ -1,11 +1,16 @@
 import { fill, screenReader } from "./copy";
 import { icon } from "./tokens";
+import { Pill, PillLabel } from "./Pill";
 import type { StateDescriptor } from "./states";
-import styles from "./StateChip.module.css";
 
 /**
  * DESIGN-DIRECTION §3: icon + label always, colour is the third cue. §9: screen readers
- * read "State: Needs action". Minimum 12 px text, allowed only because the chip has an icon (§2).
+ * read "State: Needs action".
+ *
+ * It is the one pill (src/ui/Pill.tsx) with a §3 tone on it — it has no shape, height or
+ * wrapping rule of its own any more. That is the audit's §4.1 fix: this chip, the van-fact chip
+ * and the ramp iPad's two were four different boxes, and the one at 11 px/22 px that may not
+ * wrap is now the only one. Text is 11 px, which the chip's icon earns (§2).
  *
  * `values` fills the `{placeholder}` segments some §3 labels carry
  * ("Handed off to {receiver role}", "Snoozed until {time}").
@@ -22,15 +27,12 @@ export function StateChip({
   const Icon = state.icon;
   const label = values ? fill(state.label, values) : state.label;
   return (
-    <span
-      className={[styles.chip, className].filter(Boolean).join(" ")}
-      data-tone={state.tone}
-    >
-      <Icon size={icon.chip} aria-hidden="true" />
+    <Pill tone={state.tone} className={className}>
+      <Icon size={icon.pill} aria-hidden="true" />
       <span className="srOnly">{fill(screenReader.state, { label })}</span>
-      <span aria-hidden="true" className={styles.label}>
-        {label}
-      </span>
-    </span>
+      <PillLabel>
+        <span aria-hidden="true">{label}</span>
+      </PillLabel>
+    </Pill>
   );
 }

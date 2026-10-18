@@ -19,8 +19,8 @@ import { chairFitsPosition } from "@/domain/solver";
 import { ARRIVING_VEHICLES, SERVICE_DATE, fullyAvailable } from "@/fixtures/fleet";
 import { fill, layoutName, rampIpad, sentence } from "@/ui/copy";
 import { demoDateLabel } from "@/ui/service-date";
-import { toneVars } from "@/ui/tokens";
-import type { Tone } from "@/ui/tokens";
+import { toneVars, type Tone } from "@/ui/tokens";
+import { Pill } from "@/ui/Pill";
 import {
   ANSWER_LABEL, POSITION_ANSWER_LABEL, availableSummary, bannerCopy, defaultChecklist, isAmb, isWc,
   layoutOf, needChips, needSummary, positionDetail, positionName, toCapability,
@@ -54,17 +54,16 @@ const CARD: React.CSSProperties = {
 
 const MUTED: React.CSSProperties = { color: "var(--color-ink-muted)", fontSize: "var(--text-16)" };
 
+/**
+ * A chip on this surface is THE pill (src/ui/Pill.tsx) — the audit's §4.1 fix. It used to be an
+ * inline style of its own at 16 px, which is a second pill, and two of them in one rider row
+ * were the overlap the founder saw. One shape, one height, everywhere.
+ */
 function Chip({ toneName, icon, children }: { toneName: Tone; icon: Parameters<typeof Icon>[0]["name"]; children: React.ReactNode }) {
-  const vars = toneVars(toneName);
   return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: "var(--space-3)",
-      padding: "var(--space-2) var(--space-4)", borderRadius: "var(--radius-pill)",
-      background: vars.bg, color: vars.fg, fontSize: "var(--text-16)",
-      fontWeight: "var(--weight-semibold)",
-    }}>
+    <Pill tone={toneName}>
       <Icon name={icon} />{children}
-    </span>
+    </Pill>
   );
 }
 
@@ -302,7 +301,7 @@ export default function RampCheck() {
         display: "flex", alignItems: "center", gap: "var(--space-4)", flexWrap: "wrap",
         marginBottom: "var(--space-5)",
       }}>
-        <h1 style={{ fontSize: "var(--text-24)", margin: 0 }}>{rampIpad.heading}</h1>
+        {/* The title is the frame's page header bar (audit §2 item 1); the day stays. */}
         <span style={{ color: "var(--color-ink-muted)" }}>
           {fill(rampIpad.subtitle, { date: SERVICE_DATE_LABEL })}
         </span>
@@ -314,7 +313,6 @@ export default function RampCheck() {
           </span>
         ) : null}
       </div>
-      <p style={{ color: "var(--color-ink-muted)", marginTop: 0 }}>{rampIpad.localOnly}</p>
 
       {/* Arriving-vehicle selector */}
       <h2 style={{ fontSize: "var(--text-20)" }}>{rampIpad.arrivalsHeading}</h2>
@@ -535,11 +533,7 @@ export default function RampCheck() {
                     display: "flex", gap: "var(--space-3)", flexWrap: "wrap", margin: "var(--space-3) 0",
                   }}>
                     {needChips(child).map((chip) => (
-                      <span key={chip} style={{
-                        border: "var(--border-hairline) solid var(--color-border-strong)",
-                        borderRadius: "var(--radius-pill)", padding: "var(--space-2) var(--space-4)",
-                        ...MUTED,
-                      }}>{chip}</span>
+                      <Pill key={chip} variant="outline">{chip}</Pill>
                     ))}
                   </div>
                   <p style={{ ...MUTED, margin: "0 0 var(--space-3)" }}>{rampIpad.needsCaption}</p>

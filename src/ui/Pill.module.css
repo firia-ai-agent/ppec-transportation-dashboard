@@ -1,0 +1,109 @@
+/*
+ * THE ONE PILL — every status chip, every fact chip, the source chip, everywhere.
+ *
+ * Vera's audit of production at ef4bfb3, §4 item 1, is the whole of this file: the founder's
+ * pills "wrap and overlap at 390", because each surface had drawn its own — a filled §3 state
+ * chip here, an outlined van-fact chip there, two more in inline styles on the ramp iPad — and
+ * none of them was told it may not wrap or shrink. The fix is one declaration block used by all
+ * of them, with the metrics the audit names:
+ *
+ *   display:inline-flex; align-items:center; height:22px; padding:0 8px;
+ *   font:600 11px/1; white-space:nowrap; flex-shrink:0; border-radius:9999px
+ *
+ * `white-space: nowrap` is what stops the wrap and `flex-shrink: 0` is what stops the overlap:
+ * a chip in a tight flex row now pushes the row rather than being squeezed into two lines on top
+ * of its neighbour. The fixed height is what makes a column of them line up.
+ *
+ * Only the *tone* varies, and only as two colours (§3: colour is the third cue, after the icon
+ * and the word). src/ui/pill.test.ts fails if any other file under src/ grows a chip of its own.
+ */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--layout-pill-height);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-11);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-one);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* The §8 tone pairs, every one ≥4.5:1 (src/ui/tokens.test.ts recomputes them). */
+.pill[data-tone="ok"] {
+  color: var(--color-ok-fg);
+  background: var(--color-ok-bg);
+}
+
+.pill[data-tone="info"] {
+  color: var(--color-info-fg);
+  background: var(--color-info-bg);
+}
+
+.pill[data-tone="warn"] {
+  color: var(--color-warn-fg);
+  background: var(--color-warn-bg);
+}
+
+.pill[data-tone="crit"] {
+  color: var(--color-crit-fg);
+  background: var(--color-crit-bg);
+}
+
+.pill[data-tone="neutral"] {
+  color: var(--color-neutral-fg);
+  background: var(--color-neutral-bg);
+}
+
+/*
+ * A fact rather than a state: the van's capacity, a child's needs (§3 keeps the filled tones for
+ * states). An outline on the page's own white card, so it is the same pill with a hairline.
+ */
+.outline,
+.pill[data-variant="outline"] {
+  border: var(--border-hairline) solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-ink-muted);
+}
+
+.flagged,
+.pill[data-variant="outline"][data-flag="true"] {
+  border-style: dashed;
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral-fg);
+}
+
+/*
+ * The §7.1 source chip, which rides in the DEMO bar (audit §2 item 4): fully rounded, 20 px
+ * high, white fill, violet text. It is 20 and not 22 because the bar it sits in is 32 px tall
+ * and the mockup draws it at 20 (mockups/shell-flow.html `.demo .sim`). The white fill is what
+ * makes it readable on the violet, at 7.10:1.
+ */
+.source,
+.pill[data-variant="source"] {
+  height: var(--layout-source-badge-height);
+  background: var(--color-surface);
+}
+
+.pill[data-variant="source"][data-size="ramp"] {
+  height: var(--layout-source-badge-height-ramp);
+}
+
+/* Only these three tokens appear in the §7.1 table. Violet marks simulation and nothing else. */
+.pill[data-token="src-sim"] {
+  color: var(--color-src-sim);
+}
+
+.pill[data-token="ink-muted"] {
+  color: var(--color-ink-muted);
+}
+
+.pill[data-token="ink"] {
+  color: var(--color-ink);
+}
+
+.label {
+  font-variant-numeric: tabular-nums;
+}

@@ -22,6 +22,7 @@ import {
   homePathFor,
   pageLabel,
   pageOutcome,
+  pathOfHref,
   rolesWhoCanOpen,
   whoCanOpenLine,
   type Caller,
@@ -108,9 +109,27 @@ vi.mock("@/db/exec", () => ({ getNeonDb, runAfterCommit: vi.fn() }));
  *
  * It is `async` so that `toHtml` below unwraps it the way it unwraps any server component and
  * reaches the card inside.
+ *
+ * It does render the one part of the frame that is the refusal's own words: the page header
+ * bar's title. The address a refusal is answered at has no row in the access table to read a
+ * title from, so the shared component hands the bar this card's heading and the card prints
+ * none (#74, and src/ui/refused-frame.test.ts states the wiring) — dropping it here would make
+ * the equality below read a refusal that has lost its heading as correct.
  */
 vi.mock("@/ui/ConsoleShell", () => ({
-  ConsoleShell: async ({ children }: { children: ReactNode }) => children,
+  ConsoleShell: async ({ title, children }: { title?: string; children: ReactNode }) => {
+    /*
+     * The card inside is a server component as well, and `toHtml` below only unwraps the root
+     * one — the legacy renderer cannot await a component nested inside markup. So it is
+     * resolved here, which is what lets this stand-in put anything *around* the card at all.
+     */
+    const element = children as ReactElement<unknown>;
+    const card =
+      isValidElement(element) && typeof element.type === "function"
+        ? await (element.type as (props: unknown) => Promise<ReactNode>)(element.props)
+        : children;
+    return createElement("div", null, title ? createElement("h1", null, title) : null, card);
+  },
 }));
 /*
  * The real `next/link` wants a router from React context that exists only inside Next, and the
@@ -274,7 +293,11 @@ async function protectedPhrasesOf(page: { file: string; path: string }): Promise
    * `/ramp-preview`, do you see any of the ramp iPad?
    */
   const moved = MOVED_PAGES[page.path];
-  const subject = moved ? (pageFiles.find((f) => f.path === moved) as { file: string; path: string }) : page;
+  // `pathOfHref`, because one destination is a *tab* — `/family-texts?tab=for-you` — and the
+  // row, and the file, belong to the path in front of the query.
+  const subject = moved
+    ? (pageFiles.find((f) => f.path === pathOfHref(moved)) as { file: string; path: string })
+    : page;
   expect(subject, page.path).toBeDefined();
   const allowed = ROLE_LADDER.find((role) => rolesWhoCanOpen(page.path).includes(role));
   expect(allowed, page.path).toBeDefined();
@@ -288,8 +311,21 @@ async function protectedPhrasesOf(page: { file: string; path: string }): Promise
     .split(/[.!?·|•]+/)
     .map((phrase) => phrase.trim())
     .filter((phrase) => phrase.length >= 12 && phrase.split(" ").length >= 3);
-  // A page with nothing on it would make the leak check vacuous, so it has to have said something.
-  expect(found.length, `${page.path} rendered nothing to protect`).toBeGreaterThan(0);
+  /*
+   * A page with something on it has to have said something, or the leak check below is vacuous.
+   * Two screens legitimately say nothing at all now: Family texts and Health hold no data, their
+   * title is the frame's page header bar (audit §2 item 1) and the helper line that used to sit
+   * under it is deleted (§4 item 9) — so what they render is a link, or nothing. The assertion
+   * is therefore "nothing to protect *because* the page is empty", measured on the page's own
+   * text rather than assumed: a screen that grows a sentence grows the check with it.
+   */
+  if (found.length === 0) {
+    const left = readable(html).trim();
+    expect(
+      left.split(/\s+/).filter(Boolean).length,
+      `${page.path} rendered a sentence this did not read: ${left}`,
+    ).toBeLessThan(3);
+  }
   phrases.set(page.path, found);
   return found;
 }
@@ -348,11 +384,15 @@ describe("the harness itself works", () => {
     const paths = pageFiles.map((p) => p.path).sort();
     expect(paths).toEqual(
       [
-        "/", "/_not-found", "/approvals", "/exceptions", "/family-texts", "/health", "/login",
+        "/", "/_not-found", "/family-texts", "/health", "/login",
         "/live-map", "/plan-routes", "/ramp-ipad", "/setup", "/today", "/whoami",
         // The refusal card at an address: a session, and then 403 for every one of them.
         "/refusal-check",
-        // The three old addresses, which are pages too: a guard, then a permanent redirect.
+        /*
+         * The addresses that moved, which are pages too: a guard, then a permanent redirect.
+         * Five of them since Firia's 8:36 PM ET ruling — the three renamed screens, plus
+         * `/exceptions` and `/approvals`, whose content is part of another screen now.
+         */
         ...Object.keys(MOVED_PAGES),
       ].sort(),
     );

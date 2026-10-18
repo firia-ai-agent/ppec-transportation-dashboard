@@ -1,35 +1,53 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import {
+  FAMILY_TEXTS_FOR_YOU,
+  FOR_YOU_TAB,
+  canOpenForYou,
+  homePathFor,
+} from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
-import { nav, stub } from "@/ui/copy";
+import { stub } from "@/ui/copy";
+import { NOT_ON_YOUR_MENU, withNotice } from "@/ui/notice";
 import { StubPage } from "@/ui/StubPage";
 
 /** The guard reads a session, so this route is never statically rendered. */
 export const dynamic = "force-dynamic";
 
 /**
- * Family texts (REDESIGN-SPEC §0, menu item 5): the thread this day sent to each family and
- * what they sent back. Its title and one line, and no data at all — the messages are the agent
- * and outbox work, and a list of invented texts on a screen a parent is quoted from would be
- * the worst thing in this app to fake.
- *
- * It is on the menu because nothing on the menu may 404 (§0): `/family-texts` answered 404 on
- * production during the founder's walk, which is the gap this page closes. The screen behind it
- * arrives with the texts themselves.
+ * Family texts (REDESIGN-SPEC §0, menu item 5): the thread this day sent to each family and what
+ * they sent back. Its title is the frame's (src/ui/PageHeader.tsx) and it holds no data at all —
+ * the messages are the agent and outbox work, and a list of invented texts on a screen a parent
+ * is quoted from would be the worst thing in this app to fake.
  *
  * The one link on it is the "For you" half — the approvals queue, which §9.2 keeps off the menu
- * on purpose ("Approvals is the For you tab inside Family texts, not a menu item"). So this is
- * the way there, inside the frame, rather than an eighth rail item.
+ * ("Approvals is the For you tab inside Family texts, not a menu item") and which `/approvals`
+ * is a 308 to. So this is the way there, inside the frame, rather than a sixth rail item.
  *
- * Server-side role guard first, before anything is rendered: /family-texts is in the access
- * table (src/auth/access.ts), and a role that is not in its row gets the no-access page and a
- * 403 (forbidden.tsx beside this file), never this frame.
+ * TWO GUARDS, AND THEY ANSWER TWO QUESTIONS.
+ *  1. `requirePage` — may you open Family texts at all? That is this page's row.
+ *  2. `canOpenForYou` — may you *decide*? That is `APPROVAL_ROLES` (src/auth/access.ts), and it
+ *     is asked here, on the server, before any markup exists, because `?tab=for-you` is a URL a
+ *     person can type. A tab that is merely not drawn is hiding, not denying (the ID-swap
+ *     skill, rule 6), and the front desk must never land on this queue — they land on their own
+ *     home, the live map, with the §9.3 notice.
+ * The two are independent on purpose: widening the row that opens the page must not quietly
+ * hand the approvals queue to a role that may not approve.
  */
-export default async function Page() {
-  await requirePage("/family-texts");
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const caller = await requirePage("/family-texts");
+  const { tab } = await searchParams;
+  if (tab === FOR_YOU_TAB && !canOpenForYou(caller)) {
+    redirect(withNotice(homePathFor(caller), NOT_ON_YOUR_MENU));
+  }
   return (
-    <StubPage title={nav.familyTexts} line={stub.familyTexts}>
+    <StubPage>
       <p>
-        <Link href="/approvals">{stub.approvalsLink}</Link>
+        <Link href={FAMILY_TEXTS_FOR_YOU}>{stub.approvalsLink}</Link>
       </p>
     </StubPage>
   );

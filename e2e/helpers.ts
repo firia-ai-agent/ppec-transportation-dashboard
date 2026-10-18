@@ -68,22 +68,22 @@ export async function expectNoInternalCodes(page: Page): Promise<void> {
   expect(found, `internal codes on ${page.url()}`).toEqual([]);
 }
 
-/**
- * D-5, measured on the real screen: the demo violet paints three things and nothing else.
- *
- * The source assertions (src/ui/tokens.test.ts) keep the token out of every stylesheet but the
- * bar's, the chip's and the demo control's. This is the other half, and the half that cannot be
- * argued with: it reads the *computed* colour of every element the browser laid out and asks
- * where the violet ended up. Anything violet has to be inside the DEMO bar, inside a Simulated
- * source chip, or inside a control that is itself part of the demo (`[data-demo-control]`,
- * src/ui/DemoControls) — which is the whole of the reservation, and is why the violet still
- * means "this is the demo" when a coordinator sees it.
- */
 /** `--color-demo-bg` / `--color-src-sim` as the browser computes it. */
 export const DEMO_VIOLET = "rgb(109, 40, 217)";
-/** `--color-demo-fg`: the bar's ink, and the fill of the option a demo control is set to. */
-export const DEMO_INK = "rgb(255, 255, 255)";
-
+/**
+ * D-5, measured on the real screen: the demo violet paints two things and nothing else.
+ *
+ * The source assertions (src/ui/tokens.test.ts) keep the token out of every stylesheet but the
+ * bar's and the chip's. This is the other half, and the half that cannot be argued with: it
+ * reads the *computed* colour of every element the browser laid out and asks where the violet
+ * ended up. Anything violet has to be inside the DEMO bar — the controls that ride in it
+ * included — or inside a §7.1 Simulated source chip. That is the whole of the reservation, and
+ * is why the violet still means "this is the demo" when a coordinator sees it.
+ *
+ * A screen's own control is not in it any more: Plan routes carried a violet "Demo scenario"
+ * banner in the bar's fill, and #74 deletes it (Vera's audit; Firia's ruling). The exemption
+ * that banner was given went with it, so this now fails on any violet outside the chrome.
+ */
 export async function expectVioletOnlyOnDemoChrome(page: Page): Promise<void> {
   const strays = await page.evaluate((VIOLET) => {
     const describe = (el: Element): string =>
@@ -107,8 +107,6 @@ export async function expectVioletOnlyOnDemoChrome(page: Page): Promise<void> {
         // The bar: the element that holds the "DEMO" status, and everything under it.
         const bar = document.querySelector('[role="status"][aria-label="DEMO"]')?.parentElement;
         if (bar?.contains(el)) return false;
-        // A demo-only control, which wears the bar's fill on purpose (Vera, 2026-10-17).
-        if (el.closest("[data-demo-control]") !== null) return false;
         // The §7.1 source chip, wherever it is: a screen, a row, a drawer header.
         return el.closest('[data-token="src-sim"]') === null;
       })
@@ -116,35 +114,8 @@ export async function expectVioletOnlyOnDemoChrome(page: Page): Promise<void> {
   }, DEMO_VIOLET);
   expect(
     strays,
-    `the demo violet is painting something that is not the DEMO bar, the Simulated chip or a demo control`,
+    `the demo violet is painting something that is not the DEMO bar or the Simulated chip`,
   ).toEqual([]);
-}
-
-/**
- * A demo-only control reads as the demo and not as the screen (Vera's review, 2026-10-17).
- *
- * Measured rather than asserted from the markup: the point of the change is what a coordinator
- * sees, so this reads the computed fill and ink of the control and of the option it is set to.
- * The fill is the DEMO bar's violet, and the chosen option inverts it — which is also why it
- * still reads with the colour off (§3: the check mark is the other cue, and `aria-pressed` the
- * third).
- */
-export async function expectDemoControlStyling(control: Locator): Promise<void> {
-  const bar = await control.evaluate((el) => {
-    const s = getComputedStyle(el);
-    return { background: s.backgroundColor, ink: s.color };
-  });
-  expect(bar.background, "a demo control takes the DEMO bar's fill").toBe(DEMO_VIOLET);
-  expect(bar.ink, "a demo control takes the DEMO bar's ink").toBe(DEMO_INK);
-
-  const chosen = control.locator('button[aria-pressed="true"]');
-  await expect(chosen).toHaveCount(1);
-  const option = await chosen.evaluate((el) => {
-    const s = getComputedStyle(el);
-    return { background: s.backgroundColor, ink: s.color };
-  });
-  expect(option.background, "the chosen option inverts the pair").toBe(DEMO_INK);
-  expect(option.ink, "the chosen option inverts the pair").toBe(DEMO_VIOLET);
 }
 
 /**
@@ -163,67 +134,78 @@ export async function expectDemoControlStyling(control: Locator): Promise<void> 
 export async function expectOneSimulatedChip(page: Page): Promise<void> {
   const seen = await page.evaluate(() => {
     const bar = document.querySelector('[role="status"][aria-label="DEMO"]')?.parentElement ?? null;
-    const header = document.querySelector("header");
     return {
       inBar: bar ? bar.querySelectorAll('[data-token="src-sim"]').length : 0,
-      inHeader: header ? header.querySelectorAll('[data-token="src-sim"]').length : 0,
-      headerText: (header as HTMLElement | null)?.innerText ?? "",
       bodyText: document.body.innerText,
     };
   });
   expect(seen.inBar, `the one §7.1 chip in the DEMO bar on ${page.url()}`).toBe(1);
-  expect(seen.inHeader, "the app header is carrying a source chip of its own again").toBe(0);
-  expect(seen.headerText, "the app header says 'Simulated' again").not.toMatch(/Simulated/);
+  expect(await frameHeaders(page), "the app header is back, and carrying chrome again").toEqual([]);
   expect(seen.bodyText, "a per-adapter Simulated pill is back").not.toMatch(/·\s*Simulated/);
   expect(seen.bodyText, "the 'Times are simulated' line is back").not.toMatch(/[Tt]imes are simulated/);
 }
 
 /**
- * THE HEADER IS ONE ROW — Vera's review, 2026-10-17 2:44 PM ET.
+ * THE HEADERS IN THE FRAME — which must be none (audit §2 item 1).
  *
- * It was two: the site name, the scenario clock and the avatar above, four "· Simulated" pills,
- * their note and global search below. "One row" is a fact about boxes, so it is measured as
- * one: every visible child of the header overlaps every other one vertically, which is only
- * true of things side by side, and the whole header is no taller than a single row of 44 px
- * targets with its padding. At 390 px, where the row is tightest, this is the assertion that
- * fails when a readout or a button wraps and pushes the account onto a second line.
+ * `<header>` elements *inside* the page are a screen's own business: the board's date row is
+ * one, Plan routes' title row is another. What is deleted is the app header — the band the
+ * shell drew above the content column — so the question is asked about position rather than
+ * about the tag: a header outside `#content` is chrome, and there is no chrome left that is a
+ * header.
  */
-export async function expectHeaderIsOneRow(page: Page): Promise<void> {
-  const header = await page.evaluate(() => {
-    const el = document.querySelector("header");
-    if (!el) return null;
-    const boxes = Array.from(el.children)
-      .map((child) => child.getBoundingClientRect())
-      .filter((r) => r.width > 0 && r.height > 0);
-    return {
-      height: el.getBoundingClientRect().height,
-      tops: boxes.map((r) => Math.round(r.top)),
-      bottoms: boxes.map((r) => Math.round(r.bottom)),
-    };
+export async function frameHeaders(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const content = document.querySelector("#content");
+    return Array.from(document.querySelectorAll("header"))
+      .filter((el) => !(content?.contains(el) ?? false))
+      .map((el) => (el.textContent ?? "").trim().slice(0, 40));
   });
-  expect(header, "there is no header on this screen").not.toBeNull();
-  const { height, tops, bottoms } = header as { height: number; tops: number[]; bottoms: number[] };
-  expect(tops.length, "the header has nothing in it").toBeGreaterThan(1);
-  expect(
-    Math.max(...tops) < Math.min(...bottoms),
-    `the header is stacked, not in a row: tops ${tops.join()} bottoms ${bottoms.join()}`,
-  ).toBe(true);
-  expect(height, `the header is ${height}px tall, which is more than one row`).toBeLessThanOrEqual(80);
+}
+
+/**
+ * THE PAGE HEADER BAR, AND NO APP HEADER — Vera's audit §2 items 1 and 5; Firia, 2026-10-17
+ * 8:36 PM ET.
+ *
+ * This used to measure that the white app header was a single row. There is no app header: the
+ * 96 px band with the product's name in it and the account pill at its far right is deleted at
+ * every width, because the rail carries both and what was left was an empty band over a rail the
+ * mockup draws running full height.
+ *
+ * What is measured instead is the bar that replaced it, as boxes rather than as markup: the
+ * screen's title sits in the top 64 px of the content column, there is exactly one of it, and
+ * nothing in the bar runs off the right-hand edge of the window — which is how the account pill
+ * went missing at 390 px on the old header: present, laid out, and half of it off the screen.
+ */
+export async function expectPageHeaderBar(page: Page): Promise<void> {
+  expect(await frameHeaders(page), "the app header is back").toEqual([]);
+  const title = page.getByRole("heading", { level: 1 });
+  await expect(title, "no title in the page header bar").toHaveCount(1);
   /*
-   * ...and the row fits the window. One row that runs off the right-hand edge is how the
-   * account pill went missing at 390 px: present, laid out, and half of it off the screen.
+   * In the 64 px bar at the top of the content column — measured against the column, not the
+   * window: the §9.3 notice is a row of its own above the frame when a redirect put one there.
    */
+  expect(
+    await title.evaluate((el) => {
+      const bar = el.parentElement as HTMLElement;
+      return {
+        isTheBar: bar.nextElementSibling?.id === "content",
+        height: Math.round(bar.getBoundingClientRect().height),
+      };
+    }),
+    "the title is not in the page header bar",
+  ).toEqual({ isTheBar: true, height: 64 });
   const overflowing = await page.evaluate(() => {
-    const el = document.querySelector("header");
-    if (!el) return [];
-    return Array.from(el.querySelectorAll("*"))
+    const bar = document.querySelector("h1")?.parentElement;
+    if (!bar) return [];
+    return Array.from(bar.querySelectorAll("*"))
       .filter((child) => {
         const r = child.getBoundingClientRect();
         return r.width > 0 && r.height > 0 && r.right > window.innerWidth + 1;
       })
       .map((child) => `${child.tagName.toLowerCase()}: ${(child.textContent ?? "").trim().slice(0, 30)}`);
   });
-  expect(overflowing, "the header runs off the right-hand edge of the window").toEqual([]);
+  expect(overflowing, "the page header bar runs off the right-hand edge of the window").toEqual([]);
 }
 
 /** Every page: the one DEMO bar, and it is on screen at the bottom of the page too (NFR-09). */

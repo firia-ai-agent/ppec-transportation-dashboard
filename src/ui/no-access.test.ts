@@ -33,7 +33,10 @@ const CALLERS = {
 
 beforeEach(() => getCaller.mockReset());
 
-async function render(caller: Caller, props: { path?: string } = {}): Promise<string> {
+async function render(
+  caller: Caller,
+  props: { path?: string; titleInFrame?: boolean } = {},
+): Promise<string> {
   getCaller.mockResolvedValue(caller);
   const { NoAccess } = await import("./NoAccess");
   return renderToStaticMarkup(await NoAccess(props));
@@ -84,10 +87,44 @@ describe("the copy lives in src/ui/copy.ts", () => {
 });
 
 describe("the card", () => {
-  it("is one h1, carrying the heading", async () => {
+  /*
+   * An h2, not an h1 — and the page it is on has exactly one h1, which is the frame's page
+   * header bar (src/ui/PageHeader.tsx, audit §2 item 1). The card is the answer *inside* a
+   * page, so a second title on the screen would be two titles.
+   */
+  it("is one h2, carrying the heading, and no h1 of its own", async () => {
     const html = await render(CALLERS.frontDesk, { path: "/today" });
-    expect(html).toContain(`${escapeApostrophes(noAccess.heading)}</h1>`);
-    expect(html.match(/<h1/g)).toHaveLength(1);
+    expect(html).toContain(`${escapeApostrophes(noAccess.heading)}</h2>`);
+    expect(html.match(/<h2/g)).toHaveLength(1);
+    expect(html.match(/<h1/g), "the card's title is the frame's, not a second one").toBeNull();
+  });
+
+  /**
+   * THE SCREEN'S ONE H1, AND WHERE IT IS — Veri's gate on #74.
+   *
+   * The refusal arrived with no h1 at all: the card's title went to h2 when the frame's page
+   * header bar took over the screen's title, and the one address that renders this card is
+   * deliberately not a screen, so it has no row in the access table for the bar to read a title
+   * from. Two headings, or none, are both the thing audit §2 item 1 is about — so the frame
+   * prints `refusalHeading` when it has nothing else (src/ui/RefusedPage.tsx) and the card then
+   * prints no heading of its own. Exactly one title per screen, said once.
+   */
+  it("leaves the heading to the frame when the frame is printing it", async () => {
+    const html = await render(CALLERS.frontDesk, { path: "/today", titleInFrame: true });
+    expect(html.match(/<h[1-6]/g), "the card is printing a title the frame already has").toBeNull();
+    expect(html).not.toContain(escapeApostrophes(noAccess.heading));
+    // Everything else the card says is still said: who the page is for, and the way out.
+    expect(html).toContain("Directors and coordinators can open this.");
+    expect(html).toContain(`href="/live-map"`);
+    expect(html.match(/<svg/g)).toHaveLength(1);
+  });
+
+  it("names the refusal in one expression, which is what the frame reads", async () => {
+    const { refusalHeading } = await import("./NoAccess");
+    expect(refusalHeading(CALLERS.frontDesk)).toBe(noAccess.heading);
+    expect(refusalHeading(CALLERS.coordinator)).toBe(noAccess.heading);
+    // The caller every page refuses gets Vera's line instead, in the bar as on the card.
+    expect(refusalHeading(CALLERS.noRole)).toBe(noAccess.noRoleHeading);
   });
 
   it("says who the page is for, generated from the access table", async () => {

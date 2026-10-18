@@ -2,9 +2,10 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { LAYOUT, PAGES, ROLE_LADDER, homePathFor } from "@/auth/access";
-import { layout } from "./tokens";
-import { navItems, navItemsFor } from "./nav-items";
-import { splitTabs, TAB_SLOTS } from "./TabBar";
+import { color, contrastRatio, layout } from "./tokens";
+import { MENU_SIZE, navItems, navItemsFor } from "./nav-items";
+import { flow } from "./copy";
+import { menuBadgeFor } from "./menu-badge";
 
 /**
  * ONE MENU, ON EVERY SCREEN IT LINKS TO.
@@ -98,9 +99,9 @@ describe("every destination in the menu renders the menu", () => {
       expect(source, path.relative(REPO, file)).toMatch(/<ConsoleShell caller=\{caller\}/);
       expect(source, path.relative(REPO, file)).not.toMatch(/\brole=/);
     }
-    expect(read(path.join(UI, "ConsoleShell.tsx"))).toMatch(
-      /role=\{caller\.kind === "STAFF" \? caller\.role : null\}/,
-    );
+    const consoleShell = read(path.join(UI, "ConsoleShell.tsx"));
+    expect(consoleShell).toMatch(/const role = caller\.kind === "STAFF" \? caller\.role : null;/);
+    expect(consoleShell).toMatch(/role=\{role\}/);
     // And both rails filter with that one function rather than listing destinations again.
     for (const component of ["NavRail.tsx", "TabBar.tsx"]) {
       expect(read(path.join(UI, component)), component).toMatch(/navItemsFor\(role\)/);
@@ -200,11 +201,9 @@ describe("§2 bottom tab bar, <768", () => {
 
   it("is on screen without being opened, and only below 768", () => {
     /*
-     * The *bar* has nothing to toggle: no `hidden`, and the tabs are in the markup whatever
-     * state anything is in. What it does have, since the menu grew past five destinations, is a
-     * fifth slot that opens the rest (`splitTabs` below) — a tab, in the bar, opening a sheet
-     * over the page. That is not the hamburger coming back and the next test is what says so:
-     * the four destinations and the way to the others are on screen without a tap.
+     * The bar has nothing to toggle and nothing to open: no `hidden`, no state at all, and
+     * every tab in the markup. The fifth slot that used to open the rest of the menu is gone
+     * with the overflow it existed for (Firia, 8:36 PM ET) — five items, five tabs.
      */
     const component = read(path.join(UI, "TabBar.tsx"));
     expect(component).not.toMatch(/\shidden=/);
@@ -215,55 +214,116 @@ describe("§2 bottom tab bar, <768", () => {
   });
 
   /**
-   * FIVE SLOTS, AND "MORE" — REDESIGN-SPEC §9.2 ("five equal tabs") meeting §0's menu, which is
-   * seven destinations for a console role. Seven tabs at 390 px is 55 px each: under the §9
-   * target and unreadable with it. So four tabs and a fifth slot that opens the rest.
+   * FIVE ITEMS, FIVE TABS, AND NO "MORE" — REDESIGN-SPEC §9.2 ("five equal tabs") meeting a menu
+   * that is five items at every width (Firia, 2026-10-17 8:36 PM ET).
    *
-   * What makes it not the deleted hamburger, stated as the rules it has to keep: the primary
-   * tabs are always on screen, the thing that opens is in the frame rather than a panel from
-   * the side, every row in it is a §9 target, and it closes on a selection, on Escape and on a
-   * tap outside. The browser check measures all of that (e2e/rework-frame.spec.ts); this is
-   * where the split itself is decided, so it is where the split is pinned down.
+   * The overflow tab existed because §0's menu was seven destinations for a console role, and
+   * seven tabs at 390 px is 55 px each: under the §9 target and unreadable with it. Two of those
+   * seven are a tab inside another screen rather than a destination (audit §2 item 2), so there
+   * are five, and the arithmetic that needed a sixth slot is gone. `splitTabs`, `TAB_SLOTS`, the
+   * sheet, its scrim and its focus management are deleted with it — the bar is a list.
    */
-  it("gives a role with more than five destinations four tabs and a More", () => {
-    expect(TAB_SLOTS).toBe(5);
+  it("is one tab per menu item, with nothing left over for a sixth slot", () => {
+    expect(MENU_SIZE).toBe(5);
     const director = navItemsFor("DIRECTOR");
-    expect(director.length).toBeGreaterThan(TAB_SLOTS);
-    const split = splitTabs(director);
-    expect(split.tabs).toHaveLength(TAB_SLOTS - 1);
-    expect(split.tabs.length + split.overflow.length).toBe(director.length);
-    // Nothing is lost and nothing is repeated: the bar still offers the whole menu.
-    expect([...split.tabs, ...split.overflow]).toEqual(director);
-    // The four with a tab of their own are the first four of §0's order, the day's own order.
-    expect(split.tabs.map((i) => i.href)).toEqual([
+    expect(director).toHaveLength(MENU_SIZE);
+    expect(director.map((i) => i.href)).toEqual([
       "/today",
       "/plan-routes",
       "/live-map",
       "/ramp-ipad",
+      "/family-texts",
     ]);
+    // Every role's menu fits the bar, so no role can be offered a tab that opens a menu.
+    for (const role of ROLE_LADDER) {
+      expect(navItemsFor(role).length, role).toBeLessThanOrEqual(MENU_SIZE);
+    }
+    expect(navItemsFor("FRONT_DESK").map((i) => i.href)).toEqual(["/live-map", "/ramp-ipad"]);
   });
 
-  it("gives a role with five or fewer every one as a tab, and no More at all", () => {
-    const frontDesk = navItemsFor("FRONT_DESK");
-    expect(frontDesk.length).toBeLessThanOrEqual(TAB_SLOTS);
-    expect(splitTabs(frontDesk)).toEqual({ tabs: frontDesk, overflow: [] });
-  });
-
-  it("the sheet closes the three ways anything that opens has to", () => {
+  /**
+   * The deleted tab and sheet, as the absence of the things that made them work: a reader of
+   * this file should be able to see that there is nothing left to open.
+   */
+  it("has no More tab, no sheet, no scrim and no words for them", () => {
     const component = read(path.join(UI, "TabBar.tsx"));
-    // A selection: every link in it, and every tab beside it, closes on click.
-    expect(component).toMatch(/onClick=\{close\}/);
-    // Escape, from anywhere on the page, with the focus put back on the tab that opened it.
-    expect(component).toMatch(/event\.key !== "Escape"/);
-    expect(component).toMatch(/moreRef\.current\?\.focus\(\)/);
-    // A tap outside, which is what the scrim is.
-    expect(component).toMatch(/styles\.scrim/);
-    // And focus goes *into* it when it opens, so the next Tab is inside it (§9).
-    expect(component).toMatch(/sheetRef\.current\?\.querySelector\("a"\)\?\.focus\(\)/);
-    // Every row in it is a §9 target, and it is a sheet on the bar — not a drawer from the side.
-    expect(css).toMatch(/\.sheetItem \{[^}]*min-height: var\(--target-console\)/);
-    expect(css).toMatch(/\.sheet \{[^}]*bottom: 100%/);
-    expect(css).not.toMatch(/\.sheet \{[^}]*inset-inline-start: auto/);
+    for (const gone of [
+      /data-more-tab/,
+      /data-more-sheet/,
+      /styles\.sheet/,
+      /styles\.scrim/,
+      /moreRef/,
+      /useState/,
+      /Ellipsis/,
+      /"Escape"/,
+    ]) {
+      expect(component, String(gone)).not.toMatch(gone);
+    }
+    for (const gone of [/\.sheet \{/, /\.sheetItem \{/, /\.sheetClose \{/, /\.scrim \{/]) {
+      expect(css, String(gone)).not.toMatch(gone);
+    }
+    const copy = read(path.join(UI, "copy.ts"));
+    expect(copy).not.toMatch(/more: "More"|moreLabel|closeMore/);
+  });
+
+  /**
+   * THE COUNT ON FAMILY TEXTS (REDESIGN-SPEC §9.2, audit §2 item 2): a 20 px Teal disc with
+   * white text, and the number said in words in the tab's accessible name, because the disc is
+   * aria-hidden and a shape says nothing to a reader (§9).
+   *
+   * **And nothing at all until the number is real** (#61, Veri's S2 on #74). It was a fixture —
+   * `FOR_YOU_WAITING = 2` — so every director and coordinator was shown "2 waiting" above a
+   * screen with nothing waiting on it. The fixture is deleted; the count arrives from the
+   * caller, and there is no live one to pass yet. Both halves are stated here: an absent or
+   * zero count draws no disc and says no "waiting", and a live count above zero draws the one
+   * on the mockup.
+   */
+  it("carries the Family texts count, as a disc and as words, when there is one", () => {
+    const component = read(path.join(UI, "TabBar.tsx"));
+    expect(component).toMatch(/menuBadgeFor\(item\.href, role, forYouWaiting\)/);
+    expect(component).toMatch(/data-menu-badge/);
+    expect(component).toMatch(/flow\.tabbar\.waiting/);
+    expect(flow.tabbar.waiting).toBe("{label}, {count} waiting");
+    const badge = css.slice(css.indexOf(".badge {"));
+    expect(badge).toMatch(/background: var\(--color-brand\)/);
+    expect(badge).toMatch(/color: var\(--color-surface\)/);
+    expect(badge).toMatch(/width: var\(--layout-badge-size\)/);
+    expect(layout.badgeSize).toBe("20px");
+    // White on Teal is the §8 row, 5.47:1.
+    expect(contrastRatio(color.surface, color.brand)).toBeGreaterThanOrEqual(4.5);
+
+    // A live count, for the roles that can act on what is waiting — and for nobody else.
+    expect(menuBadgeFor("/family-texts", "DIRECTOR", 3)).toBe(3);
+    expect(menuBadgeFor("/family-texts", "COORDINATOR", 1)).toBe(1);
+    expect(menuBadgeFor("/family-texts", "FRONT_DESK", 3)).toBeNull();
+    expect(menuBadgeFor("/family-texts", null, 3)).toBeNull();
+
+    // No count, no badge: zero is not "0", and unavailable is not "waiting".
+    for (const absent of [0, -1, null, undefined, Number.NaN]) {
+      expect(menuBadgeFor("/family-texts", "DIRECTOR", absent), String(absent)).toBeNull();
+      expect(menuBadgeFor("/family-texts", "COORDINATOR", absent), String(absent)).toBeNull();
+    }
+    // And nothing passes one, so no role is shown a badge at all until #61 lands.
+    for (const role of ROLE_LADDER) expect(menuBadgeFor("/family-texts", role)).toBeNull();
+    // Nowhere but Family texts, whatever is passed.
+    for (const item of navItemsFor("DIRECTOR")) {
+      if (item.href === "/family-texts") continue;
+      expect(menuBadgeFor(item.href, "DIRECTOR", 3), item.href).toBeNull();
+    }
+  });
+
+  /**
+   * The fixture itself is gone, not merely unread: a count with no work behind it is the kind
+   * of thing that comes back by being imported again (Firia on Veri's S2, #74).
+   */
+  it("has no fixture behind the count", () => {
+    expect(existsSync(path.join(UI, "..", "fixtures", "for-you.ts"))).toBe(false);
+    // The code, with the comments stripped: the one above `menuBadgeFor` names the fixture it
+    // replaced, which is where a reference to it belongs.
+    const code = (file: string) => read(path.join(UI, file)).replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+    for (const file of ["menu-badge.ts", "TabBar.tsx", "NavRail.tsx"]) {
+      expect(code(file), file).not.toMatch(/@\/fixtures|FOR_YOU_WAITING/);
+    }
   });
 
   it("gives every tab a §9 target, an icon and a label", () => {
@@ -279,8 +339,10 @@ describe("§2 bottom tab bar, <768", () => {
   it("marks the page you are on by more than colour", () => {
     expect(read(path.join(UI, "TabBar.tsx"))).toMatch(/aria-current=\{current \? "page" : undefined\}/);
     const current = css.slice(css.indexOf('.tab[aria-current="page"]'));
-    expect(current).toMatch(/border-top-color: var\(--color-brand\)/);
-    expect(current).toMatch(/font-weight: var\(--weight-semibold\)/);
+    // mockup: /workspace/ppec-redesign/mockups/shell-flow.html:75 — inset 3 px brand bar, bold, no fill.
+    expect(current).toMatch(/box-shadow: inset 0 var\(--border-current\) 0 var\(--color-brand\)/);
+    expect(current).toMatch(/background: transparent/);
+    expect(current).toMatch(/font-weight: var\(--weight-bold\)/);
   });
 
   it("sits clear of the iPhone home bar, and the page clears the bar", () => {
@@ -294,7 +356,7 @@ describe("§2 bottom tab bar, <768", () => {
   });
 
   it("the three screens get the bar, because they get the shell", () => {
-    expect(read(path.join(UI, "AppShell.tsx"))).toMatch(/<TabBar role=\{role\} \/>/);
+    expect(read(path.join(UI, "AppShell.tsx"))).toMatch(/<TabBar role=\{role\}/);
     expect(shellLayouts).toHaveLength(4);
     expect(LAYOUT.planRoutes).toBe("layout:plan-routes");
   });

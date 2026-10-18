@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { SCENARIO_START_MS } from "@/fixtures/replays";
-import { serviceDate } from "@/ui/copy";
 import { demoDateLabel, serviceDateIso, serviceDateLabel } from "@/ui/service-date";
 import {
   BOARD_SCENARIO_SECONDS,
@@ -77,9 +76,16 @@ describe("the phase of a day decides when it is read", () => {
     expect(day.instantMs).toBe(localTimeOn(day, "06:00"));
   });
 
-  it("gives every phase words of its own, so a finished board says why it is finished", () => {
-    for (const phase of ["ENDED", "LIVE", "PLANNED"] as const) {
-      expect(serviceDate.phases[phase].length).toBeGreaterThan(0);
+  /*
+   * The phase used to have a word of its own on the board — a "Demo day" / "Day ended" tag
+   * beside the date — and it is gone (Firia, 2026-10-17 7:55 PM ET): the tag repeated the DEMO
+   * bar, and a day that is not the demo day is already named by the heading. What is left to
+   * hold is that the phase is still a decided fact, because the heading is chosen by it
+   * (`onDay`) and the board's clock is wound to it.
+   */
+  it("gives every day exactly one of the three phases", () => {
+    for (const iso of [demoDay().previousIso, demoDay().iso, demoDay().nextIso]) {
+      expect(["ENDED", "LIVE", "PLANNED"]).toContain(serviceDayFor(iso).phase);
     }
   });
 });

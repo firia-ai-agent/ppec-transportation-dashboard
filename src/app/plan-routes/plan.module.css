@@ -268,17 +268,14 @@
   flex-wrap: wrap;
 }
 
-/* An outlined chip: a fact about the van, not a state. States are StateChip (§3). */
+/*
+ * A fact about the van, not a state (states are StateChip, §3) — and it is the ONE pill, taken
+ * from src/ui/Pill.module.css rather than drawn again here. That is the audit's §4.1 fix: this
+ * chip used to be its own box at its own height, and two of them in one lane cell were the
+ * overlap the founder saw at 390 px.
+ */
 .chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-pill);
-  border: var(--border-hairline) solid var(--color-border-strong);
-  color: var(--color-ink-muted);
-  font-size: var(--text-12);
-  white-space: nowrap;
+  composes: pill outline from "../../ui/Pill.module.css";
 }
 
 /* VEH-01: a need nobody has approved is visible and visibly not part of the plan. */
