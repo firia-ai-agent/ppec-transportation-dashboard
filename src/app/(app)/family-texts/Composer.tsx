@@ -44,7 +44,11 @@ export function Composer({
   const ready = approvalId !== null;
 
   return (
-    <>
+    /*
+     * The bar and its one line of status are one dock, so the phone's sticky bottom holds them
+     * together rather than letting the sentence ride over the Send button.
+     */
+    <div className={styles.composeDock}>
       <form action={submit} className={styles.compose}>
         <input type="hidden" name="approval" value={approvalId ?? ""} />
         <input type="hidden" name="decision" value="APPROVED" />
@@ -74,7 +78,7 @@ export function Composer({
       <p className={styles.composeNote} role="status">
         {noteOf(state, ready)}
       </p>
-    </>
+    </div>
   );
 }
 

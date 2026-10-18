@@ -125,9 +125,9 @@ const TAB_LABELS: Readonly<Record<TabKey, string>> = {
  * a number anybody acts on.
  */
 function countFor(key: TabKey, rows: number, proposals: number, alerts: number): number | null {
-  if (key === "for-you") return proposals + alerts;
-  if (key === "sent") return rows;
-  return null;
+  const count = key === "for-you" ? proposals + alerts : key === "sent" ? rows : null;
+  // A zero is not a count worth wearing: an empty tab says so in words inside it.
+  return count === null || count === 0 ? null : count;
 }
 
 /** This screen, with a tab and optionally a thread. One place builds the links. */
@@ -315,11 +315,12 @@ function ForYou({
         </li>
       )}
 
-      {cards.length === 0 ? (
+      {cards.length > 0 || !assistantReachable ? null : (
         <li>
-          <p className={styles.empty}>{assistantReachable ? familyTexts.noneForYou : approval.none}</p>
+          <p className={styles.empty}>{familyTexts.noneForYou}</p>
         </li>
-      ) : (
+      )}
+      {cards.length === 0 ? null : (
         cards.map((proposal) => (
           <li key={proposal.approvalId}>
             <ProposalCard

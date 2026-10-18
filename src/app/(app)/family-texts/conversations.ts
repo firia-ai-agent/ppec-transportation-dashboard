@@ -26,7 +26,7 @@ import type { ServiceDay } from "@/domain/board/day";
 import type { DemoChangeRequest } from "@/modules/demo/change-request";
 import type { LateDropoff } from "@/modules/demo/late-dropoff";
 import type { PendingApproval } from "@/modules/approvals/decide";
-import { approval, fill, familyTexts } from "@/ui/copy";
+import { approval, fill, familyTexts, onDay } from "@/ui/copy";
 import type { Bubble, BubbleAuthor, Thread, ThreadSource } from "./thread";
 
 /** The three tabs over the list. `for-you` is the approvals queue (REDESIGN-SPEC §9.2). */
@@ -324,10 +324,20 @@ export function threadView(a: {
     relationship: a.selected.relationship,
     childFirstName: a.selected.childFirstName,
     childLabel: a.selected.childLabel,
-    runs: runsOf(bubbles, a.day.label),
+    runs: runsOf(bubbles, stampFor(a.day)),
     proposal: a.request && a.assistantReachable && a.mayApprove ? proposalFromDemo(a.request) : null,
     source: a.thread.source,
   };
+}
+
+/**
+ * What the centred stamp calls the day: "Today" on the demo day, the date on any other.
+ *
+ * The §5 rule, through the same `onDay` the board's heading uses, so a thread from a finished day
+ * cannot say "Today" (Veri #49).
+ */
+function stampFor(day: ServiceDay): string {
+  return onDay({ today: familyTexts.stampToday, otherDay: familyTexts.stampOtherDay }, day);
 }
 
 /** The family's own reply, as a bubble. Their words, unread and unsummarized. */

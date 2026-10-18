@@ -110,7 +110,9 @@ export default async function FamilyTextsPage({
       tab={tab}
       rows={conversationRows(phones, requests)}
       thread={view}
-      proposals={mayApprove ? proposalsFor(logged, requests, editedTime) : []}
+      /* Gate 5, applied once: with no model there is nothing to approve, so the queue is empty
+         and the tab's count is the alerts alone. */
+      proposals={mayApprove && assistantReachable ? proposalsFor(logged, requests, editedTime) : []}
       alerts={board.alerts}
       alertsUnreadable={board.unreadable}
       assistantReachable={assistantReachable}

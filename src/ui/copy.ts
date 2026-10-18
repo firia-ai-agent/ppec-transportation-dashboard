@@ -904,6 +904,14 @@ export const familyTexts = {
   callLabel: "Call {adult}",
   /** 390: the thread is a view of its own, and this goes back to the list. */
   backToList: "Back to the conversations",
+  /**
+   * The centred stamp above a run of bubbles (the mockup's `.ts`). "Today" on the demo day and
+   * the date on any other, which is the §5 rule every other heading on this day follows
+   * (`onDay`): a thread from last Tuesday that said "Today" would be the screen lying about when
+   * a family was texted.
+   */
+  stampToday: "Today",
+  stampOtherDay: "{date}",
   /** Under a run of outgoing bubbles the day sent by itself, from a template. */
   autoDelivered: "Auto · Delivered",
   /** Under a run of outgoing bubbles a person wrote and sent. */

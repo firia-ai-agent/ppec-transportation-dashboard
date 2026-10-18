@@ -69,6 +69,18 @@ export default defineConfig({
       // The server runs on 127.0.0.1, which Auth.js will not trust unless told to. Says so
       // once here instead of logging UntrustedHost on every readiness probe.
       AUTH_TRUST_HOST: "true",
+      /*
+       * Passed through, with no default, so that a run can choose which of the two states the
+       * Family texts screen is in — and the default (neither set) is the one where no model can
+       * be reached, which is the state every other spec already expects.
+       *
+       * `modelReach()` is a pure environment read: with `AGENT_DEMO_DATA_ONLY=true` and a
+       * non-empty key it answers "a model would answer", which is what makes the proposal card
+       * render (Firia's gate 5 — no model, no card). Nothing in a browser check drives a turn, so
+       * no call is made and no key is needed; a placeholder is enough, and none is written here.
+       */
+      OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY ?? "",
+      AGENT_DEMO_DATA_ONLY: process.env.AGENT_DEMO_DATA_ONLY ?? "",
     },
   },
 });

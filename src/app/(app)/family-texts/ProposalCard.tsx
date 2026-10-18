@@ -80,39 +80,45 @@ export function ProposalCard({
         <blockquote>{proposal.draftText === "" ? approval.draftFailed : proposal.draftText}</blockquote>
       </div>
 
-      {/* Edit: a navigation, not a decision. It sends nothing (gate 2). */}
-      <form method="get" action={editHref} className={styles.actions}>
-        <label className={styles.diffKey} htmlFor={`time-${proposal.approvalId}`}>
-          {approval.editTimeLabel}
-        </label>
-        <input
-          id={`time-${proposal.approvalId}`}
-          className={styles.editTime}
-          type="time"
-          name="time"
-          defaultValue={proposal.requestedHhmm ?? ""}
-        />
-        <button type="submit" className={styles.secondary}>
-          <Pencil size={icon.inline} aria-hidden="true" />
-          {approval.edit}
-        </button>
-      </form>
-      <p className={styles.alertRule}>{approval.editHint}</p>
+      {/* The one action row (mockups/approvals.html `.acts`), built from two forms because the
+        * three controls are two different kinds of thing: Edit is a navigation and the other two
+        * are the decision. HTML forms cannot nest, so they sit side by side and read as one bar.
+        */}
+      <p className={styles.hint}>{approval.editHint}</p>
+      <div className={styles.actions}>
+        {/* Edit: a navigation, not a decision. It writes nothing and sends nothing (gate 2). */}
+        <form method="get" action={editHref} className={styles.editForm}>
+          <label className={styles.diffKey} htmlFor={`time-${proposal.approvalId}`}>
+            {approval.editTimeLabel}
+          </label>
+          <input
+            id={`time-${proposal.approvalId}`}
+            className={styles.editTime}
+            type="time"
+            name="time"
+            defaultValue={proposal.requestedHhmm ?? ""}
+          />
+          <button type="submit" className={styles.secondary}>
+            <Pencil size={icon.inline} aria-hidden="true" />
+            {approval.edit}
+          </button>
+        </form>
 
-      {/* Approve and Don't send: the one write path, twice. */}
-      <form action={submit} className={styles.actions}>
-        <input type="hidden" name="approval" value={proposal.approvalId} />
-        <input type="hidden" name="time" value={proposal.requestedHhmm ?? ""} />
-        <button type="submit" name="decision" value="APPROVED" className={styles.primary} disabled={pending}>
-          <Check size={icon.inline} aria-hidden="true" />
-          {approval.approveAndSend}
-        </button>
-        <span className={styles.actionSpacer} />
-        <button type="submit" name="decision" value="DECLINED" className={styles.quiet} disabled={pending}>
-          <X size={icon.inline} aria-hidden="true" />
-          {approval.dontSend}
-        </button>
-      </form>
+        {/* Approve and Don't send: the one write path, twice. */}
+        <form action={submit} className={styles.decideForm}>
+          <input type="hidden" name="approval" value={proposal.approvalId} />
+          <input type="hidden" name="time" value={proposal.requestedHhmm ?? ""} />
+          <button type="submit" name="decision" value="APPROVED" className={styles.primary} disabled={pending}>
+            <Check size={icon.inline} aria-hidden="true" />
+            {approval.approveAndSend}
+          </button>
+          <span className={styles.actionSpacer} />
+          <button type="submit" name="decision" value="DECLINED" className={styles.quiet} disabled={pending}>
+            <X size={icon.inline} aria-hidden="true" />
+            {approval.dontSend}
+          </button>
+        </form>
+      </div>
 
       <p className={styles.outcome} role="status">
         {outcomeOf(state)}

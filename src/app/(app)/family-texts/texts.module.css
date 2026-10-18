@@ -25,6 +25,23 @@
   background: var(--color-canvas);
 }
 
+/*
+ * At the desktop widths the screen is the window, which is what pins the compose bar and lets the
+ * message list scroll under it (mockups/family-texts.html `.app { height: calc(100vh - 32px) }`).
+ * The window less the DEMO bar, the shell header and the shell's own padding — each read from the
+ * token that sets it, so a change to any of them moves this with it rather than leaving the bar a
+ * scroll away from the bottom.
+ */
+@media (min-width: 768px) {
+  .screen {
+    height: calc(
+      100vh - var(--layout-demo-banner-height) - var(--layout-header-height) - var(--space-6) -
+        var(--space-6)
+    );
+    min-height: 420px;
+  }
+}
+
 /* ───────────────────────────── header ───────────────────────────── */
 
 .header {
@@ -407,14 +424,32 @@
   margin: 0 0 var(--space-2);
 }
 
+.hint {
+  margin: 0;
+  padding: 0 var(--space-5) var(--space-4);
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
 .actions {
   display: flex;
-  gap: var(--space-3);
+  gap: var(--space-4);
   align-items: center;
   flex-wrap: wrap;
   padding: var(--space-4) var(--space-5);
   border-top: var(--border-hairline) solid var(--color-neutral-bg);
   background: var(--color-canvas);
+}
+
+.editForm,
+.decideForm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.decideForm {
+  flex: 1;
 }
 
 .actionSpacer {
@@ -469,6 +504,11 @@
 }
 
 /* ───────────────────────────── the compose bar ───────────────────────────── */
+
+.composeDock {
+  flex: none;
+  background: var(--color-surface);
+}
 
 .compose {
   flex: none;
@@ -627,6 +667,12 @@
     flex-wrap: wrap;
   }
 
+  .editForm,
+  .decideForm {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
   .actions .primary,
   .actions .secondary,
   .actions .quiet {
@@ -635,6 +681,21 @@
 
   .actionSpacer {
     display: none;
+  }
+
+  /*
+   * The compose bar is pinned above the bottom tab bar (Vera 3.5, item 2). The thread itself
+   * scrolls with the page at this width — a nested scroller inside a phone screen is the thing
+   * that strands a card halfway — so the bar is sticky rather than the last row of a fixed box.
+   */
+  .messages {
+    overflow: visible;
+  }
+
+  .composeDock {
+    position: sticky;
+    bottom: var(--layout-tab-bar-height);
+    z-index: 2;
   }
 
   /* Which pane the phone is on is the URL's answer, not a script's (see the file header). */
