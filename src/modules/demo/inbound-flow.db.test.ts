@@ -25,6 +25,7 @@ import { liveExecutors, liveProposalWriter } from "@/modules/agent/run/exec/regi
 import { driveRun, type RunDeps } from "@/modules/agent/run/loop";
 import type { AgentWake, AgentWakeTransport } from "@/modules/agent/run/wake";
 import { readAgentThread } from "@/modules/agent/ask/thread";
+import { askAgent } from "@/modules/agent/ask/staff-ask";
 import { decideApproval, pendingApprovals } from "@/modules/approvals/decide";
 import { boardPlacementPort } from "@/modules/approvals/plan-placement-port";
 import { FakeTransport } from "@/modules/jobs/fake-transport";
@@ -256,4 +257,56 @@ describe("Restart → Dara's text → the model's card → Approve", () => {
       vars: { replyText: REPLY },
     });
   });
+
+  it("the bubble answers 'what did they ask?' from the thread, naming Dara, Noah and 5", async () => {
+    const config = loadAgentConfig({});
+    const prompts: string[] = [];
+    // Reads the ask's prompt like a model: find Dara's thread, read it, then answer in tokens.
+    const asker: LlmProvider = {
+      kind: "fake",
+      vendor: config.provider,
+      endpoint: "/api/v1/chat/completions",
+      async invoke(call: ProviderCall): Promise<ProviderResponseBody> {
+        prompts.push(call.prompt);
+        const thread = /thread=(\S+) family=F2/.exec(call.prompt)?.[1];
+        if (!call.prompt.includes("result seq=")) {
+          return { tool_calls: [{ name: "read_guardian_thread", arguments: { thread_id: thread, count: 5 } }] };
+        }
+        return {
+          tool_calls: [
+            {
+              name: "summarize_thread_for_staff",
+              arguments: { thread_id: thread, summary: "F2 asked to have C2 dropped off at 5 instead, because someone is home then." },
+            },
+          ],
+        };
+      },
+    };
+    const execDeps = { db, scheduler: new VercelQueueScheduler(db, new FakeTransport(), () => NOW), transport: outbox };
+    const deps: RunDeps = {
+      db,
+      gateway: createGateway(asker, config, { now: () => NOW.getTime() }),
+      assemble: dbContextAssembler(db, { env: ENV }),
+      executors: liveExecutors(execDeps),
+      proposals: liveProposalWriter(execDeps),
+      scheduler: execDeps.scheduler,
+      now: () => NOW,
+    };
+    const result = await askAgent(
+      db,
+      { siteId: SITE, text: "what did they ask?", by: `staff:${coordinator}` },
+      { env: ENV, runner: () => ({ ok: true, deps, refused: false, reason: null }) },
+    );
+    expect(result, JSON.stringify(result)).toMatchObject({
+      ok: true,
+      outcome: "ran",
+      answer: "Dara asked to have Noah dropped off at 5 instead, because someone is home then.",
+    });
+    // The model read her actual words through the tool, and was never shown a name.
+    expect(prompts[1]).toMatch(/Can you drop C2 at 5 instead/);
+    expect(prompts.join("\n")).not.toMatch(/Noah|Dara/);
+    // And the answer is still there after a reload: the thread reads it back from the run's rows.
+    const view = await readAgentThread(db, SITE);
+    expect(view.items.some((i) => i.kind === "agent" && i.text.startsWith("Dara asked"))).toBe(true);
+  }, 120_000);
 });

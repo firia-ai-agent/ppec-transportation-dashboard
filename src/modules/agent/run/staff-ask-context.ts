@@ -167,6 +167,8 @@ export async function staffAskContext(
        * number, address or roster name reaches the gateway in it.
        */
       `staff_ask="${say(askTextOf(ask.summary))}"`,
+      // How the coordinator gets an answer: the run's note is what the bubble shows (ask/answer.ts).
+      "answer_with=summarize_thread_for_staff",
     ].join(" "),
     t2: [
       `service_date=${serviceDate}`,

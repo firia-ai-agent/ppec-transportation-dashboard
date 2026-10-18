@@ -588,6 +588,7 @@ const DEFS: readonly ToolDef[] = [
     staffTextFields: ["summary"],
     sendCopy: null,
     prd: "§11.2: staff-only note",
+    description: agentGuidance.summarize,
   },
 ];
 

@@ -270,6 +270,13 @@ export function vendorRequestUrl(
 export const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 
 /**
+ * Hard ceiling on a whole staff ask, driven inside the ask's own request (`ask/staff-ask.ts`). Two
+ * or three model turns on a free endpoint, and well under the route's 60 s `maxDuration`: an ask
+ * that runs out is a staff alert with reason TIMEOUT, never a 504.
+ */
+export const DEFAULT_ASK_TIMEOUT_MS = 45_000;
+
+/**
  * The one endpoint the agent needs: a single synchronous completion with tools. Anything that
  * can hold data at the vendor (batch, files) or reach outward from it (code exec, web fetch) is
  * not on this list and cannot be added (FORBIDDEN_ENDPOINT_PATTERNS).
@@ -351,6 +358,8 @@ export const agentConfigSchema = z.object({
     .default([...DEFAULT_BASE_URL_HOST_ALLOW_LIST]),
   /** Per-call timeout in ms. Exceeding it is a provider error, which the fallback chain handles. */
   requestTimeoutMs: z.number().int().positive().default(DEFAULT_REQUEST_TIMEOUT_MS),
+  /** Whole-ask deadline in ms (DEFAULT_ASK_TIMEOUT_MS). */
+  askTimeoutMs: z.number().int().positive().default(DEFAULT_ASK_TIMEOUT_MS),
 }).superRefine((c, ctx) => {
   // A model the deployment may not call is a config error, not a runtime surprise.
   for (const [field, value] of [["model", c.model], ["backupModel", c.backupModel]] as const) {
@@ -534,6 +543,7 @@ export const AGENT_ENV_VARS = [
   "AGENT_BASE_URL",
   "AGENT_BASE_URL_HOST_ALLOW_LIST",
   "AGENT_REQUEST_TIMEOUT_MS",
+  "AGENT_ASK_TIMEOUT_MS",
   "AGENT_API_KEY_ENV_VAR",
   "AGENT_MAX_CALLS_PER_RUN",
   "AGENT_MAX_CALLS_PER_MINUTE",
@@ -580,6 +590,7 @@ export function loadAgentConfig(
     baseUrl: env.AGENT_BASE_URL,
     baseUrlHostAllowList: asList(env.AGENT_BASE_URL_HOST_ALLOW_LIST),
     requestTimeoutMs: asInt(env.AGENT_REQUEST_TIMEOUT_MS),
+    askTimeoutMs: asInt(env.AGENT_ASK_TIMEOUT_MS),
     apiKeyEnvVar: env.AGENT_API_KEY_ENV_VAR,
     rateLimits: {
       maxCallsPerRun: asInt(env.AGENT_MAX_CALLS_PER_RUN),

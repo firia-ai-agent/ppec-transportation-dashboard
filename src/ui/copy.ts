@@ -3186,6 +3186,9 @@ export const agentGuidance = {
     "it. Warm, short, one or two sentences, no exclamation marks, codes or links.",
   getLegState: "Read one leg's current state, plan version, drop-off window and stop.",
   readGuardianThread: "Read the last messages on a family's thread, oldest first, to see exactly what they asked.",
+  summarize:
+    "Answer the coordinator, or leave them a note about a thread: one or two plain sentences, with " +
+    "people written as the prompt's family and child tokens, which are shown as first names.",
 } as const;
 
 export const agentBubble = {
@@ -3266,7 +3269,9 @@ export const agentBubble = {
    * pretending to have understood it. The staff alert the server raises is unchanged and says the
    * rest ({@link agentAsk.unavailable}).
    */
-  noAnswer: "I can't answer right now.",
+  noAnswer: "I couldn't answer that just now, so it's on your list as an alert.",
+  /** The model ran and proposed a change but wrote no answer line: the card below is the answer. */
+  proposedBelow: "I've drafted a change for you to review.",
   /** Nothing has been said today. The thread shows what exists and never invents a message. */
   empty: "Nothing yet today.",
 } as const;

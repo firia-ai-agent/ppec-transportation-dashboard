@@ -282,7 +282,10 @@ describe("(e) with no model there is a staff alert, and nothing else", () => {
       path.resolve(__dirname, "..", "..", "..", "app", "api", "agent", "ask", "route.ts"),
       "utf8",
     );
-    expect(route).toMatch(/Response\.json\(\{ ok: result\.ok, outcome: result\.outcome \}/);
+    // Four fields at most: ok, outcome, and — only for a run that ran — the model's answer (in
+    // names) and the proposal id. Never the runner's reason, which is the log's.
+    expect(route).toMatch(/Response\.json\(\{ ok: result\.ok, outcome: result\.outcome, \.\.\.said \}/);
+    expect(route).toMatch(/result\.outcome === "ran" \? \{ answer: result\.answer, proposalId: result\.proposalId \} : \{\}/);
     expect(route).not.toMatch(/result\.reason/);
     const forwarded = { ok: r.ok, outcome: r.outcome };
     const said = `${JSON.stringify(forwarded)} ${(await tasks()).map((t) => t.summary).join(" ")}`.toLowerCase();

@@ -51,6 +51,7 @@ import { redact } from "../redact";
 import { STAFF_ALERT_TASK_CATEGORY, STAFF_ASK_TASK_CATEGORY, askTextOf } from "./ask-text";
 import { type AgentRunner, agentRunner } from "../run/deps";
 import { effectId, raiseTask } from "../run/exec/effects";
+import { askAnswer } from "./answer";
 import type { RunDeps, RunResult } from "../run/loop";
 import { startAndDriveRun } from "../run/loop";
 import { type Trigger, assertTrigger } from "../run/triggers";
@@ -84,8 +85,18 @@ export type StaffAskResult =
    * `reason` is the runner's own sentence, for the log — never for a screen.
    */
   | { readonly ok: false; readonly outcome: "unavailable"; readonly taskId: string; readonly reason: string }
-  /** The run this ask started, and where it got to. */
-  | { readonly ok: true; readonly outcome: "ran"; readonly taskId: string; readonly run: RunResult };
+  /**
+   * The run this ask started, where it got to, and what it said: the model's answer in names
+   * (`ask/answer.ts`) and the proposal it made, if any.
+   */
+  | {
+      readonly ok: true;
+      readonly outcome: "ran";
+      readonly taskId: string;
+      readonly run: RunResult;
+      readonly answer: string | null;
+      readonly proposalId: string | null;
+    };
 
 /**
  * The log sentence for a runner that is `ok` and `refused` without words of its own. `run/deps.ts`
@@ -187,8 +198,19 @@ export async function askAgent(
   const trigger: Trigger = { type: "staff.ask", id: taskId, siteId: input.siteId };
   assertTrigger(trigger);
   try {
-    const run = await (deps.drive ?? startAndDriveRun)(answer.deps, trigger);
-    return { ok: true, outcome: "ran", taskId, run };
+    /*
+     * A HARD DEADLINE ON THE WHOLE ASK. The run is driven inside this request, and a request that
+     * outlives the route's `maxDuration` is a 504 nobody is told about. So the ask gets
+     * `askTimeoutMs` (config, default 45 s) and, if the model has not finished by then, it ends
+     * the same way a model that could not be reached does: one alert, a person told.
+     */
+    const run = await withDeadline(
+      (deps.drive ?? startAndDriveRun)(answer.deps, trigger),
+      answer.deps.gateway.config.askTimeoutMs,
+    );
+    if (run === TIMED_OUT) throw new AskTimedOut();
+    const said = await askAnswer(db, run.runId);
+    return { ok: true, outcome: "ran", taskId, run, answer: said.answer, proposalId: said.proposalId };
   } catch (err) {
     /*
      * The model could not be reached after all — a gateway PROVIDER_ERROR, a missing key, a
@@ -212,6 +234,31 @@ export async function askAgent(
       },
       by: input.by,
     });
-    return { ok: false, outcome: "unavailable", taskId: alertId, reason: "the model could not be reached" };
+    return {
+      ok: false,
+      outcome: "unavailable",
+      taskId: alertId,
+      reason: err instanceof AskTimedOut ? "TIMEOUT" : "the model could not be reached",
+    };
   }
+}
+
+class AskTimedOut extends Error {}
+const TIMED_OUT = Symbol("timed out");
+
+/** `promise`, or TIMED_OUT once `ms` have passed. The loser is not awaited. */
+function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve(TIMED_OUT), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
 }
