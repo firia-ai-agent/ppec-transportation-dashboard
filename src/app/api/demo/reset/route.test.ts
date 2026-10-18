@@ -12,12 +12,23 @@ import { PREVIEW_REFUSAL, RESET_ROLES } from "@/modules/demo/reset";
  * so stubbing it stands in for the whole session half: no token is decoded and no auth DB is opened.
  * guard-matrix.test.ts is where the guard's own answers are checked, role by role.
  */
-const DB_OPENED = "stub: the route opened the database";
-const getCaller = vi.fn(async () => ({
-  kind: "STAFF" as const, role: "DIRECTOR" as const,
-  userId: "00000000-0000-7000-8000-0000000000d1", memberships: [],
-}));
-const getNeonDb = vi.fn(() => { throw new Error(DB_OPENED); });
+/*
+ * `vi.hoisted`, because both factories below are hoisted above every other statement in this file:
+ * a `const` declared here in source order does not exist yet when they run, and vitest refuses the
+ * mock rather than closing over an undefined. The sentinel string is in here too — the stub that
+ * throws it is built in the same block.
+ */
+const { DB_OPENED, getCaller, getNeonDb } = vi.hoisted(() => {
+  const DB_OPENED = "stub: the route opened the database";
+  return {
+    DB_OPENED,
+    getCaller: vi.fn(async () => ({
+      kind: "STAFF" as const, role: "DIRECTOR" as const,
+      userId: "00000000-0000-7000-8000-0000000000d1", memberships: [],
+    })),
+    getNeonDb: vi.fn(() => { throw new Error(DB_OPENED); }),
+  };
+});
 vi.mock("@/auth/caller", () => ({ getCaller }));
 vi.mock("@/db/exec", () => ({ getNeonDb }));
 
