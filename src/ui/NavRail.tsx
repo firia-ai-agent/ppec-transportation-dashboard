@@ -55,7 +55,19 @@ export type RailAccount = {
  *  - the visible `<span>`, which is in the DOM at every width and revealed by the expansion.
  * The icon is `aria-hidden`, so the name is never announced twice.
  */
-export function NavRail({ role, account }: { role: StaffRole | null; account: RailAccount | null }) {
+export function NavRail({
+  role,
+  account,
+  waiting: forYouWaiting,
+}: {
+  role: StaffRole | null;
+  account: RailAccount | null;
+  /**
+   * A live count of what is waiting in Family texts · For you, for the one badge on the menu.
+   * There is none to pass until #61 lands, and an absent count draws nothing (`menuBadgeFor`).
+   */
+  waiting?: number | null;
+}) {
   const pathname = usePathname();
   // The role is a string, so it crosses the server/client boundary; the icons do not, which is
   // why the list is built here rather than passed in.
@@ -76,7 +88,7 @@ export function NavRail({ role, account }: { role: StaffRole | null; account: Ra
           {navItems.map((item) => {
             const Icon = item.icon;
             const current = isCurrent(pathname, item.href);
-            const waiting = menuBadgeFor(item.href, role);
+            const waiting = menuBadgeFor(item.href, role, forYouWaiting);
             /*
              * The count is part of the name, not a decoration beside it: a disc with "2" in it
              * says nothing to a screen reader, and what is waiting for a person is exactly what
@@ -94,6 +106,13 @@ export function NavRail({ role, account }: { role: StaffRole | null; account: Ra
                   aria-label={name}
                   title={name}
                   aria-current={current ? "page" : undefined}
+                  /*
+                   * What a menu item *is*, for a check that counts them: the rail's foot carries
+                   * one more link that is not a destination — the account block — so "how many
+                   * links are in the nav" and "how many items are on the menu" are two
+                   * questions, and this is the second one (e2e/nav-rail.spec.ts).
+                   */
+                  data-nav-item
                 >
                   <Icon size={icon.nav} aria-hidden="true" />
                   <span className={styles.label} aria-hidden="true">

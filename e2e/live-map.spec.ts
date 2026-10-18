@@ -12,13 +12,29 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
+import type { StaffRole } from "../src/auth/core";
+import { canSeeMapData } from "../src/domain/access/map-view";
 import { demoBanner, fill, fleetMap, liveMap, sourceMode } from "../src/ui/copy";
 import { FLEET } from "../src/fixtures/fleet";
+
+/**
+ * One run is one role (`E2E_DEMO_ROLE`, playwright.config.ts). Every staff role opens this
+ * screen — the person at the door needs to see where the vans are — but they do not all see
+ * the same screen: the notification decisions are the coordinator's and the director's, and the
+ * injected-fault panel and the scenario clock are the director's alone. That matrix is
+ * src/domain/access/map-view.ts, and it is what this file asks rather than assuming a director:
+ * a panel this role's row does not carry is asserted *absent*, which is the half that matters
+ * (the front desk must not be holding the notification queue).
+ */
+const ROLE = (process.env.E2E_DEMO_ROLE ?? "DIRECTOR") as StaffRole;
+const SEES_DECISIONS = canSeeMapData(ROLE, "notificationDecisions");
+const SEES_FAULTS = canSeeMapData(ROLE, "injectedFaults");
+const HOLDS_CLOCK = canSeeMapData(ROLE, "clockControls");
 
 const ARTIFACTS = path.resolve(__dirname, "..", "artifacts");
 const SCREENSHOT = path.join(ARTIFACTS, "live-map.png");
 
-test("the live map renders the fleet map and saves a screenshot", async ({ page }) => {
+test(`the live map renders the fleet map and saves a screenshot, as ${ROLE}`, async ({ page }) => {
   const failures: string[] = [];
   page.on("pageerror", (e) => failures.push(e.message));
 
@@ -49,17 +65,29 @@ test("the live map renders the fleet map and saves a screenshot", async ({ page 
   // The tile notice is the failure path; neither it nor its longer form may be on screen.
   await expect(page.getByText(fleetMap.tilesFailed, { exact: false })).toHaveCount(0);
 
-  // §9: the map is never the only way to read the fleet. The list beside it is, and the
-  // DIRECTOR role this check signs in as sees the vehicles and the demo controls.
+  // §9: the map is never the only way to read the fleet. The list beside it is, and every
+  // staff role gets it — the vans are what the screen is for.
   const vehicles = page.getByRole("list", { name: fleetMap.vehiclesHeading });
   await expect(vehicles).toBeVisible();
   expect(await vehicles.getByRole("listitem").count()).toBeGreaterThan(0);
   await expect(page.getByRole("button", { name: fleetMap.fitAll })).toBeVisible();
-  await expect(page.getByRole("heading", { name: liveMap.decisionsHeading })).toBeVisible();
-  await expect(page.getByRole("heading", { name: liveMap.faultsHeading })).toBeVisible();
 
-  // Pause the scenario clock, so the screenshot is a still fleet rather than a blur.
-  await page.getByRole("button", { name: liveMap.pause, exact: true }).click();
+  /*
+   * The two panels that are not every role's, each asserted the way round this role's row in
+   * the matrix says: the notification queue (the coordinator and the director) and the demo's
+   * injected faults (the director). "Absent" is the load-bearing half — the front desk at the
+   * door has no business holding either, and a hidden panel is not an absent one.
+   */
+  const decisions = page.getByRole("heading", { name: liveMap.decisionsHeading });
+  const faults = page.getByRole("heading", { name: liveMap.faultsHeading });
+  await (SEES_DECISIONS ? expect(decisions).toBeVisible() : expect(decisions).toHaveCount(0));
+  await (SEES_FAULTS ? expect(faults).toBeVisible() : expect(faults).toHaveCount(0));
+
+  // Pause the scenario clock, so the screenshot is a still fleet rather than a blur. The clock's
+  // controls are the director's, and they ride in the DEMO bar (src/ui/DemoClock.tsx).
+  const pause = page.getByRole("button", { name: liveMap.pause, exact: true });
+  if (HOLDS_CLOCK) await pause.click();
+  else await expect(pause, `${ROLE} is being offered the scenario clock`).toHaveCount(0);
   // Then let the basemap finish: tiles, glyphs and sprites are all separate requests.
   await page.waitForLoadState("networkidle");
 

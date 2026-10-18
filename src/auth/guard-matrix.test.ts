@@ -109,9 +109,27 @@ vi.mock("@/db/exec", () => ({ getNeonDb, runAfterCommit: vi.fn() }));
  *
  * It is `async` so that `toHtml` below unwraps it the way it unwraps any server component and
  * reaches the card inside.
+ *
+ * It does render the one part of the frame that is the refusal's own words: the page header
+ * bar's title. The address a refusal is answered at has no row in the access table to read a
+ * title from, so the shared component hands the bar this card's heading and the card prints
+ * none (#74, and src/ui/refused-frame.test.ts states the wiring) — dropping it here would make
+ * the equality below read a refusal that has lost its heading as correct.
  */
 vi.mock("@/ui/ConsoleShell", () => ({
-  ConsoleShell: async ({ children }: { children: ReactNode }) => children,
+  ConsoleShell: async ({ title, children }: { title?: string; children: ReactNode }) => {
+    /*
+     * The card inside is a server component as well, and `toHtml` below only unwraps the root
+     * one — the legacy renderer cannot await a component nested inside markup. So it is
+     * resolved here, which is what lets this stand-in put anything *around* the card at all.
+     */
+    const element = children as ReactElement<unknown>;
+    const card =
+      isValidElement(element) && typeof element.type === "function"
+        ? await (element.type as (props: unknown) => Promise<ReactNode>)(element.props)
+        : children;
+    return createElement("div", null, title ? createElement("h1", null, title) : null, card);
+  },
 }));
 /*
  * The real `next/link` wants a router from React context that exists only inside Next, and the

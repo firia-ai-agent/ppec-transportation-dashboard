@@ -14,16 +14,37 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { board, countable, fill, nav, planRoutes as copy, pluralize, securement, solver, vanName } from "../src/ui/copy";
 import { DEFAULT_MAP_STYLE_URL } from "../src/components/map/style";
-import { API } from "../src/auth/access";
+import { API, canOpenPage } from "../src/auth/access";
+import type { StaffRole } from "../src/auth/core";
 import { capabilityStates, reservationStates } from "../src/ui/states";
 import {
   boxOf,
   expectDemoBarPinned,
-  expectDemoControlStyling,
   expectNoInternalCodes,
   expectVioletOnlyOnDemoChrome,
   shot,
 } from "./helpers";
+
+/**
+ * ONE RUN IS ONE ROLE (`E2E_DEMO_ROLE`, playwright.config.ts), and this screen is not every
+ * role's: Plan routes is the coordinator's and the director's (src/auth/access.ts). A front desk
+ * who types the address is sent to their own home with the §9.3 notice, so every test in this
+ * file would be measuring the live map. They are skipped, by name, rather than deleted —
+ * e2e/role-pages.spec.ts is where "a page that is not on your menu" is the thing being checked.
+ */
+const ROLE = (process.env.E2E_DEMO_ROLE ?? "DIRECTOR") as StaffRole;
+const OPENS_PLAN_ROUTES = canOpenPage({ kind: "STAFF", role: ROLE }, "/plan-routes");
+
+test.beforeEach(() => {
+  test.skip(!OPENS_PLAN_ROUTES, `${ROLE} does not open Plan routes`);
+});
+
+/**
+ * The screen's own subtitle row, which is where the service date is: the title above it belongs
+ * to the frame's page header bar now (audit §2 item 1), so "the span after the h1" is the bar's
+ * spacer and reads empty.
+ */
+const subtitleOf = (page: Page) => page.locator("main header span").first();
 
 /** The chair the ramp measures when the equipment that arrives is not the equipment on file. */
 const MEASURED_CHAIR = "Chair measured at the ramp · 142 × 74 cm";
@@ -895,9 +916,9 @@ test.describe("Plan routes", () => {
    * road, the provider sent the small substitute, and no van left today holds four-point straps.
    * The normal scenario is untouched, which is what keeps the feasible-plan check above honest.
    *
-   * The toggle itself is checked here too (Vera's review, 2026-10-17): it is labelled by what
-   * happens rather than by a date, it is painted as the demo control it is, and the one demo day
-   * the screen replays is the same date on both sides of it.
+   * The choice itself is checked here too: it is labelled by what happens rather than by a date,
+   * it is the screen's own control rather than the violet banner it was for one afternoon (#74),
+   * and the one demo day the screen replays is the same date on both sides of it.
    */
   test("AT-12: the demo scenario where one child cannot be placed shows the group and a reason", async ({
     page,
@@ -905,17 +926,23 @@ test.describe("Plan routes", () => {
     await page.goto("/plan-routes");
 
     // The scenario is a choice on the screen, in plain words, and the normal day is the default.
-    const toggle = page.locator('[data-demo-control="true"]');
+    const toggle = page.locator('[data-scenario="true"]');
     await expect(toggle).toBeVisible();
     const ordinary = toggle.getByRole("button", {
       name: copy.demoScenario.EVERY_RIDER_FITS,
       exact: true,
     });
     await expect(ordinary).toHaveAttribute("aria-pressed", "true");
-    // It is a demo control and looks like one: the DEMO bar's own fill, not the screen's.
-    await expectDemoControlStyling(toggle);
-    // Named by the scenario, never by a date: the one date on the screen is the heading's.
-    const dateLabel = await page.locator("h1 + span").innerText();
+    /*
+     * It is the screen's own control, not a banner: the violet "Demo scenario" bar it used to be
+     * is deleted (#74, Vera's audit; Firia's ruling), so the chosen run is marked the way every
+     * other choice on this screen is — a fill, and a check mark beside it (§3: never colour
+     * alone). The whole-page violet scan at the end of this test is the other half.
+     */
+    await expect(ordinary.locator("svg")).toHaveCount(1);
+    // Named by the scenario, never by a date: the one date on the screen is the subtitle's.
+    const dateLabel = await subtitleOf(page).innerText();
+    expect(dateLabel, "no service date on the screen to compare").not.toBe("");
     for (const label of Object.values(copy.demoScenario)) {
       await expect(toggle.getByRole("button", { name: label, exact: true })).toBeVisible();
       expect(label, "a scenario label reads like a date").not.toMatch(/\d/);
@@ -926,7 +953,7 @@ test.describe("Plan routes", () => {
       .click();
     await expect(page.getByText(copy.demoScenarioNote.ONE_RIDER_HAS_NO_VAN)).toBeVisible();
     // Still the one demo day: switching the scenario does not move the screen to another date.
-    expect(await page.locator("h1 + span").innerText()).toBe(dateLabel);
+    expect(await subtitleOf(page).innerText()).toBe(dateLabel);
 
     /*
      * Before planning, both groups are on screen at once, which is the clearest place to read
@@ -982,15 +1009,15 @@ test.describe("Plan routes", () => {
     await expectEquipmentFits(page);
     await expectNoInternalCodes(page);
     await expectNoVehicleCodes(page);
-    // The toggle is violet, and it is still the only thing on the screen that is.
+    // Nothing on this screen is violet, the scenario choice included (#74).
     await expectVioletOnlyOnDemoChrome(page);
     console.log("screenshot:", await shot(page, "plan-routes-at12-demo-scenario"));
 
     // Back to the normal day, and the plan it starts from is dropped rather than carried over:
     // nobody is in a van, and nobody is a failure either.
     await ordinary.click();
-    await expectDemoControlStyling(toggle);
-    expect(await page.locator("h1 + span").innerText()).toBe(dateLabel);
+    await expect(ordinary).toHaveAttribute("aria-pressed", "true");
+    expect(await subtitleOf(page).innerText()).toBe(dateLabel);
     expect(await page.locator("[data-unplaced]").count()).toBe(0);
     expect((await waitingNames(page)).length).toBeGreaterThanOrEqual(9);
     for (const lane of await lanes(page)) expect(lane.riders, lane.id).toEqual([]);
@@ -1446,7 +1473,7 @@ test.describe("Plan routes", () => {
     await page.goto("/plan-routes");
     // The scenario where no van has four-point straps, so this is the one move the screen
     // refuses — read off the screen first, so the refusal below is the same verdict.
-    const toggle = page.locator('[data-demo-control="true"]');
+    const toggle = page.locator('[data-scenario="true"]');
     await toggle.getByRole("button", { name: copy.demoScenario.ONE_RIDER_HAS_NO_VAN }).click();
     await plan(page);
     const group = page.locator("[data-unplaced]");

@@ -1,8 +1,8 @@
 /*
  * The one control in the DEMO bar. It wears the bar's own pair — a white outline and white text
- * on the violet — rather than the screen's brand tone, for the reason the demo controls already
- * follow (src/ui/DemoControls.module.css): a button that steers the *demo* must not look like
- * one of the day's decisions. The violet is the bar's; this is inside it.
+ * on the violet — rather than the screen's brand tone, for the reason every control in this bar
+ * follows (src/ui/DemoClock.module.css is the other): a button that steers the *demo* must not
+ * look like one of the day's decisions. The violet is the bar's; this is inside it.
  */
 .wrap {
   display: flex;

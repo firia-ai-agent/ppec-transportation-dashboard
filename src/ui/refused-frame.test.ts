@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { PAGES } from "@/auth/access";
+import { pageTitleFor } from "./page-title";
 import { shellComesFromLayout } from "./refused-frame";
 
 /**
@@ -102,6 +103,37 @@ describe("every forbidden.tsx renders the one shared framed component", () => {
     expect(source).not.toMatch(/ConsoleShell|AppShell|getCaller/);
     // And no second card: the boundary names a page, the shared component renders the screen.
     expect(source).not.toMatch(/<NoAccess\b/);
+  });
+
+  /**
+   * THE REFUSAL HAS A TITLE, AND EXACTLY ONE — Veri's gate on #74.
+   *
+   * The frame's page header bar prints a screen's own label from the access table, and the one
+   * address that renders this card is deliberately *not* a screen: no row, no label, no title.
+   * So the card arrived with no h1 at all — on the one screen in the app that is nothing but a
+   * heading and a line. The shared component hands the bar the refusal's own heading instead,
+   * and the card below it then prints none (src/ui/NoAccess.tsx `titleInFrame`), so the screen
+   * has one title and says it once. The painted half is e2e/one-menu.spec.ts, at 390 and 1440.
+   */
+  it("gives the frame the refusal's own title, because the table has none to give", () => {
+    // The hole: the address that renders the card has no row with a label on it.
+    expect(pageTitleFor("/refusal-check")).toBe("");
+    const source = read(path.join(UI, "RefusedPage.tsx"));
+    expect(source).toMatch(/title=\{refusalHeading\(caller\)\}/);
+    expect(source).toMatch(/<NoAccess path=\{path\} titleInFrame \/>/);
+    // ...and a boundary that is already inside a frame leaves that frame's own title alone.
+    expect(source).toMatch(/if \(shellComesFromLayout\(path\)\) return <NoAccess path=\{path\} \/>;/);
+    // The bar prints what it is given, and reads the table only when it is given nothing.
+    const bar = read(path.join(UI, "PageHeader.tsx"));
+    expect(bar).toMatch(/const title = given \?\? pageTitleFor\(pathname\)/);
+    expect(bar).toMatch(/<h1 className=\{styles\.title\}>\{title\}<\/h1>/);
+    // One title, from one place: the shell passes it straight through, and nothing else sets it.
+    for (const [file, pattern] of [
+      ["ConsoleShell.tsx", /title=\{title\}/],
+      ["AppShell.tsx", /<PageHeader account=\{account\} title=\{title\} \/>/],
+    ] as const) {
+      expect(read(path.join(UI, file)), file).toMatch(pattern);
+    }
   });
 
   it("the refusal's frame is wired in one file, and it is the shared component", () => {

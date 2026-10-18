@@ -6,7 +6,6 @@ import { color, contrastRatio, layout } from "./tokens";
 import { MENU_SIZE, navItems, navItemsFor } from "./nav-items";
 import { flow } from "./copy";
 import { menuBadgeFor } from "./menu-badge";
-import { FOR_YOU_WAITING } from "@/fixtures/for-you";
 
 /**
  * ONE MENU, ON EVERY SCREEN IT LINKS TO.
@@ -271,10 +270,17 @@ describe("§2 bottom tab bar, <768", () => {
    * THE COUNT ON FAMILY TEXTS (REDESIGN-SPEC §9.2, audit §2 item 2): a 20 px Teal disc with
    * white text, and the number said in words in the tab's accessible name, because the disc is
    * aria-hidden and a shape says nothing to a reader (§9).
+   *
+   * **And nothing at all until the number is real** (#61, Veri's S2 on #74). It was a fixture —
+   * `FOR_YOU_WAITING = 2` — so every director and coordinator was shown "2 waiting" above a
+   * screen with nothing waiting on it. The fixture is deleted; the count arrives from the
+   * caller, and there is no live one to pass yet. Both halves are stated here: an absent or
+   * zero count draws no disc and says no "waiting", and a live count above zero draws the one
+   * on the mockup.
    */
-  it("carries the Family texts count, as a disc and as words", () => {
+  it("carries the Family texts count, as a disc and as words, when there is one", () => {
     const component = read(path.join(UI, "TabBar.tsx"));
-    expect(component).toMatch(/menuBadgeFor\(item\.href, role\)/);
+    expect(component).toMatch(/menuBadgeFor\(item\.href, role, forYouWaiting\)/);
     expect(component).toMatch(/data-menu-badge/);
     expect(component).toMatch(/flow\.tabbar\.waiting/);
     expect(flow.tabbar.waiting).toBe("{label}, {count} waiting");
@@ -285,14 +291,38 @@ describe("§2 bottom tab bar, <768", () => {
     expect(layout.badgeSize).toBe("20px");
     // White on Teal is the §8 row, 5.47:1.
     expect(contrastRatio(color.surface, color.brand)).toBeGreaterThanOrEqual(4.5);
-    // It is the one count on the menu, and only for the roles that can act on it.
-    expect(menuBadgeFor("/family-texts", "DIRECTOR")).toBe(FOR_YOU_WAITING);
-    expect(menuBadgeFor("/family-texts", "COORDINATOR")).toBe(FOR_YOU_WAITING);
-    expect(menuBadgeFor("/family-texts", "FRONT_DESK")).toBeNull();
-    expect(menuBadgeFor("/family-texts", null)).toBeNull();
+
+    // A live count, for the roles that can act on what is waiting — and for nobody else.
+    expect(menuBadgeFor("/family-texts", "DIRECTOR", 3)).toBe(3);
+    expect(menuBadgeFor("/family-texts", "COORDINATOR", 1)).toBe(1);
+    expect(menuBadgeFor("/family-texts", "FRONT_DESK", 3)).toBeNull();
+    expect(menuBadgeFor("/family-texts", null, 3)).toBeNull();
+
+    // No count, no badge: zero is not "0", and unavailable is not "waiting".
+    for (const absent of [0, -1, null, undefined, Number.NaN]) {
+      expect(menuBadgeFor("/family-texts", "DIRECTOR", absent), String(absent)).toBeNull();
+      expect(menuBadgeFor("/family-texts", "COORDINATOR", absent), String(absent)).toBeNull();
+    }
+    // And nothing passes one, so no role is shown a badge at all until #61 lands.
+    for (const role of ROLE_LADDER) expect(menuBadgeFor("/family-texts", role)).toBeNull();
+    // Nowhere but Family texts, whatever is passed.
     for (const item of navItemsFor("DIRECTOR")) {
       if (item.href === "/family-texts") continue;
-      expect(menuBadgeFor(item.href, "DIRECTOR"), item.href).toBeNull();
+      expect(menuBadgeFor(item.href, "DIRECTOR", 3), item.href).toBeNull();
+    }
+  });
+
+  /**
+   * The fixture itself is gone, not merely unread: a count with no work behind it is the kind
+   * of thing that comes back by being imported again (Firia on Veri's S2, #74).
+   */
+  it("has no fixture behind the count", () => {
+    expect(existsSync(path.join(UI, "..", "fixtures", "for-you.ts"))).toBe(false);
+    // The code, with the comments stripped: the one above `menuBadgeFor` names the fixture it
+    // replaced, which is where a reference to it belongs.
+    const code = (file: string) => read(path.join(UI, file)).replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+    for (const file of ["menu-badge.ts", "TabBar.tsx", "NavRail.tsx"]) {
+      expect(code(file), file).not.toMatch(/@\/fixtures|FOR_YOU_WAITING/);
     }
   });
 
@@ -309,8 +339,10 @@ describe("§2 bottom tab bar, <768", () => {
   it("marks the page you are on by more than colour", () => {
     expect(read(path.join(UI, "TabBar.tsx"))).toMatch(/aria-current=\{current \? "page" : undefined\}/);
     const current = css.slice(css.indexOf('.tab[aria-current="page"]'));
-    expect(current).toMatch(/border-top-color: var\(--color-brand\)/);
-    expect(current).toMatch(/font-weight: var\(--weight-semibold\)/);
+    // mockup: /workspace/ppec-redesign/mockups/shell-flow.html:75 — inset 3 px brand bar, bold, no fill.
+    expect(current).toMatch(/box-shadow: inset 0 var\(--border-current\) 0 var\(--color-brand\)/);
+    expect(current).toMatch(/background: transparent/);
+    expect(current).toMatch(/font-weight: var\(--weight-bold\)/);
   });
 
   it("sits clear of the iPhone home bar, and the page clears the bar", () => {
@@ -324,7 +356,7 @@ describe("§2 bottom tab bar, <768", () => {
   });
 
   it("the three screens get the bar, because they get the shell", () => {
-    expect(read(path.join(UI, "AppShell.tsx"))).toMatch(/<TabBar role=\{role\} \/>/);
+    expect(read(path.join(UI, "AppShell.tsx"))).toMatch(/<TabBar role=\{role\}/);
     expect(shellLayouts).toHaveLength(4);
     expect(LAYOUT.planRoutes).toBe("layout:plan-routes");
   });

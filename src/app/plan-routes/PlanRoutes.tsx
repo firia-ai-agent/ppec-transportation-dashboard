@@ -28,8 +28,12 @@
  * src/ui/copy.ts and colours and metrics from the tokens in src/ui/tokens.ts; the DEMO banner
  * and the one source chip come from the root layout, so this page must not mount a second pair.
  *
- * The one thing here wearing the demo violet is the scenario control in the header, and it is
- * shared demo chrome (src/ui/DemoControls) rather than anything this screen styles itself.
+ * Nothing on this screen wears the demo violet. It is reserved for the DEMO bar above every
+ * screen and the one §7.1 Simulated chip in it (D-5), and the violet banner this header used to
+ * carry — the "Demo scenario" toggle, in the bar's own fill — is deleted: Vera's audit asked for
+ * it gone and the computed-colour scan now finds no violet on Plan routes at all. Which run of
+ * the demo day is on screen is still a choice, in the screen's own outlined buttons beside the
+ * run switcher, and the demo panel (B-15) is where it ends up.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Ban, Check, ChevronDown, ChevronRight } from "lucide-react";
@@ -66,7 +70,6 @@ import {
   type Unplaced,
 } from "@/domain/solver";
 import { board, fill, needCategories, places, planRoutes, rampIpad, vanName } from "@/ui/copy";
-import { DemoControls } from "@/ui/DemoControls";
 import { demoDateLabel } from "@/ui/service-date";
 import { StateChip } from "@/ui/StateChip";
 import { icon } from "@/ui/tokens";
@@ -98,8 +101,8 @@ import styles from "./plan.module.css";
  * given on (Firia, 2026-10-17 4:50 PM ET; src/ui/service-date.ts is the one helper that maps
  * it). The fixture's own date is still the key every row is looked up by — only the words move.
  *
- * One date, for both scenarios: the demo control below switches which run of this day is on
- * screen, and the screen never shows a second one (Vera's review, 2026-10-17).
+ * One date, for both scenarios: the run switcher below picks which run of this day is on
+ * screen, and the screen never shows a second date (Vera's review, 2026-10-17).
  */
 const SERVICE_DATE_LABEL = demoDateLabel(PLAN_SERVICE_DATE);
 
@@ -957,21 +960,30 @@ export default function PlanRoutes() {
           fact that no family has been told anything — can only be read in the run where one
           child's equipment has no van to hold it.
 
-          It is a demo control and wears the DEMO bar's clothes, not the screen's (Vera's
-          review, 2026-10-17): a coordinator never chooses which run their day was. The date in
-          the heading is the same either way — one demo day, two scenarios — and when the demo
-          panel lands (B-15) this control moves into it.
+          It used to be a violet banner across the top of this header, in the DEMO bar's own
+          fill and flask. Vera's audit asked for the banner deleted and Firia ruled on it at
+          #74: no violet anywhere on Plan routes. What is left is the choice itself, in the two
+          outlined buttons the run switcher beside it uses — a group with a name, a check mark
+          on the one that is on screen, and the sentence under it saying what that run is. The
+          date is the same either way (one demo day, two runs) and when the demo panel lands
+          (B-15) this choice moves into it.
         */}
-        <DemoControls
-          legend={planRoutes.demoScenarioLegend}
-          options={DEMO_SCENARIOS.map((value) => ({
-            value,
-            label: planRoutes.demoScenario[value],
-          }))}
-          value={scenario}
-          onChange={chooseScenario}
-          note={planRoutes.demoScenarioNote[scenario]}
-        />
+        <div
+          className={styles.actionRow}
+          role="group"
+          aria-label={planRoutes.demoScenarioLegend}
+          data-scenario="true"
+        >
+          {DEMO_SCENARIOS.map((value) => (
+            <Button
+              key={value}
+              label={planRoutes.demoScenario[value]}
+              pressed={value === scenario}
+              onClick={() => chooseScenario(value)}
+            />
+          ))}
+        </div>
+        <p className={styles.note}>{planRoutes.demoScenarioNote[scenario]}</p>
         <div className={styles.actionRow} role="group" aria-label={planRoutes.directionLegend}>
           {(["AM", "PM"] as const).map((value) => (
             <Button

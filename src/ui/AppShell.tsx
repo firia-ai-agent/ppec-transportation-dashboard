@@ -51,6 +51,8 @@ import styles from "./AppShell.module.css";
 export function AppShell({
   account,
   role,
+  title,
+  forYouWaiting,
   pageOwnsMain = false,
   children,
 }: {
@@ -61,6 +63,21 @@ export function AppShell({
   account: RailAccount | null;
   /** The caller's role, so the menu offers only the pages they can open. `null` shows none. */
   role: StaffRole | null;
+  /**
+   * The title for the page header bar, for the one screen whose path has no row in the access
+   * table to read one from: the refusal (src/ui/RefusedPage.tsx). Every other screen's title is
+   * its own row's label and nothing passes this.
+   */
+  title?: string;
+  /**
+   * How many things are waiting in Family texts · For you, for the menu's one count badge.
+   *
+   * There is no live count yet, so nothing passes one and the badge does not render (#61 is the
+   * read, and until it lands a number here would be a fixture claiming work that does not
+   * exist — Firia, on Veri's S2). `null` and `undefined` both draw nothing; a count above zero
+   * draws the disc for the roles that can act on it (src/ui/menu-badge.ts).
+   */
+  forYouWaiting?: number | null;
   /**
    * True for a screen that renders its own `<main>` — the three that were built before this
    * shell reached them. §9 allows one `main` landmark per page, so the shell hands them a plain
@@ -81,20 +98,20 @@ export function AppShell({
         <NoticeToast />
       </Suspense>
       <div className={styles.body}>
-        <NavRail role={role} account={account} />
+        <NavRail role={role} account={account} waiting={forYouWaiting} />
         {/*
           The content column: the page header bar, then the screen. The bar is the frame's — one
           title, one place, every screen — and the screen below it brings its own body and
           nothing above it (audit §2 item 1).
         */}
         <div className={styles.column}>
-          <PageHeader account={account} />
+          <PageHeader account={account} title={title} />
           <Content id="content" className={pageOwnsMain ? styles.contentSlot : styles.main}>
             {children}
           </Content>
         </div>
       </div>
-      <TabBar role={role} />
+      <TabBar role={role} waiting={forYouWaiting} />
     </div>
   );
 }
