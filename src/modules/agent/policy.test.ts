@@ -79,13 +79,26 @@ describe("the happy paths the agent is for", () => {
     expect(decisionSends(d)).toBe(false);
   });
 
-  it("sends a templated follow-up to a consented family on its own authority (§11.2 auto tier)", () => {
-    // §11.2 marks send_followup `auto` and holds only *free text* behind a human approval. The
-    // model picked an allow-listed template and vars the outbox permits for it, so none of the
-    // words are its own and there is nothing for a human to read before it goes.
+  it("proposes a templated follow-up to a consented family, and sends nothing (S1-7)", () => {
+    /*
+     * §11.2 used to mark `send_followup` `auto`, and this case read "on its own authority".
+     * Firia's S1-7 ruling (2026-10-18) moved it: a templated message is still a message to a
+     * family, so the tool is `human` tier with a `propose` effect and the verdict is a proposal
+     * a coordinator decides (`modules/approvals/decide.ts`).
+     *
+     * What did NOT change is everything the call had to get past to reach this line — the
+     * template, the vars, the family scope, the consent — because the checks are gated on a call
+     * carrying outbound copy and not on the effect being `send` (policy.ts steps 6 and 9). The
+     * cases below prove each of them still blocks.
+     */
     const d = evaluate({ tool: "send_followup", args: SEND }, ctx());
-    expect(d).toMatchObject({ verdict: "ALLOW", effect: "send", args: SEND });
-    expect(decisionSends(d)).toBe(true);
+    expect(d).toMatchObject({
+      verdict: "PROPOSAL",
+      rule: "human_tier_requires_approval",
+      args: SEND,
+      mutates: false,
+    });
+    expect(decisionSends(d)).toBe(false);
   });
 
   it("allows a read with no context at all", () => {
@@ -359,14 +372,17 @@ describe("§11.2 prohibited: messaging non-consented numbers", () => {
     // refusing it only meant nobody heard about the family whose consent state is the very reason
     // to look. The context is the strictest one there is: nothing in this site is sendable.
     const d = evaluate({ tool: "send_followup", args: STAFF_NOTICE }, ctx({ sendableSubjects: new Set() }));
-    expect(d).toMatchObject({ verdict: "ALLOW", effect: "send", args: STAFF_NOTICE });
+    // A proposal rather than an ALLOW since S1-7 — the tool's tier moved, not this ruling. The
+    // task itself is still written, by the proposal writer rather than by an executor
+    // (`agent/run/exec/proposals.ts` `followupProposal`, the `staff` branch), and the point of
+    // ledger #65 holds: the call is not refused for a consent that protects no number here.
+    expect(d).toMatchObject({ verdict: "PROPOSAL", rule: "human_tier_requires_approval", args: STAFF_NOTICE });
     // Still in scope, though: a staff notice may name this run's own family and nothing else.
     expect(
       evaluate({ tool: "send_followup", args: { ...STAFF_NOTICE, subject_token: "C2" } }, ctx({ sendableSubjects: new Set() })),
     ).toMatchObject({ verdict: "BLOCK", rule: "cross_family_disclosure" });
-    // `decisionSends` still counts this as a send, deliberately: the policy layer classifies by
-    // effect, and the audience → "not a message" step is the executor's. Over-counting keeps the
-    // attack suite's send sink conservative (attacks.test.ts VERI-2).
+    // `decisionSends` is false for every proposal, which is the stronger claim of the two: a
+    // proposal queues nothing at all, whatever its audience would have been.
   });
 
   it("every message to that same family is still blocked, whatever shape it takes", () => {
@@ -599,9 +615,13 @@ describe("module invariants", () => {
   });
 
   it("decisionSends is true only for an allowed sending tool", () => {
-    expect(decisionSends(evaluate({ tool: "send_followup", args: SEND }, ctx()))).toBe(true);
+    // The catalog's remaining autonomous send: a fixed-copy alert to a therapist (§11.2 auto).
+    const THERAPIST = { therapy_session_token: "SESS-C1", child_token: "C1", impact: "LATE", eta: "09:30" };
+    expect(decisionSends(evaluate({ tool: "notify_affected_therapist", args: THERAPIST }, ctx()))).toBe(true);
     expect(decisionSends(evaluate({ tool: "cancel_attendance_or_leg", args: CANCEL }, ctx()))).toBe(false);
-    expect(decisionSends(evaluate({ tool: "send_followup", args: SEND }, ctx({ paused: true })))).toBe(false);
+    expect(decisionSends(evaluate({ tool: "notify_affected_therapist", args: THERAPIST }, ctx({ paused: true })))).toBe(false);
+    // And never for a message the agent only proposes (S1-7), approved or not, paused or not.
+    expect(decisionSends(evaluate({ tool: "send_followup", args: SEND }, ctx()))).toBe(false);
     expect(decisionSends(evaluate({ tool: "send_followup", args: { ...SEND, body: "late today" } }, ctx()))).toBe(false);
   });
 });

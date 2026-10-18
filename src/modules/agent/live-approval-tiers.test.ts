@@ -2,8 +2,9 @@
  * VERI-2 on the **live path**: the approval tiers are a property of the catalog and the policy
  * engine, not of which provider answered.
  *
- * §11.2 is unchanged by slice 5 — a templated send is autonomous, free text to a parent needs
- * human approval, a `propose_*` tool is always a proposal — and the risk a live vendor introduces
+ * §11.2 is unchanged by slice 5 — free text to a parent needs human approval, a `human`-tier tool
+ * is always a proposal, a fixed-copy alert to a therapist is autonomous — and the risk a live
+ * vendor introduces
  * is that someone assumes the gate lives in the provider layer and quietly relaxes it for the
  * "real" model. So this file drives the **actual remote adapter**, with `fetch` mocked, through the
  * **actual gateway** into the **actual policy engine**, and asserts the tiers land exactly where
@@ -13,9 +14,10 @@
  * `fakeProvider` and once through the live adapter, must produce byte-identical policy decisions.
  *
  * As in `free-text-approval.test.ts`, the catalog deliberately contains no free-text sender, so
- * `vi.mock` supplies one — `send_followup` re-declared with a `body` argument. `request_clarification`
- * keeps its real template declaration here, so the same file holds a genuine templated-auto case
- * next to the free-text one.
+ * `vi.mock` supplies one — `send_followup` re-declared with a `body` argument and pinned to the
+ * auto tier. `request_clarification` is left alone, so the same file holds a real `human`-tier
+ * templated message (S1-7) next to the free-text one, and `notify_affected_therapist` beside them
+ * as the send that is still autonomous.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,6 +26,15 @@ vi.mock("./tools", async (importOriginal) => {
   const { z } = await import("zod");
   const freeTextFollowup = {
     ...actual.toolDef("send_followup")!,
+    /*
+     * Forced back to the auto-sending tier (S1-7). The real `send_followup` is `human`/`propose`
+     * since Firia's 2026-10-18 ruling, and spreading it would have made this a test of the human
+     * tier rather than of the free-text gate — which would pass for the wrong reason and stop
+     * failing the day the gate broke. What this file is about is the tool somebody ADDS: an
+     * auto-tier sender that carries its own words, and the approval §11.2 holds it behind.
+     */
+    tier: "auto" as const,
+    effect: "send" as const,
     schema: z.strictObject({
       audience: z.enum(actual.AUDIENCES),
       subject_token: z.string(),
@@ -146,24 +157,42 @@ async function liveTurn(
 }
 
 describe("the mock put a free-text sender in the catalog, and left the templated one alone", () => {
-  it("send_followup declares free text; request_clarification still declares its template", () => {
+  it("send_followup declares free text; request_clarification still declares its own template", () => {
     expect(toolDef("send_followup")).toMatchObject({ effect: "send", tier: "auto", sendCopy: { kind: "free_text" } });
-    expect(toolDef("request_clarification")!.sendCopy).toEqual({
-      kind: "template",
-      idArg: "draft_template_id",
-      varsArg: null,
+    /*
+     * `request_clarification` is NOT re-declared by this file's mock, so it is the real one: a
+     * `human`-tier `propose` tool that still says where its copy comes from (S1-7). Declaring it
+     * is what keeps the policy engine checking the template and the vars before a coordinator is
+     * ever shown the words (policy.ts step 6).
+     */
+    expect(toolDef("request_clarification")).toMatchObject({
+      tier: "human",
+      effect: "propose",
+      sendCopy: { kind: "template", idArg: "draft_template_id", varsArg: null },
     });
     expect(toolDef("notify_affected_therapist")!.sendCopy).toEqual({ kind: "fixed" });
   });
 });
 
-describe("live path: a templated send stays autonomous", () => {
-  it("a template-copy send from the live model is ALLOWed and sends, with no approval", async () => {
+describe("live path: a templated message to a family waits for a person (S1-7)", () => {
+  /*
+   * This case used to read "a template-copy send from the live model is ALLOWed and sends, with
+   * no approval", and `request_clarification` was the templated-autonomous example. Firia's S1-7
+   * ruling (2026-10-18) is that it is not: a templated message is still a message to a family,
+   * so the tool is `human` tier with a `propose` effect and the live model gets the same answer
+   * the fake one does. The autonomous half of this file is the case below — a fixed-copy alert
+   * to a therapist, which §11.2 still marks `auto`.
+   */
+  it("a template-copy message from the live model is a PROPOSAL, and sends nothing", async () => {
     const { decision, tier } = await liveTurn("request_clarification", CLARIFY);
-    expect(tier).toBe("auto");
-    expect(decision).toMatchObject({ verdict: "ALLOW", tool: "request_clarification", effect: "send" });
-    expect(decisionSends(decision)).toBe(true);
-    expect("requiresApproval" in decision).toBe(false);
+    expect(tier).toBe("human");
+    expect(decision).toMatchObject({
+      verdict: "PROPOSAL",
+      tool: "request_clarification",
+      rule: "human_tier_requires_approval",
+      mutates: false,
+    });
+    expect(decisionSends(decision)).toBe(false);
   });
 
   it("a fixed-copy send from the live model is ALLOWed too", async () => {

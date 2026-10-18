@@ -27,6 +27,7 @@
  * of `messaging/templates.ts`.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import { MESSAGE_SEND_KIND } from "@/modules/approvals/message-send";
 import { testIdentityGateway } from "@/test/identity-gateway";
 
 /**
@@ -349,8 +350,23 @@ describe("check 1, part 3: a model that tries prose queues nothing", () => {
   });
 });
 
-describe("check 1, part 4: a templated follow-up goes out on the agent's own authority", () => {
-  it("queues, drains and delivers one allow-listed template, with no approval anywhere", async () => {
+/**
+ * PART 4 — …and the templated follow-up that **a person releases**.
+ *
+ * This part used to read "a templated follow-up goes out on the agent's own authority", and it
+ * was the second half of Veri's sentence: part 3 would have been worth nothing if nothing could
+ * ever be sent. Firia's S1-7 ruling (2026-10-18) changed what that half is. A templated message
+ * is still a message to a family, so `send_followup` is `human` tier with a `propose` effect now
+ * — the run queues nothing at all, and a coordinator's approval is what puts the text in the
+ * outbox (`modules/approvals/decide.ts`).
+ *
+ * So the shape of the claim is the same and the authority moved: one allow-listed template, two
+ * codes, no prose anywhere — queued, drained, delivered — with **an approval in the middle of it
+ * rather than none**. The assertion that nothing reaches the outbox before that approval is the
+ * one worth having, and it is the first one below.
+ */
+describe("check 1, part 4: a templated follow-up goes out when a person releases it (S1-7)", () => {
+  it("proposes instead of queueing: nothing is in the outbox before a person approves", async () => {
     sc = await seedAgentScenario(db);
     const h = harness([
       toolCall("send_followup", {
@@ -363,17 +379,25 @@ describe("check 1, part 4: a templated follow-up goes out on the agent's own aut
     const r = await h.start(trigger());
     expect(r.state).toBe("SUCCEEDED");
 
-    const queued = await outbound();
-    expect(queued.map((m) => [m.template_id, m.state])).toEqual([["leg.canceled", "QUEUED"]]);
-    expect(queued[0].vars).toEqual({ legDate: sc.serviceDate, reasonCode: "FAMILY_REQUEST" });
-    expect(await approvals()).toBe(0);
+    // NOTHING queued, and nothing sent — the whole of the ruling, in two lines.
+    expect(await outbound()).toEqual([]);
+    expect(h.provider.sent).toEqual([]);
+    // One row for a person instead, of the message kind.
+    expect(await approvals()).toBe(1);
+    const row = await db.query<{ proposal: { kind?: string; template_id?: string; recipient_tokens?: string[] } }>(
+      "SELECT proposal FROM ops.approval_request",
+      [],
+    );
+    expect(row.rows[0].proposal.kind).toBe(MESSAGE_SEND_KIND);
+    expect(row.rows[0].proposal.template_id).toBe("leg.canceled");
+    // The recipients were computed from the audience and the subject, not named by the model.
+    expect((row.rows[0].proposal.recipient_tokens ?? []).length).toBeGreaterThan(0);
+  });
 
-    expect(await h.drainOutbox()).toEqual(["SENT"]);
-    // What left the building is the outbox's own words, filled from codes — not a model's.
-    expect(h.provider.sent.map((p) => [p.templateId, p.vars])).toEqual([
-      ["leg.canceled", { legDate: sc.serviceDate, reasonCode: "FAMILY_REQUEST" }],
-    ]);
-    const body = renderTemplate("leg.canceled", { legDate: sc.serviceDate, reasonCode: "FAMILY_REQUEST" });
+  it("and the words a person would be approving carry no prose", async () => {
+    // The body is still the outbox's own, filled from codes — which is what part 4 was always
+    // about. It is rendered here through the renderer both the card and the outbox use.
+    const body = renderTemplate("leg.canceled", { legDate: "2026-10-14", reasonCode: "FAMILY_REQUEST" });
     expect(body).not.toContain(PROSE);
     expect(body.length).toBeGreaterThan(0);
   });

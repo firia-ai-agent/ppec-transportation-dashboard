@@ -31,7 +31,9 @@ import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { TEST_NOW } from "@/test/clock";
 import { seedPersona, seedStaff } from "@/test/messaging";
 import { freshDb, ORG, SITE } from "@/test/pglite";
+import { renderTemplate } from "@/modules/messaging/templates";
 import { decideApproval, pendingApprovals } from "./decide";
+import { MESSAGE_SEND_KIND } from "./message-send";
 import type { PlanPlacementPortFor, SetChildPlacementInput } from "./plan-placement-port";
 
 let pg: PGlite;
@@ -41,6 +43,8 @@ let transport: FakeOutboxTransport;
 let coordinator: string;
 let childToken: string;
 let legId: string;
+/** The authorized contact a message proposal would be approved to text (S1-7). */
+let contactToken: string;
 
 /** The other tenant, for the ID-swap row. Seeded here, as `idswap.test.ts` seeds its own. */
 const SITE_B = "00000000-0000-7000-8000-00000000000b";
@@ -61,6 +65,7 @@ beforeEach(async () => {
 
   // One family, one child, one afternoon leg — the shape a drop-off proposal is about.
   const persona = await seedPersona(db, "+15615550102", { siteId: SITE, now: TEST_NOW });
+  contactToken = persona.contactToken;
   childToken = demoChildToken(CHILD_KEY);
   legId = demoLegId(CHILD_KEY, "PM");
   await db.query(
@@ -504,5 +509,127 @@ describe("another kind of proposal", () => {
       status: 404,
       body: { ok: false, error: "NO_SUCH_APPROVAL" },
     });
+  });
+});
+
+/**
+ * A MESSAGE APPROVAL (Firia's S1-7 ruling, 2026-10-18).
+ *
+ * `send_followup` and `request_clarification` propose now, so a second kind of row reaches this
+ * decision — and it is guarded differently, on purpose. A message moves nothing, so there is no
+ * plan write to guard and no `plan_run` version check at all; what it is guarded on instead is
+ * the exact text the person approving had in front of them.
+ *
+ * Note what is NOT seeded in these cases: no `plan_run_version_basis` and no plan port that could
+ * answer one. A drop-off proposal without a basis is refused (above); a message proposal without
+ * one sends, because there is nothing for a version to be a version OF.
+ */
+describe("a message approval: the text is the guard, and no plan is read (S1-7)", () => {
+  /** The row `proposals.messageSend` writes for a `send_followup` to a family. */
+  async function seedMessage(over: { vars?: Record<string, unknown>; templateId?: string } = {}): Promise<string> {
+    const taskId = uuidv7();
+    await db.query(
+      `INSERT INTO ops.task (id, site_id, category, severity, state, summary, next_step, completion_predicate,
+         created_by, updated_by, source_mode)
+       VALUES ($1, $2, 'FAMILY_MESSAGE', 'AMBER', 'OPEN', 'There is a text ready for a family',
+         'Read the text, then decide', 'the text approved or declined', 'test', 'test', 'SIMULATED')`,
+      [taskId, SITE],
+    );
+    const id = uuidv7();
+    await db.query(
+      `INSERT INTO ops.approval_request (id, site_id, task_id, proposal, created_by, updated_by, source_mode)
+       VALUES ($1, $2, $3, $4::jsonb, 'test', 'test', 'SIMULATED')`,
+      [
+        id,
+        SITE,
+        taskId,
+        JSON.stringify({
+          kind: MESSAGE_SEND_KIND,
+          tool: "send_followup",
+          audience: "GUARDIAN_OF_CHILD",
+          recipient_tokens: [contactToken],
+          child_token: childToken,
+          therapy_session_id: null,
+          trip_leg_id: legId,
+          channel: "SMS_1TO1",
+          purpose: "FAMILY_TRANSPORT_UPDATE",
+          recipient_rule: "authorized_contacts_for_child",
+          template_id: over.templateId ?? "leg.canceled",
+          vars: over.vars ?? { legDate: SERVICE_DATE, reasonCode: "FAMILY_REQUEST" },
+          approval_key: "a-key",
+        }),
+      ],
+    );
+    return id;
+  }
+
+  /** The words the card would show for that row: one renderer, the same one the outbox uses. */
+  const wordsOf = (vars: Record<string, unknown> = { legDate: SERVICE_DATE, reasonCode: "FAMILY_REQUEST" }) =>
+    renderTemplate("leg.canceled", vars, { child: "Noah O." });
+
+  it("queues the text for the recipient the row names, and writes no plan", async () => {
+    const id = await seedMessage();
+    const answer = await decide({ approvalId: id, approvedText: wordsOf() });
+    expect(answer.status).toBe(200);
+    expect(answer.body.ok && answer.body.queued).toBe(1);
+
+    // One message, to the authorized contact the proposal resolved — not to anybody the decision
+    // chose, and not to the coordinator.
+    const out = await queued();
+    expect(out.map((m) => [m.template_id, m.state])).toEqual([["leg.canceled", "QUEUED"]]);
+    expect(out[0].child_token).toBe(childToken);
+    // The plan port was never asked for a placement, let alone given one.
+    expect(placements).toEqual([]);
+  });
+
+  it("refuses a decision whose words are not the words the row renders, and sends nothing", async () => {
+    const id = await seedMessage();
+    expect(await decide({ approvalId: id, approvedText: "PPEC: something else entirely." })).toEqual({
+      status: 409,
+      body: { ok: false, error: "MESSAGE_CHANGED" },
+    });
+    expect(await queued()).toEqual([]);
+
+    // And the row is still PENDING, so the coordinator may read the new words and decide again —
+    // which is the whole of "an edit resets to pending and needs fresh approval".
+    const still = await pendingApprovals(db, [SITE]);
+    expect(still.map((p) => p.id)).toEqual([id]);
+    expect(await decide({ approvalId: id, approvedText: wordsOf() })).toMatchObject({ status: 200 });
+  });
+
+  it("refuses a decision that names no words at all", async () => {
+    const id = await seedMessage();
+    expect(await decide({ approvalId: id })).toEqual({
+      status: 409,
+      body: { ok: false, error: "MESSAGE_CHANGED" },
+    });
+    expect(await queued()).toEqual([]);
+  });
+
+  it("approves exactly once: the second press is 409 and queues no second text", async () => {
+    const id = await seedMessage();
+    expect(await decide({ approvalId: id, approvedText: wordsOf() })).toMatchObject({ status: 200 });
+    expect(await decide({ approvalId: id, approvedText: wordsOf() })).toEqual({
+      status: 409,
+      body: { ok: false, error: "ALREADY_DECIDED" },
+    });
+    expect((await queued()).length).toBe(1);
+  });
+
+  it("'Don't send' writes the decision and queues nothing", async () => {
+    const id = await seedMessage();
+    const answer = await decide({ approvalId: id, decision: "DECLINED", approvedText: wordsOf() });
+    expect(answer.body.ok && answer.body.queued).toBe(0);
+    expect(await queued()).toEqual([]);
+    expect(await pendingApprovals(db, [SITE])).toEqual([]);
+  });
+
+  it("is on the For you queue beside a drop-off proposal, and reads as the same card", async () => {
+    const message = await seedMessage();
+    const dropoff = await seedProposal();
+    const waiting = await pendingApprovals(db, [SITE]);
+    expect(waiting.map((p) => p.id).sort()).toEqual([message, dropoff].sort());
+    // Both render their words through the same renderer, which is what the card shows.
+    expect(waiting.every((p) => p.text.length > 0)).toBe(true);
   });
 });

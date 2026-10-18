@@ -55,28 +55,44 @@ describe("VERI-1: every registry tool has a policy row", () => {
     expect(new Set(row!.scopedArgs).size).toBe(row!.scopedArgs.length);
   });
 
+  /*
+   * The consent subject is declared by every tool whose call CARRIES outbound copy — not only by
+   * the ones that send it (S1-7).
+   *
+   * `send_followup` and `request_clarification` propose their message now, and the consent check
+   * reads the same row for them as before (policy.ts step 9): a card offering to text a family
+   * that has withdrawn consent is a card nobody should be shown, so the refusal stays where
+   * every other one is, before a row exists. Dropping their `sendSubject` with the tier change
+   * would have moved that check to drain and shown somebody the words first.
+   */
   it.each(TOOL_NAMES.map((n) => [n, TOOL_REGISTRY[n].effect] as const))(
-    "VERI-1 %s (%s) declares a consent subject exactly when it sends",
+    "VERI-1 %s (%s) declares a consent subject exactly when it carries outbound copy",
     (tool, effect: ToolEffect) => {
       const row = policyRow(tool)!;
-      if (effect === "send") {
-        expect(row.sendSubject, `${tool} sends with no consent subject`).not.toBeNull();
+      if (effect === "send" || TOOL_REGISTRY[tool].sendCopy !== null) {
+        expect(row.sendSubject, `${tool} carries copy with no consent subject`).not.toBeNull();
         expect(schemaArgs(tool)).toContain(row.sendSubject!);
       } else {
-        expect(row.sendSubject, `${tool} does not send but names a consent subject`).toBeNull();
+        expect(row.sendSubject, `${tool} carries no copy but names a consent subject`).toBeNull();
       }
     },
   );
 
-  it("VERI-1 the four sending tools are the ones §11.2 marks as outbound", () => {
-    const sending = TOOL_NAMES.filter((n) => TOOL_REGISTRY[n].effect === "send");
-    expect(sending).toEqual([
+  it("VERI-1 the four outbound tools are the ones §11.2 marks as outbound", () => {
+    const outbound = TOOL_NAMES.filter((n) => TOOL_REGISTRY[n].effect === "send" || TOOL_REGISTRY[n].sendCopy !== null);
+    expect(outbound).toEqual([
       "request_clarification",
       "send_followup",
       "notify_affected_therapist",
       "request_provider_capability",
     ]);
-    expect(sending.every((n) => policyRow(n)!.sendSubject !== null)).toBe(true);
+    // The same four §11.2 marks outbound. Two of them propose their message and two send it
+    // (S1-7); all four are consent-checked by the row, which is what this is about.
+    expect(outbound.every((n) => policyRow(n)!.sendSubject !== null)).toBe(true);
+    expect(TOOL_NAMES.filter((n) => TOOL_REGISTRY[n].effect === "send")).toEqual([
+      "notify_affected_therapist",
+      "request_provider_capability",
+    ]);
   });
 
   it("VERI-1 no row names an argument the catalog may not even have (recipient/permission/site)", () => {

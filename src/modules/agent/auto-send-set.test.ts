@@ -28,7 +28,8 @@ import { renderTemplate } from "@/modules/messaging/templates";
 import { etaNoticeTemplate } from "@/modules/messaging/eta-notice";
 import { DbSimMessagingProvider } from "@/modules/messaging/sim-provider";
 import { SIM_PERSONA_NUMBERS } from "@/modules/messaging/sim-numbers";
-import { FOLLOWUP_TEMPLATE_FAMILIES, FOLLOWUP_TEMPLATE_IDS } from "./tools";
+import { FOLLOWUP_TEMPLATE_FAMILIES, FOLLOWUP_TEMPLATE_IDS, toolDef } from "./tools";
+import { MESSAGE_SEND_TOOLS } from "@/modules/approvals/message-send";
 import { GUARDIAN_SEND_TEMPLATES } from "./run/exec/followup";
 import { registerTestGuardian, testIdentityGateway } from "@/test/identity-gateway";
 
@@ -163,5 +164,40 @@ describe("the late notice goes to a synthetic number or nowhere (MOCKS §3)", ()
     ).rejects.toBeInstanceOf(ProviderRejected);
     const rows = await db.query<{ n: number }>("SELECT count(*)::int AS n FROM ops.message", []);
     expect(Number(rows.rows[0].n)).toBe(0);
+  });
+});
+
+/**
+ * S1-7 (Firia, 2026-10-18): the agent PROPOSES its messages; the day still sends its own.
+ *
+ * Two halves of one ruling, and they are easy to confuse. What became a proposal is the
+ * **agent's** text — `send_followup` and `request_clarification`, whichever template they name.
+ * What did not change is the **day's** notices: `pickup.eta`, `dropoff.eta`, `dropoff.late` and
+ * `dropoff.received` are sent by the deterministic sweeps (`messaging/eta-notice.ts`), which are
+ * not tool calls at all, and the GPS late notice in particular MUST keep going out with no staff
+ * tap. The two lists are read here, in one place, so that moving a template between them is a
+ * thing somebody has to do on purpose.
+ */
+describe("the agent proposes its messages, and the day's own notices still send themselves (S1-7)", () => {
+  it("makes both message tools human-tier proposals", () => {
+    for (const name of MESSAGE_SEND_TOOLS) {
+      const def = toolDef(name);
+      expect(def, name).toBeDefined();
+      expect([name, def!.tier, def!.effect]).toEqual([name, "human", "propose"]);
+    }
+  });
+
+  it("leaves the GPS late notice off the tool schema entirely, so no tap can gate it", () => {
+    // It is not a template the model may name, which is why no ruling about tools can reach it.
+    expect(FOLLOWUP_TEMPLATE_IDS).not.toContain(LATE_NOTICE);
+    expect(AUTO_SEND_TEMPLATES.has(LATE_NOTICE)).toBe(true);
+  });
+
+  it("leaves every template the day sends itself on the auto-send list", () => {
+    // Unchanged by S1-7 and listed in the PR body as an open question for Firia: these four are
+    // the day's own notices, and nobody approves them.
+    for (const id of ["pickup.eta", "dropoff.eta", "dropoff.late", "dropoff.received"]) {
+      expect([id, AUTO_SEND_TEMPLATES.has(id)]).toEqual([id, true]);
+    }
   });
 });

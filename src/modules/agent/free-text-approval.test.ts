@@ -26,6 +26,15 @@ vi.mock("./tools", async (importOriginal) => {
   const { z } = await import("zod");
   const freeTextFollowup = {
     ...actual.toolDef("send_followup")!,
+    /*
+     * Forced back to the auto-sending tier (S1-7). The real `send_followup` is `human`/`propose`
+     * since Firia's 2026-10-18 ruling, and spreading it would have made this a test of the human
+     * tier rather than of the free-text gate — which would pass for the wrong reason and stop
+     * failing the day the gate broke. What this file is about is the tool somebody ADDS: an
+     * auto-tier sender that carries its own words, and the approval §11.2 holds it behind.
+     */
+    tier: "auto" as const,
+    effect: "send" as const,
     schema: z.strictObject({
       audience: z.enum(actual.AUDIENCES),
       subject_token: z.string(),
@@ -37,7 +46,14 @@ vi.mock("./tools", async (importOriginal) => {
     sendCopy: { kind: "free_text" as const },
     prd: "§11.2: free-text to parents *with* human approval — the tool the catalog deliberately lacks",
   };
-  const undeclaredClarification = { ...actual.toolDef("request_clarification")!, sendCopy: null };
+  // Same reason as above: the accidental case is an auto-tier SENDING tool that declares no
+  // copy source, so it is pinned to that tier here rather than inheriting the real one.
+  const undeclaredClarification = {
+    ...actual.toolDef("request_clarification")!,
+    tier: "auto" as const,
+    effect: "send" as const,
+    sendCopy: null,
+  };
   const overrides: Record<string, typeof freeTextFollowup | typeof undeclaredClarification> = {
     send_followup: freeTextFollowup,
     request_clarification: undeclaredClarification,

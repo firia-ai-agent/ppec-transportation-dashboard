@@ -332,17 +332,33 @@ async function runCall(
   );
 }
 
-describe("VERI-2: templated sends go out, and nothing else does", () => {
-  it("VERI-2 the four sending tools are the whole egress surface of the catalog", () => {
-    expect(TOOL_NAMES.filter((n) => TOOL_REGISTRY[n].effect === "send").sort()).toEqual(
-      SEND_CALLS.map(([tool]) => tool).sort(),
-    );
+/**
+ * The four outbound tools, and the two tiers they now sit in (S1-7, Firia 2026-10-18).
+ *
+ * This block used to read "templated sends go out, and nothing else does", and all four were
+ * `auto`. Two of them — `send_followup` and `request_clarification` — are the ones that reach a
+ * **family**, and Firia's ruling is that a person decides those: they are `human` tier with a
+ * `propose` effect, so what they produce is a row somebody approves and NOT a message.
+ *
+ * The claim the block makes is therefore stronger than it was, and it is still the same claim
+ * about the egress surface: these four are the whole of it, none of them carries a word the model
+ * wrote, two of them go out on the agent's own authority and two wait for a person.
+ */
+describe("VERI-2: the outbound surface is four tools, two of which wait for a person", () => {
+  /** The two that still send by themselves: a therapist alert and a dispatcher question. */
+  const AUTONOMOUS = ["notify_affected_therapist", "request_provider_capability"];
+
+  it("VERI-2 the four outbound tools are the whole egress surface of the catalog", () => {
+    const outbound = TOOL_NAMES.filter((n) => TOOL_REGISTRY[n].effect === "send" || TOOL_REGISTRY[n].sendCopy !== null);
+    expect(outbound.sort()).toEqual(SEND_CALLS.map(([tool]) => tool).sort());
+    // And the half of it that may act alone is the half that does not text a family.
+    expect(TOOL_NAMES.filter((n) => TOOL_REGISTRY[n].effect === "send").sort()).toEqual([...AUTONOMOUS].sort());
   });
 
-  it("VERI-2 every one of them is auto-tier, with copy it does not write (§11.2 tier column)", () => {
+  it("VERI-2 every one of them carries copy it does not write (§11.2 tier column)", () => {
     for (const [tool] of SEND_CALLS) {
       const def = TOOL_REGISTRY[tool];
-      expect(def.tier, tool).toBe("auto");
+      expect([tool, def.tier]).toEqual([tool, AUTONOMOUS.includes(tool) ? "auto" : "human"]);
       // `free_text` is the one declaration that would put a tool behind the approval gate, and no
       // catalog tool makes it: there is no call the model can make that carries its own prose.
       expect(def.sendCopy, tool).not.toBeNull();
@@ -351,13 +367,21 @@ describe("VERI-2: templated sends go out, and nothing else does", () => {
   });
 
   it.each(SEND_CALLS.map(([tool, args]) => [tool, args] as const))(
-    "VERI-2 %s sends on the agent's own authority: templated copy needs no approval",
+    "VERI-2 %s carries codes and nothing else, whoever releases it",
     async (tool, args) => {
       const r = await runCall(tool, args);
-      expect(r.stage).toBe("allow");
-      expect(r.sends).toHaveLength(1);
-      expect(r.decision).toMatchObject({ verdict: "ALLOW", tool, effect: "send" });
-      // What reaches the sink is codes: no value in it reads as a sentence someone wrote.
+      if (AUTONOMOUS.includes(tool)) {
+        expect(r.stage).toBe("allow");
+        expect(r.sends).toHaveLength(1);
+        expect(r.decision).toMatchObject({ verdict: "ALLOW", tool, effect: "send" });
+      } else {
+        // A family message: a proposal, and nothing in the send sink at all (S1-7).
+        expect(r.stage).toBe("proposal");
+        expect(r.sends).toEqual([]);
+        expect(r.decision).toMatchObject({ verdict: "PROPOSAL", tool, mutates: false });
+      }
+      // What reaches the sink — or the row — is codes: no value in it reads as a sentence
+      // someone wrote. The same assertion either way, which is the point of making it here.
       for (const value of JSON.stringify(r.args).match(/"[^"]*"/g) ?? []) {
         expect(value, `${tool} ${value}`).not.toMatch(/\S\s+\S+\s+\S/);
       }
@@ -365,13 +389,14 @@ describe("VERI-2: templated sends go out, and nothing else does", () => {
   );
 
   it.each(AUDIENCES.map((a) => [a] as const))(
-    "VERI-2 a follow-up addressed to %s is addressed by role, and sends the same way",
+    "VERI-2 a follow-up addressed to %s is addressed by role, and waits the same way",
     async (audience) => {
       const [, args] = SEND_CALLS[0];
       const r = await runCall("send_followup", { ...args, audience });
-      expect(r.decision).toMatchObject({ verdict: "ALLOW", effect: "send" });
-      // The role is all the model ever says about who this is for; the contact is computed at
-      // send time (§10.3), which is why widening the audience widens no recipient here.
+      expect(r.decision).toMatchObject({ verdict: "PROPOSAL", rule: "human_tier_requires_approval" });
+      expect(r.sends).toEqual([]);
+      // The role is all the model ever says about who this is for; the contact is computed when
+      // the proposal is written (§10.3), which is why widening the audience widens no recipient.
       expect(JSON.stringify(r.args)).toContain(audience);
     },
   );
