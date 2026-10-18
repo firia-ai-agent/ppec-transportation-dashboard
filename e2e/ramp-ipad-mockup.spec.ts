@@ -82,7 +82,13 @@ async function planTheMorning(page: Page, day: string): Promise<void> {
   const state = page.locator("[data-save-state]");
   if (!/^Saved /.test((await state.textContent()) ?? "")) {
     await page.locator("[data-auto-plan]").click();
-    await expect(page.locator("[data-unassigned-count]")).toHaveText("0");
+    /*
+     * Nobody waiting. The "✓ 0" chip is gone since Vera's check of b3453cd (png/plan-board.png
+     * draws a count only while children are unplaced), so the column says it with the chip's
+     * absence and its own green line.
+     */
+    await expect(page.locator("[data-unassigned-count]")).toHaveCount(0);
+    await expect(page.locator('[data-role="unassigned"]')).toContainText(planBoard.allPlaced);
     await page.locator("[data-save]").click();
   }
   await expect(state).toHaveText(/^Saved /);

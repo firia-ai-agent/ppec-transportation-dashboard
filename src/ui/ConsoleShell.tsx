@@ -1,5 +1,11 @@
 import type { ReactNode } from "react";
+import { canOpenForYou } from "@/auth/access";
 import type { ResolvedCaller } from "@/auth/caller";
+import { getNeonDb } from "@/db/exec";
+import { readAgentThreadOrEmpty } from "@/modules/agent/ask/thread";
+import { siteOf } from "@/modules/plan/api";
+import { AgentBubble } from "./AgentBubble";
+import { AgentCompose } from "./AgentCompose";
 import { AppShell } from "./AppShell";
 import { fill, identity, roleNames } from "./copy";
 import { accountLines, initialsOf } from "./display-name";
@@ -30,8 +36,25 @@ const ACCOUNT_PATH = "/whoami";
  * shell renders, so the rail's account block, the phone's avatar and /whoami cannot disagree
  * about who is signed in — and `accountLines` is the one that decides a session whose whole
  * name *is* a role says that role once rather than twice.
+ *
+ * THE AGENT BUBBLE IS MOUNTED HERE, and here only (src/ui/AgentBubble.tsx). The founder asked for
+ * it "on every screen", and this is the one component every app route's layout renders — so one
+ * mount is every route, by the same argument src/ui/one-menu.test.ts makes about the menu. It
+ * also has to be *one* mount rather than four: the panel's open/closed state lives in the
+ * component, and a bubble mounted per layout would close itself every time somebody changed tab.
+ *
+ * It is given `canOpenForYou(caller)` — the server's own answer, from the same function the For
+ * you page guards itself with — rather than a role, because the bubble shows proposals waiting
+ * for a decision and the front desk may not decide. The function is asked here for the same
+ * reason the nav role is: one expression, so no screen can hold a different opinion.
+ *
+ * The thread is read here too, and only for somebody who may see it: one read, in the one place
+ * the bubble is mounted, so a tab change costs the same query rather than a different one per
+ * screen. It is fail-soft (`readAgentThreadOrEmpty`) — a panel that cannot list today's proposals
+ * is a far smaller problem than a console that will not render, and the proposals are still on
+ * their own screen, which is where the panel's own buttons go.
  */
-export function ConsoleShell({
+export async function ConsoleShell({
   caller,
   title,
   pageOwnsMain,
@@ -48,6 +71,8 @@ export function ConsoleShell({
   children: ReactNode;
 }) {
   const role = caller.kind === "STAFF" ? caller.role : null;
+  const canDecide = canOpenForYou(caller);
+  const thread = canDecide ? await readAgentThreadOrEmpty(getNeonDb, siteOf(caller)) : null;
   const lines = accountLines(caller.displayName, role ? roleNames[role].one : null);
   const account: RailAccount | null = lines.name
     ? {
@@ -60,8 +85,16 @@ export function ConsoleShell({
       }
     : null;
   return (
-    <AppShell account={account} role={role} title={title} pageOwnsMain={pageOwnsMain}>
-      {children}
-    </AppShell>
+    <>
+      <AppShell account={account} role={role} title={title} pageOwnsMain={pageOwnsMain}>
+        {children}
+      </AppShell>
+      <AgentBubble
+        canDecide={canDecide}
+        waiting={thread?.waiting ?? 0}
+        items={thread?.items ?? []}
+        compose={<AgentCompose />}
+      />
+    </>
   );
 }

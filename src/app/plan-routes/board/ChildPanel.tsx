@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import type { CounterKey } from "@/config/equipment";
+import type { Bucket } from "@/domain/plan/board";
 import type { PanelNeeds } from "@/domain/plan/needs";
 import { fill, planBoard } from "@/ui/copy";
 import { COUNTER_ICON, COUNTER_LABEL } from "@/ui/equipment";
@@ -129,10 +130,32 @@ export function ChildPanel({
   );
 }
 
-/** "Van 3 · Afternoon" / "Unassigned · Morning" — where a child is, for the panel's subline. */
-export function whereLine(vanName: string | null, leg: "AM" | "PM"): string {
+/**
+ * The word for the lane a child is in when they are in no van — the same label the lane itself
+ * carries, so the panel and the board say one thing.
+ *
+ * `UNASSIGNED` is null because it has a line of its own (`whereUnassigned`), and `VAN` is null
+ * because a child in a van is named by the van.
+ */
+const BUCKET_WORD: Record<Bucket, string | null> = {
+  VAN: null,
+  UNASSIGNED: null,
+  FAMILY_DRIVES: planBoard.familyDrives,
+  ABSENT: planBoard.absent,
+};
+
+/**
+ * "Van 3 · Afternoon" / "Family drives · Afternoon" / "Unassigned · Morning" — where a child is,
+ * for the panel's subline.
+ *
+ * It reads the child's **bucket on this leg's plan**, not just their van (Veri S2, 2026-10-18):
+ * a family-drives child has no van, and the line said "Unassigned" about a child who is not
+ * waiting for anything. The lane's own label is what it says instead, from copy.ts.
+ */
+export function whereLine(vanName: string | null, bucket: Bucket, leg: "AM" | "PM"): string {
   const legWord = leg === "AM" ? planBoard.morning : planBoard.afternoon;
-  return vanName
-    ? fill(planBoard.child.where, { van: vanName, leg: legWord })
+  const place = vanName ?? BUCKET_WORD[bucket];
+  return place
+    ? fill(planBoard.child.where, { van: place, leg: legWord })
     : fill(planBoard.child.whereUnassigned, { leg: legWord });
 }

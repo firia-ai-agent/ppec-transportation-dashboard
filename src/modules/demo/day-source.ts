@@ -128,6 +128,14 @@ export function demoDaySource(): DayDataSource {
         (child): OtherChild => ({
           token: childTokenOf(child.key),
           name: child.label,
+          // Their **approved** needs, read exactly as a rider's are: the Family drives lane
+          // draws the same card Unassigned draws, and a coordinator who moves one of them onto
+          // a van is asking the one fit rule about them (Firia, 2026-10-18).
+          needs: needsOfDemoChild(child),
+          // No kerb of ours on this leg, which is what made them an "other": the card says so
+          // and the map draws no disc for them.
+          stopLabel: "",
+          window: "",
           // The bucket a child *starts* in. Being away is a placement on the plan, not a fact
           // about the roster (founder 7:17 PM ET), so nothing here is ever ABSENT.
           bucket: "FAMILY_DRIVES",

@@ -2228,6 +2228,13 @@ export const planBoard = {
   unassigned: "Unassigned",
   /** The whole Unassigned list once nobody is left in it (§1.3 "All placed"). */
   allPlaced: "All placed",
+  /**
+   * The lane for the children the centre does not drive, and — since Vera's 390 pass of
+   * 2026-10-18 — the **card's own subline** for one of them, in their lane or in a van a
+   * coordinator put them in. It replaced "No pickup stop", which named a thing that was missing
+   * instead of the arrangement a coordinator already knows about, and it is one label rather
+   * than two so the lane and the card under it cannot drift apart.
+   */
   familyDrives: "Family drives",
   absent: "Absent",
   /**
@@ -2334,9 +2341,15 @@ export const planBoard = {
     LIFT: "lift",
   },
   /**
-   * The one line an unconfirmed van's column carries (Firia/Veri, 2026-10-17 6:00 PM ET): no
+   * The one line about a van nobody has confirmed (Firia/Veri, 2026-10-17 6:00 PM ET): no
    * button, no "yesterday", no carry-over — the van is planned on the shared config's defaults
    * until the front desk confirms it at the ramp.
+   *
+   * It is said **once**, in the board's own banner beside "Check vans" (`flow.banner`, the same
+   * sentence), and no longer on each van column — three columns said it three times for one
+   * fact about the day (Vera on b3453cd, 2026-10-18). It stays here because this is the board's
+   * copy block and the sentence is the board's; `src/app/plan-routes/board/lines.test.ts` holds
+   * the two spellings of it to the one wording.
    */
   usingDefault: "Using default setup",
   /** "Seats 4/6" — a read-only count chip on a van column, one per counter (§1.2, 5:55 PM ET). */
@@ -2361,6 +2374,18 @@ export const planBoard = {
   mapLabel: "Route map",
   /** The one column a phone shows at a time is chosen here (§9.3 at 390 px). */
   columnSwitcher: "Which column?",
+  /**
+   * The Unassigned tab on that switcher, with how many are still waiting: "Unassigned · 2"
+   * (png/plan-board-390.png). The word itself is `unassigned` above rather than written again
+   * here, so the tab and the column it opens cannot come to say two different things.
+   */
+  switcherUnassigned: "{name} · {n}",
+  /**
+   * How a card is moved where there is no pointer (png/plan-board-390.png's own line). Holding
+   * a card opens the `Move to…` control the card has had all along — the same one a right-click
+   * opens on a wide screen — so this names the gesture rather than announcing a second control.
+   */
+  holdToMove: "Hold a card to move it",
 } as const;
 
 /**
@@ -3029,5 +3054,97 @@ export const assistantUnavailable = {
     summary: "A family text needs a person: the assistant could not reach its model",
     nextStep: "Read the text and answer the family yourself.",
     predicate: "a coordinator has read the text and answered the family",
+  },
+} as const;
+
+/**
+ * THE AGENT BUBBLE — the floating chat the founder asked for, on every screen inside the frame
+ * (src/ui/AgentBubble.tsx, mounted once by src/ui/ConsoleShell.tsx).
+ *
+ * Vera's binding mockup is /workspace/ppec-redesign/mockups/agent-bubble.html and the four
+ * png/agent-bubble-{closed,open}-{1440,390}.png shots. Everything a person reads in it is here,
+ * and the rules the COPY-GUIDE puts on it are the ones the rest of this file follows: no vendor
+ * and no model name, no "AI" label, no codes, and as few words as the screen can be read with.
+ *
+ * The closed button carries **no visible text** (the mockup draws a 56 px disc with an icon in
+ * it), so `open` / `openWaiting` is its accessible name and the only way it is announced. The
+ * count is in the name rather than left to the coral dot, for the same reason the tab bar's
+ * badge is in its tab's name: a dot says nothing to a screen reader.
+ */
+export const agentBubble = {
+  /** The closed button's accessible name with nothing waiting (agent-bubble.html, `.fab`). */
+  open: "Agent",
+  /** …and with proposals waiting, which is what the coral dot means for the eye. */
+  openWaiting: "Agent, {count} waiting",
+  /** The panel's heading, and its dialog label. */
+  title: "Agent",
+  /** The 44 px X at the top right of the panel and of the phone sheet. */
+  close: "Close",
+  /** The day separator above the thread. The thread is the same one "For you" shows. */
+  today: "Today",
+  /** Who said it, above a driver's grey bubble: "Marcus L. · Van 1". */
+  speaker: "{name} · Van {van}",
+  /** The compose bar, pinned to the foot of the panel, and its round teal button. */
+  ask: "Ask the agent…",
+  send: "Send",
+  /**
+   * The compact proposal card (mockups/family-texts.html, `.prop`) carries ONE amber chip, not
+   * the mockup's Approve · Edit · Skip row (Firia and Vera, 2026-10-18 9:17 AM ET). Acting in
+   * place is a write, the write path is #75's, and a button that cannot write is a worse answer
+   * than a chip that says where the decision is made.
+   *
+   * And the chip is PLAIN TEXT — a `<span>`, no link (Firia, 2026-10-18 9:21 AM ET, overriding the
+   * 9:17 reading). These two words are a statement of where the proposal stands, not an offer to
+   * go anywhere: a link out of the panel still reads as the thing to press, and what it would
+   * reach is the decide path #75 is rebuilding. The words become a control again, beside the three
+   * that come back, when #75 merges.
+   */
+  needsApproval: "Needs approval",
+  /**
+   * The grey reply under an ask nobody could answer (Firia and Vera, 2026-10-18 9:17 AM ET). One
+   * line, and it is the whole of the degraded mode in the panel: it says what is true — no answer
+   * — and never why, because every why is a vendor, a key or an outage. There is no keyword
+   * fallback behind it; a sentence assembled from the words of the question would be the panel
+   * pretending to have understood it. The staff alert the server raises is unchanged and says the
+   * rest ({@link agentAsk.unavailable}).
+   */
+  noAnswer: "I can't answer right now.",
+  /** Nothing has been said today. The thread shows what exists and never invents a message. */
+  empty: "Nothing yet today.",
+} as const;
+
+/**
+ * A STAFF ASK, as the rows it writes read on the board (src/modules/agent/ask/staff-ask.ts).
+ *
+ * An ask typed into the bubble is recorded before anything is driven, because it is the thing
+ * that happened and the run's identity is that row's id. It lands as an `ops.task` — the one
+ * staff-visible queue this app has — in the same summary / next step / predicate shape as every
+ * other agent task above, so a coordinator reads it the same way.
+ *
+ * `unavailable` is the **staff alert** of docs/DATA-MODEL.md: kind NEEDS_PERSON, severity RED,
+ * raised when no model can be reached. There is no keyword parser behind it and no proposal on
+ * it — the whole of the degraded mode is that a person is asked to do the thing themselves.
+ *
+ * The two *notice* lines that used to live here are gone (Firia and Vera, 2026-10-18 9:17 AM ET):
+ * what the panel says back is now said in the thread, where the question was asked — the teal
+ * bubble for every ask, and {@link agentBubble.noAnswer} under the ones nobody could answer. A
+ * status line above the field saying one thing while the thread said another was two answers to
+ * one question.
+ */
+export const agentAsk = {
+  /** The ask itself: open work until the agent or a person answers it. */
+  asked: {
+    summary: "Somebody asked the assistant to do something",
+    nextStep: "Read the ask, and do it yourself if the assistant has not.",
+    predicate: "the ask answered, by the assistant or by a coordinator, and the outcome recorded",
+  },
+  /**
+   * The staff alert. The words say what is true — nobody could answer — and not why, because the
+   * why is a vendor, a key or an outage and none of those is a coordinator's to read.
+   */
+  unavailable: {
+    summary: "Nobody could answer an ask here, so it needs a person",
+    nextStep: "Do the thing that was asked, or reply to the family yourself.",
+    predicate: "a coordinator has done what was asked and recorded it",
   },
 } as const;

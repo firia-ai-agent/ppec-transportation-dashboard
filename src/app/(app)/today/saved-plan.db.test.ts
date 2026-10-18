@@ -1,17 +1,21 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { vanConfigOf, vanNameOf } from "@/config/vans";
+import { counterOf } from "@/config/equipment";
+import { defaultSetupOf, vanConfigOf, vanNameOf } from "@/config/vans";
 import type { Db } from "@/db/exec";
 import { buildBoard, demoDay, type Board } from "@/domain/board/board";
 import { getDayReadiness, legAt, serviceDateAt } from "@/domain/day/day-facts";
 import { loadRightNow } from "@/domain/health/right-now-facts";
 import { rightNowTiles, vanOnScreen, type RightNowTile } from "@/domain/health/right-now";
-import { ridersInVan } from "@/domain/plan/board";
-import { childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/standard";
+import { ridersInVan, type BoardVan } from "@/domain/plan/board";
+import { eligibility } from "@/domain/plan/eligibility";
+import { isOver, usedBy } from "@/domain/plan/fit";
+import { VEHICLES, childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/standard";
 import { seedStandardScenario } from "@/modules/demo/seed";
 import { kidsInVan, loadSavedPlan, vansInPlan } from "@/modules/live-map/plan-read";
 import { applyPendingMoves, setChildPlacement } from "@/modules/plan/place";
+import { putVanSetupRequest } from "@/modules/plan/api";
 import { sqlPlanStore } from "@/modules/plan/sql";
-import { savedPlacementsForBoard } from "@/modules/plan/store";
+import { savedPlacementsForBoard, savedSetupsForBoard } from "@/modules/plan/store";
 import { loadBoard } from "@/modules/plan/store";
 import { sqlDaySource } from "@/modules/roster/sql";
 import { freshPlanDb, SITE } from "@/test/pglite";
@@ -99,10 +103,13 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  // Every test starts from the day a reset leaves behind: no plan at all, and no arrival estimate.
+  // Every test starts from the day a reset leaves behind: no plan at all, no arrival estimate,
+  // and no van counted — the seed writes no `vehicle_setup_day` row either (seed.ts), so every
+  // van is on its configured default until a test has the ramp count one.
   await db.query("DELETE FROM ops.plan_assignment", []);
   await db.query("DELETE FROM ops.plan_run", []);
   await db.query("DELETE FROM ops.eta_estimate", []);
+  await db.query("DELETE FROM ops.vehicle_setup_day", []);
 });
 
 /** Save Auto-plan's morning, exactly as the board's Save does: every move, one version. */
@@ -154,15 +161,50 @@ async function moveChild(
   expect(moved.ok, "reason" in moved ? moved.reason : "moved").toBe(true);
 }
 
+/**
+ * ONE VAN COUNTED AT THE RAMP, through the write the iPad's Confirm actually makes:
+ * `putVanSetupRequest` (src/modules/plan/api.ts), which is
+ * src/app/api/vans/[id]/setup/route.ts in two lines, writing one `ops.vehicle_setup_day` row as
+ * `CHECKED` for this date.
+ *
+ * The caller is the browser check's own shape — a role and no user id — so `set_by` is null and
+ * the screens attribute the count to the ramp rather than to an invented person. All three roles
+ * may confirm (§2); that the write touches no other table is src/modules/plan/confirm.db.test.ts.
+ */
+async function countAtRamp(
+  vehicleKey: string,
+  counts: { seats: number; wheelchairSpots: number; carSeats: number; oxygenMounts: number },
+): Promise<void> {
+  const answer = await putVanSetupRequest(
+    SITE,
+    { userId: undefined, role: "FRONT_DESK" },
+    vanId(vehicleKey),
+    { date: DATE, ...counts, hasLift: true, state: "CHECKED" },
+    NOW,
+    store,
+  );
+  expect(answer.status, "reason" in answer.body ? answer.body.reason : "counted").toBe(200);
+}
+
 /** Firia's morning, saved: Auto-plan, then Liam D. dragged to Van 2. */
 async function saveTheReferenceMorning(): Promise<void> {
   await saveTheMorning();
   await moveChild(MOVED_CHILD, "VAN", MOVED_TO, 1);
 }
 
-/** Today, built the way the page builds it: the saved plan, read through `loadBoard`. */
+/**
+ * Today, built the way the page builds it: the saved plan **and** what each van is planned on —
+ * the `CHECKED` row the ramp wrote, else the van's default — both read through `loadBoard`
+ * (src/modules/plan/store.ts). The setups are the second half of the page's read since Firia's
+ * S1 of 2026-10-18: this screen's fit check is the board's own counts now, and never the seeded
+ * seating layouts.
+ */
 async function todayBoard(): Promise<Board> {
-  return buildBoard(demoDay(), await savedPlacementsForBoard(SITE, DATE, store, source()));
+  const [saved, setups] = await Promise.all([
+    savedPlacementsForBoard(SITE, DATE, store, source()),
+    savedSetupsForBoard(SITE, DATE, store, source()),
+  ]);
+  return buildBoard(demoDay(), saved, setups);
 }
 
 /** Health's four tiles, read the way the page reads them. */
@@ -532,42 +574,55 @@ describe("Today's fit check reads the saved van's riders", () => {
   }, 60_000);
 
   /**
-   * (b) And a saved van that really does not hold its riders still says so. Mia R. (C1),
-   * Owen C. (C7) and Theo V. (C9) are dragged onto Van 1, next to Zoe B. and Ava N.: five riders,
-   * one of them in her own chair, on a van whose layout is one chair space and three seats
-   * (standard.ts R1, `1WC/3A`). The ramp's own counts let the save through — six seats, three car
-   * seats, one chair, and that is what the board's Save re-checks (src/domain/plan/fit.ts) — and
-   * the capacity solver, which is asked about the actual seats, refuses it.
+   * (b) And a saved van that really does not hold its riders still says so — which, now that the
+   * board and this screen read **one** set of counts, is a van the ramp counted *down* under a
+   * plan somebody had already saved. The front desk reaches Van 1 and finds one seat and no car
+   * seat where the plan has Zoe B. (her nurse rides in a seat) and Ava N. (a booster): the plan
+   * is untouched, nobody is un-saved, and Today says the van no longer holds them (§1.3's "Over
+   * capacity"; boarding is what the ramp check stops, not planning).
    *
    * This is the half that proves nothing is being suppressed: the reason, the step and the
    * verdict are the same three the bug was reported as.
+   *
+   * It used to build that state by **dragging three more children onto Van 1** and leaning on
+   * the disagreement this commit removes: the board's save accepted five riders because the van's
+   * counts said six seats, and the seat-level solver refused them because the seeded layout said
+   * `1WC/3A`. The drag is now refused at the board (src/domain/plan/eligibility.ts) — which is
+   * the fix — so the over-filled van has to come from the one place that can still produce one.
    */
-  it("still warns when a saved van really does not hold its riders", async () => {
+  it("still warns when the ramp counts a saved van down under its riders", async () => {
     await saveTheReferenceMorning();
-    await moveChild("C1", "VAN", "V1", 2);
-    await moveChild("C7", "VAN", "V1", 3);
-    await moveChild("C9", "VAN", "V1", 4);
+    const before = await todayBoard();
+    expect(misfits(before), "the saved plan fits before anybody counts the van").toEqual([]);
+
+    await countAtRamp("V1", { seats: 1, wheelchairSpots: 1, carSeats: 0, oxygenMounts: 1 });
 
     const today = await todayBoard();
     const crowded = ridesOnVan(today, "V1");
-    expect(crowded.map((leg) => leg.child.childKey).sort()).toEqual(
-      ["C1", "C4", "C6", "C7", "C9"].sort(),
-    );
+    expect(crowded.map((leg) => leg.child.childKey).sort()).toEqual(["C4", "C6"].sort());
     for (const leg of crowded) {
       expect(leg.ride.solver, leg.child.childKey).toBe("INFEASIBLE");
       expect(leg.needsActionReasons, leg.child.childKey).toContain("DOES_NOT_FIT");
       expect(leg.nextStep, leg.child.childKey).toBe("MOVE_TO_FITTING_VAN");
       expect(leg.group, leg.child.childKey).toBe("NEEDS_ACTION");
     }
-    // Every rider of the crowded van, and only them: Van 2's three are not dragged in with them.
-    expect(misfits(today).sort()).toEqual(["C1", "C4", "C6", "C7", "C9"].sort());
+    // Every rider of the counted-down van, and only them: Van 2's four are not dragged in too.
+    expect(misfits(today).sort()).toEqual(["C4", "C6"].sort());
+    // And the plan itself is untouched by the count (src/modules/plan/confirm.db.test.ts holds
+    // that in rows): the two are still on Van 1, which is why the row has something to say.
+    for (const leg of crowded) expect(leg.ride.vanNumber).toBe(slotOf("V1"));
   }, 60_000);
 
   /**
    * (c) With nothing saved for the leg there is no plan to read, and the seeded run is still the
-   * manifest: Van 3's own three (Mia R., Ava N., Eli N.) do not fit it and Today says so, exactly
-   * as it did before this fix. The whole board is compared both ways, so "unchanged" is the
-   * output of `buildBoard` and not a fit verdict picked out of it.
+   * manifest. The whole board is compared both ways, so "unchanged" is the output of `buildBoard`
+   * and not a fit verdict picked out of it.
+   *
+   * Van 3's own three (Mia R., Ava N., Eli N.) are three car seats, and this screen used to call
+   * them INFEASIBLE — it was checking them against the seeded layout `0WC/6A`, two of whose six
+   * places are tether-capable. It checks them against the van's counts now, and an uncounted van
+   * carries **three** car seats (Firia's ruling of 2026-10-18 8:49 AM ET, src/config/vans.ts):
+   * the seeded manifest is a manifest a van nobody has counted holds, and nobody is warned about.
    */
   it("falls back to the seeded run when nothing is saved for the leg", async () => {
     const nothing = await savedPlacementsForBoard(SITE, DATE, store, source());
@@ -575,9 +630,168 @@ describe("Today's fit check reads the saved van's riders", () => {
 
     const today = buildBoard(demoDay(), nothing);
     expect(today, "byte for byte the seeded board").toEqual(buildBoard(demoDay()));
-    expect(misfits(today), "the seeded Van 3's own riders, as before").toEqual(["C1", "C4", "C5"]);
+    expect(misfits(today), "no van of the seeded day is over its default counts").toEqual([]);
     for (const childKey of ["C1", "C4", "C5"]) {
-      expect(morningRow(today, childKey).ride.solver, childKey).toBe("INFEASIBLE");
+      expect(morningRow(today, childKey).ride.solver, childKey).toBe("FEASIBLE");
+      expect(morningRow(today, childKey).ride.vanNumber, childKey).toBe(slotOf("V3"));
     }
+  }, 60_000);
+});
+/* ─────────────────── one stored setup, two screens (S1, 2026-10-18) ─────────────────── */
+
+/**
+ * WHAT THIS VAN HOLDS IS ONE ANSWER, AND IT IS THE STORED ONE.
+ *
+ * SOURCE: Firia's S1 of 2026-10-18. The board planned a van on today's `CHECKED`
+ * `ops.vehicle_setup_day` row else the shared default (src/domain/plan/setup.ts), and Today
+ * checked the same van against the **seeded seating layouts** of
+ * src/modules/demo/fixtures/standard.ts — so the board let a coordinator put six children and a
+ * wheelchair in a van whose layout is one chair space and three seats, and Today reported the
+ * plan the board had just accepted as not fitting.
+ *
+ * Both screens read one shared resolution now (`resolveSetups` / `setupFor`), and these are the
+ * rows that hold it: a real `vehicle_setup_day` row, written through the **ramp's own write
+ * path** (`putVanSetupRequest`, which is src/app/api/vans/[id]/setup/route.ts in two lines), on
+ * PGlite with every migration in `drizzle/` applied. Each read below is a fresh `loadBoard` /
+ * `buildBoard` — which is what a reload is — so "after a reload" is the thing being asserted and
+ * not a cache being trusted.
+ */
+describe("one stored setup, two screens", () => {
+  const vanOnBoard = (view: { day: { vans: readonly BoardVan[] } }, vehicleKey: string): BoardVan => {
+    const found = view.day.vans.find((van) => van.id === vanId(vehicleKey));
+    if (!found) throw new Error(`the day does not run ${vehicleKey}`);
+    return found;
+  };
+  const boardView = () => loadBoard(store, SITE, DATE, LEG, source());
+  const misfits = (today: Board): string[] =>
+    morningLegs(today)
+      .filter((leg) => leg.needsActionReasons.includes("DOES_NOT_FIT"))
+      .map((leg) => leg.child.childKey);
+  const ridesOnVan = (today: Board, vehicleKey: string) =>
+    morningLegs(today).filter((leg) => leg.ride.vanNumber === slotOf(vehicleKey));
+
+  /**
+   * (b) THE OXYGEN COUNTER. Zoe B. travels with oxygen and the plan has her on Van 1, which
+   * carries one mount by default. The front desk reaches the ramp and finds the mount gone: one
+   * row written, and after a reload the board plans Van 1 on no mount and refuses her, and Today
+   * says the same about the same van — in the same breath, because it is the same number.
+   */
+  it("(b) both screens follow the Oxygen counter the ramp changed", async () => {
+    await saveTheReferenceMorning();
+    const before = vanOnBoard(await boardView(), "V1");
+    expect(before.setup.oxygenMounts, "the default mount").toBe(
+      defaultSetupOf("V1").oxygenMounts,
+    );
+    expect(before.setupState, "nobody has counted it yet").toBe("DEFAULT");
+    expect(misfits(await todayBoard()), "and nothing to warn about").toEqual([]);
+
+    await countAtRamp("V1", { seats: 3, wheelchairSpots: 1, carSeats: 2, oxygenMounts: 0 });
+
+    const counted = await boardView();
+    const vanOne = vanOnBoard(counted, "V1");
+    expect(vanOne.setup.oxygenMounts, "the counted mount, after a reload").toBe(0);
+    expect(vanOne.setupState).toBe("CHECKED");
+    expect(vanOne.setupSource).toBe("CHECKED");
+    expect(
+      eligibility(counted.day, counted.plan, token("C6"), vanOne.id),
+      "the board names the counter that ran out",
+    ).toEqual({ ok: false, reason: counterOf("oxygenMounts").reject });
+
+    const today = await todayBoard();
+    expect(misfits(today).sort(), "and Today warns about that van's riders").toEqual(
+      ["C4", "C6"].sort(),
+    );
+    for (const leg of ridesOnVan(today, "V1")) {
+      expect(leg.ride.solver, leg.child.childKey).toBe("INFEASIBLE");
+      expect(leg.nextStep, leg.child.childKey).toBe("MOVE_TO_FITTING_VAN");
+    }
+
+    // And counted back up — the mount was behind the seat — both screens let go of it.
+    await countAtRamp("V1", { seats: 3, wheelchairSpots: 1, carSeats: 2, oxygenMounts: 1 });
+    const again = await boardView();
+    expect(vanOnBoard(again, "V1").setup.oxygenMounts).toBe(1);
+    expect(eligibility(again.day, again.plan, token("C6"), vanId("V1"))).toEqual({ ok: true });
+    expect(misfits(await todayBoard())).toEqual([]);
+  }, 60_000);
+
+  /**
+   * (b) AND THE CAR SEATS. Van 3 carries Mia R. (a car seat) and Owen C. (a vest, which is one of
+   * the same seats) in the two the van has. The ramp finds one: both screens follow it down.
+   */
+  it("(b) both screens follow the car-seat counter the ramp changed", async () => {
+    await saveTheReferenceMorning();
+    expect(misfits(await todayBoard())).toEqual([]);
+
+    await countAtRamp("V3", { seats: 3, wheelchairSpots: 1, carSeats: 1, oxygenMounts: 1 });
+
+    const counted = await boardView();
+    const vanThree = vanOnBoard(counted, "V3");
+    expect(vanThree.setup.carSeats).toBe(1);
+    expect(usedBy(ridersInVan(counted.day, counted.plan, vanThree.id)).carSeats).toBe(2);
+    expect(isOver(vanThree.setup, ridersInVan(counted.day, counted.plan, vanThree.id))).toBe(true);
+    expect(eligibility(counted.day, counted.plan, token("C1"), vanThree.id)).toEqual({
+      ok: false,
+      reason: "CAR_SEAT",
+    });
+
+    const today = await todayBoard();
+    expect(misfits(today).sort()).toEqual(["C1", "C7", "C9"].sort());
+    for (const leg of ridesOnVan(today, "V3")) {
+      expect(leg.ride.solver, leg.child.childKey).toBe("INFEASIBLE");
+    }
+    // Van 1 and Van 2 are nobody's warning: one row was written, about one van.
+    expect(vanOnBoard(counted, "V1").setupState).toBe("DEFAULT");
+    for (const vehicleKey of ["V1", "V2"]) {
+      for (const leg of ridesOnVan(today, vehicleKey)) {
+        expect(leg.ride.solver, leg.child.childKey).toBe("FEASIBLE");
+      }
+    }
+  }, 60_000);
+
+  /**
+   * (c) THE TEST THAT FAILS IF EITHER SCREEN GOES BACK TO THE LAYOUTS.
+   *
+   * The stored counts are ones **no layout of Van 1 has**: eight seats where its largest seating
+   * plan has six ambulatory places, five car seats where the most tether-capable of them has two,
+   * and two oxygen mounts, which no layout anywhere models at all. Seven children are then saved
+   * onto it — one more than any layout of that van holds — and both screens have to say it fits,
+   * because that is what the front desk counted.
+   *
+   * Point either screen back at `standard.ts` and this goes red: the seat-level solver over
+   * Van 1's layouts cannot seat seven, and it has never heard of an oxygen mount.
+   */
+  it("(c) both screens follow stored counts the seeded layouts do not have", async () => {
+    const SEVEN = ["C1", "C3", "C4", "C5", "C7", "C8", "C9"];
+    const vehicle = VEHICLES.find((v) => v.key === "V1");
+    if (!vehicle) throw new Error("no seeded Van 1");
+    const mostSeats = Math.max(
+      ...vehicle.layouts.map((l) => l.positions.filter((p) => p.kind === "AMB").length),
+    );
+    const mostTethered = Math.max(
+      ...vehicle.layouts.map(
+        (l) => l.positions.filter((p) => p.kind === "AMB" && p.tetherCapable).length,
+      ),
+    );
+    expect(mostSeats, "no layout of Van 1 seats these seven").toBeLessThan(SEVEN.length);
+    expect(mostTethered, "nor holds their car seats").toBeLessThan(4);
+
+    await countAtRamp("V1", { seats: 8, wheelchairSpots: 1, carSeats: 5, oxygenMounts: 2 });
+    for (const [i, childKey] of SEVEN.entries()) await moveChild(childKey, "VAN", "V1", i);
+
+    const counted = await boardView();
+    const vanOne = vanOnBoard(counted, "V1");
+    expect(vanOne.setup).toMatchObject({ seats: 8, carSeats: 5, oxygenMounts: 2 });
+    const aboard = ridersInVan(counted.day, counted.plan, vanOne.id);
+    expect(aboard, "all seven are on it").toHaveLength(SEVEN.length);
+    expect(usedBy(aboard).carSeats, "four car seats, in the five counted").toBe(4);
+    expect(isOver(vanOne.setup, aboard), "the board is content").toBe(false);
+
+    const today = await todayBoard();
+    expect(ridesOnVan(today, "V1"), "Today puts all seven on it too").toHaveLength(SEVEN.length);
+    for (const leg of ridesOnVan(today, "V1")) {
+      expect(leg.ride.solver, leg.child.childKey).toBe("FEASIBLE");
+      expect(leg.needsActionReasons, leg.child.childKey).not.toContain("DOES_NOT_FIT");
+    }
+    expect(misfits(today), "and warns about nobody").toEqual([]);
   }, 60_000);
 });

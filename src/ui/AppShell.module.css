@@ -32,6 +32,21 @@
   flex: 1 1 auto;
   min-width: 0;
   padding: var(--space-6) var(--space-5);
+  /*
+   * CLEARANCE FOR THE AGENT BUBBLE (src/ui/AgentBubble.tsx, mockups/agent-bubble.html).
+   *
+   * The disc is `position: fixed` 16 px off the bottom-right corner, so without this the last
+   * row of a page — and the live map's own zoom controls — would scroll *under* it and be
+   * unclickable. 88 px is the 16 px gap, the 56 px disc and 16 px of air above it, which is what
+   * png/agent-bubble-closed-1440.png measures. It is on the content column rather than on
+   * `.body` on purpose: the rail runs to the floor in the mockup and must not be shortened.
+   *
+   * `--sticky-action-bar-height` is the page's own pinned action bar, if it has one, and 0 if it
+   * has not (src/ui/tokens.ts `stickyActionBar`): the disc sits above such a bar, so the page has
+   * to clear both. One shared length, declared by the page, read by the frame — never a list of
+   * screens here.
+   */
+  padding-bottom: calc(var(--layout-agent-bubble-clear-wide) + var(--sticky-action-bar-height, 0px));
 }
 
 /*
@@ -44,6 +59,10 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* The same clearance, for the three screens that bring their own padding — and the one that
+     most needs it, the live map, whose zoom controls sit at the bottom-right of its pane. Plus
+     the page's own sticky action bar, which is 0 unless the page declares one (see `.main`). */
+  padding-bottom: calc(var(--layout-agent-bubble-clear-wide) + var(--sticky-action-bar-height, 0px));
 }
 
 @media (max-width: 767px) {
@@ -59,5 +78,17 @@
 
   .main {
     padding: var(--space-5) var(--space-4);
+  }
+
+  /*
+   * On a phone the disc sits above the tab bar, so the clearance stacks on top of the bar's own:
+   * 64 px of bar + 80 px (16 + 56 + 8) = the 144 px the spec asks for at 390, plus the device's
+   * safe-area inset, which `.body` above has already added for the bar.
+   */
+  .main,
+  .contentSlot {
+    padding-bottom: calc(
+      var(--layout-agent-bubble-clear-phone) + var(--sticky-action-bar-height, 0px)
+    );
   }
 }

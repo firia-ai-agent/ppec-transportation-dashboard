@@ -1,0 +1,71 @@
+/*
+ * mockups/agent-bubble.html `.cmp`: the compose bar, pinned to the foot of the panel, with a
+ * 44 px pill field and a 44 px round teal send button beside it. 44 is also §9's target.
+ */
+.compose {
+  flex: none;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  border-top: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.field {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--target-console);
+  padding: 0 var(--space-5);
+  border: var(--border-hairline) solid var(--color-disabled-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+}
+
+.field::placeholder {
+  color: var(--color-ink-muted);
+}
+
+.send {
+  flex: none;
+  width: var(--target-console);
+  height: var(--target-console);
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-brand);
+  color: var(--color-surface);
+  cursor: pointer;
+}
+
+.field:focus-visible,
+.send:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+/*
+ * GREY UNTIL THERE IS SOMETHING TO SEND. A control that cannot be used has to look like one
+ * before it is clicked (§4.2), and the two tokens are the pair tokens.ts documents at 4.34:1 so
+ * the arrow inside the disc is still legible rather than a ghost — a grey nobody can read is no
+ * kinder than a teal that lies. Both colours are tokens; no hex may appear in this file
+ * (src/ui/no-hex.test.ts). The disc is grey while the field is empty or whitespace-only, and
+ * while a request is in flight (src/ui/AgentCompose.tsx `blocked`).
+ */
+.send:disabled,
+.field:disabled {
+  background: var(--color-disabled-bg);
+  color: var(--color-disabled-fg);
+  cursor: default;
+}
+
+@media (max-width: 767px) {
+  .compose {
+    padding: var(--space-4) var(--space-4) var(--space-5);
+  }
+}

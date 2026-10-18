@@ -107,9 +107,25 @@ describe("the one pill", () => {
    * state disc, the plan map's line swatch — is fully rounded and has no padding, which is what
    * tells the two apart without an allowlist anybody can add to.
    */
+  /*
+   * ONE EXCEPTION, and it is a text field rather than a chip: the agent bubble's compose bar
+   * (src/ui/AgentCompose.module.css `.field`), which Vera's mockup draws as a 44 px pill with
+   * "Ask the agent…" in it — mockups/agent-bubble.html `.cmp .in2`:
+   * `{height:44px;border:1px solid var(--disabled-border);border-radius:999px;padding:0 16px}`.
+   *
+   * The rule above is about *status chips*: a rounded, padded box with a word in it that claims
+   * something about the day, and the reason there may be only one is that two of them drift. An
+   * `<input>` the person types into claims nothing and is read as a control, not a state — and
+   * the shape test cannot tell the two apart, because the difference is the element and not the
+   * CSS. So the file is named here, with its source, rather than the rule being widened to any
+   * box that happens to have a border: a second entry on this list has to be argued for in the
+   * same way, which is the property the no-allowlist comment above is protecting.
+   */
+  const PILL_SHAPED_FIELD = path.join(UI, "AgentCompose.module.css");
+
   it("is the only pill in the repository", () => {
     const offenders: Array<{ file: string; rule: string }> = [];
-    for (const file of walkSrc().filter((f) => f.endsWith(".css") && f !== PILL_CSS)) {
+    for (const file of walkSrc().filter((f) => f.endsWith(".css") && f !== PILL_CSS && f !== PILL_SHAPED_FIELD)) {
       const bare = read(file).replace(/\/\*[\s\S]*?\*\//g, "");
       for (const [, selector, body] of bare.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
         const rounded = /border-radius:\s*(?:var\(--radius-pill\)|9{3,}px)/.test(body);
@@ -119,6 +135,19 @@ describe("the one pill", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  /** And the exception is exactly one rule in that one file: the field, and nothing beside it. */
+  it("lets the compose field be pill-shaped, and nothing else in its stylesheet", () => {
+    const bare = read(PILL_SHAPED_FIELD).replace(/\/\*[\s\S]*?\*\//g, "");
+    const padded: string[] = [];
+    for (const [, selector, body] of bare.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const rounded = /border-radius:\s*(?:var\(--radius-pill\)|9{3,}px)/.test(body);
+      if (rounded && /\bpadding(?:-inline)?:/.test(body)) padded.push(selector.trim());
+    }
+    expect(padded).toEqual([".field"]);
+    // It is a field, not a chip: no status token on it, and it carries no words of its own.
+    expect(bare).not.toMatch(/data-pill|data-variant|--color-(?:ok|warn|crit|info)-/);
   });
 
   /**

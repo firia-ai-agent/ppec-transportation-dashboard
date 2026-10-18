@@ -443,6 +443,15 @@ describe("the policy itself, written out so a silent widening fails", () => {
       // Counting what is on a van is the front desk's own job (§2), and the step strip is read by
       // every role that has a surface at all.
       "/api/vans/[id]/setup": "session:DIRECTOR+COORDINATOR+FRONT_DESK",
+      /*
+       * The agent chat bubble's compose bar (src/ui/AgentBubble.tsx, Vera's mockup
+       * mockups/agent-bubble.html). `APPROVAL_ROLES`, and deliberately the *same* pair the For
+       * you tab is gated by rather than a list of its own: an ask can only come back as a
+       * proposal, and a proposal is decided in For you, so a role that may not decide may not
+       * raise one. The front desk is refused here as well as by the bubble not being drawn for
+       * them — hiding is not denying.
+       */
+      "/api/agent/ask": "session:DIRECTOR+COORDINATOR",
       "/api/queues/timer": "queue-callback",
       "/api/queues/outbox": "queue-callback",
       "/api/queues/agent": "queue-callback",

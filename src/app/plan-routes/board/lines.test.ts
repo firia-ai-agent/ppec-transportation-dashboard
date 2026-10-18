@@ -128,23 +128,28 @@ describe("§1.3: the save state is a word, not a dot", () => {
 
 describe("§1.3 / §9.3: what a van and a day say about themselves", () => {
   /**
-   * The 5:55 and 6:00 PM ET rulings: a confirmed van wears an ok chip, and an unconfirmed one
-   * carries **one line** and no button — "Using default setup" — because planning on a default
-   * is a soft prerequisite (§9.1) and not a fault. "Not checked" as a warn chip is gone, and so
-   * is every word about an earlier day.
+   * The 5:55 and 6:00 PM ET rulings: a confirmed van wears an ok chip, and an unconfirmed one is
+   * not marked wrong — "Not checked" as a warn chip is gone, and so is every word about an
+   * earlier day.
+   *
+   * And since Vera's visual check of b3453cd (2026-10-18) an unconfirmed van says **nothing**:
+   * it used to carry "Using default setup" on every column, which was the same sentence three
+   * times for one fact about the day. That fact is the board's banner now, once, beside "Check
+   * vans" (`boardBanner` below, asserted in the next test) — a spec change from Vera, not a
+   * loosening: what the column may say is narrower than it was, and the words still exist and
+   * are still held, one screen up.
    */
   it("says whether the ramp has confirmed this van today, in a word and never a colour alone", () => {
     expect(setupLine(van({ setupState: "CHECKED" }))).toEqual({
       label: "Checked",
       tone: "ok",
-      chip: true,
     });
-    expect(setupLine(van({ setupState: "DEFAULT" }))).toEqual({
-      label: "Using default setup",
-      tone: "neutral",
-      chip: false,
-    });
-    expect(setupLine(van()).label).not.toMatch(/yesterday|Fri|From |Tomorrow|Planned/i);
+    expect(setupLine(van({ setupState: "DEFAULT" }))).toBeNull();
+    expect(setupLine(van({ setupState: "CHECKED" }))?.label).not.toMatch(
+      /yesterday|Fri|From |Tomorrow|Planned/i,
+    );
+    // The line itself is not gone from the app, only from the column: the banner says it.
+    expect(flow.banner.usingDefault).toBe(planBoard.usingDefault);
   });
 
   it("says which step is missing, and offers the one link that fixes it", () => {

@@ -161,16 +161,19 @@ export function boardBanner(
 
 /**
  * What a van column says about its counts: the ok chip when the front desk confirmed it today,
- * and one line — no chip, no button — when it is being planned on its defaults.
+ * and **nothing at all** when it is being planned on its defaults.
  *
  * The "Not checked" chip is deliberately gone (STEERING, 2026-10-17 5:55 PM ET): an unconfirmed
- * van is a soft prerequisite and not a fault, so the column states the assumption it is standing
- * on instead of marking the van as wrong.
+ * van is a soft prerequisite and not a fault, so the column does not mark the van as wrong.
+ *
+ * Nor does it carry "Using default setup" any more (Vera on b3453cd, 2026-10-18). That line is
+ * the **board's**, once, in the banner beside "Check vans" (`boardBanner` above) — on three
+ * columns it was the same sentence three times, which is three times the weight for one fact
+ * that is about the day and not about any one van. The words stay in copy.ts, where the banner
+ * reads them.
  */
-export function setupLine(van: BoardVan): { label: string; tone: Tone; chip: boolean } {
-  return van.setupState === "CHECKED"
-    ? { label: planBoard.checked, tone: "ok", chip: true }
-    : { label: planBoard.usingDefault, tone: "neutral", chip: false };
+export function setupLine(van: BoardVan): { label: string; tone: Tone } | null {
+  return van.setupState === "CHECKED" ? { label: planBoard.checked, tone: "ok" } : null;
 }
 
 /** "ML" — the two letters on a driver's avatar, from their own name and never a code. */
