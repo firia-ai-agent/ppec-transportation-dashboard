@@ -2,7 +2,13 @@
 
 Mockup: `mockups/live-map.html` · `png/live-map.png` (1440) · `png/live-map-390.png` (390).
 Branch cut from #74's head (`31e7acf`), with `origin/main` merged in after #74 landed (merge,
-never rebase). No migrations: `git diff 31e7acf -- drizzle/` is empty.
+never rebase). #74's frozen head `df64915` and its merge to main `caec0a7` are both ancestors of
+HEAD. No migrations: `git diff 31e7acf -- drizzle/` is empty.
+
+**Follow-up round (2026-10-18): the four S1s from Vera's 12:30 AM ET walk are fixed** — see
+"S1s from Vera's walk" below. Per the parent's box rule for that round, Playwright was NOT run:
+the e2e specs are written and updated but unexecuted, and vitest, tsc and lint carry the proof
+that can be carried without a browser.
 
 ---
 
@@ -81,7 +87,11 @@ file and call `planStore().loadPlan`. It is written at the top of the file as we
 
 ## Specs added and rewritten
 
-### `e2e/live-map.spec.ts` — rewritten wholesale (20 tests, all passing)
+### `e2e/live-map.spec.ts` — rewritten wholesale (29 cases, from 25 `test()` blocks, two of which loop)
+
+21 of them ran green in the previous round (19 + 2 front-desk). The **seven added for the S1s are
+written and NOT run** — the parent's box rule for this round gives the only Playwright slot to
+Veri — so they are listed here as new specs rather than as passing ones.
 
 Layer 1 assertions each cite `live-map.html`, `png/live-map.png` or `png/live-map-390.png`;
 Layer 2 assertions each name their ruling.
@@ -104,6 +114,11 @@ Layer 2 assertions each name their ruling.
 | Unlocks once the board saves that leg; each leg gates on its own plan | §9.1 |
 | Front desk lands on `/live-map` with no toast, menu is exactly Live map + Ramp iPad | Firia, 3:08 PM ET |
 | Front desk gets no scenario or demo controls | same + `map-view.ts` `clockControls` |
+| **Exactly three vans in the list and three pins on the map, and no "Van 4"** | Firia's 3-van ruling, 2026-10-18; `png/live-map.png` |
+| **The DEMO bar's clock and Restart button do not intersect, at 1440 and at 390** | `png/live-map.png`, `png/live-map-390.png` |
+| **The clock reads a bare 12-hour time, words only in its accessible name** | `png/live-map-390.png`, contract "reads as a 12-hour time" |
+| **`scrollWidth <= 390` at 390, on the saved screen and the locked one** | `png/live-map-390.png`, contract §Rules 6 |
+| **No internal code at 390, and for the front desk at both widths** | `live-map.html` `.van .t`, §Rules 6 |
 
 The chip tests pin the clock with `?at=<scenario second>` — the same test path the board already
 has (`?tick=`), through the **same** gate (`dateOverrideAllowed`: SYNTHETIC + `DEMO_MODE=1` + an
@@ -113,7 +128,7 @@ platform runs it is a parameter nothing reads.
 Every test that wants vans first **saves a plan on the board** — Auto-plan, Save, and a wait for
 the POST to land. That is the coordinator's own click, not a seeded row.
 
-### Behaviour (vitest), 67 tests
+### Behaviour (vitest), 103 tests in `src/modules/live-map/`
 
 - `src/modules/live-map/van-state.test.ts` (24) — the chip derivation, citing LOC-03 for the GPS
   bands, ASM-18's 100 m geofence for At stop, PRD §8 / `notifyGateConfig.shiftSeconds` for Late,
@@ -127,6 +142,9 @@ the POST to land. That is the coordinator's own click, not a seeded row.
   own statements, and the no-database path with its per-leg gating. Citing DATA-MODEL.md "One
   source for the plan", §9.1, and Firia's rule 4.
 - `src/modules/live-map/roles.test.ts` (17) — citing Firia's 3:08 PM ET ruling.
+- `src/modules/live-map/fleet.test.ts` (14) — the 3-van ruling, 2026-10-18 (see S1 4 above).
+- `src/modules/live-map/screen.test.ts` (22) — no internal code in the rendered markup, at every
+  300 s of the day and for all three roles (see S1 3 above).
 - `src/ui/tokens.test.ts` — a new van-palette block: the three colours, wrap-around, contrast at
   4.5:1 on both page surfaces (a van pin carries a white numeral, so it is text), blue only
   inside `VAN_COLORS`, no blue chrome token, no blue in any stylesheet, and the classifier's own
@@ -176,6 +194,10 @@ Nothing was loosened to pass. Where a run failed, the code changed — see the t
 
 ## Screenshots
 
+**Not regenerated in the follow-up round** (the box rule forbids a headless browser), so the eight
+PNGs below are from before the four S1 fixes: they still show the long "Scenario clock …" readout,
+the 426 px phone and Van 1's line under Van 3's. The code and the specs are ahead of them.
+
 `artifacts/rework-livemap/`
 
 | File | What |
@@ -189,28 +211,107 @@ Nothing was loosened to pass. Where a run failed, the code changed — see the t
 
 ---
 
+## S1s from Vera's walk (2026-10-18 12:30 AM ET)
+
+### 1 + 2 — the DEMO bar at 390: a 426 px page, and the clock over the button
+
+One cause: the readout said **"Scenario clock 7:31 AM ET"**. png/live-map-390.png and
+png/live-map.png both draw **"3:24 PM"** there, and MOCKUP-TEST-CONTRACT.md says the same in
+words ("the clock … reads as a 12-hour time (for example '2:47 PM')"). Three words and a zone
+more than the mockup has room for is what pushed the row past the viewport — and a
+`white-space: nowrap` span in a row that has run out of width does not give way, it draws over
+its neighbour.
+
+- The readout is the time. The words it lost are its **accessible name** (`liveMap.clockLabel`),
+  so a founder reads four characters and a screen reader still hears what the number is.
+- The layout half is the mockup's own phone rules (`live-map.html`: `.demo{gap:6px}`,
+  `.demo .reset{padding:0 8px}`). 6 px is not a step on the §9 scale, so it takes the step below
+  (4 px) — the row has more room than the mockup's, never less.
+- The structural half, so it cannot return as a paint bug: `min-width: 0` plus an ellipsis on the
+  readout and on the button's label. The row now elides its own longest label instead of
+  overrunning the viewport.
+
+Specs: `copy.test.ts` and `demo-clock.test.ts` assert **both** halves (visible time, accessible
+name) — tightened, not loosened: they would still have passed unchanged, because the words are in
+the markup as an `aria-label`, and they now fail if the sentence comes back into view. e2e adds
+`scrollWidth <= 390` (on the saved **and** the locked screen) and non-intersecting bounding boxes
+for the clock and the button at 390 **and** 1440.
+
+### 3 — no internal codes on screen
+
+`"V1 · Convertible van"`, `"Provider P1"` and `"V2 · Live 2 s"` came from #53's vehicle card,
+which was still in the tree although nothing rendered it. **Deleted:**
+`src/components/map/FleetMap.tsx`, `LiveFleetMap.tsx`, `fleet-map.module.css`, and the nine copy
+keys they used (`vehicleRow`, `vehicleMeta`, `gps`, `source`, `stopped`, `fitAll`,
+`vehiclesHeading`, `locationLost`, `stopFamily`). A template whose first placeholder is an
+internal id is not a string to leave lying around.
+
+A van reads `"Van 1 · Marco D."` and nothing else about the van (`live-map.html` `.van .t`;
+REDESIGN-SPEC §6 item 5 hides providers, §7 C2 makes the vans generic).
+
+New: **`src/modules/live-map/screen.test.ts`** renders the real screen with `react-dom/server`
+and scans every word — eleven code shapes each asserted on its own, nine vehicle descriptions and
+vendor names by name, at every 300 s of the simulated day, for all three roles, and on the locked
+screen. That is the only way to catch this class: a code arrives interpolated out of a fixture at
+render time, so it is neither a literal in a component nor a string in `copy.ts`, and none of the
+greps in `no-codes.test.ts` can see it.
+
+`src/components/map/pane.test.ts` was **retargeted, not deleted** — its §9 (44 px zoom targets)
+and ADR-008 (attribution never clipped or covered) rules are Vera's review contracts, not #53's
+styling. Carrying them over found that the new pane was **missing all three CSS rules**: it had
+MapLibre's 29 px buttons and an unpinned attribution. Fixed, plus two new rules (the attribution
+sits above all three overlays this screen floats; the pane floats no button of its own).
+
+### 4 — exactly three vans
+
+The map read `DEMO_RUNS` — #53's **four**-run fixture — and dropped the fourth at render time, by
+whether its device happened to be bound. Three vans because one is invisible is one fixture edit
+away from four, and nothing would have failed.
+
+`src/modules/live-map/fleet.ts` now declares the screen's own fleet: three entries, V1/V2/V3, in
+the order they are numbered. No index 3, no V4, and `day.ts` filters nothing.
+
+**Van 3 is generic now**, which a count alone cannot catch: #53's third run was
+`route2-substitute`, the *reserve* van's road, deliberately given route 2's geometry so the two
+could not drift. Van 3 drives **route 1** (R3's morning — the Greenacres library and John Prince
+Park, the stop png/live-map.png itself names), keeping the AT-03 jitter. Three vans, three roads,
+three colours — which also **fixes mismatch 3 of the previous round**, where Van 1's blue line was
+hidden underneath Van 3's pink one.
+
+`fleet.test.ts` (14) asserts the three entries, that no two vans share a road or a stop list, that
+the day yields three vans at **every 15 s** of the run (the old filter depended on the clock), that
+the feed never names a van 4, and — by grep over every live-map source — that no V4,
+`route2-substitute`, `SUBSTITUTE_ROUTE` or `DEMO_RUNS` appears in live-map *code*.
+
+The pinned e2e second moved **3600 → 830**: with the fourth run gone the same day reaches the
+mockup's own state earlier, and 830 is the one second where all of png/live-map.png is true at
+once — counts "1 on route · 1 late · 1 no GPS", three different chips, every van with a named next
+stop, and a row in the Auto texts feed. Found by walking the day in vitest, not by guessing.
+
+---
+
 ## Remaining mismatches vs the mockup, honestly
 
-1. **At 390 the page's `scrollWidth` is 426 for a director.** The 36 px over is the DEMO bar's
-   "Restart demo day" button, which is **frame chrome on every route** — `/today` is 766 at the
-   same width, `/ramp-ipad` is 390. Not this screen's content: the widest thing the Live map
-   itself draws at 390 is 390, and the front desk — the role that actually lands here, and has no
-   Restart button — measures exactly 390. It belongs to the DEMO bar (#74), so it is reported
-   rather than fixed from this branch.
+1. **The 390 overflow and the clock/button overlap are FIXED** (S1s 1 and 2 above) — but the fix
+   is **reasoned, not measured**: the parent's box rule for this round forbids running Playwright,
+   so the two e2e assertions that would prove it (`scrollWidth <= 390`, non-intersecting boxes)
+   are written and unexecuted. The arithmetic they rest on is the mockup's own: the bar carries
+   "DEMO", a 20 px chip, seven characters of time and one button, at 4 px gaps inside 12 px
+   padding. The `min-width: 0` + ellipsis backstop means that even if that arithmetic is off, the
+   row elides rather than overruns — so the failure mode is a shortened label, not a scrollbar.
 2. **Two tests fail in `e2e/screens.spec.ts`, and neither is this screen's.**
    "the board carries the DEMO bar and a rail that is not clipped" fails at 1024 and 1280 on
    `/today`: the rail measures 47 px where 64 is expected, and 215 where 232 is expected — a
    consistent 17 px squeeze, because the board's own content overflows (`scrollWidth` 1375 at a
-   1280 viewport) and the flex row shrinks the rail to fit. Measured, not assumed: this branch's
-   only addition to shared chrome is one empty `[data-header-slot]` element in the page header,
-   it measures **0 px wide**, and deleting it from the live DOM leaves the rail at exactly 47 and
-   215. The overflow is the board's. Reported, not fixed from here.
+   1280 viewport) and the flex row shrinks the rail to fit. Measured in the previous round, not
+   assumed: this branch's only addition to shared chrome is one empty `[data-header-slot]` element
+   in the page header, it measures **0 px wide**, and deleting it from the live DOM leaves the
+   rail at exactly 47 and 215. The overflow is the board's. Reported, not fixed from here.
+3. **The Auto texts feed has one row, where the mockup draws three.** The simulated day produces
+   exactly one `NOTIFY` decision over its whole length (walked in vitest), so there is one text to
+   list. Not a layout question — the feed renders up to three — but a fixture one: more families
+   would have to cross the late threshold for the mockup's three rows to exist.
 
-3. **Van 1's route line is drawn underneath Van 3's.** The fixtures give the substitute van
-   (`route2-substitute`) *route 2's own geometry* on purpose, so the two cannot drift — which
-   means two of the three lines coincide and the blue one is hidden under the pink. The mockup
-   draws three separate routes. A fixture question, not a paint one: the pins separate as the two
-   runs diverge, and the colours are correct wherever they are visible.
 4. **The kid count is the plan's, not a live count of who is still aboard.** The brief's rule is
    that the saved plan decides which children are on which van, so the row shows the plan's count
    for that van all day. The mockup's "2 kids" reads as "still aboard". The two agree at the start
