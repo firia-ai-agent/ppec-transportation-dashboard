@@ -228,7 +228,7 @@ test("changing the day's rows moves the four tiles and the step strip, at 1440 a
     const after: TileExpect[] = [
       { label: healthNow.kidsPlaced, figure: "4/5" },
       { label: healthNow.vansChecked, figure: "2/3", pill: van3, tone: "warn" },
-      { label: healthNow.runningLate, figure: "1", pill: van2, tone: "warn" },
+      { label: healthNow.runningLate, figure: "1", pill: vanOnScreen("V1"), tone: "warn" },
       { label: healthNow.needsYou, figure: "3", pill: nav.familyTexts, tone: "info" },
     ];
     for (const width of WIDTHS) {
@@ -266,7 +266,7 @@ test("changing the day's rows moves the four tiles and the step strip, at 1440 a
     const again: TileExpect[] = [
       { label: healthNow.kidsPlaced, figure: "4/5" },
       { label: healthNow.vansChecked, figure: "3/3", pill: healthNow.all, tone: "ok" },
-      { label: healthNow.runningLate, figure: "1", pill: van2, tone: "warn" },
+      { label: healthNow.runningLate, figure: "1", pill: vanOnScreen("V1"), tone: "warn" },
       { label: healthNow.needsYou, figure: "2", pill: nav.familyTexts, tone: "info" },
     ];
     for (const width of WIDTHS) {
