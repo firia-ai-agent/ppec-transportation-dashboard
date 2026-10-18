@@ -210,6 +210,13 @@ export async function askAgent(
     );
     if (run === TIMED_OUT) throw new AskTimedOut();
     const said = await askAnswer(db, run.runId);
+    /*
+     * NEVER SILENT. A run can end with nothing to show for the ask — the model escalated, wrote a
+     * note this roster cannot name, or the gateway refused its turn — and a panel that then says
+     * nothing leaves the person staring at their own question. That is the same outcome for them
+     * as a model that could not be reached, so it gets the same answer: one alert, a person told.
+     */
+    if (said.answer === null && said.proposalId === null) throw new AskUnanswered();
     return { ok: true, outcome: "ran", taskId, run, answer: said.answer, proposalId: said.proposalId };
   } catch (err) {
     /*
@@ -238,12 +245,18 @@ export async function askAgent(
       ok: false,
       outcome: "unavailable",
       taskId: alertId,
-      reason: err instanceof AskTimedOut ? "TIMEOUT" : "the model could not be reached",
+      reason:
+        err instanceof AskTimedOut
+          ? "TIMEOUT"
+          : err instanceof AskUnanswered
+            ? "NO_ANSWER"
+            : "the model could not be reached",
     };
   }
 }
 
 class AskTimedOut extends Error {}
+class AskUnanswered extends Error {}
 const TIMED_OUT = Symbol("timed out");
 
 /** `promise`, or TIMED_OUT once `ms` have passed. The loser is not awaited. */
