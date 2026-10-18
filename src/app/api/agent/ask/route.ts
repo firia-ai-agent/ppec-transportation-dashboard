@@ -6,7 +6,7 @@ import { siteOf } from "@/modules/plan/api";
 import { apiAccess } from "@/ui/copy";
 
 export const dynamic = "force-dynamic";
-// The ask drives its run inside this request under `askTimeoutMs` (45 s by default), so the
+// The ask drives its run inside this request under `askTimeoutMs` (20 s by default), so the
 // platform's own ceiling sits above it: an ask that runs out is a staff alert, never a 504.
 export const maxDuration = 60;
 

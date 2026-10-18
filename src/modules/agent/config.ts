@@ -270,11 +270,15 @@ export function vendorRequestUrl(
 export const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 
 /**
- * Hard ceiling on a whole staff ask, driven inside the ask's own request (`ask/staff-ask.ts`). Two
- * or three model turns on a free endpoint, and well under the route's 60 s `maxDuration`: an ask
- * that runs out is a staff alert with reason TIMEOUT, never a 504.
+ * Hard ceiling on a whole staff ask, driven inside the ask's own request (`ask/staff-ask.ts`).
+ *
+ * Twenty seconds, not the 45 it was: an ask is typed into a chat bubble and waited on, and a
+ * person watching a spinner for three quarters of a minute has already decided the thing is
+ * broken. The ceiling is what a person will wait, and the answer when it passes is the one the
+ * founder's rule gives — a staff alert with reason TIMEOUT, never a 504, and still well under the
+ * route's 60 s `maxDuration`.
  */
-export const DEFAULT_ASK_TIMEOUT_MS = 45_000;
+export const DEFAULT_ASK_TIMEOUT_MS = 20_000;
 
 /**
  * The one endpoint the agent needs: a single synchronous completion with tools. Anything that
