@@ -31,7 +31,8 @@ import { measurePath, pathUpTo, type Coord } from "@/domain/location/geo";
 import { routeGeometry } from "@/domain/location/route";
 import type { VanChip } from "@/domain/location/van-chip";
 import { driverFor } from "@/domain/plan/day";
-import { DEMO_RUNS, SCENARIO_START_MS } from "@/fixtures/replays";
+import { SCENARIO_START_MS } from "@/fixtures/replays";
+import { LIVE_FLEET } from "./fleet";
 import { DEMO_CENTER } from "@/fixtures/map";
 import { FAMILIES } from "@/modules/demo/fixtures/standard";
 import { shortName } from "@/ui/display-name";
@@ -109,11 +110,15 @@ export type LiveDay = {
 };
 
 /**
- * One replay per run, computed once per process rather than once per clock tick: the runs are
+ * One replay per van, computed once per process rather than once per clock tick: the runs are
  * deterministic (same seed, same run — AT-03), so the whole day is a constant and the clock only
  * reads frames out of it. A 4 Hz clock must never re-run a simulation.
+ *
+ * The source is `LIVE_FLEET` — the screen's own three vans — and never `DEMO_RUNS`, which is
+ * #53's four-run fixture and still carries the unbound fourth device. Firia's ruling: the demo
+ * has exactly 3 vans and this screen may not reference slot 4 (./fleet.ts says it in full).
  */
-const RUNS = DEMO_RUNS.map((run) => {
+const RUNS = LIVE_FLEET.map((run) => {
   const result = runReplay(run.spec);
   return {
     result,
@@ -135,17 +140,19 @@ function stopsOf(result: ReplayResult): StopPoint[] {
 /**
  * The van's number and its colour slot.
  *
- * It is the van's position in the day's own fleet, not a lookup table keyed by "V1": a day that
- * runs two vans numbers them 1 and 2, and the third colour is simply not used. The vans a run
- * cannot show at all (an unbound device, LOC-01) are excluded *before* numbering, so the list
- * never has a gap in it.
+ * It is the van's position in the fleet — Van 1 is `LIVE_FLEET[0]` — so the number on the list,
+ * the number in the map pin and the colour all come from one place and cannot disagree.
+ *
+ * Every van of the fleet is shown. There is no filter here any more, and that is the point of
+ * Firia's ruling: the fleet used to be four runs with the fourth dropped at render time because
+ * its device was unbound, and "three vans because one is invisible" is not three vans. A van on
+ * this screen is a van in ./fleet.ts.
+ *
+ * (LOC-01 / ADR-013 has not gone anywhere — a device with no active binding still has no
+ * displayable position. It is simply not a case this screen's fleet contains.)
  */
-function visibleRuns(nowMs: number, tween: boolean) {
-  return RUNS.map((run) => ({ ...run, frame: frameAt(run.result, nowMs, tween) })).filter(
-    // LOC-01 / ADR-013: a device with no active binding has no displayable position, so its van
-    // is absent — not hidden with CSS, not drawn faintly, and not numbered.
-    (run) => !run.frame.hidden,
-  );
+function fleetRuns(nowMs: number, tween: boolean) {
+  return RUNS.map((run) => ({ ...run, frame: frameAt(run.result, nowMs, tween) }));
 }
 
 function vanOf(
@@ -244,7 +251,7 @@ export function liveDayAt(
   } = {},
 ): LiveDay {
   const nowMs = SCENARIO_START_MS + seconds * 1000;
-  const runs = visibleRuns(nowMs, options.tween ?? true);
+  const runs = fleetRuns(nowMs, options.tween ?? true);
   const kidsByVan = options.kidsByVan ?? {};
   const vans = runs.map((run, i) => vanOf(i, run.result, run.frame, run.planned, kidsByVan));
   const numbered = runs.map((run, i) => ({ ...run, number: i + 1 }));

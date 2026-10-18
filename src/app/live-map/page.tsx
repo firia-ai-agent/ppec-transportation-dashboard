@@ -49,7 +49,7 @@ import {
 } from "@/modules/live-map/plan-read";
 import { DATE_PARAM, LEG_PARAM, resolveDate, resolveLeg } from "@/modules/plan/when";
 import { dateOverrideAllowed } from "@/domain/board/day";
-import { DEMO_RUNS } from "@/fixtures/replays";
+import { LIVE_FLEET_VEHICLE_IDS } from "@/modules/live-map/fleet";
 import styles from "@/modules/live-map/live-map.module.css";
 
 export const metadata = { title: liveMap.documentTitle };
@@ -113,8 +113,8 @@ export default async function LiveMapPage({
    */
   const byVehicleId = kidsPerVan(plan);
   const kidsByVan: Record<string, number> = {};
-  for (const run of DEMO_RUNS) {
-    const key = run.spec.route.vehicleId;
+  // The screen's own three vans (Firia: the demo has exactly 3), never the four-run fixture.
+  for (const key of LIVE_FLEET_VEHICLE_IDS) {
     const id = demoVehicleId(key);
     if (id && id in byVehicleId) kidsByVan[key] = byVehicleId[id];
   }

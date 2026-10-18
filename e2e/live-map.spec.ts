@@ -44,12 +44,16 @@ const DESK = { width: 1440, height: 900 };
 
 /**
  * Scenario seconds, chosen because of what the simulated day does at them (the states are
- * computed in src/modules/live-map/day.ts and walked in van-state.test.ts):
+ * computed in src/modules/live-map/day.ts and walked in van-state.test.ts and fleet.test.ts):
  *  - ALL_AT_STOP: every van is standing in a stop's geofence — the start of the runs.
  *  - ALL_ON_ROUTE: every van is moving, fresh fixes, on schedule.
- *  - MOCKUP: 1 on route · 1 late · 1 no GPS — the exact summary line png/live-map.png shows.
+ *  - MOCKUP: the one second that is png/live-map.png. Counts read "1 on route · 1 late ·
+ *    1 no GPS", all three vans are wearing a different chip, every one of them still has a
+ *    named next stop, and the Auto texts feed has a row in it. Moved from 3600 when the fleet
+ *    became three vans with three roads (Firia's 3-van ruling, src/modules/live-map/fleet.ts):
+ *    the same day, with the fourth run gone, reaches the mockup's own state earlier.
  */
-const AT = { ALL_AT_STOP: 0, ALL_ON_ROUTE: 30, MOCKUP: 3600 } as const;
+const AT = { ALL_AT_STOP: 0, ALL_ON_ROUTE: 30, MOCKUP: 830 } as const;
 
 /** The map pane has drawn when MapLibre says what is on screen (src/modules/live-map/LiveMapPane.tsx). */
 async function mapDrawn(page: Page) {
@@ -168,6 +172,8 @@ test.describe("the Live map at 1440", () => {
     const vans = page.getByRole("list", { name: liveMap.vansHeading });
     await expect(vans).toBeVisible();
     const rows = vans.getByRole("button");
+    // Three vans, and three is the ruling rather than the fixture's leftovers (Firia, 2026-10-18:
+    // the demo has exactly 3 vans; #73's seed removes the spare). png/live-map.png draws three.
     await expect(rows).toHaveCount(3);
     for (const [i, row] of (await rows.all()).entries()) {
       const name = await row.getAttribute("aria-label");
@@ -427,6 +433,35 @@ test.describe("the Live map at 1440", () => {
   });
 
   /*
+   * EXACTLY THREE VANS, IN THE LIST AND ON THE MAP (Firia's ruling, 2026-10-18: the demo has
+   * exactly 3 vans; #73's seed removes the spare and Van 3 is a generic van).
+   *
+   * png/live-map.png draws three rows and three numbered pins. The list is the DOM's own count;
+   * the pins live inside a WebGL canvas, so the pane publishes what MapLibre actually drew on
+   * its `idle` event (src/modules/live-map/LiveMapPane.tsx `data-vans-drawn`) and this reads
+   * that. Both halves matter: a fourth row with no pin and a fourth pin with no row are each a
+   * fourth van.
+   */
+  test("draws exactly three vans, in the list and on the map", async ({ page }) => {
+    await savePlan(page);
+    await openMap(page);
+    const pane = await mapDrawn(page);
+
+    const rows = page.getByRole("list", { name: liveMap.vansHeading }).getByRole("button");
+    await expect(rows).toHaveCount(3);
+    const names = await rows.evaluateAll((bs) => bs.map((b) => b.getAttribute("aria-label")));
+    expect(names.map((n) => (n ?? "").match(/^Van (\d)/)?.[1]).sort()).toEqual(["1", "2", "3"]);
+
+    // What MapLibre drew: the van numbers it has pins for, sorted. Three, and 1/2/3.
+    const drawn = (await pane.getAttribute("data-vans-drawn")) ?? "";
+    expect(drawn.split(",").filter(Boolean).sort()).toEqual(["1", "2", "3"]);
+
+    // And no fourth van anywhere in the words on the screen.
+    const text = await page.locator("main").innerText();
+    expect(text, "a fourth van").not.toMatch(/\bVan 4\b/);
+  });
+
+  /*
    * THE DEMO BAR'S CLOCK AND ITS BUTTON DO NOT OVERLAP (Vera, 2026-10-18 12:30 AM ET).
    *
    * png/live-map.png draws the bar as `DEMO · Synthetic data · [Simulated] ……… 3:24 PM
@@ -537,6 +572,7 @@ test.describe("the Live map at 390", () => {
     const filters = page.getByRole("group", { name: liveMap.filterLabel });
     await expect(filters.getByRole("button", { name: liveMap.filterLate })).toBeVisible();
     const rows = page.getByRole("list", { name: liveMap.vansHeading }).getByRole("button");
+    // Three cards at 390 as well (png/live-map-390.png; Firia's 3-van ruling, 2026-10-18).
     await expect(rows).toHaveCount(3);
     for (const row of await rows.all()) {
       expect(await row.getAttribute("aria-label")).toMatch(/^Van \d · \S/);
