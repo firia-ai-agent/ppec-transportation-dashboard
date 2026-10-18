@@ -504,6 +504,27 @@ export const familyByKey = (key: string): Family => {
 };
 /** Index within its kind, used to build the deterministic id. */
 export const indexOfChild = (key: string): number => CHILDREN.findIndex((c) => c.key === key);
+
+/**
+ * The two seeded row ids a caller outside the seed has to be able to name.
+ *
+ * They live here, with the data they are derived from, rather than in src/modules/demo/seed.ts —
+ * which is the module that TRUNCATES, and which `build-isolation.test.ts` keeps reachable from
+ * exactly two entry points. A caller that only needs "which row is C2's afternoon" must not drag
+ * the truncate into its import graph to find out; the seed reads these too, so there is still one
+ * definition (`seed.ts`).
+ */
+export const demoChildToken = (childKey: string): string =>
+  demoId(KIND.child, requireChildIndex(childKey) + 1);
+
+export const demoLegId = (childKey: string, direction: "AM" | "PM"): string =>
+  demoId(KIND.leg, requireChildIndex(childKey) * 2 + (direction === "AM" ? 1 : 2));
+
+function requireChildIndex(childKey: string): number {
+  const i = indexOfChild(childKey);
+  if (i < 0) throw new Error(`unknown child ${childKey}`);
+  return i;
+}
 export const indexOfFamily = (key: string): number => FAMILIES.findIndex((f) => f.key === key);
 export const runOfChild = (key: string): Run | undefined => RUNS.find((r) => r.childKeys.includes(key));
 

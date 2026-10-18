@@ -69,6 +69,19 @@ const STOP_NAMES: Readonly<Record<string, string>> = outboundSms.stops;
 /** What an unrecognised token becomes. Never the token itself (COPY-GUIDE §2). */
 export const UNKNOWN_STOP = outboundSms.unknownStop;
 
+/**
+ * The stop tokens that have a place name, longest-lived first — the only ones a *proposal* may
+ * name (`tools.propose_dropoff_change`).
+ *
+ * The outbox's own `stopToken` rule is a shape check, so a token with no entry in the table above
+ * renders as "your usual stop": vague, safe, and exactly right for a message about a stop the plan
+ * already holds. A proposal is the other case. A coordinator is being asked to approve a text that
+ * tells a family where their child will be set down, and "your usual stop" is not an answer to
+ * that question — so the tool takes one of these and nothing else, and the parent's text names a
+ * real place. Derived from the table, so adding a stop to the copy adds it here.
+ */
+export const KNOWN_STOP_TOKENS: readonly string[] = Object.keys(STOP_NAMES);
+
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /**
@@ -102,7 +115,7 @@ function timeWindow(start: string, end: string): string | null {
 }
 
 /**
- * How an `eta` reads. On the three templates that permit `etaEnd` it is an estimate, so a window is
+ * How an `eta` reads. On the templates that permit `etaEnd` it is an estimate, so a window is
  * rendered when both ends are present and the single time is hedged ("around 8:15 AM") when only one
  * is; on the templates with no `etaEnd` var the time is a recorded fact ("at 8:12 AM"), not a guess.
  *
@@ -147,6 +160,9 @@ const FORMAT: Readonly<Record<string, (value: string, templateId: string, vars: 
   date: calendarDay,
   reasonCode: (value, templateId) => REASON_COPY[templateId]?.[value] ?? null,
   stopLabel: (value) => STOP_NAMES[value] ?? UNKNOWN_STOP,
+  // Minutes as digits, already bounded to 1–240 by the var rule. Nothing to word: "about 15
+  // minutes late" is the body's sentence, and this is the number in it.
+  delayMinutes: (value) => (/^\d{1,3}$/.test(value) ? value : null),
 };
 
 const PLACEHOLDER = /\{(\w+)\}/g;

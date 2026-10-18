@@ -1,311 +1,394 @@
 /**
- * (d) The control case for the founder's 2026-10-17 rule: the model is **up**.
+ * SURF-05's decision, against a real database (demo item 2a; PRD §18.2 steps 9–10, §11.2 human
+ * tier; AT-01, AT-09).
  *
- * The rule says a dead model must not be compensated for. Everything that proves it
- * (`agent/model-unavailable.test.ts`) asserts absences — no proposal, no ride change, nothing
- * sent — and absences are cheap to pass by accident. So this file drives the same family text
- * through the same loop with a model that answers, and asserts the **presences**: the requested
- * time arrives as structured output, it becomes a proposal and nothing else, a director or a
- * coordinator approving it moves the ride, and the front desk cannot.
+ * The §11.2 human tier had no human in it: `agent/run/exec/proposals.ts` has written
+ * `ops.approval_request` rows since B-08 slice 4 and its own header said what was missing — "the
+ * approval *surface* that would turn a decision into an applied change". So a proposal was a row
+ * nobody could say yes to. This is the suite for the yes, and for every way it must say no.
  *
- * Together the two files pin the whole shape:
+ * The two Veri asked for by name come first, because they are the ones that matter:
  *
- *  | the model | what the family's text produces |
- *  |---|---|
- *  | down | one staff alert, no proposal, no ride change, nothing sent |
- *  | up   | one proposal, no ride change *until a person approves*, nothing sent |
+ *  - **a parent session is refused.** A family holds no console account at all in P1, so "a
+ *    parent" is a caller with no staff role — signed out, or signed in with no membership
+ *    anywhere. Both are refused, and so is a staff role the page's row omits, because a role that
+ *    may not *read* this screen may certainly not decide on it.
+ *  - **another site's proposal id is refused**, as a uniform not-found, exactly as an id that
+ *    exists nowhere. A 403 there would confirm the id is real, which is the ID-swap rule
+ *    (BUILD-PLAN §4: another site is a 404, not a 403).
  *
- * Note what is the same in both rows: **no ride moves on the agent's say-so, ever**. That is
- * §11.2's human tier, and it is why "the assistant read it" and "the assistant could not read
- * it" differ in what a coordinator is shown and not in what the system did to the ride.
- *
- * The last suite is the one that would catch the keyword reader coming back in spirit rather
- * than in name: a model that answers in **prose** carrying "at 5" gets nowhere near the leg.
+ * Then what approving actually does, which is three writes in one transaction, and the three ways
+ * it refuses to do them: a decision already made, a plan that moved underneath it, and a time that
+ * is not a time.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
+import { uuidv7 } from "uuidv7";
 import type { Db } from "@/db/exec";
-import { Forbidden, SiteNotFound, Unauthenticated } from "@/auth/core";
-import { rolesWhoCanOpen } from "@/auth/access";
+import { ALL_STAFF, rolesWhoCanOpen } from "@/auth/access";
+import { demoChildToken, demoLegId } from "@/modules/demo/fixtures/standard";
+import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { TEST_NOW } from "@/test/clock";
-import { freshDb } from "@/test/pglite";
-import { seedSecondSite, seedStaff } from "@/test/messaging";
-import { type AgentScenario, seedAgentScenario } from "@/test/agent-state";
-import type { PolicyContext } from "@/modules/agent/policy";
-import { freeText, toolCall } from "@/modules/agent/providers/fake";
-import type { ProviderResponseBody } from "@/modules/agent/providers/provider";
-import type { TierFacts } from "@/modules/agent/run/context";
-import { type LiveHarness, liveHarness } from "@/modules/agent/run/exec/live-harness";
-import { DROPOFF_CHANGE_TASK_CATEGORY } from "@/modules/agent/run/exec/proposals";
-import type { Trigger } from "@/modules/agent/run/triggers";
-import { MODEL_UNAVAILABLE_CATEGORY } from "@/modules/agent/staff-alert";
-import { APPROVALS_PAGE, approvalRoles, canDecideApprovals, decide, pendingApprovals } from "./decide";
-
-/** What the family wrote. The model is the only thing that may read a time out of it. */
-const THEIR_WORDS = "can we do the afternoon drop at 5 today";
-/** What a working model returns: the time as a **field**, not as a sentence. */
-const REQUESTED_TIME = "17:00";
+import { seedPersona, seedStaff } from "@/test/messaging";
+import { freshDb, ORG, SITE } from "@/test/pglite";
+import { APPROVALS_PAGE, approvalRoles, decideApproval, pendingApprovals } from "./decide";
 
 let pg: PGlite;
 let db: Db;
-let now: Date;
-let sc: AgentScenario;
-const open: PGlite[] = [];
+let transport: FakeOutboxTransport;
+/** The coordinator who decides, and the child whose ride the proposal is about. */
+let coordinator: string;
+let childToken: string;
+let legId: string;
+
+/** The other tenant, for the ID-swap row. Seeded here, as `idswap.test.ts` seeds its own. */
+const SITE_B = "00000000-0000-7000-8000-00000000000b";
+
+const CHILD_KEY = "C2";
+const SERVICE_DATE = "2026-10-14";
 
 beforeEach(async () => {
   ({ pg, db } = await freshDb());
-  open.push(pg);
-  now = new Date(TEST_NOW);
-  sc = await seedAgentScenario(db, { body: THEIR_WORDS, receivedAt: now });
+  transport = new FakeOutboxTransport();
+  coordinator = await seedStaff(db, "COORDINATOR", SITE);
+  await db.query(
+    `INSERT INTO ops.site (id, org_id, name, depot_lat, depot_lng, created_by, updated_by)
+     VALUES ($1, $2, 'SYN Second Site', 26.645352, -80.145541, 'test', 'test')`,
+    [SITE_B, ORG],
+  );
+
+  // One family, one child, one afternoon leg — the shape a drop-off proposal is about.
+  const persona = await seedPersona(db, "+15615550102", { siteId: SITE, now: TEST_NOW });
+  childToken = demoChildToken(CHILD_KEY);
+  legId = demoLegId(CHILD_KEY, "PM");
+  await db.query(
+    `INSERT INTO ops.child_profile (child_token, site_id, family_group_id, display_name, created_by, updated_by)
+     VALUES ($1, $2, $3, 'Noah O.', 'test', 'test')`,
+    [childToken, SITE, persona.familyGroupId],
+  );
+  await db.query(
+    `INSERT INTO ops.contact_authorization (id, site_id, contact_token, child_token, scope, channel, valid_from, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, 'RECEIVE_TRANSPORT_UPDATES', 'SMS_1TO1', $5, 'test', 'test')`,
+    [uuidv7(), SITE, persona.contactToken, childToken, new Date(TEST_NOW.getTime() - 86_400_000).toISOString()],
+  );
+  await db.query(
+    `INSERT INTO ops.trip_leg (id, site_id, child_token, service_date, direction, mode, state, plan_version, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, 'PM', 'PROVIDER', 'SCHEDULED', 1, 'test', 'test')`,
+    [legId, SITE, childToken, SERVICE_DATE],
+  );
 }, 60_000);
 
 afterEach(async () => {
-  await Promise.all(open.splice(0).map((h) => h.close().catch(() => {})));
+  await pg.close();
 });
 
-const childToken = () => sc.children[0];
-const pmLeg = () => sc.legs[childToken()].PM;
+/** A proposal row of the shape `proposals.dropoffChange` writes, at a site of our choosing. */
+async function seedProposal(
+  over: { siteId?: string; legId?: string; planVersionBasis?: number; time?: string | null } = {},
+): Promise<string> {
+  const siteId = over.siteId ?? SITE;
+  const taskId = uuidv7();
+  await db.query(
+    `INSERT INTO ops.task (id, site_id, category, severity, state, summary, next_step, completion_predicate,
+       created_by, updated_by, source_mode)
+     VALUES ($1, $2, 'PLAN_CHANGE', 'AMBER', 'OPEN', 'A family asked for a different drop-off',
+       'Read the text, then decide', 'the drop-off approved or declined', 'test', 'test', 'SIMULATED')`,
+    [taskId, siteId],
+  );
+  const id = uuidv7();
+  const time = over.time === undefined ? "17:00" : over.time;
+  await db.query(
+    `INSERT INTO ops.approval_request (id, site_id, task_id, proposal, created_by, updated_by, source_mode)
+     VALUES ($1, $2, $3, $4::jsonb, 'test', 'test', 'SIMULATED')`,
+    [
+      id,
+      siteId,
+      taskId,
+      JSON.stringify({
+        kind: "DROPOFF_CHANGE",
+        leg_id: over.legId ?? legId,
+        child_token: childToken,
+        service_date: SERVICE_DATE,
+        direction: "PM",
+        plan_version_basis: over.planVersionBasis ?? 1,
+        requested_dropoff_time: time,
+        stop_token: "OKEE-PARK",
+        rationale_code: "PARENT_REQUEST",
+        template_id: "dropoff.changed",
+        vars: { legDate: SERVICE_DATE, ...(time ? { eta: time } : {}), stopLabel: "OKEE-PARK" },
+        approval_key: "a-key",
+      }),
+    ],
+  );
+  return id;
+}
 
-const trigger = (): Trigger => ({ type: "msg.inbound", id: sc.messageId, siteId: sc.siteId });
-
-const facts = (): TierFacts => ({
-  t1: `site=${sc.siteId} family=${sc.familyGroupId}`,
-  t2: `leg=${pmLeg()} direction=PM version=1 service_date=${sc.serviceDate}`,
-  t3: [THEIR_WORDS],
-  t4: "channel=SMS locale=en-US",
-});
-
-const policy = (): PolicyContext => ({
-  scope: sc.scope,
-  sendableSubjects: new Set([sc.threadId, ...sc.children]),
-  sourceMessageId: sc.messageId,
-});
-
-const harness = (script: readonly ProviderResponseBody[]): LiveHarness =>
-  liveHarness({ db, script, facts: facts(), policy: policy(), now: () => now });
-
-/** The one tool call a model may make to ask for a different drop-off time. */
-const proposeAtFive = (over: Record<string, unknown> = {}) =>
-  toolCall("propose_dropoff_change", {
-    child_token: childToken(),
-    leg_id: pmLeg(),
-    requested_dropoff_time: REQUESTED_TIME,
-    plan_version_basis: 1,
-    rationale_code: "FAMILY_REQUEST",
+const decide = (over: Partial<Parameters<typeof decideApproval>[2]>) =>
+  decideApproval(db, transport, {
+    userId: coordinator,
+    approvalId: "",
+    decision: "APPROVED",
+    now: TEST_NOW,
     ...over,
   });
 
-const leg = async (id: string) => {
-  const r = await db.query<{ id: string; window_start: Date | null; plan_version: number; state: string }>(
-    "SELECT id, window_start, plan_version, state FROM ops.trip_leg WHERE id = $1",
-    [id],
-  );
-  return r.rows[0];
-};
+const queued = async () =>
+  (await db.query<{ template_id: string; vars: Record<string, unknown>; child_token: string; trip_leg_id: string; plan_version_basis: number; state: string }>(
+    "SELECT template_id, vars, child_token, trip_leg_id, plan_version_basis, state FROM ops.outbound_message ORDER BY created_at, id",
+    [],
+  )).rows;
 
-const countOf = async (table: string) =>
-  Number((await db.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${table}`, [])).rows[0].n);
+const leg = async () =>
+  (await db.query<{ plan_version: number; version: number; window_start: Date | null }>(
+    "SELECT plan_version, version, window_start FROM ops.trip_leg WHERE id = $1",
+    [legId],
+  )).rows[0];
 
-/* ────────────────── the model answers: a proposal, and the ride does not move ────────────────── */
-
-describe("a model that reads the text proposes; it does not change the ride", () => {
-  it("'at 5' as structured output becomes one approval request and moves nothing", async () => {
-    const before = await leg(pmLeg());
-    const h = harness([proposeAtFive()]);
-
-    const run = await h.start(trigger());
-    expect(run.state).toBe("SUCCEEDED");
-
-    // One proposal, carrying the time exactly as the model's schema field held it.
-    const pending = await pendingApprovals(db, [sc.siteId]);
-    expect(pending).toHaveLength(1);
-    expect(pending[0]).toMatchObject({
-      legId: pmLeg(),
-      childToken: childToken(),
-      requestedTime: REQUESTED_TIME,
-      planVersionBasis: 1,
-    });
-
-    // The exception row that puts it on the board — and no model-unavailable card, because the
-    // model was available.
-    const tasks = await db.query<{ category: string }>("SELECT category FROM ops.task", []);
-    expect(tasks.rows.map((t) => t.category)).toEqual([DROPOFF_CHANGE_TASK_CATEGORY]);
-    expect(tasks.rows.map((t) => t.category)).not.toContain(MODEL_UNAVAILABLE_CATEGORY);
-
-    // And nothing happened to the ride or to anybody's phone.
-    expect(await leg(pmLeg())).toEqual(before);
-    expect(await countOf("ops.outbound_message")).toBe(0);
-    expect(h.provider.sent).toEqual([]);
-  });
-});
-
-/* ─────────────────────────── a person approves: now the ride moves ─────────────────────────── */
-
-describe("approving is what moves the ride, and only two roles may", () => {
-  /** Drive the run, then hand back the proposal a person now has to decide. */
-  async function proposed() {
-    const h = harness([proposeAtFive()]);
-    await h.start(trigger());
-    const [pending] = await pendingApprovals(db, [sc.siteId]);
-    expect(pending).toBeDefined();
-    return { h, pending };
-  }
-
-  it.each(["DIRECTOR", "COORDINATOR"] as const)("%s approving moves the leg and bumps the version", async (role) => {
-    const { pending } = await proposed();
-    const user = await seedStaff(db, role, sc.siteId);
-
-    const result = await decide(db, {
-      approvalId: pending.id,
-      decision: "APPROVED",
-      userId: user,
-      by: `staff:${user}`,
-    });
-
-    expect(result).toEqual({ status: "APPLIED", legId: pmLeg(), planVersion: 2 });
-
-    // The ride really moved: 17:00 on the leg's own service date, in the site's time zone.
-    const after = await leg(pmLeg());
-    expect(after.window_start).not.toBeNull();
-    const localHour = new Date(after.window_start as Date).toLocaleString("en-US", {
-      timeZone: "America/New_York",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-    expect(localHour).toBe("17:00");
-
-    // The proposal is decided, so it is no longer on the board.
-    expect(await pendingApprovals(db, [sc.siteId])).toEqual([]);
-    const task = await db.query<{ state: string }>("SELECT state FROM ops.task WHERE id = $1", [pending.taskId]);
-    expect(task.rows[0].state).toBe("RESOLVED_APPROVED");
-
-    // Approving a ride change is not a licence to text the family: queueing that confirmation is
-    // named as a gap in this change's PR body, and until it lands nothing leaves the building.
-    expect(await countOf("ops.outbound_message")).toBe(0);
-  });
-
-  it("the front desk cannot approve it, and the ride is untouched", async () => {
-    const { pending } = await proposed();
-    const before = await leg(pmLeg());
-    const frontDesk = await seedStaff(db, "FRONT_DESK", sc.siteId);
-
-    await expect(
-      decide(db, { approvalId: pending.id, decision: "APPROVED", userId: frontDesk, by: "staff:fd" }),
-    ).rejects.toBeInstanceOf(Forbidden);
-
-    expect(await leg(pmLeg())).toEqual(before);
-    // Still undecided: a refused decision is not a decision.
-    expect(await pendingApprovals(db, [sc.siteId])).toHaveLength(1);
-  });
-
-  it("the roles come from the access table's /exceptions row, not from a list written here", () => {
+describe("who may decide", () => {
+  /**
+   * The roles come from the page's own row, never from a list in the approval code. If somebody
+   * widens `/exceptions`, this screen widens with it — deliberately, in one place — and if
+   * somebody narrows it, the write narrows too.
+   */
+  it("holds a decider to the same roles as the screen the decision is on", () => {
     expect(approvalRoles()).toEqual(rolesWhoCanOpen(APPROVALS_PAGE));
-    expect([...approvalRoles()].sort()).toEqual(["COORDINATOR", "DIRECTOR"]);
-    expect(canDecideApprovals("DIRECTOR")).toBe(true);
-    expect(canDecideApprovals("COORDINATOR")).toBe(true);
-    expect(canDecideApprovals("FRONT_DESK")).toBe(false);
-    expect(canDecideApprovals(null)).toBe(false);
+    expect(approvalRoles().length).toBeGreaterThan(0);
+    // Not open to every staff role: the front desk's job is custody at the ramp, not approvals.
+    expect(approvalRoles().length).toBeLessThan(ALL_STAFF.length);
   });
 
-  it("a signed-out caller is unauthenticated, and another site's member gets a 404", async () => {
-    const { pending } = await proposed();
-    const before = await leg(pmLeg());
-
-    await expect(
-      decide(db, { approvalId: pending.id, decision: "APPROVED", userId: undefined, by: "anon" }),
-    ).rejects.toBeInstanceOf(Unauthenticated);
-
-    const otherSite = await seedSecondSite(db);
-    const stranger = await seedStaff(db, "DIRECTOR", otherSite);
-    // 404, not 403: a 403 would confirm that the id is real.
-    await expect(
-      decide(db, { approvalId: pending.id, decision: "APPROVED", userId: stranger, by: "staff:other" }),
-    ).rejects.toBeInstanceOf(SiteNotFound);
-
-    expect(await leg(pmLeg())).toEqual(before);
-  });
-
-  it("declining writes the decision and moves nothing", async () => {
-    const { pending } = await proposed();
-    const before = await leg(pmLeg());
-    const user = await seedStaff(db, "COORDINATOR", sc.siteId);
-
-    expect(
-      await decide(db, { approvalId: pending.id, decision: "DECLINED", userId: user, by: `staff:${user}` }),
-    ).toEqual({ status: "DECLINED" });
-
-    expect(await leg(pmLeg())).toEqual(before);
-    expect(await countOf("ops.outbound_message")).toBe(0);
-  });
-
-  it("the second coordinator to press is told it was already decided", async () => {
-    const { pending } = await proposed();
-    const a = await seedStaff(db, "COORDINATOR", sc.siteId);
-    const b = await seedStaff(db, "DIRECTOR", sc.siteId);
-
-    expect(await decide(db, { approvalId: pending.id, decision: "APPROVED", userId: a, by: "staff:a" })).toMatchObject(
-      { status: "APPLIED" },
-    );
-    expect(await decide(db, { approvalId: pending.id, decision: "APPROVED", userId: b, by: "staff:b" })).toEqual({
-      status: "ALREADY_DECIDED",
+  /**
+   * **A parent session is refused.** A family holds no console account in P1, so a "parent" here
+   * is a caller with no staff role: signed out, or signed in with no membership. Both are refused
+   * and neither is told anything about the proposal.
+   */
+  it("refuses a caller who is not staff: no session at all", async () => {
+    const id = await seedProposal();
+    expect(await decide({ approvalId: id, userId: undefined })).toEqual({
+      status: 401,
+      body: { ok: false, error: "SIGN_IN" },
     });
-    // Approved once, moved once.
-    expect((await leg(pmLeg())).plan_version).toBe(2);
+    // Nothing moved and nothing was queued.
+    expect(await queued()).toEqual([]);
+    expect((await leg()).plan_version).toBe(1);
+    expect(await pendingApprovals(db, [SITE])).toHaveLength(1);
   });
 
-  it("a plan that moved under the proposal writes nothing and stays decidable", async () => {
-    const { pending } = await proposed();
-    // Somebody corrected the ride by hand while the proposal was waiting (AT-08).
-    await db.query("UPDATE ops.trip_leg SET plan_version = plan_version + 1 WHERE id = $1", [pmLeg()]);
-    const before = await leg(pmLeg());
-    const user = await seedStaff(db, "COORDINATOR", sc.siteId);
+  it("refuses a signed-in user who holds no role anywhere, which is what a parent would be", async () => {
+    const id = await seedProposal();
+    const noRole = await seedStaff(db, "COORDINATOR", null);
 
-    expect(
-      await decide(db, { approvalId: pending.id, decision: "APPROVED", userId: user, by: `staff:${user}` }),
-    ).toEqual({ status: "STALE" });
+    expect(await decide({ approvalId: id, userId: noRole })).toEqual({
+      status: 404,
+      body: { ok: false, error: "NO_SUCH_APPROVAL" },
+    });
+    expect(await queued()).toEqual([]);
+    expect((await leg()).plan_version).toBe(1);
+  });
 
-    expect(await leg(pmLeg())).toEqual(before);
-    // The decision rolled back with the write, so the coordinator can still decide it against
-    // the plan as it now stands.
-    expect(await pendingApprovals(db, [sc.siteId])).toHaveLength(1);
+  it("refuses a staff role the screen's own row omits", async () => {
+    const id = await seedProposal();
+    const frontDesk = await seedStaff(db, "FRONT_DESK", SITE);
+
+    expect(await decide({ approvalId: id, userId: frontDesk })).toEqual({
+      status: 403,
+      body: { ok: false, error: "NOT_YOUR_ROLE" },
+    });
+    expect(await queued()).toEqual([]);
   });
 });
 
-/* ──────────────── free text cannot skip the approval, and cannot carry a time ──────────────── */
+describe("the tenant boundary", () => {
+  /**
+   * **Another site's proposal id is refused**, and refused *identically* to an id that exists
+   * nowhere. That equality is the assertion: a 403 here, or a different error code, would tell a
+   * caller holding a guessed id that it is a real one somewhere.
+   */
+  it("answers another site's id and an unknown id the same way", async () => {
+    const theirs = await seedProposal({ siteId: SITE_B });
+    const nowhere = uuidv7();
 
-describe("free text in the family's message cannot skip approval", () => {
-  it("a model that answers in prose is refused: no proposal, no ride change, nothing sent", async () => {
-    const before = await leg(pmLeg());
-    // The prose carries the answer the family asked for, times and all. §11.2 is "JSON-schema
-    // tool calls only", so the gateway refuses it before the policy engine is even asked — which
-    // is also why no amount of "at 5" in a family's own text can reach a leg.
-    const h = harness([freeText("Sure — I've moved the drop-off to 5pm and told the driver.")]);
+    const toTheirs = await decide({ approvalId: theirs });
+    const toNowhere = await decide({ approvalId: nowhere });
 
-    const run = await h.start(trigger());
-
-    expect(run.state).toBe("FAILED");
-    expect(run.reason).toContain("gateway refused the turn");
-    // And it is *not* read as the model being unavailable: a model that answered badly is not a
-    // model that is down, so this raises no "needs a person" card either.
-    expect(run.reason).not.toContain("model unavailable");
-
-    expect(await pendingApprovals(db, [sc.siteId])).toEqual([]);
-    expect(await countOf("ops.approval_request")).toBe(0);
-    expect(await countOf("ops.task")).toBe(0);
-    expect(await countOf("ops.outbound_message")).toBe(0);
-    expect(await leg(pmLeg())).toEqual(before);
-    expect(h.provider.sent).toEqual([]);
+    expect(toTheirs).toEqual({ status: 404, body: { ok: false, error: "NO_SUCH_APPROVAL" } });
+    expect(toTheirs).toEqual(toNowhere);
+    // And the row they named is untouched: still undecided, at their site.
+    const theirRow = (await db.query<{ decision: string | null; decided_at: Date | null }>(
+      "SELECT decision, decided_at FROM ops.approval_request WHERE id = $1",
+      [theirs],
+    )).rows[0];
+    expect([theirRow.decision, theirRow.decided_at]).toEqual([null, null]);
+    expect(await queued()).toEqual([]);
   });
 
-  it("the family's own words are never the source of the time: only the schema field is", async () => {
-    // The model asks for 08:15 while the family's text says "at 5". The proposal carries 08:15,
-    // because the proposal is built from the validated arguments and from nothing else.
-    const h = harness([proposeAtFive({ requested_dropoff_time: "08:15" })]);
-    await h.start(trigger());
+  it("is not a well-formed id either: a string that is not a uuid is the same not-found", async () => {
+    expect(await decide({ approvalId: "not-an-id" })).toEqual({
+      status: 404,
+      body: { ok: false, error: "NO_SUCH_APPROVAL" },
+    });
+  });
 
-    const [pending] = await pendingApprovals(db, [sc.siteId]);
-    expect(pending.requestedTime).toBe("08:15");
-    expect(THEIR_WORDS).toContain("at 5");
+  it("lists only the sites a caller is a member of", async () => {
+    await seedProposal();
+    await seedProposal({ siteId: SITE_B });
+
+    expect(await pendingApprovals(db, [SITE])).toHaveLength(1);
+    expect(await pendingApprovals(db, [SITE_B])).toHaveLength(1);
+    expect(await pendingApprovals(db, [])).toEqual([]);
+    expect((await pendingApprovals(db, [SITE]))[0].childLabel).toBe("Noah O.");
+  });
+});
+
+describe("approving", () => {
+  it("moves the ride, queues the family's text, and records the decision", async () => {
+    const id = await seedProposal();
+
+    const answer = await decide({ approvalId: id });
+
+    expect(answer.status).toBe(200);
+    expect(answer.body).toMatchObject({ ok: true, decision: "APPROVED" });
+    expect(answer.body.ok && answer.body.queued).toBe(1);
+    // The exact words the family gets — the ones the screen showed, through the one renderer.
+    expect(answer.body.ok && answer.body.text).toContain("New drop-off around 5:00 PM at Okeeheelee Park");
+
+    // 1. the decision, with who made it and when.
+    const row = (await db.query<{ decision: string; decided_by: string; decided_at: Date }>(
+      "SELECT decision, decided_by, decided_at FROM ops.approval_request WHERE id = $1",
+      [id],
+    )).rows[0];
+    expect(row.decision).toBe("APPROVED");
+    expect(row.decided_by).toBe(coordinator);
+    expect(row.decided_at).not.toBeNull();
+
+    // 2. the ride, moved, with its plan generation bumped so a stale message cannot ride on it.
+    const moved = await leg();
+    expect(moved.plan_version).toBe(2);
+    expect(moved.window_start).not.toBeNull();
+
+    // 3. the text, queued through the outbox against the version the ride now has.
+    const [message] = await queued();
+    expect(message.template_id).toBe("dropoff.changed");
+    expect(message.child_token).toBe(childToken);
+    expect(message.trip_leg_id).toBe(legId);
+    expect(message.plan_version_basis).toBe(2);
+    expect(message.state).toBe("QUEUED");
+    expect(message.vars).toMatchObject({ eta: "17:00", stopLabel: "OKEE-PARK" });
+
+    // And it leaves the list: the next render offers no decision somebody has already made.
+    expect(await pendingApprovals(db, [SITE])).toEqual([]);
+  });
+
+  it("sends the time a coordinator edited, not the one the assistant proposed", async () => {
+    const id = await seedProposal();
+
+    const answer = await decide({ approvalId: id, editedTime: "17:30" });
+
+    expect(answer.body.ok && answer.body.text).toContain("around 5:30 PM");
+    expect((await queued())[0].vars).toMatchObject({ eta: "17:30" });
+  });
+
+  it("refuses a time that is not a time, before anything is written", async () => {
+    const id = await seedProposal();
+    for (const bad of ["5pm-ish", "25:00", "17:0", "tomorrow"]) {
+      expect(await decide({ approvalId: id, editedTime: bad }), bad).toEqual({
+        status: 422,
+        body: { ok: false, error: "NOT_A_TIME" },
+      });
+    }
+    expect(await queued()).toEqual([]);
+    expect((await leg()).plan_version).toBe(1);
+  });
+
+  /** The race the schema comment next to the table names: two coordinators, one send. */
+  it("lets exactly one decision land", async () => {
+    const id = await seedProposal();
+
+    const first = await decide({ approvalId: id });
+    const second = await decide({ approvalId: id });
+
+    expect(first.status).toBe(200);
+    expect(second).toEqual({ status: 409, body: { ok: false, error: "ALREADY_DECIDED" } });
+    // One text, not two.
+    expect(await queued()).toHaveLength(1);
+    expect((await leg()).plan_version).toBe(2);
+  });
+
+  /**
+   * AT-08 from the other side: a manual correction invalidates a queued message, and it
+   * invalidates a *pending proposal* for the same reason — the text would name a time that is no
+   * longer the plan. Nothing is written, the decision is not claimed, and a coordinator can read
+   * the new state and decide again.
+   */
+  it("refuses when the ride moved under the proposal, and claims nothing", async () => {
+    const id = await seedProposal({ planVersionBasis: 1 });
+    // Somebody corrected the leg by hand in between.
+    await db.query("UPDATE ops.trip_leg SET plan_version = 2, version = version + 1 WHERE id = $1", [legId]);
+
+    expect(await decide({ approvalId: id })).toEqual({
+      status: 409,
+      body: { ok: false, error: "PLAN_MOVED" },
+    });
+    expect(await queued()).toEqual([]);
+    // Still undecided, so the screen can offer it again against the state as it now is.
+    const row = (await db.query<{ decided_at: Date | null }>(
+      "SELECT decided_at FROM ops.approval_request WHERE id = $1",
+      [id],
+    )).rows[0];
+    expect(row.decided_at).toBeNull();
+    expect(await pendingApprovals(db, [SITE])).toHaveLength(1);
+  });
+});
+
+describe("not sending", () => {
+  it("records the decision and does nothing else at all", async () => {
+    const id = await seedProposal();
+
+    const answer = await decide({ approvalId: id, decision: "DECLINED" });
+
+    expect(answer.status).toBe(200);
+    expect(answer.body).toMatchObject({ ok: true, decision: "DECLINED", queued: 0 });
+    expect((await db.query<{ decision: string }>("SELECT decision FROM ops.approval_request WHERE id = $1", [id])).rows[0].decision)
+      .toBe("DECLINED");
+    // The whole of what "Don't send" means: no ride moved and no message was queued.
+    expect(await queued()).toEqual([]);
+    expect((await leg()).plan_version).toBe(1);
+    expect((await leg()).window_start).toBeNull();
+  });
+
+  it("cannot be decided twice either", async () => {
+    const id = await seedProposal();
+    await decide({ approvalId: id, decision: "DECLINED" });
+    expect(await decide({ approvalId: id })).toEqual({
+      status: 409,
+      body: { ok: false, error: "ALREADY_DECIDED" },
+    });
+    expect(await queued()).toEqual([]);
+  });
+});
+
+/** A row this screen has no card for is not decidable through it, whatever its id. */
+describe("another kind of proposal", () => {
+  it("is neither listed nor decidable here", async () => {
+    const taskId = uuidv7();
+    await db.query(
+      `INSERT INTO ops.task (id, site_id, category, severity, state, summary, next_step, completion_predicate,
+         created_by, updated_by, source_mode)
+       VALUES ($1, $2, 'INFEASIBLE', 'RED', 'OPEN', 'A vehicle cannot take its runs', 'Review the options',
+         'an option approved', 'test', 'test', 'SIMULATED')`,
+      [taskId, SITE],
+    );
+    const id = uuidv7();
+    await db.query(
+      `INSERT INTO ops.approval_request (id, site_id, task_id, proposal, created_by, updated_by, source_mode)
+       VALUES ($1, $2, $3, $4::jsonb, 'test', 'test', 'SIMULATED')`,
+      [id, SITE, taskId, JSON.stringify({ infeasible_vehicle_token: "V1", leg_ids: [], options: [] })],
+    );
+
+    expect(await pendingApprovals(db, [SITE])).toEqual([]);
+    expect(await decide({ approvalId: id })).toEqual({
+      status: 404,
+      body: { ok: false, error: "NO_SUCH_APPROVAL" },
+    });
   });
 });

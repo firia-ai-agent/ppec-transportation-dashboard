@@ -172,11 +172,13 @@ describe("the addresses that moved", () => {
     }
   });
 
-  it("is these three pairs, with both ends in the table", () => {
+  it("is these four pairs, with both ends in the table", () => {
     expect(MOVED_PAGES).toEqual({
       "/plan-preview": "/plan-routes",
       "/map-preview": "/live-map",
       "/ramp-preview": "/ramp-ipad",
+      // #61's screen had an address too, and it was read out loud in a demo like the other three.
+      "/phone-preview": "/family-texts",
     });
     for (const [from, to] of Object.entries(MOVED_PAGES)) {
       expect(PAGES.map((p) => p.path), from).toContain(from);

@@ -39,6 +39,50 @@ export async function childAuthorized(db: Exec, a: { siteId: string; recipientTo
   return r.rows[0].n > 0;
 }
 
+/**
+ * How a family is reached about a ride, written once (PRD §10.1 "Fan-out 1:1 broadcast", §10.3
+ * "recipients computed at send time").
+ *
+ * Every family-facing SMS in the app carries these three values — the agent's `send_followup`
+ * (run/exec/followup.ts `AUDIENCE_RULES`) and the deterministic ETA notice
+ * (messaging/eta-notice.ts) are the two callers — so the purpose a suppression is checked against
+ * and the rule an audit row records cannot differ between the two paths that produce the same
+ * text on the same phone.
+ */
+export const FAMILY_SMS = {
+  channel: "SMS_1TO1",
+  purpose: "TRANSPORT_UPDATE",
+  recipientRule: "guardian_of_child",
+} as const;
+
+/**
+ * The contacts §6.4 authorizes to be told about this child on this channel, in token order.
+ *
+ * One query, two callers, and the reason it lives beside `childAuthorized` rather than in either
+ * of them: this is the *same* authorization the drainer re-checks per contact at send time, read
+ * earlier so that a message is only queued for somebody who may have it. A caller that resolved
+ * recipients its own way would be a second answer to a question §6.4 has exactly one answer to.
+ *
+ * `at` defaults to the database's own `now()`, which is what a send-time check wants; a caller
+ * reading the window as of a message's arrival time passes that instant instead (PRD §6.4 reads
+ * the validity window at arrival).
+ */
+export async function authorizedContactsForChild(
+  db: Exec,
+  a: { siteId: string; childToken: string; channel?: string; at?: Date | null },
+): Promise<string[]> {
+  const r = await db.query<{ contact_token: string }>(
+    `SELECT DISTINCT contact_token FROM ops.contact_authorization
+     WHERE site_id = $1 AND child_token = $2 AND channel = $3
+       AND scope = 'RECEIVE_TRANSPORT_UPDATES'
+       AND valid_from <= COALESCE($4::timestamptz, now())
+       AND (valid_to IS NULL OR valid_to > COALESCE($4::timestamptz, now()))
+     ORDER BY contact_token`,
+    [a.siteId, a.childToken, a.channel ?? FAMILY_SMS.channel, a.at?.toISOString() ?? null],
+  );
+  return r.rows.map((row) => row.contact_token);
+}
+
 export type RecipientKind = "guardian" | "therapist" | "dispatcher";
 /**
  * The recipient's actual type, from the data, never from the recipient_rule string (Veri #8 follow-up):

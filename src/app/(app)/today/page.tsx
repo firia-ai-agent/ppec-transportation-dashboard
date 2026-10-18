@@ -1,6 +1,7 @@
 import { requirePage } from "@/auth/page-guard";
 import { buildBoard, CLOCK_PARAM, requestedBoardDay } from "@/domain/board/board";
 import { stepsFor } from "@/ui/step-strip";
+import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
 import { TodayBoard } from "./TodayBoard";
 
 /** The guard reads a session, so this route is never statically rendered. */
@@ -56,11 +57,17 @@ export default async function Page({
   const board = buildBoard(
     requestedBoardDay(one(params.date), one(params[CLOCK_PARAM]), process.env),
   );
+  /*
+   * Which children's families this day texted (PRD §18.2 step 7 / AT-03), from the same
+   * projection the phone panel renders. Computed here, on the server, so the drawer can offer the
+   * thread for a child that has one and say plainly that there is none for a child that does not.
+   */
+  const textedChildKeys = demoLateDropoffs(board.day).map((text) => text.childKey);
 
   // The day's three steps, each a link to its screen — only where this role may open it.
   const steps = stepsFor(caller.kind === "STAFF" ? caller.role : null);
 
   // The strip belongs under the board's own header (REDESIGN-SPEC §9.2), so it is handed to
   // the board rather than rendered above everything: the board is what owns that header.
-  return <TodayBoard board={board} query={query} steps={steps} />;
+  return <TodayBoard board={board} query={query} steps={steps} textedChildKeys={textedChildKeys} />;
 }

@@ -64,9 +64,9 @@ function boardHtml(query = "", of: typeof board = board): string {
   );
 }
 
-function drawerHtml(key: string, of: typeof board = board): string {
+function drawerHtml(key: string, of: typeof board = board, hasTexts = false): string {
   return renderToStaticMarkup(
-    createElement(LegDrawer, { legs: legsIn(of, key), day: of.day, onClose: () => {} }),
+    createElement(LegDrawer, { legs: legsIn(of, key), day: of.day, hasTexts, onClose: () => {} }),
   );
 }
 

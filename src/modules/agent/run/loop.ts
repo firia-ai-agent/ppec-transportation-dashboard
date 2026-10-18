@@ -32,6 +32,7 @@ import type { Db } from "@/db/exec";
 import { type Clock, type JobScheduler, systemClock } from "@/modules/jobs/scheduler";
 import type { LlmGateway, GatewayResult } from "../gateway";
 import { type PolicyContext, type PolicyDecision, evaluate } from "../policy";
+import { resolveScopeTokens, type ScopeTokens } from "./scope-tokens";
 import type { ContextAssembler } from "./context";
 import type { ProposalWriter } from "./exec/proposals";
 import type { ExecutorCall, ToolExecution, ToolExecutors } from "./executors";
@@ -261,8 +262,16 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
     }
     await recordPromptHash(deps.db, runId, turn.promptHash, actor);
 
-    const decision = evaluate(turn.call, assembled.policy);
-    const row = await persistCallFor(deps, run, calls.length, turn, decision);
+    /*
+     * The model answers in the labels the prompt gave it (`run/scope-tokens.ts`): "C2", "L-C2-PM".
+     * Read them back to the ids this run's scope actually holds *before* the gate sees the call,
+     * so the policy engine, the stored arguments, the approval fingerprint and the executors all
+     * speak one language — the database's. A label this run does not hold resolves to nothing and
+     * is left exactly as written, which is what gets it refused for being out of scope.
+     */
+    const call = resolvedCall(turn, assembled.tokens);
+    const decision = evaluate(call, assembled.policy);
+    const row = await persistCallFor(deps, run, calls.length, { ...turn, call }, decision);
     steps += 1;
 
     // Nothing above this line executed anything; nothing below it runs without that row committed.
@@ -310,6 +319,17 @@ export function persistedVerdict(policyDecision: string): { verdict: "ALLOW" | "
     throw new AgentRunError(`unreadable policy decision ${JSON.stringify(policyDecision)}`);
   }
   return { verdict, detail: rest.join(":") };
+}
+
+/**
+ * One turn's call with its arguments read back through the run's own token dictionary.
+ *
+ * No dictionary — a hand-built context, or an assembler that writes ids straight into the prompt —
+ * means no translation, and the call passes through untouched.
+ */
+function resolvedCall(turn: GatewayResult, tokens: ScopeTokens | undefined): GatewayResult["call"] {
+  if (!tokens) return turn.call;
+  return { ...turn.call, args: resolveScopeTokens(turn.call.args, tokens) };
 }
 
 /* ──────────────────── the run's site, and the context's ──────────────────── */

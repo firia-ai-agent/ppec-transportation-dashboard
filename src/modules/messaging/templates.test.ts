@@ -16,6 +16,7 @@ const SAMPLE: Record<string, string> = {
   sessionStart: "13:30",
   legDate: "2026-10-14",
   date: "2026-10-14",
+  delayMinutes: "15",
 };
 const sampleVars = (templateId: string, reasonCode = "WEATHER"): Record<string, string> =>
   Object.fromEntries(Object.keys(TEMPLATE_VARS[templateId]).map((v) => [v, v === "reasonCode" ? reasonCode : SAMPLE[v]]));
@@ -205,16 +206,24 @@ describe("the pickup window (etaEnd, COPY-GUIDE §3)", () => {
  * side, checked here on the words side). A name identifies the child to whoever is holding the
  * phone, and the bodies say "your child" / "a child" instead, so there is nothing left to leak.
  */
+/** Every first name the demo seed can put on the board: children, their guardians, the externals. */
+const SEEDED_FIRST_NAMES = [
+  ...CHILDREN.map((c) => c.firstName),
+  ...FAMILIES.map((f) => f.guardian.firstName),
+  ...EXTERNAL_PEOPLE.map((e) => e.firstName),
+];
+
+/**
+ * The seeded names a body carries. Word-bounded, so "Ava" does not match inside "available" — a
+ * name is a word, not a substring. Module-level because two describes need it: the sweep over
+ * every template below, and the one body Vera wrote out by hand at the end of this file.
+ */
+function namesInBody(body: string): string[] {
+  return [...new Set(SEEDED_FIRST_NAMES.filter((n) => new RegExp(`\\b${n}\\b`, "i").test(body)))];
+}
+
 describe("no child's name reaches a rendered body", () => {
-  /** Every first name the demo seed can put on the board: children, their guardians, the externals. */
-  const SEEDED = [
-    ...CHILDREN.map((c) => c.firstName),
-    ...FAMILIES.map((f) => f.guardian.firstName),
-    ...EXTERNAL_PEOPLE.map((e) => e.firstName),
-  ];
-  /** Word-bounded, so "Ava" does not match inside "available" — a name is a word, not a substring. */
-  const namesIn = (body: string): string[] =>
-    [...new Set(SEEDED.filter((n) => new RegExp(`\\b${n}\\b`, "i").test(body)))];
+  const namesIn = namesInBody;
 
   it("the bodies carry no name placeholder at all", () => {
     for (const t of knownTemplates()) {
@@ -253,5 +262,34 @@ describe("no child's name reaches a rendered body", () => {
     // Since no var renders as itself any more, a var added to a body with no FORMAT entry is a
     // refusal rather than a developer-facing value (a code, a token, a 24h clock) in a family's SMS.
     for (const t of knownTemplates()) expect(() => renderTemplate(t, sampleVars(t)), t).not.toThrow(/no display rule/);
+  });
+});
+
+/**
+ * VERA'S LATE TEXT, VERBATIM (2026-10-17 12:59 PM ET).
+ *
+ * This is the one body a founder reads out loud, so its words are a decision rather than a
+ * detail — and they were reworded. The old one opened "Your child's van home", which makes a
+ * parent parse a compound noun before they get to the news; the new one opens with the van and
+ * what it is doing. Pinned here so a later edit to the template is a deliberate change with
+ * Vera's name on it rather than a drift nobody noticed.
+ */
+describe("the late drop-off text says what Vera settled", () => {
+  const TEMPLATE = "dropoff.late";
+
+  it("is her sentence, word for word, before the standard tail", () => {
+    expect(outboundSms.bodies[TEMPLATE]).toContain(
+      "PPEC: The van bringing your child home is running about {delayMinutes} minutes late. New drop-off {eta} at {stopLabel}.",
+    );
+  });
+
+  it("renders into plain words with a real time and no child's name", () => {
+    const body = renderTemplate(TEMPLATE, { delayMinutes: 15, eta: "16:35", stopLabel: "OKEE-PARK" });
+
+    expect(body).toContain("about 15 minutes late");
+    // A 12-hour clock for a family, never the 24-hour form the plan stores (COPY-GUIDE §3).
+    expect(body).toContain("4:35 PM");
+    expect(body).not.toContain("16:35");
+    expect(namesInBody(body)).toEqual([]);
   });
 });

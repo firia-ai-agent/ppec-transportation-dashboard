@@ -8,6 +8,7 @@ import {
   agentWakeLog,
   handleAgentWake,
 } from "@/modules/agent/run/queue";
+import { modelReach, modelReachLog } from "@/modules/agent/run/deps";
 
 export const dynamic = "force-dynamic";
 // AGENT_RUN_MAX_DURATION_SECONDS, spelled out: Next parses the segment config statically and rejects
@@ -26,14 +27,23 @@ export const maxDuration = 120;
 //
 // Two reasons to ack without work, both logged rather than silent:
 //  * previews share the one production DB read-only (DECISION-LEDGER #43), as on every queue route;
-//  * this deployment has no §11.1 context assembler to drive a run *with* (`agentRunner`), so a run
-//    would have to be driven against a scope the runtime invented — fail shut instead.
+//  * this deployment can build no provider at all (`agentRunner`) — a base URL off the
+//    allow-list is not a thing a redelivery fixes. A *missing key* is not one of these: the run
+//    is driven, the first turn is refused, and the family's text ends in front of a person
+//    (`agent/staff-alert.ts`) rather than being answered by anything deterministic.
 export const POST = handleCallback(async (message: unknown) => {
   const skip = previewSkip(process.env);
   if (skip) { console.log(`[queue:agent] ${skip.skipped} (${skip.reason})`); return; }
-  const runner = agentRunner();
+  const db = getNeonDb();
+  const runner = agentRunner(db);
   if (!runner.ok) { console.log(`[queue:agent] ${runner.skipped} (${runner.reason})`); return; }
-  const outcome = await handleAgentWake(getNeonDb(), message, { deps: runner.deps });
+  // Said once per delivery when it applies: this run has no model to call, so its first turn will
+  // be refused and the family's text will go in front of a person. The log is no longer the *only*
+  // place it is visible — `modelReach` is the same function the phone panel reads to say it on
+  // screen (Vera's review, 2026-10-17), so a log line and a sentence a coordinator reads cannot
+  // disagree about whether a model answered.
+  if (runner.refused) console.log(`[queue:agent] no model available: ${modelReachLog(modelReach())}`);
+  const outcome = await handleAgentWake(db, message, { deps: runner.deps });
   console.log(`[queue:agent] ${agentWakeLog(outcome)}`);
 }, {
   // Longer than the per-run lease, so the first redelivery after a dead driver finds a run it can

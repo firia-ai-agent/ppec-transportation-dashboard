@@ -1,0 +1,171 @@
+/*
+ * SURF-05's approval cards (DESIGN-DIRECTION §4.1 density, §9 targets and focus).
+ *
+ * Faith tokens only — no literal colour, size or radius anywhere in this file — and the §3 neutral
+ * frame throughout: a card here is a record waiting for a decision, not an alert. Severity colour
+ * belongs to the state chips on the board; a page of amber cards would make "needs action" mean
+ * nothing on the one screen where everything needs action.
+ *
+ * The family's text is drawn as a bubble, the same shape the phone panel uses for the same words,
+ * because a coordinator should recognize what they are reading as "a text" without being told.
+ */
+
+.page {
+  display: grid;
+  gap: var(--space-6);
+  padding: var(--space-6);
+  max-width: var(--layout-content-max-width);
+}
+
+.titleRow {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--text-24);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.intro,
+.none {
+  margin: 0;
+  color: var(--color-ink-muted);
+  line-height: var(--leading-normal);
+}
+
+.list {
+  display: grid;
+  gap: var(--space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.cardHeading {
+  margin: 0;
+  font-size: var(--text-16);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.textHeading {
+  margin: 0;
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.reason,
+.hint,
+.outcome {
+  margin: 0;
+  font-size: var(--text-14);
+  color: var(--color-ink-muted);
+  line-height: var(--leading-normal);
+}
+
+/* The words the family's phone will show. Same shape as the phone panel's own bubbles. */
+.bubble {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  line-height: var(--leading-normal);
+}
+
+/*
+ * The sentence that goes above both buttons. Medium weight rather than a colour: it is the thing a
+ * coordinator needs to have read, and §9 forbids carrying state by colour alone — so it carries by
+ * position and by weight, both of which survive a greyscale screenshot.
+ */
+.reassurance {
+  margin: 0;
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-normal);
+}
+
+.edit {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+}
+
+.editLabel {
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+}
+
+.editInput {
+  min-height: var(--target-console);
+  padding: 0 var(--space-3);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+}
+
+.editInput:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* §9: ≥44 px targets, and the ring is never removed. */
+.primary,
+.secondary {
+  min-height: var(--target-console);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-md);
+  font: inherit;
+  cursor: pointer;
+}
+
+.primary {
+  border: var(--border-hairline) solid var(--color-brand);
+  background: var(--color-brand);
+  color: var(--color-surface);
+  font-weight: var(--weight-semibold);
+}
+
+.secondary {
+  border: var(--border-hairline) solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+.primary:disabled,
+.secondary:disabled {
+  border-color: var(--color-disabled-border);
+  background: var(--color-disabled-bg);
+  color: var(--color-disabled-fg);
+  cursor: not-allowed;
+}
+
+.primary:focus-visible,
+.secondary:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}

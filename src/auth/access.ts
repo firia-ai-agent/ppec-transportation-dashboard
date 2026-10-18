@@ -290,6 +290,15 @@ export const PAGES: readonly PageRow[] = [
    * and for the same reason the map matrix already withholds family labels from the door
    * (src/domain/access/map-view.ts): a person at the ramp is given the child in front of them,
    * not the family's conversation.
+   *
+   * The same three sentences settle it from #61's side, and they are the reason this row and the
+   * persona-phone endpoint below cannot disagree about who may read a thread: PRD §1.1 gives the
+   * "Web console (desktop + iPad)" to the "Transport/attendance coordinator, director"; PRD §6.2's
+   * ownership table lists Messages as written by "adapters only" and puts the front desk down as
+   * the writer of "Actual attendance/custody" alone; and §12 is minimum-necessary, which is what
+   * decides a PHI-adjacent screen for a role with no task that needs it.
+   *
+   * It was `/phone-preview`; that address is a permanent redirect row below.
    */
   {
     kind: "page",
@@ -428,10 +437,11 @@ export const PAGES: readonly PageRow[] = [
     access: { roles: ALL_STAFF },
     label: rampIpad.heading,
   },
-  /* ── the three old addresses, kept as permanent redirects ── */
+  /* ── the four old addresses, kept as permanent redirects ── */
   /**
-   * `/plan-preview`, `/map-preview` and `/ramp-preview` were the three screens' addresses until
-   * Vera's review (2026-10-17) took "preview" out of every menu label and address. A URL that
+   * `/plan-preview`, `/map-preview`, `/ramp-preview` and `/phone-preview` were these screens'
+   * addresses until Vera's review (2026-10-17) took "preview" out of every menu label and
+   * address. A URL that
    * has been read out loud in a demo, pasted into a pull request and bookmarked by the founder
    * does not get to stop answering, so each one is still a page: it redirects permanently (308)
    * to the screen's own address.
@@ -466,10 +476,17 @@ export const PAGES: readonly PageRow[] = [
     access: { roles: ALL_STAFF },
     label: rampIpad.heading,
   },
+  {
+    kind: "page",
+    file: "src/app/phone-preview/page.tsx",
+    path: "/phone-preview",
+    access: { roles: CONSOLE },
+    label: nav.familyTexts,
+  },
 ];
 
 /**
- * The old address → the screen's own address, for the three redirect pages above. One table, so
+ * The old address → the screen's own address, for the four redirect pages above. One table, so
  * a redirect cannot point somewhere the access table does not hold (`access.test.ts` checks
  * both ends of every pair, and that the two rows are open to the same roles).
  */
@@ -477,6 +494,7 @@ export const MOVED_PAGES: Readonly<Record<string, string>> = {
   "/plan-preview": "/plan-routes",
   "/map-preview": "/live-map",
   "/ramp-preview": "/ramp-ipad",
+  "/phone-preview": "/family-texts",
 };
 
 export const ENDPOINTS: readonly EndpointRow[] = [
@@ -663,6 +681,54 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     auth: { kind: "session", roles: CONSOLE, siteScoped: true },
   },
   /**
+   * The phone panel's two controls (PRD §18.2 steps 9–10): run one agent turn over a staff-typed
+   * family text, and apply the proposal it comes back with. Server actions, so they are POST
+   * endpoints with no URL of their own and need a row each.
+   *
+   * The same roles as the page they are on, and checked in the action itself rather than inferred
+   * from the fact that the button was rendered: hiding a control is not a guard (the ID-swap
+   * rule). Neither writes to the database — the turn is the §11.1 seam over the fixtures and the
+   * approval computes what the change would be — but both would be a way to spend a model call,
+   * so neither is open.
+   */
+  {
+    kind: "action",
+    file: "src/app/(app)/family-texts/actions.ts",
+    path: "action:agent-turn",
+    methods: ["POST"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: false },
+  },
+  {
+    kind: "action",
+    file: "src/app/(app)/family-texts/actions.ts",
+    path: "action:agent-approval",
+    methods: ["POST"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: false },
+  },
+  /**
+   * SURF-05's decision (PRD §18.2 steps 9–10, §11.2 human tier): a coordinator approves the text a
+   * family would get, or does not. Unlike the two phone-panel actions above, this one **writes** —
+   * it claims the decision, moves the ride and queues a message — so it is the first server action
+   * in this app that is `siteScoped`.
+   *
+   * The same roles as the screen it is on, which is what `approvals.approvalRoles()` reads: the
+   * page's own row rather than a list restated here, so the control a coordinator can see and the
+   * write they can make cannot come apart. Checked in the action, never inferred from the button
+   * having been rendered (the ID-swap rule).
+   *
+   * `siteScoped` is the tenant half, and the site is **not** a value the form carries: it comes off
+   * the approval row this id names, and the caller's membership at *that* site is what is checked
+   * (`requireSiteAccess`). So another site's approval id is a uniform 404, exactly as an id that
+   * exists nowhere — a 403 would confirm that the id is real.
+   */
+  {
+    kind: "action",
+    file: "src/app/(app)/exceptions/actions.ts",
+    path: "action:approval-decision",
+    methods: ["POST"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: true },
+  },
+  /**
    * The sign-in form's own action (ADR-004). It hands email and password to the credentials
    * provider and nothing else; it must run for a caller with no session.
    */
@@ -775,7 +841,7 @@ export function apiOutcome(caller: Caller, path: string): ApiOutcome {
  * ahead of `/ramp-ipad` here — it used to be the other way round, and sign-in, `/` and every
  * "send them home" redirect read this one list, so moving it moves all of them at once.
  */
-const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/plan-routes", "/live-map", "/ramp-ipad", "/whoami"] as const;
+const HOME_ORDER = ["/today", "/exceptions", "/setup", "/health", "/plan-routes", "/family-texts", "/live-map", "/ramp-ipad", "/whoami"] as const;
 
 /** Where this caller is sent when they need somewhere to be: their own first page, or sign-in. */
 export function homePathFor(caller: Caller): string {

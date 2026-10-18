@@ -426,6 +426,14 @@ const ROWS: readonly PolicyRow[] = [
   // proposal sends nothing: the family hears about this only if a person approves it.
   { tool: "propose_dropoff_change", scopedArgs: ["child_token", "leg_id"], sendSubject: null, note: "proposes a new drop-off time on one leg of this family's; no mutation and no send" },
   { tool: "propose_contact_or_profile_change", scopedArgs: ["family_token", "source_message_id"], sendSubject: null, note: "proposes against this family only" },
+  /*
+   * A drop-off proposal names one of *this family's* legs and one of this run's own messages as
+   * its basis, and both are scope-checked. `requested_stop_token` deliberately is not: a stop is
+   * not a family's object and not in `scope.shared` either — it is constrained by the tool's own
+   * schema to the center's code-owned list of places (`KNOWN_STOP_TOKENS`), which is a tighter
+   * check than the scope could give it. Nothing sends: a proposal is a row for a person.
+   */
+  { tool: "propose_dropoff_change", scopedArgs: ["leg_id", "source_message_id"], sendSubject: null, note: "one of this family's legs, and the message it was asked in" },
   { tool: "escalate_exception", scopedArgs: ["leg_id"], sendSubject: null, note: "always allowed (§11.2), still scope-checked" },
   { tool: "close_task", scopedArgs: ["task_id", "evidence_ref"], sendSubject: null, note: "the evidence must be this run's own" },
   { tool: "summarize_thread_for_staff", scopedArgs: ["thread_id"], sendSubject: null, note: "staff-only note on this family's thread" },

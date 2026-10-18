@@ -41,6 +41,7 @@ import {
   evaluateStop,
   type GateState,
   type NotificationDecision,
+  type NotifyThresholds,
 } from "./notify-gate";
 import { trafficMultiplierAt } from "./traffic";
 
@@ -72,6 +73,13 @@ export interface ReplaySpec {
    * applied on top of the time-band multiplier, in the ETA and in the simulated world.
    */
   injectedTrafficMultiplier?: number;
+  /**
+   * The notify gate's thresholds for this run (ASM-14's own numbers when absent). On the spec
+   * rather than read from the environment here, because a replay is pure: the deployment's
+   * configured threshold is read at the edge (`src/modules/messaging/eta-notice.ts`) and handed
+   * in, so the same spec always replays the same decisions.
+   */
+  thresholds?: NotifyThresholds;
 }
 
 /** One recalculation (ASM-11 trigger) with its decisions. */
@@ -191,7 +199,7 @@ export function runReplay(spec: ReplaySpec): ReplayResult {
 
     const calcDecisions: NotificationDecision[] = [];
     for (const stop of snapshot.stops) {
-      const evaluated = evaluateStop(gate, { stop, nowMs, etaTextSuppressed });
+      const evaluated = evaluateStop(gate, { stop, nowMs, etaTextSuppressed, thresholds: spec.thresholds });
       gate = evaluated.state;
       calcDecisions.push(evaluated.decision);
     }

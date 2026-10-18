@@ -49,7 +49,7 @@ const COLS = "id, site_id, purpose, recipient_token, recipient_rule, channel, te
  * see TEMPLATE_VARS below), but each one is still child data: it says a particular child's van, stop or
  * session. Any message using one must therefore carry a child reference.
  */
-export const CHILD_TEMPLATES = new Set(["pickup.eta", "dropoff.eta", "leg.canceled", "leg.changed", "therapist.absence_alert", "therapist.late_alert", "child.not_received"]);
+export const CHILD_TEMPLATES = new Set(["pickup.eta", "dropoff.eta", "dropoff.late", "leg.canceled", "leg.changed", "dropoff.changed", "therapist.absence_alert", "therapist.late_alert", "child.not_received"]);
 /**
  * Veri #12 review: free text is banned from outbound vars. A staff-typed "reason" or "text" can carry a child's
  * name, and matching values against a name list misses nicknames and typos, so outbound vars carry only fixed
@@ -74,6 +74,13 @@ const oneOf = (codes: ReadonlySet<string>): VarRule => (v) => typeof v === "stri
 const clockTime: VarRule = (v) => typeof v === "string" && (CLOCK.test(v) || TIMESTAMP.test(v));
 const calendarDay: VarRule = (v) => typeof v === "string" && (DAY.test(v) || TIMESTAMP.test(v));
 const stopToken: VarRule = (v) => typeof v === "string" && /^[A-Z0-9-]{1,12}$/.test(v);
+/**
+ * Whole minutes of lateness, 1–240 (`dropoff.late`). A count, not prose: the only thing a caller
+ * can put in it is a small integer, written as a number or as its digits, so the §18.2 step 7
+ * text can say how late the van is without any path for a sentence to reach a family.
+ */
+const lateMinutes: VarRule = (v) =>
+  (typeof v === "number" || typeof v === "string") && /^\d{1,3}$/.test(String(v)) && Number(v) >= 1 && Number(v) <= 240;
 
 /**
  * Per-template allowlist of permitted var names, each with the rule its value must satisfy (Veri #8 follow-up,
@@ -88,8 +95,10 @@ const stopToken: VarRule = (v) => typeof v === "string" && /^[A-Z0-9-]{1,12}$/.t
 export const TEMPLATE_VARS: Readonly<Record<string, Readonly<Record<string, VarRule>>>> = {
   "pickup.eta": { eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
   "dropoff.eta": { eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
+  "dropoff.late": { eta: clockTime, etaEnd: clockTime, stopLabel: stopToken, delayMinutes: lateMinutes },
   "leg.canceled": { legDate: calendarDay, reasonCode: oneOf(LEG_CANCEL_REASON_CODES) },
   "leg.changed": { legDate: calendarDay, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
+  "dropoff.changed": { legDate: calendarDay, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
   "therapist.absence_alert": { sessionStart: clockTime },
   "therapist.late_alert": { sessionStart: clockTime, eta: clockTime },
   "child.not_received": { stopLabel: stopToken, eta: clockTime },

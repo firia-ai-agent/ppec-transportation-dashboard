@@ -1,11 +1,11 @@
 /**
- * The `human`-tier half of §11.2: the three `propose_*` tools.
+ * The `human`-tier half of §11.2: `propose_manifest_reallocation` and
+ * `propose_contact_or_profile_change`.
  *
  * | Tool | Precondition → effect |
  * |---|---|
  * | `propose_manifest_reallocation(infeasible_vehicle, legs, options, rationale)` | INFEASIBLE/substitution → RED exception + Teams card; **no mutation** |
  * | `propose_contact_or_profile_change(family, category, claim, source_msg)` | any phone/custody/equipment change → change request + exception |
- * | `propose_dropoff_change(child, leg, requested_time, version, rationale)` | a requested transport change → approval request + exception; **no mutation** |
  *
  * These are not executors, and that is the point. The policy engine returns PROPOSAL for every
  * `human`-tier call (policy.ts step 11) and the loop never calls an executor for one — so there is
@@ -18,14 +18,14 @@
  * `args_hash` holds — so a human's decision and the exact call it would release are matched on one
  * column rather than by re-serializing arguments and hoping the key order agrees.
  *
- * What is still deferred: the Teams card (B-12). The approval *surface* this file used to name as
- * missing now exists for one of the three — `modules/approvals/decide.ts` decides a
- * `DROPOFF_CHANGE` and moves the ride — and the other two stay on the board as tasks until their
- * own cards land. A `PROPOSED` row plus an approval request is still the whole of the agent's
- * side of it: nothing here mutates, whichever tool was called.
+ * What is still deferred: the Teams card (B-12) and the approval *surface* that would turn a
+ * decision into an applied change. A `PROPOSED` row plus an approval request is the whole of the
+ * agent's side of it.
  */
 import type { Exec } from "@/db/exec";
+import { childByKey, stopByKey } from "@/modules/demo/fixtures/standard";
 import { agentTasks } from "@/ui/copy";
+import { demoTokenForId } from "../scope-tokens";
 import { raiseTask } from "./clarify";
 import { effectId, isUuid } from "./effects";
 import type { ExecutorDeps } from "./effects";
@@ -33,15 +33,46 @@ import type { ExecutorDeps } from "./effects";
 /** `ops.task.category` for the three proposals. */
 export const REALLOCATION_TASK_CATEGORY = "INFEASIBLE";
 export const CHANGE_REQUEST_TASK_CATEGORY = "IDENTITY_CHANGE";
-export const DROPOFF_CHANGE_TASK_CATEGORY = "TRANSPORT_CHANGE";
+/** A drop-off a family asked for: a plan change a person decides, not an identity claim. */
+export const DROPOFF_CHANGE_TASK_CATEGORY = "PLAN_CHANGE";
+
+/** The allow-listed template a family is told about an agreed drop-off with. */
+export const DROPOFF_CHANGE_TEMPLATE = "dropoff.changed";
 
 /**
  * `proposal ->> 'kind'` for a drop-off change, and the key the approvals screen selects on
  * (`modules/approvals/decide.ts`). A string rather than a table: `ops.approval_request.proposal`
  * is one jsonb column shared by every `propose_*` tool, and the kind is how a reader knows which
- * shape it is holding.
+ * shape it is holding. Exported so the writer and the reader name it once between them.
  */
 export const DROPOFF_CHANGE_KIND = "DROPOFF_CHANGE";
+
+/**
+ * The stop a leg already drops at, as the short token the outbox's copy table keys its place names
+ * by — or null when this deployment's data cannot say.
+ *
+ * `ops.stop_location` holds a label and a lat/lng and **no SMS token**: the token is a property of
+ * the outbox's code-owned place table, not of the row. Everywhere else on this path the caller
+ * supplies it (`eta-notice.ts` takes `stopToken` from the fixture), but a proposal has no such
+ * caller — it is answering a family's text — so it is resolved here, the same demo-only way
+ * `run/scope-tokens.ts` resolves everything else: the child's id read back to its fixture key, and
+ * the fixture's own stop off that.
+ *
+ * Demo-only by construction, and null for anything the fixtures do not account for. Null is a
+ * refusal upstream rather than a default: the one thing worse than not proposing a drop-off is
+ * proposing a place to leave a child that nobody chose.
+ */
+function legStopToken(childToken: string): string | null {
+  const childKey = demoTokenForId(childToken);
+  if (!childKey) return null;
+  try {
+    const stopKey = childByKey(childKey).stopKey;
+    return stopKey ? stopByKey(stopKey).smsToken : null;
+  } catch {
+    // A token that reads back to a fixture key the roster no longer has. Say nothing rather than guess.
+    return null;
+  }
+}
 
 /** What the loop knows about a proposed call when it commits it. */
 export type ProposalInput = {
@@ -170,25 +201,59 @@ async function manifestReallocation(tx: Exec, input: ProposalInput): Promise<Rec
 }
 
 /**
- * §11.2 human tier: a family asked for a different drop-off time.
+ * §11.2 human tier: a drop-off a family asked for → an approval request and an exception, and no
+ * mutation at all. The leg keeps its time and its stop until a coordinator says otherwise.
  *
- * Writes an `ops.approval_request` whose proposal carries the leg, the child, the requested time
- * and the plan version the model read the leg at — and an exception task so the request is on the
- * Exceptions board whether or not anyone is looking at the approvals list. **Nothing moves**: the
- * leg is not touched, no message is queued, and `mutated: false` says so in the call's result.
+ * ## The row carries the text, as a template and its variables
  *
- * `requested_dropoff_time` is copied straight out of the validated arguments and nowhere else.
- * That is the point of the tool existing (founder, 2026-10-17): a time reaches this row because
- * the model put it in a schema field, never because something read it out of a family's sentence.
+ * The approval screen has to show a coordinator **the exact words the family will get** — that is
+ * the whole of what they are deciding. The obvious way to do that would be to render the body here
+ * and store the string, and it would be wrong: the outbox renders at send time, so a stored string
+ * is a second rendering that can drift from the first, and the screen would be showing a text that
+ * is merely *like* the one that goes out.
  *
- * `plan_version_basis` rides along so the decision can be guarded on it. A leg whose plan has
- * moved since the proposal was computed is a stale proposal, and applying it would overwrite a
- * change somebody made in the meantime (AT-08, from the other side).
+ * So what is stored is the template id and the vars, and the screen renders them through the same
+ * `renderTemplate` the outbox uses. One renderer, one set of words, and if the copy changes the
+ * screen and the send change together.
+ *
+ * The vars are read off the **leg row**, not off the call: the date a family is told about is the
+ * service date the leg actually has, and the stop is the one being proposed or the one the leg
+ * already holds. Nothing a model wrote reaches the body — `dropoff.changed` takes a date, a clock
+ * time and a stop token, and no var on it can carry prose (Veri #12).
  */
 async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<string, unknown>> {
-  const by = `agent:${input.runId}`;
   const legId = String(input.args.leg_id ?? "");
-  const childToken = String(input.args.child_token ?? "");
+  const requestedTime = input.args.requested_dropoff_time === null ? null : String(input.args.requested_dropoff_time ?? "");
+  const requestedStop = input.args.requested_stop_token === null ? null : String(input.args.requested_stop_token ?? "");
+  const rationale = String(input.args.rationale_code ?? "");
+  const sourceMessageId = String(input.args.source_message_id ?? "");
+  const by = `agent:${input.runId}`;
+
+  /*
+   * The leg, at this site. A leg at another site cannot be reached — the policy engine's scope
+   * check refused it long before this runs — and the `site_id` here says so again, because a
+   * writer that trusted the scope check would be the one place the tenant boundary was implied
+   * rather than stated (DATA-MODEL §5).
+   */
+  const leg = await tx.query<{
+    id: string; child_token: string; service_date: string; direction: string; plan_version: number;
+  }>(
+    `SELECT id, child_token, service_date::text AS service_date, direction::text AS direction, plan_version
+     FROM ops.trip_leg WHERE id = $1 AND site_id = $2`,
+    [isUuid(legId) ? legId : null, input.siteId],
+  );
+  const row = leg.rows[0];
+  if (!row) return { proposal_refused: "NO_SUCH_LEG", mutated: false };
+
+  // The place the family would be told. The proposed stop when there is one, otherwise the one the
+  // leg already drops at — and if neither can be named, nothing is proposed at all.
+  const stopToken = requestedStop ?? legStopToken(row.child_token);
+  if (!stopToken) return { proposal_refused: "NO_STOP_FOR_LEG", mutated: false };
+
+  const basis = await tx.query<{ id: string }>(
+    "SELECT id FROM ops.message WHERE id = $1 AND site_id = $2",
+    [isUuid(sourceMessageId) ? sourceMessageId : null, input.siteId],
+  );
 
   const taskId = await raiseTask(tx, {
     id: effectId(input.idempotencyKey, "exception"),
@@ -197,30 +262,36 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
     severity: "AMBER",
     words: agentTasks.proposedDropoffChange,
     by,
-    tripLegId: isUuid(legId) ? legId : null,
-    childToken: isUuid(childToken) ? childToken : null,
   });
 
   const approvalId = effectId(input.idempotencyKey, "approval");
+  const proposal = {
+    kind: DROPOFF_CHANGE_KIND,
+    leg_id: row.id,
+    child_token: row.child_token,
+    service_date: row.service_date,
+    direction: row.direction,
+    /** The version a staff approval will be guarded on (AT-08: a bumped plan invalidates this). */
+    plan_version_basis: row.plan_version,
+    requested_dropoff_time: requestedTime,
+    /** The stop as proposed, or the one the leg already holds when only the time moved. */
+    stop_token: stopToken,
+    rationale_code: rationale,
+    basis_message_id: basis.rows[0]?.id ?? null,
+    /** The text, as a template and its vars. Rendered by the screen and by the outbox, once each. */
+    template_id: DROPOFF_CHANGE_TEMPLATE,
+    vars: {
+      legDate: row.service_date,
+      ...(requestedTime ? { eta: requestedTime } : {}),
+      stopLabel: stopToken,
+    },
+    approval_key: input.approvalKey,
+  };
   await tx.query(
     `INSERT INTO ops.approval_request (id, site_id, task_id, proposal, created_by, updated_by, source_mode)
      VALUES ($1, $2, $3, $4::jsonb, $5, $5, 'SIMULATED')
      ON CONFLICT (id) DO NOTHING`,
-    [
-      approvalId,
-      input.siteId,
-      taskId,
-      JSON.stringify({
-        kind: DROPOFF_CHANGE_KIND,
-        leg_id: isUuid(legId) ? legId : null,
-        child_token: isUuid(childToken) ? childToken : null,
-        requested_dropoff_time: input.args.requested_dropoff_time ?? null,
-        plan_version_basis: input.args.plan_version_basis ?? null,
-        rationale_code: input.args.rationale_code ?? null,
-        approval_key: input.approvalKey,
-      }),
-      by,
-    ],
+    [approvalId, input.siteId, taskId, JSON.stringify(proposal), by],
   );
   return { approval_request_id: approvalId, exception_task_id: taskId, mutated: false };
 }

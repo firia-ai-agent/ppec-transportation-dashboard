@@ -202,6 +202,21 @@ function interrupt(error: unknown): { kind: "redirect"; to: string } | { kind: "
   return null;
 }
 
+/**
+ * The pages that read the database once a caller is allowed in, keyed by the caller they need to
+ * hold a membership for.
+ *
+ * Every other page in this app renders from the fixtures, so "allowed" and "rendered" are the same
+ * thing for them and the `getNeonDb` stub never fires. SURF-05 is the first that cannot be: a list
+ * of pending approvals is rows, and there is nowhere else for them to come from.
+ *
+ * So for those pages the stub firing **is** the assertion, and a stronger one than `rendered:
+ * true` would be: it proves the guard ran *before* the read (a refused caller below never reaches
+ * it and gets a 403 instead), and it proves the read is really there rather than quietly swallowed
+ * into an empty list — which is the exact bug Veri's S3 note was about on the phone panel.
+ */
+const READS_THE_DATABASE: ReadonlySet<string> = new Set(["/exceptions"]);
+
 /** Calls the page the way Next calls it, and says what happened. */
 async function openPage(file: string): Promise<{ rendered: true } | { rendered: false; interrupt: ReturnType<typeof interrupt> }> {
   const mod = (await import(/* @vite-ignore */ file)) as {
@@ -278,9 +293,19 @@ async function protectedPhrasesOf(page: { file: string; path: string }): Promise
   expect(subject, page.path).toBeDefined();
   const allowed = ROLE_LADDER.find((role) => rolesWhoCanOpen(page.path).includes(role));
   expect(allowed, page.path).toBeDefined();
+  /*
+   * A page that reads rows is rendered here with **no membership**, so it shows its own empty
+   * state rather than opening the stubbed database. That is the right subject for this check
+   * anyway: what a refusal must not leak is the page's own words — its heading, its intro, the
+   * sentence it shows when there is nothing waiting — and none of those depend on a row. The
+   * rows themselves are another family's data and are never in a 403 body under any reading.
+   */
+  const memberships = READS_THE_DATABASE.has(page.path)
+    ? []
+    : [{ siteId: SITE, role: allowed as Membership["role"] }];
   getCaller.mockResolvedValue({
     kind: "STAFF", role: allowed as Membership["role"], userId: "00000000-0000-7000-8000-0000000000d1",
-    displayName: "SYN Dana Director", memberships: [{ siteId: SITE, role: allowed as Membership["role"] }],
+    displayName: "SYN Dana Director", memberships,
   });
   const mod = (await import(/* @vite-ignore */ subject.file)) as { default: (p: unknown) => Promise<unknown> };
   const html = await toHtml(await mod.default({ searchParams: Promise.resolve({}), params: Promise.resolve({}) }));
@@ -352,7 +377,7 @@ describe("the harness itself works", () => {
         "/live-map", "/plan-routes", "/ramp-ipad", "/setup", "/today", "/whoami",
         // The refusal card at an address: a session, and then 403 for every one of them.
         "/refusal-check",
-        // The three old addresses, which are pages too: a guard, then a permanent redirect.
+        // The four old addresses, which are pages too: a guard, then a permanent redirect.
         ...Object.keys(MOVED_PAGES),
       ].sort(),
     );
@@ -377,6 +402,16 @@ describe("every page, for every role and for a signed-out visitor", () => {
       it(`${page.path} as ${who}`, async () => {
         getCaller.mockResolvedValue(caller);
         const expected = pageOutcome(caller, page.path);
+
+        /*
+         * A page that reads rows, opened by a caller who holds a membership: the read is expected,
+         * and the stub firing is what proves the guard ran in front of it. A caller with no
+         * membership reads nothing and falls through to the branches below like any other.
+         */
+        if (expected === "ALLOW" && READS_THE_DATABASE.has(page.path) && caller.memberships.length > 0) {
+          await expect(openPage(page.file)).rejects.toThrow(DB_OPENED);
+          return;
+        }
         const result = await openPage(page.file);
 
         if (page.path === "/") {
@@ -469,12 +504,12 @@ describe("every page, for every role and for a signed-out visitor", () => {
     const staffPages = pageFiles.filter((p) => pageOutcome(CALLERS.noRole, p.path) === "NO_ACCESS");
     // Every page that asks for a role at all: the console pages (the founder's redesign adds
     // Family texts and the approvals queue inside it), the three screens that are routes
-    // outside that group, the account page, and the three redirects standing in front of them.
+    // outside that group, the account page, and the four redirects standing in front of them.
     expect(staffPages.map((p) => p.path).sort()).toEqual(
       [
         "/approvals", "/exceptions", "/family-texts", "/health", "/live-map", "/map-preview",
-        "/plan-preview", "/plan-routes", "/ramp-ipad", "/ramp-preview", "/setup", "/today",
-        "/whoami",
+        "/phone-preview", "/plan-preview", "/plan-routes", "/ramp-ipad", "/ramp-preview",
+        "/setup", "/today", "/whoami",
       ],
     );
     for (const page of staffPages) {
@@ -617,19 +652,34 @@ describe("the session endpoint, for every role and for a signed-out caller", () 
     }
   });
 
-  it("the two server actions take no session, so neither has a cell to deny", () => {
+  it("the two auth actions take no session; every other action is role-gated in its own code", () => {
     /*
      * Sign-in must run for someone who has no session by definition, and sign-out must keep
      * working for someone whose role was just removed — so neither is role-gated and there is no
      * refusal of theirs to assert a body for. The access table says so (access.test.ts writes
      * the rows out), and this is the line that would fail the day one of them became a session
      * surface without a guarded refusal to go with it.
+     *
+     * The other three are the other kind: a session action, which is a POST endpoint with no URL
+     * of its own, so the role check cannot live in a route guard and lives in the action's own
+     * code instead. The assertion below is that it *is* there — a session row whose file never
+     * asks who is calling would be a button that guards itself by being hidden.
      */
     const actions = ENDPOINTS.filter((row) => row.kind === "action");
     expect(actions.map((a) => [a.path, a.auth.kind])).toEqual([
+      ["action:agent-turn", "session"],
+      ["action:agent-approval", "session"],
+      ["action:approval-decision", "session"],
       ["action:sign-in", "auth-endpoint"],
       ["action:sign-out", "public"],
     ]);
+    for (const action of actions.filter((a) => a.auth.kind === "session")) {
+      const source = readFileSync(path.join(REPO, action.file), "utf8");
+      expect(source, action.file).toMatch(/canOpenPage\(await getCaller\(\)|canOpenPage\(caller/);
+      // Never a role literal in an action: a list restated there is a list that can drift from
+      // the table. The roles come from the row, by path.
+      expect(source, action.file).not.toMatch(/"(DIRECTOR|COORDINATOR|FRONT_DESK)"/);
+    }
   });
 });
 

@@ -82,13 +82,6 @@ const VALID_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
     confidence: 0.9,
   },
   report_boarding: { leg_id: "L-C1-AM", source: "GUARDIAN_REPLY", state: "BOARDED_REPORTED", expected_version: 3 },
-  propose_dropoff_change: {
-    child_token: "C1",
-    leg_id: "L-C1-PM",
-    requested_dropoff_time: "17:00",
-    plan_version_basis: 3,
-    rationale_code: "FAMILY_REQUEST",
-  },
   propose_manifest_reallocation: {
     infeasible_vehicle_token: "V1",
     leg_ids: ["L-C1-AM"],
@@ -100,6 +93,14 @@ const VALID_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
     category: "EQUIPMENT",
     claim_summary: "guardian says the booster is no longer needed",
     source_message_id: "MSG-1",
+  },
+  propose_dropoff_change: {
+    leg_id: "L-C1-AM",
+    requested_dropoff_time: "17:00",
+    requested_stop_token: "GA-LIBRARY",
+    rationale_code: "PARENT_REQUEST",
+    source_message_id: "MSG-1",
+    expected_version: 1,
   },
   escalate_exception: {
     severity: "AMBER",

@@ -194,7 +194,7 @@ export async function ingestInbound(db: Db, deps: InboundDeps, rawBody: string, 
       siteId, messageId, threadId, contactToken: sender.contactToken, familyGroupId: sender.familyGroupId,
       channel: INBOUND_CHANNEL, bodyTokenized: tokenizeBody(form.Body), receivedAt,
       providerIndex: form.SimIndex ?? null, consentKind,
-    });
+    }, afterCommit);
     return { status: 200, body: { ok: true, duplicate: false, messageId, known: true, echo: false, consent: consentKind, replyQueued } };
   });
 }

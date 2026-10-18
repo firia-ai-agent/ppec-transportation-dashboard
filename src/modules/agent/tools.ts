@@ -29,6 +29,7 @@
  *    already binds its contact, so the agent names the ack, never the person (rule 1).
  */
 import { z } from "zod";
+import { KNOWN_STOP_TOKENS } from "@/modules/messaging/templates";
 import { TEMPLATE_VARS } from "@/modules/outbox/outbox";
 
 /** §11.2 tier column. `human` tools may only ever produce a proposal (see policy.ts). */
@@ -56,6 +57,16 @@ const version = z.number().int().nonnegative();
 /** A staff-facing prose field. Bounded, and redacted by the policy engine before it is stored. */
 const staffProse = z.string().min(1).max(600);
 
+/**
+ * Why a family is asking for a different drop-off. Codes, not prose, for the same reason
+ * `cancel_attendance_or_leg` takes a `reason_code`: a free-text reason is how a child's name
+ * reaches an audit log. The coordinator reads the family's own words in the thread beside the
+ * proposal; this is the one-word version that goes in the row.
+ */
+export const DROPOFF_CHANGE_REASON_CODES = [
+  "PARENT_REQUEST", "ALTERNATE_RECEIVER", "APPOINTMENT", "SCHEDULE_CONFLICT", "OTHER",
+] as const;
+
 /* ─────────────────────────── send_followup template allow-list ─────────────────────────── */
 
 /**
@@ -66,7 +77,7 @@ const staffProse = z.string().min(1).max(600);
  * a body or a var rule — the outbox stays the single source of both.
  */
 export const FOLLOWUP_TEMPLATE_FAMILIES: Readonly<Record<string, readonly string[]>> = {
-  confirmation: ["leg.canceled", "leg.changed"],
+  confirmation: ["leg.canceled", "leg.changed", "dropoff.changed"],
   eta_delay: ["pickup.eta", "dropoff.eta"],
   absence_to_therapist: ["therapist.absence_alert"],
   // No dedicated reminder body exists yet (B-05): the late alert and the fixed-copy notice carry
@@ -302,41 +313,6 @@ const DEFS: readonly ToolDef[] = [
     prd: "§11.2: INFEASIBLE/substitution → RED exception + Teams card; no mutation",
   },
   {
-    /**
-     * A family asking for a different drop-off time, as a **proposal**.
-     *
-     * The tool exists so that a requested time has exactly one way into this system: a field of a
-     * schema-validated tool call. The founder's rule of 2026-10-17 removed the other way — a
-     * keyword/regex reader over the family's own text — so `requested_dropoff_time` is structured
-     * output or it does not exist. `agent/no-keyword-fallback.test.ts` scans the parent-reply path
-     * for a time regex and fails if one reappears.
-     *
-     * `human` tier, like the two `propose_*` tools beside it, which means the policy engine
-     * returns PROPOSAL and the loop never calls an executor for it (policy.ts step 11): the call
-     * writes an `ops.approval_request` and an exception task and mutates nothing. A coordinator or
-     * a director decides it (`modules/approvals/decide.ts`), and only their decision moves a ride.
-     *
-     * The time is a plain 24-hour `HH:MM` on the leg's own service date — not a free-text phrase,
-     * not a date, and not a duration. A model that cannot say which minute it means has not
-     * understood the message and should be asking a clarification instead.
-     */
-    name: "propose_dropoff_change",
-    tier: "human",
-    effect: "propose",
-    schema: z.object({
-      child_token: token,
-      leg_id: token,
-      /** 24-hour local time on the leg's service date. The only way a requested time gets in. */
-      requested_dropoff_time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
-      /** The plan version the model read the leg at; the decision is guarded on it. */
-      plan_version_basis: z.number().int().nonnegative(),
-      rationale_code: z.enum(["FAMILY_REQUEST", "APPOINTMENT", "CAREGIVER_AVAILABILITY", "OTHER"]),
-    }),
-    staffTextFields: [],
-    sendCopy: null,
-    prd: "§11.2 human tier: a requested transport change is a proposal + exception; no mutation",
-  },
-  {
     name: "propose_contact_or_profile_change",
     tier: "human",
     effect: "propose",
@@ -350,6 +326,71 @@ const DEFS: readonly ToolDef[] = [
     staffTextFields: ["claim_summary"],
     sendCopy: null,
     prd: "§11.2: any phone/custody/equipment change → change request + exception",
+  },
+  /**
+   * The drop-off a family asked for (PRD §18.2 steps 9–10, §11.2 human tier; AT-01, AT-09).
+   *
+   * The commonest thing a parent texts a transport desk — "can he be dropped at grandma's at 5?"
+   * — had no tool at all. The catalog could cancel a ride, move a manifest and raise a change
+   * request about a phone number, so a model reading that text could only cancel the ride or
+   * escalate it: the two worst available answers to a question with an obvious right one.
+   *
+   * `human` tier, and that is the whole shape of it: a drop-off is where a child is handed to an
+   * adult, so no model moves one. The call produces an approval request and an exception for a
+   * coordinator to decide from, and `policy.ts` returns PROPOSAL for every `human`-tier call, so
+   * there is no code path on which this mutates anything however the model phrases it.
+   *
+   * ## Structured output is the only way a requested time gets in
+   *
+   * The founder's rule of 2026-10-17 removed the other way — a keyword/regex reader over the
+   * family's own sentence — so `requested_dropoff_time` is a field of a schema-validated tool
+   * call or it does not exist. With the model down there is no proposal at all; there is the
+   * "needs a person" staff alert instead (`agent/staff-alert.ts`), and
+   * `agent/no-keyword-fallback.test.ts` scans the parent-reply path for a time regex and fails
+   * if one ever reappears.
+   *
+   * ## Why there is no address argument
+   *
+   * The family typed one. It does not come in here, and could not: `address` is a forbidden
+   * argument token (`FORBIDDEN_ARG_TOKENS.address`), and a street in a tool call is PHI in an
+   * audit log and a way to set a child down somewhere nobody vetted. So the *place* half of this
+   * tool is a **stop token off the center's own list** (`KNOWN_STOP_TOKENS`, derived from the
+   * code-owned table in copy.ts): the model may propose a stop the center already uses, and
+   * "grandma's house" is not one of them — that is a conversation for a coordinator, which is
+   * exactly what the exception this raises is for. The *time* half is a 24-hour clock value, the
+   * same constrained shape every other time in the catalog takes.
+   *
+   * One of the two must be present, and `superRefine` is what says so rather than a comment: a
+   * call that proposes neither a new time nor a new place is proposing nothing, and the gateway
+   * refuses it as invalid arguments instead of writing an empty approval request for a person to
+   * puzzle over.
+   */
+  {
+    name: "propose_dropoff_change",
+    tier: "human",
+    effect: "propose",
+    schema: z
+      .object({
+        leg_id: token,
+        /** The new drop-off time, 24-hour. Null when only the place is being proposed. */
+        requested_dropoff_time: clockTime.nullable(),
+        /** One of the center's own stops. Null when only the time is being proposed. */
+        requested_stop_token: z.enum(KNOWN_STOP_TOKENS as [string, ...string[]]).nullable(),
+        rationale_code: z.enum(DROPOFF_CHANGE_REASON_CODES),
+        source_message_id: token,
+        expected_version: version,
+      })
+      .superRefine((args, ctx) => {
+        if (args.requested_dropoff_time === null && args.requested_stop_token === null) {
+          ctx.addIssue({
+            code: "custom",
+            message: "propose_dropoff_change needs a new time, a new stop, or both",
+          });
+        }
+      }),
+    staffTextFields: [],
+    sendCopy: null,
+    prd: "§11.2 human tier: a drop-off a family asked for → approval request + exception; no mutation",
   },
   {
     name: "escalate_exception",

@@ -62,6 +62,7 @@ export function TodayBoard({
   board,
   query,
   steps,
+  textedChildKeys = [],
 }: {
   board: Board;
   query: string;
@@ -72,6 +73,12 @@ export function TodayBoard({
    * puts the strip under the page header rather than above the whole screen.
    */
   steps: readonly StripStep[];
+  /**
+   * Children whose family the day has texted (PRD §18.2 step 7). Computed on the server and
+   * handed down, so the board carries no replay engine into the browser and the drawer's link to
+   * the §6.3 phone panel only exists where there is a text to read.
+   */
+  textedChildKeys?: readonly string[];
 }) {
   const { day } = board;
   const [onlyNeedsAction, setOnlyNeedsAction] = useState(false);
@@ -239,7 +246,12 @@ export function TodayBoard({
       )}
 
       {openLegs.length > 0 ? (
-        <LegDrawer legs={openLegs} day={day} onClose={() => setOpenChild(null)} />
+        <LegDrawer
+          legs={openLegs}
+          day={day}
+          hasTexts={textedChildKeys.includes(openLegs[0].child.childKey)}
+          onClose={() => setOpenChild(null)}
+        />
       ) : null}
     </div>
   );

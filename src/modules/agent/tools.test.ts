@@ -35,8 +35,8 @@ describe("§11.2 tool catalog", () => {
       "record_capability_report",
       "report_boarding",
       "propose_manifest_reallocation",
-      "propose_dropoff_change",
       "propose_contact_or_profile_change",
+      "propose_dropoff_change",
       "escalate_exception",
       "close_task",
       "summarize_thread_for_staff",
@@ -53,10 +53,12 @@ describe("§11.2 tool catalog", () => {
     const human = TOOL_NAMES.filter((n) => TOOL_REGISTRY[n].tier === "human");
     expect(human).toEqual([
       "propose_manifest_reallocation",
-      "propose_dropoff_change",
       "propose_contact_or_profile_change",
+      "propose_dropoff_change",
     ]);
     for (const n of human) expect(TOOL_REGISTRY[n].effect).toBe("propose");
+    // And the naming rule holds the other way too: a `human`-tier tool is a `propose_*` one.
+    expect(human.every((n) => n.startsWith("propose_"))).toBe(true);
   });
 
   it("says where every sending tool's copy comes from, and nothing else's", () => {

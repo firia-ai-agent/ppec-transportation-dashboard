@@ -1,10 +1,11 @@
 /**
- * THE THREE ADDRESSES THAT MOVED, in a real browser.
+ * THE FOUR ADDRESSES THAT MOVED, in a real browser.
  *
  * Vera's review (2026-10-17): no "preview" in any menu label or address. The screens are at
- * `/plan-routes`, `/live-map` and `/ramp-ipad` now. `/plan-preview`, `/map-preview` and
- * `/ramp-preview` have been read out loud in a demo, pasted into pull requests and bookmarked,
- * so they still answer — as permanent redirects behind the same rows of the access table.
+ * `/plan-routes`, `/live-map`, `/ramp-ipad` and `/family-texts` now. `/plan-preview`,
+ * `/map-preview`, `/ramp-preview` and `/phone-preview` have been read out loud in a demo, pasted
+ * into pull requests and bookmarked, so they still answer — as permanent redirects behind the same
+ * rows of the access table.
  *
  * Two questions a unit test cannot answer, because both are about a response:
  *  - is the status really 308 and does the `location` header point at the screen (a unit test
@@ -21,8 +22,8 @@ import { expectNoInternalCodes } from "./helpers";
 
 const MOVED = Object.entries(MOVED_PAGES);
 
-test("there are three of them, and none of the new addresses says \"preview\"", () => {
-  expect(MOVED).toHaveLength(3);
+test("there are four of them, and none of the new addresses says \"preview\"", () => {
+  expect(MOVED).toHaveLength(4);
   for (const [, to] of MOVED) expect(to).not.toMatch(/preview/i);
 });
 

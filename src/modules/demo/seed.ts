@@ -18,7 +18,7 @@ import type { Db, Exec } from "@/db/exec";
 import {
   CHILDREN, DATE_EXCEPTION, EXTERNAL_PEOPLE, FAMILIES, KIND, PROVIDERS, RUNS, SCENARIO_NAME,
   SCENARIO_START_LOCAL, STOPS, THERAPISTS, THERAPY_SESSIONS, VEHICLES, WEEKDAY_RRULE,
-  demoId, synLegalLastName, synLegalName, type AuthScope, type Child,
+  demoChildToken, demoId, demoLegId, synLegalLastName, synLegalName, type AuthScope, type Child,
 } from "./fixtures/standard";
 
 export class SeedRefused extends Error {}
@@ -119,7 +119,7 @@ const idx = <T extends { key: string }>(xs: readonly T[], key: string) => {
 
 const familyId = (key: string) => demoId(KIND.family, idx(FAMILIES, key) + 1);
 const contactId = (familyKey: string) => demoId(KIND.contact, idx(FAMILIES, familyKey) + 1);
-const childId = (key: string) => demoId(KIND.child, idx(CHILDREN, key) + 1);
+const childId = demoChildToken;
 const profileId = (key: string) => demoId(KIND.profile, idx(CHILDREN, key) + 1);
 const personId = (key: string) => demoId(KIND.person, idx(EXTERNAL_PEOPLE, key) + 1);
 const therapistId = (key: string) => demoId(KIND.therapist, idx(THERAPISTS, key) + 1);
@@ -129,7 +129,7 @@ const vehicleId = (key: string) => demoId(KIND.vehicle, idx(VEHICLES, key) + 1);
 const stopId = (childKey: string) => demoId(KIND.stop, idx(CHILDREN, childKey) + 1);
 const CENTER_STOP_ID = demoId(KIND.stop, 0xc0);
 const SPARE_STOP_ID = demoId(KIND.stop, 0xc1);
-const legId = (childKey: string, dir: "AM" | "PM") => demoId(KIND.leg, idx(CHILDREN, childKey) * 2 + (dir === "AM" ? 1 : 2));
+const legId = demoLegId;
 const manifestId = (runKey: string, dir: "AM" | "PM") => demoId(KIND.manifest, idx(RUNS, runKey) * 2 + (dir === "AM" ? 1 : 2));
 
 type LayoutRef = { id: string; code: string; vehicleKey: string; positions: { id: string; kind: "WC" | "AMB" }[] };
