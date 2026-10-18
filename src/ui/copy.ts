@@ -85,6 +85,25 @@ export const demoDay = {
   restarting: "Restarting…",
   /** The reset refused or the network did. One line, no status code, and the way on is to retry. */
   failed: "The demo day didn't restart. Try again.",
+  /**
+   * THE QUESTION BEFORE A RESET THROWS A PLAN AWAY (Vera's copy, 2026-10-18, verbatim).
+   *
+   * A reset is the one irreversible thing in the demo: it clears the saved plan for all three
+   * vans, and a coordinator who has spent the morning building one has no undo for it. So both
+   * controls that call it — "Restart demo day" in the DEMO bar and "Start demo day" on the
+   * board's own strip — ask first, and only when there is a plan to lose: with nothing saved
+   * there is nothing to warn about and the press goes straight through.
+   *
+   * "Keep plan" is the primary and holds the focus, because the safe answer is the default one
+   * and Escape has to mean something: Escape is Keep plan. "Restart" is the coral one, which is
+   * the only thing coral is for (src/ui/tokens.ts `alert`).
+   */
+  confirm: {
+    title: "Restart today?",
+    body: "This clears the saved plan for all 3 vans.",
+    keep: "Keep plan",
+    restart: "Restart",
+  },
 } as const;
 
 /**

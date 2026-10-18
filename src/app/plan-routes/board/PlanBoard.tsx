@@ -34,7 +34,6 @@ import {
   DragOverlay,
   KeyboardSensor,
   PointerSensor,
-  closestCenter,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -48,9 +47,7 @@ import type { RejectReason } from "@/config/equipment";
 import {
   autoPlan,
   boardMap,
-  moveTo,
   placedCount,
-  ridersInVan,
   ridersToPlace,
   unassignedRiders,
   type Bucket,
@@ -70,7 +67,7 @@ import {
   type PendingMove,
   type PendingQueue,
 } from "@/domain/plan/pending";
-import { isOver, rejectReason } from "@/domain/plan/fit";
+import { eligibility } from "@/domain/plan/eligibility";
 import type { BoardView } from "@/modules/plan/store";
 import { boardHref } from "@/modules/plan/when";
 import { flow, planBoard } from "@/ui/copy";
@@ -82,7 +79,12 @@ import { BoardToolbar } from "./BoardToolbar";
 import { ChildPanel, whereLine } from "./ChildPanel";
 import { UNASSIGNED_ID, UnassignedColumn } from "./UnassignedColumn";
 import { VanColumn } from "./VanColumn";
-import { boardBanner, movedLine, rejectSr, type SaveState } from "./lines";
+import { ConfirmRestart } from "@/ui/ConfirmRestart";
+import { restartStep, sendDemoReset, type RestartStep } from "@/ui/restart-confirm";
+import { dropTarget } from "./collision";
+import { dropOutcome } from "./drop";
+import type { Refusal } from "./refusal";
+import { boardBanner, movedLine, type SaveState } from "./lines";
 import styles from "./board.module.css";
 
 /** How long the "Mia R. → Van 2 · Undo" toast stays (§1.3's four seconds). */
@@ -141,11 +143,45 @@ export default function PlanBoard({
    */
   const [pending, setPending] = useState<PendingQueue>(NO_PENDING);
   const [toast, setToast] = useState<{ text: string } | null>(null);
+  /**
+   * The one refusal on screen: which card it is on, and the four words it says (Vera's taste
+   * spec, 2026-10-18). Not a toast — a refusal is about the card a person is holding, and it
+   * stays until the next drag starts rather than sliding away after four seconds.
+   */
+  const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [lifted, setLifted] = useState<BoardRider | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const [shownColumn, setShownColumn] = useState<string>(selectedVanId ?? UNASSIGNED_ID);
   const [leaveTo, setLeaveTo] = useState<string | null>(null);
+  /** Where "Start demo day" is: idle, asking "Restart today?", or sending the reset. */
+  const [restart, setRestart] = useState<RestartStep>("IDLE");
+
+  /*
+   * ── the server answered again ──
+   *
+   * `useState(view)` captures the first answer and keeps it for ever, so after the
+   * `router.refresh()` that "Start demo day" ends with, this screen was still holding the day
+   * from *before* the reset: the old riders, the old plan, and the old version a Save would have
+   * had to name. A new `view` object is a new read of the day, so it replaces all three.
+   *
+   * Unless there is a draft on this board, which belongs to the coordinator and is never thrown
+   * away by a refresh (Firia's option A). The new answer is taken as soon as the draft is: the
+   * last-seen view only moves on when it is actually applied, so a skipped refresh is not lost.
+   *
+   * Adjusted **during the render** rather than in an effect, which is React's own answer for
+   * "some state has to change when a prop changes": an effect would paint the stale day first
+   * and then replace it (react.dev, "You Might Not Need an Effect").
+   */
+  const [seenView, setSeenView] = useState(view);
+  if (seenView !== view && !hasPending(pending)) {
+    setSeenView(view);
+    setBoard(view);
+    setSavedPlan(view.plan);
+    setVersion(view.version);
+    setSave(view.savedAt ? { kind: "SAVED", at: view.savedAt } : { kind: "DIRTY" });
+    setRefusal(null);
+  }
 
   /**
    * The day exactly as the server read it. The board has no counts of its own to apply: they are
@@ -171,11 +207,20 @@ export default function PlanBoard({
     [day.vans],
   );
 
-  /* ── while a child is held: what every van would do with them ── */
+  /*
+   * ── while a child is held: what every van would do with them ──
+   *
+   * The same `eligibility` the drop runs and the same one Auto-plan's placement function asks
+   * (src/domain/plan/eligibility.ts). Three call sites, one question: a column that rings itself
+   * as able to take the child is a column whose drop will land.
+   */
   const rejects: Record<string, RejectReason | null> = useMemo(() => {
     if (!lifted) return {};
     return Object.fromEntries(
-      day.vans.map((van) => [van.id, rejectReason(van.setup, ridersInVan(day, plan, van.id), lifted)]),
+      day.vans.map((van) => {
+        const verdict = eligibility(day, plan, lifted.token, van.id);
+        return [van.id, verdict.ok ? null : verdict.reason];
+      }),
     );
   }, [day, plan, lifted]);
 
@@ -190,30 +235,24 @@ export default function PlanBoard({
   const applyPlacement = useCallback(
     (childToken: string, bucket: Bucket, vanId: string | null) => {
       if (!canEdit) return;
-      const rider = day.riders.find((r) => r.token === childToken);
-      const other = day.others.find((o) => o.token === childToken);
-      const name = rider?.name ?? other?.name ?? "";
-      const van = vanId ? day.vans.find((v) => v.id === vanId) : null;
-      if (van && rider) {
-        const reason = rejectReason(van.setup, ridersInVan(day, plan, van.id), rider);
-        if (reason) {
-          // Refused before it is even a draft: the card goes back and the reason is said, not
-          // only drawn. The server asks the same question again at Save.
-          setAnnouncement(rejectSr(rider.name, van.name, reason));
-          return;
-        }
+      const outcome = dropOutcome(day, plan, childToken, bucket, vanId);
+      // A target this board is not drawing: nobody moves and nothing is claimed. This used to
+      // fall through to the "→ Unassigned" success toast, which is the S1 report.
+      if (outcome.kind === "NOTHING") return;
+      if (outcome.kind === "REFUSED") {
+        /*
+         * Refused before it is even a draft. The card **stays where it was** — it is never put
+         * back in Unassigned — and the reason is one coral line on it plus the announced
+         * sentence (Vera's taste spec: no toast for a refusal). The server asks again at Save.
+         */
+        setRefusal({ childToken, reason: outcome.reason, line: outcome.line });
+        setAnnouncement(outcome.announce);
+        return;
       }
 
-      setPending((queue) => enqueue(queue, { childToken, bucket, vanId }));
-      const whereTo = van
-        ? van.name
-        : bucket === "ABSENT"
-          ? planBoard.absent
-          : bucket === "FAMILY_DRIVES"
-            ? planBoard.familyDrives
-            : planBoard.unassigned;
-      setToast({ text: movedLine(name, whereTo) });
-      setAnnouncement(movedLine(name, whereTo));
+      setPending((queue) => enqueue(queue, { childToken, bucket, vanId: outcome.vanId }));
+      setToast({ text: outcome.toast });
+      setAnnouncement(outcome.announce);
       /*
        * Nothing is written: the board is a draft until Save (option A). The last save's stamp
        * is left as it is, so undoing every unsaved move puts "Saved <time>" back on the chip
@@ -278,25 +317,47 @@ export default function PlanBoard({
   );
 
   /** Undo takes back the most recent **unsaved** move, and only that (option A). */
-  /* ── "Start demo day": the same reset the DEMO bar calls, from the strip that is waiting on it ── */
-  const startDay = useCallback(async () => {
+  /*
+   * ── "Start demo day": the same reset the DEMO bar calls, from the strip that is waiting on it ──
+   *
+   * And the same question in front of it (Vera's copy, 2026-10-18): a reset clears the saved plan
+   * for all three vans, so with a plan saved for today the press opens "Restart today?" first —
+   * the one dialog and the one decision both controls share (src/ui/ConfirmRestart.tsx,
+   * src/ui/restart-confirm.ts). "A plan is saved" is the version the server gave this board,
+   * which is the same fact its own Save chip stands on; nothing new is read.
+   */
+  const hasSavedPlan = version > 0;
+
+  const sendReset = useCallback(async () => {
     setStartingDay(true);
     try {
-      const response = await fetch(API.demoReset, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{}",
-      });
       // The day on screen is the old one either way: a refusal is the server's answer to read,
       // and a success is a new day to re-read. Both are a refresh.
-      if (response.ok) router.refresh();
+      if (await sendDemoReset()) router.refresh();
     } catch {
       // Nothing to recover from and nothing to report: the strip still says the day is not
       // started, which is the honest state of it.
     } finally {
       setStartingDay(false);
+      setRestart("IDLE");
     }
   }, [router]);
+
+  const startDay = useCallback(() => {
+    const next = restartStep("PRESS", hasSavedPlan);
+    setRestart(next.step);
+    if (next.send) void sendReset();
+  }, [hasSavedPlan, sendReset]);
+
+  /** "Keep plan" closes the dialog and sends nothing; "Restart" posts the existing reset. */
+  const answerRestart = useCallback(
+    (event: "KEEP" | "RESTART") => {
+      const next = restartStep(event, true);
+      setRestart(next.step);
+      if (next.send) void sendReset();
+    },
+    [sendReset],
+  );
 
   const undo = useCallback(() => {
     setPending((queue) => undoLast(queue));
@@ -414,6 +475,8 @@ export default function PlanBoard({
     const rider = day.riders.find((r) => r.token === String(event.active.id));
     setLifted(rider ?? null);
     setToast(null);
+    // The last refusal is answered by picking the card up again (Vera: it clears on drag start).
+    setRefusal(null);
   };
   const onDragOver = (event: DragOverEvent) => {
     const over = event.over ? String(event.over.id) : null;
@@ -444,7 +507,12 @@ export default function PlanBoard({
     <main className={styles.page}>
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
+        /*
+         * Where a drop lands is the **pointer**, not the dragged card's centre: `closestCenter`
+         * gave a drop on Van 1's left half to the column the card came from, which is the S1
+         * bounce (src/app/plan-routes/board/collision.ts, and the rects in its test).
+         */
+        collisionDetection={dropTarget}
         /*
          * dnd-kit's own live region announces the thing being dragged, and by default it reads the
          * draggable's **id** — which on this board is a child token. A screen reader would spell a
@@ -518,8 +586,8 @@ export default function PlanBoard({
                 type="button"
                 className={styles.bannerButton}
                 data-start-day=""
-                disabled={startingDay}
-                onClick={() => void startDay()}
+                disabled={startingDay || restart !== "IDLE"}
+                onClick={startDay}
               >
                 {banner.action.label}
               </button>
@@ -561,6 +629,7 @@ export default function PlanBoard({
               onOpenChild={setOpenChild}
               canEdit={canEdit}
               overBucket={overBucket}
+              refusal={refusal}
             />
             {day.vans.map((van) => (
               <VanColumn
@@ -579,6 +648,7 @@ export default function PlanBoard({
                 onOpenChild={setOpenChild}
                 canEdit={canEdit}
                 openChildToken={openChild}
+                refusal={refusal}
                 rampHref={rampHref(van.id, day.date, day.direction)}
               />
             ))}
@@ -636,6 +706,20 @@ export default function PlanBoard({
             {planBoard.undo}
           </button>
         </p>
+      ) : null}
+
+      {/*
+        "Restart today?" — the same question, in the same words, as the DEMO bar's own control
+        (Vera's copy). The bar's "Restart demo day" and this strip's "Start demo day" are
+        deliberately nowhere near each other and nothing alike: one is an outlined pill on the
+        violet chrome, the other the underlined word inside this sentence.
+      */}
+      {restart === "ASKING" ? (
+        <ConfirmRestart
+          onKeep={() => answerRestart("KEEP")}
+          onRestart={() => answerRestart("RESTART")}
+          busy={startingDay}
+        />
       ) : null}
 
       {leaveTo ? (

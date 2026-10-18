@@ -439,11 +439,22 @@ describe("§7 the DEMO bar's one control", () => {
     expect(director).toContain(demoDay.restart);
   });
 
+  /**
+   * The request moved out of the button and into src/ui/restart-confirm.ts, because the board's
+   * "Start demo day" sends the same one and neither control may build it twice (S1, 2026-10-18).
+   * Same claim, read where the request now lives: by the access table's row, never a path.
+   */
   it("calls the reset this app already has, by its row rather than by a written path", () => {
-    expect(restart).toMatch(/fetch\(API\.demoReset/);
-    expect(restart).toMatch(/method: "POST"/);
+    const sender = read(UI, "restart-confirm.ts");
+    // `fetchImpl`, so a test can hand it a spy: src/ui/restart-confirm.test.ts counts the calls.
+    expect(sender).toMatch(/fetch\w*\(API\.demoReset/);
+    expect(sender).toMatch(/method: "POST"/);
     // src/ui/no-internals.test.ts bars the literal; this is the other half of that rule.
+    expect(sender).not.toMatch(/"\/api\//);
     expect(restart).not.toMatch(/"\/api\//);
+    // And the button is still what sends it: one call, through the shared module.
+    expect(restart).toMatch(/sendDemoReset\(\)/);
+    expect(restart).not.toMatch(/fetch\(/);
   });
 
   it("wears the bar's own pair, not the screen's action colour (D-5)", () => {
