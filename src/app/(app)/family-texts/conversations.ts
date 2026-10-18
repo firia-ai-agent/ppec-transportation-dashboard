@@ -205,15 +205,28 @@ export function conversationRows(
         preview:
           proposal && proposal.alertText !== "" ? proposal.alertText : newest?.body ?? text.body,
         /*
-         * What has happened to this family, in that order: a change they asked for and nobody
-         * has decided; a van running late; a child handed over at their stop. The state is read
-         * off the text the day actually sent them (`templateId`) rather than guessed.
+         * THE PILL IS ABOUT THE ROW'S NEWEST MESSAGE, which is what the row itself is about
+         * (Vera, 2026-10-18; mockups/family-texts.html — the pill sits under the preview, and the
+         * preview is the newest message).
+         *
+         * It was read off `templateId` — *the text the day sent* — whatever had happened since,
+         * so a row whose last message was the parent's own question wore "Auto · Delivered" or
+         * "Auto · Late": a chip claiming the centre had just spoken, over a preview of the family
+         * speaking. The order is now the order a coordinator cares about:
+         *
+         *  1. a change they asked for and nobody has decided — "Change ready";
+         *  2. **the newest message is theirs and nobody has answered it** — "Needs you", which is
+         *     the one state in this vocabulary that was defined and never reached. It is what the
+         *     row is: an unanswered ask, with no claim about a send attached to it;
+         *  3. otherwise the text the day sent them, by its template — handed over, or running late.
          */
         state: (proposal
           ? "changeReady"
-          : text.templateId === HANDOFF_TEMPLATE
-            ? "autoDropped"
-            : "autoLate") as RowState,
+          : newest?.direction === "IN"
+            ? "needsYou"
+            : text.templateId === HANDOFF_TEMPLATE
+              ? "autoDropped"
+              : "autoLate") as RowState,
         unread: proposal !== undefined,
       } satisfies ConversationRow,
     };
@@ -235,7 +248,9 @@ export function conversationRows(
  *  3. **the one with a text nobody could read on it** (#B4). The "needs a person" alert is drawn
  *     at the top of the For you tab; opening the newest thread beside it meant the one thing on
  *     the screen asking for a person was about Dara and the pane next to it was Rosa's;
- *  4. otherwise the newest, which is what the list is sorted by.
+ *  4. otherwise **the row at the top of the list** (`rows`), which is what a person sees
+ *     highlighted — not the newest text, which is a different row as soon as the list is sorted
+ *     by anything else.
  *
  * The alert is matched on its own `child_token` against the day's threads (`childTokenOf`), not on
  * a name or a sentence: the card's words are built for a person to read and are not an identifier.
@@ -251,13 +266,26 @@ export function openThreadOf(
     readonly askedThread?: string;
     readonly proposals: readonly ProposalView[];
     readonly alerts: readonly { readonly childToken: string | null }[];
+    /**
+     * The list **as it is drawn** (`conversationRows`), for step 4. `texts` is the day's own
+     * order — the order the van reaches the families — and the list is not: it is sorted, a
+     * decision first and then newest. With nothing waiting and nothing alerting, the thread that
+     * opens beside the list has to be the row at the top of it, which `texts[0]` was not: at 1440
+     * the screen opened Rosa's thread with Rosa's row sitting fourth down an unhighlighted list,
+     * and the row that *was* highlighted was somebody else's.
+     *
+     * Optional, because the view model is also asked this question without a list in hand; with
+     * none, the day's own order answers as it did before.
+     */
+    readonly rows?: readonly { readonly key: string }[];
   },
 ): DayPhone | null {
   const waiting = texts.find((t) => a.proposals.some((p) => p.threadKey === t.childKey));
   const alerted = texts.find((t) =>
     a.alerts.some((alert) => alert.childToken !== null && alert.childToken === childTokenOf(t.childKey)),
   );
-  return texts.find((t) => t.childKey === a.askedThread) ?? waiting ?? alerted ?? texts[0] ?? null;
+  const top = a.rows?.[0] ? texts.find((t) => t.childKey === a.rows![0].key) : undefined;
+  return texts.find((t) => t.childKey === a.askedThread) ?? waiting ?? alerted ?? top ?? texts[0] ?? null;
 }
 
 /* ───────────────────────────── the thread ───────────────────────────── */

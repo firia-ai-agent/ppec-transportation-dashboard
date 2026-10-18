@@ -47,6 +47,7 @@ import {
 } from "./conversations";
 import type { DecisionState } from "./actions";
 import type { Thread } from "./thread";
+import { ROW_STATES } from "./row-state";
 
 const day = demoDay();
 const texts = demoLateDropoffs(day);
@@ -707,6 +708,39 @@ describe("the thread the tab opens on", () => {
     );
   });
 
+  /**
+   * VERA, 2026-10-18, on mockups/family-texts.html at 1440: the thread that opens beside the list
+   * has to be the row at the **top of that list**.
+   *
+   * `texts` is the day's own order — the order the van reaches the families — and the list is not
+   * that order: `conversationRows` sorts it, a decision first and then newest. With nothing
+   * waiting and nothing alerting the screen opened `texts[0]`, so the pane showed Rosa while the
+   * highlighted row four places down the list was somebody else's. One list, one top row, one
+   * thread beside it.
+   */
+  it("opens the row at the top of the list, not the first of the day's own order", () => {
+    // The list is sorted on what was last said to each family, and `answered` makes that this
+    // family — so the top row and the day's own first text are two different threads, which is
+    // the shape the bug needed and the one the screen is really in once a parent writes back.
+    const rows = conversationRows(texts, [], new Map([[selected.childKey, answered]]));
+    const top = rows[0];
+    expect(top.key).not.toBe(texts[0].childKey);
+    expect(openThreadOf(texts, { proposals: [], alerts: [], rows })?.childKey).toBe(top.key);
+    // Without the list in hand the answer is the day's own order, exactly as before.
+    expect(openThreadOf(texts, { proposals: [], alerts: [] })?.childKey).toBe(texts[0].childKey);
+  });
+
+  it("still lets the URL, a decision and an alert win over the top row", () => {
+    const rows = conversationRows(texts, [], new Map([[selected.childKey, answered]]));
+    const other = texts.find((t) => t.childKey !== rows[0].key)!;
+    expect(openThreadOf(texts, { askedThread: other.childKey, proposals: [], alerts: [], rows })?.childKey)
+      .toBe(other.childKey);
+    const elsewhere: ProposalView = { ...PROPOSAL, threadKey: other.childKey };
+    expect(openThreadOf(texts, { proposals: [elsewhere], alerts: [], rows })?.childKey).toBe(other.childKey);
+    expect(openThreadOf(texts, { proposals: [], alerts: alertAbout(other.childKey), rows })?.childKey)
+      .toBe(other.childKey);
+  });
+
   it("has no thread to open on a day with no family texts at all", () => {
     expect(openThreadOf([], { proposals: [], alerts: alertAbout("C2") })).toBeNull();
   });
@@ -722,6 +756,45 @@ describe("the thread the tab opens on", () => {
  * message on that thread was Dara's own, at 12:57. One screen, two sources, two answers about what
  * was last said to a family.
  */
+/**
+ * VERA, 2026-10-18 — mockups/family-texts.html: the pill sits under the preview, and the preview
+ * is the row's newest message. So the pill is about that message too.
+ */
+describe("Vera: the pill describes the row's newest message", () => {
+  /** The day's threads, with one family's ending in their own text (`answered`). */
+  const threads = (): ReadonlyMap<string, Thread> => new Map([[selected.childKey, answered]]);
+
+  it("wears no Auto chip on a row whose newest message is the family's own", () => {
+    const row = conversationRows(texts, [], threads()).find((r) => r.key === selected.childKey)!;
+    expect(row.state).toBe("needsYou");
+    expect(ROW_STATES[row.state].label).toBe(familyTexts.rowState.needsYou);
+    // The claim it used to make — that the centre had just texted them — is gone.
+    expect(ROW_STATES[row.state].label).not.toBe(familyTexts.rowState.autoLate);
+    expect(ROW_STATES[row.state].label).not.toBe(familyTexts.rowState.autoDropped);
+    // And the preview under it is that same message, so the two agree.
+    expect(row.preview).toBe(answered.bubbles.at(-1)!.body);
+  });
+
+  it("keeps the Auto chip where the newest message really is the day's own text", () => {
+    const row = conversationRows(texts, [], new Map([[selected.childKey, projected]])).find(
+      (r) => r.key === selected.childKey,
+    )!;
+    expect(["autoLate", "autoDropped"]).toContain(row.state);
+  });
+
+  it("a decision waiting still wins: that is what the row is about now", () => {
+    const row = conversationRows(texts, [PROPOSAL], threads()).find((r) => r.key === PROPOSAL.threadKey);
+    expect(row?.state).toBe("changeReady");
+  });
+
+  it("renders that chip on the screen's own list", () => {
+    // No proposal on this render (`showForYouTab: false` is the front desk's view of the list),
+    // so the row is the unanswered ask it is rather than a decision.
+    const html = textOf(render({ tab: "all", showForYouTab: false }));
+    expect(html).toContain(familyTexts.rowState.needsYou);
+  });
+});
+
 describe("a row previews the thread it opens", () => {
   const newest = answered.bubbles[answered.bubbles.length - 1];
   const threads = new Map([[selected.childKey, answered]]);

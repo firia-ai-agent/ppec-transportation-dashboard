@@ -9,16 +9,19 @@
  * Everything the model says is scripted (`FakeProvider`) and everything it would do is an intent
  * record (`intentRecorder`), so a failure here is the loop's and not a vendor's.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
 import { SITE, freshDb } from "@/test/pglite";
 import { approvalKey, familyScope } from "../policy";
-import { freeText, toolCall } from "../providers/fake";
+import { fakeProvider, freeText, toolCall } from "../providers/fake";
 import { cassetteFrom, cassetteKey, recordedProvider } from "../providers/recorded";
 import { TOOL_NAMES } from "../tools";
-import type { ProviderResponseBody } from "../providers/provider";
+import type { LlmProvider, ProviderResponseBody } from "../providers/provider";
+import { RemoteProviderUnavailable } from "../providers/remote";
+import { LIVE_ALERT_STATES_SQL, MODEL_UNAVAILABLE_CATEGORY } from "../alert-task";
+import { STAFF_ALERT_TASK_CATEGORY } from "../ask/ask-text";
 import { tierPrompt } from "./context";
 import {
   AT01_EXECUTORS, AT01_FACTS, AT01_NOTE, AT01_READ, AT01_SCRIPT, AT01_SITE, at01Policy,
@@ -26,7 +29,7 @@ import {
 } from "./harness";
 import { type ToolExecutor, intentRecorder } from "./executors";
 import { driveRun, startAndDriveRun } from "./loop";
-import { callIdempotencyKey, persistCall, setRunState, startRun } from "./store";
+import { callIdempotencyKey, commitCall, persistCall, runActor, setRunState, startRun } from "./store";
 import { policyTaskId } from "./tasks";
 import { TRIGGER_TYPES, TriggerError, type Trigger } from "./triggers";
 
@@ -47,6 +50,7 @@ beforeEach(async () => {
 
 // Each PGlite holds its own WASM heap; leaking them into one worker gets the worker OOM-killed.
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(open.splice(0).map((h) => h.close().catch(() => {})));
 });
 
@@ -73,6 +77,30 @@ const calls = async (runId: string) =>
   (await db.query<CallRow>(
     `SELECT seq, tool, status, policy_decision, args, args_hash, idempotency_key, result, committed_at
      FROM ops.agent_tool_call WHERE run_id = $1 ORDER BY seq`, [runId])).rows;
+
+/**
+ * Every live "needs a person" row, in **both** categories one can be raised in: a family's text
+ * writes `ASSISTANT_UNAVAILABLE` (staff-alert.ts) and a coordinator's ask writes `NEEDS_PERSON`
+ * (ask/ask-text.ts). Asking for both is what lets a test say "and no alert at all" about a trigger
+ * nobody is waiting on, rather than only about one of the two shapes.
+ *
+ * The states are inlined from `LIVE_ALERT_STATES_SQL` because `$n::task_state[]` does not survive
+ * the round trip through PGlite (alert-task.ts says why).
+ */
+type AlertRow = {
+  id: string; category: string; severity: string; state: string;
+  message_id: string | null; reason_class: string | null;
+};
+const alerts = async () =>
+  (await db.query<AlertRow>(
+    `SELECT id, category, severity, state::text AS state,
+            completion_evidence -> 'locator' ->> 'message_id' AS message_id,
+            completion_evidence -> 'locator' ->> 'reason_class' AS reason_class
+     FROM ops.task
+     WHERE category = ANY($1::text[]) AND state IN (${LIVE_ALERT_STATES_SQL})
+     ORDER BY id`,
+    [[MODEL_UNAVAILABLE_CATEGORY, STAFF_ALERT_TASK_CATEGORY]],
+  )).rows;
 
 /* ──────────────────────────────── the tests ──────────────────────────────── */
 
@@ -381,6 +409,142 @@ describe("fail-shut boundaries", () => {
     expect(row.status).toBe("FAILED");
     expect(row.result).toMatchObject({ error_code: "EXECUTOR_ERROR", error: "leg read timed out" });
   });
+});
+
+/*
+ * Vera, 2026-10-18: Dara's 1:39 ask showed "Nothing is waiting" because her run FAILED without an
+ * alert (mockups/family-texts.html, For you).
+ *
+ * Fail-shut above is the easy half — the run is marked, nothing ran. The half that was missing is
+ * the **person**: an outage was the only failure that raised a card, so every other way a run can
+ * end shut (an assembler that cannot read its rows, a policy block, a scope refusal, a spent step
+ * budget) left the family's text in the thread with nothing on "For you" — no proposal, because
+ * none was written, and no alert, because nothing was down. `fail()` raises it for all of them
+ * now, classed `run_failed`, and the three refusals it makes are the rest of this block: somebody
+ * has to be waiting, the run must have produced nothing, and the outage path must not raise a
+ * second one. How the row reads as a card, with the family's own words under it, is
+ * `agent/model-unavailable.test.ts`.
+ */
+describe("a run that fails shut tells whoever was waiting on it", () => {
+  /**
+   * A uuid, because `ops.message.id` is one and the alert's subject lookup reads that column —
+   * `MSG-1` is this suite's scope *label*, not a row. The message row itself need not exist: the
+   * locator is a pointer and the card is raised whether or not a child or a leg resolves behind it
+   * (staff-alert.ts), which is what keeps this a run-loop test rather than a second seeding suite.
+   */
+  const INBOUND: Trigger = { type: "msg.inbound", id: "0199c1ab-0000-7000-8000-0000000000a1", siteId: SITE };
+  /** A deadline that came due. Nobody typed it and nobody is holding a phone waiting for it. */
+  const TIMER: Trigger = { type: "timer.deadline", id: "JOB-SWEEP-1", siteId: SITE };
+
+  /** The assembler refusing a read, which is the non-outage failure `fail()` is reached by most. */
+  const unreadable = (h: Harness) => ({
+    ...h.deps(0),
+    assemble: async () => {
+      throw new Error("tier facts could not be read");
+    },
+  });
+
+  it("an inbound text that fails with no proposal leaves one alert, classed run_failed", async () => {
+    const h = harness();
+    const r = await startAndDriveRun(unreadable(h), INBOUND);
+
+    expect([r.state, r.steps]).toEqual(["FAILED", 0]);
+    // Emphatically not the outage path: nothing here claims a model could not be reached.
+    expect(r.modelUnavailable).toBeUndefined();
+    expect(await calls(r.runId)).toEqual([]);
+    expect(h.recorder.intents).toEqual([]);
+
+    const live = await alerts();
+    expect(live).toHaveLength(1);
+    expect([live[0].category, live[0].severity, live[0].state]).toEqual([
+      MODEL_UNAVAILABLE_CATEGORY, "RED", "OPEN",
+    ]);
+    // A pointer at the text and the class of what happened to it — and `run_failed` is a class no
+    // outage can produce, so an on-call reading it knows the agent refused a step of its own.
+    expect(live[0].message_id).toBe(INBOUND.id);
+    expect(live[0].reason_class).toBe("run_failed");
+  });
+
+  it("…and the same one card for a run the policy engine stopped, after the block's own write", async () => {
+    // The other way into `fail()`: a committed BLOCKED row and the staff task it opened, both
+    // written in a transaction that finishes before the run is failed. One alert beside them.
+    const h = harness({ script: [toolCall("get_leg_state", { leg_id: "L-C9-AM" }), AT01_READ] });
+    const r = await h.start(INBOUND);
+
+    expect(r.state).toBe("FAILED");
+    expect(r.reason).toMatch(/policy blocked get_leg_state \(cross_family_disclosure\)/);
+    expect((await calls(r.runId)).map((c) => c.status)).toEqual(["BLOCKED"]);
+
+    const live = await alerts();
+    expect(live).toHaveLength(1);
+    expect(live[0].category).toBe(MODEL_UNAVAILABLE_CATEGORY);
+    expect(live[0].reason_class).toBe("run_failed");
+  });
+
+  it("a run that already put a proposal in front of a person raises nothing", async () => {
+    // A proposal *ends* a run (SUCCEEDED), so the only run that can fail with one behind it is one
+    // that inherited it — a re-driven run, written here the way the resume suites write a row.
+    const { runId } = await startRun(db, INBOUND, { model: "m", provider: "p" });
+    const args = {
+      family_token: "F1", category: "PHONE",
+      claim_summary: "Guardian says the cell number changed.", source_message_id: INBOUND.id,
+    };
+    const row = await persistCall(db, {
+      runId, siteId: SITE, seq: 0, tool: "propose_contact_or_profile_change",
+      args, storeArgs: args, policyDecision: "PROPOSAL:human_tier_requires_approval",
+    });
+    expect(await commitCall(db, row.id, "PROPOSED", { proposal_rule: "human_tier_requires_approval" }, runActor(runId))).toBe(true);
+
+    const r = await driveRun(unreadable(harness()), runId);
+
+    expect([r.state, r.reason]).toEqual(["FAILED", "context could not be assembled: tier facts could not be read"]);
+    // A decision is already on the coordinator's screen; "nobody answered this" beside it would be
+    // the tab contradicting the card next to it.
+    expect(await alerts()).toEqual([]);
+  });
+
+  it("a trigger nobody is waiting on fails as quietly as it always did", async () => {
+    const h = harness();
+    const r = await startAndDriveRun(unreadable(h), TIMER);
+
+    expect([r.state, r.steps]).toEqual(["FAILED", 0]);
+    expect(r.reason).toBe("context could not be assembled: tier facts could not be read");
+    // A timer has no family at the other end of it and no ask to put on a card. Giving one its own
+    // alert is named as a gap in the change's PR body rather than guessed at here.
+    expect(await alerts()).toEqual([]);
+  });
+
+  it("the outage path still raises exactly one alert, with its own reason class", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // A vendor reached on every model in the chain, timing out on each: `modelDown`'s own path,
+    // which raises the card itself and tells `fail` not to raise a second.
+    const h = harness({ provider: () => deadProvider() });
+    const r = await startAndDriveRun(h.deps(0), INBOUND);
+
+    expect([r.state, r.steps, r.modelUnavailable]).toEqual(["FAILED", 0, true]);
+    expect(r.reason).toBe("model unavailable (timeout); staff alert raised");
+
+    const live = await alerts();
+    expect(live).toHaveLength(1);
+    expect(live[0].category).toBe(MODEL_UNAVAILABLE_CATEGORY);
+    // The outage's class, not `run_failed`: the card a person reads is the same either way, and
+    // the row has to say which kind of nothing this was.
+    expect(live[0].reason_class).toBe("timeout");
+    // One alert is also one line: the second raise would have logged a second one.
+    expect(warn.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith("agent: model unavailable")))
+      .toEqual(["agent: model unavailable (timeout); staff alert raised"]);
+  });
+});
+
+/** A vendor that was reached on both models and timed out on each — an outage, not a refusal. */
+const deadProvider = (): LlmProvider => ({
+  ...fakeProvider([]),
+  async invoke() {
+    throw new RemoteProviderUnavailable("every model timed out", [
+      { model: "m1", status: null, ok: false, failure: "timeout" },
+      { model: "m2", status: null, ok: false, failure: "timeout" },
+    ]);
+  },
 });
 
 /**

@@ -126,7 +126,6 @@ export default async function FamilyTextsPage({
    * the one an alert is about, else the newest. The order lives in `conversations.ts` with the
    * rest of the view model, where it can be asked about without a database.
    */
-  const selected = openThreadOf(phones, { askedThread, proposals: queue, alerts: board.alerts });
   /*
    * ONE READ OF THE DAY'S THREADS, for the list and for the pane alike (#B5). A row's preview is
    * the newest bubble of the thread that row opens; before this the rows previewed the demo day's
@@ -138,6 +137,16 @@ export default async function FamilyTextsPage({
     pepper: process.env.HMAC_PEPPER,
     userId: caller.kind === "STAFF" ? caller.userId : undefined,
   });
+  /*
+   * "Change ready" only where the queue holds a pending proposal for that thread (Vera, bdfaa8e):
+   * the chip, the card and For you read one list, so a fixture ask with no row behind it shows as
+   * the text the day sent rather than as a decision nobody can make.
+   *
+   * Built **before** the thread is chosen, because which thread opens by default is "the row at
+   * the top of this list" and not "the newest text" (`openThreadOf` step 4).
+   */
+  const rows = conversationRows(phones, queue, threads);
+  const selected = openThreadOf(phones, { askedThread, proposals: queue, alerts: board.alerts, rows });
   const thread = selected ? threads.get(selected.childKey) ?? null : null;
 
   const view =
@@ -160,12 +169,7 @@ export default async function FamilyTextsPage({
       tab={tab}
       context={context}
       editing={editing}
-      /*
-        * "Change ready" only where the queue holds a pending proposal for that thread (Vera,
-        * bdfaa8e): the chip, the card and For you read one list, so a fixture ask with no row
-        * behind it shows as the text the day sent rather than as a decision nobody can make.
-        */
-      rows={conversationRows(phones, queue, threads)}
+      rows={rows}
       thread={view}
       /* The same rows the card in the thread came from: one read, two readers (S1-2). */
       proposals={queue}
