@@ -291,7 +291,7 @@ describe("check 1, part 2b: the approved reply is bounded and still carries no P
     // PPE-97: the shapes a number or a link takes when somebody is trying to get it past a filter.
     ["a spaced-out phone number", "Yes. Text us at 5 6 1 5 5 5 0 1 7 7 if anything changes."],
     ["a full-width phone number", "Yes. Text us at ５６１５５５０１７７ if anything changes."],
-    ["digits run together", "Yes. Call 5551234567 when you are home."],
+    ["digits run together", "Yes. Call 5615550177 when you are home."],
     ["a domain spelled out", "Yes. Details are at example dot com."],
     ["a bare domain", "Yes. Pay the fee at tokos.app/pay first."],
   ])("refuses a reply carrying %s", (_label, reply) => {
