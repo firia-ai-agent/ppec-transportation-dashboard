@@ -1382,6 +1382,14 @@ export const approval = {
    * never a fake success, and never a text to a family about a change the plan does not hold.
    */
   planNotSaved: "Couldn't update the plan, so nothing was sent to the family. Change the ride on the board instead.",
+  /**
+   * The placement saved and the **time** did not (`TIME_NOT_SAVED`, `modules/approvals/decide.ts`).
+   *
+   * Its own sentence because it is its own fact: the ride this proposal names was not the ride the
+   * plan had to move, so the agreed minute had nowhere to go. Says what happened, says nothing
+   * went out, and names the one thing the person reading it can do.
+   */
+  timeNotSaved: "Couldn't move the drop-off time, so nothing was sent to the family. Set the time on the board instead.",
 
   /* ── the card itself (mockups/approvals.html) ── */
 
@@ -1424,6 +1432,29 @@ export const approval = {
    * who already knew the plan could check. The facts themselves are still computed and still
    * asserted (`queue.ts`, `real-card-only.test.ts`); what is gone is the row.
    */
+  /**
+   * THE CARD'S HEADING — "Reply to Dara", and no robot (Firia, 11:11 AM ET 2026-10-18).
+   *
+   * What it replaces: a `Bot` icon beside the parent's bare name. Two things were wrong with that
+   * row. The icon said *who wrote the draft*, which is a fact about the build and not about the
+   * decision, and the name alone said nothing at all about what the card is for — a coordinator
+   * reading "Dara O." over a bubble has to infer that pressing the button texts her. The heading
+   * now says the act: this is a reply, and it goes to this parent. First name only, because the
+   * thread it sits in is already that family's.
+   */
+  replyTo: "Reply to {parent}",
+  /**
+   * ONE LINE OF WHAT CHANGES, under the draft (same ruling).
+   *
+   * The card used to say what would change only inside the words the family gets, which is the
+   * right place for a family and not enough for the person approving it: Approve now moves the
+   * plan — the leg's drop-off time, the van it stays on, the receiver on the file — and a
+   * coordinator signs for that, not just for the sentence. So this is the plan's own words for the
+   * same change, from the proposal and the placement the plan actually holds (`queue.ts`), and it
+   * is one line because the Stop / Time / Pick-up table it is the descendant of was three too
+   * many (Vera, 7:51 AM ET).
+   */
+  changeLine: "{child}: drop-off moves to {time} on {van}.",
   /** The pick-up row when the adult collecting the child does not change. */
   pickupSame: "{adult} · same",
   /** The checks that passed, as chips. Each is a fact the plan can answer. */

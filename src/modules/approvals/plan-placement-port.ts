@@ -36,11 +36,18 @@ import {
   type SetChildPlacementOutcome,
 } from "@/modules/plan/place";
 import { hasNoDatabase, loadBoard, planStoreIn } from "@/modules/plan/store";
+import {
+  recordLegReceiver,
+  setLegDropoffWindow,
+  type LegReceiverInput,
+  type LegWindowInput,
+} from "@/modules/plan/leg-write";
 import { demoDaySource } from "@/modules/demo/day-source";
 import { sqlDaySource } from "@/modules/roster/sql";
 import type { PlanStore } from "@/modules/plan/types";
 
 export type { PlacementBucket, SetChildPlacementInput, SetChildPlacementOutcome };
+export type { LegReceiverInput, LegWindowInput };
 
 /**
  * What an approval needs back from a placement write: whether the plan took it.
@@ -86,7 +93,27 @@ export type PlanPlacementPort = {
   /** The child's bucket, van and plan version, or `null` when this day's plan has no such child. */
   readonly currentPlacement: (query: PlacementQuery) => Promise<CurrentPlacement | null>;
   readonly setChildPlacement: SetChildPlacement;
+  /**
+   * The agreed drop-off, onto the leg it is about (`plan/leg-write.ts` `setLegDropoffWindow`).
+   *
+   * Firia's 11:11 AM ET ruling of 2026-10-18 put this on the port rather than leaving it a query
+   * in `decide.ts`: a time is a fact about the plan, the plan module owns the one writer of it,
+   * and an approval is allowed to ask for it and nothing wider. `plan_run` has no time column —
+   * `window_start` on the leg is where this schema keeps an arrival — so the placement write
+   * above and this one are the two halves of "the plan really changed".
+   */
+  readonly setDropoffWindow: (input: LegWindowInput) => Promise<PlanWriteDone>;
+  /**
+   * The adult who will receive the child, onto the child's file and the leg
+   * (`plan/leg-write.ts` `recordLegReceiver`) — what clears an AT-13 hold.
+   */
+  readonly recordReceiver: (input: LegReceiverInput) => Promise<PlanWriteDone>;
 };
+
+/** Whether the plan took a write, and the module's own reason when it did not. */
+export type PlanWriteDone =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: string };
 
 /**
  * The port, for one transaction.
@@ -133,6 +160,14 @@ export function boardPlacementPort(deps: {
         const placement = view.plan[query.childToken];
         if (!placement) return null;
         return { bucket: placement.bucket, vehicleId: placement.vanId, version: view.version };
+      },
+      async setDropoffWindow(input) {
+        const written = await setLegDropoffWindow(tx, input);
+        return written.ok ? { ok: true } : { ok: false, reason: written.reason };
+      },
+      async recordReceiver(input) {
+        const written = await recordLegReceiver(tx, input);
+        return written.ok ? { ok: true } : { ok: false, reason: written.reason };
       },
       async setChildPlacement(input) {
         const outcome: SetChildPlacementOutcome = await boardSetChildPlacement(
