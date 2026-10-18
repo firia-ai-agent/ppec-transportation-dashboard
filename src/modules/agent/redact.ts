@@ -173,33 +173,3 @@ export function redact(text: string): string {
     return out;
   });
 }
-
-/**
- * Thrown by `validatePromptTokensOnly`. The message names the classes and counts and the prompt
- * hash — never the prompt, never the matched value. This error is what gets logged (TEST-SEC-01:
- * "logs hash only"), so anything in it is, by definition, allowed to be in a log.
- */
-export class PromptLeakError extends Error {
-  constructor(
-    readonly promptHash: string,
-    readonly findings: readonly Finding[],
-  ) {
-    super(
-      `prompt refused: untokenized ${findings.map((f) => `${f.kind}×${f.count}`).join(", ")} ` +
-        `(prompt sha256 ${promptHash})`,
-    );
-    this.name = "PromptLeakError";
-  }
-}
-
-/**
- * The gateway contract's `validatePromptTokensOnly()`. Returns the prompt hash when the prompt
- * carries tokens only; throws `PromptLeakError` otherwise. No provider call, no retry, no
- * redact-and-send — a leaking prompt is a bug upstream and the run degrades instead.
- */
-export function validatePromptTokensOnly(prompt: string): string {
-  const hash = sha256Hex(prompt);
-  const findings = findLeaks(prompt);
-  if (findings.length > 0) throw new PromptLeakError(hash, findings);
-  return hash;
-}

@@ -10,6 +10,7 @@
  * TZ=America/New_York, and the two cases below are chosen so that a value computed in process-local
  * time fails one of the two runs.
  */
+import { sha256Hex } from "@/modules/agent/redact";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
@@ -345,7 +346,7 @@ describe("timezones: deadlines are instants, service dates are site-local", () =
     expect(prompt).toContain("service_date=2026-03-07 tz=America/New_York");
     // And that is the prompt the run actually sent (hashes only, as always).
     expect(h.gateways.at(-1)!.auditLog.map((a) => a.promptHash)).toEqual([
-      h.gateways.at(-1)!.validatePromptTokensOnly(prompt),
+      sha256Hex(prompt),
     ]);
   });
 

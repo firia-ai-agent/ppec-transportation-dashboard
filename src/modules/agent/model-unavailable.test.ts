@@ -572,7 +572,6 @@ describe("the classifier, pinned directly", () => {
   it("is null for every gateway outcome that means the model answered and we refused the answer", () => {
     for (const outcome of [
       "REJECTED_FREE_TEXT",
-      "REJECTED_PROMPT_LEAK",
       "REJECTED_INVALID_ARGS",
       "REJECTED_MULTIPLE_CALLS",
       "REJECTED_UNKNOWN_TOOL",

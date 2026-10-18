@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { CHILDREN, FAMILIES } from "@/modules/demo/fixtures/standard";
-import { findLeaks, validatePromptTokensOnly } from "@/modules/agent/redact";
+import { findLeaks } from "@/modules/agent/redact";
 import { seedAgentScenario, type AgentScenario } from "@/test/agent-state";
 import { TEST_NOW } from "@/test/clock";
 import { seedPersona, seedSecondSite, SITE_B, UNKNOWN_NUMBER } from "@/test/messaging";
@@ -42,7 +42,6 @@ afterEach(async () => {
 describe("the prompt carries tokens and nothing else", () => {
   it("passes the gateway's own prompt guard", async () => {
     const { prompt } = await assemble();
-    expect(() => validatePromptTokensOnly(prompt)).not.toThrow();
     expect(findLeaks(prompt)).toEqual([]);
   });
 

@@ -1,22 +1,21 @@
 /**
- * TEST-SEC-01 (PRD §18.3 l.1334) at the unit level: the prompt guard fails closed on E.164
- * numbers, street-address patterns and untokenized names, and logs a hash and nothing else.
+ * The PHI detectors (`findLeaks`) and `redact()`. The gateway no longer refuses a prompt on them —
+ * the agent runtime is HIPAA-compliant (2026-10-18) — so what is tested here is the detectors
+ * themselves.
  */
 import { describe, expect, it } from "vitest";
 import { CHILDREN, EXTERNAL_PEOPLE, FAMILIES } from "@/modules/demo/fixtures/standard";
 import { RECORDED_PROMPTS } from "./fixtures/prompts";
 import {
   FIXTURE_NAMES,
-  PromptLeakError,
   findLeaks,
   redact,
   sha256Hex,
-  validatePromptTokensOnly,
 } from "./redact";
 
-describe("TEST-SEC-01: validatePromptTokensOnly accepts token-only prompts", () => {
+describe("findLeaks finds nothing in a token-only prompt", () => {
   it.each(RECORDED_PROMPTS.map((p) => [p.note, p.prompt] as const))("accepts the %s prompt", (_note, prompt) => {
-    expect(validatePromptTokensOnly(prompt)).toBe(sha256Hex(prompt));
+    expect(findLeaks(prompt)).toEqual([]);
   });
 
   it.each([
@@ -29,7 +28,7 @@ describe("TEST-SEC-01: validatePromptTokensOnly accepts token-only prompts", () 
   });
 });
 
-describe("TEST-SEC-01: validatePromptTokensOnly fails closed", () => {
+describe("findLeaks detects numbers, addresses and roster names", () => {
   it.each([
     ["E.164", "contact=+15615550101"],
     ["E.164 with separators", "contact=+1-561-555-0101"],
@@ -38,7 +37,6 @@ describe("TEST-SEC-01: validatePromptTokensOnly fails closed", () => {
     ["local seven digit", "call 555-0104"],
     ["bare 11-digit", "sms 15615550105 now"],
   ])("refuses a prompt carrying a phone number (%s)", (_label, prompt) => {
-    expect(() => validatePromptTokensOnly(prompt)).toThrow(PromptLeakError);
     expect(findLeaks(prompt).map((f) => f.kind)).toContain("PHONE");
   });
 
@@ -49,7 +47,6 @@ describe("TEST-SEC-01: validatePromptTokensOnly fails closed", () => {
     ["PO box", "mail to P.O. Box 1188"],
     ["state and ZIP", "the center is in FL 33415"],
   ])("refuses a prompt carrying a street address (%s)", (_label, prompt) => {
-    expect(() => validatePromptTokensOnly(prompt)).toThrow(PromptLeakError);
     expect(findLeaks(prompt).map((f) => f.kind)).toContain("ADDRESS");
   });
 
@@ -62,7 +59,7 @@ describe("TEST-SEC-01: validatePromptTokensOnly fails closed", () => {
       ...EXTERNAL_PEOPLE.map((p) => p.firstName),
     ];
     for (const name of everyName) {
-      expect(() => validatePromptTokensOnly(`child=${name} leg=L-C1-AM`)).toThrow(PromptLeakError);
+      expect(findLeaks(`child=${name} leg=L-C1-AM`).map((f) => f.kind)).toContain("NAME");
     }
     expect(FIXTURE_NAMES.length).toBeGreaterThan(20);
   });
@@ -70,21 +67,6 @@ describe("TEST-SEC-01: validatePromptTokensOnly fails closed", () => {
   it("catches a name whatever its case, and with a trailing initial", () => {
     for (const prompt of ["child=Mia R.", "child=mia r.", "child=MIA", "guardian=Alma R"]) {
       expect(findLeaks(prompt).map((f) => f.kind)).toContain("NAME");
-    }
-  });
-
-  it("logs the hash and the classes only — never the prompt", () => {
-    const prompt = "guardian=Alma R. phone=+1-561-555-0101 pickup=2216 Jog Rd";
-    try {
-      validatePromptTokensOnly(prompt);
-      expect.unreachable();
-    } catch (e) {
-      const err = e as PromptLeakError;
-      expect(err.promptHash).toBe(sha256Hex(prompt));
-      expect(err.findings.map((f) => f.kind).sort()).toEqual(["ADDRESS", "NAME", "PHONE"]);
-      for (const secret of ["Alma", "561", "Jog Rd", "+1"]) expect(err.message).not.toContain(secret);
-      // Nor does the thrown object as a whole, which is what a logger would serialize.
-      expect(JSON.stringify({ message: err.message, hash: err.promptHash, findings: err.findings })).not.toContain("Alma");
     }
   });
 });
@@ -101,7 +83,7 @@ describe("a uuid is a token, not a phone number", () => {
 
   it("the shape that used to read as a local number is clean, in a prompt and in an argument", () => {
     expect(findLeaks(COLLIDING)).toEqual([]);
-    expect(() => validatePromptTokensOnly(`T2 leg=${COLLIDING} version=1`)).not.toThrow();
+    expect(findLeaks(`T2 leg=${COLLIDING} version=1`)).toEqual([]);
     expect(redact(COLLIDING)).toBe(COLLIDING);
   });
 
@@ -115,7 +97,7 @@ describe("a uuid is a token, not a phone number", () => {
     ];
     const prompt = ids.map((id, i) => `T2 leg${i}=${id}`).join("\n");
     expect(findLeaks(prompt)).toEqual([]);
-    expect(validatePromptTokensOnly(prompt)).toBe(sha256Hex(prompt));
+    expect(findLeaks(prompt)).toEqual([]);
   });
 
   it("a real number next to a uuid is still caught, and the uuid survives the redaction", () => {
@@ -145,11 +127,10 @@ describe("redact()", () => {
     expect(redact(safe)).toBe(safe);
   });
 
-  it("is idempotent, and its output passes the prompt guard", () => {
+  it("is idempotent, and leaves nothing a detector would find", () => {
     const dirty = "Alma R. +1-561-555-0101 lives at 2216 Jog Rd, Greenacres FL 33415";
     const once = redact(dirty);
     expect(redact(once)).toBe(once);
     expect(findLeaks(once)).toEqual([]);
-    expect(() => validatePromptTokensOnly(once)).not.toThrow();
   });
 });
