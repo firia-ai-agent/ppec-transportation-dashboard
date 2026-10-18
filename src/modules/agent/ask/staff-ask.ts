@@ -47,6 +47,7 @@ import { uuidv7 } from "uuidv7";
 import type { Db } from "@/db/exec";
 import { previewSkip } from "@/db/read-only";
 import { agentAsk } from "@/ui/copy";
+import { tokenizeNames } from "@/modules/identity/names";
 import { redact } from "../redact";
 import { STAFF_ALERT_TASK_CATEGORY, STAFF_ASK_TASK_CATEGORY, askTextOf } from "./ask-text";
 import { type AgentRunner, agentRunner } from "../run/deps";
@@ -119,13 +120,17 @@ export type StaffAskDeps = {
 /**
  * What a bounded, storable ask looks like. `null` for anything that is not one.
  *
- * `redact` is the module's own leak scrubber (agent/redact.ts): a phone number or an address
- * typed into the bubble is still a phone number or an address, and this row is read on a board.
+ * People first become the tokens the rest of the system uses (`identity/names.tokenizeNames`:
+ * "what's wrong with Noah?" → "what's wrong with C2?"), so the model can answer about the child the
+ * coordinator meant — redaction would leave it "[REDACTED:NAME]" and nothing to look up. Then
+ * `redact`, the module's own leak scrubber (agent/redact.ts), takes whatever is still a phone
+ * number or an address: this row is read on a board. The bubble turns the tokens back into first
+ * names when it shows the ask (`ask/thread.ts`).
  */
 export function normalizeAsk(text: string): string | null {
   const trimmed = text.trim().replace(/\s+/g, " ");
   if (!trimmed || trimmed.length > MAX_ASK_LENGTH) return null;
-  return redact(trimmed);
+  return redact(tokenizeNames(trimmed));
 }
 
 /**

@@ -509,10 +509,13 @@ describe("what an ask is allowed to be", () => {
     expect(normalizeAsk("x".repeat(MAX_ASK_LENGTH + 1))).toBeNull();
   });
 
-  it("scrubs a phone number and a name somebody typed into the bubble", () => {
+  it("scrubs a phone number, and turns a name into the token the model can look up", () => {
     // agent/redact.ts is the module's own leak scrubber; this row is read on a board, and what
     // a coordinator types in a hurry is as likely to carry a number as an inbound text is.
     expect(normalizeAsk("call them on 561-555-0134")).not.toMatch(/555-0134/);
-    expect(normalizeAsk("move Liam to Van 2")).not.toMatch(/Liam/);
+    // A name is a person the model has to be able to find: a token, never "[REDACTED:NAME]".
+    const asked = normalizeAsk("what's wrong with Noah?");
+    expect(asked).toBe("what's wrong with C2?");
+    expect(asked).not.toMatch(/Noah|REDACTED/);
   });
 });

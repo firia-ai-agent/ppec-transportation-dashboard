@@ -22,7 +22,7 @@
 import type { Db } from "@/db/exec";
 import type { AgentThreadItem } from "@/ui/AgentThread";
 import { agentBubble } from "@/ui/copy";
-import { namedOrNull } from "@/modules/identity/names";
+import { detokenizeNames, namedOrNull } from "@/modules/identity/names";
 import { ANSWER_TOOL } from "./answer";
 import { STAFF_ASK_TASK_CATEGORY, askTextOf } from "./ask-text";
 
@@ -64,7 +64,8 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
     .map((r) => ({ at: r.at, item: { kind: "proposal", id: r.id, question: String(r.summary) } as AgentThreadItem }));
   const said = asks.rows.map((r) => ({
     at: r.at,
-    item: { kind: "staff", id: r.id, text: askTextOf(r.summary) } as AgentThreadItem,
+    // Stored with people as tokens (`normalizeAsk`); read back with their first names.
+    item: { kind: "staff", id: r.id, text: detokenizeNames(askTextOf(r.summary)) } as AgentThreadItem,
   }));
   /*
    * THE MODEL'S ANSWERS, so a reload shows what it said and not only what was asked: each
