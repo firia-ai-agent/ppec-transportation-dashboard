@@ -1,0 +1,144 @@
+/*
+ * Vera's binding mockup: mockups/agent-bubble.html, and png/agent-bubble-{closed,open}-{1440,390}.
+ * Every length below is either that file's or a token derived from it (src/ui/tokens.ts
+ * `layout.agentBubble*`, `shadow.bubble`, `shadow.panel`). Colours are tokens only — teal
+ * (`--color-brand`), coral (`--color-alert`), the mockup's white and greys — and no violet, which
+ * is the DEMO bar's alone.
+ */
+
+/*
+ * The root is not a box: it is two fixed children. A wrapper with a size would sit over the page
+ * and swallow clicks on whatever is under it, which on the live map is the map.
+ */
+.root {
+  display: contents;
+}
+
+/*
+ * CLOSED — `.fab`: 56 px teal disc, 16 px from the bottom-right corner of the app frame, chat
+ * icon, no text. `z-index` 30 in the mockup, which is above the phone tab bar (15) and below the
+ * DEMO bar; the panel is one above it.
+ */
+.bubble {
+  position: fixed;
+  right: var(--layout-agent-bubble-gap);
+  bottom: var(--layout-agent-bubble-gap);
+  z-index: 30;
+  width: var(--layout-agent-bubble-size);
+  height: var(--layout-agent-bubble-size);
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-brand);
+  color: var(--color-surface);
+  box-shadow: var(--shadow-bubble);
+  cursor: pointer;
+}
+
+.bubble:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+/*
+ * A proposal is waiting: a coral dot with a white ring (`.fab .dot`). The count is in the
+ * button's accessible name as words, so this is never the only way to know — §3's rule that no
+ * state is colour alone.
+ */
+.dot {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  width: var(--layout-agent-bubble-dot);
+  height: var(--layout-agent-bubble-dot);
+  border-radius: var(--radius-pill);
+  background: var(--color-alert);
+  border: var(--border-hairline) solid var(--color-surface);
+  box-shadow: 0 0 0 var(--border-hairline) var(--color-surface);
+}
+
+/*
+ * OPEN at 1440 — `.pnl`: a 400 px white panel against the right edge, from **under the DEMO bar**
+ * to the floor, with a hairline on its left and no dark overlay behind it. The founder can still
+ * see and use the board while it is open, which is the whole reason there is no scrim.
+ */
+.panel {
+  position: fixed;
+  top: var(--layout-demo-banner-height);
+  right: 0;
+  bottom: 0;
+  z-index: 31;
+  width: var(--layout-agent-panel-width);
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border-left: var(--border-hairline) solid var(--color-neutral-bg);
+  box-shadow: var(--shadow-panel);
+}
+
+/* `.ph`: 60 px head, the title in Teal Ink, the close X at its trailing end. */
+.head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: 60px;
+  padding: 0 var(--space-3) 0 var(--space-5);
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.title {
+  font-size: var(--text-16);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink-brand);
+}
+
+/* `.cls`: a 44 px target, which is also §9's console minimum. */
+.close {
+  margin-left: auto;
+  width: var(--target-console);
+  height: var(--target-console);
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink-muted);
+  cursor: pointer;
+}
+
+.close:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+@media (max-width: 767px) {
+  /*
+   * The disc clears the bottom tab bar: the mockup writes `bottom:80px` — 64 px of bar plus the
+   * 16 px gap — and this adds the device's own safe-area inset on top, because the bar pads
+   * itself by the same inset (src/ui/TabBar.module.css) and a flat 80 would put the disc on an
+   * iPhone's home bar.
+   */
+  .bubble {
+    bottom: calc(
+      var(--layout-tab-bar-height) + var(--layout-agent-bubble-gap) + env(safe-area-inset-bottom, 0px)
+    );
+  }
+
+  /*
+   * OPEN at 390 — a full sheet: the panel loses its width and its left edge and covers the tab
+   * bar (`.pnl` at `max-width:767px`). The DEMO bar stays above it, which is NFR-09.
+   */
+  .panel {
+    left: 0;
+    width: auto;
+    border-left: 0;
+    box-shadow: none;
+  }
+
+  .head {
+    height: 56px;
+    padding-left: var(--space-5);
+  }
+}

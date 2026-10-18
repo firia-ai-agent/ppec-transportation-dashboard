@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
+import { canOpenForYou } from "@/auth/access";
 import type { ResolvedCaller } from "@/auth/caller";
+import { AgentBubble } from "./AgentBubble";
 import { AppShell } from "./AppShell";
 import { fill, identity, roleNames } from "./copy";
 import { accountLines, initialsOf } from "./display-name";
@@ -30,6 +32,17 @@ const ACCOUNT_PATH = "/whoami";
  * shell renders, so the rail's account block, the phone's avatar and /whoami cannot disagree
  * about who is signed in — and `accountLines` is the one that decides a session whose whole
  * name *is* a role says that role once rather than twice.
+ *
+ * THE AGENT BUBBLE IS MOUNTED HERE, and here only (src/ui/AgentBubble.tsx). The founder asked for
+ * it "on every screen", and this is the one component every app route's layout renders — so one
+ * mount is every route, by the same argument src/ui/one-menu.test.ts makes about the menu. It
+ * also has to be *one* mount rather than four: the panel's open/closed state lives in the
+ * component, and a bubble mounted per layout would close itself every time somebody changed tab.
+ *
+ * It is given `canOpenForYou(caller)` — the server's own answer, from the same function the For
+ * you page guards itself with — rather than a role, because the bubble shows proposals waiting
+ * for a decision and the front desk may not decide. The function is asked here for the same
+ * reason the nav role is: one expression, so no screen can hold a different opinion.
  */
 export function ConsoleShell({
   caller,
@@ -60,8 +73,11 @@ export function ConsoleShell({
       }
     : null;
   return (
-    <AppShell account={account} role={role} title={title} pageOwnsMain={pageOwnsMain}>
-      {children}
-    </AppShell>
+    <>
+      <AppShell account={account} role={role} title={title} pageOwnsMain={pageOwnsMain}>
+        {children}
+      </AppShell>
+      <AgentBubble canDecide={canOpenForYou(caller)} />
+    </>
   );
 }

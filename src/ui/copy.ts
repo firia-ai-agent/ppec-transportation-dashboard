@@ -2384,3 +2384,46 @@ export const agentPolicyTask = {
     predicate: "the sender identified and recorded, or the thread closed as unknown",
   },
 } as const;
+
+/**
+ * THE AGENT BUBBLE — the floating chat the founder asked for, on every screen inside the frame
+ * (src/ui/AgentBubble.tsx, mounted once by src/ui/ConsoleShell.tsx).
+ *
+ * Vera's binding mockup is /workspace/ppec-redesign/mockups/agent-bubble.html and the four
+ * png/agent-bubble-{closed,open}-{1440,390}.png shots. Everything a person reads in it is here,
+ * and the rules the COPY-GUIDE puts on it are the ones the rest of this file follows: no vendor
+ * and no model name, no "AI" label, no codes, and as few words as the screen can be read with.
+ *
+ * The closed button carries **no visible text** (the mockup draws a 56 px disc with an icon in
+ * it), so `open` / `openWaiting` is its accessible name and the only way it is announced. The
+ * count is in the name rather than left to the coral dot, for the same reason the tab bar's
+ * badge is in its tab's name: a dot says nothing to a screen reader.
+ */
+export const agentBubble = {
+  /** The closed button's accessible name with nothing waiting (agent-bubble.html, `.fab`). */
+  open: "Agent",
+  /** …and with proposals waiting, which is what the coral dot means for the eye. */
+  openWaiting: "Agent, {count} waiting",
+  /** The panel's heading, and its dialog label. */
+  title: "Agent",
+  /** The 44 px X at the top right of the panel and of the phone sheet. */
+  close: "Close",
+  /** The day separator above the thread. The thread is the same one "For you" shows. */
+  today: "Today",
+  /** Who said it, above a driver's grey bubble: "Marcus L. · Van 1". */
+  speaker: "{name} · Van {van}",
+  /** The compose bar, pinned to the foot of the panel, and its round teal button. */
+  ask: "Ask the agent…",
+  send: "Send",
+  /**
+   * The compact proposal card (mockups/family-texts.html, `.prop`): the question is the title and
+   * the one row under it is these three. "Skip" is the bubble's word for the quiet third option;
+   * the full For you card says "Don't send", which is a decision about one text rather than about
+   * every kind of proposal.
+   */
+  approve: "Approve",
+  edit: "Edit",
+  skip: "Skip",
+  /** Nothing has been said today. The thread shows what exists and never invents a message. */
+  empty: "Nothing yet today.",
+} as const;

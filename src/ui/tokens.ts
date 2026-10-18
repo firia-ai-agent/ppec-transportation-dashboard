@@ -423,6 +423,26 @@ export const layout = {
    * home-bar gesture area. The shell pads the page by the same two lengths.
    */
   tabBarHeight: "64px",
+  /**
+   * THE AGENT BUBBLE, measured off Vera's mockup (mockups/agent-bubble.html `.fab` / `.pnl`, and
+   * png/agent-bubble-{closed,open}-{1440,390}.png). Five lengths, so nothing retypes one:
+   *
+   *  - `agentBubbleSize` 56 px, `agentBubbleGap` 16 px from the frame's bottom-right corner;
+   *  - below 768 the button sits 16 px **above the tab bar**, which the stylesheet writes as the
+   *    gap plus `tabBarHeight` plus the device's own safe-area inset (the mockup's flat
+   *    `bottom:80px` is 64 + 16 with no inset to add, and a phone with a home bar needs it);
+   *  - `agentBubbleClearWide` 88 px (16 + 56 + 16) and `agentBubbleClearPhone` 80 px (16 + 56 +
+   *    8) are the bottom padding a page gets so its last row — and the live map's zoom
+   *    controls — scroll clear of the disc. On a phone the clearance is *added to* the tab bar's
+   *    own, which is the spec's 144 px (64 + 80) at 390.
+   *  - `agentPanelWidth` 400 px: the panel at 1440, under the DEMO bar, with no overlay.
+   */
+  agentBubbleSize: "56px",
+  agentBubbleGap: "16px",
+  agentBubbleDot: "14px",
+  agentBubbleClearWide: "88px",
+  agentBubbleClearPhone: "80px",
+  agentPanelWidth: "400px",
   contentMaxWidth: "1440px",
 } as const;
 
@@ -437,6 +457,24 @@ export const breakpoint = { drawer: "768px", rail: "1280px" } as const;
 
 /** Minimum hit targets: ≥44 px console, ≥56 px ramp iPad (§9). */
 export const target = { console: "44px", ramp: "56px" } as const;
+
+/**
+ * The two soft shadows the agent bubble needs, and the only ones in the system.
+ *
+ * Every other raised surface in this app is marked with a hairline ring (NoticeToast, StepStrip),
+ * because a ring reads in greyscale and costs no paint. The bubble is the exception Vera's mockup
+ * draws on purpose: a 56 px disc floating *over* a scrolling board has to be legible against
+ * whatever is behind it, and a 1 px ring on white over white is not. The literals are the
+ * mockup's (mockups/agent-bubble.html `.fab`, `.pnl`) and they live here because this is the one
+ * file a colour may be written in — `no-hex.test.ts` bans `rgba(` everywhere else, and that ban
+ * is what stops a second, slightly different shadow appearing in a component next week.
+ */
+export const shadow = {
+  /** `.fab`: the closed disc, lifted off the page under it. */
+  bubble: "0 6px 16px rgba(15,23,42,.22)",
+  /** `.pnl`: the 400 px panel, lifted off the screen to its left. */
+  panel: "-12px 0 32px rgba(15,23,42,.12)",
+} as const;
 
 /** Focus: 2 px focus outline + 2 px offset, never removed (§9). */
 export const focusRing = { width: "2px", offset: "2px" } as const;
@@ -484,6 +522,7 @@ const cssVars: Record<string, string> = {
   "--focus-width": focusRing.width,
   "--focus-offset": focusRing.offset,
   ...Object.fromEntries(Object.entries(border).map(([k, v]) => [`--border-${kebab(k)}`, v])),
+  ...Object.fromEntries(Object.entries(shadow).map(([k, v]) => [`--shadow-${k}`, v])),
   "--icon-stroke": String(icon.strokeWidth),
 };
 
