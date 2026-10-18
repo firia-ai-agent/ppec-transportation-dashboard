@@ -575,6 +575,8 @@ export const login = {
  */
 export const liveMap = {
   heading: "Live map",
+  /** The one state chip per van (mockups/live-map.html). No ETAs on this screen. */
+  chips: { onRoute: "On route", atStop: "At stop", late: "Late", noGps: "No GPS" },
   /** <title> for the route, so the tab says which screen is open. */
   documentTitle: "Live map · PPEC transportation dashboard",
   /*
