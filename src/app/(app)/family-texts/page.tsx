@@ -160,7 +160,15 @@ export default async function FamilyTextsPage({
       tab={tab}
       context={context}
       editing={editing}
-      rows={conversationRows(phones, requests)}
+      /*
+        * "Change ready" only where the queue holds a pending proposal for that thread (Vera,
+        * bdfaa8e): the chip, the card and For you read one list, so a fixture ask with no row
+        * behind it shows as the text the day sent rather than as a decision nobody can make.
+        */
+      rows={conversationRows(
+        phones,
+        requests.filter((r) => queue.some((p) => p.threadKey === r.childKey)),
+      )}
       thread={view}
       /* The same rows the card in the thread came from: one read, two readers (S1-2). */
       proposals={queue}

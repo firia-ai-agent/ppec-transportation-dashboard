@@ -1200,7 +1200,6 @@ export const familyTexts = {
   tabSent: "Sent",
   tabAll: "All",
   /** The chip in the header: the assistant is reading replies on this day. */
-  assistantOn: "Assistant on",
   /** The list, for a screen reader that is picking one. */
   conversationsLabel: "Conversations",
   /** A row that has something on it nobody has read yet (§9: never the teal dot alone). */
@@ -1235,7 +1234,6 @@ export const familyTexts = {
    * approval (Firia's gate 3). With nothing open there is nothing for it to send: free text to a
    * family is not wired, and the control says so rather than looking live.
    */
-  composeNoProposal: "Not connected yet. Free text to a family needs its own approval step.",
   /** The state pill on a conversation row. Five, and every one of them is a fact about the row. */
   rowState: {
     changeReady: "Change ready",

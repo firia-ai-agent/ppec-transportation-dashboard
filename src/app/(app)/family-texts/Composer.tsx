@@ -21,7 +21,7 @@ import styles from "./texts.module.css";
  * var, and `free-text-egress.test.ts` holds that door shut for routes and server actions alike. A
  * Send that pretended to deliver a typed sentence would be the first hole in it. So the control is
  * honest about the state it is in, in the one wording this repo uses for a control that is not
- * wired (`familyTexts.composeNoProposal`), and the open proposal above is the way to answer this
+ * wired (and the bar carries no line saying so — Vera, bdfaa8e), and the open proposal above is the way to answer this
  * family today.
  */
 export function Composer({
@@ -97,5 +97,5 @@ function noteOf(state: DecisionState, ready: boolean): string {
     if (state.decision === "DECLINED") return approval.declined;
     return state.queued === 0 ? approval.sentToNobody : approval.sent;
   }
-  return ready ? approval.nothingUntilApproved : familyTexts.composeNoProposal;
+  return ready ? approval.nothingUntilApproved : "";
 }

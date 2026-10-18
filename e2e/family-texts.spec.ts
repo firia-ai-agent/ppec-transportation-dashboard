@@ -110,20 +110,8 @@ test.describe("1440: three panes on For you, the card inside the thread", () => 
       await expect(tabs.nth(i)).toContainText(label);
     }
 
-    /*
-     * approvals.html `.top .chip.info`: the assistant's own state. It is a claim about the
-     * assistant, so it is drawn only when one can be reached — with no model it is absent, and
-     * the "needs a person" alert is what the screen says instead (gate 5). Asserted both ways,
-     * because a chip that said "Assistant on" over a screen with no assistant is the exact
-     * failure this check exists for. (The word is on screen twice when it is there — once for a
-     * screen reader, once visibly — so this takes the visible one.)
-     */
-    const chip = page.getByText(familyTexts.assistantOn, { exact: true });
-    if (await hasCard(page)) {
-      await expect(chip).toBeVisible();
-    } else {
-      await expect(chip).toHaveCount(0);
-    }
+    // No "Assistant on" chip: family-texts.html draws none (Vera, bdfaa8e).
+    await expect(page.getByText("Assistant on", { exact: true })).toHaveCount(0);
 
     const list = page.getByRole("navigation", { name: familyTexts.conversationsLabel }).first();
     const rows = page.getByRole("list", { name: familyTexts.conversationsLabel });

@@ -112,9 +112,6 @@ export function TextsScreen({
           </Link>
         ))}
         <span className={styles.headerSpacer} />
-        {assistantReachable ? (
-          <StateChip state={{ icon: Bot, label: familyTexts.assistantOn, tone: "info" }} />
-        ) : null}
       </nav>
 
       {/*

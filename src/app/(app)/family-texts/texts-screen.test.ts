@@ -325,9 +325,9 @@ describe("gate 3: nothing model-written reaches a parent unapproved", () => {
     expect(html).toMatch(/id="compose"[^>]*readonly/i);
   });
 
-  it("says so plainly when there is nothing for Send to approve", () => {
+  it("adds no line under the compose bar when there is nothing for Send to approve (Vera, bdfaa8e)", () => {
     const html = textOf(render({ request: undefined, proposals: [] }));
-    expect(html).toContain(familyTexts.composeNoProposal);
+    expect(html).not.toContain("Not connected yet");
     expect(html).not.toContain(approval.approveAndSend);
   });
 });
