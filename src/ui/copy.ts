@@ -1916,9 +1916,15 @@ export const planBoard = {
     LIFT: "lift",
   },
   /**
-   * The one line an unconfirmed van's column carries (Firia/Veri, 2026-10-17 6:00 PM ET): no
+   * The one line about a van nobody has confirmed (Firia/Veri, 2026-10-17 6:00 PM ET): no
    * button, no "yesterday", no carry-over — the van is planned on the shared config's defaults
    * until the front desk confirms it at the ramp.
+   *
+   * It is said **once**, in the board's own banner beside "Check vans" (`flow.banner`, the same
+   * sentence), and no longer on each van column — three columns said it three times for one
+   * fact about the day (Vera on b3453cd, 2026-10-18). It stays here because this is the board's
+   * copy block and the sentence is the board's; `src/app/plan-routes/board/lines.test.ts` holds
+   * the two spellings of it to the one wording.
    */
   usingDefault: "Using default setup",
   /** "Seats 4/6" — a read-only count chip on a van column, one per counter (§1.2, 5:55 PM ET). */

@@ -19,9 +19,9 @@ export const UNASSIGNED_ID = "unassigned";
  * The children waiting to be placed, and the two groups that are not waiting for anything
  * (redesign spec §1.2's `UnassignedColumn`, §1.3's Empty and All-placed states).
  *
- * The count badge is the one number that matters here: warn while anybody is unplaced, and an
- * `ok` tick with "All placed" once nobody is — a word as well as a tone, so the difference is not
- * the colour.
+ * The count badge is the one number that matters here, and only while there is one: a warn chip
+ * with how many are unplaced, and — once nobody is — no chip at all and the `ok` "All placed"
+ * line below, a word as well as a tone, so the difference is not the colour.
  *
  * "Family drives" and "Absent" are **drop targets** (founder 2026-10-17 7:17 PM ET): both are
  * placements on this day's plan, per leg, so a child can be dragged onto either and dragged back
@@ -82,18 +82,23 @@ export function UnassignedColumn({
     >
       <div className={styles.columnHeader}>
         <span className={styles.vanName}>{planBoard.unassigned}</span>
-        <span
-          className={[styles.chip, styles.count].join(" ")}
-          data-tone={waiting.length > 0 ? "warn" : "ok"}
-          data-unassigned-count=""
-        >
-          {waiting.length > 0 ? (
+        {/*
+          HOW MANY ARE STILL WAITING — and nothing at all once nobody is (Vera on b3453cd,
+          2026-10-18). png/plan-board.png draws a count beside the heading while two children
+          are unplaced and draws no chip when the column is clear, so a "✓ 0" is a chip that
+          says a number nobody needs: the green "All placed" below is the answer at zero, and
+          the toolbar's "N of N placed" is the same fact in full.
+        */}
+        {waiting.length > 0 ? (
+          <span
+            className={[styles.chip, styles.count].join(" ")}
+            data-tone="warn"
+            data-unassigned-count=""
+          >
             <TriangleAlert size={icon.chip} aria-hidden="true" />
-          ) : (
-            <Check size={icon.chip} aria-hidden="true" />
-          )}
-          {waiting.length}
-        </span>
+            {waiting.length}
+          </span>
+        ) : null}
       </div>
 
       {waiting.length === 0 ? (

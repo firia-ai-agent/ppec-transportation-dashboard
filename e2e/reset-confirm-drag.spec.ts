@@ -40,7 +40,7 @@
  * control — the same dialog, the same decision, the same request.
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { board as boardCopy, demoDay, fill, planBoard, sentence, vanArrival } from "../src/ui/copy";
+import { board as boardCopy, demoDay, fill, flow, planBoard, sentence, vanArrival } from "../src/ui/copy";
 import { API } from "../src/auth/access";
 import { boxOf, expectNoInternalCodes } from "./helpers";
 
@@ -677,8 +677,10 @@ test.describe("S1: one van setup, read by the board and by Today", () => {
     page,
   }) => {
     await openBoard(page, DAY.full);
-    // Nobody has counted a van on this date, and the column states the assumption it stands on.
-    await expect(vans(page).first()).toContainText(planBoard.usingDefault);
+    // Nobody has counted a van on this date, and the **board** states the assumption it stands
+    // on — once, in its banner, since Vera's check of b3453cd; the columns no longer repeat it.
+    await expect(page.locator("[data-banner]")).toContainText(flow.banner.usingDefault);
+    await expect(vans(page).first()).not.toContainText(planBoard.usingDefault);
 
     await page.locator("[data-auto-plan]").click();
     const vanOne = vans(page).first();

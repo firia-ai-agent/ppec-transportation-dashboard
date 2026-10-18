@@ -104,6 +104,25 @@ async function reviewBoth(page: Page, screen: string, go: () => Promise<void>): 
   await page.setViewportSize(WIDE);
 }
 
+/**
+ * NOBODY IS WAITING, as the column says it since Vera's visual check of b3453cd (2026-10-18):
+ * the "✓ 0" chip is gone — png/plan-board.png draws a count only while children are unplaced —
+ * so the answer at zero is the chip's **absence** plus the column's own green "All placed".
+ * Both are asserted, which is more than the old `toHaveText("0")` said, not less.
+ */
+async function expectAllPlaced(page: Page): Promise<void> {
+  await expect(page.locator("[data-unassigned-count]")).toHaveCount(0);
+  await expect(page.locator('[data-role="unassigned"]')).toContainText(planBoard.allPlaced);
+}
+
+/** And the other way: somebody is waiting, so the warn chip is there with a count on it. */
+async function expectSomeWaiting(page: Page): Promise<void> {
+  const chip = page.locator("[data-unassigned-count]");
+  await expect(chip).toHaveCount(1);
+  await expect(chip).not.toHaveText("0");
+  await expect(page.locator('[data-role="unassigned"]')).not.toContainText(planBoard.allPlaced);
+}
+
 /* ───────────────────────────── the ramp ───────────────────────────── */
 
 const stepper = (page: Page, key: string): Locator => page.locator(`[data-stepper="${key}"]`);
@@ -123,7 +142,7 @@ async function planTheAfternoon(page: Page, day: string): Promise<void> {
   // The walk is serial on one server, so a day planned by an earlier test is still planned.
   if (!/^Saved /.test((await state.textContent()) ?? "")) {
     await page.locator("[data-auto-plan]").click();
-    await expect(page.locator("[data-unassigned-count]")).toHaveText("0");
+    await expectAllPlaced(page);
     await page.locator("[data-save]").click();
   }
   await expect(state).toHaveText(/^Saved /);
@@ -344,16 +363,19 @@ async function liftOver(page: Page, child: Locator, target: Locator): Promise<vo
 test.describe.serial("§1: the board a coordinator plans on", () => {
   test.skip(!CONSOLE_ROLE, "the board is not this role's screen");
 
-  test("opens empty, on every van's default counts, and says so once per van", async ({ page }) => {
+  test("opens empty, on every van's default counts, and says so once for the board", async ({ page }) => {
     await openBoard(page, DAY.empty);
     // Nothing is placed and nothing is saved on a day nobody has touched.
     await expect(page.locator("[data-save-state]")).toHaveText(planBoard.notSaved);
     await expect(page.locator("[data-rider]").first()).toBeVisible();
-    // Firia/Veri 6:00 PM ET: one line per unconfirmed van, no button, and no "Not checked" chip.
-    // (The board's own banner says the same words once more, over the columns, with the link to
-    // the ramp beside it — so the count inside the columns is the one asserted here.)
-    await expect(vans(page).getByText(planBoard.usingDefault)).toHaveCount(3);
+    /*
+     * Firia/Veri 6:00 PM ET, as Vera re-cut it on b3453cd (2026-10-18): "Using default setup"
+     * is said **once**, in the board's banner beside "Check vans", and no longer on each of the
+     * three columns — one fact about the day, carrying three times its weight. Still no button
+     * and still no "Not checked" chip.
+     */
     await expect(page.locator("[data-banner]")).toContainText(flow.banner.usingDefault);
+    await expect(vans(page).getByText(planBoard.usingDefault)).toHaveCount(0);
     await expect(page.getByText("Not checked")).toHaveCount(0);
     await expect(page.getByText(/yesterday/i)).toHaveCount(0);
     // The board reads counts and never writes them: no ⚙, no popover, no Apply.
@@ -511,7 +533,7 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
   test("Auto-plan, Save, reload — the same plan, with the minute it was kept", async ({ page }) => {
     await openBoard(page, DAY.save);
     await page.locator("[data-auto-plan]").click();
-    await expect(page.locator("[data-unassigned-count]")).toHaveText("0");
+    await expectAllPlaced(page);
     const placed = await page.locator("[data-van] [data-rider]").allInnerTexts();
 
     await page.locator("[data-save]").click();
@@ -539,7 +561,7 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
      * own Save re-plans the **saved** leg, so the board is saved first, as a coordinator would.
      */
     await page.locator("[data-auto-plan]").click();
-    await expect(page.locator("[data-unassigned-count]")).toHaveText("0");
+    await expectAllPlaced(page);
     await expect(page.locator("[data-save-state]")).toHaveText(planBoard.notSaved);
     await page.locator("[data-save]").click();
     await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
@@ -704,13 +726,13 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
   test("Auto-plan fills unsaved moves, and the plan is written only on Save", async ({ page }) => {
     await openBoard(page, DAY.autoplan);
     await page.locator("[data-auto-plan]").click();
-    await expect(page.locator("[data-unassigned-count]")).toHaveText("0");
+    await expectAllPlaced(page);
     // Still a draft (plan-board.png: the amber dot and "Not saved").
     await expect(page.locator("[data-save-state]")).toHaveText(planBoard.notSaved);
 
     // A reload proves nothing was written: everybody is waiting again.
     await page.reload();
-    await expect(page.locator("[data-unassigned-count]")).not.toHaveText("0");
+    await expectSomeWaiting(page);
 
     await page.locator("[data-auto-plan]").click();
     await page.locator("[data-save]").click();
@@ -762,7 +784,7 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
     await page.goto(`/plan-routes?date=${DAY.legs}&leg=am`);
     await expect(page.getByRole("heading", { name: planBoard.heading, level: 1 })).toBeVisible();
     await expect(page.locator("[data-save-state]")).toHaveText(planBoard.notSaved);
-    await expect(page.locator("[data-unassigned-count]")).not.toHaveText("0");
+    await expectSomeWaiting(page);
   });
 
   test("at 390: one column at a time, and the map does not cover the rider cards", async ({ page }) => {
@@ -803,7 +825,7 @@ test.describe("Today shows the day; Plan routes plans it", () => {
     // Planning is a Plan routes toolbar (plan-board.html header; Firia option A).
     await openBoard(page, DAY.today);
     await page.locator("[data-auto-plan]").click();
-    await expect(page.locator("[data-unassigned-count]")).toHaveText("0");
+    await expectAllPlaced(page);
     await expect(page.locator("[data-save-state]")).toHaveText(planBoard.notSaved);
     await page.locator("[data-save]").click();
     await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
@@ -821,7 +843,7 @@ test.describe("Today shows the day; Plan routes plans it", () => {
 
     // And the plan is a row: the screen that keeps it reads the same one back.
     await page.goto(boardUrl(DAY.today));
-    await expect(page.locator("[data-unassigned-count]")).toHaveText("0");
+    await expectAllPlaced(page);
     await expect(page.locator("[data-van]").first()).toContainText(moved.split("\n")[0]);
   });
 });

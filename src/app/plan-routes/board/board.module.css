@@ -454,25 +454,26 @@ a.meter:focus-visible {
 }
 
 /*
- * WHY THE LAST DROP WAS REFUSED — one line, on the card it is about (Vera's taste spec,
+ * WHY THE LAST DROP WAS REFUSED — one line **inside** the card it is about (Vera on b3453cd,
  * 2026-10-18). Four words at most, and the words carry the meaning: the colour is the accent.
  *
- * Coral the one way §8 computes it: the **fill**, with `ink` on it at 5.98:1. The token's own
- * note is why — coral is 2.99:1 against white, so coral *text* would be a line nobody is sure
- * they read, which is the opposite of what a refusal is for.
+ * It was a solid coral bar under the card, which read as a second object on the board and
+ * pushed every card below it down the column. It is the card's own second line now — the one
+ * the stop or the lane would be on — so the card says why it did not move without growing by a
+ * row, and the card takes a coral edge so the eye lands on the card rather than on a strip.
  *
- * It is a strip under the card rather than a chip inside it: the card is a 44 px target and a
- * grid of four parts, and a fifth part would either push the name out of line or wrap it.
+ * The line is `crit-fg`, the app's own alert text, at 8.31:1 on the card. Coral is the border
+ * and not the words: the token's own note is why (2.99:1 against white), and a refusal nobody
+ * is sure they read is the opposite of what a refusal is for. The §8 pair is computed in
+ * src/ui/tokens.test.ts, which is what keeps that claim honest.
  */
-.refusal {
-  margin: var(--space-1) 0 0;
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
-  background: var(--color-alert);
-  color: var(--color-ink);
-  font-size: var(--text-12);
+.cardSub[data-tone="crit"] {
+  color: var(--color-crit-fg);
   font-weight: var(--weight-medium);
-  line-height: var(--leading-tight);
+}
+
+.card[data-refused="true"] {
+  border-color: var(--color-alert);
 }
 
 .cardIcons {

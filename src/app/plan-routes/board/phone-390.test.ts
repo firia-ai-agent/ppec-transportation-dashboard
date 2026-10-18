@@ -3,11 +3,12 @@ import path from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { emptyPlan, type BoardPlan } from "@/domain/plan/board";
+import { emptyPlan, unassignedRiders, type BoardPlan } from "@/domain/plan/board";
 import { applyPending, enqueue, NO_PENDING } from "@/domain/plan/pending";
 import { childTokenOf } from "@/modules/demo/fixtures/standard";
 import { testDay, vanIdOfSlot } from "@/test/board-day";
 import { planBoard } from "@/ui/copy";
+import { rejectCardLine } from "./lines";
 import { UnassignedColumn } from "./UnassignedColumn";
 import { VanColumn } from "./VanColumn";
 
@@ -155,6 +156,113 @@ describe("a Family drives card is a van card, part for part", () => {
       expect(van, declaration).toContain(declaration);
       expect(group, declaration).toContain(declaration);
     }
+  });
+});
+
+describe("what a card says when a van refuses it", () => {
+  it("is the card's own second line, with a coral edge — not a bar under the card", async () => {
+    const day = await testDay("PM");
+    const rider = day.riders[0];
+    const plan = emptyPlan(day);
+    const vanOne = day.vans[0];
+    // The board's own line, built where every refusal line is built (lines.ts), not a string.
+    const line = rejectCardLine(vanOne.name, "SEAT");
+
+    const html = renderToStaticMarkup(
+      createElement(UnassignedColumn, {
+        day,
+        plan,
+        shown: true,
+        columns: COLUMNS,
+        onMove: () => undefined,
+        onMoveToBucket: () => undefined,
+        onOpenChild: () => undefined,
+        canEdit: true,
+        overBucket: null,
+        refusal: { childToken: rider.token, reason: "SEAT" as const, line },
+      }),
+    );
+    const card = cardOf(html, rider.token);
+
+    // Inside the card's button, on the subline, and nowhere else: one element carries it.
+    expect(card.match(/data-refusal=/g)).toHaveLength(1);
+    expect(card).toMatch(/_cardSub_[a-z0-9]+"[^>]*data-refusal=/);
+    expect(card.slice(0, card.indexOf("</button>"))).toContain(`data-refusal="${rider.token}"`);
+    expect(card).toContain(`data-tone="crit">${line}`);
+    // It replaces the second line rather than being added to it.
+    expect(card.match(/_cardSub_/g)).toHaveLength(1);
+    expect(card).not.toContain(rider.stopLabel);
+    // And the card itself is the thing marked, which is what the coral border is for.
+    expect(card).toContain('data-refused="true"');
+    // No strip of its own under the card any more.
+    expect(card).not.toContain("_refusal_");
+  });
+
+  it("paints it in alert text on a coral edge, both from tokens", () => {
+    const sub = RULES.slice(
+      RULES.indexOf('.cardSub[data-tone="crit"] {'),
+      RULES.indexOf("}", RULES.indexOf('.cardSub[data-tone="crit"] {')),
+    );
+    const card = RULES.slice(
+      RULES.indexOf('.card[data-refused="true"] {'),
+      RULES.indexOf("}", RULES.indexOf('.card[data-refused="true"] {')),
+    );
+
+    // `crit-fg` on the card's surface is the §8 pair at 8.31:1; coral is the edge, never the
+    // words (src/ui/tokens.ts: coral is 2.99:1 against white).
+    expect(sub).toContain("color: var(--color-crit-fg)");
+    expect(card).toContain("border-color: var(--color-alert)");
+    expect(`${sub}${card}`).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+    // The old strip's rule is gone, not merely unused.
+    expect(RULES).not.toMatch(/^\.refusal\s*\{/m);
+  });
+});
+
+describe("the two counts the board had too many of", () => {
+  it("drops the Unassigned chip at zero and keeps the warn count while anybody waits", async () => {
+    const day = await testDay("PM");
+    const waiting = lane(day, emptyPlan(day));
+
+    // Somebody is waiting: a warn chip with how many (png/plan-board.png draws the count).
+    const header = waiting.slice(0, waiting.indexOf("</div>"));
+    expect(header).toContain("data-unassigned-count");
+    expect(header).toContain('data-tone="warn"');
+    expect(header.slice(header.indexOf("data-unassigned-count"))).toContain(
+      String(unassignedRiders(day, emptyPlan(day)).length),
+    );
+    expect(unassignedRiders(day, emptyPlan(day)).length).toBeGreaterThan(0);
+
+    // Nobody is: no chip at all, and the green line says so in a word.
+    const placed = day.riders.reduce(
+      (plan, rider) =>
+        applyPending(
+          plan,
+          enqueue(NO_PENDING, { childToken: rider.token, bucket: "VAN", vanId: vanIdOfSlot(1) }),
+        ),
+      emptyPlan(day),
+    );
+    const clear = lane(day, placed);
+    expect(clear).not.toContain("data-unassigned-count");
+    expect(clear).toContain(planBoard.allPlaced);
+  });
+
+  it("leaves 'Using default setup' to the board's banner, not to every van column", async () => {
+    const day = await testDay("PM");
+    const plan = emptyPlan(day);
+    // `testDay` leaves a van on its configured defaults unless a test counts it, which is
+    // exactly an unconfirmed van.
+    const unchecked = day.vans.find((van) => van.setupState === "DEFAULT");
+    expect(unchecked).toBeDefined();
+    const html = vanColumn(day, plan, unchecked?.id ?? "");
+
+    expect(html).not.toContain(planBoard.usingDefault);
+    expect(html).not.toContain(planBoard.notChecked);
+    // A van the ramp counted keeps its chip, which is the one thing the column still says.
+    const checkedDay = await testDay("PM", { 2: { seats: 5 } });
+    const checked = checkedDay.vans.find((van) => van.setupState === "CHECKED");
+    expect(vanColumn(checkedDay, emptyPlan(checkedDay), checked?.id ?? "")).toContain(
+      planBoard.checked,
+    );
   });
 });
 
