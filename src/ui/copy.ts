@@ -2419,9 +2419,13 @@ export const agentBubble = {
    * The compact proposal card (mockups/family-texts.html, `.prop`) carries ONE amber chip, not
    * the mockup's Approve · Edit · Skip row (Firia and Vera, 2026-10-18 9:17 AM ET). Acting in
    * place is a write, the write path is #75's, and a button that cannot write is a worse answer
-   * than a chip that says where the decision is made. The chip is a link to Family texts → For
-   * you, which is where `/approvals` already sends a person; the three words come back when #75
-   * merges and the card gets its writer.
+   * than a chip that says where the decision is made.
+   *
+   * And the chip is PLAIN TEXT — a `<span>`, no link (Firia, 2026-10-18 9:21 AM ET, overriding the
+   * 9:17 reading). These two words are a statement of where the proposal stands, not an offer to
+   * go anywhere: a link out of the panel still reads as the thing to press, and what it would
+   * reach is the decide path #75 is rebuilding. The words become a control again, beside the three
+   * that come back, when #75 merges.
    */
   needsApproval: "Needs approval",
   /**

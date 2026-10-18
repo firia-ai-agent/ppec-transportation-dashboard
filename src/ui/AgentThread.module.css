@@ -101,31 +101,16 @@
 }
 
 /*
- * The ONE chip that replaced the mockup's Approve · Edit · Skip row (Firia and Vera, 2026-10-18
- * 9:17 AM ET — see AgentThread.tsx). Amber is the `warn` tone of §8, the same pair the Plan
- * routes board's hints wear (board.module.css `.chip[data-tone="warn"]`): it is the system's
- * "this is waiting on somebody", which is exactly what the chip says. It is the one pill height
- * (§4.1) and it is a link, so it takes the focus ring every other link in the panel takes.
+ * THE CHIP ITSELF IS NOT IN THIS FILE, and that is the point.
+ *
+ * The one amber "Needs approval" chip that replaced the mockup's Approve · Edit · Skip row (Firia
+ * and Vera, 2026-10-18 9:17 AM ET — see AgentThread.tsx) is plain text as of Firia's 9:21 ruling,
+ * and plain text can be the app's one pill: `<Pill tone="warn">`, whose shape, 22 px height and
+ * never-wrap are Pill.module.css's and nobody else's (audit §4.1, src/ui/pill.test.ts). While the
+ * chip was a link it had to be an anchor and so had a pill-shaped rule of its own here, which was
+ * a second pill in the repository — the exact drift that test exists to catch. It is gone with the
+ * anchor, along with the focus ring it needed, because nothing in this card can be pressed.
  */
-.chip {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  height: var(--layout-pill-height);
-  padding: 0 var(--space-3);
-  border-radius: var(--radius-pill);
-  color: var(--color-warn-fg);
-  background: var(--color-warn-bg);
-  font-size: var(--text-12);
-  font-weight: var(--weight-medium);
-  text-decoration: none;
-}
-
-.chip:focus-visible {
-  outline: var(--focus-width) solid var(--color-focus);
-  outline-offset: var(--focus-offset);
-}
-
 @media (max-width: 767px) {
   .thread {
     padding: var(--space-4) var(--space-4) var(--space-3);

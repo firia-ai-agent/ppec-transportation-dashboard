@@ -14,7 +14,9 @@
  *                                                         then one row under it — which on this
  *                                                         branch is ONE amber "Needs approval"
  *                                                         chip, never the mockup's three
- *                                                         buttons: Firia and Vera, 9:17 AM ET)
+ *                                                         buttons: Firia and Vera, 9:17 AM ET —
+ *                                                         and that chip is PLAIN TEXT, not a
+ *                                                         link: Firia, 9:21 AM ET)
  *
  * WHAT ONLY A BROWSER CAN SAY. src/ui/agent-bubble.test.ts proves the rules are written — the
  * disc is mounted once, in the shell every route's layout renders; the stylesheet puts it 16 px
@@ -192,13 +194,18 @@ test.describe("the panel", () => {
    * FIRIA AND VERA, 2026-10-18 9:17 AM ET. The mockup draws Approve · Edit · Skip on the compact
    * card (png/agent-bubble-open-1440.png) and this branch may not honour any of them: the decide
    * writer is #75's and is not on main. A button that navigates instead of deciding is the bug —
-   * so the row is one amber "Needs approval" chip, linking to where the decision is recorded.
-   * The three come back after #75 merges.
+   * so the row is one amber "Needs approval" chip. The three come back after #75 merges.
+   *
+   * FIRIA, 2026-10-18 9:21 AM ET, overriding the 9:17 reading of that chip: it is **plain text**.
+   * The chip used to be a link to Family texts → For you and this asserts it is no longer a link
+   * at all. That is a tightening rather than a loosening: the old assertion only checked the
+   * `href` of whatever chips happened to be drawn, and this checks that the panel contains **no
+   * link and no button carrying those words** — a claim that holds whether a chip is drawn or not.
    *
    * The absence is asserted over the WHOLE panel rather than over one card, because the panel is
    * where a person would press them.
    */
-  test("offers no Approve, Edit or Skip — one 'Needs approval' chip to For you instead", async ({ page }) => {
+  test("offers no Approve, Edit or Skip — and the 'Needs approval' chip is plain text", async ({ page }) => {
     await page.setViewportSize(DESK);
     await page.goto("/today");
     await bubble(page).click();
@@ -213,13 +220,22 @@ test.describe("the panel", () => {
 
     /*
      * The chip is only drawn when something is actually waiting, and the demo day decides that —
-     * so this asserts the shape of every chip there is rather than that there is one. Where one
-     * is drawn it is a link to FAMILY_TEXTS_FOR_YOU, which is what `/approvals` redirects to.
+     * so the ruling is asserted as the absence of a CONTROL carrying those words, which is true
+     * either way. Where a chip is drawn (`[data-agent-proposal]`), the words are inside it and
+     * there is no anchor, no `href` and nothing focusable in the card.
      */
-    const chips = panel(page).getByRole("link", { name: agentBubble.needsApproval, exact: true });
-    for (let i = 0; i < (await chips.count()); i += 1) {
-      await expect(chips.nth(i)).toHaveAttribute("href", FAMILY_TEXTS_FOR_YOU);
+    await expect(panel(page).getByRole("link", { name: agentBubble.needsApproval, exact: true })).toHaveCount(0);
+    await expect(panel(page).getByRole("button", { name: agentBubble.needsApproval, exact: true })).toHaveCount(0);
+
+    const cards = panel(page).locator("[data-agent-proposal]");
+    for (let i = 0; i < (await cards.count()); i += 1) {
+      const card = cards.nth(i);
+      await expect(card).toContainText(agentBubble.needsApproval);
+      await expect(card.locator("a, [href], [role='link'], button, [tabindex]")).toHaveCount(0);
     }
+
+    // No chip anywhere in the panel offers the one destination it used to carry.
+    await expect(panel(page).locator(`a[href="${FAMILY_TEXTS_FOR_YOU}"]`)).toHaveCount(0);
   });
 
   test("stays open across a navigation between tabs", async ({ page }) => {

@@ -11,12 +11,13 @@ Binding mockup: `/workspace/ppec-redesign/mockups/agent-bubble.html`, with
 
 ---
 
-## The rulings this PR is built to (Firia and Vera, 2026-10-18 9:17 AM ET)
+## The rulings this PR is built to
+
+**Firia and Vera, 2026-10-18 9:17 AM ET:**
 
 1. **Approve, Edit and Skip are OFF the proposal card inside the bubble.** Acting in place needs
-   #75's approval path. In their place is one small **amber "Needs approval" chip**, which is a
-   link to `FAMILY_TEXTS_FOR_YOU` — what `/approvals` already redirects to. The three return, with
-   their words and with #75's writer, after #75 merges. The coral waiting dot stays.
+   #75's approval path. In their place is one small **amber "Needs approval" chip**. The three
+   return, with their words and with #75's writer, after #75 merges. The coral waiting dot stays.
 2. **Every ask shows right away.** Pressing send puts the staff text in the thread as a teal
    bubble before `POST /api/agent/ask` returns, and it stays there whatever the response is. If
    nobody could answer — runner not ok, `PROVIDER_ERROR`, no key, a network error, any non-2xx, or
@@ -24,6 +25,27 @@ Binding mockup: `/workspace/ppec-redesign/mockups/agent-bubble.html`, with
    server's staff alert path is unchanged. **No keyword or text-parser fallback**, and no key is
    ever read or logged on this path.
 3. **S3 cleanup**: the disc clears the tab bar by 16 px, not 15.
+
+**Firia, 2026-10-18 9:21 AM ET — this one overrides the 9:17 reading of ruling 1:**
+
+4. **The amber "Needs approval" chip is PLAIN TEXT, no link, until #75 merges.** It is a
+   non-interactive `<span>`: no `<a>`, no `href`, no `Link`, no `role="link"`, no `onClick`, no
+   `tabIndex`. The 9:17 ruling left it as a link to `FAMILY_TEXTS_FOR_YOU`, and a link is still an
+   offer — the eye reads an amber pill inside a proposal card as the thing to press, and pressing
+   it leaves the panel for a screen whose decide path is #75's and is not on main. A label that
+   says where the proposal stands makes no offer at all, and that is the whole of what this branch
+   can honestly say.
+
+   `next/link` and `FAMILY_TEXTS_FOR_YOU` are **gone from `AgentThread.tsx` entirely** — the import
+   and its one use. The `canOpenForYou` **visibility guard is untouched**: it is a different rule
+   (`agent-bubble-state.ts`), and the bubble is still drawn only for a role that may decide.
+
+   Because the chip is no longer an anchor it is now **the app's one `Pill`** (`<Pill tone="warn">`,
+   `src/ui/Pill.tsx`) instead of a pill-shaped rule of its own. That closes a real break: the 9:17
+   commit left `AgentThread.module.css` `.chip` as a **second pill** in the repository and
+   `src/ui/pill.test.ts:126` ("is the only pill in the repository") was **red on HEAD** because of
+   it. `.chip` and its focus ring are deleted; §4.1's 22 px shape, amber pair and never-wrap come
+   from `Pill.module.css`, which is the one file allowed to hold them.
 
 ---
 
@@ -111,10 +133,12 @@ The two *notice* lines above the compose field are gone with their copy (`agentA
 question was asked; a status line saying one thing while the thread said another was two answers to
 one question.
 
-**The proposal card (ruling 1).** The question as the title, then one amber chip reading
-"Needs approval" (`AgentThread.tsx:103`, `AgentThread.module.css:110`). Amber is §8's `warn` pair —
-the same tone the Plan routes board's hints wear — at the one pill height; no hex. The three
-buttons and their copy are **deleted, not left dead**.
+**The proposal card (rulings 1 and 4).** The question as the title, then one amber chip reading
+"Needs approval" — `<Pill tone="warn">`, a plain `<span>` with nothing to press
+(`AgentThread.tsx:118`). Amber is §8's `warn` pair, the same tone the Plan routes board's hints
+wear, at the one pill height; no hex, and no second pill (`AgentThread.module.css:103` says why the
+chip's CSS is *not* in that file). The three buttons and their copy are **deleted, not left dead**,
+and so is the chip's `href`.
 
 ---
 
@@ -155,7 +179,8 @@ browser by `e2e/agent-bubble.spec.ts:92`.
 | **(a)** renders on every app route | `src/ui/agent-bubble.test.ts:107` — `:113` mounted by ConsoleShell, `:120` mounted exactly once in the whole app, `:127` every menu destination's layout chain mounts the shell (enumerated from `navItems` + the access table, never listed by hand), `:140` the disc renders, `:149` the dialog |
 | **(b)** hidden on Family texts → For you, and for roles without `canOpenForYou` | `src/ui/agent-bubble.test.ts:169` — `:174` For you draws nothing, `:182` the other tabs still do, `:198` every role in `ROLE_LADDER` × four screens, `:212` no-role and anonymous, `:220` the one pure decision function |
 | **(c)** coral dot iff a proposal is waiting | `src/ui/agent-bubble-thread.test.ts:61` — `:62` none waiting, `:69` one waiting, `:75` many, `:86` the 14 px coral geometry, `:94` hidden with the disc |
-| **Ruling 1** — no Approve/Edit/Skip, one chip to For you | `src/ui/agent-bubble-thread.test.ts:137` — `:138` the question then the chip, **`:151` none of the three words and no `<button>` anywhere in the thread, one `href` only**, `:162` the amber is `--color-warn-fg`/`--color-warn-bg` at `--layout-pill-height` and no hex, `:186` that one href is `FAMILY_TEXTS_FOR_YOU`, `:195` no decide writer in the bubble. In a browser: `e2e/agent-bubble.spec.ts:201` |
+| **Ruling 1** — no Approve/Edit/Skip in the bubble | `src/ui/agent-bubble-thread.test.ts:136` — `:137` the question then the chip, **`:186` none of the three words and no `<button>` anywhere in the thread, and zero `href`s**, `:201` no decide writer in the bubble. In a browser: `e2e/agent-bubble.spec.ts:201` |
+| **Ruling 4** — the chip is plain text, not a link | **`src/ui/agent-bubble-thread.test.ts:155`** — the words are present and rendered in a `<span>`, and the thread has no `<a`, no `href=`, no `role="link"`, no `tabindex` and no `<button>`/`<form>`; plus `AgentThread.tsx` (comments stripped) contains none of `next/link`, `FAMILY_TEXTS_FOR_YOU`, `href`, `onClick`, `role=`. `:170` the chip is the one `Pill` (`data-tone="warn"`, `data-pill="true"`, `_pill_`) and `AgentThread.module.css` has no `.chip`, no `--color-warn-*` and no hex left. The one-pill guard that was red on HEAD: `src/ui/pill.test.ts:126`. In a browser: **`e2e/agent-bubble.spec.ts:201`** |
 | **Ruling 2 (a)** the teal bubble is there before the fetch resolves | `src/ui/agent-ask.test.ts:79` — **`:80`** the exact text in `.outbound` while a `post()` that never settles is in flight, `:96` shown even when the server thread is empty (not the empty line), `:104` still there after a 503 and after a success, `:113` the insert precedes every `await` in `sendAsk` |
 | **Ruling 2 (b)** one grey line, whatever went wrong | `src/ui/agent-ask.test.ts:126` — **`:144`** six cases (network error, 503, 500, `ok:false` "unavailable", `ok:false` "skipped" preview, a non-JSON body): ask still present, the line exactly once, under the ask, grey/left, no "AI"; `:160` nothing at all when it was answered; `:167` never twice for one ask; `:174` the right ask of two in flight; `:188` no `console.`, no key, no parsing of the ask |
 | **Ruling 2 (c)** the field clears, two asks are two bubbles in order | `src/ui/agent-ask.test.ts:201` — `:202` `setText("")` is in the handler ahead of the `await` and not conditional on the response, `:217` two asks in order, `:228` they sit under whatever the server thread held |
@@ -225,9 +250,11 @@ It cites `agent-bubble.html` and all four `agent-bubble-*.png` in its header, pl
 - `:142` the full sheet at 390 with a 44 px close X, and close puts the disc back;
 - `:167` the title, the compose bar pinned to the foot, no details table, no clock times;
 - **`:201`** no `Approve`, `Edit` or `Skip` as a button or a link **anywhere in the panel**, and
-  every "Needs approval" chip that is drawn has `href="…/family-texts?tab=for-you"` (the chip is
-  only drawn when something is actually waiting, which the demo day decides, so the test asserts
-  the shape of every chip there is rather than that there is one);
+  **no link or button carrying "Needs approval" either** — plus, for every proposal card that is
+  drawn, the words are in the card and `a, [href], [role='link'], button, [tabindex]` inside it
+  counts zero, and no `a[href="…/family-texts?tab=for-you"]` exists in the panel. (The chip is only
+  drawn when something is actually waiting, which the demo day decides, so the ruling is asserted
+  as the absence of a control rather than the presence of one — a claim that holds either way);
 - `:225` the panel stays open across a navigation between tabs;
 - `:241` no bubble on Family texts → For you; `:251` none anywhere for a role that may not decide.
 
@@ -240,15 +267,17 @@ Nothing was read from or copied out of that branch. Three places will need one m
 1. **`src/ui/copy.ts`** — this branch appends two blocks at the end of the file, `agentBubble`
    (the panel's words) and `agentAsk` (the rows an ask writes). #75 adds a large block of its own.
    Both are appends to the same file; expect a textual conflict at the tail and no semantic one.
-2. **Approvals *decide*.** Main has **no decide write path**, and ruling 1 is the answer to that:
-   the card carries no Approve / Edit / Skip at all, only an amber "Needs approval" chip linking to
-   `FAMILY_TEXTS_FOR_YOU`, which is where `/approvals` already sends a person and which carries its
-   own server guard. **Nothing auto-applies and nothing half-applies.** When #75's
-   `src/modules/approvals/decide.ts` lands, the three buttons come back with its writer behind
-   them; the change is `src/ui/AgentThread.tsx:103-114`, the three strings back in the
-   `agentBubble` block of `copy.ts`, the row styles back in `AgentThread.module.css`, and the two
-   tests that currently assert their absence (`agent-bubble-thread.test.ts:151`,
-   `e2e/agent-bubble.spec.ts:201`) flipped back to asserting their presence. Nothing else.
+2. **Approvals *decide*.** Main has **no decide write path**, and rulings 1 and 4 are the answer to
+   that: the card carries no Approve / Edit / Skip at all, and the amber "Needs approval" chip is
+   plain text — it does not even navigate. **Nothing auto-applies, nothing half-applies, and
+   nothing in the bubble leaves the panel.** When #75's `src/modules/approvals/decide.ts` lands,
+   the three buttons come back with its writer behind them; the change is
+   `src/ui/AgentThread.tsx:111-121`, the three strings back in the `agentBubble` block of
+   `copy.ts`, a row style for the buttons in `AgentThread.module.css`, and the three tests that
+   currently assert their absence (`agent-bubble-thread.test.ts:155`, `:186`,
+   `e2e/agent-bubble.spec.ts:201`) flipped back to asserting their presence. If the chip is to
+   become a link again, it stops being `<Pill>` and `pill.test.ts`'s named-exception list is the
+   place that has to be argued with — which is deliberate.
 3. **Approvals *read*.** `src/modules/agent/ask/thread.ts` reads `ops.approval_request` (no
    `decided_at`) and `ops.change_request` (`NEEDS_HUMAN`) directly. #75 is building a read for the
    For you list; when it lands, this should call it rather than keep its own two statements.
@@ -275,6 +304,11 @@ Neither is a loosening; both carry the reason in the source beside them.
    file is named rather than the rule widened to any bordered box, and a second test
    (`pill.test.ts:141`) holds that the exception is exactly that one rule in that one file.
 
+   **That list is still exactly one file.** The 9:17 commit had quietly added a second offender —
+   `AgentThread.module.css` `.chip` — which left `pill.test.ts:126` **red on HEAD**; ruling 4's
+   commit deletes that rule and makes the chip `<Pill tone="warn">`, so the test is green again and
+   the exception list did not have to grow.
+
 `src/auth/access.test.ts:454` gains the new endpoint in its written-out policy map, which is what
 that test exists for.
 
@@ -296,7 +330,8 @@ than no run (`src/modules/agent/run/deps.ts:49`). So on the demo:
 - **on a Vercel preview, an ask writes nothing at all** (`previewSkip`) and the panel shows the
   same two bubbles: the teal ask, and the grey line under it;
 - a proposal already waiting shows as the compact card with one amber **"Needs approval"** chip,
-  which takes the founder to Family texts → For you to decide it.
+  which is a label and not a button or a link: it says where the proposal stands, and deciding it
+  is still done on Family texts → For you, reached from the menu like any other screen.
 
 So the demo-safe story is: the bubble is there on every screen, it is honest about what it cannot
 do, and the thing a founder clicks never silently changes the day.
@@ -327,8 +362,11 @@ Listed honestly rather than fixed.
   They are the mockup's and they are in `tokens.ts` (`shadow.bubble`, `shadow.panel`), which is the
   only file that may hold a colour — a 56 px disc floating over a scrolling board needs to be
   legible against whatever is behind it, and a 1 px ring on white over white is not.
-- **No Approve / Edit / Skip on the card at all** — ruling 1; one amber chip instead. This is a
-  deliberate divergence from `png/agent-bubble-open-1440.png`, which draws the three.
+- **No Approve / Edit / Skip on the card at all** — ruling 1; one amber chip instead, and that chip
+  is **plain text with no destination** (ruling 4). This is a deliberate divergence from
+  `png/agent-bubble-open-1440.png`, which draws the three.
+- **The chip reads at the one pill's 11 px semibold**, not the mockup's 12 px medium, because it is
+  now `<Pill>` and §4.1's pill is 11/22 everywhere in the app.
 - **No unread/typing state, no streaming reply.** Neither was asked for.
 
 ---
@@ -347,8 +385,9 @@ Named here rather than quietly carried.
 2. **The thread is today's.** `src/modules/agent/ask/thread.ts` reads the current service day, and
    the panel draws one "Today" separator. Yesterday's conversation is not reachable from the
    bubble. Scrolling back needs a paged read and a second day separator; neither was asked for.
-3. **The three buttons go back on the card after #75 merges** — ruling 1, and the exact edit is
-   listed as overlap item 2 above.
+3. **The three buttons go back on the card after #75 merges, and the chip can be a control again**
+   — rulings 1 and 4, and the exact edit is listed as overlap item 2 above. Until then there is no
+   way to act on a proposal from the bubble and no way to navigate to one.
 4. **No driver messages yet**, for the reason in the previous section: main has no store for one.
 
 ---
