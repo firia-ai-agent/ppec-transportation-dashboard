@@ -151,7 +151,7 @@ describe("a drag is a row, and a new version every time", () => {
 
   it("refuses a drop the fit rule refuses, with the reason and no row", async () => {
     await startTheDay();
-    // Van 3 has no wheelchair spot and no lift; Noah O. rides in his own chair.
+    // Van 3 has no wheelchair spot and no lift; Noah B. rides in his own chair.
     const vanThree = vehicleIdOf(VANS[2].vehicleKey);
     const refused = await setChildPlacement(
       { siteId: SITE, serviceDate: DATE, direction: "PM", childToken: childTokenOf("C2"),

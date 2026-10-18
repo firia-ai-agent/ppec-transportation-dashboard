@@ -80,7 +80,7 @@ describe("§1.5: the toolbar and the cards", () => {
   it("names the child and the van in a move and in a refusal", () => {
     expect(movedLine("Mia R.", "Van 2")).toBe("Mia R. → Van 2");
     expect(rejectChip("WHEELCHAIR")).toBe("Wheelchair");
-    expect(rejectSr("Noah O.", "Van 3", "WHEELCHAIR")).toBe("Noah O. won’t fit Van 3: no wheelchair spot");
+    expect(rejectSr("Noah B.", "Van 3", "WHEELCHAIR")).toBe("Noah B. won’t fit Van 3: no wheelchair spot");
     expect(rejectSr("Mia R.", "Van 3", "CAR_SEAT")).toBe("Mia R. won’t fit Van 3: no car seat");
   });
 

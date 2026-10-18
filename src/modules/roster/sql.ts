@@ -22,7 +22,7 @@
  *
  * Site-scoped and parameterised, like every other statement in this app.
  */
-import { VANS, defaultSetupOf, vanColourToken, vanNameOf } from "@/config/vans";
+import { DAY_VANS, defaultSetupOf, vanColourToken, vanNameOf } from "@/config/vans";
 import type { Db } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import type { DayDataSource, DayRider, DayVan, OtherChild } from "@/domain/day/source";
@@ -43,11 +43,13 @@ type ChildRow = {
 
 type NeedRow = { child_token: string; category: string };
 
-/** The vans the shared config runs today, by id, in slot order. */
+/** The vans the shared config runs today, by id, in slot order (the reserve is not one). */
 function configuredVans(): { id: string; key: string; slot: number }[] {
-  return VANS.map((van) => ({ id: vehicleIdOf(van.vehicleKey), key: van.vehicleKey, slot: van.slot })).sort(
-    (a, b) => a.slot - b.slot,
-  );
+  return DAY_VANS.map((van) => ({
+    id: vehicleIdOf(van.vehicleKey),
+    key: van.vehicleKey,
+    slot: van.slot,
+  })).sort((a, b) => a.slot - b.slot);
 }
 
 export function sqlDaySource(db: Db, siteId: string): DayDataSource {

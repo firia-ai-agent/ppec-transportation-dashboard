@@ -15,7 +15,7 @@
  *
  * Pure: fixtures in, the day out. No clock, no database, no network.
  */
-import { VANS, defaultSetupOf, vanColourToken, vanNameOf } from "@/config/vans";
+import { DAY_VANS, defaultSetupOf, vanColourToken, vanNameOf } from "@/config/vans";
 import { demoDay } from "@/domain/board/day";
 import { plannedStops, plannedWindow, stopLabel } from "@/domain/board/scenario";
 import type { DayDataSource, DayRider, DayVan, OtherChild } from "@/domain/day/source";
@@ -56,7 +56,7 @@ export function needsOfDemoChild(child: DemoChild): NeedFlags {
  * on anybody's board — which is the difference between "the fleet" and "today".
  */
 function dayVans(): DayVan[] {
-  return VANS.filter((van) => RUNS.some((run) => run.vehicleKey === van.vehicleKey))
+  return DAY_VANS.filter((van) => RUNS.some((run) => run.vehicleKey === van.vehicleKey))
     .map((van) => ({
       id: vehicleIdOf(van.vehicleKey),
       slot: van.slot,

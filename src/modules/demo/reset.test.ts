@@ -155,7 +155,7 @@ describe("POST /api/demo/reset gating (ADR-014, ADR-015)", () => {
     expect(r.body.scenario).toBe("standard");
     expect(r.body.siteId).toBe(SITE); // resolved from the caller's own membership, not from the request
     expect(r.body.boardRows).toBe(BOARD_CENSUS);
-    expect(r.body.counts["ops.trip_leg"]).toBe(56);
+    expect(r.body.counts["ops.trip_leg"]).toBe(BOARD_CENSUS * 2);
     expect(await childCount()).toBe(BOARD_CENSUS);
     // The reset leaves the auth tables alone (ADR-014: never the identity/auth config).
     expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.app_user", [])).rows[0].n).toBe(5);

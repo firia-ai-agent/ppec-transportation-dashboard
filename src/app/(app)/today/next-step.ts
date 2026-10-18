@@ -25,7 +25,7 @@ function values(leg: LegRow): Record<string, string> {
  * The step, or null when the honest answer is that nobody is waiting on anything.
  *
  * Closed with `sentence()`, because a step that ends on the child's name ends on the full stop
- * their last initial already carries: "Record who receives Noah O.", never "Noah O..".
+ * their last initial already carries: "Record who receives Noah B.", never "Noah B..".
  */
 export function nextStepText(leg: LegRow): string | null {
   if (leg.nextStep === "NOTHING") return null;

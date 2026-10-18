@@ -1546,7 +1546,7 @@ export const planBoard = {
     close: "Close",
     /** The front desk reads the same three answers and cannot change them. */
     readOnly: "Read only",
-    /** The toast a move leaves behind: "Noah O. moved to Van 1". */
+    /** The toast a move leaves behind: "Noah B. moved to Van 1". */
     moved: "{child} moved to {van}",
   },
   /** Every van on the board is "Van {n}": one generic van, numbered (conflict C1). */

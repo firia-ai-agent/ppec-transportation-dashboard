@@ -171,7 +171,7 @@ const SCENARIO_CHILDREN: Child[] = [
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
-    key: "C2", familyKey: "F2", firstName: "Noah", lastInitial: "O", label: "Noah O.", dob: "2021-09-02",
+    key: "C2", familyKey: "F2", firstName: "Noah", lastInitial: "B", label: "Noah B.", dob: "2021-09-02",
     stopKey: "S2", mobility: "WC", wcLengthCm: 108, wcWidthCm: 64, securement: "L_TRACK", tether: false,
     amMode: "CENTER", pmMode: "CENTER", amWindow: "06:50", pmWindow: "16:20",
     needs: [
@@ -212,11 +212,6 @@ const SCENARIO_CHILDREN: Child[] = [
       // `REPORTED`, which meant the day's one oxygen rider was planned against nothing and every
       // van's Oxygen meter read 0 of what it carries. The category comes from the shared list.
       { category: NEED_CATEGORY.oxygen, value: { device: "PORTABLE_CONCENTRATOR" }, state: "APPROVED", evidenceRef: "intake/C6" },
-      // The one reported-but-unapproved item (PRD l.1329 "needs with statuses incl. one unapproved
-      // reported item"). Fulfilment counts approved needs only (DECISION-LEDGER row 1), so this
-      // must not change today's plan — and now that oxygen is approved, the suction is what keeps
-      // that promise demonstrable.
-      { category: "MEDICAL_DEVICE_POWER", value: { device: "PORTABLE_SUCTION", note: "awaiting operational-need approval" }, state: "REPORTED" },
     ],
     scopes: FULL_SCOPES, censusPad: false,
   },
@@ -238,10 +233,20 @@ const SCENARIO_CHILDREN: Child[] = [
   },
 ];
 
-/* ───────────────────────── census pad (PRD l.1327: board shows 28) ───────────────────────── */
+/* ───────────────────────── the rest of the roster ───────────────────────── */
 
-/** Target board size: SURF-01 is one row per child, so the census is the board row count. */
-export const BOARD_CENSUS = 28;
+/**
+ * The day's roster: **twelve** children (Firia, 2026-10-17 8:02 PM ET).
+ *
+ * It was 28 — nine with a ride and nineteen on the census so SURF-01's table had the PRD's row
+ * count (l.1327). The six founder goals do not need nineteen children who never ride: they made
+ * the board's "Family drives" group read 19 where the mockup draws 1, and every seeded day
+ * carried 19 families, 19 profiles and 38 attendance rows nothing looks at.
+ *
+ * Twelve is the mockup's own roster size (png/plan-board.png), and the three who do not ride
+ * are what "Family drives" is for.
+ */
+export const BOARD_CENSUS = 12;
 
 const PAD_PEOPLE: { first: string; lastInitial: string; guardianFirst: string; phone: string; dob: string }[] = [
   { first: "Ana", lastInitial: "S", guardianFirst: "Dalia", phone: "+1-561-555-0121", dob: "2021-01-12" },
@@ -398,7 +403,7 @@ export type RideRecord = {
  * on file in the afternoon.
  *
  *  - **C2's afternoon ride is AT-13.** F2 holds every scope except RECEIVE_CHILD (see
- *    `NO_RECEIVER_SCOPES`), so when the van reached Noah O.'s stop there was nobody on file to
+ *    `NO_RECEIVER_SCOPES`), so when the van reached Noah B.'s stop there was nobody on file to
  *    receive him and no custody event to record. The leg ends HELD_NO_RECEIVER: he waits with
  *    the van, every authorized and emergency contact is called, a staff task is raised, and
  *    **nothing returns him to the centre on its own** (PRD §6.6 CA-04, DECISION-LEDGER row 47).
@@ -484,7 +489,7 @@ export const rideRecordFor = (
  * Acts, never a state, exactly like the finished day's records: the leg machine in
  * src/domain/board/board.ts makes HELD_NO_RECEIVER out of them one legal edge at a time, so this
  * fixture cannot claim an outcome the domain would refuse. F2 holds every scope except
- * RECEIVE_CHILD (`NO_RECEIVER_SCOPES`), so the afternoon van reached Noah O.'s stop with nobody
+ * RECEIVE_CHILD (`NO_RECEIVER_SCOPES`), so the afternoon van reached Noah B.'s stop with nobody
  * on file to receive him and no custody event to record.
  *
  * What it *is* ahead of is the board's own clock: the demo day is read twelve minutes into its

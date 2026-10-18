@@ -20,8 +20,9 @@ import {
 } from "./board";
 import { fits, placeRiders, rejectReason } from "./fit";
 import { needsFromCategories } from "./needs";
+import { NEED_CATEGORY } from "@/config/equipment";
 import { needsOfDemoChild } from "@/modules/demo/day-source";
-import { childByKey } from "@/modules/demo/fixtures/standard";
+import { childByKey, type Child as DemoChild } from "@/modules/demo/fixtures/standard";
 import { resolveSetup, type SetupRow } from "./setup";
 import { CHILDREN, childTokenOf, vehicleIdOf } from "@/modules/demo/fixtures/standard";
 
@@ -53,17 +54,35 @@ describe("§6.4: a child's needs, from their approved profile only", () => {
     expect(needsOfKey("C6")).toMatchObject({ wheelchair: true, nurse: true });
   });
 
+  /**
+   * The rule, built here rather than borrowed from the day.
+   *
+   * The fresh seed (2026-10-17 8:02 PM ET) carries only approved needs, so there is no longer a
+   * reported item in the fixtures to point at — and the rule it used to demonstrate is exactly
+   * the one that must not weaken. So the test makes its own child with one approved need and one
+   * reported one, and asserts the planner reads the first and not the second.
+   */
   it("ignores a need nobody has approved (DECISION-LEDGER row 1)", async () => {
-    // Zoe B. (C6) carries the day's one reported-but-unapproved item, a portable suction
-    // (PRD l.1329). It is not oxygen, it is not any flag, and it must not reach the plan.
-    const suction = childByKey("C6").needs.find((need) => need.state === "REPORTED");
-    expect(suction?.category).toBe("MEDICAL_DEVICE_POWER");
-    expect(needsFromCategories([suction!.category])).toEqual({
+    const child: DemoChild = {
+      ...childByKey("C8"),
+      needs: [
+        { category: NEED_CATEGORY.carSeat, value: {}, state: "APPROVED" },
+        { category: NEED_CATEGORY.oxygen, value: {}, state: "REPORTED" },
+      ],
+    };
+    // What the adapter hands the planner: the approved car seat, and no oxygen at all.
+    expect(needsOfDemoChild(child)).toEqual({
       wheelchair: false,
-      carSeat: false,
+      carSeat: true,
       oxygen: false,
       nurse: false,
     });
+    // And the raw rule under it: a category only counts when the item carrying it is approved.
+    const approved = child.needs.filter((need) => need.state === "APPROVED").map((n) => n.category);
+    expect(needsFromCategories(approved).oxygen).toBe(false);
+    expect(needsFromCategories([NEED_CATEGORY.oxygen]).oxygen).toBe(true);
+    // The day itself has nothing unapproved left, which is the seed's own shape.
+    expect(CHILDREN.flatMap((c) => c.needs).filter((n) => n.state !== "APPROVED")).toEqual([]);
   });
 
   it("plans against oxygen, now that the day has an approved oxygen rider (7:17 PM ET)", async () => {

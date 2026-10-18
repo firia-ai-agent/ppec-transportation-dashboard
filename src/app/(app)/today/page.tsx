@@ -30,7 +30,7 @@ export const dynamic = "force-dynamic";
  *
  * `?tick=` is the same test path for the *instant* the demo day is read at, and it is read
  * through the same gate and the same function (`requestedBoardDay`, which calls
- * `dateOverrideAllowed`). It is how AT-13's browser check walks the demo day past Noah O.'s
+ * `dateOverrideAllowed`). It is how AT-13's browser check walks the demo day past Noah B.'s
  * 4:20 PM drop-off and watches the afternoon that had nothing to say at 07:42 become the ride
  * that ends holding him. No deployment has a clock control either, production included: there
  * is no control on this screen and no parameter behind it on anything the platform runs.

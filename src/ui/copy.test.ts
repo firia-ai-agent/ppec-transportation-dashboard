@@ -232,8 +232,8 @@ describe("COPY-GUIDE strings, verbatim", () => {
       expect(drawer.heldNoReturn).toBe(
         "If nobody is there, {child} waits with the van while staff call. No automatic return.",
       );
-      expect(fill(drawer.heldNoReturn, { child: "Noah O." })).toBe(
-        "If nobody is there, Noah O. waits with the van while staff call. No automatic return.",
+      expect(fill(drawer.heldNoReturn, { child: "Noah B." })).toBe(
+        "If nobody is there, Noah B. waits with the van while staff call. No automatic return.",
       );
     });
   });
@@ -247,11 +247,11 @@ describe("COPY-GUIDE strings, verbatim", () => {
     expect(board.reasons.CHILD_HELD).toBe(
       "{child} is waiting with the van. No adult on file can receive them.",
     );
-    // Two clauses in the template: the filled line splits into three, because "Noah O." carries
+    // Two clauses in the template: the filled line splits into three, because "Noah B." carries
     // a full stop of its own — which is the reason `sentence()` exists.
     expect(board.reasons.CHILD_HELD.split(". ")).toHaveLength(2);
-    expect(fill(board.reasons.CHILD_HELD, { child: "Noah O." })).toBe(
-      "Noah O. is waiting with the van. No adult on file can receive them.",
+    expect(fill(board.reasons.CHILD_HELD, { child: "Noah B." })).toBe(
+      "Noah B. is waiting with the van. No adult on file can receive them.",
     );
     // The rule is not in here, which is the point: it is in `drawer.heldNoReturn`, said in full.
     expect(board.reasons.CHILD_HELD).not.toMatch(/return/i);

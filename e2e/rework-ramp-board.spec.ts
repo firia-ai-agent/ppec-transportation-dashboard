@@ -295,8 +295,8 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
     const vanThree = vans(page).nth(2);
     const before = await vanThree.locator("[data-rider]").count();
 
-    // Noah O. rides in his own chair; Van 3 has no wheelchair spot and no lift.
-    await liftOver(page, card(page, "Noah O."), vanThree);
+    // Noah B. rides in his own chair; Van 3 has no wheelchair spot and no lift.
+    await liftOver(page, card(page, "Noah B."), vanThree);
     await expect(vanThree).toHaveAttribute("data-fit", "no");
     await expect(vanThree.locator("[data-reject-chip]")).toHaveText(planBoard.reject.WHEELCHAIR);
     await review(page, "board-dragreject");
@@ -304,7 +304,7 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
 
     // Nothing moved, and the refusal was said as a sentence rather than only drawn.
     await expect(vanThree.locator("[data-rider]")).toHaveCount(before);
-    await expect(announced(page)).toContainText("Noah O.");
+    await expect(announced(page)).toContainText("Noah B.");
     await expect(announced(page)).toContainText(planBoard.rejectThing.WHEELCHAIR);
 
     /*
@@ -314,9 +314,9 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
      */
     await page.setViewportSize(PHONE);
     await page.reload();
-    // Nobody is placed yet on a fresh load, so Noah O. is in the Unassigned column, which is the
+    // Nobody is placed yet on a fresh load, so Noah B. is in the Unassigned column, which is the
     // one a phone opens on — no switching, and the card is on screen to act on.
-    const noah = card(page, "Noah O.");
+    const noah = card(page, "Noah B.");
     const token = await noah.getAttribute("data-rider");
     // At 390 the `Move to…` select is on every card already (§9.3), so it is used directly:
     // the right-click that reveals it on a wide screen is a pointer affordance, not the control.
@@ -331,13 +331,13 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
     await openBoard(page, DAY.drag);
     const target = vans(page).nth(1);
     const before = await target.locator("[data-rider]").count();
-    const noah = card(page, "Noah O.");
+    const noah = card(page, "Noah B.");
     await liftOver(page, noah, target);
     await expect(target).toHaveAttribute("data-fit", "yes");
     await page.mouse.up();
-    await expect(target.locator("[data-rider]").filter({ hasText: "Noah O." })).toHaveCount(1);
+    await expect(target.locator("[data-rider]").filter({ hasText: "Noah B." })).toHaveCount(1);
     expect(await target.locator("[data-rider]").count()).toBeGreaterThan(before);
-    await expect(page.locator("[data-toast]")).toContainText("Noah O.");
+    await expect(page.locator("[data-toast]")).toContainText("Noah B.");
   });
 
   test("a child placed from the keyboard alone", async ({ page }) => {

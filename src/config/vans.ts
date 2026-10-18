@@ -28,6 +28,14 @@ export type VanConfig = {
   vehicleKey: string;
   /** 1-based, and both the number in the van's name and its colour slot. */
   slot: number;
+  /**
+   * Is this van on the road on an ordinary day?
+   *
+   * The reserve is not: it is in the fleet because the live map draws it parked and the
+   * substitution path names it, and it is not a column on anybody's board. Both day sources
+   * read this, so "which vans are out" is one answer and not one per implementation.
+   */
+  onRoadToday: boolean;
   /** What this van has on board until the front desk counts it (§1.6's last rung). */
   defaultSetup: VanSetup;
 };
@@ -45,16 +53,19 @@ export const VANS: readonly VanConfig[] = [
   {
     vehicleKey: "V1",
     slot: 1,
+    onRoadToday: true,
     defaultSetup: { seats: 6, wheelchairSpots: 1, carSeats: 3, oxygenMounts: 1, hasLift: true },
   },
   {
     vehicleKey: "V2",
     slot: 2,
+    onRoadToday: true,
     defaultSetup: { seats: 5, wheelchairSpots: 2, carSeats: 2, oxygenMounts: 1, hasLift: true },
   },
   {
     vehicleKey: "V4",
     slot: 3,
+    onRoadToday: true,
     defaultSetup: { seats: 4, wheelchairSpots: 0, carSeats: 2, oxygenMounts: 1, hasLift: false },
   },
   {
@@ -62,6 +73,7 @@ export const VANS: readonly VanConfig[] = [
     // because the live map draws it and must call it by the same name this file gives it.
     vehicleKey: "V3",
     slot: 4,
+    onRoadToday: false,
     defaultSetup: { seats: 2, wheelchairSpots: 1, carSeats: 1, oxygenMounts: 0, hasLift: true },
   },
 ];
@@ -94,6 +106,9 @@ export function vanNameOf(slot: number): string {
 export function vanColourToken(slot: number): string {
   return slot === 1 ? "brand" : slot === 2 ? "map-route-2" : slot === 3 ? "map-route-3" : "ink-muted";
 }
+
+/** The vans on the road on an ordinary day, in slot order: the board's three columns. */
+export const DAY_VANS: readonly VanConfig[] = VANS.filter((van) => van.onRoadToday);
 
 /** The config for a vehicle key, or `null` for a vehicle this centre does not have. */
 export function vanConfigOf(vehicleKey: string): VanConfig | null {

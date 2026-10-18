@@ -17,6 +17,7 @@ import {
   unapprovedNeeds,
   vehicleByKey,
 } from "@/domain/plan/day";
+import { NEED_CATEGORY } from "@/config/equipment";
 import { solverChild } from "@/domain/board/scenario";
 import { childByKey } from "@/modules/demo/fixtures/standard";
 import { places } from "@/ui/copy";
@@ -87,10 +88,28 @@ describe("the day the screen plans", () => {
     }
   });
 
+  /**
+   * VEH-01's rule, on a record this test builds.
+   *
+   * The fresh demo seed (2026-10-17 8:02 PM ET) holds only approved needs, so the scenario has
+   * no unapproved item to point at any more. The rule is unchanged and is what is asserted: an
+   * item that nobody approved is **on the record** and **out of the allocation**.
+   */
   it("keeps an unapproved need out of the allocation and still on the record (VEH-01)", () => {
-    // The one reported-but-unapproved item in the scenario (standard.ts): it must not change
-    // today's plan, and the screen still shows it.
-    expect(unapprovedNeeds("C6")).toEqual(["MEDICAL_DEVICE_POWER"]);
+    const record = [
+      { category: NEED_CATEGORY.carSeat, state: "APPROVED" },
+      { category: "MEDICAL_DEVICE_POWER", state: "REPORTED" },
+    ] as const;
+    // On the record: the reported item is still there to show.
+    expect(record.filter((need) => need.state !== "APPROVED").map((need) => need.category)).toEqual([
+      "MEDICAL_DEVICE_POWER",
+    ]);
+    // Out of the allocation: what the planner is given is the approved half only.
+    expect(record.filter((need) => need.state === "APPROVED").map((need) => need.category)).toEqual([
+      NEED_CATEGORY.carSeat,
+    ]);
+    // And the seeded day has nothing unapproved on it at all.
+    expect(unapprovedNeeds("C6")).toEqual([]);
     expect(unapprovedNeeds("C1")).toEqual([]);
   });
 });
@@ -118,7 +137,7 @@ describe("a feasible plan (VEH-03)", () => {
     // Zoe B.'s chair is held by four-point straps, and V1 is the only van in the scenario with
     // a position built for them.
     expect(laneOf(plan, "C6")).toBe("V1");
-    // Noah O.'s L-track chair fits V2's position, and V1 is busy with the other chair.
+    // Noah B.'s L-track chair fits V2's position, and V1 is busy with the other chair.
     expect(laneOf(plan, "C2")).toBe("V2");
   });
 
@@ -186,7 +205,7 @@ describe("unknown until arrival (VEH-04, AT-04)", () => {
   });
 
   it("names the unchecked van when it is the only one that fits a child", () => {
-    // Noah O.'s L-track chair fits the centre van's position; the sedan has no wheelchair place
+    // Noah B.'s L-track chair fits the centre van's position; the sedan has no wheelchair place
     // at all. With those two as the whole day, the answer is "not known yet", never "no van".
     const lanes = planLanes()
       .filter((lane) => lane.id !== "V1")
@@ -341,7 +360,7 @@ describe("moving a child between vans", () => {
   it("refuses a chair the target van's securement does not hold, and names the cause", () => {
     // Zoe B.'s four-point chair against the centre van, whose position is L-track.
     expect(canTake(input, planned, "V2", "C6")).toEqual({ ok: false, cause: "NO_SECUREMENT" });
-    // Noah O.'s chair against the sedan, which has no wheelchair place and no lift at all.
+    // Noah B.'s chair against the sedan, which has no wheelchair place and no lift at all.
     expect(canTake(input, planned, "V4", "C2")).toEqual({ ok: false, cause: "NO_WC_PLACE" });
   });
 

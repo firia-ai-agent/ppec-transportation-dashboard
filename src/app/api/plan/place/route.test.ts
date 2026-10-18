@@ -35,7 +35,7 @@ const saved = { ...process.env };
 const TODAY = serviceDateIso(new Date());
 const VAN_ONE = vehicleIdOf(VANS[0].vehicleKey);
 const VAN_THREE = vehicleIdOf(VANS[2].vehicleKey);
-/** Theo V. needs nothing and rides the afternoon; Noah O. rides in his own chair. */
+/** Theo V. needs nothing and rides the afternoon; Noah B. rides in his own chair. */
 const THEO = childTokenOf("C8");
 const NOAH = childTokenOf("C2");
 

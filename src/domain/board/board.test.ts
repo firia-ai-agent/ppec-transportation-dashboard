@@ -386,7 +386,7 @@ describe("a child with no adult on file to receive them (AT-13)", () => {
 
   /**
    * The other half of AT-13, and the half the acceptance test is actually about: **a ride that
-   * ends there**. The scenario drove Noah O. home, nobody on file could receive him, and no
+   * ends there**. The scenario drove Noah B. home, nobody on file could receive him, and no
    * custody event was recorded — so the leg machine's only remaining edge is HELD_NO_RECEIVER,
    * by the system. Everything after that is the "no auto-return" rule: nothing moves the ride
    * on, the board keeps asking for a person, and the only exit the machine has is a staff one.
