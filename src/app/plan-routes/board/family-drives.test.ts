@@ -79,8 +79,9 @@ describe("the Family drives lane is open, with a card each", () => {
       // control are: the same two a waiting child's card has.
       expect(markup, name).toContain(`data-move-to="${token}"`);
     }
-    // No kerb of ours, said in words rather than left blank (§1.5's `noStop`).
-    expect(markup).toContain(planBoard.noStop);
+    // No kerb of ours: the card's second line is the lane's own label (Vera, 2026-10-18 — it
+    // used to read "No pickup stop", which named a thing that was missing).
+    expect(markup).toContain(planBoard.familyDrives);
   });
 
   it("leaves Absent exactly as it was: a count row, closed (founder 6:49)", async () => {

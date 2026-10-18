@@ -340,8 +340,9 @@ test.describe("S1: Family drives is an open lane of cards", () => {
       const token = await child.getAttribute("data-rider");
       await expect(page.locator(`[data-move-to="${token}"]`), name).toHaveCount(1);
     }
-    // No kerb of ours, said in words rather than left blank (§1.5's `noStop`).
-    await expect(laneList(page).first()).toContainText(planBoard.noStop);
+    // No kerb of ours: the card's second line is the lane's own label, the same words the card
+    // sits under (Vera's 390 pass, 2026-10-18 — it used to read "No pickup stop").
+    await expect(laneList(page).first()).toContainText(planBoard.familyDrives);
 
     // ABSENT IS UNCHANGED (founder 6:49): still a count row, still closed, no list at all.
     const absent = page.locator('[data-bucket="ABSENT"]');

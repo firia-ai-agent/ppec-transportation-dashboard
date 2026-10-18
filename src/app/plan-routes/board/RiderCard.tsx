@@ -113,13 +113,14 @@ export function RiderCard({
           <NeedIcons needs={rider.needs} />
         </span>
         {/*
-          The one subline. A child with no kerb of ours — a family-drives child, in their lane or
-          in a van a coordinator put them in — has no stop and no window to print, so they say so
-          in words rather than leaving the line blank (§1.5's `noStop`).
+          The one subline, and the same one line a van card has: the stop this child is driven
+          at, or — for a child with no kerb of ours — the lane they are in, in the lane's own
+          words (Vera, 2026-10-18). It used to read "No pickup stop", which named a thing that
+          is missing rather than the arrangement a coordinator already knows about.
         */}
         <span className={styles.cardSub}>
           {!hasStop(rider)
-            ? planBoard.noStop
+            ? planBoard.familyDrives
             : stopNumber === undefined
               ? rider.stopLabel
               : stopLine(rider.window, rider.stopLabel)}

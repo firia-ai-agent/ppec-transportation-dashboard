@@ -443,6 +443,12 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
    * with `Move to…` (§9.3), and the refusal comes back the same way — nobody moves, and the
    * reason is announced. The van's one spot is filled the same way first, through the sheet, so
    * what refuses the second chair is a count a person can see (the 3-van rule, d1334d2).
+   *
+   * The control is **held open** rather than printed under every card: Vera's 390 pass of
+   * 2026-10-18 took the always-open select off the cards, because three of them doubled the
+   * Family drives lane's height and png/plan-board-390.png draws no such control on a van card.
+   * A long press is the phone's own form of the right-click that opens it on a wide screen, and
+   * the board says so once above the columns ("Hold a card to move it").
    */
   test("at 390 the same chair is refused by Move to…, once the spot is taken", async ({ page }) => {
     await page.setViewportSize(PHONE);
@@ -454,16 +460,18 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
     // The spot is filled on screen first: Zoe B., by the control a phone has.
     const zoe = card(page, "Zoe B.");
     const zoeToken = await zoe.getAttribute("data-rider");
+    await expect(page.locator("[data-move-hint]")).toBeVisible();
+    await zoe.click({ button: "right" });
     await page.locator(`[data-move-to="${zoeToken}"]`).selectOption({ label: vanThreeName });
     await expect(
       vans(page).nth(2).locator("[data-rider]").filter({ hasText: "Zoe B." }),
     ).toHaveCount(1);
     await expect(vans(page).nth(2).locator('[data-counter="wheelchairSpots"]')).toContainText("1/1");
 
-    // At 390 the `Move to…` select is on every card already (§9.3), so it is used directly:
-    // the right-click that reveals it on a wide screen is a pointer affordance, not the control.
+    // The same control on the second card, opened the same way the hint above the columns says.
     const noah = card(page, "Noah O.");
     const token = await noah.getAttribute("data-rider");
+    await noah.click({ button: "right" });
     await page.locator(`[data-move-to="${token}"]`).selectOption({ label: vanThreeName });
     await expect(announced(page)).toContainText("Noah O.");
     await expect(announced(page)).toContainText(planBoard.rejectThing.WHEELCHAIR);

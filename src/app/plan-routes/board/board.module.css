@@ -482,9 +482,15 @@ a.meter:focus-visible {
 }
 
 /*
- * "Move to…": the drag, without a drag. Hidden on a wide screen until the card's context menu
- * asks for it (§1.2), and always visible on a phone, where there is no cross-column drag at all
- * (§9.3). `display: none` rather than a visual trick, so a hidden control is not in the tab order.
+ * "Move to…": the drag, without a drag. Hidden until the card is held — the context menu §1.2
+ * puts it behind on a wide screen, and the long press that is the same event on a phone.
+ * `display: none` rather than a visual trick, so a hidden control is not in the tab order.
+ *
+ * It used to be open on every card at 390, which is the lane Vera measured on b3453cd: a select
+ * under each of three Family drives cards doubled the lane's height, and the van cards in
+ * png/plan-board-390.png carry no such control. One card at a time now shows it, in both lanes
+ * and in every column, and `.moveHint` is the phone's word for how (mockup: "Hold a card to
+ * move it").
  */
 .moveTo {
   display: none;
@@ -742,6 +748,45 @@ a.meter:focus-visible {
 }
 
 /*
+ * One tab per column, as the chips png/plan-board-390.png draws them: the van's own colour as a
+ * dot, the lane's name, and the one that is on carrying the brand edge and the `info` tint.
+ *
+ * It is **the one pill** (src/ui/Pill.module.css) and not a second chip shape — only the height
+ * is local, because a tab is a thumb target (§9's 44 px) and a chip is a label. The selected
+ * state is `aria-selected` as well as the tint, so it is never colour alone (§0's rule 2).
+ */
+.vanTab {
+  composes: pill from "../../../ui/Pill.module.css";
+  composes: outline from "../../../ui/Pill.module.css";
+  flex: 1 1 auto;
+  justify-content: center;
+  height: var(--target-console);
+  font-size: var(--text-12);
+  color: var(--color-neutral-fg);
+  cursor: pointer;
+}
+
+.vanTab[aria-selected="true"] {
+  background: var(--color-selected-bg);
+  border-color: var(--color-brand);
+  color: var(--color-ink-brand);
+}
+
+/*
+ * How a card moves on a phone, in the mockup's own words. The `Move to…` select is behind the
+ * card's hold now (`.moveTo`), which is the one affordance a phone has no pointer for — so the
+ * board says it once, above the columns, instead of printing a control under every card.
+ */
+.moveHint {
+  display: none;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+/*
  * 390 (png/plan-board-390.png): the toolbar's controls join the header bar's own wrapping row
  * so row 1 is the title then Undo, Auto-plan and Save, and row 2 is the date then
  * Morning | Afternoon (then the placed count and save state). Layout only — 1440 is above.
@@ -798,10 +843,6 @@ a.meter:focus-visible {
     padding: var(--space-3);
   }
 
-  .switcher {
-    display: flex;
-  }
-
   .body {
     flex-direction: column;
   }
@@ -824,12 +865,34 @@ a.meter:focus-visible {
     display: none;
   }
 
-  .moveTo {
-    display: block;
+  /*
+   * THE ONE COLUMN ON SCREEN IS THE SCREEN (Vera on b3453cd, png/plan-board-390.png): it filled
+   * about 45 % of the width and left the right-hand half of the phone empty.
+   *
+   * Both the base width and Unassigned's narrower one are overridden here, and Unassigned is
+   * named rather than left to `.column`: `.column[data-role="unassigned"]`'s 176 px is the more
+   * specific selector, so a bare `.column` in this block never reached the column a phone opens
+   * on. `.columns` stops scrolling sideways too — there is nothing beside the shown column to
+   * scroll to.
+   */
+  .columns {
+    overflow-x: visible;
   }
 
-  .column {
+  .column,
+  .column[data-role="unassigned"] {
     flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* The tabs and the hint under them are a phone's own row (png/plan-board-390.png). */
+  .switcher {
+    display: flex;
+  }
+
+  .moveHint {
+    display: flex;
   }
 }
 
@@ -844,6 +907,19 @@ a.meter:focus-visible {
   outline: 2px dashed var(--color-brand);
   outline-offset: -2px;
   background: var(--color-selected-bg);
+  border-radius: var(--radius-md);
+}
+
+/*
+ * And the same dashed outline the vans show **while a card is held**, before it is over
+ * anything (`.column[data-fit="yes"]`, §1.3): the Family drives lane takes every child, so it
+ * says so the moment one is lifted rather than only once the pointer is inside it (Vera,
+ * 2026-10-18). Same declarations, same attribute — not a second look.
+ */
+.group[data-fit="yes"] {
+  outline: 2px dashed var(--color-brand);
+  outline-offset: -2px;
+  box-shadow: 0 0 0 4px var(--color-selected-bg);
   border-radius: var(--radius-md);
 }
 

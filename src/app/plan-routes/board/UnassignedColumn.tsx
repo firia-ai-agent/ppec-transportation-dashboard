@@ -43,6 +43,7 @@ export function UnassignedColumn({
   onOpenChild,
   canEdit,
   overBucket,
+  lifted,
   refusal,
 }: {
   day: BoardDay;
@@ -56,6 +57,11 @@ export function UnassignedColumn({
   canEdit: boolean;
   /** Which group the card being held is over, so it can say it would take them. */
   overBucket: Bucket | null;
+  /**
+   * Is a card in the air at all? The Family drives lane takes every child, so it shows the van
+   * columns' own dashed drop outline from the lift rather than from the hover (Vera, 2026-10-18).
+   */
+  lifted?: boolean;
   /** The one refused drop on the board, so the card it is about carries its line (Vera). */
   refusal?: Refusal | null;
 }) {
@@ -121,6 +127,7 @@ export function UnassignedColumn({
           members={childrenInBucket(day, plan, group.bucket)}
           columns={columns}
           over={overBucket === group.bucket}
+          fit={Boolean(lifted) && group.bucket === "FAMILY_DRIVES"}
           canEdit={canEdit}
           refusal={refusal}
           onMove={onMove}
@@ -151,6 +158,7 @@ function BucketGroup({
   members,
   columns,
   over,
+  fit,
   startOpen,
   canEdit,
   refusal,
@@ -163,6 +171,8 @@ function BucketGroup({
   members: readonly BoardRider[];
   columns: readonly { id: string | null; name: string }[];
   over: boolean;
+  /** A card is in the air and this lane would take it: the van column's own `data-fit="yes"`. */
+  fit: boolean;
   /** Is this lane open the first time the board draws it? */
   startOpen: boolean;
   canEdit: boolean;
@@ -179,6 +189,7 @@ function BucketGroup({
       ref={setNodeRef}
       data-bucket={bucket}
       data-over={over ? "true" : "false"}
+      data-fit={fit ? "yes" : undefined}
     >
       <button
         type="button"

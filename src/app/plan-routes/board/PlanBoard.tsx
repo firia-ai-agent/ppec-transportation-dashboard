@@ -40,6 +40,7 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import { Hand } from "lucide-react";
 import PlanMap from "@/components/map/PlanMap";
 import { useRouter } from "next/navigation";
 import { API } from "@/auth/access";
@@ -72,7 +73,8 @@ import {
 import { eligibility } from "@/domain/plan/eligibility";
 import type { BoardView } from "@/modules/plan/store";
 import { boardHref } from "@/modules/plan/when";
-import { flow, planBoard } from "@/ui/copy";
+import { vanColourVar } from "@/config/vans";
+import { fill, flow, planBoard } from "@/ui/copy";
 import { NeedIcons } from "@/ui/equipment";
 import { HeaderSlot } from "@/ui/HeaderSlot";
 import { serviceDateLabel } from "@/ui/service-date";
@@ -604,23 +606,60 @@ export default function PlanBoard({
           </p>
         ) : null}
 
-        {/* One column at a time on a phone (§9.3); the switcher is hidden on a wide screen. */}
+        {/*
+          One column at a time on a phone (§9.3); the switcher is hidden on a wide screen.
+
+          Chips, as png/plan-board-390.png draws them — each van's own colour as a dot beside
+          its name, and Unassigned with how many are still waiting — and not the leg switch's
+          segmented control, which Vera's 390 pass found them wearing.
+        */}
         <div className={styles.switcher} role="tablist" aria-label={planBoard.columnSwitcher}>
-          {[{ id: UNASSIGNED_ID, name: `${planBoard.unassigned} ${waiting.length}` }, ...day.vans.map((van) => ({ id: van.id, name: van.name }))].map(
-            (column) => (
-              <button
-                key={column.id}
-                type="button"
-                role="tab"
-                className={styles.segment}
-                aria-selected={shownColumn === column.id}
-                onClick={() => setShownColumn(column.id)}
-              >
-                {column.name}
-              </button>
-            ),
-          )}
+          {[
+            {
+              id: UNASSIGNED_ID,
+              name: fill(planBoard.switcherUnassigned, {
+                name: planBoard.unassigned,
+                n: waiting.length,
+              }),
+              colour: null as string | null,
+            },
+            ...day.vans.map((van) => ({
+              id: van.id,
+              name: van.name,
+              colour: vanColourVar(van.colourToken),
+            })),
+          ].map((column) => (
+            <button
+              key={column.id}
+              type="button"
+              role="tab"
+              className={styles.vanTab}
+              aria-selected={shownColumn === column.id}
+              onClick={() => setShownColumn(column.id)}
+            >
+              {column.colour ? (
+                <span
+                  className={styles.swatch}
+                  style={{ background: column.colour }}
+                  aria-hidden="true"
+                />
+              ) : null}
+              {column.name}
+            </button>
+          ))}
         </div>
+
+        {/*
+          How a card moves where there is no pointer to right-click with (png/plan-board-390.png).
+          One line above the columns, shown only at 390, instead of a `Move to…` select printed
+          under every card — which is what doubled the Family drives lane's height.
+        */}
+        {canEdit ? (
+          <p className={styles.moveHint} data-move-hint="">
+            <Hand size={icon.chip} aria-hidden="true" />
+            {planBoard.holdToMove}
+          </p>
+        ) : null}
 
         <div className={styles.body}>
           <div className={styles.columns}>
@@ -634,6 +673,7 @@ export default function PlanBoard({
               onOpenChild={setOpenChild}
               canEdit={canEdit}
               overBucket={overBucket}
+              lifted={Boolean(lifted)}
               refusal={refusal}
             />
             {day.vans.map((van) => (

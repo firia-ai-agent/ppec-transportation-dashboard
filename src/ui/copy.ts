@@ -1803,17 +1803,15 @@ export const planBoard = {
   unassigned: "Unassigned",
   /** The whole Unassigned list once nobody is left in it (§1.3 "All placed"). */
   allPlaced: "All placed",
+  /**
+   * The lane for the children the centre does not drive, and — since Vera's 390 pass of
+   * 2026-10-18 — the **card's own subline** for one of them, in their lane or in a van a
+   * coordinator put them in. It replaced "No pickup stop", which named a thing that was missing
+   * instead of the arrangement a coordinator already knows about, and it is one label rather
+   * than two so the lane and the card under it cannot drift apart.
+   */
   familyDrives: "Family drives",
   absent: "Absent",
-  /**
-   * A card's one subline where there is no kerb of ours to name: a family-drives child, who is
-   * a full card in their own lane and may be put in a van all the same (Firia, 2026-10-18).
-   *
-   * It stays true in both places the card is drawn — waiting in the lane, and carried in a van
-   * the centre has no pickup for — so one string does for both and no card is ever left with a
-   * blank line under its name.
-   */
-  noStop: "No pickup stop",
   /**
    * The child panel (founder 2026-10-17 7:17 PM ET): three Yes/No answers about what a child
    * needs, anchored to their card, and a Save that re-plans the leg.
@@ -1945,6 +1943,18 @@ export const planBoard = {
   mapLabel: "Route map",
   /** The one column a phone shows at a time is chosen here (§9.3 at 390 px). */
   columnSwitcher: "Which column?",
+  /**
+   * The Unassigned tab on that switcher, with how many are still waiting: "Unassigned · 2"
+   * (png/plan-board-390.png). The word itself is `unassigned` above rather than written again
+   * here, so the tab and the column it opens cannot come to say two different things.
+   */
+  switcherUnassigned: "{name} · {n}",
+  /**
+   * How a card is moved where there is no pointer (png/plan-board-390.png's own line). Holding
+   * a card opens the `Move to…` control the card has had all along — the same one a right-click
+   * opens on a wide screen — so this names the gesture rather than announcing a second control.
+   */
+  holdToMove: "Hold a card to move it",
 } as const;
 
 /**
