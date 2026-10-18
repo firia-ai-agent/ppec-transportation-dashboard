@@ -27,11 +27,10 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { StaffRole } from "../src/auth/core";
 import { identity, nav, noAccess } from "../src/ui/copy";
 import { navItemsFor, type NavItem } from "../src/ui/nav-items";
-import { splitTabs } from "../src/ui/TabBar";
 import {
   boxOf,
   expectDemoBarPinned,
-  expectHeaderIsOneRow,
+  expectPageHeaderBar,
   expectNoInternalCodes,
   expectOneSimulatedChip,
   overlaps,
@@ -47,10 +46,10 @@ const MENU = navItemsFor(ROLE);
 /**
  * The phone bar is five slots (REDESIGN-SPEC §9.2). A role with more destinations than that
  * gets four tabs and a "More" that opens the rest in a sheet on the bar, so what is *in* the
- * bar is not always the whole menu — `TABS` is what has a tab of its own and `OVERFLOW` is what
+ * bar carries one tab per menu item: five items, five tabs, no overflow (Firia, 8:36 PM ET).
  * is a tap further. The rail at 768 and up still carries every one of them.
  */
-const { tabs: TABS, overflow: OVERFLOW } = splitTabs(MENU);
+const TABS = MENU;
 
 /**
  * The reference screen — the one this role's menu is compared against. For the two console
@@ -100,9 +99,13 @@ const REFUSED = "/refusal-check";
  * Returns the menu, because every caller's next question is about what is in it.
  */
 async function expectFrame(page: Page, width: number, where: string): Promise<Locator> {
-  // `.first()`: the app's header, which the shell renders above `#content`. A screen inside may
-  // bring a header of its own — the board's title row is one — and that is not this.
-  await expect(page.locator("header").first(), `no header on ${where} at ${width}`).toBeVisible();
+  // The frame's one title, in the page header bar: there is no app header at any width any more
+  // (audit §2 item 1). A screen inside may still bring a row of its own; that is not this.
+  await expect(
+    page.getByRole("heading", { level: 1 }),
+    `no page title on ${where} at ${width}`,
+  ).toBeVisible();
+  await expect(page.locator("header"), `an app header on ${where} at ${width}`).toHaveCount(0);
   const rail = page.getByRole("navigation", { name: nav.landmarkLabel });
   const bar = page.locator("[data-tab-bar]");
   if (width < 768) {
@@ -162,8 +165,8 @@ test.describe(`the menu on every screen, as ${ROLE}`, () => {
         // The one bar and the one Simulated chip, from the root layout: not two of either.
         await expectDemoBarPinned(page);
         await expectOneSimulatedChip(page);
-        // And the header under them is one row (Vera, 2:44 PM ET).
-        await expectHeaderIsOneRow(page);
+        // And the title under them is the page header bar's (audit §2 item 1).
+        await expectPageHeaderBar(page);
         await expectNoInternalCodes(page);
         console.log("screenshot:", await shot(page, `one-menu-${ROLE.toLowerCase()}-${slug(href)}-1280`));
 
@@ -217,8 +220,10 @@ test.describe(`the menu on every screen, as ${ROLE}`, () => {
         expect(await tabs.evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ""))).toEqual(
           TABS.map((item) => item.label),
         );
-        // ...and the rest are one tap away, behind a tab in the same bar (never a hamburger).
-        await expect(bar.locator("[data-more-tab]")).toHaveCount(OVERFLOW.length > 0 ? 1 : 0);
+        // ...and there is nothing behind a sixth slot: the menu is five items, so the bar is
+        // five tabs and the "More" tab is deleted with the overflow (Firia, 8:36 PM ET).
+        await expect(bar.locator("[data-more-tab]")).toHaveCount(0);
+        await expect(page.locator("[data-more-sheet]")).toHaveCount(0);
         for (const tab of await tabs.all()) {
           const box = await boxOf(tab);
           const label = (await tab.textContent())?.trim();
@@ -243,7 +248,7 @@ test.describe(`the menu on every screen, as ${ROLE}`, () => {
         await expectDemoBarPinned(page);
         await expectOneSimulatedChip(page);
         // One row on a phone as well, which is where it is tightest.
-        await expectHeaderIsOneRow(page);
+        await expectPageHeaderBar(page);
 
         /*
          * Nothing hides behind the bar. Scrolled to the bottom of the page, every box with
@@ -271,20 +276,22 @@ test.describe(`the menu on every screen, as ${ROLE}`, () => {
         await expectNoInternalCodes(page);
         console.log("screenshot:", await shot(page, `one-menu-${ROLE.toLowerCase()}-${slug(href)}-390`));
 
-        // The account is still reachable on a phone: the name in the header, Sign out inside it.
-        const account = page.locator("header details").first();
-        await expect(account, "no account menu in the header at 390").toBeVisible();
-        await account.locator("summary").click();
+        /*
+         * The account is still reachable on a phone, and it is a *link* now: the 36 px disc at
+         * the trailing end of the page header bar, which opens /whoami — the screen Sign out is
+         * on (audit §2 item 5). The avatar menu that used to be in the header is deleted with it.
+         */
+        const account = page.locator("[data-page-account]");
+        await expect(account, "no account disc in the page header at 390").toBeVisible();
+        expect(await account.getAttribute("href")).toBe("/whoami");
+        expect((await boxOf(account)).height).toBeGreaterThanOrEqual(36);
+        // ...and one tap away is Sign out, on the screen it opens.
+        await account.click();
+        await page.waitForURL("**/whoami");
         const signOut = page.getByRole("button", { name: identity.signOut });
         await expect(signOut).toBeVisible();
-        // The name is in the panel it opens, which is where a 390 px row leaves room for it.
-        await expect(
-          page.getByText(identity.signedInAs.split("{")[0].trim(), { exact: false }),
-        ).toBeVisible();
         expect((await boxOf(signOut)).height).toBeGreaterThanOrEqual(TARGET);
-        // ...and it does not open on top of the menu it shares the screen with.
-        expect(overlaps(await boxOf(signOut), barNow)).toBe(false);
-        await account.locator("summary").click();
+        await page.goto(href);
 
         // And the way out works with a tap, not with the browser's Back button.
         const target = elsewhere(href);
@@ -335,7 +342,7 @@ for (const width of FRAME_WIDTHS) {
         // The chrome the root layout owns, once each, with the header a single row under it.
         await expectDemoBarPinned(page);
         await expectOneSimulatedChip(page);
-        await expectHeaderIsOneRow(page);
+        await expectPageHeaderBar(page);
         await expectNoInternalCodes(page);
         console.log(
           "screenshot:",
@@ -371,17 +378,23 @@ for (const width of FRAME_WIDTHS) {
       // that is the bar's five slots, above it the whole rail (§9.2).
       const shown = width < 768 ? TABS : MENU;
       await expect(menu.getByRole("link")).toHaveCount(shown.length);
+      /*
+       * Compared by address rather than by label: the one row that carries a count is named
+       * "Family texts, 2 waiting" for a screen reader (`flow.tabbar`, src/ui/menu-badge.ts), so
+       * the label is not the same string at every row and the href is what identifies a
+       * destination anyway.
+       */
       expect(
         await menu.getByRole("link").evaluateAll((els) =>
-          els.map((el) => el.getAttribute("aria-label") ?? el.textContent?.trim() ?? ""),
+          els.map((el) => el.getAttribute("href") ?? ""),
         ),
-      ).toEqual(shown.map((item) => item.label));
+      ).toEqual(shown.map((item) => item.href));
       // Nothing on the menu is marked: the refusal is not one of this role's screens.
       await expect(menu.locator('[aria-current="page"]')).toHaveCount(0);
 
       await expectDemoBarPinned(page);
       await expectOneSimulatedChip(page);
-      await expectHeaderIsOneRow(page);
+      await expectPageHeaderBar(page);
       // No status code and no route on the card (COPY-GUIDE §2), measured on the rendered text.
       await expectNoInternalCodes(page);
       expect(await page.locator("body").innerText()).not.toMatch(/\b40\d\b/);
@@ -390,12 +403,16 @@ for (const width of FRAME_WIDTHS) {
         await shot(page, `frame-${ROLE.toLowerCase()}-refused-${width}`, { fullPage: true }),
       );
 
-      // ...and the account menu, which is the other thing a refused person may actually need.
-      const account = page.locator("header details").first();
+      /*
+       * ...and the account, which is the other thing a refused person may actually need: at this
+       * width it is the block at the foot of the rail, and below 768 the disc in the page header
+       * bar. Either one opens /whoami, where Sign out is (audit §2 items 3 and 5).
+       */
+      const account = page
+        .locator(width < 768 ? "[data-page-account]" : "[data-rail-account]")
+        .first();
       await expect(account).toBeVisible();
-      await account.locator("summary").click();
-      await expect(page.getByRole("button", { name: identity.signOut })).toBeVisible();
-      await account.locator("summary").click();
+      expect(await account.getAttribute("href")).toBe("/whoami");
 
       // The way out is the menu, not the Back button: a click, and a screen this role opens.
       const target = MENU[0];

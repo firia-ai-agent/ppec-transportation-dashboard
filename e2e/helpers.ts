@@ -163,67 +163,54 @@ export async function expectDemoControlStyling(control: Locator): Promise<void> 
 export async function expectOneSimulatedChip(page: Page): Promise<void> {
   const seen = await page.evaluate(() => {
     const bar = document.querySelector('[role="status"][aria-label="DEMO"]')?.parentElement ?? null;
-    const header = document.querySelector("header");
     return {
       inBar: bar ? bar.querySelectorAll('[data-token="src-sim"]').length : 0,
-      inHeader: header ? header.querySelectorAll('[data-token="src-sim"]').length : 0,
-      headerText: (header as HTMLElement | null)?.innerText ?? "",
+      // There is no app header any more (audit §2 item 1); a chip outside the bar is a chip in
+      // a *screen*, which is what the count below is about.
+      headers: document.querySelectorAll("header").length,
       bodyText: document.body.innerText,
     };
   });
   expect(seen.inBar, `the one §7.1 chip in the DEMO bar on ${page.url()}`).toBe(1);
-  expect(seen.inHeader, "the app header is carrying a source chip of its own again").toBe(0);
-  expect(seen.headerText, "the app header says 'Simulated' again").not.toMatch(/Simulated/);
+  expect(seen.headers, "the app header is back, and carrying chrome again").toBe(0);
   expect(seen.bodyText, "a per-adapter Simulated pill is back").not.toMatch(/·\s*Simulated/);
   expect(seen.bodyText, "the 'Times are simulated' line is back").not.toMatch(/[Tt]imes are simulated/);
 }
 
 /**
- * THE HEADER IS ONE ROW — Vera's review, 2026-10-17 2:44 PM ET.
+ * THE PAGE HEADER BAR, AND NO APP HEADER — Vera's audit §2 items 1 and 5; Firia, 2026-10-17
+ * 8:36 PM ET.
  *
- * It was two: the site name, the scenario clock and the avatar above, four "· Simulated" pills,
- * their note and global search below. "One row" is a fact about boxes, so it is measured as
- * one: every visible child of the header overlaps every other one vertically, which is only
- * true of things side by side, and the whole header is no taller than a single row of 44 px
- * targets with its padding. At 390 px, where the row is tightest, this is the assertion that
- * fails when a readout or a button wraps and pushes the account onto a second line.
+ * This used to measure that the white app header was a single row. There is no app header: the
+ * 96 px band with the product's name in it and the account pill at its far right is deleted at
+ * every width, because the rail carries both and what was left was an empty band over a rail the
+ * mockup draws running full height.
+ *
+ * What is measured instead is the bar that replaced it, as boxes rather than as markup: the
+ * screen's title sits in the top 64 px of the content column, there is exactly one of it, and
+ * nothing in the bar runs off the right-hand edge of the window — which is how the account pill
+ * went missing at 390 px on the old header: present, laid out, and half of it off the screen.
  */
-export async function expectHeaderIsOneRow(page: Page): Promise<void> {
-  const header = await page.evaluate(() => {
-    const el = document.querySelector("header");
-    if (!el) return null;
-    const boxes = Array.from(el.children)
-      .map((child) => child.getBoundingClientRect())
-      .filter((r) => r.width > 0 && r.height > 0);
-    return {
-      height: el.getBoundingClientRect().height,
-      tops: boxes.map((r) => Math.round(r.top)),
-      bottoms: boxes.map((r) => Math.round(r.bottom)),
-    };
-  });
-  expect(header, "there is no header on this screen").not.toBeNull();
-  const { height, tops, bottoms } = header as { height: number; tops: number[]; bottoms: number[] };
-  expect(tops.length, "the header has nothing in it").toBeGreaterThan(1);
-  expect(
-    Math.max(...tops) < Math.min(...bottoms),
-    `the header is stacked, not in a row: tops ${tops.join()} bottoms ${bottoms.join()}`,
-  ).toBe(true);
-  expect(height, `the header is ${height}px tall, which is more than one row`).toBeLessThanOrEqual(80);
-  /*
-   * ...and the row fits the window. One row that runs off the right-hand edge is how the
-   * account pill went missing at 390 px: present, laid out, and half of it off the screen.
-   */
+export async function expectPageHeaderBar(page: Page): Promise<void> {
+  await expect(page.locator("header"), "the app header is back").toHaveCount(0);
+  const title = page.getByRole("heading", { level: 1 });
+  await expect(title, "no title in the page header bar").toHaveCount(1);
+  const box = await boxOf(title);
+  // Under the 32 px DEMO bar, and inside the 64 px bar below it.
+  expect(Math.round(box.y), `the title is at y=${Math.round(box.y)}, not in the header bar`)
+    .toBeGreaterThanOrEqual(32);
+  expect(Math.round(box.y + box.height)).toBeLessThanOrEqual(32 + 64);
   const overflowing = await page.evaluate(() => {
-    const el = document.querySelector("header");
-    if (!el) return [];
-    return Array.from(el.querySelectorAll("*"))
+    const bar = document.querySelector("h1")?.parentElement;
+    if (!bar) return [];
+    return Array.from(bar.querySelectorAll("*"))
       .filter((child) => {
         const r = child.getBoundingClientRect();
         return r.width > 0 && r.height > 0 && r.right > window.innerWidth + 1;
       })
       .map((child) => `${child.tagName.toLowerCase()}: ${(child.textContent ?? "").trim().slice(0, 30)}`);
   });
-  expect(overflowing, "the header runs off the right-hand edge of the window").toEqual([]);
+  expect(overflowing, "the page header bar runs off the right-hand edge of the window").toEqual([]);
 }
 
 /** Every page: the one DEMO bar, and it is on screen at the bottom of the page too (NFR-09). */

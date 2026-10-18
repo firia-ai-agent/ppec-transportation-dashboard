@@ -104,35 +104,36 @@ test.describe(`the rail as ${ROLE}`, () => {
 
 test.describe("the two copy fixes, on the screens that show them", () => {
   /**
-   * A page whose data is not built is its own title and one line about what it will hold — not
-   * "Health & ROI isn't built yet" said twice (REDESIGN-SPEC §0: labels are short and a screen
-   * carries at most one line of prose). It is on the menu now, so a founder reaches it by
-   * clicking rather than by typing a URL, and what they find has to look like a screen.
+   * A page whose data is not built is **its title, and nothing else** (Firia, 2026-10-17 8:36 PM
+   * ET; audit §4 item 9). The line that used to say what it would hold is deleted with every
+   * other sentence under a page heading, and the title is the frame's page header bar — so what
+   * is held here is that the screen still names itself and still does not apologise.
    */
-  test("a page whose data is not built is a title and one line", async ({ page }) => {
+  test("a page whose data is not built is its title, and no prose", async ({ page }) => {
     test.skip(ROLE === "FRONT_DESK", "the front desk's row does not open a console page");
     await page.goto("/health");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(nav.health);
     const text = await page.locator("main").innerText();
-    expect(text).toContain(stub.health);
-    // One line, and no apology repeating the heading in smaller type.
+    // No apology, and no sentence about the page at all.
     expect(text).not.toMatch(/built yet/i);
+    expect(text.trim()).toBe("");
   });
 
   /**
-   * The demo's one control is the DEMO bar's, and the white app header holds none of it
-   * (REDESIGN-SPEC §0). It used to be a "Demo day · Not started" readout in the header with an
-   * inert "Start demo day" beside it; both are deleted, so what is measured here is where the
-   * control *is* — inside the violet bar — and that the header has nothing of the demo left.
+   * The demo's one control is the DEMO bar's, and there is no white app header left to hold any
+   * of it (REDESIGN-SPEC §0; audit §2 item 1). It used to be a "Demo day · Not started" readout
+   * in that header with an inert "Start demo day" beside it; the readout, the control and the
+   * header itself are all deleted, so what is measured here is where the control *is* — inside
+   * the violet bar — and that the page header bar carries nothing of the demo.
    */
-  test("the demo's one control is in the DEMO bar, not in the app header", async ({ page }) => {
+  test("the demo's one control is in the DEMO bar, and there is no app header", async ({ page }) => {
     await page.goto(ROLE === "FRONT_DESK" ? "/live-map" : "/today");
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
-    const header = page.locator("header").first();
-    await expect(header).toBeVisible();
-    // Nothing about the demo in the white row: no readout, no Start, no Restart.
-    expect(await header.innerText()).not.toMatch(/demo day/i);
+    await expect(page.locator("header")).toHaveCount(0);
+    // Nothing about the demo in the page header bar either: no readout, no Start, no Restart.
+    const bar = page.getByRole("heading", { level: 1 }).locator("..");
+    expect(await bar.innerText()).not.toMatch(/demo day/i);
 
     const restart = page.locator("[data-demo-restart]");
     if (ROLE === "DIRECTOR") {
