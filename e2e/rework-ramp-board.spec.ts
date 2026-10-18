@@ -12,9 +12,10 @@
  *
  * No database and no credentials. On this server the board's store is the memory fallback
  * (src/modules/plan/memory.ts), which starts from exactly what a reset writes: **no** van setup
- * and no plan, so every column opens on "Using default setup" (Firia/Veri, 2026-10-17 6:00 PM
- * ET). The SQL a deployment runs instead is asserted against the real migrations in
- * src/modules/plan/sql.test.ts.
+ * and no plan, so the board opens on its "Using default setup" banner (Firia/Veri, 2026-10-17
+ * 6:00 PM ET; said once over the columns rather than on each of them since Vera's check of
+ * b3453cd, png/plan-board.png). The SQL a deployment runs instead is asserted against the real
+ * migrations in src/modules/plan/sql.test.ts.
  */
 import { mkdirSync } from "node:fs";
 import path from "node:path";

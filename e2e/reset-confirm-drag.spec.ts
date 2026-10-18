@@ -339,12 +339,15 @@ test.describe("S1: Family drives is an open lane of cards", () => {
     for (const name of FAMILY_CHILDREN) {
       const child = laneList(page).locator("[data-rider]").filter({ hasText: name });
       await expect(child, name).toHaveCount(1);
-      // A full card and not a name: it has the grip's own `Move to…` control beside it.
+      // A full card and not a name: it has the grip's own `Move to…` control beside it — the
+      // one every card has, held open by the card rather than printed under it at 390
+      // (mockups/plan-board.html, png/plan-board-390.png).
       const token = await child.getAttribute("data-rider");
       await expect(page.locator(`[data-move-to="${token}"]`), name).toHaveCount(1);
     }
     // No kerb of ours: the card's second line is the lane's own label, the same words the card
-    // sits under (Vera's 390 pass, 2026-10-18 — it used to read "No pickup stop").
+    // sits under (Vera's 390 pass of 2026-10-18 against mockups/plan-board.html and
+    // png/plan-board-390.png — it used to read "No pickup stop").
     await expect(laneList(page).first()).toContainText(planBoard.familyDrives);
 
     // ABSENT IS UNCHANGED (founder 6:49): still a count row, still closed, no list at all.
