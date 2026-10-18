@@ -25,11 +25,14 @@
  * (`ink-brand`), the tint behind the thing you are on is #E6F2F1 (`selected-bg`, always with
  * Teal Ink on it), coral #E8735A is for alerts and nothing else, and the page is pure white.
  *
- * There is no blue left anywhere under src/ — not in the tones, not on the map's route lines —
- * which is the whole of the change: a screen that is teal except for one blue chip reads as two
- * products. `info` moved to the teal-ink family for that reason, and the map's second van line
- * to the amber family (its third was already a vermillion); the trio is still told apart by a
- * colour-vision-deficient reader, and the van's own name is written along its line either way.
+ * There is no blue left in the CHROME under src/ — not in the tones, not on a button, not on a
+ * rail — which is the whole of the change: a screen that is teal except for one blue chip reads
+ * as two products. `info` moved to the teal-ink family for that reason.
+ *
+ * **Blue is van identity and nothing else** (Firia, 2026-10-17 11:25 PM ET): Van 1's colour is
+ * #1D4ED8, and it lives in {@link VAN_COLORS} below, which is the only group under src/ a blue
+ * may appear in. tokens.test.ts holds both halves of that rule — blue only inside VAN_COLORS,
+ * and no chrome token blue — so the ban on a blue *chrome* is enforced rather than remembered.
  */
 export const color = {
   ink: "#0F172A",
@@ -127,24 +130,12 @@ export const color = {
   "map-truck-stale": "#A16207",
   "map-truck-crit": "#B91C1C",
 
-  /**
-   * The route palette: one colour per van, so three vans' lines on one map are told apart.
-   *
-   * Three because the demo day has three lanes, and the first of them is `brand` — the one route
-   * colour the map already had (src/components/map/style.ts `MAP_TOKENS.route`) — so these are
-   * its second and third. Teal, amber and vermillion: three hues a colour-vision-deficient
-   * reader still separates (the pair that is hardest for them, red and green, is not in it), and
-   * colour is never the only cue anyway — every line on the plan map carries the van's own name
-   * along it (§3, `planRoutes.mapVanRow`).
-   *
-   * A van is not a state, and the second line is now in the amber family the stale-GPS truck
-   * tone also lives in — so the two are kept apart by what carries them rather than by hue: a
-   * route colour is only ever a *line* and the numbered circle on it, and a truck tone is only
-   * ever the *marker* for a van, which carries its freshness in words beside it (§3, §5). Violet
-   * is the demo's and is on neither.
+  /*
+   * `map-route-2` and `map-route-3` are gone. They were this table's own three-van palette —
+   * brand teal, amber, vermillion — and the app now has exactly one (see {@link VAN_COLORS}):
+   * the Live map, the Plan routes board and the ramp board all draw a van in the same colour,
+   * which is the point of a van having a colour at all. Firia, 2026-10-17 11:25 PM ET.
    */
-  "map-route-2": "#B45309",
-  "map-route-3": "#9A3412",
 
   /**
    * The two positron basemap fills we name (§5.1, §8): `osm-bg` is positron's land, kept as-is
@@ -156,6 +147,54 @@ export const color = {
   "osm-bg": "#F2F3F0",
   "osm-water": "#D9E2E7",
 } as const;
+
+/**
+ * THE VAN PALETTE — one colour per van, and the one group under src/ a blue may appear in.
+ *
+ * Firia's final ruling, 2026-10-17 11:25 PM ET (it replaces every earlier colour note): Van 1 is
+ * #1D4ED8, Van 2 #B45309, Van 3 #BE185D. One group, shared by every screen that draws a van —
+ * the Live map's route lines, map pins and legend, the van square in its list, and the Plan
+ * routes board's lanes and legend — so the van a coordinator reads as blue on one screen is blue
+ * on the next. That is the whole reason a van has a colour: it is the van's *identity*, not a
+ * state and not decoration.
+ *
+ * It is deliberately NOT in `color` above. `color` is the chrome — the page, the rail, the tones
+ * a chip wears — and the ban on blue chrome is still total: nothing in `color` is blue and
+ * tokens.test.ts fails if anything becomes blue. Keeping the van palette in a group of its own
+ * is what makes "blue is van identity only" a thing a test can state in one line.
+ *
+ * Three hues rather than three positions on one wheel: blue, amber and pink stay apart for a
+ * colour-vision-deficient reader (red and green, the hardest pair, are not both in it), and
+ * colour is never the only cue — the van's own name is beside its square, along its line
+ * (§3, `planRoutes.mapVanRow`) and in the legend. A SELECTED van takes a border, never a fill: a fill would put a second
+ * meaning on the one colour that means "this van".
+ *
+ * Every member is ≥4.5:1 on `surface` and on `bg` (see {@link vanContrastPairs}), because a van
+ * marker carries a white numeral and a van square sits on a white card.
+ */
+export const VAN_COLORS = {
+  van1: "#1D4ED8",
+  van2: "#B45309",
+  van3: "#BE185D",
+} as const;
+
+export type VanColorToken = keyof typeof VAN_COLORS;
+
+/** The van palette in drive order, so the nth van of a day takes the nth colour. */
+export const VAN_COLOR_LIST: readonly string[] = [
+  VAN_COLORS.van1,
+  VAN_COLORS.van2,
+  VAN_COLORS.van3,
+];
+
+/**
+ * The colour of the nth van. Wraps, so a fourth van is drawn rather than left black, and never
+ * returns the demo violet.
+ */
+export function vanColor(index: number): string {
+  const n = VAN_COLOR_LIST.length;
+  return VAN_COLOR_LIST[((Math.trunc(index) % n) + n) % n];
+}
 
 export type ColorToken = keyof typeof color;
 
@@ -220,11 +259,28 @@ export const contrastPairs: ReadonlyArray<{
   { fg: "map-truck-ok", bg: "surface", documented: 5.02, needs: 3 },
   { fg: "map-truck-stale", bg: "surface", documented: 4.92, needs: 3 },
   { fg: "map-truck-crit", bg: "surface", documented: 6.47, needs: 3 },
-  // Not §8 rows: the second and third route lines, held to the 3:1 UI floor on the white the
-  // basemap's lightest fill is, and to 4.5:1 besides, because the stop number a line's own
-  // circle carries is `surface` text sitting on it.
-  { fg: "map-route-2", bg: "surface", documented: 5.02, needs: 3 },
-  { fg: "map-route-3", bg: "surface", documented: 7.31, needs: 3 },
+];
+
+/**
+ * The van palette's own contrast rows, against both page surfaces.
+ *
+ * Not in {@link contrastPairs} because these are not `color` tokens: §8 is the chrome's table and
+ * {@link VAN_COLORS} is deliberately outside it. They are held to **4.5:1** rather than the 3:1 a
+ * UI part needs, because each of them carries a white numeral — the van's own number inside its
+ * map pin — and a numeral is text.
+ */
+export const vanContrastPairs: ReadonlyArray<{
+  van: VanColorToken;
+  on: "surface" | "bg";
+  documented: number;
+  needs: 3 | 4.5;
+}> = [
+  { van: "van1", on: "surface", documented: 6.7, needs: 4.5 },
+  { van: "van1", on: "bg", documented: 6.41, needs: 4.5 },
+  { van: "van2", on: "surface", documented: 5.02, needs: 4.5 },
+  { van: "van2", on: "bg", documented: 4.8, needs: 4.5 },
+  { van: "van3", on: "surface", documented: 6.04, needs: 4.5 },
+  { van: "van3", on: "bg", documented: 5.77, needs: 4.5 },
 ];
 
 /** WCAG 2.1 relative luminance of a `#RRGGBB` string. */
@@ -242,6 +298,40 @@ export function contrastRatio(a: string, b: string): number {
   const la = relativeLuminance(a);
   const lb = relativeLuminance(b);
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/**
+ * IS THIS COLOUR BLUE? — the one definition, so "no blue chrome" is a test and not a taste.
+ *
+ * Firia's 11:25 PM ET ruling has two halves: blue appears only inside {@link VAN_COLORS}, and no
+ * chrome token (or chrome colour a browser computes) is blue. Both halves need the same answer
+ * to "is #334155 blue?", and a hex comparison cannot give it — the ban is on the *hue*, not on
+ * three literals somebody might retype.
+ *
+ * So: hue in the blue arc, with enough saturation and lightness to actually read as a colour.
+ *  - **hue 195–255** is blue proper. It stops short of 255 so the demo violet (#6D28D9, hue 263)
+ *    is not caught: violet is reserved and is not what this rule is about.
+ *  - **saturation ≥ 0.35** lets the slate family through — `neutral-fg` #334155 is hue 215 at
+ *    0.25, and a slate is grey with a lean, not a blue. Van 1 is 0.76.
+ *  - **lightness 0.2–0.85** lets `ink` #0F172A through at 0.11 (a near-black with a navy lean is
+ *    the ink of the whole app) and the near-white page tints through at the top.
+ *
+ * Deliberately a classifier rather than a list: a token added next week is judged by the same
+ * rule as one added today, which is the only kind of ban that survives a month.
+ */
+export function isBlue(hex: string): boolean {
+  const h = hex.replace("#", "");
+  const [r, g, b] = [0, 2, 4].map((o) => parseInt(h.slice(o, o + 2), 16) / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  if (delta === 0) return false;
+  const lightness = (max + min) / 2;
+  const saturation = delta / (1 - Math.abs(2 * lightness - 1));
+  let hue =
+    max === r ? 60 * (((g - b) / delta) % 6) : max === g ? 60 * ((b - r) / delta + 2) : 60 * ((r - g) / delta + 4);
+  if (hue < 0) hue += 360;
+  return hue >= 195 && hue < 255 && saturation >= 0.35 && lightness >= 0.2 && lightness <= 0.85;
 }
 
 /* ───────────────────────────── type scale (§2) ───────────────────────────── */
@@ -374,6 +464,14 @@ export const icon = {
 
 const cssVars: Record<string, string> = {
   ...Object.fromEntries(Object.entries(color).map(([k, v]) => [`--color-${k}`, v])),
+  /*
+   * The van palette rides into CSS the same way the chrome does, as `--van-1` / `--van-2` /
+   * `--van-3`, so the square beside a van's name and the swatch in the map legend are the same
+   * literal as the line MapLibre draws — read from here, never retyped (no-hex.test.ts).
+   */
+  ...Object.fromEntries(
+    VAN_COLOR_LIST.map((v, i) => [`--van-${i + 1}`, v]),
+  ),
   ...Object.fromEntries(Object.entries(fontSize).map(([k, v]) => [`--text-${k}`, v])),
   ...Object.fromEntries(Object.entries(fontWeight).map(([k, v]) => [`--weight-${k}`, v])),
   ...Object.fromEntries(Object.entries(lineHeight).map(([k, v]) => [`--leading-${k}`, v])),

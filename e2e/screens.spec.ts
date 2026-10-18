@@ -14,8 +14,8 @@
 import { expect, test, type Locator } from "@playwright/test";
 import { canOpenPage } from "../src/auth/access";
 import type { StaffRole } from "../src/auth/core";
-import { canSeeMapData } from "../src/domain/access/map-view";
-import { fill, fleetMap, liveMap, nav, planRoutes, rampIpad } from "../src/ui/copy";
+// `fleetMap` and `liveMap` left with the live-map block below: this file no longer names them.
+import { fill, nav, planRoutes, rampIpad } from "../src/ui/copy";
 import { navItemsFor } from "../src/ui/nav-items";
 import {
   boxOf,
@@ -47,9 +47,12 @@ const VIEWPORT = { height: 900 };
 const ROLE = (process.env.E2E_DEMO_ROLE ?? "DIRECTOR") as StaffRole;
 const CALLER = { kind: "STAFF", role: ROLE } as const;
 const MENU = navItemsFor(ROLE);
-/** The demo's own panels on the live map: one role sees them (the fault list and the clock). */
-const SEES_DEMO_INTERNALS =
-  canSeeMapData(ROLE, "injectedFaults") && canSeeMapData(ROLE, "clockControls");
+/*
+ * `SEES_DEMO_INTERNALS` went with the live-map block below: the injected-fault panel and the
+ * per-screen scenario clock it gated are both deleted from the build, so a constant about who
+ * can see them is a constant about nothing. The role-by-role story for the live map is
+ * e2e/live-map.spec.ts and src/modules/live-map/roles.test.ts now.
+ */
 
 for (const width of WIDTHS) {
   test.describe(`at ${width}px`, () => {
@@ -95,99 +98,21 @@ for (const width of WIDTHS) {
       console.log("screenshot:", await shot(page, `today-${width}`));
     });
 
-    test("the live map draws tiles and V1-V3, and keeps its chrome in the pane", async ({
-      page,
-    }) => {
-      await page.goto("/live-map");
-      await expect(page.getByRole("heading", { level: 1, name: liveMap.heading })).toBeVisible();
-      await expectDemoBarPinned(page);
-
-      const map = page.getByRole("region", { name: liveMap.mapLabel });
-      await expect(map).toBeVisible();
-
-      /*
-       * Pause the clock first, so the map can reach idle and the screenshot is a still fleet.
-       * The clock's controls are the director's (`clockControls`, src/domain/access/map-view.ts)
-       * and they ride in the DEMO bar, so for the other roles there is nothing to press — and
-       * what is asserted instead is that there is nothing to press: the map still has to draw.
-       */
-      const pause = page.getByRole("button", { name: liveMap.pause, exact: true });
-      if (SEES_DEMO_INTERNALS) await pause.click();
-      else await expect(pause, `${ROLE} is being offered the scenario clock`).toHaveCount(0);
-
-      /*
-       * The blank-map check. A pane that drew nothing looks exactly like a pane that drew a
-       * whole city from the DOM's side, so this reads what MapLibre says it has on screen: the
-       * basemap feature count and the vehicle ids it has markers for, both published by
-       * FleetMap on the map's own `idle` event (src/components/map/FleetMap.tsx).
-       */
-      await expect(map).toHaveAttribute("data-vehicles-drawn", "V1,V2,V3", { timeout: 60_000 });
-      const basemapFeatures = Number(await map.getAttribute("data-basemap-features"));
-      expect(basemapFeatures, "no basemap features rendered: the tiles did not draw").toBeGreaterThan(
-        200,
-      );
-
-      // The canvas is real and the size of the pane, not a 0 px stub.
-      const canvas = map.locator("canvas.maplibregl-canvas");
-      const canvasBox = await boxOf(canvas);
-      expect(canvasBox.width).toBeGreaterThan(400);
-      expect(canvasBox.height).toBeGreaterThan(400);
-
-      // The failure path is not on screen: the style loaded and the worker answered.
-      await expect(page.getByText(fleetMap.tilesFailed, { exact: false })).toHaveCount(0);
-
-      // §9: ≥44 px console targets, including the controls MapLibre ships.
-      const zoomButtons = map.locator(".maplibregl-ctrl-group button");
-      await expect(zoomButtons).toHaveCount(2);
-      for (const button of await zoomButtons.all()) {
-        const box = await boxOf(button);
-        expect(box.width).toBeGreaterThanOrEqual(44);
-        expect(box.height).toBeGreaterThanOrEqual(44);
-      }
-
-      // ADR-008 / §5.1: attribution visible, inside the pane, at both widths.
-      const attribution = map.locator(".maplibregl-ctrl-attrib");
-      await expect(attribution).toBeVisible();
-      const attributionBox = await boxOf(attribution);
-      expect(
-        contains(canvasBox, attributionBox),
-        `attribution is outside the map pane: ${JSON.stringify(attributionBox)} vs ${JSON.stringify(canvasBox)}`,
-      ).toBe(true);
-
-      /*
-       * Nothing the pane floats over the map may reach the vehicle list beside it. The list is
-       * the §9 non-map way to read the fleet, so a control sitting on the V1 card takes away
-       * the alternative as well as the card.
-       */
-      const v1Card = page.getByRole("button", { name: /^V1 · / });
-      const v1Box = await boxOf(v1Card);
-      const chrome: Array<[string, Locator]> = [
-        ["Fit all vehicles", page.getByRole("button", { name: fleetMap.fitAll })],
-        ["the zoom controls", map.locator(".maplibregl-ctrl-group")],
-        ["the attribution", attribution],
-      ];
-      for (const [name, locator] of chrome) {
-        const box = await boxOf(locator);
-        expect(overlaps(box, v1Box), `${name} overlaps the V1 card`).toBe(false);
-      }
-
-      // §6.2: the running speed is filled and says so, rather than wearing a focus-ring outline.
-      // One role holds the clock, so one role has a speed to read (see the pause above).
-      const chosenSpeed = page.getByRole("button", { name: /^×10$/ });
-      if (SEES_DEMO_INTERNALS) await expect(chosenSpeed).toHaveAttribute("aria-pressed", "true");
-      else await expect(chosenSpeed).toHaveCount(0);
-
-      // The ramp iPad is one click away rather than URL-only, and the link calls it what its
-      // own heading and the rail call it.
-      await expect(
-        page.getByRole("link", { name: fill(liveMap.openScreen, { page: rampIpad.heading }) }),
-      ).toBeVisible();
-
-      await expectNoInternalCodes(page);
-      // Let the last tiles settle, then take the picture.
-      await page.waitForLoadState("networkidle");
-      console.log("screenshot:", await shot(page, `live-map-${width}`));
-    });
+    /*
+     * THE LIVE MAP'S BLOCK IS DELETED FROM THIS FILE, NOT ADAPTED.
+     *
+     * It drove #53's debug screen: `liveMap.pause` (the per-screen scenario clock), the
+     * "Fit all" button, the vehicle list's `/^V1 · /` cards, the in-page ×10 speed control,
+     * the `Open Ramp iPad` link, and `data-vehicles-drawn="V1,V2,V3"`. Every one of those is
+     * gone from the build — the founder's redesign replaces that screen whole — so every one of
+     * those assertions is gone from the specs (MOCKUP-TEST-CONTRACT.md, "Specs to delete, not
+     * adapt"), rather than being widened until it passes.
+     *
+     * What it was really checking is not lost; it moved, and grew. e2e/live-map.spec.ts now
+     * covers the tiles actually drawing, the attribution, the ≥44 px targets, both widths, and
+     * the things this file could not ask about at all: the four state chips, the absence of any
+     * ETA, the van colours, the locked state and the front desk.
+     */
 
     test("the ramp iPad renders, and its sticky banner covers no row", async ({ page }) => {
       await page.goto("/ramp-ipad");

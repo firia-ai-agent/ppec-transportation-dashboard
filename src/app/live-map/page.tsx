@@ -1,93 +1,137 @@
 /**
- * /live-map — where every van is now: the M5 map pane on its own route until the map lands
- * inside SURF-01 (BUILD-PLAN-M2 P-03). Vera and Veri also walk the §10 map checklist lines here
- * (attribution always visible, no violet on the map, positron with the §5.1 water override,
- * reduced-motion camera). With the M5 simulator wired in the trucks move: a client-side
- * scenario clock replays the deterministic runs in src/fixtures/replays.ts (PRD §18.2 steps
- * 7–8), and the vans carry the labels the board carries — V1, V2, V3 (src/fixtures/fleet.ts,
- * MOCKS §2), so the van a coordinator reads on the board is the van they find on the map.
+ * /live-map — where every van is right now.
  *
- * It was `/map-preview` and is a permanent redirect there still (src/app/map-preview/page.tsx);
- * "preview" is out of every menu label and address (Vera's review, 2026-10-17).
+ * The founder's screen (mockups/live-map.html; png/live-map.png at 1440, png/live-map-390.png
+ * at 390): a list of vans beside the map at 1440 and under it at 390, each with its number, its
+ * driver, its next stop, the kids still aboard and **one state chip** — On route, At stop, Late,
+ * No GPS. The map draws each van's route, pin and stops in that van's own colour, the basemap's
+ * credits collapse behind an (i), and there is no ETA anywhere on it (REDESIGN-SPEC §3, which
+ * deletes the 13-field ETA line and the 41-word "Decisions only…" paragraph this page used to
+ * open with; Firia's goal-5 brief deletes the rest).
  *
- * No database, no SSE, no server actions, no sending: everything on the page is Simulated by
- * construction (ADR-015 synthetic-only) and the notification list is *decisions* only.
+ * What left with them: the per-screen scenario clock and its Pause / ×1 / ×10 / ×60 / Restart
+ * (the demo's clock is the DEMO bar's, Firia 8:36 PM ET), the "Open Ramp iPad" and "Open Plan
+ * routes" links (both are in the menu on every screen now), the notification-decision log and
+ * the injected-fault list. There are **no scenario or demo controls on this screen at all**,
+ * which is part of what makes it safe as the front desk's home page.
  *
- * It is behind staff sign-in. A deployed URL is guessable, and this page draws a whole fleet,
- * every stop's family label and every notification decision — so the route is guarded exactly
- * as the other protected pages are, by the one access table (src/auth/access.ts), and the role
- * decides which of those the viewer actually gets (src/domain/access/map-view.ts holds that
- * matrix).
+ * ───────────────────────────────── the hard gate ─────────────────────────────────
  *
- * The DEMO banner and the one NFR-09 source-mode chip come from the root layout
- * (src/app/layout.tsx), which renders them on every route — this page must not mount a second
- * pair. That chip is also what the screen's name leans on: it says "Simulated" here as it does
- * everywhere, which is why the heading can be the screen's job ("Live map") rather than a note
- * about how finished the build is.
+ * **It is locked until a plan is saved for this leg** (REDESIGN-SPEC §9.1: "Plan saved → Live
+ * map", hard — "No saved plan = no routes"). This page reads `ops.plan_run` / `ops.plan_assignment`
+ * for the date and leg in the address, and with nothing saved it draws the centre pin and the
+ * "No routes yet" card over the map (§9.5) rather than a fleet nobody committed to. It is a
+ * **read**: there is no save path on this screen and nothing here writes a row.
+ *
+ * Where the positions come from, as always on this screen: the simulated/demo source behind the
+ * domain location interface (src/modules/live-map/day.ts). No real provider, no paid service —
+ * which is what the one "Simulated" chip in the DEMO bar says here as on every route (§7.1,
+ * NFR-09).
+ *
+ * It is behind staff sign-in, and the access table is the guard (src/auth/access.ts): all three
+ * staff roles, because a person at the door needs to see where the vans are, and anybody else —
+ * signed out, or signed in with no membership — gets the refusal page and a 403. The role then
+ * decides which *data* the viewer gets (src/domain/access/map-view.ts).
  */
 
-import Link from "next/link";
-import LiveFleetMap from "@/components/map/LiveFleetMap";
-import { fill, liveMap, planRoutes, rampIpad } from "@/ui/copy";
+import LiveMapScreen from "@/modules/live-map/LiveMapScreen";
+import { LockedCard } from "@/modules/live-map/LockedCard";
+import { liveMap } from "@/ui/copy";
 import { canOpenPage, mapViewerOf } from "@/auth/access";
+import { canSeeMapData } from "@/domain/access/map-view";
 import { requirePage } from "@/auth/page-guard";
+import {
+  demoVehicleId,
+  isUnlocked,
+  kidsPerVan,
+  loadSavedPlan,
+  siteOf,
+} from "@/modules/live-map/plan-read";
+import { DATE_PARAM, LEG_PARAM, resolveDate, resolveLeg } from "@/modules/plan/when";
+import { dateOverrideAllowed } from "@/domain/board/day";
+import { LIVE_FLEET_VEHICLE_IDS } from "@/modules/live-map/fleet";
+import styles from "@/modules/live-map/live-map.module.css";
 
 export const metadata = { title: liveMap.documentTitle };
 
-/** The row a screen link sits in, and the ≥44 px target inside it (§9). */
-const LINK_ROW = { margin: 0, fontSize: "var(--body-console)" } as const;
-const TAP_TARGET = {
-  display: "inline-flex",
-  alignItems: "center",
-  minHeight: "var(--target-console)",
-} as const;
-
-/** The guard reads a session, so this route is never statically rendered. */
+/** The guard reads a session and the plan is a row, so this route is never statically rendered. */
 export const dynamic = "force-dynamic";
 
-export default async function LiveMapPage() {
+/** One `?p=` value, which Next hands over as a string or an array of them. */
+function one(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+/**
+ * `?at=<scenario second>` — the browser check's clock, and nothing else's.
+ *
+ * Each of the four chips is a moment of the simulated day, and a browser check that waits for
+ * one to come round is a check that fails on a slow machine. So the same test path the board
+ * already has for its own clock, read through the *same* gate: `dateOverrideAllowed` wants
+ * `APP_DATA_CLASS=SYNTHETIC`, `DEMO_MODE=1` and an explicit `E2E_DATE_OVERRIDE=1`, and refuses
+ * outright whenever `VERCEL_ENV` is set — which it is on every deployment. So on anything the
+ * platform runs this is a parameter nothing reads, exactly like `?date=` on the board.
+ *
+ * There is no clock control on this screen either way (the demo's clock is the DEMO bar's).
+ */
+const AT_PARAM = "at";
+
+function pinnedSecondsFrom(raw: string | undefined): number | undefined {
+  if (!dateOverrideAllowed(process.env)) return undefined;
+  const seconds = Number(raw);
+  return raw !== undefined && Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined;
+}
+
+export default async function LiveMapPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   // Signed out is a redirect to sign-in; a role the table does not list is a 403 and the
   // no-access page (forbidden.tsx beside this file). Which *data* the role then sees is
   // src/domain/access/map-view.ts.
   const caller = await requirePage("/live-map");
   const viewer = mapViewerOf(caller);
 
-  return (
-    <main style={{ padding: "var(--space-5)", display: "grid", gap: "var(--space-4)" }}>
-      {/*
-        No title and no helper lines here. The title is the frame's page header bar
-        (src/ui/PageHeader.tsx, audit §2 item 1), and the two sentences that used to open this
-        screen — what the map is, and that it is signed-in only — are deleted: audit §3 and §4
-        item 9 allow one title and at most one helper line per screen, and where the positions
-        come from is already said by the one Simulated chip in the DEMO bar (§7.1).
-      */}
-      {/*
-        The ramp iPad is a sibling surface behind the same guard, and the two are walked in one
-        sitting, so each one says where the other is. They are both in the nav rail as well; this
-        is the in-page shortcut between the pair.
+  /*
+   * The day and the leg, from the address and defaulted in the CENTRE's time zone — never the
+   * server's idea of local time and never the browser's (§9.3, src/modules/plan/when.ts, which
+   * is #73's file byte-identical so the board and this screen cannot disagree about "today").
+   */
+  const params = await searchParams;
+  const date = resolveDate(one(params[DATE_PARAM]));
+  const leg = resolveLeg(one(params[LEG_PARAM]));
 
-        §9: ≥44 px of tappable height. These two were the line-height of their own text — 18 px,
-        which on a phone is a link you aim at and miss (the founder's 2026-10-17 walk).
-      */}
-      <p style={LINK_ROW}>
-        <Link href="/ramp-ipad" style={TAP_TARGET}>
-          {fill(liveMap.openScreen, { page: rampIpad.heading })}
-        </Link>
-      </p>
-      {/*
-        Plan routes is the third screen behind the same door, and it is the coordinator's and
-        the director's (src/auth/access.ts). The link is offered only to a role whose own row
-        opens that page — hiding it is a courtesy, not the guard: /plan-routes checks the table
-        again on the server, like every other page.
-      */}
-      {canOpenPage(caller, "/plan-routes") ? (
-        <p style={LINK_ROW}>
-          <Link href="/plan-routes" style={TAP_TARGET}>
-            {fill(liveMap.openScreen, { page: planRoutes.heading })}
-          </Link>
-        </p>
-      ) : null}
-      <LiveFleetMap viewer={viewer} />
+  // The saved plan for that leg: the gate, and the kid counts. Read only.
+  const plan = await loadSavedPlan(siteOf(caller as { memberships?: readonly { siteId: string }[] }), date, leg);
+  const unlocked = isUnlocked(plan);
+
+  /*
+   * The saved plan counts children by `ops.vehicle.id`; the simulated runs are keyed by the
+   * fixture's own van key. Joined here, once, so nothing below this line has to know that the
+   * two naming systems exist (src/modules/live-map/plan-read.ts `demoVehicleId`).
+   */
+  const byVehicleId = kidsPerVan(plan);
+  const kidsByVan: Record<string, number> = {};
+  // The screen's own three vans (Firia: the demo has exactly 3), never the four-run fixture.
+  for (const key of LIVE_FLEET_VEHICLE_IDS) {
+    const id = demoVehicleId(key);
+    if (id && id in byVehicleId) kidsByVan[key] = byVehicleId[id];
+  }
+
+  return (
+    <main className={styles.main}>
+      <LiveMapScreen
+        date={date}
+        leg={leg}
+        familyLabels={canSeeMapData(viewer, "familyLabels")}
+        unlocked={unlocked}
+        kidsByVan={kidsByVan}
+        pinnedSeconds={pinnedSecondsFrom(one(params[AT_PARAM]))}
+        locked={
+          unlocked ? null : <LockedCard canPlan={canOpenPage(caller, "/plan-routes")} />
+        }
+      />
     </main>
   );
 }

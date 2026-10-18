@@ -62,17 +62,37 @@ export function savedPlanKey(scenario: DemoScenario, direction: Direction): stri
   return `${scenario}/${direction}`;
 }
 
-const SAVED = new Map<string, SavedPlan>();
+/**
+ * The map hangs off `globalThis`, and that is not a shortcut.
+ *
+ * Next bundles a route handler and a server component separately, so a module-level `const` is
+ * **not** one object between them: `POST /api/plan/save` would write into the route's copy and a
+ * page rendering on the server would read its own, empty one. The board never noticed — it both
+ * writes and reads through the endpoint, which is one bundle — but the Live map reads this on the
+ * server to answer §9.1's "is a plan saved for this leg?", and it was reading an empty map every
+ * time. One well-known key, so every bundle reaches the same object.
+ *
+ * It is still one process's memory, which is the honest limit already written at the top of this
+ * file. #73's `src/modules/plan/memory.ts` holds the state the same way, for the same reason.
+ */
+const KEY = "__ppecDemoSavedPlans";
+type Holder = typeof globalThis & { [KEY]?: Map<string, SavedPlan> };
+
+function saved(): Map<string, SavedPlan> {
+  const holder = globalThis as Holder;
+  holder[KEY] ??= new Map<string, SavedPlan>();
+  return holder[KEY];
+}
 
 /** Keep a checked plan, replacing whatever this run's last one was. */
 export function putSavedPlan(plan: SavedPlan): SavedPlan {
-  SAVED.set(savedPlanKey(plan.scenario, plan.direction), plan);
+  saved().set(savedPlanKey(plan.scenario, plan.direction), plan);
   return plan;
 }
 
 /** The plan last saved for this run, or null when none has been. */
 export function getSavedPlan(scenario: DemoScenario, direction: Direction): SavedPlan | null {
-  return SAVED.get(savedPlanKey(scenario, direction)) ?? null;
+  return saved().get(savedPlanKey(scenario, direction)) ?? null;
 }
 
 /**
@@ -80,5 +100,5 @@ export function getSavedPlan(scenario: DemoScenario, direction: Direction): Save
  * those plans were plans of has just been re-seeded, and by tests that want a fresh process.
  */
 export function clearSavedPlans(): void {
-  SAVED.clear();
+  saved().clear();
 }

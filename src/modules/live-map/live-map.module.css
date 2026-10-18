@@ -1,0 +1,538 @@
+/*
+ * The Live map's layout, from mockups/live-map.html (`.work`, `.side`, `.van`, `.feed`,
+ * `.mapw`, `.legend`) and measured against png/live-map.png at 1440 and png/live-map-390.png
+ * at 390.
+ *
+ * Two layouts, one breakpoint: above 480 the 320 px list sits beside the map; at or below it
+ * the map is on top at 45vh and the vans are cards under it, which is the mockup's own
+ * `@media (max-width:480px)` block. Colours are custom properties only — the van palette as
+ * `--van-N` and the chrome as `--color-*` — because tokens.ts is the one file under src/ that
+ * may hold a literal (src/ui/no-hex.test.ts).
+ */
+
+/*
+ * The screen's own `<main>` (the shell hands it a plain slot — AppShell `pageOwnsMain`). It is a
+ * flex column with no padding: the map runs to the edges of the content column, exactly as the
+ * mockup draws it, and the list beside it brings its own.
+ */
+.main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.work {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* ───────────────────────────── the list of vans ───────────────────────────── */
+
+.side {
+  width: 320px;
+  flex: none;
+  background: var(--color-surface);
+  border-right: var(--border-hairline) solid var(--color-neutral-bg);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.filters {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+/*
+ * A filter is a BARE BUTTON around the one pill: no shape, no height, no padding of its own.
+ * The mockup draws these chips at 28 px (`.sh .chip`), and the rule that binds is the audit's
+ * §4.1 — one pill, 22 px, on every screen, which the test contract repeats as a global check —
+ * so the pill inside carries the metrics and this carries only the click and the focus ring.
+ * Which filter is on is the pill's tone, the same `info` tint the current rail item wears.
+ */
+.filter {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.filter:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.vans {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/*
+ * The whole row is the button, because the whole row is the target (§9: ≥44 px on the console).
+ * Two columns: the name and the chip on the first line, the next stop across both on the second,
+ * the progress bar across both on the third — the mockup's `.van` grid.
+ */
+.van {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  row-gap: var(--space-3);
+  column-gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-4) var(--space-5);
+  border: 0;
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+  border-left: var(--border-ring) solid transparent;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/*
+ * SELECTED: a border and the frame's own tint. Never the van's colour as a fill — that colour
+ * means *which van*, and a second meaning on it is a coordinator reading a selection as a state
+ * (Firia, 2026-10-17 11:25 PM ET). The left bar is the mockup's `box-shadow: inset 3px 0 0`.
+ */
+.van[aria-pressed="true"] {
+  background: var(--color-selected-bg);
+  border-left-color: var(--color-brand);
+}
+
+.van:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: calc(-1 * var(--focus-width));
+}
+
+.vanTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* The van's own colour, 10 px, the same literal MapLibre paints its line and pin with. */
+.vanSwatch {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: var(--radius-sm);
+}
+
+.vanNumber {
+  font-size: var(--text-16);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.vanDriver {
+  color: var(--color-ink-muted);
+  font-size: var(--text-14);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vanNext {
+  grid-column: 1 / 3;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-ink-muted);
+  font-size: var(--text-14);
+  min-width: 0;
+}
+
+.vanNext svg {
+  flex: none;
+  stroke-width: var(--icon-stroke);
+}
+
+/* One segment per stop, filled for the stops already driven. 4 px, as the mockup draws it. */
+.progress {
+  grid-column: 1 / 3;
+  display: flex;
+  gap: 3px;
+}
+
+.progressStep {
+  flex: 1;
+  height: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-bg);
+}
+
+.progressStep[data-done="true"] {
+  background: var(--color-border-strong);
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-5);
+  color: var(--color-ink-muted);
+  font-size: var(--text-14);
+}
+
+/* ───────────────────────────── the Auto texts feed ───────────────────────────── */
+
+/* `margin-top: auto` pins it to the foot of the list, which is where the mockup puts it. */
+.feed {
+  margin-top: auto;
+  padding: var(--space-4) var(--space-5);
+  border-top: var(--border-hairline) solid var(--color-neutral-bg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.feedHeading {
+  margin: 0;
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink-muted);
+}
+
+.feedList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.feedRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-14);
+}
+
+/* A fixed column so three times line up under each other, with figures that do too (§2). */
+.feedTime {
+  flex: none;
+  width: 56px;
+  color: var(--color-ink-muted);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
+
+.feedWho {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ───────────────────────────── the map ───────────────────────────── */
+
+/*
+ * `osm-bg` is positron's own land colour, so the pane never flashes white before the first tile
+ * arrives — the map appears to load rather than to blink.
+ */
+.mapw {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+  background: var(--color-osm-bg);
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.tileNotice {
+  position: absolute;
+  left: var(--space-5);
+  top: var(--space-5);
+  z-index: 2;
+  margin: 0;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-crit-fg);
+  font-size: var(--text-14);
+}
+
+/*
+ * MAPLIBRE'S OWN CONTROLS, HELD TO THIS APP'S RULES.
+ *
+ * These three carried over from the pane this screen replaces (#53's fleet-map.module.css) when
+ * that file was deleted, because they are Vera's review contracts rather than that pane's
+ * styling, and they are just as true of this map:
+ *
+ *  - **§9: a zoom button is a real target.** MapLibre ships 29 px buttons; the console floor is
+ *    44 (`--target-console`). The group is widened with them, or the wider buttons are cropped.
+ *  - **ADR-008 / §5.1: the attribution is never clipped and never covered.** It is pinned to the
+ *    pane's own bottom-right rather than left to flow, it sits above anything this screen floats
+ *    over the map (the legend, the locked card, the tile notice), and its text wraps inside the
+ *    pane instead of running past the edge — which is what a 390 px phone would otherwise do to
+ *    it, and the overflow this branch has just spent a slice removing.
+ */
+.mapw :global(.maplibregl-ctrl-bottom-right) {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  max-width: 100%;
+  margin: 0;
+  padding: 0 var(--space-2) var(--space-2) 0;
+  pointer-events: auto;
+}
+
+.mapw :global(.maplibregl-ctrl-attrib) {
+  max-width: 100%;
+  /* The licence text wraps rather than running out of the pane. */
+  white-space: normal;
+}
+
+.mapw :global(.maplibregl-ctrl-group button) {
+  width: var(--target-console);
+  height: var(--target-console);
+}
+
+.mapw :global(.maplibregl-ctrl-group) {
+  width: var(--target-console);
+}
+
+/* ───────────────────────────── the legend ───────────────────────────── */
+
+.legend {
+  position: absolute;
+  left: var(--space-5);
+  bottom: var(--space-5);
+  display: flex;
+  gap: var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-hairline) solid var(--color-neutral-bg);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-neutral-fg);
+  font-size: var(--text-12);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  white-space: nowrap;
+}
+
+/*
+ * The legend is the four STATES, not the three vans: a marker's shape and tone say what it is,
+ * and its colour says which van it belongs to. So these are the state tones, and "No GPS" is
+ * the hollow ring the map actually draws — the one difference that survives greyscale (§9).
+ */
+.legendDot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--color-surface);
+  box-shadow: 0 0 0 1px var(--color-neutral-bg);
+}
+
+.legendDot[data-chip="onRoute"] {
+  background: var(--color-brand);
+}
+
+.legendDot[data-chip="atStop"] {
+  background: var(--color-border-strong);
+}
+
+.legendDot[data-chip="late"] {
+  background: var(--color-crit-fg);
+}
+
+.legendDot[data-chip="noGps"] {
+  background: var(--color-surface);
+  border-color: var(--color-border-strong);
+  border-style: dashed;
+}
+
+/* ───────────────────────────── the header bar's two groups ───────────────────────────── */
+
+/* The segmented control, from the frame's own `.seg` in the mockups: a tray with the chosen
+   option lifted out of it in white. */
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--color-disabled-bg);
+  border: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.segOption {
+  height: 30px;
+  padding: 0 var(--space-4);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-ink-muted);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* The leg you are on. It is a link, so `aria-current="page"` is what marks it — the same
+   attribute the rail's current item carries — and `data-on` is the paint hook (contract rule 4:
+   `data-*` for state, never for layout). */
+.segOption[data-on="true"] {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  box-shadow: 0 1px 2px var(--color-neutral-bg);
+}
+
+.segOption:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.counts {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+}
+
+/* ───────────────────────────── 390: the map on top, vans as cards ───────────────────────────── */
+
+@media (max-width: 480px) {
+  .work {
+    flex-direction: column;
+  }
+
+  /* The map comes first on a phone (png/live-map-390.png) and takes 45vh, so the first van card
+     is on screen under it without a scroll. */
+  .mapw {
+    order: -1;
+    flex: none;
+    height: 45vh;
+  }
+
+  /* No room for a legend over a 45vh map, and the mockup draws none at this width. */
+  .legend {
+    display: none;
+  }
+
+  .side {
+    width: auto;
+    border-right: none;
+    background: transparent;
+    padding: var(--space-4);
+    gap: var(--space-3);
+    overflow-y: visible;
+  }
+
+  .filters {
+    padding: 0 0 var(--space-1);
+    border-bottom: none;
+  }
+
+  /* Each van is its own white card on the page's off-white, which is what makes it a card. */
+  .van {
+    background: var(--color-surface);
+    border: var(--border-hairline) solid var(--color-neutral-bg);
+    border-left-width: var(--border-ring);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    margin-bottom: var(--space-3);
+  }
+
+  .van[aria-pressed="true"] {
+    border-color: var(--color-brand);
+  }
+
+  .feed {
+    margin-top: var(--space-2);
+    background: var(--color-surface);
+    border: var(--border-hairline) solid var(--color-neutral-bg);
+    border-radius: var(--radius-md);
+  }
+
+  /* The counts are not drawn at 390 (png/live-map-390.png): the header carries the title and
+     the leg switch, and the filters above the list carry the same three facts as controls. */
+  .counts {
+    display: none;
+  }
+}
+
+/* ───────────────────────────── locked: no plan saved for this leg ───────────────────────────── */
+
+/*
+ * The mockup's centred card over the map (REDESIGN-SPEC §9.5: "Map tiles with depot pin only +
+ * centred card `No routes yet`"). Over the map and not instead of it — the acceptance walk is
+ * explicit that a founder must never meet a blank map here.
+ */
+.locked {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  max-width: 320px;
+  padding: var(--space-6);
+  border: var(--border-hairline) solid var(--color-neutral-bg);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  text-align: center;
+}
+
+.lockedHeading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--text-16);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink-brand);
+}
+
+.lockedHeading svg {
+  stroke-width: var(--icon-stroke);
+}
+
+.lockedBody {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--text-14);
+}
+
+/* The one action, at the §9 console target height. */
+.lockedAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--target-console);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-md);
+  background: var(--color-brand);
+  color: var(--color-surface);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+}
+
+.lockedAction:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
