@@ -27,6 +27,7 @@ import {
 } from "../src/ui/copy";
 import { legStates } from "../src/ui/states";
 import { demoDay, serviceDayFor } from "../src/domain/board/day";
+import { CHILDREN } from "../src/modules/demo/fixtures/standard";
 import { demoDateIso } from "../src/ui/service-date";
 import {
   boxOf,
@@ -77,8 +78,15 @@ const RIDING_CHILD = "Zoe B.";
 const FINISHED = serviceDayFor(demoDay().previousIso);
 const FINISHED_URL = `/today?date=${FINISHED.iso}`;
 
-/** The 28 children of the standard scenario, each with a morning row and an afternoon row. */
-const RIDES = 56;
+/**
+ * One row per child and ride: the seeded children, each with a morning row and an afternoon one
+ * (AT-07). **Derived, not written down** — the census is the seed's and the seed changed: twelve
+ * children where there were twenty-eight ("Firia 8:02 PM seed ruling";
+ * src/modules/demo/fixtures/standard.ts:273 `BOARD_CENSUS`, which `CHILDREN` is built to). The
+ * board renders a row per child and a leg per direction, so the count is the census doubled —
+ * asserted exactly, as before.
+ */
+const RIDES = CHILDREN.length * 2;
 
 /** One row's opener: a child and which of their two rides this row is. */
 const opener = (child: string, ride: string = boardCopy.amSpoken) =>
@@ -119,7 +127,7 @@ for (const width of WIDTHS) {
       await expectVioletOnlyOnDemoChrome(page);
 
       /*
-       * The group header is sticky (§4.1). Scrolled to the bottom of a 28-row board, the last
+       * The group header is sticky (§4.1). Scrolled to the bottom of the board, the last
        * group's header is still on screen rather than scrolled off with its first row — which
        * is the whole reason a dense board groups at all.
        */
@@ -743,7 +751,7 @@ for (const width of WIDTHS) {
       await expect(
         page.getByText(fill(boardCopy.emptySearch, { query: "no child is called this" })),
       ).toBeVisible();
-      // Not the "no rides today" line: there are 56 rides today, they just do not match.
+      // Not the "no rides today" line: the day has its rides, they just do not match.
       await expect(page.getByText(/No rides scheduled/)).toHaveCount(0);
       await expect(page.locator("table")).toHaveCount(0);
 
