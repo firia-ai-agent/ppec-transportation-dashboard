@@ -703,6 +703,45 @@ a.meter:focus-visible {
   overflow-x: auto;
 }
 
+/*
+ * 390 (png/plan-board-390.png): the toolbar's controls join the header bar's own wrapping row
+ * so row 1 is the title then Undo, Auto-plan and Save, and row 2 is the date then
+ * Morning | Afternoon (then the placed count and save state). Layout only — 1440 is above.
+ */
+@media (max-width: 767px) {
+  :global([data-header-slot]):has(> .toolbar) {
+    display: contents;
+  }
+
+  .toolbar {
+    display: contents;
+  }
+
+  .toolbar > .button {
+    order: 1;
+    flex: none;
+  }
+
+  :global([data-header-slot]):has(> .toolbar) ~ :global([data-page-account]) {
+    order: 1;
+  }
+
+  .toolbar > .spacer {
+    order: 2;
+    flex: 0 0 100%;
+    height: 0;
+  }
+
+  .toolbar > .date,
+  .toolbar > .segmented,
+  .toolbar > .placed,
+  .toolbar > .chip {
+    order: 3;
+    flex: none;
+    white-space: nowrap;
+  }
+}
+
 @media (max-width: 767px) {
   /*
    * The room for the tab bar is the shell's (`.body` in AppShell.module.css pads by the bar plus

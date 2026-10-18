@@ -54,8 +54,20 @@
 }
 
 @media (max-width: 767px) {
+  /*
+   * Below 768 the bar may wrap (png/plan-board-390.png): a screen whose controls cannot share
+   * the title's line gets a second row instead of cutting the title to "Pl…". A bar whose
+   * contents fit is one row, exactly as before.
+   */
   .bar {
-    padding: 0 var(--space-4);
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+  }
+
+  .title {
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .avatar {
