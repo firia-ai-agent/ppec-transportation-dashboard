@@ -1,0 +1,370 @@
+/*
+ * The ramp iPad's van arrival (redesign spec §2; DESIGN-DIRECTION §2 ramp body 18 px, §9 ramp
+ * targets ≥ 56 px, §8 tokens).
+ *
+ * Read standing up, at arm's length, often one-handed: the steppers are 56 px, the Confirm is
+ * 60 px, and the numbers are the biggest thing on the screen. Every value is a custom property
+ * from src/ui/tokens.ts — no colour literal lives outside that file.
+ */
+
+/* Fills the shell's content slot; the viewport arithmetic is the shell's (src/ui/AppShell). */
+.page {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--space-5);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-size: var(--body-ramp);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Headings are Teal Ink — the frame's `ink-brand` (#71), 9.47:1 on white. */
+.heading {
+  font-size: var(--text-24);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink-brand);
+  margin: 0;
+}
+
+/* ───────────────────────────── the vans at the centre ───────────────────────────── */
+
+.tabs {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.tab {
+  display: grid;
+  grid-template-columns: 10px auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-1);
+  min-height: var(--target-ramp);
+  padding: var(--space-3) var(--space-5);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  text-decoration: none;
+}
+
+/* The van being counted: a fill, a weight and `aria-current` — three cues, not one colour. */
+/* Selected is the frame's `selected-bg` tint with `ink-brand` on it, plus the
+   border and `aria-current` — three cues, never colour alone. */
+.tab[aria-current="page"] {
+  background: var(--color-selected-bg);
+  border-color: var(--color-brand);
+  color: var(--color-ink-brand);
+  box-shadow: inset 0 0 0 1px var(--color-brand);
+  font-weight: var(--weight-semibold);
+}
+
+/* The van's own colour, from the one shared config (src/config/vans.ts). */
+.tabSwatch {
+  grid-row: 1 / span 2;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.tabName {
+  font-weight: var(--weight-semibold);
+}
+
+.tabTime {
+  font-size: var(--text-14);
+}
+
+/* ───────────────────────────── the two cards ───────────────────────────── */
+
+.cards {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.cardTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--text-20);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink-brand);
+}
+
+.driver {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--text-16);
+}
+
+.riderCount {
+  font-variant-numeric: tabular-nums;
+}
+
+.leaves {
+  margin-left: auto;
+  font-size: var(--text-14);
+  font-weight: var(--weight-regular);
+  color: var(--color-ink-muted);
+}
+
+/* ───────────────────────────── steppers (56 px, §9) ───────────────────────────── */
+
+.stepper {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--target-ramp);
+}
+
+.stepperLabel {
+  display: flex;
+  flex-direction: column;
+}
+
+/* A count the front desk has changed away from the plan reads as changed, and says what the
+   plan had underneath it (§2). */
+.stepper[data-changed="true"] .stepperLabel {
+  color: var(--color-warn-fg);
+  font-weight: var(--weight-semibold);
+}
+
+.planned {
+  font-size: var(--text-12);
+  font-weight: var(--weight-regular);
+}
+
+.stepperControls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.stepperButton {
+  width: var(--target-ramp);
+  height: var(--target-ramp);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.stepperValue {
+  min-width: 44px;
+  text-align: center;
+  font-size: var(--text-32);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-width: 88px;
+  min-height: var(--target-ramp);
+  padding: 0 var(--space-4);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.toggle[aria-pressed="true"] {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--color-surface);
+  font-weight: var(--weight-semibold);
+}
+
+.confirm {
+  min-height: 60px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  border: var(--border-hairline) solid var(--color-brand);
+  border-radius: var(--radius-md);
+  background: var(--color-brand);
+  color: var(--color-surface);
+  font: inherit;
+  font-size: var(--text-20);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.confirm:disabled {
+  background: var(--color-disabled-bg);
+  border-color: var(--color-disabled-border);
+  color: var(--color-disabled-fg);
+  cursor: default;
+}
+
+.hint {
+  margin: 0;
+  text-align: center;
+  color: var(--color-ink-muted);
+  font-size: var(--text-14);
+}
+
+/* ───────────────────────────── riders ───────────────────────────── */
+
+.riders {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rider {
+  display: grid;
+  grid-template-columns: 32px auto auto 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--target-ramp);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.riderStop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral-fg);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.riderName {
+  font-weight: var(--weight-medium);
+}
+
+.riderNeeds {
+  display: inline-flex;
+  gap: var(--space-2);
+  color: var(--color-ink-muted);
+}
+
+.riderStopLabel {
+  color: var(--color-ink-muted);
+  font-size: var(--text-14);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-14);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.chip[data-tone="ok"] { color: var(--color-ok-fg); background: var(--color-ok-bg); }
+.chip[data-tone="crit"] { color: var(--color-crit-fg); background: var(--color-crit-bg); }
+
+/* ───────────────────────────── the shortfall banner ───────────────────────────── */
+
+/* "Mia R. won't fit · 1 car seat short", with Re-plan beside it (§2).
+   Coral is the rule down its edge — the alert accent — and the words and icon inside are the
+   crit pair, which is what is actually read. */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border-left: 4px solid var(--color-alert);
+  color: var(--color-crit-fg);
+  background: var(--color-crit-bg);
+}
+
+.bannerWords {
+  display: flex;
+  flex-direction: column;
+}
+
+/* A white button inside the alert, the way the mockup draws it: the banner is the alarm and
+   this is the way out of it, so it is not a second red thing. */
+.replan {
+  margin-left: auto;
+  min-height: var(--target-ramp);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-md);
+  border: var(--border-hairline) solid var(--color-crit-fg);
+  background: var(--color-surface);
+  color: var(--color-crit-fg);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  color: var(--color-ink-muted);
+}
+
+.emptyLink {
+  color: var(--color-brand);
+  font-weight: var(--weight-semibold);
+}
+
+/* ───────────────────────────── one column on a phone ───────────────────────────── */
+
+@media (max-width: 900px) {
+  .cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 767px) {
+  /* The tab bar's room is the shell's (AppShell.module.css `.body`); these are the gutters. */
+  .page {
+    padding: var(--space-3);
+  }
+
+  .rider {
+    grid-template-columns: 32px 1fr auto;
+  }
+
+  .riderStopLabel {
+    grid-column: 2 / 4;
+  }
+}

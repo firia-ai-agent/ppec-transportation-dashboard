@@ -30,6 +30,7 @@
  * van's arrival at a stop is an arrival at a *named child's* stop.
  */
 
+import { NEED_CATEGORY } from "@/config/equipment";
 import type {
   AmbSeat,
   Child as SolverChild,
@@ -81,7 +82,7 @@ export const CENTER_STOP_ID = "CENTER";
  * tether/LATCH-capable seats, so the solver has to be told which children they are, and the
  * fixture says it twice: explicitly on the child (`tether`) and through the approved need.
  */
-const TETHER_NEEDS = new Set(["CAR_SEAT_OR_BOOSTER", "HARNESS_OR_VEST"]);
+const TETHER_NEEDS = new Set<string>([NEED_CATEGORY.carSeat, NEED_CATEGORY.harness]);
 
 function needsTether(child: DemoChild): boolean {
   return child.tether ?? child.needs.some((n) => TETHER_NEEDS.has(n.category));

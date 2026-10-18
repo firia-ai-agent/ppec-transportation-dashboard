@@ -306,6 +306,46 @@ export default function PlanMap({ data, selectedLaneId, onSelect }: PlanMapProps
 
   return (
     <div className={styles.pane}>
+      {/*
+        The van toggles sit **on** the map (the re-cut §1.2 mockup, 2026-10-17): chips along the
+        top, one per van, each a swatch and the van's own name. The paragraph that used to sit
+        under the pane ("Each van's stops… A straight line is direct…") is gone — Vera's
+        differences list counts it as the one over-long line on this screen, and what it said is
+        in each chip's own label instead.
+      */}
+      <ul className={styles.vans} aria-label={planRoutes.mapVansHeading}>
+        {data.routes.map((route) => (
+          <li key={route.laneId}>
+            <button
+              type="button"
+              className={styles.vanButton}
+              data-van-line={route.laneId}
+              aria-pressed={route.laneId === selectedLaneId}
+              title={fill(planRoutes.mapVanRow, {
+                vehicle: route.vanName,
+                stops: pluralize(route.stops.length, countable.stop),
+              })}
+              onClick={() => onSelect(route.laneId === selectedLaneId ? null : route.laneId)}
+            >
+              {route.laneId === selectedLaneId ? (
+                <Check size={icon.inline} aria-hidden="true" />
+              ) : null}
+              <span
+                className={styles.swatch}
+                aria-hidden="true"
+                style={{ "--van-line": routeColor(route.colorIndex) } as React.CSSProperties}
+              />
+              <span className={styles.vanName}>{route.vanName}</span>
+              <span className="srOnly">
+                {fill(planRoutes.mapVanRow, {
+                  vehicle: route.vanName,
+                  stops: pluralize(route.stops.length, countable.stop),
+                })}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
       <div className={styles.canvasWrap}>
         <div
           ref={containerRef}
@@ -336,40 +376,6 @@ export default function PlanMap({ data, selectedLaneId, onSelect }: PlanMapProps
         </div>
       </div>
 
-      <p className={styles.note}>{planRoutes.mapNote}</p>
-
-      {/* §9: the same selection, with a keyboard, and the van named in words either way. */}
-      <h3 className={styles.vansHeading} id="plan-map-vans">
-        {planRoutes.mapVansHeading}
-      </h3>
-      <ul className={styles.vans} aria-labelledby="plan-map-vans">
-        {data.routes.map((route) => (
-          <li key={route.laneId}>
-            <button
-              type="button"
-              className={styles.vanButton}
-              data-van-line={route.laneId}
-              aria-pressed={route.laneId === selectedLaneId}
-              onClick={() => onSelect(route.laneId === selectedLaneId ? null : route.laneId)}
-            >
-              {route.laneId === selectedLaneId ? (
-                <Check size={icon.inline} aria-hidden="true" />
-              ) : null}
-              <span
-                className={styles.swatch}
-                aria-hidden="true"
-                style={{ "--van-line": routeColor(route.colorIndex) } as React.CSSProperties}
-              />
-              <span className={styles.vanName}>
-                {fill(planRoutes.mapVanRow, {
-                  vehicle: route.vanName,
-                  stops: pluralize(route.stops.length, countable.stop),
-                })}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
       {selectedLaneId !== null ? (
         <button type="button" className={styles.button} onClick={() => onSelect(null)}>
           {planRoutes.mapShowAll}

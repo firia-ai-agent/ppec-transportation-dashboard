@@ -18,7 +18,8 @@ import type { Db, Exec } from "@/db/exec";
 import {
   CHILDREN, DATE_EXCEPTION, EXTERNAL_PEOPLE, FAMILIES, KIND, PROVIDERS, RUNS, SCENARIO_NAME,
   SCENARIO_START_LOCAL, STOPS, THERAPISTS, THERAPY_SESSIONS, VEHICLES, WEEKDAY_RRULE,
-  demoChildToken, demoId, demoLegId, synLegalLastName, synLegalName, type AuthScope, type Child,
+  DEMO_SITE_ID, childTokenOf, demoId, demoLegId, synLegalLastName, synLegalName, vehicleIdOf,
+  type AuthScope, type Child,
 } from "./fixtures/standard";
 
 export class SeedRefused extends Error {}
@@ -40,6 +41,10 @@ export const RESET_TABLES = [
   "ops.agent_tool_call", "ops.agent_run", "ops.agent_memory",
   "ops.eta_estimate", "ops.telemetry_point", "ops.device_binding", "ops.device",
   "ops.manifest_reservation", "ops.trip_leg", "ops.manifest",
+  // The plan board's three tables (migration 0009). A reset clears every saved plan and every
+  // van setup and writes none back — the §9 reset contract as re-cut on 2026-10-17 6:00 PM ET: a
+  // fresh day reads "Using default setup" on every van, no plan is saved, and the live map stays
+  // locked until one is.
   "ops.plan_assignment", "ops.plan_run", "ops.vehicle_setup_day",
   "ops.vehicle_capability_day", "ops.layout_position", "ops.vehicle_layout", "ops.vehicle",
   "ops.dispatcher_link", "ops.provider",
@@ -119,12 +124,14 @@ const idx = <T extends { key: string }>(xs: readonly T[], key: string) => {
 
 const familyId = (key: string) => demoId(KIND.family, idx(FAMILIES, key) + 1);
 const contactId = (familyKey: string) => demoId(KIND.contact, idx(FAMILIES, familyKey) + 1);
-const childId = demoChildToken;
+const childId = childTokenOf;
 const profileId = (key: string) => demoId(KIND.profile, idx(CHILDREN, key) + 1);
 const personId = (key: string) => demoId(KIND.person, idx(EXTERNAL_PEOPLE, key) + 1);
 const therapistId = (key: string) => demoId(KIND.therapist, idx(THERAPISTS, key) + 1);
 const providerId = (key: string) => demoId(KIND.provider, idx(PROVIDERS, key) + 1);
-const vehicleId = (key: string) => demoId(KIND.vehicle, idx(VEHICLES, key) + 1);
+// The two ids the plan board also has to build, so there is one formula and not two
+// (fixtures/standard.ts; the board reads a plan back by these ids).
+const vehicleId = vehicleIdOf;
 /** Child landmark stop; the center and the fault-detour stop sit above the per-child range. */
 const stopId = (childKey: string) => demoId(KIND.stop, idx(CHILDREN, childKey) + 1);
 const CENTER_STOP_ID = demoId(KIND.stop, 0xc0);
@@ -198,8 +205,13 @@ export type SeedResult = {
   boardRows: number; counts: Record<string, number>;
 };
 
-/** Site used when the caller does not name one: the synthetic demo site from src/auth/seed.ts. */
-export const DEFAULT_DEMO_SITE = "01900000-0000-7000-8000-00000000000a";
+/**
+ * Site used when the caller does not name one: the synthetic demo site from src/auth/seed.ts.
+ *
+ * The id itself is in the fixtures (`DEMO_SITE_ID`), so a surface that needs it does not have to
+ * import this module to get it — importing the seed is what build-isolation.test.ts bars.
+ */
+export const DEFAULT_DEMO_SITE = DEMO_SITE_ID;
 
 export async function seedStandardScenario(db: Db, opts: SeedOptions): Promise<SeedResult> {
   const siteId = opts.siteId ?? DEFAULT_DEMO_SITE;
@@ -317,6 +329,14 @@ export async function seedStandardScenario(db: Db, opts: SeedOptions): Promise<S
     await insert(tx, "ops.vehicle_capability_day",
       ["id", "site_id", "vehicle_id", "service_date", "state", "created_by", "updated_by", "source_mode"],
       VEHICLES.map((v, i) => [demoId(KIND.capability, i + 1), siteId, vehicleId(v.key), clock.serviceDate, "UNKNOWN", ...audit]));
+
+    // 6b. **No** `ops.vehicle_setup_day` row is written, for yesterday or for today.
+    //     Firia/Veri, 2026-10-17 6:00 PM ET: an unconfirmed van is planned on its DEFAULT counts
+    //     from the shared config (src/config/vans.ts) and there is no carry-over of any kind, so
+    //     a seeded "yesterday was checked" row would be a fact the product does not have. A fresh
+    //     day therefore reads the way the demo is walked: every van column says "Using default
+    //     setup", nothing is confirmed until the front desk confirms it on the ramp, and no plan
+    //     exists, so the live map stays locked until one is saved (§9.1).
 
     // 7. Mon–Fri plans, the single date exception, and today's attendance row per child.
     await insert(tx, "ops.attendance_plan",

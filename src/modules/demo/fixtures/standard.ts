@@ -14,9 +14,22 @@
 
 /* ───────────────────────────── ids ───────────────────────────── */
 
+import { NEED_CATEGORY } from "@/config/equipment";
+
 /** Deterministic, UUIDv7-shaped fixture id. `kind` namespaces the entity, `n` numbers it within the kind. */
 export const demoId = (kind: number, n: number): string =>
   `01900000-0000-7000-8000-${kind.toString(16).padStart(4, "0")}${n.toString(16).padStart(8, "0")}`;
+
+/**
+ * The demo centre every screen's data belongs to — `ops.site` row `…00000000000a`, which
+ * src/auth/seed.ts creates as site A.
+ *
+ * It lives here, in the pure fixture module, because a surface that needs it must not have to
+ * import the *seed* to get it: the seed truncates data, and src/modules/demo/build-isolation.test.ts
+ * holds the line that only the two deliberate entry points may reach it. The seed reads the same
+ * constant from here, so there is one id and not two.
+ */
+export const DEMO_SITE_ID = "01900000-0000-7000-8000-00000000000a";
 
 /** Id namespaces. 0x0000 is reserved: src/auth/seed.ts uses it for the org, sites and staff users. */
 export const KIND = {
@@ -24,8 +37,16 @@ export const KIND = {
   need: 0x17, person: 0x18, therapist: 0x19, session: 0x1a, provider: 0x1b, vehicle: 0x1c,
   layout: 0x1d, position: 0x1e, capability: 0x1f, plan: 0x20, exception: 0x21, attendanceDay: 0x22,
   manifest: 0x23, leg: 0x24, reservation: 0x25,
-  /** `ops.approval_request` — the row a proposal is, and the row a coordinator decides. */
-  approvalRequest: 0x26,
+  /** `ops.vehicle_setup_day` — the ramp's per-van, per-date check (the board branch). */
+  setupDay: 0x26,
+  /**
+   * `ops.approval_request` — the row a proposal is, and the row a coordinator decides.
+   *
+   * 0x27 and not 0x26: this branch and the board branch each claimed the next free namespace
+   * while apart, and two namespaces with one byte would hand a setup row and an approval row the
+   * same uuid. A namespace is only ever appended here, never reused.
+   */
+  approvalRequest: 0x27,
 } as const;
 
 /* ───────────────────────────── types ───────────────────────────── */
@@ -38,10 +59,19 @@ export type AuthScope =
   | "RECEIVE_TRANSPORT_UPDATES" | "CANCEL_LEG" | "CHANGE_PICKUP_INSTRUCTIONS"
   | "CONFIRM_AVAILABILITY_TO_RECEIVE" | "RECEIVE_ATTENDANCE_UPDATES" | "ACCESS_SENSITIVE_INFO" | "RECEIVE_CHILD";
 
-/** PRD §9 approved-need categories (l.880), pending CA-05. */
+/**
+ * PRD §9 approved-need categories (l.880), pending CA-05.
+ *
+ * The five the product actually reads and writes come from the shared list
+ * (src/config/equipment.ts `NEED_CATEGORY`) rather than being spelled a second time here: a
+ * fixture that spells a category in its own words is a fixture that can drift from the panel, the
+ * write path and the planner, which is the gate Veri set on 2026-10-17 at 7:27 PM ET. The rest
+ * are the deferred ones — written by the seed, read by nothing (conflicts C3 and C7).
+ */
 export const NEED_CATEGORIES = [
-  "WHEELCHAIR_SECUREMENT", "LIFT_OR_RAMP", "CAR_SEAT_OR_BOOSTER", "HARNESS_OR_VEST", "ATTENDANT_ESCORT",
-  "SEATING_SEPARATION", "MAX_RIDE_TIME", "EQUIPMENT_DIMENSIONS", "MEDICAL_DEVICE_POWER",
+  NEED_CATEGORY.wheelchair, "LIFT_OR_RAMP", NEED_CATEGORY.carSeat, NEED_CATEGORY.harness,
+  NEED_CATEGORY.nurse, "SEATING_SEPARATION", "MAX_RIDE_TIME", "EQUIPMENT_DIMENSIONS",
+  "MEDICAL_DEVICE_POWER", NEED_CATEGORY.oxygen,
 ] as const;
 export type NeedCategory = (typeof NEED_CATEGORIES)[number];
 
@@ -147,7 +177,7 @@ const SCENARIO_CHILDREN: Child[] = [
   {
     key: "C1", familyKey: "F1", firstName: "Mia", lastInitial: "R", label: "Mia R.", dob: "2022-03-14",
     stopKey: "S1", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:10", pmWindow: "15:55",
-    needs: [{ category: "CAR_SEAT_OR_BOOSTER", value: { type: "FORWARD_FACING_CAR_SEAT" }, state: "APPROVED", evidenceRef: "intake/C1" }],
+    needs: [{ category: NEED_CATEGORY.carSeat, value: { type: "FORWARD_FACING_CAR_SEAT" }, state: "APPROVED", evidenceRef: "intake/C1" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
@@ -155,7 +185,7 @@ const SCENARIO_CHILDREN: Child[] = [
     stopKey: "S2", mobility: "WC", wcLengthCm: 108, wcWidthCm: 64, securement: "L_TRACK", tether: false,
     amMode: "CENTER", pmMode: "CENTER", amWindow: "06:50", pmWindow: "16:20",
     needs: [
-      { category: "WHEELCHAIR_SECUREMENT", value: { securement: "L_TRACK", position: "FIXED" }, state: "APPROVED", evidenceRef: "intake/C2" },
+      { category: NEED_CATEGORY.wheelchair, value: { securement: "L_TRACK", position: "FIXED" }, state: "APPROVED", evidenceRef: "intake/C2" },
       { category: "LIFT_OR_RAMP", value: { required: "LIFT" }, state: "APPROVED", evidenceRef: "intake/C2" },
       { category: "EQUIPMENT_DIMENSIONS", value: { lengthCm: 108, widthCm: 64 }, state: "APPROVED", evidenceRef: "intake/C2" },
     ],
@@ -170,13 +200,13 @@ const SCENARIO_CHILDREN: Child[] = [
   {
     key: "C4", familyKey: "F4", firstName: "Ava", lastInitial: "N", label: "Ava N.", dob: "2020-11-19",
     stopKey: "S4", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:25", pmWindow: "15:40",
-    needs: [{ category: "CAR_SEAT_OR_BOOSTER", value: { type: "BOOSTER" }, state: "APPROVED", evidenceRef: "intake/C4" }],
+    needs: [{ category: NEED_CATEGORY.carSeat, value: { type: "BOOSTER" }, state: "APPROVED", evidenceRef: "intake/C4" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
     key: "C5", familyKey: "F4", firstName: "Eli", lastInitial: "N", label: "Eli N.", dob: "2022-06-08",
     stopKey: "S4", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:25", pmWindow: "15:40",
-    needs: [{ category: "CAR_SEAT_OR_BOOSTER", value: { type: "REAR_FACING_CAR_SEAT" }, state: "APPROVED", evidenceRef: "intake/C5" }],
+    needs: [{ category: NEED_CATEGORY.carSeat, value: { type: "REAR_FACING_CAR_SEAT" }, state: "APPROVED", evidenceRef: "intake/C5" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
@@ -184,12 +214,18 @@ const SCENARIO_CHILDREN: Child[] = [
     stopKey: "S5", mobility: "WC", wcLengthCm: 128, wcWidthCm: 70, securement: "FOUR_POINT_STRAP", tether: true,
     escortRequired: true, amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "06:45", pmWindow: "16:15",
     needs: [
-      { category: "WHEELCHAIR_SECUREMENT", value: { securement: "FOUR_POINT_STRAP", position: "TILT_IN_SPACE" }, state: "APPROVED", evidenceRef: "intake/C6" },
+      { category: NEED_CATEGORY.wheelchair, value: { securement: "FOUR_POINT_STRAP", position: "TILT_IN_SPACE" }, state: "APPROVED", evidenceRef: "intake/C6" },
       { category: "LIFT_OR_RAMP", value: { required: "LIFT" }, state: "APPROVED", evidenceRef: "intake/C6" },
-      { category: "ATTENDANT_ESCORT", value: { escort: "NURSE" }, state: "APPROVED", evidenceRef: "intake/C6" },
+      { category: NEED_CATEGORY.nurse, value: { escort: "NURSE" }, state: "APPROVED", evidenceRef: "intake/C6" },
       { category: "EQUIPMENT_DIMENSIONS", value: { lengthCm: 128, widthCm: 70 }, state: "APPROVED", evidenceRef: "intake/C6" },
-      // The one reported-but-unapproved item (PRD l.1329 "needs with statuses incl. one unapproved reported item").
-      // Fulfillment counts approved needs only (DECISION-LEDGER row 1), so this must not change today's plan.
+      // Oxygen, approved (founder 2026-10-17 7:17 PM ET). It was `MEDICAL_DEVICE_POWER` and
+      // `REPORTED`, which meant the day's one oxygen rider was planned against nothing and every
+      // van's Oxygen meter read 0 of what it carries. The category comes from the shared list.
+      { category: NEED_CATEGORY.oxygen, value: { device: "PORTABLE_CONCENTRATOR" }, state: "APPROVED", evidenceRef: "intake/C6" },
+      // The one reported-but-unapproved item (PRD l.1329 "needs with statuses incl. one unapproved
+      // reported item"). Fulfilment counts approved needs only (DECISION-LEDGER row 1), so this
+      // must not change today's plan — and now that oxygen is approved, the suction is what keeps
+      // that promise demonstrable.
       { category: "MEDICAL_DEVICE_POWER", value: { device: "PORTABLE_SUCTION", note: "awaiting operational-need approval" }, state: "REPORTED" },
     ],
     scopes: FULL_SCOPES, censusPad: false,
@@ -197,7 +233,7 @@ const SCENARIO_CHILDREN: Child[] = [
   {
     key: "C7", familyKey: "F6", firstName: "Owen", lastInitial: "C", label: "Owen C.", dob: "2021-12-05",
     stopKey: "S6", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:00", pmWindow: "16:00",
-    needs: [{ category: "HARNESS_OR_VEST", value: { type: "VEST" }, state: "APPROVED", evidenceRef: "intake/C7" }],
+    needs: [{ category: NEED_CATEGORY.harness, value: { type: "VEST" }, state: "APPROVED", evidenceRef: "intake/C7" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
@@ -516,8 +552,14 @@ export const indexOfChild = (key: string): number => CHILDREN.findIndex((c) => c
  * the truncate into its import graph to find out; the seed reads these too, so there is still one
  * definition (`seed.ts`).
  */
-export const demoChildToken = (childKey: string): string =>
-  demoId(KIND.child, requireChildIndex(childKey) + 1);
+/**
+ * The older name for {@link childTokenOf}, which is the same formula.
+ *
+ * Both names arrived from different branches — this one from the agent's scope tokens, the other
+ * from the plan board — and they computed `demoId(KIND.child, …)` twice. This delegates so there
+ * is one formula; a caller may use either name.
+ */
+export const demoChildToken = (childKey: string): string => childTokenOf(childKey);
 
 export const demoLegId = (childKey: string, direction: "AM" | "PM"): string =>
   demoId(KIND.leg, requireChildIndex(childKey) * 2 + (direction === "AM" ? 1 : 2));
@@ -532,3 +574,31 @@ export const runOfChild = (key: string): Run | undefined => RUNS.find((r) => r.c
 
 /** Every coordinate this fixture set may use (MOCKS §1); the seed linter enforces the same list. */
 export const ALLOWED_COORDS: number[] = STOPS.flatMap((s) => [s.lat, s.lng]);
+
+/* ───────────────────────── the ids the database holds ───────────────────────── */
+
+/**
+ * The deterministic `ops.child_profile.child_token` and `ops.vehicle.id` for a fixture key.
+ *
+ * The seed has always built these (src/modules/demo/seed.ts), and until the plan board nothing
+ * outside the seed needed them: the screens ran on the fixtures and the keys were their own
+ * vocabulary. The board stores a plan in `ops.plan_assignment`, so the key has to become the id
+ * the row's foreign key points at, and — since the board's addresses and markup carry ids rather
+ * than codes (§9.3: "Ids, never codes, go in the URL and never on screen") — back again on the
+ * way in. One formula, here, read by both: a second copy would be a plan written against child
+ * tokens no `child_profile` row has.
+ */
+export const childTokenOf = (key: string): string => demoId(KIND.child, idxOrThrow(CHILDREN, key) + 1);
+export const vehicleIdOf = (key: string): string => demoId(KIND.vehicle, idxOrThrow(VEHICLES, key) + 1);
+
+/** The fixture key an id belongs to, or `null` for an id this scenario does not have. */
+export const childKeyOfToken = (token: string): string | null =>
+  CHILDREN.find((c) => childTokenOf(c.key) === token)?.key ?? null;
+export const vehicleKeyOfId = (id: string): string | null =>
+  VEHICLES.find((v) => vehicleIdOf(v.key) === id)?.key ?? null;
+
+function idxOrThrow<T extends { key: string }>(xs: readonly T[], key: string): number {
+  const i = xs.findIndex((x) => x.key === key);
+  if (i < 0) throw new Error(`unknown fixture key ${key}`);
+  return i;
+}

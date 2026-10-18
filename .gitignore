@@ -10,7 +10,10 @@ coverage/
 # Copied out of node_modules by scripts/copy-maplibre-worker.mjs, never committed
 /public/maplibre-gl-worker.mjs
 # Browser-check output: screenshots and traces (pnpm e2e)
-artifacts/
+artifacts/*
+# …except the review set this PR is gated on: the ramp and board at both widths, for all three
+# roles, plus the PR body that cites them. Committed on purpose — they are the visual proof.
+!artifacts/rework-ramp-board/
 /test-results/
 .DS_Store
 next-env.d.ts

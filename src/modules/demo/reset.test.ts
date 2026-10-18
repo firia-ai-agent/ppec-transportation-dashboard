@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { freshDb, ORG, SITE } from "@/test/pglite";
-import { getSavedPlan, putSavedPlan } from "./plan-store";
+import { clearMemoryPlanStore, memoryPlanStore } from "@/modules/plan/memory";
 import { BOARD_CENSUS } from "./fixtures/standard";
 import { PREVIEW_REFUSAL, demoControlsGate, handleDemoReset } from "./reset";
 
@@ -122,25 +122,29 @@ describe("POST /api/demo/reset gating (ADR-014, ADR-015)", () => {
   }, 60_000);
 
   /**
-   * A reset forgets the saved plans too.
+   * A reset forgets the saved plans too — on both sides of the store.
    *
-   * Plan routes keeps its plan in the demo's own state rather than in a table
-   * (src/modules/demo/plan-store.ts), so it is not something a TRUNCATE reaches — and a day that
-   * has just been re-seeded cannot still have last night's plan of it hanging about.
+   * The plan lives in `ops.plan_run` / `ops.plan_assignment` now (migration 0009), which the
+   * seed's own TRUNCATE clears. The memory store is the other side: the browser check runs with
+   * no database at all (src/modules/plan/memory.ts), and a day that has just been re-seeded
+   * cannot still have last night's plan of it hanging about there either.
    */
   it("forgets a plan saved for the demo day", async () => {
-    putSavedPlan({
-      scenario: "EVERY_RIDER_FITS",
+    clearMemoryPlanStore();
+    const store = memoryPlanStore();
+    const saved = await store.savePlan(SITE, {
+      date: "2026-10-14",
       direction: "AM",
-      stages: { V1: { vehicleKey: "V1", arrival: "REPORTED" } },
-      measured: [],
-      assignment: { V1: ["C7"] },
-      savedAt: "2026-10-14T11:02:00.000Z",
+      version: 0,
+      placements: { "01900000-0000-7000-8000-001100000007": { bucket: "UNASSIGNED", vanId: null, pinned: true } },
+      savedBy: null,
+      now: new Date("2026-10-14T11:02:00.000Z"),
     });
-    expect(getSavedPlan("EVERY_RIDER_FITS", "AM")).not.toBeNull();
+    expect(saved.ok).toBe(true);
+    expect(await store.loadPlan(SITE, "2026-10-14", "AM")).not.toBeNull();
     const done = await handleDemoReset(db, env, { userId: USERS.DIRECTOR, now: NOW });
     expect(done.status).toBe(200);
-    expect(getSavedPlan("EVERY_RIDER_FITS", "AM")).toBeNull();
+    expect(await store.loadPlan(SITE, "2026-10-14", "AM")).toBeNull();
   });
 
   it("a director gets the scenario, the counts and the board census back", async () => {

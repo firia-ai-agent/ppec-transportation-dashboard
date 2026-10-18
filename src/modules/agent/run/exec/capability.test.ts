@@ -8,6 +8,7 @@
  * when they have texted STOP. Before slice 4 such a message could only queue and then be blocked,
  * which is why `send_followup` refused the audience outright.
  */
+import { NEED_CATEGORY } from "@/config/equipment";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import { uuidv7 } from "uuidv7";
@@ -93,7 +94,7 @@ const requestCall = (over: Record<string, unknown> = {}) =>
     vehicle_token: route.vehicleId,
     provider_token: route.providerId,
     route_token: route.manifestId,
-    required: ["WHEELCHAIR_SECUREMENT", "LIFT_OR_RAMP"],
+    required: [NEED_CATEGORY.wheelchair, "LIFT_OR_RAMP"],
     ...over,
   });
 
@@ -179,7 +180,7 @@ describe("§11.2 the capability question: at T−90, to the dispatcher, state RE
     expect((await toolCalls(db, r.runId))[0].result).toMatchObject({
       capability_state: "REQUESTED",
       link_state: LINK_CREATED,
-      required: ["WHEELCHAIR_SECUREMENT", "LIFT_OR_RAMP"],
+      required: [NEED_CATEGORY.wheelchair, "LIFT_OR_RAMP"],
     });
   });
 

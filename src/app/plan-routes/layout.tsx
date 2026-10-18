@@ -9,9 +9,9 @@ export const dynamic = "force-dynamic";
  * The console shell around Plan routes — the same header, nav, identity and scenario clock the
  * four routes inside src/app/(app) get, from the same component (src/ui/ConsoleShell.tsx).
  *
- * Why a layout here rather than a move into that group: the screen is built and its files are
- * being edited elsewhere, and this route's address is read out loud in a demo. A layout is the
- * one way to put the menu on a screen without renaming anything on it.
+ * Why a layout here rather than a move into that group: this route's address is read out loud in
+ * a demo, and a layout is the one way to put the menu on a screen without renaming anything on
+ * it. The screen inside is the rebuilt board (redesign spec §1, Rework 2).
  *
  * The split is the group's: this row asks only for a session, and the page inside it checks the
  * role against its own row (/plan-routes is the two console roles), so a refusal is still
@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function PlanRoutesLayout({ children }: { children: ReactNode }) {
   const caller = await requirePage(LAYOUT.planRoutes);
-  // The screen is its own `<main>` with its own padding (PlanRoutes.tsx).
+  // The screen is its own `<main>` with its own padding (board/PlanBoard.tsx).
   return (
     <ConsoleShell caller={caller} pageOwnsMain>
       {children}

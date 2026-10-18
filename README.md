@@ -48,6 +48,23 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm seed:lint
 pnpm e2e                              # browser check, and the one command that regenerates
                                       # every screenshot in artifacts/ — see "Browser check" below
 ```
+### Database tests
+`pnpm test` runs every DB-backed suite in-process against **PGlite**, with all of `drizzle/`
+applied: no setup, no server, nothing to point anywhere by accident.
+
+To run the plan board's own storage tests (`ops.vehicle_setup_day`, `ops.plan_run`,
+`ops.plan_assignment` — migration 0009) against a **real Postgres you started yourself**:
+```
+docker run --rm -d -p 55432:5432 -e POSTGRES_PASSWORD=pw --name ppec-throwaway postgres:17
+TEST_DATABASE_URL=postgres://postgres:pw@localhost:55432/postgres pnpm test:db
+docker rm -f ppec-throwaway
+```
+The suite applies every migration itself and **drops and recreates the `ops` and `identity`
+schemas** before it does. So: a throwaway local database only. **Never point `TEST_DATABASE_URL`
+at the shared Neon database** (production and previews share one, DECISION-LEDGER #43) or at any
+database whose contents matter — `src/test/pglite.ts` refuses any host that is not loopback, and
+that check is the last line of defence rather than the plan.
+
 Health: `GET /api/health` returns the deployed commit, environment, data class and the Postgres role the deployment logs in as (`dbRole`, from `SELECT current_user` — the role name only, never a credential, URL or host; `null` when the query cannot be made). Infra state: `INFRA-BASELINE.md`, `DATABASES.md`, `INFRA-TEMP.md`.
 
 ## Map (M5, ADR-008)
@@ -86,6 +103,16 @@ E2E_DEMO_ROLE=FRONT_DESK pnpm e2e e2e/role-pages.spec.ts
                                          # while the API still answers 403: not-on-menu-<role>-<page>-
                                          # <width>.png. Only the front desk has a page to be refused.
 pnpm e2e e2e/moved-addresses.spec.ts     # /plan-preview, /map-preview, /ramp-preview still 308 to the screens
+```
+
+**The ramp and board review set** (redesign spec §1 and §2) is one walk per role, because one run
+is one role, and it writes `artifacts/rework-ramp-board/<role>-<screen>-<width>.png` — the one
+screenshot directory that is **committed**, since it is the visual proof those two screens are
+gated on:
+```
+E2E_PORT=3211 E2E_DEMO_ROLE=DIRECTOR    pnpm e2e e2e/rework-ramp-board.spec.ts
+E2E_PORT=3212 E2E_DEMO_ROLE=COORDINATOR pnpm e2e e2e/rework-ramp-board.spec.ts
+E2E_PORT=3213 E2E_DEMO_ROLE=FRONT_DESK  pnpm e2e e2e/rework-ramp-board.spec.ts
 ```
 
 **The rail on a deployment.** `e2e/deployed-rail.spec.ts` is the one spec that does not use the

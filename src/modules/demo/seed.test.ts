@@ -1,3 +1,4 @@
+import { NEED_CATEGORY } from "@/config/equipment";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
@@ -5,7 +6,7 @@ import { freshDb, SITE } from "@/test/pglite";
 import { PRESERVED_TABLES, RESET_TABLES, SEEDED_TABLES, seedStandardScenario, type SeedResult } from "./seed";
 import {
   ALLOWED_COORDS, BOARD_CENSUS, CHILDREN, DATE_EXCEPTION, EXTERNAL_PEOPLE, FAMILIES, RUNS, STOPS, VEHICLES,
-  WEEKDAY_RRULE,
+  WEEKDAY_RRULE, vehicleIdOf,
 } from "./fixtures/standard";
 
 const env = { APP_DATA_CLASS: "SYNTHETIC", DEMO_MODE: "1", HMAC_PEPPER: "test-pepper", DATA_KEY: "test-data-key" };
@@ -34,7 +35,7 @@ describe("standard scenario seed (PRD §18.1)", () => {
       "ops.contact_authorization": 82,
       "ops.stop_location": 11,
       "ops.transport_profile": 28,
-      "ops.transport_need_item": 13,
+      "ops.transport_need_item": 14,
       "ops.therapist": 2,
       "ops.therapy_session": 2,
       "ops.provider": 3,
@@ -42,6 +43,7 @@ describe("standard scenario seed (PRD §18.1)", () => {
       "ops.vehicle_layout": 6,
       "ops.layout_position": 23,
       "ops.vehicle_capability_day": 4,
+      // One CHECKED setup per van on the board, dated yesterday (the §9 reset contract).
       "ops.attendance_plan": 28,
       "ops.attendance_exception": 1,
       "ops.attendance_day": 28,
@@ -128,7 +130,7 @@ describe("standard scenario seed (PRD §18.1)", () => {
     expect(needs).toEqual([
       { category: "EQUIPMENT_DIMENSIONS", state: "APPROVED" },
       { category: "LIFT_OR_RAMP", state: "APPROVED" },
-      { category: "WHEELCHAIR_SECUREMENT", state: "APPROVED" },
+      { category: NEED_CATEGORY.wheelchair, state: "APPROVED" },
     ]);
     const seat = await rows<{ lift_equipped: boolean; lift_required: boolean; securement: string; max_length_cm: number; max_width_cm: number }>(`
       SELECT v.lift_equipped, vl.lift_required, pos.securement, pos.max_length_cm, pos.max_width_cm
@@ -280,6 +282,24 @@ describe("standard scenario seed (PRD §18.1)", () => {
     expect(cap).toEqual([{ state: "UNKNOWN", n: VEHICLES.length }]);
     // V3 is the reserve vehicle: no run of its own (AT-05 substitution).
     expect(RUNS.some((run) => run.vehicleKey === "V3")).toBe(false);
+  });
+
+  /**
+   * The reset contract as re-cut on 2026-10-17 6:00 PM ET (Firia/Veri): a fresh day has **no**
+   * van setup at all, for today or for any earlier day, and no saved plan.
+   *
+   * There is no carry-over in the product, so there is none in the seed either: every van is
+   * planned on its shared-config defaults and every column says "Using default setup" until the
+   * front desk confirms it at the ramp, and the live map stays locked until a plan is saved.
+   */
+  it("starts the day with no van setup and no plan, for any date", async () => {
+    const setups = await rows<{ n: number }>("SELECT count(*)::int AS n FROM ops.vehicle_setup_day");
+    expect(setups).toEqual([{ n: 0 }]);
+    const counts = await one<{ setups_today: number; runs: number; assignments: number }>(`
+      SELECT (SELECT count(*)::int FROM ops.vehicle_setup_day WHERE service_date = $1::date) AS setups_today,
+             (SELECT count(*)::int FROM ops.plan_run) AS runs,
+             (SELECT count(*)::int FROM ops.plan_assignment) AS assignments`, [r.serviceDate]);
+    expect(counts).toEqual({ setups_today: 0, runs: 0, assignments: 0 });
   });
 
   it("keeps permanent test opt-outs and clears everything else a reset owns", async () => {

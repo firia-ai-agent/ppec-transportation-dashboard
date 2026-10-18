@@ -28,6 +28,7 @@
  *  - `record_acknowledgment(ack_id, contact …)` → `ack_id` only: the pending acknowledgment row
  *    already binds its contact, so the agent names the ack, never the person (rule 1).
  */
+import { NEED_CATEGORY } from "@/config/equipment";
 import { z } from "zod";
 import { KNOWN_STOP_TOKENS } from "@/modules/messaging/templates";
 import { TEMPLATE_VARS } from "@/modules/outbox/outbox";
@@ -107,9 +108,16 @@ const CANCEL_REASON_CODES = ["ILLNESS", "FAMILY_DROPOFF", "FAMILY_REQUEST", "APP
 const AMBIGUITY_TYPES = ["WHICH_CHILD", "WHICH_LEG", "WHICH_DATE", "WHICH_DAY_PART", "UNKNOWN_INTENT"] as const;
 /** Fixed-copy clarification bodies. A clarification is still an outbound message, so it is a template, not a draft. */
 const CLARIFICATION_TEMPLATE_IDS = ["generic.notice"] as const;
+/**
+ * The need categories a tool argument may name. The five the product reads and writes come from
+ * the one shared list (src/config/equipment.ts) rather than being spelled again here: two
+ * vocabularies for one category is how a tool call and the board stop agreeing (Veri's gate,
+ * 2026-10-17 7:27 PM ET).
+ */
 const NEED_REQUIREMENTS = [
-  "WHEELCHAIR_SECUREMENT", "LIFT_OR_RAMP", "CAR_SEAT_OR_BOOSTER", "HARNESS_OR_VEST", "ATTENDANT_ESCORT",
-  "SEATING_SEPARATION", "MAX_RIDE_TIME", "EQUIPMENT_DIMENSIONS", "MEDICAL_DEVICE_POWER",
+  NEED_CATEGORY.wheelchair, "LIFT_OR_RAMP", NEED_CATEGORY.carSeat, NEED_CATEGORY.harness,
+  NEED_CATEGORY.nurse, "SEATING_SEPARATION", "MAX_RIDE_TIME", "EQUIPMENT_DIMENSIONS",
+  "MEDICAL_DEVICE_POWER", NEED_CATEGORY.oxygen,
 ] as const;
 
 /**
