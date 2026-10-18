@@ -152,7 +152,7 @@ async function viewOf(
      * decision have to be looking at the same sentence, which is the whole point of the check.
      */
     draftText: bodyOf(
-      { template_id: row.templateId, vars: { ...row.vars } },
+      { template_id: row.templateId, vars: { ...row.vars }, drafts: row.drafts },
       time,
       row.childLabel === "" ? null : row.childLabel,
     ),
@@ -161,8 +161,13 @@ async function viewOf(
      * same function `decideApproval` asks before it accepts an edited reply — so the card cannot
      * offer a field on a message the decision would refuse to take one for, and cannot withhold
      * one it would.
+     *
+     * The LATEST draft since PPE-106: a time change redrafts the reply through a POST and stores
+     * the new sentence on the row (`approvals/redraft.ts`), and the box has to hold what Approve
+     * would send. `row.drafts` is that list, and the two reads above and below take it together —
+     * the bubble and the box are the same sentence, one rendered and one not.
      */
-    draftReplyText: editableReply(row.templateId, row.vars),
+    draftReplyText: editableReply({ template_id: row.templateId, vars: row.vars, drafts: row.drafts }),
     requestedHhmm: time,
     alertText: row.alertText,
   };

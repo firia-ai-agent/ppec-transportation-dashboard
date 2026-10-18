@@ -45,7 +45,7 @@ import {
 } from "@/modules/demo/fixtures/standard";
 import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
 import { approval, familyTexts, fill } from "@/ui/copy";
-import type { DecisionState } from "./actions";
+import type { DecisionState, RedraftState } from "./actions";
 import { conversationRows, threadView, type ProposalView } from "./conversations";
 import { approvalQueue } from "./queue";
 import { TextsScreen } from "./TextsScreen";
@@ -130,6 +130,7 @@ function render(a: {
       editedTime: null,
       threadOpen: false,
       decide: async (): Promise<DecisionState> => ({ status: "idle" }),
+      redraft: async (): Promise<RedraftState> => ({ status: "idle" }),
       takeAlert: async () => {},
       showForYouTab: true,
     }),
@@ -233,6 +234,7 @@ describe("a model that cannot be reached means the alert, never a scripted card 
           editedTime: null,
           threadOpen: false,
           decide: async (): Promise<DecisionState> => ({ status: "idle" }),
+          redraft: async (): Promise<RedraftState> => ({ status: "idle" }),
           takeAlert: async () => {},
           showForYouTab: true,
         }),

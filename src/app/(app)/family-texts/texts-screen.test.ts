@@ -51,7 +51,7 @@ import {
   type ProposalView,
   type TabKey,
 } from "./conversations";
-import type { DecisionState } from "./actions";
+import type { DecisionState, RedraftState } from "./actions";
 import type { Thread } from "./thread";
 import { ROW_STATES } from "./row-state";
 
@@ -166,6 +166,8 @@ beforeAll(async () => {
 
 /** The action is never called in a static render; it is here to satisfy the prop. */
 const decide = async (): Promise<DecisionState> => ({ status: "idle" });
+/** The redraft POST, as a prop. A static render never calls it either (PPE-107). */
+const redraft = async (): Promise<RedraftState> => ({ status: "idle" });
 /**
  * The take-alert POST, as a prop. A render never calls it — which is the point of S1-4 and is
  * asserted in `alert-taken-on-post.test.ts`; here it is just the shape the screen needs.
@@ -221,6 +223,7 @@ function render(a: {
       editedTime: null,
       threadOpen: a.threadOpen ?? false,
       decide,
+      redraft,
       takeAlert: takeAlertSpy,
       showForYouTab: mayApprove,
     }),
@@ -448,11 +451,61 @@ describe("PPE-97: the draft reply is a field, and the press that approves carrie
 
   it("is still the one write path: every control posts the same action", () => {
     const card = cardOf(render({ editing: true, proposal: REPLY_PROPOSAL }));
-    // Two forms on the card in this state: the decision (POST, with the words) and the time
-    // field's own navigation (GET). No third, and no form with an action of its own.
+    /*
+     * ONE form on the card in this state (PPE-107). It used to be two: the decision, and the time
+     * field's own `GET` navigation — which re-rendered the page and wiped the box beside it. The
+     * time is inside the decision's form now and its button submits that form to the redraft
+     * action, so there is no GET on this card at all while it is open and no form with a URL of
+     * its own.
+     */
     const forms = card.match(/<form[^>]*>/g) ?? [];
-    expect(forms).toHaveLength(2);
-    expect(forms.filter((f) => f.includes('method="get"'))).toHaveLength(1);
+    expect(forms).toHaveLength(1);
+    expect(forms.filter((f) => f.includes('method="get"'))).toHaveLength(0);
+  });
+
+  /**
+   * PPE-107: the time and the reply are one form, and changing the time is a POST.
+   *
+   * The bug was two controls for one act. The time was a `GET` to this screen, so pressing it
+   * re-rendered the page — losing anything typed in the box — and the box came back holding the
+   * sentence the model wrote for the ORIGINAL time. Approve then moved the ride to the new minute
+   * and promised the family the old one (`approvals/redraft-for-new-time.test.ts` holds that half
+   * over rows).
+   */
+  describe("PPE-107: one form holds the time field and the reply box", () => {
+    it("has the time field in the same form as the box and the decision", () => {
+      const card = cardOf(render({ editing: true, proposal: REPLY_PROPOSAL }));
+      const forms = card.match(/<form[\s\S]*?<\/form>/g) ?? [];
+      expect(forms).toHaveLength(1);
+      const [form] = forms;
+      // The time as a field a person sets, the box, and both decisions — one POST carries all of
+      // it, so the words and the minute they are about cannot arrive separately.
+      expect(form).toContain('type="time"');
+      expect(form).toContain('name="time"');
+      expect(form).toContain('name="replyText"');
+      expect(form).toContain('value="APPROVED"');
+      expect(form).toContain('value="DECLINED"');
+      // And the time it shows is the one the latest stored draft was written for (`queue.ts`).
+      expect(form).toContain(`value="${REPLY_PROPOSAL.requestedHhmm}"`);
+    });
+
+    it("puts the redraft on a button inside it, not on a form of its own", () => {
+      const html = render({ editing: true, proposal: REPLY_PROPOSAL });
+      const card = cardOf(html);
+      // "Update the time" is a submit button with its own `formAction`, which React renders as a
+      // button inside the one form. No second form, and nothing to navigate to.
+      expect(textOf(html)).toContain(approval.editApply);
+      expect(card).not.toMatch(/method="get"/);
+      expect(card).not.toContain("?time=");
+    });
+
+    it("shows no time field at all until Edit is pressed", () => {
+      // The resting card has no field on it (Firia, 10:51 PM ET) — the time rides as the hidden
+      // value the press carries, and Edit is the navigation that opens the fields.
+      const card = cardOf(render({ proposal: REPLY_PROPOSAL }));
+      expect(card).not.toContain('type="time"');
+      expect(card).toContain(`name="time" value="${REPLY_PROPOSAL.requestedHhmm}"`);
+    });
   });
 });
 

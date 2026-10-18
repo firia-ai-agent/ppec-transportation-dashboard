@@ -27,6 +27,24 @@
  * Declining writes the decision and nothing else: no ride moves and no message is queued. That is
  * the whole of what "Don't send" means, and `familyTexts.declined` says it on screen.
  *
+ * ## THE WORDS AND THE TIME HAVE TO BE ABOUT EACH OTHER (PPE-106, Veri's S1 of 2026-10-18)
+ *
+ * A coordinator who moved the drop-off to 5:45 and pressed Approve without retyping used to move
+ * the leg to 5:45 and queue the model's sentence about five o'clock. Two things close that, and
+ * neither of them reads a time out of a sentence — there is no keyword reader in this app:
+ *
+ *  - **every draft is stored with the time it was written for** (`drafts.ts`), written by the
+ *    redraft POST a time change now makes (`redraft.ts`), inside the proposal jsonb. The card
+ *    shows the latest of them and this function sends it.
+ *  - **a press whose words were drafted for another time is refused** by name
+ *    (`DRAFT_FOR_OTHER_TIME`), before anything is claimed. The server does not rewrite the words
+ *    for a time nobody read them against, which is what the retired `sendShape` fallback did.
+ *
+ * And the decision records what it was about — the model's draft, the draft on screen, the words
+ * sent, whether they were the coordinator's own, and the time — in that same jsonb
+ * (`decisionDetail`). No column, and no message text in `ops.audit_event`, whose own schema
+ * comment says "Hash-only for message content".
+ *
  * ## The guards
  *
  * Role **and** tenant, both, and neither inferred from the fact that a button was rendered (the
@@ -62,7 +80,8 @@ import { APPROVAL_ROLES } from "@/auth/access";
 import type { Db, Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import { boardPlacementPort, type PlacementBucket, type PlanPlacementPortFor } from "./plan-placement-port";
-import { DROPOFF_CHANGE_KIND, DROPOFF_CHANGE_TEMPLATE, DROPOFF_REPLY_TEMPLATE } from "./dropoff-change";
+import { DROPOFF_CHANGE_KIND, DROPOFF_REPLY_TEMPLATE } from "./dropoff-change";
+import { draftsOf, isClock, latestDraft, type StoredDraft } from "./drafts";
 import { MESSAGE_SEND_KIND } from "./message-send";
 import { replyTextIssue } from "@/modules/messaging/reply-text";
 import { renderTemplate } from "@/modules/messaging/templates";
@@ -108,6 +127,16 @@ export type PendingApproval = {
    */
   readonly templateId: string;
   readonly vars: Readonly<Record<string, unknown>>;
+  /**
+   * EVERY DRAFT THIS PROPOSAL HAS HAD, oldest first, each with the time it was written for
+   * (`drafts.ts`). Empty for a proposal whose words are the centre's fixed copy.
+   *
+   * Carried so the screen renders the **latest** of them rather than the model's first sentence:
+   * a time change redrafts the reply through `redraft.ts`, and the card has to show what it would
+   * send. The row's own `vars.replyText` is still the model's own and is still what a reader
+   * asking "was this drafted or did it fall back" reads.
+   */
+  readonly drafts: readonly StoredDraft[];
   /** The time being proposed, 24-hour, for the Edit control. Null when only the place moved. */
   readonly requestedTime: string | null;
   readonly stopToken: string;
@@ -193,6 +222,13 @@ type DropoffProposal = {
   requested_by_contact?: string | null;
   template_id?: string;
   vars?: Record<string, unknown>;
+  /**
+   * The drafts this proposal has had, each with the time it was written for (`drafts.ts`).
+   * `unknown` because it is read defensively out of a jsonb column, like everything else here.
+   */
+  drafts?: unknown;
+  /** What one decision was a decision about (`decisionDetail` below). Written, never read here. */
+  decision_detail?: unknown;
 };
 
 /**
@@ -236,7 +272,14 @@ function viewOf(row: ApprovalRow): PendingApproval {
     text: bodyOf(p, null, row.display_name),
     templateId: String(p.template_id ?? ""),
     vars: p.vars ?? {},
-    requestedTime: p.requested_dropoff_time ?? null,
+    drafts: draftsOf(p),
+    /*
+     * The time the card's own field shows: the one the LATEST draft was written for, falling back
+     * to the time the family asked for on a proposal that has no drafted sentence at all. The two
+     * are the same until somebody changes the time, and after that they must not be — a field
+     * showing 5 over a box holding the 5:45 sentence is the press this bug was about.
+     */
+    requestedTime: latestDraft(p)?.time ?? p.requested_dropoff_time ?? null,
     stopToken: String(p.stop_token ?? ""),
     rationaleCode: String(p.rationale_code ?? ""),
     alertText: typeof p.alert_text === "string" ? p.alert_text : "",
@@ -296,25 +339,31 @@ function sendShape(
   }
 
   /*
-   * AN EDITED TIME RETIRES THE MODEL'S SENTENCE (Firia, 2026-10-18 11:04 AM ET).
+   * THE LATEST STORED DRAFT IS WHAT AN UNEDITED PRESS SENDS (PPE-106/PPE-107, 2026-10-18).
    *
-   * The reply on the card names the time the parent asked for, in the model's own words ("we'll
-   * drop Noah off at 5 today"), because that is the ruling: the text answers what she asked. A
-   * coordinator who moves the time to 5:45 has made those words wrong, and nobody re-asks the
-   * model from a form post — so the body falls back to the fixed template for the edited time,
-   * which is exactly the sentence an edited drop-off has always sent. Keyed off `vars.eta` and not
-   * off the row's own column, so this screen's renderer and `decideApproval`'s reach the same
-   * answer from the same two inputs: the words a coordinator read stay the words that are sent,
-   * and an edit still needs a fresh press because the rendered text has changed.
+   * `drafts.ts` keeps every draft this proposal has had with the time it was written for, and the
+   * card shows the newest of them — so the newest of them is what "approve what I am looking at"
+   * means. For a row nobody has redrafted that is `vars.replyText`, the model's own sentence,
+   * which is what this line rendered before the list existed.
+   *
+   * WHAT IS GONE IS THE SERVER REWRITING THE WORDS. An edited time used to *retire* the model's
+   * sentence here: the body fell back to the fixed template (`dropoff.changed`) for the new time,
+   * on the theory that nobody re-asks the model from a form post. Somebody does now — a time
+   * change is a POST that redrafts (`redraft.ts`) — and the retirement was the other half of the
+   * bug it was meant to patch: the card showed one sentence, `sendShape` was handed the new time
+   * only on the decision, and the two did not have to agree. A press whose words were written for
+   * another time is refused in `decideApproval` (`DRAFT_FOR_OTHER_TIME`) rather than quietly sent
+   * in different words, so this function no longer chooses a template a coordinator never read.
+   *
+   * The fixed-copy templates are untouched by any of it: `dropoff.changed` renders its body from
+   * `eta`, it has no prose var to draft, and moving the time moves the one field it reads.
    */
-  const retired =
-    own === DROPOFF_REPLY_TEMPLATE &&
-    typeof overrideTime === "string" &&
-    overrideTime !== "" &&
-    overrideTime !== String(vars.eta ?? "");
-  if (retired) delete vars.replyText;
+  if (own === DROPOFF_REPLY_TEMPLATE) {
+    const latest = latestDraft(proposal);
+    if (latest !== null) vars.replyText = latest.text;
+  }
   if (overrideTime) vars.eta = overrideTime;
-  return { templateId: retired ? DROPOFF_CHANGE_TEMPLATE : own, vars };
+  return { templateId: own, vars };
 }
 
 /**
@@ -362,13 +411,53 @@ export function bodyOf(
  * The value is the sentence alone, without the `PPEC:` prefix the template adds — the prefix is
  * the machine's voice, and `reply-text.ts` refuses a reply that carries it.
  */
-export function editableReply(
-  templateId: string,
-  vars: Readonly<Record<string, unknown>>,
-): string | null {
-  if (templateId !== DROPOFF_REPLY_TEMPLATE) return null;
-  const drafted = typeof vars.replyText === "string" ? vars.replyText.trim() : "";
-  return drafted === "" ? null : drafted;
+export function editableReply(proposal: {
+  readonly template_id?: string;
+  readonly vars?: Readonly<Record<string, unknown>> | null;
+  readonly drafts?: unknown;
+  readonly requested_dropoff_time?: string | null;
+}): string | null {
+  if (String(proposal.template_id ?? "") !== DROPOFF_REPLY_TEMPLATE) return null;
+  /*
+   * THE LATEST draft, not the first (PPE-106). `drafts.ts` seeds the list from `vars.replyText`
+   * for a row that has none, so this is the model's own sentence until a time change redrafts it
+   * and the newest sentence afterwards — which is what the box holds and what Approve sends.
+   */
+  return latestDraft(proposal)?.text ?? null;
+}
+
+/**
+ * WHAT ONE DECISION IS RECORDED AS, or null for a proposal with no drafted sentence.
+ *
+ * Five fields, inside the proposal jsonb, written by the claim and read by nobody: the model's own
+ * first draft, the draft the card was showing, the words that went out, whether those were the
+ * coordinator's own, and the time agreed. `rewritten` is the trimmed press against the **latest**
+ * stored draft and not against the model's first one — a coordinator who kept a redrafted
+ * sentence wrote nothing, however far that sentence has travelled from the model's.
+ *
+ * There is no message text in `ops.audit_event` because of this: that table's own schema comment
+ * says "Hash-only for message content", so the sentences live on the row they are about.
+ */
+function decisionDetail(
+  proposal: DropoffProposal,
+  a: {
+    readonly decision: ApprovalDecision;
+    readonly editedText: string | null;
+    readonly time: string | null;
+  },
+): Record<string, unknown> | null {
+  const drafts = draftsOf(proposal);
+  const latest = drafts.length === 0 ? null : drafts[drafts.length - 1];
+  if (latest === null) return null;
+  const sent = a.editedText ?? latest.text;
+  return {
+    model_draft: drafts[0].text,
+    shown_draft: latest.text,
+    // Nothing was sent on a decline, and the record says so rather than naming words nobody got.
+    sent_text: a.decision === "APPROVED" ? sent : null,
+    rewritten: a.editedText !== null && a.editedText !== latest.text,
+    time: a.time,
+  };
 }
 
 export type DecideRequest = {
@@ -434,6 +523,19 @@ export type DecideError =
    */
   | "TEXT_NOT_EDITABLE"
   /**
+   * THE WORDS WERE WRITTEN FOR A DIFFERENT TIME (PPE-106, Veri's S1 of 2026-10-18).
+   *
+   * Every draft is stored with the time it was written for (`drafts.ts`), so this is a lookup and
+   * not a reading of anybody's sentence: the text on this press is one of this proposal's drafts,
+   * and none of the drafts with that text was written for the time on this press. The commonest
+   * way to get here is the one the bug was: move the time, do not retype, approve.
+   *
+   * A refusal and never a repair. The server does not rewrite a sentence for a time nobody read
+   * it against — that is what the redraft POST is for — so nothing is claimed, no ride moves and
+   * the card comes back pending with `approval.retypeForNewTime` on it.
+   */
+  | "DRAFT_FOR_OTHER_TIME"
+  /**
    * The words moved under the person deciding them (S1-7). An edit that re-rendered the message,
    * a copy change deployed while the tab was open, a proposal re-drafted since it was read — all
    * of them answer this, and all of them mean the same thing: read it again and decide again.
@@ -459,9 +561,6 @@ export type DecideError =
    */
   | "TIME_NOT_SAVED";
 
-/** A 24-hour wall-clock time, the only shape a coordinator's edit may take. */
-const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
-
 /**
  * The plan port this decision writes through (`plan-placement-port.ts`).
  *
@@ -479,7 +578,8 @@ export async function decideApproval(
   deps: ApprovalDeps = { placement: boardPlacementPort() },
 ): Promise<DecideResponse> {
   if (!req.userId) return { status: 401, body: { ok: false, error: "SIGN_IN" } };
-  if (req.editedTime !== undefined && req.editedTime !== null && !CLOCK.test(req.editedTime)) {
+  // A 24-hour wall clock is the only shape a coordinator's edit may take (`drafts.isClock`).
+  if (req.editedTime !== undefined && req.editedTime !== null && !isClock(req.editedTime)) {
     return { status: 422, body: { ok: false, error: "NOT_A_TIME" } };
   }
 
@@ -533,13 +633,63 @@ export async function decideApproval(
    */
   const editedText = typeof req.editedText === "string" ? req.editedText.trim() : null;
   if (editedText !== null) {
-    const editable = editableReply(String(proposal.template_id ?? ""), proposal.vars ?? {});
+    const editable = editableReply(proposal);
     if (kind !== DROPOFF_CHANGE_KIND || editable === null) {
       return { status: 422, body: { ok: false, error: "TEXT_NOT_EDITABLE" } };
     }
     if (replyTextIssue(editedText) !== null) {
       return { status: 422, body: { ok: false, error: "TEXT_NOT_SENDABLE" } };
     }
+  }
+
+  /*
+   * THE AGREED TIME, computed once: the time a coordinator typed, else the time the family asked
+   * for. The leg is moved to it at step 2b and every check below is about it.
+   */
+  const askedTime = String(proposal.requested_dropoff_time ?? "").trim();
+  /*
+   * Not shape-checked here, deliberately: a row whose stored time is not a clock is the leg
+   * writer's refusal (`TIME_NOT_SAVED`, `plan/leg-write.ts`) and has been since that step landed,
+   * which is a refusal with a reason rather than a decision that quietly moves no time.
+   */
+  const agreedTime = req.editedTime ?? (askedTime === "" ? null : askedTime);
+
+  /*
+   * A DRAFT WRITTEN FOR ANOTHER TIME IS NOT APPROVED (PPE-106, Veri's S1, 2026-10-18).
+   *
+   * The bug: the coordinator opens Edit, moves the drop-off to 5:45 and presses Approve without
+   * retyping. The box still held the model's sentence about five o'clock, so the leg moved to
+   * 5:45 and the family was queued words naming 5 — the right ride, the wrong promise.
+   *
+   * The fix for the ordinary press is upstream of here: a time change is a POST that redrafts the
+   * reply and stores it with the time it was written for (`redraft.ts`). This is the backstop, and
+   * it reads **no time out of any sentence**. There is no keyword reader in this app and this is
+   * not one: each stored draft is *tied* to the time it was written for, so the question is a
+   * lookup — are these words one of the drafts for the time being approved?
+   *
+   *  - **A press carrying words.** If they are one of this proposal's stored drafts but none of
+   *    the drafts with that text was written for the time on the press, refuse. Words that match
+   *    no stored draft are the coordinator's own — those are theirs to write, for any time.
+   *  - **A press carrying no words at all** (a hand-made post; the card's one form always carries
+   *    the box). Then the sentence that would go out is the latest stored draft, and the server
+   *    will not rewrite it: a time that is not the one it was written for is the same refusal
+   *    rather than a different template nobody read.
+   *
+   * Only for the one template whose body IS a drafted sentence. `dropoff.changed` renders its
+   * body from `eta`, so moving the time moves the words with it and there is nothing to be stale.
+   *
+   * And only for an APPROVE. "Don't send" sends nothing and moves nothing, so words written for
+   * another time cannot make it wrong — a decline that had to be redrafted first would be this
+   * refusal standing between a coordinator and the one decision that changes nothing.
+   */
+  if (req.decision === "APPROVED" && kind === DROPOFF_CHANGE_KIND && editableReply(proposal) !== null) {
+    const drafts = draftsOf(proposal);
+    const sameWords = drafts.filter((d) => d.text === editedText);
+    const stale =
+      editedText === null
+        ? (drafts[drafts.length - 1]?.time ?? null) !== agreedTime
+        : sameWords.length > 0 && !sameWords.some((d) => (d.time ?? null) === agreedTime);
+    if (stale) return { status: 422, body: { ok: false, error: "DRAFT_FOR_OTHER_TIME" } };
   }
 
   /*
@@ -577,14 +727,34 @@ export async function decideApproval(
   }
   const by = `staff:${req.userId}`;
 
+  /*
+   * WHAT THIS DECISION WAS A DECISION ABOUT (PPE-106, 2026-10-18) — in the proposal jsonb the row
+   * already has, written with the claim, in the same transaction, and never read by any code path
+   * that decides anything.
+   *
+   * Four questions a reader asks after the fact and could not answer before: what did the model
+   * write, what was on the card when the button was pressed, what went to the family, and were
+   * those the coordinator's own words. No column (there is no schema change in any of this) and no
+   * audit row either: `ops.audit_event` says "Hash-only for message content" beside its own
+   * definition, and these are sentences.
+   */
+  const detail = decisionDetail(proposal, {
+    decision: req.decision,
+    editedText,
+    time: agreedTime,
+  });
+
   return db.tx(async (tx, afterCommit) => {
     // 1. Claim the decision. The second presser gets 409 and no second send (schema note on the table).
     const claimed = await tx.query<{ id: string }>(
       `UPDATE ops.approval_request
        SET decision = $3, decided_by = $4, decided_at = $5, updated_at = $5, updated_by = $6, version = version + 1
+           ${detail === null ? "" : ", proposal = jsonb_set(proposal, '{decision_detail}', $7::jsonb, true)"}
        WHERE id = $1 AND site_id = $2 AND decided_at IS NULL
        RETURNING id`,
-      [row.id, row.site_id, req.decision, req.userId, req.now, by],
+      detail === null
+        ? [row.id, row.site_id, req.decision, req.userId, req.now, by]
+        : [row.id, row.site_id, req.decision, req.userId, req.now, by, JSON.stringify(detail)],
     );
     if (claimed.rows.length !== 1) {
       return { status: 409, body: { ok: false, error: "ALREADY_DECIDED" } } as const;
@@ -727,8 +897,6 @@ export async function decideApproval(
      *
      * A cancel writes no time: the ride is not happening, so there is no arrival to agree.
      */
-    const requestedTime = String(proposal.requested_dropoff_time ?? "").trim();
-    const agreedTime = req.editedTime ?? (requestedTime === "" ? null : requestedTime);
     if (proposal.cancel !== true && agreedTime !== null) {
       const moved = await plan.setDropoffWindow({
         siteId: row.site_id,

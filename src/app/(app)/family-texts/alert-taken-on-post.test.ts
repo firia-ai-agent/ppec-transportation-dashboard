@@ -175,6 +175,55 @@ describe("openAlert has exactly one caller in src/app, and it is the POST", () =
     ).toEqual(["src/app/(app)/family-texts/actions.ts"]);
   });
 
+  /**
+   * The same rule for the second thing a press writes (PPE-107, 2026-10-18).
+   *
+   * Changing the card's drop-off time used to be a `GET` to this screen. It is a POST now,
+   * because it writes: `redraftReply` is an `UPDATE` of the proposal's drafts
+   * (`modules/approvals/redraft.ts`), and a state change belongs to a POST for exactly the
+   * reasons this file's header gives — a link prefetch must not redraft a reply, and a reload
+   * must not rewrite the sentence somebody is reading.
+   */
+  it("redraftReply has one caller in src/app too, and it is the same POST module", () => {
+    const callers = walk(join(ROOT, "src", "app"))
+      .filter((f) => !f.endsWith(".test.ts") && !f.endsWith(".test.tsx"))
+      .filter((f) => /\bredraftReply\s*\(/.test(readFileSync(join(ROOT, f), "utf8")))
+      .sort();
+    expect(
+      callers,
+      "redraftReply is an UPDATE of the proposal's drafts. It belongs to a POST and to nothing a " +
+        "render can reach (PPE-107)",
+    ).toEqual(["src/app/(app)/family-texts/actions.ts"]);
+  });
+
+  it("and the page's own render path writes nothing at all", () => {
+    /*
+     * The GET half, as source: the page and the modules it reads the card from issue no write and
+     * ask no model. The runtime half — every statement the queue issues is a SELECT — is in
+     * `modules/approvals/redraft-for-new-time.test.ts`.
+     */
+    const renderPath = [
+      "src/app/(app)/family-texts/page.tsx",
+      "src/app/(app)/family-texts/queue.ts",
+      "src/app/(app)/family-texts/conversations.ts",
+      "src/app/(app)/family-texts/checks.ts",
+      "src/app/(app)/family-texts/thread.ts",
+      "src/app/(app)/family-texts/context.ts",
+    ];
+    for (const file of renderPath) {
+      const source = readFileSync(join(ROOT, file), "utf8");
+      expect({ file, writes: /INSERT\s+INTO|UPDATE\s+ops\.|DELETE\s+FROM|jsonb_set/i.test(source) }).toEqual({
+        file,
+        writes: false,
+      });
+      // And nothing on it redrafts, decides or opens an alert — the three things a press does.
+      expect({ file, acts: /\b(redraftReply|decideApproval|openAlert)\s*\(/.test(source) }).toEqual({
+        file,
+        acts: false,
+      });
+    }
+  });
+
   it("and /exceptions is a redirect that reads nothing at all", () => {
     const page = readFileSync(join(ROOT, "src/app/(app)/exceptions/page.tsx"), "utf8");
     expect(page).toContain("permanentRedirect");

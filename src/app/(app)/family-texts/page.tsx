@@ -10,7 +10,7 @@ import { openAssistantAlerts, type AssistantAlert } from "@/modules/agent/staff-
 import { approvalQueue } from "./queue";
 import { familyTexts } from "@/ui/copy";
 import { NOT_ON_YOUR_MENU, withNotice } from "@/ui/notice";
-import { decideApprovalAction, takeAlertAction } from "./actions";
+import { decideApprovalAction, redraftReplyAction, takeAlertAction } from "./actions";
 import { contextFor } from "./context";
 import { conversationRows, openThreadOf, tabFrom, threadView, type ProposalView } from "./conversations";
 import { TextsScreen } from "./TextsScreen";
@@ -37,10 +37,15 @@ export const dynamic = "force-dynamic";
  *  - `?thread=` names a *fixture child* and is matched against the day's own list, so a value from
  *    outside is either one of today's threads or the newest one. There is no id here a request
  *    could use to reach a family the day did not text.
- *  - `?time=` is the Edit control's new drop-off time. It changes the words on the card — through
- *    `bodyOf`, the decision model's own renderer — and **nothing else**: it writes nothing and
- *    sends nothing, so an edited message is still a pending proposal needing a fresh approval
- *    (Firia's gate 2).
+ *  - `?time=` is a drop-off time to show the card's time field, through `bodyOf` — the decision
+ *    model's own renderer — and **nothing else**: it writes nothing, it calls no model, and it
+ *    cannot change a word of a drafted reply, so an edited message is still a pending proposal
+ *    needing a fresh approval (Firia's gate 2). Since PPE-107 nothing on screen produces it: the
+ *    time field is inside the form that approves and changing it is a POST that redrafts the reply
+ *    (`redraftReplyAction`), because a GET that re-rendered the page wiped the box beside it. A
+ *    hand-typed `?time=` therefore shows a field that disagrees with the stored draft, and the
+ *    decision refuses that press by name rather than sending a sentence about another time
+ *    (`decide.DRAFT_FOR_OTHER_TIME`).
  *
  * ## The "For you" tab, and who gets it
  *
@@ -179,6 +184,7 @@ export default async function FamilyTextsPage({
       editedTime={editedTime}
       threadOpen={askedThread !== undefined}
       decide={decideApprovalAction}
+      redraft={redraftReplyAction}
       takeAlert={takeAlertAction}
       showForYouTab={mayApprove}
     />

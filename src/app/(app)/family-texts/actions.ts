@@ -22,6 +22,19 @@
  * instead of the roles of some page: `/exceptions` is being redesigned away, and a permission
  * read off a route is a permission a route change can move.
  *
+ * ## The second thing a press can do, and it is not a decision (PPE-107)
+ *
+ * `redraftReplyAction` is the other half of the card's one form: the drop-off time used to be a
+ * `GET` that re-rendered the page — wiping anything typed in the reply box — and now changing it
+ * is a POST that redrafts the reply and stores it as the proposal's newest draft
+ * (`modules/approvals/redraft.ts`). It is the third action in this file and it is argued for in
+ * two places, here and in `agent/vendor-failure-panel.test.ts`: it decides nothing, it sends
+ * nothing, it moves no ride, and it spends no model call — the redraft port's default answers
+ * nothing at all and the fallback line is code-owned copy, so this file still reaches no vendor
+ * (`agent/key-never-leaves.test.ts`). Its guard is this file's own row — `APPROVAL_ROLES` and the
+ * caller's membership at the approval's own site — because it writes to the same row the decision
+ * claims, under the same `decided_at IS NULL`.
+ *
  * ## The plan it saves
  *
  * An approved change or cancel saves a new plan version through the board's own
@@ -41,6 +54,7 @@ import {
   type DecideError,
   decideApproval,
 } from "@/modules/approvals/decide";
+import { redraftReply } from "@/modules/approvals/redraft";
 /*
  * From `alert-task.ts` and not from `staff-alert.ts`: this is a server-action module, so
  * everything it imports is on the bundle walk's server graph, and the agent's config and
@@ -77,6 +91,7 @@ const REFUSALS: Readonly<Record<DecideError, string>> = {
   PLAN_MOVED: approvalCopy.planMoved,
   NOT_A_TIME: approvalCopy.notATime,
   MESSAGE_CHANGED: approvalCopy.messageChanged,
+  DRAFT_FOR_OTHER_TIME: approvalCopy.retypeForNewTime,
   TEXT_NOT_SENDABLE: approvalCopy.textNotSendable,
   TEXT_NOT_EDITABLE: approvalCopy.textNotEditable,
   PLAN_NOT_SAVED: approvalCopy.planNotSaved,
@@ -161,6 +176,77 @@ export async function decideApprovalAction(
     decision: answer.body.decision,
     text: answer.body.text,
     queued: answer.body.queued,
+  };
+}
+
+/** What the card does with a redraft: the new sentence for the box, or the one line a refusal gets. */
+export type RedraftState =
+  | { readonly status: "idle" }
+  /**
+   * Refused — and it carries the box back. A refusal that returned only a sentence would wipe
+   * what the coordinator had typed, which is the PPE-107 half of this bug in a new place.
+   */
+  | { readonly status: "refused"; readonly message: string; readonly text: string; readonly time: string }
+  | {
+      readonly status: "redrafted";
+      /** The sentence for the box. */
+      readonly text: string;
+      /** The same sentence as the card's bubble, so the press carries the words that are on screen. */
+      readonly body: string;
+      readonly time: string;
+    };
+
+/** The redraft action's shape, for the same `.tsx`-scanner reason as `DecideAction` above. */
+export type RedraftAction = (previous: RedraftState, form: FormData) => Promise<RedraftState>;
+
+/**
+ * CHANGE THE DROP-OFF TIME, AND THE REPLY IS REDRAFTED FOR IT (PPE-106 / PPE-107).
+ *
+ * The card's one form, submitted by its own "Update the time" button. Plumbing again: it reads the
+ * form, calls `redraftReply` and turns a status into words. Everything that matters is in that
+ * function — the role and site check, the shape check on whatever is about to become a draft, the
+ * `decided_at IS NULL` guard, and the choice between the coordinator's own words, a model redraft
+ * and the fallback line.
+ *
+ * It approves nothing and queues nothing: the proposal is still pending afterwards, which is why
+ * the card comes back with Approve still to press.
+ */
+export async function redraftReplyAction(
+  _previous: RedraftState,
+  form: FormData,
+): Promise<RedraftState> {
+  const typed = String(form.get("time") ?? "").trim();
+  const written = String(form.get("replyText") ?? "");
+  const caller = await getCaller();
+  const role = caller.kind === "STAFF" ? caller.role : null;
+  if (role === null || !APPROVAL_ROLES.includes(role)) {
+    return { status: "refused", message: approvalCopy.notYourRole, text: written, time: typed };
+  }
+  const approvalId = String(form.get("approval") ?? "");
+  if (!approvalId) return { status: "idle" };
+
+  const answer = await redraftReply(getNeonDb(), {
+    // The caller's own id, off the session, for the same reason the decision reads it there.
+    userId: caller.kind === "STAFF" ? caller.userId : undefined,
+    approvalId,
+    time: typed,
+    boxText: written,
+    now: new Date(),
+  });
+  if (!answer.body.ok) {
+    return { status: "refused", message: REFUSALS[answer.body.error], text: written, time: typed };
+  }
+  /*
+   * The card's own page, and nothing else: a draft is not a plan change, so the three screens that
+   * read the plan have nothing to re-render. This one does — the tab, the For you queue and the
+   * card in the thread all read the proposal row this just wrote (`queue.ts`).
+   */
+  revalidatePath(APPROVALS_PAGE);
+  return {
+    status: "redrafted",
+    text: answer.body.text,
+    body: answer.body.body,
+    time: answer.body.time,
   };
 }
 

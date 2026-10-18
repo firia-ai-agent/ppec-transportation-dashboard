@@ -13,7 +13,7 @@ import { ROW_STATES } from "./row-state";
 import type { ThreadContext } from "./context";
 import type { ConversationRow, ProposalView, TabKey, ThreadView } from "./conversations";
 import { TABS } from "./conversations";
-import type { DecideAction, TakeAlertAction } from "./actions";
+import type { DecideAction, RedraftAction, TakeAlertAction } from "./actions";
 import styles from "./texts.module.css";
 
 /**
@@ -44,6 +44,7 @@ export function TextsScreen({
   editedTime,
   threadOpen,
   decide,
+  redraft,
   takeAlert,
   showForYouTab,
 }: {
@@ -70,6 +71,8 @@ export function TextsScreen({
   /** True when the URL names a thread: the phone shows the thread rather than the list. */
   readonly threadOpen: boolean;
   readonly decide: DecideAction;
+  /** The card's "Update the time" POST (PPE-107): it redrafts the reply and decides nothing. */
+  readonly redraft: RedraftAction;
   /** The POST that marks a "needs a person" alert taken. A render never does (S1-4). */
   readonly takeAlert: TakeAlertAction;
   /**
@@ -164,6 +167,7 @@ export function TextsScreen({
             editing={editing}
             editedTime={editedTime}
             decide={decide}
+            redraft={redraft}
             assistantReachable={assistantReachable}
           />
         )}
@@ -261,6 +265,7 @@ function Thread({
   editing,
   editedTime,
   decide,
+  redraft,
   assistantReachable,
 }: {
   readonly thread: ThreadView;
@@ -268,6 +273,8 @@ function Thread({
   readonly editing: boolean;
   readonly editedTime: string | null;
   readonly decide: DecideAction;
+  /** The card's "Update the time" POST (PPE-107): it redrafts the reply and decides nothing. */
+  readonly redraft: RedraftAction;
   /** False when no model can be reached: no card renders at all (gate 5). */
   readonly assistantReachable: boolean;
 }) {
@@ -302,6 +309,7 @@ function Thread({
           <ProposalCard
             proposal={thread.proposal}
             decide={decide}
+            redraft={redraft}
             editing={editing}
             editHref={hrefFor(tab, thread.key)}
           />

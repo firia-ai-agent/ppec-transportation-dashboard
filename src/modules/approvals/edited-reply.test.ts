@@ -279,19 +279,38 @@ describe("Approve sends exactly the edited text", () => {
     expect(answer.body.ok && answer.body.text).toContain(REWRITTEN);
   });
 
-  it("stores nothing on the approval row: the edit rides with the decision", async () => {
+  it("adds no column: the record of the edit is inside the proposal json", async () => {
     await savedPlanWithChildInVanOne();
     const id = await seedProposal();
     await decide(id, { editedText: REWRITTEN });
 
     /*
-     * Ruling: if storing the edited text needs a schema column, don't. So the row is the row the
-     * agent wrote — its `proposal` still carries the model's own sentence as provenance — and the
-     * coordinator's words exist in the outbox and in the audit of that send, nowhere else.
+     * Ruling: if storing the edited text needs a schema column, don't. It does not — the decision's
+     * own record went into the `proposal` jsonb the row already has (PPE-106), beside the drafts
+     * list, and the model's own sentence is still there as provenance.
+     *
+     * The columns are the columns the agent's writer left: no `sent_text`, no `edited_reply`, no
+     * second table. What is new is five fields of a json object, which is what "no schema change"
+     * means in a table whose proposal is json in the first place.
      */
     const row = await proposalJson(id);
     expect(JSON.stringify(row.proposal)).toContain(DRAFTED);
-    expect(JSON.stringify(row)).not.toContain(REWRITTEN);
+    const detail = (row.proposal as { decision_detail?: Record<string, unknown> }).decision_detail;
+    expect(detail).toMatchObject({
+      model_draft: DRAFTED,
+      shown_draft: DRAFTED,
+      sent_text: REWRITTEN,
+      rewritten: true,
+      time: "17:00",
+    });
+    // And the coordinator's words are nowhere else on the row — no column acquired them.
+    for (const [column, value] of Object.entries(row)) {
+      if (column === "proposal") continue;
+      expect({ column, has: JSON.stringify(value ?? null).includes(REWRITTEN) }).toEqual({
+        column,
+        has: false,
+      });
+    }
   });
 
   it("keeps the names a family's own reply may carry", async () => {
@@ -341,21 +360,43 @@ describe("Approve sends exactly the edited text", () => {
     expect(new Date((await windowStart()) as string).toISOString()).toBe("2026-10-16T21:45:00.000Z");
   });
 
-  it("an edited time with no rewrite still queues the sentence the card showed", async () => {
+  it("refuses an edited time with no rewrite, rather than rewriting the words for a person", async () => {
+    await savedPlanWithChildInVanOne();
+    const id = await seedProposal();
+    const counting = countingBoard();
+
+    /*
+     * THE RULE THIS CASE USED TO HOLD IS GONE (PPE-106, Veri's S1 of 2026-10-18).
+     *
+     * It used to assert that the server picked different words: an edited time retired the
+     * model's sentence and the fixed template went out instead. Two things were wrong with that.
+     * The template was a sentence nobody on the card had read — the card showed one thing and the
+     * family got another — and it only ever covered the press that carried no text at all, while
+     * the real form always carries the box. So the server does not choose words any more. A press
+     * whose words were drafted for another time is refused by name, and the way to get a sentence
+     * about 5:45 is to ask for one (`redraft.ts`) or to write it.
+     */
+    expect(await decide(id, { editedTime: "17:45", placement: counting.port })).toEqual({
+      status: 422,
+      body: { ok: false, error: "DRAFT_FOR_OTHER_TIME" },
+    });
+    // Not claimed, not planned, not queued: the refusal is before the decision, not a rollback.
+    expect(await decisionOf(id)).toEqual({ decision: null, decided_at: null });
+    expect(counting.calls()).toBe(0);
+    expect(await outbox()).toEqual([]);
+    expect(transport.sent).toEqual([]);
+  });
+
+  it("takes the same press at the time the draft was written for", async () => {
     await savedPlanWithChildInVanOne();
     const id = await seedProposal();
 
-    /*
-     * The half of this that was broken before PPE-97. `bodyOf` retires the model's sentence when
-     * the time moves under it — the card shows the fixed template for the new time — but the
-     * enqueue passed the row's own template and vars untouched, so the family was queued the
-     * model's original sentence about the original time. One `sendShape` for both now.
-     */
-    expect((await decide(id, { editedTime: "17:45" })).status).toBe(200);
+    // The other half of the rule above: the words and the time agree, so the press is ordinary and
+    // the model's own sentence is what goes out.
+    expect((await decide(id, { editedTime: "17:00" })).status).toBe(200);
     const [row] = await outbox();
-    expect(row.template_id).toBe(DROPOFF_CHANGE_TEMPLATE);
-    expect(row.vars.replyText).toBeUndefined();
-    expect(JSON.stringify(row)).not.toContain(DRAFTED);
+    expect(row.template_id).toBe(DROPOFF_REPLY_TEMPLATE);
+    expect(row.vars.replyText).toBe(DRAFTED);
   });
 });
 
@@ -405,7 +446,7 @@ describe("the safety refusals run server-side on the edited text, and nothing is
 
     // `dropoff.changed` has no prose var: its body is the centre's words. The screen renders no
     // field there (`editableReply` answers null), and a hand-posted one is refused anyway.
-    expect(editableReply(DROPOFF_CHANGE_TEMPLATE, { eta: "17:00" })).toBeNull();
+    expect(editableReply({ template_id: DROPOFF_CHANGE_TEMPLATE, vars: { eta: "17:00" } })).toBeNull();
     expect(await decide(id, { editedText: REWRITTEN, placement: counting.port })).toEqual({
       status: 422,
       body: { ok: false, error: "TEXT_NOT_EDITABLE" },
@@ -485,14 +526,14 @@ describe("which cards offer the field at all (`editableReply`, one definition fo
   it("answers the sentence inside the body, without the template's own prefix", () => {
     // The field is prefilled with this, not with "PPEC: …" — `reply-text.ts` refuses the prefix,
     // so a box holding the whole bubble would hand back a refusal nobody earned.
-    expect(editableReply(DROPOFF_REPLY_TEMPLATE, { replyText: DRAFTED })).toBe(DRAFTED);
+    expect(editableReply({ template_id: DROPOFF_REPLY_TEMPLATE, vars: { replyText: DRAFTED } })).toBe(DRAFTED);
     expect(renderTemplate(DROPOFF_REPLY_TEMPLATE, { replyText: DRAFTED })).toContain("PPEC:");
   });
 
   it("answers null for fixed copy, for a row with no drafted sentence, and for a blank one", () => {
-    expect(editableReply(DROPOFF_CHANGE_TEMPLATE, { replyText: DRAFTED })).toBeNull();
-    expect(editableReply(DROPOFF_REPLY_TEMPLATE, {})).toBeNull();
-    expect(editableReply(DROPOFF_REPLY_TEMPLATE, { replyText: "   " })).toBeNull();
-    expect(editableReply("", {})).toBeNull();
+    expect(editableReply({ template_id: DROPOFF_CHANGE_TEMPLATE, vars: { replyText: DRAFTED } })).toBeNull();
+    expect(editableReply({ template_id: DROPOFF_REPLY_TEMPLATE, vars: {} })).toBeNull();
+    expect(editableReply({ template_id: DROPOFF_REPLY_TEMPLATE, vars: { replyText: "   " } })).toBeNull();
+    expect(editableReply({})).toBeNull();
   });
 });

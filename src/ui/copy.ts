@@ -1418,6 +1418,20 @@ export const approval = {
    */
   textNotEditable: "This message isn't one you can rewrite. Approve it as it is, or don't send it.",
   /**
+   * THE REPLY WAS WRITTEN FOR A DIFFERENT TIME (`DRAFT_FOR_OTHER_TIME`, Veri's S1 of 2026-10-18).
+   *
+   * The press that gets this is the one the bug was: the time field moved, the box still holds the
+   * sentence that was drafted for the old minute, and approving would move the ride to one time
+   * and promise the family another. Every draft is stored with the time it was written for, so
+   * this is a fact the server knows rather than a reading of the sentence.
+   *
+   * Names the two ways out, in the order a person would try them: change the time again, which
+   * redrafts the reply, or write the sentence yourself. It does not quote the words back and it
+   * does not say which time is which — the field and the box are both on screen above it.
+   */
+  retypeForNewTime:
+    "The reply was written for a different time. Update the time again or retype the reply, then approve.",
+  /**
    * The words changed under the person deciding them (S1-7). Said as what happened and what to do,
    * like every other refusal here — and it says plainly that nothing went out, because the first
    * thing a coordinator wants to know is whether the family got the old text.

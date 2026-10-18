@@ -40,7 +40,7 @@ import { demoDay } from "@/domain/board/day";
 import { demoChangeRequests, withRequestedTime } from "@/modules/demo/change-request";
 import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
 import { approval } from "@/ui/copy";
-import type { DecisionState } from "@/app/(app)/family-texts/actions";
+import type { DecisionState, RedraftState } from "@/app/(app)/family-texts/actions";
 
 const REPO = process.cwd();
 const ACTION_FILE = path.join(REPO, "src", "app", "(app)", "family-texts", "actions.ts");
@@ -333,6 +333,7 @@ describe("gate 2: an edited message needs a fresh approval", () => {
         editedTime: "17:30",
         threadOpen: false,
         decide: async (): Promise<DecisionState> => ({ status: "idle" }),
+        redraft: async (): Promise<RedraftState> => ({ status: "idle" }),
         takeAlert: async () => {},
         showForYouTab: true,
       }),

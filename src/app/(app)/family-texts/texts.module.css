@@ -593,6 +593,21 @@
 }
 
 /*
+ * THE TIME FIELD, IN THE SAME FORM AS THE REPLY AND THE DECISION (PPE-107).
+ *
+ * It used to be a little `GET` form of its own beside the reply box, which re-rendered the page
+ * and wiped anything typed in it. One form now: the row sits above the box, in the card's own
+ * horizontal padding, and its button submits the same form to the redraft action.
+ */
+.editTimeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) 0;
+  flex-wrap: wrap;
+}
+
+/*
  * THE REPLY FIELD AND THE BUTTONS THAT SEND IT, as one form (PPE-97).
  *
  * The form is a column so the action row below keeps the hairline and the padding it has in every
