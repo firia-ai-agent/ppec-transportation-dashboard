@@ -11,7 +11,7 @@
 import { API, endpointRow } from "@/auth/access";
 import { Forbidden, SiteNotFound, Unauthenticated, getActiveUser, requireSiteAccess, type StaffRole } from "@/auth/core";
 import type { Exec } from "@/db/exec";
-import { phoneHmac } from "@/modules/identity/phone";
+import type { IdentityGateway } from "@/modules/identity/gateway";
 import type { OutboxState } from "@/modules/outbox/outbox";
 import { isSimPersonaNumber, parseSimNumber, simPersonaLabel } from "./sim-numbers";
 import { renderTemplate } from "./templates";
@@ -45,6 +45,11 @@ export type PersonaMessage = {
   body: string | null;
   /** Outbound only: the state the UI maps to Queued / Sent / Delivered / … (DESIGN-DIRECTION §3). */
   state: string | null;
+  /**
+   * Outbound only: which template the body was rendered from, so a reader can tell a text the day
+   * sent by itself from one a person signed (`auto-sends.ts`, Firia's gate 4). Null inbound.
+   */
+  templateId: string | null;
   reachedPhone: boolean;
   blockReason: string | null;
   providerMessageId: string | null;
@@ -52,15 +57,33 @@ export type PersonaMessage = {
   sourceMode: string;
 };
 
-/** Resolve the phone to its contact before any message is read, so authorization can run on the site first. */
-export async function resolvePersona(db: Exec, a: { number: string; pepper: string }): Promise<Persona | null> {
+/**
+ * Resolve the phone to its contact before any message is read, so authorization can run on the
+ * site first.
+ *
+ * THE LOOKUP IS THE GATEWAY'S, NOT THIS MODULE'S. A phone number lives in
+ * `identity.guardian_contact`, and `app_rw` — the role every `Exec` here runs as — has no
+ * SELECT on that schema (src/db/schema.ts:104, 0001_roles.sql, migrations.test.ts:108). This
+ * function used to send that query down `db` itself, which is why Family texts answered
+ * "the message log could not be read" on the preview: `permission denied for schema identity`.
+ * `db` is still needed, and only for `ops` rows; whoever the number belongs to is asked of
+ * `IdentityGateway` (src/modules/identity/gateway.ts).
+ */
+export async function resolvePersona(
+  db: Exec, a: { number: string; pepper: string; gateway: IdentityGateway },
+): Promise<Persona | null> {
   const number = parseSimNumber(a.number);
   if (!number || !isSimPersonaNumber(number)) return null;
-  const r = await db.query<{ contact_token: string; family_group_id: string; site_id: string }>(
-    `SELECT contact_token, family_group_id, site_id FROM identity.guardian_contact
-     WHERE phone_hmac = $1 AND revoked_at IS NULL ORDER BY valid_from DESC LIMIT 1`, [phoneHmac(number, a.pepper)]);
-  const row = r.rows[0];
-  return row ? { number, label: simPersonaLabel(number), contactToken: row.contact_token, familyGroupId: row.family_group_id, siteId: row.site_id } : null;
+  const contact = await a.gateway.contactForPhone(number);
+  return contact
+    ? {
+        number,
+        label: simPersonaLabel(number),
+        contactToken: contact.contactToken,
+        familyGroupId: contact.familyGroupId,
+        siteId: contact.siteId,
+      }
+    : null;
 }
 
 export async function personaMessages(db: Exec, p: Persona, limit: number = DEFAULT_LIMIT): Promise<PersonaMessage[]> {
@@ -78,12 +101,12 @@ export async function personaMessages(db: Exec, p: Persona, limit: number = DEFA
   const rows: PersonaMessage[] = [
     ...inbound.rows.map((m): PersonaMessage => ({
       id: m.id, direction: "IN", at: new Date(m.received_at).toISOString(), body: m.body_tokenized,
-      state: null, reachedPhone: true, blockReason: null, providerMessageId: m.external_id,
+      state: null, templateId: null, reachedPhone: true, blockReason: null, providerMessageId: m.external_id,
       providerIndex: m.provider_index === null ? null : Number(m.provider_index), sourceMode: m.source_mode,
     })),
     ...outbound.rows.map((o): PersonaMessage => ({
       id: o.id, direction: "OUT", at: new Date(o.created_at).toISOString(), body: safeRender(o.template_id, o.vars),
-      state: o.state, reachedPhone: ON_PHONE.has(o.state), blockReason: o.block_reason,
+      state: o.state, templateId: o.template_id, reachedPhone: ON_PHONE.has(o.state), blockReason: o.block_reason,
       providerMessageId: o.provider_message_id, providerIndex: null, sourceMode: o.source_mode,
     })),
   ];
@@ -126,10 +149,10 @@ const UNKNOWN_PHONE: MailboxResponse = { status: 404, body: { error: "UNKNOWN_PH
  *  3. a member of that phone's own site whose role is not one the row allows → **403 `FORBIDDEN`**: their
  *     own site's existence is not a secret from them, so there is nothing for a 404 to hide here.
  */
-export async function personaMailboxResponse(db: Exec, a: { number: string; pepper: string; userId: string | undefined; limit?: number }): Promise<MailboxResponse> {
+export async function personaMailboxResponse(db: Exec, a: { number: string; pepper: string; userId: string | undefined; limit?: number; gateway: IdentityGateway }): Promise<MailboxResponse> {
   const user = await getActiveUser(db, a.userId);
   if (!user) return { status: 401, body: { error: "UNAUTHENTICATED" } };
-  const persona = await resolvePersona(db, { number: a.number, pepper: a.pepper });
+  const persona = await resolvePersona(db, { number: a.number, pepper: a.pepper, gateway: a.gateway });
   if (!persona) return UNKNOWN_PHONE;
   try {
     await requireSiteAccess(db, user.id, persona.siteId, MAILBOX_ROLES);

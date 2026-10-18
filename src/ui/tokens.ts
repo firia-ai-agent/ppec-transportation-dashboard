@@ -56,6 +56,21 @@ export const color = {
    */
   bg: "#F8FAFC",
   surface: "#FFFFFF",
+  /**
+   * The canvas behind white cards (Firia, 2026-10-17 8:36 PM ET: "page background #F8FAFC with
+   * WHITE cards"). A second page colour, and deliberately only where there are cards to separate:
+   * `bg` stays pure white for every screen that is one sheet, and this is what a screen made of
+   * cards sits on, so a card edge is readable without a heavier border. Both of its pairs are
+   * computed below.
+   */
+  canvas: "#F8FAFC",
+  /**
+   * The grey an incoming message bubble is, from the mockup's iMessage thread
+   * (mockups/family-texts.html, `.in`). It is not `neutral-bg` and should not be: `neutral-bg`
+   * is the fill of a state chip, and a bubble that wore it would read as a status. This is the
+   * only place it is used, and it carries `ink` (14.72:1).
+   */
+  "bubble-in-bg": "#E9E9EB",
   "border-strong": "#64748B",
   brand: "#0F766E",
   focus: "#0F766E",
@@ -238,6 +253,14 @@ export const contrastPairs: ReadonlyArray<{
    * rather than from a hex someone liked the look of.
    */
   { fg: "ink", bg: "alert", documented: 5.98, needs: 4.5 },
+  /*
+   * The card canvas and the incoming bubble (Firia, 8:36 PM ET). Three rows: body text and muted
+   * text on the canvas, and the bubble's own text — because those are the three things that are
+   * ever read on them, and a background with no computed pair is a hex somebody liked.
+   */
+  { fg: "ink", bg: "canvas", documented: 17.06, needs: 4.5 },
+  { fg: "ink-muted", bg: "canvas", documented: 7.24, needs: 4.5 },
+  { fg: "ink", bg: "bubble-in-bg", documented: 14.72, needs: 4.5 },
   { fg: "ok-fg", bg: "ok-bg", documented: 6.49, needs: 4.5 },
   { fg: "info-fg", bg: "info-bg", documented: 6.73, needs: 4.5 },
   { fg: "warn-fg", bg: "warn-bg", documented: 6.38, needs: 4.5 },
@@ -384,6 +407,8 @@ export const space = {
 export const radius = {
   sm: "4px",
   md: "6px",
+  /** Family texts cards (mockups/family-texts.html): 10 px. */
+  lg: "10px",
   /**
    * A chat bubble's corner (mockups/agent-bubble.html `.b{border-radius:18px}`). Bigger than
    * anything else in the system on purpose: it is the shape that says "somebody said this",
@@ -460,9 +485,9 @@ export const layout = {
 /**
  * Breakpoints (§2). Exported for documentation; media queries live in CSS.
  *
- * §2's "<768: hamburger drawer" used to carry a 288 px width here. The drawer is anchored to the
- * header and spans the viewport now (src/ui/MobileNav.module.css says why), so there is no
- * drawer width left to tokenise and a token nothing reads is drift.
+ * §2's "<768: hamburger drawer" used to carry a 288 px width here. There is no drawer: below 768
+ * the menu is the bottom tab bar (src/ui/TabBar.tsx), which spans the viewport and has no width
+ * to tokenise. The breakpoint keeps its name because §2 and the stylesheets both use it.
  */
 export const breakpoint = { drawer: "768px", rail: "1280px" } as const;
 

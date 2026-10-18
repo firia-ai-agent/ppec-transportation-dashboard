@@ -1,4 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). Every `identity.*` statement moved behind
+ * `IdentityGateway`, so the code under test asks this rather than the connection — and it answers
+ * from the rows `seedPersona` / `seedAgentScenario` just wrote. See src/test/identity-gateway.ts
+ * for why it is in memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import { uuidv7 } from "uuidv7";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db, Exec } from "@/db/exec";
@@ -8,9 +17,10 @@ import { FakeTransport } from "@/modules/jobs/fake-transport";
 import { VercelQueueScheduler } from "@/modules/jobs/scheduler";
 import { fire, type Handlers } from "@/modules/jobs/runner";
 import { drain, enqueue, type DrainDeps, type EnqueueInput } from "@/modules/outbox/outbox";
-import { dbRecipientAuthorizer } from "@/modules/outbox/policy";
+import { gatewayRecipientAuthorizer } from "@/modules/outbox/policy";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { InMemorySimFaultStore } from "./faults";
+import { SEND_FOOTER } from "./templates";
 import { DbSimMessagingProvider, SIM_DELAY_MAX_MS, SIM_DELAY_MIN_MS, SIM_STATUS_JOB_KIND, getOrCreateThread, simDeliveryDelayMs, simStatusHandler } from "./sim-provider";
 
 let pg: PGlite; let db: Db; let now: Date; let f1: Persona;
@@ -35,8 +45,8 @@ beforeEach(async () => {
   ({ pg, db } = await freshDb());
   now = new Date();
   outboxTransport = new FakeOutboxTransport(); wake = new FakeTransport(); faults = new InMemorySimFaultStore();
-  provider = new DbSimMessagingProvider(db, new VercelQueueScheduler(db, wake, () => now), { faults, clock: () => now, pepper: PEPPER, seed: "test-seed" });
-  deps = { provider, authorizer: dbRecipientAuthorizer(db), clock: () => now, timeoutMs: 500 };
+  provider = new DbSimMessagingProvider(db, new VercelQueueScheduler(db, wake, () => now), { faults, clock: () => now, pepper: PEPPER, seed: "test-seed", gateway: GATEWAY });
+  deps = { provider, authorizer: gatewayRecipientAuthorizer(GATEWAY), clock: () => now, timeoutMs: 500 };
   f1 = await seedPersona(db, F1_NUMBER, { now });
   now = new Date(Date.now() + 1000); // after the contact's valid_from
 }, 60_000);
@@ -57,7 +67,13 @@ describe("MessagingProvider.SIM (ADR-006, MOCKS §3)", () => {
     expect(box.length).toBe(1);
     expect(box[0]).toMatchObject({ direction: "OUT", external_id: `SIM-${id}`, source_mode: "SIMULATED" });
     expect(box[0].body_tokenized).toContain("Your child's van is on the way to Okeeheelee Park. Pickup 8:12\u20138:22 AM.");
-    expect(box[0].body_tokenized).toContain("[DEMO]");
+    /*
+     * What the provider STORED is what it sent, and the send step is where the 10DLC footer is
+     * appended (Firia, 11:00 PM ET, S1-5). So this row carries it — and carries no [DEMO] tag,
+     * which is gone from every body.
+     */
+    expect(box[0].body_tokenized).toContain(SEND_FOOTER);
+    expect(box[0].body_tokenized).not.toContain("DEMO");
     expect(box[0].from_hmac).not.toContain("555"); // the center's number is stored as a blind index only
 
     const job = await statusJob(id);

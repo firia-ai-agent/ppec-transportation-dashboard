@@ -421,7 +421,19 @@ const ROWS: readonly PolicyRow[] = [
   { tool: "record_capability_report", scopedArgs: ["vehicle_token", "source_message_id"], sendSubject: null, note: "an observation about a site vehicle; `parsed` holds codes, not ids" },
   { tool: "report_boarding", scopedArgs: ["leg_id"], sendSubject: null, note: "BOARDED_REPORTED on one leg" },
   { tool: "propose_manifest_reallocation", scopedArgs: ["infeasible_vehicle_token", "leg_ids", "options"], sendSubject: null, note: "proposes only; `options` nests the vehicles and legs it would move" },
+  // The time itself is not an object and is not scope-checked — it is a string on the leg's own
+  // service date, and the leg is what the family scope answers for. `sendSubject: null` because a
+  // proposal sends nothing: the family hears about this only if a person approves it.
+  { tool: "propose_dropoff_change", scopedArgs: ["child_token", "leg_id"], sendSubject: null, note: "proposes a new drop-off time on one leg of this family's; no mutation and no send" },
   { tool: "propose_contact_or_profile_change", scopedArgs: ["family_token", "source_message_id"], sendSubject: null, note: "proposes against this family only" },
+  /*
+   * A drop-off proposal names one of *this family's* legs and one of this run's own messages as
+   * its basis, and both are scope-checked. `requested_stop_token` deliberately is not: a stop is
+   * not a family's object and not in `scope.shared` either — it is constrained by the tool's own
+   * schema to the center's code-owned list of places (`KNOWN_STOP_TOKENS`), which is a tighter
+   * check than the scope could give it. Nothing sends: a proposal is a row for a person.
+   */
+  { tool: "propose_dropoff_change", scopedArgs: ["leg_id", "source_message_id"], sendSubject: null, note: "one of this family's legs, and the message it was asked in" },
   { tool: "escalate_exception", scopedArgs: ["leg_id"], sendSubject: null, note: "always allowed (§11.2), still scope-checked" },
   { tool: "close_task", scopedArgs: ["task_id", "evidence_ref"], sendSubject: null, note: "the evidence must be this run's own" },
   { tool: "summarize_thread_for_staff", scopedArgs: ["thread_id"], sendSubject: null, note: "staff-only note on this family's thread" },
@@ -733,7 +745,17 @@ export function evaluate(
   //    body-shaped argument name, a value that reads as a sentence.
   //
   //    A send tool that declares no copy source is read as free text and falls through to step 10.
-  const sendCopy: SendCopy | null = effect === "send" ? (def.sendCopy ?? { kind: "free_text" }) : null;
+  //
+  //    **Anything that CARRIES outbound copy is checked here, whether it sends that copy or
+  //    proposes it** (S1-7, Firia 2026-10-18). `send_followup` and `request_clarification` are
+  //    `human`-tier `propose` tools now, and their calls still name a template and vars that a
+  //    coordinator would be shown and the outbox would later render. Gating this step on
+  //    `effect === "send"` alone would have let a smuggled sentence through to a proposal row —
+  //    refused eventually by the outbox's own var rules at drain, but only after a person had
+  //    been shown it and pressed Approve. A prose argument is a block at the gateway, as it was
+  //    before the tier moved.
+  const carriesCopy = effect === "send" || def.sendCopy !== null;
+  const sendCopy: SendCopy | null = carriesCopy ? (def.sendCopy ?? { kind: "free_text" }) : null;
   if (sendCopy && sendCopy.kind !== "free_text") {
     const freeText = freeTextInTemplatedSend(def, sendCopy, args);
     if (freeText) return block("free_text_to_parents", call.tool, freeText, staffReview("free_text_to_parents"));
@@ -795,7 +817,10 @@ export function evaluate(
   //    cannot widen by accident: every send that does reach a guardian, a therapist or a
   //    dispatcher — templated or free text, whichever guardian the executor later resolves — comes
   //    through here, and a sending tool whose row declares no staff audience is checked as before.
-  if (effect === "send" && row.sendSubject && !staffAudienceSend(row, args)) {
+  //    Asked of a proposal too, for the reason step 6 is (S1-7): a card offering to text a family
+  //    that has withdrawn consent is a card nobody should be shown, and the refusal belongs where
+  //    every other one is — before a row exists, not after a coordinator has read it.
+  if (carriesCopy && row.sendSubject && !staffAudienceSend(row, args)) {
     const subject = args[row.sendSubject];
     if (typeof subject !== "string" || !ctx.sendableSubjects.has(subject)) {
       return block("non_consented_number", call.tool, `no live consent for subject in ${row.sendSubject}`, staffReview("non_consented_number"));

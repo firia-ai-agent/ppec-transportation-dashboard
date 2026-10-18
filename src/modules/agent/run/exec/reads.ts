@@ -23,10 +23,11 @@
  * (`factsOf`).
  */
 import type { Exec } from "@/db/exec";
+import type { IdentityGateway } from "@/modules/identity/gateway";
 import { agentTasks } from "@/ui/copy";
 import { serviceDateIso } from "@/ui/service-date";
 import type { ExecutorCall, ToolExecution, ToolExecutor } from "../executors";
-import {
+import { gatewayOf,
   type ExecutorDeps,
   actor,
   attendanceRow,
@@ -84,7 +85,7 @@ export function resolveSenderExecutor(deps: ExecutorDeps): ToolExecutor {
 
     const receivedAt = new Date(row.received_at);
     const serviceDate = serviceDateIso(receivedAt);
-    const contact = await contactForHmac(deps.db, { siteId: call.siteId, fromHmac: row.from_hmac, at: receivedAt });
+    const contact = await contactForHmac(gatewayOf(deps), { siteId: call.siteId, fromHmac: row.from_hmac, at: receivedAt });
     if (!contact) return unknownSender(deps, call, row.thread_id, "NO_CONTACT_POINT");
 
     const children = await authorizedChildren(deps.db, {
@@ -185,24 +186,25 @@ export function getLegStateExecutor(deps: ExecutorDeps): ToolExecutor {
 
 type ContactRow = { contact_token: string; family_group_id: string | null };
 
-/** The guardian contact behind a blind index, then the therapist / dispatcher, as inbound does. */
+/**
+ * The guardian contact behind a blind index, then the therapist / dispatcher — through the
+ * IdentityGateway (S1-6), which is also the one place the webhook asks it (`inbound.ts`).
+ *
+ * The two statements that were here ran on `deps.db`: the agent's own connection, which may not
+ * read `identity` at all (src/db/schema.ts:104). So `read_message` could not resolve a sender on
+ * any deployment with the real role split — and a step that cannot name the sender raises
+ * NEEDS_PERSON, which made a permission error look like an ambiguous text.
+ */
 async function contactForHmac(
-  db: Exec,
+  gateway: IdentityGateway,
   a: { siteId: string; fromHmac: string; at: Date },
 ): Promise<ContactRow | null> {
-  const g = await db.query<ContactRow>(
-    `SELECT contact_token, family_group_id FROM identity.guardian_contact
-     WHERE phone_hmac = $1 AND site_id = $2 AND revoked_at IS NULL
-       AND valid_from <= $3 AND (valid_to IS NULL OR valid_to > $3)
-     ORDER BY valid_from DESC LIMIT 1`,
-    [a.fromHmac, a.siteId, a.at.toISOString()],
-  );
-  if (g.rows[0]) return g.rows[0];
-  const p = await db.query<{ person_token: string }>(
-    "SELECT person_token FROM identity.external_person_identity WHERE phone_hmac = $1 AND site_id = $2 LIMIT 1",
-    [a.fromHmac, a.siteId],
-  );
-  return p.rows[0] ? { contact_token: p.rows[0].person_token, family_group_id: null } : null;
+  const person = await gateway.senderForPhoneHmac({
+    siteId: a.siteId,
+    phoneHmac: a.fromHmac,
+    at: a.at,
+  });
+  return person ? { contact_token: person.contactToken, family_group_id: person.familyGroupId } : null;
 }
 
 /** §6.4: the children this contact may ask about on this channel, at this time. */

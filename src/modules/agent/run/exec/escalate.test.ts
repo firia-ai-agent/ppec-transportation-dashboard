@@ -9,6 +9,15 @@
  * run rather than quietly escalate for it.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). `read_message`, the capability report and the drain's
+ * consent check all ask `IdentityGateway` now rather than the connection — and this one answers
+ * from the rows `seedAgentScenario` just wrote. See src/test/identity-gateway.ts for why it is in
+ * memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { handlers } from "@/modules/jobs/handlers";
@@ -36,6 +45,8 @@ import type { Trigger } from "../triggers";
 import { AGENT_ESCALATE_JOB_KIND, NO_REPLY_GRACE_SECONDS, escalateTimerKey } from "./escalate";
 import { CAPABILITY_REPLY_SECONDS, CAPABILITY_TASK_CATEGORY } from "./capability";
 import { CLARIFICATION_AWAIT_SECONDS, CLARIFICATION_NO_REPLY_CATEGORY } from "./clarify";
+import { PREDICATE_INBOUND_REPLY } from "./predicate";
+import { agentWaits } from "@/ui/copy";
 import { THERAPIST_ACK_SECONDS } from "./therapist";
 import { type LiveHarness, liveHarness } from "./live-harness";
 
@@ -64,10 +75,16 @@ const facts = (): TierFacts => ({
   t4: "channel=SMS locale=en-US",
 });
 
-const harness = (script: readonly ProviderResponseBody[], over: Partial<PolicyContext> = {}): LiveHarness =>
+const harness = (
+  script: readonly ProviderResponseBody[],
+  over: Partial<PolicyContext> = {},
+  overrides: Record<string, unknown> = {},
+): LiveHarness =>
   liveHarness({
+    gateway: GATEWAY,
     db,
     script,
+    overrides: overrides as never,
     facts: facts(),
     policy: {
       scope: sc.scope,
@@ -95,16 +112,55 @@ const fireAgain = async (jobId: string) => {
   return fire(jobId);
 };
 
-describe("a clarification nobody answers (AT-02)", () => {
+/**
+ * A QUESTION NOBODY ANSWERS (AT-02), and where its producer went.
+ *
+ * This block is about the escalation machinery for a wait whose answer is an **inbound reply**:
+ * the deadline, the grace period, the AMBER exception raised with no model turn, and the reply
+ * that closes it. All of that is live code (`exec/escalate.ts`, `run/timers.ts`) and all of it is
+ * asserted below.
+ *
+ * What is no longer live is the one tool that produced that wait. Firia's S1-7 ruling
+ * (2026-10-18) moved `request_clarification` to the `human` tier, so it proposes instead of
+ * sending and there is nothing to await until a person has approved the question — the await and
+ * its `inbound_reply` escalation come back when the APPROVED message is the thing being waited
+ * on, which is B-12's to wire (named in the PR body as a deferral).
+ *
+ * So the step is driven through an override here: the same `awaitExternal` the clarification
+ * executor returned, on an auto-tier send this fixture's scope already reaches. The alternative
+ * was to delete the block, and the machinery it covers has not changed.
+ */
+describe("a question nobody answers (AT-02)", () => {
   const clarifyRun = async (): Promise<{ runId: string; escalateJobId: string; escalateAt: Date }> => {
     sc = await seedAgentScenario(db, { children: 2 });
-    const h = harness([
-      toolCall("resolve_sender", { message_id: sc.messageId }),
-      toolCall("request_clarification", {
-        thread_id: sc.threadId, ambiguity_type: "WHICH_CHILD",
-        candidate_tokens: sc.children, draft_template_id: "generic.notice",
-      }),
-    ]);
+    const h = harness(
+      [
+        toolCall("resolve_sender", { message_id: sc.messageId }),
+        toolCall("notify_affected_therapist", {
+          therapy_session_token: sc.children[0], child_token: sc.children[0], impact: "LATE", eta: "09:30",
+        }),
+      ],
+      {},
+      {
+        notify_affected_therapist: async () => ({
+          data: { would_send: "generic.notice" },
+          awaitExternal: {
+            reasonCode: "CLARIFICATION",
+            afterSeconds: CLARIFICATION_AWAIT_SECONDS,
+            summary: agentWaits.clarification,
+            completionPredicate: PREDICATE_INBOUND_REPLY,
+            escalation: {
+              afterSeconds: CLARIFICATION_AWAIT_SECONDS + NO_REPLY_GRACE_SECONDS,
+              reason: "CLARIFICATION",
+              category: CLARIFICATION_NO_REPLY_CATEGORY,
+              severity: "AMBER",
+              nextStepCode: "STAFF_CALL",
+              watch: { kind: "inbound_reply", threadId: sc.threadId },
+            },
+          },
+        }),
+      },
+    );
     const r = await h.start({ type: "msg.inbound", id: sc.messageId, siteId: sc.siteId });
     expect(r.state).toBe("WAITING_TOOL");
     // Two deadlines: the resume, then the escalation a grace period later.

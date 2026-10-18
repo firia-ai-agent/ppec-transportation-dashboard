@@ -143,6 +143,30 @@ vi.mock("next/link", () => ({
 }));
 
 /**
+ * `useRouter`, and only `useRouter`, for the same reason as `next/link` above: it reads a router
+ * out of a React context that exists only inside a mounted Next app, and this file renders page
+ * trees with `renderToStaticMarkup`.
+ *
+ * It became necessary when #73's board started calling it (`plan-routes/board/PlanBoard.tsx`).
+ * The *harness* renders `/plan-routes` for a role that may open it — that is how it learns which
+ * of the page's own sentences a 403 must not echo back (`protectedPhrasesOf`) — so a client hook
+ * throwing in there took out three cells that are about the guard and not about the board at all:
+ * `/plan-routes as noRole`, `/plan-preview as noRole` (it redirects there) and the no-role sweep.
+ *
+ * The rest of the module is the real one, deliberately: `forbidden()`, `redirect()` and
+ * `notFound()` are precisely what this file measures, and a stub of those would be a harness
+ * marking its own homework. `importOriginal` keeps them.
+ */
+vi.mock("next/navigation", async (importOriginal) => {
+  const real = await importOriginal<typeof import("next/navigation")>();
+  const noop = () => {};
+  return {
+    ...real,
+    useRouter: () => ({ push: noop, replace: noop, refresh: noop, back: noop, forward: noop, prefetch: noop }),
+  };
+});
+
+/**
  * `forbidden()` is gated on the experiment that next.config.ts turns on; Next sets this variable
  * from that config at build time, and there is no Next build around a vitest worker, so it is set
  * here. The config itself is asserted below, because a page that cannot answer 403 is the whole
@@ -658,16 +682,22 @@ describe("the session endpoint, for every role and for a signed-out caller", () 
     }
   });
 
-  it("the two server actions take no session, so neither has a cell to deny", () => {
+  it("the two unguarded server actions take no session, so neither has a cell to deny", () => {
     /*
      * Sign-in must run for someone who has no session by definition, and sign-out must keep
      * working for someone whose role was just removed — so neither is role-gated and there is no
      * refusal of theirs to assert a body for. The access table says so (access.test.ts writes
      * the rows out), and this is the line that would fail the day one of them became a session
      * surface without a guarded refusal to go with it.
+     *
+     * The approvals decision is the opposite kind and is listed with its guard: it is the "For
+     * you" tab's one control, it takes a session, and `APPROVAL_ROLES` is what it answers to
+     * (`front-desk-cannot-approve.test.ts` holds the 403). A new action landing here with
+     * `auth.kind` anything but `session` is what this list is for.
      */
     const actions = ENDPOINTS.filter((row) => row.kind === "action");
     expect(actions.map((a) => [a.path, a.auth.kind])).toEqual([
+      ["action:approval-decision", "session"],
       ["action:sign-in", "auth-endpoint"],
       ["action:sign-out", "public"],
     ]);

@@ -19,6 +19,7 @@
 import { SITE_TIME_ZONE, serviceDateIso } from "@/ui/service-date";
 import type { PolicyContext } from "../policy";
 import { wrapUntrusted } from "../policy";
+import type { ScopeTokens } from "./scope-tokens";
 import type { CommittedCall } from "./store";
 import { type Trigger, triggerLabel } from "./triggers";
 
@@ -54,6 +55,13 @@ export type AssembledContext = {
   readonly policy: PolicyContext;
   /** Tools offered this turn; defaults to the whole §11.2 catalog. */
   readonly tools?: readonly string[];
+  /**
+   * The token ↔ id dictionary this prompt was written through (`run/scope-tokens.ts`). The loop
+   * reads a returning tool call back through the same one, so the labels the model was given and
+   * the labels it is held to are the same labels. Absent means "no translation" — the ids were
+   * written into the prompt as they are, which is what the hand-built contexts in the tests do.
+   */
+  readonly tokens?: ScopeTokens;
 };
 
 export type ContextAssembler = (input: AssembleInput) => Promise<AssembledContext> | AssembledContext;

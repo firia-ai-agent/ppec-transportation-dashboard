@@ -7,6 +7,7 @@
  * ops.vehicle / vehicle_layout / layout_position / transport_profile so the seed can replace them.
  */
 import type { AmbSeat, Child, DailyCapability, Layout, Leg, Vehicle, WcPosition } from "@/domain/solver";
+import { providerDisplayName } from "@/ui/copy";
 
 export const SERVICE_DATE = "2026-10-14";
 
@@ -51,24 +52,24 @@ export const V4_LAYOUT_0WC3A: Layout = {
 
 export const V1: Vehicle = {
   id: "V1", label: "V1", description: "Convertible van",
-  providerId: PROVIDERS.P1.id, providerName: PROVIDERS.P1.name, liftEquipped: true,
+  providerId: PROVIDERS.P1.id, providerName: providerDisplayName(PROVIDERS.P1.name), liftEquipped: true,
   layouts: [V1_LAYOUT_0WC6A, V1_LAYOUT_1WC3A, V1_LAYOUT_2WC1A],
 };
 /** Center-owned van, the AT-04 relief vehicle. */
 export const V2: Vehicle = {
   id: "V2", label: "V2", description: "Center van",
-  providerId: PROVIDERS.CENTER.id, providerName: PROVIDERS.CENTER.name, liftEquipped: true,
+  providerId: PROVIDERS.CENTER.id, providerName: providerDisplayName(PROVIDERS.CENTER.name), liftEquipped: true,
   layouts: [V2_LAYOUT_1WC4A],
 };
 /** P1's substitute van (AT-05): different securement hardware and only one ambulatory seat. */
 export const V3: Vehicle = {
   id: "V3", label: "V3", description: "Substitute van",
-  providerId: PROVIDERS.P1.id, providerName: PROVIDERS.P1.name, liftEquipped: true,
+  providerId: PROVIDERS.P1.id, providerName: providerDisplayName(PROVIDERS.P1.name), liftEquipped: true,
   layouts: [V3_LAYOUT_1WC1A],
 };
 export const V4: Vehicle = {
   id: "V4", label: "V4", description: "Sedan",
-  providerId: PROVIDERS.P2.id, providerName: PROVIDERS.P2.name, liftEquipped: false,
+  providerId: PROVIDERS.P2.id, providerName: providerDisplayName(PROVIDERS.P2.name), liftEquipped: false,
   layouts: [V4_LAYOUT_0WC3A],
 };
 export const FLEET: Vehicle[] = [V1, V2, V3, V4];

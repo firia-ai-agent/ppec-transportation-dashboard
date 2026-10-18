@@ -8,6 +8,7 @@ import {
   F1_NUMBER, F3_NUMBER, PEPPER, SITE_B, UNKNOWN_NUMBER, seedPersona, seedSecondSite, seedStaff,
 } from "@/test/messaging";
 import { MAX_LIMIT } from "@/modules/messaging/mailbox";
+import { dbIdentityGateway } from "@/modules/identity/gateway";
 
 /**
  * THE SAME RULES, SENT STRAIGHT TO THE ENDPOINT.
@@ -24,9 +25,21 @@ import { MAX_LIMIT } from "@/modules/messaging/mailbox";
  *  - the site half is the module, so a phone at another site is a 404 `UNKNOWN_PHONE` identical to
  *    the answer for a number nobody holds.
  */
-const mocks = vi.hoisted(() => ({ getCaller: vi.fn(), getNeonDb: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getCaller: vi.fn(), getNeonDb: vi.fn(), identityGateway: vi.fn() }));
 vi.mock("@/auth/caller", () => ({ getCaller: mocks.getCaller }));
 vi.mock("@/db/exec", () => ({ getNeonDb: mocks.getNeonDb, runAfterCommit: vi.fn() }));
+/*
+ * The phone→contact lookup is the IdentityGateway's, not the app connection's
+ * (src/db/schema.ts:104; src/modules/identity/gateway.ts). This file seeds its own personas with
+ * their own tokens, so the gateway it runs with is the DEPLOYED one — the identity SQL, over the
+ * test database — which is what a deployment with an `identity_gateway` connection has. The
+ * synthetic gateway production runs today answers from the demo fixtures instead, and knows
+ * nothing about a persona this file invented.
+ */
+vi.mock("@/modules/identity/gateway", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/modules/identity/gateway")>()),
+  identityGateway: mocks.identityGateway,
+}));
 
 let pg: PGlite; let db: Db;
 let directorA: string; let coordinatorA: string; let frontDeskA: string; let directorB: string; let outsider: string;
@@ -49,6 +62,7 @@ beforeEach(async () => {
   ({ pg, db } = await freshDb());
   vi.clearAllMocks();
   mocks.getNeonDb.mockImplementation(() => db);
+  mocks.identityGateway.mockImplementation(() => dbIdentityGateway(db, { pepper: PEPPER }));
   process.env = { ...saved, HMAC_PEPPER: PEPPER, DATABASE_URL: undefined };
 
   await seedPersona(db, F1_NUMBER);

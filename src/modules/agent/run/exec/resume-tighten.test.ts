@@ -29,8 +29,13 @@ import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
-import { type AgentScenario, seedAgentScenario } from "@/test/agent-state";
+import { type AgentScenario, seedAgentScenario, seedTherapySession } from "@/test/agent-state";
 import { recordConsent } from "@/modules/messaging/consent";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/** The suites' identity gateway (S1-6); see src/test/identity-gateway.ts. */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
+import { PEPPER } from "@/test/messaging";
 import type { PolicyContext } from "../../policy";
 import { toolCall } from "../../providers/fake";
 import type { ProviderResponseBody } from "../../providers/provider";
@@ -48,6 +53,8 @@ let pg: PGlite;
 let db: Db;
 let now: Date;
 let sc: AgentScenario;
+/** The therapy session the re-decided send is about (S1-7; see `followupCall`). */
+let session: Awaited<ReturnType<typeof seedTherapySession>>;
 const open: PGlite[] = [];
 
 beforeEach(async () => {
@@ -55,6 +62,9 @@ beforeEach(async () => {
   open.push(pg);
   now = new Date(TEST_NOW);
   sc = await seedAgentScenario(db);
+  session = await seedTherapySession(db, {
+    siteId: sc.siteId, childToken: sc.children[0], startsAt: new Date(now.getTime() + 3 * 3_600_000),
+  });
 }, 60_000);
 
 afterEach(async () => {
@@ -72,8 +82,8 @@ const facts = (): TierFacts => ({
 
 /** The context a session builds for this run. `over` is what changed during the outage. */
 const policy = (over: Partial<PolicyContext> = {}): PolicyContext => ({
-  scope: sc.scope,
-  sendableSubjects: new Set([sc.threadId, ...sc.children]),
+  scope: { ...sc.scope, tokens: new Set([...sc.scope.tokens, session.sessionId]) },
+  sendableSubjects: new Set([sc.threadId, session.sessionId, ...sc.children]),
   sourceMessageId: sc.messageId,
   ...over,
 });
@@ -88,6 +98,7 @@ const NOTE_EXECUTOR = { summarize_thread_for_staff: async () => ({ data: { note:
  */
 const crashingOn = (tool: string, script: readonly ProviderResponseBody[]): LiveHarness =>
   liveHarness({
+    gateway: GATEWAY,
     db, script: [...script, NOTE_TURN()], facts: facts(), policy: policy(), now: () => now, isFatal,
     overrides: {
       ...NOTE_EXECUTOR,
@@ -100,16 +111,26 @@ const crashingOn = (tool: string, script: readonly ProviderResponseBody[]): Live
 /** The process that comes back, with the real executors and the context as it is **now**. */
 const resumingWith = (over: Partial<PolicyContext>, script: readonly ProviderResponseBody[]): LiveHarness =>
   liveHarness({
+    gateway: GATEWAY,
     db, script: [...script, NOTE_TURN()], facts: facts(), policy: policy(over), now: () => now,
     overrides: NOTE_EXECUTOR,
   });
 
+/**
+ * The send this file re-decides on resume.
+ *
+ * It was `send_followup`, which Firia's S1-7 ruling (2026-10-18) moved to the `human` tier: it
+ * proposes now, so it never reaches an executor, never commits a PENDING `ALLOW:send` row, and
+ * cannot be crashed on — none of which is what F1 is about. F1 is about a send that was ALLOWED
+ * by one process, written down, and then re-decided by the process that comes back, and
+ * `notify_affected_therapist` is an auto-tier send of exactly that shape.
+ */
 const followupCall = () =>
-  toolCall("send_followup", {
-    audience: "GUARDIAN_OF_CHILD",
-    subject_token: sc.children[0],
-    template_id: "leg.canceled",
-    vars: { legDate: sc.serviceDate, reasonCode: "FAMILY_REQUEST" },
+  toolCall("notify_affected_therapist", {
+    therapy_session_token: session.sessionId,
+    child_token: sc.children[0],
+    impact: "LATE",
+    eta: "09:30",
   });
 
 /** The run whose last step is a send: one turn, so the PENDING row is the send itself. */
@@ -129,14 +150,14 @@ const sendRow = async (runId: string) => (await toolCalls(db, runId))[0];
  * Returns the run id and the resumed result.
  */
 async function crashThenResume(over: Partial<PolicyContext>) {
-  const dying = crashingOn("send_followup", SEND_SCRIPT());
+  const dying = crashingOn("notify_affected_therapist", SEND_SCRIPT());
   await expect(dying.start(trigger())).rejects.toBeInstanceOf(SimulatedCrash);
 
   const runId = (await db.query<{ id: string }>("SELECT id FROM ops.agent_run", [])).rows[0].id;
   const pending = await sendRow(runId);
   // The state F1 is about: allowed, written down, not executed, and nothing queued.
   expect([pending.tool, pending.status, pending.policyDecision]).toEqual([
-    "send_followup", "PENDING", "ALLOW:send",
+    "notify_affected_therapist", "PENDING", "ALLOW:send",
   ]);
   expect(await outbound()).toEqual([]);
 
@@ -149,13 +170,20 @@ describe("the control: a resumed send that nothing refused goes out", () => {
   it("queues under the original key and the outbox sends it", async () => {
     const { resumed, runId, back } = await crashThenResume({});
 
-    expect(resumed.state).toBe("SUCCEEDED");
+    /*
+     * WAITING_TOOL, because this send asks for an acknowledgment and parks the run on its
+     * deadline (§11.1; `exec/therapist.ts`). What F1's control is about is the step before that:
+     * the persisted ALLOW was executed rather than refused, and the message is in the outbox.
+     */
+    expect(resumed.state).toBe("WAITING_TOOL");
     const row = await sendRow(runId);
     expect(row.status).toBe("EXECUTED");
     // No re-decision happened, so nothing says one did.
     expect(row.result).not.toHaveProperty("tightened_on_resume");
 
-    expect((await outbound()).map((m) => [m.state, m.template_id])).toEqual([["QUEUED", "leg.canceled"]]);
+    const queued = await outbound();
+    expect(queued.map((m) => m.state)).toEqual(["QUEUED"]);
+    expect(queued[0].template_id).toMatch(/^therapist\./);
     expect(await back.drainOutbox()).toEqual(["SENT"]);
     expect(back.provider.sent).toHaveLength(1);
   });
@@ -166,7 +194,7 @@ describe("F1 a pause that lands between the persist and the resume", () => {
     const { resumed, runId, back } = await crashThenResume({ paused: true });
 
     expect([resumed.state, resumed.reason]).toEqual([
-      "FAILED", "policy blocked send_followup (send_while_paused)",
+      "FAILED", "policy blocked notify_affected_therapist (send_while_paused)",
     ]);
     const row = await sendRow(runId);
     // The row keeps the decision it was persisted with — that is a fact about the turn that
@@ -212,12 +240,18 @@ describe("F1 a pause that lands between the persist and the resume", () => {
 
 describe("F1 a consent withdrawal that lands between the persist and the resume", () => {
   it("refuses the resumed send, and queues nothing for a family that has opted out", async () => {
-    const dying = crashingOn("send_followup", SEND_SCRIPT());
+    const dying = crashingOn("notify_affected_therapist", SEND_SCRIPT());
     await expect(dying.start(trigger())).rejects.toBeInstanceOf(SimulatedCrash);
     const runId = (await db.query<{ id: string }>("SELECT id FROM ops.agent_run", [])).rows[0].id;
 
     // The family texts STOP while the process is down: one consent event, one suppression row.
-    const consent = await db.tx((tx) => recordConsent(tx, {
+    /*
+     * The suites' gateway (S1-6): `recordConsent` appends the consent event through one now. In
+     * memory, because this call is inside `db.tx` and a second transaction on the same PGlite
+     * connection would wait on the first forever. What the test is about is unchanged — the
+     * `ops.suppression` row, written in this transaction.
+     */
+    const consent = await db.tx((tx) => recordConsent(tx, GATEWAY, {
       siteId: sc.siteId, contactToken: sc.contactToken, channel: "SMS_1TO1", kind: "STOP",
       at: now, by: "test",
     }));
@@ -229,7 +263,7 @@ describe("F1 a consent withdrawal that lands between the persist and the resume"
     const resumed = await back.drive(runId);
 
     expect([resumed.state, resumed.reason]).toEqual([
-      "FAILED", "policy blocked send_followup (non_consented_number)",
+      "FAILED", "policy blocked notify_affected_therapist (non_consented_number)",
     ]);
     const row = await sendRow(runId);
     expect([row.status, row.policyDecision]).toEqual(["BLOCKED", "ALLOW:send"]);

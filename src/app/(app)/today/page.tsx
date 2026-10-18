@@ -2,6 +2,7 @@ import { requirePage } from "@/auth/page-guard";
 import { buildBoard, CLOCK_PARAM, requestedBoardDay } from "@/domain/board/board";
 import { getDayReadiness, serviceDateAt } from "@/domain/day/day-facts";
 import { readRightNow } from "@/domain/health/right-now-facts";
+import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
 import { rightNowTiles } from "@/domain/health/right-now";
 import { savedPlacementsForBoard, savedSetupsForBoard } from "@/modules/plan/store";
 import { siteOf } from "@/modules/plan/api";
@@ -137,5 +138,22 @@ export default async function Page({
 
   // The strip belongs under the board's own header (REDESIGN-SPEC §9.2), so it is handed to
   // the board rather than rendered above everything: the board is what owns that header.
-  return <TodayBoard board={board} query={query} steps={steps} tiles={tiles} />;
+  /*
+   * Which children's families this day texted (PRD §18.2 step 7 / AT-03), from the same
+   * projection the phone panel renders. Kept across the #73 merge: #73 rebuilt this screen and
+   * never carried this list, so it is re-handed here rather than dropped — the drawer offers a
+   * thread for a child that has one and says plainly there is none for a child that does not, and
+   * a link to an empty thread would be worse than the sentence.
+   */
+  const textedChildKeys = demoLateDropoffs(board.day).map((text) => text.childKey);
+
+  return (
+    <TodayBoard
+      board={board}
+      query={query}
+      steps={steps}
+      tiles={tiles}
+      textedChildKeys={textedChildKeys}
+    />
+  );
 }

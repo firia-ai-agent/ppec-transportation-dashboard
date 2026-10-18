@@ -14,6 +14,7 @@
  *    so a window cut from the real clock stops containing the message the next day (test/clock.ts).
  */
 import { uuidv7 } from "uuidv7";
+import { registerTestGuardian, registerTestPerson } from "./identity-gateway";
 import type { Db } from "@/db/exec";
 import { phoneHmac, tokenizeBody } from "@/modules/identity/phone";
 import { type FamilyScope, familyScope } from "@/modules/agent/policy";
@@ -198,6 +199,12 @@ export async function seedProviderRoute(
        VALUES ($1,$2,'DISPATCHER','SYN Dispatcher',$3,'enc','test','test')`,
       [dispatcherToken, a.siteId, phoneHmac(a.number ?? DISPATCHER_NUMBER, PEPPER)],
     );
+    // And into the suites' gateway, beside the INSERT (S1-6: the code under test asks the gateway).
+    registerTestPerson({
+      siteId: a.siteId,
+      personToken: dispatcherToken,
+      phoneHmac: phoneHmac(a.number ?? DISPATCHER_NUMBER, PEPPER),
+    });
   }
   await db.query(
     `INSERT INTO ops.provider (id,site_id,name,dispatch_ownership,dispatcher_person_token,created_by,updated_by)
@@ -244,6 +251,14 @@ export async function seedSecondGuardian(
      VALUES ($1,$2,$3,'SYN Guardian Two',$4,'enc','parent',true,$5,'test','test')`,
     [contactToken, a.siteId, a.familyGroupId, phoneHmac(a.number, a.pepper ?? PEPPER), validFrom],
   );
+  registerTestGuardian({
+    siteId: a.siteId,
+    contactToken,
+    familyGroupId: a.familyGroupId,
+    phoneHmac: phoneHmac(a.number, a.pepper ?? PEPPER),
+    legalName: "SYN Guardian Two",
+    canReceiveUpdates: true,
+  });
   await db.query(
     `INSERT INTO ops.contact_authorization (id,site_id,contact_token,child_token,scope,channel,valid_from,created_by,updated_by)
      VALUES ($1,$2,$3,$4,'RECEIVE_TRANSPORT_UPDATES','SMS_1TO1',$5,'test','test')`,

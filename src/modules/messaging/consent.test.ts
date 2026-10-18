@@ -7,7 +7,8 @@ import { F1_NUMBER, PEPPER, seedPersona, type Persona } from "@/test/messaging";
 import { FakeTransport } from "@/modules/jobs/fake-transport";
 import { VercelQueueScheduler } from "@/modules/jobs/scheduler";
 import { drain, enqueue, type DrainDeps, type EnqueueInput } from "@/modules/outbox/outbox";
-import { dbRecipientAuthorizer } from "@/modules/outbox/policy";
+import { gatewayRecipientAuthorizer } from "@/modules/outbox/policy";
+import { testConsentEvents, testIdentityGateway } from "@/test/identity-gateway";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { classifyConsentKeyword, recordConsent, type ConsentKind } from "./consent";
 import { DbSimMessagingProvider } from "./sim-provider";
@@ -30,7 +31,21 @@ const put = (o: Partial<EnqueueInput> = {}) => db.tx((tx, ac) => enqueue(tx, ac,
 /** A safety-purpose send (SAFETY_PURPOSES in outbox/policy), the one kind an NL opt-out must not stop. */
 const putSafety = () => put({ purpose: "SAFETY_ALERT", templateId: "child.not_received",
   vars: { stopLabel: "OKEE-PARK", eta: "08:20" } });
-const consent = (kind: ConsentKind, atMs: number) => db.tx((tx) => recordConsent(tx, {
+/*
+ * THE SUITES' GATEWAY (S1-6). `recordConsent` appends through a gateway now, and the send-time
+ * check at :43 reads through one — so both have to be the same gateway, or the "newest event
+ * wins" question has two answers.
+ *
+ * In memory rather than `dbIdentityGateway` over this handle, and the reason is PGlite rather
+ * than taste: `recordConsent` is called from inside `db.tx`, and a second `pg.transaction` on the
+ * same connection waits on the first forever. The SQL behind these same questions is proved on
+ * the real rows in `identity/identity-off-the-app-connection.test.ts`; what this file is about is
+ * the *behaviour* — STOP, START, an out-of-order webhook, a permanent test opt-out — and that
+ * behaviour is `ops.suppression`, which is written in this transaction either way.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
+const gateway = () => GATEWAY;
+const consent = (kind: ConsentKind, atMs: number) => db.tx((tx) => recordConsent(tx, gateway(), {
   siteId: SITE, contactToken: f1.contactToken, channel: "SMS_1TO1", kind, at: new Date(atMs), by: "test" }));
 
 beforeEach(async () => {
@@ -39,8 +54,8 @@ beforeEach(async () => {
   outboxTransport = new FakeOutboxTransport();
   const wake = new FakeTransport();
   deps = {
-    provider: new DbSimMessagingProvider(db, new VercelQueueScheduler(db, wake, () => now), { clock: () => now, pepper: PEPPER }),
-    authorizer: dbRecipientAuthorizer(db), clock: () => now, timeoutMs: 500,
+    provider: new DbSimMessagingProvider(db, new VercelQueueScheduler(db, wake, () => now), { clock: () => now, pepper: PEPPER, gateway: gateway() }),
+    authorizer: gatewayRecipientAuthorizer(gateway()), clock: () => now, timeoutMs: 500,
   };
   f1 = await seedPersona(db, F1_NUMBER, { now });
   now = new Date(Date.now() + 1000);
@@ -82,7 +97,8 @@ describe("consent ledger and the send-time block (MSG-04, PRD §10)", () => {
     expect(again.taskId).toBeNull();
     expect((await suppressions()).length).toBe(1);
     expect((await tasks()).length).toBe(1);
-    expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM identity.consent_event", [])).rows[0].n).toBe(2);
+    // The ledger the appends went to (S1-6): `recordConsent` writes through the gateway now.
+    expect(testConsentEvents()).toHaveLength(2);
   });
 
   it("STOP while a message is queued blocks the next send: zero sends (demo step 10)", async () => {

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { X } from "lucide-react";
+import Link from "next/link";
+import { MessagesSquare, X } from "lucide-react";
 import type { BoardRow, LegRow, NeedView, RideView, ServiceDay } from "@/domain/board/board";
 import {
   board as boardCopy,
@@ -44,12 +45,15 @@ import styles from "./today.module.css";
 export function LegDrawer({
   legs,
   day,
+  hasTexts,
   onClose,
 }: {
   /** The child's rides, as rows of the board — so the panel and the rows cannot disagree. */
   legs: readonly LegRow[];
   /** The day those rides are on: the panel's first heading may only say "Today" when it is. */
   day: ServiceDay;
+  /** True when the day actually texted this child's family, so the link opens a thread with a text in it. */
+  hasTexts: boolean;
   onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
@@ -162,6 +166,23 @@ export function LegDrawer({
         <section className={styles.section}>
           <h3 className={styles.sectionHeading}>{drawer.agentHeading}</h3>
           <p className={styles.muted}>{fill(drawer.noAgentChanges, { child })}</p>
+        </section>
+
+        <section className={styles.section}>
+          {/*
+            What the family was told, in their own thread (§6.3). The link is only here when there
+            is a text to read: a link that opened somebody else's thread, or an empty phone, would
+            be worse than the sentence that says nothing was sent.
+          */}
+          <h3 className={styles.sectionHeading}>{drawer.textsHeading}</h3>
+          {hasTexts ? (
+            <Link className={styles.drawerLink} href={`/family-texts?child=${row.childKey}`}>
+              <MessagesSquare size={icon.inline} aria-hidden="true" />
+              {fill(drawer.openTexts, { child })}
+            </Link>
+          ) : (
+            <p className={styles.muted}>{fill(drawer.noTexts, { child })}</p>
+          )}
         </section>
 
         <section className={styles.section}>

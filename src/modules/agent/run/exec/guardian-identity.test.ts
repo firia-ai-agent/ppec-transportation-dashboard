@@ -20,12 +20,23 @@
  * its recipients from the same table, so a lapsed or unlisted contact is not a recipient.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). `read_message`, the capability report and the drain's
+ * consent check all ask `IdentityGateway` now rather than the connection — and this one answers
+ * from the rows `seedAgentScenario` just wrote. See src/test/identity-gateway.ts for why it is in
+ * memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { phoneHmac } from "@/modules/identity/phone";
 import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
-import { F2_NUMBER, PEPPER } from "@/test/messaging";
+import { F2_NUMBER, PEPPER, seedStaff } from "@/test/messaging";
+import { decideApproval, pendingApprovals } from "@/modules/approvals/decide";
+import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import {
   type AgentScenario,
   seedAgentScenario,
@@ -85,6 +96,7 @@ const harness = (script: readonly ProviderResponseBody[], messageId = sc.message
     sourceMessageId: messageId,
   };
   return liveHarness({
+    gateway: GATEWAY,
     db, script: [...script, NOTE_TURN()], facts: facts(), policy,
     overrides: NOTE_EXECUTOR, now: () => now,
   });
@@ -266,18 +278,31 @@ describe("a third guardian nobody listed: no write, no send, and no fan-out", ()
     const r = await h.start(trigger());
     expect(r.state).toBe("SUCCEEDED");
 
+    /*
+     * The recipients are resolved when the PROPOSAL is written (S1-7) and a coordinator's
+     * approval releases exactly those — so the claim is made of the row first. A card that named
+     * a lapsed contact would be one press from texting them.
+     */
+    const coordinator = await seedStaff(db, "COORDINATOR", sc.siteId);
+    const [waiting] = await pendingApprovals(db, [sc.siteId]);
+    const answer = await decideApproval(db, new FakeOutboxTransport(), {
+      userId: coordinator, approvalId: waiting.id, decision: "APPROVED", approvedText: waiting.text, now,
+    });
+    expect(answer.body.ok && answer.body.queued).toBe(1);
+
     // A notice does fan out (§10.1), which is what makes this the sharp test: the only reason
     // either of these two gets nothing is that this child's authorization does not list them now.
     const rows = await outbound();
     expect(rows.map((m) => m.recipient_token)).toEqual([sc.contactToken]);
     expect(rows.filter((m) => m.recipient_token === lapsed || m.recipient_token === siblingOnly)).toEqual([]);
-    expect((await toolCalls(db, r.runId))[1].result).toMatchObject({ recipients: 1 });
 
     expect(await h.drainOutbox()).toEqual(["SENT"]);
     expect(h.provider.sent.map((m) => m.recipientToken)).toEqual([sc.contactToken]);
     const wire = JSON.stringify(h.provider.sent);
     expect(wire).not.toContain(lapsed);
     expect(wire).not.toContain(siblingOnly);
-    expect(await tasks()).toEqual([]);
+    // The one task is the proposal's own — a message waiting for a person (S1-7). No
+    // two-guardian exception and no identity-change claim, which is what this case is about.
+    expect(await tasks()).toEqual([{ category: "FAMILY_MESSAGE", severity: "AMBER" }]);
   });
 });

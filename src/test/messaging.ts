@@ -1,5 +1,6 @@
 /** Synthetic messaging fixtures for tests (ADR-015: 555-01xx numbers, SYN names only). Test-only. */
 import { uuidv7 } from "uuidv7";
+import { registerTestGuardian } from "./identity-gateway";
 import type { Db } from "@/db/exec";
 import { phoneHmac } from "@/modules/identity/phone";
 import { SIM_PERSONA_NUMBERS, simPersonaLabel } from "@/modules/messaging/sim-numbers";
@@ -56,6 +57,20 @@ export async function seedPersona(db: Db, number: string, opts: { canReceiveUpda
     `INSERT INTO ops.contact_authorization (id,site_id,contact_token,child_token,scope,channel,valid_from,created_by,updated_by)
      VALUES ($1,$2,$3,$4,'RECEIVE_TRANSPORT_UPDATES','SMS_1TO1',$5,'test','test')`,
     [uuidv7(), site, contactToken, childToken, validFrom]);
+  /*
+   * And into the suites' own gateway (S1-6): since every `identity.*` statement moved behind
+   * `IdentityGateway`, the code under test asks the gateway rather than this connection — so a
+   * row seeded here has to be a row the gateway knows, or the webhook cannot resolve its own
+   * persona. Registered right beside the INSERT so the two cannot drift.
+   */
+  registerTestGuardian({
+    siteId: site,
+    contactToken,
+    familyGroupId,
+    phoneHmac: hmac,
+    legalName: "SYN Guardian",
+    canReceiveUpdates: opts.canReceiveUpdates ?? true,
+  });
   return { number, hmac, contactToken, familyGroupId, childToken };
 }
 

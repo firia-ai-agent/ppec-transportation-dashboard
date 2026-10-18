@@ -28,13 +28,13 @@ import {
   type Placement,
 } from "@/domain/plan/board";
 import { resolveSetups, setupFor, type SetupSource, type VanSetups } from "@/domain/plan/setup";
-import { getNeonDb } from "@/db/exec";
+import { getNeonDb, type Exec } from "@/db/exec";
 import { demoDaySource } from "@/modules/demo/day-source";
 import { sqlDaySource } from "@/modules/roster/sql";
 import { childKeyOfToken, vehicleIdOf, vehicleKeyOfId } from "@/modules/demo/fixtures/standard";
 import { vanArrival } from "@/ui/copy";
 import { MEMORY_STORE_REFUSED, memoryPlanStore } from "./memory";
-import { sqlPlanStore } from "./sql";
+import { sqlPlanStore, sqlPlanStoreIn } from "./sql";
 import type { PlanStore, SavedPlacement } from "./types";
 
 export type { PlanStore } from "./types";
@@ -50,6 +50,15 @@ export type { PlanStore } from "./types";
  */
 export function planStore(env: Record<string, string | undefined> = process.env): PlanStore {
   return env.DATABASE_URL ? sqlPlanStore(getNeonDb()) : memoryPlanStore(env);
+}
+
+/**
+ * The store for a request whose plan write belongs to a transaction the caller has already opened
+ * (`sqlPlanStoreIn`). The same `DATABASE_URL` decision as `planStore`, so a server with no
+ * database still answers from memory and a deployment still writes rows.
+ */
+export function planStoreIn(tx: Exec, env: Record<string, string | undefined> = process.env): PlanStore {
+  return env.DATABASE_URL ? sqlPlanStoreIn(tx) : memoryPlanStore(env);
 }
 
 /** True when this server has no database to read: the one case the memory store serves. */

@@ -458,6 +458,12 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/api/queues/delay-probe": "queue-callback",
       "/api/webhooks/sms": "signature-webhook",
       "/api/sim/phones/[number]/messages": "session:DIRECTOR+COORDINATOR",
+      /*
+       * The one control on the "For you" tab. `APPROVAL_ROLES` — the named constant, not the
+       * roles of a page — which is Veri's merge blocker: `/exceptions` is being redesigned away,
+       * and a permission read off a route is a permission a route change can move.
+       */
+      "action:approval-decision": "session:DIRECTOR+COORDINATOR",
       "action:sign-in": "auth-endpoint",
       "action:sign-out": "public",
     });
@@ -465,7 +471,13 @@ describe("the policy itself, written out so a silent widening fails", () => {
 
   it("the site-scoped endpoints are the ones that take an id", () => {
     const scoped = ENDPOINTS.filter((e) => e.auth.kind === "session" && e.auth.siteScoped).map((e) => e.path);
-    expect(scoped).toEqual(["/api/demo/reset", "/api/sim/phones/[number]/messages"]);
+    expect(scoped).toEqual([
+      "/api/demo/reset",
+      "/api/sim/phones/[number]/messages",
+      // The approval decision takes an approval id, and the site comes off that row rather than
+      // off the form — which is what makes another site's id a uniform 404.
+      "action:approval-decision",
+    ]);
   });
 
   it("every row whose default is a guess is flagged for the founder, with the question in the file", () => {

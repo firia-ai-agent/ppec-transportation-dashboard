@@ -168,6 +168,23 @@ export function formatWindow(startMs: number, endMs: number): string {
   return `${a.clock}–${b.clock} ${b.meridiem}`;
 }
 
+/**
+ * The same instant as the 24-hour "HH:MM" the *plan* is written in (`amWindow`, `pmWindow`) and
+ * the only time shape an outbound message may carry in its vars (outbox `TEMPLATE_VARS`
+ * `clockTime`). A developer-facing shape on purpose: no screen prints it, and
+ * messaging/templates.ts is what turns it into "4:35 PM" for a family.
+ */
+export function formatClock24(ms: number): string {
+  return CLOCK_24_FMT.format(new Date(ms));
+}
+
+const CLOCK_24_FMT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: SITE_TIME_ZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
 /** A single ET time, "7:42 AM" (COPY-GUIDE l.36). For clocks, never for an ETA. */
 export function formatClock(ms: number): string {
   const { clock, meridiem } = parts(ms);

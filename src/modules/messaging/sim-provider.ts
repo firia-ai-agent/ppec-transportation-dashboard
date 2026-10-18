@@ -15,10 +15,11 @@ import type { Handler } from "@/modules/jobs/runner";
 import { systemClock, type Clock, type JobScheduler } from "@/modules/jobs/scheduler";
 import { applyProviderStatus } from "@/modules/outbox/outbox";
 import { ProviderRejected, ProviderTimeout, type MessagingProvider, type OutboundPayload } from "@/modules/outbox/provider";
+import { identityGateway, type IdentityGateway } from "@/modules/identity/gateway";
 import { phoneHmac } from "@/modules/identity/phone";
 import { NO_FAULTS, simFaultStore, type SimFaultStore } from "./faults";
 import { SIM_CENTER_NUMBER, simNumberByHmac } from "./sim-numbers";
-import { renderTemplate, TemplateRenderError } from "./templates";
+import { renderForSend, TemplateRenderError } from "./templates";
 import { uuidv7 } from "uuidv7";
 
 export const SIM_STATUS_JOB_KIND = "sms.sim.status";
@@ -46,6 +47,12 @@ export type SimProviderOptions = {
   clock?: Clock;
   /** Phone blind-index pepper; defaults to the HMAC_PEPPER env value. */
   pepper?: string;
+  /**
+   * The identity gateway this provider asks where a message goes (S1-6). Defaults to this data
+   * class's own; a seam so a DB suite can hand the deployed gateway over a connection that may
+   * run its SQL.
+   */
+  gateway?: IdentityGateway;
 };
 
 type Recipient = { familyGroupId: string | null; phoneHmac: string | null };
@@ -55,11 +62,13 @@ export class DbSimMessagingProvider implements MessagingProvider {
   private readonly seed: string;
   private readonly clock: Clock;
   private readonly faults: SimFaultStore;
+  private readonly gateway: IdentityGateway;
 
   constructor(private db: Db, private scheduler: JobScheduler, private opts: SimProviderOptions = {}) {
     this.seed = opts.seed ?? "ppec-sim";
     this.clock = opts.clock ?? systemClock;
     this.faults = opts.faults ?? simFaultStore();
+    this.gateway = opts.gateway ?? identityGateway();
   }
 
   private pepper(): string {
@@ -68,11 +77,35 @@ export class DbSimMessagingProvider implements MessagingProvider {
     return p;
   }
 
+  /**
+   * The display name on this message's child row, or null when it names no child (a closure
+   * notice) or the row is gone. One `SELECT`, site-scoped like every other read here.
+   */
+  private async childName(msg: OutboundPayload): Promise<string | null> {
+    if (!msg.childToken) return null;
+    const r = await this.db.query<{ display_name: string | null }>(
+      "SELECT display_name FROM ops.child_profile WHERE child_token = $1 AND site_id = $2",
+      [msg.childToken, msg.siteId],
+    );
+    return r.rows[0]?.display_name ?? null;
+  }
+
   async send(msg: OutboundPayload, opts: { signal: AbortSignal }) {
     if (opts.signal.aborted) throw new ProviderTimeout("sim: aborted before the send started");
     let body: string;
     try {
-      body = renderTemplate(msg.templateId, msg.vars);
+      /*
+       * The child's name, read from the child's own row at send time (Firia, 10:51 PM ET: the
+       * text names the child). Never a var: the outbox's allowlist refuses every name anybody
+       * could type (Veri #12), and this is the database's answer, not a caller's. A row that
+       * cannot be read renders "your child" and the text still goes.
+       *
+       * THIS IS THE SEND STEP, so this is where the 10DLC STOP/HELP footer is appended —
+       * `renderForSend`, not `renderTemplate` (Firia, 11:00 PM ET, S1-5). No body carries it,
+       * so the card a coordinator approved and the bubbles in the thread are the message; what
+       * leaves the centre is the message plus the sentence the channel requires.
+       */
+      body = renderForSend(msg.templateId, msg.vars, { child: await this.childName(msg) });
     } catch (e) {
       // A bad template or a missing var is a definite refusal: FAILED, never a blind retry.
       if (e instanceof TemplateRenderError) throw new ProviderRejected(`sim: ${e.message}`);
@@ -88,6 +121,19 @@ export class DbSimMessagingProvider implements MessagingProvider {
 
     const recipient = await this.recipient(msg);
     const personaNumber = recipient.phoneHmac ? simNumberByHmac(pepper).get(recipient.phoneHmac) : undefined;
+    /*
+     * **A family is texted on a synthetic number or not at all** (MOCKS §3; Veri's bar, 2026-10-17).
+     *
+     * The fiction block is 555-01xx and `simNumberByHmac` is its whole address book — the centre's
+     * number and the eight persona phones. A family contact whose blind index is not in it is a
+     * number this simulation cannot name, and the only safe thing to do with a number we cannot
+     * name is refuse: `ProviderRejected`, so the message ends FAILED and is never retried into
+     * somebody's real phone. Therapists and dispatchers have no family group and are not addressed
+     * through the persona phones, so they are not held to this.
+     */
+    if (recipient.familyGroupId !== null && personaNumber === undefined) {
+      throw new ProviderRejected("sim: the recipient is not a synthetic persona number");
+    }
     const faults = personaNumber ? await this.faults.get(personaNumber) : NO_FAULTS;
     const delayMs = simDeliveryDelayMs(`${this.seed}:${msg.messageId}`) + (faults.delayedDelivery ? SIM_DELAYED_DELIVERY_EXTRA_MS : 0);
 
@@ -117,16 +163,19 @@ export class DbSimMessagingProvider implements MessagingProvider {
     return { providerMessageId };
   }
 
-  /** Identity lookup for addressing only: the family group the thread belongs to and the blind index. */
+  /**
+   * Identity lookup for addressing only — through the IdentityGateway (S1-6).
+   *
+   * The two statements ran on `this.db`, which `outbox/deps.ts` builds from `getNeonDb()`: the
+   * application connection, which may not read `identity` (src/db/schema.ts:104). So every
+   * simulated send on a deployment with the real role split failed while working out which thread
+   * the message belonged in.
+   *
+   * Addressing, and nothing else. Whether this recipient may be sent anything was decided before
+   * this point by the egress door (`outbox/policy`), which asks the same gateway its own question.
+   */
   private async recipient(msg: OutboundPayload): Promise<Recipient> {
-    const g = await this.db.query<{ family_group_id: string; phone_hmac: string }>(
-      `SELECT family_group_id, phone_hmac FROM identity.guardian_contact
-       WHERE contact_token = $1 AND site_id = $2 ORDER BY valid_from DESC LIMIT 1`, [msg.recipientToken, msg.siteId]);
-    if (g.rows[0]) return { familyGroupId: g.rows[0].family_group_id, phoneHmac: g.rows[0].phone_hmac };
-    // Therapists and provider dispatchers have no family group; they still get a thread of their own.
-    const p = await this.db.query<{ phone_hmac: string | null }>(
-      "SELECT phone_hmac FROM identity.external_person_identity WHERE person_token = $1 AND site_id = $2", [msg.recipientToken, msg.siteId]);
-    return { familyGroupId: null, phoneHmac: p.rows[0]?.phone_hmac ?? null };
+    return this.gateway.routeForRecipient({ siteId: msg.siteId, recipientToken: msg.recipientToken });
   }
 }
 

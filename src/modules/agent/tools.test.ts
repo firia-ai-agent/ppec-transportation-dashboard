@@ -21,7 +21,7 @@ import {
 } from "./tools";
 
 describe("§11.2 tool catalog", () => {
-  it("has all 15 tools, each with a tier and an effect", () => {
+  it("has all 16 tools, each with a tier and an effect", () => {
     expect(TOOL_NAMES).toHaveLength(TOOL_COUNT);
     expect(TOOL_NAMES).toEqual([
       "resolve_sender",
@@ -36,6 +36,7 @@ describe("§11.2 tool catalog", () => {
       "report_boarding",
       "propose_manifest_reallocation",
       "propose_contact_or_profile_change",
+      "propose_dropoff_change",
       "escalate_exception",
       "close_task",
       "summarize_thread_for_staff",
@@ -48,26 +49,52 @@ describe("§11.2 tool catalog", () => {
     }
   });
 
-  it("marks exactly the two propose_* rows as human tier, and they propose rather than mutate", () => {
+  it("marks the propose_* rows and the two message tools human tier, and they all propose", () => {
     const human = TOOL_NAMES.filter((n) => TOOL_REGISTRY[n].tier === "human");
-    expect(human).toEqual(["propose_manifest_reallocation", "propose_contact_or_profile_change"]);
-    for (const n of human) expect(TOOL_REGISTRY[n].effect).toBe("propose");
+    /*
+     * Five, not three. `request_clarification` and `send_followup` joined the tier on Firia's
+     * S1-7 ruling (2026-10-18): a templated message is still a message to a family, so a person
+     * decides it. They do not start with `propose_` — the names are §11.2's and the PRD's, and
+     * renaming a tool the model is handed is not a thing to do on a Sunday morning — so the
+     * naming rule below became a one-way one, with the exception named.
+     */
+    expect(human).toEqual([
+      "request_clarification",
+      "send_followup",
+      "propose_manifest_reallocation",
+      "propose_contact_or_profile_change",
+      "propose_dropoff_change",
+    ]);
+    for (const n of human) expect([n, TOOL_REGISTRY[n].effect]).toEqual([n, "propose"]);
+    // Every `propose_*` tool is human tier. The two message tools are the only human-tier tools
+    // that are not named that way.
+    expect(TOOL_NAMES.filter((n) => n.startsWith("propose_")).every((n) => TOOL_REGISTRY[n].tier === "human")).toBe(true);
   });
 
-  it("says where every sending tool's copy comes from, and nothing else's", () => {
+  it("says where every tool that carries outbound copy gets it, and nothing else does", () => {
+    /*
+     * The rule used to be "every SENDING tool declares its copy source, and nothing else does".
+     * S1-7 split sending from carrying: `send_followup` and `request_clarification` still name a
+     * template and vars that would reach a family, they just propose them now instead of sending
+     * them. They keep the declaration, and policy.ts step 6 keeps checking it — a tool that
+     * dropped it on the way into the human tier would be a proposal nobody validated.
+     */
+    const MESSAGE_PROPOSERS = ["send_followup", "request_clarification"];
     for (const name of TOOL_NAMES) {
       const def = TOOL_REGISTRY[name];
-      if (def.effect !== "send") {
-        expect(def.sendCopy, `${name} does not send but declares a copy source`).toBeNull();
+      const carries = def.effect === "send" || MESSAGE_PROPOSERS.includes(name);
+      if (!carries) {
+        expect(def.sendCopy, `${name} carries no outbound copy but declares a source`).toBeNull();
         continue;
       }
-      expect(def.sendCopy, `${name} sends and says nothing about its copy`).not.toBeNull();
-      // §11.2 marks every sending tool in the catalog `auto`, and that is only safe because the
-      // model picks which allow-listed message goes out and never a word of it. A `free_text`
-      // declaration here would be a tool that writes to a family, which §11.2 allows only behind
-      // a human approval (policy.ts step 10, free-text-approval.test.ts) — and the catalog has none.
-      expect(def.tier, name).toBe("auto");
+      expect(def.sendCopy, `${name} carries copy and says nothing about where it comes from`).not.toBeNull();
+      // A `free_text` declaration here would be a tool that writes to a family, which §11.2
+      // allows only behind a human approval (policy.ts step 10, free-text-approval.test.ts) —
+      // and the catalog has none.
       expect(def.sendCopy!.kind, `${name} declares free-text copy`).not.toBe("free_text");
+      // What goes out on the agent's own authority is still auto tier, and is still only the
+      // sends: the two proposers are human tier, which is the whole of the S1-7 ruling.
+      expect([name, def.tier], name).toEqual([name, MESSAGE_PROPOSERS.includes(name) ? "human" : "auto"]);
     }
   });
 

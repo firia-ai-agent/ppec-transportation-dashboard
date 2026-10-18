@@ -40,7 +40,7 @@ import type { Db } from "@/db/exec";
 import { previewSkip } from "@/db/read-only";
 import { agentAsk } from "@/ui/copy";
 import { redact } from "../redact";
-import { type AgentRunner, agentRunner } from "../run/deps";
+import { type AgentRunner, agentRunner } from "./no-runner";
 import { effectId, raiseTask } from "../run/exec/effects";
 import type { RunDeps, RunResult } from "../run/loop";
 import { startAndDriveRun } from "../run/loop";

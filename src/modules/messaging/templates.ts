@@ -1,5 +1,5 @@
 /**
- * Outbound SMS bodies (COPY-GUIDE §1 voice, §5 "Outbound family SMS", §6 "[DEMO]" suffix).
+ * Outbound SMS bodies (COPY-GUIDE §1 voice, §5 "Outbound family SMS").
  * Callers never pass free text: the outbox carries a template id plus allowlisted vars
  * (outbox TEMPLATE_VARS), and this is the only place those become words.
  *
@@ -24,8 +24,11 @@
  *    rendered raw — so there is no path for a seeded or staff-typed name into a family's SMS;
  *  - every template in TEMPLATE_VARS has a body, and every placeholder is an allowlisted var for it;
  *  - no ticket codes, enum names, stop tokens or internal jargon in user-facing text (COPY-GUIDE §2);
- *  - every body ends with the "[DEMO]" suffix, so a simulated message is never mistaken for a real one;
- *  - family-facing bodies carry the opt-out sentence (10DLC HELP/STOP reply requirement, PRD §17 D-04);
+ *  - a body is the message and nothing else: no `[DEMO]` tag, and no STOP/HELP footer. Firia,
+ *    2026-10-17 11:00 PM ET (S1-5) — the footer belongs to the SEND STEP (`renderForSend`, below,
+ *    which is what the provider calls), so the drafted text a coordinator approves and the
+ *    bubbles in a thread are the words somebody wrote, and the 10DLC requirement (PRD §17 D-04)
+ *    is met by the thing that actually leaves the centre;
  *  - a var whose value breaks its TEMPLATE_VARS rule is refused, not rendered (defence in depth: the
  *    outbox already rejects it at enqueue and blocks it at send).
  */
@@ -39,11 +42,30 @@ export class TemplateRenderError extends Error {}
  * what this module adds is the rendering. The fixed parts are folded into every body once here,
  * so a body arrives at `renderTemplate` holding only the caller's own vars.
  */
-const { demoTag, optOut, centerPhone } = outboundSms;
-const FIXED = { demoTag, optOut, centerPhone };
+const HELP_REPLY_TEMPLATE_ID = "consent.help";
+
+const { centerPhone } = outboundSms;
+const FIXED = { centerPhone };
+
+/**
+ * THE SEND STEP'S FOOTER — the 10DLC HELP/STOP sentence (PRD §17 D-04).
+ *
+ * Appended by `renderForSend` and by nothing else, so there is exactly one place a body grows
+ * it: the moment a message leaves the centre. A draft on a card, a bubble in a thread and a
+ * preview on a screen are all `renderTemplate`, and all of them are the message without it.
+ */
+export const SEND_FOOTER = outboundSms.optOut;
+
+/**
+ * The one body that already says it: the fixed answer to an inbound HELP, which ends "Reply STOP
+ * to opt out." because that *is* the answer somebody asked for. Appending the footer to it would
+ * tell a family twice, in one text, how to stop — which reads as a bug and spends characters the
+ * channel charges for.
+ */
+const CARRIES_ITS_OWN_FOOTER: ReadonlySet<string> = new Set([HELP_REPLY_TEMPLATE_ID]);
 
 /** Fixed HELP answer. Same words every time, no ticket codes, no child name and no van detail. */
-export const HELP_REPLY_TEMPLATE = "consent.help";
+export const HELP_REPLY_TEMPLATE = HELP_REPLY_TEMPLATE_ID;
 export const HELP_REPLY_BODY = fill(outboundSms.helpReply, FIXED);
 
 const BODIES: Readonly<Record<string, string>> = {
@@ -68,6 +90,19 @@ const STOP_NAMES: Readonly<Record<string, string>> = outboundSms.stops;
 
 /** What an unrecognised token becomes. Never the token itself (COPY-GUIDE §2). */
 export const UNKNOWN_STOP = outboundSms.unknownStop;
+
+/**
+ * The stop tokens that have a place name, longest-lived first — the only ones a *proposal* may
+ * name (`tools.propose_dropoff_change`).
+ *
+ * The outbox's own `stopToken` rule is a shape check, so a token with no entry in the table above
+ * renders as "your usual stop": vague, safe, and exactly right for a message about a stop the plan
+ * already holds. A proposal is the other case. A coordinator is being asked to approve a text that
+ * tells a family where their child will be set down, and "your usual stop" is not an answer to
+ * that question — so the tool takes one of these and nothing else, and the parent's text names a
+ * real place. Derived from the table, so adding a stop to the copy adds it here.
+ */
+export const KNOWN_STOP_TOKENS: readonly string[] = Object.keys(STOP_NAMES);
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -102,7 +137,7 @@ function timeWindow(start: string, end: string): string | null {
 }
 
 /**
- * How an `eta` reads. On the three templates that permit `etaEnd` it is an estimate, so a window is
+ * How an `eta` reads. On the templates that permit `etaEnd` it is an estimate, so a window is
  * rendered when both ends are present and the single time is hedged ("around 8:15 AM") when only one
  * is; on the templates with no `etaEnd` var the time is a recorded fact ("at 8:12 AM"), not a guess.
  *
@@ -147,9 +182,38 @@ const FORMAT: Readonly<Record<string, (value: string, templateId: string, vars: 
   date: calendarDay,
   reasonCode: (value, templateId) => REASON_COPY[templateId]?.[value] ?? null,
   stopLabel: (value) => STOP_NAMES[value] ?? UNKNOWN_STOP,
+  // Minutes as digits, already bounded to 1–240 by the var rule. Nothing to word: "about 15
+  // minutes late" is the body's sentence, and this is the number in it.
+  delayMinutes: (value) => (/^\d{1,3}$/.test(value) ? value : null),
 };
 
 const PLACEHOLDER = /\{(\w+)\}/g;
+
+/**
+ * How a body is being rendered, as against *what* it says — which is the vars.
+ *
+ * Neither field is a var, and that is the whole point of their being here: the outbox's
+ * allowlist (Veri #12, `TEMPLATE_VARS`) still refuses every name and every sentence anybody could
+ * type, and these two are the server's own answers to "whose ride is this" and "is this going out
+ * or being read back by the person approving it".
+ */
+export type RenderFor = {
+  /**
+   * The child's name as their own row holds it ("Noah O."), from which the body uses the given
+   * name alone. Null or absent renders `outboundSms.yourChild` — the wording every body carried
+   * before Firia's 10:51 PM ET ruling — so a row that could not be read is still a sendable text.
+   */
+  readonly child?: string | null;
+};
+
+/**
+ * "Noah O." → "Noah". The display name's first word, which is the given name on every row this
+ * app writes (`synLegalName`, and the seeded `display_name`).
+ */
+function givenName(displayName: string | null | undefined): string | null {
+  const first = (displayName ?? "").trim().split(/\s+/)[0];
+  return first ? first : null;
+}
 
 /** Var names a body needs, for the TEMPLATE_VARS agreement test. */
 export function templatePlaceholders(templateId: string): string[] {
@@ -169,13 +233,20 @@ export function knownTemplates(): string[] {
  * A rejected var is named but never echoed, same as outbox.disallowedVars: the reason it was
  * rejected is that it may carry a child's name.
  */
-export function renderTemplate(templateId: string, vars: Record<string, unknown>): string {
+export function renderTemplate(
+  templateId: string,
+  vars: Record<string, unknown>,
+  how: RenderFor = {},
+): string {
   const body = BODIES[templateId];
   if (!body) throw new TemplateRenderError(`no body for template ${templateId}`);
   if (!TEMPLATE_VARS[templateId]) throw new TemplateRenderError(`no vars allowlist for template ${templateId}`);
   const bad = disallowedVars(templateId, vars);
   if (bad.length) throw new TemplateRenderError(`vars not permitted for template ${templateId}: ${bad.join(",")}`);
   return body.replace(PLACEHOLDER, (_m, name: string) => {
+    // The child's name is not a var and never will be (Veri #12): it is resolved here, from the
+    // child's own row, the way `{stopLabel}` is resolved through a fixed table.
+    if (name === "childName") return givenName(how.child) ?? outboundSms.yourChild;
     const v = vars[name];
     if (v === undefined || v === null || String(v) === "") throw new TemplateRenderError(`template ${templateId} needs var ${name}`);
     const rule = FORMAT[name];
@@ -184,4 +255,21 @@ export function renderTemplate(templateId: string, vars: Record<string, unknown>
     if (worded === null) throw new TemplateRenderError(`template ${templateId} has no copy for var ${name}`);
     return worded;
   });
+}
+
+/**
+ * The body as it leaves the centre: the message, then the footer.
+ *
+ * The one caller is the messaging provider (`sim-provider.ts`), which is the send step. Every
+ * other caller of `renderTemplate` is a screen or a draft, and gets the message alone — which is
+ * the whole of Firia's S1-5 ruling: a coordinator approves words, not words plus furniture, and
+ * what they approve is what the family reads with the required sentence after it.
+ */
+export function renderForSend(
+  templateId: string,
+  vars: Record<string, unknown>,
+  how: RenderFor = {},
+): string {
+  const body = renderTemplate(templateId, vars, how);
+  return CARRIES_ITS_OWN_FOOTER.has(templateId) ? body : `${body} ${SEND_FOOTER}`;
 }

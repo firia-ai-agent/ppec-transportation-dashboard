@@ -36,7 +36,25 @@ export const KIND = {
   family: 0x10, child: 0x11, contact: 0x12, consent: 0x13, auth: 0x14, stop: 0x15, profile: 0x16,
   need: 0x17, person: 0x18, therapist: 0x19, session: 0x1a, provider: 0x1b, vehicle: 0x1c,
   layout: 0x1d, position: 0x1e, capability: 0x1f, plan: 0x20, exception: 0x21, attendanceDay: 0x22,
-  manifest: 0x23, leg: 0x24, reservation: 0x25, setupDay: 0x26,
+  manifest: 0x23, leg: 0x24, reservation: 0x25,
+  /** `ops.vehicle_setup_day` — the ramp's per-van, per-date check (the board branch). */
+  setupDay: 0x26,
+  /**
+   * `ops.approval_request` — the row a proposal is, and the row a coordinator decides.
+   *
+   * 0x27 and not 0x26: this branch and the board branch each claimed the next free namespace
+   * while apart, and two namespaces with one byte would hand a setup row and an approval row the
+   * same uuid. A namespace is only ever appended here, never reused.
+   */
+  approvalRequest: 0x27,
+  /**
+   * `ops.task` — the exception task an approval request hangs off
+   * (`ops.approval_request.task_id` is NOT NULL, 0000_init).
+   *
+   * Its own namespace rather than a reuse of `approvalRequest`: the two rows are written together
+   * and must not collide, and a namespace is only ever appended here (see the note above).
+   */
+  approvalTask: 0x28,
 } as const;
 
 /* ───────────────────────────── types ───────────────────────────── */
@@ -546,6 +564,33 @@ export const familyByKey = (key: string): Family => {
 };
 /** Index within its kind, used to build the deterministic id. */
 export const indexOfChild = (key: string): number => CHILDREN.findIndex((c) => c.key === key);
+
+/**
+ * The two seeded row ids a caller outside the seed has to be able to name.
+ *
+ * They live here, with the data they are derived from, rather than in src/modules/demo/seed.ts —
+ * which is the module that TRUNCATES, and which `build-isolation.test.ts` keeps reachable from
+ * exactly two entry points. A caller that only needs "which row is C2's afternoon" must not drag
+ * the truncate into its import graph to find out; the seed reads these too, so there is still one
+ * definition (`seed.ts`).
+ */
+/**
+ * The older name for {@link childTokenOf}, which is the same formula.
+ *
+ * Both names arrived from different branches — this one from the agent's scope tokens, the other
+ * from the plan board — and they computed `demoId(KIND.child, …)` twice. This delegates so there
+ * is one formula; a caller may use either name.
+ */
+export const demoChildToken = (childKey: string): string => childTokenOf(childKey);
+
+export const demoLegId = (childKey: string, direction: "AM" | "PM"): string =>
+  demoId(KIND.leg, requireChildIndex(childKey) * 2 + (direction === "AM" ? 1 : 2));
+
+function requireChildIndex(childKey: string): number {
+  const i = indexOfChild(childKey);
+  if (i < 0) throw new Error(`unknown child ${childKey}`);
+  return i;
+}
 export const indexOfFamily = (key: string): number => FAMILIES.findIndex((f) => f.key === key);
 export const runOfChild = (key: string): Run | undefined => RUNS.find((r) => r.childKeys.includes(key));
 

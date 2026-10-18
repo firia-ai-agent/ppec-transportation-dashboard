@@ -30,13 +30,21 @@ const TRIGGER: Trigger = { type: "msg.inbound", id: "MSG-1", siteId: SITE };
 /** A second tenant, for the site fence below. */
 const OTHER_SITE = "00000000-0000-7000-8000-0000000000ff";
 
-/** §11.2 request_clarification: an outbound into the thread, then a 15-minute await. */
-const CLARIFY_ARGS = {
-  thread_id: "TH-F1",
-  ambiguity_type: "WHICH_CHILD",
-  candidate_tokens: ["C1"],
-  draft_template_id: "generic.notice",
+/**
+ * §11.2 `notify_affected_therapist`: a fixed-copy alert, then an await on the answer.
+ *
+ * It used to be `request_clarification`, which Firia's S1-7 ruling (2026-10-18) moved to the
+ * `human` tier — so the loop no longer calls an executor for it at all and it can no longer park
+ * anything. The timer machinery is unchanged and still has live producers; this is one of them
+ * (`exec/therapist.ts`), and it is the one this fixture's scope already reaches.
+ */
+const AWAIT_ARGS = {
+  therapy_session_token: "SESS-C1",
+  child_token: "C1",
+  impact: "LATE",
+  eta: "09:30",
 };
+const AWAIT_TOOL = "notify_affected_therapist";
 const CLARIFY_SECONDS = 15 * 60;
 
 let pg: PGlite;
@@ -55,19 +63,21 @@ afterEach(async () => {
 });
 
 /**
- * The clarification run: one send that asks a question, then one staff note once the answer is in.
- * The send needs no approval — §11.2 marks `request_clarification` `auto` and its copy is a
- * fixed-copy template id, so the policy engine allows it on the agent's own authority (VERI-2).
- * What a *free-text* send would do instead — propose, await nothing — is `free-text-approval.test.ts`.
+ * The awaiting run: one send that asks for an answer, then one staff note once it is in.
+ * The send needs no approval — §11.2 marks `notify_affected_therapist` `auto` and its copy is
+ * rendered downstream from structured fields, so the policy engine allows it on the agent's own
+ * authority (VERI-2). A send that would carry the model's own words proposes instead and awaits
+ * nothing (`free-text-approval.test.ts`); so, since S1-7, does any message to a FAMILY
+ * (`exec/clarify.test.ts`).
  */
 const clarifyHarness = () =>
   runHarness({
     db,
-    script: [toolCall("request_clarification", CLARIFY_ARGS), AT01_NOTE],
+    script: [toolCall(AWAIT_TOOL, AWAIT_ARGS), AT01_NOTE],
     facts: AT01_FACTS,
     policy: at01Policy(),
     overrides: {
-      request_clarification: async () => ({
+      [AWAIT_TOOL]: async () => ({
         data: { would_send: "generic.notice" },
         promptFacts: { clarification_asked: true },
         awaitExternal: {
@@ -100,7 +110,7 @@ describe("§11.1 an awaited response is a task plus a timer", () => {
 
     // The call itself committed — a parked run is a run whose last step finished.
     const [call] = await toolCalls(db, r.runId);
-    expect([call.tool, call.status]).toEqual(["request_clarification", "EXECUTED"]);
+    expect([call.tool, call.status]).toEqual([AWAIT_TOOL, "EXECUTED"]);
     expect(call.result).toMatchObject({ would_send: "generic.notice", prompt_facts: { clarification_asked: true } });
 
     // The timer (B-03), with the run on its payload.
@@ -160,11 +170,11 @@ describe("§11.1 an awaited response is a task plus a timer", () => {
 
     const calls = await toolCalls(db, r.runId);
     expect(calls.map((c) => [c.seq, c.tool, c.status])).toEqual([
-      [0, "request_clarification", "EXECUTED"],
+      [0, AWAIT_TOOL, "EXECUTED"],
       [1, "summarize_thread_for_staff", "EXECUTED"],
     ]);
     // The awaited call ran once, and the resumed turn saw its result.
-    expect(h.recorder.intents.map((i) => i.tool)).toEqual(["request_clarification", "summarize_thread_for_staff"]);
+    expect(h.recorder.intents.map((i) => i.tool)).toEqual([AWAIT_TOOL, "summarize_thread_for_staff"]);
     expect(h.gateways.at(-1)!.auditLog.map((a) => a.tool)).toEqual(["summarize_thread_for_staff"]);
   });
 

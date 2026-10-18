@@ -13,7 +13,7 @@ import { approvalKey } from "../policy";
 import { toolCall } from "../providers/fake";
 import type { TierFacts } from "../run/context";
 import type { PolicyContext } from "../policy";
-import { AGENT_RUNNER_NO_CONTEXT_SOURCE, agentRunner } from "../run/deps";
+import { AGENT_RUNNER_NO_CONTEXT_SOURCE, agentRunner } from "./no-runner";
 import { liveHarness } from "../run/exec/live-harness";
 import { toolCalls } from "../run/store";
 import { TRIGGER_TYPES } from "../run/triggers";

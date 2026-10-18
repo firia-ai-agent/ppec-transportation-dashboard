@@ -647,3 +647,21 @@
   font-size: var(--body-console);
   color: var(--color-crit-fg);
 }
+
+/*
+ * The drawer's one link out: the family's own thread (§6.3). A link and not a button, because it
+ * is a destination — so it keeps the brand underline a reader expects, and the §9 target height.
+ */
+.drawerLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target-console);
+  color: var(--color-brand);
+  text-underline-offset: 2px;
+}
+
+.drawerLink:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}

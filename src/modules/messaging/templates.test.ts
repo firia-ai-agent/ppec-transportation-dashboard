@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CHILDREN, EXTERNAL_PEOPLE, FAMILIES, STOPS } from "@/modules/demo/fixtures/standard";
 import { CLOSURE_REASON_CODES, LEG_CANCEL_REASON_CODES, TEMPLATE_VARS } from "@/modules/outbox/outbox";
 import { outboundSms } from "@/ui/copy";
-import { HELP_REPLY_BODY, HELP_REPLY_TEMPLATE, knownTemplates, renderTemplate, templatePlaceholders, TemplateRenderError, UNKNOWN_STOP } from "./templates";
+import { HELP_REPLY_BODY, HELP_REPLY_TEMPLATE, knownTemplates, renderForSend, renderTemplate, SEND_FOOTER, templatePlaceholders, TemplateRenderError, UNKNOWN_STOP } from "./templates";
 
 /**
  * One rule-abiding value per var name (outbox TEMPLATE_VARS value rules, Veri #12). Since those
@@ -16,6 +16,7 @@ const SAMPLE: Record<string, string> = {
   sessionStart: "13:30",
   legDate: "2026-10-14",
   date: "2026-10-14",
+  delayMinutes: "15",
 };
 const sampleVars = (templateId: string, reasonCode = "WEATHER"): Record<string, string> =>
   Object.fromEntries(Object.keys(TEMPLATE_VARS[templateId]).map((v) => [v, v === "reasonCode" ? reasonCode : SAMPLE[v]]));
@@ -24,7 +25,16 @@ describe("outbound SMS templates (COPY-GUIDE §5)", () => {
   it("every outbox template has a body and every placeholder is an allowlisted var", () => {
     expect(knownTemplates().sort()).toEqual(Object.keys(TEMPLATE_VARS).sort());
     for (const t of knownTemplates()) {
-      for (const v of templatePlaceholders(t)) expect(Object.hasOwn(TEMPLATE_VARS[t], v), `${t} uses ${v}`).toBe(true);
+      /*
+       * `childName` is the one placeholder that is not a var and must never become one: it is
+       * resolved at render time from the child's own row (`RenderFor`, Firia 2026-10-17 10:51 PM
+       * ET), the way `{optOut}` and `{demoTag}` are folded in. The assertion below is the door:
+       * no template's allowlist may carry it.
+       */
+      for (const v of templatePlaceholders(t).filter((v) => v !== "childName")) {
+        expect(Object.hasOwn(TEMPLATE_VARS[t], v), `${t} uses ${v}`).toBe(true);
+      }
+      expect(Object.keys(TEMPLATE_VARS[t]), t).not.toContain("childName");
       for (const v of Object.keys(TEMPLATE_VARS[t])) expect(SAMPLE[v] ?? v === "reasonCode", `${t} var ${v} has a sample`).toBeTruthy();
     }
   });
@@ -36,7 +46,13 @@ describe("outbound SMS templates (COPY-GUIDE §5)", () => {
       expect(body, t).not.toMatch(/[A-Z]{3,}_[A-Z]{3,}/); // enum names stay on developer surfaces
       expect(body, t).not.toMatch(/\b(?:load|unload|cargo|pax|patient|handicapped|ASAP|URGENT)\b/i);
       expect(body, t).not.toMatch(/wheelchair-bound|special needs|[\u{1F300}-\u{1FAFF}]|!/u);
-      expect(body, t).toContain("[DEMO]"); // COPY-GUIDE §6: a simulated message says so
+      /*
+       * A body is the message and nothing else (Firia, 2026-10-17 11:00 PM ET, S1-5): no
+       * [DEMO] tag — the demo bar on every screen is where this deployment says it is a
+       * simulation — and no STOP/HELP footer, which the send step appends (`renderForSend`).
+       */
+      expect(body, t).not.toContain("DEMO");
+      expect(body, t).not.toContain(SEND_FOOTER);
       expect(body, t).toMatch(/^PPEC: /);
     }
   });
@@ -71,7 +87,7 @@ describe("outbound SMS templates (COPY-GUIDE §5)", () => {
     expect(renderTemplate("therapist.absence_alert", { sessionStart: "2026-10-14T13:30:00-04:00" }))
       .toContain("The 1:30 PM session");
     expect(renderTemplate("center.closure", { date: "2026-10-14", reasonCode: "HOLIDAY" }))
-      .toBe("PPEC: The center is closed on October 14. This is for a holiday. Reply HELP for help, STOP to opt out. [DEMO]");
+      .toBe("PPEC: The center is closed on October 14. This is for a holiday.");
     expect(renderTemplate("pickup.eta", { eta: "00:05", stopLabel: "OKEE-PARK" })).toContain("Pickup around 12:05 AM");
     // Both ends of a window are read from their own text too, so neither moves with the server TZ.
     expect(renderTemplate("pickup.eta", { eta: "2026-10-14T08:12:00-04:00", etaEnd: "2026-10-14T08:22:00-04:00", stopLabel: "OKEE-PARK" }))
@@ -91,7 +107,7 @@ describe("outbound SMS templates (COPY-GUIDE §5)", () => {
 
   it("renders vars and refuses an unknown template, an unknown var, a bad value or a missing var", () => {
     expect(renderTemplate("pickup.eta", { eta: "08:12", etaEnd: "08:22", stopLabel: "OKEE-PARK" }))
-      .toBe("PPEC: Your child's van is on the way to Okeeheelee Park. Pickup 8:12\u20138:22 AM. Reply HELP for help, STOP to opt out. [DEMO]");
+      .toBe("PPEC: Your child's van is on the way to Okeeheelee Park. Pickup 8:12\u20138:22 AM.");
     expect(() => renderTemplate("not.a.template", {})).toThrow(TemplateRenderError);
     expect(() => renderTemplate("pickup.eta", { ...sampleVars("pickup.eta"), address: "1 Main St" })).toThrow(/not permitted/);
     // Free text in an allowlisted name is a value-rule refusal, and the value is never echoed back.
@@ -169,9 +185,9 @@ describe("the pickup window (etaEnd, COPY-GUIDE §3)", () => {
 
   it("the window is rendered on each template that takes one, and only as a window", () => {
     expect(renderTemplate("dropoff.eta", { stopLabel: "PRINCE-PARK", eta: "16:05", etaEnd: "16:20" }))
-      .toBe("PPEC: Your child's van home is on the way to John Prince Park. Arrival 4:05–4:20 PM. Reply HELP for help, STOP to opt out. [DEMO]");
+      .toBe("PPEC: Your child's van home is on the way to John Prince Park. Arrival 4:05–4:20 PM.");
     expect(renderTemplate("leg.changed", { legDate: "2026-10-14", stopLabel: "OKEE-PARK", eta: "08:12", etaEnd: "08:22" }))
-      .toBe("PPEC: Your child's van on October 14 changed. New pickup 8:12–8:22 AM at Okeeheelee Park. Reply HELP for help, STOP to opt out. [DEMO]");
+      .toBe("PPEC: Your child's van on October 14 changed. New pickup 8:12–8:22 AM at Okeeheelee Park.");
     // etaEnd is read by the eta rule, so no body needs a placeholder of its own for it.
     for (const t of knownTemplates()) expect(templatePlaceholders(t), t).not.toContain("etaEnd");
   });
@@ -205,23 +221,60 @@ describe("the pickup window (etaEnd, COPY-GUIDE §3)", () => {
  * side, checked here on the words side). A name identifies the child to whoever is holding the
  * phone, and the bodies say "your child" / "a child" instead, so there is nothing left to leak.
  */
-describe("no child's name reaches a rendered body", () => {
-  /** Every first name the demo seed can put on the board: children, their guardians, the externals. */
-  const SEEDED = [
-    ...CHILDREN.map((c) => c.firstName),
-    ...FAMILIES.map((f) => f.guardian.firstName),
-    ...EXTERNAL_PEOPLE.map((e) => e.firstName),
-  ];
-  /** Word-bounded, so "Ava" does not match inside "available" — a name is a word, not a substring. */
-  const namesIn = (body: string): string[] =>
-    [...new Set(SEEDED.filter((n) => new RegExp(`\\b${n}\\b`, "i").test(body)))];
+/** Every first name the demo seed can put on the board: children, their guardians, the externals. */
+const SEEDED_FIRST_NAMES = [
+  ...CHILDREN.map((c) => c.firstName),
+  ...FAMILIES.map((f) => f.guardian.firstName),
+  ...EXTERNAL_PEOPLE.map((e) => e.firstName),
+];
 
-  it("the bodies carry no name placeholder at all", () => {
+/**
+ * The seeded names a body carries. Word-bounded, so "Ava" does not match inside "available" — a
+ * name is a word, not a substring. Module-level because two describes need it: the sweep over
+ * every template below, and the one body Vera wrote out by hand at the end of this file.
+ */
+function namesInBody(body: string): string[] {
+  return [...new Set(SEEDED_FIRST_NAMES.filter((n) => new RegExp(`\\b${n}\\b`, "i").test(body)))];
+}
+
+describe("no child's name reaches a rendered body", () => {
+  const namesIn = namesInBody;
+
+  /**
+   * **No name is ever a var** — and since Firia's 10:51 PM ET ruling of 2026-10-17 that is the
+   * whole of the Veri #12 name rule, rather than "no body names a child".
+   *
+   * The ruling is that the text a family gets is human and names the child ("Yes, Jonah gets off
+   * at … at 3:58 PM"). What Veri #12 was protecting against is a *name a caller chose*: a
+   * staff-typed or model-written value in `vars`, which no value-shape check can tell from a
+   * nickname or a typo. That door is still shut, and this test is the lock on it:
+   *
+   *  - no template's allowlist carries a name var, under any spelling;
+   *  - the only name placeholder is `{childName}`, which `renderTemplate` resolves from the
+   *    child's own `ops.child_profile.display_name` — never from `vars`, which it does not even
+   *    look in for it;
+   *  - with no row to read, the body says "your child" and still sends.
+   */
+  it("carries no name var, under any spelling: the name is read from the child's row", () => {
     for (const t of knownTemplates()) {
-      for (const v of templatePlaceholders(t)) expect(v, `${t} uses ${v}`).not.toMatch(/name/i);
-      expect(Object.keys(TEMPLATE_VARS[t]), t).not.toContain("childFirstName");
+      for (const v of Object.keys(TEMPLATE_VARS[t])) expect(v, `${t} allows ${v}`).not.toMatch(/name/i);
+      for (const v of templatePlaceholders(t)) {
+        expect(v === "childName" || !/name/i.test(v), `${t} uses ${v}`).toBe(true);
+      }
     }
     expect(JSON.stringify(outboundSms.bodies) + outboundSms.helpReply).not.toContain("childFirstName");
+  });
+
+  it("names the child the row names, and nobody when there is no row", () => {
+    const vars = sampleVars("dropoff.changed");
+    // The name comes from the third argument — the server's read of the child's row — and the
+    // vars it is rendered with carry no name at all.
+    expect(renderTemplate("dropoff.changed", vars, { child: "Jonah W." })).toContain("Jonah gets off at");
+    expect(JSON.stringify(vars)).not.toContain("Jonah");
+    // A `vars` entry cannot put a name in: it is refused as a var the template does not permit.
+    expect(() => renderTemplate("dropoff.changed", { ...vars, childName: "Mallory" })).toThrow();
+    // And with no row read, the body is the wording every body carried before the ruling.
+    expect(renderTemplate("dropoff.changed", vars)).toContain("your child gets off at");
   });
 
   it("no seeded first name appears in any rendered body, on any template or stop or reason", () => {
@@ -253,5 +306,82 @@ describe("no child's name reaches a rendered body", () => {
     // Since no var renders as itself any more, a var added to a body with no FORMAT entry is a
     // refusal rather than a developer-facing value (a code, a token, a 24h clock) in a family's SMS.
     for (const t of knownTemplates()) expect(() => renderTemplate(t, sampleVars(t)), t).not.toThrow(/no display rule/);
+  });
+});
+
+/**
+ * VERA'S LATE TEXT, VERBATIM (2026-10-17 12:59 PM ET).
+ *
+ * This is the one body a founder reads out loud, so its words are a decision rather than a
+ * detail — and they were reworded. The old one opened "Your child's van home", which makes a
+ * parent parse a compound noun before they get to the news; the new one opens with the van and
+ * what it is doing. Pinned here so a later edit to the template is a deliberate change with
+ * Vera's name on it rather than a drift nobody noticed.
+ */
+describe("the late drop-off text says what Vera settled", () => {
+  const TEMPLATE = "dropoff.late";
+
+  /*
+   * Vera's sentence, as Firia's 2026-10-17 10:51 PM ET ruling leaves it: "the auto late text has
+   * no time range and no ETA". The news is the news — how late the van is, in minutes a person
+   * can act on — and the stop the family is already going to. Nothing a family could read as a
+   * promised arrival, and the next thing they get is the arrival notice itself.
+   */
+  it("is her sentence, word for word, before the standard tail", () => {
+    expect(outboundSms.bodies[TEMPLATE]).toContain(
+      "PPEC: {childName}'s van home is running about {delayMinutes} minutes late. The drop-off is still at {stopLabel}.",
+    );
+  });
+
+  it("carries no time at all: not a window, not a single ETA", () => {
+    const body = renderTemplate(TEMPLATE, { delayMinutes: 15, stopLabel: "OKEE-PARK" }, { child: "Noah O." });
+
+    expect(body).toContain("about 15 minutes late");
+    expect(body).toContain("Okeeheelee Park");
+    // No clock time of any kind, in either form, and no range.
+    expect(body).not.toMatch(/\d{1,2}:\d{2}/);
+    expect(body).not.toContain("\u2013");
+    // The allowlist is the enforcement: a caller cannot put a time back in.
+    expect(Object.keys(TEMPLATE_VARS[TEMPLATE])).toEqual(["stopLabel", "delayMinutes"]);
+    expect(() => renderTemplate(TEMPLATE, { delayMinutes: 15, stopLabel: "OKEE-PARK", eta: "16:35" })).toThrow();
+  });
+
+  it("names the child whose van it is (Firia, 10:51 PM ET)", () => {
+    const body = renderTemplate(TEMPLATE, { delayMinutes: 15, stopLabel: "OKEE-PARK" }, { child: "Noah O." });
+    expect(body).toContain("Noah's van home");
+    // And with no row read it is the old wording, which still names nobody.
+    expect(namesInBody(renderTemplate(TEMPLATE, { delayMinutes: 15, stopLabel: "OKEE-PARK" }))).toEqual([]);
+  });
+});
+
+/**
+ * THE FOOTER IS THE SEND STEP'S (Firia, 2026-10-17 11:00 PM ET, S1-5).
+ *
+ * The rule has two halves and the bodies above are only the first: no body carries the 10DLC
+ * sentence. This is the second — what actually leaves the centre still does, because the
+ * provider renders through `renderForSend` and not through `renderTemplate`.
+ */
+describe("the STOP/HELP footer is appended at send, and only there", () => {
+  it("adds it to every template, once, at the end", () => {
+    for (const t of knownTemplates().filter((t) => t !== HELP_REPLY_TEMPLATE)) {
+      const sent = renderForSend(t, sampleVars(t));
+      expect(sent.endsWith(SEND_FOOTER), `${t}: ${sent}`).toBe(true);
+      expect(sent.split(SEND_FOOTER)).toHaveLength(2);
+      // And the draft it was built from is the same words without it.
+      expect(sent).toBe(`${renderTemplate(t, sampleVars(t))} ${SEND_FOOTER}`);
+    }
+  });
+
+  it("and leaves the HELP answer alone, because that body is itself the opt-out instruction", () => {
+    // "…Reply STOP to opt out." is the answer somebody asked for. Appending the footer would
+    // tell one family twice, in one text, how to stop.
+    const sent = renderForSend(HELP_REPLY_TEMPLATE, {});
+    expect(sent).toBe(renderTemplate(HELP_REPLY_TEMPLATE, {}));
+    expect(sent).toContain("Reply STOP to opt out.");
+    expect(sent).not.toContain(SEND_FOOTER);
+  });
+
+  it("is the 10DLC sentence PRD §17 D-04 asks for", () => {
+    expect(SEND_FOOTER).toBe("Reply HELP for help, STOP to opt out.");
   });
 });

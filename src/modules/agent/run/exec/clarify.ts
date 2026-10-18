@@ -74,120 +74,25 @@ type AckRow = {
   timer_job_id: string | null;
 };
 
-export function requestClarificationExecutor(deps: ExecutorDeps): ToolExecutor {
-  return async (call) => {
-    const threadId = String(call.args.thread_id ?? "");
-    const templateId = String(call.args.draft_template_id ?? "");
-    const ambiguity = String(call.args.ambiguity_type ?? "");
-    const candidates = Array.isArray(call.args.candidate_tokens) ? (call.args.candidate_tokens as string[]) : [];
-    const by = actor(call.runId);
-
-    const thread = await threadRow(deps.db, { siteId: call.siteId, threadId });
-    if (!thread) return notFound("conversation_thread");
-    // "thread ACTIVE": OPEN is the only state the agent may write into. PAUSED_HUMAN means staff
-    // took the conversation over, and CLOSED means it is over.
-    if (thread.state !== "OPEN") {
-      return failed("THREAD_NOT_ACTIVE", { thread_state: thread.state });
-    }
-    if (!thread.counterparty_token) {
-      // An unknown-sender thread has nobody to ask (AT-09: it is answered by nobody).
-      await raiseTask(deps.db, {
-        id: effectId(call.idempotencyKey, "send-failure"),
-        siteId: call.siteId,
-        category: SEND_FAILURE_TASK_CATEGORY,
-        severity: "AMBER",
-        words: agentTasks.clarificationSendFailure,
-        by,
-      });
-      return failed("NO_COUNTERPARTY");
-    }
-
-    const asked = await clarificationsInLastHour(deps.db, { siteId: call.siteId, threadId, now: call.now });
-    if (asked >= CLARIFICATIONS_PER_THREAD_PER_HOUR) {
-      await raiseTask(deps.db, {
-        id: effectId(call.idempotencyKey, "clarification-limit"),
-        siteId: call.siteId,
-        category: CLARIFICATION_LIMIT_TASK_CATEGORY,
-        severity: "AMBER",
-        words: agentTasks.clarificationLimit,
-        by,
-      });
-      return failed("CLARIFICATION_RATE_LIMIT", { asked_in_last_hour: asked, task_raised: true });
-    }
-
-    let queued: { id: string; duplicate: boolean };
-    try {
-      queued = await deps.db.tx((tx, afterCommit) =>
-        enqueue(tx, afterCommit, deps.transport, {
-          siteId: call.siteId,
-          purpose: CLARIFICATION_PURPOSE,
-          recipientRule: CLARIFICATION_RECIPIENT_RULE,
-          // Computed here from the thread, never named by the model (§10.3, tools.ts rule 1).
-          recipientToken: thread.counterparty_token!,
-          channel: thread.channel as "SMS_1TO1",
-          // Fixed copy: the words are the outbox's, and the question is "which one did you mean".
-          templateId,
-          vars: {},
-          // No plan behind a question, and no child reference: `generic.notice` names no child and
-          // this message is not about one leg (outbox.assertChildReference).
-          planVersionBasis: 0,
-          notAfter: new Date(call.now.getTime() + CLARIFICATION_AWAIT_SECONDS * 1000),
-          // The whole of the resume contract for a send: the same call re-driven enqueues nothing.
-          idempotencyKey: call.idempotencyKey,
-          by,
-        }),
-      );
-    } catch (e) {
-      // §11.2: "send fail → exception". The run stops; a human asks the question.
-      await raiseTask(deps.db, {
-        id: effectId(call.idempotencyKey, "send-failure"),
-        siteId: call.siteId,
-        category: SEND_FAILURE_TASK_CATEGORY,
-        severity: "AMBER",
-        words: agentTasks.clarificationSendFailure,
-        by,
-      });
-      return failed("SEND_FAILED", { reason: (e instanceof Error ? e.message : String(e)).slice(0, 200) });
-    }
-
-    return {
-      status: "executed",
-      data: {
-        outbound_message_id: queued.id,
-        duplicate: queued.duplicate,
-        template_id: templateId,
-        ambiguity_type: ambiguity,
-        candidate_count: candidates.length,
-        asked_in_last_hour: asked + 1,
-      },
-      promptFacts: {
-        clarification_asked: true,
-        ambiguity_type: ambiguity,
-        candidate_count: candidates.length,
-        thread_id: threadId,
-      },
-      // §11.1: the wait is a task plus a timer (run/timers.ts), not a session. The predicate is a
-      // coded one, so `close_task` can close it when the family's reply arrives.
-      awaitExternal: {
-        reasonCode: "CLARIFICATION",
-        afterSeconds: CLARIFICATION_AWAIT_SECONDS,
-        summary: agentWaits.clarification,
-        completionPredicate: PREDICATE_INBOUND_REPLY,
-        // §11.2's other half of the deadline: a family that never answers becomes a staff task
-        // without a model turn (exec/escalate.ts). The watch is the thread, because the reply we
-        // are waiting for has no id yet.
-        escalation: {
-          afterSeconds: CLARIFICATION_AWAIT_SECONDS + NO_REPLY_GRACE_SECONDS,
-          reason: "CLARIFICATION",
-          category: CLARIFICATION_NO_REPLY_CATEGORY,
-          severity: "AMBER",
-          nextStepCode: "STAFF_CALL",
-          watch: { kind: "inbound_reply", threadId: thread.id },
-        },
-      },
-    };
-  };
-}
+/*
+ * THERE IS NO `requestClarificationExecutor` ANY MORE (Firia's S1-7 ruling, 2026-10-18).
+ *
+ * A clarification is a text to a family, so a person decides it: the tool is `human` tier with a
+ * `propose` effect, the loop has no executor to reach for (`registry.ts`), and what the call
+ * writes is a `MESSAGE_SEND` approval row — `clarificationProposal` in `exec/proposals.ts`, which
+ * keeps both §11.2 preconditions this executor held (thread ACTIVE with a counterparty, and at
+ * most two questions per thread per hour) and simply ends at a row instead of at `enqueue`.
+ *
+ * The function is DELETED rather than left exported and unregistered. An executor nothing can
+ * call is a path that still compiles, still has tests, and is one `registry.ts` line away from
+ * being live again — which is exactly the shape of the hole Veri found in the template
+ * allow-list. `clarificationsInLastHour` below is kept: the proposal writer counts with it.
+ *
+ * What went with it is the 15-minute await. There is nothing to wait for until a person has
+ * approved the question, and §11.1 has no notion of a run that waits for an approval — it has a
+ * proposal row and a task. The timer and its escalation come back the moment the approved message
+ * is the thing being awaited, which is B-12's to wire.
+ */
 
 export function recordAcknowledgmentExecutor(deps: ExecutorDeps): ToolExecutor {
   return async (call) => {
@@ -293,8 +198,18 @@ export async function clarificationsInLastHour(
   a: { siteId: string; threadId: string; now: Date },
 ): Promise<number> {
   const r = await db.query<{ n: number }>(
+    /*
+     * PROPOSED, not EXECUTED (S1-7). The limit counts what the agent ASKED FOR, and since
+     * Firia's 2026-10-18 ruling a clarification commits as a proposal — a call that committed
+     * EXECUTED is one no version of this code can write any more. Counting only those would
+     * have made the limit unreachable, which is the quietest way a rate limit ever fails.
+     *
+     * Whether a coordinator has pressed Approve on the earlier questions is deliberately not
+     * part of it: two unanswered questions in an hour is the thing §11.2 is protecting a family
+     * from, and a third one waiting on a card is still a third one.
+     */
     `SELECT count(*)::int n FROM ops.agent_tool_call
-     WHERE site_id = $1 AND tool = 'request_clarification' AND status = 'EXECUTED'
+     WHERE site_id = $1 AND tool = 'request_clarification' AND status = 'PROPOSED'
        AND args ->> 'thread_id' = $2
        AND committed_at > $3::timestamptz - interval '1 hour'`,
     [a.siteId, a.threadId, a.now.toISOString()],

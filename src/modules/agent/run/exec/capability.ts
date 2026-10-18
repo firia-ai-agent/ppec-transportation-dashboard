@@ -59,6 +59,7 @@
  * `REPORTED`, and `machines.ts` gives `REPORTED → VERIFIED` to staff alone.
  */
 import type { Exec } from "@/db/exec";
+import type { IdentityGateway } from "@/modules/identity/gateway";
 import { CAPABILITY } from "@/domain/machines";
 import { IllegalTransition, StaleOrConflict, transition } from "@/domain/transition";
 import { enqueue } from "@/modules/outbox/outbox";
@@ -70,6 +71,7 @@ import {
   effectId,
   factString,
   failed,
+  gatewayOf,
   isUuid,
   notFound,
   raiseTask,
@@ -258,7 +260,7 @@ export function recordCapabilityReportExecutor(deps: ExecutorDeps): ToolExecutor
 
     // "from provider contact point": the evidence has to be an inbound message from the dispatcher
     // of the provider that runs this vehicle, matched on the blind index identity holds for them.
-    const evidence = await providerEvidence(deps.db, { siteId: call.siteId, vehicleId, messageId });
+    const evidence = await providerEvidence(deps.db, gatewayOf(deps), { siteId: call.siteId, vehicleId, messageId });
     if (!evidence) return notFound("message");
     if (!evidence.from_provider) {
       return failed("NOT_FROM_PROVIDER_CONTACT_POINT", { source_message_id: messageId });
@@ -390,23 +392,43 @@ async function routeRow(
  * The evidence message, with the two things that decide whether it may be recorded: was it sent
  * from this vehicle's provider's dispatcher contact point, and is it already the row's evidence?
  *
- * The join is the same direction `resolve_sender` and the inbound handler use — a blind index
- * against the identity table, never a number — and it is anchored on the *vehicle's* provider, so a
- * report about a van from somebody else's dispatcher matches nothing.
+ * ## The provider check is two reads now, and why (S1-6)
+ *
+ * It used to be one statement with `JOIN identity.external_person_identity` in the middle of it,
+ * run on `deps.db` — the agent's own connection, which has no SELECT on that schema
+ * (src/db/schema.ts:104). So recording a capability report failed outright on any deployment with
+ * the real role split (Firia's ruling 2, 2026-10-18 2:48 AM ET).
+ *
+ * Split along the seam rather than granted: `ops` answers *whose* contact point should have sent
+ * it — the vehicle's provider's `dispatcher_person_token` — and what blind index the message
+ * carries (`m.from_hmac`), and the gateway answers the one identity fact: the blind index on that
+ * person's number. The comparison is then two indexes, in this process, which is the same
+ * comparison the SQL made and still never a number (DATA-MODEL §1).
+ *
+ * The anchoring is unchanged and is the point of the check: the dispatcher is read *from the
+ * vehicle*, so a report about a van from somebody else's dispatcher matches nothing. It also fails
+ * closed in both new ways it can fail — a provider with no dispatcher on file, and a message with
+ * no blind index — because an unmatched index is "somebody else", which is exactly what the old
+ * `EXISTS` returned false for.
  */
 async function providerEvidence(
   db: Exec,
+  gateway: IdentityGateway,
   a: { siteId: string; vehicleId: string; messageId: string },
 ): Promise<{ service_date: string; from_provider: boolean; already_recorded: boolean } | null> {
-  const r = await db.query<{ service_date: string; from_provider: boolean; already_recorded: boolean }>(
+  const r = await db.query<{
+    service_date: string;
+    from_hmac: string | null;
+    dispatcher_person_token: string | null;
+    already_recorded: boolean;
+  }>(
     `SELECT to_char(m.received_at AT TIME ZONE st.timezone, 'YYYY-MM-DD') AS service_date,
-            EXISTS (
-              SELECT 1 FROM ops.vehicle v
+            m.from_hmac,
+            (
+              SELECT p.dispatcher_person_token FROM ops.vehicle v
               JOIN ops.provider p ON p.id = v.provider_id
-              JOIN identity.external_person_identity x ON x.person_token = p.dispatcher_person_token
-              WHERE v.id = $3 AND v.site_id = $2 AND p.site_id = $2 AND x.site_id = $2
-                AND x.phone_hmac = m.from_hmac
-            ) AS from_provider,
+              WHERE v.id = $3 AND v.site_id = $2 AND p.site_id = $2
+            ) AS dispatcher_person_token,
             EXISTS (
               SELECT 1 FROM ops.vehicle_capability_day c
               WHERE c.site_id = $2 AND c.vehicle_id = $3 AND c.evidence_message_id = m.id
@@ -416,7 +438,15 @@ async function providerEvidence(
      WHERE m.id = $1 AND m.site_id = $2 AND m.direction = 'IN' AND m.is_own_echo = false`,
     [a.messageId, a.siteId, a.vehicleId],
   );
-  return r.rows[0] ?? null;
+  const row = r.rows[0];
+  if (!row) return null;
+  const dispatcherHmac =
+    row.dispatcher_person_token === null
+      ? null
+      : await gateway.phoneHmacForPerson({ siteId: a.siteId, personToken: row.dispatcher_person_token });
+  const from_provider =
+    row.from_hmac !== null && dispatcherHmac !== null && dispatcherHmac === row.from_hmac;
+  return { service_date: row.service_date, from_provider, already_recorded: row.already_recorded };
 }
 
 export async function capabilityRow(

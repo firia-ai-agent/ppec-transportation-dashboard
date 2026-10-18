@@ -200,6 +200,11 @@ describe("the menu lists only screens that work", () => {
    * you tab inside Family texts, not a menu item"). Both halves, because either one alone is a
    * bug: on the menu it is an eighth rail item the spec does not have, and with no way to it
    * it is an address nobody can reach.
+   *
+   * The way to it is now the tab itself rather than a link to `/approvals`: Family texts renders
+   * `?tab=for-you` as one of three tabs over its own list (Firia, 2026-10-17 8:36 PM ET — "the
+   * approvals screen is the For you tab of Family texts"). So the second half is asserted against
+   * the tab, which is the thing a coordinator actually clicks.
    */
   it("keeps Approvals off the menu and reachable from Family texts", () => {
     expect(navItems.some((item) => item.href === "/approvals")).toBe(false);
@@ -207,7 +212,13 @@ describe("the menu lists only screens that work", () => {
      * The link is to the *tab*, which is what approvals are (§9.2) and where `/approvals` is a
      * 308 to: a link to `/approvals` would be a hop through a redirect to the page it is on.
      */
-    expect(sourceOf("/family-texts")).toMatch(/FAMILY_TEXTS_FOR_YOU/);
+    /*
+     * The tab is now built by the screen itself (#61's Family texts, `TextsScreen.tsx`) rather
+     * than linked from a stub, so that is where the address is read: one definition of it, in
+     * src/auth/access.ts, used by the tab strip and by `/approvals`'s 308.
+     */
+    expect(readFileSync(path.join(REPO, "src", "app", "(app)", "family-texts", "TextsScreen.tsx"), "utf8"))
+      .toMatch(/FAMILY_TEXTS_FOR_YOU|FOR_YOU_TAB/);
     expect(FAMILY_TEXTS_FOR_YOU).toBe("/family-texts?tab=for-you");
   });
 });

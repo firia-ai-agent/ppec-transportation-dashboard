@@ -94,6 +94,14 @@ const VALID_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
     claim_summary: "guardian says the booster is no longer needed",
     source_message_id: "MSG-1",
   },
+  propose_dropoff_change: {
+    leg_id: "L-C1-AM",
+    requested_dropoff_time: "17:00",
+    requested_stop_token: "GA-LIBRARY",
+    rationale_code: "PARENT_REQUEST",
+    source_message_id: "MSG-1",
+    expected_version: 1,
+  },
   escalate_exception: {
     severity: "AMBER",
     category: "POLICY_BLOCK",
@@ -146,7 +154,7 @@ const blockOf = (tool: string, args: Record<string, unknown>, context = ctx()) =
 };
 
 describe("VERI-3: the walk covers the catalog", () => {
-  it("VERI-3 has a schema-valid call for all 15 tools, and a foreign value for every scoped argument", () => {
+  it("VERI-3 has a schema-valid call for all 16 tools, and a foreign value for every scoped argument", () => {
     expect(Object.keys(VALID_ARGS).sort()).toEqual([...TOOL_NAMES].sort());
     for (const tool of TOOL_NAMES) {
       expect(TOOL_REGISTRY[tool].schema.safeParse(VALID_ARGS[tool]).success, tool).toBe(true);

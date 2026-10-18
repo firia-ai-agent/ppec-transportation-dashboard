@@ -39,12 +39,20 @@ function walkSrc(dir: string = SRC_ROOT): string[] {
  */
 describe("§8 contrast", () => {
   /*
-   * 32, not 34: the two route-line rows left with `map-route-2` / `map-route-3` when the app
-   * went to one van palette (Firia, 2026-10-17 11:25 PM ET). The van palette is checked by its
-   * own table below (`vanContrastPairs`), to a stricter threshold.
+   * 35, which is the sum of two independent moves and is worth spelling out because the number
+   * on its own tells a reader nothing:
+   *
+   *  - main's 32. The two route-line rows left with `map-route-2` / `map-route-3` when the app
+   *    went to one van palette (Firia, 2026-10-17 11:25 PM ET); the van palette is checked by its
+   *    own table below (`vanContrastPairs`), to a stricter threshold;
+   *  - plus the three this branch added with the rebuilt Family texts screen — body text and
+   *    muted text on the card canvas, and an incoming bubble's own text (Firia, 8:36 PM ET).
+   *
+   * The count is here so that a background added with no computed pair is a failure rather than
+   * a hex somebody liked; every row is then checked for real by the `it.each` below.
    */
-  it("covers every colour pair the doc lists, plus the palette, inactive-control and demo-control pairs", () => {
-    expect(contrastPairs).toHaveLength(32);
+  it("covers every colour pair the doc lists, plus the palette, inactive-control, demo-control and card-canvas pairs", () => {
+    expect(contrastPairs).toHaveLength(35);
   });
 
   it.each(contrastPairs)(
@@ -107,8 +115,10 @@ describe("token shape", () => {
       [
         "alert",
         "bg",
+        "bubble-in-bg",
         "border-strong",
         "brand",
+        "canvas",
         "crit-bg",
         "crit-fg",
         "demo-bg",

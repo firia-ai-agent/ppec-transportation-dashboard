@@ -15,9 +15,12 @@
  *     URL is only *half* of the destination — the endpoint is joined onto it — so section 10 is
  *     the other half: an allow-listed endpoint cannot name a host, the URL is built with the URL
  *     parser rather than concatenated, and the finished URL is re-read where the key is attached.
- *  3. **The fallback chain.** 429 on the primary tries the backup; failure on both degrades to the
- *     §18.1 keyword parser. Any other provider error behaves the same way, because a free endpoint
- *     has more ways to fail than a rate limit.
+ *  3. **The model chain.** 429 on the primary tries the backup; failure on both is
+ *     `RemoteProviderUnavailable` and nothing else. Any other provider error behaves the same way,
+ *     because a free endpoint has more ways to fail than a rate limit. There is no third attempt in
+ *     another form: the founder's 2026-10-17 rule removed the §18.1 keyword parser that used to
+ *     answer here, so every one of these cases now ends in a refusal the caller turns into one
+ *     staff alert (`agent/staff-alert.ts`) — no reply, no ride change, no send.
  *  4. **The outbound body.** The model id comes from config, is re-checked against the allow-list
  *     on this path, `allow_fallbacks:false` and `require_parameters:true` are on every request, and
  *     the key is in the authorization header and nowhere else.
@@ -192,9 +195,9 @@ describe("demo-data-only guard", () => {
   });
 });
 
-/* ───────────────── 2. the fallback chain: backup model, then keyword ───────────────── */
+/* ───────────────── 2. the model chain: backup model, then a refusal ───────────────── */
 
-describe("fallback chain", () => {
+describe("model chain", () => {
   it("tries the primary first, with the model id from config", async () => {
     fetchMock.mockResolvedValue(vendorToolCall("cancel_attendance_or_leg", CANCEL_ARGS));
     const provider = remoteProvider(DEMO, KEY_ENV);
@@ -213,24 +216,21 @@ describe("fallback chain", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect([bodyOf(0).model, bodyOf(1).model]).toEqual([DEMO.model, DEMO.backupModel]);
     expect(body.tool_calls![0].name).toBe("get_leg_state");
-    expect(body.fellBackToKeyword).toBeUndefined();
     expect(provider.attempts.map((a) => [a.model, a.failure])).toEqual([
       [DEMO.model, "rate_limited"],
       [DEMO.backupModel, null],
     ]);
   });
 
-  it("on 429 from both models falls back to the keyword parser", async () => {
+  it("on 429 from both models refuses, and answers in no other way", async () => {
     fetchMock.mockResolvedValue(vendorStatus(RATE_LIMITED));
     const provider = remoteProvider(DEMO, KEY_ENV);
-    const body = await provider.invoke(call());
 
+    await expect(provider.invoke(call())).rejects.toThrow(RemoteProviderUnavailable);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(body.fellBackToKeyword).toBe(true);
-    expect(body.finish_reason).toBe("keyword_fallback");
-    // "wont need the AM van" is an ABSENT, and the fallback escalates rather than cancelling.
-    expect(body.tool_calls![0].name).toBe("escalate_exception");
-    expect(body.attempts!.map((a) => a.failure)).toEqual(["rate_limited", "rate_limited"]);
+    // Both attempts are recorded as rate limits, and *no* body came back: the founder's rule
+    // (2026-10-17) means a dead vendor produces a refusal, not a tool call somebody else made up.
+    expect(provider.attempts.map((a) => a.failure)).toEqual(["rate_limited", "rate_limited"]);
   });
 
   it.each([
@@ -254,17 +254,16 @@ describe("fallback chain", () => {
         }),
       "network_error",
     ],
-  ])("treats %s as a provider error: backup, then keyword", async (_label, arrange, failure) => {
+  ])("treats %s as a provider error: backup, then a refusal", async (_label, arrange, failure) => {
     arrange();
     const provider = remoteProvider(DEMO, KEY_ENV);
-    const body = await provider.invoke(call());
 
+    await expect(provider.invoke(call())).rejects.toThrow(RemoteProviderUnavailable);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(body.fellBackToKeyword).toBe(true);
-    expect(body.attempts!.map((a) => a.failure)).toEqual([failure, failure]);
+    expect(provider.attempts.map((a) => a.failure)).toEqual([failure, failure]);
   });
 
-  it("maps its own timeout to a timeout, and still degrades", async () => {
+  it("maps its own timeout to a timeout, and refuses after both attempts", async () => {
     const quick = loadAgentConfig(DEMO_ENV, { requestTimeoutMs: 5 });
     // A vendor that never answers: the request settles only when our AbortController fires.
     fetchMock.mockImplementation(
@@ -278,14 +277,13 @@ describe("fallback chain", () => {
         }),
     );
     const provider = remoteProvider(quick, KEY_ENV);
-    const body = await provider.invoke(call());
-    expect(body.attempts!.map((a) => a.failure)).toEqual(["timeout", "timeout"]);
-    expect(body.fellBackToKeyword).toBe(true);
+    await expect(provider.invoke(call())).rejects.toThrow(RemoteProviderUnavailable);
+    expect(provider.attempts.map((a) => a.failure)).toEqual(["timeout", "timeout"]);
   });
 
-  it("without the keyword fallback, exhausting the chain throws a classed error", async () => {
+  it("the exhausted chain's error classifies every attempt and quotes nothing", async () => {
     fetchMock.mockResolvedValue(vendorStatus(RATE_LIMITED));
-    const provider = remoteProvider(DEMO, KEY_ENV, { keywordFallback: false });
+    const provider = remoteProvider(DEMO, KEY_ENV);
     await expect(provider.invoke(call())).rejects.toThrow(RemoteProviderUnavailable);
     // The message classifies every attempt and quotes neither the prompt nor the vendor's text.
     try {
@@ -303,9 +301,8 @@ describe("fallback chain", () => {
     const same = loadAgentConfig(DEMO_ENV, { backupModel: DEMO.model });
     expect(modelChain(same)).toEqual([DEMO.model]);
     fetchMock.mockResolvedValue(vendorStatus(RATE_LIMITED));
-    const body = await remoteProvider(same, KEY_ENV).invoke(call());
+    await expect(remoteProvider(same, KEY_ENV).invoke(call())).rejects.toThrow(RemoteProviderUnavailable);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(body.fellBackToKeyword).toBe(true);
   });
 
   it("the chain is the two configured models, in order", () => {
@@ -332,7 +329,7 @@ describe("outbound request", () => {
 
   it("sends allow_fallbacks:false and require_parameters:true on every request (§2.5)", async () => {
     fetchMock.mockReset().mockResolvedValue(vendorStatus(RATE_LIMITED));
-    await remoteProvider(DEMO, KEY_ENV).invoke(call());
+    await expect(remoteProvider(DEMO, KEY_ENV).invoke(call())).rejects.toThrow(RemoteProviderUnavailable);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     for (const nth of [0, 1]) {
       // allow_fallbacks:false matters twice over: OpenRouter may not silently route to a model
@@ -343,7 +340,7 @@ describe("outbound request", () => {
 
   it("every model it names is one the config allow-list admits", async () => {
     fetchMock.mockReset().mockResolvedValue(vendorStatus(RATE_LIMITED));
-    await remoteProvider(DEMO, KEY_ENV).invoke(call());
+    await expect(remoteProvider(DEMO, KEY_ENV).invoke(call())).rejects.toThrow(RemoteProviderUnavailable);
     const models = fetchMock.mock.calls.map((_c, i) => bodyOf(i).model);
     expect(models).toEqual([DEMO.model, DEMO.backupModel]);
     for (const m of models) expect(DEMO.modelAllowList).toContain(m);
@@ -394,7 +391,7 @@ describe("outbound request", () => {
   it("records attempts as codes and model ids only — no prompt, no vendor text", async () => {
     fetchMock.mockReset().mockResolvedValue(vendorStatus(RATE_LIMITED));
     const provider = remoteProvider(DEMO, KEY_ENV);
-    await provider.invoke(call());
+    await expect(provider.invoke(call())).rejects.toThrow(RemoteProviderUnavailable);
     const serialized = JSON.stringify(provider.attempts);
     expect(serialized).not.toContain(SMS);
     expect(serialized).not.toContain("site=S1");
@@ -464,12 +461,17 @@ describe("the live provider behind the real gateway", () => {
     expect(log).not.toContain(PLACEHOLDER_KEY);
   });
 
-  it("a rate-limited run still ends in an audited staff escalation", async () => {
+  it("a rate-limited run ends in an audited PROVIDER_ERROR, and no tool call at all", async () => {
+    // What used to happen here was a keyword-parser escalation. The founder's 2026-10-17 rule
+    // forbids that: the vendor is down, so the turn is refused and the run loop raises one staff
+    // alert instead (`agent/staff-alert.ts`). The audit row still exists and still names no prose.
     fetchMock.mockResolvedValue(vendorStatus(RATE_LIMITED));
     const gateway = createGateway(remoteProvider(DEMO, KEY_ENV), DEMO);
-    const result = await gateway.complete({ runId: "RUN-429", prompt: PROMPT });
-    expect(result.call.tool).toBe("escalate_exception");
-    expect(gateway.auditLog.at(-1)).toMatchObject({ outcome: "ACCEPTED", tool: "escalate_exception" });
+    await expect(gateway.complete({ runId: "RUN-429", prompt: PROMPT })).rejects.toMatchObject({
+      outcome: "PROVIDER_ERROR",
+    });
+    expect(gateway.auditLog.at(-1)).toMatchObject({ outcome: "PROVIDER_ERROR", tool: null, tier: null });
+    expect(JSON.stringify(gateway.auditLog)).not.toContain(SMS);
   });
 
   it("vendor prose is refused by the gateway, not smoothed over by the adapter", async () => {
@@ -693,7 +695,7 @@ describe("model allow-list on the outbound path", () => {
 
   it("lets the configured chain through, and every id it posts is on the list", async () => {
     fetchMock.mockResolvedValue(vendorStatus(RATE_LIMITED));
-    await remoteProvider(DEMO, KEY_ENV).invoke(call());
+    await expect(remoteProvider(DEMO, KEY_ENV).invoke(call())).rejects.toThrow(RemoteProviderUnavailable);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     for (const nth of [0, 1]) expect(DEMO.modelAllowList).toContain(bodyOf(nth).model);
   });
@@ -764,8 +766,9 @@ describe("the endpoint cannot move the destination", () => {
     "the built-URL check refuses %s on its own, with the path gate out of the way",
     (_label, endpoint) => {
       // The backstop, exercised directly. It is the thing standing there if the path gate above
-      // is ever loosened, and it refuses before `fetch` is reached rather than degrading to the
-      // §18.1 keyword parser: a key that nearly went to the wrong host is a stop, not a fallback.
+      // is ever loosened, and it refuses before `fetch` is reached, keeping its own class all the
+      // way out: a key that nearly went to the wrong host is a different accident from a dead
+      // vendor, and it must not be recorded as one more failed attempt in the chain.
       expect(() => verifiedRequestUrl(DEMO, endpoint)).toThrow(RemoteRequestUrlRefused);
       try {
         verifiedRequestUrl(DEMO, endpoint);
@@ -789,7 +792,7 @@ describe("the endpoint cannot move the destination", () => {
 
   it("the URL it hands to fetch is https, has no userinfo, and is on the host allow-list", async () => {
     fetchMock.mockResolvedValue(vendorStatus(RATE_LIMITED));
-    await remoteProvider(DEMO, KEY_ENV).invoke(call());
+    await expect(remoteProvider(DEMO, KEY_ENV).invoke(call())).rejects.toThrow(RemoteProviderUnavailable);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     for (const [url] of fetchMock.mock.calls) {
       const parsed = new URL(url as string);

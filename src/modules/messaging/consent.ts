@@ -12,6 +12,7 @@
  * passing an identity Exec here, nothing else.
  */
 import { uuidv7 } from "uuidv7";
+import type { IdentityGateway } from "@/modules/identity/gateway";
 import type { Exec } from "@/db/exec";
 import { OPT_OUT_KINDS, OPT_OUT_SCOPES, type SuppressionScope } from "@/modules/outbox/policy";
 import { consentFollowUp } from "@/ui/copy";
@@ -79,21 +80,33 @@ export type ConsentResult = {
  * Append one consent event and bring ops.suppression in line with the newest event for this contact+channel.
  * Idempotency is the caller's job: the inbound handler only calls this for a message it just inserted.
  */
-export async function recordConsent(tx: Exec, a: {
+export async function recordConsent(tx: Exec, gateway: IdentityGateway, a: {
   siteId: string; contactToken: string; channel: string; kind: ConsentKind;
   at: Date; evidenceMessageId?: string | null; by: string;
 }): Promise<ConsentResult> {
-  const consentEventId = uuidv7();
-  await tx.query(
-    `INSERT INTO identity.consent_event (id, site_id, contact_token, kind, channel, evidence_message_id, at, source_mode)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'SIMULATED')`,
-    [consentEventId, a.siteId, a.contactToken, a.kind, a.channel, a.evidenceMessageId ?? null, a.at.toISOString()]);
-
-  // The newest event wins, whatever order the webhooks arrived in.
-  const latest = await tx.query<{ id: string; kind: string; at: Date }>(
-    `SELECT id, kind, at FROM identity.consent_event WHERE site_id = $1 AND contact_token = $2 AND channel = $3
-     ORDER BY at DESC, id DESC LIMIT 1`, [a.siteId, a.contactToken, a.channel]);
-  const newest = latest.rows[0];
+  /*
+   * THE LEDGER IS THE GATEWAY'S, THE PROJECTION IS OURS (S1-6).
+   *
+   * The append and the read-back were two statements on `tx` — the webhook's own `ops`
+   * transaction, on the application connection — and `app_rw` has no privilege on `identity` at
+   * all (src/db/schema.ts:104). So on a deployment with the real role split a family texting STOP
+   * got `permission denied for schema identity` and nothing was recorded anywhere, which is the
+   * worst version of this bug: a carrier opt-out that silently did not take.
+   *
+   * One gateway call, because this needs the newest event *after* its own append and the two must
+   * not be able to disagree about what that is. Everything below is unchanged and is all `ops`:
+   * `ops.suppression` is the projection the drain actually enforces at send time
+   * (`policy.activeSuppression`), so what a STOP *does* is a real row in this transaction whatever
+   * the ledger behind it is.
+   */
+  const { consentEventId, newest } = await gateway.appendConsent({
+    siteId: a.siteId,
+    contactToken: a.contactToken,
+    channel: a.channel,
+    kind: a.kind,
+    at: a.at,
+    evidenceMessageId: a.evidenceMessageId ?? null,
+  });
   const result: ConsentResult = { consentEventId, kind: a.kind, suppression: "unchanged", taskId: null };
   if (!newest) return result;
 

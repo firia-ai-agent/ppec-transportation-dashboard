@@ -1,0 +1,838 @@
+/*
+ * FAMILY TEXTS — the rebuilt body (mockups/family-texts.html at both widths, with
+ * mockups/approvals.html as the "For you" tab inside it).
+ *
+ * Every length here is the mockup's: the 60 px header, the 340 px conversation list, the 64 px
+ * thread header, 18 px bubble corners with a 4 px tail on the last of a run, 2 px between bubbles
+ * inside a run, 70% bubble max-width on the desktop and 82% on the phone. Every colour is a token
+ * (src/ui/tokens.ts, no-hex.test.ts) — including the two this screen added: `canvas` is the page
+ * behind the white cards and `bubble-in-bg` is the grey an incoming bubble is.
+ *
+ * ## One markup, two widths
+ *
+ * Both panes are always rendered. At ≥768 they sit side by side, list left and thread right, with
+ * the proposal card *inside* the thread. Below 768 the screen is one pane at a time and which one
+ * is a property of the URL: the page sets `data-view` from whether `?thread=` is present, so the
+ * list and the thread are a navigation rather than a toggle a script has to hold. That is what
+ * makes the back chevron an ordinary link and the phone's two views bookmarkable.
+ */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  background: var(--color-canvas);
+}
+
+/*
+ * At the desktop widths the screen is the window, which is what pins the compose bar and lets the
+ * message list scroll under it (mockups/family-texts.html `.app { height: calc(100vh - 32px) }`).
+ * The window less the DEMO bar, the shell header and the shell's own padding — each read from the
+ * token that sets it, so a change to any of them moves this with it rather than leaving the bar a
+ * scroll away from the bottom.
+ */
+@media (min-width: 768px) {
+  .screen {
+    height: calc(
+      100vh - var(--layout-demo-banner-height) - var(--layout-header-height) - var(--space-6) -
+        var(--space-6)
+    );
+    min-height: 420px;
+  }
+}
+
+/* ───────────────────────────── header ───────────────────────────── */
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: 60px;
+  flex: none;
+  padding: 0 var(--space-5);
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+  background: var(--color-surface);
+}
+
+.headerSpacer {
+  flex: 1;
+}
+
+/* ───────────────────────────── tabs ───────────────────────────── */
+
+.tabs {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  flex: none;
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+  background: var(--color-surface);
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 30px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  font-weight: var(--weight-medium);
+  color: var(--color-ink-muted);
+  text-decoration: none;
+}
+
+.tabOn {
+  background: var(--color-selected-bg);
+  color: var(--color-ink-brand);
+}
+
+.tabCount {
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral-fg);
+}
+
+.tabOn .tabCount {
+  background: var(--color-brand);
+  color: var(--color-surface);
+}
+
+/* ───────────────────────────── the panes ───────────────────────────── */
+
+/*
+ * TWO PANES on Sent and All, THREE on For you (Firia, 2026-10-17 10:51 PM ET; approvals.html):
+ * the list, the thread with the card inline, and the van / pick-up pane. One column at 390,
+ * which is png/approvals-390.png — the same three regions stacked, never a second layout.
+ */
+.work {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  background: var(--color-surface);
+}
+
+/* The left column: the "needs a person" alert at the top of For you, then the day's list. */
+.listPane {
+  width: 340px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: var(--border-hairline) solid var(--color-neutral-bg);
+  background: var(--color-surface);
+}
+
+/* The third pane (approvals.html `.ctx`: 300px, its own white column, hairline to the left). */
+.ctx {
+  width: 300px;
+  flex: none;
+  border-left: var(--border-hairline) solid var(--color-neutral-bg);
+  background: var(--color-surface);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  overflow: auto;
+}
+
+/* `.ctx h4` in the mockup: 12px, uppercase, muted, the pane's own section headings. */
+.ctxHeading {
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+
+.ctxRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--text-13);
+}
+
+.ctxSwatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+  background: var(--color-brand);
+}
+
+/* The van's own colour token (src/config/vans.ts `vanColourToken`), never a hex (§0 rule 6). */
+.ctxSwatch[data-van-colour="map-route-2"] { background: var(--color-map-route-2); }
+.ctxSwatch[data-van-colour="map-route-3"] { background: var(--color-map-route-3); }
+.ctxSwatch[data-van-colour="ink-muted"] { background: var(--color-ink-muted); }
+
+/* The four counts after the change, in one row (approvals.html `.cap`). */
+.ctxCounts {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ctxCount {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-3) 0;
+  border: var(--border-hairline) solid var(--color-neutral-bg);
+  border-radius: var(--radius-md);
+  color: var(--color-ink-muted);
+  font-size: var(--text-13);
+}
+
+.ctxUsed {
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink);
+}
+
+.ctxTotal {
+  color: var(--color-ink-muted);
+}
+
+.ctxPickup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ctxAvatar {
+  width: 24px;
+  height: 24px;
+  /* The 24 px disc of the pick-up list (approvals.html `.ctx .av`). The 11 px step belongs to
+     the pill and to the two count badges, and this is neither (src/ui/pill.test.ts). */
+  font-size: var(--text-12);
+}
+
+.ctxRelationship {
+  color: var(--color-ink-muted);
+  font-size: var(--text-12);
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--color-surface);
+  margin: 0;
+  padding: var(--space-3) 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5) var(--space-4) var(--space-3);
+  margin: 2px var(--space-3);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  color: var(--color-ink);
+  min-height: 64px;
+}
+
+.rowOn {
+  background: var(--color-selected-bg);
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  flex: none;
+  background: var(--color-brand);
+}
+
+.dotOff {
+  width: 10px;
+  flex: none;
+}
+
+.avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  display: grid;
+  place-items: center;
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-16);
+  flex: none;
+  background: var(--color-selected-bg);
+  color: var(--color-ink-brand);
+}
+
+.rowBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: var(--leading-tight);
+  gap: 2px;
+}
+
+.rowTop {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.rowName {
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-16);
+  flex: 1;
+}
+
+.rowTime {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+/* The child, beside the adult's name and lighter than it (approvals.html `.th .nm span`). */
+.rowChild {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.rowPreview {
+  font-size: var(--text-14);
+  color: var(--color-neutral-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ───────────────────────────── the thread ───────────────────────────── */
+
+.thread {
+  flex: 1;
+  min-width: 0;
+  /*
+   * `min-height: 0` is what makes the message list scroll instead of growing.
+   *
+   * A flex child's `min-height` is `auto`, so without this the thread is as tall as its content
+   * and `.messages` below never becomes a scroller — the end of the thread, which is where the
+   * approve card is, falls off the bottom of the screen with no way to reach it.
+   */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+}
+
+.threadHeader {
+  height: 64px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-5);
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.threadAvatar {
+  width: 36px;
+  height: 36px;
+  font-size: var(--text-14);
+}
+
+.threadWho {
+  display: flex;
+  flex-direction: column;
+  line-height: var(--leading-tight);
+}
+
+.threadName {
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-16);
+}
+
+.threadSub {
+  font-weight: var(--weight-regular);
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.back {
+  display: none;
+  width: var(--target-console);
+  height: var(--target-console);
+  place-items: center;
+  margin-left: calc(var(--space-4) * -1);
+  color: var(--color-brand);
+}
+
+.messages {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-5) var(--space-5);
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+ * Nothing in the thread shrinks.
+ *
+ * A flex child's `flex-shrink` is 1, so in a column that is out of room the browser squeezes the
+ * last thing in it — which here is the approve card, and a squeezed card clips its own draft and
+ * its own three buttons while the pane reports no overflow at all and therefore never scrolls.
+ * With `flex: none` the card keeps its height, the pane overflows, and the thread scrolls to its
+ * newest message like any other messaging screen (ThreadEnd.tsx).
+ */
+.messages > * {
+  flex: none;
+}
+
+.stamp {
+  align-self: center;
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+  margin: var(--space-5) 0 var(--space-3);
+}
+
+.stampDay {
+  font-weight: var(--weight-semibold);
+}
+
+.bubble {
+  max-width: 70%;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-bubble);
+  font-size: var(--text-16);
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.in {
+  align-self: flex-start;
+  background: var(--color-bubble-in-bg);
+  color: var(--color-ink);
+}
+
+.out {
+  align-self: flex-end;
+  background: var(--color-brand);
+  color: var(--color-surface);
+}
+
+.inTail {
+  border-bottom-left-radius: var(--radius-sm);
+}
+
+.outTail {
+  border-bottom-right-radius: var(--radius-sm);
+}
+
+.meta {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+  margin-top: 3px;
+}
+
+.metaOut {
+  align-self: flex-end;
+  padding-right: var(--space-2);
+}
+
+.metaIn {
+  align-self: flex-start;
+  padding-left: var(--space-2);
+}
+
+/* ───────────────────────────── the proposal card ───────────────────────────── */
+
+.card {
+  align-self: stretch;
+  margin-top: var(--space-4);
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-brand);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.cardTitle {
+  font-weight: var(--weight-semibold);
+  margin: 0;
+  font-size: var(--text-14);
+}
+
+/*
+ * The message on the card, in the thread's own bubble shape (`.bubble .out`): same radius, same
+ * teal, same words it will have once it is sent. Only the box around it differs — it sits in the
+ * card's own column rather than against the thread's right edge, so it is not pretending to have
+ * been sent, and it is not cropped at 70% of the card either.
+ */
+.cardBubble {
+  max-width: none;
+  margin: var(--space-4) var(--space-5) var(--space-4);
+}
+
+
+
+.diffKey {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+  font-weight: var(--weight-medium);
+  margin: 0;
+}
+
+
+
+
+
+
+
+.hint {
+  margin: 0;
+  padding: 0 var(--space-5) var(--space-4);
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  flex-wrap: wrap;
+  padding: var(--space-4) var(--space-5);
+  border-top: var(--border-hairline) solid var(--color-neutral-bg);
+  background: var(--color-canvas);
+}
+
+.editForm,
+.decideForm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.decideForm {
+  flex: 1;
+}
+
+.actionSpacer {
+  flex: 1;
+}
+
+.primary,
+.secondary,
+.quiet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  min-height: var(--target-console);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.primary {
+  background: var(--color-brand);
+  border: var(--border-hairline) solid var(--color-brand);
+  color: var(--color-surface);
+}
+
+.secondary {
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-disabled-border);
+  color: var(--color-ink);
+}
+
+.quiet {
+  background: none;
+  border: var(--border-hairline) solid transparent;
+  color: var(--color-crit-fg);
+}
+
+.editTime {
+  min-height: var(--target-console);
+  padding: 0 var(--space-4);
+  border: var(--border-hairline) solid var(--color-disabled-border);
+  border-radius: var(--radius-md);
+  font: inherit;
+}
+
+.outcome {
+  margin: 0 var(--space-5) var(--space-5);
+  font-size: var(--text-14);
+  color: var(--color-ink);
+}
+
+/* ───────────────────────────── the compose bar ───────────────────────────── */
+
+.composeDock {
+  flex: none;
+  background: var(--color-surface);
+}
+
+.compose {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: var(--border-hairline) solid var(--color-neutral-bg);
+  background: var(--color-surface);
+}
+
+.composeField {
+  flex: 1;
+  min-height: var(--target-console);
+  padding: 0 var(--space-5);
+  border: var(--border-hairline) solid var(--color-disabled-border);
+  border-radius: calc(var(--target-console) / 2);
+  font: inherit;
+  font-size: var(--text-16);
+}
+
+.composeSend {
+  width: var(--target-console);
+  height: var(--target-console);
+  display: grid;
+  place-items: center;
+  border-radius: calc(var(--target-console) / 2);
+  background: var(--color-brand);
+  border: var(--border-hairline) solid var(--color-brand);
+  color: var(--color-surface);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.composeSend:disabled {
+  background: var(--color-disabled-bg);
+  border-color: var(--color-disabled-border);
+  color: var(--color-disabled-fg);
+  cursor: default;
+}
+
+.composeNote {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+  padding: 0 var(--space-5) var(--space-4);
+  margin: 0;
+  background: var(--color-surface);
+}
+
+/* ───────────────────────────── the "For you" tab ───────────────────────────── */
+
+.forYou {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  background: var(--color-canvas);
+  margin: 0;
+  list-style: none;
+}
+
+.forYouCard {
+  margin-top: 0;
+  align-self: auto;
+  width: 100%;
+}
+
+.empty {
+  font-size: var(--text-14);
+  color: var(--color-ink-muted);
+  margin: 0;
+}
+
+/* The "needs a person" alert, at the top of the tab and above every card. */
+.alert {
+  background: var(--color-surface);
+  border: var(--border-hairline) solid var(--color-crit-bg);
+  border-left: var(--border-current) solid var(--color-alert);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.alertHeading {
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+  margin: 0;
+  color: var(--color-ink);
+}
+
+.alertWords {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: var(--border-current) solid var(--color-neutral-bg);
+  color: var(--color-ink);
+  font-size: var(--text-14);
+}
+
+.alertLine {
+  margin: 0;
+  font-size: var(--text-14);
+  color: var(--color-ink);
+}
+
+.alertRule {
+  margin: 0;
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+/* Below 1280 there is no room for a third column: the pane follows the thread instead. */
+@media (min-width: 768px) and (max-width: 1279px) {
+  .work[data-panes="three"] {
+    flex-wrap: wrap;
+  }
+
+  .ctx {
+    width: 100%;
+    border-left: none;
+    border-top: var(--border-hairline) solid var(--color-neutral-bg);
+  }
+}
+
+/* ───────────────────────────── the phone (<768) ───────────────────────────── */
+
+@media (max-width: 767px) {
+
+  .work {
+    flex-direction: column;
+  }
+
+  .listPane {
+    width: auto;
+    border-right: none;
+    flex: none;
+  }
+
+  /*
+   * The third pane becomes a bordered card below the thread, which is what the mockup's own
+   * narrow rule does (`.ctx{width:auto;border-left:none;border:1px solid …;border-radius:10px}`).
+   */
+  .ctx {
+    width: auto;
+    flex: none;
+    border-left: none;
+    border: var(--border-hairline) solid var(--color-neutral-bg);
+    border-radius: var(--radius-lg);
+    margin: 0 var(--space-4) var(--space-4);
+    overflow: visible;
+  }
+
+  .row {
+    margin: 2px var(--space-4);
+  }
+
+  .back {
+    display: grid;
+  }
+
+  .bubble {
+    max-width: 82%;
+  }
+
+  .messages {
+    padding: var(--space-4);
+  }
+
+  .diff {
+    grid-template-columns: 52px 1fr auto 1fr;
+    gap: var(--space-3) var(--space-3);
+    padding: var(--space-4);
+    font-size: var(--text-14);
+  }
+
+  /* One card per row, and every control full width: no horizontal scroll at 390. */
+  .forYou {
+    padding: var(--space-4);
+  }
+
+  .actions {
+    flex-wrap: wrap;
+  }
+
+  .editForm,
+  .decideForm {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  .actions .primary,
+  .actions .secondary,
+  .actions .quiet {
+    flex: 1 1 100%;
+  }
+
+  .actionSpacer {
+    display: none;
+  }
+
+  /*
+   * The compose bar is pinned above the bottom tab bar (Vera 3.5, item 2). The thread itself
+   * scrolls with the page at this width — a nested scroller inside a phone screen is the thing
+   * that strands a card halfway — so the bar is sticky rather than the last row of a fixed box.
+   */
+  .messages {
+    overflow: visible;
+  }
+
+  .composeDock {
+    position: sticky;
+    bottom: var(--layout-tab-bar-height);
+    z-index: 2;
+  }
+
+  /*
+   * Which pane the phone is on is the URL's answer, not a script's (see the file header) — on
+   * the two tabs that are one conversation at a time. The For you tab stacks instead
+   * (png/approvals-390.png), so its panes are both on screen and neither is hidden.
+   */
+  .screen[data-view="list"]:not([data-tab="for-you"]) .thread {
+    display: none;
+  }
+
+  .screen[data-view="thread"]:not([data-tab="for-you"]) .listPane,
+  .screen[data-view="thread"]:not([data-tab="for-you"]) .tabs {
+    display: none;
+  }
+
+}
+
+/*
+ * Demo ruling (Firia, 2026-10-18 10:55 AM ET, PPE-92 option A): the agent bubble is hidden on
+ * Family texts at every width while the compose bar is on the page. The thread already shows the
+ * agent, and at any width the disc would sit on Send. Same pattern as the Ramp hide.
+ */
+:global(body):has(.composeDock) :global([data-agent-bubble]) {
+  display: none;
+}

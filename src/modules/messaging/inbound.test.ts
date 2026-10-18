@@ -1,4 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { testConsentEvents, testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). Every `identity.*` statement moved behind
+ * `IdentityGateway`, so the code under test asks this rather than the connection — and it answers
+ * from the rows `seedPersona` / `seedAgentScenario` just wrote. See src/test/identity-gateway.ts
+ * for why it is in memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { freshDb, SITE } from "@/test/pglite";
@@ -6,7 +15,7 @@ import { F1_NUMBER, PEPPER, UNKNOWN_NUMBER, seedPersona, type Persona } from "@/
 import { FakeTransport } from "@/modules/jobs/fake-transport";
 import { VercelQueueScheduler } from "@/modules/jobs/scheduler";
 import { drain, type DrainDeps } from "@/modules/outbox/outbox";
-import { dbRecipientAuthorizer } from "@/modules/outbox/policy";
+import { gatewayRecipientAuthorizer } from "@/modules/outbox/policy";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { POST } from "@/app/api/webhooks/sms/route";
 import { NO_FAULTS, simInboundPosts } from "./faults";
@@ -32,17 +41,23 @@ const sms = (o: Partial<Post> & { Body: string; MessageSid: string }): Post =>
 
 const messages = async () => (await db.query<{ direction: string; external_id: string; body_tokenized: string; is_own_echo: boolean; provider_index: string | null; thread_id: string }>(
   "SELECT direction, external_id, body_tokenized, is_own_echo, provider_index, thread_id FROM ops.message ORDER BY provider_index NULLS FIRST, received_at", [])).rows;
-const consentEvents = async () => (await db.query<{ kind: string; at: Date }>("SELECT kind, at FROM identity.consent_event ORDER BY at", [])).rows;
+/*
+ * The consent ledger, read where the run actually wrote it (S1-6): `recordConsent` appends through
+ * `IdentityGateway` now, and this file's gateway is the suites' in-memory one. Same assertion —
+ * which kinds were recorded, in what order — against the ledger that was used.
+ */
+const consentEvents = async (): Promise<readonly { kind: string; at: Date }[]> =>
+  testConsentEvents().map((e) => ({ kind: e.kind, at: e.at }));
 const outbound = async () => (await db.query<{ id: string; template_id: string; state: string }>("SELECT id, template_id, state FROM ops.outbound_message ORDER BY created_at", [])).rows;
 const threadActivity = async () => (await db.query<{ last_activity_at: Date }>("SELECT last_activity_at FROM ops.conversation_thread", [])).rows;
 
 beforeEach(async () => {
   ({ pg, db } = await freshDb());
   now = new Date(); seen = []; outboxTransport = new FakeOutboxTransport();
-  deps = { pepper: PEPPER, transport: outboxTransport, clock: () => now, hook: async (_tx, e) => { seen.push(e); } };
+  deps = { pepper: PEPPER, transport: outboxTransport, clock: () => now, gateway: GATEWAY, hook: async (_tx, e) => { seen.push(e); } };
   drainDeps = {
-    provider: new DbSimMessagingProvider(db, new VercelQueueScheduler(db, new FakeTransport(), () => now), { clock: () => now, pepper: PEPPER }),
-    authorizer: dbRecipientAuthorizer(db), clock: () => now, timeoutMs: 500,
+    provider: new DbSimMessagingProvider(db, new VercelQueueScheduler(db, new FakeTransport(), () => now), { clock: () => now, pepper: PEPPER, gateway: GATEWAY }),
+    authorizer: gatewayRecipientAuthorizer(GATEWAY), clock: () => now, timeoutMs: 500,
   };
   f1 = await seedPersona(db, F1_NUMBER, { now });
   now = new Date(Date.now() + 1000);

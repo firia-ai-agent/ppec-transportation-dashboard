@@ -266,7 +266,7 @@ export function vendorRequestUrl(
   return refusal === null ? { url: built.href, refusal: null } : { url: null, refusal };
 }
 
-/** Hard ceiling on one vendor call. A hung request must become a keyword fallback, not a hung run. */
+/** Hard ceiling on one vendor call. A hung request must become a staff alert, not a hung run. */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 
 /**
@@ -315,7 +315,7 @@ export const agentConfigSchema = z.object({
   provider: z.string().min(1).default("openrouter"),
   /** Primary model id. Founder 2026-10-15: the free Gemma endpoint, demo data only (MODEL_PRIMARY). */
   model: z.string().min(1).default(MODEL_PRIMARY),
-  /** Tried when the primary 429s or errors, before the keyword fallback (MODEL_BACKUP). */
+  /** Tried when the primary 429s or errors. The last attempt there is (MODEL_BACKUP). */
   backupModel: z.string().min(1).default(MODEL_BACKUP),
   /** Model ids this deployment may call. `model` and `backupModel` must both be on it. */
   modelAllowList: z.array(z.string().min(1)).nonempty().default([...DEFAULT_MODEL_ALLOW_LIST]),
@@ -413,6 +413,37 @@ export function demoDataOnlyFromEnv(env: Record<string, string | undefined>): bo
   return env[DEMO_DATA_ONLY_ENV_VAR] === DEMO_DATA_ONLY_REQUIRED_VALUE;
 }
 
+/** The env var holding this module's data mode. Named so a refusal can cite it without a literal. */
+export const DATA_MODE_ENV_VAR = "AGENT_DATA_MODE";
+
+/**
+ * Which of the guard's three conditions failed, as a **stable code**.
+ *
+ * The codes exist because a caller has to be able to say *which* condition refused without
+ * reading the prose message below — a log line, a reason string on a failed run, and the staff
+ * alert the founder's 2026-10-17 rule requires all need that fact, and string-matching a sentence
+ * is how that goes wrong on the first rewording. One code per condition, in the order they are
+ * checked.
+ */
+export type DemoDataGuardCode =
+  | "DEMO_DATA_ONLY_UNCONFIRMED"
+  | "DATA_CLASS_NOT_SYNTHETIC"
+  | "DATA_MODE_NOT_SYNTHETIC";
+
+/**
+ * One guard refusal: the code, the env var **name** behind it, and the prose.
+ *
+ * `envVar` is a name and never a value — it is what a deployment review reads, and it is the only
+ * part of this that is safe in a log line. The value of any of these three vars is a deployment
+ * setting; two of the three are not secret, but the rule is simpler and safer as "names only",
+ * because `apiKeyEnvVar` sits on the same refusal path and its value never may be logged.
+ */
+export type DemoDataGuardFailure = {
+  readonly code: DemoDataGuardCode;
+  readonly envVar: string;
+  readonly message: string;
+};
+
 /** Why the guard fails shut, appended to every refusal below so no message states only half of it. */
 const WHY_IT_FAILS_SHUT =
   "the configured endpoint offers no zero-data-retention guarantee and the vendor has no BAA, " +
@@ -439,30 +470,50 @@ const WHY_IT_FAILS_SHUT =
  * The order is the design: the operator's missing confirmation is named first, because it is the
  * one a deployment is most likely to have simply forgotten.
  */
+export function demoDataGuardFailure(
+  config: Pick<AgentConfig, "demoDataOnly" | "dataMode">,
+  env: Record<string, string | undefined>,
+): DemoDataGuardFailure | null {
+  if (!config.demoDataOnly) {
+    return {
+      code: "DEMO_DATA_ONLY_UNCONFIRMED",
+      envVar: DEMO_DATA_ONLY_ENV_VAR,
+      message:
+        `live model calls are refused: this deployment has not confirmed demo-data-only operation; ` +
+        `set $${DEMO_DATA_ONLY_ENV_VAR} to exactly "${DEMO_DATA_ONLY_REQUIRED_VALUE}"; ${WHY_IT_FAILS_SHUT}`,
+    };
+  }
+  if (!isSyntheticDemo(env)) {
+    return {
+      code: "DATA_CLASS_NOT_SYNTHETIC",
+      envVar: DATA_CLASS_ENV_VAR,
+      message:
+        `live model calls are refused: $${DATA_CLASS_ENV_VAR} is not ${SYNTHETIC_DATA_CLASS}, so this ` +
+        `deployment may hold real family data whatever $${DEMO_DATA_ONLY_ENV_VAR} asserts; ${WHY_IT_FAILS_SHUT}`,
+    };
+  }
+  if (config.dataMode !== "SYNTHETIC") {
+    return {
+      code: "DATA_MODE_NOT_SYNTHETIC",
+      envVar: DATA_MODE_ENV_VAR,
+      message:
+        `live model calls are refused: the configured agent data mode is ${config.dataMode}, not ` +
+        `SYNTHETIC, and a vendor with no BAA cannot produce the attestation that mode requires; ` +
+        `${WHY_IT_FAILS_SHUT}`,
+    };
+  }
+  return null;
+}
+
+/**
+ * The guard's refusal as prose, or null. Thin over {@link demoDataGuardFailure} so the message and
+ * the code cannot describe different conditions — every existing caller keeps this signature.
+ */
 export function demoDataGuardRefusal(
   config: Pick<AgentConfig, "demoDataOnly" | "dataMode">,
   env: Record<string, string | undefined>,
 ): string | null {
-  if (!config.demoDataOnly) {
-    return (
-      `live model calls are refused: this deployment has not confirmed demo-data-only operation; ` +
-      `set $${DEMO_DATA_ONLY_ENV_VAR} to exactly "${DEMO_DATA_ONLY_REQUIRED_VALUE}"; ${WHY_IT_FAILS_SHUT}`
-    );
-  }
-  if (!isSyntheticDemo(env)) {
-    return (
-      `live model calls are refused: $${DATA_CLASS_ENV_VAR} is not ${SYNTHETIC_DATA_CLASS}, so this ` +
-      `deployment may hold real family data whatever $${DEMO_DATA_ONLY_ENV_VAR} asserts; ${WHY_IT_FAILS_SHUT}`
-    );
-  }
-  if (config.dataMode !== "SYNTHETIC") {
-    return (
-      `live model calls are refused: the configured agent data mode is ${config.dataMode}, not ` +
-      `SYNTHETIC, and a vendor with no BAA cannot produce the attestation that mode requires; ` +
-      `${WHY_IT_FAILS_SHUT}`
-    );
-  }
-  return null;
+  return demoDataGuardFailure(config, env)?.message ?? null;
 }
 
 /**

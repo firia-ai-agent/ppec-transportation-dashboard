@@ -12,6 +12,16 @@
  * the call row carries, and that **nothing else in the database moved**.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { testIdentityGateway } from "@/test/identity-gateway";
+
+/**
+ * The suites' identity gateway (S1-6). `read_message`, the capability report and the drain's
+ * consent check all ask `IdentityGateway` now rather than the connection — and this one answers
+ * from the rows `seedAgentScenario` just wrote. See src/test/identity-gateway.ts for why it is in
+ * memory rather than `dbIdentityGateway` over this handle.
+ */
+const GATEWAY = testIdentityGateway({ pepper: PEPPER });
+import { PEPPER } from "@/test/messaging";
 import { uuidv7 } from "uuidv7";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
@@ -28,7 +38,15 @@ import { toolCalls } from "../store";
 import type { Trigger } from "../triggers";
 import { effectId } from "./effects";
 import { PREDICATE_INBOUND_REPLY, checkPredicate, parsePredicate } from "./predicate";
-import { CHANGE_REQUEST_TASK_CATEGORY, REALLOCATION_TASK_CATEGORY } from "./proposals";
+import { demoChildToken, demoLegId } from "@/modules/demo/fixtures/standard";
+import { renderTemplate } from "@/modules/messaging/templates";
+import { TOOL_REGISTRY } from "../../tools";
+import {
+  CHANGE_REQUEST_TASK_CATEGORY,
+  DROPOFF_CHANGE_TASK_CATEGORY,
+  DROPOFF_CHANGE_TEMPLATE,
+  REALLOCATION_TASK_CATEGORY,
+} from "./proposals";
 import { CLOSE_REFUSED_OPEN, THREAD_NOTE_TASK_CATEGORY } from "./staff";
 import { type LiveHarness, liveHarness } from "./live-harness";
 
@@ -65,7 +83,8 @@ const policy = (over: Partial<PolicyContext> = {}): PolicyContext => ({
 });
 
 const harness = (script: readonly ProviderResponseBody[], over: Partial<PolicyContext> = {}): LiveHarness =>
-  liveHarness({ db, script, facts: facts(), policy: policy(over), now: () => now });
+  liveHarness({
+    gateway: GATEWAY, db, script, facts: facts(), policy: policy(over), now: () => now });
 
 const tasks = async () =>
   (await db.query<{
@@ -171,6 +190,7 @@ describe("§11.2 close_task: evidence satisfies the predicate, else stays open",
 
   const closeHarness = (taskId: string, evidenceRef: string) =>
     liveHarness({
+    gateway: GATEWAY,
       db,
       script: [closeCall(taskId, evidenceRef)],
       facts: facts(),
@@ -481,5 +501,193 @@ describe("§11.2 summarize_thread_for_staff: a staff-only note, and nothing else
     expect(await tasks()).toHaveLength(1);
     expect((await tasks())[0].state).toBe("OPEN");
     expect(r.runId).not.toBe(r2.runId);
+  });
+});
+
+/**
+ * §11.2 human tier: `propose_dropoff_change` — the drop-off a family asked for (demo item 2b).
+ *
+ * The commonest thing a parent texts a transport desk had no tool at all, so a model reading "can
+ * he be dropped at grandma's at 5?" could only cancel the ride or escalate it. This is the row a
+ * coordinator decides from instead, and what it must prove is the same thing the other two
+ * propose_* suites prove plus one: **the text the family would get is on the row**, as the
+ * template and the vars the outbox itself renders, so the approval screen and the send cannot show
+ * two different sentences.
+ */
+describe("§11.2 propose_dropoff_change: the text a family would get, for a person to approve", () => {
+  const approvals = async () =>
+    (await db.query<{ id: string; site_id: string; task_id: string; proposal: Record<string, unknown>; decision: string | null }>(
+      "SELECT id, site_id, task_id, proposal, decision FROM ops.approval_request ORDER BY created_at", [])).rows;
+
+  const untouched = async () => ({
+    legs: (await db.query("SELECT id, state, version, plan_version, window_start FROM ops.trip_leg ORDER BY id", [])).rows,
+    outbound: (await db.query("SELECT id FROM ops.outbound_message", [])).rows,
+  });
+
+  it("writes an approval request carrying the template and the vars, and moves nothing", async () => {
+    sc = await seedAgentScenario(db, { body: "can he be dropped at the library at 5 instead" });
+    const legId = sc.legs[sc.children[0]].PM;
+    const before = await untouched();
+    const args = {
+      leg_id: legId,
+      requested_dropoff_time: "17:00",
+      requested_stop_token: "GA-LIBRARY",
+      rationale_code: "PARENT_REQUEST",
+      source_message_id: sc.messageId,
+      expected_version: 1,
+    };
+
+    const h = harness([toolCall("propose_dropoff_change", args)]);
+    const r = await h.start(trigger());
+
+    expect([r.state, r.steps]).toEqual(["SUCCEEDED", 1]);
+    const [call] = await toolCalls(db, r.runId);
+    expect([call.status, call.policyDecision]).toEqual(["PROPOSED", "PROPOSAL:human_tier_requires_approval"]);
+
+    const [approval] = await approvals();
+    expect(approval.site_id).toBe(sc.siteId);
+    expect(approval.decision).toBeNull();
+    expect(approval.proposal).toMatchObject({
+      kind: "DROPOFF_CHANGE",
+      leg_id: legId,
+      child_token: sc.children[0],
+      service_date: sc.serviceDate,
+      direction: "PM",
+      /*
+       * `plan_run.version`, not `trip_leg.plan_version` (Firia's S1-3, 2026-10-17 11:00 PM ET,
+       * on Veri's S1-3.2: the board guards one counter and the leg carries another). This
+       * scenario saves no plan, so the version is 0 — the same 0 `loadBoard` reports for a day
+       * nobody has planned, and the same one a first Save names.
+       */
+      plan_run_version_basis: 0,
+      requested_dropoff_time: "17:00",
+      stop_token: "GA-LIBRARY",
+      rationale_code: "PARENT_REQUEST",
+      basis_message_id: sc.messageId,
+      template_id: DROPOFF_CHANGE_TEMPLATE,
+      approval_key: approvalKey("propose_dropoff_change", args),
+    });
+    // The key on the row is the key on the call: one human decision releases one exact call.
+    expect(call.argsHash).toBe(approval.proposal.approval_key);
+
+    // The vars render, through the outbox's own renderer, into the words the family would read.
+    const body = renderTemplate(
+      String(approval.proposal.template_id),
+      approval.proposal.vars as Record<string, unknown>,
+    );
+    /*
+     * The body is the one Firia asked for at 10:51 PM ET: it opens with the answer and names the
+     * child and the stop ("Model draft is human and uses the child's name"). The assertion is on
+     * the stop and on the shape rather than on the whole sentence, because the *words* are
+     * src/ui/copy.ts's to change and this test is about the vars reaching the renderer.
+     */
+    expect(body).toContain("Greenacres Branch Library");
+    expect(body).toMatch(/^PPEC: Yes/);
+    // Still no name of a person in it, and never the 24-hour clock (COPY-GUIDE §3).
+    expect(body).not.toContain("17:00");
+
+    // An AMBER task for the board, and nothing else in the database moved.
+    expect((await tasks()).map((t) => [t.category, t.severity])).toEqual([[DROPOFF_CHANGE_TASK_CATEGORY, "AMBER"]]);
+    expect(await untouched()).toEqual(before);
+  });
+
+  /**
+   * Only a time. The place the family is told is then the stop the leg already drops at, which
+   * `ops.stop_location` cannot say — it holds a label and a lat/lng and no SMS token — so it is
+   * resolved from the demo fixtures by the child's own id. A demo-seeded child, because that
+   * resolution is demo-only by construction.
+   */
+  it("fills in the leg's own stop when only the time was asked for", async () => {
+    sc = await seedAgentScenario(db);
+    const child = demoChildToken("C2");
+    await db.query(
+      `INSERT INTO ops.child_profile (child_token, site_id, family_group_id, display_name, created_by, updated_by)
+       VALUES ($1, $2, $3, 'Syn D.', 'test', 'test')`,
+      [child, sc.siteId, sc.familyGroupId],
+    );
+    await db.query(
+      `INSERT INTO ops.trip_leg (id, site_id, child_token, service_date, direction, mode, state, plan_version, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, 'PM', 'PROVIDER', 'SCHEDULED', 1, 'test', 'test')`,
+      [demoLegId("C2", "PM"), sc.siteId, child, sc.serviceDate],
+    );
+
+    const h = harness([
+      toolCall("propose_dropoff_change", {
+        leg_id: demoLegId("C2", "PM"),
+        requested_dropoff_time: "17:15",
+        requested_stop_token: null,
+        rationale_code: "PARENT_REQUEST",
+        source_message_id: sc.messageId,
+        expected_version: 1,
+      }),
+    ], { scope: { ...sc.scope, tokens: new Set([...sc.scope.tokens, demoLegId("C2", "PM")]) } });
+    const r = await h.start(trigger());
+
+    expect(r.state).toBe("SUCCEEDED");
+    const [approval] = await approvals();
+    // C2's own stop, out of the fixtures: Okeeheelee Park.
+    expect(approval.proposal.stop_token).toBe("OKEE-PARK");
+    expect(renderTemplate(DROPOFF_CHANGE_TEMPLATE, approval.proposal.vars as Record<string, unknown>))
+      .toContain("Okeeheelee Park");
+  });
+
+  /**
+   * A leg whose stop cannot be named, and no stop proposed. The proposal is refused by name rather
+   * than defaulted: the one thing worse than not proposing a drop-off is proposing a place to leave
+   * a child that nobody chose.
+   */
+  it("proposes nothing when neither it nor the leg can name a place", async () => {
+    sc = await seedAgentScenario(db);
+    const h = harness([
+      toolCall("propose_dropoff_change", {
+        leg_id: sc.legs[sc.children[0]].PM,
+        requested_dropoff_time: "17:00",
+        requested_stop_token: null,
+        rationale_code: "PARENT_REQUEST",
+        source_message_id: sc.messageId,
+        expected_version: 1,
+      }),
+    ]);
+    const r = await h.start(trigger());
+
+    const [call] = await toolCalls(db, r.runId);
+    expect(call.result).toMatchObject({ proposal_refused: "NO_STOP_FOR_LEG", mutated: false });
+    expect(await approvals()).toEqual([]);
+  });
+
+  /** Another site's leg never gets this far: the scope check is in front of the writer. */
+  it("refuses a leg outside this run's scope before anything is written", async () => {
+    sc = await seedAgentScenario(db);
+    const stranger = await seedAgentScenario(db, { number: "+15615550102" });
+    const h = harness([
+      toolCall("propose_dropoff_change", {
+        leg_id: stranger.legs[stranger.children[0]].PM,
+        requested_dropoff_time: "17:00",
+        requested_stop_token: "GA-LIBRARY",
+        rationale_code: "PARENT_REQUEST",
+        source_message_id: sc.messageId,
+        expected_version: 1,
+      }),
+    ]);
+    const r = await h.start(trigger());
+
+    const [call] = await toolCalls(db, r.runId);
+    expect(call.status).toBe("BLOCKED");
+    expect(call.policyDecision).toBe("BLOCK:cross_family_disclosure");
+    expect(await approvals()).toEqual([]);
+  });
+
+  /** A call that proposes neither a time nor a place is refused by the gateway as invalid args. */
+  it("will not accept a call that proposes nothing", () => {
+    const def = TOOL_REGISTRY.propose_dropoff_change;
+    const nothing = {
+      leg_id: "L-C1-PM", requested_dropoff_time: null, requested_stop_token: null,
+      rationale_code: "PARENT_REQUEST", source_message_id: "MSG-1", expected_version: 1,
+    };
+    expect(def.schema.safeParse(nothing).success).toBe(false);
+    expect(def.schema.safeParse({ ...nothing, requested_dropoff_time: "17:00" }).success).toBe(true);
+    expect(def.schema.safeParse({ ...nothing, requested_stop_token: "GA-LIBRARY" }).success).toBe(true);
+    // A street address is not a place this tool takes: the stop list is the whole of it.
+    expect(def.schema.safeParse({ ...nothing, requested_stop_token: "12 Elm St" }).success).toBe(false);
   });
 });

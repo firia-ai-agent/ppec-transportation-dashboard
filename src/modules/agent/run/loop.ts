@@ -32,6 +32,7 @@ import type { Db } from "@/db/exec";
 import { type Clock, type JobScheduler, systemClock } from "@/modules/jobs/scheduler";
 import type { LlmGateway, GatewayResult } from "../gateway";
 import { type PolicyContext, type PolicyDecision, evaluate } from "../policy";
+import { resolveScopeTokens, type ScopeTokens } from "./scope-tokens";
 import type { ContextAssembler } from "./context";
 import type { ProposalWriter } from "./exec/proposals";
 import type { ExecutorCall, ToolExecution, ToolExecutors } from "./executors";
@@ -56,6 +57,12 @@ import {
   storableArgs,
   toolCalls,
 } from "./store";
+import {
+  type Unavailable,
+  logModelUnavailable,
+  modelUnavailable,
+  raiseModelUnavailableAlert,
+} from "../staff-alert";
 import { policyTaskIds, writePolicyTasks } from "./tasks";
 import { type ParkedAwait, parkRunOnTimer } from "./timers";
 import type { Trigger } from "./triggers";
@@ -242,14 +249,29 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
       turn = await deps.gateway.complete({ runId, prompt: assembled.prompt, tools: assembled.tools });
     } catch (e) {
       if (deps.isFatal?.(e)) throw e;
+      // "The model is unavailable" is not the same failure as "the model answered and we refused
+      // it", and under the founder's rule of 2026-10-17 it is the one that owes a person an
+      // alert: no proposal, no ride change, nothing sent, and one card on the Exceptions board
+      // holding the family's own words (`agent/staff-alert.ts`). Everything else below is the
+      // agent refusing something correctly and already has its own task (`run/tasks.ts`).
+      const unavailable = modelUnavailable(e);
+      if (unavailable) return modelDown(deps, run, unavailable, steps, actor);
       // A refusal (leaking prompt, free text, unknown tool, invalid args, rate limit) is already a
       // row in the gateway's audit log, and nothing was executed. The run stops there.
       return fail(deps, run, `gateway refused the turn: ${message(e)}`, steps);
     }
     await recordPromptHash(deps.db, runId, turn.promptHash, actor);
 
-    const decision = evaluate(turn.call, assembled.policy);
-    const row = await persistCallFor(deps, run, calls.length, turn, decision);
+    /*
+     * The model answers in the labels the prompt gave it (`run/scope-tokens.ts`): "C2", "L-C2-PM".
+     * Read them back to the ids this run's scope actually holds *before* the gate sees the call,
+     * so the policy engine, the stored arguments, the approval fingerprint and the executors all
+     * speak one language — the database's. A label this run does not hold resolves to nothing and
+     * is left exactly as written, which is what gets it refused for being out of scope.
+     */
+    const call = resolvedCall(turn, assembled.tokens);
+    const decision = evaluate(call, assembled.policy);
+    const row = await persistCallFor(deps, run, calls.length, { ...turn, call }, decision);
     steps += 1;
 
     // Nothing above this line executed anything; nothing below it runs without that row committed.
@@ -297,6 +319,17 @@ export function persistedVerdict(policyDecision: string): { verdict: "ALLOW" | "
     throw new AgentRunError(`unreadable policy decision ${JSON.stringify(policyDecision)}`);
   }
   return { verdict, detail: rest.join(":") };
+}
+
+/**
+ * One turn's call with its arguments read back through the run's own token dictionary.
+ *
+ * No dictionary — a hand-built context, or an assembler that writes ids straight into the prompt —
+ * means no translation, and the call passes through untouched.
+ */
+function resolvedCall(turn: GatewayResult, tokens: ScopeTokens | undefined): GatewayResult["call"] {
+  if (!tokens) return turn.call;
+  return { ...turn.call, args: resolveScopeTokens(turn.call.args, tokens) };
 }
 
 /* ──────────────────── the run's site, and the context's ──────────────────── */
@@ -482,6 +515,10 @@ async function settleCall(
           const extra = await writer(tx, {
             runId: run.id, callId: row.id, siteId: run.siteId, seq: row.seq, tool: row.tool,
             args: row.args, idempotencyKey: row.idempotencyKey, approvalKey: row.argsHash, now: at,
+            // The run's own committed facts and what started it (S1-7): a message proposal reads
+            // the thread this run resolved and the leg it touched off this list, never off an
+            // argument the model wrote.
+            committed, trigger: run.trigger,
           });
           return commitCall(tx, row.id, "PROPOSED", { ...result, ...extra }, by);
         })
@@ -575,6 +612,60 @@ async function finish(deps: RunDeps, run: RunRow, outcome: StepOutcome, steps: n
 
 async function fail(deps: RunDeps, run: RunRow, reason: string, steps: number): Promise<RunResult> {
   return move(deps, run, "FAILED", steps, reason);
+}
+
+/**
+ * No model could be reached: log one non-secret line, raise one staff alert, and fail the run.
+ *
+ * The order matters and so does what is missing from it. The log line goes first because it is
+ * the one thing that cannot fail; the alert is next; and the run is failed either way. Nothing
+ * here executes a tool, writes a proposal or queues a message — reaching this function means no
+ * model answered, so there is nothing to act on and no answer to send. That is the whole of the
+ * founder's 2026-10-17 rule in the run loop.
+ *
+ * The alert is only raised for `msg.inbound`, because that is the trigger with a family waiting
+ * at the other end of it and a message to put on the card. A timer or a sweeper run that hits a
+ * dead vendor fails as it always has; giving those their own card is named in this change's PR
+ * body as a gap rather than guessed at here.
+ *
+ * **Every** reason `staff-alert.modelUnavailable` recognises comes here, including the ones that
+ * refuse before a request is built: the three demo-data guard conditions, a missing key, and a
+ * destination the deployment may not send to. A wiring-time refusal used to escape the run
+ * entirely (there was no model turn to catch), which left the parent's text with nobody told —
+ * `run/provider-choice.ts` is what turns it into a refused turn so it lands here.
+ *
+ * A failed alert write does not change the outcome. On a preview the database is read-only
+ * (`db/read-only.ts`) and this INSERT is refused — and the right behaviour there is still "the
+ * run sent nothing and proposed nothing", which is what failing the run says. The reason string
+ * records that the alert did not land, so the run row is honest about it.
+ */
+async function modelDown(
+  deps: RunDeps,
+  run: RunRow,
+  unavailable: Unavailable,
+  steps: number,
+  actor: string,
+): Promise<RunResult> {
+  logModelUnavailable(unavailable);
+  let raised = "staff alert raised";
+  if (run.trigger.type === "msg.inbound") {
+    try {
+      await raiseModelUnavailableAlert(deps.db, {
+        siteId: run.trigger.siteId,
+        messageId: run.trigger.id,
+        reason: unavailable.reason,
+        by: actor,
+      });
+    } catch (e) {
+      raised = `staff alert could not be written: ${message(e)}`;
+    }
+  } else {
+    raised = "no staff alert: this trigger carries no family message";
+  }
+  // `stop` is said out loud on the run row: a misrouted key is not a flaky vendor, and whoever
+  // reads this must not wait for it to clear. The alert is raised either way.
+  const kind = unavailable.stop ? "stop" : "model unavailable";
+  return fail(deps, run, `${kind} (${unavailable.detail}); ${raised}`, steps);
 }
 
 /**

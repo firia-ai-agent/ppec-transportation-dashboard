@@ -1,5 +1,7 @@
 import { getNeonDb } from "@/db/exec";
 import { previewSkip } from "@/db/read-only";
+import { agentRunInboundHook } from "@/modules/agent/run/inbound-hook";
+import { vercelQueueAgentTransport } from "@/modules/agent/run/vercel-queue";
 import { ingestInbound, parseInboundForm, SIM_SIGNATURE_HEADER, verifySimWebhook } from "@/modules/messaging/inbound";
 import { vercelQueueOutboxTransport } from "@/modules/outbox/transport";
 
@@ -28,6 +30,22 @@ export async function POST(req: Request) {
   if ("error" in parsed) return Response.json({ ok: false, error: "BAD_REQUEST", detail: parsed.error }, { status: 400 });
   const pepper = process.env.HMAC_PEPPER;
   if (!pepper) return Response.json({ ok: false, error: "NOT_CONFIGURED" }, { status: 503 });
-  const r = await ingestInbound(getNeonDb(), { pepper, transport: vercelQueueOutboxTransport }, raw, parsed.form);
+  /*
+   * The §11.1 `msg.inbound` trigger (PRD l.924), which is the handoff `messaging/hook.ts` has
+   * been holding open: the run row is written in this request's own transaction with the message,
+   * and the queue wake-up is published after it commits. It runs only for a known sender on a
+   * message that is not our own echo — an unknown number starts no run (AT-09) and an echo starts
+   * no run (MSG-03), both decided by the ingest and not re-decided here.
+   */
+  const r = await ingestInbound(
+    getNeonDb(),
+    {
+      pepper,
+      transport: vercelQueueOutboxTransport,
+      hook: agentRunInboundHook(vercelQueueAgentTransport),
+    },
+    raw,
+    parsed.form,
+  );
   return Response.json(r.body, { status: r.status });
 }

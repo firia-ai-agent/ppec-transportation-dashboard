@@ -91,6 +91,7 @@ export function TodayBoard({
   query,
   steps,
   tiles,
+  textedChildKeys = [],
 }: {
   board: Board;
   query: string;
@@ -106,6 +107,14 @@ export function TodayBoard({
    * puts the strip under the page header rather than above the whole screen.
    */
   steps: readonly StripStep[];
+  /**
+   * The children whose families this day texted, from the server (`today/page.tsx`).
+   *
+   * Only the drawer reads it, and only to decide whether its Texts section is a link or a
+   * sentence. Optional with an empty default: a caller that does not know says nothing rather
+   * than offering a thread that would open empty.
+   */
+  textedChildKeys?: readonly string[];
 }) {
   const { day } = board;
   const [tab, setTab] = useState<"board" | "health">("board");
@@ -346,7 +355,12 @@ export function TodayBoard({
       )}
 
       {openLegs.length > 0 ? (
-        <LegDrawer legs={openLegs} day={day} onClose={() => setOpenChild(null)} />
+        <LegDrawer
+          legs={openLegs}
+          day={day}
+          hasTexts={textedChildKeys.includes(openLegs[0].child.childKey)}
+          onClose={() => setOpenChild(null)}
+        />
       ) : null}
       </div>
 

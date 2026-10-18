@@ -26,6 +26,11 @@ export const dynamic = "force-dynamic";
  * The DEMO bar and the one source-mode chip are **not** here: they come from the root layout
  * (src/app/layout.tsx), which puts them above every route, signed in or not (§7, §7.1,
  * NFR-09). shell.test.ts holds that line.
+ *
+ * The menu's one number — the Family texts badge — is not read here. It is `menuBadgeFor`
+ * (src/ui/menu-badge.ts, #74), which both rails ask and which withholds it from any role outside
+ * `APPROVAL_ROLES`. This layout passes the shell nothing but the caller, which is what #74's
+ * shell takes.
  */
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const caller = await requirePage(LAYOUT.console);

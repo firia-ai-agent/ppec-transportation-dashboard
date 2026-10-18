@@ -134,7 +134,7 @@ function detailFor(key: StepKey, state: StepState, readiness: DayReadiness): str
   }
   if (key === "plan") {
     return readiness.plan.savedAt
-      ? fill(flow.detail.planSaved, { time: siteTimeLabel(readiness.plan.savedAt) })
+      ? fill(flow.detail.planSaved, { time: siteTimeLabel(new Date(readiness.plan.savedAt)) })
       : flow.detail.planNone;
   }
   return state === "LOCKED" ? flow.detail.liveLocked : flow.detail.liveNeeded;

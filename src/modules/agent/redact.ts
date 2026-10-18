@@ -6,7 +6,7 @@
  * `validatePromptTokensOnly` fails closed — it throws, and the prompt never reaches a provider —
  * on three classes the PRD names: E.164 numbers, street-address patterns and untokenized names.
  * Fails *closed* means a pattern that might be a phone number is treated as one; a false
- * rejection costs one degraded-mode keyword reply (PRD l.1200), a false pass is a PHI egress.
+ * rejection costs one run and one staff alert (`agent/staff-alert.ts`), a false pass is a PHI egress.
  *
  * The name list is the synthetic fixture roster (src/modules/demo/fixtures/standard.ts). There is
  * no other list of people in this system: in P1 every person is a fixture, so a prompt carrying

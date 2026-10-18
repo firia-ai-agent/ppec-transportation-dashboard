@@ -49,7 +49,7 @@ const COLS = "id, site_id, purpose, recipient_token, recipient_rule, channel, te
  * see TEMPLATE_VARS below), but each one is still child data: it says a particular child's van, stop or
  * session. Any message using one must therefore carry a child reference.
  */
-export const CHILD_TEMPLATES = new Set(["pickup.eta", "dropoff.eta", "leg.canceled", "leg.changed", "therapist.absence_alert", "therapist.late_alert", "child.not_received"]);
+export const CHILD_TEMPLATES = new Set(["pickup.eta", "dropoff.eta", "dropoff.late", "dropoff.received", "leg.canceled", "leg.changed", "dropoff.changed", "therapist.absence_alert", "therapist.late_alert", "child.not_received"]);
 /**
  * Veri #12 review: free text is banned from outbound vars. A staff-typed "reason" or "text" can carry a child's
  * name, and matching values against a name list misses nicknames and typos, so outbound vars carry only fixed
@@ -74,6 +74,13 @@ const oneOf = (codes: ReadonlySet<string>): VarRule => (v) => typeof v === "stri
 const clockTime: VarRule = (v) => typeof v === "string" && (CLOCK.test(v) || TIMESTAMP.test(v));
 const calendarDay: VarRule = (v) => typeof v === "string" && (DAY.test(v) || TIMESTAMP.test(v));
 const stopToken: VarRule = (v) => typeof v === "string" && /^[A-Z0-9-]{1,12}$/.test(v);
+/**
+ * Whole minutes of lateness, 1–240 (`dropoff.late`). A count, not prose: the only thing a caller
+ * can put in it is a small integer, written as a number or as its digits, so the §18.2 step 7
+ * text can say how late the van is without any path for a sentence to reach a family.
+ */
+const lateMinutes: VarRule = (v) =>
+  (typeof v === "number" || typeof v === "string") && /^\d{1,3}$/.test(String(v)) && Number(v) >= 1 && Number(v) <= 240;
 
 /**
  * Per-template allowlist of permitted var names, each with the rule its value must satisfy (Veri #8 follow-up,
@@ -88,8 +95,18 @@ const stopToken: VarRule = (v) => typeof v === "string" && /^[A-Z0-9-]{1,12}$/.t
 export const TEMPLATE_VARS: Readonly<Record<string, Readonly<Record<string, VarRule>>>> = {
   "pickup.eta": { eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
   "dropoff.eta": { eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
+  /*
+   * No `eta` and no `etaEnd` (Firia, 2026-10-17 10:51 PM ET: the auto late text has no time range
+   * and no ETA). The allowlist is the enforcement — a caller that passes one is refused at
+   * enqueue, so the rule cannot be undone by editing a sentence.
+   */
+  "dropoff.late": { stopLabel: stopToken, delayMinutes: lateMinutes },
   "leg.canceled": { legDate: calendarDay, reasonCode: oneOf(LEG_CANCEL_REASON_CODES) },
   "leg.changed": { legDate: calendarDay, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
+  /* No `etaEnd`: an approved drop-off time is a decision, so the body says the minute (10:51 PM ET). */
+  "dropoff.changed": { legDate: calendarDay, eta: clockTime, stopLabel: stopToken },
+  /* The handoff the day recorded. A place and nothing else: no time is left to say. */
+  "dropoff.received": { stopLabel: stopToken },
   "therapist.absence_alert": { sessionStart: clockTime },
   "therapist.late_alert": { sessionStart: clockTime, eta: clockTime },
   "child.not_received": { stopLabel: stopToken, eta: clockTime },
@@ -238,6 +255,7 @@ export async function drain(db: Db, messageId: string, deps: DrainDeps, by = "sy
     const res = await deps.provider.send({
       messageId: claimed.id, siteId: claimed.site_id, idempotencyKey: claimed.idempotency_key, channel: claimed.channel,
       recipientToken: claimed.recipient_token!, templateId: claimed.template_id, vars: claimed.vars,
+      childToken: claimed.child_token,
     }, { signal: ctl.signal });
     outcome = { to: "SENT", providerMessageId: res.providerMessageId };
   } catch (e) {

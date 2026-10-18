@@ -20,6 +20,50 @@ export function fill(template: string, values: Record<string, string | number>):
 }
 
 /**
+ * A synthetic record's name, as a person reads it: without the `SYN ` marker in front of it.
+ *
+ * ADR-015 stamps every synthetic row with that prefix, and it has to stay in the data — it is how
+ * a query, an export or a support ticket tells a fiction from a real record, and removing it there
+ * would remove the one marker that is checkable. But a *screen* has better ways of saying the same
+ * thing: the DEMO bar and the §7.1 Simulated chip the root layout renders on every route, which
+ * say it once, loudly, where a person is already looking. Printing it a second time inside a
+ * provider's name turns a company into a code (Vera's review, 2026-10-17: "SYN Greenacres center
+ * fleet" is not a thing a coordinator calls anybody), and COPY-GUIDE §2 bars internal markers from
+ * user-facing text for exactly that reason.
+ *
+ * So this is the one seam between the two, applied where a name crosses from data into a
+ * projection a screen reads — the board's rides, the solver's lanes, the phone panel's ride line,
+ * the signed-in person in the header. `no-codes.test.ts` holds that none of those carries it and
+ * that the fixtures still do.
+ *
+ * Case-sensitive and anchored: only the `SYN ` marker at the front goes. A name that merely
+ * contains the letters ("Synergy Transport") is untouched, and so is one already clean.
+ */
+export function withoutSynPrefix(name: string): string {
+  return name.startsWith(SYN_PREFIX) ? name.slice(SYN_PREFIX.length) : name;
+}
+
+/**
+ * A provider's name as a screen says it — the one call every provider-display site makes.
+ *
+ * `withoutSynPrefix` is the general rule, and a provider is the case it kept being forgotten for:
+ * the fixtures module stripped at the vehicle (src/fixtures/fleet.ts) and the demo scenario's
+ * `solverVehicle` did not, so the drawer's "{van} · {provider}" line and Plan routes' "Ask …"
+ * buttons printed "SYN Palm Lift Transport" at a founder (Vera's review, 2026-10-17 14:40 ET)
+ * while the test that was meant to catch it read the *other* fixture list and passed.
+ *
+ * One named seam, so "is this name display-ready?" is a grep rather than a reading of each
+ * projection: every provider name a screen reads goes through here, and `no-codes.test.ts` walks
+ * the demo path as well as the fixture one.
+ */
+export function providerDisplayName(name: string): string {
+  return withoutSynPrefix(name);
+}
+
+/** The ADR-015 marker every synthetic row's name carries. Data only; never rendered. */
+export const SYN_PREFIX = "SYN ";
+
+/**
  * Closes a sentence with exactly one full stop. Needed because §3 writes a child as first name
  * plus last initial ("Leo B."), so a template that supplied its own period would print "Leo B..".
  */
@@ -198,6 +242,15 @@ export const flow = {
     done: "Done",
     needed: "Needed",
     locked: "Locked",
+    /**
+     * §9.2's fourth chip, for a live map with vans moving on it.
+     *
+     * It was left out of this table while nothing in the build recorded that a van had left the
+     * depot — a chip is a claim about the day, and there was no fact behind this one. The board
+     * work (`plan/sql.ts dayContext.vansOut`, over `ops.telemetry_point`) is that fact, so
+     * `deriveReadiness` can return `RUNNING` and the word it needs is here.
+     */
+    running: "Running",
   },
   /** The one line under a step's name: what that step's own data says right now (§9.5). */
   detail: {
@@ -1004,6 +1057,364 @@ export const whoami = {
 } as const;
 
 /**
+ * Family texts (DESIGN-DIRECTION §6.3 "Persona phones", COPY-GUIDE §5): the texts the demo sends
+ * to a family, read as a family reads them.
+ *
+ * Named `familyTexts`, after the screen and its address — `/family-texts`, Vera's review
+ * (2026-10-17): "preview" is out of every label and address, and one name in the rail, at the top
+ * of the page and in this file cannot drift (src/ui/nav-items.ts reads `heading` for the rail).
+ *
+ * Two kinds of sentence live here, and the difference matters:
+ *  - the **thread's own chrome** — who the phone belongs to, which child the texts are about,
+ *    which van the ride is on. Staff-facing, so people are named (COPY-GUIDE §1): "Dara O. is
+ *    Noah's parent" is a thing a coordinator can check, "an adult on file" is not.
+ *  - the **source line**, which says where the bubbles came from. The panel can read the real
+ *    message log or project the demo day's own replay, and a thread that did not say which it was
+ *    showing would be the one screen in this app that could be mistaken for a real send.
+ *
+ * The *messages* themselves are not here: a body belongs to `outboundSms` above, because it is
+ * the outbox that owns the words that leave the building (Veri #12). Nothing in this block ever
+ * appears inside a bubble. And no outgoing body names a child — Vera's privacy rule, 2026-10-17:
+ * the panel's own UI labels a thread by child, because staff are reading it, but a text to a
+ * phone says "your child". `templates.test.ts` holds that against the fixture first names.
+ */
+export const familyTexts = {
+  heading: "Family texts",
+  documentTitle: "Family texts · PPEC transportation",
+  intro:
+    "What the demo sends to a family's phone, on the day it sends it. Nothing here leaves the building.",
+  /** §6.3: the phone carries its own banner, under the one in the header. */
+  simulatedPhone: "Simulated phone",
+  /** The tab list: one phone per family the day has a text for. */
+  pickPhone: "Whose phone",
+  /** A tab, "Dara O. · Noah". */
+  tab: "{adult} · {child}",
+  /** The phone's own heading: who holds it, and the number it is reachable on. */
+  threadHeading: "{adult} · {phone}",
+  /**
+   * A number as a person reads it, in the form the rest of the copy already uses for the
+   * center's own line ("(561) 555-0100"). The fixtures store a dialling form; no screen prints
+   * one.
+   */
+  phoneFormat: "({area}) {prefix}-{line}",
+  /** One line under it, naming the relationship rather than describing it. */
+  threadWho: "{adult} is {child}'s {relationship}.",
+  /** The ride these texts are about: the van by name, and who runs it. */
+  rideLine: "{child} rides home in the {van}, run by {provider}, to {place}.",
+  /** The day the thread is from — the same date the board names (PRD §6.1). */
+  dayLine: "Texts from {date}",
+  /** Read before the time under a bubble, for a screen reader (§9). */
+  timeLabel: "Sent {time}",
+  /** The two sources, each said plainly. */
+  fromLog: "These are the messages the center sent, with what happened to each one under it.",
+  /**
+   * Vera's wording, verbatim (2026-10-17): short sentences, no "delivery status is not shown
+   * because" clause-stacking. Says the same two facts — these are unsent drafts, and that is why
+   * there is nothing under them.
+   */
+  fromScenario:
+    "The demo day hasn't run yet, so these are the texts it will send. There's no delivery status because nothing has been sent.",
+  /**
+   * The message log could not be read at all (`thread.ts` → `logUnreadable`). Distinct from
+   * `fromScenario` on purpose, and that distinction is the whole of Veri's S3 note: "the demo day
+   * hasn't run yet" is a claim about the *day*, and saying it when the truth is "we could not read
+   * your message log" tells a coordinator something false about their own data. So this says which
+   * of the two it is, says what is on screen instead, and asks for nothing a person cannot do.
+   */
+  logUnreadable:
+    "We couldn't read the message log just now, so these are the texts the demo day sends rather than what was actually sent. Try again in a moment.",
+  empty: "No texts to this family on this day.",
+  /**
+   * A day the demo sends no family text at all. Vera's wording (2026-10-17) replaces "Today isn't
+   * built yet", which told a founder about the build rather than about the day.
+   */
+  emptyDay: "No family texts today.",
+  /**
+   * The live pair at the bottom of the thread: what a coordinator just typed as the family, and
+   * what the assistant answered once a person approved it (`LiveBubbles.tsx`).
+   *
+   * `liveNote` is the one thing that keeps the thread honest. The bubbles above it are rows from
+   * the message log with real times and §3 delivery ticks; these two have neither, and a reader who
+   * was not told why would reasonably assume the screen had simply lost them.
+   */
+  liveHeading: "This session",
+  liveNote: "From this session, on the simulated phone. Nothing was sent, so there is no time or delivery under them.",
+
+  /* ── the assistant half (PRD §18.2 steps 9–10): a parent's text, and what came back ── */
+
+  /**
+   * The composer. It is staff typing *as the family*, on a simulated phone, so the label says so
+   * — a coordinator must never be in doubt about which side of the thread they are writing on.
+   */
+  composerHeading: "Send a text as {adult}",
+  composerLabel: "Message",
+  composerHint: "This is the simulated family phone. Nothing is sent to anybody.",
+  composerExample: "Can {child} be dropped at grandma's at 5?",
+  composerSend: "Send as {adult}",
+  composerSending: "Sending…",
+
+  /** The card that appears under the thread: what the assistant did with the text. */
+  turnHeading: "What the assistant did",
+  /**
+   * Who answered. Vera's wording (2026-10-17 14:40 ET): a staff screen says "the assistant",
+   * because that is who a coordinator thinks they are reading. It used to name the model by its
+   * id — "claude-…" — which is a deployment setting, not a fact about this reply: it tells a
+   * coordinator nothing they can act on and reads as a leaked config value on a screen a founder
+   * demos. The id stays where a reviewer actually checks it, in the run's server-side record.
+   */
+  answeredByModel: "Answered by the assistant.",
+  /** §11.2: a human-tier call is a proposal. It changed nothing and sent nothing. */
+  proposalLead: "The assistant proposes this. It has changed nothing and sent nothing.",
+  /** The change itself, in one line a coordinator can check against the board. */
+  proposalChange: "Move {child}'s afternoon drop-off from {before} to around {after}, at the same stop.",
+  proposalNoChange: "The assistant has raised this for a person to read.",
+  declined: "Declined. Nothing changed, and the family was not texted.",
+  /** After approval: what changed, and why the reply needed no second decision. */
+  approvedLead: "Approved. {child}'s afternoon drop-off now reads {after}.",
+  approvedBoardLine: "{child} · afternoon · {van} · {after} at {place}",
+  approvedReplyNote:
+    "The confirmation below went out on the assistant's own authority: it is one of the messages we allow, filled in with a time and a place. Free text to a family still needs a person.",
+  /** A turn the gateway or the policy engine refused. */
+  blockedLead: "The assistant's answer was refused before anything happened.",
+  /**
+   * No model answered. One sentence for every way that happens — rate-limited, slow, no key, a
+   * base URL off the allow-list — because from a coordinator's chair they are one situation with
+   * one next move, and there is no longer a second reader that could have answered instead (the
+   * founder's rule of 2026-10-17 deleted the §18.1 keyword parser). So this says what did not
+   * happen and what to do, and the screen shows it in place of any proposal card: nothing was
+   * read, so there is nothing to approve.
+   */
+  assistantUnavailable:
+    "The assistant could not be reached, so nothing happened: no ride changed and no message was sent. Try again in a moment, or answer this text yourself.",
+  /** Said under a refusal and under a blocked turn alike: the rule, in plain words. */
+  nothingHappened: "No ride changed and no message was sent.",
+
+  /* ── the rebuilt screen (REDESIGN-SPEC §4; mockups/family-texts.html, mockups/approvals.html) ── */
+
+  /**
+   * The three tabs over the conversation list. "For you" is the approvals queue — REDESIGN-SPEC
+   * §9.2 keeps it a tab of this screen rather than a menu item of its own, so the words are the
+   * tab's and there is no second page title anywhere.
+   */
+  tabForYou: "For you",
+  tabSent: "Sent",
+  tabAll: "All",
+  /** The chip in the header: the assistant is reading replies on this day. */
+  /** The list, for a screen reader that is picking one. */
+  conversationsLabel: "Conversations",
+  /** A row that has something on it nobody has read yet (§9: never the teal dot alone). */
+  unread: "Unread",
+  /** The thread's own header: the adult, then who they are and which child. */
+  threadSubtitle: "{relationship} · {child}",
+  /** A list row names the child beside the adult: "Lee W. · Jonah" (approvals.html `.th .nm`). */
+  rowChild: " · {child}",
+  /** The identity check that passed on this number, as a chip on the thread header. */
+  verified: "Verified",
+  /** The call control on the thread header, which places no call in the demo. */
+  callLabel: "Call {adult}",
+  /** 390: the thread is a view of its own, and this goes back to the list. */
+  backToList: "Back to the conversations",
+  /**
+   * The centred stamp above a run of bubbles (the mockup's `.ts`). "Today" on the demo day and
+   * the date on any other, which is the §5 rule every other heading on this day follows
+   * (`onDay`): a thread from last Tuesday that said "Today" would be the screen lying about when
+   * a family was texted.
+   */
+  stampToday: "Today",
+  stampOtherDay: "{date}",
+  /** Under a run of outgoing bubbles the day sent by itself, from a template. */
+  autoDelivered: "Auto · Delivered",
+  /** Under a run of outgoing bubbles a person wrote and sent. */
+  staffSent: "Sent by {name}",
+  /** The compose bar at the bottom of a thread. */
+  composePlaceholder: "Text {adult}",
+  composeAction: "Send",
+  /**
+   * Pressing Send approves the proposal that is open, because a person pressing Send *is* the
+   * approval (Firia's gate 3). With nothing open there is nothing for it to send: free text to a
+   * family is not wired, and the control says so rather than looking live.
+   */
+  /** The state pill on a conversation row. Five, and every one of them is a fact about the row. */
+  rowState: {
+    changeReady: "Change ready",
+    needsYou: "Needs you",
+    autoLate: "Auto · Late",
+    autoDropped: "Auto · Dropped",
+    done: "Done",
+  },
+  /**
+   * The one text a family sends back on the demo day (PRD §18.2 steps 9–10).
+   *
+   * It is the scenario's own script, in the same sense as the late-drop-off texts the day sends:
+   * deterministic, written down, and read by the screen and by nothing that sends. It is here
+   * rather than in the fixture file because it is a sentence somebody reads.
+   */
+  demoReply: "Can you drop {child} at 5 instead? Someone is home then.",
+  /** A tab with nothing in it. One line, and it is about the day rather than the build. */
+  noneForYou: "Nothing is waiting for you.",
+  noneSent: "No texts have gone out today.",
+
+  /* ── the third pane: the van and the pick-up, beside the thread (approvals.html `aside.ctx`) ── */
+
+  /** "Van 1 after change" — the counts a coordinator is approving the ride into. */
+  afterChange: "after change",
+  /** The pane's last heading: who the family's file lets collect this child. */
+  allowedPickup: "Allowed pick-up",
+  /** The pane's own label, for the landmark a screen reader lands on. */
+  rideContext: "This ride",
+} as const;
+
+/**
+ * The approval screen (PRD §18.2 steps 9–10, §11.2 human tier): a coordinator reads the exact
+ * text a parent would get, and decides.
+ *
+ * Every string is Vera's, verbatim (2026-10-17 12:59 PM ET). Three things she settled, and each
+ * one is a rule rather than a preference:
+ *  - the buttons say what happens, not what the system calls it: "Approve and send" (not
+ *    "Approve", which leaves "and then what?" open), "Don't send" (not "Decline" or "Reject",
+ *    which name a verdict on the assistant rather than an outcome for the family).
+ *  - `nothingUntilApproved` is on the screen *before* either button, because the fear a
+ *    coordinator brings to this screen is that reading it already sent something.
+ *  - on model failure the screen still works: a person writes the reply. `draftFailed` says that
+ *    in two short sentences and offers both ways out.
+ */
+export const approval = {
+  /**
+   * THE CARD'S ACCESSIBLE NAME, and the only sentence on it that says what it is.
+   *
+   * Vera's card (Firia, 2026-10-18 7:51 AM ET) is three things and no more: the parent's name,
+   * the message as a bubble, and the three buttons. There is no heading over the message any
+   * more — "The text the family will get" was a label on a bubble that already looks like a
+   * text — so a screen reader would otherwise reach a region named only "Dara O.", which is also
+   * what the thread around it is called. This is the name the region carries instead.
+   */
+  cardLabel: "Proposed reply to {adult}",
+  /*
+   * There is NO key here for the STOP/HELP footer, and that absence is the ruling (Firia, 10:51
+   * PM ET): the 10DLC sentence is appended by the send step alone (`SEND_FOOTER`,
+   * src/modules/messaging/templates.ts) and is never shown to staff — not in a bubble, not on the
+   * card. A copy key for it would be the first half of putting it back.
+   */
+  nothingUntilApproved: "The family hears nothing until you approve",
+  /**
+   * The three controls, worded exactly as mockups/approvals.html `.acts` words them (Firia
+   * relaying Vera, 2026-10-18 7:51 AM ET). The ampersand is the mockup's, and it is the house
+   * style for a two-verb control: `nav.exceptions` is "Exceptions & Approvals" for the same
+   * reason. Every screen that renders one of these reads the constant, so the mockup and the
+   * build cannot drift apart a word at a time.
+   */
+  approveAndSend: "Approve & send",
+  edit: "Edit",
+  dontSend: "Don't send",
+  draftFailed: "Couldn't draft a reply. Write one yourself or try again.",
+
+  /* ── the screen around the card (SURF-05, PRD §14 "Exceptions & Approvals") ── */
+
+  /**
+   * The screen's `<title>`. Its **heading** is `nav.exceptions`, not a string of its own: the rail
+   * already names this destination, and a page whose h1 said "Exceptions & approvals" under a rail
+   * that said "Exceptions & Approvals" is one screen with two names (nav-items.ts keeps every other
+   * destination's label and heading as one string for exactly this reason).
+   */
+  documentTitle: "Exceptions & Approvals · PPEC transportation",
+  intro: "What the assistant has asked a person to decide. Nothing here has been sent.",
+  /** A day with nothing waiting. Said as a fact about the day, not about the build. */
+  none: "Nothing is waiting for a decision.",
+  /** The card's own heading: whose ride, and which half of the day. */
+  cardHeading: "{child} · {ride} drop-off",
+  /** The reason the family gave, as a coordinator reads it — never the enum code (§2). */
+  reasons: {
+    PARENT_REQUEST: "A parent asked for this.",
+    ALTERNATE_RECEIVER: "A different adult is collecting the child.",
+    APPOINTMENT: "The family has an appointment.",
+    SCHEDULE_CONFLICT: "The family has a conflict at the usual time.",
+    OTHER: "The family asked for a change.",
+  },
+  /** The Edit control: the one thing a person may change, and it is not the words. */
+  editTimeLabel: "New drop-off time",
+  /** The button inside the Edit state: it re-renders the draft and approves nothing (gate 2). */
+  editApply: "Update the time",
+  editCancel: "Keep the time the assistant suggested",
+
+  /* ── what came back ── */
+
+  sent: "Approved. The family is being texted now.",
+  /** Approved with nobody to text: every contact is opted out or unauthorized (§6.4, outbox policy). */
+  sentToNobody: "Approved, and the ride is changed. Nobody on this family's file may be texted, so no message went out.",
+  declined: "Not sent. Nothing changed, and the family was not texted.",
+
+  /* ── the refusals, each one a sentence rather than a status code ── */
+
+  signInAgain: "Your sign-in has expired. Sign in again and the decision is still here.",
+  notYourRole: "Your role cannot decide this one. Ask a coordinator or the director.",
+  /** Another site's id and an id that exists nowhere read the same, on purpose. */
+  noSuchApproval: "That decision is not here any more.",
+  alreadyDecided: "Somebody decided this one already. Reload to see what they chose.",
+  planMoved: "This ride changed while you were reading, so the text would have been wrong. Nothing was sent — reload and decide again.",
+  notATime: "Write the time as a clock time, like 5:00 PM.",
+  /**
+   * The words changed under the person deciding them (S1-7). Said as what happened and what to do,
+   * like every other refusal here — and it says plainly that nothing went out, because the first
+   * thing a coordinator wants to know is whether the family got the old text.
+   */
+  messageChanged: "This message changed while you were reading it. Nothing was sent — read it again and decide.",
+  /**
+   * The plan could not be saved, including because there is nothing to save it with yet
+   * (`modules/approvals/plan-placement-port.ts`). Firia's gap-5 ruling: fail safe and say so —
+   * never a fake success, and never a text to a family about a change the plan does not hold.
+   */
+  planNotSaved: "Couldn't update the plan, so nothing was sent to the family. Change the ride on the board instead.",
+
+  /* ── the card itself (mockups/approvals.html) ── */
+
+  /*
+   * There is NO title key for the card. Vera's card is named by the family it answers — the
+   * parent's name is its heading and `cardLabel` above is its accessible name — so "Change
+   * drop-off" was a kind-of-thing label over a message that already says what it is. The kind
+   * still exists where it belongs, as `DROPOFF_CHANGE_KIND` on the row.
+   */
+  /**
+   * WHO THE PROPOSAL IS FROM — one word, and it is this one.
+   *
+   * Vera's S1-2 checklist item a (2026-10-18): "Each proposal has ONE approve row, labelled
+   * 'Agent' (from copy.ts), with no internal codes and no vendor or provider names." So the card's
+   * author is "Agent", which is also the name the mockup gives this actor where it names it at all
+   * (mockups/approvals.html: `<h3>Agent</h3>` over the same feed) — the card line there still read
+   * "Assistant", and the checklist is the later word on which of the two the product says.
+   *
+   * What it must never be is the thing underneath. A coordinator deciding whether to text a family
+   * is not helped by the name of a model or a router, and a card that said one would be leaking a
+   * deployment detail onto a staff screen — and dating itself the next time the deployment
+   * changes. The provider is configuration (`agent/config.ts`), it stays in the server log, and
+   * the assertion that keeps it off the card is in real-card-only.test.ts.
+   */
+  agentLabel: "Agent",
+  /**
+   * Who drafted it and when.
+   *
+   * NOT on the card: Vera's card carries no clock time at all (the "NO Time row" half of the
+   * 7:51 AM ruling), and a "Agent · 3:58 PM" line is a clock time wherever it sits. The queue
+   * still builds it (`family-texts/queue.ts`) because the author and the minute are facts about
+   * the row, and `real-card-only.test.ts` reads them to prove the card came from a real approval
+   * rather than a fixture.
+   */
+  draftedBy: "{agent} · {time}",
+  /*
+   * There are NO keys here for a Stop / Time / Pick-up before→after table. Vera's card does not
+   * draw one (7:51 AM ET): the message says what changes, in the words the family will read, and
+   * a table above it was the same change said twice — the second time in a shape only somebody
+   * who already knew the plan could check. The facts themselves are still computed and still
+   * asserted (`queue.ts`, `real-card-only.test.ts`); what is gone is the row.
+   */
+  /** The pick-up row when the adult collecting the child does not change. */
+  pickupSame: "{adult} · same",
+  /** The checks that passed, as chips. Each is a fact the plan can answer. */
+  checkSameVan: "Same van",
+  checkFits: "Fits",
+  checkOnFile: "{adult} on file",
+} as const;
+
+/**
  * SURF-04 Ramp iPad (COPY-GUIDE §5 "SURF-04", §3 formats, DESIGN-DIRECTION §4.4).
  *
  * Every word the ramp check renders, including the strings the pure helpers in
@@ -1301,6 +1712,12 @@ export const drawer = {
   receiverHeading: "Who receives the child",
   approvalsHeading: "Waiting for a decision",
   agentHeading: "Changes the assistant made",
+  /**
+   * The thread, from the child it is about (DESIGN-DIRECTION §4.2 is a list of sections and this
+   * is the one the §6.3 panel answers): a coordinator reading a late ride wants to know what the
+   * family was actually told, and the words are one click away rather than paraphrased here.
+   */
+  textsHeading: "Texts to the family",
   historyHeading: "History",
 
   /** §5: "Derived from intake, not a diagnosis." Shared with the ramp check, written once. */
@@ -1338,6 +1755,14 @@ export const drawer = {
 
   noApprovals: "Nothing is waiting for a decision about {child} today.",
   noAgentChanges: "The assistant has not changed anything for {child} today.",
+  /**
+   * The link to the phone panel, named for whose text it opens. Vera's wording, verbatim
+   * (2026-10-17): "See the text {child}'s family got" described the destination, while this one
+   * says what the link does and names the screen it opens by the name the rail and the page both
+   * use ("Family texts"), so a coordinator who clicks it recognizes where they have arrived.
+   */
+  openTexts: "Open {child}'s family texts",
+  noTexts: "Nothing has been texted to {child}'s family today.",
   /** §5: "Dana changed AM ride to Center van · ramp check didn't fit · 9:41 AM". */
   historyEmpty: "Nothing has changed for {child} today.",
   showHistory: "Show history",
@@ -2108,14 +2533,37 @@ export const demoReset = {
  * not the service word "ride".
  */
 export const outboundSms = {
-  /** COPY-GUIDE §6: a simulated message says so, in every body, with no exception. */
-  demoTag: "[DEMO]",
+  /**
+   * THE 10DLC FOOTER, AND WHERE IT IS NOT.
+   *
+   * It is not in a body. Firia, 2026-10-17 11:00 PM ET (S1-5): the STOP/HELP footer is appended
+   * in the SEND STEP and nowhere else — `renderForSend` in src/modules/messaging/templates.ts,
+   * which is what the provider calls. So the drafted text a coordinator approves, and the
+   * bubbles in a thread, are the message itself; the proposal card shows this sentence as a
+   * muted line underneath, which is what it is: the channel's furniture, not the words anybody
+   * wrote (ProposalCard.tsx).
+   *
+   * The `[DEMO]` tag that used to end every body is gone outright (same ruling). The demo bar at
+   * the top of every screen is where this deployment says it is a simulation; a tag inside a
+   * family's text said it again, in the one place the words are supposed to read like a person
+   * wrote them.
+   */
   optOut: "Reply HELP for help, STOP to opt out.",
   /** The center's number as the copy guide writes it (COPY-GUIDE §5 dispatcher link). */
   centerPhone: "(561) 555-0100",
+  /**
+   * What `{childName}` reads as when the child's own row could not be named.
+   *
+   * The name is never a var and never anything anybody typed: it is read at render time from
+   * `ops.child_profile.display_name`, the same way `{stopLabel}` is resolved through the fixed
+   * table below (`src/modules/messaging/templates.ts`). With no row to read, the body says this
+   * — the wording every body used before Firia's 10:51 PM ET ruling — rather than refusing to
+   * send or leaving a hole in the sentence.
+   */
+  yourChild: "your child",
   /** The fixed answer to an inbound HELP: same words every time, no child name and no van detail. */
   helpReply:
-    "PPEC: This number sends van updates for your child. Call us at {centerPhone} if you need help. Reply STOP to opt out. {demoTag}",
+    "PPEC: This number sends van updates for your child. Call us at {centerPhone} if you need help. Reply STOP to opt out.",
   /**
    * The pickup places a family knows by name (MOCKS §1: public landmarks, never a home), keyed by the
    * short stop token the outbox carries. The token is a developer-facing shape and a family must never
@@ -2144,26 +2592,87 @@ export const outboundSms = {
   etaApprox: "around {time}",
   bodies: {
     "pickup.eta":
-      "PPEC: Your child's van is on the way to {stopLabel}. Pickup {eta}. {optOut} {demoTag}",
+      "PPEC: Your child's van is on the way to {stopLabel}. Pickup {eta}.",
     "dropoff.eta":
-      "PPEC: Your child's van home is on the way to {stopLabel}. Arrival {eta}. {optOut} {demoTag}",
+      "PPEC: Your child's van home is on the way to {stopLabel}. Arrival {eta}.",
+    /**
+     * The one text PRD §18.2 step 7 sends: a van that has lost time, and the new 10-minute
+     * window for the families still ahead of it.
+     *
+     * Why it is its own body rather than `dropoff.eta` with a later time in it: a family reading an
+     * arrival window has no way to tell that it moved, and the whole point of the damped
+     * notification is that something changed enough to be worth telling them about. So the news
+     * is the news — minutes a person can act on ("about 15 minutes late") — and the lateness is
+     * hedged with "about" because it is an estimate.
+     *
+     * **No time and no window** (Firia, 2026-10-17 10:51 PM ET: "The auto late text has no time
+     * range and no ETA"). `dropoff.late` permits neither `eta` nor `etaEnd` any more, so there is
+     * no way for a caller to put one back: a family is told the van is late and where the stop
+     * still is, and the next thing they get is the arrival notice itself.
+     */
+    "dropoff.late":
+      "PPEC: {childName}'s van home is running about {delayMinutes} minutes late. The drop-off is still at {stopLabel}.",
     "leg.canceled":
-      "PPEC: Got it. Your child's van on {legDate} is canceled. {reasonCode} {optOut} {demoTag}",
+      "PPEC: Got it. Your child's van on {legDate} is canceled. {reasonCode}",
     "leg.changed":
-      "PPEC: Your child's van on {legDate} changed. New pickup {eta} at {stopLabel}. {optOut} {demoTag}",
+      "PPEC: Your child's van on {legDate} changed. New pickup {eta} at {stopLabel}.",
+    /**
+     * The afternoon's version of the line above. `leg.changed` says "New pickup", which is the
+     * morning: a family whose *drop-off* moved and is told about a pickup has been told about the
+     * wrong half of the day. Same vars, same rules, one word of difference — and the word is the
+     * whole point (COPY-GUIDE §1: say the thing that happened).
+     */
+    /**
+     * The answer to a parent who asked for a different drop-off, approved by a person.
+     *
+     * It opens with the answer and names the child (Firia, 2026-10-17 10:51 PM ET: "Model draft is
+     * human and uses the child's name") — and it carries **no clock time**.
+     *
+     * The time came out on the COPY RULE (2026-10-18, p-rework-approvals5; Vera's S1-2 checklist
+     * item b, "drafts contain no clock times"), which is the later word and wins over the 10:51 PM
+     * example that still had one in it: *"drafted replies carry NO clock times (e.g. 'Yes, Jonah
+     * gets off at Palm Beach State College today')"*. The mockup's own card already reads that way
+     * (mockups/approvals.html `.prop .draft`: "Yes. Jonah gets off at Palm Beach State College
+     * today.").
+     *
+     * The reason is not brevity. A minute in this sentence is a promise about traffic: the stop is
+     * decided and the time is not, and a family told "at 5:00 PM" has been given an ETA by a
+     * screen that carries no ETAs (Firia, 8:36 PM and 10:51 PM ET). What moved is *where*, so
+     * that is what the text says; the day's own arrival notices are the things allowed a clock.
+     *
+     * `eta` stays in the outbox's var table for this template and is simply not placed — the same
+     * shape `legDate` has had here all along. The vars are what the proposal *records*; the body
+     * is what a family reads, and the two are allowed to differ in this direction (a placeholder
+     * with no var is the error, and templates.test.ts is the door on that).
+     */
+    "dropoff.changed":
+      "PPEC: Yes — {childName} gets off at {stopLabel} today.",
+    /**
+     * The afternoon's handoff, once the day has **recorded** one.
+     *
+     * Never on a geofence. PRD SURF-01 and COPY-GUIDE §2 are explicit that arriving is not being
+     * received, and this body is sent from `receivedBy` — the custody event a person recorded
+     * (`FINISHED_DAY_RIDES`) — and from nothing else. A van that has arrived and not handed over
+     * says so on the board and sends a family nothing.
+     *
+     * No time in it: the handoff has happened, so there is nothing left to estimate, and this
+     * screen carries no ETAs at all (Firia, 2026-10-17 8:36 PM and 10:51 PM ET).
+     */
+    "dropoff.received":
+      "PPEC: {childName} is off the van at {stopLabel}.",
     "therapist.absence_alert":
-      "PPEC: A child is not coming in today. The {sessionStart} session is affected. {optOut} {demoTag}",
+      "PPEC: A child is not coming in today. The {sessionStart} session is affected.",
     "therapist.late_alert":
-      "PPEC: A child is running late for the {sessionStart} session. Now expected {eta}. {optOut} {demoTag}",
+      "PPEC: A child is running late for the {sessionStart} session. Now expected {eta}.",
     "child.not_received":
-      "PPEC: We could not hand off your child at {stopLabel} at {eta}. Please call us at {centerPhone}. {demoTag}",
-    "center.closure": "PPEC: The center is closed on {date}. {reasonCode} {optOut} {demoTag}",
+      "PPEC: We could not hand off your child at {stopLabel} at {eta}. Please call us at {centerPhone}.",
+    "center.closure": "PPEC: The center is closed on {date}. {reasonCode}",
     /**
      * Fixed copy, no vars (Veri #12): a staff-typed notice could carry a child's name, so the
      * only generic message we can send is the one that asks the family to call.
      */
     "generic.notice":
-      "PPEC: There is an update about your child's transportation. Please call us at {centerPhone}. {optOut} {demoTag}",
+      "PPEC: There is an update about your child's transportation. Please call us at {centerPhone}.",
   },
   /** What a `reasonCode` says to a family, per template. */
   reasons: {
@@ -2268,6 +2777,30 @@ export const agentTasks = {
     summary: "A family asked for a change the agent may not make",
     nextStep: "Verify the request with the family, then approve or reject the change request.",
     predicate: "change request approved or rejected by staff",
+  },
+  /**
+   * §11.2 human tier, `propose_dropoff_change`: a family asked for a different drop-off and the
+   * assistant has drafted the text that would tell them it is done. AMBER rather than RED —
+   * nothing is broken, a person simply has to say yes — and the next step names both answers,
+   * because "don't send" is a real outcome and not a failure to act.
+   */
+  proposedDropoffChange: {
+    summary: "A family asked for a different drop-off, and there is a text ready to send",
+    nextStep: "Read the text the family would get, then approve and send it, or don't send it.",
+    predicate: "the drop-off approved and the family told, or the request declined",
+  },
+  /**
+   * §11.2 human tier as of Firia's S1-7 ruling (2026-10-18): `send_followup` and
+   * `request_clarification`. A text to a family is drafted and waiting for a person.
+   *
+   * One sentence for both tools, because a coordinator is doing one thing either way — reading
+   * the words and deciding whether they go — and two task summaries for one decision would be
+   * the board telling them which tool the model picked, which is not a thing they call anything.
+   */
+  proposedFamilyMessage: {
+    summary: "There is a text ready for a family, and nobody has sent it",
+    nextStep: "Read the text the family would get, then approve and send it, or don't send it.",
+    predicate: "the text approved and sent, or the request declined",
   },
   /** §11.2 propose_manifest_reallocation: "RED exception + Teams card". */
   proposedReallocation: {
@@ -2420,6 +2953,107 @@ export const agentPolicyTask = {
     summary: "A text arrived from a number we do not recognize",
     nextStep: "Identify who is texting before replying, and share nothing about a child until you have.",
     predicate: "the sender identified and recorded, or the thread closed as unknown",
+  },
+} as const;
+
+/**
+ * The "needs a person" alert — what staff see when the assistant could not reach a model at all.
+ *
+ * The founder's rule of 2026-10-17 5:28 PM ET, which overrides PRD §18.1 l.1200 ("LLM down →
+ * keyword parser"): *"Never compensate with a deterministic text parser if the model isn't
+ * available; the owner/staff need to be notified."* So there is no degraded reply to write copy
+ * for. There is one card, and the card's whole job is to hand the text back to a human fast.
+ *
+ * Three rules shaped every string here:
+ *
+ *  - **Say what did not happen, not what went wrong.** "The assistant couldn't read it" is a fact
+ *    a coordinator can act on. The failure class — a timeout, a 429 on both models, no key — is a
+ *    deployment matter and goes in the server log (`agent/staff-alert.ts`), not on the card.
+ *  - **Name the people** (COPY-GUIDE §1). "A parent texted about a child" is the sentence this
+ *    card exists to avoid. The names are filled from the rows at render time through the shared
+ *    display helpers (`identity/display-name.ts`), never written into a string here and never
+ *    copied into the task row — the alert is a pointer to the message, not a second copy of it.
+ *  - **End on the instruction.** "Reply yourself." is the whole of what is being asked, and it is
+ *    last so a quick read still gets it.
+ *
+ * The parent's own words are *not* a template: they are rendered verbatim from `ops.message`
+ * beside this copy, because a coordinator deciding whether this is urgent has to read what was
+ * actually said. Nothing here paraphrases or summarizes them — summarizing is the thing the
+ * assistant could not do.
+ */
+export const assistantUnavailable = {
+  /** The card's own heading. Plural-safe because the badge can show more than one. */
+  heading: "Texts the assistant could not read",
+  /**
+   * The sentence itself, filled from the rows: guardian first name + last initial, the child's
+   * given name, and the leg word below. Three short sentences, in the order a coordinator needs
+   * them: who and what, what happened, what to do.
+   */
+  card: "{adult} texted about {child}'s {leg}. The assistant couldn't read it. Reply yourself.",
+  /**
+   * The same card for a text we cannot tie to one child from the rows alone — a contact who is
+   * authorized for two children, say. The child is left out rather than guessed at: choosing
+   * between siblings would mean reading the message, which is the thing the rule forbids.
+   */
+  cardNoChild: "{adult} texted. The assistant couldn't read it. Reply yourself.",
+  /** A thread whose contact row has gone. Still true, still actionable, names nobody wrongly. */
+  unknownAdult: "Someone",
+  /**
+   * Which ride the text is about, taken from the leg row's own direction — never from the
+   * family's words, which is the parsing the founder's rule forbids. Singular, because the card
+   * is about one leg; `planRoutes.direction` is the plural form the lane headings use.
+   */
+  legWord: { AM: "pick-up", PM: "drop-off" },
+  /** No leg on the day the text arrived, so the sentence says the ride rather than invent a half. */
+  legWordUnknown: "ride",
+  /** Said above the family's own words, so nobody reads them as the assistant's. */
+  theirWords: "What they wrote",
+  /** Opens the thread this text arrived in. */
+  openText: "Open text",
+  /** Opens the reply box on that thread. A person writes it; nothing is drafted for them. */
+  reply: "Reply",
+  /**
+   * The count beside "Exceptions & Approvals" in the rail. A number, with its own words for a
+   * screen reader — §9, and Vera's rule that a badge may never be colour alone.
+   */
+  badgeLabel: "{count} waiting for a person",
+  /** Shown once a staff member has opened the alert: it stays on the board, marked as taken. */
+  openedBy: "Being handled",
+  /**
+   * The button that marks an alert taken — and the ONLY thing that marks it taken (Firia's S1-4,
+   * 2026-10-18 12:13 AM ET).
+   *
+   * It used to happen on a GET: opening `/exceptions?alert=<id>` ran the UPDATE during the
+   * render, so a link prefetch could claim an alert nobody had looked at, and a reload could
+   * tell a second coordinator somebody was already on it. A state change needs a press.
+   */
+  take: "I'll handle this",
+  /** The empty state, so a board with no alert does not read as a board that lost them. */
+  none: "No texts are waiting for a person.",
+  /**
+   * The board could not be read at all. Distinct from `none` on purpose: "nothing is waiting" is
+   * a claim about the families, and saying it when the truth is "we could not read the board"
+   * tells a coordinator something false about their own day.
+   */
+  unreadable: "We couldn't read the board just now, so this list may be incomplete. Try again in a moment.",
+  /** The thread panel "Open text" and "Reply" lead to. */
+  threadHeading: "The text thread",
+  /**
+   * Said under the thread, because the reply box is not built yet and a button that looked like
+   * one would be worse than saying so. The answer goes out the way it always has until then.
+   */
+  noReplyBox: "There's no reply box here yet. Answer this family from the center's phone.",
+  /** One line under the card list, so the rule is on screen and not only in a commit message. */
+  rule: "When the assistant can't reach its model, it does nothing and tells you. It never guesses.",
+  /**
+   * The `ops.task` row the alert *is*. Same summary / next step / predicate shape as every other
+   * task on this board (`agentTasks` above), and like them it carries no family prose: the
+   * summary says what kind of thing happened, and the words themselves stay in `ops.message`.
+   */
+  task: {
+    summary: "A family text needs a person: the assistant could not reach its model",
+    nextStep: "Read the text and answer the family yourself.",
+    predicate: "a coordinator has read the text and answered the family",
   },
 } as const;
 

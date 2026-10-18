@@ -346,6 +346,14 @@ export const PAGES: readonly PageRow[] = [
    * and for the same reason the map matrix already withholds family labels from the door
    * (src/domain/access/map-view.ts): a person at the ramp is given the child in front of them,
    * not the family's conversation.
+   *
+   * The same three sentences settle it from #61's side, and they are the reason this row and the
+   * persona-phone endpoint below cannot disagree about who may read a thread: PRD §1.1 gives the
+   * "Web console (desktop + iPad)" to the "Transport/attendance coordinator, director"; PRD §6.2's
+   * ownership table lists Messages as written by "adapters only" and puts the front desk down as
+   * the writer of "Actual attendance/custody" alone; and §12 is minimum-necessary, which is what
+   * decides a PHI-adjacent screen for a role with no task that needs it.
+   *
    */
   {
     kind: "page",
@@ -489,10 +497,11 @@ export const PAGES: readonly PageRow[] = [
     access: { roles: ALL_STAFF },
     label: rampIpad.heading,
   },
-  /* ── the three old addresses, kept as permanent redirects ── */
+  /* ── the four old addresses, kept as permanent redirects ── */
   /**
-   * `/plan-preview`, `/map-preview` and `/ramp-preview` were the three screens' addresses until
-   * Vera's review (2026-10-17) took "preview" out of every menu label and address. A URL that
+   * `/plan-preview`, `/map-preview` and `/ramp-preview` were these screens'
+   * addresses until Vera's review (2026-10-17) took "preview" out of every menu label and
+   * address. A URL that
    * has been read out loud in a demo, pasted into a pull request and bookmarked by the founder
    * does not get to stop answering, so each one is still a page: it redirects permanently (308)
    * to the screen's own address.
@@ -824,6 +833,29 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     path: API.simPhoneMessages,
     methods: ["GET"],
     auth: { kind: "session", roles: CONSOLE, siteScoped: true },
+  },
+  /**
+   * SURF-05's decision (PRD §18.2 steps 9–10, §11.2 human tier): a coordinator approves the text a
+   * family would get, or does not. It **writes** — it claims the decision, saves the plan and
+   * queues a message — so it is the first server action in this app that is `siteScoped`.
+   *
+   * `APPROVAL_ROLES`, the named constant at the top of this file, and not the roles of any page:
+   * Veri's merge blocker. The decision model, this row and the "For you" tab read the one
+   * constant, so a route being redesigned out of existence cannot widen or narrow who may
+   * approve. Checked in the action, never inferred from the button having been rendered (the
+   * ID-swap rule).
+   *
+   * `siteScoped` is the tenant half, and the site is **not** a value the form carries: it comes off
+   * the approval row this id names, and the caller's membership at *that* site is what is checked
+   * (`requireSiteAccess`). So another site's approval id is a uniform 404, exactly as an id that
+   * exists nowhere — a 403 would confirm that the id is real.
+   */
+  {
+    kind: "action",
+    file: "src/app/(app)/family-texts/actions.ts",
+    path: "action:approval-decision",
+    methods: ["POST"],
+    auth: { kind: "session", roles: APPROVAL_ROLES, siteScoped: true },
   },
   /**
    * The sign-in form's own action (ADR-004). It hands email and password to the credentials

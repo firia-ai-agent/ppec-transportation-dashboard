@@ -23,6 +23,7 @@ import { uuidv7 } from "uuidv7";
 import { z } from "zod";
 import { API, endpointRow } from "@/auth/access";
 import type { Db, Exec } from "@/db/exec";
+import { identityGateway, type IdentityGateway } from "@/modules/identity/gateway";
 import { normalizeE164, phoneHmac, tokenizeBody } from "@/modules/identity/phone";
 import { systemClock, type Clock } from "@/modules/jobs/scheduler";
 import { enqueue, type OutboxTransport } from "@/modules/outbox/outbox";
@@ -93,6 +94,12 @@ export type InboundDeps = {
   transport: OutboxTransport;
   hook?: InboundMessageHook;
   clock?: Clock;
+  /**
+   * The identity gateway this webhook asks who the sender is, and where to record a STOP (S1-6).
+   * Defaults to this data class's own; a seam so a DB suite can hand the deployed gateway over a
+   * connection that may run its SQL.
+   */
+  gateway?: IdentityGateway;
 };
 
 export type InboundBody = {
@@ -120,16 +127,23 @@ async function siteForCenterNumber(tx: Exec, to: string): Promise<string | null>
   return r.rows[0]?.id ?? null;
 }
 
-/** Blind-index lookup through identity: a guardian contact first, then a therapist or provider dispatcher. */
-async function resolveSender(tx: Exec, a: { siteId: string; fromHmac: string; at: Date }): Promise<Sender> {
-  const g = await tx.query<{ contact_token: string; family_group_id: string }>(
-    `SELECT contact_token, family_group_id FROM identity.guardian_contact
-     WHERE phone_hmac = $1 AND site_id = $2 AND revoked_at IS NULL AND valid_from <= $3 AND (valid_to IS NULL OR valid_to > $3)
-     ORDER BY valid_from DESC LIMIT 1`, [a.fromHmac, a.siteId, a.at.toISOString()]);
-  if (g.rows[0]) return { contactToken: g.rows[0].contact_token, familyGroupId: g.rows[0].family_group_id };
-  const p = await tx.query<{ person_token: string }>(
-    "SELECT person_token FROM identity.external_person_identity WHERE phone_hmac = $1 AND site_id = $2 LIMIT 1", [a.fromHmac, a.siteId]);
-  return p.rows[0] ? { contactToken: p.rows[0].person_token, familyGroupId: null } : null;
+/**
+ * Who sent this text, from the blind index on the number — through the IdentityGateway (S1-6).
+ *
+ * The two statements that were here ran on `tx`, which is the webhook's own `ops` transaction on
+ * the application connection; `app_rw` has no SELECT on `identity` (src/db/schema.ts:104), so an
+ * inbound text on a deployment with the real role split failed to resolve its sender at all. They
+ * are `dbIdentityGateway.senderForPhoneHmac` now, unchanged, and in this data class the fixture
+ * gateway answers them from the seed's own numbers.
+ *
+ * A sender nobody knows is still `null`, which is the existing behaviour and the important one:
+ * the message is stored and nothing is sent back.
+ */
+async function resolveSender(
+  gateway: IdentityGateway,
+  a: { siteId: string; fromHmac: string; at: Date },
+): Promise<Sender> {
+  return gateway.senderForPhoneHmac({ siteId: a.siteId, phoneHmac: a.fromHmac, at: a.at });
 }
 
 export async function ingestInbound(db: Db, deps: InboundDeps, rawBody: string, form: InboundForm): Promise<{ status: number; body: InboundBody }> {
@@ -142,13 +156,15 @@ export async function ingestInbound(db: Db, deps: InboundDeps, rawBody: string, 
   const fromHmac = phoneHmac(from, deps.pepper);
   const rawPayloadHash = createHash("sha256").update(rawBody).digest("hex");
   const hook = deps.hook ?? noopInboundMessageHook;
+  // Every identity question this webhook asks goes here and nowhere else (S1-6).
+  const gateway = deps.gateway ?? identityGateway();
 
   return db.tx(async (tx, afterCommit) => {
     const siteId = await siteForCenterNumber(tx, to);
     if (!siteId) return { status: 404, body: { ok: false, duplicate: false, error: "unknown destination number" } };
 
     const isOwnEcho = from === SIM_CENTER_NUMBER;
-    const sender = isOwnEcho ? null : await resolveSender(tx, { siteId, fromHmac, at: receivedAt });
+    const sender = isOwnEcho ? null : await resolveSender(gateway, { siteId, fromHmac, at: receivedAt });
 
     const threadId = await getOrCreateThread(tx, {
       siteId, channel: INBOUND_CHANNEL, counterpartyToken: sender?.contactToken ?? null,
@@ -173,7 +189,7 @@ export async function ingestInbound(db: Db, deps: InboundDeps, rawBody: string, 
 
     const consentKind = classifyConsentKeyword(form.Body);
     if (consentKind) {
-      await recordConsent(tx, {
+      await recordConsent(tx, gateway, {
         siteId, contactToken: sender.contactToken, channel: INBOUND_CHANNEL, kind: consentKind,
         at: receivedAt, evidenceMessageId: messageId, by: "system:sms-webhook",
       });
@@ -194,7 +210,7 @@ export async function ingestInbound(db: Db, deps: InboundDeps, rawBody: string, 
       siteId, messageId, threadId, contactToken: sender.contactToken, familyGroupId: sender.familyGroupId,
       channel: INBOUND_CHANNEL, bodyTokenized: tokenizeBody(form.Body), receivedAt,
       providerIndex: form.SimIndex ?? null, consentKind,
-    });
+    }, afterCommit);
     return { status: 200, body: { ok: true, duplicate: false, messageId, known: true, echo: false, consent: consentKind, replyQueued } };
   });
 }
