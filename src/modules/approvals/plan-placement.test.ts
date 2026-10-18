@@ -29,7 +29,7 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { uuidv7 } from "uuidv7";
 import { VANS } from "@/config/vans";
-import type { Db } from "@/db/exec";
+import type { Db, Exec } from "@/db/exec";
 import { DROPOFF_CHANGE_KIND } from "@/modules/agent/run/exec/proposals";
 import { decideApproval } from "@/modules/approvals/decide";
 import {
@@ -510,5 +510,159 @@ describe("absence is read from plan_assignment and from nowhere else", () => {
       .concat(walk(path.join(SRC, "domain")))
       .filter((f) => /attendance_day/i.test(readFileSync(f, "utf8")));
     expect(owners.length).toBeGreaterThan(0);
+  });
+});
+
+/* ─────────────────────── S1-3b: a later failure rolls the plan save back ─────────────────────── */
+
+/**
+ * **THE PLAN SAVE SUCCEEDS, THEN A LATER STEP OF THE APPROVAL TRANSACTION FAILS** — Veri, 3:19 AM
+ * ET 2026-10-18, required for the merge gate.
+ *
+ * The suite above covers every way the *board* refuses: a plan somebody saved first, a day nobody
+ * started, a writer that throws. All of them fail before anything is written, which is the easy
+ * half. This is the hard half, and it is the one a reviewer cannot take on trust: `setChildPlacement`
+ * has already written a new `plan_run` and its `plan_assignment` rows when something *after* it
+ * goes wrong. If that write were not a step of the same transaction — a store bound to the pool
+ * instead of to `tx`, an `enqueue(db)` instead of `enqueue(tx)` — the plan would keep a version
+ * nobody approved, and the proposal would still read PENDING on the screen. A coordinator would
+ * then approve it again, against a plan that had already moved: either a second change on top of a
+ * phantom first one, or a 409 for a reason they cannot see.
+ *
+ * Two injection points, one for each thing that happens after the save (decide.ts step 3):
+ *
+ *  a. the **leg lookup** — the `SELECT … FROM ops.trip_leg` that reads `plan_version` for the
+ *     message's staleness basis;
+ *  b. the **enqueue** of the family's text, failed at the `DRAFTED → … → QUEUED` transition, so
+ *     the outbound row has already been INSERTed when it breaks. That is deliberate: a failure
+ *     *before* the insert would roll back to the same place whether or not the insert was
+ *     transactional, and would prove nothing.
+ *
+ * The injection is a wrapper around `Db` (`dbFailingAt`) and not an edit to `decide.ts`: the code
+ * under test is the shipped code, and what is substituted is the database's answer to one
+ * statement. Both the transactional handle and the top-level one are wrapped, so the only
+ * difference between the real module and a mis-bound one is *which* handle the write went to —
+ * which is exactly the thing being proved.
+ *
+ * Each case asserts the three things Veri named, against a snapshot taken before the approve call:
+ * `plan_run.version`, the `plan_assignment` rows, and the outbox rows are all unchanged, and the
+ * proposal is still PENDING.
+ */
+class Injected extends Error {}
+
+/**
+ * `db`, with one statement replaced by a throw.
+ *
+ * Wraps `tx` *and* the top-level `query`, so a write that went to the wrong handle still hits the
+ * same injected failure and the test can see the difference in the rows rather than in the error.
+ */
+function dbFailingAt(real: Db, matches: (sql: string, params: unknown[]) => boolean): Db {
+  const guard: Exec["query"] = async (sql, params) => {
+    if (matches(sql, params)) throw new Injected(`injected failure at: ${sql.slice(0, 48)}`);
+    return { rows: [] };
+  };
+  const wrap = (inner: Exec): Exec => ({
+    query: async (sql, params) => (matches(sql, params) ? guard(sql, params) : inner.query(sql, params)),
+  });
+  return {
+    query: (sql, params) => wrap(real).query(sql, params),
+    tx: (fn) => real.tx((tx, afterCommit) => fn(wrap(tx), afterCommit)),
+  };
+}
+
+/** The leg read decide.ts makes after the plan is saved, to carry the message's staleness basis. */
+const IS_LEG_LOOKUP = (sql: string) =>
+  /SELECT id, child_token, plan_version\s+FROM ops\.trip_leg/.test(sql);
+
+/**
+ * The outbound message's move to `QUEUED` — `outbox.move`, the step after the INSERT.
+ *
+ * Matched on the parameter rather than on the SQL, because `move` builds one statement for every
+ * transition and only this one must break: the row exists by then, so a rollback has something to
+ * undo.
+ */
+const IS_ENQUEUE_QUEUED = (sql: string, params: unknown[]) =>
+  /UPDATE ops\.outbound_message SET state/.test(sql) && params[0] === "QUEUED";
+
+/** Everything the failure must leave alone, read straight out of the tables. */
+async function planSnapshot() {
+  const assignments = await db.query<Record<string, unknown>>(
+    `SELECT a.child_token, a.bucket, a.vehicle_id, a.plan_run_id, r.version
+     FROM ops.plan_assignment a JOIN ops.plan_run r ON r.id = a.plan_run_id
+     WHERE r.site_id = $1 AND r.service_date = $2
+     ORDER BY a.child_token, r.direction`,
+    [SITE, SERVICE_DATE],
+  );
+  const messages = await db.query<Record<string, unknown>>(
+    "SELECT id, state, template_id FROM ops.outbound_message ORDER BY id",
+    [],
+  );
+  const runs = await db.query<Record<string, unknown>>(
+    "SELECT direction, version FROM ops.plan_run WHERE site_id = $1 AND service_date = $2 ORDER BY direction",
+    [SITE, SERVICE_DATE],
+  );
+  return { version: await planRunVersion(), runs: runs.rows, assignments: assignments.rows, messages: messages.rows };
+}
+
+describe("a later failure in the approval transaction rolls the plan save back (S1-3b)", () => {
+  it("(a) fails at the leg lookup after the save: plan_run, plan_assignment and the outbox are all unchanged", async () => {
+    const started = await savedPlanWithChildInVanOne();
+    const id = await seedProposal();
+    const before = await planSnapshot();
+    // The starting state is a real saved plan with real rows in it, or "unchanged" means nothing.
+    expect(before.version).toBe(started);
+    expect(before.assignments.length).toBeGreaterThan(0);
+
+    const failing = dbFailingAt(db, IS_LEG_LOOKUP);
+    await expect(
+      decideApproval(
+        failing,
+        transport,
+        { userId: coordinator, approvalId: id, decision: "APPROVED", now: NOW },
+        { placement: board() },
+      ),
+    ).rejects.toThrow(Injected);
+
+    // The save happened and was undone with everything else: same version, same rows.
+    expect(await planSnapshot()).toEqual(before);
+    expect(await planRunVersion()).toBe(started);
+    // And the proposal is still there to decide, which is the coordinator-visible half.
+    expect(await decisionOf(id)).toMatchObject({ decision: null, decided_at: null });
+    expect(await outbox()).toEqual([]);
+  });
+
+  it("(b) fails at the enqueue of the family text, after its row was inserted: nothing survives", async () => {
+    const started = await savedPlanWithChildInVanOne();
+    const id = await seedProposal();
+    const before = await planSnapshot();
+    expect(before.version).toBe(started);
+    expect(before.messages).toEqual([]);
+
+    const failing = dbFailingAt(db, IS_ENQUEUE_QUEUED);
+    await expect(
+      decideApproval(
+        failing,
+        transport,
+        { userId: coordinator, approvalId: id, decision: "APPROVED", now: NOW },
+        { placement: board() },
+      ),
+    ).rejects.toThrow(Injected);
+
+    /*
+     * This case is the one that holds `enqueue(tx)` in place, and it was mutation-proven: changing
+     * decide.ts's `enqueue(tx, …)` to `enqueue(db, …)` turns it RED, and restoring it turns it
+     * green again. Worth knowing *how* it goes red, because the shape is particular to this
+     * harness: PGlite serves one connection, so a top-level statement issued while the decision's
+     * transaction is open does not commit beside it — it waits on it, forever, and the mutation
+     * hangs the test rather than leaving a stray row behind. On the pool that production uses it
+     * would be the stray row. Either way the binding is what the test is standing on; a failure
+     * here means the enqueue is no longer a step of the decision.
+     */
+    expect(await outbox()).toEqual([]);
+    expect(await planSnapshot()).toEqual(before);
+    expect(await planRunVersion()).toBe(started);
+    expect(await decisionOf(id)).toMatchObject({ decision: null, decided_at: null });
+    // Nothing was handed to the transport either: `afterCommit` hooks run only after COMMIT.
+    expect(transport.sent).toEqual([]);
   });
 });

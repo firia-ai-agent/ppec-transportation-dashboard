@@ -184,6 +184,19 @@ const queued = async () =>
     [],
   )).rows;
 
+/**
+ * The plan, as rows: `plan_run` and the assignments hanging off it (Veri S3).
+ *
+ * This file drives the board through `fakePlacement`, which records its arguments and writes
+ * nothing — so on every path these two tables stay empty, and that is exactly the assertion worth
+ * making about a decline. A row appearing here means something in this module reached the plan
+ * tables directly, which is the second writer S1-3 deleted.
+ */
+const planRows = async () => ({
+  runs: (await db.query<Record<string, unknown>>("SELECT id, direction, version FROM ops.plan_run", [])).rows,
+  assignments: (await db.query<Record<string, unknown>>("SELECT child_token, bucket FROM ops.plan_assignment", [])).rows,
+});
+
 const leg = async () =>
   (await db.query<{ plan_version: number; version: number; window_start: Date | null }>(
     "SELECT plan_version, version, window_start FROM ops.trip_leg WHERE id = $1",
@@ -443,6 +456,18 @@ describe("not sending", () => {
     expect(await queued()).toEqual([]);
     expect((await leg()).plan_version).toBe(1);
     expect((await leg()).window_start).toBeNull();
+    /*
+     * And the PLAN (Veri S3, 2026-10-18): `plan_run` and `plan_assignment` are untouched.
+     *
+     * The three lines above are about the leg and the outbox, which were the two writers this
+     * path used to have. Since S1-3 the plan write goes through `setChildPlacement` into
+     * `plan_run` / `plan_assignment`, so "does nothing else at all" is only checked if those two
+     * tables are checked — a decline that bumped a plan version would have slipped past every
+     * assertion in this test as it stood. Read as rows, and also as the board writer never having
+     * been called at all: `decideApproval` returns before step 2 on a DECLINE.
+     */
+    expect(await planRows()).toEqual({ runs: [], assignments: [] });
+    expect(placements).toEqual([]);
   });
 
   it("cannot be decided twice either", async () => {
