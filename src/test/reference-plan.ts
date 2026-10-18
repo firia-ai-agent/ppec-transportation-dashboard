@@ -18,13 +18,12 @@
  * Liam D., V2 is Van 2. The keys carry the names in the comments so a reviewer can read the
  * layout against Firia's message without opening the fixture.
  *
- * Every van fits its riders on the shared defaults — 3 seats, 1 chair, 2 car seats, 1 oxygen
- * mount (src/config/vans.ts `GENERIC_VAN`, the configuration the seeded van is fitted as since
- * Firia's S1 of 2026-10-18) — which is what lets the server's own re-check accept the whole save
- * (src/domain/plan/fit.ts): the two chairs (Noah O., Zoe B.) are on different vans, the one
- * oxygen rider has that van's mount, and no van is over a counter. Two of them are exactly at
- * one: Van 2 carries three seated riders in three seats, Van 3 two car seats in two. A chair
- * rider takes the chair space and not a seat, which is why Van 2's four fit in it.
+ * Every van fits its riders on the shared defaults — 6 seats, 1 chair, 3 car seats, 1 oxygen
+ * mount (src/config/vans.ts `GENERIC_VAN`, Firia's ruling of 2026-10-18 8:49 AM ET) — which is
+ * what lets the server's own re-check accept the whole save (src/domain/plan/fit.ts): the two
+ * chairs (Noah O., Zoe B.) are on different vans, the one oxygen rider has that van's mount, and
+ * the three car seats are one per van. Both screens check this morning against those counts and
+ * neither warns about a ride in it (src/app/(app)/today/one-van-setup.test.ts).
  */
 
 /** Liam D., and the drag that is the whole of the difference below. */

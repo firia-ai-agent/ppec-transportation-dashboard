@@ -648,15 +648,29 @@ test.describe("S1: one van setup, read by the board and by Today", () => {
   const zoeRows = (page: Page): Locator =>
     page.locator("tbody tr").filter({ hasText: "Zoe B." });
 
+  /** A card dragged into a van and asserted to have landed in it — the board's ordinary Move. */
+  const dragInto = async (page: Page, name: string, van: Locator): Promise<void> => {
+    await liftOffCentre(page, card(page, name), van);
+    await expect(van, `${name} fits`).toHaveAttribute("data-fit", "yes");
+    await page.mouse.up();
+    await expect(van.locator("[data-rider]").filter({ hasText: name })).toHaveCount(1);
+  };
+
   /**
    * MOCKUP: plan-board.html (the `.meters` row under a van's header, :319) + the Family drives
    * lane at the foot of Unassigned.
    *
    * An unchecked van is planned on its default counts and says so in words ("Using default
-   * setup"). Auto-plan fills it to those counts; the next card let go on it is refused, stays
-   * where it was, and carries one coral line naming the van and what ran out. Before this fix the
-   * default claimed six seats and a chair space — seven places in a four-place van — so this drop
-   * landed and Today then reported the plan the board had just taken.
+   * setup"). A coordinator fills it to those counts; the next card let go on it is refused, stays
+   * where it was, and carries one coral line naming the van and what ran out. Before this fix
+   * Today checked the same van against a seeded seating layout instead, so it reported the plan
+   * the board had just taken.
+   *
+   * Filling it takes three drags because the default is Firia's six seats (ruling of 2026-10-18
+   * 8:49 AM ET, src/config/vans.ts): Auto-plan's afternoon leaves Van 1 with three of them used,
+   * and Mia R., Owen C. and Theo V. are the three a coordinator moves across. Their car seats are
+   * the three that van carries too, so it ends the drags exactly at two counters and over none —
+   * the same arrangement src/app/(app)/today/one-van-setup.test.ts holds in arithmetic.
    */
   test("an unchecked van, full on its default counts, refuses the drop with the coral reason", async ({
     page,
@@ -666,6 +680,12 @@ test.describe("S1: one van setup, read by the board and by Today", () => {
     await expect(vans(page).first()).toContainText(planBoard.usingDefault);
 
     await page.locator("[data-auto-plan]").click();
+    const vanOne = vans(page).first();
+    for (const name of ["Mia R.", "Owen C.", "Theo V."]) await dragInto(page, name, vanOne);
+    // Each of those landings put a toast up (§1.3's four seconds). Wait it out, so the refusal
+    // below is asserted against a board with nothing already on it.
+    await expect(toast(page), "the landing toasts have gone").toHaveCount(0, { timeout: 10_000 });
+
     // The van whose Seats meter is full — "full" is the meter's own word for used === total, so
     // this test does not write down a number the config owns (src/config/vans.ts).
     const full = vans(page)
@@ -673,6 +693,9 @@ test.describe("S1: one van setup, read by the board and by Today", () => {
       .first();
     await expect(full).toHaveCount(1);
     const label = (await full.getAttribute("aria-label")) ?? "Van";
+    expect(label, "and it is the one the drags filled").toBe(
+      await vanOne.getAttribute("aria-label"),
+    );
 
     // Ana S. is driven by her family today and may still be put in a van (#79) — she needs a
     // seat like anybody else, and this van has none left.

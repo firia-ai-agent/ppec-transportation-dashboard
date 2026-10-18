@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { counterOf } from "@/config/equipment";
 import { defaultSetupOf, vanConfigOf, vanNameOf } from "@/config/vans";
 import type { Db } from "@/db/exec";
 import { buildBoard, demoDay, type Board } from "@/domain/board/board";
@@ -614,9 +615,14 @@ describe("Today's fit check reads the saved van's riders", () => {
 
   /**
    * (c) With nothing saved for the leg there is no plan to read, and the seeded run is still the
-   * manifest: Van 3's own three (Mia R., Ava N., Eli N.) do not fit it and Today says so, exactly
-   * as it did before this fix. The whole board is compared both ways, so "unchanged" is the
-   * output of `buildBoard` and not a fit verdict picked out of it.
+   * manifest. The whole board is compared both ways, so "unchanged" is the output of `buildBoard`
+   * and not a fit verdict picked out of it.
+   *
+   * Van 3's own three (Mia R., Ava N., Eli N.) are three car seats, and this screen used to call
+   * them INFEASIBLE — it was checking them against the seeded layout `0WC/6A`, two of whose six
+   * places are tether-capable. It checks them against the van's counts now, and an uncounted van
+   * carries **three** car seats (Firia's ruling of 2026-10-18 8:49 AM ET, src/config/vans.ts):
+   * the seeded manifest is a manifest a van nobody has counted holds, and nobody is warned about.
    */
   it("falls back to the seeded run when nothing is saved for the leg", async () => {
     const nothing = await savedPlacementsForBoard(SITE, DATE, store, source());
@@ -624,9 +630,10 @@ describe("Today's fit check reads the saved van's riders", () => {
 
     const today = buildBoard(demoDay(), nothing);
     expect(today, "byte for byte the seeded board").toEqual(buildBoard(demoDay()));
-    expect(misfits(today), "the seeded Van 3's own riders, as before").toEqual(["C1", "C4", "C5"]);
+    expect(misfits(today), "no van of the seeded day is over its default counts").toEqual([]);
     for (const childKey of ["C1", "C4", "C5"]) {
-      expect(morningRow(today, childKey).ride.solver, childKey).toBe("INFEASIBLE");
+      expect(morningRow(today, childKey).ride.solver, childKey).toBe("FEASIBLE");
+      expect(morningRow(today, childKey).ride.vanNumber, childKey).toBe(slotOf("V3"));
     }
   }, 60_000);
 });
@@ -688,7 +695,7 @@ describe("one stored setup, two screens", () => {
     expect(
       eligibility(counted.day, counted.plan, token("C6"), vanOne.id),
       "the board names the counter that ran out",
-    ).toEqual({ ok: false, reason: "OXYGEN" });
+    ).toEqual({ ok: false, reason: counterOf("oxygenMounts").reject });
 
     const today = await todayBoard();
     expect(misfits(today).sort(), "and Today warns about that van's riders").toEqual(

@@ -50,25 +50,25 @@ export type VanConfig = {
  * is a van whose one wheelchair spot is already **used** — a counted fact that the ramp can
  * change and the board explains — and that is what the "won't fit" refusal is made of.
  *
- * **These are the numbers the seeded van actually holds** (Firia's S1 of 2026-10-18: "6 seats
- * plus a wheelchair is more than the van holds"). The counters are independent — a chair spot is
- * not one of the seats — so a default has to name *one* configuration, and the honest one for a
- * lift-equipped van whose wheelchair spot is reported free is the chair configuration every
- * seeded van is fitted as: `1WC/3A` in src/modules/demo/fixtures/standard.ts — one chair spot,
- * three ambulatory seats, two of them tether/LATCH-capable, which is the car-seat count in every
- * one of those layouts. Oxygen is not a seating plan: it is the mount the founder approved as a
- * counter on every van (2026-10-17 2:59 PM ET), and there is one.
+ * **These are the numbers, and they are Firia's** (ruling of 2026-10-18 8:49 AM ET): six seats,
+ * one wheelchair space, three car seats, one oxygen mount, and a lift. They are what §1.6 writes
+ * down and what the board has always planned an uncounted van on.
  *
- * The old `seats: 6` was the *other* configuration — `0WC/6A`, six walkers and no chair — with a
- * chair spot added on top of it, so an unchecked van claimed seven places in a four-place van and
- * the board let a coordinator fill it while Today, reading the seeded layout, said it would not
- * fit. A van really running six walkers today is a van somebody counted at the ramp (Seats 6,
- * Wheelchair 0), which is exactly what the iPad is for.
+ * The commit before this one had cut them to `3 / 1 / 2 / 1` to match the seeded seating layout
+ * `1WC/3A` in src/modules/demo/fixtures/standard.ts, on the reading that a default should name a
+ * configuration some seeded van is fitted as. Firia overruled it: a *fixture's* seating plan does
+ * not set the fleet's default, and the counters are independent — a chair space is not one of the
+ * seats — so an uncounted van is planned on the full six. A van that really has fewer places
+ * today is a van somebody counted at the ramp, which is exactly what the iPad is for.
+ *
+ * The S1 this all came out of was never about the size of the default: it was two screens reading
+ * two different capacities for one van. Both read this one now (src/domain/plan/setup.ts
+ * `resolveSetups`), and neither reads a seating layout for capacity.
  */
 const GENERIC_VAN: VanSetup = {
-  seats: 3,
+  seats: 6,
   wheelchairSpots: 1,
-  carSeats: 2,
+  carSeats: 3,
   oxygenMounts: 1,
   hasLift: true,
 };
