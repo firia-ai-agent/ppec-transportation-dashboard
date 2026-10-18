@@ -40,6 +40,7 @@ export function RiderCard({
   canEdit = true,
   selected = false,
   columns,
+  refusalLine,
 }: {
   rider: BoardRider;
   /** The stop this child is driven at, inside their van. Absent for a child in no van. */
@@ -57,6 +58,12 @@ export function RiderCard({
   canEdit?: boolean;
   /** This child's panel is open, so the card says which one it belongs to. */
   selected?: boolean;
+  /**
+   * Why the last drop was refused, in four words ("Van 1 wheelchair full") — Vera's taste spec
+   * of 2026-10-18. The card **did not move**, so the answer is on the card and not in a toast
+   * that would slide away while it sat there unexplained. It clears on the next drag start.
+   */
+  refusalLine?: string;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: rider.token,
@@ -109,6 +116,19 @@ export function RiderCard({
           {stopNumber === undefined ? rider.stopLabel : stopLine(rider.window, rider.stopLabel)}
         </span>
       </button>
+      {/*
+        The refusal, where the card is: one coral line, four words, naming the van and the thing
+        that is missing.
+
+        Not wired to the card with `aria-describedby`: dnd-kit puts its own keyboard instructions
+        there (`attributes`), and a refusal is not worth taking those away for — the sentence a
+        screen reader hears is the board's own `aria-live` region (§1.3), said once.
+      */}
+      {refusalLine ? (
+        <p className={styles.refusal} data-refusal={rider.token}>
+          {refusalLine}
+        </p>
+      ) : null}
       {/*
         The same move, chosen rather than dragged. A `select` and not a menu of our own: it is one
         tap on a phone, it is reachable with a keyboard without any code of ours, and the screen

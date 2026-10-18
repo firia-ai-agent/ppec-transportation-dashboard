@@ -21,8 +21,15 @@ export const RIGHT_NOW_TILES = [
 ] as const;
 export type RightNowKey = (typeof RIGHT_NOW_TILES)[number];
 
-/** Which mark the pill draws. The colour is the component's: All is ok, a van is warn, Family texts is info, None is neutral. */
-export type RightNowPillKind = "all" | "van" | "family" | "none";
+/**
+ * Which mark the pill draws. The colour is the component's: All is ok, a van and a count of the
+ * work left are warn, Family texts is info, None is neutral.
+ *
+ * `van` is a chip whose text is one van's on-screen name; `count` is a chip that counts the work
+ * instead of naming any of it ("3 to check"). They draw the same amber mark, so the chip does not
+ * change shape when the last van left becomes the one it names.
+ */
+export type RightNowPillKind = "all" | "van" | "count" | "family" | "none";
 
 export type RightNowPill = { text: string; kind: RightNowPillKind };
 
@@ -97,6 +104,32 @@ function nonePill(): RightNowPill {
   return { text: healthNow.none, kind: "none" };
 }
 
+/**
+ * The Vans checked chip (Firia, 2026-10-18). The number over it is the fraction either way
+ * (0/3, 2/3, 3/3); only the chip changes.
+ *
+ * Checking the vans is one job with a size, not a queue of named vans: with two or more left the
+ * chip says how many and names nobody, because naming the first of three reads as though it were
+ * the only one still open. The last one left is worth naming — that is a van somebody can go and
+ * check. Every one of them checked is the green All.
+ *
+ * A site with no vans gets no chip of its own: it has not finished checking them, so `pillFor`
+ * gives it the grey None, and so does a day nothing could be read from.
+ */
+function vansCheckedPill(
+  vans: number,
+  checked: number,
+  unchecked: readonly string[],
+): RightNowPill | null {
+  if (vans <= 0) return null;
+  const left = Math.max(vans - checked, 0);
+  if (left === 0) return allPill();
+  // One left and its name read: the chip is that van. One left and no name (a fleet row the
+  // unchecked query could not name) counts it rather than pointing at nothing.
+  if (left === 1 && unchecked[0]) return vanPill(unchecked[0]);
+  return { text: fill(healthNow.toCheck, { n: left }), kind: "count" };
+}
+
 /** All, a van, or Family texts when there is one. A zero with nothing else to say is None. */
 function pillFor(count: number, pill: RightNowPill | null): RightNowPill | null {
   return pill ?? (count === 0 ? nonePill() : null);
@@ -105,11 +138,12 @@ function pillFor(count: number, pill: RightNowPill | null): RightNowPill | null 
 /**
  * The four tiles, in the order the mockup reads them.
  *
- * A pill names the one thing the number is about: "All" when the fraction is complete, the van
- * that is still open when it is not, and "Family texts" when something is waiting on a person
- * — that is where those tasks are read. A count of 0 still carries the grey None pill, so a
- * tile at 0 is never a bare number (png/health-demo-1440.png, png/health-demo-390.png). A day
- * that was not read gets the zeros and that same pill, never All.
+ * A pill says the one thing the number is about: "All" when the fraction is complete, the van
+ * that is still open when exactly one is — or how many are left when more than one is, naming
+ * none of them (`vansCheckedPill`) — and "Family texts" when something is waiting on a person,
+ * which is where those tasks are read. A count of 0 still carries the grey None pill, so a tile
+ * at 0 is never a bare number (png/health-demo-1440.png, png/health-demo-390.png). A day that
+ * was not read gets the zeros and that same pill, never All.
  */
 export function rightNowTiles(facts: RightNowFacts): readonly RightNowTile[] {
   const known = facts.read;
@@ -120,8 +154,6 @@ export function rightNowTiles(facts: RightNowFacts): readonly RightNowTile[] {
   const lateCount = known ? facts.lateVans.length : 0;
   const needs = known ? facts.needsYou : 0;
   const kidsDone = known && toPlace > 0 && placed === toPlace;
-  const vansDone = known && vans > 0 && checked === vans;
-  const unchecked = known ? facts.uncheckedVans[0] : undefined;
   const late = known ? facts.lateVans[0] : undefined;
 
   return [
@@ -137,7 +169,7 @@ export function rightNowTiles(facts: RightNowFacts): readonly RightNowTile[] {
       label: healthNow.vansChecked,
       count: checked,
       outOf: vans,
-      pill: pillFor(checked, vansDone ? allPill() : unchecked ? vanPill(unchecked) : null),
+      pill: pillFor(checked, vansCheckedPill(vans, checked, known ? facts.uncheckedVans : [])),
     },
     {
       key: "RUNNING_LATE",

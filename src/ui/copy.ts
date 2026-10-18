@@ -123,12 +123,67 @@ export const demoBanner = {
  * so the button says the thing that is true either way. Re-running the reset on a day that has
  * not started gives exactly the day a start would have.
  */
+/**
+ * The body of "Restart today?", one shape per van count (`demoDay.confirm.body` picks).
+ *
+ * Above the block that uses it because `bodyLines` hands these same strings on: the dialog reads
+ * the sentence through `body`, and the copy suites read the words through `bodyLines`.
+ */
+const CONFIRM_BODY = {
+  /** No vans on this day at all — the plan still goes, and the line does not count to zero. */
+  none: "This clears the saved plan.",
+  one: "This clears the saved plan for the van.",
+  both: "This clears the saved plan for both vans.",
+  /** Three and up, which is the demo centre's three: "This clears the saved plan for all 3 vans." */
+  many: "This clears the saved plan for all {n} vans.",
+} as const;
+
 export const demoDay = {
   restart: "Restart demo day",
   /** While the reset is running. The button keeps its place and says what it is doing (§4.2). */
   restarting: "Restarting…",
   /** The reset refused or the network did. One line, no status code, and the way on is to retry. */
   failed: "The demo day didn't restart. Try again.",
+  /**
+   * THE QUESTION BEFORE A RESET THROWS A PLAN AWAY (Vera's copy, 2026-10-18, verbatim).
+   *
+   * A reset is the one irreversible thing in the demo: it clears the saved plan for every van
+   * the day runs, and a coordinator who has spent the morning building one has no undo for it.
+   * So both controls that call it — "Restart demo day" in the DEMO bar and "Start demo day" on the
+   * board's own strip — ask first, and only when there is a plan to lose: with nothing saved
+   * there is nothing to warn about and the press goes straight through.
+   *
+   * "Keep plan" is the primary and holds the focus, because the safe answer is the default one
+   * and Escape has to mean something: Escape is Keep plan. "Restart" is the coral one, which is
+   * the only thing coral is for (src/ui/tokens.ts `alert`).
+   */
+  confirm: {
+    title: "Restart today?",
+    /**
+     * The sentence, for the number of vans the day actually has.
+     *
+     * "all 3 vans" was typed into this file (Veri's S2 on #79), which made the one irreversible
+     * question in the app the only place that still knew how big the fleet was. The count comes
+     * from the van data now — `day.vans` on the board, the day's own vans in the bar — so a
+     * fourth van, or a day running two, cannot leave this line claiming three.
+     *
+     * Four shapes rather than one template, because "all 1 vans" and "all 2 vans" are not
+     * English: one van is "the van", two are "both vans", and a day with no vans at all still
+     * loses its saved plan and says so without counting anything.
+     */
+    body: (vans: number): string =>
+      vans <= 0
+        ? CONFIRM_BODY.none
+        : vans === 1
+          ? CONFIRM_BODY.one
+          : vans === 2
+            ? CONFIRM_BODY.both
+            : fill(CONFIRM_BODY.many, { n: vans }),
+    /** The four shapes `body` picks between, as words — so the copy scans read them too. */
+    bodyLines: CONFIRM_BODY,
+    keep: "Keep plan",
+    restart: "Restart",
+  },
 } as const;
 
 /**
@@ -289,6 +344,12 @@ export const healthNow = {
    * The code itself is never the word on the pill.
    */
   van: "Van {n}",
+  /**
+   * Two or more vans still to check: how many, and not one of their names (Firia, 2026-10-18).
+   * Naming the first of three reads as though it were the only one left. The last one left is
+   * named instead, with `van` above — that is a van somebody can go and check.
+   */
+  toCheck: "{n} to check",
 } as const;
 
 /** COPY-GUIDE §5: visible label "Search", placeholder "Child, route or vehicle". */
@@ -2202,6 +2263,29 @@ export const planBoard = {
     CAR_SEAT: "Car seat",
     OXYGEN: "Oxygen",
     LIFT: "Lift",
+  },
+  /**
+   * THE ONE LINE A REFUSED DROP LEAVES ON THE CARD (Vera's taste spec, 2026-10-18).
+   *
+   * A refusal is not a toast: a toast is what a *move* leaves behind, it slides away after four
+   * seconds, and the card a coordinator is looking at is where the answer belongs. So a drop that
+   * a van refuses leaves the card exactly where it was with one coral line under it, naming the
+   * van and the thing that is missing in four words at most — and the `rejectSr` sentence below
+   * is still announced, so the ear gets the same refusal the eye does.
+   *
+   * One line per `RejectReason` (src/config/equipment.ts) and no other: no codes, no numbers, no
+   * "see the chip". The van name is one word in the count, because "Van 1" is a name.
+   *
+   * There is no line for a nurse, because there is no nurse refusal to have: a nurse riding along
+   * takes one of the van's seats (the `seats` counter's own `demandOf`), so a van that cannot
+   * take the nurse is a van that is out of seats and says so.
+   */
+  rejectCard: {
+    SEAT: "{van} seats full",
+    WHEELCHAIR: "{van} wheelchair full",
+    CAR_SEAT: "{van} car seats full",
+    OXYGEN: "{van} oxygen full",
+    LIFT: "No lift on {van}",
   },
   /** Announced when a drop is refused, so the refusal is not only a colour and a shape. */
   rejectSr: "{child} won’t fit {van}: no {thing}",

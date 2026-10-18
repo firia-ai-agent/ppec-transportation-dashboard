@@ -11,6 +11,7 @@ import { icon } from "@/ui/tokens";
 import { CapacityMeters } from "./CapacityMeters";
 import { RiderCard } from "./RiderCard";
 import { footerLines, initialsOf, rejectChip, setupLine } from "./lines";
+import { refusalLineFor, type Refusal } from "./refusal";
 import styles from "./board.module.css";
 
 /**
@@ -45,6 +46,7 @@ export function VanColumn({
   onOpenChild,
   canEdit,
   openChildToken,
+  refusal,
   rampHref,
 }: {
   van: BoardVan;
@@ -68,6 +70,8 @@ export function VanColumn({
   canEdit: boolean;
   /** Whose panel is open, so their card says it is the one the panel belongs to. */
   openChildToken: string | null;
+  /** The one refused drop on the board, so the card it is about carries its line (Vera). */
+  refusal?: Refusal | null;
   /** Where this van is counted (the ramp iPad, on this van), or null for a role that cannot. */
   rampHref: string | null;
 }) {
@@ -143,6 +147,7 @@ export function VanColumn({
             onOpen={() => onOpenChild(rider.token)}
             canEdit={canEdit}
             selected={openChildToken === rider.token}
+            refusalLine={refusalLineFor(refusal, rider.token)}
           />
         ))}
         {/* An empty van shows where a child goes, at the top of the list rather than at the

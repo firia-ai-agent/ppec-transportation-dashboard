@@ -47,6 +47,12 @@ const ALLOWED_SEED_IMPORTERS = [
   // Ramp Confirm, proved against a seeded day to write one table and never the plan.
   "src/modules/plan/confirm.db.test.ts",
   /*
+   * One saved plan read by four screens — the board, Today, Health and the Live map — against a
+   * seeded day (S1, 2026-10-18). The memory store cannot reach the SQL those tiles are counted
+   * from, so this one needs the rows.
+   */
+  "src/app/(app)/today/saved-plan.db.test.ts",
+  /*
    * The Live map's plan reader and its test (#77). They import the demo **site id** constant —
    * `DEFAULT_DEMO_SITE`, which is where a synthetic day's rows live — and never the seeding
    * function: the first test above is the one that holds the real rule, and it still shows no

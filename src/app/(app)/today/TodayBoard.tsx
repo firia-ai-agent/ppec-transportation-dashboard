@@ -9,6 +9,7 @@ import {
   Calendar,
   Car,
   CirclePause,
+  CircleSlash,
   Clock,
   Hand,
   LayoutGrid,
@@ -25,7 +26,15 @@ import {
   type LegRow,
   type RideView,
 } from "@/domain/board/board";
-import { board as boardCopy, etaText, fill, healthNow, onDay, screenReader } from "@/ui/copy";
+import {
+  board as boardCopy,
+  etaText,
+  fill,
+  healthNow,
+  onDay,
+  planBoard,
+  screenReader,
+} from "@/ui/copy";
 import { SearchField } from "@/ui/SearchField";
 import { StepStrip } from "@/ui/StepStrip";
 import type { StripStep } from "@/ui/step-strip";
@@ -488,6 +497,25 @@ const FAMILY_DRIVES: StateDescriptor = {
 };
 
 /**
+ * A ride with no van that is **not** the family's: the saved plan leaves this child in
+ * Unassigned (`savedPlacementsForBoard`, src/modules/plan/store.ts).
+ *
+ * It is the board's own word for it — the Unassigned column the plan board puts them in
+ * (`planBoard.unassigned`) — because "Family drives" is a different claim and was being made
+ * about every child who had no van, whoever was actually driving them.
+ */
+const UNASSIGNED: StateDescriptor = {
+  icon: CircleSlash,
+  label: planBoard.unassigned,
+  tone: "neutral",
+};
+
+/** The van column's answer for a ride with no van: who is driving instead, or nobody yet. */
+function noVanState(ride: RideView): StateDescriptor {
+  return ride.mode === "FAMILY" ? FAMILY_DRIVES : UNASSIGNED;
+}
+
+/**
  * A vehicle that has never sent a position we may draw — an unlinked device (LOC-01, ADR-013).
  * Deliberately not one of the four §3 GPS bands: those describe a position that exists, and
  * "No signal" would claim one did.
@@ -549,7 +577,9 @@ const RECEIVER_MISSING: StateDescriptor = {
  * drawer, and the §2 search still finds a child by their provider.
  */
 function VanCell({ ride }: { ride: RideView }) {
-  if (ride.vehicleLabel === null) return <StateChip state={FAMILY_DRIVES} className={styles.cellChip} />;
+  if (ride.vehicleLabel === null) {
+    return <StateChip state={noVanState(ride)} className={styles.cellChip} />;
+  }
   return (
     <span className={styles.van}>
       <span className={styles.vanName}>{ride.vehicleLabel}</span>
@@ -559,7 +589,9 @@ function VanCell({ ride }: { ride: RideView }) {
 }
 
 function LocationCell({ ride, phase }: { ride: RideView; phase: DayPhase }) {
-  if (ride.vehicleLabel === null) return <StateChip state={FAMILY_DRIVES} className={styles.cellChip} />;
+  if (ride.vehicleLabel === null) {
+    return <StateChip state={noVanState(ride)} className={styles.cellChip} />;
+  }
   if (ride.gpsFreshness === null || ride.gpsAgeSeconds === null) {
     // "…yet" is a promise, and only a day that has not been driven can keep it.
     const state = phase === "ENDED" ? NO_POSITION_KEPT : NO_POSITION;
@@ -594,7 +626,7 @@ function ArrivingCell({ ride }: { ride: RideView }) {
     // A ride with no van has no arrival to publish: the family brings the child, at the time
     // the plan says, and that is the whole answer to this column.
     if (ride.vehicleLabel === null) {
-      return <StateChip state={FAMILY_DRIVES} className={styles.cellChip} />;
+      return <StateChip state={noVanState(ride)} className={styles.cellChip} />;
     }
     return <StateChip state={WINDOW_PENDING} className={styles.cellChip} />;
   }

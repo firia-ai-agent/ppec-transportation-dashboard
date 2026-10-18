@@ -437,6 +437,28 @@ a.meter:focus-visible {
   color: var(--color-ink-muted);
 }
 
+/*
+ * WHY THE LAST DROP WAS REFUSED — one line, on the card it is about (Vera's taste spec,
+ * 2026-10-18). Four words at most, and the words carry the meaning: the colour is the accent.
+ *
+ * Coral the one way §8 computes it: the **fill**, with `ink` on it at 5.98:1. The token's own
+ * note is why — coral is 2.99:1 against white, so coral *text* would be a line nobody is sure
+ * they read, which is the opposite of what a refusal is for.
+ *
+ * It is a strip under the card rather than a chip inside it: the card is a 44 px target and a
+ * grid of four parts, and a fifth part would either push the name out of line or wrap it.
+ */
+.refusal {
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-alert);
+  color: var(--color-ink);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+}
+
 .cardIcons {
   display: inline-flex;
   gap: var(--space-1);

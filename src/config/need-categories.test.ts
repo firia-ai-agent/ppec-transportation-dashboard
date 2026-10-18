@@ -28,6 +28,9 @@ const REJECT_REASON_FILES = new Set([
   path.join(SRC, "domain", "plan", "fit.ts"),
   path.join(SRC, "domain", "plan", "fit.test.ts"),
   path.join(SRC, "ui", "copy.ts"),
+  // The words a refused drop puts on a card, keyed by `RejectReason` and by nothing else
+  // (S1, 2026-10-18): this file names the reasons to assert their copy, and reads no need item.
+  path.join(SRC, "app", "plan-routes", "board", "lines.test.ts"),
 ]);
 
 function walk(dir: string): string[] {

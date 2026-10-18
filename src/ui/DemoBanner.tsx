@@ -32,7 +32,19 @@ import styles from "./DemoBanner.module.css";
  * bar because in LIVE the bar itself becomes the slim neutral "LIVE" chip (§7) — there is no
  * violet banner left for a separate chip to sit beside.
  */
-export function DemoBanner({ role }: { role: StaffRole | null }) {
+export function DemoBanner({
+  role,
+  vanCount,
+}: {
+  role: StaffRole | null;
+  /**
+   * How many vans the day runs, for the one sentence that is about them: "Restart demo day" asks
+   * before it throws a saved plan away, and the question names the vans it covers
+   * (`demoDay.confirm.body`). Read where the fleet is read — src/ui/DemoBar.tsx, which is this
+   * bar's one server component — so no component in the bar knows a fleet size of its own.
+   */
+  vanCount: number;
+}) {
   if (!isSyntheticDemo()) return null;
   return (
     <div className={styles.banner}>
@@ -57,7 +69,7 @@ export function DemoBanner({ role }: { role: StaffRole | null }) {
         role that holds them (src/ui/DemoClock.tsx).
       */}
       <DemoClock role={role} />
-      {canRestartDemo(role) ? <DemoRestart /> : null}
+      {canRestartDemo(role) ? <DemoRestart vanCount={vanCount} /> : null}
     </div>
   );
 }

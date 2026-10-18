@@ -3,8 +3,9 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { RotateCcw } from "lucide-react";
-import { API } from "@/auth/access";
+import { ConfirmRestart } from "./ConfirmRestart";
 import { demoDay } from "./copy";
+import { restartStep, savedPlanToday, sendDemoReset, type RestartStep } from "./restart-confirm";
 import { icon } from "./tokens";
 import styles from "./DemoRestart.module.css";
 
@@ -22,31 +23,40 @@ import styles from "./DemoRestart.module.css";
  * no control, and the front desk — who must never see this (§0) — is excluded by the same fact
  * that makes the server refuse them, rather than by a second list here.
  *
- * The address comes from `API`, the one table that holds this app's endpoint paths, so no
+ * **It asks first when there is a plan to lose** (Vera's copy, 2026-10-18): a reset clears the
+ * saved plan for every van the day runs, so a press with a plan saved for today opens
+ * "Restart today?"
+ * and a press with nothing saved goes straight through, exactly as before. Both the question and
+ * the decision are shared with the board's "Start demo day" — src/ui/ConfirmRestart.tsx and
+ * src/ui/restart-confirm.ts — because the two controls call the same irreversible endpoint.
+ * Whether a plan is saved is read through the board route the screens already read, so this adds
+ * no store and no query of its own.
+ *
+ * The addresses come from `API`, the one table that holds this app's endpoint paths, so no
  * screen file writes an `/api/…` string (src/ui/no-internals.test.ts holds that).
+ *
+ * **How many vans it says the plan covers** is handed in rather than written down (Veri's S2 on
+ * #79): the bar is chrome in the root layout, so the count comes from the van data the layout
+ * reads (src/ui/DemoBar.tsx → src/ui/DemoBanner.tsx), and this file names no fleet size.
  *
  * After a reset the day on screen is the old one, so the route is refreshed rather than
  * reloaded: the server components re-run and every screen under the bar is re-read. A refusal
  * says one line beside the button and leaves it pressable — there is nothing to recover from
  * and nothing to report.
  */
-export function DemoRestart() {
+export function DemoRestart({ vanCount }: { vanCount: number }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [failed, setFailed] = useState(false);
-  const [sending, setSending] = useState(false);
-  const busy = sending || pending;
+  const [step, setStep] = useState<RestartStep>("IDLE");
+  /** The saved-plan read a press makes before it decides. Not a restart yet, so not "busy". */
+  const [checking, setChecking] = useState(false);
+  const busy = step === "SENDING" || pending;
 
-  const restart = async () => {
+  const send = async () => {
     setFailed(false);
-    setSending(true);
     try {
-      const response = await fetch(API.demoReset, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{}",
-      });
-      if (!response.ok) {
+      if (!(await sendDemoReset())) {
         setFailed(true);
         return;
       }
@@ -54,8 +64,29 @@ export function DemoRestart() {
     } catch {
       setFailed(true);
     } finally {
-      setSending(false);
+      setStep("IDLE");
     }
+  };
+
+  /** The press: ask when today has a saved plan, send when it does not. */
+  const press = async () => {
+    if (busy || checking) return;
+    setFailed(false);
+    setChecking(true);
+    try {
+      const next = restartStep("PRESS", await savedPlanToday());
+      setStep(next.step);
+      if (next.send) await send();
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const answer = (event: "KEEP" | "RESTART") => {
+    const next = restartStep(event, true);
+    setStep(next.step);
+    // "Keep plan" closes the dialog and sends nothing (restart-confirm.ts: `send: false`).
+    if (next.send) void send();
   };
 
   return (
@@ -70,7 +101,8 @@ export function DemoRestart() {
         type="button"
         className={styles.button}
         data-demo-restart="true"
-        onClick={restart}
+        onClick={() => void press()}
+        disabled={busy || checking}
         aria-busy={busy || undefined}
       >
         <RotateCcw size={icon.chip} aria-hidden="true" />
@@ -80,6 +112,13 @@ export function DemoRestart() {
         */}
         <span className={styles.label}>{busy ? demoDay.restarting : demoDay.restart}</span>
       </button>
+      {step === "ASKING" ? (
+        <ConfirmRestart
+          onKeep={() => answer("KEEP")}
+          onRestart={() => answer("RESTART")}
+          vanCount={vanCount}
+        />
+      ) : null}
     </span>
   );
 }

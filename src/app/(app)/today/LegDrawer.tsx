@@ -13,6 +13,7 @@ import {
   needCategories,
   onDay,
   places,
+  planBoard,
   screenReader,
 } from "@/ui/copy";
 import { StateChip } from "@/ui/StateChip";
@@ -310,7 +311,11 @@ function ends(ride: RideView): string {
  * "Van 3 · " with nobody after it: the drawer says what it knows.
  */
 function vanLine(ride: RideView): string {
-  if (ride.vehicleLabel === null) return boardCopy.familyDrives;
+  // No van, and the two different reasons for it: the family is driving, or the saved plan has
+  // not given this child a van yet (the board's own Unassigned, src/modules/plan/store.ts).
+  if (ride.vehicleLabel === null) {
+    return ride.mode === "FAMILY" ? boardCopy.familyDrives : planBoard.unassigned;
+  }
   if (ride.vanNumber === null || ride.driverName === null) return ride.vehicleLabel;
   return fill(liveMap.vanName, { number: ride.vanNumber, driver: ride.driverName });
 }

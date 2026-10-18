@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { REJECT_REASONS, type RejectReason } from "@/config/equipment";
 import { flow, planBoard } from "@/ui/copy";
 import type { BoardVan } from "@/domain/plan/board";
 import type { DayReadiness } from "@/domain/day/readiness";
@@ -11,6 +12,7 @@ import {
   meterSr,
   movedLine,
   placedLine,
+  rejectCardLine,
   rejectChip,
   rejectSr,
   saveLine,
@@ -202,5 +204,56 @@ describe("§1.3 / §9.3: what a van and a day say about themselves", () => {
         expect(banner?.text).not.toBe(flow.banner.usingDefault);
       }
     });
+  });
+});
+
+/* ───────────────────── 4. the one line a refused drop leaves on the card ───────────────────── */
+
+/**
+ * Vera's taste spec, 2026-10-18: one coral line on the card, four words at most, naming the van
+ * and the thing that is missing. "Van 1" is one word in that count, because it is a name — which
+ * is exactly how her own examples count ("No nurse on Van 1").
+ *
+ * A line **per reason** and no reason without a line: the refusal vocabulary is the fit rule's
+ * own (src/config/equipment.ts `RejectReason`), so adding a counter cannot leave a card blank.
+ */
+describe("§1.3 as re-cut: the refusal line on the card", () => {
+  it("has a line for every reason the fit rule can give, and no sixth", () => {
+    expect(Object.keys(planBoard.rejectCard).sort()).toEqual([...REJECT_REASONS].sort());
+  });
+
+  it("is four words at most, with the van as one of them", () => {
+    for (const reason of REJECT_REASONS) {
+      const template = planBoard.rejectCard[reason];
+      expect(template, reason).toContain("{van}");
+      // The template's own words, with `{van}` standing for the name it is filled with.
+      expect(template.trim().split(/\s+/).length, `${reason}: ${template}`).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it("names the van it is about, and says what is missing", () => {
+    expect(rejectCardLine("Van 1", "WHEELCHAIR")).toBe("Van 1 wheelchair full");
+    expect(rejectCardLine("Van 1", "OXYGEN")).toBe("Van 1 oxygen full");
+    expect(rejectCardLine("Van 2", "CAR_SEAT")).toBe("Van 2 car seats full");
+    expect(rejectCardLine("Van 2", "SEAT")).toBe("Van 2 seats full");
+    expect(rejectCardLine("Van 3", "LIFT")).toBe("No lift on Van 3");
+    for (const reason of REJECT_REASONS) {
+      const line = rejectCardLine("Van 3", reason);
+      expect(line, reason).toContain("Van 3");
+      // No placeholder left unfilled, and no id, code or number in it.
+      expect(line, reason).not.toMatch(/[{}]/);
+      expect(line, reason).not.toMatch(/\d+\s*\/\s*\d+/);
+      expect(line, reason).not.toContain(reason);
+    }
+  });
+
+  /** It is not the chip and it is not the sentence: three lengths, three jobs (§1.3, §1.5). */
+  it("is its own line, beside the chip and the announced sentence", () => {
+    for (const reason of REJECT_REASONS as readonly RejectReason[]) {
+      expect(rejectCardLine("Van 1", reason)).not.toBe(rejectChip(reason));
+      expect(rejectCardLine("Van 1", reason)).not.toBe(rejectSr("Zoe B.", "Van 1", reason));
+      // The sentence names the child; the card's line does not — it is already on her card.
+      expect(rejectCardLine("Van 1", reason)).not.toContain("Zoe B.");
+    }
   });
 });

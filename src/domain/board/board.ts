@@ -12,16 +12,27 @@
  *  - the ride's state is walked through the **leg machine** (src/domain/machines.ts) one legal
  *    edge at a time, so a state the board shows is a state the domain allows;
  *  - whether the vehicle fits its riders is the **capacity solver** (src/domain/solver), run
- *    over today's manifest and today's capability observation;
+ *    over today's capability observation and the manifest of whoever is actually on that van —
+ *    the saved plan's riders where there is one, the scenario's where there is not (`ridersOf`);
  *  - the arrival window, its shift and the GPS age are the **ETA / replay engine**
  *    (src/domain/eta) over the committed ADR-007 routes.
  *
  * The data under all of it is the demo scenario — the same synthetic day `demo reset` seeds
- * (src/modules/demo/fixtures/standard.ts). Nothing on a row is written down as a state: there
- * is no table of "C2 is en route" anywhere in this slice, because a board that can be edited
- * into saying anything proves nothing.
+ * (src/modules/demo/fixtures/standard.ts) — with **one** exception, which is the one fact on a
+ * row that a person decides rather than a module computes: *which van a child rides this leg*.
+ * When a coordinator has saved a plan for this date and this leg, that comes from the saved
+ * plan (`saved`, below) and the scenario's own run is not consulted for it; the leg with nothing
+ * saved for it is still the scenario's, entirely. Every other fact — the state, the seating
+ * verdict, the window, the position — is then computed about **the van the plan put the child
+ * on**, and a fact that can only come from the seeded run of some other van is left pending
+ * rather than borrowed from it.
  *
- * Pure and deterministic: no clock, no database, no network. The instant is an argument.
+ * Nothing on a row is written down as a state: there is no table of "C2 is en route" anywhere in
+ * this slice, because a board that can be edited into saying anything proves nothing.
+ *
+ * Pure and deterministic: no clock, no database, no network. The instant is an argument, and so
+ * is the saved plan — the read that fetches it is the plan board's own `loadBoard`, called on the
+ * server in src/app/(app)/today/page.tsx (`savedPlacementsForBoard`, src/modules/plan/store.ts).
  */
 
 import {
@@ -49,17 +60,20 @@ import {
   type RideRecord,
   type Run as DemoRun,
 } from "@/modules/demo/fixtures/standard";
+import type { Bucket } from "@/domain/day/source";
 import { demoDay, type DayPhase, type ServiceDay } from "./day";
 import {
   boardChildren,
   capabilityFor,
   CENTER_STOP_ID,
   dispatcherOf,
+  legModeOf,
   plannedWindow,
   plannedWindowFor,
   receivingAdultOf,
   replayForVehicle,
   runOfChild,
+  runOfVehicle,
   solverLeg,
   solverVehicle,
   stopLabel,
@@ -89,6 +103,39 @@ export {
   serviceDayFor,
 } from "./day";
 export type { DayPhase, ServiceDay } from "./day";
+
+/* ───────────────────────────── the saved plan (REDESIGN-SPEC §9.1) ───────────────────────────── */
+
+/**
+ * WHERE THE SAVED PLAN PUTS ONE CHILD ON ONE LEG — the board's half of `ops.plan_assignment`.
+ *
+ * Firia's signed rule of 2026-10-17 6:02 PM ET: Today, the Live map and Health read the **saved
+ * plan**. A plan is per date *and* per leg, so a saved morning says nothing about the afternoon
+ * and each leg is handed in on its own.
+ *
+ * It arrives in this scenario's own vocabulary — a fixture vehicle key, keyed by fixture child
+ * key — because that is the only vocabulary a pure projection over the fixtures can use. The
+ * translation from the ids the rows actually hold (`ops.child_profile.child_token`,
+ * `ops.vehicle.id`) happens once, where the read happens, through the fixtures' own
+ * `childKeyOfToken` / `vehicleKeyOfId` (src/modules/plan/store.ts). One formula and its
+ * one inverse: a second, home-made one is what showed every van the next van's children (Veri
+ * S1, 2026-10-18 3:03 AM ET).
+ */
+export type SavedSpot =
+  | { bucket: Extract<Bucket, "VAN">; vehicleKey: string }
+  | { bucket: Exclude<Bucket, "VAN">; vehicleKey?: undefined };
+
+/** One leg of a saved plan: where it puts every child of the day, by fixture child key. */
+export type SavedLegPlan = Readonly<Record<string, SavedSpot>>;
+
+/**
+ * The saved plan as the board takes it: one entry per leg a plan has been saved for.
+ *
+ * A leg that is absent here is a leg nothing has been saved for (`loadBoard`'s `version === 0`),
+ * or one this request could not read at all — and both mean the same thing to this file: the
+ * scenario's own runs, exactly as before.
+ */
+export type SavedBoardPlan = { readonly [D in Direction]?: SavedLegPlan };
 
 /* ───────────────────────────── groups (COPY-GUIDE §5 SURF-01) ───────────────────────────── */
 
@@ -312,6 +359,12 @@ export type Board = {
  */
 export type RideFacts = {
   assigned: boolean;
+  /**
+   * The day's own plan says this child is not riding this leg — the board's Absent group
+   * (`plan_assignment.bucket = 'ABSENT'`, per date and per leg). Optional because it is a fact
+   * only a saved plan can produce: a scenario ride has nobody to record it.
+   */
+  notAttending?: boolean;
   capability: CapabilityS;
   solver: SolveStatus | null;
   /* ── vehicle facts (the replay, LOC-01/ASM-18) ── */
@@ -358,6 +411,16 @@ export function rideStateFrom(facts: RideFacts): { state: LegS; path: LegS[] } {
     state = to;
     path.push(to);
   };
+
+  /*
+   * Somebody marked this child away for this leg, which is a decision and the end of the ride.
+   * PRD §6.3 gives the system that edge from any pre-boarding state, and it is the first thing
+   * asked: a child who is not here needs no van, no capability report and no window.
+   */
+  if (facts.notAttending) {
+    step("CANCELED_ATTENDANCE", "Y");
+    return { state, path };
+  }
 
   // A child with no run of their own is not riding with us: the family brings them, and the
   // ride stays where the seed left it (standard.ts `amMode`/`pmMode` FAMILY).
@@ -476,12 +539,17 @@ function solveRun(
   direction: Direction,
   day: ServiceDay,
   recorded: boolean,
+  riders: readonly string[],
 ): RunSolve {
   const departed =
     day.phase === "LIVE" && direction === "AM" && frameFor(run, day.instantMs) !== null;
   const checked = day.phase === "ENDED" || departed || recorded;
   const capability = capabilityFor(run, serviceDateIso(new Date(day.instantMs)), checked);
-  const solve = feasible(solverVehicle(vehicleOf(run)), solverLeg(run, direction), capability);
+  const solve = feasible(
+    solverVehicle(vehicleOf(run)),
+    solverLeg(run, direction, riders),
+    capability,
+  );
   return { solve, capability: capability.state, departed };
 }
 
@@ -587,9 +655,89 @@ function reportedActs(child: DemoChild, record: RideRecord | undefined) {
   };
 }
 
-function rideFor(child: DemoChild, direction: Direction, day: ServiceDay): RideView {
-  const mode = direction === "AM" ? child.amMode : child.pmMode;
-  const run = runOfChild(child.key);
+/**
+ * THE RUN THIS RIDE IS ON — the saved plan's van, or the scenario's own.
+ *
+ * With a plan saved for this leg the van is the plan's answer and only the plan's: a child the
+ * coordinator moved is on the van they moved them to, and a child the plan puts in Unassigned,
+ * with their family or away today is on **no** van at all — which is the same shape as a child
+ * the scenario never put on a run, so the ride below takes the one path that already exists for
+ * it rather than a second one.
+ *
+ * A van the fixtures do not have is also no van (`runOfVehicle` returns undefined): a row cannot
+ * draw the driver, the layout or the replayed morning of a vehicle this scenario does not run,
+ * and showing the seeded van instead would be the old bug with extra steps.
+ */
+function runFor(child: DemoChild, spot: SavedSpot | undefined): DemoRun | undefined {
+  if (spot === undefined) return runOfChild(child.key);
+  return spot.bucket === "VAN" ? runOfVehicle(spot.vehicleKey) : undefined;
+}
+
+/**
+ * Who drives this leg: the van it is actually on.
+ *
+ * The fixture writes the mode on the child, which is the right answer for the day it describes
+ * and the wrong one once a plan has moved somebody: a child on the centre's van rides with the
+ * centre, and a child the plan hands back to their family is a family drop-off whatever run
+ * they were seeded on. With nothing saved for the leg it is the fixture's own answer, unchanged.
+ */
+function modeFor(
+  child: DemoChild,
+  direction: Direction,
+  run: DemoRun | undefined,
+  spot: SavedSpot | undefined,
+): DemoChild["amMode"] {
+  const seeded = direction === "AM" ? child.amMode : child.pmMode;
+  if (spot === undefined) return seeded;
+  if (spot.bucket === "FAMILY_DRIVES") return "FAMILY";
+  if (spot.bucket === "VAN" && run) return legModeOf(vehicleOf(run));
+  return seeded;
+}
+
+/**
+ * WHO THIS VAN CARRIES ON THIS LEG — the riders the seating verdict is about.
+ *
+ * The bug this answers (Firia, 2026-10-18 6:23 AM ET): with the morning saved and every van
+ * fit-checked, Today still said "Move Mia R. / Owen C. / Theo V. to a van that fits". The van on
+ * the row was the saved plan's, but the solver behind it was still handed the **seeded** run's
+ * riders — so Van 3 was being asked whether it holds the three children the scenario put on it,
+ * which is a question nobody on that screen had asked since the plan was saved. Three car seats
+ * in two tether seats: infeasible, correctly, about a manifest that no longer exists.
+ *
+ * So the riders are the saved plan's: the children it puts in **this** van on **this** leg, read
+ * out of the leg a plan was saved for. One list per (van, leg) — derived from the plan and not
+ * from the child whose row it is — so every child on a van gets the one same answer about it,
+ * which is what a seating verdict is.
+ *
+ * The fallback is the seeded run, and only for a ride the saved plan says nothing about: a leg
+ * with no plan at all (`plan === undefined`), or a child it does not place, who is on the
+ * scenario's own run and must be checked against the scenario's own manifest. Note what is *not*
+ * here: nothing is suppressed. A saved van that genuinely does not hold its riders is handed to
+ * the same solver and comes back INFEASIBLE, with the same reason and the same step.
+ */
+function ridersOf(
+  run: DemoRun,
+  spot: SavedSpot | undefined,
+  plan: SavedLegPlan | undefined,
+): readonly string[] {
+  if (plan === undefined || spot?.bucket !== "VAN") return run.childKeys;
+  return boardChildren
+    .filter((rider) => {
+      const theirs = plan[rider.key];
+      return theirs?.bucket === "VAN" && theirs.vehicleKey === spot.vehicleKey;
+    })
+    .map((rider) => rider.key);
+}
+
+function rideFor(
+  child: DemoChild,
+  direction: Direction,
+  day: ServiceDay,
+  plan?: SavedLegPlan,
+): RideView {
+  const spot = plan?.[child.key];
+  const run = runFor(child, spot);
+  const mode = modeFor(child, direction, run, spot);
   const base = {
     direction,
     mode,
@@ -600,6 +748,8 @@ function rideFor(child: DemoChild, direction: Direction, day: ServiceDay): RideV
   if (!run) {
     const { state, path } = rideStateFrom({
       assigned: false,
+      // The one fact a saved plan adds to a ride with no van: away today is not "not planned yet".
+      notAttending: spot?.bucket === "ABSENT",
       capability: "UNKNOWN",
       solver: null,
       departed: false,
@@ -630,7 +780,13 @@ function rideFor(child: DemoChild, direction: Direction, day: ServiceDay): RideV
   const vehicle = solverVehicle(vehicleOf(run));
   const dispatcher = dispatcherOf(vehicleOf(run));
   const record = dayRecordFor(child, direction, day);
-  const { solve, capability, departed } = solveRun(run, direction, day, record !== undefined);
+  const { solve, capability, departed } = solveRun(
+    run,
+    direction,
+    day,
+    record !== undefined,
+    ridersOf(run, spot, plan),
+  );
   const frame = departed ? frameFor(run, day.instantMs) : null;
   const ownStop = stopLabel(child);
   const acts = reportedActs(child, record);
@@ -770,6 +926,20 @@ function nextStepFor(
 ): NextStep {
   if (reasons.length > 0) return STEP_FOR_REASON[reasons[0]];
   if (ride.mode === "FAMILY") return "NOTHING";
+  /*
+   * A ride that is over is waiting on nobody — the machine's own terminal list decides, as it
+   * does for the needs-action reasons above. On the scenario's own rides this changes nothing
+   * (a cancelled or handed-off ride is on a van whose capability was verified, so it fell
+   * through to "Nothing to do" anyway); what it answers is the ride a saved plan ends, where a
+   * child marked away today would otherwise be told to go and check a van at the ramp.
+   */
+  if (LEG.terminal.includes(ride.state)) return "NOTHING";
+  /*
+   * Nobody has given this ride a van: the saved plan leaves the child in Unassigned, and the
+   * step is to find them one. Unreachable on the scenario's own day, where every child who
+   * rides is on a run and every child who is not rides with their family (above).
+   */
+  if (ride.vehicleLabel === null) return "FIND_VAN";
   if (ride.state === "ARRIVED_PICKUP") return "CONFIRM_BOARDING";
   if (ride.state === "ARRIVED_DROPOFF") return "CONFIRM_HANDOFF";
   if (ride.capability === "UNKNOWN" || ride.capability === "REQUESTED") {
@@ -781,8 +951,16 @@ function nextStepFor(
   return "NOTHING";
 }
 
-function rowFor(child: DemoChild, day: ServiceDay, therapy: BoardRow["therapy"]): BoardRow {
-  const rides: RideView[] = [rideFor(child, "AM", day), rideFor(child, "PM", day)];
+function rowFor(
+  child: DemoChild,
+  day: ServiceDay,
+  therapy: BoardRow["therapy"],
+  saved: SavedBoardPlan,
+): BoardRow {
+  const rides: RideView[] = [
+    rideFor(child, "AM", day, saved.AM),
+    rideFor(child, "PM", day, saved.PM),
+  ];
   return {
     childKey: child.key,
     childLabel: child.label,
@@ -839,17 +1017,22 @@ function therapyByChild(): Map<string, BoardRow["therapy"]> {
 }
 
 /**
- * The board for one service day (defaulting to the demo day).
+ * The board for one service day (defaulting to the demo day), read against the plan saved for it.
+ *
+ * `saved` is the coordinator's own decision about who rides where, one entry per leg a plan has
+ * been saved for (Firia, 2026-10-17 6:02 PM ET: Today reads the saved plan). Omit it — or hand
+ * in a leg nothing was saved for — and that leg is the scenario's own runs, byte for byte what
+ * this function returned before there was a plan to read.
  *
  * A day the scenario does not run at all — a weekend — has no rows rather than empty ones: PRD
  * §18.1 schedules the runs Mon–Fri, and a board that showed 28 children with nothing against
  * their names would be inventing a day. The screen says which kind of nothing it is
  * (COPY-GUIDE §5 "No rides scheduled for {date}").
  */
-export function buildBoard(day: ServiceDay = demoDay()): Board {
+export function buildBoard(day: ServiceDay = demoDay(), saved: SavedBoardPlan = {}): Board {
   const therapy = therapyByChild();
   const children = day.scheduled ? boardChildren : [];
-  const rows = children.map((child) => rowFor(child, day, therapy.get(child.key) ?? null));
+  const rows = children.map((child) => rowFor(child, day, therapy.get(child.key) ?? null, saved));
   const legs = children.flatMap((child, i) =>
     rows[i].rides.map((ride) => legFor(child, rows[i], ride, day.phase)),
   );

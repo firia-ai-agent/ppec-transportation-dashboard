@@ -14,6 +14,7 @@
  *    (src/modules/plan/sql.ts), never from a browser's storage (Vera's differences list, item 2).
  */
 import { VANS } from "@/config/vans";
+import type { SavedBoardPlan, SavedLegPlan, SavedSpot } from "@/domain/board/board";
 import { deriveReadiness, type DayReadiness } from "@/domain/day/readiness";
 import { defaultLeg, type Direction } from "@/domain/day/leg";
 import type { DayDataSource } from "@/domain/day/source";
@@ -30,7 +31,7 @@ import { resolveSetup, type SetupSource } from "@/domain/plan/setup";
 import { getNeonDb, type Exec } from "@/db/exec";
 import { demoDaySource } from "@/modules/demo/day-source";
 import { sqlDaySource } from "@/modules/roster/sql";
-import { vehicleIdOf } from "@/modules/demo/fixtures/standard";
+import { childKeyOfToken, vehicleIdOf, vehicleKeyOfId } from "@/modules/demo/fixtures/standard";
 import { vanArrival } from "@/ui/copy";
 import { MEMORY_STORE_REFUSED, memoryPlanStore } from "./memory";
 import { sqlPlanStore, sqlPlanStoreIn } from "./sql";
@@ -182,6 +183,88 @@ export function planFrom(
     plan[token] = placement;
   }
   return plan;
+}
+
+/* ─────────────────── the saved plan, as the surfaces outside this module read it ─────────────────── */
+
+/** The two legs of a day, each saved on its own: a saved morning says nothing about the afternoon. */
+const LEGS: readonly Direction[] = ["AM", "PM"];
+
+/**
+ * ONE SAVED PLAN, READ ONCE, FOR EVERY SCREEN THAT SHOWS IT.
+ *
+ * SOURCE: Firia's signed rule of 2026-10-17 6:02 PM ET — "Today, Live map and Health read the
+ * saved plan" — and the S1 ruling of 2026-10-18 4:45 AM ET. Veri's prod check found Today's van
+ * column disagreeing with the board a director had just saved for five of nine children, because
+ * Today computed the van from the demo scenario's own runs and nothing on that screen read the
+ * plan. The fix is not a second reader: it is this helper, here, in the module that owns the
+ * plan, so the next screen that needs the same answer calls the same function.
+ *
+ * `loadBoard` has already read the plan onto today's roster (`planFrom`) — a child the day no
+ * longer has is dropped and a child in a van the day no longer runs is back in Unassigned — so
+ * what is below is a translation of its vocabulary and not a second set of rules.
+ *
+ * **One formula for the ids.** A saved plan is rows keyed by `ops.child_profile.child_token` and
+ * `ops.vehicle.id`; the board is a projection over fixture keys. The two are joined by the
+ * fixtures' own deterministic formula and its inverse (`childKeyOfToken`, `vehicleKeyOfId`), which
+ * is what src/modules/demo/seed.ts inserts those ids with. A second, home-made formula is what
+ * showed every van the next van's children (Veri S1, 2026-10-18 3:03 AM ET), so there is not one.
+ * A token or a vehicle id this scenario does not have is skipped and becomes no van rather than a
+ * guess: the board can only draw a child and a van it has.
+ */
+export function savedSpotsFrom(plan: BoardPlan): SavedLegPlan {
+  const spots: Record<string, SavedSpot> = {};
+  for (const [token, placement] of Object.entries(plan)) {
+    const childKey = childKeyOfToken(token);
+    if (childKey === null) continue;
+    if (placement.bucket !== "VAN") {
+      spots[childKey] = { bucket: placement.bucket };
+      continue;
+    }
+    const vehicleKey = placement.vanId === null ? null : vehicleKeyOfId(placement.vanId);
+    spots[childKey] =
+      vehicleKey === null ? { bucket: "UNASSIGNED" } : { bucket: "VAN", vehicleKey };
+  }
+  return spots;
+}
+
+/**
+ * The plan saved for this site and date, both legs, in the shape `buildBoard` takes.
+ *
+ * A leg with no saved plan (`version === 0`) is left out, which is how a screen goes on showing
+ * the seeded runs for the half of the day nobody has planned yet — and AM and PM are separate
+ * because a saved morning says nothing about the afternoon.
+ *
+ * **It never throws at the page.** A session with no site, a server with no database and a query
+ * that raises all land on "nothing saved", which is the seeded day the board has always shown.
+ * That is the same way the step strip treats a day it cannot read (src/domain/day/day-facts.ts
+ * §9.4), and it is what keeps the browser checks deterministic: the Playwright run has no
+ * database at all, so it takes that path every time.
+ *
+ * The store and the day source are arguments so a test can hand this the memory store and the
+ * synthetic day, exactly as the plan module's own writers take them (src/modules/plan/place.ts).
+ */
+export async function savedPlacementsForBoard(
+  siteId: string | null,
+  date: string,
+  store?: PlanStore,
+  source?: DayDataSource,
+): Promise<SavedBoardPlan> {
+  if (!siteId) return {};
+  try {
+    const reads = store ?? planStore();
+    const day = source ?? dayDataSource(siteId);
+    const saved: { -readonly [D in Direction]?: SavedLegPlan } = {};
+    for (const leg of LEGS) {
+      const view = await loadBoard(reads, siteId, date, leg, day);
+      if (view.version === 0) continue;
+      saved[leg] = savedSpotsFrom(view.plan);
+    }
+    return saved;
+  } catch {
+    // §9.4 again: a day this request cannot read is the day the scenario describes, not a 500.
+    return {};
+  }
 }
 
 /** Every child's place on the board, with the stop number their van drives them at. */
