@@ -487,6 +487,30 @@ export const shadow = {
   panel: "-12px 0 32px rgba(15,23,42,.12)",
 } as const;
 
+/**
+ * A PAGE'S OWN STICKY BOTTOM ACTION BAR, as one length the frame can read.
+ *
+ * Some screens pin a single action to the floor rather than leaving it at the end of the page —
+ * the ramp iPad's Confirm below 768 (src/app/ramp-ipad/arrival/arrival.module.css `.confirmBar`,
+ * `position: fixed` above the tab bar) is the first, and it will not be the last. Anything else
+ * the *frame* floats at the bottom then has to move up by that bar's height, or it lands on it.
+ *
+ * `--sticky-action-bar-height` is the contract, and it is deliberately not a list of pages: the
+ * default here is **0**, every frame rule that floats something at the bottom adds
+ * `var(--sticky-action-bar-height, 0px)` to its offset, and a page that pins a bar sets the
+ * property on the document root for as long as it is the page. The frame therefore knows nothing
+ * about the ramp iPad, the ramp iPad knows nothing about the agent bubble, and the next screen
+ * with a pinned Confirm gets the clearance by declaring its own height rather than by somebody
+ * remembering to add a second special case to AgentBubble.module.css.
+ *
+ * It lives here, with the other frame metrics, because the default is a length and
+ * src/ui/tokens.ts is the file lengths are written in.
+ */
+export const stickyActionBar = {
+  /** No page pins anything: every page but the one, and every width above 767 on that one. */
+  none: "0px",
+} as const;
+
 /** Focus: 2 px focus outline + 2 px offset, never removed (§9). */
 export const focusRing = { width: "2px", offset: "2px" } as const;
 
@@ -528,6 +552,7 @@ const cssVars: Record<string, string> = {
   ...Object.fromEntries(Object.entries(radius).map(([k, v]) => [`--radius-${k}`, v])),
   ...Object.fromEntries(Object.entries(layout).map(([k, v]) => [`--layout-${kebab(k)}`, v])),
   ...Object.fromEntries(Object.entries(target).map(([k, v]) => [`--target-${k}`, v])),
+  "--sticky-action-bar-height": stickyActionBar.none,
   "--body-console": bodySize.console,
   "--body-ramp": bodySize.ramp,
   "--focus-width": focusRing.width,

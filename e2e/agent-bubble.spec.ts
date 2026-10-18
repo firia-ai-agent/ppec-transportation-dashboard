@@ -94,6 +94,40 @@ test.describe("the closed disc", () => {
     });
   }
 
+  /**
+   * …AND IT DOES NOT COVER THE RAMP iPAD'S CONFIRM, which is the one control on this app that is
+   * pinned to the floor by a *page* rather than by the frame (#82: `.confirmBar` is
+   * `position: fixed` above the tab bar below 768, src/app/ramp-ipad/arrival/arrival.module.css,
+   * png/ramp-arrival-390.png `.conf`).
+   *
+   * At 390 the disc and that button are both in the bottom-right corner, so this is the check the
+   * shared offset exists for: `--sticky-action-bar-height`, declared by the arrival page as its
+   * bar's own 1 + 8 + 60 + 8 = 77 px and read by AgentBubble.module.css. The arithmetic is held in
+   * src/ui/sticky-action-bar.test.ts; what only a browser can say is that the two boxes a person
+   * actually touches do not intersect.
+   */
+  test("does not cover the ramp iPad's pinned Confirm at 390", async ({ page }) => {
+    await page.setViewportSize(PHONE);
+    await page.goto("/ramp-ipad");
+
+    const confirm = page.locator("[data-confirm]");
+    if ((await confirm.count()) === 0) {
+      test.skip(true, "no van has arrived on the demo day, so there is no Confirm to clear");
+    }
+
+    const disc = await boxOf(bubble(page));
+    const button = await boxOf(confirm.first());
+    const bar = await boxOf(page.locator("[data-confirm-bar]"));
+
+    expect(overlaps(disc, button), "the disc is on top of Confirm").toBe(false);
+    // The whole bar, not just the button: the disc must clear the padded box the bar paints.
+    expect(overlaps(disc, bar), "the disc is on top of the Confirm bar").toBe(false);
+    // And it is above the bar rather than beside it, which is the offset doing the work.
+    expect(verticalGap(disc, bar)).toBeGreaterThan(0);
+
+    await shot(page, "agent-bubble-ramp-confirm-390");
+  });
+
   test("does not cover any of the Live map's own controls, at either width", async ({ page }) => {
     /*
      * The zoom group and the credits are MapLibre's, added at `bottom-right` of the map pane

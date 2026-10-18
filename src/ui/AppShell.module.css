@@ -40,8 +40,13 @@
    * unclickable. 88 px is the 16 px gap, the 56 px disc and 16 px of air above it, which is what
    * png/agent-bubble-closed-1440.png measures. It is on the content column rather than on
    * `.body` on purpose: the rail runs to the floor in the mockup and must not be shortened.
+   *
+   * `--sticky-action-bar-height` is the page's own pinned action bar, if it has one, and 0 if it
+   * has not (src/ui/tokens.ts `stickyActionBar`): the disc sits above such a bar, so the page has
+   * to clear both. One shared length, declared by the page, read by the frame — never a list of
+   * screens here.
    */
-  padding-bottom: var(--layout-agent-bubble-clear-wide);
+  padding-bottom: calc(var(--layout-agent-bubble-clear-wide) + var(--sticky-action-bar-height, 0px));
 }
 
 /*
@@ -55,8 +60,9 @@
   display: flex;
   flex-direction: column;
   /* The same clearance, for the three screens that bring their own padding — and the one that
-     most needs it, the live map, whose zoom controls sit at the bottom-right of its pane. */
-  padding-bottom: var(--layout-agent-bubble-clear-wide);
+     most needs it, the live map, whose zoom controls sit at the bottom-right of its pane. Plus
+     the page's own sticky action bar, which is 0 unless the page declares one (see `.main`). */
+  padding-bottom: calc(var(--layout-agent-bubble-clear-wide) + var(--sticky-action-bar-height, 0px));
 }
 
 @media (max-width: 767px) {
@@ -81,6 +87,8 @@
    */
   .main,
   .contentSlot {
-    padding-bottom: var(--layout-agent-bubble-clear-phone);
+    padding-bottom: calc(
+      var(--layout-agent-bubble-clear-phone) + var(--sticky-action-bar-height, 0px)
+    );
   }
 }

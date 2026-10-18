@@ -323,11 +323,15 @@ describe("the closed disc sits where the mockup puts it", () => {
    * `.fab{bottom:80px}` below 767 — "64px tab bar + 16px", says the mockup's own comment. Ours
    * adds the device's safe-area inset, because the bar pads itself by it
    * (src/ui/TabBar.module.css) and a flat 80 would put the disc on an iPhone's home bar.
+   *
+   * …and `--sticky-action-bar-height`, the page's own pinned action bar if it has one and 0 if it
+   * has not: that is a FIFTH length in the same sum, not a replacement for any of the four, so
+   * this asserts all five in order (src/ui/sticky-action-bar.test.ts is the rest of that rule).
    */
-  it("sits 16 px above the tab bar, plus the safe-area inset, below 768", () => {
+  it("sits 16 px above the tab bar, the page's sticky bar and the safe-area inset, below 768", () => {
     const phone = css.slice(css.indexOf("@media (max-width: 767px)"));
     expect(phone).toMatch(
-      /bottom: calc\(\s*var\(--layout-tab-bar-height\) \+ var\(--border-hairline\) \+ var\(--layout-agent-bubble-gap\) \+\s*env\(safe-area-inset-bottom, 0px\)\s*\)/,
+      /bottom: calc\(\s*var\(--layout-tab-bar-height\) \+ var\(--border-hairline\) \+ var\(--layout-agent-bubble-gap\) \+\s*var\(--sticky-action-bar-height, 0px\) \+ env\(safe-area-inset-bottom, 0px\)\s*\)/,
     );
   });
 
@@ -362,10 +366,22 @@ describe("the closed disc sits where the mockup puts it", () => {
    */
   it("pads the page clear of the disc at both widths", () => {
     const shell = read(UI, "AppShell.module.css");
-    expect(shell).toMatch(/\.main \{[^}]*padding-bottom: var\(--layout-agent-bubble-clear-wide\)/);
-    expect(shell).toMatch(/\.contentSlot \{[^}]*padding-bottom: var\(--layout-agent-bubble-clear-wide\)/);
+    /*
+     * Both clearances now also carry `--sticky-action-bar-height` — the page's own pinned action
+     * bar, 0 unless the page declares one — because the disc sits above such a bar and the page
+     * has to clear both. Each clearance token is still asserted by name; the var is an addition
+     * to the sum, not a substitution (src/ui/sticky-action-bar.test.ts holds the whole rule).
+     */
+    expect(shell).toMatch(
+      /\.main \{[^}]*padding-bottom: calc\(var\(--layout-agent-bubble-clear-wide\) \+ var\(--sticky-action-bar-height, 0px\)\)/,
+    );
+    expect(shell).toMatch(
+      /\.contentSlot \{[^}]*padding-bottom: calc\(var\(--layout-agent-bubble-clear-wide\) \+ var\(--sticky-action-bar-height, 0px\)\)/,
+    );
     const phone = shell.slice(shell.indexOf("@media (max-width: 767px)"));
-    expect(phone).toMatch(/padding-bottom: var\(--layout-agent-bubble-clear-phone\)/);
+    expect(phone).toMatch(
+      /padding-bottom: calc\(\s*var\(--layout-agent-bubble-clear-phone\) \+ var\(--sticky-action-bar-height, 0px\)\s*\)/,
+    );
   });
 
   /** The arithmetic, in one place, so a changed disc size cannot leave the padding behind. */
