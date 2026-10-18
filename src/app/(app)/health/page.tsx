@@ -1,23 +1,20 @@
 import { requirePage } from "@/auth/page-guard";
-import { nav, stub } from "@/ui/copy";
 import { StubPage } from "@/ui/StubPage";
 
 /** The guard reads a session, so this route is never statically rendered. */
 export const dynamic = "force-dynamic";
 
 /**
- * Health & ROI (SURF-06/07). Its title and one line about what it will hold, and no data: an
- * empty panel here would read as "every adapter is fine", which is the one thing a health
- * screen must never say without having checked.
+ * SURF-06 Health & SURF-07 ROI (PRD §14). Off the menu as of Firia's 8:36 PM ET ruling
+ * (REDESIGN-SPEC §9.2: Health is a tab inside Today once #60 lands, not a menu item) and
+ * otherwise **untouched** in this PR, by the same ruling: no redirect to Today, no Health tab on
+ * Today, and the row in the access table exactly as it was. A typed URL is answered as before.
  *
- * On the menu since REDESIGN-SPEC §0 ("nothing 404s from the menu"), which is why it is a
- * `StubPage` rather than the "isn't built yet" `Placeholder`.
- *
- * Server-side role guard first, before anything is rendered: /health is in the access table
- * (src/auth/access.ts), and a role that is not in its row gets the no-access page and a 403
- * (forbidden.tsx beside this file), never this frame.
+ * Its title is the frame's now (src/ui/PageHeader.tsx) and the helper line under it is gone
+ * (audit §4 item 9), so what is left is the screen itself — which is the four `Right now` tiles,
+ * and they are #60's.
  */
 export default async function Page() {
   await requirePage("/health");
-  return <StubPage title={nav.health} line={stub.health} />;
+  return <StubPage />;
 }

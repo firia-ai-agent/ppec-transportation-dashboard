@@ -37,6 +37,12 @@ export type NavItem = {
 /**
  * THE RAIL — every destination this app has, and nothing a role cannot open.
  *
+ * **Five of these are the menu** (`menuItems`), and that is Firia's 8:36 PM ET ruling of
+ * 2026-10-17: Today · Plan routes · Live map · Ramp iPad · Family texts, the same five at every
+ * width. Exceptions & Approvals and Health & ROI came off it — the rail on production carried
+ * seven and the audit's §2 item 2 is exactly that count — and Approvals was never on it (§9.2:
+ * it is the "For you" tab inside Family texts).
+ *
  * DESIGN-DIRECTION §2 / PRD §14 (l.1055) name four console destinations: Today (board + drawer
  * + inbox) · Exceptions & Approvals (count badge once the live board lands) · Setup · Health &
  * ROI. Three more screens are built and were reachable only by typing their URL, which is not a
@@ -99,9 +105,9 @@ export type NavItem = {
  * Order, and it is REDESIGN-SPEC §0's: Today · Plan routes · Live map · Ramp iPad · Family
  * texts, which is the order of the day (plan it, watch it move, meet it at the door, answer the
  * family), then the two surfaces that are about the day rather than in it. The ramp iPad moved
- * up from last, where PRD §14 lists it: below 768 the bar carries five tabs and the rest go
- * under "More" (src/ui/TabBar.tsx), so the order decides what a thumb reaches without a second
- * tap — and the ramp iPad is one of the front desk's two destinations.
+ * up from last, where PRD §14 lists it: below 768 the bar carries one tab per menu item in this
+ * order (src/ui/TabBar.tsx), so the order is what a thumb reaches — and the ramp iPad is one of
+ * the front desk's two destinations.
  *
  * Addresses: each one is the screen's own name, `/plan-routes`, `/live-map`, `/ramp-ipad`. The
  * three used to be `/plan-preview`, `/map-preview` and `/ramp-preview` — a word about how
@@ -121,14 +127,20 @@ export const navItems: readonly NavItem[] = [
    */
   { href: "/family-texts", label: nav.familyTexts, icon: MessageSquareText, inMenu: true },
   /*
-   * On the menu, and this is the founder's 6:19 PM ET rule rather than a claim that the screens
-   * behind them are finished: **nothing on the menu may 404 or dead-end**. Each of these two is
-   * its own title and one line about what it will hold (src/ui/StubPage.tsx), which is a screen
-   * — the thing the 2:48 PM ET ruling was protecting the founder from was a menu item that
-   * opened an apology, and a title and a sentence is not one.
+   * OFF the menu — Firia's ruling of 2026-10-17 8:36 PM ET, over the 6:19 PM one that had put
+   * them on it: **the menu is five items, the same five at every width** (REDESIGN-SPEC §9.2,
+   * audit §2 item 2 — the rail on production carried seven). Neither of these is a destination
+   * of the day: Exceptions & Approvals is the "For you" tab inside Family texts (§9.2), and
+   * Health & ROI is a tab inside Today once #60 lands.
+   *
+   * `false` changes no access and deletes nothing: both routes still answer, both rows in the
+   * access table are untouched, and `/exceptions` is a permanent redirect to Today now
+   * (src/app/(app)/exceptions/page.tsx) so the address a founder has in a tab still lands on a
+   * screen. Health is deliberately *not* redirected in this PR (Firia, 8:37 PM ET): it stays
+   * exactly as it is.
    */
-  { href: "/exceptions", label: nav.exceptions, icon: Flag, inMenu: true },
-  { href: "/health", label: nav.health, icon: Activity, inMenu: true },
+  { href: "/exceptions", label: nav.exceptions, icon: Flag, inMenu: false },
+  { href: "/health", label: nav.health, icon: Activity, inMenu: false },
   /*
    * Setup is the one destination still off the menu, and §0 is why rather than the build: "van
    * counts are set only on the Ramp iPad; Plan routes shows them read-only", so the screen this
@@ -139,11 +151,15 @@ export const navItems: readonly NavItem[] = [
 ];
 
 /**
- * The menu itself: every row whose screen works, in the order above. Both rails render this
- * list — the desktop rail and the phone tab bar — so there is one answer to "what is on the
- * menu" at every width (`navItemsFor` narrows it to one role).
+ * THE MENU: five items, the same five in the same order at every width (REDESIGN-SPEC §9.2).
+ * Both rails render this list — the 232 px rail, the 64 px icon rail and the phone tab bar — so
+ * there is one answer to "what is on the menu" at every width, and the bar has one tab per item
+ * rather than four and an overflow (`navItemsFor` narrows it to one role).
  */
 export const menuItems: readonly NavItem[] = navItems.filter((item) => item.inMenu);
+
+/** §9.2 and the mockup: five equal tabs below 768, which is this menu and no sixth slot. */
+export const MENU_SIZE = 5;
 
 /** The rail highlights the section, so /today/<child> still marks "Today" as current. */
 export function isCurrent(pathname: string, href: string): boolean {

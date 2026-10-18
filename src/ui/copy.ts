@@ -26,9 +26,12 @@ export function sentence(text: string): string {
   return /[.?\u2026]$/.test(text) ? text : `${text}.`;
 }
 
+/*
+ * `siteName` ("PPEC transportation") is gone with the header that held it (audit §2 item 1, and
+ * Firia 8:36 PM ET): there is no full-width band across the top of a screen at any width now, so
+ * the product is named once — the brand block at the head of the rail, below.
+ */
 export const app = {
-  /** Site name in the header. Below 1280, where the rail has no room for the brand block. */
-  siteName: "PPEC transportation",
   /**
    * THE BRAND BLOCK at the top of the labelled rail (REDESIGN-SPEC §9.2, and the founder's
    * mockups: png/shell-flow-1440.png, mockups/shell-flow.html). The centre's own name over what
@@ -102,17 +105,13 @@ export const nav = {
   approvals: "Approvals",
   landmarkLabel: "Main",
   menuLabel: "Menu",
-  /**
-   * The phone's overflow tab. Below 768 the bar carries five equal tabs; a role with more
-   * destinations than that gets four and this, which opens the rest in a sheet over the screen
-   * (src/ui/TabBar.tsx). It is a tab like the others — not a hamburger, and not a side drawer,
-   * both of which Firia deleted on 2026-10-17 at 3:08 PM ET.
-   */
-  more: "More",
-  /** The sheet's own accessible name, and the button that closes it. */
-  moreLabel: "More destinations",
-  closeMore: "Close",
 } as const;
+/*
+ * "More", "More destinations" and the sheet's "Close" are gone (Firia, 2026-10-17 8:36 PM ET).
+ * The menu is five items at every width, so the phone's bar is five tabs and there is nothing
+ * to overflow: the tab and the sheet it opened are deleted (src/ui/TabBar.tsx), and so are
+ * their words. They went the way the hamburger went at 3:08 PM — a menu you have to open.
+ */
 
 /**
  * The step strip under Today's header (REDESIGN-SPEC §9.2, §9.5). The three steps of the day, in
@@ -158,6 +157,18 @@ export const flow = {
    * card is still a link"), so its accessible name says where it actually goes.
    */
   stepAriaLocked: "{step}: {state}, {detail}. Opens {target}",
+  /**
+   * The menu, where it carries a count: Family texts, and the number of things waiting for a
+   * person in its "For you" tab (REDESIGN-SPEC §9.2, audit §2 item 2).
+   *
+   * The count is said in words, because the disc that draws it is `aria-hidden` — a badge
+   * reading "2" beside a thread icon is a shape, and the thing a screen reader should hear is
+   * what the tab *is*: "Family texts, 2 waiting". Both rails use this one string, the 232 px
+   * row and the phone's tab, so the ear gets the same sentence at either width.
+   */
+  tabbar: {
+    waiting: "{label}, {count} waiting",
+  },
 } as const;
 
 /** COPY-GUIDE §5: visible label "Search", placeholder "Child, route or vehicle". */
@@ -167,10 +178,14 @@ export const search = {
   submit: "Search",
 } as const;
 
+/*
+ * "Account" (the avatar menu's own name) and "Signed in as {name}" (the line inside the panel it
+ * opened) went with that menu: the account is a *link* now — the block at the foot of the rail,
+ * the 36 px disc in the page header below 768 — and it opens /whoami, which says who is signed
+ * in as its own screen and carries Sign out. One identity location per width, and no panel.
+ */
 export const identity = {
-  menuLabel: "Account",
   signOut: "Sign out",
-  signedInAs: "Signed in as {name}",
   /** The rail's account block and the phone's avatar: one link, named as a person and a role. */
   account: "{name}, {role}",
   /** The same block for a session with no person behind it: the role, and nothing invented. */
@@ -520,11 +535,14 @@ export const unbuilt = {
  * No ticket codes, no dates, no promises about when (COPY-GUIDE §1): what the page is for is
  * true today; when it lands is not something this screen knows.
  */
+/*
+ * The four helper lines that used to sit under these four titles are gone (Firia, 2026-10-17
+ * 8:36 PM ET; audit §4 item 9: "each screen keeps one title and at most one helper line", and
+ * for a screen with no data a sentence about itself is not that line). Two of the four pages are
+ * permanent redirects now besides — /exceptions to Today, /approvals to the tab it is — so the
+ * only words left here are the link that reaches that tab from Family texts.
+ */
 export const stub = {
-  exceptions: "What needs action, who is handling it, and when it is due.",
-  health: "Whether each part of the system is working, and the time the demo saves.",
-  familyTexts: "Every text this day sent to a family, and what they sent back.",
-  approvals: "Changes waiting for a person to approve.",
   /** The one link out of Family texts, to the half of it that is the approvals queue (§9.2). */
   approvalsLink: "For you",
 } as const;

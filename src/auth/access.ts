@@ -43,6 +43,28 @@ export const ALL_STAFF: readonly StaffRole[] = ROLE_LADDER;
 /** The console pages: ARCHITECTURE §1 gives the web console to the coordinator and director. */
 const CONSOLE: readonly StaffRole[] = ["DIRECTOR", "COORDINATOR"];
 
+/**
+ * WHO MAY APPROVE — the one constant behind every approval surface (Firia, 2026-10-17 8:38 PM
+ * ET: "approval roles come from APPROVAL_ROLES").
+ *
+ * PRD l.774 gives the decision to a coordinator or a director, and BUILD-PLAN §4 makes "front
+ * desk → approval_request decide" an expected 403. Two surfaces read it, and they are the same
+ * surface at two addresses: the `/approvals` page row below, and the "For you" tab inside Family
+ * texts, which §9.2 says approvals *are* ("Approvals is the For you tab inside Family texts, not
+ * a menu item"). docs/DATA-MODEL.md's signed row names the same pair for the NEEDS_PERSON staff
+ * alert that shows at the top of that tab: "only director and coordinator see it and act on it".
+ *
+ * It is exported because the things that must not drift from it are outside this file: the menu
+ * badge counts what is waiting for these roles and nobody else (src/ui/menu-badge.ts), and the
+ * page that renders the tab asks `canOpenForYou` below rather than keeping a list of its own.
+ *
+ * It is written out rather than aliased to `CONSOLE` on purpose: the two sets are equal today
+ * and they are not the same claim. `CONSOLE` is "which surface is the web console", and this is
+ * "who may decide". A future row that opens a console page to the front desk must not quietly
+ * hand them an approval.
+ */
+export const APPROVAL_ROLES: readonly StaffRole[] = ["DIRECTOR", "COORDINATOR"];
+
 /* ───────────────────────────── who is asking ───────────────────────────── */
 
 /**
@@ -300,15 +322,20 @@ export const PAGES: readonly PageRow[] = [
   },
   /**
    * Approvals — the "For you" half of Family texts, at an address of its own (REDESIGN-SPEC
-   * §9.2 keeps it off the menu and reachable from that page). Same roles as the page it is part
-   * of, and the same roles PRD l.774 gives the decision to: a front-desk approval is an
-   * expected 403 in BUILD-PLAN §4.
+   * §9.2 keeps it off the menu). The roles are `APPROVAL_ROLES`, which is the one constant
+   * every approval surface reads, and the same roles PRD l.774 gives the decision to: a
+   * front-desk approval is an expected 403 in BUILD-PLAN §4.
+   *
+   * The page itself is a permanent redirect to the tab it *is* — `/family-texts?tab=for-you`
+   * (Firia, 8:36 PM ET) — and it keeps this row because the redirect is checked *after* the
+   * guard: signed out goes to sign-in and never learns the address exists, and a role that may
+   * not decide is answered by this row rather than by the page it would have been sent to.
    */
   {
     kind: "page",
     file: "src/app/(app)/approvals/page.tsx",
     path: "/approvals",
-    access: { roles: CONSOLE },
+    access: { roles: APPROVAL_ROLES },
     label: nav.approvals,
   },
   /**
@@ -740,6 +767,31 @@ export function pageOutcome(caller: Caller, path: string): PageOutcome {
 
 export function canOpenPage(caller: Caller, path: string): boolean {
   return pageOutcome(caller, path) === "ALLOW";
+}
+
+/* ───────────────────────── the "For you" tab (approvals) ───────────────────────── */
+
+/**
+ * The tab inside Family texts that approvals *are* (REDESIGN-SPEC §9.2). A query string, not a
+ * path: `/family-texts?tab=for-you` is where `/approvals` sends a person, and it is the one
+ * string both the redirect and the gate below read.
+ */
+export const FOR_YOU_TAB = "for-you";
+export const FAMILY_TEXTS_FOR_YOU = `/family-texts?tab=${FOR_YOU_TAB}`;
+
+/**
+ * MAY THIS CALLER OPEN "FOR YOU"? — the server's answer, asked by the page before it renders
+ * the tab (src/app/(app)/family-texts/page.tsx).
+ *
+ * It exists because a tab is not a path and so has no row of its own: the page's row answers
+ * "may you open Family texts", and this answers "may you decide", which is `APPROVAL_ROLES`.
+ * The front desk is refused here as well as by the page's row — the two checks are independent,
+ * and that is the point: widening the page's row must not hand the door key to the queue. A
+ * typed `?tab=for-you` is refused on the *server*, before any markup exists, rather than by a
+ * tab that is merely not drawn (the ID-swap skill, rule 6: hiding ≠ denying).
+ */
+export function canOpenForYou(caller: Caller): boolean {
+  return caller.kind === "STAFF" && APPROVAL_ROLES.includes(caller.role);
 }
 
 export type ApiOutcome =

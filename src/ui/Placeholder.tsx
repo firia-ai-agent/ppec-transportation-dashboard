@@ -15,7 +15,8 @@ import styles from "./Placeholder.module.css";
 export function Placeholder({ page, body }: { page: string; body: string }) {
   return (
     <div className={styles.page}>
-      <h1 className={styles.heading}>{fill(unbuilt.heading, { page })}</h1>
+      {/* An h2: the page's title is in the frame's header bar (src/ui/PageHeader.tsx). */}
+      <h2 className={styles.heading}>{fill(unbuilt.heading, { page })}</h2>
       <p className={styles.body}>{body}</p>
     </div>
   );

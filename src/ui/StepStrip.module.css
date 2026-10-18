@@ -65,7 +65,7 @@
  */
 .card[aria-current="step"] {
   border-color: var(--color-brand);
-  box-shadow: 0 0 0 var(--border-current) var(--color-selected-bg);
+  box-shadow: 0 0 0 var(--border-ring) var(--color-selected-bg);
 }
 
 /*

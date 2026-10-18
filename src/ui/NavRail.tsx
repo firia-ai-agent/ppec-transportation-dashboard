@@ -3,9 +3,10 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import type { StaffRole } from "@/auth/core";
-import { app, nav } from "./copy";
+import { app, fill, flow, nav } from "./copy";
 import { icon } from "./tokens";
 import { isCurrent, navItemsFor } from "./nav-items";
+import { menuBadgeFor } from "./menu-badge";
 import styles from "./NavRail.module.css";
 
 /**
@@ -75,19 +76,34 @@ export function NavRail({ role, account }: { role: StaffRole | null; account: Ra
           {navItems.map((item) => {
             const Icon = item.icon;
             const current = isCurrent(pathname, item.href);
+            const waiting = menuBadgeFor(item.href, role);
+            /*
+             * The count is part of the name, not a decoration beside it: a disc with "2" in it
+             * says nothing to a screen reader, and what is waiting for a person is exactly what
+             * the row should be announced with (§9, `flow.tabbar`).
+             */
+            const name =
+              waiting === null
+                ? item.label
+                : fill(flow.tabbar.waiting, { label: item.label, count: waiting });
             return (
               <li key={item.href}>
                 <Link
                   href={item.href}
                   className={styles.link}
-                  aria-label={item.label}
-                  title={item.label}
+                  aria-label={name}
+                  title={name}
                   aria-current={current ? "page" : undefined}
                 >
                   <Icon size={icon.nav} aria-hidden="true" />
                   <span className={styles.label} aria-hidden="true">
                     {item.label}
                   </span>
+                  {waiting === null ? null : (
+                    <span className={styles.badge} aria-hidden="true" data-menu-badge>
+                      {waiting}
+                    </span>
+                  )}
                 </Link>
               </li>
             );

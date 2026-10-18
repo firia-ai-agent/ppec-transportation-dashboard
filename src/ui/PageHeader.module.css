@@ -1,0 +1,68 @@
+/*
+ * The 64 px page header bar (audit §2 item 1). White, with the one hairline under it that
+ * separates the frame from the screen, and the title at the 20 px step in Teal Ink — the brand
+ * at reading weight, 9.06:1 on the page's own #F8FAFC and 9.48:1 on this white.
+ *
+ * It is inside the content column, not across the window: the rail runs full height beside it,
+ * from under the DEMO bar to the foot of the screen, which is what the mockup draws.
+ */
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex: none;
+  min-height: var(--layout-header-height);
+  padding: 0 var(--space-5);
+  background: var(--color-surface);
+  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-20);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  color: var(--color-ink-brand);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The only thing allowed to grow: it is what puts the account at the trailing end. */
+.spacer {
+  flex: 1 1 auto;
+}
+
+/*
+ * The account's disc, below 768 only (audit §2 item 5). Above it the rail's account block is the
+ * one identity location and this is not drawn — one per width, never two.
+ */
+.avatar {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .bar {
+    padding: 0 var(--space-4);
+  }
+
+  .avatar {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--layout-avatar-phone);
+    height: var(--layout-avatar-phone);
+    border-radius: var(--radius-pill);
+    background: var(--color-neutral-bg);
+    color: var(--color-neutral-fg);
+    font-size: var(--text-12);
+    font-weight: var(--weight-semibold);
+    text-decoration: none;
+  }
+
+  .avatar:focus-visible {
+    outline: var(--focus-width) solid var(--color-focus);
+    outline-offset: var(--focus-offset);
+  }
+}

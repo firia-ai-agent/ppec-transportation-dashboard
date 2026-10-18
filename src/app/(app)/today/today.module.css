@@ -67,7 +67,11 @@
   padding: var(--space-2) var(--space-4);
   background: var(--color-surface);
   border: var(--border-hairline) solid var(--color-border-strong);
-  border-radius: var(--radius-pill);
+  /*
+   * The leg toggle is a segmented control, not a status chip: the mockup draws it at the 6 px
+   * step (mockups/shell-flow.html `.seg`), and the pill radius is the one pill's now (§4.1).
+   */
+  border-radius: var(--radius-md);
   color: var(--color-ink);
   cursor: pointer;
 }

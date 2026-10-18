@@ -47,7 +47,7 @@ export default async function WhoAmI() {
   const line = lines.role ? `${lines.name}${whoami.separator}${lines.role}` : lines.name;
   return (
     <div className={styles.page}>
-      <h1 className={styles.heading}>{whoami.heading}</h1>
+      {/* The title is the frame's page header bar now (src/ui/PageHeader.tsx, audit §2 item 1). */}
       <p className={styles.identity}>{line}</p>
       <SignOutButton />
     </div>

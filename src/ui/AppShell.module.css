@@ -8,41 +8,24 @@
   min-height: calc(100vh - var(--layout-demo-banner-height));
 }
 
-/*
- * One row (Vera, 2026-10-17 2:44 PM ET). It used to be two: the site name, the scenario clock
- * and the avatar above; four "· Simulated" pills, their note and global search below. The pills
- * and the note are gone — one Simulated chip per screen, the one in the DEMO bar — and search
- * moved into Today, under the board's own title.
- */
-.header {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--space-5);
-  min-height: var(--layout-header-height);
-  padding: var(--space-3) var(--space-5);
-  background: var(--color-surface);
-  border-bottom: var(--border-hairline) solid var(--color-neutral-bg);
-}
-
-.siteName {
-  /* The brand mark, in the brand's own ink (founder's palette, 6:19 PM ET). */
-  color: var(--color-ink-brand);
-  font-size: var(--text-20);
-  font-weight: var(--weight-semibold);
-  line-height: var(--leading-tight);
-  white-space: nowrap;
-}
-
-.spacer {
-  flex: 1 1 auto;
-}
-
 .body {
   display: flex;
   align-items: stretch;
   flex: 1 1 auto;
   min-height: 0;
+}
+
+/*
+ * The content column: the 64 px page header bar (src/ui/PageHeader.module.css) and the screen
+ * under it. There is no full-width header above this — the rail runs the whole height of the
+ * window beside it, from under the DEMO bar, which is what the founder's mockup draws
+ * (png/shell-flow-1440.png) and what audit §2 item 1 asks for.
+ */
+.column {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .main {
@@ -63,42 +46,7 @@
   flex-direction: column;
 }
 
-/*
- * ≥1280: no header at all (Firia, 2026-10-17 7:55 PM ET).
- *
- * Everything that was in it is in the rail now — the product's name as the brand block, the
- * account as the block at the rail's foot — and a 64 px white band with nothing in it is not a
- * header. Gone, the rail runs full height from under the DEMO bar and the page's own `h1` row
- * is the top of the screen, which is what the founder's mockup draws (png/shell-flow-1440.png).
- */
-@media (min-width: 1280px) {
-  .header {
-    display: none;
-  }
-}
-
 @media (max-width: 767px) {
-  .header {
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-3);
-  }
-
-  /*
-   * The product's name stays on a phone and gets smaller.
-   *
-   * It used to be `display: none` here, because the row also carried the demo readout and its
-   * "Start demo day" and there was no room for four things. Those two are gone — the demo's one
-   * control is the DEMO bar's now — and a header whose only content is a circle of initials is
-   * not a header: the mark at one end and the account at the other is the row the mockups draw
-   * (png/shell-flow-390.png), and it is what tells a person at 390 px that the thing above the
-   * screen is this app's chrome rather than part of the screen.
-   */
-  .siteName {
-    font-size: var(--text-16);
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
   /*
    * Clearance for the bottom tab bar, which is `position: fixed` and would otherwise sit on
    * top of the last rows of the page (Firia, 3:08 PM ET: "page content padded so nothing hides

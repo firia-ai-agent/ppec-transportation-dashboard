@@ -41,8 +41,17 @@ export const color = {
    * to read.
    */
   "ink-brand": "#134E4A",
-  /** The page. Pure white, as the mockups are: there is no second off-white behind a surface. */
-  bg: "#FFFFFF",
+  /**
+   * THE PAGE, and it is not white (Firia's ruling, 2026-10-17 8:36 PM ET, over the audit's
+   * "keep white"): #F8FAFC behind everything, with white *cards* on it — which is what the
+   * founder's mockups draw (mockups/shell-flow.html sets `--bg:#F8FAFC`, `--surface:#FFFFFF`)
+   * and what the rail, the page header bar and every card are read against. One off-white, one
+   * white, and the difference between them is what makes a card a card.
+   *
+   * Every §8 pair that was computed against white is recomputed against this below: the
+   * weakest of them is `border-strong` at 4.55:1, which is still over the 3:1 a UI part needs.
+   */
+  bg: "#F8FAFC",
   surface: "#FFFFFF",
   "border-strong": "#64748B",
   brand: "#0F766E",
@@ -166,15 +175,15 @@ export const contrastPairs: ReadonlyArray<{
   documented: number;
   needs: 3 | 4.5;
 }> = [
-  { fg: "ink", bg: "bg", documented: 17.85, needs: 4.5 },
+  { fg: "ink", bg: "bg", documented: 17.06, needs: 4.5 },
   { fg: "ink", bg: "surface", documented: 17.85, needs: 4.5 },
   { fg: "ink-muted", bg: "surface", documented: 7.58, needs: 4.5 },
-  { fg: "ink-muted", bg: "bg", documented: 7.58, needs: 4.5 },
+  { fg: "ink-muted", bg: "bg", documented: 7.24, needs: 4.5 },
   { fg: "border-strong", bg: "surface", documented: 4.76, needs: 3 },
   { fg: "brand", bg: "surface", documented: 5.47, needs: 4.5 },
   { fg: "surface", bg: "brand", documented: 5.47, needs: 4.5 },
   { fg: "focus", bg: "surface", documented: 5.47, needs: 3 },
-  { fg: "focus", bg: "bg", documented: 5.47, needs: 3 },
+  { fg: "focus", bg: "bg", documented: 5.23, needs: 3 },
   /*
    * The founder's palette, as three pairs rather than three hexes (6:19 PM ET). Teal Ink is a
    * heading on the page and a heading on the tint behind the thing you are on; the brand itself
@@ -203,10 +212,10 @@ export const contrastPairs: ReadonlyArray<{
   { fg: "warn-fg", bg: "surface", documented: 6.85, needs: 4.5 },
   { fg: "crit-fg", bg: "surface", documented: 8.31, needs: 4.5 },
   { fg: "src-sim", bg: "surface", documented: 7.1, needs: 4.5 },
-  { fg: "src-sim", bg: "bg", documented: 7.1, needs: 4.5 },
+  { fg: "src-sim", bg: "bg", documented: 6.79, needs: 4.5 },
   { fg: "ink-muted", bg: "surface", documented: 7.58, needs: 4.5 },
   { fg: "ink", bg: "surface", documented: 17.85, needs: 4.5 },
-  { fg: "border-strong", bg: "bg", documented: 4.76, needs: 3 },
+  { fg: "border-strong", bg: "bg", documented: 4.55, needs: 3 },
   { fg: "map-truck-ok", bg: "surface", documented: 5.02, needs: 3 },
   { fg: "map-truck-stale", bg: "surface", documented: 4.92, needs: 3 },
   { fg: "map-truck-crit", bg: "surface", documented: 6.47, needs: 3 },
@@ -236,8 +245,17 @@ export function contrastRatio(a: string, b: string): number {
 
 /* ───────────────────────────── type scale (§2) ───────────────────────────── */
 
-/** 12/14/16/20/24/32. Body 14 on the console, 18 on the ramp iPad. 12 only for icon chips. */
+/**
+ * 11/12/14/16/20/24/32. Body 14 on the console, 18 on the ramp iPad. 12 only for icon chips.
+ *
+ * 11 is the one step below §2's scale and it exists for exactly one thing: the one pill
+ * (`Pill.module.css`), whose metrics the audit fixes at `font: 600 11px/1` so that a status
+ * chip is the same height everywhere and cannot wrap — which is the founder's overlap bug
+ * (prod-ef4bfb3-audit §4.1). Nothing else may read it: a sentence at 11 px is a sentence
+ * nobody reads, and §2's floor of 12 stands for every other word on the screen.
+ */
 export const fontSize = {
+  "11": "11px",
   "12": "12px",
   "14": "14px",
   "16": "16px",
@@ -248,7 +266,12 @@ export const fontSize = {
 
 export const fontWeight = { regular: "400", medium: "500", semibold: "600" } as const;
 
-export const lineHeight = { tight: "1.25", normal: "1.45" } as const;
+/**
+ * `one` is the pill's own leading, and the audit's words: `font: 600 11px/1`. A chip is one
+ * line by construction (it may never wrap), so its box is its text — which is what makes 22 px
+ * the same 22 px in every cell of the board.
+ */
+export const lineHeight = { tight: "1.25", normal: "1.45", one: "1" } as const;
 
 export const bodySize = { console: fontSize["14"], ramp: "18px" } as const;
 
@@ -266,7 +289,8 @@ export const space = {
   "8": "48px",
 } as const;
 
-export const radius = { sm: "4px", md: "6px", pill: "999px" } as const;
+/** `pill` is the audit's `border-radius: 9999px` (§4.1), in the one place a radius may live. */
+export const radius = { sm: "4px", md: "6px", pill: "9999px" } as const;
 
 /* ───────────────────────────── layout (§2, §7, §7.1, §9) ───────────────────────────── */
 
@@ -280,7 +304,27 @@ export const layout = {
   /** Source-mode badge: 20 px high, 24 px on the ramp iPad (§7.1). */
   sourceBadgeHeight: "20px",
   sourceBadgeHeightRamp: "24px",
+  /**
+   * The page header bar: 64 px inside the content column, carrying that screen's title and,
+   * below 768, the account's own disc at its trailing end (audit §2 items 1 and 5,
+   * png/shell-flow-390.png). It is not a full-width app header — there is none any more.
+   */
   headerHeight: "64px",
+  /**
+   * A rail row: 40 px, with a 2 px gap between rows (audit §2 item 2, measured off the mockup —
+   * production drew them at 42 and the mockup at 30). It is under §9's 44 px console target and
+   * that is the audit's own arithmetic: five rows at 44 plus 8 px gaps do not leave the account
+   * block on the floor of a 900 px window. The row is still a full-width target with its label
+   * inside it, and the phone's tab bar — the menu on the one device where a thumb is the
+   * pointer — is 64 px.
+   */
+  railItem: "40px",
+  /** The one pill (audit §4.1): 22 px high, everywhere a status chip appears. */
+  pillHeight: "22px",
+  /** A count badge on a menu item: a 20 px disc (audit §2 item 2, the mockup's Family texts). */
+  badgeSize: "20px",
+  /** The account's disc in the page header below 768 (audit §2 item 5). */
+  avatarPhone: "36px",
   /**
    * <768: the bottom tab bar (Firia's final ruling, 2026-10-17 3:08 PM ET). 64 px carries a 20
    * px icon over a 12 px label and is well over the §9 44 px target; the device's own safe-area
@@ -308,14 +352,18 @@ export const focusRing = { width: "2px", offset: "2px" } as const;
 
 /**
  * `hairline` is every rule and box edge; `current` is the one thicker bar that marks the page
- * you are on in the phone tab bar (§9: never colour alone).
+ * you are on in the phone tab bar (§9: never colour alone). 2 px, which is what audit §2 item 6
+ * measures off the mockup ("a 2px Teal #0F766E top border and Teal Ink label"); `ring` is the
+ * 3 px halo around the step the day is on, which the mockup draws at 3 (`.step.cur`).
  */
-export const border = { hairline: "1px", current: "3px" } as const;
+export const border = { hairline: "1px", current: "2px", ring: "3px" } as const;
 
 /** Icon metrics. Lucide, single set, 1.75 stroke (§2). */
 export const icon = {
   strokeWidth: 1.75,
   chip: 14,
+  /** Inside the one pill, whose box is 22 px: 14 px would set the height instead of the text. */
+  pill: 12,
   inline: 16,
   nav: 20,
   banner: 18,

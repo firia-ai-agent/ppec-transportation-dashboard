@@ -1,9 +1,9 @@
 import { Suspense, type ReactNode } from "react";
 import type { StaffRole } from "@/auth/core";
 import { app } from "./copy";
-import { AvatarMenu } from "./AvatarMenu";
 import { NavRail, type RailAccount } from "./NavRail";
 import { NoticeToast } from "./NoticeToast";
+import { PageHeader } from "./PageHeader";
 import { TabBar } from "./TabBar";
 import styles from "./AppShell.module.css";
 
@@ -12,20 +12,21 @@ import styles from "./AppShell.module.css";
  * rendered by the root layout, so they also cover /login (§7, §7.1, NFR-09); the header sits
  * directly beneath them.
  *
- * **The header is one row** (Vera's review, 2026-10-17 2:44 PM ET): the site name and one
- * identity location at the trailing end. What left it, and why:
- *  - the four per-adapter freshness pills ("SMS · Simulated", "Teams · Simulated", …) and the
- *    "Times are simulated…" line under them — **one** Simulated chip on a screen, the one in
- *    the DEMO bar. Five of them saying it was four too many;
- *  - the scenario clock — a "Demo day · Not started" readout of a state nothing sets, with an
- *    inert "Start demo day" beside it, which could not start anything because the demo-controls
- *    dock was never built. The demo's one control is the DEMO bar's now, and it is the reset
- *    the app already has ("Restart demo day", src/ui/DemoRestart.tsx, REDESIGN-SPEC §0). The
- *    header holds no demo chrome at all: the bar above it is where the demo lives;
- *  - global search, which moved into Today, under the board's own title: it searches the board,
- *    so it belongs to the board (src/app/(app)/today/TodayBoard.tsx).
- * §2's service date is not in here either: it belongs to the board, which is the thing that has
- * a day (docs/ui/B12-SLICE1-DEFERRED.md §5).
+ * **There is no app header.** Vera's audit of production at ef4bfb3 (§2 items 1, 3 and 5) found
+ * a full-width white band with the words "PPEC transportation" in it, above a rail that began
+ * with nothing and ended in whitespace, with an outlined "Dana ⌄" pill at the band's far right.
+ * The band is deleted at every width. Everything it held has a home that is already on screen:
+ *  - the product's name → the brand block at the head of the rail (src/ui/NavRail.tsx);
+ *  - the account → the block at the rail's foot, and below 768, where the rail is a tab bar
+ *    with no room for words, the 36 px disc at the trailing end of the page header bar
+ *    (src/ui/PageHeader.tsx). One identity location per width, never two;
+ *  - the screen's title → the 64 px page header bar, in Teal Ink at the 20 px step, which is
+ *    what the founder's mockups draw there (png/shell-flow-1440.png, png/shell-flow-390.png).
+ * What left earlier and has not come back: the four per-adapter freshness pills and their note
+ * (one Simulated chip on a screen, the one in the DEMO bar), the dead "Demo day · Not started"
+ * readout and its inert "Start demo day" (the demo's one control is the bar's), global search
+ * (it searches the board, so it is on the board), and §2's service date (it belongs to the
+ * thing that has a day).
  *
  * Nav, and this is Firia's final ruling of 2026-10-17 3:08 PM ET: `NavRail` at 768 and up (232
  * px labelled at ≥1280, a 64 px icon rail below it), and **below 768 a bottom tab bar** that is
@@ -38,15 +39,6 @@ import styles from "./AppShell.module.css";
  * menu does not carry lands on their own home, and the toast there says "Not on your menu"
  * (§9.3, src/auth/page-guard.ts). It reads `?notice=` from the client, so it is wrapped in a
  * Suspense boundary of its own and can never hold up the screen behind it.
- *
- * **The header is gone above 1280** (Firia's final call, 2026-10-17 7:55 PM ET). It held two
- * things and the labelled rail now holds both: the product's name, which the rail's brand block
- * says under a mark, and the account pill, which is the block at the rail's foot. What was left
- * was an empty white band over a rail that the founder's mockup draws running full height from
- * under the DEMO bar (png/shell-flow-1440.png), so the band goes rather than stays empty, and
- * each screen's own `h1` row is the top of the page — which is what the mockup draws there.
- * Below 1280 the rail has no room for words, so the header comes back with the name at one end
- * and the account menu at the other, and Sign out stays one tap away on a phone.
  *
  * One shell, every signed-in screen. It used to wrap only the four routes inside src/app/(app),
  * which left Plan routes, the live map and the ramp iPad with no menu at all: the founder's
@@ -85,27 +77,22 @@ export function AppShell({
       <a href="#content" className="skipLink">
         {app.skipToContent}
       </a>
-      <header className={styles.header}>
-        {/* Below 768 the screen's own <h1> names where you are; the product name yields the row. */}
-        <span className={styles.siteName}>{app.siteName}</span>
-        <div className={styles.spacer} />
-        {/*
-          The identity location below 1280, where the rail is an icon strip or a tab bar and has
-          nowhere to put a name. Compact on a phone (initials only), with Sign out inside it, so
-          the way to stop being signed in is one tap away at every width (Firia, 3:08 PM ET:
-          "reachable on phone"). Above 1280 the rail's own account block is this instead, and
-          the stylesheet hides this one: one identity entry point per width, never two.
-        */}
-        {account ? <AvatarMenu account={account} /> : null}
-      </header>
       <Suspense fallback={null}>
         <NoticeToast />
       </Suspense>
       <div className={styles.body}>
         <NavRail role={role} account={account} />
-        <Content id="content" className={pageOwnsMain ? styles.contentSlot : styles.main}>
-          {children}
-        </Content>
+        {/*
+          The content column: the page header bar, then the screen. The bar is the frame's — one
+          title, one place, every screen — and the screen below it brings its own body and
+          nothing above it (audit §2 item 1).
+        */}
+        <div className={styles.column}>
+          <PageHeader account={account} />
+          <Content id="content" className={pageOwnsMain ? styles.contentSlot : styles.main}>
+            {children}
+          </Content>
+        </div>
       </div>
       <TabBar role={role} />
     </div>

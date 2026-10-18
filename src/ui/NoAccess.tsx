@@ -51,7 +51,12 @@ export async function NoAccess({ path }: { path?: string }) {
         <p className={styles.icon}>
           <UserLock size={icon.nav} aria-hidden="true" />
         </p>
-        <h1 className={styles.heading}>{noRole ? noAccess.noRoleHeading : noAccess.heading}</h1>
+        {/*
+          An h2, not an h1: the page's one title is in the frame's header bar now
+          (src/ui/PageHeader.tsx), and the card's heading is the answer *inside* that page. Two
+          h1s on one screen is two titles, which is the thing audit §2 item 1 is about.
+        */}
+        <h2 className={styles.heading}>{noRole ? noAccess.noRoleHeading : noAccess.heading}</h2>
         {noRole ? <p className={styles.line}>{noAccess.noRoleLine}</p> : null}
         {!noRole && path ? <p className={styles.line}>{whoCanOpenLine(path)}</p> : null}
         <Link className={styles.link} href={home}>

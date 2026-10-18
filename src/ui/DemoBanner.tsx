@@ -1,17 +1,18 @@
-import { FlaskConical } from "lucide-react";
 import { endpointRow, API } from "@/auth/access";
 import type { StaffRole } from "@/auth/core";
 import { demoBanner } from "./copy";
-import { icon } from "./tokens";
 import { isSyntheticDemo } from "@/lib/env";
+import { DemoClock } from "./DemoClock";
 import { DemoRestart } from "./DemoRestart";
 import { ScreenSource } from "./ScreenSource";
 import styles from "./DemoBanner.module.css";
 
 /**
  * DESIGN-DIRECTION §7 / NFR-09 / REDESIGN-SPEC §0: a 32 px full-width violet bar above
- * everything, reading `DEMO · Synthetic data · [Simulated] ……… [Restart demo day]`. Icon
- * `flask-conical`, text exactly "DEMO" (COPY-GUIDE §6), role="status" with aria-label "DEMO"
+ * everything, reading
+ * `DEMO · Synthetic data · [Simulated] ……… [Scenario clock] [Restart demo day]`. Text exactly
+ * "DEMO" and **no icon before it** (COPY-GUIDE §6, audit §2 item 4 — the flask belonged to the
+ * §7.1 chip and the bar was wearing a second copy of it), role="status" with aria-label "DEMO"
  * too (ledger row 40 covers the screen-reader label), announced once on load. Not dismissible.
  *
  * The bar carries the one screen-level source-mode chip (§7.1, NFR-09) — Vera's answer,
@@ -35,8 +36,12 @@ export function DemoBanner({ role }: { role: StaffRole | null }) {
   if (!isSyntheticDemo()) return null;
   return (
     <div className={styles.banner}>
+      {/*
+        "DEMO", with no flask beside it. Audit §2 item 4: "the mockup reads exactly 'DEMO' then
+        'Synthetic data', with no icon before DEMO" — the flask is the §7.1 chip's own mark, and
+        the bar was wearing it a second time two words away from it.
+      */}
       <p className={styles.demo} role="status" aria-label={demoBanner.ariaLabel}>
-        <FlaskConical size={icon.banner} aria-hidden="true" />
         <span className={styles.text}>{demoBanner.text}</span>
       </p>
       {/* What the demo is. Dropped below 768 (REDESIGN-SPEC §0) — the stylesheet says why. */}
@@ -46,6 +51,12 @@ export function DemoBanner({ role }: { role: StaffRole | null }) {
         <ScreenSource />
       </div>
       <div className={styles.spacer} />
+      {/*
+        The scenario clock, at the trailing end and before the reset (Firia, 8:36 PM ET). It
+        draws itself only on the screen it moves — the live map — and the controls only for a
+        role that holds them (src/ui/DemoClock.tsx).
+      */}
+      <DemoClock role={role} />
       {canRestartDemo(role) ? <DemoRestart /> : null}
     </div>
   );
