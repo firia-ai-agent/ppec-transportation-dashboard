@@ -321,7 +321,8 @@ export default function PlanBoard({
    * ── "Start demo day": the same reset the DEMO bar calls, from the strip that is waiting on it ──
    *
    * And the same question in front of it (Vera's copy, 2026-10-18): a reset clears the saved plan
-   * for all three vans, so with a plan saved for today the press opens "Restart today?" first —
+   * for every van the day runs — `day.vans`, which is what the dialog's own sentence counts — so
+   * with a plan saved for today the press opens "Restart today?" first —
    * the one dialog and the one decision both controls share (src/ui/ConfirmRestart.tsx,
    * src/ui/restart-confirm.ts). "A plan is saved" is the version the server gave this board,
    * which is the same fact its own Save chip stands on; nothing new is read.
@@ -718,6 +719,12 @@ export default function PlanBoard({
         <ConfirmRestart
           onKeep={() => answerRestart("KEEP")}
           onRestart={() => answerRestart("RESTART")}
+          /*
+            How many vans the question is about, from this day's own van data rather than a
+            number in the copy (Veri's S2 on #79): these are the columns on screen, and a day
+            running two of them says "both vans".
+          */
+          vanCount={day.vans.length}
           busy={startingDay}
         />
       ) : null}

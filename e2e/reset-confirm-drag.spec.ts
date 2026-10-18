@@ -20,14 +20,22 @@
  * Van 1 — and the pass condition is Vera's: she lands, or she stays exactly where she was with a
  * reason on her card. A bounce to Unassigned fails, and so does a toast with no reason.
  *
+ * EVERY TEST SETS UP ITS OWN STATE, and there is no serial block and no order between them
+ * (#79's review). The board is stateful on one reused server, so each drag walk works on a date
+ * of its own (`DAY` below), and each walk of the question states the one fact it is about —
+ * today has a plan to lose, or today has none — before pressing anything.
+ *
  * No database and no credentials. On this server the board's store is the memory fallback
  * (src/modules/plan/memory.ts) and the session is the browser check's own — a role and no user
  * id (src/auth/caller.ts), which is why the reset endpoint can be *asked* here and cannot
  * succeed: `handleDemoReset` answers 401 without a user. That the rows are actually cleared is
- * src/modules/demo/reset.db.test.ts, against the real migrations.
+ * src/modules/demo/reset.db.test.ts, against the real migrations. The same fallback answers
+ * "started" for every date (`dayContext`), which is why the board's own "Start demo day" is not
+ * on any screen this check can open, and why the question is walked through the DEMO bar's
+ * control — the same dialog, the same decision, the same request.
  */
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { demoDay, flow, planBoard } from "../src/ui/copy";
+import { demoDay, planBoard } from "../src/ui/copy";
 import { API } from "../src/auth/access";
 import { boxOf, expectNoInternalCodes } from "./helpers";
 
@@ -40,15 +48,21 @@ const WIDE = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844 };
 
 /**
- * A date per walk. The board is a stateful screen on one reused server, so a plan saved by one
- * test would change what the next one opens on; a date is a URL parameter (§9.3).
+ * A DATE PER WALK, WHICH IS WHAT MAKES THESE TESTS INDEPENDENT OF EACH OTHER.
+ *
+ * The board is a stateful screen on one reused server, so a plan saved by one test would change
+ * what the next one opens on. A date is a URL parameter (§9.3) and a plan is stored per date and
+ * leg (`resolveDate` in src/modules/plan/when.ts takes any real date; the plan's key is
+ * `date/leg`), so a test with a date of its own opens a board nothing else has touched — in any
+ * order, and run alone.
+ *
+ * The walks of the question are not in here: the DEMO bar's control is about *today* and reads
+ * today (src/ui/restart-confirm.ts `savedPlanToday`), so each of them states today's own state.
  */
 const DAY = {
   drag: "2026-12-01",
   dragPhone: "2026-12-02",
   parity: "2026-12-03",
-  keep: "2026-12-04",
-  restart: "2026-12-05",
 };
 
 const boardUrl = (day: string) => `/plan-routes?date=${day}&leg=pm`;
@@ -74,22 +88,6 @@ async function savedPlanOf(
   const response = await page.request.get(`${API.planBoard}?date=${day}&leg=pm`);
   expect(response.status()).toBe(200);
   return (await response.json()) as never;
-}
-
-/**
- * "Start demo day" — the board's own strip (plan-board.html's banner row), through the confirm
- * when there is a plan to lose. Returns whether the question was asked.
- */
-async function startDay(page: Page): Promise<boolean> {
-  const start = page.locator("[data-start-day]");
-  if ((await start.count()) === 0) return false;
-  await start.click();
-  const dialog = page.locator("[data-restart-confirm]");
-  if ((await dialog.count()) === 0) return false;
-  await expect(dialog).toContainText(demoDay.confirm.title);
-  await page.locator("[data-restart-go]").click();
-  await expect(dialog).toHaveCount(0);
-  return true;
 }
 
 /**
@@ -158,7 +156,11 @@ test.beforeEach(async ({ page }) => {
 
 /* ───────────────────────────── the S1 drop ───────────────────────────── */
 
-test.describe.serial("S1: Zoe B. onto Van 1", () => {
+/**
+ * Three walks, three dates, no order between them: each opens a board of its own (see `DAY`), so
+ * one of them failing says nothing about the other two and any one can be run alone.
+ */
+test.describe("S1: Zoe B. onto Van 1", () => {
   test.skip(!CONSOLE_ROLE, "the board is not this role's screen");
 
   /**
@@ -167,7 +169,6 @@ test.describe.serial("S1: Zoe B. onto Van 1", () => {
    */
   test("lands on Van 1 at 1440, and stays there after Save and a reload", async ({ page }) => {
     await openBoard(page, DAY.drag);
-    await startDay(page);
     const vanOne = vans(page).first();
     await expect(vanOne).toHaveAttribute("aria-label", "Van 1");
 
@@ -217,7 +218,6 @@ test.describe.serial("S1: Zoe B. onto Van 1", () => {
   }) => {
     await page.setViewportSize(PHONE);
     await openBoard(page, DAY.dragPhone);
-    await startDay(page);
     const vanOne = vans(page).first();
     const vanOneLabel = (await vanOne.getAttribute("aria-label")) ?? "Van 1";
     // The switcher lists all three vans at this width even though one column is drawn.
@@ -260,7 +260,6 @@ test.describe.serial("S1: Zoe B. onto Van 1", () => {
    */
   test("the drag and Auto-plan give the same answer for her", async ({ page }) => {
     await openBoard(page, DAY.parity);
-    await startDay(page);
     const token = await card(page, "Zoe B.").getAttribute("data-rider");
 
     // 1. What Auto-plan says, on a day nobody has touched.
@@ -286,7 +285,25 @@ test.describe.serial("S1: Zoe B. onto Van 1", () => {
 
 /* ───────────────────────── the question before a reset ───────────────────────── */
 
-test.describe.serial("S1: Restart today?", () => {
+/**
+ * NOT SERIAL, AND NOTHING HANDED ON — every test here puts the server into the state it is about.
+ *
+ * #79's blocker was the shape rather than the assertions: the first test pressed "Start demo day"
+ * on a board that had just saved a plan, and those two cannot both be true. The strip only offers
+ * Start while the day has *not* been started (lines.ts `boardBanner`), and a day that has not
+ * started has no riders to plan and a disabled Save — so the test could never pass, and because
+ * the block was `describe.serial` the three after it never ran at all.
+ *
+ * So the question is walked through the control this server actually draws: the DEMO bar's
+ * "Restart demo day", on today, which is the day that control is about. The board's own "Start
+ * demo day" is the *same* decision and the same request — one module, src/ui/restart-confirm.ts,
+ * and one dialog — and it cannot be pressed in this browser check at all: the memory store the
+ * check runs on answers "started" for every date it is asked about
+ * (src/modules/plan/memory.ts `dayContext`), so the strip never has a Start to offer. What that
+ * decision does for each answer is src/ui/restart-confirm.test.ts, which is where "a press with
+ * nothing saved sends straight away" is proved for both controls at once.
+ */
+test.describe("S1: Restart today?", () => {
   test.skip(!CONSOLE_ROLE, "the board is not this role's screen");
 
   /** Every request this page made to the reset, so "sends nothing" is a count and not a vibe. */
@@ -300,115 +317,170 @@ test.describe.serial("S1: Restart today?", () => {
     return () => urls.length;
   }
 
-  /** Auto-plan and Save, so the day has a plan a reset would throw away. */
-  async function saveAPlan(page: Page, day: string): Promise<number> {
-    await page.locator("[data-auto-plan]").click();
-    await page.locator("[data-save]").click();
-    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
-    const saved = await savedPlanOf(page, day);
-    expect(saved.version).toBeGreaterThan(0);
-    return saved.version;
+  /**
+   * The leg `/plan-routes` opens with no `?leg=` in the address: Morning (`resolveLeg`, Firia's
+   * 1:34 AM ET ruling). The board on screen below is this leg's, so the plan these tests save and
+   * read is this leg's too — and the bar's control reads *both* legs (src/ui/restart-confirm.ts
+   * `savedPlanToday`), so a plan on this one is a plan for it to ask about.
+   */
+  const TODAY_LEG = "am";
+
+  /** Today's saved version on one leg, through the read-only board route the board itself reads. */
+  async function savedToday(page: Page, leg: string = TODAY_LEG): Promise<number> {
+    const response = await page.request.get(`${API.planBoard}?leg=${leg}`);
+    expect(response.status()).toBe(200);
+    return ((await response.json()) as { version: number }).version;
   }
 
   /**
-   * MOCKUP: mockups/plan-board.html (the banner row above the columns, whose one control is
-   * "Start demo day") + png/plan-board.png.
-   */
-  test("Start demo day asks first, and Keep plan sends nothing", async ({ page }) => {
-    test.skip(!CAN_RESET, "the reset is the director's, and so is the button for it");
-    await openBoard(page, DAY.keep);
-    const resets = countResets(page);
-    const version = await saveAPlan(page, DAY.keep);
-
-    const start = page.locator("[data-start-day]");
-    await expect(start).toHaveText(flow.action.startDemo);
-    await start.click();
-
-    // Vera's words, verbatim, and the safe answer holding the focus.
-    const dialog = page.locator("[data-restart-confirm]");
-    await expect(dialog).toContainText(demoDay.confirm.title);
-    await expect(dialog).toContainText(demoDay.confirm.body);
-    await expect(page.locator("[data-restart-keep]")).toBeFocused();
-    expect(resets(), "the question alone sends nothing").toBe(0);
-
-    // Keep plan: the dialog closes, nothing is sent, and the plan is still saved.
-    await page.locator("[data-restart-keep]").click();
-    await expect(dialog).toHaveCount(0);
-    expect(resets(), "Keep plan sends no reset").toBe(0);
-    expect((await savedPlanOf(page, DAY.keep)).version).toBe(version);
-    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
-
-    // And Escape is the same answer (§9: the safe one is the default, three ways over).
-    await start.click();
-    await expect(dialog).toContainText(demoDay.confirm.title);
-    await page.keyboard.press("Escape");
-    await expect(dialog).toHaveCount(0);
-    expect(resets(), "Escape sends no reset either").toBe(0);
-    expect((await savedPlanOf(page, DAY.keep)).version).toBe(version);
-  });
-
-  /**
-   * MOCKUP: mockups/plan-board.html (the same banner row) + png/plan-board.png.
+   * Today's board with a plan saved on it — this test's own precondition, built by the screen's
+   * own Auto-plan and Save and by nothing else.
    *
-   * "Restart" is the one answer that sends. Whether the rows are then cleared is not assertable
-   * on this server and is asserted where it is real: the browser check's session has a role and
-   * **no user id** (src/auth/caller.ts — "nothing that writes can accept it"), so the endpoint
-   * answers 401 to it by construction, and the reset's own effect is
-   * src/modules/demo/reset.db.test.ts against the real migrations.
+   * Saves only when this leg has nothing saved yet. A plan an earlier test (or an earlier spec)
+   * saved is the same precondition, and the board correctly disables Save when what is on screen
+   * is already what is stored, so pressing it again would be a wait on a button that is right to
+   * be disabled. Either way the version it returns is the one the assertions compare against, and
+   * the board on screen is showing it.
    */
-  test("Restart sends the reset, once", async ({ page }) => {
-    test.skip(!CAN_RESET, "the reset is the director's, and so is the button for it");
-    await openBoard(page, DAY.restart);
-    const resets = countResets(page);
-    await saveAPlan(page, DAY.restart);
-
-    await page.locator("[data-start-day]").click();
-    const dialog = page.locator("[data-restart-confirm]");
-    await expect(dialog).toContainText(demoDay.confirm.title);
-    await page.locator("[data-restart-go]").click();
-    await expect(dialog).toHaveCount(0);
-    await expect.poll(resets, { message: "Restart posts the reset" }).toBe(1);
-  });
-
-  /**
-   * MOCKUP: mockups/shell-flow.html (`.demo .reset` at the bar's right-hand end, drawn the same
-   * way in plan-board.html:265) + png/shell-flow-1440.png.
-   *
-   * The bar's control is the same question in the same words: one dialog, one decision, two
-   * buttons that are deliberately nowhere near each other.
-   */
-  test("the DEMO bar's Restart demo day asks the same question", async ({ page }) => {
-    test.skip(!CAN_RESET, "the bar draws this control for the director alone (REDESIGN-SPEC §0)");
-    // Today's own board, because the bar's control is about today and says so.
+  async function todayWithAPlan(page: Page): Promise<number> {
     await page.goto("/plan-routes");
     await expect(page.getByRole("heading", { name: planBoard.heading, level: 1 })).toBeVisible();
-    const resets = countResets(page);
-    await page.locator("[data-auto-plan]").click();
-    await page.locator("[data-save]").click();
+    await expect(vans(page)).toHaveCount(3);
+    if ((await savedToday(page)) === 0) {
+      await page.locator("[data-auto-plan]").click();
+      await page.locator("[data-save]").click();
+    }
     await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
+    const version = await savedToday(page);
+    expect(version, "today has a plan a reset would throw away").toBeGreaterThan(0);
+    return version;
+  }
 
+  /**
+   * The bar's control, pressed, and the question it opens — in Vera's words, with the body
+   * counting the vans this day runs rather than a number somebody typed (Veri's S2 on #79): the
+   * count is the van columns on the board behind the dialog, and `demoDay.confirm.body` is the
+   * one place the sentence is made.
+   */
+  async function askThroughTheBar(page: Page): Promise<Locator> {
     const bar = page.locator("[data-demo-restart]");
     await expect(bar).toContainText(demoDay.restart);
     await bar.click();
     const dialog = page.locator("[data-restart-confirm]");
     await expect(dialog).toContainText(demoDay.confirm.title);
-    await expect(dialog).toContainText(demoDay.confirm.body);
+    await expect(dialog).toContainText(demoDay.confirm.body(await vans(page).count()));
+    return dialog;
+  }
+
+  /**
+   * MOCKUP: mockups/shell-flow.html (`.demo .reset` at the bar's right-hand end, drawn the same
+   * way in plan-board.html:265) + png/shell-flow-1440.png — and the board behind it,
+   * mockups/plan-board.html + png/plan-board.png, whose three van columns the body counts.
+   *
+   * The safe answer, by the button and by Escape (the scrim is the same callback —
+   * src/ui/ConfirmRestart.tsx). Neither sends anything, and the plan is still saved afterwards,
+   * which is the whole claim of this commit.
+   */
+  test("Keep plan closes the question, sends nothing, and keeps the plan", async ({ page }) => {
+    test.skip(!CAN_RESET, "the bar draws this control for the director alone (REDESIGN-SPEC §0)");
+    const version = await todayWithAPlan(page);
+    const resets = countResets(page);
+
+    const dialog = await askThroughTheBar(page);
+    // The safe answer holds the focus, so Enter is Keep plan too (§9).
     await expect(page.locator("[data-restart-keep]")).toBeFocused();
+    expect(resets(), "the question alone sends nothing").toBe(0);
 
     await page.locator("[data-restart-keep]").click();
     await expect(dialog).toHaveCount(0);
-    expect(resets(), "Keep plan on the bar sends no reset").toBe(0);
-    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
+    expect(resets(), "Keep plan sends no reset").toBe(0);
+    expect(await savedToday(page), "Keep plan kept the plan").toBe(version);
+    await expect(page.locator("[data-save-state]"), "the board still says it is saved").toHaveText(
+      /^Saved /,
+    );
 
-    // The two controls are not adjacent and not alike: the bar's is inside the DEMO bar, the
-    // board's is a word in its banner sentence.
-    const barBox = await boxOf(bar);
+    // And Escape is that same answer, on a dialog opened again from scratch.
+    await askThroughTheBar(page);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    expect(resets(), "Escape sends no reset either").toBe(0);
+    expect(await savedToday(page), "Escape kept the plan").toBe(version);
+
+    /*
+     * And while both are on this screen: the two restart controls are deliberately nowhere near
+     * each other (the review's ask). The bar's is a pill in the violet chrome at the top of the
+     * window; anything the board's own strip carries is below it, in the page.
+     */
+    const barBox = await boxOf(page.locator("[data-demo-restart]"));
     const strip = page.locator("[data-banner]");
     if ((await strip.count()) > 0) {
       const stripBox = await boxOf(strip);
       expect(barBox.y + barBox.height).toBeLessThanOrEqual(stripBox.y);
     }
-    expect(await page.locator("[data-start-day]").count()).toBeLessThanOrEqual(1);
+    await expectNoInternalCodes(page);
+  });
+
+  /**
+   * MOCKUP: mockups/shell-flow.html (the same control at the bar's right-hand end) +
+   * png/shell-flow-1440.png.
+   *
+   * "Restart" is the one answer that sends, and it sends once. Whether the rows are then cleared
+   * is not assertable on this server and is asserted where it is real: the browser check's
+   * session has a role and **no user id** (src/auth/caller.ts), so `handleDemoReset` answers 401
+   * to it by construction, and the reset's own effect is src/modules/demo/reset.db.test.ts
+   * against the real migrations.
+   */
+  test("Restart sends the reset, once", async ({ page }) => {
+    test.skip(!CAN_RESET, "the bar draws this control for the director alone (REDESIGN-SPEC §0)");
+    await todayWithAPlan(page);
+    const resets = countResets(page);
+
+    const dialog = await askThroughTheBar(page);
+    await page.locator("[data-restart-go]").click();
+    await expect(dialog).toHaveCount(0);
+    await expect.poll(resets, { message: "Restart posts the reset" }).toBe(1);
+    // The answer is back — the control is pressable again, whichever answer it was — and the
+    // press is still one request and not two.
+    await expect(page.locator("[data-demo-restart]")).toBeEnabled();
+    expect(resets(), "one press, one request").toBe(1);
+  });
+
+  /**
+   * MOCKUP: mockups/shell-flow.html + png/shell-flow-1440.png (the bar's control), which is the
+   * press "Start demo day" makes in mockups/plan-board.html's banner row — one decision, shared.
+   *
+   * NOTHING SAVED IS NOTHING TO WARN ABOUT: the press goes straight through, exactly as it did
+   * before this commit, and no question is asked at all.
+   *
+   * The precondition is stated to the control rather than built on the server, and that is not a
+   * convenience: this server cannot be *put* back into "nothing saved for today". The reset is
+   * the only thing that clears a plan and it answers 401 here (above), so once any test has
+   * saved today's plan the state is one-way — and a test that only passed when it ran first is
+   * the fault this file was rewritten to remove. So the one read the decision is made from
+   * (`GET /api/plan`, no date, both legs) answers "no plan", and everything else is real: the
+   * real control, the real module, the real request, counted.
+   */
+  test("with nothing saved for today, the press asks nothing and resets once", async ({ page }) => {
+    test.skip(!CAN_RESET, "the bar draws this control for the director alone (REDESIGN-SPEC §0)");
+    await page.route(
+      (url) => url.pathname === API.planBoard && !url.searchParams.has("date"),
+      async (route) => {
+        await route.fulfill({ json: { version: 0, plan: {}, savedAt: null, savedBy: null } });
+      },
+    );
+    await page.goto("/plan-routes");
+    await expect(page.getByRole("heading", { name: planBoard.heading, level: 1 })).toBeVisible();
+    const resets = countResets(page);
+
+    await page.locator("[data-demo-restart]").click();
+    await expect.poll(resets, { message: "the press posts the reset" }).toBe(1);
+    /*
+     * And no question was asked. This is a count after the fact and still airtight: had the
+     * dialog opened, nobody answered it, so it would still be on screen and there would be no
+     * request at all.
+     */
+    await expect(page.locator("[data-restart-confirm]")).toHaveCount(0);
+    expect(resets(), "one press, one request").toBe(1);
   });
 
   /** The front desk sees neither control, and the endpoint refuses them too (§0). */

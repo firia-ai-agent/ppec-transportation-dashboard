@@ -24,7 +24,8 @@ import styles from "./DemoRestart.module.css";
  * that makes the server refuse them, rather than by a second list here.
  *
  * **It asks first when there is a plan to lose** (Vera's copy, 2026-10-18): a reset clears the
- * saved plan for all three vans, so a press with a plan saved for today opens "Restart today?"
+ * saved plan for every van the day runs, so a press with a plan saved for today opens
+ * "Restart today?"
  * and a press with nothing saved goes straight through, exactly as before. Both the question and
  * the decision are shared with the board's "Start demo day" — src/ui/ConfirmRestart.tsx and
  * src/ui/restart-confirm.ts — because the two controls call the same irreversible endpoint.
@@ -34,12 +35,16 @@ import styles from "./DemoRestart.module.css";
  * The addresses come from `API`, the one table that holds this app's endpoint paths, so no
  * screen file writes an `/api/…` string (src/ui/no-internals.test.ts holds that).
  *
+ * **How many vans it says the plan covers** is handed in rather than written down (Veri's S2 on
+ * #79): the bar is chrome in the root layout, so the count comes from the van data the layout
+ * reads (src/ui/DemoBar.tsx → src/ui/DemoBanner.tsx), and this file names no fleet size.
+ *
  * After a reset the day on screen is the old one, so the route is refreshed rather than
  * reloaded: the server components re-run and every screen under the bar is re-read. A refusal
  * says one line beside the button and leaves it pressable — there is nothing to recover from
  * and nothing to report.
  */
-export function DemoRestart() {
+export function DemoRestart({ vanCount }: { vanCount: number }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [failed, setFailed] = useState(false);
@@ -108,7 +113,11 @@ export function DemoRestart() {
         <span className={styles.label}>{busy ? demoDay.restarting : demoDay.restart}</span>
       </button>
       {step === "ASKING" ? (
-        <ConfirmRestart onKeep={() => answer("KEEP")} onRestart={() => answer("RESTART")} />
+        <ConfirmRestart
+          onKeep={() => answer("KEEP")}
+          onRestart={() => answer("RESTART")}
+          vanCount={vanCount}
+        />
       ) : null}
     </span>
   );

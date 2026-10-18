@@ -4,6 +4,7 @@ import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { API } from "@/auth/access";
+import { DAY_VANS } from "@/config/vans";
 import { ConfirmRestart } from "./ConfirmRestart";
 import { demoDay, flow } from "./copy";
 import { restartStep, savedPlanToday, sendDemoReset } from "./restart-confirm";
@@ -127,17 +128,96 @@ describe("'is a plan saved for today'", () => {
   });
 });
 
+/**
+ * HOW MANY VANS THE QUESTION IS ABOUT — Veri's S2 on #79.
+ *
+ * "all 3 vans" was typed into copy.ts, so the one irreversible question in the app was also the
+ * only place that still knew how big the fleet was. The sentence is a function of a count now,
+ * and the count comes from the van data each caller already holds: `day.vans` on the board, and
+ * the vans-on-the-road list the layout reads for the bar (src/config/vans.ts `DAY_VANS`, which is
+ * what both day sources build a day's vans from).
+ */
+describe("the body counts the day's vans", () => {
+  const dialog = (vanCount: number) =>
+    renderToStaticMarkup(
+      createElement(ConfirmRestart, { onKeep: () => {}, onRestart: () => {}, vanCount }),
+    );
+
+  it("names one van, two vans and three", () => {
+    // Not "all 1 vans" and not "all 2 vans": neither is English, and the dialog is a sentence.
+    expect(demoDay.confirm.body(1)).toBe("This clears the saved plan for the van.");
+    expect(demoDay.confirm.body(2)).toBe("This clears the saved plan for both vans.");
+    expect(demoDay.confirm.body(3)).toBe("This clears the saved plan for all 3 vans.");
+    // And on up, from the count alone: a fourth van cannot leave the line claiming three.
+    expect(demoDay.confirm.body(4)).toBe("This clears the saved plan for all 4 vans.");
+  });
+
+  /** A day with no vans still loses its saved plan, and says so without counting to zero. */
+  it("counts nothing on a day with no vans", () => {
+    expect(demoDay.confirm.body(0)).toBe("This clears the saved plan.");
+    expect(demoDay.confirm.body(-1)).toBe("This clears the saved plan.");
+    expect(demoDay.confirm.body(0)).not.toMatch(/\d/);
+  });
+
+  it("is the sentence the dialog draws, for the count it was handed", () => {
+    expect(dialog(1)).toContain(demoDay.confirm.body(1));
+    expect(dialog(2)).toContain(demoDay.confirm.body(2));
+    expect(dialog(3)).toContain(demoDay.confirm.body(3));
+    // One sentence at a time: the count it was given, and not one of the others.
+    expect(dialog(2)).not.toContain(demoDay.confirm.body(3));
+  });
+
+  /**
+   * And both callers take that count from their van data rather than writing one down. Read as
+   * source, because neither caller can be rendered in a worker (both read the router) — the same
+   * reason the two tests below this one read files.
+   */
+  it("is handed the van data's own count by both controls", () => {
+    const bar = code(read("DemoRestart.tsx"));
+    const board = code(
+      readFileSync(path.resolve(__dirname, "..", "app", "plan-routes", "board", "PlanBoard.tsx"), "utf8"),
+    );
+    // The board: this day's own columns, which is what the dialog's sentence is about.
+    expect(board).toMatch(/vanCount=\{day\.vans\.length\}/);
+    // The bar: chrome in the root layout, so the count is read there and handed down.
+    expect(bar).toMatch(/vanCount=\{vanCount\}/);
+    expect(code(read("DemoBanner.tsx"))).toMatch(/<DemoRestart vanCount=\{vanCount\} \/>/);
+    expect(code(read("DemoBar.tsx"))).toMatch(/vanCount=\{DAY_VANS\.length\}/);
+    // Nobody writes the fleet size down any more, in a sentence or in a prop.
+    for (const [name, source] of [
+      ["DemoRestart.tsx", bar],
+      ["PlanBoard.tsx", board],
+      ["ConfirmRestart.tsx", code(read("ConfirmRestart.tsx"))],
+      ["DemoBanner.tsx", code(read("DemoBanner.tsx"))],
+    ] as const) {
+      expect(source, name).not.toMatch(/all 3 vans|vanCount=\{\d/);
+    }
+  });
+});
+
 describe("the dialog, in Vera's words", () => {
   const html = renderToStaticMarkup(
-    createElement(ConfirmRestart, { onKeep: () => {}, onRestart: () => {} }),
+    createElement(ConfirmRestart, {
+      onKeep: () => {},
+      onRestart: () => {},
+      // The fleet the demo centre runs, from the config both day sources read: three.
+      vanCount: DAY_VANS.length,
+    }),
   );
 
   it("reads exactly what she wrote", () => {
     expect(demoDay.confirm.title).toBe("Restart today?");
-    expect(demoDay.confirm.body).toBe("This clears the saved plan for all 3 vans.");
+    expect(demoDay.confirm.body(DAY_VANS.length)).toBe("This clears the saved plan for all 3 vans.");
     expect(demoDay.confirm.keep).toBe("Keep plan");
     expect(demoDay.confirm.restart).toBe("Restart");
-    for (const line of Object.values(demoDay.confirm)) expect(html).toContain(line);
+    for (const line of [
+      demoDay.confirm.title,
+      demoDay.confirm.body(DAY_VANS.length),
+      demoDay.confirm.keep,
+      demoDay.confirm.restart,
+    ]) {
+      expect(html).toContain(line);
+    }
   });
 
   it("is a modal dialog, titled and described by its own two lines", () => {

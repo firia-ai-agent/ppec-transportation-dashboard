@@ -19,15 +19,28 @@ import styles from "./ConfirmRestart.module.css";
  *
  * "Restart" is coral, which is what coral is for and the only thing it is for (src/ui/tokens.ts
  * `alert`, "a fill with `ink` on it and never text of its own").
+ *
+ * The one thing it is told rather than knows: how many vans the day has, which is what the body
+ * sentence is about (`demoDay.confirm.body`). It comes from the caller's van data, so neither the
+ * dialog nor the copy has a fleet size written down in it.
  */
 export function ConfirmRestart({
   onKeep,
   onRestart,
+  vanCount,
   busy = false,
 }: {
   /** "Keep plan", Escape, or the scrim: close, and send nothing. */
   onKeep: () => void;
   onRestart: () => void;
+  /**
+   * How many vans the day runs, so the body names them rather than claiming a number
+   * (Veri's S2 on #79). Required, and from the caller's own van data: the board passes
+   * `day.vans.length`, the DEMO bar the day's vans from the config every day source reads
+   * (src/config/vans.ts `DAY_VANS`). No default — a dialog that guessed the fleet size is the
+   * thing this prop exists to stop.
+   */
+  vanCount: number;
   /** The reset is already in flight, so neither answer can be given twice. */
   busy?: boolean;
 }) {
@@ -64,7 +77,7 @@ export function ConfirmRestart({
           {demoDay.confirm.title}
         </h2>
         <p className={styles.body} id="restart-confirm-body">
-          {demoDay.confirm.body}
+          {demoDay.confirm.body(vanCount)}
         </p>
         <div className={styles.actions}>
           <button
