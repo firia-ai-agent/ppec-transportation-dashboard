@@ -59,6 +59,7 @@ const DAY = {
   autoplan: "2026-11-18",
   conflict: "2026-11-19",
   legs: "2026-11-20",
+  dragPhone: "2026-11-21",
 };
 
 /*
@@ -243,6 +244,24 @@ const card = (page: Page, name: string): Locator =>
   page.locator("[data-rider]").filter({ hasText: name }).first();
 const announced = (page: Page): Locator => page.locator("[data-announce]");
 
+/**
+ * The plan as the server has it, through the read-only board route (`GET /api/plan`, the same
+ * one the board itself reads). Nothing here writes: it is how a test says "and the rows did not
+ * change" without reaching past the app into a database.
+ */
+async function savedPlanOf(
+  page: Page,
+  day: string,
+): Promise<{ version: number; plan: Record<string, { bucket: string; vanId: string | null }> }> {
+  const response = await page.request.get(`/api/plan?date=${day}&leg=pm`);
+  expect(response.status()).toBe(200);
+  const body = (await response.json()) as {
+    version: number;
+    plan: Record<string, { bucket: string; vanId: string | null }>;
+  };
+  return { version: body.version, plan: body.plan };
+}
+
 async function openBoard(page: Page, day: string): Promise<void> {
   await page.goto(boardUrl(day));
   await expect(page.getByRole("heading", { name: planBoard.heading, level: 1 })).toBeVisible();
@@ -293,13 +312,39 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
     await expect(chip).toHaveAttribute("href", /\/ramp-ipad\?date=\d{4}-\d{2}-\d{2}&leg=pm&van=/);
   });
 
+  /**
+   * A VAN WITH NO SPOT **LEFT** — "Firia 8:02 PM seed ruling, exactly three generic vans"
+   * (d1334d2; the three are src/modules/demo/fixtures/standard.ts:320 `VEHICLES`).
+   *
+   * Van 3 used to be a sedan with no wheelchair place and no lift, so one chair was refused by
+   * what the van *was*. All three vans are the same generic van now — one wheelchair spot each,
+   * every one of them lift-equipped — so the refusal is made of counts: the spot is filled first,
+   * on screen, by dragging a chair rider into it, and the second chair is the one that will not
+   * fit. Nothing is seeded and no endpoint is posted to: the board does both moves.
+   */
   test("a chair over the van with no spot is refused, and the card goes back", async ({ page }) => {
     await openBoard(page, DAY.drag);
-    await page.locator("[data-auto-plan]").click();
     const vanThree = vans(page).nth(2);
-    const before = await vanThree.locator("[data-rider]").count();
+    const spots = vanThree.locator('[data-counter="wheelchairSpots"]');
+    // The van starts with its one spot free — the day is not auto-planned, so what fills it is
+    // the drag below and nothing else.
+    await expect(spots).toContainText("0/1");
+    const empty = await vanThree.locator("[data-rider]").count();
 
-    // Noah B. rides in his own chair; Van 3 has no wheelchair spot and no lift.
+    // 1. Zoe B. rides in her own chair, and a real drag puts her in the van's only spot.
+    await liftOver(page, card(page, "Zoe B."), vanThree);
+    await expect(vanThree).toHaveAttribute("data-fit", "yes");
+    await page.mouse.up();
+    await expect(vanThree.locator("[data-rider]").filter({ hasText: "Zoe B." })).toHaveCount(1);
+    await expect(vanThree.locator("[data-rider]")).toHaveCount(empty + 1);
+    await expect(spots).toContainText("1/1");
+
+    // The plan as the server has it, before the refused move: a draft is not a write (option A),
+    // so this is read back unchanged afterwards (the read-only board route, GET /api/plan).
+    const planBefore = await savedPlanOf(page, DAY.drag);
+
+    // 2. Noah B. rides in his own chair too, and the spot is gone.
+    const before = await vanThree.locator("[data-rider]").count();
     await liftOver(page, card(page, "Noah B."), vanThree);
     await expect(vanThree).toHaveAttribute("data-fit", "no");
     await expect(vanThree.locator("[data-reject-chip]")).toHaveText(planBoard.reject.WHEELCHAIR);
@@ -308,25 +353,62 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
 
     // Nothing moved, and the refusal was said as a sentence rather than only drawn.
     await expect(vanThree.locator("[data-rider]")).toHaveCount(before);
+    await expect(vanThree.locator("[data-rider]").filter({ hasText: "Noah B." })).toHaveCount(0);
     await expect(announced(page)).toContainText("Noah B.");
     await expect(announced(page)).toContainText(planBoard.rejectThing.WHEELCHAIR);
+    await expect(spots).toContainText("1/1");
 
-    /*
-     * The same refusal at 390, where there is no cross-column drag to make: a phone moves a
-     * child with `Move to…` (§9.3), and the refusal comes back the same way — nobody moves, and
-     * the reason is announced. The shot is the phone's rendering of that refusal.
-     */
+    // 3. And in the data: the refused move wrote nothing. Same version, same rows.
+    expect(await savedPlanOf(page, DAY.drag)).toEqual(planBefore);
+
+    // …and when the draft **is** saved, the save is the one move that landed: Zoe is in Van 3
+    // and Noah is in no van at all, because a refusal cannot be saved by pressing Save.
+    await page.locator("[data-save]").click();
+    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
+    const saved = await savedPlanOf(page, DAY.drag);
+    const vanThreeId = await vanThree.getAttribute("data-van");
+    const zoe = await card(page, "Zoe B.").getAttribute("data-rider");
+    const noah = await page
+      .locator('[data-role="unassigned"] [data-rider]')
+      .filter({ hasText: "Noah B." })
+      .getAttribute("data-rider");
+    expect(saved.plan[zoe ?? ""]).toMatchObject({ bucket: "VAN", vanId: vanThreeId });
+    expect(saved.plan[noah ?? ""]?.bucket).not.toBe("VAN");
+  });
+
+  /**
+   * The same refusal at 390, where there is no cross-column drag to make: a phone moves a child
+   * with `Move to…` (§9.3), and the refusal comes back the same way — nobody moves, and the
+   * reason is announced. The van's one spot is filled the same way first, through the sheet, so
+   * what refuses the second chair is a count a person can see (the 3-van rule, d1334d2).
+   */
+  test("at 390 the same chair is refused by Move to…, once the spot is taken", async ({ page }) => {
     await page.setViewportSize(PHONE);
-    await page.reload();
-    // Nobody is placed yet on a fresh load, so Noah B. is in the Unassigned column, which is the
-    // one a phone opens on — no switching, and the card is on screen to act on.
-    const noah = card(page, "Noah B.");
-    const token = await noah.getAttribute("data-rider");
+    // Its own day, with nothing saved on it: both chair riders start in Unassigned, which is
+    // the column a phone opens on, so both cards are on screen to act on.
+    await openBoard(page, DAY.dragPhone);
+    const vanThreeName = (await vans(page).nth(2).getAttribute("aria-label")) ?? "Van 3";
+
+    // The spot is filled on screen first: Zoe B., by the control a phone has.
+    const zoe = card(page, "Zoe B.");
+    const zoeToken = await zoe.getAttribute("data-rider");
+    await page.locator(`[data-move-to="${zoeToken}"]`).selectOption({ label: vanThreeName });
+    await expect(
+      vans(page).nth(2).locator("[data-rider]").filter({ hasText: "Zoe B." }),
+    ).toHaveCount(1);
+    await expect(vans(page).nth(2).locator('[data-counter="wheelchairSpots"]')).toContainText("1/1");
+
     // At 390 the `Move to…` select is on every card already (§9.3), so it is used directly:
     // the right-click that reveals it on a wide screen is a pointer affordance, not the control.
-    const vanThreeName = await vans(page).nth(2).getAttribute("aria-label");
-    await page.locator(`[data-move-to="${token}"]`).selectOption({ label: vanThreeName ?? "Van 3" });
+    const noah = card(page, "Noah B.");
+    const token = await noah.getAttribute("data-rider");
+    await page.locator(`[data-move-to="${token}"]`).selectOption({ label: vanThreeName });
+    await expect(announced(page)).toContainText("Noah B.");
     await expect(announced(page)).toContainText(planBoard.rejectThing.WHEELCHAIR);
+    // Nobody moved: the second chair is still where it was.
+    await expect(
+      vans(page).nth(2).locator("[data-rider]").filter({ hasText: "Noah B." }),
+    ).toHaveCount(0);
     await review(page, "board-dragreject");
     await page.setViewportSize(WIDE);
   });
