@@ -32,7 +32,7 @@ import { TEST_NOW } from "@/test/clock";
 import { seedPersona, seedStaff } from "@/test/messaging";
 import { freshDb, ORG, SITE } from "@/test/pglite";
 import { decideApproval, pendingApprovals } from "./decide";
-import type { SetChildPlacement, SetChildPlacementInput } from "./plan-placement-port";
+import type { PlanPlacementPortFor, SetChildPlacementInput } from "./plan-placement-port";
 
 let pg: PGlite;
 let db: Db;
@@ -126,22 +126,37 @@ async function seedProposal(
 }
 
 /**
- * The board's placement writer, faked (`plan-placement-port.ts`).
+ * The board's plan port, faked (`plan-placement-port.ts`).
  *
- * Every approval that is expected to *land* is handed one, because the real one is on another
- * branch and an approval with no writer refuses by design (Firia's gap-5 ruling). The recorder is
- * what `plan-placement.test.ts` asserts against; here it is the thing that lets the rest of the
- * file go on testing the decision, the version guard and the queued text.
+ * The real one is proved against the real tables in `plan-placement.test.ts`; here it is a
+ * recorder, so that this file can go on testing what it is about — the decision, the role, the
+ * version guard and the queued text — without a seeded board behind every case. An approval the
+ * board refuses is also its own case there (Firia's gap-5 ruling: it rolls everything back).
  */
 let placements: SetChildPlacementInput[] = [];
-const fakePlacement: SetChildPlacement = async (input) => {
-  placements.push(input);
-  return { ok: true, planVersion: input.expectedVersion + 1 };
-};
+const fakePlacement: PlanPlacementPortFor = () => ({
+  currentPlacement: async () => ({ bucket: "VAN", vehicleId: FAKE_VAN, version: 7 }),
+  setChildPlacement: async (input) => {
+    placements.push(input);
+    return { ok: true, version: input.expectedVersion + 1 };
+  },
+});
+
+/** The plan this fake says the child is already in. Any id: nothing here reads a real van. */
+const FAKE_VAN = "00000000-0000-7000-8000-0000000000f1";
+
+/** The same port, refusing the way the board refuses a plan that moved. */
+const refusingPlacement: PlanPlacementPortFor = () => ({
+  currentPlacement: async () => ({ bucket: "VAN", vehicleId: FAKE_VAN, version: 7 }),
+  setChildPlacement: async (input) => {
+    placements.push(input);
+    return { ok: false, reason: "CHANGED" };
+  },
+});
 
 const decide = (
   over: Partial<Parameters<typeof decideApproval>[2]>,
-  placement: SetChildPlacement | null = fakePlacement,
+  placement: PlanPlacementPortFor = fakePlacement,
 ) =>
   decideApproval(
     db,

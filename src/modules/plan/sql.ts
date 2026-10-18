@@ -75,6 +75,31 @@ function toSetupRow(row: SetupDbRow): SetupRow {
 }
 
 export function sqlPlanStore(db: Db): PlanStore {
+  return { ...storeOver(db), savePlan: (siteId, input) => db.tx((tx) => savePlanIn(tx, siteId, input)) };
+}
+
+/**
+ * The same store over a transaction that is **already open**: `savePlan` joins it instead of
+ * opening one of its own.
+ *
+ * For a caller whose plan write is one step of a larger decision that has to commit or roll back
+ * as a whole — the approvals path (`modules/approvals/plan-placement-port.ts`): a coordinator
+ * approving a drop-off change claims the approval, moves the ride and saves the plan, and a plan
+ * saved while the rest rolled back would be a plan nobody asked for. `savePlanIn` has always
+ * taken an `Exec` for exactly this reason; this is the constructor that hands it one.
+ *
+ * It takes an `Exec` and not a `Db` on purpose: a store built over a transaction cannot start
+ * another one, and the type is what says so.
+ */
+export function sqlPlanStoreIn(tx: Exec): PlanStore {
+  return { ...storeOver(tx), savePlan: (siteId, input) => savePlanIn(tx, siteId, input) };
+}
+
+/**
+ * Everything but the save, which is the same whether or not a transaction is open: these are
+ * single statements, and a single statement is its own transaction.
+ */
+function storeOver(db: Exec): PlanStore {
   return {
     async setupRows(siteId, date, vehicleIds) {
       if (vehicleIds.length === 0) return [];
@@ -115,8 +140,9 @@ export function sqlPlanStore(db: Db): PlanStore {
       return loadPlanWith(db, siteId, date, direction);
     },
 
-    async savePlan(siteId, input) {
-      return db.tx(async (tx) => savePlanIn(tx, siteId, input));
+    /** Replaced by both constructors above; a bare `storeOver` is never handed out. */
+    savePlan() {
+      throw new Error("savePlan: use sqlPlanStore or sqlPlanStoreIn");
     },
 
     async dayContext(siteId, date) {

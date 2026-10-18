@@ -42,7 +42,7 @@ import type { Db } from "@/db/exec";
 import { APPROVAL_ROLES } from "@/auth/access";
 import { DROPOFF_CHANGE_KIND } from "@/modules/agent/run/exec/proposals";
 import { decideApproval } from "@/modules/approvals/decide";
-import type { SetChildPlacement, SetChildPlacementInput } from "@/modules/approvals/plan-placement-port";
+import type { PlanPlacementPortFor, SetChildPlacementInput } from "@/modules/approvals/plan-placement-port";
 import { demoChildToken, demoLegId } from "@/modules/demo/fixtures/standard";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { TEST_NOW } from "@/test/clock";
@@ -60,10 +60,18 @@ let placements: SetChildPlacementInput[];
 const legId = demoLegId("C2", "PM");
 const childToken = demoChildToken("C2");
 
-const placement: SetChildPlacement = async (input) => {
-  placements.push(input);
-  return { ok: true, planVersion: input.expectedVersion + 1 };
-};
+/** A working plan port, so a refusal below is about the role and never about the plan. */
+const placement: PlanPlacementPortFor = () => ({
+  currentPlacement: async () => ({
+    bucket: "VAN",
+    vehicleId: "00000000-0000-7000-8000-0000000000f1",
+    version: 7,
+  }),
+  setChildPlacement: async (input) => {
+    placements.push(input);
+    return { ok: true, version: input.expectedVersion + 1 };
+  },
+});
 
 /** The caller the action sees. Replaced per test; the database membership is seeded to match. */
 const caller = vi.fn();

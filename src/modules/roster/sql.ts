@@ -23,7 +23,7 @@
  * Site-scoped and parameterised, like every other statement in this app.
  */
 import { VANS, defaultSetupOf, vanColourToken, vanNameOf } from "@/config/vans";
-import type { Db } from "@/db/exec";
+import type { Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import type { DayDataSource, DayRider, DayVan, OtherChild } from "@/domain/day/source";
 import { needsFromCategories } from "@/domain/plan/needs";
@@ -50,7 +50,12 @@ function configuredVans(): { id: string; key: string; slot: number }[] {
   );
 }
 
-export function sqlDaySource(db: Db, siteId: string): DayDataSource {
+/**
+ * Takes an `Exec` and not a `Db`: every statement here is a read, so it works just as well inside
+ * a transaction a caller has opened as on its own — which is what lets the approvals path read the
+ * day and write the plan in one transaction (`modules/approvals/plan-placement-port.ts`).
+ */
+export function sqlDaySource(db: Exec, siteId: string): DayDataSource {
   /** The roster, once per call: one query for the children and one for their approved needs. */
   async function roster(): Promise<{ children: ChildRow[]; needs: Map<string, Set<string>> }> {
     const children = await db.query<ChildRow>(

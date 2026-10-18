@@ -22,13 +22,13 @@
  * instead of the roles of some page: `/exceptions` is being redesigned away, and a permission
  * read off a route is a permission a route change can move.
  *
- * ## The plan writer it does not have
+ * ## The plan it saves
  *
- * `placement: null`. The board's `setChildPlacement` is on another branch (see
- * `modules/approvals/plan-placement-port.ts`), so an approval cannot save a plan yet and
- * therefore refuses: nothing claimed, nothing queued, and `approval.planNotSaved` on screen.
- * Firia's gap-5 ruling — fail safe, never a fake success. When that branch lands, this is the one
- * line that changes.
+ * An approved change or cancel saves a new plan version through the board's own
+ * `setChildPlacement` (`modules/approvals/plan-placement-port.ts`) — this file passes no writer of
+ * its own, so the default `decideApproval` uses is that one and there is no second path into
+ * `plan_run` / `plan_assignment`. If the board refuses, the whole decision rolls back and the
+ * family is not texted (Firia's gap-5 ruling: fail safe, never a fake success).
  */
 import { revalidatePath } from "next/cache";
 import { APPROVAL_ROLES } from "@/auth/access";
@@ -99,7 +99,6 @@ export async function decideApprovalAction(
       editedTime: typed === "" ? null : typed,
       now: new Date(),
     },
-    { placement: null },
   );
 
   if (!answer.body.ok) return { status: "refused", message: REFUSALS[answer.body.error] };

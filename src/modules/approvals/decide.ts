@@ -59,7 +59,8 @@
 import { Forbidden, SiteNotFound, Unauthenticated, requireSiteAccess } from "@/auth/core";
 import { approvalRoles } from "@/auth/access";
 import type { Db, Exec } from "@/db/exec";
-import type { PlacementBucket, SetChildPlacement } from "./plan-placement-port";
+import type { Direction } from "@/domain/day/leg";
+import { boardPlacementPort, type PlacementBucket, type PlanPlacementPortFor } from "./plan-placement-port";
 import { DROPOFF_CHANGE_KIND } from "@/modules/agent/run/exec/proposals";
 import { SITE_TIME_ZONE } from "@/ui/service-date";
 import { renderTemplate } from "@/modules/messaging/templates";
@@ -207,9 +208,12 @@ export type DecideError =
   | "PLAN_MOVED"
   | "NOT_A_TIME"
   /**
-   * The plan could not be saved — including the case where there is nothing to save it with,
-   * because `SetChildPlacement` has not been wired yet (`plan-placement-port.ts`). Fails safe:
-   * the decision is rolled back and the family is not texted (Firia's gap-5 ruling).
+   * The board refused to save the plan, or this day's plan has no such child.
+   *
+   * A real refusal with a reason behind it (`NOT_STARTED` on a day nobody has started,
+   * `CHANGED` when somebody saved first, a fit rule, a child this day does not have) — not the
+   * absence of a writer: `setChildPlacement` is wired (`plan-placement-port.ts`). Either way it
+   * fails safe: the decision is rolled back and the family is not texted (Firia's gap-5 ruling).
    */
   | "PLAN_NOT_SAVED";
 
@@ -217,18 +221,20 @@ export type DecideError =
 const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /**
- * The board's placement writer, or `null` where there is none.
+ * The plan port this decision writes through (`plan-placement-port.ts`).
  *
- * `null` is not a convenience: it is what production passes today, and it has to be a value this
- * function can be handed rather than something a caller forgets. See `plan-placement-port.ts`.
+ * Injected rather than imported so a test can hand in the board over PGlite, or a fake that
+ * refuses, and the production default is the real board. There is no `null` any more: the writer
+ * exists, so an approval that cannot save the plan is a refusal the board gave a reason for and
+ * not a branch that was never wired.
  */
-export type ApprovalDeps = { readonly placement: SetChildPlacement | null };
+export type ApprovalDeps = { readonly placement: PlanPlacementPortFor };
 
 export async function decideApproval(
   db: Db,
   transport: OutboxTransport,
   req: DecideRequest,
-  deps: ApprovalDeps = { placement: null },
+  deps: ApprovalDeps = { placement: boardPlacementPort() },
 ): Promise<DecideResponse> {
   if (!req.userId) return { status: 401, body: { ok: false, error: "SIGN_IN" } };
   if (req.editedTime !== undefined && req.editedTime !== null && !CLOCK.test(req.editedTime)) {
@@ -283,29 +289,7 @@ export async function decideApproval(
       return { status: 200, body: { ok: true, decision: req.decision, text, queued: 0 } } as const;
     }
 
-    /*
-     * 2. Save the plan, through the board's own writer and no other path (Firia's gap-5 ruling).
-     *
-     * A cancel is `ABSENT` for that leg and a change is `VAN`; both are a new plan version, and
-     * both are the board's write rather than one made up here. With no writer wired there is
-     * nothing to save the plan with, so this throws and the whole decision rolls back: not
-     * claimed, not queued, and the coordinator is told the plan was not saved. Never a fake
-     * success, and never a text to a family about a change that is not in the plan.
-     */
-    const bucket: PlacementBucket = proposal.cancel === true ? "ABSENT" : "VAN";
-    if (!deps.placement) throw new PlanNotSaved();
-    const saved = await deps.placement({
-      siteId: row.site_id,
-      serviceDate: String(proposal.service_date ?? ""),
-      direction: String(proposal.direction ?? ""),
-      childToken: String(proposal.child_token ?? ""),
-      bucket,
-      expectedVersion: proposal.plan_version_basis ?? -1,
-      actor: by,
-    });
-    if (!saved.ok) throw new PlanNotSaved();
-
-    // 3. Move the ride, guarded on the version the proposal was computed against (AT-08).
+    // 2. Move the ride, guarded on the version the proposal was computed against (AT-08).
     const legId = String(proposal.leg_id ?? "");
     const moved = await tx.query<{ id: string; child_token: string; plan_version: number }>(
       `UPDATE ops.trip_leg
@@ -321,6 +305,52 @@ export async function decideApproval(
       // the decision is not claimed either: a coordinator may read the new state and decide again.
       throw new PlanMoved(legId);
     }
+
+    /*
+     * 3. Save the plan, through the board's own writer and no other path (Firia's gap-5 ruling).
+     *
+     * A cancel is `ABSENT` for that leg. A change moves nobody — the time or the stop moved, and
+     * the child rides the van they already rode — so it writes them back into the bucket and van
+     * the board already has them in, at the version that read returned: a real new plan version
+     * with nothing silently re-seated.
+     *
+     * It is the last write of the transaction on purpose. The board's writer has its own
+     * connection, so a throw *after* it lands would roll the approval back and leave the plan
+     * moved; here, anything that refuses — the board, the leg above, the claim — rolls the whole
+     * decision back: not claimed, not queued, and the coordinator reads that the plan was not
+     * saved. Never a fake success, and never a text to a family about a change the plan does not
+     * have.
+     */
+    const childToken = String(proposal.child_token ?? "");
+    const serviceDate = String(proposal.service_date ?? "");
+    const direction = legOf(proposal.direction);
+    if (direction === null) throw new PlanNotSaved();
+    // The plan write is a step of *this* transaction (see `PlanPlacementPortFor`).
+    const plan = deps.placement(tx);
+    const current = await plan.currentPlacement({
+      siteId: row.site_id,
+      serviceDate,
+      direction,
+      childToken,
+    });
+    // A child this day's plan does not have. Uniform with every other reason the plan would not
+    // take the write: the coordinator is told the plan was not saved, and nothing is sent.
+    if (current === null) throw new PlanNotSaved();
+    const bucket: PlacementBucket = proposal.cancel === true ? "ABSENT" : current.bucket;
+    const saved = await plan.setChildPlacement({
+      siteId: row.site_id,
+      serviceDate,
+      direction,
+      childToken,
+      bucket,
+      vehicleId: bucket === "VAN" ? current.vehicleId : null,
+      expectedVersion: current.version,
+      // The board stores `saved_by` as the staff user's own id (`app_user`, DATA-MODEL §9.1), not
+      // the `staff:…` string the audit columns here carry.
+      actor: req.userId ?? null,
+      now: req.now,
+    });
+    if (!saved.ok) throw new PlanNotSaved();
 
     // 4. Queue the family's text. The outbox re-checks everything at send time.
     const leg = moved.rows[0];
@@ -356,6 +386,16 @@ export async function decideApproval(
     if (e instanceof PlanNotSaved) return { status: 503, body: { ok: false, error: "PLAN_NOT_SAVED" } } as const;
     throw e;
   });
+}
+
+/**
+ * The leg a proposal names, or `null` for a row that names neither.
+ *
+ * The board writes one leg at a time, so a proposal whose direction is not one of the two is not
+ * something to guess at: it is a plan write that cannot be made.
+ */
+function legOf(direction: string | undefined): Direction | null {
+  return direction === "AM" || direction === "PM" ? direction : null;
 }
 
 /** The ride moved since the proposal was drafted. Rolls the decision back with it. */
