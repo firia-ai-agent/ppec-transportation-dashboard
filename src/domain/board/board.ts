@@ -12,7 +12,8 @@
  *  - the ride's state is walked through the **leg machine** (src/domain/machines.ts) one legal
  *    edge at a time, so a state the board shows is a state the domain allows;
  *  - whether the vehicle fits its riders is the **capacity solver** (src/domain/solver), run
- *    over today's manifest and today's capability observation;
+ *    over today's capability observation and the manifest of whoever is actually on that van —
+ *    the saved plan's riders where there is one, the scenario's where there is not (`ridersOf`);
  *  - the arrival window, its shift and the GPS age are the **ETA / replay engine**
  *    (src/domain/eta) over the committed ADR-007 routes.
  *
@@ -538,12 +539,17 @@ function solveRun(
   direction: Direction,
   day: ServiceDay,
   recorded: boolean,
+  riders: readonly string[],
 ): RunSolve {
   const departed =
     day.phase === "LIVE" && direction === "AM" && frameFor(run, day.instantMs) !== null;
   const checked = day.phase === "ENDED" || departed || recorded;
   const capability = capabilityFor(run, serviceDateIso(new Date(day.instantMs)), checked);
-  const solve = feasible(solverVehicle(vehicleOf(run)), solverLeg(run, direction), capability);
+  const solve = feasible(
+    solverVehicle(vehicleOf(run)),
+    solverLeg(run, direction, riders),
+    capability,
+  );
   return { solve, capability: capability.state, departed };
 }
 
@@ -688,12 +694,48 @@ function modeFor(
   return seeded;
 }
 
+/**
+ * WHO THIS VAN CARRIES ON THIS LEG — the riders the seating verdict is about.
+ *
+ * The bug this answers (Firia, 2026-10-18 6:23 AM ET): with the morning saved and every van
+ * fit-checked, Today still said "Move Mia R. / Owen C. / Theo V. to a van that fits". The van on
+ * the row was the saved plan's, but the solver behind it was still handed the **seeded** run's
+ * riders — so Van 3 was being asked whether it holds the three children the scenario put on it,
+ * which is a question nobody on that screen had asked since the plan was saved. Three car seats
+ * in two tether seats: infeasible, correctly, about a manifest that no longer exists.
+ *
+ * So the riders are the saved plan's: the children it puts in **this** van on **this** leg, read
+ * out of the leg a plan was saved for. One list per (van, leg) — derived from the plan and not
+ * from the child whose row it is — so every child on a van gets the one same answer about it,
+ * which is what a seating verdict is.
+ *
+ * The fallback is the seeded run, and only for a ride the saved plan says nothing about: a leg
+ * with no plan at all (`plan === undefined`), or a child it does not place, who is on the
+ * scenario's own run and must be checked against the scenario's own manifest. Note what is *not*
+ * here: nothing is suppressed. A saved van that genuinely does not hold its riders is handed to
+ * the same solver and comes back INFEASIBLE, with the same reason and the same step.
+ */
+function ridersOf(
+  run: DemoRun,
+  spot: SavedSpot | undefined,
+  plan: SavedLegPlan | undefined,
+): readonly string[] {
+  if (plan === undefined || spot?.bucket !== "VAN") return run.childKeys;
+  return boardChildren
+    .filter((rider) => {
+      const theirs = plan[rider.key];
+      return theirs?.bucket === "VAN" && theirs.vehicleKey === spot.vehicleKey;
+    })
+    .map((rider) => rider.key);
+}
+
 function rideFor(
   child: DemoChild,
   direction: Direction,
   day: ServiceDay,
-  spot?: SavedSpot,
+  plan?: SavedLegPlan,
 ): RideView {
+  const spot = plan?.[child.key];
   const run = runFor(child, spot);
   const mode = modeFor(child, direction, run, spot);
   const base = {
@@ -738,7 +780,13 @@ function rideFor(
   const vehicle = solverVehicle(vehicleOf(run));
   const dispatcher = dispatcherOf(vehicleOf(run));
   const record = dayRecordFor(child, direction, day);
-  const { solve, capability, departed } = solveRun(run, direction, day, record !== undefined);
+  const { solve, capability, departed } = solveRun(
+    run,
+    direction,
+    day,
+    record !== undefined,
+    ridersOf(run, spot, plan),
+  );
   const frame = departed ? frameFor(run, day.instantMs) : null;
   const ownStop = stopLabel(child);
   const acts = reportedActs(child, record);
@@ -910,8 +958,8 @@ function rowFor(
   saved: SavedBoardPlan,
 ): BoardRow {
   const rides: RideView[] = [
-    rideFor(child, "AM", day, saved.AM?.[child.key]),
-    rideFor(child, "PM", day, saved.PM?.[child.key]),
+    rideFor(child, "AM", day, saved.AM),
+    rideFor(child, "PM", day, saved.PM),
   ];
   return {
     childKey: child.key,

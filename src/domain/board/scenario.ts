@@ -194,9 +194,18 @@ const CENTRE_LABEL = places.center;
  * order. That is the shape the fixture states (`amWindow` / `pmWindow` per child, PM reverses
  * the order; standard.ts `RUNS`), and it is what the solver needs: its constraints are checked
  * per stop over On_k, so the order of the stops *is* the question being asked.
+ *
+ * `riders` is who is actually on the van for this leg. It defaults to the run's own seeded
+ * riders, which is the scenario's answer; a **saved plan** hands in its own, because the manifest
+ * a fit check is asked about has to be the one the coordinator saved — the stops the van makes
+ * are its riders' stops, so changing who rides changes the road (board.ts `ridersOf`).
  */
-export function manifestFor(run: DemoRun, direction: Direction): ManifestStop[] {
-  const riders = run.childKeys
+export function manifestFor(
+  run: DemoRun,
+  direction: Direction,
+  riderKeys: readonly string[] = run.childKeys,
+): ManifestStop[] {
+  const riders = riderKeys
     .map(childByKey)
     .sort((a, b) => plannedWindow(a, direction).localeCompare(plannedWindow(b, direction)));
   const centre = { label: CENTRE_LABEL };
@@ -224,7 +233,20 @@ export function manifestFor(run: DemoRun, direction: Direction): ManifestStop[] 
   ];
 }
 
-export function solverLeg(run: DemoRun, direction: Direction): SolverLeg {
+/**
+ * One leg as the capacity solver takes it: this van, this layout, and the children on it.
+ *
+ * `riderKeys` is the one thing about a leg a person decides rather than the scenario (board.ts's
+ * header): with a plan saved for the leg it is the children that plan puts in **this** van, and
+ * the roster and the manifest are both built from it, because a solver whose stops board a child
+ * its roster does not have refuses the question outright (`feasible`). The layout stays the
+ * van's own — ASM-17, fixed per ride — so the saved riders are checked against the real seats.
+ */
+export function solverLeg(
+  run: DemoRun,
+  direction: Direction,
+  riderKeys: readonly string[] = run.childKeys,
+): SolverLeg {
   const vehicle = vehicleOf(run);
   const layout = vehicle.layouts.find((l) => l.code === run.layoutCode);
   if (!layout) throw new Error(`run ${run.key}: ${vehicle.key} has no layout ${run.layoutCode}`);
@@ -234,8 +256,8 @@ export function solverLeg(run: DemoRun, direction: Direction): SolverLeg {
     manifestId: `${run.key}/${direction}`,
     // ASM-17: the layout is fixed per ride, so the solver checks the one the manifest planned.
     layoutId: `${vehicle.key}/${layout.code}`,
-    children: run.childKeys.map((key) => solverChild(childByKey(key))),
-    stops: manifestFor(run, direction),
+    children: riderKeys.map((key) => solverChild(childByKey(key))),
+    stops: manifestFor(run, direction, riderKeys),
   };
 }
 

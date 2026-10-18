@@ -477,3 +477,107 @@ const REFERENCE_MORNING_COUNTS: Record<string, number> = Object.entries(
   counts[vehicleKey] = (counts[vehicleKey] ?? 0) + 1;
   return counts;
 }, {});
+
+describe("Today's fit check reads the saved van's riders", () => {
+  /**
+   * SOURCE: Firia, 2026-10-18 6:23 AM ET, with the 5:09 AM morning saved and every van
+   * fit-checked — Today's Needs action still read "Move Mia R. / Owen C. / Theo V. to a van that
+   * fits". The van on each of those rows was already the saved plan's (Van 3), but the seating
+   * question behind it was still asked about the **seeded** manifest: `solveRun` handed the
+   * solver `run.childKeys`, which for Van 3 is Mia R., Ava N. and Eli N. — three car-seat riders
+   * in a layout with two tether seats, infeasible about a manifest the save had replaced.
+   *
+   * So the three below are about one thing: which riders the solver is asked about. The warning
+   * itself is untouched — the second test saves a van that genuinely cannot hold what the plan
+   * put in it and Today says so, in the same words, with the same step.
+   */
+  const misfits = (board: Board): string[] =>
+    morningLegs(board)
+      .filter((leg) => leg.needsActionReasons.includes("DOES_NOT_FIT"))
+      .map((leg) => leg.child.childKey);
+
+  /** The rides of one saved van, which all have to come back with the one same verdict. */
+  const ridesOnVan = (board: Board, vehicleKey: string) =>
+    morningLegs(board).filter((leg) => leg.ride.vanNumber === slotOf(vehicleKey));
+
+  /**
+   * (a) Firia's morning, fit-checked: Van 3 carries Mia R., Owen C. and Theo V. — one car seat
+   * and one harness in two tether seats — so nobody is asked to move, and no other van's riders
+   * are either. Nine rides, nine seating verdicts, not one of them a warning.
+   */
+  it("warns about none of the nine when every saved van holds its riders", async () => {
+    await saveTheReferenceMorning();
+    const today = await todayBoard();
+
+    expect(misfits(today), "nobody is asked to move to a van that fits").toEqual([]);
+    for (const childKey of ["C1", "C7", "C9"]) {
+      const row = morningRow(today, childKey);
+      expect(row.ride.vanNumber, `${childKey} is on Van 3`).toBe(slotOf("V3"));
+      expect(row.ride.solver, childKey).toBe("FEASIBLE");
+      expect(row.nextStep, childKey).not.toBe("MOVE_TO_FITTING_VAN");
+    }
+
+    // All nine, van by van: one solve per (van, leg), so a van's riders cannot disagree.
+    const placed = morningLegs(today).filter((leg) => leg.ride.vanNumber !== null);
+    expect(placed).toHaveLength(9);
+    for (const leg of placed) {
+      expect(leg.ride.solver, `${leg.child.childKey} fits the van the plan put them on`).toBe(
+        "FEASIBLE",
+      );
+    }
+    for (const vehicleKey of ["V1", "V2", "V3"]) {
+      const verdicts = new Set(ridesOnVan(today, vehicleKey).map((leg) => leg.ride.solver));
+      expect(verdicts.size, `${vehicleKey}: one verdict for the whole van`).toBe(1);
+    }
+  }, 60_000);
+
+  /**
+   * (b) And a saved van that really does not hold its riders still says so. Mia R. (C1),
+   * Owen C. (C7) and Theo V. (C9) are dragged onto Van 1, next to Zoe B. and Ava N.: five riders,
+   * one of them in her own chair, on a van whose layout is one chair space and three seats
+   * (standard.ts R1, `1WC/3A`). The ramp's own counts let the save through — six seats, three car
+   * seats, one chair, and that is what the board's Save re-checks (src/domain/plan/fit.ts) — and
+   * the capacity solver, which is asked about the actual seats, refuses it.
+   *
+   * This is the half that proves nothing is being suppressed: the reason, the step and the
+   * verdict are the same three the bug was reported as.
+   */
+  it("still warns when a saved van really does not hold its riders", async () => {
+    await saveTheReferenceMorning();
+    await moveChild("C1", "VAN", "V1", 2);
+    await moveChild("C7", "VAN", "V1", 3);
+    await moveChild("C9", "VAN", "V1", 4);
+
+    const today = await todayBoard();
+    const crowded = ridesOnVan(today, "V1");
+    expect(crowded.map((leg) => leg.child.childKey).sort()).toEqual(
+      ["C1", "C4", "C6", "C7", "C9"].sort(),
+    );
+    for (const leg of crowded) {
+      expect(leg.ride.solver, leg.child.childKey).toBe("INFEASIBLE");
+      expect(leg.needsActionReasons, leg.child.childKey).toContain("DOES_NOT_FIT");
+      expect(leg.nextStep, leg.child.childKey).toBe("MOVE_TO_FITTING_VAN");
+      expect(leg.group, leg.child.childKey).toBe("NEEDS_ACTION");
+    }
+    // Every rider of the crowded van, and only them: Van 2's three are not dragged in with them.
+    expect(misfits(today).sort()).toEqual(["C1", "C4", "C6", "C7", "C9"].sort());
+  }, 60_000);
+
+  /**
+   * (c) With nothing saved for the leg there is no plan to read, and the seeded run is still the
+   * manifest: Van 3's own three (Mia R., Ava N., Eli N.) do not fit it and Today says so, exactly
+   * as it did before this fix. The whole board is compared both ways, so "unchanged" is the
+   * output of `buildBoard` and not a fit verdict picked out of it.
+   */
+  it("falls back to the seeded run when nothing is saved for the leg", async () => {
+    const nothing = await savedPlacementsForBoard(SITE, DATE, store, source());
+    expect(nothing, "a reset day has no plan for either leg").toEqual({});
+
+    const today = buildBoard(demoDay(), nothing);
+    expect(today, "byte for byte the seeded board").toEqual(buildBoard(demoDay()));
+    expect(misfits(today), "the seeded Van 3's own riders, as before").toEqual(["C1", "C4", "C5"]);
+    for (const childKey of ["C1", "C4", "C5"]) {
+      expect(morningRow(today, childKey).ride.solver, childKey).toBe("INFEASIBLE");
+    }
+  }, 60_000);
+});
