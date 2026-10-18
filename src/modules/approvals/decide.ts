@@ -332,7 +332,17 @@ export type DecideError =
    * absence of a writer: `setChildPlacement` is wired (`plan-placement-port.ts`). Either way it
    * fails safe: the decision is rolled back and the family is not texted (Firia's gap-5 ruling).
    */
-  | "PLAN_NOT_SAVED";
+  | "PLAN_NOT_SAVED"
+  /**
+   * The placement saved but the agreed **time** did not — a leg this proposal's id, site and
+   * service date do not all name, or a time that is not a wall clock (`plan/leg-write.ts`).
+   *
+   * Its own code because it is its own fact and the person reading it can do something different
+   * about it: the plan took the change, the clock did not, and nothing was sent. Like every other
+   * refusal here it rolls the whole transaction back — the claim, the placement and the text —
+   * so a coordinator who reads this sentence is looking at a card that is still pending.
+   */
+  | "TIME_NOT_SAVED";
 
 /** A 24-hour wall-clock time, the only shape a coordinator's edit may take. */
 const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -539,6 +549,80 @@ export async function decideApproval(
       childToken: leg.child_token,
       at: req.now,
     });
+
+    /*
+     * 2b. THE AGREED TIME, ONTO THE LEG — the half of "Approve" that used to exist only in the
+     *     words (Firia's 11:11 AM ET ruling of 2026-10-18, and the founder's "stop deferring").
+     *
+     * `plan_run` / `plan_assignment` store no time at all (migration 0009) and `setChildPlacement`
+     * above writes a bucket and a van, so after it the plan held the same arrival it held before
+     * the family was told a new one. `ops.trip_leg.window_start` is where this schema keeps an
+     * arrival, and it is what every screen that shows one reads back
+     * (`modules/plan/leg-facts.ts`): Today's Arriving column, the plan board's rider cards.
+     *
+     * Through the port, like the placement — `plan/leg-write.ts` owns the one writer, guarded by
+     * leg id **and** site **and** service date — and inside this same transaction, so a refusal
+     * here is a decision that did not happen: not claimed, not placed, not queued, and the
+     * coordinator reads `TIME_NOT_SAVED` in plain words on the card they are still looking at.
+     *
+     * S1-3 deleted an `UPDATE ops.trip_leg` from this file and was right to: it was a second
+     * writer, it guarded the wrong counter, and it ran on a path that had no business moving a
+     * ride. What is restored is not that query. It is a named function in the plan module, asked
+     * for through the port, bumping no `plan_version` (the outbox compares the queued text's
+     * basis to that counter at drain, so a bump here would cancel this decision's own text).
+     *
+     * A cancel writes no time: the ride is not happening, so there is no arrival to agree.
+     */
+    const requestedTime = String(proposal.requested_dropoff_time ?? "").trim();
+    const agreedTime = req.editedTime ?? (requestedTime === "" ? null : requestedTime);
+    if (proposal.cancel !== true && agreedTime !== null) {
+      const moved = await plan.setDropoffWindow({
+        siteId: row.site_id,
+        legId: leg.id,
+        serviceDate,
+        time: agreedTime,
+        now: req.now,
+        by,
+      });
+      if (!moved.ok) throw new TimeNotSaved();
+    }
+
+    /*
+     * 2c. AND THE ADULT WHO WILL BE THERE — what clears an AT-13 hold (same ruling, part c).
+     *
+     * "Held: no adult to receive" is not a column and not a flag. It is what the leg machine
+     * makes of a ride that arrived with **nobody on file who may receive the child**
+     * (`domain/board/board.ts`), and the file it reads is §6.4's `ops.contact_authorization` with
+     * scope `RECEIVE_CHILD`. Noah O.'s family holds every other scope and not that one, which is
+     * why his afternoon ends on the hold — and a parent saying somebody is home, approved by a
+     * coordinator, is exactly the fact that file was missing.
+     *
+     * So the condition is read rather than assumed: an afternoon ride, not a cancel, and no adult
+     * on this child's file yet. Then the guardian this child's file already knows is recorded as a
+     * receiver, through the plan module's own writer (`recordLegReceiver`), in this transaction. A
+     * child who already has one is left alone, and a family this deployment cannot name a contact
+     * for is a `NO_CONTACT` refusal that rolls the decision back rather than a hold cleared by
+     * nobody.
+     */
+    if (proposal.cancel !== true && direction === "PM" && contacts.length > 0) {
+      const onFile = await tx.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM ops.contact_authorization
+          WHERE site_id = $1 AND child_token = $2 AND scope = 'RECEIVE_CHILD'
+            AND (valid_to IS NULL OR valid_to > $3)`,
+        [row.site_id, leg.child_token, req.now],
+      );
+      if ((onFile.rows[0]?.n ?? 0) === 0) {
+        const recorded = await plan.recordReceiver({
+          siteId: row.site_id,
+          legId: leg.id,
+          childToken: leg.child_token,
+          now: req.now,
+          by,
+        });
+        if (!recorded.ok) throw new PlanNotSaved();
+      }
+    }
+
     let queued = 0;
     for (const recipientToken of contacts) {
       const sent = await enqueue(tx, afterCommit, transport, {
@@ -564,6 +648,7 @@ export async function decideApproval(
   }).catch((e) => {
     if (e instanceof PlanMoved) return { status: 409, body: { ok: false, error: "PLAN_MOVED" } } as const;
     if (e instanceof PlanNotSaved) return { status: 503, body: { ok: false, error: "PLAN_NOT_SAVED" } } as const;
+    if (e instanceof TimeNotSaved) return { status: 503, body: { ok: false, error: "TIME_NOT_SAVED" } } as const;
     throw e;
   });
 }
@@ -650,6 +735,9 @@ class PlanMoved extends Error {}
 
 /** The plan could not be saved, or there is no writer to save it with. Rolls everything back. */
 class PlanNotSaved extends Error {}
+
+/** The agreed drop-off time could not be written to the leg. Rolls everything back. */
+class TimeNotSaved extends Error {}
 
 /** A uuid, so a non-uuid id is a clean not-found rather than a Postgres cast error. */
 function isUuid(value: string): boolean {

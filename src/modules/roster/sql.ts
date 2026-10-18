@@ -36,6 +36,7 @@ import type { DayDataSource, DayRider, DayVan, OtherChild } from "@/domain/day/s
 import { needsFromCategories } from "@/domain/plan/needs";
 import { driverFor } from "@/domain/plan/day";
 import { demoDaySource } from "@/modules/demo/day-source";
+import { siteHhmm } from "@/modules/plan/leg-write";
 import { vehicleIdOf } from "@/modules/demo/fixtures/standard";
 
 type ChildRow = {
@@ -97,6 +98,29 @@ export function sqlDaySource(db: Exec, siteId: string): DayDataSource {
     return { children: children.rows, needs };
   }
 
+  /**
+   * This day's own drop-off times, by child, where the leg carries one.
+   *
+   * Read through the plan module's own site-clock helper rather than `to_char(… AT TIME ZONE …)`:
+   * the instant was written by `siteInstantOn` and is read back by `siteHhmm`, so the same `Intl`
+   * zone data answers both and a DST hour cannot appear between the write and the read.
+   */
+  async function windowsOf(date: string, leg: Direction): Promise<Map<string, string>> {
+    const rows = await db.query<{ child_token: string; window_start: Date | string | null }>(
+      `SELECT child_token::text AS child_token, window_start
+         FROM ops.trip_leg
+        WHERE site_id = $1 AND service_date = $2 AND direction = $3 AND window_start IS NOT NULL`,
+      [siteId, date, leg],
+    );
+    const windows = new Map<string, string>();
+    for (const row of rows.rows) {
+      if (row.window_start === null) continue;
+      const at = new Date(row.window_start);
+      if (!Number.isNaN(at.getTime())) windows.set(row.child_token, siteHhmm(at));
+    }
+    return windows;
+  }
+
   /** Does the centre drive this child on this leg? A family's own ride is not ours to plan. */
   const drivenBy = (row: ChildRow, leg: Direction): boolean => {
     const mode = leg === "AM" ? row.am_mode : row.pm_mode;
@@ -135,8 +159,9 @@ export function sqlDaySource(db: Exec, siteId: string): DayDataSource {
       return demoDaySource().leavesAtMs(date, leg, vanId);
     },
 
-    async riders(_date, leg) {
+    async riders(date, leg) {
       const { children, needs } = await roster();
+      const legWindows = await windowsOf(date, leg);
       return children
         .filter((row) => drivenBy(row, leg))
         .map(
@@ -145,7 +170,20 @@ export function sqlDaySource(db: Exec, siteId: string): DayDataSource {
             name: row.display_name,
             needs: needsFromCategories(needs.get(row.child_token) ?? []),
             stopLabel: row.stop_label ?? "",
-            window: (leg === "AM" ? row.am_window_start : row.pm_window_start) ?? "",
+            /*
+             * THE LEG'S OWN TIME FIRST, then the schedule's (Firia, 11:11 AM ET 2026-10-18).
+             *
+             * `attendance_plan.am_window_start` / `pm_window_start` are the *schedule*: the time
+             * this child is usually driven, Mon–Fri. `ops.trip_leg.window_start` is this day's,
+             * and it is what an approved drop-off change writes (`modules/plan/leg-write.ts`), so
+             * a rider card that read only the schedule would show the old time on the one screen
+             * a coordinator opens next. The seed writes both from the same fixture window, so for
+             * a day nobody has changed the two agree and this prefers an identical value.
+             */
+            window:
+              legWindows.get(row.child_token) ??
+              (leg === "AM" ? row.am_window_start : row.pm_window_start) ??
+              "",
           }),
         );
     },

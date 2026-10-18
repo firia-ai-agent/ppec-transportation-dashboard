@@ -88,6 +88,14 @@ export type ProposalView = {
   readonly threadKey: string;
   readonly childLabel: string;
   readonly adultName: string;
+  /** "Dara" — the parent this reply goes to, for the card's own heading (`approval.replyTo`). */
+  readonly parentFirstName: string;
+  /**
+   * "Noah: drop-off moves to 5:00 PM on Van 2." — what the PLAN changes, in one line, for the
+   * person signing for it (Firia, 11:11 AM ET 2026-10-18). "" when the facts behind it cannot be
+   * answered: a card that invented a van or a time would be worse than a card with one line less.
+   */
+  readonly changeLine: string;
   /** "Agent · 3:58 PM" — who drafted it and when (`copy.agentLabel`, Vera's S1-2 item a). */
   readonly draftedLabel: string;
   /** The stop. `from` is null when the place does not change, and then there is no arrow. */

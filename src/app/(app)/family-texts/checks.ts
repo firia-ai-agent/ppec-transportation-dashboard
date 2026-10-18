@@ -65,10 +65,19 @@ export type ProposalFacts = {
   readonly stopLabel: string;
   /** The checks that actually passed, in the order the mockup reads them. */
   readonly checks: readonly string[];
+  /**
+   * "Van 2" — the van this child rides on the leg the proposal is about, or "" when the plan has
+   * them on none.
+   *
+   * On the card for one reason: Approve moves the plan, and the line that says so has to name the
+   * van it leaves them on (Firia, 11:11 AM ET 2026-10-18). It is the same read "Same van" is
+   * answered from, so the line and the tick cannot disagree.
+   */
+  readonly vanName: string;
 };
 
 const NOTHING: ProposalFacts = {
-  threadKey: null, adultName: "", childLabel: "", pickupLabel: "", stopLabel: "", checks: [],
+  threadKey: null, adultName: "", childLabel: "", pickupLabel: "", stopLabel: "", checks: [], vanName: "",
 };
 
 /**
@@ -100,11 +109,13 @@ export async function proposalFacts(a: {
   const onFile = adultName !== "" && child.scopes.includes("RECEIVE_CHILD");
 
   const checks: string[] = [];
+  let vanName = "";
   const run = runOfChild(childKey);
   if (run) {
     const source = demoDaySource();
     const van = (await source.vans(a.day.iso)).find((v) => v.id === vehicleIdOf(run.vehicleKey)) ?? null;
     if (van) {
+      vanName = van.name;
       // The change keeps the child in the van they already ride: that is what "same van" says.
       checks.push(approval.checkSameVan);
       const riders = await source.riders(a.day.iso, "PM");
@@ -122,6 +133,7 @@ export async function proposalFacts(a: {
     pickupLabel: onFile ? fill(approval.pickupSame, { adult: adultName }) : "",
     stopLabel: stopLabelOf(a.stopToken),
     checks,
+    vanName,
   };
 }
 
