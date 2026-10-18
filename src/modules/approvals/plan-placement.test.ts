@@ -138,8 +138,16 @@ async function savedPlanWithChildInVanOne(): Promise<number> {
   return saved.ok ? saved.version : 0;
 }
 
-/** One undecided proposal. `cancel` makes it the cancel flavour rather than a time change. */
-async function seedProposal(over: { cancel?: boolean } = {}): Promise<string> {
+/**
+ * One undecided proposal. `cancel` makes it the cancel flavour rather than a stop change.
+ *
+ * `basis` is `plan_run.version` — the counter the board guards (0009) and the one
+ * `decideApproval` checks (Firia's S1-3, 2026-10-17 11:00 PM ET). It defaults to the version
+ * the plan actually holds right now, which is what `propose_dropoff_change` records, so a test
+ * that does not care about staleness never has to know the number.
+ */
+async function seedProposal(over: { cancel?: boolean; basis?: number } = {}): Promise<string> {
+  const basis = over.basis ?? (await planRunVersion()) ?? 0;
   const taskId = uuidv7();
   await db.query(
     `INSERT INTO ops.task (id, site_id, category, severity, state, summary, next_step, completion_predicate,
@@ -162,7 +170,7 @@ async function seedProposal(over: { cancel?: boolean } = {}): Promise<string> {
         child_token: childToken(),
         service_date: SERVICE_DATE,
         direction: "PM",
-        plan_version_basis: 1,
+        plan_run_version_basis: basis,
         requested_dropoff_time: over.cancel ? null : "17:00",
         ...(over.cancel ? { cancel: true } : {}),
         stop_token: "OKEE-PARK",
@@ -201,6 +209,15 @@ const legVersion = async () =>
   (await db.query<{ plan_version: number }>("SELECT plan_version FROM ops.trip_leg WHERE id = $1", [legId()]))
     .rows[0].plan_version;
 
+/** The whole leg row, so "untouched" is the whole row and not one column of it. */
+const legRow = async () =>
+  (
+    await db.query<Record<string, unknown>>(
+      "SELECT * FROM ops.trip_leg WHERE id = $1",
+      [legId()],
+    )
+  ).rows[0];
+
 /** The child's own `plan_assignment` row for a leg, straight out of the table. */
 const assignmentRow = async (direction = "PM") =>
   (
@@ -235,11 +252,19 @@ describe("an approved change saves a new plan version, through the board's own w
     expect(await assignmentRow()).toMatchObject({ bucket: "VAN", vehicle_id: vanOne(), direction: "PM" });
   });
 
-  it("moves the ride too, to the version after the one the proposal was computed against", async () => {
+  it("and writes nothing to ops.trip_leg: the board owns where a child is", async () => {
+    /*
+     * There used to be a second write here — an UPDATE of `trip_leg.window_start` and
+     * `plan_version` — and Firia's S1-3 (2026-10-17 11:00 PM ET) took it out. It was a second
+     * writer of the plan, it guarded on a different counter from the board's
+     * (`trip_leg.plan_version` vs `plan_run.version`, Veri S1-3.2), and a drop-off time is not a
+     * leg's pickup window in the first place. The leg is READ by this decision and nothing else.
+     */
     await savedPlanWithChildInVanOne();
+    const before = await legRow();
     const id = await seedProposal();
-    await approve(id, board());
-    expect(await legVersion()).toBe(2);
+    expect((await approve(id, board())).status).toBe(200);
+    expect(await legRow()).toEqual(before);
   });
 
   it("and texts the family, once the plan holds the change", async () => {
@@ -272,8 +297,16 @@ describe("an approved cancel puts the child in ABSENT for that leg, in plan_assi
   });
 
   it("writes no bucket itself: there is no plan table in this module's own SQL", () => {
-    // Comments stripped: prose about updating the plan is not a query (as in `no-network.test.ts`).
-    expect(code(path.join(__dirname, "decide.ts"))).not.toMatch(/plan_assignment|plan_run/i);
+    /*
+     * Comments stripped: prose about updating the plan is not a query (as in `no-network.test.ts`).
+     *
+     * The tables are named the way the schema names them — `ops.plan_run`, `ops.plan_assignment`
+     * — rather than by the bare word, because the proposal JSON now carries a field called
+     * `plan_run_version_basis` (the version the board guards, S1-3) and a bare-word match would
+     * read that as a table. Every query in this tree qualifies its schema, so this is the form
+     * that catches a real one.
+     */
+    expect(code(path.join(__dirname, "decide.ts"))).not.toMatch(/\bops\.plan_(run|assignment)\b/i);
     // And the port holds no SQL of its own to drift from the board's.
     expect(code(path.join(__dirname, "plan-placement-port.ts"))).not.toMatch(/\bINSERT\b|\bUPDATE\b|\.query\(/i);
   });
@@ -284,6 +317,67 @@ describe("an approved cancel puts the child in ABSENT for that leg, in plan_assi
     expect(code(path.join(__dirname, "plan-placement-port.ts"))).toMatch(
       /import \{[\s\S]*setChildPlacement as boardSetChildPlacement[\s\S]*\} from "@\/modules\/plan\/place"/,
     );
+  });
+});
+
+/**
+ * VERI (a), AND FIRIA'S S1-3: the version an approval is guarded on is `plan_run.version`.
+ *
+ * The proposal records the version the plan held when it was written. If anybody saves the board
+ * in between — a coordinator dragging a card, the ramp's re-plan, a second approval — the
+ * proposal was computed against a plan that no longer exists, and approving it would move a
+ * child on the strength of a read that is out of date and text a family about it.
+ *
+ * So: **409, the proposal stays PENDING, the board is untouched and nothing is sent.** Pending
+ * rather than declined, because the coordinator has not decided anything — they can read the new
+ * state and decide again.
+ */
+describe("a plan saved after the proposal makes the approval a 409 (DATA-MODEL §9.1, Firia S1-3)", () => {
+  it("refuses at the old version, changes nothing and sends nothing", async () => {
+    const started = await savedPlanWithChildInVanOne();
+    // The proposal is computed against the version the plan has now.
+    const id = await seedProposal({ basis: started });
+
+    // Somebody else's Save, landing before the coordinator presses Approve. A different child,
+    // through the board's own writer, so the plan really is at `started + 1`.
+    const saved = await setChildPlacement(
+      { ...elsewhere(), expectedVersion: started, now: NOW },
+      sqlPlanStore(db),
+      sqlDaySource(db, SITE),
+    );
+    expect(saved.ok).toBe(true);
+    expect(await planRunVersion()).toBe(started + 1);
+
+    expect(await approve(id, board())).toEqual({
+      status: 409,
+      body: { ok: false, error: "PLAN_MOVED" },
+    });
+    // Pending, not declined: nothing was decided.
+    expect(await decisionOf(id)).toEqual({ decision: null, decided_at: null });
+    // The board is where the other Save left it, and this child never moved.
+    expect(await planRunVersion()).toBe(started + 1);
+    expect(await assignmentRow()).toMatchObject({ bucket: "VAN", vehicle_id: vanOne() });
+    expect(await legVersion()).toBe(1);
+    // And the family was told nothing.
+    expect(await outbox()).toEqual([]);
+    expect(transport.sent).toEqual([]);
+  });
+
+  it("refuses a proposal written before the rule, which carries no basis at all", async () => {
+    // A row from before Firia's S1-3 ruling holds `plan_version_basis` (the leg's counter) and
+    // no `plan_run_version_basis`. Approving it would be approving against a number nobody
+    // checked, so it is refused exactly like a stale one.
+    await savedPlanWithChildInVanOne();
+    const id = await seedProposal();
+    await db.query(
+      `UPDATE ops.approval_request
+       SET proposal = (proposal - 'plan_run_version_basis') || '{"plan_version_basis": 1}'::jsonb
+       WHERE id = $1`,
+      [id],
+    );
+    expect((await approve(id, board())).status).toBe(409);
+    expect(await decisionOf(id)).toEqual({ decision: null, decided_at: null });
+    expect(await outbox()).toEqual([]);
   });
 });
 

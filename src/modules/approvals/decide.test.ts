@@ -112,7 +112,12 @@ async function seedProposal(
         child_token: childToken,
         service_date: SERVICE_DATE,
         direction: "PM",
-        plan_version_basis: over.planVersionBasis ?? 1,
+        /*
+         * `plan_run.version` — the counter the board guards and the one `decideApproval` checks
+         * (Firia's S1-3, 2026-10-17 11:00 PM ET). The fake port below answers version 7, so 7
+         * is "the plan this proposal was computed against" and anything else is a stale one.
+         */
+        plan_run_version_basis: over.planVersionBasis ?? FAKE_PLAN_VERSION,
         requested_dropoff_time: time,
         stop_token: "OKEE-PARK",
         rationale_code: "PARENT_REQUEST",
@@ -134,8 +139,10 @@ async function seedProposal(
  * board refuses is also its own case there (Firia's gap-5 ruling: it rolls everything back).
  */
 let placements: SetChildPlacementInput[] = [];
+/** The `plan_run.version` the fake board holds. Proposals are written against it by default. */
+const FAKE_PLAN_VERSION = 7;
 const fakePlacement: PlanPlacementPortFor = () => ({
-  currentPlacement: async () => ({ bucket: "VAN", vehicleId: FAKE_VAN, version: 7 }),
+  currentPlacement: async () => ({ bucket: "VAN", vehicleId: FAKE_VAN, version: FAKE_PLAN_VERSION }),
   setChildPlacement: async (input) => {
     placements.push(input);
     return { ok: true, version: input.expectedVersion + 1 };
@@ -147,7 +154,7 @@ const FAKE_VAN = "00000000-0000-7000-8000-0000000000f1";
 
 /** The same port, refusing the way the board refuses a plan that moved. */
 const refusingPlacement: PlanPlacementPortFor = () => ({
-  currentPlacement: async () => ({ bucket: "VAN", vehicleId: FAKE_VAN, version: 7 }),
+  currentPlacement: async () => ({ bucket: "VAN", vehicleId: FAKE_VAN, version: FAKE_PLAN_VERSION }),
   setChildPlacement: async (input) => {
     placements.push(input);
     return { ok: false, reason: "CHANGED" };
@@ -312,17 +319,26 @@ describe("approving", () => {
     expect(row.decided_by).toBe(coordinator);
     expect(row.decided_at).not.toBeNull();
 
-    // 2. the ride, moved, with its plan generation bumped so a stale message cannot ride on it.
-    const moved = await leg();
-    expect(moved.plan_version).toBe(2);
-    expect(moved.window_start).not.toBeNull();
+    /*
+     * 2. the ride is NOT written. Firia's S1-3 (2026-10-17 11:00 PM ET) removed the
+     *    `UPDATE ops.trip_leg` this decision used to make: the board owns where a child is, it
+     *    guards `plan_run.version` rather than `trip_leg.plan_version`, and a drop-off time is
+     *    not the leg's pickup window. The plan write is `setChildPlacement`, asserted below and
+     *    against real rows in `plan-placement.test.ts`.
+     */
+    const after = await leg();
+    expect(after.plan_version).toBe(1);
 
-    // 3. the text, queued through the outbox against the version the ride now has.
+    /*
+     * 3. the text, queued against the version the ride actually has — the outbox compares this
+     *    to `trip_leg.plan_version` at drain (outbox.ts:219), so a later re-plan of the leg
+     *    still makes the message CANCELED_STALE.
+     */
     const [message] = await queued();
     expect(message.template_id).toBe("dropoff.changed");
     expect(message.child_token).toBe(childToken);
     expect(message.trip_leg_id).toBe(legId);
-    expect(message.plan_version_basis).toBe(2);
+    expect(message.plan_version_basis).toBe(1);
     expect(message.state).toBe("QUEUED");
     expect(message.vars).toMatchObject({ eta: "17:00", stopLabel: "OKEE-PARK" });
 
@@ -360,9 +376,10 @@ describe("approving", () => {
 
     expect(first.status).toBe(200);
     expect(second).toEqual({ status: 409, body: { ok: false, error: "ALREADY_DECIDED" } });
-    // One text, not two.
+    // One text, not two — and one plan write, which is the placement and not the leg.
     expect(await queued()).toHaveLength(1);
-    expect((await leg()).plan_version).toBe(2);
+    expect(placements).toHaveLength(1);
+    expect((await leg()).plan_version).toBe(1);
   });
 
   /**

@@ -62,7 +62,6 @@ import type { Db, Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import { boardPlacementPort, type PlacementBucket, type PlanPlacementPortFor } from "./plan-placement-port";
 import { DROPOFF_CHANGE_KIND } from "@/modules/agent/run/exec/proposals";
-import { SITE_TIME_ZONE } from "@/ui/service-date";
 import { renderTemplate } from "@/modules/messaging/templates";
 import { enqueue, type OutboxTransport } from "@/modules/outbox/outbox";
 import { FAMILY_SMS, authorizedContactsForChild } from "@/modules/outbox/policy";
@@ -116,7 +115,17 @@ type DropoffProposal = {
   child_token?: string;
   service_date?: string;
   direction?: string;
-  plan_version_basis?: number;
+  /**
+   * `plan_run.version` for this date and leg at the moment the proposal was written — the
+   * counter the BOARD guards (0009), and the one an approval is checked against.
+   *
+   * Not `trip_leg.plan_version`, which is what the field used to hold (Veri's S1-3.2: "two
+   * different counters, so the guard either always 409s or passes when it shouldn't"). The name
+   * changed with the meaning on purpose: a row written before Firia's 11:00 PM ET ruling has no
+   * `plan_run_version_basis`, and a proposal whose basis cannot be read is refused rather than
+   * approved against a number nobody checked.
+   */
+  plan_run_version_basis?: number;
   requested_dropoff_time?: string | null;
   /** True when the family asked for the ride to be cancelled rather than moved (bucket ABSENT). */
   cancel?: boolean;
@@ -278,7 +287,6 @@ export async function decideApproval(
   if (proposal.kind !== DROPOFF_CHANGE_KIND) {
     return { status: 404, body: { ok: false, error: "NO_SUCH_APPROVAL" } };
   }
-  const time = req.editedTime ?? proposal.requested_dropoff_time ?? null;
   const text = bodyOf(proposal, req.editedTime ?? null, row.display_name);
   const by = `staff:${req.userId}`;
 
@@ -299,38 +307,37 @@ export async function decideApproval(
       return { status: 200, body: { ok: true, decision: req.decision, text, queued: 0 } } as const;
     }
 
-    // 2. Move the ride, guarded on the version the proposal was computed against (AT-08).
-    const legId = String(proposal.leg_id ?? "");
-    const moved = await tx.query<{ id: string; child_token: string; plan_version: number }>(
-      `UPDATE ops.trip_leg
-       SET window_start = CASE WHEN $4::text IS NULL THEN window_start
-                               ELSE (service_date + $4::time) AT TIME ZONE $7 END,
-           plan_version = plan_version + 1, version = version + 1, updated_at = $5, updated_by = $6
-       WHERE id = $1 AND site_id = $2 AND plan_version = $3
-       RETURNING id, child_token, plan_version`,
-      [isUuid(legId) ? legId : null, row.site_id, proposal.plan_version_basis ?? -1, time, req.now, by, SITE_TIME_ZONE],
-    );
-    if (moved.rows.length !== 1) {
-      // The plan moved under the proposal, or the leg is gone. Rolled back by the throw below, so
-      // the decision is not claimed either: a coordinator may read the new state and decide again.
-      throw new PlanMoved(legId);
-    }
-
     /*
-     * 3. Save the plan, through the board's own writer and no other path (Firia's gap-5 ruling).
+     * 2. Save the plan, through the board's own writer and no other path — the ONE plan write
+     *    this decision makes (Firia's gap-5 ruling, and S1-3 on Veri's read).
      *
-     * A cancel is `ABSENT` for that leg. A change moves nobody — the time or the stop moved, and
-     * the child rides the van they already rode — so it writes them back into the bucket and van
-     * the board already has them in, at the version that read returned: a real new plan version
-     * with nothing silently re-seated.
+     * There used to be a second one above this: an `UPDATE ops.trip_leg` that moved
+     * `window_start` and bumped `plan_version`. It is gone. Three things were wrong with it and
+     * only the third was obvious:
      *
-     * It is the last write of the transaction on purpose. The board's writer has its own
-     * connection, so a throw *after* it lands would roll the approval back and leave the plan
-     * moved; here, anything that refuses — the board, the leg above, the claim — rolls the whole
-     * decision back: not claimed, not queued, and the coordinator reads that the plan was not
-     * saved. Never a fake success, and never a text to a family about a change the plan does not
-     * have.
+     *  - it was a second writer of the plan, which is the thing gap-5 exists to prevent;
+     *  - it guarded on `trip_leg.plan_version`, while the board guards `plan_run.version` (0009).
+     *    Two counters for one question, so the guard either always 409'd or passed when it
+     *    should not have (Veri S1-3.2);
+     *  - a drop-off time is not a leg's `window_start`. The board owns where a child is; the
+     *    text says what the family was told.
+     *
+     * So: the version the proposal was computed against is `plan_run.version`, read back here
+     * through the board's own `loadBoard` (`currentPlacement`), and a mismatch is a 409 with the
+     * proposal left PENDING — the throw rolls back the claim, so a coordinator may read the new
+     * state and decide again.
+     *
+     * A cancel is `ABSENT` for that leg, which is what the board reads absence from and what
+     * makes the child show as Absent on it. A change moves nobody — the stop moved and the child
+     * rides the van they already rode — so it writes them back into the bucket and van the board
+     * already has them in, with that van's real id, which is what
+     * `plan_assignment_van_has_vehicle` requires.
+     *
+     * Anything that refuses — the board, the version, the claim, the enqueue below — rolls the
+     * whole decision back: not claimed, not saved, not queued. Never a fake success, and never a
+     * text to a family about a change the plan does not have.
      */
+    const legId = String(proposal.leg_id ?? "");
     const childToken = String(proposal.child_token ?? "");
     const serviceDate = String(proposal.service_date ?? "");
     const direction = legOf(proposal.direction);
@@ -346,6 +353,15 @@ export async function decideApproval(
     // A child this day's plan does not have. Uniform with every other reason the plan would not
     // take the write: the coordinator is told the plan was not saved, and nothing is sent.
     if (current === null) throw new PlanNotSaved();
+
+    /*
+     * The version check, against `plan_run.version` and against nothing else. A proposal with no
+     * basis on it was written before this rule and is refused the same way a stale one is:
+     * approving it would be approving against a number nobody checked.
+     */
+    const basis = proposal.plan_run_version_basis;
+    if (basis === undefined || basis !== current.version) throw new PlanMoved(legId);
+
     const bucket: PlacementBucket = proposal.cancel === true ? "ABSENT" : current.bucket;
     const saved = await plan.setChildPlacement({
       siteId: row.site_id,
@@ -362,8 +378,21 @@ export async function decideApproval(
     });
     if (!saved.ok) throw new PlanNotSaved();
 
-    // 4. Queue the family's text. The outbox re-checks everything at send time.
-    const leg = moved.rows[0];
+    /*
+     * 3. Queue the family's text. The outbox re-checks everything at send time.
+     *
+     * The leg is READ, not written: the outbox's own staleness rule compares the queued message's
+     * `plan_version_basis` to `trip_leg.plan_version` at drain (outbox.ts:219), so the text has
+     * to carry the leg's current value. A leg that has gone is a refusal rather than a text about
+     * a ride that no longer exists.
+     */
+    const legRow = await tx.query<{ id: string; child_token: string; plan_version: number }>(
+      "SELECT id, child_token, plan_version FROM ops.trip_leg WHERE id = $1 AND site_id = $2",
+      [isUuid(legId) ? legId : null, row.site_id],
+    );
+    const leg = legRow.rows[0];
+    if (!leg) throw new PlanMoved(legId);
+
     const contacts = await authorizedContactsForChild(tx, {
       siteId: row.site_id,
       childToken: leg.child_token,

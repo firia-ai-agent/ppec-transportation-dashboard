@@ -541,7 +541,13 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
       child_token: sc.children[0],
       service_date: sc.serviceDate,
       direction: "PM",
-      plan_version_basis: 1,
+      /*
+       * `plan_run.version`, not `trip_leg.plan_version` (Firia's S1-3, 2026-10-17 11:00 PM ET,
+       * on Veri's S1-3.2: the board guards one counter and the leg carries another). This
+       * scenario saves no plan, so the version is 0 — the same 0 `loadBoard` reports for a day
+       * nobody has planned, and the same one a first Save names.
+       */
+      plan_run_version_basis: 0,
       requested_dropoff_time: "17:00",
       stop_token: "GA-LIBRARY",
       rationale_code: "PARENT_REQUEST",

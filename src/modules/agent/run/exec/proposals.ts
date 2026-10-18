@@ -26,6 +26,8 @@ import type { Exec } from "@/db/exec";
 import { childByKey, stopByKey } from "@/modules/demo/fixtures/standard";
 import { agentTasks } from "@/ui/copy";
 import { demoTokenForId } from "../scope-tokens";
+import { planStoreIn } from "@/modules/plan/store";
+import type { Direction } from "@/domain/day/leg";
 import { raiseTask } from "./clarify";
 import { effectId, isUuid } from "./effects";
 import type { ExecutorDeps } from "./effects";
@@ -250,6 +252,24 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
   const stopToken = requestedStop ?? legStopToken(row.child_token);
   if (!stopToken) return { proposal_refused: "NO_STOP_FOR_LEG", mutated: false };
 
+  /*
+   * THE VERSION A STAFF APPROVAL WILL BE GUARDED ON: `plan_run.version`, read through the board's
+   * own store, for this date and leg.
+   *
+   * Not `trip_leg.plan_version`, which is what this used to record. The board guards
+   * `plan_run.version` (0009) and `setChildPlacement` is what an approval writes through, so a
+   * proposal carrying the other counter meant the guard either always 409'd or passed when it
+   * should not have (Veri's S1-3.2; Firia's S1-3, 2026-10-17 11:00 PM ET). `loadPlan` is the
+   * board's own reader, in this transaction — not a second query of `plan_run`.
+   *
+   * `0` when no plan has been saved for this date and leg, which is the same `0` `loadBoard`
+   * reports and the same one a first save names.
+   */
+  const direction = legOf(row.direction);
+  if (direction === null) return { proposal_refused: "NO_SUCH_LEG", mutated: false };
+  const savedPlan = await planStoreIn(tx).loadPlan(input.siteId, row.service_date, direction);
+  const planRunVersion = savedPlan?.version ?? 0;
+
   const basis = await tx.query<{ id: string }>(
     "SELECT id FROM ops.message WHERE id = $1 AND site_id = $2",
     [isUuid(sourceMessageId) ? sourceMessageId : null, input.siteId],
@@ -271,8 +291,13 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
     child_token: row.child_token,
     service_date: row.service_date,
     direction: row.direction,
-    /** The version a staff approval will be guarded on (AT-08: a bumped plan invalidates this). */
-    plan_version_basis: row.plan_version,
+    /**
+     * The version a staff approval is guarded on (AT-08: a saved plan invalidates this). It is
+     * `plan_run.version` — the board's counter — and the field is named for it, so a row written
+     * before Firia's S1-3 ruling cannot be read as if it held the new meaning. `decide.ts`
+     * refuses a proposal with no basis on it.
+     */
+    plan_run_version_basis: planRunVersion,
     requested_dropoff_time: requestedTime,
     /** The stop as proposed, or the one the leg already holds when only the time moved. */
     stop_token: stopToken,
@@ -294,4 +319,13 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
     [approvalId, input.siteId, taskId, JSON.stringify(proposal), by],
   );
   return { approval_request_id: approvalId, exception_task_id: taskId, mutated: false };
+}
+
+/**
+ * The board writes one leg at a time, so a leg row whose direction is not one of the two is not
+ * something a proposal can be guarded against. The same two-value check `approvals/decide.ts`
+ * makes of the proposal it reads back.
+ */
+function legOf(direction: string | undefined): Direction | null {
+  return direction === "AM" || direction === "PM" ? direction : null;
 }

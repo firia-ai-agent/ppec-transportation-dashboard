@@ -132,7 +132,9 @@ beforeEach(async () => {
         child_token: childToken,
         service_date: "2026-10-14",
         direction: "PM",
-        plan_version_basis: 1,
+        // `plan_run.version`, the counter the board guards and `decideApproval` checks
+        // (Firia's S1-3). The port above answers 7, so the proposal is written against 7.
+        plan_run_version_basis: 7,
         requested_dropoff_time: "17:00",
         stop_token: "OKEE-PARK",
         rationale_code: "PARENT_REQUEST",
