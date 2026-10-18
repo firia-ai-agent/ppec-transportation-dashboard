@@ -305,9 +305,15 @@ describe("gate 2: an edited message needs a fresh approval", () => {
         showForYouTab: true,
       }),
     );
-    // The new time is on the card, and so is the control that would send it.
-    expect(html).toContain("5:30 PM");
-    expect(html).toContain(approval.approveAndSend);
+    /*
+     * The new time is what Approve would carry, and the card is in its edit state around it.
+     *
+     * Not "5:30 PM" any more: Vera's card has no Time row (7:51 AM ET) and no clock time
+     * anywhere on it, and `dropoff.changed` places no hour in the words either — so the edited
+     * time lives on the decision the three buttons post, which is what this reads.
+     */
+    expect(html).toContain('value="17:30"');
+    expect(html).toContain(approval.edit);
     // And the family still has not been told anything.
     expect(html).toContain(approval.nothingUntilApproved);
     // The edit itself queued nothing: the decision model was never called.

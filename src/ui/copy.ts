@@ -1277,8 +1277,16 @@ export const familyTexts = {
  *    in two short sentences and offers both ways out.
  */
 export const approval = {
-  /** What the parent would receive, shown exactly — the body, not a description of it. */
-  exactTextHeading: "The text the family will get",
+  /**
+   * THE CARD'S ACCESSIBLE NAME, and the only sentence on it that says what it is.
+   *
+   * Vera's card (Firia, 2026-10-18 7:51 AM ET) is three things and no more: the parent's name,
+   * the message as a bubble, and the three buttons. There is no heading over the message any
+   * more — "The text the family will get" was a label on a bubble that already looks like a
+   * text — so a screen reader would otherwise reach a region named only "Dara O.", which is also
+   * what the thread around it is called. This is the name the region carries instead.
+   */
+  cardLabel: "Proposed reply to {adult}",
   /*
    * There is NO key here for the STOP/HELP footer, and that absence is the ruling (Firia, 10:51
    * PM ET): the 10DLC sentence is appended by the send step alone (`SEND_FOOTER`,
@@ -1286,7 +1294,14 @@ export const approval = {
    * card. A copy key for it would be the first half of putting it back.
    */
   nothingUntilApproved: "The family hears nothing until you approve",
-  approveAndSend: "Approve and send",
+  /**
+   * The three controls, worded exactly as mockups/approvals.html `.acts` words them (Firia
+   * relaying Vera, 2026-10-18 7:51 AM ET). The ampersand is the mockup's, and it is the house
+   * style for a two-verb control: `nav.exceptions` is "Exceptions & Approvals" for the same
+   * reason. Every screen that renders one of these reads the constant, so the mockup and the
+   * build cannot drift apart a word at a time.
+   */
+  approveAndSend: "Approve & send",
   edit: "Edit",
   dontSend: "Don't send",
   draftFailed: "Couldn't draft a reply. Write one yourself or try again.",
@@ -1344,8 +1359,12 @@ export const approval = {
 
   /* ── the card itself (mockups/approvals.html) ── */
 
-  /** The card's title: what kind of change it is. */
-  changeDropoff: "Change drop-off",
+  /*
+   * There is NO title key for the card. Vera's card is named by the family it answers — the
+   * parent's name is its heading and `cardLabel` above is its accessible name — so "Change
+   * drop-off" was a kind-of-thing label over a message that already says what it is. The kind
+   * still exists where it belongs, as `DROPOFF_CHANGE_KIND` on the row.
+   */
   /**
    * WHO THE PROPOSAL IS FROM — one word, and it is this one.
    *
@@ -1362,14 +1381,23 @@ export const approval = {
    * the assertion that keeps it off the card is in real-card-only.test.ts.
    */
   agentLabel: "Agent",
-  /** Who drafted it and when, on the card's own header line. */
+  /**
+   * Who drafted it and when.
+   *
+   * NOT on the card: Vera's card carries no clock time at all (the "NO Time row" half of the
+   * 7:51 AM ruling), and a "Agent · 3:58 PM" line is a clock time wherever it sits. The queue
+   * still builds it (`family-texts/queue.ts`) because the author and the minute are facts about
+   * the row, and `real-card-only.test.ts` reads them to prove the card came from a real approval
+   * rather than a fixture.
+   */
   draftedBy: "{agent} · {time}",
-  /** The three rows of the before → after. */
-  diffStop: "Stop",
-  diffTime: "Time",
-  diffPickup: "Pick-up",
-  /** Read between the two halves of a row, for a screen reader (§9). */
-  diffBecomes: "becomes",
+  /*
+   * There are NO keys here for a Stop / Time / Pick-up before→after table. Vera's card does not
+   * draw one (7:51 AM ET): the message says what changes, in the words the family will read, and
+   * a table above it was the same change said twice — the second time in a shape only somebody
+   * who already knew the plan could check. The facts themselves are still computed and still
+   * asserted (`queue.ts`, `real-card-only.test.ts`); what is gone is the row.
+   */
   /** The pick-up row when the adult collecting the child does not change. */
   pickupSame: "{adult} · same",
   /** The checks that passed, as chips. Each is a fact the plan can answer. */

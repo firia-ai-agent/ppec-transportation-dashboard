@@ -161,10 +161,23 @@ describe("the badge and the card are the same rows (S1-2)", () => {
     const html = render({ openKey: "C3", proposals: queue });
     expect(textOf(html)).toContain(`${familyTexts.tabForYou} ${queue.length}`);
 
-    // The card: C3's row, and only C3's. Both times are in the queue; one is on the card.
-    expect(textOf(html)).toContain("5:30 PM");
-    // One card, counted on the heading each card renders exactly once.
-    expect(countOf(textOf(html), approval.exactTextHeading)).toBe(1);
+    /*
+     * The card: C3's row, and only C3's — read off the card's own accessible name, which is the
+     * one place the family it answers is written *on the card* (`approval.cardLabel`).
+     *
+     * It used to be read off "5:30 PM", the proposed time in the card's Time row. There is no
+     * Time row any more (Vera, 7:51 AM ET) and so no clock time on the card at all: the body of
+     * `dropoff.changed` places the stop and not the hour, which is the ruling the template
+     * already followed. See the open question in the PR body — with no time in the words, an
+     * edited time changes nothing a coordinator can read.
+     */
+    const [waiting, open] = queue;
+    expect(html).toContain(`aria-label="${fill(approval.cardLabel, { adult: open.adultName })}"`);
+    expect(html).not.toContain(`aria-label="${fill(approval.cardLabel, { adult: waiting.adultName })}"`);
+    // One card, counted on the one approve row each card renders exactly once. (It used to be
+    // counted on "The text the family will get", which Vera's card no longer has a heading for:
+    // the message is a bubble and the bubble is not labelled.)
+    expect(countOf(textOf(html), approval.approveAndSend)).toBe(1);
   });
 
   it("renders no card for a thread the queue has nothing for", async () => {
@@ -172,7 +185,7 @@ describe("the badge and the card are the same rows (S1-2)", () => {
     const html = render({ openKey: "C3", proposals: queue });
     // The tab still counts the one that is waiting — it is waiting, just not here.
     expect(textOf(html)).toContain(`${familyTexts.tabForYou} 1`);
-    expect(textOf(html)).not.toContain(approval.changeDropoff);
+    expect(textOf(html)).not.toContain(approval.approveAndSend);
   });
 });
 
@@ -182,7 +195,6 @@ describe("with no approval rows there is no card and the tab says so (S1-2)", ()
     expect(queue).toEqual([]);
     const html = textOf(render({ openKey: "C2", proposals: queue }));
     expect(html).toContain(approval.none);
-    expect(html).not.toContain(approval.changeDropoff);
     expect(html).not.toContain(approval.approveAndSend);
   });
 });
@@ -227,7 +239,6 @@ describe("a model that cannot be reached means the alert, never a scripted card 
         }),
       ),
     );
-    expect(html).not.toContain(approval.changeDropoff);
     expect(html).not.toContain(approval.approveAndSend);
   });
 });
@@ -351,9 +362,9 @@ describe("the card is one approve row, labelled Agent, with no codes on it (S1-2
   it("renders exactly one approve row, and one of each control in it", async () => {
     const queue = await queueOf([row(OPEN)]);
     const text = textOf(render({ openKey: OPEN, proposals: queue }));
-    // One card (`.prop`), counted on the heading each card renders exactly once.
-    expect(countOf(text, approval.exactTextHeading)).toBe(1);
-    // And one row of controls on it: `.acts`, as the mockup draws it.
+    // One card (`.prop`) is one row of controls: `.acts`, as the mockup draws it. The card has no
+    // heading of its own to count any more (Vera, 7:51 AM ET) — it is the parent's name, the
+    // message as a bubble, and these three.
     expect(countOf(text, approval.approveAndSend)).toBe(1);
     expect(countOf(text, approval.edit)).toBe(1);
     expect(countOf(text, approval.dontSend)).toBe(1);
@@ -367,7 +378,14 @@ describe("the card is one approve row, labelled Agent, with no codes on it (S1-2
     const [card] = await queueOf([row(OPEN)]);
     expect(card.draftedLabel.startsWith(`${approval.agentLabel} ·`)).toBe(true);
     const text = textOf(render({ openKey: OPEN, proposals: [card] }));
-    expect(text).toContain(card.draftedLabel);
+    /*
+     * The author is on the card as the mark's accessible name and nowhere else. The
+     * "Agent · 3:58 PM" LINE is gone: Vera's card carries no clock time (7:51 AM ET), and a
+     * drafted-at minute is a clock time wherever it sits. So the label stays a fact about the
+     * row — the queue builds it and this asserts it — and the card draws the word, not the time.
+     */
+    expect(text).not.toContain(card.draftedLabel);
+    expect(render({ openKey: OPEN, proposals: [card] })).toContain(`aria-label="${approval.agentLabel}"`);
     // Not the old word, anywhere on the screen.
     expect(text).not.toContain("Assistant ·");
   });

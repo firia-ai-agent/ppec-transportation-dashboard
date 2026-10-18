@@ -28,7 +28,7 @@ import { demoChangeRequests } from "@/modules/demo/change-request";
 import { demoLateDropoffs } from "@/modules/demo/late-dropoff";
 import type { AssistantAlert } from "@/modules/agent/staff-alert";
 import { SEND_FOOTER } from "@/modules/messaging/templates";
-import { approval, assistantUnavailable, familyTexts } from "@/ui/copy";
+import { approval, assistantUnavailable, familyTexts, fill } from "@/ui/copy";
 import type { ThreadContext } from "@/app/(app)/family-texts/context";
 import { childTokenOf, stopByKey, childByKey } from "@/modules/demo/fixtures/standard";
 import { DROPOFF_CHANGE_KIND } from "@/modules/agent/run/exec/proposals";
@@ -235,7 +235,14 @@ describe("the screen's shape", () => {
      */
     const html = render({});
     const thread = html.indexOf(request.parentText);
-    const card = html.indexOf(approval.changeDropoff);
+    /*
+     * The card, by its own accessible name: on the markup, "Approve & send" is `&amp;`, and the
+     * card has no heading of its own to look for any more (Vera, 7:51 AM ET) — it is the
+     * parent's name, the message as a bubble, and the three buttons.
+     */
+    const card = html.indexOf(
+      `aria-label="${fill(approval.cardLabel, { adult: conversationRows(texts, requests)[0].adultName })}"`,
+    );
     const compose = html.indexOf(`aria-label="${familyTexts.composeAction}"`);
     expect(thread).toBeGreaterThan(-1);
     expect(compose).toBeGreaterThan(-1);
@@ -260,8 +267,9 @@ describe("the screen's shape", () => {
       // And not the label that used to introduce it either: the line is gone, not relabelled.
       expect(textOf(html)).not.toContain("Added when it sends");
     }
-    // The draft itself is still on the card, so the absence above is about the footer alone.
-    expect(textOf(render({}))).toContain(approval.exactTextHeading);
+    // The message itself is still on the card — in its bubble, which has no heading over it any
+    // more (Vera, 7:51 AM ET) — so the absence above is about the footer alone.
+    expect(textOf(render({}))).toContain(approval.approveAndSend);
   });
 
   it("has exactly one compose bar", () => {
@@ -320,14 +328,13 @@ describe("gate 3: nothing model-written reaches a parent unapproved", () => {
   it("says so plainly when there is nothing for Send to approve", () => {
     const html = textOf(render({ request: undefined, proposals: [] }));
     expect(html).toContain(familyTexts.composeNoProposal);
-    expect(html).not.toContain(approval.changeDropoff);
+    expect(html).not.toContain(approval.approveAndSend);
   });
 });
 
 describe("gate 5: no model, no card", () => {
   it("renders no proposal card at all and shows the needs-a-person alert instead", () => {
     const html = textOf(render({ tab: "for-you", assistantReachable: false, alerts: [ALERT] }));
-    expect(html).not.toContain(approval.changeDropoff);
     expect(html).not.toContain(approval.approveAndSend);
     expect(html).toContain(assistantUnavailable.heading);
     expect(html).toContain(ALERT.sentence);
@@ -338,14 +345,14 @@ describe("gate 5: no model, no card", () => {
 
   it("drops the card out of the thread too, not only out of the tab", () => {
     const html = textOf(render({ assistantReachable: false }));
-    expect(html).not.toContain(approval.changeDropoff);
+    expect(html).not.toContain(approval.approveAndSend);
     // The texts that went out still show: they did go out.
     expect(html).toContain(familyTexts.autoDelivered);
   });
 
   it("keeps the alert at the top of the For you tab, above every card", () => {
     const html = textOf(render({ tab: "for-you", alerts: [ALERT] }));
-    expect(html.indexOf(assistantUnavailable.heading)).toBeLessThan(html.indexOf(approval.changeDropoff));
+    expect(html.indexOf(assistantUnavailable.heading)).toBeLessThan(html.indexOf(approval.approveAndSend));
   });
 });
 
@@ -389,7 +396,7 @@ describe("gate 8, the courtesy half: the front desk sees no For you tab", () => 
   it("falls back to the whole list when that role asks for the tab by URL", () => {
     // `?tab=for-you` with no right to it renders the list, never the queue.
     const html = textOf(render({ tab: "for-you", showForYouTab: false, proposals: [] }));
-    expect(html).not.toContain(approval.changeDropoff);
+    expect(html).not.toContain(approval.approveAndSend);
     expect(html).toContain(conversationRows(texts, requests)[0].adultName);
   });
 });

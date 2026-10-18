@@ -59,8 +59,20 @@ async function css(locator: Locator, property: string): Promise<string> {
  * Asked on the "For you" tab only, because that is the tab both of them live on: the alert is the
  * queue's own, and a thread on another tab simply has no proposal in it.
  */
+/**
+ * THE PROPOSAL CARD, by its accessible name.
+ *
+ * Vera's card (Firia, 2026-10-18 7:51 AM ET) is the parent's name, the message as a bubble and
+ * the three buttons — it has no title of its own to look for, and "Change drop-off" is not a
+ * string the screen renders any more. `approval.cardLabel` is "Proposed reply to {adult}", so
+ * the family is the part that varies and the rest of it is the locator.
+ */
+function cardRegion(page: Page) {
+  return page.getByRole("region", { name: new RegExp(`^${approval.cardLabel.replace("{adult}", ".+")}$`) });
+}
+
 async function stateOf(page: Page): Promise<"card" | "alert"> {
-  const card = await page.getByText(approval.changeDropoff).count();
+  const card = await cardRegion(page).count();
   const alert = await page.getByRole("heading", { name: assistantUnavailable.heading }).count();
   expect([card > 0, alert > 0], "exactly one of the card and the alert").toContainEqual(true);
   expect(card > 0 && alert > 0, "never both").toBe(false);
@@ -69,7 +81,7 @@ async function stateOf(page: Page): Promise<"card" | "alert"> {
 
 /** Is a proposal card on this page at all? `false` is the no-model state (gate 5). */
 async function hasCard(page: Page): Promise<boolean> {
-  return (await page.getByText(approval.changeDropoff).count()) > 0;
+  return (await cardRegion(page).count()) > 0;
 }
 
 test.describe("1440: three panes on For you, the card inside the thread", () => {
@@ -133,7 +145,7 @@ test.describe("1440: three panes on For you, the card inside the thread", () => 
     // than in a pane of its own; with none, there is no card anywhere (gate 5).
     await expect(list).toBeVisible();
     if (await hasCard(page)) {
-      const card = page.getByRole("region", { name: approval.changeDropoff });
+      const card = cardRegion(page);
       await expect(card).toBeVisible();
       const cardBox = await card.boundingBox();
       expect(cardBox!.x).toBeGreaterThanOrEqual(threadBox!.x - 1);
@@ -244,7 +256,7 @@ test.describe("1440: three panes on For you, the card inside the thread", () => 
 
     const state = await stateOf(page);
     if (state === "card") {
-      const card = page.getByRole("region", { name: approval.changeDropoff });
+      const card = cardRegion(page);
       await expect(card.first()).toBeVisible();
 
       /*
@@ -306,12 +318,55 @@ test.describe("1440: three panes on For you, the card inside the thread", () => 
       await expect(page.getByText(approval.nothingUntilApproved).first()).toBeVisible();
     } else {
       // Gate 5: no card at all, and the alert in its place.
-      await expect(page.getByText(approval.changeDropoff)).toHaveCount(0);
+      await expect(cardRegion(page)).toHaveCount(0);
       await expect(page.getByText(assistantUnavailable.rule)).toBeVisible();
     }
     expect(await scrollWidth(page)).toBeLessThanOrEqual(1440);
     await expectNoInternalCodes(page);
     console.log("screenshot:", await shot(page, `for-you-1440-${state}`));
+  });
+
+  /**
+   * VERA'S CARD, and nothing else on it (Firia relaying Vera, 2026-10-18 7:51 AM ET).
+   *
+   * Three things: the parent's name, the message as a bubble, and the three buttons — worded as
+   * mockups/approvals.html `.acts` words them, and drawn as the inline `.prop` of
+   * mockups/family-texts.html (png/family-texts-1440.png) draws them. What this asserts is as
+   * much about what is gone: **no Time row**, and no clock time anywhere on the card.
+   */
+  test("the card is the parent's name, the message as a bubble, and three buttons", async ({ page }) => {
+    await page.goto(FOR_YOU);
+    test.skip(!(await hasCard(page)), "needs the card state (a reachable model)");
+    const card = cardRegion(page).first();
+
+    /*
+     * The parent's name, as the card's own heading — the family these words would go to. Read
+     * back out of the card's accessible name, which is the same name with `approval.cardLabel`
+     * around it, so the two cannot disagree about which family this is.
+     */
+    const adult = ((await card.getAttribute("aria-label")) ?? "")
+      .replace(approval.cardLabel.replace("{adult}", ""), "")
+      .trim();
+    expect(adult, "the card names a family").not.toBe("");
+    await expect(card.getByRole("heading", { name: adult })).toBeVisible();
+
+    // The message, in a bubble: one, and the same words the thread would show once it is sent.
+    await expect(card.getByText(/gets off at/)).toBeVisible();
+
+    // The three buttons, and no fourth control.
+    for (const name of [approval.approveAndSend, approval.edit, approval.dontSend]) {
+      await expect(card.getByRole("button", { name })).toHaveCount(1);
+    }
+    expect(await card.getByRole("button").count(), "three buttons, and no more").toBe(3);
+
+    /*
+     * NO TIME ROW, and no clock time at all. The ride's hour is not on the card: the body of
+     * `dropoff.changed` places the stop and not the hour, and the before→after table that used
+     * to carry "Time 4:30 PM → 5:30 PM" is gone with it.
+     */
+    await expect(card.getByText(/\b(?:1[0-2]|[1-9]):[0-5]\d\s?(?:AM|PM)\b/)).toHaveCount(0);
+    expect(await card.locator("input[type='time']").count(), "no time input at rest").toBe(0);
+    console.log("screenshot:", await shot(page, "for-you-card-1440"));
   });
 
   test("Edit is a navigation, and it opens the time field without sending", async ({ page }) => {
@@ -325,7 +380,7 @@ test.describe("1440: three panes on For you, the card inside the thread", () => 
      */
     await page.getByRole("button", { name: approval.edit }).first().click();
     await expect(page).toHaveURL(/edit=/);
-    const card = page.getByRole("region", { name: approval.changeDropoff }).first();
+    const card = cardRegion(page).first();
     await expect(card.locator("input[type='time']")).toBeVisible();
     await expect(page.getByRole("button", { name: approval.approveAndSend }).first()).toBeVisible();
     await expect(page.getByText(approval.nothingUntilApproved).first()).toBeVisible();
@@ -406,7 +461,7 @@ test.describe("390: the list, then the thread", () => {
     }
 
     if (state === "card") {
-      const cards = page.getByRole("region", { name: approval.changeDropoff });
+      const cards = cardRegion(page);
       const count = await cards.count();
       expect(count).toBeGreaterThan(0);
       for (let i = 0; i < count; i += 1) {
@@ -441,7 +496,7 @@ test.describe("390: the list, then the thread", () => {
     expect(alertBox!.y, "the alert is above the day's rows").toBeLessThan(rowsBox!.y);
 
     // And no proposal card anywhere, because nothing read the family's text (gate 5).
-    await expect(page.getByText(approval.changeDropoff)).toHaveCount(0);
+    await expect(cardRegion(page)).toHaveCount(0);
     expect(await scrollWidth(page)).toBeLessThanOrEqual(PHONE);
   });
 });

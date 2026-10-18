@@ -1,42 +1,49 @@
 "use client";
 
 import { useActionState } from "react";
-import { ArrowRight, Bot, Check, Pencil, X } from "lucide-react";
-import { StateChip } from "@/ui/StateChip";
-import { approval } from "@/ui/copy";
+import { Bot, Check, Pencil, X } from "lucide-react";
+import { approval, fill } from "@/ui/copy";
 import { icon } from "@/ui/tokens";
 import type { DecideAction, DecisionState } from "./actions";
 import type { ProposalView } from "./conversations";
 import styles from "./texts.module.css";
 
 /**
- * THE APPROVE CARD (mockups/approvals.html `.prop`), rendered inside the thread.
+ * THE APPROVE CARD, rendered inside the thread, under the message it answers.
  *
- * What a coordinator reads before anything happens to a family: what kind of change it is, the
- * before and after of each field that moves, the checks that passed, and the exact words the
- * family would get. Then three controls, and the three of them are the whole of Firia's gates 1
- * and 2:
+ * Three things and nothing else (Firia relaying Vera, 2026-10-18 7:51 AM ET): **the parent's
+ * name**, **the message as a bubble**, and **the three buttons**, worded exactly as
+ * mockups/approvals.html words them. A coordinator decides one question — do these words go to
+ * this family — and everything the card used to put above that question was answering a
+ * different one.
  *
- *  - **Approve and send** posts to `decideApprovalAction`, which calls `decideApproval` and
- *    nothing else. One write path, for all three controls (gate 1).
+ * ## What came off it, and why that is not a loss
+ *
+ *  - **The Stop / Time / Pick-up table.** The message already says what changes, in the words
+ *    the family will read. The table said it again in a shape only somebody who already knew the
+ *    plan could check, and it put a clock time on the card — which is the "NO Time row" half of
+ *    the ruling, in the one place a stray time was still being drawn.
+ *  - **The green check chips.** They were facts, and they are still facts: `queue.ts` computes
+ *    them and `real-card-only.test.ts` holds them. A row of ticks over a decision is the screen
+ *    reassuring itself, and a coordinator who trusts the ticks is not reading the sentence.
+ *  - **"The text the family will get".** A label on a bubble that already looks like a text.
+ *    The region's accessible name (`approval.cardLabel`) says it once, for a reader who cannot
+ *    see that it is a bubble.
+ *
+ * ## The three controls are still the whole of Firia's gates 1 and 2
+ *
+ *  - **Approve & send** posts to `decideApprovalAction`, which calls `decideApproval` and nothing
+ *    else. One write path, for all three controls (gate 1).
  *  - **Edit** is a `GET` to this same screen. It writes nothing and sends nothing: the card comes
- *    back *pending*, now with a time field on it, and the reply re-rendered from the same
- *    template — so an edited message needs a **fresh** approval (gate 2). An Edit that
- *    approved-with-a-different-time would be a send nobody signed.
+ *    back *pending* with the message re-rendered through the same template, so **an edited
+ *    message needs a fresh approval** (gate 2). Edit changes the words and only the words — it
+ *    moves no ride, because the ride is saved by the decision and by nothing else.
  *  - **Don't send** posts the same action with `DECLINED`: the decision is written and nothing
  *    else happens.
  *
- * ## One row of three buttons, and nothing else
- *
- * Firia, 2026-10-17 10:51 PM ET: "ONE row of three buttons: teal 'Approve & send', 'Edit', 'Don't
- * send'. No time input, no helper text." So the resting card is exactly mockups/approvals.html
- * `.acts` — three controls, the first of them teal — and the time field exists only in the state
- * Edit navigates to (`?edit=`), which is not a state the mockup draws. A field sitting on the
- * resting card was the screen asking a question nobody had asked it.
- *
- * The words are never editable, only the time: the reply below is always `renderTemplate`'s
- * output over the proposal's own template. That is what keeps "no free text to a family" true of
- * the approval path as well as the automatic one.
+ * The words themselves are always `renderTemplate`'s output over the proposal's own template.
+ * That is what keeps "no free text to a family" true of the approval path as well as the
+ * automatic one.
  */
 export function ProposalCard({
   proposal,
@@ -49,69 +56,44 @@ export function ProposalCard({
   readonly decide: DecideAction;
   /** Where Edit submits: this screen, with the thread and tab it is already on. */
   readonly editHref: string;
-  /** True in the state Edit navigates to, which is the only state with a time field on it. */
+  /** True in the state Edit navigates to, which is the only state with a field on it. */
   readonly editing?: boolean;
   readonly className?: string;
 }) {
   const [state, submit, pending] = useActionState<DecisionState, FormData>(decide, { status: "idle" });
 
   return (
-    <section className={[styles.card, className].filter(Boolean).join(" ")} aria-label={approval.changeDropoff}>
+    <section
+      className={[styles.card, className].filter(Boolean).join(" ")}
+      aria-label={fill(approval.cardLabel, { adult: proposal.adultName })}
+    >
+      {/*
+        * The parent's name, and the agent's mark beside it. The mark carries the author for a
+        * screen reader (`approval.agentLabel`, Vera's S1-2 item a) — without it the card would
+        * reach a non-sighted reader with no idea who wrote the words, because the one thing on
+        * this row that says "the agent drafted this" is an icon.
+        */}
       <div className={styles.cardHead}>
-        {/*
-          * The agent's mark, with the agent's name on it (Vera's S1-2 item a: the proposal is
-          * labelled "Agent", from copy.ts). Sighted readers get the word on the "Agent · 3:58 PM"
-          * line at the end of this row; a screen reader would otherwise reach the card with no
-          * idea who proposed it, because an `aria-hidden` icon is the one thing on the header that
-          * carries the author.
-          */}
         <Bot size={icon.inline} role="img" aria-label={approval.agentLabel} />
-        <h3 className={styles.cardTitle}>{approval.changeDropoff}</h3>
-        <StateChip state={{ icon: Bot, label: proposal.childLabel, tone: "neutral" }} />
-        <span className={styles.headerSpacer} />
-        {proposal.draftedLabel === "" ? null : <span className={styles.cardWhen}>{proposal.draftedLabel}</span>}
+        <h3 className={styles.cardTitle}>{proposal.adultName}</h3>
       </div>
 
-      <dl className={styles.diff}>
-        {proposal.stopTo === "" ? null : (
-          <DiffRow label={approval.diffStop} from={proposal.stopFrom} to={proposal.stopTo} />
-        )}
-        {proposal.timeTo === null ? null : (
-          <DiffRow label={approval.diffTime} from={proposal.timeFrom} to={proposal.timeTo} />
-        )}
-        {proposal.pickupLabel === "" ? null : (
-          <DiffRow label={approval.diffPickup} from={null} to={proposal.pickupLabel} />
-        )}
-      </dl>
+      {/*
+        * The message, as a bubble — the same shape it will have in the thread when it is sent,
+        * because it is the same words. Never shortened, and never the send step's furniture: the
+        * STOP/HELP footer and the [DEMO] tag are appended by `renderForSend` and belong on a
+        * family's phone, not on the thing a person is deciding (Firia, 2026-10-17 10:51 PM ET).
+        */}
+      <p className={[styles.bubble, styles.out, styles.cardBubble].join(" ")}>
+        {proposal.draftText === "" ? approval.draftFailed : proposal.draftText}
+      </p>
 
-      {proposal.checks.length === 0 ? null : (
-        <div className={styles.checks}>
-          {proposal.checks.map((check) => (
-            <StateChip key={check} state={{ icon: Check, label: check, tone: "ok" }} />
-          ))}
-        </div>
-      )}
-
-      <div className={styles.draft}>
-        <h4 className={styles.draftLabel}>{approval.exactTextHeading}</h4>
-        {/* The exact body, as the family would read it. Plain text, never shortened. */}
-        <blockquote>{proposal.draftText === "" ? approval.draftFailed : proposal.draftText}</blockquote>
-        {/*
-          * NO STOP/HELP footer here, and none anywhere a person reads (Firia, 10:51 PM ET, which
-          * supersedes the 11:00 PM "muted line under the draft" wording).
-          *
-          * The 10DLC sentence is appended by the send step alone (`renderForSend`'s `SEND_FOOTER`,
-          * src/modules/messaging/templates.ts) — it is the channel's furniture, not words anybody
-          * wrote and not a thing anybody approves. Showing it to staff made the card longer
-          * without making the decision clearer: a coordinator is deciding the sentence above, and
-          * every extra line under it is one more thing to read before they can.
-          *
-          * So the draft the card shows is exactly `renderTemplate`'s output and stops there. The
-          * assertion that keeps it that way is in texts-screen.test.ts.
-          */}
-      </div>
-
-      {/* The time field, in the Edit state only — never on the resting card (10:51 PM ET). */}
+      {/*
+        * Edit's one field, in the state Edit navigates to and nowhere else. It is the message
+        * that changes: the time is the one thing in these words a coordinator may move, so
+        * moving it re-renders the sentence through the same template and leaves the proposal
+        * PENDING, waiting for an approval of the new words.
+        */}
       {editing ? (
         <form method="get" action={editHref} className={styles.editForm}>
           <input type="hidden" name="edit" value={proposal.approvalId} />
@@ -181,40 +163,14 @@ export function ProposalCard({
   );
 }
 
-/** One row of the before → after. No arrow when there is no before: nothing moved. */
-function DiffRow({
-  label,
-  from,
-  to,
-}: {
-  readonly label: string;
-  readonly from: string | null;
-  readonly to: string;
-}) {
-  return (
-    <>
-      <dt className={styles.diffKey}>{label}</dt>
-      <dd className={from === null ? styles.diffValue : styles.diffOld}>{from === null ? to : from}</dd>
-      {from === null ? (
-        <span />
-      ) : (
-        <span className={styles.arrow}>
-          <span className="srOnly">{approval.diffBecomes}</span>
-          <ArrowRight size={icon.inline} aria-hidden="true" />
-        </span>
-      )}
-      {from === null ? <span /> : <dd className={styles.diffValue}>{to}</dd>}
-    </>
-  );
-}
-
 /**
  * What the card says after a decision, or before one.
  *
  * "Nothing until you approve" is the line that has to be there before anything is pressed: a
- * person reading a drafted text has to know the family has not seen it. Afterwards it is what
- * happened — including "approved, and nobody on this family's file may be texted", which is a
- * real outcome and not an error.
+ * person reading a drafted text has to know the family has not seen it — the more so now that the
+ * words sit in a bubble that will look exactly like this when it has been sent. Afterwards it is
+ * what happened — including "approved, and nobody on this family's file may be texted", which is
+ * a real outcome and not an error.
  */
 function outcomeOf(state: DecisionState): string {
   if (state.status === "refused") return state.message;
