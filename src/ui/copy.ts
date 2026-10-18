@@ -669,6 +669,12 @@ export const liveMap = {
    * "John Prince Park · 2 kids" — no ETA, no "+12 min", no clock.
    */
   vanNext: "{stop} · {kids}",
+  /**
+   * A van with nothing left to arrive at: every stop driven, on its way back to the centre.
+   * The row still says something true rather than printing " · 0 kids" after an empty space,
+   * which is what an unguarded "{stop} · {kids}" renders at the end of a run.
+   */
+  vanNextDone: "All stops done",
   kids: "{count} kids",
   kidsOne: "1 kid",
 

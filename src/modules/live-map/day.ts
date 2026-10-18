@@ -33,8 +33,29 @@ import type { VanChip } from "@/domain/location/van-chip";
 import { driverFor } from "@/domain/plan/day";
 import { DEMO_RUNS, SCENARIO_START_MS } from "@/fixtures/replays";
 import { DEMO_CENTER } from "@/fixtures/map";
+import { FAMILIES } from "@/modules/demo/fixtures/standard";
 import { shortName } from "@/ui/display-name";
 import { bySeverity, countsOf, vanStateOf, type StopPoint, type VanCounts } from "./van-state";
+
+/**
+ * A FAMILY, IN WORDS — "Kim P.", never "F7".
+ *
+ * A route stop carries its family *key* (src/fixtures/run-routes.ts: `familyLabel:
+ * riders[0].familyKey`), and a key is a note about the database. COPY-GUIDE §1–§2 and the test
+ * contract's global check both ban an internal code from the screen — the Auto texts feed in
+ * png/live-map.png reads "Kim P. · Van 2", a person — so the key is resolved to the guardian the
+ * fixtures already name, first name and family initial, which is how every other person on every
+ * other screen is written (src/ui/display-name.ts).
+ *
+ * A key the fixtures do not know comes back `undefined` rather than as itself: a row with the
+ * van and no name is honest, and a row with "F7" on it is a code on a founder's screen.
+ */
+function familyName(key: string | undefined): string | undefined {
+  if (!key) return undefined;
+  const family = FAMILIES.find((candidate) => candidate.key === key);
+  if (!family) return undefined;
+  return shortName(`${family.guardian.firstName} ${family.guardian.lastInitial}`);
+}
 
 /** The centre every run starts and ends at, and the one stop no van is assigned to. */
 export const CENTER_COORD: Coord = DEMO_CENTER;
@@ -199,7 +220,7 @@ function feedOf(
         atMs: decision.atMs,
         // A role that may not see a family's name never receives it, so there is nothing in the
         // markup to hide: the label is absent, not styled away.
-        familyLabel: showFamilyLabels ? decision.familyLabel : undefined,
+        familyLabel: showFamilyLabels ? familyName(decision.familyLabel) : undefined,
         vanNumber: run.number,
       })),
   );

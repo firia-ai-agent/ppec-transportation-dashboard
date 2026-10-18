@@ -89,6 +89,17 @@ export interface LiveMapScreenProps {
    * from a route fixture. Empty while the screen is locked, because there is nothing to read.
    */
   kidsByVan: Readonly<Record<string, number>>;
+  /**
+   * A scenario second to PIN the clock to, for the browser check and for nothing else.
+   *
+   * The four chips are four moments of the simulated day, and a test that waits for one to come
+   * round is a test that fails on a slow machine. This is the same test path the board already
+   * has for its own clock (`?tick=`, src/domain/board/day.ts), read through the same gate
+   * (`dateOverrideAllowed`) — so it needs `APP_DATA_CLASS=SYNTHETIC`, `DEMO_MODE=1` and an
+   * explicit `E2E_DATE_OVERRIDE=1`, and it is refused outright whenever `VERCEL_ENV` is set,
+   * which it is on every deployment. `undefined` on every real server: the clock is the bar's.
+   */
+  pinnedSeconds?: number;
   /** Overlaid over the map when this leg has no saved plan: ./LockedCard.tsx. */
   locked?: React.ReactNode;
 }
@@ -99,6 +110,7 @@ export default function LiveMapScreen({
   familyLabels,
   unlocked,
   kidsByVan,
+  pinnedSeconds,
   locked,
 }: LiveMapScreenProps) {
   const reduced = useReducedMotion();
@@ -109,7 +121,9 @@ export default function LiveMapScreen({
    * there is one clock rather than two. There are no scenario or demo controls on this screen —
    * which is also what makes it safe as the front desk's home page.
    */
-  const { seconds } = useDemoClock();
+  const { seconds: clockSeconds } = useDemoClock();
+  // A pinned second is the browser check's; everywhere else the clock is the DEMO bar's.
+  const seconds = pinnedSeconds ?? clockSeconds;
   const [filter, setFilter] = useState<VanFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -284,6 +298,12 @@ function VanRow({
   onSelect: () => void;
 }) {
   const kids = van.kids === 1 ? liveMap.kidsOne : fill(liveMap.kids, { count: van.kids });
+  /*
+   * "Lantana Public Library · 2 kids" while there is somewhere left to go, and "All stops done"
+   * once there is not. The mockup's line is a stop and a count; a van at the end of its run has
+   * no stop, and " · 0 kids" after an empty space is a row that says nothing.
+   */
+  const next = van.nextStop ? fill(liveMap.vanNext, { stop: van.nextStop, kids }) : liveMap.vanNextDone;
   return (
     <li>
       <button
@@ -311,7 +331,7 @@ function VanRow({
         </Pill>
         <span className={styles.vanNext}>
           <MapPin size={icon.chip} aria-hidden="true" />
-          {fill(liveMap.vanNext, { stop: van.nextStop, kids })}
+          {next}
         </span>
         {/* The bar is a picture of what the line above already says, so it is named for a
             screen reader rather than being a second, silent fact (§9). */}

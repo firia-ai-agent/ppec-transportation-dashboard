@@ -48,6 +48,7 @@ import {
   siteOf,
 } from "@/modules/live-map/plan-read";
 import { DATE_PARAM, LEG_PARAM, resolveDate, resolveLeg } from "@/modules/plan/when";
+import { dateOverrideAllowed } from "@/domain/board/day";
 import { DEMO_RUNS } from "@/fixtures/replays";
 import styles from "@/modules/live-map/live-map.module.css";
 
@@ -59,6 +60,26 @@ export const dynamic = "force-dynamic";
 /** One `?p=` value, which Next hands over as a string or an array of them. */
 function one(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+/**
+ * `?at=<scenario second>` — the browser check's clock, and nothing else's.
+ *
+ * Each of the four chips is a moment of the simulated day, and a browser check that waits for
+ * one to come round is a check that fails on a slow machine. So the same test path the board
+ * already has for its own clock, read through the *same* gate: `dateOverrideAllowed` wants
+ * `APP_DATA_CLASS=SYNTHETIC`, `DEMO_MODE=1` and an explicit `E2E_DATE_OVERRIDE=1`, and refuses
+ * outright whenever `VERCEL_ENV` is set — which it is on every deployment. So on anything the
+ * platform runs this is a parameter nothing reads, exactly like `?date=` on the board.
+ *
+ * There is no clock control on this screen either way (the demo's clock is the DEMO bar's).
+ */
+const AT_PARAM = "at";
+
+function pinnedSecondsFrom(raw: string | undefined): number | undefined {
+  if (!dateOverrideAllowed(process.env)) return undefined;
+  const seconds = Number(raw);
+  return raw !== undefined && Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined;
 }
 
 export default async function LiveMapPage({
@@ -106,6 +127,7 @@ export default async function LiveMapPage({
         familyLabels={canSeeMapData(viewer, "familyLabels")}
         unlocked={unlocked}
         kidsByVan={kidsByVan}
+        pinnedSeconds={pinnedSecondsFrom(one(params[AT_PARAM]))}
         locked={
           unlocked ? null : <LockedCard canPlan={canOpenPage(caller, "/plan-routes")} />
         }
