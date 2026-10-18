@@ -96,10 +96,9 @@ export function TextsScreen({
       className={styles.screen}
       data-view={threadOpen ? "thread" : "list"}
       /*
-       * The For you tab does not switch panes at 390: png/approvals-390.png stacks them — the
-       * day's rows as full-width cards, the thread under them, the van pane under that. The
-       * list/thread switch belongs to the other two tabs, where a phone shows one conversation
-       * at a time (family-texts.html's two phone frames).
+       * Which tab is on, for the CSS that needs to know. The 390 pane switch no longer asks:
+       * every tab is one pane at a time there now, For you included (Vera, 2026-10-18 — see
+       * `texts.module.css`'s phone block, and family-texts.html's two phone frames).
        */
       data-tab={tab}
     >

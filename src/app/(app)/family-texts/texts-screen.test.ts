@@ -20,9 +20,12 @@
  * card inside the thread, the list and the thread as two views on the phone, one title and **no**
  * explanatory sentence under it.
  */
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it } from "vitest";
+import { FAMILY_TEXTS_FOR_YOU } from "@/auth/access";
 import { demoDay } from "@/domain/board/day";
 import { formatClock } from "@/domain/eta/eta";
 import { demoChangeRequests } from "@/modules/demo/change-request";
@@ -615,6 +618,58 @@ describe("Vera: the For you tab with nothing waiting is one line and nothing els
     const html = render({ tab: "for-you", request: undefined, alerts: [ALERT] });
     expect(textOf(html)).not.toContain(approval.none);
     expect(lists(html)).toBe(2);
+  });
+});
+
+/**
+ * VERA, 2026-10-18 — mockups/family-texts.html's two phone frames, and mockups/agent-bubble.html.
+ *
+ * At 390 the For you tab used to **stack**: the queue, then a whole conversation, then the van
+ * pane, scrolling past each other down one column — three regions of a desktop layout poured
+ * down a phone, and a coordinator scrolling past somebody else's thread to reach the next card.
+ * It is a navigation now, exactly like the other two tabs: the list is the screen, a row opens
+ * that thread as a screen of its own, and there is a way back.
+ *
+ * The switch is the URL's (`data-view`) and the CSS's, so it is asserted on both: the markup
+ * carries the state, and the phone block really acts on it at every tab.
+ */
+describe("Vera: at 390 the For you tab is the list, and a thread is a screen of its own", () => {
+  const css = readFileSync(path.join(__dirname, "texts.module.css"), "utf8");
+  const phone = css.slice(css.indexOf("@media (max-width: 767px)"));
+
+  it("hides the thread and the van pane behind the list — with no tab excepted", () => {
+    expect(phone).toContain('.screen[data-view="list"] .thread');
+    expect(phone).toContain('.screen[data-view="list"] .ctx');
+    expect(phone).not.toContain('[data-view="list"]:not([data-tab="for-you"])');
+  });
+
+  it("hides the list behind an open thread — with no tab excepted", () => {
+    expect(phone).toContain('.screen[data-view="thread"] .listPane');
+    expect(phone).toContain('.screen[data-view="thread"] .tabs');
+    expect(phone).not.toContain('[data-view="thread"]:not([data-tab="for-you"])');
+  });
+
+  it("marks which of the two the URL is on, on the For you tab like any other", () => {
+    expect(render({ tab: "for-you", threadOpen: false })).toContain('data-view="list"');
+    expect(render({ tab: "for-you", threadOpen: true })).toContain('data-view="thread"');
+  });
+
+  it("opens a thread by tapping a row: every row is a link that names one", () => {
+    const html = render({ tab: "for-you" });
+    for (const row of conversationRows(texts, [PROPOSAL])) {
+      expect(html).toContain(`href="${FAMILY_TEXTS_FOR_YOU}&amp;thread=${row.key}"`);
+    }
+  });
+
+  it("gives that thread its header, its compose bar and a way back to the list", () => {
+    const html = render({ tab: "for-you", threadOpen: true });
+    const text = textOf(html);
+    // The header names who the thread is with, the compose bar is there, and the back link goes
+    // to this tab's own list — not to the default tab, which would be a different screen.
+    expect(text).toContain(selected.guardianName);
+    expect(html).toContain(fill(familyTexts.composePlaceholder, { adult: selected.guardianName }));
+    expect(text).toContain(familyTexts.backToList);
+    expect(html).toContain(`href="${FAMILY_TEXTS_FOR_YOU}"`);
   });
 });
 

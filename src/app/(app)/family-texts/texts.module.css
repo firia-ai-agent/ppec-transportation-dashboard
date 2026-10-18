@@ -857,16 +857,23 @@
   }
 
   /*
-   * Which pane the phone is on is the URL's answer, not a script's (see the file header) — on
-   * the two tabs that are one conversation at a time. The For you tab stacks instead
-   * (png/approvals-390.png), so its panes are both on screen and neither is hidden.
+   * WHICH PANE THE PHONE IS ON IS THE URL'S ANSWER, not a script's (see the file header) — and
+   * that is now true on **every** tab, For you included (Vera, 2026-10-18;
+   * mockups/family-texts.html's two phone frames).
+   *
+   * For you used to stack instead, so a 390 screen showed the queue, then a whole conversation,
+   * then the van pane, all scrolling past each other in one column: three regions of a desktop
+   * layout poured down a phone. The list is the screen; tapping a row opens that thread as a
+   * screen of its own, with the header, the compose bar and the back chevron that every other
+   * tab's thread already has.
    */
-  .screen[data-view="list"]:not([data-tab="for-you"]) .thread {
+  .screen[data-view="list"] .thread,
+  .screen[data-view="list"] .ctx {
     display: none;
   }
 
-  .screen[data-view="thread"]:not([data-tab="for-you"]) .listPane,
-  .screen[data-view="thread"]:not([data-tab="for-you"]) .tabs {
+  .screen[data-view="thread"] .listPane,
+  .screen[data-view="thread"] .tabs {
     display: none;
   }
 
