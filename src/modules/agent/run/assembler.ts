@@ -58,6 +58,7 @@ import { serviceDateIso } from "@/ui/service-date";
 import { familyScope, type FamilyScope } from "../policy";
 import type { AssembleInput, AssembledContext, ContextAssembler, TierFacts } from "./context";
 import { tierPrompt } from "./context";
+import { legStopToken } from "./exec/proposals";
 import { demoPairsFor, demoTokenForId, scopeTokens, type ScopeTokenPair, type ScopeTokens } from "./scope-tokens";
 import { staffAskContext } from "./staff-ask-context";
 
@@ -179,7 +180,11 @@ export function dbContextAssembler(
             `leg=${t(l.id)} child=${t(l.child_token)} part=${l.direction} state=${l.state} version=${l.plan_version}` +
             // The drop-off (or pick-up) time the plan holds now, site-local: what a requested change
             // would change *from*. A 24-hour clock, the same shape `requested_dropoff_time` takes.
-            (l.window_start ? ` window=${formatClock24(new Date(l.window_start).getTime())}` : ""),
+            (l.window_start ? ` window=${formatClock24(new Date(l.window_start).getTime())}` : "") +
+            // The stop the leg drops at now, as the token `requested_stop_token` takes — so a model
+            // that keeps the place can see there is nothing to change, and one that moves it can see
+            // the shape the answer takes.
+            ` stop=${legStopToken(l.child_token) ?? "none"}`,
         ),
       ].join(" "),
       t3: bodies.map((body) => tokenizeNames(body, familyNames)),

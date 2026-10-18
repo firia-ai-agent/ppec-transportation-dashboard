@@ -70,6 +70,24 @@ describe("complete(): one schema-valid catalog tool call, or nothing", () => {
     expect(r.call.args).toEqual({ leg_id: "L-C1-AM" });
   });
 
+  it("reads a quoted None or null from the model as null, and nothing else", async () => {
+    // Seen live on a free endpoint: `requested_stop_token: "None"` for a drop-off that kept its stop.
+    const args = {
+      leg_id: "L-C1-PM", requested_dropoff_time: "17:00", requested_stop_token: "None",
+      rationale_code: "PARENT_REQUEST", alert_text: "The family asked to move the drop-off to 5 PM.",
+      reply: "Yes, we can drop them off at 5 today.", source_message_id: "MSG-1", expected_version: 1,
+    };
+    const { gateway } = gatewayFor([toolCall("propose_dropoff_change", JSON.stringify(args))]);
+    const r = await gateway.complete({ runId: "RUN-1", prompt: PROMPT });
+    expect(r.call.args).toMatchObject({ requested_stop_token: null, reply: "Yes, we can drop them off at 5 today." });
+
+    // And an enum whose real value is the word NONE keeps it.
+    const esc = gatewayFor([toolCall("escalate_exception", {
+      severity: "INFO", category: "ACK_OVERDUE", leg_id: null, summary: "Recording that the ack is late", next_step_code: "NONE",
+    })]);
+    expect((await esc.gateway.complete({ runId: "RUN-2", prompt: PROMPT })).call.args).toMatchObject({ next_step_code: "NONE" });
+  });
+
   it("rejects free text (§11.2 JSON-schema tool calls only)", async () => {
     const { gateway } = gatewayFor([freeText("The van will be there at 8:15, I'll tell the driver.")]);
     await expect(gateway.complete({ runId: "RUN-1", prompt: PROMPT })).rejects.toMatchObject({

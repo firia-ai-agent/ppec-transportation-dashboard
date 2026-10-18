@@ -91,7 +91,7 @@ export {
  * refusal upstream rather than a default: the one thing worse than not proposing a drop-off is
  * proposing a place to leave a child that nobody chose.
  */
-function legStopToken(childToken: string): string | null {
+export function legStopToken(childToken: string): string | null {
   const childKey = demoTokenForId(childToken);
   if (!childKey) return null;
   try {

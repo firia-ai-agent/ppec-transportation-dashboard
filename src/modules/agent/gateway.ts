@@ -331,10 +331,33 @@ export function createGateway(
  * case for "the model emitted prose where arguments belong".
  */
 function coerceArgs(args: unknown): unknown {
-  if (typeof args !== "string") return args;
-  try {
-    return JSON.parse(args);
-  } catch {
-    return args;
+  let parsed: unknown = args;
+  if (typeof args === "string") {
+    try {
+      parsed = JSON.parse(args);
+    } catch {
+      return args;
+    }
   }
+  return nullSpellings(parsed);
+}
+
+/**
+ * A model's way of writing "nothing", read as nothing. Some vendors' models answer a nullable
+ * argument with the *string* "None" or "null" — Python's and JSON's spelling of null, quoted — and
+ * a strict schema then refuses the whole call over a value that means exactly what null means
+ * (seen live: `requested_stop_token: "None"` on a drop-off that kept its stop). Top-level string
+ * values that are exactly one of those two words become `null`; the schema still decides whether
+ * null is allowed there, so this widens nothing a schema forbids.
+ */
+// Case-sensitive on purpose: `"NONE"` is a real enum value in this catalog (`next_step_code`).
+const NULL_SPELLINGS = /^(?:None|null)$/;
+function nullSpellings(args: unknown): unknown {
+  if (args === null || typeof args !== "object" || Array.isArray(args)) return args;
+  return Object.fromEntries(
+    Object.entries(args as Record<string, unknown>).map(([k, v]) => [
+      k,
+      typeof v === "string" && NULL_SPELLINGS.test(v.trim()) ? null : v,
+    ]),
+  );
 }

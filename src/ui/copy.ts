@@ -3185,6 +3185,9 @@ export const agentGuidance = {
     "by the child token from the prompt, which are replaced with first names before anyone reads " +
     "it. Warm, short, one or two sentences, no exclamation marks, codes or links.",
   getLegState: "Read one leg's current state, plan version, drop-off window and stop.",
+  requestedStop:
+    "Null when the family keeps their stop, which is the usual case. Only when they ask for a " +
+    "different place: one of the listed stop tokens, exactly as written.",
   readGuardianThread: "Read the last messages on a family's thread, oldest first, to see exactly what they asked.",
   summarize:
     "Answer the coordinator, or leave them a note about a thread: one or two plain sentences, with " +
