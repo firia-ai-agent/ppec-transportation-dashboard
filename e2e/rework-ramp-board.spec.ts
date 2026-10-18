@@ -184,6 +184,14 @@ test.describe.serial("§2: the van that just arrived", () => {
     await expect(page.locator("[data-planned]")).toHaveCount(4);
     await expect(page.locator('[data-planned="carSeats"]')).toHaveText(/^Planned \d+$/);
     await expect(page.getByText(/Default \d/)).toHaveCount(0);
+    /*
+     * And nothing on this screen promises tomorrow. The mockup draws "Tomorrow starts from this"
+     * under Confirm and Vera's polish list asks for it, but an unconfirmed van is planned on the
+     * shared config's defaults and never on yesterday's counts (Firia/Veri, 2026-10-17 6:00 PM
+     * ET, src/domain/plan/setup.ts) — so that sentence would promise a carry-over the app does
+     * not do. It is not shipped, and this is the assertion that says so.
+     */
+    await expect(page.getByText(/Tomorrow starts/i)).toHaveCount(0);
 
     // The riders are the ones the plan that was just saved put on this van — the ramp shows a
     // saved plan or it shows nothing at all.

@@ -93,11 +93,14 @@
 
 /* ───────────────────────────── the two cards ───────────────────────────── */
 
+/* Both cards run the height of the row, which is what puts Confirm on the floor of the left
+   one rather than under the last stepper (png/ramp-arrival.png). */
 .cards {
   display: grid;
   grid-template-columns: minmax(320px, 420px) 1fr;
   gap: var(--space-4);
-  align-items: start;
+  align-items: stretch;
+  min-height: 0;
 }
 
 .card {
@@ -108,6 +111,14 @@
   border: var(--border-hairline) solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-surface);
+}
+
+/* The card's own header row: its title, and the driver at the trailing end (the mockup's `.ch`). */
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
 }
 
 .cardTitle {
@@ -121,9 +132,25 @@
 }
 
 .driver {
-  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 0 auto;
   color: var(--color-ink-muted);
   font-size: var(--text-16);
+}
+
+/* The driver's initials, the same disc the frame draws a person in (src/ui/display-name.ts). */
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral-fg);
+  font-size: var(--text-12);
+  font-weight: var(--weight-semibold);
 }
 
 .riderCount {
@@ -495,8 +522,9 @@
     padding: var(--space-3);
     gap: var(--space-2);
     background: var(--color-surface);
-    border-top: var(--border-hairline) solid var(--color-neutral-bg);
-    box-shadow: 0 -4px 12px rgb(15 23 42 / 6%);
+    /* A hairline and the surface under it; there is no shadow token and no colour literal
+       lives outside src/ui/tokens.ts (§0 rule 6, src/ui/no-hex.test.ts). */
+    border-top: var(--border-hairline) solid var(--color-border-strong);
   }
 
   .rider {

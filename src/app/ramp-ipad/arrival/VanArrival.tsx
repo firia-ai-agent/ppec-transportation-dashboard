@@ -36,7 +36,7 @@ import type { Direction } from "@/domain/day/leg";
 import { boardHref } from "@/modules/plan/when";
 import { plannedUse, underPlanned, type ArrivalVan } from "./view";
 import { planBoard, vanArrival } from "@/ui/copy";
-import { shortName } from "@/ui/display-name";
+import { initialsOf, shortName } from "@/ui/display-name";
 import { COUNTER_ICON, COUNTER_LABEL, LIFT_ICON, NeedIcons } from "@/ui/equipment";
 import { HeaderSlot } from "@/ui/HeaderSlot";
 import { icon } from "@/ui/tokens";
@@ -170,10 +170,18 @@ export default function VanArrival({
 
       <div className={styles.cards}>
         <section className={styles.card} aria-labelledby="whats-on">
-          <h2 className={styles.cardTitle} id="whats-on">
-            {whatsOn(selected.van.name)}
-          </h2>
-          <p className={styles.driver}>{selected.van.driverName}</p>
+          <div className={styles.cardHead}>
+            <h2 className={styles.cardTitle} id="whats-on">
+              {whatsOn(selected.van.name)}
+            </h2>
+            {/* Who is driving it, as a disc of initials beside their name (the mockup's `.ch`). */}
+            <p className={styles.driver} data-driver="">
+              <span className={styles.avatar} aria-hidden="true">
+                {initialsOf(selected.van.driverName)}
+              </span>
+              {shortName(selected.van.driverName)}
+            </p>
+          </div>
 
           {EQUIPMENT_COUNTERS.map((counter) => {
             const Icon = COUNTER_ICON[counter.key];
