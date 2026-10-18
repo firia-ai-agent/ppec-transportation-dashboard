@@ -53,6 +53,7 @@ import { effectId, raiseTask } from "../run/exec/effects";
 import type { RunDeps, RunResult } from "../run/loop";
 import { startAndDriveRun } from "../run/loop";
 import { type Trigger, assertTrigger } from "../run/triggers";
+import { STAFF_ASK_TASK_CATEGORY, STAFF_ALERT_TASK_CATEGORY, askTextOf } from "./ask-text";
 
 /*
  * The ask's two task categories and `askTextOf` are defined in `ask/ask-text.ts` and re-exported
