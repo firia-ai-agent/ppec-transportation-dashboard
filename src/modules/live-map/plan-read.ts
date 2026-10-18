@@ -43,7 +43,7 @@ import { getNeonDb } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import { staffLabel } from "@/modules/plan/staff";
 import { DEFAULT_DEMO_SITE } from "@/modules/demo/seed";
-import { demoId, KIND, VEHICLES } from "@/modules/demo/fixtures/standard";
+import { vehicleIdOf } from "@/modules/demo/fixtures/standard";
 import { memoryPlanStore } from "@/modules/plan/memory";
 import { DEMO_SCENARIOS } from "@/domain/plan/day";
 
@@ -209,15 +209,21 @@ export function siteOf(caller: { memberships?: readonly { siteId: string }[] }):
  *
  * `plan_assignment.vehicle_id` is a real `ops.vehicle` id, and the simulated runs on this screen
  * are keyed by the fixture's own short key — so the two have to be joined somewhere, and this is
- * the one place. The seed's ids are deterministic (`demoId(KIND.vehicle, n)` over the fixture's
- * own order), so this is a lookup rather than a query.
+ * the one place. The seed's ids are deterministic, and the formula for them lives with the
+ * fixtures: `vehicleIdOf` is the very function `src/modules/demo/seed.ts` inserts
+ * `ops.vehicle.id` with, so this is a lookup rather than a query — and one formula rather than
+ * a copy, which is what a copy got wrong (Veri S1, 2026-10-18 3:03 AM ET: a second, 0-based
+ * formula here showed each van the next van's children).
  *
- * Returns null for a key the fixtures do not have, which is a van the saved plan cannot be
- * talking about.
+ * Returns null for a key the fixtures do not have — `vehicleIdOf` throws on one — which is a van
+ * the saved plan cannot be talking about.
  */
 export function demoVehicleId(vehicleKey: string): string | null {
-  const index = VEHICLES.findIndex((vehicle) => vehicle.key === vehicleKey);
-  return index === -1 ? null : demoId(KIND.vehicle, index);
+  try {
+    return vehicleIdOf(vehicleKey);
+  } catch {
+    return null;
+  }
 }
 
 /** How many children the saved plan puts in one fixture van, or null when nothing is saved. */

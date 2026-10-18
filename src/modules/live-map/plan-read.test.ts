@@ -21,7 +21,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DEMO_ACCOUNTS } from "@/auth/demo-accounts";
-import { demoId, KIND, VEHICLES } from "@/modules/demo/fixtures/standard";
+import { vehicleIdOf } from "@/modules/demo/fixtures/standard";
 import { DEFAULT_DEMO_SITE } from "@/modules/demo/seed";
 import { clearMemoryPlanStore, memoryPlanStore } from "@/modules/plan/memory";
 import {
@@ -37,8 +37,13 @@ import {
   type SavedPlan,
 } from "./plan-read";
 
-const VAN_1 = demoId(KIND.vehicle, VEHICLES.findIndex((v) => v.key === "V1"));
-const VAN_2 = demoId(KIND.vehicle, VEHICLES.findIndex((v) => v.key === "V2"));
+/*
+ * The ids the **seed** inserts for Van 1 and Van 2, not a copy of the formula that makes them:
+ * `vehicleIdOf` is what src/modules/demo/seed.ts writes into `ops.vehicle.id` (step 6). A test
+ * that re-derived them agreed with a wrong read (Veri S1, 2026-10-18 3:03 AM ET).
+ */
+const VAN_1 = vehicleIdOf("V1");
+const VAN_2 = vehicleIdOf("V2");
 
 function planWith(
   placements: SavedPlan["placements"],
@@ -106,6 +111,21 @@ describe("reading plan_assignment (DATA-MODEL.md, \"One source for the plan\")",
 
   it("says 0 for a van the saved plan puts nobody in — which is a fact, not a missing answer", () => {
     expect(kidsInVan(planWith({ C1: { bucket: "VAN", vanId: VAN_1, stopSeq: 1 } }), "V2")).toBe(0);
+  });
+
+  /*
+   * Veri S1, 2026-10-18 3:03 AM ET — "the Live map shows children on the wrong van". A plan is
+   * saved against the id the seed really gave Van 1, so the read has to find those children
+   * under Van 1 and nobody under Van 2. A second, 0-based formula here put them one van along.
+   */
+  it("puts a plan saved with Van 1's seeded id under Van 1 (Veri S1 3:03 AM ET)", () => {
+    const plan = planWith({
+      C1: { bucket: "VAN", vanId: vehicleIdOf("V1"), stopSeq: 1 },
+      C2: { bucket: "VAN", vanId: vehicleIdOf("V1"), stopSeq: 2 },
+      C3: { bucket: "VAN", vanId: vehicleIdOf("V1"), stopSeq: 3 },
+    });
+    expect(kidsInVan(plan, "V1")).toBe(3);
+    expect(kidsInVan(plan, "V2")).toBe(0);
   });
 });
 
