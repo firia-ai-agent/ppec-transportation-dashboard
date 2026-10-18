@@ -286,7 +286,9 @@ describe("(e) with no model there is a staff alert, and nothing else", () => {
     // names) and the proposal id. Never the runner's reason, which is the log's.
     expect(route).toMatch(/Response\.json\(\{ ok: result\.ok, outcome: result\.outcome, \.\.\.said \}/);
     expect(route).toMatch(/result\.outcome === "ran" \? \{ answer: result\.answer, proposalId: result\.proposalId \} : \{\}/);
-    expect(route).not.toMatch(/result\.reason/);
+    // The reason goes to the server log and nowhere else: never into a response body.
+    expect(route).not.toMatch(/Response\.json\([^)]*result\.reason/);
+    expect(route).toMatch(/console\.log\(`\[agent:ask\] \$\{result\.outcome\} \(\$\{result\.reason\}\)`\)/);
     const forwarded = { ok: r.ok, outcome: r.outcome };
     const said = `${JSON.stringify(forwarded)} ${(await tasks()).map((t) => t.summary).join(" ")}`.toLowerCase();
 

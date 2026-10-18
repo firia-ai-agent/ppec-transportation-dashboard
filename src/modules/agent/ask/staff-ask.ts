@@ -216,7 +216,12 @@ export async function askAgent(
      * nothing leaves the person staring at their own question. That is the same outcome for them
      * as a model that could not be reached, so it gets the same answer: one alert, a person told.
      */
-    if (said.answer === null && said.proposalId === null) throw new AskUnanswered();
+    if (said.answer === null && said.proposalId === null) {
+      // The run's own reason ("gateway refused the turn: …", "policy blocked …") — tool, field and
+      // rule names only, the same sentence the run row stores — so the log says *why* there was
+      // no answer instead of only that there was none.
+      throw new AskUnanswered(`${run.state}${run.reason ? `: ${run.reason}` : ""}`.slice(0, 240));
+    }
     return { ok: true, outcome: "ran", taskId, run, answer: said.answer, proposalId: said.proposalId };
   } catch (err) {
     /*
@@ -225,10 +230,11 @@ export async function askAgent(
      * agent had taken it and that turned out not to be true; `effectId` makes it idempotent, so a
      * retried ask raises one alert rather than one per attempt.
      *
-     * The error is never returned and never logged here: a provider's message can carry an
-     * endpoint, a model name or — in the worst case — a header. The caller gets the fact.
+     * A thrown error's *message* is never returned and never logged: a provider's message can
+     * carry an endpoint, a model name or — in the worst case — a header. What `reason` carries is
+     * its class and, for a gateway refusal, the outcome code — enough for the route's log line to
+     * say which wall the ask hit, and nothing a message could smuggle.
      */
-    void err;
     const alertId = await raiseTask(db, {
       id: effectId(taskId, "needs-person"),
       siteId: input.siteId,
@@ -249,14 +255,21 @@ export async function askAgent(
         err instanceof AskTimedOut
           ? "TIMEOUT"
           : err instanceof AskUnanswered
-            ? "NO_ANSWER"
-            : "the model could not be reached",
+            ? `NO_ANSWER (${err.message})`
+            : `the model could not be reached (${errorClass(err)})`,
     };
   }
 }
 
 class AskTimedOut extends Error {}
 class AskUnanswered extends Error {}
+
+/** Which kind of failure, never its message: the class, plus the outcome code of a gateway refusal. */
+function errorClass(err: unknown): string {
+  if (!(err instanceof Error)) return typeof err;
+  const outcome = (err as { outcome?: unknown }).outcome;
+  return typeof outcome === "string" ? `${err.constructor.name}:${outcome}` : err.constructor.name;
+}
 const TIMED_OUT = Symbol("timed out");
 
 /** `promise`, or TIMED_OUT once `ms` have passed. The loser is not awaited. */

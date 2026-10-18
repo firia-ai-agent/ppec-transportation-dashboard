@@ -48,6 +48,11 @@ export async function POST(req: Request) {
     if (result.outcome === "rejected") {
       return Response.json({ ok: false, error: apiAccess.badRequest }, { status: 400, headers: noStore });
     }
+    // The one place an ask that did not answer says why, for the server log only: env var names,
+    // gateway outcome codes, tool and rule names — never a value and never the model's words.
+    if (result.outcome === "unavailable" || result.outcome === "skipped") {
+      console.log(`[agent:ask] ${result.outcome} (${result.reason})`);
+    }
     // A preview and a missing model are both "nothing happened that you asked for", and the
     // panel says the same line for both: it is on your list now.
     // The model's answer in names and the proposal it made, when it ran; never a reason or a code.
