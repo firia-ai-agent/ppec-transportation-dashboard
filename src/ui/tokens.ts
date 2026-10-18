@@ -265,7 +265,7 @@ export const fontSize = {
   "32": "32px",
 } as const;
 
-export const fontWeight = { regular: "400", medium: "500", semibold: "600" } as const;
+export const fontWeight = { regular: "400", medium: "500", semibold: "600", bold: "700" } as const;
 
 /**
  * `one` is the pill's own leading, and the audit's words: `font: 600 11px/1`. A chip is one
@@ -357,7 +357,7 @@ export const focusRing = { width: "2px", offset: "2px" } as const;
  * measures off the mockup ("a 2px Teal #0F766E top border and Teal Ink label"); `ring` is the
  * 3 px halo around the step the day is on, which the mockup draws at 3 (`.step.cur`).
  */
-export const border = { hairline: "1px", current: "2px", ring: "3px" } as const;
+export const border = { hairline: "1px", current: "3px", ring: "3px" } as const; // current: mockups/shell-flow.html:75 (inset 0 3px 0 var(--brand))
 
 /** Icon metrics. Lucide, single set, 1.75 stroke (§2). */
 export const icon = {

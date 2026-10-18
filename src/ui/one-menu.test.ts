@@ -339,8 +339,10 @@ describe("§2 bottom tab bar, <768", () => {
   it("marks the page you are on by more than colour", () => {
     expect(read(path.join(UI, "TabBar.tsx"))).toMatch(/aria-current=\{current \? "page" : undefined\}/);
     const current = css.slice(css.indexOf('.tab[aria-current="page"]'));
-    expect(current).toMatch(/border-top-color: var\(--color-brand\)/);
-    expect(current).toMatch(/font-weight: var\(--weight-semibold\)/);
+    // mockup: /workspace/ppec-redesign/mockups/shell-flow.html:75 — inset 3 px brand bar, bold, no fill.
+    expect(current).toMatch(/box-shadow: inset 0 var\(--border-current\) 0 var\(--color-brand\)/);
+    expect(current).toMatch(/background: transparent/);
+    expect(current).toMatch(/font-weight: var\(--weight-bold\)/);
   });
 
   it("sits clear of the iPhone home bar, and the page clears the bar", () => {

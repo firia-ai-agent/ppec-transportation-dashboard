@@ -255,18 +255,18 @@ test.describe(`the menu on every screen, as ${ROLE}`, () => {
         await expect(current).toHaveAttribute("aria-current", "page");
         const rule = await current.evaluate((el) => {
           const s = getComputedStyle(el);
-          return { width: s.borderTopWidth, colour: s.borderTopColor, weight: s.fontWeight };
+          return { shadow: s.boxShadow, border: s.borderTopWidth, background: s.backgroundColor, weight: s.fontWeight };
         });
         /*
-         * A bar along the top of the tab, and it is the brand's: audit §2 item 6 asks for 2 px
-         * of Teal and no tinted block behind the tab, which is what the stylesheet draws
-         * (src/ui/TabBar.module.css; e2e/rework-frame.spec.ts measures the exact pair). What
-         * matters here is that the cue exists and is not colour alone — the weight is the other
-         * half, so the current tab still reads in greyscale.
+         * mockup: /workspace/ppec-redesign/mockups/shell-flow.html:75 (and plan-board.html:75),
+         * Vera's ruling 11:00 PM ET — `.nav a.on{background:transparent;font-weight:700;
+         * box-shadow:inset 0 3px 0 var(--brand)}`: exactly a 3 px brand bar drawn as an inset
+         * shadow, bold label, no fill, no border. The same exact values as rework-frame.spec.ts.
          */
-        expect(Number.parseFloat(rule.width), "the current tab has no bar on it").toBeGreaterThanOrEqual(2);
-        expect(rule.colour, "the bar on the current tab is not the brand's").toBe("rgb(15, 118, 110)");
-        expect(Number(rule.weight)).toBeGreaterThanOrEqual(600);
+        expect(rule.shadow, "the current tab's bar is not a 3 px brand inset").toBe("rgb(15, 118, 110) 0px 3px 0px 0px inset");
+        expect(rule.border, "the current tab has a border instead of the inset bar").toBe("0px");
+        expect(rule.background, "the current tab is filled").toBe("rgba(0, 0, 0, 0)");
+        expect(rule.weight).toBe("700");
 
         // The one bar and the one Simulated chip, at phone width too (Vera, 2:44 PM ET).
         await expectDemoBarPinned(page);
