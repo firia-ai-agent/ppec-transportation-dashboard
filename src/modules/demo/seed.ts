@@ -199,6 +199,8 @@ export type SeedOptions = {
   siteId?: string;
   /** Defaults to HMAC_PEPPER / DATA_KEY; synthetic constants when unset (ADR-015: fiction either way). */
   env?: Record<string, string | undefined>;
+  /** Who asked for the reset, recorded in the SYSTEM_RESET audit row's detail. */
+  actorUserId?: string;
 };
 
 export type SeedResult = {
@@ -424,7 +426,7 @@ export async function seedStandardScenario(db: Db, opts: SeedOptions): Promise<S
       [[siteId, "site", siteId, 1, "SYSTEM_RESET", now]]);
     await insert(tx, "ops.audit_event", ["site_id", "actor", "action", "entity", "entity_id", "reason", "detail", "at"],
       [[siteId, `${BY}:reset`, "SYSTEM_RESET", "site", siteId, `scenario ${SCENARIO_NAME}`,
-        JSON.stringify({ scenario: SCENARIO_NAME, serviceDate: clock.serviceDate, scenarioNow: scenarioNow.toISOString() }), now]]);
+        JSON.stringify({ scenario: SCENARIO_NAME, serviceDate: clock.serviceDate, scenarioNow: scenarioNow.toISOString(), actorUserId: opts.actorUserId ?? "unknown" }), now]]);
 
     // 11. Counts, read back from the database so the response describes what is actually there.
     const counts: Record<string, number> = {};

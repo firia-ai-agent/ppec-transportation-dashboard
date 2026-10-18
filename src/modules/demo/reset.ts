@@ -96,7 +96,12 @@ export async function handleDemoReset(
     throw e;
   }
 
-  const result = await seedStandardScenario(db, { now: req.now, siteId, env });
+  const result = await seedStandardScenario(db, { now: req.now, siteId, env, actorUserId: req.userId });
+  // One structured line per reset, so the logs say when a reset ran and who asked for it.
+  console.log(JSON.stringify({
+    event: "demo.reset", at: req.now.toISOString(), actorUserId: req.userId ?? "unknown",
+    siteId: result.siteId, source: "POST /api/demo/reset",
+  }));
   /*
    * NO CARD AND NO ALERT ARE WRITTEN HERE (founder, 2026-10-18). The day's one decision is the
    * model's to propose, from the parent's own text, so all Restart does after the seed is let that
