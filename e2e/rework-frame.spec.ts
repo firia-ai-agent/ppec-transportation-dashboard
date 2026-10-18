@@ -384,7 +384,9 @@ for (const width of WIDTHS) {
 test.describe(`the phone's tab bar, as ${ROLE}`, () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("is one tab per menu item, with the Family texts count on it", async ({ page }) => {
+  test("is one tab per menu item, with the Family texts count on it when there is one", async ({
+    page,
+  }) => {
     await page.goto(MENU[0].href);
     const bar = page.locator("[data-tab-bar]");
     await expect(bar).toBeVisible();
@@ -408,6 +410,11 @@ test.describe(`the phone's tab bar, as ${ROLE}`, () => {
      * THE BADGE (REDESIGN-SPEC §9.2, audit §2 item 2): a Teal disc with white text on Family
      * texts, for the roles that can act on what is waiting — and the count said in words in the
      * tab's own accessible name, because the disc is aria-hidden.
+     *
+     * Asked of `menuBadgeFor` rather than written down, which is why this still holds now that
+     * the answer is "nothing": the fixture behind the count is deleted and there is no live read
+     * until #61, so no role is shown a disc and no tab says "waiting" (Veri's S2 on #74). The
+     * branch below is what the badge has to look like when there is a count again.
      */
     const waiting = menuBadgeFor("/family-texts", ROLE);
     const badge = bar.locator("[data-menu-badge]");

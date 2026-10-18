@@ -131,11 +131,18 @@ function elsewhere(current: string): NavItem {
 
 const slug = (href: string) => href.replace("/", "");
 
-/** The labels the rail is showing, in order, as a screen reader would read them. */
-async function railLabels(page: Page): Promise<string[]> {
+/**
+ * The labels the rail is showing, in order, as a screen reader would read them.
+ *
+ * `[data-nav-item]` rather than every link in the landmark: the rail's foot carries the account
+ * block, which is a link to /whoami and not a destination on the menu (REDESIGN-SPEC §9.2,
+ * audit §2 item 3). Counting it made every role's menu one item longer than their row says and
+ * put "Dana M., Director" in the middle of a list of screens.
+ */
+async function menuLabels(page: Page): Promise<string[]> {
   return page
     .getByRole("navigation", { name: nav.landmarkLabel })
-    .getByRole("link")
+    .locator("[data-nav-item]")
     .evaluateAll((els) => els.map((el) => el.getAttribute("aria-label") ?? ""));
 }
 
@@ -146,7 +153,7 @@ test.describe(`the menu on every screen, as ${ROLE}`, () => {
     test("every screen carries the same menu, and it leads off the screen", async ({ page }) => {
       // The list to compare against, read off the screen this role starts on.
       await page.goto(REFERENCE.href);
-      const expected = await railLabels(page);
+      const expected = await menuLabels(page);
       expect(expected).toEqual(MENU.map((item) => item.label));
 
       for (const href of SCREENS) {
@@ -156,7 +163,7 @@ test.describe(`the menu on every screen, as ${ROLE}`, () => {
         const rail = page.getByRole("navigation", { name: nav.landmarkLabel });
         await expect(rail, `no menu on ${href}`).toBeVisible();
         // Exactly the destinations the board offers this role — not a subset, not one more.
-        expect(await railLabels(page), `the menu on ${href}`).toEqual(expected);
+        expect(await menuLabels(page), `the menu on ${href}`).toEqual(expected);
 
         // The screen you are on is marked, so the menu says where you are as well as where to go.
         await expect(
@@ -216,7 +223,7 @@ test.describe(`the menu on every screen, as ${ROLE}`, () => {
         ).toBe(viewport.height);
 
         // The same destinations the rail offers this role, each one tappable and on one line.
-        const tabs = bar.getByRole("link");
+        const tabs = bar.locator("[data-nav-item]");
         await expect(tabs).toHaveCount(TABS.length);
         expect(await tabs.evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ""))).toEqual(
           TABS.map((item) => item.label),
@@ -231,7 +238,15 @@ test.describe(`the menu on every screen, as ${ROLE}`, () => {
           expect(box.height, `"${label}" is only ${box.height}px tall`).toBeGreaterThanOrEqual(TARGET);
           // Icon over label, both present: the icon is the glance and the label is the word.
           await expect(tab.locator("svg")).toHaveCount(1);
-          const lines = await tab.locator("span").evaluate((el) => el.getClientRects().length);
+          /*
+           * The label's own span, which is the last of the two: the first wraps the icon (and
+           * the count's disc, when there is a count to show — src/ui/TabBar.tsx). One line, or
+           * the bar is five tabs of two-line words at the width it was drawn for.
+           */
+          const lines = await tab
+            .locator("span")
+            .last()
+            .evaluate((el) => el.getClientRects().length);
           expect(lines, `"${label}" is wrapped over ${lines} lines`).toBe(1);
         }
 
@@ -240,9 +255,17 @@ test.describe(`the menu on every screen, as ${ROLE}`, () => {
         await expect(current).toHaveAttribute("aria-current", "page");
         const rule = await current.evaluate((el) => {
           const s = getComputedStyle(el);
-          return { width: s.borderTopWidth, weight: s.fontWeight };
+          return { width: s.borderTopWidth, colour: s.borderTopColor, weight: s.fontWeight };
         });
-        expect(Number.parseFloat(rule.width), "the current tab has no bar on it").toBeGreaterThanOrEqual(3);
+        /*
+         * A bar along the top of the tab, and it is the brand's: audit §2 item 6 asks for 2 px
+         * of Teal and no tinted block behind the tab, which is what the stylesheet draws
+         * (src/ui/TabBar.module.css; e2e/rework-frame.spec.ts measures the exact pair). What
+         * matters here is that the cue exists and is not colour alone — the weight is the other
+         * half, so the current tab still reads in greyscale.
+         */
+        expect(Number.parseFloat(rule.width), "the current tab has no bar on it").toBeGreaterThanOrEqual(2);
+        expect(rule.colour, "the bar on the current tab is not the brand's").toBe("rgb(15, 118, 110)");
         expect(Number(rule.weight)).toBeGreaterThanOrEqual(600);
 
         // The one bar and the one Simulated chip, at phone width too (Vera, 2:44 PM ET).
@@ -334,7 +357,7 @@ for (const width of FRAME_WIDTHS) {
         // This role's own destinations, and the one you are on marked as the one you are on.
         // Below 768 the bar carries five slots, so the list it shows is the tabs (§9.2).
         const shown = width < 768 ? TABS : MENU;
-        await expect(menu.getByRole("link")).toHaveCount(shown.length);
+        await expect(menu.locator("[data-nav-item]")).toHaveCount(shown.length);
         await expect(
           menu.getByRole("link", { name: shown.find((item) => item.href === href)?.label }),
           `${href} is not marked on the menu at ${width}`,
@@ -372,23 +395,32 @@ for (const width of FRAME_WIDTHS) {
     test("a refusal is a screen with the menu on it, not a dead end", async ({ page }) => {
       const response = await page.goto(REFUSED);
       expect(response?.status(), `${REFUSED} as ${ROLE}`).toBe(403);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText(noAccess.heading);
+      /*
+       * THE REFUSAL'S ONE H1, and it is in the page header bar like every other screen's title.
+       * This address has no row in the access table — it is deliberately not a screen — so the
+       * bar had nothing to read and the card arrived with no h1 at all (Veri's gate on #74).
+       * The refusal's own heading is the title now (src/ui/RefusedPage.tsx), and the card below
+       * it says it once: `expectPageHeaderBar` below counts exactly one and measures where it
+       * is.
+       */
+      const title = page.getByRole("heading", { level: 1 });
+      await expect(title).toHaveCount(1);
+      await expect(title).toHaveText(noAccess.heading);
 
       const menu = await expectFrame(page, width, REFUSED);
       // The menu is this role's own: the refusal is not a screen with its own rules. Below 768
       // that is the bar's five slots, above it the whole rail (§9.2).
       const shown = width < 768 ? TABS : MENU;
-      await expect(menu.getByRole("link")).toHaveCount(shown.length);
+      const items = menu.locator("[data-nav-item]");
+      await expect(items).toHaveCount(shown.length);
       /*
-       * Compared by address rather than by label: the one row that carries a count is named
+       * Compared by address rather than by label: a row that carries a count is named
        * "Family texts, 2 waiting" for a screen reader (`flow.tabbar`, src/ui/menu-badge.ts), so
-       * the label is not the same string at every row and the href is what identifies a
-       * destination anyway.
+       * the label is not guaranteed to be the same string at every row and the href is what
+       * identifies a destination anyway.
        */
       expect(
-        await menu.getByRole("link").evaluateAll((els) =>
-          els.map((el) => el.getAttribute("href") ?? ""),
-        ),
+        await items.evaluateAll((els) => els.map((el) => el.getAttribute("href") ?? "")),
       ).toEqual(shown.map((item) => item.href));
       // Nothing on the menu is marked: the refusal is not one of this role's screens.
       await expect(menu.locator('[aria-current="page"]')).toHaveCount(0);
