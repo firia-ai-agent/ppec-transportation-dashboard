@@ -13,7 +13,7 @@ import { HealthTiles, TILE_LINKS } from "./HealthTiles";
  *
  * png/health-demo-1440.png and png/health-demo-390.png: a "Right now" heading and exactly four
  * tiles — Kids placed, Vans checked, Running late, Needs you. No chart, no Systems row, no
- * Savings row. All is green, an open or late van is amber, and Family texts is grey.
+ * Savings row. All is green, an open or late van is amber, and Family texts is the info teal.
  *
  * Firia ruling 2026-10-17: Health = four Right-now tiles on Today, behind Today's own door.
  */
@@ -68,12 +68,45 @@ describe("the four tiles, as the mockup draws them", () => {
   });
 
   /**
-   * png/health-demo-1440.png: All is green, the open van and the late van are amber, Family
-   * texts is grey. Green is the step strip's Done (ok) and amber is its Needed (warn).
+   * png/health-demo-1440.png, png/health-demo-390.png: All is green, the open van and the late
+   * van are amber, Family texts is the info teal. Green is the step strip's Done (ok) and
+   * amber is its Needed (warn).
    */
-  it("paints All green, the vans amber, and Family texts grey", () => {
+  it("paints All green, the vans amber, and Family texts teal", () => {
     const pills = [...markup.matchAll(/data-tone="(ok|warn|neutral|info|crit)"/g)].map((m) => m[1]);
-    expect(pills).toEqual(["ok", "warn", "warn", "neutral"]);
+    expect(pills).toEqual(["ok", "warn", "warn", "info"]);
+  });
+
+  /**
+   * png/health-demo-1440.png, png/health-demo-390.png: a tile at 0 still shows a grey None,
+   * never a bare number. The empty day is four zeros.
+   */
+  it("gives every zero on the empty day a grey None pill", () => {
+    const empty = html({
+      read: true,
+      placed: 0,
+      toPlace: 0,
+      vansChecked: 0,
+      vans: 0,
+      uncheckedVans: [],
+      lateVans: [],
+      needsYou: 0,
+    });
+    const pills = [...empty.matchAll(/data-tone="(ok|warn|neutral|info|crit)"/g)].map((m) => m[1]);
+    expect(pills).toEqual(["neutral", "neutral", "neutral", "neutral"]);
+    expect(empty.match(new RegExp(healthNow.none, "g"))).toHaveLength(4);
+  });
+
+  /**
+   * png/health-demo-1440.png, png/health-demo-390.png: the big numbers are the app sans in a
+   * heavy weight, not a mono face.
+   */
+  it("sets the tile numbers in the app sans at a heavy weight", () => {
+    const css = readFileSync(path.join(__dirname, "health.module.css"), "utf8");
+    const figure = css.slice(css.indexOf(".figure {"), css.indexOf(".count"));
+    expect(figure).toMatch(/font-family:\s*var\(--font-ui\), system-ui, sans-serif/);
+    expect(figure).toMatch(/font-weight:\s*var\(--weight-bold\)/);
+    expect(markup).not.toContain("tabularNums");
   });
 
   it("links each tile to the screen the chevron promises", () => {

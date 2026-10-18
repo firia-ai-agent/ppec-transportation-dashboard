@@ -4,6 +4,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { readDayFacts } from "@/domain/day/day-facts";
 import { freshDb, ORG, SITE } from "@/test/pglite";
+import { healthNow } from "@/ui/copy";
 import { loadRightNow } from "./right-now-facts";
 import { rightNowTiles, type RightNowTile } from "./right-now";
 
@@ -247,7 +248,8 @@ describe("running late follows the latest arrival", () => {
     await db.query(`UPDATE ops.eta_estimate SET eta_at = $2 WHERE id = $1`, [eta, ON_TIME]);
     const after = one(rightNowTiles(await loadRightNow(db, SITE, DATE, LEG)), "RUNNING_LATE");
     expect(after.count).toBe(0);
-    expect(after.pill).toBeNull();
+    // png/health-demo-1440.png, png/health-demo-390.png: a tile at 0 still shows a pill.
+    expect(after.pill).toEqual({ text: healthNow.none, kind: "none" });
   }, 60_000);
 
   /** An earlier late estimate does not count once a later one is inside the window. */

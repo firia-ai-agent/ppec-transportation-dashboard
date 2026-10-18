@@ -13,10 +13,12 @@
  * add up to, and src/domain/health/right-now-facts.test.ts is where a changed row moves them.
  */
 import { expect, test } from "@playwright/test";
+import { canOpenPage } from "../src/auth/access";
+import type { StaffRole } from "../src/auth/core";
 import { legAt, serviceDateAt } from "../src/domain/day/day-facts";
 import { deriveReadiness, unreadFacts } from "../src/domain/day/readiness";
 import { rightNowTiles, unreadRightNow } from "../src/domain/health/right-now";
-import { board as boardCopy, fill, flow, healthNow, nav, planRoutes } from "../src/ui/copy";
+import { board as boardCopy, fill, flow, healthNow, nav } from "../src/ui/copy";
 import { TILE_LINKS } from "../src/app/(app)/today/HealthTiles";
 import {
   expectDemoBarPinned,
@@ -25,6 +27,18 @@ import {
   expectVioletOnlyOnDemoChrome,
   shot,
 } from "./helpers";
+
+/**
+ * ONE RUN IS ONE ROLE (`E2E_DEMO_ROLE`, playwright.config.ts). Health is a tab on Today, so it
+ * is Today's door: the front desk is sent home, and these checks would be reading the live map.
+ * That redirect is e2e/role-pages.spec.ts's subject.
+ */
+const ROLE = (process.env.E2E_DEMO_ROLE ?? "DIRECTOR") as StaffRole;
+const OPENS_TODAY = canOpenPage({ kind: "STAFF", role: ROLE }, "/today");
+
+test.beforeEach(() => {
+  test.skip(!OPENS_TODAY, `${ROLE} does not open Today`);
+});
 
 const WIDTHS = [390, 1440] as const;
 
@@ -65,12 +79,13 @@ for (const width of WIDTHS) {
       await healthTab.click();
       await expect(healthTab).toHaveAttribute("aria-selected", "true");
       await expect(boardTab).toHaveAttribute("aria-selected", "false");
-      // png/health-demo-1440.png, png/health-demo-390.png: the selected tab is a filled pill,
-      // info-bg behind info-fg, the same fill today-saved uses. The other tab is not filled.
+      // png/health-demo-1440.png, png/health-demo-390.png, png/today-saved-390.png: the selected
+      // tab is selected-bg behind ink-brand, at the md radius. The other tab is not filled.
       const tabTone = await healthTab.evaluate((el) => {
         const probe = document.createElement("div");
-        probe.style.backgroundColor = "var(--color-info-bg)";
-        probe.style.color = "var(--color-info-fg)";
+        probe.style.backgroundColor = "var(--color-selected-bg)";
+        probe.style.color = "var(--color-ink-brand)";
+        probe.style.borderRadius = "var(--radius-md)";
         document.body.appendChild(probe);
         const want = getComputedStyle(probe);
         const got = getComputedStyle(el);
@@ -79,8 +94,10 @@ for (const width of WIDTHS) {
         const read = {
           bg: got.backgroundColor,
           fg: got.color,
+          radius: got.borderRadius,
           wantBg: want.backgroundColor,
           wantFg: want.color,
+          wantRadius: want.borderRadius,
           boardBg,
         };
         probe.remove();
@@ -88,6 +105,7 @@ for (const width of WIDTHS) {
       });
       expect(tabTone.bg).toBe(tabTone.wantBg);
       expect(tabTone.fg).toBe(tabTone.wantFg);
+      expect(tabTone.radius).toBe(tabTone.wantRadius);
       expect(tabTone.boardBg).not.toBe(tabTone.wantBg);
       await expect(page.getByRole("navigation", { name: flow.stepsAria })).toBeHidden();
 
@@ -103,7 +121,34 @@ for (const width of WIDTHS) {
         // The value is the unread day's, which is what this session can count.
         await expect(card).toContainText(figure(tile.count, tile.outOf));
         await expect(card).toHaveAttribute("href", TILE_LINKS[tile.key]);
+        // png/health-demo-1440.png, png/health-demo-390.png: a tile at 0 still shows a grey None.
+        const pill = card.locator("[data-pill]");
+        await expect(pill).toHaveCount(1);
+        await expect(pill).toContainText(healthNow.none);
+        await expect(pill).toHaveAttribute("data-tone", "neutral");
       }
+
+      // png/health-demo-1440.png, png/health-demo-390.png: the big numbers are the app sans.
+      const figureFont = await cards.first().locator("p span").first().evaluate((el) => {
+        const probe = document.createElement("div");
+        probe.style.fontFamily = "var(--font-ui), system-ui, sans-serif";
+        probe.style.fontWeight = "var(--weight-bold)";
+        document.body.appendChild(probe);
+        const want = getComputedStyle(probe);
+        const got = getComputedStyle(el);
+        const read = { family: got.fontFamily, wantFamily: want.fontFamily, weight: got.fontWeight, wantWeight: want.fontWeight };
+        probe.remove();
+        return read;
+      });
+      expect(figureFont.family).toBe(figureFont.wantFamily);
+      expect(figureFont.weight).toBe(figureFont.wantWeight);
+
+      // png/health-demo-390.png, png/health-demo-1440.png: the four tiles are the same height.
+      const heights = await cards.evaluateAll((els) =>
+        els.map((el) => Math.round(el.getBoundingClientRect().height)),
+      );
+      expect(heights).toHaveLength(4);
+      expect(new Set(heights).size, `tile heights ${heights.join(", ")}`).toBe(1);
 
       // Firia ruling 2026-10-17: Vans checked agrees with Van setup.
       const vans = TILES.find((t) => t.key === "VANS_CHECKED");
@@ -114,8 +159,8 @@ for (const width of WIDTHS) {
       );
 
       // png/health-demo-1440.png: title, tabs and date on one row.
-      // png/health-demo-390.png: title and date on row 1; png/today-saved-390.png: tabs and
-      // Morning | Afternoon on row 2. The date does not wrap under the tabs.
+      // png/health-demo-390.png: title and date on row 1, Board | Health on row 2.
+      // The date does not wrap under the tabs.
       const titleBox = await page.getByRole("heading", { level: 1, name: boardCopy.heading }).boundingBox();
       const dateBox = await page.locator("time").boundingBox();
       const healthBox = await healthTab.boundingBox();
@@ -131,10 +176,6 @@ for (const width of WIDTHS) {
         // The date stays on the title's row. It does not drop under the tabs.
         expect(dateBox!.y + dateBox!.height).toBeLessThanOrEqual(healthBox!.y + 4);
         expect(healthBox!.y).toBeGreaterThan(titleBox!.y + titleBox!.height / 2);
-        const morning = page.getByRole("button", { name: planRoutes.directionButton.AM, exact: true });
-        const morningBox = await morning.boundingBox();
-        expect(morningBox).not.toBeNull();
-        expect(Math.abs(morningBox!.y - healthBox!.y)).toBeLessThan(24);
       }
 
       // png/health-demo-1440.png: no chart, no Systems row, no Savings row, no second section.

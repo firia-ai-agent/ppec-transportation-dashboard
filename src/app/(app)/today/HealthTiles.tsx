@@ -21,8 +21,8 @@ import styles from "./health.module.css";
  *
  * A label, a number, and at most one pill. The number was counted before this component was
  * called. All is green and a van that is open or late is amber — the same ok and warn the
- * step strip uses — and Family texts stays grey. At 390 they sit two to a row; wider, they
- * are one row of four.
+ * step strip uses — and Family texts is the info teal. A count of 0 is the grey None. At 390
+ * they sit two to a row; wider, they are one row of four.
  */
 const TILE_ICONS: Record<RightNowKey, LucideIcon> = {
   KIDS_PLACED: Users,
@@ -31,7 +31,7 @@ const TILE_ICONS: Record<RightNowKey, LucideIcon> = {
   NEEDS_YOU: Hand,
 };
 
-const PILL_ICONS: Record<RightNowPillKind, LucideIcon> = {
+const PILL_ICONS: Partial<Record<RightNowPillKind, LucideIcon>> = {
   all: Check,
   van: Clock,
   family: MessageSquare,
@@ -42,7 +42,7 @@ const PILL_ICONS: Record<RightNowPillKind, LucideIcon> = {
  * The whole card is the link, chevron included, and the shell around it is the menu.
  *
  * All is the step strip's Done (ok, green). An open or late van is its Needed (warn, amber).
- * Family texts is the grey chip the mockup draws; grey is not a status here.
+ * Family texts is the info teal the mockup draws (chip info). Grey is None, a count of 0.
  */
 export const TILE_LINKS: Record<RightNowKey, string> = {
   KIDS_PLACED: "/plan-routes",
@@ -54,7 +54,8 @@ export const TILE_LINKS: Record<RightNowKey, string> = {
 const PILL_TONE: Record<RightNowPillKind, Tone> = {
   all: "ok",
   van: "warn",
-  family: "neutral",
+  family: "info",
+  none: "neutral",
 };
 
 export function HealthTiles({ tiles }: { tiles: readonly RightNowTile[] }) {
@@ -80,12 +81,12 @@ export function HealthTiles({ tiles }: { tiles: readonly RightNowTile[] }) {
                     One text run: a newline between these spans would render as a gap, and the
                     mockup writes the fraction closed up (12/12, 2/3).
                   */}
-                  <span className={`${styles.count} tabularNums`}>{tile.count}</span>
-                  {tile.outOf !== null ? <span className={`${styles.outOf} tabularNums`}>/{tile.outOf}</span> : null}
+                  <span className={styles.count}>{tile.count}</span>
+                  {tile.outOf !== null ? <span className={styles.outOf}>/{tile.outOf}</span> : null}
                 </p>
-                {tile.pill && PillIcon ? (
+                {tile.pill ? (
                   <Pill tone={PILL_TONE[tile.pill.kind]}>
-                    <PillIcon size={icon.pill} aria-hidden="true" />
+                    {PillIcon ? <PillIcon size={icon.pill} aria-hidden="true" /> : null}
                     <PillLabel>{tile.pill.text}</PillLabel>
                   </Pill>
                 ) : null}

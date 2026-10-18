@@ -25,7 +25,7 @@ import {
   type LegRow,
   type RideView,
 } from "@/domain/board/board";
-import { board as boardCopy, etaText, fill, healthNow, onDay, planRoutes, screenReader } from "@/ui/copy";
+import { board as boardCopy, etaText, fill, healthNow, onDay, screenReader } from "@/ui/copy";
 import { SearchField } from "@/ui/SearchField";
 import { StepStrip } from "@/ui/StepStrip";
 import type { StripStep } from "@/ui/step-strip";
@@ -87,12 +87,6 @@ export function TodayBoard({
 }) {
   const { day } = board;
   const [tab, setTab] = useState<"board" | "health">("board");
-  /**
-   * Morning | Afternoon (png/today-saved-390.png). Null leaves both of a child's rides on the
-   * board: the table is the whole day, and the checks that count every ride read it that way.
-   * Choosing one keeps that run.
-   */
-  const [legChoice, setLegChoice] = useState<"AM" | "PM" | null>(null);
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   const [wide, setWide] = useState(false);
   useLayoutEffect(() => {
@@ -108,12 +102,8 @@ export function TodayBoard({
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const matched = useMemo(
-    () =>
-      board.legs.filter(
-        (leg) =>
-          matchesQuery(leg, query) && (legChoice === null || leg.ride.direction === legChoice),
-      ),
-    [board.legs, query, legChoice],
+    () => board.legs.filter((leg) => matchesQuery(leg, query)),
+    [board.legs, query],
   );
   const visible = onlyNeedsAction ? matched.filter((l) => l.group === "NEEDS_ACTION") : matched;
 
@@ -171,22 +161,6 @@ export function TodayBoard({
     </div>
   );
 
-  const legs = (
-    <div className={styles.legs} role="group" aria-label={planRoutes.directionLegend}>
-      {(["AM", "PM"] as const).map((value) => (
-        <button
-          key={value}
-          type="button"
-          className={styles.leg}
-          aria-pressed={(legChoice ?? "AM") === value}
-          onClick={() => setLegChoice(value)}
-        >
-          {planRoutes.directionButton[value]}
-        </button>
-      ))}
-    </div>
-  );
-
   const date = (
     <p className={styles.date}>
       <Calendar size={icon.inline} aria-hidden="true" />
@@ -202,10 +176,9 @@ export function TodayBoard({
 
   /*
    * png/health-demo-1440.png: the title, the tabs and the date are one row, in the frame's
-   * bar. png/health-demo-390.png and png/today-saved-390.png: the title and the date stay on
-   * that row, and Board | Health with Morning | Afternoon sit on the next one. Until the bar
-   * is there (the first paint, and a render with no document) the same controls stay in the
-   * page so the board is never without them.
+   * bar. png/health-demo-390.png: the title and the date stay on that row, and Board | Health
+   * sit on the next one. Until the bar is there (the first paint, and a render with no
+   * document) the same controls stay in the page so the board is never without them.
    */
   const headerChrome = (
     <>
@@ -239,12 +212,7 @@ export function TodayBoard({
         mockup draws beside it — and the date is what names the day when it is not today.
       */}
       {headerSlot ? createPortal(headerChrome, headerSlot) : <div className={styles.titleRow}>{tabs}{date}</div>}
-      {headerSlot && !wide ? (
-        <div className={styles.phoneTabs}>
-          {tabs}
-          {legs}
-        </div>
-      ) : null}
+      {headerSlot && !wide ? <div className={styles.phoneTabs}>{tabs}</div> : null}
 
       <div
         role="tabpanel"

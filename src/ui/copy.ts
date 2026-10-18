@@ -192,6 +192,8 @@ export const healthNow = {
   needsYou: "Needs you",
   /** Every child who rides with us is in a van, or every van is checked. */
   all: "All",
+  /** A tile whose count is 0 (png/health-demo-1440.png, png/health-demo-390.png). Grey, never a bare number. */
+  none: "None",
   /**
    * A stored van label that starts with an internal code ("V3 sedan") is said as "Van 3".
    * The code itself is never the word on the pill.

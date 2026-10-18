@@ -21,8 +21,8 @@ export const RIGHT_NOW_TILES = [
 ] as const;
 export type RightNowKey = (typeof RIGHT_NOW_TILES)[number];
 
-/** Which mark the pill draws. The colour is the component's: All is ok, a van is warn, Family texts is neutral. */
-export type RightNowPillKind = "all" | "van" | "family";
+/** Which mark the pill draws. The colour is the component's: All is ok, a van is warn, Family texts is info, None is neutral. */
+export type RightNowPillKind = "all" | "van" | "family" | "none";
 
 export type RightNowPill = { text: string; kind: RightNowPillKind };
 
@@ -93,17 +93,34 @@ function vanPill(name: string): RightNowPill {
   return { text: name, kind: "van" };
 }
 
+function nonePill(): RightNowPill {
+  return { text: healthNow.none, kind: "none" };
+}
+
+/** All, a van, or Family texts when there is one. A zero with nothing else to say is None. */
+function pillFor(count: number, pill: RightNowPill | null): RightNowPill | null {
+  return pill ?? (count === 0 ? nonePill() : null);
+}
+
 /**
  * The four tiles, in the order the mockup reads them.
  *
  * A pill names the one thing the number is about: "All" when the fraction is complete, the van
  * that is still open when it is not, and "Family texts" when something is waiting on a person
- * — that is where those tasks are read. A day that was not read gets the zeros and no pill.
+ * — that is where those tasks are read. A count of 0 still carries the grey None pill, so a
+ * tile at 0 is never a bare number (png/health-demo-1440.png, png/health-demo-390.png). A day
+ * that was not read gets the zeros and that same pill, never All.
  */
 export function rightNowTiles(facts: RightNowFacts): readonly RightNowTile[] {
   const known = facts.read;
-  const kidsDone = known && facts.toPlace > 0 && facts.placed === facts.toPlace;
-  const vansDone = known && facts.vans > 0 && facts.vansChecked === facts.vans;
+  const placed = known ? facts.placed : 0;
+  const toPlace = known ? facts.toPlace : 0;
+  const checked = known ? facts.vansChecked : 0;
+  const vans = known ? facts.vans : 0;
+  const lateCount = known ? facts.lateVans.length : 0;
+  const needs = known ? facts.needsYou : 0;
+  const kidsDone = known && toPlace > 0 && placed === toPlace;
+  const vansDone = known && vans > 0 && checked === vans;
   const unchecked = known ? facts.uncheckedVans[0] : undefined;
   const late = known ? facts.lateVans[0] : undefined;
 
@@ -111,30 +128,30 @@ export function rightNowTiles(facts: RightNowFacts): readonly RightNowTile[] {
     {
       key: "KIDS_PLACED",
       label: healthNow.kidsPlaced,
-      count: known ? facts.placed : 0,
-      outOf: known ? facts.toPlace : 0,
-      pill: kidsDone ? allPill() : null,
+      count: placed,
+      outOf: toPlace,
+      pill: pillFor(placed, kidsDone ? allPill() : null),
     },
     {
       key: "VANS_CHECKED",
       label: healthNow.vansChecked,
-      count: known ? facts.vansChecked : 0,
-      outOf: known ? facts.vans : 0,
-      pill: vansDone ? allPill() : unchecked ? vanPill(unchecked) : null,
+      count: checked,
+      outOf: vans,
+      pill: pillFor(checked, vansDone ? allPill() : unchecked ? vanPill(unchecked) : null),
     },
     {
       key: "RUNNING_LATE",
       label: healthNow.runningLate,
-      count: known ? facts.lateVans.length : 0,
+      count: lateCount,
       outOf: null,
-      pill: late ? vanPill(late) : null,
+      pill: pillFor(lateCount, late ? vanPill(late) : null),
     },
     {
       key: "NEEDS_YOU",
       label: healthNow.needsYou,
-      count: known ? facts.needsYou : 0,
+      count: needs,
       outOf: null,
-      pill: known && facts.needsYou > 0 ? { text: nav.familyTexts, kind: "family" } : null,
+      pill: pillFor(needs, known && needs > 0 ? { text: nav.familyTexts, kind: "family" } : null),
     },
   ];
 }

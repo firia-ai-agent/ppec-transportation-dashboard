@@ -21,6 +21,7 @@
 .tiles {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
   gap: var(--space-4);
   margin: 0;
   padding: 0;
@@ -34,6 +35,7 @@
 }
 
 .item {
+  display: flex;
   min-width: 0;
 }
 
@@ -43,6 +45,8 @@
   align-items: flex-start;
   gap: var(--space-3);
   box-sizing: border-box;
+  flex: 1 1 auto;
+  width: 100%;
   min-width: 0;
   height: 100%;
   padding: var(--space-5);
@@ -66,6 +70,21 @@
 
 .label {
   min-width: 0;
+  white-space: nowrap;
+}
+
+/*
+ * At 390 the four cards are the same height (png/health-demo-390.png). "Vans checked" is the
+ * long label; the tighter inset keeps it on one line so that card does not grow past the others.
+ */
+@media (max-width: 767px) {
+  .tile {
+    padding: var(--space-4) var(--space-3);
+  }
+
+  .head {
+    gap: var(--space-1);
+  }
 }
 
 .chevron {
@@ -75,17 +94,20 @@
 
 .figure {
   margin: 0;
+  font-family: var(--font-ui), system-ui, sans-serif;
   font-size: var(--text-32);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: normal;
+  font-feature-settings: normal;
   line-height: var(--leading-tight);
   color: var(--color-ink);
 }
 
 .count {
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-bold);
 }
 
 .outOf {
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-bold);
   color: var(--color-ink-muted);
 }

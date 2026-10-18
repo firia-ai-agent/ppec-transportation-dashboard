@@ -631,15 +631,18 @@ describe("the one primary action, and why it is not available", () => {
 
 describe("Board | Health", () => {
   /**
-   * png/health-demo-1440.png, png/health-demo-390.png, png/today-saved-1440.png: the selected
-   * tab is a filled pill, info-bg behind info-fg. The radius and the padding stay in two
-   * rules so this is a tab and not a second pill (src/ui/pill.test.ts).
+   * png/health-demo-1440.png, png/health-demo-390.png, png/today-saved-390.png: the selected
+   * tab uses the rail's selected tint (selected-bg, ink-brand) and the md radius. The radius
+   * and the padding stay in two rules so this is a tab and not a second pill (src/ui/pill.test.ts).
    */
-  it("fills the selected tab with the info tone", () => {
+  it("fills the selected tab with the selected tint and the md radius", () => {
     const css = readFileSync(path.join(__dirname, "today.module.css"), "utf8");
+    const tab = css.slice(css.indexOf(".tab {"), css.indexOf('.tab[aria-selected="true"]'));
+    expect(tab).toMatch(/border-radius:\s*var\(--radius-md\)/);
+    expect(tab).not.toMatch(/radius-pill/);
     const selected = css.slice(css.indexOf('.tab[aria-selected="true"]'), css.indexOf(".tabInner"));
-    expect(selected).toMatch(/background:\s*var\(--color-info-bg\)/);
-    expect(selected).toMatch(/color:\s*var\(--color-info-fg\)/);
+    expect(selected).toMatch(/background:\s*var\(--color-selected-bg\)/);
+    expect(selected).toMatch(/color:\s*var\(--color-ink-brand\)/);
     expect(selected).not.toMatch(/padding/);
   });
 });

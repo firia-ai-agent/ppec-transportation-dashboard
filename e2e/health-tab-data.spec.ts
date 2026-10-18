@@ -26,7 +26,7 @@ import { shot } from "./helpers";
 
 const WIDTHS = [1440, 390] as const;
 
-type Tone = "ok" | "warn" | "neutral";
+type Tone = "ok" | "warn" | "info" | "neutral";
 
 /** What one tile must say after a reload. `pill` absent means the tile has no chip. */
 type TileExpect = { label: string; figure: string; pill?: string; tone?: Tone };
@@ -72,7 +72,8 @@ async function readDay(page: Page, tiles: readonly TileExpect[], checked: number
     expect(text).toMatch(new RegExp(`${label}\\s+${figure}(?!\\d)`));
     const pill = card.locator("[data-pill]");
     if (tile.pill) {
-      // png/health-demo-1440.png, png/health-demo-390.png: All is green, a van is amber, Family texts is grey.
+      // png/health-demo-1440.png, png/health-demo-390.png: All is green, a van is amber,
+      // Family texts is the info teal, and a zero is the grey None.
       await expect(pill).toContainText(tile.pill);
       await expect(pill).toHaveAttribute("data-tone", tile.tone ?? "");
     } else {
@@ -204,10 +205,10 @@ test("changing the day's rows moves the four tiles and the step strip, at 1440 a
     const van3 = vanOnScreen("V3");
 
     const before: TileExpect[] = [
-      { label: healthNow.kidsPlaced, figure: "0/0" },
+      { label: healthNow.kidsPlaced, figure: "0/0", pill: healthNow.none, tone: "neutral" },
       { label: healthNow.vansChecked, figure: "0/3", pill: van1, tone: "warn" },
-      { label: healthNow.runningLate, figure: "0" },
-      { label: healthNow.needsYou, figure: "0" },
+      { label: healthNow.runningLate, figure: "0", pill: healthNow.none, tone: "neutral" },
+      { label: healthNow.needsYou, figure: "0", pill: healthNow.none, tone: "neutral" },
     ];
     // docs/DATA-MODEL.md: nothing checked, nothing saved, no estimate, no open alert.
     await signIn(page, "DIRECTOR");
@@ -222,11 +223,35 @@ test("changing the day's rows moves the four tiles and the step strip, at 1440 a
       { label: healthNow.kidsPlaced, figure: "4/5" },
       { label: healthNow.vansChecked, figure: "2/3", pill: van3, tone: "warn" },
       { label: healthNow.runningLate, figure: "1", pill: van2, tone: "warn" },
-      { label: healthNow.needsYou, figure: "3", pill: nav.familyTexts, tone: "neutral" },
+      { label: healthNow.needsYou, figure: "3", pill: nav.familyTexts, tone: "info" },
     ];
     for (const width of WIDTHS) {
       await at(page, width);
       await readDay(page, after, 2, 3);
+      // png/health-demo-1440.png, png/health-demo-390.png: Family texts is the info chip.
+      const family = page
+        .getByRole("tabpanel", { name: healthNow.health })
+        .getByRole("link")
+        .filter({ hasText: healthNow.needsYou })
+        .locator("[data-pill]");
+      const tone = await family.evaluate((el) => {
+        const probe = document.createElement("div");
+        probe.style.backgroundColor = "var(--color-info-bg)";
+        probe.style.color = "var(--color-info-fg)";
+        document.body.appendChild(probe);
+        const want = getComputedStyle(probe);
+        const got = getComputedStyle(el);
+        const read = {
+          bg: got.backgroundColor,
+          fg: got.color,
+          wantBg: want.backgroundColor,
+          wantFg: want.color,
+        };
+        probe.remove();
+        return read;
+      });
+      expect(tone.bg).toBe(tone.wantBg);
+      expect(tone.fg).toBe(tone.wantFg);
       console.log("screenshot:", await shot(page, `health-tab-seeded-${width}`));
     }
 
@@ -236,7 +261,7 @@ test("changing the day's rows moves the four tiles and the step strip, at 1440 a
       { label: healthNow.kidsPlaced, figure: "4/5" },
       { label: healthNow.vansChecked, figure: "3/3", pill: healthNow.all, tone: "ok" },
       { label: healthNow.runningLate, figure: "1", pill: van2, tone: "warn" },
-      { label: healthNow.needsYou, figure: "2", pill: nav.familyTexts, tone: "neutral" },
+      { label: healthNow.needsYou, figure: "2", pill: nav.familyTexts, tone: "info" },
     ];
     for (const width of WIDTHS) {
       await at(page, width);

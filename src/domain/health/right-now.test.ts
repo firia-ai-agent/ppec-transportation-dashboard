@@ -52,6 +52,7 @@ describe("the four tiles", () => {
     expect(healthNow.runningLate).toBe("Running late");
     expect(healthNow.needsYou).toBe("Needs you");
     expect(healthNow.all).toBe("All");
+    expect(healthNow.none).toBe("None");
     expect(rightNowTiles(facts()).map((t) => t.label)).toEqual([
       "Kids placed",
       "Vans checked",
@@ -96,7 +97,10 @@ describe("kids placed", () => {
   });
 
   it("does not say All about a plan that has nobody to seat", () => {
-    expect(tile(facts({ placed: 0, toPlace: 0 }), "KIDS_PLACED").pill).toBeNull();
+    const pill = tile(facts({ placed: 0, toPlace: 0 }), "KIDS_PLACED").pill;
+    // png/health-demo-1440.png, png/health-demo-390.png: a tile at 0 still shows a pill.
+    expect(pill).toEqual({ text: healthNow.none, kind: "none" });
+    expect(pill?.text).not.toBe(healthNow.all);
   });
 });
 
@@ -138,7 +142,10 @@ describe("vans checked", () => {
 
   /** A site with no vans is not a site that has finished checking them. */
   it("does not say All when the site has no vans", () => {
-    expect(tile(facts({ vansChecked: 0, vans: 0 }), "VANS_CHECKED").pill).toBeNull();
+    const pill = tile(facts({ vansChecked: 0, vans: 0 }), "VANS_CHECKED").pill;
+    // png/health-demo-1440.png, png/health-demo-390.png: a tile at 0 still shows a pill.
+    expect(pill).toEqual({ text: healthNow.none, kind: "none" });
+    expect(pill?.text).not.toBe(healthNow.all);
   });
 });
 
@@ -155,10 +162,11 @@ describe("running late", () => {
     expect(two.pill?.text).toBe("Van 2");
   });
 
-  it("has no pill when nobody is late", () => {
+  it("says None when nobody is late", () => {
     const none = tile(facts({ lateVans: [] }), "RUNNING_LATE");
     expect(none.count).toBe(0);
-    expect(none.pill).toBeNull();
+    // png/health-demo-1440.png, png/health-demo-390.png: a tile at 0 still shows a pill.
+    expect(none.pill).toEqual({ text: healthNow.none, kind: "none" });
   });
 });
 
@@ -174,17 +182,23 @@ describe("needs you", () => {
     expect(needs.pill?.text).toBe("Family texts");
   });
 
-  it("has no pill when nothing is waiting", () => {
-    expect(tile(facts({ needsYou: 0 }), "NEEDS_YOU").pill).toBeNull();
+  it("says None when nothing is waiting", () => {
+    // png/health-demo-1440.png, png/health-demo-390.png: a tile at 0 still shows a pill.
+    expect(tile(facts({ needsYou: 0 }), "NEEDS_YOU").pill).toEqual({
+      text: healthNow.none,
+      kind: "none",
+    });
   });
 });
 
 describe("a day that could not be read", () => {
   /** The browser check has no site, and a failed query must not become "All". */
-  it("is zeros and no pill, on every tile", () => {
+  it("is zeros and a None pill, on every tile", () => {
     for (const t of rightNowTiles(unreadRightNow())) {
       expect(t.count, t.key).toBe(0);
-      expect(t.pill, t.key).toBeNull();
+      // png/health-demo-1440.png, png/health-demo-390.png: a tile at 0 still shows a pill.
+      expect(t.pill, t.key).toEqual({ text: healthNow.none, kind: "none" });
+      expect(t.pill?.text, t.key).not.toBe(healthNow.all);
       if (t.key === "KIDS_PLACED" || t.key === "VANS_CHECKED") expect(t.outOf).toBe(0);
     }
   });

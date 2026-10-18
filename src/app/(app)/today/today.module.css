@@ -23,9 +23,10 @@
 }
 
 /*
- * Board | Health (png/today-saved-1440.png, png/health-demo-390.png). The selected tab takes
- * the "this one" tint. The radius and the padding live in two rules so this is a tab and not
- * a second pill (src/ui/pill.test.ts).
+ * Board | Health (png/today-saved-390.png, png/health-demo-1440.png, png/health-demo-390.png).
+ * The selected tab takes the same tint as the rail's current item: selected-bg behind
+ * ink-brand, with the md radius. The radius and the padding live in two rules so this is a
+ * tab and not a second pill (src/ui/pill.test.ts).
  */
 .tabs {
   display: flex;
@@ -36,7 +37,7 @@
 
 .tab {
   border: 0;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-ink-muted);
   font: inherit;
@@ -45,10 +46,10 @@
   cursor: pointer;
 }
 
-/* png/health-demo-1440.png, png/today-saved-1440.png: the selected tab is a filled pill. */
+/* png/health-demo-1440.png, png/today-saved-390.png: the selected tab is that filled tint. */
 .tab[aria-selected="true"] {
-  background: var(--color-info-bg);
-  color: var(--color-info-fg);
+  background: var(--color-selected-bg);
+  color: var(--color-ink-brand);
   font-weight: var(--weight-semibold);
 }
 
@@ -90,9 +91,8 @@
  * the DEMO bar (Firia, 2026-10-17 7:55 PM ET).
  */
 /*
- * At 390 the tabs share a row with Morning | Afternoon, under the title
- * (png/today-saved-390.png, png/health-demo-390.png). The page's own padding is cancelled
- * so this row lines up with the title in the bar above it.
+ * At 390 Board | Health sit under the title (png/health-demo-390.png). The page's own
+ * padding is cancelled so this row lines up with the title in the bar above it.
  */
 .phoneTabs {
   display: flex;
@@ -101,55 +101,6 @@
   flex-wrap: wrap;
   min-width: 0;
   margin-inline: calc(-1 * var(--space-5));
-}
-
-.legs {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1);
-  background: var(--color-neutral-bg);
-  border-radius: var(--radius-md);
-}
-
-.leg {
-  border: 0;
-  background: transparent;
-  border-radius: var(--radius-md);
-  min-height: var(--target-console);
-  padding: var(--space-2) var(--space-3);
-  color: var(--color-ink-muted);
-  font: inherit;
-  font-size: var(--body-console);
-  font-weight: var(--weight-medium);
-  cursor: pointer;
-}
-
-.leg[aria-pressed="true"] {
-  background: var(--color-surface);
-  color: var(--color-ink);
-  font-weight: var(--weight-semibold);
-}
-
-/*
- * At 390 the row is the width of the title above it (png/today-saved-390.png): Board | Health
- * and Morning | Afternoon on one line. The phone column is 366 px once the bar's own padding
- * is counted, and the full console padding does not fit, so this width tightens the insets.
- */
-@media (max-width: 767px) {
-  .phoneTabs {
-    flex-wrap: nowrap;
-    gap: var(--space-2);
-  }
-
-  .phoneTabs .tabInner {
-    gap: var(--space-1);
-    padding-inline: var(--space-3);
-  }
-
-  .phoneTabs .leg {
-    padding-inline: var(--space-2);
-  }
 }
 
 .date {
