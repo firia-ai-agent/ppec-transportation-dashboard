@@ -27,11 +27,18 @@ import { personName } from "./display-name";
 export function ConsoleShell({
   caller,
   pageOwnsMain,
+  alertCount,
   children,
 }: {
   caller: ResolvedCaller;
   /** Passed through to {@link AppShell}: the screen inside already has a `main` landmark. */
   pageOwnsMain?: boolean;
+  /**
+   * Passed through to {@link AppShell}: family texts waiting for a person, as a count on the
+   * menu. Each layout decides it (only the console group reads one today); a layout that does
+   * not pass it shows no badge rather than a zero.
+   */
+  alertCount?: number;
   children: ReactNode;
 }) {
   return (
@@ -39,6 +46,7 @@ export function ConsoleShell({
       displayName={personName(caller.displayName ?? "")}
       role={caller.kind === "STAFF" ? caller.role : null}
       pageOwnsMain={pageOwnsMain}
+      alertCount={alertCount}
     >
       {children}
     </AppShell>

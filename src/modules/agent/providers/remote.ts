@@ -32,8 +32,13 @@
  *     every one of those shapes on its own; neither is the only thing standing there.
  *  3. **The key, by env var name only** (`config.apiKeyEnvVar`). Read here and nowhere else, never
  *     logged, never in an error message, never in a thrown stack.
- *  4. **The model chain.** Primary, then backup on a 429 or any other failure, then the keyword
- *     fallback (providers/keyword.ts). A rate limit must degrade, not fail the run. Every model in
+ *  4. **The model chain.** Primary, then backup on a 429 or any other failure, and then nothing:
+ *     `RemoteProviderUnavailable`. There is no third attempt in another form. PRD §18.1 l.1200 put
+ *     a keyword reader here — the model is down, so a deterministic parser answers the family —
+ *     and the founder's 2026-10-17 rule removed it: "never compensate with a deterministic text
+ *     parser if the model isn't available; the owner/staff need to be notified". So this adapter's
+ *     only answer to a dead vendor is to say so, and the caller's answer is a staff alert
+ *     (`agent/staff-alert.ts`): no reply to the family, no ride change, no send. Every model in
  *     the chain is re-checked against `config.modelAllowList` before the first request, for the
  *     same reason as the endpoint and the host: config checked it, and this is the outbound path.
  *
@@ -46,15 +51,14 @@
  * The AWS/Bedrock swap (ARCHITECTURE §10) is a new `baseUrl`, `model` and `modelAllowList` in
  * config plus `vendorAttestation`; nothing in this file names a vendor, a model or a host.
  */
-import type { AgentConfig } from "../config";
+import type { AgentConfig, DemoDataGuardFailure } from "../config";
 import {
   baseUrlRefusalReason,
-  demoDataGuardRefusal,
+  demoDataGuardFailure,
   endpointPathRefusalReason,
   forbiddenEndpointReason,
   vendorRequestUrl,
 } from "../config";
-import { keywordResponse } from "./keyword";
 import {
   type LlmProvider,
   type ProviderCall,
@@ -64,6 +68,42 @@ import {
 
 /** The provider is not usable in this environment: no demo-data confirmation, or no key. */
 export class RemoteProviderNotEnabled extends ProviderError {}
+
+/**
+ * The §2.5A demo-data guard refused: one of `AGENT_DEMO_DATA_ONLY`, `APP_DATA_CLASS` or
+ * `AGENT_DATA_MODE` does not hold (`config.demoDataGuardFailure`).
+ *
+ * It carries the structured failure rather than only the sentence, because the caller has to say
+ * **which** condition refused — in a log line, and on the staff alert the founder's 2026-10-17
+ * rule requires — and re-deriving that by matching this error's message is how it breaks on the
+ * first rewording. `failure.envVar` is a name; no value of any of the three ever leaves here.
+ */
+export class RemoteDemoDataGuardRefused extends RemoteProviderNotEnabled {
+  constructor(readonly failure: DemoDataGuardFailure) {
+    super(failure.message);
+  }
+}
+
+/**
+ * The narrower half of the above: the environment is otherwise fine and `$<apiKeyEnvVar>` is not
+ * set. A subclass rather than a flag, so every existing `instanceof RemoteProviderNotEnabled`
+ * still catches it, and so the one caller that needs to tell the two apart can.
+ *
+ * It needs telling apart because the two are different work for different people. A missing
+ * demo-data confirmation is a deployment that has not been told it may call a vendor at all, and
+ * the fix is a setting. A missing key is the model being unavailable, which under the founder's
+ * 2026-10-17 rule is a **staff alert**: somebody has to answer the family by hand right now.
+ * `agent/staff-alert.ts` reads this class to say which.
+ */
+export class RemoteApiKeyMissing extends RemoteProviderNotEnabled {
+  constructor(
+    message: string,
+    /** The env var NAME that is unset. The value is not read here and never will be. */
+    readonly apiKeyEnvVar: string,
+  ) {
+    super(message);
+  }
+}
 
 /** The call named an endpoint this deployment may not POST to (PRD §11.2 allow-list). */
 export class RemoteEndpointRefused extends ProviderError {}
@@ -87,8 +127,27 @@ export class RemoteRequestUrlRefused extends ProviderError {}
 /** A model in the chain is not on `config.modelAllowList`, re-checked on the outbound path. */
 export class RemoteModelRefused extends ProviderError {}
 
-/** Every vendor attempt failed *and* the keyword fallback was switched off. */
-export class RemoteProviderUnavailable extends ProviderError {}
+/**
+ * Every model in the chain failed, so this deployment cannot reach a model at all.
+ *
+ * The *only* outcome of an exhausted chain, and the whole of the founder's 2026-10-17 rule in one
+ * class: there is no degraded answer to fall through to, so the adapter raises and the gateway
+ * turns it into `PROVIDER_ERROR`, which is what `agent/staff-alert.ts` reads to raise the one
+ * "needs a person" alert. It used to be reachable only when an option switched the keyword
+ * fallback off; it is now the single path.
+ */
+export class RemoteProviderUnavailable extends ProviderError {
+  constructor(
+    message: string,
+    /**
+     * How each attempt in the chain ended, in order. The reason the caller can say "timeout" or
+     * "429 on both models" in a log line without parsing this error's message.
+     */
+    readonly attempts: readonly RemoteAttempt[] = [],
+  ) {
+    super(message);
+  }
+}
 
 /** HTTP 429. Named because it is the expected failure on a free endpoint, not an exceptional one. */
 export const RATE_LIMITED = 429;
@@ -105,8 +164,6 @@ export type RemoteAttempt = {
 export type RemoteResponseBody = ProviderResponseBody & {
   /** Which models were tried and how each ended. Codes and counts only. */
   readonly attempts?: readonly RemoteAttempt[];
-  /** Set when the keyword parser answered instead of a model. */
-  readonly fellBackToKeyword?: boolean;
 };
 
 export interface RemoteProvider extends LlmProvider {
@@ -117,20 +174,11 @@ export interface RemoteProvider extends LlmProvider {
   readonly attempts: readonly RemoteAttempt[];
   /**
    * Narrows `LlmProvider.invoke` to the richer body: the gateway reads only the base shape, but a
-   * caller holding the adapter directly can see which models were tried and whether the keyword
-   * parser answered. Both are things a degraded run should be able to report.
+   * caller holding the adapter directly can see which models were tried and how each one ended.
+   * That is what a failed run reports — in a reason class, never a vendor message.
    */
   invoke(call: ProviderCall): Promise<RemoteResponseBody>;
 }
-
-export type RemoteProviderOptions = {
-  /**
-   * Keep the PRD §18.1 keyword fallback. On by default: a free endpoint rate-limits, and a run
-   * that ends in a staff triage item is the degraded mode the PRD specifies. A suite that wants to
-   * see the raw vendor failure sets it false and gets RemoteProviderUnavailable.
-   */
-  readonly keywordFallback?: boolean;
-};
 
 /**
  * Gates one to three as a classed error, or null when this environment may make a live call. The
@@ -142,15 +190,16 @@ function liveCallRefusal(
   config: AgentConfig,
   env: Record<string, string | undefined>,
 ): ProviderError | null {
-  const guard = demoDataGuardRefusal(config, env);
-  if (guard) return new RemoteProviderNotEnabled(guard);
+  const guard = demoDataGuardFailure(config, env);
+  if (guard) return new RemoteDemoDataGuardRefused(guard);
 
   const destination = baseUrlRefusalReason(config.baseUrl, config.baseUrlHostAllowList);
   if (destination) return new RemoteBaseUrlRefused(destination);
 
   if ((env[config.apiKeyEnvVar] ?? "").trim() === "") {
-    return new RemoteProviderNotEnabled(
+    return new RemoteApiKeyMissing(
       `remote provider ${config.provider} is not configured: $${config.apiKeyEnvVar} is not set in this environment`,
+      config.apiKeyEnvVar,
     );
   }
   return null;
@@ -205,10 +254,8 @@ export function modelChain(config: AgentConfig): readonly string[] {
 export function remoteProvider(
   config: AgentConfig,
   env: Record<string, string | undefined> = process.env,
-  options: RemoteProviderOptions = {},
 ): RemoteProvider {
   const endpoint = config.endpointAllowList[0];
-  const keywordFallback = options.keywordFallback ?? true;
   const attempts: RemoteAttempt[] = [];
 
   // Gates one to three, at wiring time: a deployment that selected this provider without
@@ -273,14 +320,15 @@ export function remoteProvider(
         if (attempt.body) return { ...attempt.body, attempts: theseAttempts };
       }
 
-      // Every model failed. §18.1: the LLM being down is a keyword-parser case, not a dead run.
-      if (keywordFallback) {
-        return { ...keywordResponse(call.prompt), attempts: theseAttempts, fellBackToKeyword: true };
-      }
+      // Every model failed, and that is the end of it. Nothing stands in for a model here: the
+      // founder's 2026-10-17 rule forbids a deterministic parser answering in its place, so the
+      // adapter raises and a person is told (`agent/staff-alert.ts`). The message is reason
+      // classes and status codes only — a vendor's own error text can quote the prompt back.
       throw new RemoteProviderUnavailable(
         `every configured model failed [${theseAttempts
           .map((a) => `${a.model}:${a.failure ?? "unknown"}${a.status === null ? "" : `(${a.status})`}`)
-          .join(", ")}] and the keyword fallback is disabled`,
+          .join(", ")}]`,
+        theseAttempts,
       );
     },
   };
@@ -300,8 +348,9 @@ export function remoteProvider(
     // to find that out is to parse the result and read its host.
     //
     // Outside the try below on purpose. A refusal here has to leave `invoke` as a thrown
-    // RemoteRequestUrlRefused, not be recorded as a failed attempt and degraded to the keyword
-    // parser: "the key nearly went to a host nobody vetted" is not a fallback case, it is a stop.
+    // RemoteRequestUrlRefused rather than being recorded as one more failed attempt in the chain:
+    // "the key nearly went to a host nobody vetted" is a different accident from a dead vendor,
+    // and it must keep its own class all the way out.
     const url = verifiedRequestUrl(config, call.endpoint);
 
     const controller = new AbortController();

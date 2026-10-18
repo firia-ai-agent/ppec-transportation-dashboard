@@ -35,8 +35,17 @@ export type ProviderResponseBody = {
   readonly finish_reason?: string;
 };
 
-/** `keyword` is the PRD §18.1 degraded mode (providers/keyword.ts), not a vendor. */
-export type ProviderKind = "fake" | "recorded" | "remote" | "keyword";
+/**
+ * Every kind of provider there is. All three are vendors or stand-ins for one.
+ *
+ * There is deliberately no degraded, non-model kind. PRD §18.1 l.1200 had one — a keyword reader
+ * that answered a family when the vendor could not — and the founder's 2026-10-17 rule removed it:
+ * "never compensate with a deterministic text parser if the model isn't available; the
+ * owner/staff need to be notified". So a provider is a way of reaching a model, and when no model
+ * can be reached the answer is a staff alert (`agent/staff-alert.ts`), not another kind here.
+ * `agent/no-keyword-fallback.test.ts` holds that down.
+ */
+export type ProviderKind = "fake" | "recorded" | "remote";
 
 export interface LlmProvider {
   readonly kind: ProviderKind;

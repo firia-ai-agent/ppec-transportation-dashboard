@@ -294,7 +294,7 @@ describe("§2 bottom tab bar, <768", () => {
   });
 
   it("the three screens get the bar, because they get the shell", () => {
-    expect(read(path.join(UI, "AppShell.tsx"))).toMatch(/<TabBar role=\{role\} \/>/);
+    expect(read(path.join(UI, "AppShell.tsx"))).toMatch(/<TabBar role=\{role\} alertCount=\{alertCount\} \/>/);
     expect(shellLayouts).toHaveLength(4);
     expect(LAYOUT.planRoutes).toBe("layout:plan-routes");
   });

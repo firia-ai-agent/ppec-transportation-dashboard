@@ -51,6 +51,7 @@ export function AppShell({
   displayName,
   role,
   pageOwnsMain = false,
+  alertCount = 0,
   children,
 }: {
   displayName: string;
@@ -63,6 +64,15 @@ export function AppShell({
    * surfaces that already have their own (the ramp iPad is laid out edge to edge).
    */
   pageOwnsMain?: boolean;
+  /**
+   * How many family texts are waiting for a person (`agent/staff-alert.ts`). Rendered as a count
+   * beside Exceptions & Approvals and nowhere else; 0 renders nothing at all. The server decides
+   * it — a role that may not open that page is handed 0 rather than a number it must then hide.
+   *
+   * Both shapes of the one menu carry it: the rail at ≥768 and the bottom tab bar below it. A
+   * count that only one width shows is a count a phone never sees.
+   */
+  alertCount?: number;
   children: ReactNode;
 }) {
   const Content = pageOwnsMain ? "div" : "main";
@@ -88,12 +98,12 @@ export function AppShell({
         <NoticeToast />
       </Suspense>
       <div className={styles.body}>
-        <NavRail role={role} />
+        <NavRail role={role} alertCount={alertCount} />
         <Content id="content" className={pageOwnsMain ? styles.contentSlot : styles.main}>
           {children}
         </Content>
       </div>
-      <TabBar role={role} />
+      <TabBar role={role} alertCount={alertCount} />
     </div>
   );
 }

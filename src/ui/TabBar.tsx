@@ -8,6 +8,7 @@ import type { StaffRole } from "@/auth/core";
 import { nav } from "./copy";
 import { icon } from "./tokens";
 import { isCurrent, navItemsFor, type NavItem } from "./nav-items";
+import { NavBadge } from "./NavBadge";
 import styles from "./TabBar.module.css";
 
 /**
@@ -63,7 +64,18 @@ export function splitTabs(items: readonly NavItem[]): {
   return { tabs: items.slice(0, TAB_SLOTS - 1), overflow: items.slice(TAB_SLOTS - 1) };
 }
 
-export function TabBar({ role }: { role: StaffRole | null }) {
+export function TabBar({
+  role,
+  alertCount = 0,
+}: {
+  role: StaffRole | null;
+  /**
+   * The same count the rail carries (`AppShell`): family texts waiting for a person. A phone is
+   * a width, not a lesser menu — if Exceptions & Approvals is under "More" the count rides on
+   * the More tab too, so the one thing waiting is never hidden behind a tap.
+   */
+  alertCount?: number;
+}) {
   const pathname = usePathname();
   // The same list, the same filter, the same order as the rail: one menu, two shapes.
   const navItems = navItemsFor(role);
@@ -128,6 +140,7 @@ export function TabBar({ role }: { role: StaffRole | null }) {
                   >
                     <Icon size={icon.nav} aria-hidden="true" />
                     <span>{item.label}</span>
+                    {item.href === "/exceptions" ? <NavBadge count={alertCount} /> : null}
                   </Link>
                 </li>
               );
@@ -161,6 +174,7 @@ export function TabBar({ role }: { role: StaffRole | null }) {
                 <Icon size={icon.nav} aria-hidden="true" />
                 {/* The label is visible text, so the tab is named for the eye and the ear both. */}
                 <span className={styles.label}>{item.label}</span>
+                {item.href === "/exceptions" ? <NavBadge count={alertCount} /> : null}
               </Link>
             </li>
           );
@@ -186,6 +200,9 @@ export function TabBar({ role }: { role: StaffRole | null }) {
             >
               <Ellipsis size={icon.nav} aria-hidden="true" />
               <span className={styles.label}>{nav.more}</span>
+              {overflow.some((item) => item.href === "/exceptions") ? (
+                <NavBadge count={alertCount} />
+              ) : null}
             </button>
           </li>
         ) : null}

@@ -302,6 +302,41 @@ const DEFS: readonly ToolDef[] = [
     prd: "§11.2: INFEASIBLE/substitution → RED exception + Teams card; no mutation",
   },
   {
+    /**
+     * A family asking for a different drop-off time, as a **proposal**.
+     *
+     * The tool exists so that a requested time has exactly one way into this system: a field of a
+     * schema-validated tool call. The founder's rule of 2026-10-17 removed the other way — a
+     * keyword/regex reader over the family's own text — so `requested_dropoff_time` is structured
+     * output or it does not exist. `agent/no-keyword-fallback.test.ts` scans the parent-reply path
+     * for a time regex and fails if one reappears.
+     *
+     * `human` tier, like the two `propose_*` tools beside it, which means the policy engine
+     * returns PROPOSAL and the loop never calls an executor for it (policy.ts step 11): the call
+     * writes an `ops.approval_request` and an exception task and mutates nothing. A coordinator or
+     * a director decides it (`modules/approvals/decide.ts`), and only their decision moves a ride.
+     *
+     * The time is a plain 24-hour `HH:MM` on the leg's own service date — not a free-text phrase,
+     * not a date, and not a duration. A model that cannot say which minute it means has not
+     * understood the message and should be asking a clarification instead.
+     */
+    name: "propose_dropoff_change",
+    tier: "human",
+    effect: "propose",
+    schema: z.object({
+      child_token: token,
+      leg_id: token,
+      /** 24-hour local time on the leg's service date. The only way a requested time gets in. */
+      requested_dropoff_time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
+      /** The plan version the model read the leg at; the decision is guarded on it. */
+      plan_version_basis: z.number().int().nonnegative(),
+      rationale_code: z.enum(["FAMILY_REQUEST", "APPOINTMENT", "CAREGIVER_AVAILABILITY", "OTHER"]),
+    }),
+    staffTextFields: [],
+    sendCopy: null,
+    prd: "§11.2 human tier: a requested transport change is a proposal + exception; no mutation",
+  },
+  {
     name: "propose_contact_or_profile_change",
     tier: "human",
     effect: "propose",
@@ -362,7 +397,7 @@ export const TOOL_REGISTRY: Readonly<Record<string, ToolDef>> = Object.fromEntri
 export const TOOL_NAMES: readonly string[] = DEFS.map((d) => d.name);
 
 /** §11.2 lists 15 tools. Asserted in tools.test.ts so a dropped row is a failing test. */
-export const TOOL_COUNT = 15;
+export const TOOL_COUNT = 16;
 
 export function toolDef(name: string): ToolDef | undefined {
   return TOOL_REGISTRY[name];

@@ -1809,6 +1809,16 @@ export const agentTasks = {
     nextStep: "Verify the request with the family, then approve or reject the change request.",
     predicate: "change request approved or rejected by staff",
   },
+  /**
+   * §11.2 human tier, `propose_dropoff_change`: a family asked for a different drop-off time and
+   * the assistant has written it down for a person to decide. The time itself is on the card, not
+   * in this summary — the summary is what a board row says before anyone opens it.
+   */
+  proposedDropoffChange: {
+    summary: "A family asked to change a drop-off time",
+    nextStep: "Check the new time works for the van, then approve it or decline it.",
+    predicate: "the new time approved and the ride moved, or the request declined and recorded",
+  },
   /** §11.2 propose_manifest_reallocation: "RED exception + Teams card". */
   proposedReallocation: {
     summary: "A vehicle cannot take its runs and the agent has options to show you",
@@ -1960,5 +1970,97 @@ export const agentPolicyTask = {
     summary: "A text arrived from a number we do not recognize",
     nextStep: "Identify who is texting before replying, and share nothing about a child until you have.",
     predicate: "the sender identified and recorded, or the thread closed as unknown",
+  },
+} as const;
+
+/**
+ * The "needs a person" alert — what staff see when the assistant could not reach a model at all.
+ *
+ * The founder's rule of 2026-10-17 5:28 PM ET, which overrides PRD §18.1 l.1200 ("LLM down →
+ * keyword parser"): *"Never compensate with a deterministic text parser if the model isn't
+ * available; the owner/staff need to be notified."* So there is no degraded reply to write copy
+ * for. There is one card, and the card's whole job is to hand the text back to a human fast.
+ *
+ * Three rules shaped every string here:
+ *
+ *  - **Say what did not happen, not what went wrong.** "The assistant couldn't read it" is a fact
+ *    a coordinator can act on. The failure class — a timeout, a 429 on both models, no key — is a
+ *    deployment matter and goes in the server log (`agent/staff-alert.ts`), not on the card.
+ *  - **Name the people** (COPY-GUIDE §1). "A parent texted about a child" is the sentence this
+ *    card exists to avoid. The names are filled from the rows at render time through the shared
+ *    display helpers (`identity/display-name.ts`), never written into a string here and never
+ *    copied into the task row — the alert is a pointer to the message, not a second copy of it.
+ *  - **End on the instruction.** "Reply yourself." is the whole of what is being asked, and it is
+ *    last so a quick read still gets it.
+ *
+ * The parent's own words are *not* a template: they are rendered verbatim from `ops.message`
+ * beside this copy, because a coordinator deciding whether this is urgent has to read what was
+ * actually said. Nothing here paraphrases or summarizes them — summarizing is the thing the
+ * assistant could not do.
+ */
+export const assistantUnavailable = {
+  /** The card's own heading. Plural-safe because the badge can show more than one. */
+  heading: "Texts the assistant could not read",
+  /**
+   * The sentence itself, filled from the rows: guardian first name + last initial, the child's
+   * given name, and the leg word below. Three short sentences, in the order a coordinator needs
+   * them: who and what, what happened, what to do.
+   */
+  card: "{adult} texted about {child}'s {leg}. The assistant couldn't read it. Reply yourself.",
+  /**
+   * The same card for a text we cannot tie to one child from the rows alone — a contact who is
+   * authorized for two children, say. The child is left out rather than guessed at: choosing
+   * between siblings would mean reading the message, which is the thing the rule forbids.
+   */
+  cardNoChild: "{adult} texted. The assistant couldn't read it. Reply yourself.",
+  /** A thread whose contact row has gone. Still true, still actionable, names nobody wrongly. */
+  unknownAdult: "Someone",
+  /**
+   * Which ride the text is about, taken from the leg row's own direction — never from the
+   * family's words, which is the parsing the founder's rule forbids. Singular, because the card
+   * is about one leg; `planRoutes.direction` is the plural form the lane headings use.
+   */
+  legWord: { AM: "pick-up", PM: "drop-off" },
+  /** No leg on the day the text arrived, so the sentence says the ride rather than invent a half. */
+  legWordUnknown: "ride",
+  /** Said above the family's own words, so nobody reads them as the assistant's. */
+  theirWords: "What they wrote",
+  /** Opens the thread this text arrived in. */
+  openText: "Open text",
+  /** Opens the reply box on that thread. A person writes it; nothing is drafted for them. */
+  reply: "Reply",
+  /**
+   * The count beside "Exceptions & Approvals" in the rail. A number, with its own words for a
+   * screen reader — §9, and Vera's rule that a badge may never be colour alone.
+   */
+  badgeLabel: "{count} waiting for a person",
+  /** Shown once a staff member has opened the alert: it stays on the board, marked as taken. */
+  openedBy: "Being handled",
+  /** The empty state, so a board with no alert does not read as a board that lost them. */
+  none: "No texts are waiting for a person.",
+  /**
+   * The board could not be read at all. Distinct from `none` on purpose: "nothing is waiting" is
+   * a claim about the families, and saying it when the truth is "we could not read the board"
+   * tells a coordinator something false about their own day.
+   */
+  unreadable: "We couldn't read the board just now, so this list may be incomplete. Try again in a moment.",
+  /** The thread panel "Open text" and "Reply" lead to. */
+  threadHeading: "The text thread",
+  /**
+   * Said under the thread, because the reply box is not built yet and a button that looked like
+   * one would be worse than saying so. The answer goes out the way it always has until then.
+   */
+  noReplyBox: "There's no reply box here yet. Answer this family from the center's phone.",
+  /** One line under the card list, so the rule is on screen and not only in a commit message. */
+  rule: "When the assistant can't reach its model, it does nothing and tells you. It never guesses.",
+  /**
+   * The `ops.task` row the alert *is*. Same summary / next step / predicate shape as every other
+   * task on this board (`agentTasks` above), and like them it carries no family prose: the
+   * summary says what kind of thing happened, and the words themselves stay in `ops.message`.
+   */
+  task: {
+    summary: "A family text needs a person: the assistant could not reach its model",
+    nextStep: "Read the text and answer the family yourself.",
+    predicate: "a coordinator has read the text and answered the family",
   },
 } as const;

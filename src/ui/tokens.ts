@@ -294,9 +294,9 @@ export const layout = {
 /**
  * Breakpoints (§2). Exported for documentation; media queries live in CSS.
  *
- * §2's "<768: hamburger drawer" used to carry a 288 px width here. The drawer is anchored to the
- * header and spans the viewport now (src/ui/MobileNav.module.css says why), so there is no
- * drawer width left to tokenise and a token nothing reads is drift.
+ * §2's "<768: hamburger drawer" used to carry a 288 px width here. There is no drawer: below 768
+ * the menu is the bottom tab bar (src/ui/TabBar.tsx), which spans the viewport and has no width
+ * to tokenise. The breakpoint keeps its name because §2 and the stylesheets both use it.
  */
 export const breakpoint = { drawer: "768px", rail: "1280px" } as const;
 

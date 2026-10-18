@@ -82,6 +82,13 @@ const VALID_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
     confidence: 0.9,
   },
   report_boarding: { leg_id: "L-C1-AM", source: "GUARDIAN_REPLY", state: "BOARDED_REPORTED", expected_version: 3 },
+  propose_dropoff_change: {
+    child_token: "C1",
+    leg_id: "L-C1-PM",
+    requested_dropoff_time: "17:00",
+    plan_version_basis: 3,
+    rationale_code: "FAMILY_REQUEST",
+  },
   propose_manifest_reallocation: {
     infeasible_vehicle_token: "V1",
     leg_ids: ["L-C1-AM"],
@@ -146,7 +153,7 @@ const blockOf = (tool: string, args: Record<string, unknown>, context = ctx()) =
 };
 
 describe("VERI-3: the walk covers the catalog", () => {
-  it("VERI-3 has a schema-valid call for all 15 tools, and a foreign value for every scoped argument", () => {
+  it("VERI-3 has a schema-valid call for all 16 tools, and a foreign value for every scoped argument", () => {
     expect(Object.keys(VALID_ARGS).sort()).toEqual([...TOOL_NAMES].sort());
     for (const tool of TOOL_NAMES) {
       expect(TOOL_REGISTRY[tool].schema.safeParse(VALID_ARGS[tool]).success, tool).toBe(true);
