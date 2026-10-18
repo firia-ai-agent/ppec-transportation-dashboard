@@ -148,13 +148,16 @@
 
 
 /*
- * A chip is written to sit on one line (src/ui/StateChip.module.css), which is right in a
- * header and wrong in a fixed column: "Stale · 9 min · ETA texts paused" would run over the
- * next cell rather than take a second line. Nothing is hidden and nothing is shortened —
- * §4.1's rule is no truncation, not one line.
+ * THE CELL DOES NOT GET TO WRAP THE PILL. This rule used to set `white-space: normal` on every
+ * chip in the board, which is the founder's bug in one declaration: a chip that wraps is two
+ * lines of pill in a 40 px column, and at 390 px it lands on its neighbour. Audit §4.1 fixes the
+ * pill at one line, nowrap, no shrink (src/ui/Pill.module.css), and a column that cannot hold
+ * one is a column to re-cut — which the board's own rebuild does (audit §4 item 3).
+ *
+ * `.cellChip` is kept as the hook the cells name so the next change has somewhere to go.
  */
 .cellChip {
-  white-space: normal;
+  max-width: 100%;
 }
 
 /* Below 1280 the last three columns leave the row for the drawer, so the rest share the width. */
@@ -261,12 +264,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * The van's name and the chip beside it, or the two chips a location can carry. **In a row, not
+ * stacked** (audit §4 item 1: "never render 2 pills stacked in one cell") — they used to wrap,
+ * which put the second chip under the first and is what the founder saw overlapping at 390 px.
+ */
 .van {
   display: inline-flex;
   align-items: center;
   /* 4 px: the chips beside the van's name carry their own padding, so 8 px reads as a gap. */
   gap: var(--space-2);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .vanName {

@@ -121,6 +121,34 @@ describe("the one pill", () => {
     expect(offenders).toEqual([]);
   });
 
+  /**
+   * AND NOTHING MAY UNWRAP IT. The board used to set `white-space: normal` on every chip in a
+   * cell, which is the founder's bug in one declaration: a chip that wraps is two lines of pill
+   * in a 40 px column, landing on its neighbour at 390 px. A rule *about a chip* may size it or
+   * place it; it may not let its words break.
+   *
+   * A container of several chips is a different thing and may still wrap — a row of a van's
+   * facts takes a second row rather than running off the card — so the rule is about the chip
+   * and not about the list it is in. What it must never be is two chips stacked in one *cell*,
+   * which is the board's `.van`: a row, nowrap (src/app/(app)/today/today.module.css).
+   */
+  it("lets nothing unwrap a pill", () => {
+    const offenders: Array<{ file: string; rule: string }> = [];
+    for (const file of walkSrc().filter((f) => f.endsWith(".css"))) {
+      const bare = read(file).replace(/\/\*[\s\S]*?\*\//g, "");
+      for (const [, selector, body] of bare.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        if (!/chip|pill/i.test(selector) || /chips\b/.test(selector)) continue;
+        if (/white-space:\s*normal/.test(body)) {
+          offenders.push({ file: path.relative(SRC, file), rule: selector.trim() });
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+    // And the one cell that carries two of them keeps them side by side, never stacked.
+    const board = read(path.join(SRC, "app", "(app)", "today", "today.module.css"));
+    expect(blockOf(board, ".van")).toMatch(/flex-wrap: nowrap/);
+  });
+
   /** The same rule for the two screens built in inline styles, where a chip is an object. */
   it("leaves no pill in an inline style either", () => {
     const offenders: string[] = [];

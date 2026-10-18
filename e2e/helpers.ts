@@ -165,16 +165,31 @@ export async function expectOneSimulatedChip(page: Page): Promise<void> {
     const bar = document.querySelector('[role="status"][aria-label="DEMO"]')?.parentElement ?? null;
     return {
       inBar: bar ? bar.querySelectorAll('[data-token="src-sim"]').length : 0,
-      // There is no app header any more (audit §2 item 1); a chip outside the bar is a chip in
-      // a *screen*, which is what the count below is about.
-      headers: document.querySelectorAll("header").length,
       bodyText: document.body.innerText,
     };
   });
   expect(seen.inBar, `the one §7.1 chip in the DEMO bar on ${page.url()}`).toBe(1);
-  expect(seen.headers, "the app header is back, and carrying chrome again").toBe(0);
+  expect(await frameHeaders(page), "the app header is back, and carrying chrome again").toEqual([]);
   expect(seen.bodyText, "a per-adapter Simulated pill is back").not.toMatch(/·\s*Simulated/);
   expect(seen.bodyText, "the 'Times are simulated' line is back").not.toMatch(/[Tt]imes are simulated/);
+}
+
+/**
+ * THE HEADERS IN THE FRAME — which must be none (audit §2 item 1).
+ *
+ * `<header>` elements *inside* the page are a screen's own business: the board's date row is
+ * one, Plan routes' title row is another. What is deleted is the app header — the band the
+ * shell drew above the content column — so the question is asked about position rather than
+ * about the tag: a header outside `#content` is chrome, and there is no chrome left that is a
+ * header.
+ */
+export async function frameHeaders(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const content = document.querySelector("#content");
+    return Array.from(document.querySelectorAll("header"))
+      .filter((el) => !(content?.contains(el) ?? false))
+      .map((el) => (el.textContent ?? "").trim().slice(0, 40));
+  });
 }
 
 /**
@@ -192,7 +207,7 @@ export async function expectOneSimulatedChip(page: Page): Promise<void> {
  * went missing at 390 px on the old header: present, laid out, and half of it off the screen.
  */
 export async function expectPageHeaderBar(page: Page): Promise<void> {
-  await expect(page.locator("header"), "the app header is back").toHaveCount(0);
+  expect(await frameHeaders(page), "the app header is back").toEqual([]);
   const title = page.getByRole("heading", { level: 1 });
   await expect(title, "no title in the page header bar").toHaveCount(1);
   const box = await boxOf(title);

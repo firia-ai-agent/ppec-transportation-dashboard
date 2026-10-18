@@ -15,7 +15,7 @@ import { expect, test } from "@playwright/test";
 import type { StaffRole } from "../src/auth/core";
 import { demoDay, nav, stub } from "../src/ui/copy";
 import { navItemsFor } from "../src/ui/nav-items";
-import { expectDemoBarPinned, expectNoInternalCodes, shot } from "./helpers";
+import { expectDemoBarPinned, expectNoInternalCodes, frameHeaders, shot } from "./helpers";
 
 /** The role playwright.config.ts starts the server as. Its default is the director. */
 const ROLE = (process.env.E2E_DEMO_ROLE ?? "DIRECTOR") as StaffRole;
@@ -130,7 +130,7 @@ test.describe("the two copy fixes, on the screens that show them", () => {
     await page.goto(ROLE === "FRONT_DESK" ? "/live-map" : "/today");
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
-    await expect(page.locator("header")).toHaveCount(0);
+    expect(await frameHeaders(page)).toEqual([]);
     // Nothing about the demo in the page header bar either: no readout, no Start, no Restart.
     const bar = page.getByRole("heading", { level: 1 }).locator("..");
     expect(await bar.innerText()).not.toMatch(/demo day/i);

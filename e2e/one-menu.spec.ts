@@ -30,6 +30,7 @@ import { navItemsFor, type NavItem } from "../src/ui/nav-items";
 import {
   boxOf,
   expectDemoBarPinned,
+  frameHeaders,
   expectPageHeaderBar,
   expectNoInternalCodes,
   expectOneSimulatedChip,
@@ -105,7 +106,7 @@ async function expectFrame(page: Page, width: number, where: string): Promise<Lo
     page.getByRole("heading", { level: 1 }),
     `no page title on ${where} at ${width}`,
   ).toBeVisible();
-  await expect(page.locator("header"), `an app header on ${where} at ${width}`).toHaveCount(0);
+  expect(await frameHeaders(page), `an app header on ${where} at ${width}`).toEqual([]);
   const rail = page.getByRole("navigation", { name: nav.landmarkLabel });
   const bar = page.locator("[data-tab-bar]");
   if (width < 768) {

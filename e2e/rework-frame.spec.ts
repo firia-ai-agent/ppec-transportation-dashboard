@@ -35,7 +35,7 @@ import { menuBadgeFor } from "../src/ui/menu-badge";
 import { MENU_SIZE, navItemsFor } from "../src/ui/nav-items";
 import { stepsFor } from "../src/ui/step-strip";
 import { APPROVAL_ROLES, MOVED_PAGES, homePathFor, pageOutcome } from "../src/auth/access";
-import { ARTIFACTS, expectDemoBarPinned } from "./helpers";
+import { ARTIFACTS, expectDemoBarPinned, frameHeaders } from "./helpers";
 
 /** The role playwright.config.ts started the server as. Its default is the director. */
 const ROLE = (process.env.E2E_DEMO_ROLE ?? "DIRECTOR") as StaffRole;
@@ -141,7 +141,7 @@ async function expectFrame(page: Page, width: number, where: string) {
    * block at the head of the rail, the account is the block at its foot, and the screen's title
    * is the 64 px page header bar inside the content column.
    */
-  await expect(page.locator("header"), `an app header on ${where} at ${width}`).toHaveCount(0);
+  expect(await frameHeaders(page), `an app header on ${where} at ${width}`).toEqual([]);
   const title = page.getByRole("heading", { level: 1 });
   await expect(title, `no page title on ${where} at ${width}`).toBeVisible();
   expect(
