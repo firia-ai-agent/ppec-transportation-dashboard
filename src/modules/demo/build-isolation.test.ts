@@ -33,6 +33,8 @@ const ALLOWED_SEED_IMPORTERS = [
   "src/modules/demo/reset.ts",
   "scripts/demo-reset.ts",
   "src/modules/demo/seed.test.ts",
+  // The drags and the child panel's Save, asserted against a seeded database (`pnpm test:db`).
+  "src/modules/plan/place.db.test.ts",
   "src/modules/plan/sql.test.ts",
 ];
 

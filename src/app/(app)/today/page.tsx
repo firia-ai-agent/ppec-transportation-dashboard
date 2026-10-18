@@ -81,7 +81,9 @@ export default async function Page({
 
   return (
     <>
-      {plan ? <PlanBoard view={plan} canEdit={canOpenPage(caller, "/plan-routes")} /> : null}
+      {plan ? (
+        <PlanBoard view={plan} canEdit={canOpenPage(caller, "/plan-routes")} headingLevel={2} />
+      ) : null}
       <TodayBoard board={board} query={query} />
     </>
   );

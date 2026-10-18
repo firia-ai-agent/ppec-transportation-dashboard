@@ -85,6 +85,7 @@ export default function PlanBoard({
   view,
   selectedVanId = null,
   canEdit = true,
+  headingLevel = 1,
 }: {
   view: BoardView;
   /**
@@ -92,6 +93,8 @@ export default function PlanBoard({
    * no grips and no Save (founder 2026-10-17 7:17 PM ET). The endpoints refuse their role too.
    */
   canEdit?: boolean;
+  /** 1 where the board is the screen, 2 where it is Today's child list. */
+  headingLevel?: 1 | 2;
   /**
    * The van the address names (§9.3's `?van=`), which is where the ramp's Re-plan and the
    * board's own "Check vans" round trip come back to: that column is ringed, its route is the one
@@ -478,6 +481,7 @@ export default function PlanBoard({
           autoPlanPrimary={placed === 0}
           onSave={trySave}
           canSave={day.riders.length > 0 && (dirty || save.kind === "FAILED")}
+          headingLevel={headingLevel}
         />
 
         {banner ? (

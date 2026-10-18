@@ -33,6 +33,7 @@ export function BoardToolbar({
   autoPlanPrimary,
   onSave,
   canSave,
+  headingLevel = 1,
 }: {
   /** "Sat, Oct 17" — the day the app was opened, in centre time (§0). */
   dateLabel: string;
@@ -48,11 +49,22 @@ export function BoardToolbar({
   autoPlanPrimary: boolean;
   onSave: () => void;
   canSave: boolean;
+  /** 1 on Plan routes (the board is the screen), 2 on Today (the screen has its own title). */
+  headingLevel?: 1 | 2;
 }) {
   const state = saveLine(save);
   return (
     <div className={styles.toolbar}>
-      <h1 className={styles.heading}>{planBoard.heading}</h1>
+      {/*
+        The board's own title, and the level it is rendered at: an `h1` on Plan routes, where it
+        **is** the screen, and an `h2` on Today, where the screen already has one (§9: one `h1`
+        per page). Same component, same words, one landmark each.
+      */}
+      {headingLevel === 1 ? (
+        <h1 className={styles.heading}>{planBoard.heading}</h1>
+      ) : (
+        <h2 className={styles.heading}>{planBoard.heading}</h2>
+      )}
       <span className={styles.date}>
         <Calendar size={icon.inline} aria-hidden="true" />
         <time dateTime={dateLabel}>{dateLabel}</time>

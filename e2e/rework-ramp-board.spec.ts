@@ -42,6 +42,10 @@ const PHONE = { width: 390, height: 844 };
  * is a URL parameter (§9.3) and a day nobody has touched reads the same way every run.
  */
 const DAY = {
+  child: "2026-11-13",
+  childPhone: "2026-11-16",
+  absent: "2026-11-14",
+  today: "2026-11-15",
   ramp: "2026-11-04",
   wontFit: "2026-11-05",
   confirm: "2026-11-06",
@@ -222,6 +226,15 @@ test.describe.serial("§2: the van that just arrived", () => {
 /* ───────────────────────────── the board ───────────────────────────── */
 
 const vans = (page: Page): Locator => page.locator("[data-van]");
+/** One child's card, wherever it is on the board. */
+const card2 = (page: Page, name: string): Locator =>
+  page.locator("[data-rider]").filter({ hasText: name }).first();
+
+/** How many oxygen mounts the board says are in use, across every van. */
+async function oxygenUsed(page: Page): Promise<number> {
+  const texts = await page.locator('[data-counter="oxygenMounts"]').allInnerTexts();
+  return texts.reduce((sum, text) => sum + Number(/(\d+)\s*\//.exec(text)?.[1] ?? 0), 0);
+}
 const card = (page: Page, name: string): Locator =>
   page.locator("[data-rider]").filter({ hasText: name }).first();
 const announced = (page: Page): Locator => page.locator("[data-announce]");
@@ -357,6 +370,88 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
     expect(await page.locator("[data-van] [data-rider]").allInnerTexts()).toEqual(placed);
   });
 
+  /**
+   * The child panel (founder 2026-10-17 7:17 PM ET, mockup `plan-board-child-*.png`): tap a
+   * card, answer three Yes/No questions, Save — and the plan moves, because the Save writes the
+   * child's approved needs and re-runs the one placement function on them.
+   */
+  test("a child's panel: three answers, a Save, and a board that moved", async ({ page }) => {
+    await openBoard(page, DAY.child);
+    await page.locator("[data-auto-plan]").click();
+    await expect(page.locator("[data-unassigned-count]")).toHaveText("0");
+
+    // Theo V. needs nothing today, so every van's oxygen meter reads 0 of what it carries.
+    const card = card2(page, "Theo V.");
+    await card.click();
+    const panel = page.locator("[data-child-panel]");
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("Theo V.");
+    // Three controls and no more: no "riding today", no van setup, no second page.
+    await expect(panel.locator("[data-need]")).toHaveCount(3);
+    await expect(panel.locator('[data-need="oxygen"] [aria-pressed="true"]')).toHaveText("No");
+    await review(page, "board-child");
+
+    const usedBefore = await oxygenUsed(page);
+    await panel.locator('[data-need="oxygen"] [data-answer="yes"]').click();
+    await panel.locator("[data-panel-save]").click();
+    await expect(panel).toHaveCount(0);
+
+    // The board moved: somebody is using an oxygen mount now, and the save status says so.
+    await expect.poll(async () => oxygenUsed(page)).toBeGreaterThan(usedBefore);
+    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
+    await review(page, "board-child-saved");
+
+    // And it is in the plan, not only on the screen.
+    await page.reload();
+    await expect.poll(async () => oxygenUsed(page)).toBeGreaterThan(usedBefore);
+  });
+
+  test("the panel at 390 is the sheet the mockup draws", async ({ page }) => {
+    await page.setViewportSize(PHONE);
+    // Its own day, with nobody placed: at 390 one column shows at a time, and Unassigned is the
+    // one a board opens on — so the card is on screen without switching anything.
+    await openBoard(page, DAY.childPhone);
+    await card2(page, "Theo V.").click();
+    await expect(page.locator("[data-child-panel]")).toBeVisible();
+    await expect(page.locator("[data-child-panel] [data-need]")).toHaveCount(3);
+    await review(page, "board-child");
+    await page.setViewportSize(WIDE);
+  });
+
+  /**
+   * Absent and Family drives are placements on **this day's** plan (founder 7:17 PM ET): a drop
+   * writes `plan_assignment.bucket` with no van, it survives a reload, and the child can be
+   * dragged back out of the group.
+   */
+  test("a child dropped on Absent stays there over a reload, and comes back", async ({ page }) => {
+    await openBoard(page, DAY.absent);
+    await page.locator("[data-auto-plan]").click();
+    const absent = page.locator('[data-bucket="ABSENT"]');
+    await expect(absent.locator('[data-bucket-count="ABSENT"]')).toHaveText("0");
+
+    const theo = card2(page, "Theo V.");
+    await liftOver(page, theo, absent);
+    await page.mouse.up();
+    await expect(absent.locator('[data-bucket-count="ABSENT"]')).toHaveText("1");
+    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
+
+    // It is a row, not a screen state.
+    await page.reload();
+    await expect(page.locator('[data-bucket="ABSENT"] [data-bucket-count="ABSENT"]')).toHaveText("1");
+
+    // And they come back out of it: open the group, then the card's own `Move to…` — which on
+    // a wide screen is the context menu §1.2 puts it behind.
+    await page.locator('[data-bucket="ABSENT"] button').first().click();
+    const inGroup = page.locator('[data-bucket-list="ABSENT"] [data-rider]').first();
+    await expect(inGroup).toBeVisible();
+    const token = await inGroup.getAttribute("data-rider");
+    await inGroup.click({ button: "right" });
+    const vanName = await vans(page).first().getAttribute("aria-label");
+    await page.locator(`[data-move-to="${token}"]`).selectOption({ label: vanName ?? "Van 1" });
+    await expect(page.locator('[data-bucket="ABSENT"] [data-bucket-count="ABSENT"]')).toHaveText("0");
+    await expect(vans(page).first().locator("[data-rider]").filter({ hasText: "Theo V." })).toHaveCount(1);
+  });
+
   test("no internal code, no fixture date, and the DEMO bar is the only violet", async ({ page }) => {
     await openBoard(page, DAY.save);
     await expectDemoBarPinned(page);
@@ -382,6 +477,39 @@ test.describe.serial("§1: the board a coordinator plans on", () => {
     expect(rider.y + rider.height).toBeLessThanOrEqual(map.y + 1);
     expect(map.height).toBeLessThanOrEqual(240);
     await expectRoomForTabBar(page);
+  });
+});
+
+/* ───────────────────────────── Today, on the same board ───────────────────────────── */
+
+test.describe("Today's child list is the board, not a second table", () => {
+  test.skip(!CONSOLE_ROLE, "Today is not this role's screen");
+
+  test("renders the same columns and the same cards, at both widths", async ({ page }) => {
+    for (const size of [WIDE, PHONE]) {
+      await page.setViewportSize(size);
+      await page.goto(`/today?date=${DAY.today}&leg=pm`);
+      // The board component itself, with its vans and its Unassigned column.
+      await expect(page.locator("[data-van]")).toHaveCount(3);
+      await expect(page.locator('[data-role="unassigned"]')).toBeVisible();
+      await expect(page.locator("[data-rider]").first()).toBeVisible();
+      await review(page, "today");
+    }
+    await page.setViewportSize(WIDE);
+  });
+
+  test("plans from Today, and Plan routes shows the same plan", async ({ page }) => {
+    await page.goto(`/today?date=${DAY.today}&leg=pm`);
+    await page.locator("[data-auto-plan]").click();
+    await expect(page.locator("[data-unassigned-count]")).toHaveText("0");
+    await page.locator("[data-save]").click();
+    await expect(page.locator("[data-save-state]")).toHaveText(/^Saved /);
+    const moved = await page.locator("[data-van]").first().locator("[data-rider]").first().innerText();
+
+    // The same plan, because it is the same component over the same `plan_assignment` rows.
+    await page.goto(boardUrl(DAY.today));
+    await expect(page.locator("[data-unassigned-count]")).toHaveText("0");
+    await expect(page.locator("[data-van]").first()).toContainText(moved.split("\n")[0]);
   });
 });
 
