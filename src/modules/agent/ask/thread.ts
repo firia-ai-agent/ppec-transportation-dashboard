@@ -51,18 +51,28 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
     [siteId],
   );
 
-  const proposals: AgentThreadItem[] = [...approvals.rows, ...changes.rows]
+  /*
+   * ONE THREAD, IN THE ORDER IT HAPPENED. The mockup's panel interleaves them — a message, the
+   * proposal it produced, the next message (png/agent-bubble-open-1440.png) — so the two reads
+   * are merged on `created_at` rather than concatenated. A conversation listed as "everything
+   * said, then everything proposed" is not the conversation that happened.
+   */
+  const proposals = [...approvals.rows, ...changes.rows]
     .filter((r) => r.summary)
-    .map((r) => ({ kind: "proposal", id: r.id, question: String(r.summary) }));
-  const said: AgentThreadItem[] = asks.rows.map((r) => ({
-    kind: "staff",
-    id: r.id,
-    text: askTextOf(r.summary),
+    .map((r) => ({ at: r.at, item: { kind: "proposal", id: r.id, question: String(r.summary) } as AgentThreadItem }));
+  const said = asks.rows.map((r) => ({
+    at: r.at,
+    item: { kind: "staff", id: r.id, text: askTextOf(r.summary) } as AgentThreadItem,
   }));
 
-  const items = [...said, ...proposals];
-  if (items.length === 0) return EMPTY;
-  return { items: [{ kind: "day", label: agentBubble.today }, ...items], waiting: proposals.length };
+  const ordered = [...said, ...proposals].sort(
+    (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime(),
+  );
+  if (ordered.length === 0) return EMPTY;
+  return {
+    items: [{ kind: "day", label: agentBubble.today }, ...ordered.map((r) => r.item)],
+    waiting: proposals.length,
+  };
 }
 
 /** The same read, never allowed to take a screen down with it. */

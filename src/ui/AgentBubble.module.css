@@ -89,7 +89,9 @@
 }
 
 .title {
-  font-size: var(--text-16);
+  /* `.ph h2{font-size:18px}`; §2's scale steps 16 → 20 and the page header bar is 20, so the
+     panel's heading reads at the same step as the screen's behind it. */
+  font-size: var(--text-20);
   font-weight: var(--weight-semibold);
   color: var(--color-ink-brand);
 }

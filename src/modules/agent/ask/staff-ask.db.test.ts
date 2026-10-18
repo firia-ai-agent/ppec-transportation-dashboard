@@ -6,7 +6,7 @@ import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
 import { type AgentScenario, seedAgentScenario } from "@/test/agent-state";
-import { agentAsk } from "@/ui/copy";
+import { agentAsk, agentTasks } from "@/ui/copy";
 import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
 import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, loadAgentConfig } from "../config";
 import { approvalKey } from "../policy";
@@ -24,6 +24,7 @@ import {
   askAgent,
   normalizeAsk,
 } from "./staff-ask";
+import { readAgentThread, readAgentThreadOrEmpty } from "./thread";
 
 /**
  * (d) AN ASK MADE FROM THE BUBBLE CREATES A PENDING APPROVAL AND APPLIES NOTHING, and
@@ -343,6 +344,57 @@ describe("(e) with no model there is a staff alert, and nothing else", () => {
     expect([...seen].filter((f) => f === keyword)).toEqual([]);
     // And the remote adapter, which is what *does* reach it, is not on this path either.
     expect([...seen].filter((f) => f.endsWith(path.join("providers", "remote.ts")))).toEqual([]);
+  });
+});
+
+describe("the thread the panel draws is read from rows this app holds", () => {
+  it("is empty, and says nothing, on a day with nothing in it", async () => {
+    expect(await readAgentThread(db, sc.siteId)).toEqual({ items: [], waiting: 0 });
+  });
+
+  it("shows the ask, then the proposal it produced, in the order they happened", async () => {
+    const { deps } = withModel([toolCall("propose_manifest_reallocation", REALLOCATION())], {
+      scope: { ...sc.scope, shared: new Set(["V-SYN-1", "V-SYN-2"]) },
+    });
+    await askAgent(db, { siteId: sc.siteId, text: "Van 1 cannot take its runs", by: "u1" }, deps);
+
+    const view = await readAgentThread(db, sc.siteId);
+    // png/agent-bubble-open-1440.png: a day label, then the conversation interleaved.
+    expect(view.items.map((i) => i.kind)).toEqual(["day", "staff", "proposal"]);
+    expect(view.items[1]).toMatchObject({ kind: "staff", text: "Van 1 cannot take its runs" });
+    // The proposal's title is the words on the task it hangs on — nothing is written here.
+    expect(view.items[2]).toMatchObject({ kind: "proposal", question: agentTasks.proposedReallocation.summary });
+    // The coral dot is drawn iff this is above zero (src/ui/agent-bubble-thread.test.ts).
+    expect(view.waiting).toBe(1);
+  });
+
+  it("counts no proposal once it has been decided", async () => {
+    const { deps } = withModel([toolCall("propose_manifest_reallocation", REALLOCATION())], {
+      scope: { ...sc.scope, shared: new Set(["V-SYN-1", "V-SYN-2"]) },
+    });
+    await askAgent(db, { siteId: sc.siteId, text: "Van 1 cannot take its runs", by: "u1" }, deps);
+    /*
+     * Deciding is a write this branch has not got — `modules/approvals/decide.ts` is on #75 — so
+     * the decision is stamped directly here. What is under test is the *read*: pending is the
+     * absence of a decision on the row, never a count this module keeps of its own.
+     */
+    await db.query("UPDATE ops.approval_request SET decided_at = now() WHERE site_id = $1", [sc.siteId]);
+    const view = await readAgentThread(db, sc.siteId);
+    expect(view.waiting).toBe(0);
+    expect(view.items.map((i) => i.kind)).toEqual(["day", "staff"]);
+  });
+
+  it("shows another site nothing of this one's", async () => {
+    const { deps } = withModel([toolCall("propose_manifest_reallocation", REALLOCATION())], {
+      scope: { ...sc.scope, shared: new Set(["V-SYN-1", "V-SYN-2"]) },
+    });
+    await askAgent(db, { siteId: sc.siteId, text: "Van 1 cannot take its runs", by: "u1" }, deps);
+    expect(await readAgentThread(db, "00000000-0000-7000-8000-00000000beef")).toEqual({ items: [], waiting: 0 });
+  });
+
+  it("never takes a screen down with it", async () => {
+    const broken = { query: async () => { throw new Error("no"); } } as unknown as typeof db;
+    expect(await readAgentThreadOrEmpty(broken, sc.siteId)).toEqual({ items: [], waiting: 0 });
   });
 });
 

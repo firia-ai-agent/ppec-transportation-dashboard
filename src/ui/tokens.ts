@@ -381,7 +381,18 @@ export const space = {
 } as const;
 
 /** `pill` is the audit's `border-radius: 9999px` (§4.1), in the one place a radius may live. */
-export const radius = { sm: "4px", md: "6px", pill: "9999px" } as const;
+export const radius = {
+  sm: "4px",
+  md: "6px",
+  /**
+   * A chat bubble's corner (mockups/agent-bubble.html `.b{border-radius:18px}`). Bigger than
+   * anything else in the system on purpose: it is the shape that says "somebody said this",
+   * which is the whole of what tells a message apart from a card at a glance. One tail corner
+   * drops back to `sm`, which is what points it at its speaker.
+   */
+  bubble: "18px",
+  pill: "9999px",
+} as const;
 
 /* ───────────────────────────── layout (§2, §7, §7.1, §9) ───────────────────────────── */
 

@@ -52,7 +52,7 @@
 .bubble {
   max-width: 82%;
   padding: var(--space-3) var(--space-4);
-  border-radius: var(--space-6);
+  border-radius: var(--radius-bubble);
   line-height: var(--leading-tight);
 }
 
