@@ -30,6 +30,9 @@ import {
   type Actor,
 } from "@/domain/machines";
 import { frameAt, type ReplayFrame } from "@/domain/eta/replay";
+import { driverFor } from "@/domain/plan/day";
+import { vanConfigOf } from "@/config/vans";
+import { shortName } from "@/ui/display-name";
 import { feasible, type SolveResult, type SolveStatus } from "@/domain/solver";
 import { gpsFreshnessFor, type GpsFreshness } from "@/ui/states";
 import { serviceDateIso } from "@/ui/service-date";
@@ -203,6 +206,14 @@ export type RideView = {
   /** The child's own landmark stop, or null when they have none. */
   stop: string | null;
   vehicleLabel: string | null;
+  /**
+   * 1, 2, 3 — the number painted on this van's door (src/config/vans.ts), null when no van
+   * drives this ride. It is here so a screen can name the van the one way this app names one,
+   * "Van 3 · Nadia P.", without inventing a second rule out of the label.
+   */
+  vanNumber: number | null;
+  /** "Nadia P." — who is driving it today, through the one name helper. Null with no van. */
+  driverName: string | null;
   vehicleDescription: string | null;
   providerName: string | null;
   /** The person at the provider who answers for this van, named. Null for the centre's fleet. */
@@ -602,6 +613,8 @@ function rideFor(child: DemoChild, direction: Direction, day: ServiceDay): RideV
       state,
       path,
       vehicleLabel: null,
+      vanNumber: null,
+      driverName: null,
       vehicleDescription: null,
       providerName: null,
       providerDispatcher: null,
@@ -643,6 +656,8 @@ function rideFor(child: DemoChild, direction: Direction, day: ServiceDay): RideV
     state,
     path,
     vehicleLabel: vehicle.label,
+    vanNumber: vanConfigOf(run.vehicleKey)?.slot ?? null,
+    driverName: shortName(driverFor(run.vehicleKey)),
     vehicleDescription: vehicle.description,
     providerName: vehicle.providerName,
     providerDispatcher: dispatcher,

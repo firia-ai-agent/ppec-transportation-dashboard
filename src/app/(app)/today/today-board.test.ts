@@ -6,7 +6,11 @@ import { createElement } from "react";
 import { buildBoard, demoDay, serviceDayFor, type LegRow } from "@/domain/board/board";
 import { DEMO_SERVICE_DATE } from "@/domain/board/day";
 import * as copy from "@/ui/copy";
-import { board as boardCopy, drawer, fill, needCategories, places } from "@/ui/copy";
+import { board as boardCopy, drawer, fill, liveMap, needCategories, places } from "@/ui/copy";
+import { vanConfigOf } from "@/config/vans";
+import { driverFor } from "@/domain/plan/day";
+import { shortName, withoutSyntheticMarker } from "@/ui/display-name";
+import { PROVIDERS, VEHICLES } from "@/modules/demo/fixtures/standard";
 import { legStates, therapySessionStates } from "@/ui/states";
 import { clockLabel, demoDateIso, demoDateLabel } from "@/ui/service-date";
 import { deriveReadiness, unreadFacts } from "@/domain/day/readiness";
@@ -524,6 +528,55 @@ describe("the drawer reads one child's day", () => {
     expect(text).not.toMatch(/\bF5\b/);
     expect(text).not.toMatch(/\bR1\b/);
     expect(text).not.toMatch(/\d+WC\/\d+A/);
+  });
+});
+
+/**
+ * THE VAN, NAMED ONCE — "Van 3 · Omar T.", and the drawer says it the way every other screen does.
+ *
+ * Firia, 2026-10-18 3:04 AM ET: this line read "Van 3 · Coastal Car Service". A provider is who
+ * the centre contracts with; the person a coordinator wants when a child is on the road is the
+ * driver, and the plan board's van header and the live map's van list had already settled the
+ * phrase — the number painted on the door and the driver, through the one name helper.
+ *
+ * The expectation is built from those screens' own sources (src/config/vans.ts for the number,
+ * `driverFor` + `shortName` for the person, `liveMap.vanName` for the shape) rather than from a
+ * literal or from the fields the drawer reads, so a drawer that drifts from the board fails here.
+ */
+describe("the drawer names the van the board's way (Firia, 2026-10-18 3:04 AM ET)", () => {
+  const driven = board.legs.filter((leg) => leg.ride.vehicleLabel !== null);
+  /** Every seeded provider as a screen would print it: "Coastal Car Service", marker and all. */
+  const providerNames = PROVIDERS.flatMap((provider) => [
+    provider.name,
+    withoutSyntheticMarker(provider.name),
+  ]);
+
+  /** What the live map and the plan board call this van, out of their own sources. */
+  function boardsVanLine(vehicleLabel: string): string {
+    const vehicle = VEHICLES.find((v) => v.label === vehicleLabel);
+    const config = vehicle ? vanConfigOf(vehicle.key) : null;
+    if (!vehicle || !config) throw new Error(`no van in the fleet is called ${vehicleLabel}`);
+    return fill(liveMap.vanName, {
+      number: config.slot,
+      driver: shortName(driverFor(vehicle.key)),
+    });
+  }
+
+  it("writes the number on the door and the driver, in the live map's own words", () => {
+    expect(driven.length).toBeGreaterThan(0);
+    for (const leg of driven) {
+      const line = boardsVanLine(leg.ride.vehicleLabel ?? "");
+      expect(line).toMatch(/^Van \d · \S/);
+      expect(drawerHtml(leg.child.childKey)).toContain(escaped(line));
+    }
+  });
+
+  it("names no provider anywhere on the panel: that is the contract, not the person driving", () => {
+    expect(providerNames).toContain("Coastal Car Service");
+    for (const leg of driven) {
+      const html = drawerHtml(leg.child.childKey);
+      for (const provider of providerNames) expect(html).not.toContain(escaped(provider));
+    }
   });
 });
 

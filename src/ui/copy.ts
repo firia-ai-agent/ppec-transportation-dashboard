@@ -405,8 +405,6 @@ export const board = {
   pmSpoken: "afternoon",
   /** A ride the family drives themselves: there is no van to show, and that is not a gap. */
   familyDrives: "Family drives",
-  /** "V2 · SYN Greenacres center fleet" — the van, then who runs it. Drawer only (§4.1 density). */
-  vanAndProvider: "{van} · {provider}",
   /** The vehicle is assigned but has sent nothing we may draw (an unlinked device, LOC-01). */
   noPosition: "No van location yet",
   /**
