@@ -1,13 +1,30 @@
 /**
  * Timer consumer + sweeper (ADR-001, ARCHITECTURE §6). Both fire through the same guarded claim.
  * Handlers must be DB-only: external effects go through the outbox (ADR-003).
+ *
+ * "DB-only" is about the **transaction**, not about the handler's whole job, and `fire` now says so
+ * by handing every handler the same `afterCommit` hook `db.tx` gives any other writer
+ * (`AfterCommit` below). A handler still may not do anything outside the database *inside* its
+ * transaction — a published message that a rollback cannot take back is the thing ADR-003 forbids —
+ * but a wake-up that must be sent **once the row is committed** now has the one place to go that
+ * every other module already uses, instead of being impossible to express and therefore left out
+ * (`agent/run/timers.ts`, where a fired deadline re-queued a run and told nobody).
  */
 import { uuidv7 } from "uuidv7";
 import type { Db, Exec } from "@/db/exec";
 import { fill, timerDeadTask } from "@/ui/copy";
 import { arm, EARLY_SLACK_MS, INLINE_RECHECK_MAX_ITERATIONS, INLINE_RECHECK_MAX_MS, JOB_COLUMNS, LEASE_RENEW_EVERY_MS, LEASE_SECONDS, MAX_ATTEMPTS, MAX_DELAY_SECONDS, REWAKE_DELAY_SECONDS, REWAKE_MARGIN_MS, rewakeDelaySeconds, staleWake, type Clock, type JobRow, type Sleep, type WakeFence, type WakeMessage, type WakeTransport, systemClock, systemSleep } from "./scheduler";
 
-export type Handler = (tx: Exec, job: JobRow) => Promise<void>;
+/**
+ * Register work to run **after** the handler's transaction commits, and only if it commits. The
+ * same contract as `db.tx`'s second argument, passed straight through: hooks run in order, after
+ * COMMIT, and a hook that throws is swallowed (`db/exec.runAfterCommit`) because a lost wake-up is
+ * recovered by a sweep or a redelivery while a thrown one would unwind a transaction that is
+ * already committed.
+ */
+export type AfterCommit = (hook: () => Promise<void>) => void;
+
+export type Handler = (tx: Exec, job: JobRow, afterCommit: AfterCommit) => Promise<void>;
 export type Handlers = Record<string, Handler>;
 export type FirePath = "QUEUE" | "SWEEPER" | "LOCAL";
 export type WakeResult = "fired" | "noop" | "rewake-deferred" | "early-deferred" | "inactive-deployment" | "failed" | "dead";
@@ -193,10 +210,13 @@ export async function fire(db: Db, jobId: string, deploymentId: string, handlers
   // Keep the lease alive while the handler runs; renewal is fenced by the same token.
   const lease = startLeaseRenewal(db, job.id, token, clock, opts.renewEveryMs ?? LEASE_RENEW_EVERY_MS);
   try {
-    await db.tx(async (tx) => {
+    await db.tx(async (tx, afterCommit) => {
       const h = handlers[job.kind];
       if (!h) throw new Error(`no handler for kind ${job.kind}`);
-      await h(tx, job);
+      // The hook collector is the transaction's own, so a handler's after-commit work runs only
+      // once *this* transaction committed — the handler's writes, the DONE update and the fire log
+      // together. A lease lost before the commit (below) rolls all of it back and runs no hook.
+      await h(tx, job, afterCommit);
       // A renewal that matched 0 rows means another consumer owns the job now: give up before the DONE update
       // (which is fenced the same way) so the handler's writes roll back.
       if (lease.lost()) throw new Error("lease lost (claim taken over during the handler)");
