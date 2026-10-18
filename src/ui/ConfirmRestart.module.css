@@ -1,0 +1,114 @@
+/*
+ * "Restart today?" — the question both restart controls ask (src/ui/ConfirmRestart.tsx).
+ *
+ * Every value is a token from src/ui/tokens.ts: no colour literal (src/ui/no-hex.test.ts holds
+ * that) and no violet, because this is a question about the *day's* data and not a piece of demo
+ * chrome, even though one of the two buttons that opens it rides in the DEMO bar.
+ *
+ * The two answers are drawn as what they are: "Keep plan" is the brand primary and the default,
+ * "Restart" is coral — the alert accent, used the one way §8 computes it, as a fill with `ink` on
+ * it (5.98:1) and never as text of its own.
+ */
+
+.dialog {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Above the board's own toast and its leave-without-saving dialog, which it is never open
+     beside, and above the 32 px DEMO bar one of its buttons lives in. */
+  z-index: 60;
+}
+
+/* The ink token at 45 %, on a layer of its own so the card above it is not faded with it. */
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--color-ink);
+  opacity: 0.45;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 320px;
+  padding: var(--space-6);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-20);
+  font-weight: var(--weight-semibold);
+  color: var(--color-ink-brand);
+}
+
+.body {
+  margin: 0;
+}
+
+/*
+ * The safe answer first in the source as well as on screen, so the tab order and the reading
+ * order are the same order (§9).
+ */
+.actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--target-console);
+  padding: 0 var(--space-4);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.button[data-variant="primary"] {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--color-surface);
+}
+
+/* Coral, the way the token is computed: the fill, with ink on it. */
+.button[data-variant="alert"] {
+  background: var(--color-alert);
+  border-color: var(--color-alert);
+  color: var(--color-ink);
+}
+
+.button:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.button:disabled {
+  background: var(--color-disabled-bg);
+  border-color: var(--color-disabled-border);
+  color: var(--color-disabled-fg);
+  cursor: default;
+}
+
+/* A phone: the card keeps its gutters rather than touching both edges (§9.3 at 390). */
+@media (max-width: 480px) {
+  .dialog {
+    padding: var(--space-4);
+  }
+
+  .card {
+    width: 100%;
+  }
+}

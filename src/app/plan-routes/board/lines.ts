@@ -67,6 +67,18 @@ export function rejectSr(child: string, van: string, reason: RejectReason): stri
   return fill(planBoard.rejectSr, { child, van, thing: planBoard.rejectThing[reason] });
 }
 
+/**
+ * "Van 1 wheelchair full" — the one line a refused drop leaves on the card (Vera's taste spec,
+ * 2026-10-18).
+ *
+ * Four words at most, naming the van and the thing that is missing, and nothing else: no code,
+ * no count, and no toast — a refusal is about the card a person is holding, and a toast about it
+ * would slide away while the card sat there unexplained.
+ */
+export function rejectCardLine(van: string, reason: RejectReason): string {
+  return fill(planBoard.rejectCard[reason], { van });
+}
+
 /** "Mia R. → Van 2" — what a drop leaves behind for four seconds. */
 export function movedLine(child: string, van: string): string {
   return fill(planBoard.moved, { child, van });

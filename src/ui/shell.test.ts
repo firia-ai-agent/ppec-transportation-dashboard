@@ -20,6 +20,7 @@ import { Placeholder } from "./Placeholder";
 import { SourceBadge } from "./SourceBadge";
 import { color, contrastRatio, layout } from "./tokens";
 import { ROLE_LADDER } from "@/auth/access";
+import { DAY_VANS } from "@/config/vans";
 import { RESET_ROLES } from "@/modules/demo/reset";
 
 /**
@@ -91,7 +92,7 @@ describe("NFR-09 / §7.1: the source-mode chip sits next to the DEMO banner", ()
 
   it("renders the 'DEMO' bar and the Simulated chip in one row", () => {
     process.env.APP_DATA_CLASS = "SYNTHETIC";
-    const html = renderToStaticMarkup(DemoBanner({ role: "DIRECTOR" }));
+    const html = renderToStaticMarkup(DemoBanner({ role: "DIRECTOR", vanCount: DAY_VANS.length }));
     expect(html).toContain(demoBanner.text);
     expect(html).toContain('aria-label="DEMO"');
     // role="status" wraps the banner text only: the chip is announced as its own thing.
@@ -413,7 +414,10 @@ describe("§7 the DEMO bar's one control", () => {
   });
 
   it("is rendered by the bar, and by nothing else in the app", () => {
-    expect(banner).toMatch(/<DemoRestart \/>/);
+    // With the van count the bar's own server component read, never a number of its own: the
+    // question in front of a reset names the vans it clears (src/ui/DemoBar.tsx, Veri's S2 on #79).
+    expect(banner).toMatch(/<DemoRestart vanCount=\{vanCount\} \/>/);
+    expect(read(UI, "DemoBar.tsx")).toMatch(/vanCount=\{DAY_VANS\.length\}/);
     const mounts = readdirSync(UI)
       .filter((f) => f.endsWith(".tsx") && !f.endsWith(".test.tsx"))
       .filter((f) => /<DemoRestart\b/.test(read(UI, f)));
@@ -432,18 +436,29 @@ describe("§7 the DEMO bar's one control", () => {
     expect(canRestartDemo("FRONT_DESK")).toBe(false);
     // And the bar leaves it out of the markup entirely rather than hiding it in CSS.
     process.env.APP_DATA_CLASS = "SYNTHETIC";
-    const frontDesk = renderToStaticMarkup(DemoBanner({ role: "FRONT_DESK" }));
+    const frontDesk = renderToStaticMarkup(DemoBanner({ role: "FRONT_DESK", vanCount: DAY_VANS.length }));
     expect(frontDesk).not.toContain(demoDay.restart);
     expect(frontDesk).not.toMatch(/<button/);
-    const director = renderToStaticMarkup(DemoBanner({ role: "DIRECTOR" }));
+    const director = renderToStaticMarkup(DemoBanner({ role: "DIRECTOR", vanCount: DAY_VANS.length }));
     expect(director).toContain(demoDay.restart);
   });
 
+  /**
+   * The request moved out of the button and into src/ui/restart-confirm.ts, because the board's
+   * "Start demo day" sends the same one and neither control may build it twice (S1, 2026-10-18).
+   * Same claim, read where the request now lives: by the access table's row, never a path.
+   */
   it("calls the reset this app already has, by its row rather than by a written path", () => {
-    expect(restart).toMatch(/fetch\(API\.demoReset/);
-    expect(restart).toMatch(/method: "POST"/);
+    const sender = read(UI, "restart-confirm.ts");
+    // `fetchImpl`, so a test can hand it a spy: src/ui/restart-confirm.test.ts counts the calls.
+    expect(sender).toMatch(/fetch\w*\(API\.demoReset/);
+    expect(sender).toMatch(/method: "POST"/);
     // src/ui/no-internals.test.ts bars the literal; this is the other half of that rule.
+    expect(sender).not.toMatch(/"\/api\//);
     expect(restart).not.toMatch(/"\/api\//);
+    // And the button is still what sends it: one call, through the shared module.
+    expect(restart).toMatch(/sendDemoReset\(\)/);
+    expect(restart).not.toMatch(/fetch\(/);
   });
 
   it("wears the bar's own pair, not the screen's action colour (D-5)", () => {

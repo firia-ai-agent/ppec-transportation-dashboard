@@ -1,4 +1,5 @@
 import { getCaller } from "@/auth/caller";
+import { DAY_VANS } from "@/config/vans";
 import { isSyntheticDemo } from "@/lib/env";
 import { DemoBanner } from "./DemoBanner";
 
@@ -17,9 +18,17 @@ import { DemoBanner } from "./DemoBanner";
  * (src/auth/page-guard.ts), exactly as before: this decides what the *bar* draws, and nothing
  * else. The environment gate is repeated here so that on a future LIVE build the bar is not
  * even a reason to look up a caller.
+ *
+ * It also reads the one other thing the bar's control needs: how many vans the day runs, because
+ * the question in front of a reset says which vans lose their plan (`demoDay.confirm.body`, Veri's
+ * S2 on #79). `DAY_VANS` is the vans-on-the-road list both day sources build a day's vans from
+ * (src/modules/demo/day-source.ts, src/modules/roster/sql.ts), so this is the same count the
+ * board's own `day.vans` has — read from the config, with no query of its own: the bar is on
+ * every route, and a reset question is not worth a database read per page.
  */
 export async function DemoBar() {
   if (!isSyntheticDemo()) return null;
   const caller = await getCaller();
-  return <DemoBanner role={caller.kind === "STAFF" ? caller.role : null} />;
+  const role = caller.kind === "STAFF" ? caller.role : null;
+  return <DemoBanner role={role} vanCount={DAY_VANS.length} />;
 }
