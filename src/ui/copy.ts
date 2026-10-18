@@ -208,6 +208,36 @@ export const flow = {
   error: { load: "Couldn’t load · Retry" },
 } as const;
 
+/**
+ * THE HEALTH TAB ON TODAY — four "Right now" tiles and nothing else
+ * (png/health-demo-1440.png, png/health-demo-390.png; Firia, 2026-10-17: Health is these four
+ * tiles on Today, not a page of its own).
+ *
+ * The tab says "Health", which is the word on the mockup. `nav.health` stays "Health & ROI"
+ * because that is still the access-table label of the old address; this tab is not that page.
+ */
+export const healthNow = {
+  /** The tab list, named as the screen it sits on. */
+  tabsLabel: "Today",
+  board: "Board",
+  health: "Health",
+  /** The one section heading over the four tiles. */
+  rightNow: "Right now",
+  kidsPlaced: "Kids placed",
+  vansChecked: "Vans checked",
+  runningLate: "Running late",
+  needsYou: "Needs you",
+  /** Every child who rides with us is in a van, or every van is checked. */
+  all: "All",
+  /** A tile whose count is 0 (png/health-demo-1440.png, png/health-demo-390.png). Grey, never a bare number. */
+  none: "None",
+  /**
+   * A stored van label that starts with an internal code ("V3 sedan") is said as "Van 3".
+   * The code itself is never the word on the pill.
+   */
+  van: "Van {n}",
+} as const;
+
 /** COPY-GUIDE §5: visible label "Search", placeholder "Child, route or vehicle". */
 export const search = {
   label: "Search",

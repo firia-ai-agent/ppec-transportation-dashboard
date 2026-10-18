@@ -46,10 +46,16 @@ export function PageHeader({
 }) {
   const pathname = usePathname();
   const title = given ?? pageTitleFor(pathname);
+  const today = pathname === "/today";
   return (
-    <div className={styles.bar}>
+    <div className={styles.bar} data-screen={today ? "today" : undefined}>
       {/* A screen with no row in the table has no title to print, and prints none. */}
       {title ? <h1 className={styles.title}>{title}</h1> : null}
+      {/*
+        Today's tabs and date are portaled here so they share this bar with the title
+        (png/health-demo-1440.png: one row). The slot is empty on every other screen.
+      */}
+      {today ? <div id="today-header-chrome" className={styles.chrome} /> : null}
       {/*
         THE BAR'S ONE SLOT, and it is empty on every screen that does not fill it.
         The founder's mockups draw a screen's own switch *inside* this bar rather than in a

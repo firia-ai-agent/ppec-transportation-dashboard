@@ -79,6 +79,7 @@ export function NavRail({
      * account outside the menu; Veri #74 gate 12:03 AM ET).
      */
     <div className={styles.rail} data-rail>
+      <nav className={styles.landmark} aria-label={nav.landmarkLabel} data-rail-menu>
       <div className={styles.panel}>
         <p className={styles.brand} data-rail-brand>
           <span className={styles.mark} aria-hidden="true">
@@ -89,7 +90,6 @@ export function NavRail({
             <span className={styles.brandLine}>{app.brandLine}</span>
           </span>
         </p>
-        <nav aria-label={nav.landmarkLabel} data-rail-menu>
           <ul className={styles.list}>
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -141,14 +141,15 @@ export function NavRail({
               );
             })}
           </ul>
-        </nav>
-        <span className={styles.grow} />
-        {/*
-          The account, at the foot of the rail and inside the frame: /whoami is a page in the
-          group now, so this is a link to a screen rather than a panel that opens over one, and
-          Sign out is on the other end of it.
-        */}
-        {account ? (
+          <span className={styles.grow} />
+        </div>
+      </nav>
+      {/*
+        The account, at the foot of the rail and inside the frame: /whoami is a page in the
+        group now, so this is a link to a screen rather than a panel that opens over one, and
+        Sign out is on the other end of it.
+      */}
+      {account ? (
           <Link
             href={account.href}
             className={styles.account}
@@ -165,8 +166,7 @@ export function NavRail({
               ) : null}
             </span>
           </Link>
-        ) : null}
-      </div>
+      ) : null}
     </div>
   );
 }
