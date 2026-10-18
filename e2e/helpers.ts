@@ -210,11 +210,20 @@ export async function expectPageHeaderBar(page: Page): Promise<void> {
   expect(await frameHeaders(page), "the app header is back").toEqual([]);
   const title = page.getByRole("heading", { level: 1 });
   await expect(title, "no title in the page header bar").toHaveCount(1);
-  const box = await boxOf(title);
-  // Under the 32 px DEMO bar, and inside the 64 px bar below it.
-  expect(Math.round(box.y), `the title is at y=${Math.round(box.y)}, not in the header bar`)
-    .toBeGreaterThanOrEqual(32);
-  expect(Math.round(box.y + box.height)).toBeLessThanOrEqual(32 + 64);
+  /*
+   * In the 64 px bar at the top of the content column — measured against the column, not the
+   * window: the §9.3 notice is a row of its own above the frame when a redirect put one there.
+   */
+  expect(
+    await title.evaluate((el) => {
+      const bar = el.parentElement as HTMLElement;
+      return {
+        isTheBar: bar.nextElementSibling?.id === "content",
+        height: Math.round(bar.getBoundingClientRect().height),
+      };
+    }),
+    "the title is not in the page header bar",
+  ).toEqual({ isTheBar: true, height: 64 });
   const overflowing = await page.evaluate(() => {
     const bar = document.querySelector("h1")?.parentElement;
     if (!bar) return [];

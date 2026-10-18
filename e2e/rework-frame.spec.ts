@@ -144,10 +144,23 @@ async function expectFrame(page: Page, width: number, where: string) {
   expect(await frameHeaders(page), `an app header on ${where} at ${width}`).toEqual([]);
   const title = page.getByRole("heading", { level: 1 });
   await expect(title, `no page title on ${where} at ${width}`).toBeVisible();
+  /*
+   * ...and it is in the 64 px bar at the top of the content column. Measured against the column
+   * rather than against the window, because the §9.3 notice is a row of its own above it — a
+   * front desk who typed an address they may not open lands on their home *with* that line, and
+   * the frame below it is still the frame.
+   */
   expect(
-    await title.evaluate((el) => Math.round(el.getBoundingClientRect().top)),
+    await title.evaluate((el) => {
+      const bar = el.parentElement as HTMLElement;
+      const box = bar.getBoundingClientRect();
+      return {
+        isTheBar: bar.nextElementSibling?.id === "content",
+        height: Math.round(box.height),
+      };
+    }),
     `the title is not in the page header bar on ${where}`,
-  ).toBeLessThan(32 + 64);
+  ).toEqual({ isTheBar: true, height: 64 });
   /*
    * WHERE THE IDENTITY IS, and that there is one of it (REDESIGN-SPEC §9.2, audit §2 item 5).
    * At 768 and up the rail carries it — the block at its foot, beside the brand block at its

@@ -94,9 +94,15 @@
 }
 
 /*
- * §10: no horizontal scroll, and §4.1: no truncation hiding a child. Both at once means the
- * columns are given their widths rather than discovered: a cell with more words in it wraps
- * inside its own column instead of pushing the source chip off the right-hand edge.
+ * §10: no horizontal scroll, and §4.1: no truncation hiding a child.
+ *
+ * The widths below are *preferences* now rather than law. They were law — `table-layout: fixed`
+ * — and they were measured against a chip that was allowed to wrap onto a second line. The chip
+ * may not wrap any more (audit §4.1, src/ui/Pill.module.css), so a column half a word too
+ * narrow no longer takes two lines: it paints its chip over the next column. Letting the
+ * browser discover the widths gives the chip columns what they need and takes it out of the
+ * two columns that are sentences and can wrap, which is where the give belongs. The board's own
+ * rebuild re-cuts these columns properly (audit §4 item 3).
  */
 .table {
   width: 100%;
@@ -104,7 +110,7 @@
   background: var(--color-surface);
   border: var(--border-hairline) solid var(--color-neutral-bg);
   border-radius: var(--radius-md);
-  table-layout: fixed;
+  table-layout: auto;
 }
 
 /*
