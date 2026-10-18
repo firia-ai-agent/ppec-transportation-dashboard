@@ -244,9 +244,19 @@ describe("check 3, part 2: the key reaches the authorization header and no other
       throw new Error(`connect ECONNREFUSED while sending Bearer ${SENTINEL}`);
     });
     const provider = remoteProvider(CONFIG, LIVE_ENV);
-    const body = await provider.invoke(call());
-    expect(body.attempts!.map((a) => a.failure)).toEqual(["network_error", "network_error"]);
-    expectNoSentinel("a network error", provider, body, body.attempts);
+    /*
+     * A chain where every model failed **throws** now: the founder's rule of 2026-10-17 deleted
+     * the degraded reader that used to catch it, so the adapter raises and a person is told
+     * (`agent/staff-alert.ts`). The assertion is unchanged in substance — nothing carries the
+     * key — and is made from the other side: the refusal's message, its stack, and the attempts
+     * the provider recorded.
+     */
+    const refused = await provider.invoke(call()).then(
+      (body) => { throw new Error(`expected a refusal, got ${JSON.stringify(body)}`); },
+      (e: unknown) => e as Error,
+    );
+    expect(provider.attempts.map((a) => a.failure)).toEqual(["network_error", "network_error"]);
+    expectNoSentinel("a network error", provider, provider.attempts, refused.message, refused.stack ?? "");
 
     vi.stubGlobal("fetch", async (_url: string, init: { signal: AbortSignal }) => {
       await new Promise((_resolve, reject) => {
@@ -258,9 +268,14 @@ describe("check 3, part 2: the key reaches the authorization header and no other
     });
     const quick = loadAgentConfig({ ...LIVE_ENV, AGENT_REQUEST_TIMEOUT_MS: "20" });
     const timing = remoteProvider(quick, LIVE_ENV);
-    const timedOut = await timing.invoke(call());
-    expect(timedOut.attempts!.map((a) => a.failure)).toEqual(["timeout", "timeout"]);
-    expectNoSentinel("a timeout", timing, timedOut, timedOut.attempts);
+    // Same shape as the network case above, and for the same reason: every model timing out is a
+    // chain that failed, so it raises rather than answering.
+    const timedOut = await timing.invoke(call()).then(
+      (body) => { throw new Error(`expected a refusal, got ${JSON.stringify(body)}`); },
+      (e: unknown) => e as Error,
+    );
+    expect(timing.attempts.map((a) => a.failure)).toEqual(["timeout", "timeout"]);
+    expectNoSentinel("a timeout", timing, timing.attempts, timedOut.message, timedOut.stack ?? "");
   });
 
   /**
@@ -409,22 +424,34 @@ const SERVER_ONLY = ["modules/agent/config.ts", "modules/agent/providers/remote.
 describe("check 3, part 3: the key cannot be in a client bundle, because the module is unreachable", () => {
   it("finds the client entry points it claims to walk", () => {
     expect(clientEntries).toEqual(
-      expect.arrayContaining(["app/(app)/family-texts/PhoneComposer.tsx", "ui/NavRail.tsx"]),
+      expect.arrayContaining(["app/(app)/family-texts/ProposalCard.tsx", "ui/NavRail.tsx"]),
     );
-    // The import walk is real: the composer reaches the copy deck and its own action module.
-    const fromComposer = reachableFrom(["app/(app)/family-texts/PhoneComposer.tsx"]);
-    expect(fromComposer.has("app/(app)/family-texts/actions.ts")).toBe(true);
-    expect(fromComposer.has("ui/copy.ts")).toBe(true);
+    // The import walk is real: the card reaches the copy deck and its own action module.
+    const fromCard = reachableFrom(["app/(app)/family-texts/ProposalCard.tsx"]);
+    expect(fromCard.has("app/(app)/family-texts/actions.ts")).toBe(true);
+    expect(fromCard.has("ui/copy.ts")).toBe(true);
   });
 
-  it("the one client module that talks to the agent does it across a declared server boundary", () => {
-    // The composer is the only `"use client"` file with a route into the agent at all, and the
-    // route is an action module. If that `"use server"` line ever went away, the walk below would
-    // follow the import into the agent and fail — which is the guard.
+  /**
+   * No client module talks to the agent at all any more, which is a stronger thing than the
+   * boundary this used to assert.
+   *
+   * It used to be: the phone composer runs an agent turn, and it does it across a `"use server"`
+   * line. That composer is gone with the Family texts rebuild — a model call belongs on the queue
+   * (`/api/queues/agent`), not behind a button — so the only server action under that folder is
+   * the approval decision, and it reaches no provider. Both halves are asserted, because "no
+   * client module reaches the agent" is only worth something if the boundary is still declared:
+   * a `"use server"` file is where the walk stops, and if that line went away the bundle checks
+   * below would follow every import in it.
+   */
+  it("no client module reaches the agent, and the one server action still declares its boundary", () => {
     expect(isServerAction("app/(app)/family-texts/actions.ts")).toBe(true);
     const onTheServer = reachableFrom(["app/(app)/family-texts/actions.ts"]);
-    expect(onTheServer.has("modules/agent/config.ts")).toBe(true);
-    expect(onTheServer.has("modules/agent/providers/remote.ts")).toBe(true);
+    // The decision model, and nothing that calls a vendor.
+    expect(onTheServer.has("modules/approvals/decide.ts")).toBe(true);
+    expect(onTheServer.has("modules/agent/providers/remote.ts")).toBe(false);
+    // And from a browser, neither server-only module is reachable at all.
+    for (const serverOnly of SERVER_ONLY) expect(clientBundle().has(serverOnly)).toBe(false);
   });
 
   it.each(SERVER_ONLY)("%s is in no client bundle", (serverOnly) => {

@@ -144,11 +144,25 @@ describe("check 5, part 2: it never invents a reply", () => {
     expect(JSON.stringify(t.args)).not.toContain("grandma");
   });
 
-  it("says plainly what it did instead: raised it for a person", async () => {
+  /**
+   * What it does instead of inventing a reply: **nothing**, and it says so.
+   *
+   * This used to expect an `ALLOW` verdict carrying a `next_step_code`, which was the keyword
+   * parser's own `escalate_exception` call — the degraded answer the founder's rule of
+   * 2026-10-17 deleted. There is no second reader now, so a vendor failure produces no tool call,
+   * no proposal and no verdict worth the name; the "needs a person" staff alert is what tells a
+   * coordinator, and the screen renders no proposal card at all (Firia's gate 5).
+   */
+  it("says plainly what it did instead: nothing at all, and the alert is what tells staff", async () => {
     VENDOR_FAILURES[0][1]();
     const t = await turn();
-    expect(t.verdict).toBe("ALLOW");
-    expect(String(t.args.next_step_code)).toMatch(/^[A-Z_]+$/);
+    expect(t.modelUnavailable).toBe(true);
+    expect(t.mutated).toBe(false);
+    expect(t.dropoff).toBeNull();
+    // Nothing was proposed, so there is no next step inside the turn to read.
+    expect(Object.keys(t.args)).not.toContain("next_step_code");
+    // The sentence a coordinator reads instead is a sentence, in copy.ts.
+    expect(familyTexts.assistantUnavailable).toMatch(/^[A-Z].*\.$/s);
   });
 });
 
@@ -238,10 +252,16 @@ describe("check 5, part 5: no server action can spend a model call at all", () =
    * (`/api/queues/agent`) where a model call belongs. So the stronger version of the same check is
    * that the action surface is exactly one function and it is the decision.
    */
-  it("exports the decision and nothing that calls a vendor", async () => {
-    const actions = await import("@/app/(app)/family-texts/actions");
-    expect(Object.keys(actions).sort()).toEqual(["decideApprovalAction"]);
+  it("exports the decision and nothing that calls a vendor", () => {
+    /*
+     * Read as text rather than imported: the action's module graph reaches Auth.js, which wants a
+     * Next request context this runner has none of. What is being asserted is the shape of the
+     * file — one exported action, and no door to a vendor in it — and the source is where that is.
+     */
     const source = readFileSync(ACTIONS, "utf8");
+    expect([...source.matchAll(/^export (?:async )?function (\w+)/gm)].map((m) => m[1])).toEqual([
+      "decideApprovalAction",
+    ]);
     expect(source).not.toMatch(/demoAgentTurn|createGateway|chooseProvider|modelReach/);
   });
 
@@ -249,8 +269,11 @@ describe("check 5, part 5: no server action can spend a model call at all", () =
    * And the turn seam itself still answers rather than throwing, on a deployment whose vendor may
    * not be called at all — which is what the action case was really asserting.
    */
-  it("a vendor this deployment may not call comes back as no model answered, not a stack trace", async () => {
-    const env = { ...LIVE_ENV, AGENT_BASE_URL: "https://evil.example" };
+  it("a deployment with no key comes back as no model answered, not a stack trace", async () => {
+    // The commonest shape of "this deployment may not call a vendor", and the one a preview is
+    // in. A *config* this build cannot parse at all throws at load and is `modelReach`'s job
+    // (part 6 below); this is the one that has to come back as a turn.
+    const env = { ...LIVE_ENV, OPENROUTER_API_KEY: undefined };
     const turn = await demoAgentTurn({ childKey: "C1", text: TEXT, day: demoDay(), env });
     expect(turn.modelUnavailable).toBe(true);
     expect(turn.dropoff).toBeNull();

@@ -20,12 +20,18 @@
  *  3. **No provider name, no raw state, no enum** in anything a bubble or a pill renders (gate 6).
  *     Every word here is `src/ui/copy.ts` or a value the fixtures already print on a staff screen
  *     (a person's name, a landmark, a clock time).
+ *
+ * It imports nothing from `@/modules/approvals/decide`, and that is structural rather than tidy:
+ * the two client components under this folder import this module's *types*, and
+ * `agent/key-never-leaves.test.ts` follows a type-only import the way a conservative bundler
+ * would. Through `decide.ts` the walk reaches the agent's config — the module that holds the
+ * key's name — so the one function that needed a database row's type (`proposalFromRow`) lives
+ * on the page, which is server-only, and this module stays reachable from a browser safely.
  */
 import { formatClock } from "@/domain/eta/eta";
 import type { ServiceDay } from "@/domain/board/day";
 import type { DemoChangeRequest } from "@/modules/demo/change-request";
 import type { LateDropoff } from "@/modules/demo/late-dropoff";
-import type { PendingApproval } from "@/modules/approvals/decide";
 import { approval, fill, familyTexts, onDay } from "@/ui/copy";
 import type { Bubble, BubbleAuthor, Thread, ThreadSource } from "./thread";
 
@@ -262,32 +268,6 @@ export function proposalFromDemo(request: DemoChangeRequest): ProposalView {
     checks: proposalChecks(request.guardianName),
     draftText: request.draftText,
     requestedHhmm: request.requestedHhmm,
-  };
-}
-
-/**
- * A real `ops.approval_request` row, as the same card.
- *
- * The row carries the text and the time and nothing about the stop it came from, so the before
- * half of the stop row is left out rather than reconstructed: a "from" the row does not hold
- * would be this screen inventing one. The adult is not on the row either, which is why the
- * pick-up row is omitted for a logged proposal and present for the projected one.
- */
-export function proposalFromRow(row: PendingApproval, threadKey: string): ProposalView {
-  return {
-    approvalId: row.id,
-    threadKey,
-    childLabel: row.childLabel,
-    adultName: "",
-    draftedLabel: "",
-    stopFrom: null,
-    stopTo: "",
-    timeFrom: null,
-    timeTo: row.requestedTime,
-    pickupLabel: "",
-    checks: [],
-    draftText: row.text,
-    requestedHhmm: row.requestedTime,
   };
 }
 

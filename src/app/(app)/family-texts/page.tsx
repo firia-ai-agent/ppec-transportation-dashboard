@@ -9,7 +9,7 @@ import { bodyOf, pendingApprovals } from "@/modules/approvals/decide";
 import { demoChangeRequests, withRequestedTime, type DemoChangeRequest } from "@/modules/demo/change-request";
 import { familyTexts } from "@/ui/copy";
 import { decideApprovalAction } from "./actions";
-import { conversationRows, proposalFromDemo, proposalFromRow, tabFrom, threadView, type ProposalView } from "./conversations";
+import { conversationRows, proposalFromDemo, tabFrom, threadView, type ProposalView } from "./conversations";
 import { TextsScreen } from "./TextsScreen";
 import { phonesForDay, threadFor } from "./thread";
 
@@ -138,21 +138,45 @@ function proposalsFor(
   editedTime: string | null,
 ): readonly ProposalView[] {
   if (logged.length > 0) {
-    return logged.map((row) => {
-      const view = proposalFromRow(row, row.id);
-      return editedTime === null
-        ? view
-        : {
-            ...view,
-            timeTo: editedTime,
-            requestedHhmm: editedTime,
-            // The decision model's own renderer, so the words on the card are the words it queues.
-            draftText: bodyOf({ template_id: row.templateId, vars: { ...row.vars } }, editedTime),
-          };
-    });
+    return logged.map((row) => proposalFromRow(row, editedTime));
   }
   // The requests already carry the edited time (applied once, above), so this is one mapping.
   return requests.map(proposalFromDemo);
+}
+
+/**
+ * A real `ops.approval_request` row, as the card renders it.
+ *
+ * It lives on the page rather than in `conversations.ts` for a reason that is about the *bundle*:
+ * the two client components import that module's types, and `agent/key-never-leaves.test.ts`
+ * follows a type-only import the way a conservative bundler would — so a `PendingApproval` type
+ * there would put `decide.ts`, and through it the agent's config, on a path to a browser. A page
+ * is server-only, and this is the only function that needs the row's shape.
+ *
+ * The row carries the text and the proposed time and nothing about the stop it came from, so the
+ * before half of the stop row is left out rather than reconstructed: a "from" the row does not
+ * hold would be this screen inventing one.
+ */
+function proposalFromRow(row: Awaited<ReturnType<typeof pendingApprovals>>[number], editedTime: string | null): ProposalView {
+  const time = editedTime ?? row.requestedTime;
+  return {
+    approvalId: row.id,
+    threadKey: row.id,
+    childLabel: row.childLabel,
+    adultName: "",
+    draftedLabel: "",
+    stopFrom: null,
+    stopTo: "",
+    timeFrom: null,
+    timeTo: time,
+    pickupLabel: "",
+    // No checks: the row holds nothing the screen could claim passed, and an invented tick on a
+    // card somebody is about to approve is the worst possible place for one.
+    checks: [],
+    // The decision model's own renderer, so the words on the card are the words it queues.
+    draftText: bodyOf({ template_id: row.templateId, vars: { ...row.vars } }, editedTime),
+    requestedHhmm: time,
+  };
 }
 
 /**
