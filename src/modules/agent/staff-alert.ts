@@ -513,6 +513,13 @@ export type AssistantAlert = {
   readonly state: "OPEN" | "IN_PROGRESS";
   /** The whole card sentence, names already filled in. */
   readonly sentence: string;
+  /**
+   * The adult alone, as the card names them ("Dara O.", or `unknownAdult` when the gateway had no
+   * name) — for the control that offers to answer them ("Reply to Dara O."). A name rather than
+   * the sentence, because a label is not a sentence and slicing one out of the other is how a
+   * button ends up reading "Dara O. texted about".
+   */
+  readonly adultName: string;
   /** The family's own words, verbatim from `ops.message`. Never summarized, never paraphrased. */
   readonly theirWords: string;
   /** The thread "Open text" and "Reply" lead to. */
@@ -624,6 +631,7 @@ function toAlert(row: AlertRow, names: ReadonlyMap<string, string>): AssistantAl
     id: row.id,
     state: row.state === "IN_PROGRESS" ? "IN_PROGRESS" : "OPEN",
     childToken: row.child_token,
+    adultName: adult === "" ? assistantUnavailable.unknownAdult : adult,
     sentence:
       child === ""
         ? fillCard(assistantUnavailable.cardNoChild, { adult })

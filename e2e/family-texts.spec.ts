@@ -305,9 +305,10 @@ test.describe("1440: three panes on For you, the card inside the thread", () => 
       // Nothing is sent until a person says so, and the card says that before anything is pressed.
       await expect(page.getByText(approval.nothingUntilApproved).first()).toBeVisible();
     } else {
-      // Gate 5: no card at all, and the alert in its place.
+      // Gate 5: no card at all, and the alert in its place — its heading, which is the one
+      // thing on it that is the same for every family (the line under it names theirs).
       await expect(cardRegion(page)).toHaveCount(0);
-      await expect(page.getByText(assistantUnavailable.rule)).toBeVisible();
+      await expect(page.getByText(assistantUnavailable.heading)).toBeVisible();
     }
     expect(await scrollWidth(page)).toBeLessThanOrEqual(1440);
     await expectNoInternalCodes(page);

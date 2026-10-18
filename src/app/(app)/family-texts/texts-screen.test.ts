@@ -206,7 +206,14 @@ function textOf(html: string): string {
 const ALERT: AssistantAlert = {
   id: "alert-1",
   state: "OPEN",
-  sentence: "Dara O. texted about Noah's drop-off. The assistant couldn't read it. Reply yourself.",
+  // The words the module builds for this row (`agent/staff-alert.ts` `toAlert`): one line, from
+  // the rows alone.
+  sentence: fill(assistantUnavailable.card, {
+    adult: "Dara O.",
+    child: "Noah",
+    leg: assistantUnavailable.legWord.PM,
+  }),
+  adultName: "Dara O.",
   theirWords: "Can you drop Noah at 5 instead?",
   threadId: "thread-1",
   /** Noah's own token, so the tab can open *this* family's thread (`openThreadOf`). */
@@ -361,8 +368,50 @@ describe("gate 5: no model, no card", () => {
     expect(html).toContain(assistantUnavailable.heading);
     expect(html).toContain(ALERT.sentence);
     expect(html).toContain(ALERT.theirWords);
-    // The rule, on screen rather than only in a commit message.
-    expect(html).toContain(assistantUnavailable.rule);
+  });
+
+  /**
+   * THE CARD IS ONE LINE AND ONE CONTROL (founder, 2026-10-18, on the production screenshot).
+   *
+   * It carried three sentences — two of which the heading and the button already said — and a
+   * fourth about the build itself ("When the assistant can't reach its model… It never guesses"),
+   * under a card about a family who is waiting.
+   */
+  it("says who texted and about which ride, in one line, and offers to answer them", () => {
+    const html = textOf(render({ tab: "for-you", assistantReachable: false, alerts: [ALERT] }));
+
+    // One line, built from the rows: the adult, the child, the ride. And nothing about what they
+    // asked for — nothing read the message, which is why this card exists at all.
+    expect(html).toContain("Dara O. texted about Noah's drop-off.");
+    expect(html).not.toContain("The assistant couldn't read it");
+    expect(html).not.toContain("It never guesses");
+    expect(html).not.toContain("Reply yourself");
+
+    // Their own words are still there, verbatim: they are what says "at 5".
+    expect(html).toContain(ALERT.theirWords);
+
+    // And one control, named for what pressing it does.
+    expect(html).toContain(fill(assistantUnavailable.reply, { adult: ALERT.adultName }));
+    expect(html).not.toContain(assistantUnavailable.take);
+  });
+
+  it("carries the thread the alert is about, so one press takes the alert and opens it", () => {
+    const html = render({ tab: "for-you", assistantReachable: false, alerts: [ALERT] });
+    // A POST, never a link: a render — or a prefetch — must not claim an alert (S1-4).
+    expect(html).toMatch(/name="alert" value="alert-1"/);
+    expect(html).toMatch(/name="thread" value="C2"/);
+  });
+
+  it("offers the claim alone when today's list has no thread for that family", () => {
+    const html = textOf(
+      render({
+        tab: "for-you",
+        assistantReachable: false,
+        alerts: [{ ...ALERT, childToken: null }],
+      }),
+    );
+    expect(html).toContain(assistantUnavailable.take);
+    expect(html).not.toContain(fill(assistantUnavailable.reply, { adult: ALERT.adultName }));
   });
 
   it("drops the card out of the thread too, not only out of the tab", () => {

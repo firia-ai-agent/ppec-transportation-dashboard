@@ -3088,17 +3088,24 @@ export const assistantUnavailable = {
   /** The card's own heading. Plural-safe because the badge can show more than one. */
   heading: "Texts the assistant could not read",
   /**
-   * The sentence itself, filled from the rows: guardian first name + last initial, the child's
-   * given name, and the leg word below. Three short sentences, in the order a coordinator needs
-   * them: who and what, what happened, what to do.
+   * THE WHOLE CARD, in one line (founder, 2026-10-18, on the production screenshot).
+   *
+   * It used to be three sentences — who texted, that the assistant could not read it, and to
+   * reply yourself — two of which the heading above and the button below already say. A card a
+   * coordinator reads twenty times a day earns one line: who texted, and about which ride.
+   *
+   * Filled from the rows: guardian first name + last initial, the child's given name, and the leg
+   * word below. **What it cannot say is what they asked for** — the time, the place, whether it
+   * was a change at all — because nothing read the message, which is the whole reason this card
+   * exists (founder's rule, 2026-10-17). Their own words sit under it, verbatim, and say it.
    */
-  card: "{adult} texted about {child}'s {leg}. The assistant couldn't read it. Reply yourself.",
+  card: "{adult} texted about {child}'s {leg}.",
   /**
    * The same card for a text we cannot tie to one child from the rows alone — a contact who is
    * authorized for two children, say. The child is left out rather than guessed at: choosing
    * between siblings would mean reading the message, which is the thing the rule forbids.
    */
-  cardNoChild: "{adult} texted. The assistant couldn't read it. Reply yourself.",
+  cardNoChild: "{adult} texted about a ride.",
   /** A thread whose contact row has gone. Still true, still actionable, names nobody wrongly. */
   unknownAdult: "Someone",
   /**
@@ -3113,8 +3120,15 @@ export const assistantUnavailable = {
   theirWords: "What they wrote",
   /** Opens the thread this text arrived in. */
   openText: "Open text",
-  /** Opens the reply box on that thread. A person writes it; nothing is drafted for them. */
-  reply: "Reply",
+  /**
+   * THE CARD'S ONE CONTROL: it takes the alert and opens that family's thread, where the reply is
+   * written. Named for what the coordinator is about to do rather than for what the row records —
+   * "I'll handle this" ({@link take}) says the second, and is what the button still says when the
+   * text belongs to a thread this screen cannot open.
+   *
+   * A person writes the reply; nothing is drafted for them, because nothing read the message.
+   */
+  reply: "Reply to {adult}",
   /**
    * The count beside "Exceptions & Approvals" in the rail. A number, with its own words for a
    * screen reader — §9, and Vera's rule that a badge may never be colour alone.
@@ -3146,8 +3160,12 @@ export const assistantUnavailable = {
    * one would be worse than saying so. The answer goes out the way it always has until then.
    */
   noReplyBox: "There's no reply box here yet. Answer this family from the center's phone.",
-  /** One line under the card list, so the rule is on screen and not only in a commit message. */
-  rule: "When the assistant can't reach its model, it does nothing and tells you. It never guesses.",
+  /*
+   * There is NO "rule" line here any more (founder, 2026-10-18). It read "When the assistant can't
+   * reach its model, it does nothing and tells you. It never guesses." — the build explaining
+   * itself under a card about a family who is waiting. The rule is still true and is still kept;
+   * it is simply not a coordinator's sentence to read.
+   */
   /**
    * The `ops.task` row the alert *is*. Same summary / next step / predicate shape as every other
    * task on this board (`agentTasks` above), and like them it carries no family prose: the

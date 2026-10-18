@@ -279,10 +279,13 @@ async function expectNeedsAPersonAndNothingElse(expected: Unavailable, legWord: 
   // 2. The card, word for word.
   const card = await alerts();
   expect(card).toHaveLength(1);
+  // One line, from the rows alone (founder, 2026-10-18): who texted and about which ride. What
+  // they asked for is not in it and cannot be — nothing read the message.
   expect(card[0].sentence).toBe(
-    `${GUARDIAN.firstName} ${GUARDIAN.lastInitial}. texted about ${CHILD.firstName}'s ${legWord}. ` +
-      "The assistant couldn't read it. Reply yourself.",
+    `${GUARDIAN.firstName} ${GUARDIAN.lastInitial}. texted about ${CHILD.firstName}'s ${legWord}.`,
   );
+  // The adult alone, for the control that offers to answer them ("Reply to Dara O.").
+  expect(card[0].adultName).toBe(`${GUARDIAN.firstName} ${GUARDIAN.lastInitial}.`);
   // And the family's own sentence, unedited, unsummarized, read back from ops.message.
   expect(card[0].theirWords).toBe(THEIR_WORDS);
   expect(card[0].threadId).toBe(sc.threadId);

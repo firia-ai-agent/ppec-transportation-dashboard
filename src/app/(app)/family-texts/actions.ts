@@ -31,7 +31,8 @@
  * family is not texted (Firia's gap-5 ruling: fail safe, never a fake success).
  */
 import { revalidatePath } from "next/cache";
-import { APPROVAL_ROLES } from "@/auth/access";
+import { redirect } from "next/navigation";
+import { APPROVAL_ROLES, FAMILY_TEXTS_FOR_YOU } from "@/auth/access";
 import { getCaller } from "@/auth/caller";
 import { getNeonDb } from "@/db/exec";
 import {
@@ -179,6 +180,14 @@ export async function takeAlertAction(form: FormData): Promise<void> {
     by: `staff:${caller.kind === "STAFF" ? caller.userId : "unknown"}`,
   });
   revalidatePath(APPROVALS_PAGE);
+  /*
+   * "Reply to Dara" is one press, so it does the one thing it says: the alert is taken, and the
+   * coordinator lands on that family's thread, where the reply is written. The thread is a key
+   * from the screen's own list of today's conversations — not an id out of a row — and an absent
+   * one leaves the press as what it was before, a claim on the card (`assistantUnavailable.take`).
+   */
+  const thread = String(form.get("thread") ?? "");
+  if (thread) redirect(`${FAMILY_TEXTS_FOR_YOU}&thread=${encodeURIComponent(thread)}`);
 }
 
 /** The take action's shape, for the same `.tsx`-scanner reason as `DecideAction` above. */

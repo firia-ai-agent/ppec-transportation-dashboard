@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Bot, ChevronLeft, ShieldCheck } from "lucide-react";
 import { FAMILY_TEXTS_FOR_YOU, FOR_YOU_TAB } from "@/auth/access";
 import { StateChip } from "@/ui/StateChip";
+import { childTokenOf } from "@/modules/demo/fixtures/standard";
 import { approval, assistantUnavailable, familyTexts, fill } from "@/ui/copy";
 import { icon } from "@/ui/tokens";
 import type { AssistantAlert } from "@/modules/agent/staff-alert";
@@ -129,6 +130,7 @@ export function TextsScreen({
               alertsUnreadable={alertsUnreadable}
               takeAlert={takeAlert}
               assistantReachable={assistantReachable}
+              rows={rows}
             />
           ) : null}
           {/*
@@ -368,41 +370,63 @@ function ForYouAlert({
   alertsUnreadable,
   assistantReachable,
   takeAlert,
+  rows,
 }: {
   readonly alerts: readonly AssistantAlert[];
   readonly alertsUnreadable: boolean;
   readonly assistantReachable: boolean;
   readonly takeAlert: TakeAlertAction;
+  /** Today's conversations, so an alert can be matched to the thread it is about. */
+  readonly rows: readonly ConversationRow[];
 }) {
   if (assistantReachable && alerts.length === 0 && !alertsUnreadable) return null;
   return (
     <section className={styles.alert} aria-label={assistantUnavailable.heading}>
       <h2 className={styles.alertHeading}>{assistantUnavailable.heading}</h2>
       {alertsUnreadable ? <p className={styles.alertLine}>{assistantUnavailable.unreadable}</p> : null}
-      {alerts.map((alert) => (
-        <div key={alert.id}>
-          <p className={styles.alertLine}>{alert.sentence}</p>
-          <blockquote className={styles.alertWords}>{alert.theirWords}</blockquote>
-          {alert.beingHandled ? (
-            <p className={styles.alertRule}>{assistantUnavailable.openedBy}</p>
-          ) : (
-            /*
-             * The one thing that marks an alert taken (S1-4, Firia 12:13 AM ET). A POST, so a
-             * render — or a link prefetch — can never claim an alert nobody has read.
-             */
-            <form action={takeAlert}>
-              <input type="hidden" name="alert" value={alert.id} />
-              <button type="submit" className={styles.secondary}>
-                {assistantUnavailable.take}
-              </button>
-            </form>
-          )}
-        </div>
-      ))}
+      {alerts.map((alert) => {
+        /*
+         * The thread this text arrived on, matched on the child's own token (`childTokenOf`) and
+         * never on the card's words. Null for a family today's list has no row for, and then the
+         * control is the claim it has always been rather than an offer to open nothing.
+         */
+        const threadKey =
+          alert.childToken === null
+            ? null
+            : rows.find((row) => childTokenOf(row.key) === alert.childToken)?.key ?? null;
+        return (
+          <div key={alert.id}>
+            {/*
+              * ONE LINE (founder, 2026-10-18). Who texted and about which ride — the two things
+              * the rows can answer. What they asked for is under it in their own words, because
+              * nothing read the message and this screen will not guess at it.
+              */}
+            <p className={styles.alertLine}>{alert.sentence}</p>
+            <blockquote className={styles.alertWords}>{alert.theirWords}</blockquote>
+            {alert.beingHandled ? (
+              <p className={styles.alertRule}>{assistantUnavailable.openedBy}</p>
+            ) : (
+              /*
+               * The one thing that marks an alert taken (S1-4, Firia 12:13 AM ET). A POST, so a
+               * render — or a link prefetch — can never claim an alert nobody has read; and it
+               * goes on to that family's thread, which is what the words on it promise.
+               */
+              <form action={takeAlert}>
+                <input type="hidden" name="alert" value={alert.id} />
+                {threadKey === null ? null : <input type="hidden" name="thread" value={threadKey} />}
+                <button type="submit" className={styles.secondary}>
+                  {threadKey === null
+                    ? assistantUnavailable.take
+                    : fill(assistantUnavailable.reply, { adult: alert.adultName })}
+                </button>
+              </form>
+            )}
+          </div>
+        );
+      })}
       {!assistantReachable && alerts.length === 0 ? (
         <p className={styles.alertLine}>{familyTexts.assistantUnavailable}</p>
       ) : null}
-      <p className={styles.alertRule}>{assistantUnavailable.rule}</p>
     </section>
   );
 }

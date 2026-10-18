@@ -235,12 +235,22 @@ describe("check 5, part 4: the words the panel uses are in copy.ts and are plain
   it("the staff alert on Exceptions says the same thing, and names no vendor either", () => {
     // The other half of the founder's rule: the owner/staff are told. These are the card's words
     // (`agent/staff-alert.ts` writes the row; `exceptions/AlertCards.tsx` renders it).
-    for (const said of [assistantUnavailable.card, assistantUnavailable.cardNoChild]) {
+    for (const said of [
+      assistantUnavailable.card,
+      assistantUnavailable.cardNoChild,
+      assistantUnavailable.reply,
+    ]) {
       for (const word of vendorWords) expect(said.toLowerCase(), said).not.toContain(word.toLowerCase());
       expect(said, said).not.toMatch(/\b\d{3}\b|undefined|Error|keyword/i);
-      // It tells a person what to do, which is the whole point of raising it.
-      expect(said.toLowerCase(), said).toContain("reply yourself");
     }
+    /*
+     * It tells a person what to do, which is the whole point of raising it — and since the
+     * founder's reading of 2026-10-18 it says so where a person acts rather than in a third
+     * sentence under two they have already read: the card is one line about who texted, and the
+     * control under it is the thing to press.
+     */
+    expect(assistantUnavailable.reply.toLowerCase()).toContain("reply to");
+    expect(assistantUnavailable.heading.toLowerCase()).toContain("could not read");
   });
 });
 
