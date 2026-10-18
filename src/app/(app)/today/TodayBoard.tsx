@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
   Activity,
@@ -45,6 +45,19 @@ import { LegDrawer } from "./LegDrawer";
 import { nextStepCellText, stateValues } from "./next-step";
 import styles from "./today.module.css";
 
+/** The header slot is DOM the shell owns. Read it; do not copy it into state from an effect. */
+function subscribeHeaderChrome(): () => void {
+  return () => {};
+}
+
+function readHeaderChrome(): HTMLElement | null {
+  return document.getElementById("today-header-chrome");
+}
+
+function emptyHeaderChrome(): null {
+  return null;
+}
+
 /**
  * SURF-01, the board (DESIGN-DIRECTION §4.1).
  *
@@ -87,10 +100,9 @@ export function TodayBoard({
 }) {
   const { day } = board;
   const [tab, setTab] = useState<"board" | "health">("board");
-  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+  const headerSlot = useSyncExternalStore(subscribeHeaderChrome, readHeaderChrome, emptyHeaderChrome);
   const [wide, setWide] = useState(false);
   useLayoutEffect(() => {
-    setHeaderSlot(document.getElementById("today-header-chrome"));
     const query = window.matchMedia("(min-width: 768px)");
     const apply = () => setWide(query.matches);
     apply();
