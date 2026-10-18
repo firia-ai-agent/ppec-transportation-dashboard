@@ -688,7 +688,11 @@ export default function PlanBoard({
       {openChild ? (
         <ChildPanel
           childName={nameOf(day, openChild)}
-          where={whereLine(vanNameOfChild(day, plan, openChild), day.direction)}
+          where={whereLine(
+            vanNameOfChild(day, plan, openChild),
+            plan[openChild]?.bucket ?? "UNASSIGNED",
+            day.direction,
+          )}
           needs={panelNeedsOf(
             needsByToken(day, openChild) ?? {
               wheelchair: false,
