@@ -246,16 +246,23 @@ export default function VanArrival({
             </span>
           </div>
 
-          <button
-            type="button"
-            className={styles.confirm}
-            data-confirm=""
-            disabled={saving}
-            onClick={() => void confirm()}
-          >
-            {confirmed ? <Check size={icon.nav} aria-hidden="true" /> : null}
-            {confirmed ? vanArrival.confirmed : confirmLabel(selected.van.name)}
-          </button>
+          {/*
+            Confirm sits at the foot of the card, and at 390 it is pinned above the shell's own
+            bottom tab bar (png/ramp-arrival-390.png's `.conf`): the one button on this screen is
+            reachable with a thumb without scrolling the riders past it.
+          */}
+          <div className={styles.confirmBar} data-confirm-bar="">
+            <button
+              type="button"
+              className={styles.confirm}
+              data-confirm=""
+              disabled={saving}
+              onClick={() => void confirm()}
+            >
+              {confirmed ? <Check size={icon.nav} aria-hidden="true" /> : null}
+              {confirmed ? vanArrival.confirmed : confirmLabel(selected.van.name)}
+            </button>
+          </div>
         </section>
 
         <section className={styles.card} aria-labelledby="riders">

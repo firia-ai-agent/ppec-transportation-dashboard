@@ -249,6 +249,17 @@
   color: var(--color-ok-fg);
 }
 
+/*
+ * The Confirm block: at the foot of the counting card at every width, and **fixed** above the
+ * shell's bottom tab bar below 768 (see the media query at the end of this file).
+ */
+.confirmBar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: auto;
+}
+
 .confirm {
   min-height: 60px;
   display: inline-flex;
@@ -457,9 +468,35 @@
 }
 
 @media (max-width: 767px) {
-  /* The tab bar's room is the shell's (AppShell.module.css `.body`); these are the gutters. */
+  /*
+   * The tab bar's room is the shell's (AppShell.module.css `.body`); these are the gutters. The
+   * extra room at the foot is this screen's own: Confirm is fixed over the page below, so the
+   * last rider has to be able to scroll clear of both it and the tab bar under it.
+   */
   .page {
     padding: var(--space-3);
+    padding-bottom: calc(
+      var(--layout-tab-bar-height) + 84px + env(safe-area-inset-bottom, 0px)
+    );
+  }
+
+  /*
+   * Confirm, pinned above the bottom tab bar — the bar's own height from the frame's token
+   * (src/ui/tokens.ts `layout.tabBarHeight`, which is what AppShell pads the page by), plus the
+   * device's safe-area inset, so the two never share a pixel.
+   */
+  .confirmBar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--layout-tab-bar-height) + env(safe-area-inset-bottom, 0px));
+    z-index: 15;
+    margin: 0;
+    padding: var(--space-3);
+    gap: var(--space-2);
+    background: var(--color-surface);
+    border-top: var(--border-hairline) solid var(--color-neutral-bg);
+    box-shadow: 0 -4px 12px rgb(15 23 42 / 6%);
   }
 
   .rider {
