@@ -88,6 +88,55 @@ const BANNED: readonly { readonly what: string; readonly re: RegExp }[] = [
 ];
 
 /**
+ * A SPELLED-OUT PHONE NUMBER (PPE-105) — the one shape no regex above can see.
+ *
+ * Every digit rule in `BANNED` is a rule about *digits*, so "five six one five five five oh one
+ * seven seven" walks straight through them and a family gets a number anyway. Writing it out in
+ * words is also the obvious next move for anything trying to get one past a filter, and a mixed
+ * line ("561 five five five 0177") beats both halves at once.
+ *
+ * So the digits are counted rather than matched: a run of adjacent **digit tokens** — a
+ * spelled-out digit, "oh" for zero, or a short numeral group — is a phone number when it is as
+ * long as a local number (`PHONE_DIGITS`, seven). Anything that is not a digit token ends the run,
+ * which is what keeps ordinary sentences out of it: "we'll be there at five" is one digit, "five
+ * thirty" is one ("thirty" is not a digit), and "Noah is one of six riders" is two runs of one.
+ *
+ * At least one of the digits has to be a **word**, because a run of numerals alone is already the
+ * `\d{7,}` rule's and the spaced-digits rule's above — this is the gap they leave, not a second
+ * opinion about them.
+ */
+const PHONE_DIGITS = 7;
+
+/** The digits as words. "oh" and a lone "o" are how a person reads a zero out loud. */
+const DIGIT_WORDS: ReadonlySet<string> = new Set([
+  "zero", "oh", "o", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+]);
+
+/** How many digits this token is worth, or 0 when it is not one. */
+function digitsIn(token: string): number {
+  if (DIGIT_WORDS.has(token)) return 1;
+  return /^\d+$/.test(token) ? token.length : 0;
+}
+
+/** True when some unbroken run of digit tokens is as long as a phone number, words included. */
+function spelledOutPhone(text: string): boolean {
+  let digits = 0;
+  let words = 0;
+  for (const token of text.toLowerCase().split(/[^a-z0-9]+/)) {
+    const worth = digitsIn(token);
+    if (worth === 0) {
+      digits = 0;
+      words = 0;
+      continue;
+    }
+    digits += worth;
+    if (DIGIT_WORDS.has(token)) words += 1;
+    if (digits >= PHONE_DIGITS && words > 0) return true;
+  }
+  return false;
+}
+
+/**
  * Why this value may not be sent to a family, or null when it may.
  *
  * Names what is wrong and never echoes the value: the reason a reply is refused is that it may
@@ -100,7 +149,8 @@ export function replyTextIssue(value: unknown): string | null {
   if (text === "") return "empty";
   if (text.length > REPLY_TEXT_MAX) return `longer than ${REPLY_TEXT_MAX} characters`;
   const hit = BANNED.find((b) => b.re.test(text));
-  return hit ? `contains a ${hit.what}` : null;
+  if (hit) return `contains a ${hit.what}`;
+  return spelledOutPhone(text) ? "contains a phone number" : null;
 }
 
 /** Whether this value is a sendable model-written reply. The var rule and the schema both use it. */

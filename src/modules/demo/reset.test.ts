@@ -1,10 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
 import { freshDb, ORG, SITE } from "@/test/pglite";
 import { clearMemoryPlanStore, memoryPlanStore } from "@/modules/plan/memory";
 import { BOARD_CENSUS } from "./fixtures/standard";
 import { PREVIEW_REFUSAL, demoControlsGate, handleDemoReset } from "./reset";
+import { seedStandardScenario } from "./seed";
 
 const SITE_B = "00000000-0000-7000-8000-0000000000b1";
 const USERS = {
@@ -168,6 +169,88 @@ describe("POST /api/demo/reset gating (ADR-014, ADR-015)", () => {
     const r = await handleDemoReset(db, env, { userId: USERS.DIRECTOR, now: NOW });
     expect(r.status).toBe(400);
     expect(await childCount()).toBe(0);
+  });
+
+  /**
+   * PPE-105 S3 (a): WHAT A RESET LEAVES BEHIND FOR SOMEBODY READING THE LOGS AFTERWARDS.
+   *
+   * Commit b92bf9a added the two and tested neither. They answer the same question from two
+   * sides — "who wiped the demo day, and when" — and they are the only record of it: the reset
+   * truncates `ops.audit_event` along with everything else, so the SYSTEM_RESET row the seed
+   * writes back is the *new* day's first fact, and the log line is the only trace of the day
+   * that was there before.
+   *
+   * No schema change on either: the actor rides in the existing `detail` JSON.
+   */
+  describe("one structured line per reset, and who asked for it on the audit row", () => {
+    const lines = (log: { mock: { calls: unknown[][] } }) =>
+      log.mock.calls.map((c) => String(c[0])).filter((l) => l.includes("demo.reset"));
+
+    it("logs exactly one machine-readable line, naming the actor and the site", async () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        const r = await handleDemoReset(db, env, { userId: USERS.DIRECTOR, siteId: SITE, now: NOW });
+        expect(r.status).toBe(200);
+        const said = lines(log);
+        expect(said).toHaveLength(1);
+        // Structured: one line, parseable, and every field is an id or a fixed word.
+        expect(said[0]).not.toContain("\n");
+        expect(JSON.parse(said[0])).toEqual({
+          event: "demo.reset",
+          at: NOW.toISOString(),
+          actorUserId: USERS.DIRECTOR,
+          siteId: SITE,
+          source: "POST /api/demo/reset",
+        });
+        // An id, never a name, an email or a secret (ADR-004, and the body rule below).
+        expect(said[0]).not.toMatch(/pepper|DATA_KEY|password|@example\.com/i);
+        expect(said[0]).not.toContain("SYN DIRECTOR");
+      } finally {
+        log.mockRestore();
+      }
+    }, 60_000);
+
+    it("logs nothing for a reset it refuses — the line means a day was really wiped", async () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        // One refusal of each kind that reaches the function: wrong role, no session, flags off.
+        await handleDemoReset(db, env, { userId: USERS.COORDINATOR, siteId: SITE, now: NOW });
+        await handleDemoReset(db, env, { userId: undefined, siteId: SITE, now: NOW });
+        await handleDemoReset(db, { ...env, DEMO_MODE: "0" }, { userId: USERS.DIRECTOR, siteId: SITE, now: NOW });
+        expect(lines(log)).toEqual([]);
+      } finally {
+        log.mockRestore();
+      }
+    });
+
+    it("records the actor in the SYSTEM_RESET audit row's own detail", async () => {
+      expect((await handleDemoReset(db, env, { userId: USERS.DIRECTOR, siteId: SITE, now: NOW })).status).toBe(200);
+      const rows = (
+        await db.query<{ actor: string; action: string; detail: Record<string, unknown> }>(
+          "SELECT actor, action, detail FROM ops.audit_event WHERE action = 'SYSTEM_RESET'",
+          [],
+        )
+      ).rows;
+      // One row, because the reset truncated the table before the seed wrote it.
+      expect(rows).toHaveLength(1);
+      expect(rows[0].detail).toMatchObject({ scenario: "standard", actorUserId: USERS.DIRECTOR });
+      // `actor` stays the seed's own ("demo:reset"): the person is a field, not a forged writer.
+      expect(rows[0].actor).toBe("demo:reset");
+      const detail = JSON.stringify(rows[0].detail);
+      expect(detail).not.toContain("SYN DIRECTOR");
+      expect(detail).not.toMatch(/@example\.com/);
+    }, 60_000);
+
+    it("says 'unknown' rather than inventing one when the seed runs with no actor (the CLI)", async () => {
+      await seedStandardScenario(db, { now: NOW, siteId: SITE, env });
+      const [row] = (
+        await db.query<{ detail: Record<string, unknown> }>(
+          "SELECT detail FROM ops.audit_event WHERE action = 'SYSTEM_RESET'",
+          [],
+        )
+      ).rows;
+      expect(row.detail).toMatchObject({ actorUserId: "unknown" });
+    }, 60_000);
   });
 
   it("says nothing about tickets, roles it did not grant, or secrets", async () => {

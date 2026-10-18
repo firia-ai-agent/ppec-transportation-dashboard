@@ -802,6 +802,56 @@ describe("the leg word is read off the leg, not out of the family's sentence", (
     expect(card.sentence).toContain(assistantUnavailable.legWord.PM);
     expect(card.sentence).not.toContain(assistantUnavailable.legWord.AM);
   });
+
+  /**
+   * PPE-105 S3 (c): THE EVENING TEXT, and why the choice looked like it never chose.
+   *
+   * b887d26 added one boolean — is this ride already behind the message? — and nothing ordered
+   * the rides *within* either side of it. On the demo day that boolean separates the two rides
+   * only between the morning run and the afternoon one (06:50 and 16:20 site-local, `demo/seed.ts`
+   * `amWindow`/`pmWindow`), which is every hour anybody demos in, so the card read "drop-off" all
+   * day and the choice looked like a constant. Outside that window **both** rides fall on the same
+   * side, the tiebreak fell through to `direction ASC`, and the morning won — so a text that
+   * arrived after the school run *and* after the ride home got a card about the pick-up, which is
+   * the exact sentence b887d26 was written to stop, moved four hours later in the day.
+   *
+   * The rides are ordered by how near they are to the message now: the soonest of those still
+   * ahead, else the most recent of those behind. Two stored timestamps still, and still nothing
+   * read off a clock or out of what the family wrote.
+   */
+  it("after BOTH rides, the card names the ride the text arrived just after, not the morning", async () => {
+    await planLegs(new Date(now.getTime() - 9 * 3600_000), new Date(now.getTime() - 30 * 60_000));
+    fetchMock.mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
+    await harnessWithLiveAdapter().start(trigger());
+
+    const [card] = await alerts();
+    expect(card.sentence).toContain(assistantUnavailable.legWord.PM);
+    expect(card.sentence).not.toContain(assistantUnavailable.legWord.AM);
+  });
+
+  it("before BOTH rides, it names the morning one — the soonest, not merely the first", async () => {
+    // The same fall-through on the other side of the day: a text before dawn is about the ride
+    // that is about to happen, and the afternoon is eight hours further off.
+    await planLegs(new Date(now.getTime() + 30 * 60_000), new Date(now.getTime() + 8 * 3600_000));
+    fetchMock.mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
+    await harnessWithLiveAdapter().start(trigger());
+
+    const [card] = await alerts();
+    expect(card.sentence).toContain(assistantUnavailable.legWord.AM);
+    expect(card.sentence).not.toContain(assistantUnavailable.legWord.PM);
+  });
+
+  /** A day whose rows carry no planned time at all still answers, and answers the same way. */
+  it("falls back to the morning when neither ride has a planned time on it", async () => {
+    await db.query("UPDATE ops.trip_leg SET state = 'SCHEDULED', window_start = NULL WHERE child_token = $1", [
+      sc.children[0],
+    ]);
+    fetchMock.mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
+    await harnessWithLiveAdapter().start(trigger());
+
+    const [card] = await alerts();
+    expect(card.sentence).toContain(assistantUnavailable.legWord.AM);
+  });
 });
 
 /* ───────────────── the same rule for an ASK: a question nobody answered needs a person ───────────────── */

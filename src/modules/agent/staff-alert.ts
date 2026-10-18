@@ -536,6 +536,7 @@ async function alertSubject(db: Exec, siteId: string, messageId: string): Promis
      WHERE site_id = $1 AND child_token = $2 AND service_date = $3
      ORDER BY (state IN (${TERMINAL_LEG_STATES_SQL})) ASC,
               (window_start IS NOT NULL AND window_start <= $4) ASC,
+              abs(extract(epoch FROM (window_start - $4::timestamptz))) ASC NULLS LAST,
               direction ASC
      LIMIT 1`,
     [siteId, childToken, row.service_date, row.received_at],
