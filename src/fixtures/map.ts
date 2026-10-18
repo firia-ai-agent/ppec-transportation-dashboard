@@ -144,34 +144,26 @@ const R3_PLANNED: Coord[] = [
   [-80.145541, 26.645352],
 ];
 
-/** R4 — John Prince Park → west on Lake Worth Rd, then north on Jog Rd. */
-const R4_PLANNED: Coord[] = [
-  [-80.080532, 26.602482],
-  [-80.09, 26.6168],
-  [-80.11, 26.617],
-  [-80.13, 26.6171],
-  [-80.1457, 26.6172],
-  [-80.14566, 26.624],
-  [-80.14562, 26.632],
-  [-80.14558, 26.639],
-  [-80.145541, 26.645352],
-];
-
 export const DEMO_ROUTES: MapRouteFixture[] = [
   { id: "R1", vehicleId: "V1", planned: R1_PLANNED, drivenCount: 6, sourceMode: "SIMULATED" },
   { id: "R2", vehicleId: "V3", planned: R2_PLANNED, drivenCount: 5, sourceMode: "SIMULATED" },
   { id: "R3", vehicleId: "V2", planned: R3_PLANNED, drivenCount: 5, sourceMode: "SIMULATED" },
-  { id: "R4", vehicleId: "V4", planned: R4_PLANNED, drivenCount: 3, sourceMode: "SIMULATED" },
 ];
 
 /**
- * V1–V4 (MOCKS §2), each parked on the last driven point of its route. The GPS ages
- * walk the four §3 freshness bands so the map shows all three truck tones at once.
+ * The centre's three vans (Firia's 8:02 PM ET seed ruling — there is no fourth vehicle), each
+ * parked on the last driven point of its route. The GPS ages walk the §3 freshness bands so the
+ * map shows all three truck tones at once.
+ *
+ * `description` is the kind of vehicle, and all three are the same kind: one generic van
+ * (Vera/Athena, 2026-10-18 12:13 AM ET). The row a reader sees is "Van 2 · Dee R." — the name
+ * from the shared van config and the driver from the day — so neither this word nor the `V2`
+ * key reaches a screen (src/components/map/FleetMap.tsx).
  */
 export const DEMO_VEHICLES: MapVehicleFixture[] = [
   {
     id: "V1",
-    description: "Convertible van",
+    description: "Van",
     owner: "Provider P1",
     stateLabel: "On the way to pickup",
     coord: R1_PLANNED[5],
@@ -182,35 +174,26 @@ export const DEMO_VEHICLES: MapVehicleFixture[] = [
   },
   {
     id: "V2",
-    description: "Center van",
+    description: "Van",
     owner: "Center",
     stateLabel: "In transit",
     coord: R3_PLANNED[4],
     headingDeg: 178,
-    gpsAgeSeconds: 95,
+    // Stale: the §8 bands are walked across the three vans now that there is no fourth.
+    gpsAgeSeconds: 245,
     routeId: "R3",
     sourceMode: "SIMULATED",
   },
   {
     id: "V3",
-    description: "Substitute van",
+    description: "Van",
     owner: "Provider P1",
     stateLabel: "In transit",
     coord: R2_PLANNED[4],
     headingDeg: 1,
-    gpsAgeSeconds: 245,
-    routeId: "R2",
-    sourceMode: "SIMULATED",
-  },
-  {
-    id: "V4",
-    description: "Sedan",
-    owner: "Provider P2",
-    stateLabel: "On the way to pickup",
-    coord: R4_PLANNED[2],
-    headingDeg: 272,
+    // Lost: the tone the removed fourth van used to carry, so the map still shows all three.
     gpsAgeSeconds: 720,
-    routeId: "R4",
+    routeId: "R2",
     sourceMode: "SIMULATED",
   },
 ];

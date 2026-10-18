@@ -46,7 +46,6 @@ export const DRIVERS: Readonly<Record<string, string>> = {
   V1: "Marco D.",
   V2: "Nadia P.",
   V3: "Omar T.",
-  V4: "Bea L.",
 };
 
 /**

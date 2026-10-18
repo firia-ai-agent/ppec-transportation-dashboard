@@ -189,7 +189,14 @@ export const API = {
   cronSweep: "/api/cron/sweep",
   probeDelay: "/api/probe/delay",
   demoReset: "/api/demo/reset",
+  /** The plan board: the day it reads, the plan it saves, and one van's setup. */
+  planBoard: "/api/plan",
   planSave: "/api/plan/save",
+  /** One child moved: a drag, a drop on Absent or Family drives, or `Move to…`. */
+  planPlace: "/api/plan/place",
+  /** The three Yes/No answers on the board's child panel. */
+  childNeeds: "/api/children/[token]/needs",
+  vanSetup: "/api/vans/[id]/setup",
   queueTimer: "/api/queues/timer",
   queueOutbox: "/api/queues/outbox",
   queueAgent: "/api/queues/agent",
@@ -621,19 +628,86 @@ export const ENDPOINTS: readonly EndpointRow[] = [
    * director, and the front desk's surface is the ramp iPad. A role that cannot open the screen
    * cannot save from it either, and the row is the same set for both so the two cannot drift.
    *
-   * Not site-scoped, because it takes no site id and no object id of ours: the body describes one
-   * run of the synthetic demo day, and every child and van id in it is checked against that day
-   * (src/domain/plan/stages.ts `readPlanDay`, src/domain/plan/save.ts `checkPlan`), with one
-   * uniform refusal for anything it does not have. It keeps nothing in the database — the demo's
-   * plan lives in the demo's own state (src/modules/demo/plan-store.ts) — so there is no row for
-   * a site id to scope.
+   * Not site-scoped, because it takes no site id: the site is the caller's own membership, the
+   * way the demo reset resolves one when the request does not name it. Every child and van id in
+   * the body is still checked against the day (src/domain/plan/board.ts `namesOnlyThisDay` and
+   * `checkPlan`), with one uniform refusal for anything it does not have — and what it keeps is
+   * `ops.plan_run` / `ops.plan_assignment`, which carry that site id on every row.
    */
   {
     kind: "route",
     file: "src/app/api/plan/save/route.ts",
     path: API.planSave,
-    methods: ["GET", "POST"],
+    methods: ["POST"],
     auth: { kind: "session", roles: CONSOLE, siteScoped: false },
+  },
+  /**
+   * The board itself (redesign spec §1.6): the vans and the setups they are planned against, the
+   * riders of the leg, the saved plan and its version. The two console roles, exactly as the page
+   * — a role that cannot open Plan routes cannot read its day either.
+   *
+   * Not site-scoped: it takes no site id. The site is the caller's own membership, the same way
+   * the demo reset resolves it when the request does not name one.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/plan/route.ts",
+    path: API.planBoard,
+    methods: ["GET"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: false },
+  },
+  /**
+   * One child's place on one leg: a drag between vans, a drop on Absent or on Family drives, or
+   * the `Move to…` control (founder 2026-10-17 7:17 PM ET).
+   *
+   * The two console roles, the same set the screen is open to — and the same set `/api/plan/save`
+   * has, because they are two halves of one job. The front desk reads the board on Today and may
+   * not move anybody on it, which is a courtesy on screen (no drag handles) and a 403 here.
+   *
+   * Not site-scoped: it takes no site id. The site is the caller's own membership.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/plan/place/route.ts",
+    path: API.planPlace,
+    methods: ["POST"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: false },
+  },
+  /**
+   * One child's three need answers, from the board's child panel: wheelchair, car seat, oxygen.
+   *
+   * The two console roles. A need is what the day is planned against, so this is the same
+   * decision as moving a child and is held to the same set; the front desk sees the panel's
+   * values and has no Save (§2's division of labour: they count vans, coordinators plan).
+   *
+   * Not site-scoped in the row's sense — the child token in the path is checked against the
+   * caller's own site inside (`setChildNeedsRequest`), and a child of another site answers the
+   * same uniform 404 as a token that does not exist.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/children/[token]/needs/route.ts",
+    path: API.childNeeds,
+    methods: ["POST"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: false },
+  },
+  /**
+   * One van's setup for one day — the counters the front desk sets at arrival and a coordinator
+   * can plan with (§1.6, §2).
+   *
+   * **All three roles**, which is the one endpoint on this screen that is wider than the console:
+   * counting what is on a van is the front desk's own job (PRD §6.2, ARCHITECTURE §1), and it is
+   * the whole of §2's Confirm. What a role may *write* differs and the route enforces it: the
+   * front desk may only confirm what arrived (`CHECKED`), never plan a van they are not looking
+   * at. §1.6 writes this as a `PUT`; it is a POST here, like every other write in this app, so
+   * the shared guard and the one `methods` vocabulary stay as they are.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/vans/[id]/setup/route.ts",
+    path: API.vanSetup,
+    methods: ["POST"],
+    auth: { kind: "session", roles: ALL_STAFF, siteScoped: false },
   },
   /**
    * Queue trigger for topic ppec-timer (vercel.json). Invoked by the platform's queue with its

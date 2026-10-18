@@ -24,19 +24,38 @@ import { ROUTE_1, ROUTE_2, ROUTE_3 } from "./routes";
 export const SCENARIO_START_MS = Date.UTC(2026, 9, 14, 11, 30, 0);
 
 /**
- * The reserve van's road: route2's geometry — R1's morning — under V3's own device.
+ * The road a device drives when it is linked to no van at all (LOC-01).
  *
- * V3 is on no run in the scenario (`RUNS` in src/modules/demo/fixtures/standard.ts): it is the
- * substitute the day holds back, and R1 is the run it is held back *for* — the §7 step 6 ramp
- * report of {1WC, 1AMB} is V3's own layout, and ARCHITECTURE §'s substitution writes V3's
- * capability for the date. So the one road a V3 replay can drive without contradicting a run is
- * the run it would take over, and the jitter fault rides on it.
+ * The centre runs three vans and holds none of them back (Firia's 8:02 PM ET seed ruling), so
+ * there is no reserve for a fourth run to belong to. What there still is — and what LOC-01 is
+ * about — is a device sending points that no van owns: ingested, stored `bound=false`, drawn
+ * nowhere. It is R3's own road under a device that is linked to nothing, so the geometry is a
+ * committed one and the thing being demonstrated is the *link*, not the route.
  *
- * A fourth *route* rather than a fourth run: the geometry is route2's, so the two cannot drift.
+ * `vehicleId` is deliberately not one of the fleet's three: a van that owned these points would
+ * be a van with two devices, which is the one thing ADR-013 says cannot happen.
  */
-export const SUBSTITUTE_ROUTE: Route = {
+export const UNLINKED_VEHICLE = "UNLINKED";
+
+export const UNBOUND_ROUTE: Route = {
+  ...ROUTE_1,
+  id: "route1-unbound",
+  vehicleId: UNLINKED_VEHICLE,
+  deviceId: "DEV-UNLINKED",
+};
+
+/**
+ * Van 3's road in the replay set: route2's geometry — R1's morning — under Van 3's own device.
+ *
+ * A fourth *route* rather than a fourth run, so the geometry cannot drift from the committed
+ * one, and route2's is the road the AT-03 jitter check was measured on (its stop spacing is what
+ * makes "the marker moves and the ETA text does not" a real claim). Van 3 is a van like the
+ * other two now — there is no reserve and no substitute (Firia's 8:02 PM ET seed ruling) — so
+ * what this fixture is, is the third truck on the live map.
+ */
+export const VAN3_ROUTE: Route = {
   ...ROUTE_2,
-  id: "route2-substitute",
+  id: "route2-van3",
   vehicleId: "V3",
   deviceId: "DEV-V3",
 };
@@ -69,7 +88,7 @@ export const RUN_GPS_GAP: ReplaySpec = {
 
 /** AT-03's other half: ±40 m of jitter must move the marker and not the ETA text. */
 export const RUN_JITTER: ReplaySpec = {
-  route: SUBSTITUTE_ROUTE,
+  route: VAN3_ROUTE,
   startAtMs: SCENARIO_START_MS,
   seed: 42,
   faults: [{ kind: "jitter", atSimSeconds: 0, meters: 40 }],
@@ -78,13 +97,13 @@ export const RUN_JITTER: ReplaySpec = {
 /**
  * LOC-01: an unbound device. Ingested, stored `bound=false`, displayed nowhere.
  *
- * V4's own device on V4's own run (route1 is R3's morning), because that is what the board is
- * reading when it says this van has no position: not a van that is somewhere else, a van whose
- * device is not linked to it (ADR-013). The live map proves it by counting the points in words
- * instead of drawing a truck.
+ * A device nobody linked, on R3's road (`UNBOUND_ROUTE` above), because that is what the board
+ * is reading when it says a van has no position: not a van that is somewhere else, points whose
+ * device is not linked to a van (ADR-013). The live map proves it by counting the points in
+ * words instead of drawing a truck.
  */
 export const RUN_UNBOUND: ReplaySpec = {
-  route: ROUTE_1,
+  route: UNBOUND_ROUTE,
   startAtMs: SCENARIO_START_MS,
   seed: 99,
   faults: [{ kind: "unboundDevice" }],

@@ -1,3 +1,4 @@
+import { NEED_CATEGORY } from "@/config/equipment";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { Db } from "@/db/exec";
@@ -5,8 +6,9 @@ import { freshDb, SITE } from "@/test/pglite";
 import { PRESERVED_TABLES, RESET_TABLES, SEEDED_TABLES, seedStandardScenario, type SeedResult } from "./seed";
 import {
   ALLOWED_COORDS, BOARD_CENSUS, CHILDREN, DATE_EXCEPTION, EXTERNAL_PEOPLE, FAMILIES, RUNS, STOPS, VEHICLES,
-  WEEKDAY_RRULE,
+  WEEKDAY_RRULE, vehicleIdOf,
 } from "./fixtures/standard";
+import { VANS } from "@/config/vans";
 
 const env = { APP_DATA_CLASS: "SYNTHETIC", DEMO_MODE: "1", HMAC_PEPPER: "test-pepper", DATA_KEY: "test-data-key" };
 // A Tuesday 13:45 local, so "today" is a weekday and the 06:00 rewind is a real rewind.
@@ -29,32 +31,35 @@ afterAll(async () => { await pg.close(); });
 describe("standard scenario seed (PRD §18.1)", () => {
   it("writes the expected number of rows in every table it touches", () => {
     expect(r.counts).toEqual({
-      "ops.family_group": 27,
-      "ops.child_profile": 28,
-      "ops.contact_authorization": 82,
+      "ops.family_group": 11,
+      "ops.child_profile": 12,
+      "ops.contact_authorization": 50,
       "ops.stop_location": 11,
-      "ops.transport_profile": 28,
+      "ops.transport_profile": 12,
       "ops.transport_need_item": 13,
       "ops.therapist": 2,
       "ops.therapy_session": 2,
       "ops.provider": 3,
-      "ops.vehicle": 4,
+      // Three vans, all of one generic kind (Firia 8:02 PM seed ruling): V1's three layouts,
+      // V2's one and V3's two, which is 6 + 5 + 4 + 6 + 4 = 28 positions between them.
+      "ops.vehicle": 3,
       "ops.vehicle_layout": 6,
-      "ops.layout_position": 23,
-      "ops.vehicle_capability_day": 4,
-      "ops.attendance_plan": 28,
+      "ops.layout_position": 28,
+      "ops.vehicle_capability_day": 3,
+      // One CHECKED setup per van on the board, dated yesterday (the §9 reset contract).
+      "ops.attendance_plan": 12,
       "ops.attendance_exception": 1,
-      "ops.attendance_day": 28,
+      "ops.attendance_day": 12,
       "ops.manifest": 6,
-      "ops.trip_leg": 56,
+      "ops.trip_leg": 24,
       "ops.manifest_reservation": 18,
       "ops.scenario_clock": 1,
       "ops.event_log": 1,
       "ops.audit_event": 1,
-      "identity.child_identity": 28,
-      "identity.guardian_contact": 27,
+      "identity.child_identity": 12,
+      "identity.guardian_contact": 11,
       "identity.external_person_identity": 4,
-      "identity.consent_event": 27,
+      "identity.consent_event": 11,
     });
   });
 
@@ -66,7 +71,7 @@ describe("standard scenario seed (PRD §18.1)", () => {
     expect(again.serviceDate).toBe(r.serviceDate);
   }, 120_000);
 
-  it("pads the board to 28 rows: one attendance row per child today", async () => {
+  it("has one attendance row per child today, for the whole twelve-child roster", async () => {
     expect(r.boardRows).toBe(BOARD_CENSUS);
     expect(CHILDREN.length).toBe(BOARD_CENSUS);
     const n = await one<{ n: number }>(
@@ -102,10 +107,18 @@ describe("standard scenario seed (PRD §18.1)", () => {
   it("gives every child an AM and a PM leg today; assigned legs are provisional, the pad is scheduled", async () => {
     const byDir = await rows<{ direction: string; n: number }>(
       "SELECT direction, count(*)::int n FROM ops.trip_leg WHERE service_date=$1 GROUP BY direction ORDER BY direction", [r.serviceDate]);
-    expect(byDir).toEqual([{ direction: "AM", n: 28 }, { direction: "PM", n: 28 }]);
+    expect(byDir).toEqual([
+      { direction: "AM", n: BOARD_CENSUS },
+      { direction: "PM", n: BOARD_CENSUS },
+    ]);
     const byState = await rows<{ state: string; n: number }>(
       "SELECT state::text state, count(*)::int n FROM ops.trip_leg GROUP BY state ORDER BY 1");
-    expect(byState).toEqual([{ state: "PROVISIONAL_ASSIGNED", n: 18 }, { state: "SCHEDULED", n: 38 }]);
+    // 18 legs are on a run (three vans × three children × two legs); the rest — the children
+    // whose family drives them — are scheduled and unassigned.
+    expect(byState).toEqual([
+      { state: "PROVISIONAL_ASSIGNED", n: 18 },
+      { state: "SCHEDULED", n: BOARD_CENSUS * 2 - 18 },
+    ]);
     // Every assigned leg holds exactly one reservation, on a position of the right kind.
     const mismatched = await one<{ n: number }>(`
       SELECT count(*)::int n FROM ops.manifest_reservation mr
@@ -128,7 +141,7 @@ describe("standard scenario seed (PRD §18.1)", () => {
     expect(needs).toEqual([
       { category: "EQUIPMENT_DIMENSIONS", state: "APPROVED" },
       { category: "LIFT_OR_RAMP", state: "APPROVED" },
-      { category: "WHEELCHAIR_SECUREMENT", state: "APPROVED" },
+      { category: NEED_CATEGORY.wheelchair, state: "APPROVED" },
     ]);
     const seat = await rows<{ lift_equipped: boolean; lift_required: boolean; securement: string; max_length_cm: number; max_width_cm: number }>(`
       SELECT v.lift_equipped, vl.lift_required, pos.securement, pos.max_length_cm, pos.max_width_cm
@@ -168,16 +181,22 @@ describe("standard scenario seed (PRD §18.1)", () => {
       .toEqual({ n: FAMILIES.length });
   });
 
-  it("carries exactly one reported-but-unapproved need item", async () => {
+  /**
+   * **Every need item is APPROVED** (Firia, 2026-10-17 8:02 PM ET).
+   *
+   * The seed used to carry one `REPORTED` item — Zoe B.'s portable suction — so VEH-01's
+   * "a need nobody approved changes nothing" could be seen on screen. The fresh seed holds only
+   * what the six goals need, and a need the day does not plan against is not one of them. The
+   * *rule* is unchanged and still tested where it lives (src/domain/plan/needs.ts takes approved
+   * categories only, and the planner never sees another kind).
+   */
+  it("carries no unapproved need item: every one of them is APPROVED", async () => {
     const unapproved = await rows<{ display_name: string; category: string; state: string }>(`
       SELECT cp.display_name, ni.category, ni.state FROM ops.transport_need_item ni
       JOIN ops.transport_profile tp ON tp.id = ni.profile_id
       JOIN ops.child_profile cp ON cp.child_token = tp.child_token
       WHERE ni.state <> 'APPROVED'`);
-    expect(unapproved).toEqual([{ display_name: "Zoe B.", category: "MEDICAL_DEVICE_POWER", state: "REPORTED" }]);
-    // The unapproved item has no evidence reference yet, and nothing else is pending.
-    const pending = await one<{ n: number }>("SELECT count(*)::int n FROM ops.transport_need_item WHERE state IN ('UNKNOWN','VERIFIED')");
-    expect(pending.n).toBe(0);
+    expect(unapproved).toEqual([]);
   });
 
   it("F2 has no authorized receiving adult (AT-13) while still getting transport updates", async () => {
@@ -205,7 +224,7 @@ describe("standard scenario seed (PRD §18.1)", () => {
 
   it("schedules Mon–Fri plans with exactly one date exception", async () => {
     const plans = await rows<{ rrule: string; n: number }>("SELECT rrule, count(*)::int n FROM ops.attendance_plan GROUP BY rrule");
-    expect(plans).toEqual([{ rrule: WEEKDAY_RRULE, n: 28 }]);
+    expect(plans).toEqual([{ rrule: WEEKDAY_RRULE, n: BOARD_CENSUS }]);
     const exc = await one<{ display_name: string; service_date: string; scope: string }>(`
       SELECT cp.display_name, ae.service_date::text, ae.scope FROM ops.attendance_exception ae
       JOIN ops.child_profile cp ON cp.child_token = ae.child_token`);
@@ -267,19 +286,71 @@ describe("standard scenario seed (PRD §18.1)", () => {
       FROM ops.vehicle v JOIN ops.vehicle_layout vl ON vl.vehicle_id = v.id
       JOIN ops.layout_position pos ON pos.layout_id = vl.id
       GROUP BY v.label, vl.code, v.lift_equipped ORDER BY v.label, vl.code`);
+    /*
+     * Three vans, and every one of them the same generic kind — lift-equipped, with an
+     * all-ambulatory layout and a wheelchair layout (Firia's 8:02 PM ET seed ruling;
+     * Vera/Athena/Veri with Firia's sign-off, 2026-10-18 12:13 AM ET). There is no sedan, no
+     * reserve and no fourth vehicle: a van that cannot take a chair today is a van whose spot
+     * is already used, which is a count the ramp can change.
+     */
     expect(v).toEqual([
-      { label: "V1 convertible van", code: "0WC/6A", wc: 0, amb: 6, lift_equipped: true },
-      { label: "V1 convertible van", code: "1WC/3A", wc: 1, amb: 3, lift_equipped: true },
-      { label: "V1 convertible van", code: "2WC/1A", wc: 2, amb: 1, lift_equipped: true },
-      { label: "V2 center van", code: "1WC/4A", wc: 1, amb: 4, lift_equipped: true },
-      { label: "V3 substitute van", code: "1WC/1A", wc: 1, amb: 1, lift_equipped: true },
-      { label: "V4 sedan", code: "0WC/3A", wc: 0, amb: 3, lift_equipped: false },
+      { label: "Van 1", code: "0WC/6A", wc: 0, amb: 6, lift_equipped: true },
+      { label: "Van 1", code: "1WC/3A", wc: 1, amb: 3, lift_equipped: true },
+      { label: "Van 1", code: "2WC/1A", wc: 2, amb: 1, lift_equipped: true },
+      { label: "Van 2", code: "1WC/4A", wc: 1, amb: 4, lift_equipped: true },
+      { label: "Van 3", code: "0WC/6A", wc: 0, amb: 6, lift_equipped: true },
+      { label: "Van 3", code: "1WC/3A", wc: 1, amb: 3, lift_equipped: true },
     ]);
     // Capability is unknown until arrival, every day (MOCKS §2).
     const cap = await rows<{ state: string; n: number }>("SELECT state, count(*)::int n FROM ops.vehicle_capability_day GROUP BY state");
     expect(cap).toEqual([{ state: "UNKNOWN", n: VEHICLES.length }]);
-    // V3 is the reserve vehicle: no run of its own (AT-05 substitution).
-    expect(RUNS.some((run) => run.vehicleKey === "V3")).toBe(false);
+  });
+
+  /**
+   * EXACTLY THREE VEHICLES, and they are all the same van — "Firia 8:02 PM seed ruling", with
+   * Vera/Athena/Veri's 12:13 AM ET addition that Van 3 is not a weaker vehicle.
+   */
+  it("seeds exactly three vehicles, all of one generic type, each with a run", async () => {
+    const seeded = await rows<{ label: string; lift_equipped: boolean }>(
+      "SELECT label, lift_equipped FROM ops.vehicle ORDER BY label",
+    );
+    expect(seeded).toEqual([
+      { label: "Van 1", lift_equipped: true },
+      { label: "Van 2", lift_equipped: true },
+      { label: "Van 3", lift_equipped: true },
+    ]);
+    // Slot N is vehicle V<N>, and every one of them is on the road with a run of its own.
+    expect(VANS.map((van) => van.vehicleKey)).toEqual(["V1", "V2", "V3"]);
+    expect(VANS.every((van) => van.onRoadToday)).toBe(true);
+    expect([...RUNS].map((run) => run.vehicleKey).sort()).toEqual(["V1", "V2", "V3"]);
+    // One generic van: the same counts for all three, so no van is weaker by construction.
+    expect(VANS.map((van) => van.defaultSetup)).toEqual([
+      VANS[0].defaultSetup,
+      VANS[0].defaultSetup,
+      VANS[0].defaultSetup,
+    ]);
+    expect(VANS[0].defaultSetup.hasLift).toBe(true);
+    // And nothing in the fixture is a fourth vehicle or a kind of vehicle.
+    expect(VEHICLES).toHaveLength(3);
+    expect(JSON.stringify(VEHICLES)).not.toMatch(/sedan|convertible|cent(?:er|re) van|substitute/i);
+  });
+
+  /**
+   * The reset contract as re-cut on 2026-10-17 6:00 PM ET (Firia/Veri): a fresh day has **no**
+   * van setup at all, for today or for any earlier day, and no saved plan.
+   *
+   * There is no carry-over in the product, so there is none in the seed either: every van is
+   * planned on its shared-config defaults and every column says "Using default setup" until the
+   * front desk confirms it at the ramp, and the live map stays locked until a plan is saved.
+   */
+  it("starts the day with no van setup and no plan, for any date", async () => {
+    const setups = await rows<{ n: number }>("SELECT count(*)::int AS n FROM ops.vehicle_setup_day");
+    expect(setups).toEqual([{ n: 0 }]);
+    const counts = await one<{ setups_today: number; runs: number; assignments: number }>(`
+      SELECT (SELECT count(*)::int FROM ops.vehicle_setup_day WHERE service_date = $1::date) AS setups_today,
+             (SELECT count(*)::int FROM ops.plan_run) AS runs,
+             (SELECT count(*)::int FROM ops.plan_assignment) AS assignments`, [r.serviceDate]);
+    expect(counts).toEqual({ setups_today: 0, runs: 0, assignments: 0 });
   });
 
   it("keeps permanent test opt-outs and clears everything else a reset owns", async () => {
@@ -301,11 +372,14 @@ describe("standard scenario seed (PRD §18.1)", () => {
 
     const after = await seedStandardScenario(db, { now: NOW, siteId: SITE, env });
     // Identical everywhere except the consent ledger, which keeps the one permanent opt-out on top of the 27 OPT_INs.
-    expect(after.counts).toEqual({ ...r.counts, "identity.consent_event": 28 });
+    expect(after.counts).toEqual({ ...r.counts, "identity.consent_event": BOARD_CENSUS });
     const supp = await rows<{ scope: string; permanent_test: boolean }>("SELECT scope, permanent_test FROM ops.suppression");
     expect(supp).toEqual([{ scope: "ALL", permanent_test: true }]);
     const consent = await rows<{ kind: string; n: number }>("SELECT kind, count(*)::int n FROM identity.consent_event GROUP BY kind ORDER BY kind");
-    expect(consent).toEqual([{ kind: "OPT_IN", n: 27 }, { kind: "PERMANENT_TEST_OPT_OUT", n: 1 }]);
+    expect(consent).toEqual([
+      { kind: "OPT_IN", n: BOARD_CENSUS - 1 },
+      { kind: "PERMANENT_TEST_OPT_OUT", n: 1 },
+    ]);
     expect(await one<{ n: number }>("SELECT count(*)::int n FROM ops.job")).toEqual({ n: 0 });
   }, 120_000);
 
@@ -323,6 +397,6 @@ describe("standard scenario seed (PRD §18.1)", () => {
   it("refuses an unknown site and leaves the data alone", async () => {
     await expect(seedStandardScenario(db, { now: NOW, siteId: "01900000-0000-7000-8000-00000000dead", env }))
       .rejects.toThrow(/unknown site/);
-    expect(await one<{ n: number }>("SELECT count(*)::int n FROM ops.child_profile")).toEqual({ n: 28 });
+    expect(await one<{ n: number }>("SELECT count(*)::int n FROM ops.child_profile")).toEqual({ n: BOARD_CENSUS });
   });
 });

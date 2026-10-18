@@ -51,8 +51,14 @@ describe("the store", () => {
     expect(DEMO_RUN_SECONDS).toBeGreaterThan(0);
     demoClock.restart();
     const html = render("DIRECTOR");
-    // The readout is the scenario's own start, formatted by the one clock formatter.
-    expect(html).toMatch(/Scenario clock/);
+    /*
+     * The readout is the scenario's own start, formatted by the one clock formatter — and it is
+     * the TIME alone, which is what png/live-map-390.png and png/live-map.png draw in the bar
+     * ("3:24 PM"). The words that used to precede it are the element's accessible name now, so
+     * both are asserted: a founder reads four characters, a screen reader hears what they are.
+     */
+    expect(html).toMatch(/>\s*\d{1,2}:\d{2}\s(AM|PM)\s*</);
+    expect(html).toMatch(/aria-label="Scenario clock"/);
   });
 });
 
@@ -79,14 +85,17 @@ describe("the readout is for everyone; the controls are a demo control (§6.2)",
       const expected = canSeeMapData(role, "clockControls");
       expect(html.includes(liveMap.pause), role).toBe(expected);
       expect(html.includes(liveMap.restart), role).toBe(expected);
-      // The time itself is drawn either way: it is a readout, not a control.
-      expect(html, role).toMatch(/Scenario clock/);
+      // The time itself is drawn either way: it is a readout, not a control. 12-hour, alone in
+      // its element (png/live-map-390.png), with the words only in its accessible name.
+      expect(html, role).toMatch(/>\s*\d{1,2}:\d{2}\s(AM|PM)\s*</);
+      expect(html, role).toMatch(/aria-label="Scenario clock"/);
     }
   });
 
   it("gives them to nobody when there is no role at all", () => {
     const html = render(null);
     expect(html).not.toContain(liveMap.pause);
-    expect(html).toMatch(/Scenario clock/);
+    expect(html).toMatch(/>\s*\d{1,2}:\d{2}\s(AM|PM)\s*</);
+    expect(html).toMatch(/aria-label="Scenario clock"/);
   });
 });

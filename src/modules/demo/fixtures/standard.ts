@@ -14,16 +14,29 @@
 
 /* ───────────────────────────── ids ───────────────────────────── */
 
+import { NEED_CATEGORY } from "@/config/equipment";
+
 /** Deterministic, UUIDv7-shaped fixture id. `kind` namespaces the entity, `n` numbers it within the kind. */
 export const demoId = (kind: number, n: number): string =>
   `01900000-0000-7000-8000-${kind.toString(16).padStart(4, "0")}${n.toString(16).padStart(8, "0")}`;
+
+/**
+ * The demo centre every screen's data belongs to — `ops.site` row `…00000000000a`, which
+ * src/auth/seed.ts creates as site A.
+ *
+ * It lives here, in the pure fixture module, because a surface that needs it must not have to
+ * import the *seed* to get it: the seed truncates data, and src/modules/demo/build-isolation.test.ts
+ * holds the line that only the two deliberate entry points may reach it. The seed reads the same
+ * constant from here, so there is one id and not two.
+ */
+export const DEMO_SITE_ID = "01900000-0000-7000-8000-00000000000a";
 
 /** Id namespaces. 0x0000 is reserved: src/auth/seed.ts uses it for the org, sites and staff users. */
 export const KIND = {
   family: 0x10, child: 0x11, contact: 0x12, consent: 0x13, auth: 0x14, stop: 0x15, profile: 0x16,
   need: 0x17, person: 0x18, therapist: 0x19, session: 0x1a, provider: 0x1b, vehicle: 0x1c,
   layout: 0x1d, position: 0x1e, capability: 0x1f, plan: 0x20, exception: 0x21, attendanceDay: 0x22,
-  manifest: 0x23, leg: 0x24, reservation: 0x25,
+  manifest: 0x23, leg: 0x24, reservation: 0x25, setupDay: 0x26,
 } as const;
 
 /* ───────────────────────────── types ───────────────────────────── */
@@ -36,10 +49,19 @@ export type AuthScope =
   | "RECEIVE_TRANSPORT_UPDATES" | "CANCEL_LEG" | "CHANGE_PICKUP_INSTRUCTIONS"
   | "CONFIRM_AVAILABILITY_TO_RECEIVE" | "RECEIVE_ATTENDANCE_UPDATES" | "ACCESS_SENSITIVE_INFO" | "RECEIVE_CHILD";
 
-/** PRD §9 approved-need categories (l.880), pending CA-05. */
+/**
+ * PRD §9 approved-need categories (l.880), pending CA-05.
+ *
+ * The five the product actually reads and writes come from the shared list
+ * (src/config/equipment.ts `NEED_CATEGORY`) rather than being spelled a second time here: a
+ * fixture that spells a category in its own words is a fixture that can drift from the panel, the
+ * write path and the planner, which is the gate Veri set on 2026-10-17 at 7:27 PM ET. The rest
+ * are the deferred ones — written by the seed, read by nothing (conflicts C3 and C7).
+ */
 export const NEED_CATEGORIES = [
-  "WHEELCHAIR_SECUREMENT", "LIFT_OR_RAMP", "CAR_SEAT_OR_BOOSTER", "HARNESS_OR_VEST", "ATTENDANT_ESCORT",
-  "SEATING_SEPARATION", "MAX_RIDE_TIME", "EQUIPMENT_DIMENSIONS", "MEDICAL_DEVICE_POWER",
+  NEED_CATEGORY.wheelchair, "LIFT_OR_RAMP", NEED_CATEGORY.carSeat, NEED_CATEGORY.harness,
+  NEED_CATEGORY.nurse, "SEATING_SEPARATION", "MAX_RIDE_TIME", "EQUIPMENT_DIMENSIONS",
+  "MEDICAL_DEVICE_POWER", NEED_CATEGORY.oxygen,
 ] as const;
 export type NeedCategory = (typeof NEED_CATEGORIES)[number];
 
@@ -145,7 +167,7 @@ const SCENARIO_CHILDREN: Child[] = [
   {
     key: "C1", familyKey: "F1", firstName: "Mia", lastInitial: "R", label: "Mia R.", dob: "2022-03-14",
     stopKey: "S1", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:10", pmWindow: "15:55",
-    needs: [{ category: "CAR_SEAT_OR_BOOSTER", value: { type: "FORWARD_FACING_CAR_SEAT" }, state: "APPROVED", evidenceRef: "intake/C1" }],
+    needs: [{ category: NEED_CATEGORY.carSeat, value: { type: "FORWARD_FACING_CAR_SEAT" }, state: "APPROVED", evidenceRef: "intake/C1" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
@@ -153,7 +175,7 @@ const SCENARIO_CHILDREN: Child[] = [
     stopKey: "S2", mobility: "WC", wcLengthCm: 108, wcWidthCm: 64, securement: "L_TRACK", tether: false,
     amMode: "CENTER", pmMode: "CENTER", amWindow: "06:50", pmWindow: "16:20",
     needs: [
-      { category: "WHEELCHAIR_SECUREMENT", value: { securement: "L_TRACK", position: "FIXED" }, state: "APPROVED", evidenceRef: "intake/C2" },
+      { category: NEED_CATEGORY.wheelchair, value: { securement: "L_TRACK", position: "FIXED" }, state: "APPROVED", evidenceRef: "intake/C2" },
       { category: "LIFT_OR_RAMP", value: { required: "LIFT" }, state: "APPROVED", evidenceRef: "intake/C2" },
       { category: "EQUIPMENT_DIMENSIONS", value: { lengthCm: 108, widthCm: 64 }, state: "APPROVED", evidenceRef: "intake/C2" },
     ],
@@ -168,13 +190,13 @@ const SCENARIO_CHILDREN: Child[] = [
   {
     key: "C4", familyKey: "F4", firstName: "Ava", lastInitial: "N", label: "Ava N.", dob: "2020-11-19",
     stopKey: "S4", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:25", pmWindow: "15:40",
-    needs: [{ category: "CAR_SEAT_OR_BOOSTER", value: { type: "BOOSTER" }, state: "APPROVED", evidenceRef: "intake/C4" }],
+    needs: [{ category: NEED_CATEGORY.carSeat, value: { type: "BOOSTER" }, state: "APPROVED", evidenceRef: "intake/C4" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
     key: "C5", familyKey: "F4", firstName: "Eli", lastInitial: "N", label: "Eli N.", dob: "2022-06-08",
     stopKey: "S4", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:25", pmWindow: "15:40",
-    needs: [{ category: "CAR_SEAT_OR_BOOSTER", value: { type: "REAR_FACING_CAR_SEAT" }, state: "APPROVED", evidenceRef: "intake/C5" }],
+    needs: [{ category: NEED_CATEGORY.carSeat, value: { type: "REAR_FACING_CAR_SEAT" }, state: "APPROVED", evidenceRef: "intake/C5" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
@@ -182,20 +204,21 @@ const SCENARIO_CHILDREN: Child[] = [
     stopKey: "S5", mobility: "WC", wcLengthCm: 128, wcWidthCm: 70, securement: "FOUR_POINT_STRAP", tether: true,
     escortRequired: true, amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "06:45", pmWindow: "16:15",
     needs: [
-      { category: "WHEELCHAIR_SECUREMENT", value: { securement: "FOUR_POINT_STRAP", position: "TILT_IN_SPACE" }, state: "APPROVED", evidenceRef: "intake/C6" },
+      { category: NEED_CATEGORY.wheelchair, value: { securement: "FOUR_POINT_STRAP", position: "TILT_IN_SPACE" }, state: "APPROVED", evidenceRef: "intake/C6" },
       { category: "LIFT_OR_RAMP", value: { required: "LIFT" }, state: "APPROVED", evidenceRef: "intake/C6" },
-      { category: "ATTENDANT_ESCORT", value: { escort: "NURSE" }, state: "APPROVED", evidenceRef: "intake/C6" },
+      { category: NEED_CATEGORY.nurse, value: { escort: "NURSE" }, state: "APPROVED", evidenceRef: "intake/C6" },
       { category: "EQUIPMENT_DIMENSIONS", value: { lengthCm: 128, widthCm: 70 }, state: "APPROVED", evidenceRef: "intake/C6" },
-      // The one reported-but-unapproved item (PRD l.1329 "needs with statuses incl. one unapproved reported item").
-      // Fulfillment counts approved needs only (DECISION-LEDGER row 1), so this must not change today's plan.
-      { category: "MEDICAL_DEVICE_POWER", value: { device: "PORTABLE_SUCTION", note: "awaiting operational-need approval" }, state: "REPORTED" },
+      // Oxygen, approved (founder 2026-10-17 7:17 PM ET). It was `MEDICAL_DEVICE_POWER` and
+      // `REPORTED`, which meant the day's one oxygen rider was planned against nothing and every
+      // van's Oxygen meter read 0 of what it carries. The category comes from the shared list.
+      { category: NEED_CATEGORY.oxygen, value: { device: "PORTABLE_CONCENTRATOR" }, state: "APPROVED", evidenceRef: "intake/C6" },
     ],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
     key: "C7", familyKey: "F6", firstName: "Owen", lastInitial: "C", label: "Owen C.", dob: "2021-12-05",
     stopKey: "S6", mobility: "AMB", amMode: "PROVIDER", pmMode: "PROVIDER", amWindow: "07:00", pmWindow: "16:00",
-    needs: [{ category: "HARNESS_OR_VEST", value: { type: "VEST" }, state: "APPROVED", evidenceRef: "intake/C7" }],
+    needs: [{ category: NEED_CATEGORY.harness, value: { type: "VEST" }, state: "APPROVED", evidenceRef: "intake/C7" }],
     scopes: FULL_SCOPES, censusPad: false,
   },
   {
@@ -210,10 +233,20 @@ const SCENARIO_CHILDREN: Child[] = [
   },
 ];
 
-/* ───────────────────────── census pad (PRD l.1327: board shows 28) ───────────────────────── */
+/* ───────────────────────── the rest of the roster ───────────────────────── */
 
-/** Target board size: SURF-01 is one row per child, so the census is the board row count. */
-export const BOARD_CENSUS = 28;
+/**
+ * The day's roster: **twelve** children (Firia, 2026-10-17 8:02 PM ET).
+ *
+ * It was 28 — nine with a ride and nineteen on the census so SURF-01's table had the PRD's row
+ * count (l.1327). The six founder goals do not need nineteen children who never ride: they made
+ * the board's "Family drives" group read 19 where the mockup draws 1, and every seeded day
+ * carried 19 families, 19 profiles and 38 attendance rows nothing looks at.
+ *
+ * Twelve is the mockup's own roster size (png/plan-board.png), and the three who do not ride
+ * are what "Family drives" is for.
+ */
+export const BOARD_CENSUS = 12;
 
 const PAD_PEOPLE: { first: string; lastInitial: string; guardianFirst: string; phone: string; dob: string }[] = [
   { first: "Ana", lastInitial: "S", guardianFirst: "Dalia", phone: "+1-561-555-0121", dob: "2021-01-12" },
@@ -277,9 +310,16 @@ const amb = (tetherCapable = false): Position => ({ kind: "AMB", tetherCapable }
 const wc = (securement: Securement, maxLengthCm: number, maxWidthCm: number): Position =>
   ({ kind: "WC", securement, maxLengthCm, maxWidthCm, tetherCapable: false });
 
+/**
+ * **Three vans, all of a kind** (Firia's 8:02 PM ET seed ruling; Vera/Athena, 2026-10-18
+ * 12:13 AM ET). There is no reserve and no sedan: the centre runs three generic vans, every one
+ * of them lift-equipped and laid out the same way, so a van is told from a van by the numbers
+ * counted at the ramp and never by being a weaker kind of vehicle. The label is the name the
+ * screens already use — a code is an id here and nowhere a person reads.
+ */
 export const VEHICLES: Vehicle[] = [
   {
-    key: "V1", label: "V1 convertible van", providerKey: "P1", liftEquipped: true,
+    key: "V1", label: "Van 1", providerKey: "P1", liftEquipped: true,
     layouts: [
       { code: "0WC/6A", liftRequired: false, positions: [amb(true), amb(true), amb(), amb(), amb(), amb()] },
       { code: "1WC/3A", liftRequired: true, positions: [wc("FOUR_POINT_STRAP", 130, 72), amb(true), amb(true), amb()] },
@@ -287,28 +327,29 @@ export const VEHICLES: Vehicle[] = [
     ],
   },
   {
-    key: "V2", label: "V2 center van", providerKey: "CENTER", liftEquipped: true,
+    key: "V2", label: "Van 2", providerKey: "CENTER", liftEquipped: true,
     layouts: [{ code: "1WC/4A", liftRequired: true, positions: [wc("L_TRACK", 125, 70), amb(true), amb(true), amb(), amb()] }],
   },
   {
-    key: "V3", label: "V3 substitute van", providerKey: "P1", liftEquipped: true,
-    layouts: [{ code: "1WC/1A", liftRequired: true, positions: [wc("L_TRACK", 110, 66), amb(true)] }],
-  },
-  {
-    key: "V4", label: "V4 sedan", providerKey: "P2", liftEquipped: false,
-    layouts: [{ code: "0WC/3A", liftRequired: false, positions: [amb(true), amb(true), amb()] }],
+    key: "V3", label: "Van 3", providerKey: "P2", liftEquipped: true,
+    layouts: [
+      { code: "0WC/6A", liftRequired: false, positions: [amb(true), amb(true), amb(), amb(), amb(), amb()] },
+      // An L-track chair position, as Van 2 has: the same generic van, fitted the way this one
+      // is fitted. Which chair a van holds is hardware, not a weaker class of vehicle.
+      { code: "1WC/3A", liftRequired: true, positions: [wc("L_TRACK", 125, 70), amb(true), amb(true), amb()] },
+    ],
   },
 ];
 
 /**
- * Today's three routes (MOCKS §5 "3 routes"). V3 stays in reserve for the AT-05 substitution.
- * R1 is the three-child route of PRD §18.2 step 6: a ramp report of {1WC, 1AMB} leaves C8 without a
- * seat, and V2 (R2) has the spare ambulatory seat the coordinator reallocates C8 into.
+ * Today's three routes (MOCKS §5 "3 routes"), one per van — there is no fourth vehicle to hold
+ * back. R1 is the three-child route of PRD §18.2 step 6: a ramp report of {1WC, 1AMB} leaves C8
+ * without a seat, and V2 (R2) has the spare ambulatory seat the coordinator reallocates C8 into.
  */
 export const RUNS: Run[] = [
   { key: "R1", vehicleKey: "V1", layoutCode: "1WC/3A", childKeys: ["C6", "C7", "C8"] },
   { key: "R2", vehicleKey: "V2", layoutCode: "1WC/4A", childKeys: ["C2", "C3", "C9"] },
-  { key: "R3", vehicleKey: "V4", layoutCode: "0WC/3A", childKeys: ["C1", "C4", "C5"] },
+  { key: "R3", vehicleKey: "V3", layoutCode: "0WC/6A", childKeys: ["C1", "C4", "C5"] },
 ];
 
 /* ───────────────────────── therapy (PRD l.1327: T1 09:30, T2 PM) ───────────────────────── */
@@ -380,9 +421,10 @@ export type RideRecord = {
  *  - **C6's afternoon ride is AT-10.** The van arrived and the handoff was never recorded. The
  *    geofence fired; a person still has to receive the child; the board says "Arrived (vehicle)"
  *    and asks for the handoff, and the one thing it must never say is that one happened.
- *  - **R3's six rides never ran.** V4 is a sedan with two tether-capable seats and R3's three
- *    children all ride in an anchored seat (PRD §7 constraint 3), so the capacity solver says
- *    the van does not fit its riders. Staff cancelled transport and the families drove — the
+ *  - **R3's six rides never ran.** Van 3's all-ambulatory layout has two tether-capable seats
+ *    and R3's three children all ride in an anchored seat (PRD §7 constraint 3), so the capacity
+ *    solver says the van does not fit its riders — a counted fact about the day, not a weaker
+ *    kind of van (Vera/Athena, 2026-10-18 12:13 AM ET). Staff cancelled transport and the families drove — the
  *    AT-12 rule that a family is told only after staff have chosen.
  */
 const FINISHED_DAY_EXCEPTIONS: Record<string, Partial<RideRecord>> = {
@@ -509,3 +551,31 @@ export const runOfChild = (key: string): Run | undefined => RUNS.find((r) => r.c
 
 /** Every coordinate this fixture set may use (MOCKS §1); the seed linter enforces the same list. */
 export const ALLOWED_COORDS: number[] = STOPS.flatMap((s) => [s.lat, s.lng]);
+
+/* ───────────────────────── the ids the database holds ───────────────────────── */
+
+/**
+ * The deterministic `ops.child_profile.child_token` and `ops.vehicle.id` for a fixture key.
+ *
+ * The seed has always built these (src/modules/demo/seed.ts), and until the plan board nothing
+ * outside the seed needed them: the screens ran on the fixtures and the keys were their own
+ * vocabulary. The board stores a plan in `ops.plan_assignment`, so the key has to become the id
+ * the row's foreign key points at, and — since the board's addresses and markup carry ids rather
+ * than codes (§9.3: "Ids, never codes, go in the URL and never on screen") — back again on the
+ * way in. One formula, here, read by both: a second copy would be a plan written against child
+ * tokens no `child_profile` row has.
+ */
+export const childTokenOf = (key: string): string => demoId(KIND.child, idxOrThrow(CHILDREN, key) + 1);
+export const vehicleIdOf = (key: string): string => demoId(KIND.vehicle, idxOrThrow(VEHICLES, key) + 1);
+
+/** The fixture key an id belongs to, or `null` for an id this scenario does not have. */
+export const childKeyOfToken = (token: string): string | null =>
+  CHILDREN.find((c) => childTokenOf(c.key) === token)?.key ?? null;
+export const vehicleKeyOfId = (id: string): string | null =>
+  VEHICLES.find((v) => vehicleIdOf(v.key) === id)?.key ?? null;
+
+function idxOrThrow<T extends { key: string }>(xs: readonly T[], key: string): number {
+  const i = xs.findIndex((x) => x.key === key);
+  if (i < 0) throw new Error(`unknown fixture key ${key}`);
+  return i;
+}

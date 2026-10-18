@@ -24,7 +24,8 @@
  * give the same plan, which is what makes a screenshot of the screen evidence rather than a
  * moment (and what lets the e2e checks assert on it at all).
  */
-import { fill, layoutName, solver as solverCopy, vanName } from "@/ui/copy";
+import type { Direction } from "@/domain/day/leg";
+import { fill, layoutName, solver as solverCopy } from "@/ui/copy";
 import { OPTION_RANK, feasible, onboardByStop } from "./feasible";
 import type { AlternateCandidate } from "./feasible";
 import type {
@@ -60,7 +61,8 @@ export type PlanRider = {
   window: string;
 };
 
-export type Direction = "AM" | "PM";
+/** The two legs of a day, defined once for every screen (src/domain/day/leg.ts). */
+export type { Direction };
 
 export type PlanInput = {
   direction: Direction;
@@ -501,7 +503,7 @@ function unplacedOptions(
       "ALTERNATE_VEHICLE",
       `vehicle:${lane.id}`,
       // The van by name: these options are read on Plan routes, where no vehicle code appears.
-      fill(solverCopy.options.ALTERNATE_VEHICLE.label, { vehicle: vanName(lane.vehicle.description) }),
+      solverCopy.options.ALTERNATE_VEHICLE.label,
       fill(solverCopy.options.ALTERNATE_VEHICLE.detail, {
         description: lane.vehicle.description,
         provider: lane.vehicle.providerName,

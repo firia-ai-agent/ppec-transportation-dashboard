@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { deriveReadiness, unreadFacts, type DayFacts, type Leg } from "./readiness";
+import {
+  defaultLeg,
+  deriveReadiness,
+  unreadFacts,
+  weekdayLabel,
+  type DayFacts,
+  type Leg,
+} from "./readiness";
 import { legAt, serviceDateAt } from "./day-facts";
 
 /**
@@ -157,5 +164,122 @@ describe("which leg the day is on", () => {
     // 1:00 AM UTC on the 18th is still the 17th in New York, and both answers must agree.
     expect(serviceDateAt(new Date("2026-10-18T01:00:00Z"))).toBe("2026-10-17");
     expect(legAt(new Date("2026-10-18T01:00:00Z"))).toBe("PM");
+  });
+});
+
+/* ─────────────── the planned day's own facts (#73's board, merged in) ─────────────── */
+
+/**
+ * The same helper for the facts a *planned* day has: whether the demo day was started, which
+ * counts it stands on, how many riders are in no van, how many vans have moved. These came in
+ * with the board (#73) and are asserted here because there is one readiness module, not two.
+ */
+const planned = (over: Partial<DayFacts> = {}): DayFacts => ({
+  date: DATE,
+  leg: "PM",
+  read: true,
+  started: true,
+  vans: 3,
+  vansChecked: 0,
+  setupSource: "DEFAULT",
+  planSavedAt: null,
+  planSavedBy: null,
+  unassigned: 9,
+  vansOut: 0,
+  approvalsWaiting: 0,
+  ...over,
+});
+
+describe("van setup is soft, and says which day it is standing on (conflict C5)", () => {
+  it("is Needed until every van has been confirmed today, and never Locked", () => {
+    expect(deriveReadiness(planned()).setup).toMatchObject({ state: "NEEDED", checked: 0, total: 3 });
+    expect(deriveReadiness(planned({ vansChecked: 1 })).setup.state).toBe("NEEDED");
+    expect(deriveReadiness(planned({ vansChecked: 3 })).setup.state).toBe("DONE");
+  });
+
+  /**
+   * Firia/Veri, 2026-10-17 6:00 PM ET: there is no carry-over rung and no day to name. A van is
+   * on today's confirmed counts or on the shared config's defaults, and the readiness object has
+   * exactly those two sources — nothing that could render "From Fri".
+   */
+  it("stands on one of two sources, and names no earlier day", () => {
+    expect(deriveReadiness(planned()).setup.source).toBe("DEFAULT");
+    expect(deriveReadiness(planned({ setupSource: "CHECKED", vansChecked: 3 })).setup.source).toBe(
+      "CHECKED",
+    );
+    expect(deriveReadiness(planned()).setup).not.toHaveProperty("fromDay");
+    // The weekday helper is still here for the times a *date* is read out, and is not a setup line.
+    expect(weekdayLabel("2026-10-17")).toBe("Sat");
+    expect(weekdayLabel("not a date")).toBe("");
+  });
+
+  it("is Needed when there is no van at all, rather than Done over nothing", () => {
+    expect(deriveReadiness(planned({ vans: 0, vansChecked: 0 })).setup.state).toBe("NEEDED");
+  });
+});
+
+describe("a plan is the hard step", () => {
+  it("is Locked only while the day has not been started", () => {
+    expect(deriveReadiness(planned({ started: false })).plan.state).toBe("LOCKED");
+    expect(deriveReadiness(planned({ started: true })).plan.state).toBe("NEEDED");
+  });
+
+  it("is Done once one is saved, and carries when and by whom", () => {
+    const readiness = deriveReadiness(
+      planned({ planSavedAt: "2026-10-17T18:41:00.000Z", planSavedBy: "Dana M.", unassigned: 0 }),
+    );
+    expect(readiness.plan).toEqual({
+      state: "DONE",
+      savedAt: new Date("2026-10-17T18:41:00.000Z"),
+      savedBy: "Dana M.",
+      unassigned: 0,
+    });
+  });
+
+  it("still says how many riders are in no van on a saved plan", () => {
+    expect(deriveReadiness(planned({ planSavedAt: "2026-10-17T18:41:00.000Z", unassigned: 2 })).plan.unassigned).toBe(2);
+  });
+});
+
+describe("live needs a plan, and says what is missing", () => {
+  it("is locked by the day itself before anything else", () => {
+    expect(deriveReadiness(planned({ started: false, planSavedAt: "2026-10-17T18:41:00.000Z" })).live).toEqual({
+      state: "LOCKED",
+      vansOut: 0,
+      blockedBy: "START",
+    });
+  });
+
+  it("is locked by the missing plan once the day is started", () => {
+    expect(deriveReadiness(planned()).live).toEqual({ state: "LOCKED", vansOut: 0, blockedBy: "PLAN" });
+  });
+
+  it("is Not started with a plan and nothing moving, and Running once a van moves", () => {
+    const saved = { planSavedAt: "2026-10-17T18:41:00.000Z" };
+    expect(deriveReadiness(planned(saved)).live).toEqual({
+      state: "NEEDED",
+      vansOut: 0,
+      blockedBy: null,
+    });
+    expect(deriveReadiness(planned({ ...saved, vansOut: 2 })).live).toEqual({
+      state: "RUNNING",
+      vansOut: 2,
+      blockedBy: null,
+    });
+  });
+});
+
+describe("the rest of the object", () => {
+  it("carries the date, the leg and the approvals waiting through unchanged", () => {
+    const readiness = deriveReadiness(planned({ leg: "AM", approvalsWaiting: 2 }));
+    expect(readiness).toMatchObject({ date: "2026-10-17", leg: "AM", started: true });
+    expect(readiness.approvals).toEqual({ waiting: 2 });
+  });
+
+  it("§9.1: the leg a screen opens on is the morning until noon in centre time", () => {
+    expect(defaultLeg(0)).toBe("AM");
+    expect(defaultLeg(11)).toBe("AM");
+    expect(defaultLeg(12)).toBe("PM");
+    expect(defaultLeg(23)).toBe("PM");
   });
 });

@@ -19,7 +19,7 @@ import { demoReset as copy } from "@/ui/copy";
 import type { Db } from "@/db/exec";
 import { isReadOnlyDbEnv } from "@/db/read-only";
 import { seedStandardScenario, type SeedResult } from "./seed";
-import { clearSavedPlans } from "./plan-store";
+import { clearMemoryPlanStore } from "@/modules/plan/memory";
 
 /**
  * Only this role may reset the demo (ADR-014) — read from the one access table rather than
@@ -84,9 +84,14 @@ export async function handleDemoReset(db: Db, env: Record<string, string | undef
   }
 
   const result = await seedStandardScenario(db, { now: req.now, siteId, env });
-  // The day those plans were plans of has just been re-seeded, so the demo's own plan state goes
-  // with it: a reset that left yesterday's saved plan behind would be a half reset.
-  clearSavedPlans();
+  /*
+   * The seed truncates the board's three tables and writes yesterday's van setups back
+   * (src/modules/demo/seed.ts), so the plan itself is gone with the rest of the day's rows.
+   * What a TRUNCATE cannot reach is the memory store — the fallback the browser check runs on,
+   * where there is no database at all (src/modules/plan/memory.ts) — and a day that has just
+   * been re-seeded must not still have last night's plan of it hanging about on either path.
+   */
+  clearMemoryPlanStore();
   return { status: 200, body: { ok: true, ...result } };
 }
 

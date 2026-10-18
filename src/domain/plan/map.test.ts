@@ -1,296 +1,210 @@
 import { describe, expect, it } from "vitest";
-import { planMap, planMapCoords, PLAN_CENTER_COORD, PLAN_CENTER_LABEL } from "./map";
-import { planLanes, planRiders } from "./day";
-import { routePlan, tryMove, type Assignment, type PlanInput } from "@/domain/solver";
-import { RUNS } from "@/modules/demo/fixtures/standard";
-import { places, vanName } from "@/ui/copy";
+import { planMap, planMapCoords, PLAN_CENTER_COORD, PLAN_CENTER_LABEL, type PlanMapVan } from "./map";
+import { boardMap, moveTo, ridersInVan, stopNumbers, type BoardDay } from "./board";
+import { scenarioPlan, testDay, vanIdOfSlot } from "@/test/board-day";
+import { places } from "@/ui/copy";
 
 /**
- * The plan, as the map beside the lanes draws it.
+ * The plan, as the map beside the columns draws it.
  *
- * Everything here is read off a real `RoutePlan` — the lanes, the riders and the solver — rather
- * than a hand-written one, because the whole claim of this module is that the line on the map and
- * the stop list in the lane are two readings of one answer. A fixture plan could agree with
- * itself and with nothing a coordinator sees.
- */
-function input(direction: "AM" | "PM" = "AM"): PlanInput {
-  return {
-    direction,
-    centerLabel: places.center,
-    lanes: planLanes("EVERY_RIDER_FITS"),
-    riders: planRiders(direction),
-  };
-}
-
-/**
- * Each run's own children in its own van, as src/modules/demo/fixtures/standard.ts writes them.
+ * Everything here is read off a real board — the one roster, the one van list and the board's
+ * own `ridersInVan` ordering — rather than a hand-written plan, because the whole claim of this
+ * module is that the line on the map and the stop list in the column are two readings of one
+ * answer. A fixture plan could agree with itself and with nothing a coordinator sees.
  *
- * Used because it is *stable* geometry — those are the kerb pairs ADR-007 surveyed — and not
- * because it is a feasibility claim: whether a van fits its riders is the solver's answer and is
- * asserted where that is the question (src/domain/solver, src/domain/plan/save.test.ts). This
- * module draws the plan it is handed.
+ * It is handed stops and not a `RoutePlan`: the capacity solver makes no placement decision in
+ * the rebuild and the map is not drawn off one of its verdicts either (Firia's rule 2).
  */
-function scenarioAssignment(direction: "AM" | "PM" = "AM"): Assignment {
-  const lanes = planLanes("EVERY_RIDER_FITS");
-  const riders = new Set(planRiders(direction).map((rider) => rider.child.token));
-  return Object.fromEntries(
-    lanes.map((lane) => {
-      const run = RUNS.find((r) => r.vehicleKey === lane.id);
-      return [lane.id, (run?.childKeys ?? []).filter((key) => riders.has(key))];
-    }),
-  );
-}
+const AM = () => testDay("AM");
+const PM = () => testDay("PM");
 
-const EMPTY: Assignment = Object.fromEntries(planLanes("EVERY_RIDER_FITS").map((l) => [l.id, []]));
+/** The van's own stops, numbered as its column numbers them — what the board hands the map. */
+function stopsOf(day: BoardDay, plan: ReturnType<typeof scenarioPlan>, slot: number) {
+  const vanId = vanIdOfSlot(slot);
+  const riders = ridersInVan(day, plan, vanId);
+  const numbers = stopNumbers(riders);
+  const stops: { order: number; label: string }[] = [];
+  for (const rider of riders) {
+    const order = numbers.get(rider.token) ?? 0;
+    if (stops[stops.length - 1]?.order === order) continue;
+    stops.push({ order, label: rider.stopLabel });
+  }
+  return stops;
+}
 
 describe("what the map is handed", () => {
-  it("names every van the day has, in lane order, each with its own colour", () => {
-    const data = planMap(routePlan(input(), scenarioAssignment()));
-    expect(data.routes.map((route) => route.laneId)).toEqual(
-      planLanes("EVERY_RIDER_FITS").map((lane) => lane.id),
-    );
+  it("names every van the day has, in the day's own order, each with its own colour", async () => {
+    const day = await AM();
+    const data = boardMap(day, scenarioPlan(day));
+    expect(data.routes.map((route) => route.laneId)).toEqual(day.vans.map((van) => van.id));
+    expect(data.routes.map((route) => route.vanName)).toEqual(day.vans.map((van) => van.name));
     expect(data.routes.map((route) => route.colorIndex)).toEqual([0, 1, 2]);
-    // Two vans never share a colour, and the colour is the lane's position rather than anything
+    // Two vans never share a colour, and the colour is the van's position rather than anything
     // about the vehicle on it — so a substitution does not recolour the line.
     expect(new Set(data.routes.map((r) => r.colorIndex)).size).toBe(data.routes.length);
   });
 
-  it("labels each line with the van's own name, never the code the fixtures file it under", () => {
-    const data = planMap(routePlan(input(), scenarioAssignment()));
-    expect(data.routes.map((route) => route.vanName)).toEqual([
-      vanName("convertible van"),
-      vanName("center van"),
-      vanName("sedan"),
-    ]);
-    for (const route of data.routes) expect(route.vanName).not.toMatch(/\bV\d\b/);
+  it("names a van by its number and never by a vehicle code", async () => {
+    const day = await AM();
+    for (const route of boardMap(day, scenarioPlan(day)).routes) {
+      expect(route.vanName).toMatch(/^Van \d$/);
+      expect(route.vanName).not.toMatch(/\bV\d\b/);
+    }
   });
 
-  it("puts the centre on the map once, by name and never by address", () => {
-    const data = planMap(routePlan(input(), scenarioAssignment()));
+  it("puts the centre on the map once, by name and never by address", async () => {
+    const day = await AM();
+    const data = boardMap(day, scenarioPlan(day));
     expect(data.center).toEqual(PLAN_CENTER_COORD);
     expect(data.centerLabel).toBe(PLAN_CENTER_LABEL);
     expect(data.centerLabel).toBe(places.center);
-    expect(data.centerLabel).not.toMatch(/\d/);
-    // The centre is nobody's numbered stop: it is the one pin every line runs to.
     for (const route of data.routes) {
       expect(route.stops.map((stop) => stop.label)).not.toContain(data.centerLabel);
     }
   });
 
-  it("has nothing to draw before anybody is in a van, and says so", () => {
-    const data = planMap(routePlan(input(), EMPTY));
+  it("has nothing to draw before anybody is in a van, and says so", async () => {
+    const day = await AM();
+    const data = boardMap(day, {});
     expect(data.empty).toBe(true);
     for (const route of data.routes) {
       expect(route.stops).toEqual([]);
       expect(route.line).toEqual([]);
-      expect(route.riderCount).toBe(0);
+      expect(route.minutes).toBe(0);
     }
-    // The centre is still there, so the pane opens on the neighbourhood rather than on the ocean.
+    // The centre is still on it, so the pane is never a blank canvas.
     expect(planMapCoords(data)).toEqual([PLAN_CENTER_COORD]);
   });
 });
 
 describe("the stops, in the order the van drives them", () => {
-  it("numbers each van's stops from one, earliest pickup first", () => {
-    const data = planMap(routePlan(input(), scenarioAssignment()));
-    const convertible = data.routes[0];
-    expect(convertible.stops.map((stop) => [stop.order, stop.label])).toEqual([
-      [1, "Palm Beach State College, Lake Worth"],
-      [2, "Lantana Public Library"],
-      [3, "Boynton Beach Mall"],
-    ]);
-    // Which is the order the lane's own stop list is in: the manifest the solver was given.
-    const lane = routePlan(input(), scenarioAssignment()).lanes[0];
-    expect(lane.leg.stops.slice(0, -1).map((stop) => stop.label)).toEqual(
-      convertible.stops.map((stop) => stop.label),
-    );
-  });
-
-  it("draws a kerb two children share once, and numbers it from the lane's own list", () => {
-    // The scenario's siblings board at one kerb, so the manifest has two stops there and the map
-    // has one circle: two circles on one coordinate are one circle and a smudge. The circle
-    // carries the last of the rows it stands for — rows 2 and 3 of this lane are both John
-    // Prince Park, so the disc reads 3 and no row of the list is numbered above it.
-    const plan = routePlan(input(), scenarioAssignment());
-    const sedan = planMap(plan).routes[2];
-    const manifest = plan.lanes[2].leg.stops.slice(0, -1).map((stop) => [stop.k, stop.label]);
-    expect(manifest).toEqual([
-      [1, "Greenacres Branch Library"],
-      [2, "John Prince Park"],
-      [3, "John Prince Park"],
-    ]);
-    expect(sedan.stops.map((stop) => [stop.order, stop.label])).toEqual([
-      [1, "Greenacres Branch Library"],
-      [3, "John Prince Park"],
-    ]);
-  });
-
-  /**
-   * Vera's review, 2026-10-17: the number in a disc is the number in the lane beside it.
-   *
-   * The map used to count its own discs from one over the stops it drew, which agreed with the
-   * lane only in the morning and only where no kerb was shared: the afternoon's first row is the
-   * centre and the centre is never a disc, so every afternoon stop was one lower than the row it
-   * is, and a kerb two children share collapses two rows into one circle.
-   *
-   * So this reads the lane's own stop list — the `k` the screen prints down the left of it — and
-   * asks of every disc on the map: is that number one of the rows this place accounts for? Over
-   * both runs, every van, the shared kerb included.
-   */
-  it("numbers every disc with the lane's own stop number, morning and afternoon", () => {
-    for (const direction of ["AM", "PM"] as const) {
-      const plan = routePlan(input(direction), scenarioAssignment(direction));
-      const data = planMap(plan);
-      let sharedKerbsSeen = 0;
-
-      data.routes.forEach((route, laneIndex) => {
-        const lane = plan.lanes[laneIndex];
-        const where = `${direction} ${route.vanName}`;
-        // Every row of the lane's list, as "which rows is this place?" — the centre included,
-        // because it is one of the numbered rows and is the reason the old count drifted.
-        const rowsOf = new Map<string, number[]>();
-        for (const stop of lane.leg.stops) {
-          rowsOf.set(stop.label, [...(rowsOf.get(stop.label) ?? []), stop.k]);
-        }
-
-        for (const stop of route.stops) {
-          const rows = rowsOf.get(stop.label) ?? [];
-          expect(rows, `${where}: ${stop.label}`).not.toHaveLength(0);
-          // The disc is a row of this lane's list, and the last of the rows this place is.
-          expect({ where, label: stop.label, order: stop.order }).toEqual({
-            where,
-            label: stop.label,
-            order: rows[rows.length - 1],
-          });
-          if (rows.length > 1) sharedKerbsSeen += 1;
-        }
-
-        // Nothing is lost to the collapse: one disc per distinct place the lane drives, centre
-        // excluded, and they are in the order the van reaches them.
-        expect(route.stops.map((stop) => stop.order), where).toEqual(
-          [...route.stops.map((stop) => stop.order)].sort((a, b) => a - b),
-        );
-      });
-
-      // The sedan's siblings, in both runs: the assertion above is not vacuous.
-      expect(sharedKerbsSeen, direction).toBe(1);
+  it("numbers each van's discs the way its column numbers its rider cards", async () => {
+    const day = await PM();
+    const plan = scenarioPlan(day);
+    const data = boardMap(day, plan);
+    for (const van of day.vans) {
+      const route = data.routes.find((r) => r.laneId === van.id);
+      const numbers = [...stopNumbers(ridersInVan(day, plan, van.id)).values()];
+      expect(route?.stops.map((stop) => stop.order)).toEqual([...new Set(numbers)]);
     }
   });
 
-  /**
-   * The afternoon, spelled out: the run that was wrong on every van.
-   *
-   * The centre is row 1 of an afternoon lane and is drawn as the one pin every line runs to, so
-   * the first disc on an afternoon route is row 2 — never row 1.
-   */
-  it("starts the afternoon's discs at the row after the centre", () => {
-    const plan = routePlan(input("PM"), scenarioAssignment("PM"));
-    const data = planMap(plan);
-    expect(data.routes[0].stops.map((stop) => [stop.order, stop.label])).toEqual([
-      [2, "Boynton Beach Mall"],
-      [3, "Lantana Public Library"],
-      [4, "Palm Beach State College, Lake Worth"],
-    ]);
-    // And the lane says the same, with the centre at the top of its list.
-    expect(plan.lanes[0].leg.stops.map((stop) => [stop.k, stop.label])).toEqual([
-      [1, PLAN_CENTER_LABEL],
-      [2, "Boynton Beach Mall"],
-      [3, "Lantana Public Library"],
-      [4, "Palm Beach State College, Lake Worth"],
-    ]);
-    for (const route of data.routes) {
-      expect(route.stops.map((stop) => stop.order), route.vanName).not.toContain(1);
+  it("draws a kerb two children share once", async () => {
+    const day = await PM();
+    const plan = scenarioPlan(day);
+    for (const van of day.vans) {
+      const riders = ridersInVan(day, plan, van.id);
+      const kerbs = new Set(riders.map((rider) => rider.stopLabel));
+      const route = boardMap(day, plan).routes.find((r) => r.laneId === van.id);
+      expect(route?.stops.length).toBe(kerbs.size);
     }
   });
 
-  it("runs the morning to the centre and the afternoon out of it", () => {
-    const am = planMap(routePlan(input("AM"), scenarioAssignment("AM"))).routes[0];
-    expect(am.line[am.line.length - 1]).toEqual(PLAN_CENTER_COORD);
-    expect(am.line[0]).toEqual(am.stops[0].coord);
-
-    const pm = planMap(routePlan(input("PM"), scenarioAssignment("PM"))).routes[0];
-    expect(pm.line[0]).toEqual(PLAN_CENTER_COORD);
-    expect(pm.line[pm.line.length - 1]).toEqual(pm.stops[pm.stops.length - 1].coord);
-    // The afternoon is the morning's stops in reverse, which is what the scenario says it is.
-    expect(pm.stops.map((stop) => stop.label)).toEqual(
-      [...am.stops.map((stop) => stop.label)].reverse(),
-    );
+  it("runs the morning to the centre and the afternoon out of it", async () => {
+    const morning = await AM();
+    const afternoon = await PM();
+    const first = (day: BoardDay) => {
+      const plan = scenarioPlan(day);
+      const van = day.vans.find((v) => ridersInVan(day, plan, v.id).length > 0);
+      if (!van) throw new Error("no loaded van in the scenario");
+      const route = boardMap(day, plan).routes.find((r) => r.laneId === van.id);
+      return { route, stops: stopsOf(day, plan, van.slot) };
+    };
+    // The morning's line ends at the centre: its last coordinate is the centre's.
+    const am = first(morning);
+    expect(am.route?.line.at(-1)).toEqual(PLAN_CENTER_COORD);
+    // The afternoon's starts there.
+    const pm = first(afternoon);
+    expect(pm.route?.line[0]).toEqual(PLAN_CENTER_COORD);
   });
 });
 
 describe("the geometry is the committed survey, and says where it is not", () => {
-  it("follows the surveyed road for every pair the day's own runs drive", () => {
-    const data = planMap(routePlan(input(), scenarioAssignment()));
-    for (const route of data.routes) {
-      expect({ van: route.vanName, surveyed: route.surveyed }).toEqual({
-        van: route.vanName,
-        surveyed: true,
-      });
-      // A surveyed stretch is a road, not a ruler: more vertices than its two ends.
-      for (const segment of route.segments) expect(segment.geometry.length).toBeGreaterThan(2);
+  it("follows the surveyed road for the pairs the day's own runs drive", async () => {
+    const day = await AM();
+    const data = boardMap(day, scenarioPlan(day));
+    const drawn = data.routes.filter((route) => route.stops.length > 0);
+    expect(drawn.length).toBeGreaterThan(0);
+    // Every stretch of a scenario run is a road somebody measured, and it is longer than the
+    // two-point line a straight guess would be.
+    for (const route of drawn) {
+      expect(route.surveyed, route.vanName).toBe(true);
+      for (const segment of route.segments) {
+        expect(segment.geometry.length).toBeGreaterThan(2);
+        expect(segment.durationSec).toBeGreaterThan(0);
+      }
     }
   });
 
-  it("draws the line between two stops nobody surveyed, and marks it", () => {
-    // Ivy H. into the centre van: a van that has never driven from Boynton Beach Mall now does,
-    // and ADR-007 has no road for that pair. The stop is still drawn, and the stretch says it is
-    // not a road.
-    const base = input();
-    const moved = tryMove(base, scenarioAssignment(), "C8", "V2");
-    expect(moved.ok).toBe(true);
-    if (!moved.ok) return;
-
-    const route = planMap(routePlan(base, moved.assignment)).routes[1];
-    expect(route.stops.map((stop) => stop.label)).toContain("Boynton Beach Mall");
-    expect(route.surveyed).toBe(false);
-    const straight = route.segments.filter((segment) => !segment.surveyed);
-    expect(straight.length).toBeGreaterThan(0);
-    for (const segment of straight) expect(segment.geometry).toHaveLength(2);
+  it("draws the line between two stops nobody surveyed, and marks it", async () => {
+    const day = await AM();
+    const plan = scenarioPlan(day);
+    // A child moved into another van makes a kerb pair nobody drove.
+    const from = day.vans[0];
+    const to = day.vans[2];
+    const rider = ridersInVan(day, plan, from.id)[0];
+    const moved = moveTo(plan, rider.token, to.id);
+    const route = boardMap(day, moved).routes.find((r) => r.laneId === to.id);
+    expect(route?.surveyed).toBe(false);
+    const guessed = route?.segments.filter((segment) => !segment.surveyed) ?? [];
+    expect(guessed.length).toBeGreaterThan(0);
+    for (const segment of guessed) {
+      expect(segment.geometry).toHaveLength(2);
+      expect(segment.durationSec).toBeGreaterThan(0);
+    }
   });
 
-  it("joins the stretches into one line with no repeated vertex", () => {
-    const route = planMap(routePlan(input(), scenarioAssignment())).routes[0];
-    const vertices = route.segments.reduce((n, segment) => n + segment.geometry.length, 0);
-    expect(route.line).toHaveLength(vertices - (route.segments.length - 1));
-    for (let i = 1; i < route.line.length; i += 1) {
-      expect(route.line[i]).not.toEqual(route.line[i - 1]);
+  it("joins the stretches into one line with no repeated vertex", async () => {
+    const day = await AM();
+    const data = boardMap(day, scenarioPlan(day));
+    for (const route of data.routes) {
+      for (let i = 1; i < route.line.length; i += 1) {
+        expect(route.line[i]).not.toEqual(route.line[i - 1]);
+      }
     }
   });
 });
 
-describe("the map follows a move, because it is the same answer the lanes are", () => {
-  it("takes a child's kerb off one van's line and puts it on another's", () => {
-    const base = input();
-    const before = planMap(routePlan(base, scenarioAssignment()));
-    const moved = tryMove(base, scenarioAssignment(), "C8", "V2");
-    expect(moved.ok).toBe(true);
-    if (!moved.ok) return;
-    const after = planMap(routePlan(base, moved.assignment));
-
-    const kerb = "Boynton Beach Mall";
-    const labels = (data: typeof before, lane: string) =>
-      data.routes.find((route) => route.laneId === lane)?.stops.map((stop) => stop.label) ?? [];
-    expect(labels(before, "V1")).toContain(kerb);
-    expect(labels(after, "V1")).not.toContain(kerb);
-    expect(labels(before, "V2")).not.toContain(kerb);
-    expect(labels(after, "V2")).toContain(kerb);
-    // And the rider counts the pane prints beside each van moved with it.
-    expect(after.routes.map((r) => r.riderCount)).toEqual([2, 4, 3]);
+describe("the map follows a move, because it is the same answer the columns are", () => {
+  it("takes a child's kerb off one van's line and puts it on another's", async () => {
+    const day = await PM();
+    const plan = scenarioPlan(day);
+    const from = day.vans[0];
+    const to = day.vans[1];
+    const rider = ridersInVan(day, plan, from.id).find(
+      (candidate) =>
+        ridersInVan(day, plan, from.id).filter((r) => r.stopLabel === candidate.stopLabel).length === 1,
+    );
+    if (!rider) throw new Error("no rider with a kerb of their own");
+    const before = boardMap(day, plan);
+    const after = boardMap(day, moveTo(plan, rider.token, to.id));
+    const labels = (data: typeof before, laneId: string) =>
+      data.routes.find((route) => route.laneId === laneId)?.stops.map((stop) => stop.label) ?? [];
+    expect(labels(before, from.id)).toContain(rider.stopLabel);
+    expect(labels(after, from.id)).not.toContain(rider.stopLabel);
+    expect(labels(after, to.id)).toContain(rider.stopLabel);
   });
 
-  it("drops a line entirely when the last rider is taken out of a van", () => {
-    const base = input();
-    let assignment = scenarioAssignment();
-    for (const token of ["C6", "C7", "C8"]) {
-      const result = tryMove(base, assignment, token, null);
-      expect(result.ok).toBe(true);
-      if (result.ok) assignment = result.assignment;
+  it("drops a line entirely when the last rider is taken out of a van", async () => {
+    const day = await PM();
+    let plan = scenarioPlan(day);
+    const van = day.vans[2];
+    for (const rider of ridersInVan(day, plan, van.id)) {
+      plan = moveTo(plan, rider.token, null);
     }
-    const route = planMap(routePlan(base, assignment)).routes[0];
-    expect(route.riderCount).toBe(0);
-    expect(route.stops).toEqual([]);
-    expect(route.line).toEqual([]);
-    // One van emptied is not an empty map.
-    expect(planMap(routePlan(base, assignment)).empty).toBe(false);
+    const route = boardMap(day, plan).routes.find((r) => r.laneId === van.id);
+    expect(route?.stops).toEqual([]);
+    expect(route?.line).toEqual([]);
+  });
+});
+
+describe("the module on its own", () => {
+  it("drops a stop the fixtures place nowhere rather than guessing a coordinate", async () => {
+    const vans: PlanMapVan[] = [
+      { laneId: "v1", vanName: "Van 1", stops: [{ order: 1, label: "Nowhere At All" }] },
+    ];
+    const data = planMap("AM", vans);
+    expect(data.routes[0].stops).toEqual([]);
+    expect(data.routes[0].line).toEqual([]);
   });
 });

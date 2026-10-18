@@ -12,8 +12,8 @@ export const dynamic = "force-dynamic";
  * §2 calls this one "its own full-screen route", and that is the line the founder's 2026-10-17
  * walk of production disproved: the front desk has no console page, so this *is* where they land
  * (`homePathFor`, src/auth/access.ts) — a surface somebody starts their day on is the last one
- * that can afford to have no way off it. The checklist, the vehicle tiles and the sticky verdict
- * banner below are unchanged; the shell is above them.
+ * that can afford to have no way off it. The screen inside is the rebuilt van arrival (§2,
+ * Rework 2): the van tabs, the four counters, the lift switch and Confirm.
  *
  * This row asks only for a session; /ramp-ipad's own row (every staff role — SURF-04 is the
  * front desk's surface) is checked by the page inside.
@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function RampIpadLayout({ children }: { children: ReactNode }) {
   const caller = await requirePage(LAYOUT.rampIpad);
-  // The screen is its own `<main>`, laid out edge to edge with its own padding (RampCheck.tsx).
+  // The screen is its own `<main>`, with its own padding (arrival/VanArrival.tsx).
   return (
     <ConsoleShell caller={caller} pageOwnsMain>
       {children}

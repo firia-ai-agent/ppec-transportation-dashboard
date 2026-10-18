@@ -11,7 +11,16 @@
   min-width: 0;
 }
 
+/*
+ * "3:24 PM" (png/live-map-390.png, png/live-map.png). Tabular figures so the row does not twitch
+ * as the minute changes, and `min-width: 0` with an ellipsis so a readout can never paint across
+ * the control beside it — the bug Vera found at 390, where a `nowrap` span in a row that had run
+ * out of width simply drew over its neighbour instead of giving way.
+ */
 .time {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--text-12);
   font-weight: var(--weight-semibold);
   line-height: var(--leading-tight);
@@ -64,5 +73,17 @@
 @media (max-width: 767px) {
   .button {
     display: none;
+  }
+}
+
+/*
+ * The readout keeps its place at the phone width; only the buttons go (above). It is the one
+ * thing in the bar a founder reads off the screen during the demo, so it never shrinks to
+ * nothing: 7 characters at the 12 px step, which png/live-map-390.png draws between the
+ * Simulated chip and the Restart button.
+ */
+@media (max-width: 480px) {
+  .clock {
+    flex: none;
   }
 }
