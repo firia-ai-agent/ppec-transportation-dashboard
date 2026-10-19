@@ -45,7 +45,7 @@
  * `OPENROUTER_API_KEY` is not read here and nothing on this path logs it.
  */
 import type { Db, Exec } from "@/db/exec";
-import { STAFF_ONLY_TOOLS } from "../action-tools";
+import { ACTION_TOOLS, STAFF_ONLY_TOOLS } from "../action-tools";
 import { rosterFromDisplayName, tokenizeNames, type RosterEntry } from "@/modules/identity/names";
 import { activeSuppression, authorizedContactsForChild, FAMILY_SMS } from "@/modules/outbox/policy";
 import { serviceDateIso } from "@/ui/service-date";
@@ -81,6 +81,18 @@ export const STAFF_ASK_TOOLS: readonly string[] = [
   "escalate_exception",
 ];
 
+/**
+ * What an alert's run is offered (ledger #74 e): the reads, every action as a proposal, a drop-off
+ * proposal, and escalation. No `reply_to_staff` — nobody is waiting on an answer; the card is it.
+ */
+export const ALERT_TOOLS: readonly string[] = [
+  "read_guardian_thread",
+  "get_leg_state",
+  "propose_dropoff_change",
+  "escalate_exception",
+  ...STAFF_ONLY_TOOLS,
+];
+
 /** How many of the site's recent thread messages reach T3, across all its threads. */
 export const STAFF_ASK_MESSAGES_IN_CONTEXT = 8;
 
@@ -109,7 +121,7 @@ type LegRow = { id: string; child_token: string; direction: string; state: strin
 export async function staffAskContext(
   db: Db,
   input: AssembleInput,
-  opts: { paused: boolean; messages?: number; tasks?: number } = { paused: false },
+  opts: { paused: boolean; messages?: number; tasks?: number; alert?: boolean } = { paused: false },
 ): Promise<AssembledContext> {
   const siteId = input.trigger.siteId;
   const ask = await askRow(db, input.trigger.id, siteId);
@@ -170,9 +182,11 @@ export async function staffAskContext(
        * already redacted (`askAgent.normalizeAsk` → `agent/redact.ts`) and tokenized here, so no
        * number, address or roster name reaches the gateway in it.
        */
-      `staff_ask="${say(askTextOf(ask.summary))}"`,
-      // How the coordinator gets an answer: the run's note is what the bubble shows (ask/answer.ts).
-      "answer_with=reply_to_staff",
+      // An alert's run (ledger #74 e) is told what was raised and that it proposes; an ask's, what
+      // was asked and how its answer is read (ask/answer.ts).
+      ...(opts.alert
+        ? [`staff_alert="${say(ask.summary)}"`, "propose_only=true answer_with=a card a person confirms"]
+        : [`staff_ask="${say(askTextOf(ask.summary))}"`, "answer_with=reply_to_staff"]),
     ].join(" "),
     t2: [
       `service_date=${serviceDate}`,
@@ -215,7 +229,7 @@ export async function staffAskContext(
   return {
     prompt: tierPrompt(facts, input),
     tokens,
-    tools: STAFF_ASK_TOOLS,
+    tools: opts.alert ? ALERT_TOOLS : STAFF_ASK_TOOLS,
     policy: {
       scope,
       sendableSubjects: await sendableSubjects(db, {
@@ -226,6 +240,8 @@ export async function staffAskContext(
       }),
       untrustedMessages: facts.t3,
       paused: opts.paused,
+      // Nobody asked an alert's run to act: every action it would take is a card (ledger #74 e).
+      ...(opts.alert ? { proposeOnly: new Set(ACTION_TOOLS.map((t) => t.name)) } : {}),
       // An ask is not a message, so there is no source message to cite. Stated, not left off:
       // a `propose_*` from this run carries no `source_message_id` it did not read for itself.
       sourceMessageId: null,

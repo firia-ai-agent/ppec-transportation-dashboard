@@ -610,7 +610,7 @@ function resultRow(execution: ToolExecution): Record<string, unknown> | null {
 
 /** Map a step outcome onto the run's state. `null` means the loop takes another turn. */
 /** Runs a staff member started: a policy block is feedback to the model, not the end of the run. */
-export const FEEDBACK_ON_BLOCK: ReadonlySet<TriggerType> = new Set<TriggerType>(["staff.ask"]);
+export const FEEDBACK_ON_BLOCK: ReadonlySet<TriggerType> = new Set<TriggerType>(["staff.ask", "operational.event"]);
 
 async function finish(deps: RunDeps, run: RunRow, outcome: StepOutcome, steps: number): Promise<RunResult | null> {
   switch (outcome.kind) {

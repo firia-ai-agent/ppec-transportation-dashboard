@@ -10,6 +10,8 @@ import { sweepEtaNotices } from "@/modules/messaging/eta-notice";
 import { sweepOutbox } from "@/modules/outbox/outbox";
 import { outboxDeps } from "@/modules/outbox/deps";
 import { vercelQueueOutboxTransport } from "@/modules/outbox/transport";
+import { rewakeAlertRuns } from "@/modules/agent/alerts";
+import { vercelQueueAgentTransport } from "@/modules/agent/run/vercel-queue";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -48,5 +50,7 @@ export async function GET(req: Request) {
     scenarioNow: new Date(scenarioDay.instantMs),
   });
   const outbox = await sweepOutbox(db, outboxDeps());
-  return Response.json({ deploymentId, ...report, etaNotices, outbox });
+  // An alert the agent was started on whose wake-up was lost (ledger #74 e).
+  const alertRuns = await rewakeAlertRuns(db, vercelQueueAgentTransport, new Date());
+  return Response.json({ deploymentId, ...report, etaNotices, outbox, alertRuns });
 }

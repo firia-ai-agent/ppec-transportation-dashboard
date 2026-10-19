@@ -141,6 +141,11 @@ export type PolicyContext = {
   readonly untrustedMessages?: readonly string[];
   /** True while the agent is paused for this site (ops kill switch). */
   readonly paused?: boolean;
+  /**
+   * Tools this run may only propose, whatever their tier (ledger #74 e): an alert's run has no
+   * person to act as, so an action it would take becomes a card a person confirms.
+   */
+  readonly proposeOnly?: ReadonlySet<string>;
   /** The context tier the model cited as authority for this call, when it reports one. */
   readonly citedTier?: ContextTier;
   readonly sourceMessageId?: string | null;
@@ -882,7 +887,9 @@ export function evaluate(
   }
 
   // 11. Human tier → proposal, never a mutation (§11.2 propose_* rows: "no mutation").
-  if (def.tier === "human") {
+  // A run with nobody to act for (an alert, ledger #74 e) proposes the actions it would take: the
+  // person who confirms the card becomes the actor (`modules/actions/confirm.ts`).
+  if (def.tier === "human" || (ctx.proposeOnly?.has(call.tool) ?? false)) {
     return {
       verdict: "PROPOSAL",
       rule: "human_tier_requires_approval",

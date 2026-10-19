@@ -7,6 +7,7 @@ import type { StaffRole } from "@/auth/core";
 import type { Db } from "@/db/exec";
 import type { DayDataSource } from "@/domain/day/source";
 import type { PlanStore } from "@/modules/plan/types";
+import type { BoardView } from "@/modules/plan/store";
 
 /**
  * The database and the plan board an action reads and writes, when the caller has one in hand:
@@ -17,6 +18,20 @@ export type ActionDeps = {
   readonly db?: Db;
   readonly store?: PlanStore;
   readonly source?: DayDataSource;
+  /**
+   * The van-short rule a confirmed van setup runs (ledger #74 e; `plan/api.ts VanShortNotifier`).
+   * Absent: the deployment's own. Declared by shape, not imported: this module is on the server
+   * actions' graph and `plan/api.ts` reaches the agent runtime (key-never-leaves.test.ts).
+   */
+  readonly vanShort?: (input: { siteId: string; date: string; by: string; store: PlanStore; source: DayDataSource }) => Promise<unknown>;
+  /** The texts a saved re-plan sends (ledger #73; `plan/api.ts ReplanNotifier`), by shape too. */
+  readonly notify?: (input: {
+    readonly siteId: string;
+    readonly before: BoardView;
+    readonly after: BoardView;
+    readonly now: Date;
+    readonly by: string;
+  }) => Promise<unknown>;
 };
 
 /** Who is acting, where, and when. The person — a screen's session, or the asker the agent acts for. */

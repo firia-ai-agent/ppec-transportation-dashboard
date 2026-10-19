@@ -3234,7 +3234,7 @@ export const agentGuidance = {
  */
 export const actionSummaries = {
   savePlan: "Save the {leg} plan ({count} moves).",
-  autoPlan: "Re-plan the {leg} with Auto-plan and save it.",
+  autoPlan: "Re-plan the {leg} with Auto-plan and save it, so every van fits.",
   moveChild: "Move a child on the {leg} plan and save it.",
   confirmVan: "Confirm a van's setup as the ramp found it.",
   setNeeds: "Change a child's approved needs.",
@@ -3260,6 +3260,13 @@ export const confirmCopy = {
   gone: "That card is not here any more.",
   alreadyDecided: "Somebody decided this one already.",
   refused: "That couldn't be done as it stands, so nothing changed. Ask the agent again.",
+} as const;
+
+/** A van confirmed at the ramp that no longer carries its riders (ledger #74 e, plan/van-short.ts). */
+export const vanShortAlert = {
+  summary: "{van} no longer fits its {leg} riders as confirmed at the ramp",
+  nextStep: "Re-plan the leg so every van fits, or change who rides in it.",
+  predicate: "every van on the leg fits its riders again",
 } as const;
 
 export const agentBubble = {
