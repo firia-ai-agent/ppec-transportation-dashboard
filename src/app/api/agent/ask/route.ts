@@ -2,6 +2,7 @@ import { API } from "@/auth/access";
 import { requireApiSession } from "@/auth/api-guard";
 import { getNeonDb } from "@/db/exec";
 import { askAgent } from "@/modules/agent/ask/staff-ask";
+import { vercelQueueAgentTransport } from "@/modules/agent/run/vercel-queue";
 import { siteOf } from "@/modules/plan/api";
 import { apiAccess } from "@/ui/copy";
 
@@ -48,7 +49,9 @@ export async function POST(req: Request) {
       id,
       // The audit actor is an id, never a name (ADR-004: the token carries only a user id).
       by: `staff:${guard.caller.userId ?? "session"}`,
-    });
+    },
+    // On the agent queue, not inside this request (ledger #74): the answer lands in the thread.
+    { wake: vercelQueueAgentTransport });
     if (result.outcome === "rejected") {
       return Response.json({ ok: false, error: apiAccess.badRequest }, { status: 400, headers: noStore });
     }

@@ -76,8 +76,25 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
   const proposals = [...approvals.rows, ...changes.rows]
     .filter((r) => r.summary)
     .map((r) => ({ at: r.at, item: { kind: "proposal", id: r.id, question: String(r.summary) } as AgentThreadItem }));
+  /*
+   * Asks still on the agent queue (ledger #74): the run is QUEUED, RUNNING or parked on a timer, so
+   * the panel says it is working rather than leaving the question bare. The answer or the
+   * "couldn't answer" line replaces it on the refresh after the run ends.
+   */
+  const pending = new Set(
+    (
+      await db.query<{ ask_id: string }>(
+        `SELECT trigger_id AS ask_id FROM ops.agent_run
+          WHERE site_id = $1 AND trigger_type = 'staff.ask' AND state IN ('QUEUED', 'RUNNING', 'WAITING_TOOL')`,
+        [siteId],
+      )
+    ).rows.map((r) => r.ask_id),
+  );
   const said = asks.rows.flatMap((r) => {
     const ask = { at: r.at, item: { kind: "staff", id: r.id, text: askTextOf(r.summary) } as AgentThreadItem };
+    if (pending.has(r.id)) {
+      return [ask, { at: r.at, item: { kind: "agent", id: `${r.id}:working`, text: agentBubble.working } as AgentThreadItem }];
+    }
     // The same line, under the same id, the bubble shows live (`agent-ask-state.addNoAnswer`).
     const unanswered = answeredByAlert.has(r.id) || r.category === STAFF_ALERT_TASK_CATEGORY;
     return unanswered

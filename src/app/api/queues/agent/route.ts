@@ -9,6 +9,7 @@ import {
   handleAgentWake,
 } from "@/modules/agent/run/queue";
 import { modelReach, modelReachLog } from "@/modules/agent/run/deps";
+import { settleStaffAsk } from "@/modules/agent/ask/staff-ask";
 
 export const dynamic = "force-dynamic";
 // AGENT_RUN_MAX_DURATION_SECONDS, spelled out: Next parses the segment config statically and rejects
@@ -45,6 +46,8 @@ export const POST = handleCallback(async (message: unknown) => {
   if (runner.refused) console.log(`[queue:agent] no model available: ${modelReachLog(modelReach())}`);
   const outcome = await handleAgentWake(db, message, { deps: runner.deps });
   console.log(`[queue:agent] ${agentWakeLog(outcome)}`);
+  // A staff ask that ended with nothing to say gets its "couldn't answer" alert (ledger #74).
+  if (outcome.ok) await settleStaffAsk(db, outcome.runId);
 }, {
   // Longer than the per-run lease, so the first redelivery after a dead driver finds a run it can
   // reclaim instead of spending a delivery on a `leased` refusal (queue.ts).

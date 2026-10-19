@@ -23,7 +23,9 @@ import {
   STAFF_ASK_TASK_CATEGORY,
   askAgent,
   normalizeAsk,
+  settleStaffAsk,
 } from "./staff-ask";
+import { driveRun } from "../run/loop";
 import { readAgentThread, readAgentThreadOrEmpty } from "./thread";
 
 /**
@@ -149,8 +151,8 @@ describe("(d) an ask that makes a proposal leaves a pending approval and changes
       scope: { ...sc.scope, shared: new Set(["V-SYN-1", "V-SYN-2"]) },
     });
     const r = await askAgent(db, { siteId: sc.siteId, text: "Van 1 cannot take its runs", by: "u1" }, deps);
-    expect(r.ok && r.run.state).toBe("SUCCEEDED");
-    if (!r.ok) return;
+    expect(r.outcome === "ran" && r.run.state).toBe("SUCCEEDED");
+    if (r.outcome !== "ran") return;
 
     // The call was PROPOSED, never executed: no executor runs for a human-tier tool.
     const [call] = await toolCalls(db, r.run.runId);
@@ -533,7 +535,7 @@ describe("the thread the panel draws is read from rows this app holds", () => {
     const id = "01900000-0000-7000-8000-00000000a502";
     const { deps } = withModel([toolCall("reply_to_staff", { summary: "Every van fits this afternoon." })]);
     const r = await askAgent(db, { siteId: sc.siteId, text: "does every van fit", by: "u1", id }, deps);
-    expect(r.ok && r.answer).toBe("Every van fits this afternoon.");
+    expect(r.outcome === "ran" && r.answer).toBe("Every van fits this afternoon.");
     const view = await readAgentThread(db, sc.siteId);
     expect(view.items.slice(1)).toEqual([
       { kind: "staff", id, text: "does every van fit" },
@@ -548,6 +550,57 @@ describe("the thread the panel draws is read from rows this app holds", () => {
     expect((await askAgent(db, { siteId: sc.siteId, text: "again", by: "u1", id }, deps)).outcome).toBe("rejected");
     expect((await askAgent(db, { siteId: sc.siteId, text: "odd", by: "u1", id: "ask:1" }, deps)).outcome).toBe("rejected");
     expect((await tasks()).filter((t) => t.category === STAFF_ASK_TASK_CATEGORY)).toHaveLength(1);
+  });
+
+  /*
+   * ON THE AGENT QUEUE (ledger #74). The ask answers "working" at once; the thread says so until the
+   * queue consumer has driven the run; then the answer — or the "couldn't answer" line, raised by
+   * `settleStaffAsk` — takes its place.
+   */
+  it("answers 'working' at once, then shows the queued run's answer when it lands", async () => {
+    const woken: string[] = [];
+    const id = "01900000-0000-7000-8000-00000000a504";
+    const { harness } = withModel([toolCall("reply_to_staff", { summary: "Van 1 is over its seats by one." })]);
+    const r = await askAgent(db, { siteId: sc.siteId, text: "which van is over", by: "u1", id }, {
+      env: {},
+      runner: () => ({ ok: true as const, refused: false, reason: null, deps: harness.deps(0) }),
+      wake: { publish: async (m) => void woken.push(m.runId) },
+    });
+    expect(r.outcome).toBe("working");
+    if (r.outcome !== "working") return;
+    expect(woken).toEqual([r.runId]);
+    expect((await readAgentThread(db, sc.siteId)).items.slice(1)).toEqual([
+      { kind: "staff", id, text: "which van is over" },
+      { kind: "agent", id: `${id}:working`, text: agentBubble.working },
+    ]);
+
+    await driveRun(harness.deps(0), r.runId);
+    expect(await settleStaffAsk(db, r.runId)).toBe("answered");
+    expect((await readAgentThread(db, sc.siteId)).items.slice(1)).toEqual([
+      { kind: "staff", id, text: "which van is over" },
+      { kind: "agent", id: `${id}:answer`, text: "Van 1 is over its seats by one." },
+    ]);
+  });
+
+  it("closes a queued run that ended with nothing to say with the 'couldn't answer' line", async () => {
+    const id = "01900000-0000-7000-8000-00000000a505";
+    // A model that is refused every turn: the run ends FAILED when its turns run out (S1).
+    const refused = Array.from({ length: 12 }, () => toolCall("get_leg_state", { leg_id: "L-NOT-HERE" }));
+    const { harness } = withModel(refused);
+    const r = await askAgent(db, { siteId: sc.siteId, text: "replan the afternoon", by: "u1", id }, {
+      env: {},
+      runner: () => ({ ok: true as const, refused: false, reason: null, deps: harness.deps(0) }),
+      wake: { publish: async () => {} },
+    });
+    if (r.outcome !== "working") throw new Error(r.outcome);
+    await driveRun(harness.deps(0), r.runId);
+    expect(await settleStaffAsk(db, r.runId)).toBe("alerted");
+    expect(await settleStaffAsk(db, r.runId)).toBe("alerted"); // idempotent: still one alert row
+    expect((await tasks()).filter((t) => t.category === STAFF_ALERT_TASK_CATEGORY)).toHaveLength(1);
+    expect((await readAgentThread(db, sc.siteId)).items.slice(1)).toEqual([
+      { kind: "staff", id, text: "replan the afternoon" },
+      { kind: "agent", id: `${id}:no-answer`, text: agentBubble.noAnswer },
+    ]);
   });
 
   it("never takes a screen down with it", async () => {
