@@ -1,15 +1,31 @@
 /**
- * The one line a confirm card says (ledger #74 d), by the agent tool that prepared it. Copy only —
- * no registry import — so the proposal writer and the card can both read it on any path.
+ * The one line a confirm card says (ledger #74 d, e), by the agent tool that prepared it and its
+ * arguments. Copy only — no registry import — so the proposal writer and the card read it anywhere.
  */
-import { actionSummaries } from "@/ui/copy";
+import { actionSummaries, fill } from "@/ui/copy";
 
-const BY_TOOL: Readonly<Record<string, string>> = {
-  set_child_needs: actionSummaries.setNeeds,
-  restart_demo_day: actionSummaries.restart,
-  decide_card: actionSummaries.decideCard,
-};
+const LEG_WORDS: Readonly<Record<string, string>> = { AM: "morning", PM: "afternoon" };
 
-export function staffActionSummary(tool: string): string {
-  return BY_TOOL[tool] ?? actionSummaries.generic;
+export function staffActionSummary(tool: string, args: Readonly<Record<string, unknown>> = {}): string {
+  const leg = LEG_WORDS[String(args.leg ?? "")] ?? String(args.leg ?? "");
+  switch (tool) {
+    case "auto_plan":
+      return fill(actionSummaries.autoPlan, { leg });
+    case "move_child":
+      return fill(actionSummaries.moveChild, { leg });
+    case "save_plan":
+      return fill(actionSummaries.savePlan, { leg, count: Array.isArray(args.moves) ? args.moves.length : 0 });
+    case "confirm_van_setup":
+      return actionSummaries.confirmVan;
+    case "set_child_needs":
+      return actionSummaries.setNeeds;
+    case "restart_demo_day":
+      return actionSummaries.restart;
+    case "decide_card":
+      return actionSummaries.decideCard;
+    case "take_alert":
+      return actionSummaries.takeAlert;
+    default:
+      return actionSummaries.generic;
+  }
 }

@@ -60,6 +60,8 @@ const ALLOWED_SEED_IMPORTERS = [
   "src/modules/demo/scripted-reply.db.test.ts",
   /* The agent re-plans and proposes Restart as the person who asked (ledger #74): a seeded day. */
   "src/modules/actions/replan-by-agent.db.test.ts",
+  /* An alert raised for staff reaches the agent, which proposes (ledger #74 e): a seeded day. */
+  "src/modules/agent/alerts.db.test.ts",
   /*
    * One saved plan read by four screens — the board, Today, Health and the Live map — against a
    * seeded day (S1, 2026-10-18). The memory store cannot reach the SQL those tiles are counted

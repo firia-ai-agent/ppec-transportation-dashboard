@@ -112,6 +112,11 @@ export function dbContextAssembler(
     if (input.trigger.type === "staff.ask") {
       return staffAskContext(db, input, { paused: agentPaused(env) });
     }
+    // An alert raised for staff (ledger #74 e): the same site-wide reader, the alert as its
+    // instruction, and every action a proposal.
+    if (input.trigger.type === "operational.event") {
+      return staffAskContext(db, input, { paused: agentPaused(env), alert: true });
+    }
     if (input.trigger.type !== "msg.inbound") {
       throw new AssemblerRefusal(`no context reader for trigger type ${input.trigger.type}`);
     }

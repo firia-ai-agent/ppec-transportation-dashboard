@@ -29,7 +29,7 @@ const boardFor = (ctx: ActionCtx, date: string, leg: Direction) =>
 
 /** `savePlanRequest` with the caller's board, when it brought one. */
 const save = (ctx: ActionCtx, body: Parameters<typeof savePlanRequest>[2]) =>
-  savePlanRequest(ctx.siteId, ctx.caller, body, ctx.now, ctx.deps?.store, ctx.deps?.source);
+  savePlanRequest(ctx.siteId, ctx.caller, body, ctx.now, ctx.deps?.store, ctx.deps?.source, ctx.deps?.notify);
 
 /** The moves that turn one plan into another, as PlanBoard's Auto-plan sends them (`planned`). */
 function plannedMoves(before: BoardPlan, after: BoardPlan) {
@@ -96,7 +96,8 @@ export const PLAN_ACTIONS = {
     input: vanSetupBody.extend({ vanId: z.string().min(1).max(64) }),
     confirm: false,
     describe: () => actionSummaries.confirmVan,
-    run: (ctx, { vanId, ...i }) => putVanSetupRequest(ctx.siteId, ctx.caller, vanId, i, ctx.now, ctx.deps?.store),
+    run: (ctx, { vanId, ...i }) =>
+      putVanSetupRequest(ctx.siteId, ctx.caller, vanId, i, ctx.now, ctx.deps?.store, ctx.deps?.vanShort, ctx.deps?.source),
   }),
   /** A child's approved needs (PRD §11.2: never the agent's alone — a person confirms). */
   set_child_needs: entry({

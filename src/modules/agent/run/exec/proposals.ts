@@ -156,8 +156,9 @@ export function proposalWriter(_deps: ExecutorDeps): ProposalWriter {
       case "request_clarification":
         return messageSend(tx, input);
       default:
-        // A confirm card (ledger #74 d): an action a person must press, prepared by the agent.
-        return actionTool(input.tool)?.tier === "human" ? staffAction(tx, input) : {};
+        // A confirm card (ledger #74 d, e): an action a person presses, prepared by the agent —
+        // human tier always, and any action in a run with nobody to act for (policy proposeOnly).
+        return actionTool(input.tool) ? staffAction(tx, input) : {};
     }
   };
 }
@@ -681,7 +682,7 @@ async function staffAction(tx: Exec, input: ProposalInput): Promise<Record<strin
         tool: tool.name,
         action: tool.action,
         args: input.args,
-        summary: staffActionSummary(tool.name),
+        summary: staffActionSummary(tool.name, input.args),
         approval_key: input.approvalKey,
       }),
       by,

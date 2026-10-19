@@ -32,22 +32,16 @@ import { DEMO_SITE_ID } from "@/modules/demo/fixtures/standard";
 import type { DayDataSource } from "@/domain/day/source";
 import { dayDataSource, loadBoard, placementsToSave, planStore, type BoardView, type PlanStore } from "./store";
 import { sendReplanLateNotices, type ReplanNoticeInput } from "./replan-notices";
+import { raiseVanShortAlerts, type VanShortInput } from "./van-short";
+import { vercelQueueAgentTransport } from "@/modules/agent/run/vercel-queue";
+import { configuredRouting } from "@/modules/agent/run/inbound-hook";
 import { vercelQueueOutboxTransport } from "@/modules/outbox/transport";
 
 /* ───────────────────────────── which site ───────────────────────────── */
 
-/**
- * The site this caller's board belongs to: their own membership, or the demo site when the
- * session has no membership at all.
- *
- * The demo is one centre (PRD §18.1), and the board is not a multi-site surface yet: a caller who
- * is a member of several sites gets the first, which is the same resolution the demo reset uses
- * when a request does not name one. The membership-less case is the browser check's synthetic
- * session (src/auth/caller.ts), which has a role and no identity.
- */
-export function siteOf(caller: { memberships?: readonly { siteId: string }[] }): string {
-  return caller.memberships?.[0]?.siteId ?? DEMO_SITE_ID;
-}
+// In its own leaf (`site.ts`) so a screen's action that only needs the site does not carry this
+// module's writers — and the agent paths they now reach — into its graph (ledger #74).
+export { siteOf } from "./site";
 
 /* ───────────────────────────── reading the board ───────────────────────────── */
 
@@ -240,12 +234,15 @@ export async function putVanSetupRequest(
   input: z.infer<typeof vanSetupBody>,
   now: Date = new Date(),
   store: PlanStore = planStore(),
+  /** The rule that turns a van that no longer fits into a staff alert the agent hears (ledger #74 e). */
+  alerts: VanShortNotifier = vanShortNotifier(),
+  source: DayDataSource = dayDataSource(siteId),
 ): Promise<VanSetupAnswer> {
   if (input.state !== CONFIRMED_STATE) {
     return { status: 403, body: { ok: false, reason: "NOT_A_STATE" } };
   }
 
-  const view = await loadBoard(store, siteId, input.date, "PM");
+  const view = await loadBoard(store, siteId, input.date, "PM", source);
   if (!view.day.vans.some((van) => van.id === vanId)) {
     return { status: 404, body: { ok: false, reason: "NO_SUCH_VAN" } };
   }
@@ -267,8 +264,24 @@ export async function putVanSetupRequest(
 
   // The answer carries the day's steps back, so the screen that just confirmed a van can say
   // "1/3 checked" without asking a second endpoint for it (§9.4).
-  const after = await loadBoard(store, siteId, input.date, view.day.direction);
+  const after = await loadBoard(store, siteId, input.date, view.day.direction, source);
+  /*
+   * A VAN THAT NO LONGER FITS WHAT IT WAS PLANNED TO CARRY is an alert, for staff and the agent
+   * (ledger #74 e; `van-short.ts`). After the write; never a reason the confirm failed — the counts
+   * are recorded either way, and the banner on this screen already says who won't fit.
+   */
+  await alerts({ siteId, date: input.date, by: `staff:${caller.userId ?? "unknown"}`, store, source })
+    .catch((e) => console.error("[vans:setup] van-short alert not raised", e instanceof Error ? e.message : e));
   return { status: 200, body: { ok: true, readiness: after.readiness } };
+}
+
+/** What a confirmed van setup hands its board to. Injected so a test can watch it. */
+export type VanShortNotifier = (input: VanShortInput) => Promise<unknown>;
+
+/** The production rule: the database and the agent queue. A run with no database raises nothing. */
+export function vanShortNotifier(env: Record<string, string | undefined> = process.env): VanShortNotifier {
+  if (!env.DATABASE_URL || isReadOnlyDbEnv(env)) return async () => undefined;
+  return (input) => raiseVanShortAlerts(getNeonDb(), vercelQueueAgentTransport, configuredRouting(env), input);
 }
 
 /** Every placement a caller may post, for the one type the board and the endpoint share. */

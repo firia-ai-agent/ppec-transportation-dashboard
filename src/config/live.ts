@@ -96,8 +96,20 @@ export const liveStreamConfig = {
   reconnectAfterMs: 2_000,
 } as const;
 
+/**
+ * Alerts the agent hears (ledger #74 e). An alert raised for staff starts one agent run that may
+ * only propose; this bounds how many such runs one centre can start in an hour, so a burst of
+ * alerts — or a rule that misfires — cannot turn into a burst of model calls.
+ */
+export const alertAgentConfig = {
+  maxRunsPerSitePerHour: 20,
+  /** A queued alert run whose wake-up was lost is woken again by the one-minute sweep after this. */
+  rewakeAfterSeconds: 60,
+} as const;
+
 /** Every live number in one object, for a caller that wants to print or diff the table. */
 export const liveConfig = {
+  alertAgent: alertAgentConfig,
   freshness: freshnessConfig,
   notifyGate: notifyGateConfig,
   recompute: recomputeConfig,

@@ -4,7 +4,7 @@
  * `ActionCtx`, so every screen acts the same way the agent acts for the person who asked.
  */
 import type { StaffCaller } from "@/auth/api-guard";
-import { siteOf } from "@/modules/plan/api";
+import { siteOf } from "@/modules/plan/site";
 import type { ActionCtx } from "./types";
 
 export function screenCtx(caller: StaffCaller, now: Date = new Date()): ActionCtx {

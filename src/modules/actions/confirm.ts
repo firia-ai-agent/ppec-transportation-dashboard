@@ -23,6 +23,7 @@ import { STAFF_ACTION_KIND } from "./confirm-view";
 import { resolveTask } from "@/modules/approvals/decide";
 import { loadBoard } from "@/modules/plan/store";
 import { actionDepsFor } from "./deps";
+import type { ActionDeps } from "./types";
 import { ACTIONS, authorize, runAction, type ActionCtx, type ActionName } from "./registry";
 
 export type ConfirmDecision = "APPROVED" | "DECLINED";
@@ -37,6 +38,8 @@ export type ConfirmAnswer =
 export async function confirmStaffAction(
   db: Db,
   req: { readonly userId?: string; readonly approvalId: string; readonly decision: ConfirmDecision; readonly now: Date },
+  /** Over the defaults `actionDepsFor(db)` gives — a test's outbox, say. */
+  deps: ActionDeps = {},
 ): Promise<ConfirmAnswer> {
   if (!req.userId) return { status: 401, body: { ok: false, error: "SIGN_IN" } };
   const row = (
@@ -53,7 +56,7 @@ export async function confirmStaffAction(
   let ctx: ActionCtx;
   try {
     const membership = await requireSiteAccess(db, req.userId, row.site_id, ALL_STAFF);
-    ctx = { siteId: row.site_id, caller: { userId: req.userId, role: membership.role }, now: req.now, deps: actionDepsFor(db, row.site_id) };
+    ctx = { siteId: row.site_id, caller: { userId: req.userId, role: membership.role }, now: req.now, deps: { ...actionDepsFor(db, row.site_id), ...deps } };
     if (req.decision === "APPROVED") await authorize(db, ctx, ACTIONS[tool.action as ActionName]);
   } catch (e) {
     if (e instanceof Unauthenticated) return { status: 401, body: { ok: false, error: "SIGN_IN" } };
