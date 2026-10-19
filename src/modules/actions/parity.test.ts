@@ -24,6 +24,7 @@ const read = (file: string) => readFileSync(path.join(REPO, file), "utf8");
 const NOT_AN_ACTION: Readonly<Record<string, string>> = {
   [API.agentAsk]: "the ask itself: what a person types to the agent, not a change to the day",
   "action:staff-action-confirm": "the press on a confirm card: it runs a registry action, it is not one",
+  [API.demoParentText]: "plays a parent texting in (demo only, ledger #78): not a staff write to the day",
 };
 
 /** The writes a signed-in person can make: POST routes and server actions behind a session. */

@@ -191,6 +191,8 @@ export const API = {
   devAgentWake: "/api/dev/agent-wake",
   probeDelay: "/api/probe/delay",
   demoReset: "/api/demo/reset",
+  /** The demo's "Simulate parent text" on Family texts (ledger #78). */
+  demoParentText: "/api/demo/parent-text",
   /** The plan board: the day it reads, the plan it saves, and one van's setup. */
   planBoard: "/api/plan",
   planSave: "/api/plan/save",
@@ -656,6 +658,18 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     path: API.demoReset,
     methods: ["POST"],
     auth: { kind: "session", roles: ["DIRECTOR"], siteScoped: true },
+  },
+  /**
+   * "Simulate parent text" (ledger #78): a parent's text, built from the day, sent through the real
+   * inbound path. The same demo gate as Restart; the roles that work Family texts' For you tab,
+   * at the caller's own site.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/demo/parent-text/route.ts",
+    path: API.demoParentText,
+    methods: ["POST"],
+    auth: { kind: "session", roles: APPROVAL_ROLES, siteScoped: true },
   },
   /**
    * Saving a plan from Plan routes (B-09): the one write the planning surface makes.

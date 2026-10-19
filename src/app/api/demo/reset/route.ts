@@ -32,8 +32,7 @@ export async function POST(req: Request) {
   if (!guard.ok) return guard.response;
   const parsed = body.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) return Response.json({ ok: false, error: "Bad request." }, { status: 400, headers: noStore });
-  // The day's one inbound text is no longer sent here: the scenario parent answers the re-plan's
-  // late text once it is delivered (demo/scripted-reply.ts), which is the order a real day has.
+  // No inbound text is sent here: a parent's text is the demo's "Simulate parent text" (ledger #78).
   const r = await ACTIONS.restart_demo_day.run(screenCtx(guard.caller), { siteId: parsed.data.siteId });
   return Response.json(r.body, { status: r.status, headers: noStore });
 }

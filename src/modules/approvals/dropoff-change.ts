@@ -3,10 +3,9 @@
  * and everything that reads one.
  *
  * `ops.approval_request.proposal` is a single `jsonb` column shared by every `propose_*` tool, so
- * `kind` is how a reader knows which shape it is holding. There are three writers of this shape
- * now — the agent's own `propose_dropoff_change` (`agent/run/exec/proposals.ts`), the demo seed
- * (`demo/approval-seed.ts`), and in tests the fixtures that stand in for them — and two readers,
- * `pendingApprovals` and `decideApproval`. One of those five spelling the kind differently is a
+ * `kind` is how a reader knows which shape it is holding. Its writers are the agent's own
+ * `propose_dropoff_change` (`agent/run/exec/proposals.ts`) and, in tests, the fixtures that stand in
+ * for it; its two readers are `pendingApprovals` and `decideApproval`. One of them spelling the kind differently is a
  * proposal nobody can decide, so the string lives in one place.
  *
  * ## Why its own file, rather than `proposals.ts` where it started
@@ -16,7 +15,7 @@
  * wanted the name of a template ended up with a runtime dependency on the database handle. That
  * broke `src/app/api/demo/reset/route.test.ts`, which mocks `@/db/exec` with a factory: the demo
  * seed began importing `proposals.ts` for these three constants, the mocked module was evaluated
- * through `reset.ts` → `seed.ts` → `approval-seed.ts` before the test's own `vi.fn` was
+ * through `reset.ts` → `seed.ts` → the demo's former approval seed before the test's own `vi.fn` was
  * initialized, and the whole suite failed to load with "Cannot access 'getNeonDb' before
  * initialization".
  *

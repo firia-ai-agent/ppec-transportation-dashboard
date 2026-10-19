@@ -182,8 +182,8 @@ type DropoffProposal = {
    * Firia's PR #75 ruling: no plan-version check in `decideApproval`. The write's own optimistic
    * lock is the guard — `setChildPlacement` is given the version read in the same transaction, so
    * a plan that moves between this decision's read and its write is still the board's own 409.
-   * What this field does NOT do is refuse a proposal for being older than the plan: the demo's
-   * own seeded row carries the basis from a day with no `plan_run` (`demo/approval-seed.ts`), and
+   * What this field does NOT do is refuse a proposal for being older than the plan: a proposal
+   * may carry the basis from a day with no `plan_run` (the demo's former seeded row did), and
    * a staff Auto-plan + Save before the coordinator presses Approve must not make the one card the
    * walked demo opens on undecidable.
    *

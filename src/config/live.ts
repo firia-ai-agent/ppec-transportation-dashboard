@@ -118,12 +118,23 @@ export const agentRetryConfig = {
   retryAfterSeconds: 60,
 } as const;
 
+/**
+ * THE DEMO'S "PARENT CAN'T BE HOME" TEXT (ledger #78): the later time the parent asks for is the
+ * child's estimated drop-off plus `laterByMinutes`, rounded up to `roundToMinutes` — the way a
+ * person would say it.
+ */
+export const parentTextConfig = {
+  laterByMinutes: 30,
+  roundToMinutes: 5,
+} as const;
+
 /** Every live number in one object, for a caller that wants to print or diff the table. */
 export const liveConfig = {
   agentRetry: agentRetryConfig,
   alertAgent: alertAgentConfig,
   freshness: freshnessConfig,
   notifyGate: notifyGateConfig,
+  parentText: parentTextConfig,
   recompute: recomputeConfig,
   stream: liveStreamConfig,
 } as const;

@@ -15,6 +15,7 @@ import { decideApprovalAction, takeAlertAction } from "./actions";
 import { contextFor } from "./context";
 import { conversationRows, tabFrom, threadView, type ProposalView } from "./conversations";
 import { TextsScreen } from "./TextsScreen";
+import { demoControlsGate } from "@/modules/demo/gate";
 import { phonesForDay, threadFor } from "./thread";
 
 export const metadata = { title: familyTexts.documentTitle };
@@ -173,6 +174,8 @@ export default async function FamilyTextsPage({
       decide={decideApprovalAction}
       takeAlert={takeAlertAction}
       showForYouTab={mayApprove}
+      /* A demo control (ledger #78): only where the demo controls are on, for the roles it serves. */
+      simulate={mayApprove && demoControlsGate(process.env).allowed ? phones.map((p) => ({ key: p.childKey, label: p.childLabel })) : null}
     />
   );
 }
@@ -189,10 +192,9 @@ export default async function FamilyTextsPage({
  * who has pressed it has been told the family was texted about a change that no row records and
  * no plan holds.
  *
- * With no rows there is now no card, and the For you tab says so in its own words. The demo still
- * has a card to show, because the demo *seeds a real approval row* — `seedDemoChangeRequest`
- * (src/modules/demo/approval-seed.ts), run by the standard seed, which writes the same shape
- * `agent/run/exec/proposals.ts` writes and is read back by the same query.
+ * With no rows there is now no card, and the For you tab says so in its own words. The demo gets a
+ * card the way the product does: a parent's text ("Simulate parent text", ledger #78) starts an
+ * agent run, and the card is the row `agent/run/exec/proposals.ts` writes.
  */
 
 async function readAlerts(

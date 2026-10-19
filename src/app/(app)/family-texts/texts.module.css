@@ -881,3 +881,67 @@
 :global(body):has(.composeDock) :global([data-agent-bubble]) {
   display: none;
 }
+
+/* ───────────── "Simulate parent text" (ledger #78): a demo control, on the tab strip's right ───────────── */
+
+.simulate {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.simulateSelect,
+.simulateButton {
+  height: 30px;
+  border: var(--border-hairline) solid var(--color-disabled-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--text-12);
+}
+
+.simulateSelect {
+  max-width: 11rem;
+  padding: 0 var(--space-3);
+}
+
+.simulateButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.simulateButton:disabled,
+.simulateSelect:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.simulateMessage {
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}
+
+/* A phone: the demo control takes its own row under the tabs, so nothing runs off the edge. */
+@media (max-width: 767px) {
+  .tabs {
+    flex-wrap: wrap;
+  }
+
+  .simulate {
+    flex-basis: 100%;
+    flex-wrap: nowrap;
+  }
+
+  .simulateSelect {
+    flex: 1;
+    max-width: none;
+  }
+}

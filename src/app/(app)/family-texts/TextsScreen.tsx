@@ -13,6 +13,7 @@ import type { ThreadContext } from "./context";
 import type { ConversationRow, ProposalView, TabKey, ThreadView } from "./conversations";
 import { TABS } from "./conversations";
 import type { DecideAction, TakeAlertAction } from "./actions";
+import { SimulateParentText, type SimulateOption } from "./SimulateParentText";
 import styles from "./texts.module.css";
 
 /**
@@ -44,6 +45,7 @@ export function TextsScreen({
   decide,
   takeAlert,
   showForYouTab,
+  simulate = null,
 }: {
   readonly tab: TabKey;
   readonly rows: readonly ConversationRow[];
@@ -73,6 +75,8 @@ export function TextsScreen({
    * being absent is the courtesy; the server refusing the action and the page is the guard.
    */
   readonly showForYouTab: boolean;
+  /** The demo's "Simulate parent text" families (ledger #78), or null where the demo controls are off. */
+  readonly simulate?: readonly SimulateOption[] | null;
 }) {
   const forYou = tab === "for-you" && showForYouTab;
   return (
@@ -109,6 +113,7 @@ export function TextsScreen({
           </Link>
         ))}
         <span className={styles.headerSpacer} />
+        {simulate && simulate.length > 0 ? <SimulateParentText options={simulate} /> : null}
       </nav>
 
       {/*

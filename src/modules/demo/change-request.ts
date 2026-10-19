@@ -12,7 +12,7 @@
  *
  * ## What is scripted, and what is computed
  *
- * The **parent's sentence** is scripted (`familyTexts.demoReply`) — a demo has to have something
+ * The **parent's sentence** is copy (`familyTexts.parentCantReceive`) — a demo has to have something
  * for the assistant to read, and a fixture sentence is honest in a way an invented screenshot is
  * not. Everything else is computed from the day: who the family is and what they are called comes
  * off the fixtures, the ride and the stop come off the scenario's committed geometry, the time
@@ -121,7 +121,11 @@ function requestFrom(text: LateDropoff, day: ServiceDay): DemoChangeRequest {
     guardianName: `${guardian.firstName} ${guardian.lastInitial}.`,
     relationship: guardian.relationship,
     askedAtMs: text.atMs + REPLY_AFTER_MS,
-    parentText: fill(familyTexts.demoReply, { child: child.firstName }),
+    parentText: fill(familyTexts.parentCantReceive, {
+      eta: text.windowText,
+      child: child.firstName,
+      later: formatClock(localTimeOn(day, REQUESTED_HHMM)),
+    }),
     draftedAtMs: text.atMs + DRAFT_AFTER_MS,
     stopPlace: text.stopPlace,
     timeFrom: text.windowText,

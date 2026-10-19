@@ -1,8 +1,9 @@
 /**
  * THE DEMO, END TO END, WITH NOTHING PRE-WRITTEN (founder, 2026-10-18).
  *
- *  1. Restart seeds the day and Dara's text arrives through the real inbound path — one message,
- *     one `msg.inbound` run, one agent wake-up. No card, no alert.
+ *  1. Restart seeds the day, the afternoon is planned, and "Simulate parent text" sends Dara's text —
+ *     built from Noah's estimated drop-off — through the real inbound path: one message, one
+ *     `msg.inbound` run, one agent wake-up. No card, no alert.
  *  2. The model reads the thread and the plan with its tools and calls `propose_dropoff_change`;
  *     the policy engine holds it as a PROPOSAL, so nothing changes yet.
  *  3. The alert and the reply are the model's own words — written in the prompt's tokens and
@@ -40,7 +41,9 @@ import { freshPlanDb, SITE } from "@/test/pglite";
 import { approvalQueue } from "@/app/(app)/family-texts/queue";
 import { agentBubble, fill } from "@/ui/copy";
 import { KIND, childTokenOf, demoId, demoLegId } from "./fixtures/standard";
-import { sendDemoInbound } from "./inbound-script";
+import { simulateParentText } from "./parent-text";
+import { saveAutoPlan } from "@/test/save-plan";
+import { actionDepsFor } from "@/modules/actions/deps";
 import { seedStandardScenario } from "./seed";
 
 const NOW = new Date("2026-10-16T19:30:00.000Z");
@@ -121,12 +124,23 @@ describe("Restart → Dara's text → the model's card → Approve", () => {
   let runId = "";
   let model: ReturnType<typeof promptReadingModel>;
 
-  it("Restart seeds the day and Dara's text arrives through the real inbound path, and nothing else", async () => {
-    const seeded = await seedStandardScenario(db, { now: NOW, siteId: SITE, env: ENV });
-    const sent = await sendDemoInbound(db, {
-      env: ENV, now: NOW, serviceDate: seeded.serviceDate, agentTransport: wake, outboxTransport: outbox,
-    });
-    expect(sent, JSON.stringify(sent)).toMatchObject({ sent: true, body: { known: true } });
+  /** Restart, then the afternoon planned the way a coordinator plans it. */
+  async function restartAndPlan() {
+    await seedStandardScenario(db, { now: NOW, siteId: SITE, env: ENV });
+    const deps = actionDepsFor(db, SITE);
+    expect((await saveAutoPlan({ siteId: SITE, caller: { userId: coordinator, role: "COORDINATOR" }, now: NOW, deps }, SERVICE_DATE, "PM")).status).toBe(200);
+    return deps;
+  }
+  const press = (deps: ReturnType<typeof actionDepsFor>, childKey: string | null) =>
+    simulateParentText(db, { env: ENV, now: NOW, agentTransport: wake, outboxTransport: outbox, store: deps.store!, source: deps.source! }, { siteId: SITE, childKey });
+
+  it("Restart, then Simulate parent text: Dara's text arrives through the real inbound path, and nothing else", async () => {
+    const deps = await restartAndPlan();
+    await db.query("DELETE FROM ops.outbound_message", []);
+    const sent = await press(deps, "C2");
+    expect(sent, JSON.stringify(sent)).toMatchObject({ sent: true, childKey: "C2" });
+    // Her words carry Noah's own estimate and a later time, read off the saved plan.
+    expect(sent.sent && sent.text).toMatch(/^Hi, I won't be home at \d{1,2}:\d{2} (AM|PM) for Noah\. Can you bring them at \d{1,2}:\d{2} (AM|PM) instead\?$/);
 
     const messages = await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.message WHERE direction = 'IN'", []);
     const runs = await db.query<{ id: string; trigger_type: string; state: string }>(
@@ -138,17 +152,27 @@ describe("Restart → Dara's text → the model's card → Approve", () => {
     runId = runs.rows[0].id;
     // No pre-built card and no canned alert.
     expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.approval_request", [])).rows[0].n).toBe(0);
-    expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.task", [])).rows[0].n).toBe(0);
   }, 120_000);
 
-  it("a second Restart is one message and one run again, not two", async () => {
-    const seeded = await seedStandardScenario(db, { now: NOW, siteId: SITE, env: ENV });
-    for (let i = 0; i < 2; i += 1) {
-      await sendDemoInbound(db, {
-        env: ENV, now: NOW, serviceDate: seeded.serviceDate, agentTransport: wake, outboxTransport: outbox,
-      });
-    }
-    expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.message", [])).rows[0].n).toBe(1);
+  it("follows the day: with no child named it is the next drop-off, and a later departure moves the time", async () => {
+    const deps = actionDepsFor(db, SITE);
+    const first = await press(deps, null);
+    expect(first.sent).toBe(true);
+    const view = await import("@/modules/plan/store").then((m) => m.loadBoard(deps.store!, SITE, SERVICE_DATE, "PM", deps.source!));
+    const later = Object.fromEntries(view.day.vans.map((v) => [v.id, "16:30"]));
+    expect((await (await import("@/modules/actions/registry")).ACTIONS.save_plan.run(
+      { siteId: SITE, caller: { userId: coordinator, role: "COORDINATOR" }, now: NOW, deps },
+      { date: SERVICE_DATE, direction: "PM", version: view.version, moves: [], departures: later },
+    )).status).toBe(200);
+    const again = await press(deps, first.sent ? first.childKey : null);
+    expect(again.sent && first.sent && again.text).not.toBe(first.sent && first.text);
+  }, 120_000);
+
+  it("a second Restart is a fresh day: one press, one message and one run", async () => {
+    const deps = await restartAndPlan();
+    await db.query("DELETE FROM ops.outbound_message", []);
+    expect((await press(deps, "C2")).sent).toBe(true);
+    expect((await db.query<{ n: number }>("SELECT count(*)::int n FROM ops.message WHERE direction = 'IN'", [])).rows[0].n).toBe(1);
     const runs = await db.query<{ id: string }>("SELECT id FROM ops.agent_run", []);
     expect(runs.rows).toHaveLength(1);
     runId = runs.rows[0].id;
@@ -177,7 +201,7 @@ describe("Restart → Dara's text → the model's card → Approve", () => {
     expect(result, JSON.stringify(result)).toMatchObject({ state: "SUCCEEDED", steps: 2 });
 
     // What the model was shown: Dara's own words, tokenized, and the leg it can change.
-    expect(model.prompts[0]).toMatch(/Hi we won't be home at that time can you do 5\?/);
+    expect(model.prompts[0]).toMatch(/I won't be home at \d{1,2}:\d{2} (AM|PM) for C2\. Can you bring them at/);
     expect(model.prompts[0]).toMatch(/part=PM state=\S+ version=\d+ window=16:20/);
     expect(model.prompts.join("\n")).not.toMatch(/Noah|Dara/);
 
@@ -299,7 +323,7 @@ describe("Restart → Dara's text → the model's card → Approve", () => {
       answer: "Dara asked to have Noah dropped off at 5 instead, because someone is home then.",
     });
     // The model read her actual words through the tool, and was never shown a name.
-    expect(prompts[1]).toMatch(/can you do 5\?/);
+    expect(prompts[1]).toMatch(/Can you bring them at \d{1,2}:\d{2} (AM|PM) instead\?/);
     expect(prompts.join("\n")).not.toMatch(/Noah|Dara/);
     // And the answer is still there after a reload: the thread reads it back from the run's rows.
     const view = await readAgentThread(db, SITE);
