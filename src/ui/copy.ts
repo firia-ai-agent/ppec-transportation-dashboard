@@ -3306,6 +3306,8 @@ export const agentBubble = {
    * rest ({@link agentAsk.unavailable}).
    */
   noAnswer: "I couldn't answer that just now, so it's on your list as an alert.",
+  /** Under an ask whose run is still on the queue (ledger #74): replaced by the answer when it lands. */
+  working: "Working on it…",
   /** The model ran and proposed a change but wrote no answer line: the card below is the answer. */
   proposedBelow: "I've drafted a change for you to review.",
   /** Nothing has been said today. The thread shows what exists and never invents a message. */

@@ -54,6 +54,9 @@ import { effectId, raiseTask } from "../run/exec/effects";
 import { askAnswer } from "./answer";
 import type { RunDeps, RunResult } from "../run/loop";
 import { startAndDriveRun } from "../run/loop";
+import { enqueueRun, type AgentWakeTransport } from "../run/queue";
+import { configuredRouting } from "../run/inbound-hook";
+import { loadRun } from "../run/store";
 import { type Trigger, assertTrigger } from "../run/triggers";
 
 /*
@@ -102,7 +105,12 @@ export type StaffAskResult =
       readonly run: RunResult;
       readonly answer: string | null;
       readonly proposalId: string | null;
-    };
+    }
+  /**
+   * The run is on the agent queue (ledger #74): the model's answer — or the "couldn't answer"
+   * line — lands in the thread when it finishes, and the bubble shows "working" until then.
+   */
+  | { readonly ok: true; readonly outcome: "working"; readonly taskId: string; readonly runId: string };
 
 /**
  * The log sentence for a runner that is `ok` and `refused` without words of its own. `run/deps.ts`
@@ -119,6 +127,14 @@ export type StaffAskDeps = {
   readonly runner?: () => AgentRunner;
   /** How a run is started and driven. Defaults to the one the queue consumer uses. */
   readonly drive?: (deps: RunDeps, trigger: Trigger) => Promise<RunResult>;
+  /**
+   * Hand the run to the agent queue instead of driving it inside this request (ledger #74). A
+   * staff ask can take several model turns — read the plan, act, answer — and a request has
+   * `maxDuration` 60 s while the queue consumer has 120 s. With it, the ask answers `working` at
+   * once and `settleStaffAsk` closes it when the run ends. Without it (the suites), the run is
+   * driven here, as before.
+   */
+  readonly wake?: AgentWakeTransport;
   readonly env?: Record<string, string | undefined>;
 };
 
@@ -210,6 +226,10 @@ export async function askAgent(
   // 4. The one run loop, entered the way every other trigger enters it.
   const trigger: Trigger = { type: "staff.ask", id: taskId, siteId: input.siteId };
   assertTrigger(trigger);
+  if (deps.wake) {
+    const { runId } = await enqueueRun(db, deps.wake, trigger, configuredRouting(env));
+    return { ok: true, outcome: "working", taskId, runId };
+  }
   try {
     /*
      * A HARD DEADLINE ON THE WHOLE ASK. The run is driven inside this request, and a request that
@@ -248,18 +268,7 @@ export async function askAgent(
      * its class and, for a gateway refusal, the outcome code — enough for the route's log line to
      * say which wall the ask hit, and nothing a message could smuggle.
      */
-    const alertId = await raiseTask(db, {
-      id: effectId(taskId, "needs-person"),
-      siteId: input.siteId,
-      category: STAFF_ALERT_TASK_CATEGORY,
-      severity: "RED",
-      words: {
-        summary: `${agentAsk.unavailable.summary}: ${ask}`,
-        nextStep: agentAsk.unavailable.nextStep,
-        predicate: agentAsk.unavailable.predicate,
-      },
-      by: input.by,
-    });
+    const alertId = await raiseAskAlert(db, { askId: taskId, siteId: input.siteId, ask, by: input.by });
     return {
       ok: false,
       outcome: "unavailable",
@@ -300,4 +309,51 @@ function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T | typeof TI
       },
     );
   });
+}
+
+/**
+ * The staff alert for an ask nobody answered: one row per ask, under the derived id the thread
+ * reads its "couldn't answer" line from (`ask/thread.ts`). Idempotent, so a retried ask or a
+ * redelivered run raises it once.
+ */
+async function raiseAskAlert(
+  db: Db,
+  a: { readonly askId: string; readonly siteId: string; readonly ask: string; readonly by: string },
+): Promise<string> {
+  return raiseTask(db, {
+    id: effectId(a.askId, "needs-person"),
+    siteId: a.siteId,
+    category: STAFF_ALERT_TASK_CATEGORY,
+    severity: "RED",
+    words: {
+      summary: `${agentAsk.unavailable.summary}: ${a.ask}`,
+      nextStep: agentAsk.unavailable.nextStep,
+      predicate: agentAsk.unavailable.predicate,
+    },
+    by: a.by,
+  });
+}
+
+/**
+ * CLOSE A QUEUED ASK (ledger #74): called by the agent queue consumer when it has driven a run.
+ * A `staff.ask` run that has ended — succeeded or failed — with no answer and no proposal gets the
+ * same alert the inline path raises, so the bubble says it could not answer instead of saying
+ * nothing. Anything else (another trigger, a run still parked) is left alone.
+ */
+export async function settleStaffAsk(db: Db, runId: string): Promise<"alerted" | "answered" | "not-an-ended-ask"> {
+  const run = await loadRun(db, runId);
+  if (!run || run.trigger.type !== "staff.ask" || (run.state !== "SUCCEEDED" && run.state !== "FAILED")) {
+    return "not-an-ended-ask";
+  }
+  const said = await askAnswer(db, runId);
+  if (said.answer !== null || said.proposalId !== null) return "answered";
+  const ask = (
+    await db.query<{ summary: string; created_by: string }>(
+      "SELECT summary, created_by FROM ops.task WHERE id = $1 AND site_id = $2",
+      [run.trigger.id, run.siteId],
+    )
+  ).rows[0];
+  if (!ask) return "not-an-ended-ask";
+  await raiseAskAlert(db, { askId: run.trigger.id, siteId: run.siteId, ask: askTextOf(ask.summary), by: ask.created_by });
+  return "alerted";
 }
