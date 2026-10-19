@@ -593,6 +593,24 @@ const DEFS: readonly ToolDef[] = [
     prd: "§11.2: staff-only note",
     description: agentGuidance.summarize,
   },
+  /*
+   * The answer to the person who asked (ledger #74). `summarize_thread_for_staff` is a note on one
+   * family's thread and cannot answer anything else — "what's over capacity", "replan the
+   * afternoon" — so a staff ask had no way to say what it did or why it could not. Same prose
+   * field and the same sanitizing; no thread, no row of its own: the committed call is the record
+   * the bubble reads (`ask/answer.ts`). `read` because it changes nothing, so it still answers
+   * while the agent is paused.
+   */
+  {
+    name: "reply_to_staff",
+    tier: "auto",
+    effect: "read",
+    schema: z.object({ summary: staffProse }),
+    staffTextFields: ["summary"],
+    sendCopy: null,
+    prd: "beyond §11.2: the staff ask's own answer (ledger #74)",
+    description: agentGuidance.replyToStaff,
+  },
 ];
 
 /** The catalog, by tool name. The gateway rejects any name that is not a key here. */
@@ -603,12 +621,13 @@ export const TOOL_REGISTRY: Readonly<Record<string, ToolDef>> = Object.fromEntri
 export const TOOL_NAMES: readonly string[] = DEFS.map((d) => d.name);
 
 /**
- * §11.2 lists 15 tools; this catalog holds 17. The two beyond the PRD are
+ * §11.2 lists 15 tools; this catalog holds 18. `reply_to_staff` (ledger #74) is the staff ask's
+ * answer. The other two beyond the PRD are
  * `propose_dropoff_change` — the commonest thing a parent texts a transport desk, which had no
  * tool at all — and `read_guardian_thread`, the read the bubble's answer comes from. Asserted in
  * tools.test.ts, so a dropped row is a failing test and an added one is a deliberate edit here.
  */
-export const TOOL_COUNT = 17;
+export const TOOL_COUNT = 18;
 
 export function toolDef(name: string): ToolDef | undefined {
   return TOOL_REGISTRY[name];

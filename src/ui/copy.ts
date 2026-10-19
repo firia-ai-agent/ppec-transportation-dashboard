@@ -3203,6 +3203,9 @@ export const agentGuidance = {
     "Null when the family keeps their stop, which is the usual case. Only when they ask for a " +
     "different place: one of the listed stop tokens, exactly as written.",
   readGuardianThread: "Read the last messages on a family's thread, oldest first, to see exactly what they asked.",
+  replyToStaff:
+    "Answer the staff member who asked: what you did, what you found, or why you could not. One or " +
+    "two plain sentences, with people written as the prompt's tokens. Call it last.",
   summarize:
     "Answer the coordinator, or leave them a note about a thread: one or two plain sentences, with " +
     "people written as the prompt's family and child tokens, which are shown as first names.",

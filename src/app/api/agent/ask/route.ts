@@ -34,7 +34,8 @@ export async function POST(req: Request) {
 
   const body: unknown = await req.json().catch(() => null);
   const text = typeof body === "object" && body !== null ? (body as { text?: unknown }).text : null;
-  if (typeof text !== "string") {
+  const id = typeof body === "object" && body !== null ? (body as { id?: unknown }).id : undefined;
+  if (typeof text !== "string" || (id !== undefined && typeof id !== "string")) {
     return Response.json({ ok: false, error: apiAccess.badRequest }, { status: 400, headers: noStore });
   }
 
@@ -42,6 +43,9 @@ export async function POST(req: Request) {
     const result = await askAgent(getNeonDb(), {
       siteId: siteOf(guard.caller),
       text,
+      // The tab's own id for this ask (ledger #74), so its line and the stored row are one item.
+      // `askAgent` refuses one that is not a uuid or that already names a row.
+      id,
       // The audit actor is an id, never a name (ADR-004: the token carries only a user id).
       by: `staff:${guard.caller.userId ?? "session"}`,
     });

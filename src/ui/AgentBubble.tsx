@@ -120,7 +120,7 @@ export function AgentBubble({
               <X size={22} aria-hidden="true" />
             </button>
           </div>
-          <AgentThread items={asked.length === 0 ? items : [...items, ...asked]} cards={cards} decide={decide} />
+          <AgentThread items={mergeAsked(items, asked)} cards={cards} decide={decide} />
           {compose}
         </aside>
       ) : null}
@@ -130,3 +130,15 @@ export function AgentBubble({
 
 /** Re-exported so a test can name the one key without reaching past the component. */
 export { AGENT_BUBBLE_OPEN_KEY };
+
+/**
+ * The server's thread, then what this tab asked that the server has not read back yet. One id per
+ * ask on both sides (`agent-ask-state.addAsk`), so an ask, its answer and its "couldn't answer"
+ * line each appear once whether the refresh has landed or not.
+ */
+function mergeAsked(items: readonly AgentThreadItem[], asked: readonly AgentThreadItem[]): readonly AgentThreadItem[] {
+  if (asked.length === 0) return items;
+  const idOf = (item: AgentThreadItem) => ("id" in item ? item.id : null);
+  const seen = new Set(items.map(idOf));
+  return [...items, ...asked.filter((item) => !seen.has(idOf(item)))];
+}

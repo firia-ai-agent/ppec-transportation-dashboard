@@ -27,6 +27,13 @@
  * Fail-shut is the default everywhere a step cannot complete: a gateway refusal, a policy block, a
  * missing executor and a failed execution all end the run rather than taking another model turn.
  * A hijacked thread must not be able to drive the loop, and a run that stopped is cheap to restart.
+ *
+ * ONE EXCEPTION, AND ONLY FOR A PERSON'S OWN RUN (user ruling 2026-10-18, ledger #74): a policy
+ * block in a run a staff member started (`FEEDBACK_ON_BLOCK`) is recorded exactly as before —
+ * BLOCKED, nothing executed, its staff task opened — and then handed back to the model as a result
+ * (`refused=<rule>`), so it can answer another way within its remaining turns. There is no family
+ * thread steering such a run; the instruction is the staff member's. A family's text still fails
+ * shut on the first refusal.
  */
 import type { Db } from "@/db/exec";
 import { type Clock, type JobScheduler, systemClock } from "@/modules/jobs/scheduler";
@@ -36,6 +43,7 @@ import { resolveScopeTokens, type ScopeTokens } from "./scope-tokens";
 import type { ContextAssembler } from "./context";
 import type { ProposalWriter } from "./exec/proposals";
 import type { ExecutorCall, ToolExecution, ToolExecutors } from "./executors";
+import type { TriggerType } from "./triggers";
 import {
   AgentRunError,
   type CommittedCall,
@@ -494,6 +502,9 @@ async function settleCall(
     const taskIds = policyTaskIds(row, tasks);
     const result = {
       blocked_rule: detail,
+      // What the model reads back on its next turn (context.ts resultLines): the rule code only.
+      // The reason sentence stays out, so "no such object" and "not yours" still read the same.
+      prompt_facts: { refused: detail },
       ...retightened,
       ...(taskIds.length === 0 ? {} : { task_ids: taskIds }),
     };
@@ -598,6 +609,9 @@ function resultRow(execution: ToolExecution): Record<string, unknown> | null {
 /* ──────────────────────────────── run outcomes ──────────────────────────────── */
 
 /** Map a step outcome onto the run's state. `null` means the loop takes another turn. */
+/** Runs a staff member started: a policy block is feedback to the model, not the end of the run. */
+export const FEEDBACK_ON_BLOCK: ReadonlySet<TriggerType> = new Set<TriggerType>(["staff.ask"]);
+
 async function finish(deps: RunDeps, run: RunRow, outcome: StepOutcome, steps: number): Promise<RunResult | null> {
   switch (outcome.kind) {
     case "continue":
@@ -608,6 +622,8 @@ async function finish(deps: RunDeps, run: RunRow, outcome: StepOutcome, steps: n
     case "done":
       return move(deps, run, "SUCCEEDED", steps);
     case "blocked":
+      // A person's run hears the refusal and carries on; a family's fails shut (header).
+      return FEEDBACK_ON_BLOCK.has(run.trigger.type) ? null : fail(deps, run, outcome.reason, steps);
     case "failed":
       return fail(deps, run, outcome.reason, steps);
     case "lost":

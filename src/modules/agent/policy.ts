@@ -443,6 +443,7 @@ const ROWS: readonly PolicyRow[] = [
   { tool: "escalate_exception", scopedArgs: ["leg_id"], sendSubject: null, note: "always allowed (§11.2), still scope-checked" },
   { tool: "close_task", scopedArgs: ["task_id", "evidence_ref"], sendSubject: null, note: "the evidence must be this run's own" },
   { tool: "summarize_thread_for_staff", scopedArgs: ["thread_id"], sendSubject: null, note: "staff-only note on this family's thread" },
+  { tool: "reply_to_staff", scopedArgs: [], sendSubject: null, note: "staff-only answer to the person who asked; names no object" },
 ];
 
 /** The policy table, by tool name. `evaluate` denies any catalog tool that is not a key here. */
@@ -643,6 +644,7 @@ const DEFENSIVE_TOOLS: ReadonlySet<string> = new Set([
   "read_guardian_thread",
   "escalate_exception",
   "summarize_thread_for_staff",
+  "reply_to_staff",
   "propose_manifest_reallocation",
   "propose_contact_or_profile_change",
 ]);

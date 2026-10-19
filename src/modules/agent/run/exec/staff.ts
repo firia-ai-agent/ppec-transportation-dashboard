@@ -258,6 +258,20 @@ export function closeTaskExecutor(deps: ExecutorDeps): ToolExecutor {
   };
 }
 
+/**
+ * The staff ask's answer (ledger #74). Writes nothing: the committed call row, with the summary the
+ * policy engine already sanitized, is what the bubble reads (`ask/answer.ts`, `ask/thread.ts`).
+ * Done, because a run that has answered the person who asked has nothing left to do.
+ */
+export function replyToStaffExecutor(): ToolExecutor {
+  return async (call) => ({
+    status: "executed",
+    data: { answered: true, summary_length: String(call.args.summary ?? "").length },
+    promptFacts: { answered: true },
+    done: true,
+  });
+}
+
 export function summarizeThreadForStaffExecutor(deps: ExecutorDeps): ToolExecutor {
   return async (call) => {
     const threadId = String(call.args.thread_id ?? "");

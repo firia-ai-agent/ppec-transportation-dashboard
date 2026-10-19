@@ -230,7 +230,7 @@ describe("§11.1 resume: the persisted decision is what a resume obeys", () => {
 
     expect([r.state, r.reason]).toEqual(["FAILED", "policy blocked get_leg_state (cross_family_disclosure)"]);
     const [row] = await rows(runId);
-    expect([row.status, row.result]).toEqual(["BLOCKED", { blocked_rule: "cross_family_disclosure" }]);
+    expect([row.status, row.result]).toEqual(["BLOCKED", { blocked_rule: "cross_family_disclosure", prompt_facts: { refused: "cross_family_disclosure" } }]);
     expect(h.recorder.intents).toEqual([]);
     // No model turn was taken: the resume settled the row it found.
     expect(h.gateways.at(-1)!.auditLog).toEqual([]);

@@ -204,6 +204,7 @@ describe("F1 a pause that lands between the persist and the resume", () => {
       "BLOCKED",
       {
         blocked_rule: "send_while_paused",
+        prompt_facts: { refused: "send_while_paused" },
         tightened_on_resume: "ALLOW:send",
         task_ids: [policyTaskId(row.idempotencyKey, 0)],
       },

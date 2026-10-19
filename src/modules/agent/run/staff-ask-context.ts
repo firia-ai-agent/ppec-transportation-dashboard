@@ -73,6 +73,7 @@ export const STAFF_ASK_TOOLS: readonly string[] = [
   "get_leg_state",
   "resolve_sender",
   "summarize_thread_for_staff",
+  "reply_to_staff",
   "propose_dropoff_change",
   "escalate_exception",
 ];
@@ -168,7 +169,7 @@ export async function staffAskContext(
        */
       `staff_ask="${say(askTextOf(ask.summary))}"`,
       // How the coordinator gets an answer: the run's note is what the bubble shows (ask/answer.ts).
-      "answer_with=summarize_thread_for_staff",
+      "answer_with=reply_to_staff",
     ].join(" "),
     t2: [
       `service_date=${serviceDate}`,

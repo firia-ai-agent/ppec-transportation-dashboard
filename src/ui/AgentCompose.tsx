@@ -56,11 +56,11 @@ export function AgentCompose() {
     // The ask is in the thread from here on, so the box it was typed into is empty from here on.
     setText("");
     try {
-      await sendAsk(ask, (body) =>
+      await sendAsk(ask, (body, id) =>
         fetch(API.agentAsk, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text: body }),
+          body: JSON.stringify({ text: body, id }),
         }),
       );
       // Whatever the ask left on the board — the staff alert, or a proposal waiting — is read by

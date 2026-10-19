@@ -22,7 +22,7 @@ import { recordAcknowledgmentExecutor } from "./clarify";
 import type { ExecutorDeps } from "./effects";
 import { type ProposalWriter, proposalWriter } from "./proposals";
 import { getLegStateExecutor, readGuardianThreadExecutor, resolveSenderExecutor } from "./reads";
-import { closeTaskExecutor, escalateExceptionExecutor, summarizeThreadForStaffExecutor } from "./staff";
+import { closeTaskExecutor, escalateExceptionExecutor, replyToStaffExecutor, summarizeThreadForStaffExecutor } from "./staff";
 import { notifyAffectedTherapistExecutor } from "./therapist";
 
 export type { ExecutorDeps } from "./effects";
@@ -53,6 +53,7 @@ export function liveExecutors(deps: ExecutorDeps): ToolExecutors {
     escalate_exception: escalateExceptionExecutor(deps),
     close_task: closeTaskExecutor(deps),
     summarize_thread_for_staff: summarizeThreadForStaffExecutor(deps),
+    reply_to_staff: replyToStaffExecutor(),
   };
 }
 
