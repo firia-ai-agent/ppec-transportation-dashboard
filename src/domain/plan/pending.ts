@@ -32,6 +32,8 @@ export type PendingMove = {
    * them, or the first Save would freeze the whole day and every re-plan would change nothing.
    */
   planned?: boolean;
+  /** A time agreed with the family (`Placement.notBefore`); null clears one, absent keeps it. */
+  notBefore?: string | null;
 };
 
 export type PendingQueue = readonly PendingMove[];
@@ -68,11 +70,14 @@ export function applyPending(plan: BoardPlan, queue: PendingQueue): BoardPlan {
   let next: BoardPlan = plan;
   for (const move of queue) {
     if (!(move.childToken in next)) continue;
+    // An agreed time travels with the child, whichever van they end up in.
+    const notBefore = move.notBefore !== undefined ? move.notBefore : next[move.childToken]?.notBefore;
     const placement: Placement = {
       bucket: move.bucket,
       vanId: move.bucket === "VAN" ? move.vanId : null,
       // A person's move is kept where they put it by a re-plan (§1.4); Auto-plan's is not.
       pinned: move.planned !== true,
+      ...(notBefore ? { notBefore } : {}),
     };
     next = { ...next, [move.childToken]: placement };
   }
@@ -90,12 +95,13 @@ export function movesToSave(plan: BoardPlan, queue: PendingQueue): PendingMove[]
   const moves: PendingMove[] = [];
   for (const [token, placement] of Object.entries(after)) {
     const before = plan[token];
-    if (before && before.bucket === placement.bucket && before.vanId === placement.vanId) continue;
+    if (before && before.bucket === placement.bucket && before.vanId === placement.vanId && (before.notBefore ?? null) === (placement.notBefore ?? null)) continue;
     moves.push({
       childToken: token,
       bucket: placement.bucket,
       vanId: placement.vanId,
       ...(placement.pinned ? {} : { planned: true }),
+      ...(placement.notBefore ? { notBefore: placement.notBefore } : {}),
     });
   }
   return moves;
@@ -112,5 +118,6 @@ function normalise(move: PendingMove): PendingMove {
     bucket: move.bucket,
     vanId: move.bucket === "VAN" ? move.vanId : null,
     ...(move.planned === true ? { planned: true } : {}),
+    ...(move.notBefore !== undefined ? { notBefore: move.notBefore } : {}),
   };
 }

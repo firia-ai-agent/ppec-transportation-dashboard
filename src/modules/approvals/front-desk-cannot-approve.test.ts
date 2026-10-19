@@ -64,6 +64,7 @@ const childToken = demoChildToken("C2");
 const placement: PlanPlacementPortFor = () => ({
   setDropoffWindow: async () => ({ ok: true }),
   recordReceiver: async () => ({ ok: true }),
+  saveRoute: async () => ({ ok: false, reason: "NOT_IN_THIS_TEST" }),
   currentPlacement: async () => ({
     bucket: "VAN",
     vehicleId: "00000000-0000-7000-8000-0000000000f1",

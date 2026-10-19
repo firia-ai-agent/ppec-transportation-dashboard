@@ -44,11 +44,13 @@ export type ActionTool = ToolDef & {
   readonly toInput: (args: Record<string, unknown>, version: BoardVersionLookup) => Promise<unknown>;
 };
 
-const move = z.object({ child_token: ID, bucket: BUCKET, van_id: ID.nullable().optional() });
+const move = z.object({ child_token: ID, bucket: BUCKET, van_id: ID.nullable().optional(), not_before: z.string().optional() });
 const asMove = (m: z.infer<typeof move>) => ({
   childToken: m.child_token,
   bucket: m.bucket,
   vanId: m.bucket === "VAN" ? (m.van_id ?? null) : null,
+  // A time agreed with the family travels with the move (ledger #79).
+  ...(m.not_before ? { notBefore: m.not_before } : {}),
 });
 
 /**

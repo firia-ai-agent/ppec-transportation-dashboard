@@ -13,30 +13,24 @@
  * late texts send); then whether every van fits; then how many families would be texted.
  */
 import { createHash } from "node:crypto";
-import { notifyGateConfig } from "@/config/live";
 import type { Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
-import { hhmmOf, madeLate, minuteOfDay, minutesLate, plannedStopTimes } from "@/domain/plan/arrivals";
-import { autoPlan, ridersInVan, type BoardDay, type BoardPlan, type Placement } from "@/domain/plan/board";
-import { vanVerdicts } from "@/domain/plan/eligibility";
 import { effectId, raiseTask } from "@/modules/agent/run/exec/effects";
-import { vansOver } from "@/modules/plan/place";
+import { previewPlanChange, type PlanChange } from "@/modules/changes/plan-change";
 import { loadBoard } from "@/modules/plan/store";
 import type { DayDataSource } from "@/domain/day/source";
 import type { PlanStore } from "@/modules/plan/types";
-import { agentTasks, fill, planBoard, pluralize, replanDraft } from "@/ui/copy";
-import { clockLabel } from "@/ui/service-date";
+import { agentTasks, fill, replanDraft } from "@/ui/copy";
 import { STAFF_ACTION_KIND } from "./confirm-view";
 
 /** `ops.task.category` a card hangs on (the agent's proposal writer uses the same one). */
 export const STAFF_ACTION_TASK_CATEGORY = "STAFF_ACTION";
 
 const LEG_WORDS: Readonly<Record<Direction, string>> = { AM: "morning", PM: "afternoon" };
-const LATE_MINUTES = notifyGateConfig.shiftSeconds / 60;
 
 export type DraftOutcome =
   | { readonly drafted: true; readonly approvalId: string; readonly impact?: readonly string[] }
-  | { readonly drafted: false; readonly reason: "NOTHING_TO_CHANGE" }
+  | { readonly drafted: false; readonly reason: "NOTHING_TO_CHANGE" | "VAN_LEFT" }
   /** Nobody can be moved to a van that fits them: nothing to approve, a family to call. */
   | { readonly drafted: false; readonly reason: "NO_VAN_FITS"; readonly children: readonly string[] };
 
@@ -89,39 +83,7 @@ export async function writeStaffActionCard(
   return approvalId;
 }
 
-/**
- * THE SMALLEST RE-PLAN THAT WORKS. A colleague moves the children the problem is about, not the
- * whole afternoon: everybody still fitting the van they are in stays put (pinned for this search),
- * and Auto-plan places only the ones who no longer fit. Only if that leaves somebody without a van
- * that a full Auto-plan would have placed is the whole leg planned again.
- */
-export function smallestReplan(day: BoardDay, plan: BoardPlan): BoardPlan {
-  const keep: Record<string, Placement> = { ...plan };
-  for (const van of day.vans) {
-    for (const verdict of vanVerdicts(van.setup, ridersInVan(day, plan, van.id))) {
-      if (verdict.reason === null) keep[verdict.token] = { ...plan[verdict.token], pinned: true };
-    }
-  }
-  const placed = autoPlan(day, keep);
-  // The pins were this search's, not the planner's: put back what the saved plan said.
-  const smallest: Record<string, Placement> = Object.fromEntries(
-    Object.entries(placed).map(([token, p]) => [token, { ...p, pinned: plan[token]?.pinned ?? false }]),
-  );
-  const unplaced = (p: BoardPlan) => day.riders.filter((r) => p[r.token]?.bucket === "UNASSIGNED").length;
-  const full = autoPlan(day, plan);
-  return unplaced(smallest) <= unplaced(full) ? smallest : full;
-}
-
-/**
- * A change to one leg's plan, as a person or the agent asks for it (ledger #77): Auto-plan's
- * smallest fix, named moves, new departure times — or any mix. Children by token; vans by id.
- */
-export type PlanChange = {
-  readonly replan?: boolean;
-  readonly moves?: readonly { readonly token: string; readonly bucket: Placement["bucket"]; readonly vanId: string | null }[];
-  /** `{ vanId: "HH:MM" }`, today's departures this change sets. */
-  readonly departures?: Readonly<Record<string, string>>;
-};
+export { smallestReplan, type PlanChange } from "@/modules/changes/plan-change";
 
 /**
  * Auto-plan this leg as a draft card. `by` is who asked (`staff:<id>` or `agent:<run>`); `note` the
@@ -131,7 +93,7 @@ export type PlanChange = {
 export function draftReplan(
   db: Exec,
   deps: { readonly store: PlanStore; readonly source: DayDataSource },
-  a: { readonly siteId: string; readonly date: string; readonly leg: Direction; readonly by: string; readonly note?: string | null },
+  a: { readonly siteId: string; readonly date: string; readonly leg: Direction; readonly by: string; readonly note?: string | null; readonly now?: Date },
 ): Promise<DraftOutcome> {
   return draftPlanChange(db, deps, { ...a, change: { replan: true } });
 }
@@ -151,71 +113,27 @@ export async function draftPlanChange(
     readonly leg: Direction;
     readonly by: string;
     readonly note?: string | null;
+    /** The wall clock: a van that has already left keeps its children and its departure. */
+    readonly now?: Date;
     /** The change, or how to read it off the board as it stands (van names → this day's van ids). */
     readonly change: PlanChange | ((view: Awaited<ReturnType<typeof loadBoard>>) => PlanChange);
   },
 ): Promise<DraftOutcome> {
   const view = await loadBoard(deps.store, a.siteId, a.date, a.leg, deps.source);
   const change = typeof a.change === "function" ? a.change(view) : a.change;
-  const named: Record<string, Placement> = { ...view.plan };
-  for (const m of change.moves ?? []) {
-    if (!named[m.token]) continue;
-    named[m.token] = { ...named[m.token], bucket: m.bucket, vanId: m.bucket === "VAN" ? m.vanId : null, pinned: true };
+  const preview = previewPlanChange(view, change, a.now);
+  if (!preview.ok) {
+    // Whoever no van can carry today is said plainly, with no card to approve.
+    if (preview.reason === "NO_VAN_FITS") await withdrawOlderDrafts(db, a, null);
+    return preview.reason === "NO_VAN_FITS"
+      ? { drafted: false, reason: "NO_VAN_FITS", children: preview.children }
+      : { drafted: false, reason: preview.reason };
   }
-  const next = change.replan ? smallestReplan(view.day, named) : named;
-  const departs: Record<string, number> = { ...view.departs };
-  const departures: Record<string, string> = {};
-  for (const [vanId, hhmm] of Object.entries(change.departures ?? {})) {
-    const minute = minuteOfDay(hhmm);
-    if (minute === null || !(vanId in departs) || departs[vanId] === minute) continue;
-    departs[vanId] = minute;
-    departures[vanId] = hhmm;
-  }
-  const moved = view.day.riders.filter(
-    (r) => view.plan[r.token]?.bucket !== next[r.token]?.bucket || view.plan[r.token]?.vanId !== next[r.token]?.vanId,
-  );
+  const departures = preview.departures;
   const leaves = Object.keys(departures);
-  if (moved.length === 0 && leaves.length === 0) return { drafted: false, reason: "NOTHING_TO_CHANGE" };
-
-  const vanName = (id: string | null | undefined) => view.day.vans.find((v) => v.id === id)?.name ?? replanDraft.noVan;
-  const after = plannedStopTimes(view.day, next, departs);
-  // Whoever no van can carry today is said plainly, never folded into "every van fits" — and a
-  // "re-plan" that only takes children out of vans is no plan to approve: say who, and stop.
-  const stranded = moved.filter((rider) => next[rider.token]?.bucket === "UNASSIGNED");
-  if (change.replan && leaves.length === 0 && stranded.length === moved.length) {
-    await withdrawOlderDrafts(db, a, null);
-    return { drafted: false, reason: "NO_VAN_FITS", children: stranded.map((r) => r.name) };
-  }
-  const impact = leaves.map((vanId) =>
-    fill(replanDraft.leaves, { van: vanName(vanId), time: clockLabel(departures[vanId]), was: clockLabel(hhmmOf(view.departs[vanId])) }),
-  );
-  for (const rider of moved.filter((r) => next[r.token]?.bucket !== "UNASSIGNED")) {
-    const at = after.get(rider.token)?.arrivesAtMinute;
-    const late = minutesLate(rider.window, at);
-    const to = next[rider.token]?.bucket === "VAN" ? vanName(next[rider.token]?.vanId) : placeWord(next[rider.token]?.bucket);
-    impact.push(fill(late !== null && late >= LATE_MINUTES ? replanDraft.movedLate : replanDraft.moved, {
-      child: rider.name,
-      from: vanName(view.plan[rider.token]?.vanId),
-      to,
-      time: at === undefined ? "" : clockLabel(hhmmOf(Math.round(at))),
-      late: late === null ? 0 : Math.round(late),
-    }).replace(/ · ≈ $/, ""));
-  }
-  const over = vansOver(view, next).map((id) => vanName(id));
-  impact.push(
-    stranded.length > 0
-      ? fill(replanDraft.stillNeedsRide, { children: stranded.map((r) => r.name).join(", ") })
-      : over.length === 0
-        ? replanDraft.everyVanFits
-        : fill(replanDraft.stillOver, { vans: over.join(", ") }),
-  );
-  const texted = madeLate(view.day, view.plan, next, LATE_MINUTES, { before: view.departs, after: departs }).length;
-  if (texted > 0) impact.push(fill(replanDraft.texted, { families: pluralize(texted, replanDraft.family) }));
-
-  const moves = moved.map((r) => ({ child_token: r.token, bucket: next[r.token].bucket, van_id: next[r.token].vanId }));
   // One draft per board version and result: pressing Re-plan twice, or the agent and a person
   // both asking, is the same card rather than two to decide.
-  const key = `replan-draft:${a.siteId}:${a.date}:${a.leg}:${view.version}:${createHash("sha256").update(JSON.stringify([moves, departures])).digest("hex").slice(0, 16)}`;
+  const key = `replan-draft:${a.siteId}:${a.date}:${a.leg}:${view.version}:${createHash("sha256").update(JSON.stringify([preview.moves, departures])).digest("hex").slice(0, 16)}`;
   await withdrawOlderDrafts(db, a, effectId(key, "approval"));
   const approvalId = await writeStaffActionCard(db, {
     siteId: a.siteId,
@@ -223,21 +141,13 @@ export async function draftPlanChange(
     by: a.by,
     tool: "save_plan",
     action: "save_plan",
-    args: { date: a.date, leg: a.leg, moves, ...(leaves.length > 0 ? { departures } : {}) },
+    args: { date: a.date, leg: a.leg, moves: preview.moves, ...(leaves.length > 0 ? { departures } : {}) },
     summary: fill(change.replan && !change.moves?.length && leaves.length === 0 ? replanDraft.title : replanDraft.changeTitle, { leg: LEG_WORDS[a.leg] }),
     note: a.note,
-    impact,
+    impact: preview.lines,
   });
-  return { drafted: true, approvalId, impact };
+  return { drafted: true, approvalId, impact: preview.lines };
 }
-
-/** "Unassigned", "Family drives", "Absent" — the board's own lane names. */
-const PLACE_WORDS: Readonly<Record<string, string>> = {
-  UNASSIGNED: planBoard.unassigned,
-  FAMILY_DRIVES: planBoard.familyDrives,
-  ABSENT: planBoard.absent,
-};
-const placeWord = (bucket: Placement["bucket"] | undefined) => PLACE_WORDS[bucket ?? ""] ?? replanDraft.noVan;
 
 /** Older drafts of this leg stand down: the situation they were drafted for has moved on. */
 async function withdrawOlderDrafts(

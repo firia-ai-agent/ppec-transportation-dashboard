@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { canOpenForYou } from "@/auth/access";
+import { canOpenForYou, familyThreadHref } from "@/auth/access";
 import type { ResolvedCaller } from "@/auth/caller";
 import { getNeonDb } from "@/db/exec";
 import { threadPulseOrQuiet } from "@/modules/agent/ask/pulse";
@@ -8,11 +8,12 @@ import { modelReach } from "@/modules/agent/run/model-reach";
 import { decideApprovalAction } from "@/app/(app)/family-texts/actions";
 import { confirmStaffActionAction } from "@/app/(app)/confirm/actions";
 import { confirmCards } from "@/modules/actions/confirm-cards";
-import type { ProposalView } from "@/app/(app)/family-texts/conversations";
 import { approvalCardsOrEmpty } from "@/app/(app)/family-texts/queue";
 import { demoDay } from "@/domain/board/day";
 import { siteOf } from "@/modules/plan/api";
 import { AgentBubble } from "./AgentBubble";
+import { confirmPanel, replyPanel, type PanelView } from "./panel";
+import { PanelActionsProvider } from "./PanelActions";
 import { AgentCompose } from "./AgentCompose";
 import { AgentPulse } from "./AgentPulse";
 import { AppShell } from "./AppShell";
@@ -82,9 +83,12 @@ export async function ConsoleShell({
   const role = caller.kind === "STAFF" ? caller.role : null;
   const canDecide = canOpenForYou(caller);
   const thread = canDecide ? await readAgentThreadOrEmpty(getNeonDb, siteOf(caller)) : null;
-  const cards = canDecide && (thread?.waiting ?? 0) > 0 ? await approvalCardsOrEmpty([siteOf(caller)]) : [];
-  // Changes the agent prepared for a person to confirm (ledger #74 d). Fail-soft like the thread.
-  const confirms = canDecide && (thread?.waiting ?? 0) > 0 ? await confirmCards(getNeonDb(), siteOf(caller)).catch(() => []) : [];
+  // Everything waiting for a person, as one panel each (ledger #79). Fail-soft like the thread.
+  const waiting = canDecide && (thread?.waiting ?? 0) > 0;
+  const panels: PanelView[] = [
+    ...(waiting ? await approvalCardsOrEmpty([siteOf(caller)]) : []).map((card) => replyPanel(card, familyThreadHref(card.threadKey))),
+    ...(waiting ? await confirmCards(getNeonDb(), siteOf(caller)).catch(() => []) : []).map(confirmPanel),
+  ];
   // Whether the thread has moved since, and whether a run is on its way (ledger #75 b).
   const pulse = canDecide ? await threadPulseOrQuiet(getNeonDb, siteOf(caller)) : { stamp: "", working: false };
   const lines = accountLines(caller.displayName, role ? roleNames[role].one : null);
@@ -100,20 +104,20 @@ export async function ConsoleShell({
     : null;
   return (
     <>
-      <AppShell account={account} role={role} title={title} pageOwnsMain={pageOwnsMain}>
-        {children}
-      </AppShell>
+      {/* What every panel's buttons run, wherever it is drawn (ledger #79). */}
+      <PanelActionsProvider actions={{ decide: decideApprovalAction, confirm: confirmStaffActionAction }}>
+        <AppShell account={account} role={role} title={title} pageOwnsMain={pageOwnsMain}>
+          {children}
+        </AppShell>
       <AgentBubble
         canDecide={canDecide}
         waiting={thread?.waiting ?? 0}
         stamp={pulse.stamp}
         items={thread?.items ?? []}
         compose={<AgentCompose />}
-        cards={cards}
-        decide={decideApprovalAction}
-        confirms={confirms}
-        confirm={confirmStaffActionAction}
+        panels={panels}
       />
+      </PanelActionsProvider>
       {canDecide ? <AgentPulse stamp={pulse.stamp} working={pulse.working} /> : null}
     </>
   );

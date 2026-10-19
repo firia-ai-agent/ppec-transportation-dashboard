@@ -35,7 +35,8 @@ import type { DecisionState } from "@/app/(app)/family-texts/actions";
 
 const REPO = process.cwd();
 const ACTION_FILE = path.join(REPO, "src", "app", "(app)", "family-texts", "actions.ts");
-const CARD_FILE = path.join(REPO, "src", "app", "(app)", "family-texts", "ProposalCard.tsx");
+// The one agent panel draws every proposal (ledger #79), a family's reply among them.
+const CARD_FILE = path.join(REPO, "src", "ui", "AgentPanel.tsx");
 
 /** The decision model, with the one entry point spied on and everything else real. */
 const decideApproval = vi.fn();

@@ -100,7 +100,7 @@ async function queued() {
 
 describe("sweeping the demo day's crossings", () => {
   it("queues the afternoon text against the child's own seeded leg", async () => {
-    expect(await sweep()).toEqual({ queued: 1, duplicates: 0, skipped: {} });
+    expect(await sweep()).toEqual({ queued: 1, duplicates: 0, skipped: {}, late: [expect.objectContaining({ delayMinutes: expect.any(Number) })] });
 
     const rows = await queued();
     expect(rows).toHaveLength(1);
@@ -115,8 +115,8 @@ describe("sweeping the demo day's crossings", () => {
 
   it("writes nothing on every later sweep of the same crossing", async () => {
     await sweep();
-    expect(await sweep()).toEqual({ queued: 0, duplicates: 1, skipped: {} });
-    expect(await sweep()).toEqual({ queued: 0, duplicates: 1, skipped: {} });
+    expect(await sweep()).toEqual({ queued: 0, duplicates: 1, skipped: {}, late: [] });
+    expect(await sweep()).toEqual({ queued: 0, duplicates: 1, skipped: {}, late: [] });
     expect(await queued()).toHaveLength(1);
   });
 
@@ -124,7 +124,7 @@ describe("sweeping the demo day's crossings", () => {
     await db.query("UPDATE ops.trip_leg SET state = 'CANCELED_TRANSPORT' WHERE id = $1", [
       demoLegId(CHILD_KEY, "PM"),
     ]);
-    expect(await sweep()).toEqual({ queued: 0, duplicates: 0, skipped: { "leg-not-ridable": 1 } });
+    expect(await sweep()).toEqual({ queued: 0, duplicates: 0, skipped: { "leg-not-ridable": 1 }, late: [] });
     expect(await queued()).toHaveLength(0);
   });
 
@@ -162,6 +162,7 @@ describe("sweeping the demo day's crossings", () => {
       queued: 0,
       duplicates: 0,
       skipped: { "no-leg": 1 },
+      late: [],
     });
   });
 
@@ -218,6 +219,7 @@ describe("a crossing is queued only once its time has passed on the scenario clo
       queued: 0,
       duplicates: 0,
       skipped: { "not-yet": dueEtaNotices().length },
+      late: [],
     });
     expect(await noahsRows()).toHaveLength(0);
 

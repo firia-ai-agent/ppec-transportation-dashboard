@@ -200,14 +200,15 @@ async function loadPlanWith(
     vehicle_id: string | null;
     bucket: Placement["bucket"];
     pinned: boolean;
+    not_before: string | null;
   }>(
-    `SELECT child_token::text AS child_token, vehicle_id::text AS vehicle_id, bucket, pinned
+    `SELECT child_token::text AS child_token, vehicle_id::text AS vehicle_id, bucket, pinned, not_before
        FROM ops.plan_assignment WHERE plan_run_id = $1 ORDER BY stop_seq NULLS LAST`,
     [row.id],
   );
   const placements: Record<string, Placement> = {};
   for (const r of rows.rows) {
-    placements[r.child_token] = { bucket: r.bucket, vanId: r.vehicle_id, pinned: r.pinned };
+    placements[r.child_token] = { bucket: r.bucket, vanId: r.vehicle_id, pinned: r.pinned, ...(r.not_before ? { notBefore: r.not_before } : {}) };
   }
   return {
     version: Number(row.version),
@@ -302,14 +303,14 @@ async function savePlanIn(
     const tuples = entries.map(([token, placement], i) => {
       values.push(
         runId, siteId, token, placement.vanId, placement.bucket,
-        placement.stopSeq ?? null, placement.pinned, BY,
+        placement.stopSeq ?? null, placement.pinned, placement.notBefore ?? null, BY,
       );
-      const at = i * 8;
-      return `($${at + 1}, $${at + 2}, $${at + 3}, $${at + 4}, $${at + 5}, $${at + 6}, $${at + 7}, $${at + 8}, $${at + 8})`;
+      const at = i * 9;
+      return `($${at + 1}, $${at + 2}, $${at + 3}, $${at + 4}, $${at + 5}, $${at + 6}, $${at + 7}, $${at + 8}, $${at + 9}, $${at + 9})`;
     });
     await tx.query(
       `INSERT INTO ops.plan_assignment
-         (plan_run_id, site_id, child_token, vehicle_id, bucket, stop_seq, pinned, created_by, updated_by)
+         (plan_run_id, site_id, child_token, vehicle_id, bucket, stop_seq, pinned, not_before, created_by, updated_by)
        VALUES ${tuples.join(",")}`,
       values,
     );

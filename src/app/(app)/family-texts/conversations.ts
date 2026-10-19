@@ -116,6 +116,8 @@ export type ProposalView = {
    * Null when the message is fixed copy, which has no Edit (`decide.editableReplyOf`).
    */
   readonly replyText: string | null;
+  /** What Approve does to the route, one line each, generated from the plan (ledger #79). */
+  readonly lines: readonly string[];
 };
 
 /** The thread pane: who it is with, the bubbles, and the proposal inside it. */

@@ -25,8 +25,9 @@
 import type { Exec } from "@/db/exec";
 import { actionTool } from "../../action-tools";
 import { staffActionSummary } from "@/modules/actions/summary";
-import { draftPlanChange, draftReplan, writeStaffActionCard } from "@/modules/actions/draft";
+import { draftPlanChange, writeStaffActionCard } from "@/modules/actions/draft";
 import { teamPlanChange, todayOf } from "./team";
+import { bestRouteFor } from "@/modules/changes/agreed";
 import { askerMayNot } from "./asker";
 import { sqlPlanStoreIn } from "@/modules/plan/sql";
 import { sqlDaySource } from "@/modules/roster/sql";
@@ -42,7 +43,7 @@ import { modelAlertWords } from "../../alert-words";
 import { namedOrNull } from "@/modules/identity/names";
 import { agentTasks, fill } from "@/ui/copy";
 import { demoTokenForId } from "../scope-tokens";
-import { planStoreIn } from "@/modules/plan/store";
+import { loadBoard, planStoreIn } from "@/modules/plan/store";
 import type { Direction } from "@/domain/day/leg";
 import {
   CLARIFICATIONS_PER_THREAD_PER_HOUR,
@@ -367,6 +368,17 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
   const savedPlan = await planStoreIn(tx).loadPlan(input.siteId, row.service_date, direction);
   const planRunVersion = savedPlan?.version ?? 0;
 
+  /*
+   * THE ROUTE THAT KEEPS THE PROMISE (ledger #79). An agreed time is a time the van drops the child
+   * no earlier: the route that honours it — their own van reordered or waiting, or another van while
+   * theirs has not left — is chosen here and saved by the same Approve that texts the family, so
+   * the plan and the words cannot disagree. Read on this transaction's own connection.
+   */
+  const board = requestedTime
+    ? await loadBoard(sqlPlanStoreIn(tx), input.siteId, row.service_date, direction, sqlDaySource(tx, input.siteId))
+    : null;
+  const route = board && board.version > 0 ? bestRouteFor(board, row.child_token, requestedTime!, input.now) : null;
+
   const basis = await tx.query<{ id: string }>(
     "SELECT id FROM ops.message WHERE id = $1 AND site_id = $2",
     [isUuid(sourceMessageId) ? sourceMessageId : null, input.siteId],
@@ -455,6 +467,10 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
       stopLabel: stopToken,
     },
     approval_key: input.approvalKey,
+    // What Approve saves to the route, and the lines that say what it does to the day.
+    ...(route
+      ? { plan: { moves: route.preview.moves, ...(Object.keys(route.preview.departures).length > 0 ? { departures: route.preview.departures } : {}) }, lines: route.preview.lines }
+      : {}),
   };
   await tx.query(
     `INSERT INTO ops.approval_request (id, site_id, task_id, proposal, created_by, updated_by, source_mode)
@@ -462,7 +478,10 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
      ON CONFLICT (id) DO NOTHING`,
     [approvalId, input.siteId, taskId, JSON.stringify(proposal), by],
   );
-  return { approval_request_id: approvalId, exception_task_id: taskId, mutated: false };
+  return {
+    approval_request_id: approvalId, exception_task_id: taskId, mutated: false,
+    ...(route ? { prompt_facts: { card: "waiting for a person to approve", shows: route.preview.lines.join("; ") } } : {}),
+  };
 }
 
 /**
@@ -703,6 +722,7 @@ async function planChangeCard(tx: Exec, input: ProposalInput): Promise<Record<st
     leg,
     by: `agent:${input.runId}`,
     note: typeof input.args.note === "string" ? input.args.note : null,
+    now: input.now,
     change: (view) => {
       const read = teamPlanChange(view, input.args);
       unknown = read.unknownVans;
@@ -756,15 +776,6 @@ async function staffAction(_deps: ExecutorDeps, tx: Exec, input: ProposalInput):
   const tool = actionTool(input.tool)!;
   const by = `agent:${input.runId}`;
   const note = typeof input.args.note === "string" ? input.args.note : null;
-  // A re-plan is a draft of concrete moves and what they do to the day (ledger #76): the same card
-  // a person pressing Re-plan gets, so what is approved is exactly what was shown.
-  if (tool.name === "auto_plan" && (input.args.leg === "AM" || input.args.leg === "PM")) {
-    // Read on this transaction's own connection: the run holds it, and a second one would wait on it.
-    const drafted = await draftReplan(tx, { store: sqlPlanStoreIn(tx), source: sqlDaySource(tx, input.siteId) }, {
-      siteId: input.siteId, date: String(input.args.date), leg: input.args.leg, by, note,
-    });
-    return drafted.drafted ? { approval_request_id: drafted.approvalId, mutated: false } : { nothing_to_change: true, mutated: false };
-  }
   const approvalId = await writeStaffActionCard(tx, {
     siteId: input.siteId,
     key: input.idempotencyKey,

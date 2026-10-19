@@ -58,6 +58,8 @@ const ALLOWED_SEED_IMPORTERS = [
   "src/modules/plan/replan-notices.db.test.ts",
   /* "Simulate parent text" builds a parent's text from a seeded day (ledger #78): legs and contacts. */
   "src/modules/demo/parent-text.db.test.ts",
+  /* A van running late, and a change to who rides, reach the agent (ledger #79): a seeded day. */
+  "src/modules/agent/running-late.db.test.ts",
   /* The agent re-plans and proposes Restart as the person who asked (ledger #74): a seeded day. */
   "src/modules/actions/replan-by-agent.db.test.ts",
   /* An alert raised for staff reaches the agent, which proposes (ledger #74 e): a seeded day. */

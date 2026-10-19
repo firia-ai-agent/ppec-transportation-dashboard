@@ -16,13 +16,8 @@ import { getNeonDb } from "@/db/exec";
 import { confirmStaffAction, type ConfirmDecision } from "@/modules/actions/confirm";
 import { confirmCopy } from "@/ui/copy";
 
-export type ConfirmState =
-  | { readonly status: "idle" }
-  | { readonly status: "done"; readonly decision: ConfirmDecision }
-  | { readonly status: "refused"; readonly message: string };
-
-/** The action's shape, named in a `.ts` module for the same `.tsx`-scanner reason as `DecideAction`. */
-export type ConfirmAction = (previous: ConfirmState, form: FormData) => Promise<ConfirmState>;
+import type { ConfirmState } from "@/modules/actions/confirm-view";
+export type { ConfirmAction, ConfirmState } from "@/modules/actions/confirm-view";
 
 const REFUSALS: Readonly<Record<string, string>> = {
   SIGN_IN: confirmCopy.signIn,

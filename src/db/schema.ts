@@ -346,6 +346,8 @@ export const planAssignment = ops.table("plan_assignment", {
   bucket: text("bucket").notNull(), stopSeq: smallint("stop_seq"),
   /** True when a person put this child here, so planning again keeps them where they are. */
   pinned: boolean("pinned").notNull().default(false),
+  /** A time agreed with the family, "HH:MM": the van drops this child no earlier (ledger #79). */
+  notBefore: text("not_before"),
   ...audit,
 }, (t) => [primaryKey({ columns: [t.planRunId, t.childToken] }),
   index("plan_assignment_van_idx").on(t.planRunId, t.vehicleId, t.stopSeq),

@@ -1404,6 +1404,7 @@ export const approval = {
    * went out, and names the one thing the person reading it can do.
    */
   timeNotSaved: "Couldn't move the drop-off time, so nothing was sent to the family. Set the time on the board instead.",
+  vanLeft: "That van has already left, so nobody can move in or out of it. Nothing was sent.",
 
   /* ── the card itself (mockups/approvals.html) ── */
 
@@ -3312,6 +3313,9 @@ export const replanDraft = {
   /** A plan card that moves a van's departure (ledger #77). */
   changeTitle: "Change the {leg} plan",
   leaves: "{van} leaves {time} (was {was})",
+  /** A time agreed with a family (ledger #79): the van waits at their stop, or their stop moves. */
+  waits: "{van} waits for {child} until {time}",
+  afterAgreed: "{child} ≈ {time}, {late} min after the agreed time",
   noVanNamed: "There's no {van} on the {leg} today",
 } as const;
 
@@ -3341,6 +3345,13 @@ export const confirmCopy = {
 } as const;
 
 /** A van confirmed at the ramp that no longer carries its riders (ledger #74 e, plan/van-short.ts). */
+/** The agent hears a van running late (ledger #79): the live sweep has texted these families. */
+export const runningLateAlert = {
+  summary: "Running about {minutes} min late: {who} — families texted",
+  nextStep: "See whether a wait, a swap or a text to another family would help.",
+  predicate: "the late rides are home",
+} as const;
+
 export const vanShortAlert = {
   /** "Van 1 no longer fits Ava N. this morning": who, by the ramp's own fit rule (van-short.ts). */
   summary: "{van} no longer fits {who} this {leg}",
