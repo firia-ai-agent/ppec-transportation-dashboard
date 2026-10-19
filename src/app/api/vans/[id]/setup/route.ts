@@ -1,6 +1,8 @@
 import { API } from "@/auth/access";
 import { requireApiSession } from "@/auth/api-guard";
-import { putVanSetupRequest, siteOf, vanSetupBody } from "@/modules/plan/api";
+import { vanSetupBody } from "@/modules/plan/api";
+import { ACTIONS } from "@/modules/actions/registry";
+import { screenCtx } from "@/modules/actions/screen";
 import { apiAccess } from "@/ui/copy";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +34,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params;
 
   try {
-    const answer = await putVanSetupRequest(siteOf(guard.caller), guard.caller, id, parsed.data);
+    const answer = await ACTIONS.confirm_van_setup.run(screenCtx(guard.caller), { ...parsed.data, vanId: id });
     return Response.json(answer.body, { status: answer.status, headers: noStore });
   } catch {
     return Response.json({ ok: false, error: apiAccess.unavailable }, { status: 503, headers: noStore });

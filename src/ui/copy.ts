@@ -3211,6 +3211,22 @@ export const agentGuidance = {
     "people written as the prompt's family and child tokens, which are shown as first names.",
 } as const;
 
+/**
+ * WHAT EACH UI ACTION DOES, IN ONE LINE (modules/actions/registry.ts) — the words on a card that
+ * asks a person to confirm an action the agent prepared, and the agent's own report of one it took.
+ */
+export const actionSummaries = {
+  savePlan: "Save the {leg} plan ({count} moves).",
+  autoPlan: "Re-plan the {leg} with Auto-plan and save it.",
+  moveChild: "Move a child on the {leg} plan and save it.",
+  confirmVan: "Confirm a van's setup as the ramp found it.",
+  setNeeds: "Change a child's approved needs.",
+  restart: "Restart the demo day.",
+  approve: "Approve and send this reply.",
+  decline: "Don't send this reply.",
+  takeAlert: "Take this alert.",
+} as const;
+
 export const agentBubble = {
   /** The closed button's accessible name with nothing waiting (agent-bubble.html, `.fab`). */
   open: "Agent",

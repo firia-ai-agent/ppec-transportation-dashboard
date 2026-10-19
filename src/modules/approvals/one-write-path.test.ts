@@ -110,11 +110,16 @@ describe("gate 1: one write path for all three controls", () => {
      */
     const body = bodyOf(source, "decideApprovalAction");
     expect(body).not.toMatch(/\bINSERT\b|\bUPDATE\b|\bDELETE\b|\.query\(|\benqueue\(/i);
-    // Exactly one call into the decision model, from the whole file.
-    expect(source.match(/decideApproval\(/g) ?? []).toHaveLength(1);
+    // Exactly one call into the decision, through the one action layer (ledger #74) — the same
+    // `decide_approval` the agent's confirm card runs — and the layer makes exactly one call into
+    // the decision model.
+    expect(source.match(/ACTIONS\.decide_approval\.run\(/g) ?? []).toHaveLength(1);
+    expect(source).not.toMatch(/decideApproval\(/);
+    const registry = readFileSync(path.join(REPO, "src", "modules", "actions", "decisions.ts"), "utf8");
+    expect(registry.match(/decideApproval\(/g) ?? []).toHaveLength(1);
     // And the other action cannot decide an approval or send anything.
     const take = bodyOf(source, "takeAlertAction");
-    expect(take).not.toMatch(/decideApproval\(|\benqueue\(|outbox/i);
+    expect(take).not.toMatch(/decide_approval|decideApproval\(|\benqueue\(|outbox/i);
   });
 
   it("refuses before it calls anything when the role may not decide", async () => {
