@@ -24,6 +24,7 @@ import {
   askAgent,
   normalizeAsk,
   settleStaffAsk,
+  abandonStaleAsks,
 } from "./staff-ask";
 import { driveRun } from "../run/loop";
 import { readAgentThread, readAgentThreadOrEmpty } from "./thread";
@@ -620,6 +621,27 @@ describe("the thread the panel draws is read from rows this app holds", () => {
     );
     const items = (await readAgentThread(db, sc.siteId)).items.filter((i) => "id" in i && i.id.startsWith(id));
     expect(items.map((i) => ("id" in i ? i.id : ""))).toEqual([id, `${id}:no-answer`]);
+  });
+
+  it("closes an ask whose run the platform ended mid-way: the sweep fails it and the line appears", async () => {
+    const id = "01900000-0000-7000-8000-00000000a507";
+    const { harness } = withModel([toolCall("get_leg_state", { leg_id: "L-NOT-HERE" })]);
+    const r = await askAgent(db, { siteId: sc.siteId, text: "stuck question", by: "u1", id }, {
+      env: {},
+      runner: () => ({ ok: true as const, refused: false, reason: null, deps: harness.deps(0) }),
+      wake: { publish: async () => {} },
+    });
+    if (r.outcome !== "working") throw new Error(r.outcome);
+    // The consumer was ended mid-run: the run is RUNNING and nobody settled it.
+    await db.query("UPDATE ops.agent_run SET state = 'RUNNING' WHERE id = $1", [r.runId]);
+    const later = new Date(Date.now() + 10 * 60_000);
+    expect(await abandonStaleAsks(db, later)).toBe(1);
+    expect(await abandonStaleAsks(db, later)).toBe(0); // settled once
+    const items = (await readAgentThread(db, sc.siteId)).items.filter((i) => "id" in i && i.id.startsWith(id));
+    expect(items).toEqual([
+      { kind: "staff", id, text: "stuck question" },
+      { kind: "agent", id: `${id}:no-answer`, text: agentBubble.noAnswer },
+    ]);
   });
 
   it("never takes a screen down with it", async () => {

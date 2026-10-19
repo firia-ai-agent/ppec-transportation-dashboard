@@ -56,7 +56,7 @@ import type { RunDeps, RunResult } from "../run/loop";
 import { startAndDriveRun } from "../run/loop";
 import { enqueueRun, type AgentWakeTransport } from "../run/queue";
 import { configuredRouting } from "../run/inbound-hook";
-import { loadRun } from "../run/store";
+import { loadRun, runEdgeAllowed, setRunState, type RunState } from "../run/store";
 import { type Trigger, assertTrigger } from "../run/triggers";
 
 /*
@@ -356,4 +356,34 @@ export async function settleStaffAsk(db: Db, runId: string): Promise<"alerted" |
   if (!ask) return "not-an-ended-ask";
   await raiseAskAlert(db, { askId: run.trigger.id, siteId: run.siteId, ask: askTextOf(ask.summary), by: ask.created_by });
   return "alerted";
+}
+
+/** How long a staff ask's run may stay unfinished before the sweep closes it as unanswered. */
+export const ASK_ABANDONED_AFTER_SECONDS = 300;
+
+/**
+ * THE BACKSTOP FOR AN ASK WHOSE RUN NEVER FINISHED (ledger #74, found on prod 2026-10-18): the
+ * platform can end the queue consumer mid-run — a rate-limited vendor retried until the function's
+ * time ran out — and then nothing settles the ask, so the bubble shows the question with nothing
+ * under it. The one-minute sweep calls this: a `staff.ask` run still QUEUED, RUNNING or waiting
+ * five minutes after it started is failed (any lease on it expired long ago) and settled, which
+ * raises the same "couldn't answer" alert the other paths raise. Idempotent: a settled ask is not
+ * found again.
+ */
+export async function abandonStaleAsks(db: Db, now: Date): Promise<number> {
+  const stale = await db.query<{ id: string; state: RunState }>(
+    `SELECT id, state FROM ops.agent_run
+      WHERE trigger_type = 'staff.ask' AND state IN ('QUEUED', 'RUNNING', 'WAITING_TOOL')
+        AND created_at < $1::timestamptz - make_interval(secs => $2)
+      ORDER BY created_at LIMIT 50`,
+    [now.toISOString(), ASK_ABANDONED_AFTER_SECONDS],
+  );
+  let closed = 0;
+  for (const run of stale.rows) {
+    if (!runEdgeAllowed(run.state, "FAILED")) continue;
+    if (!(await setRunState(db, run.id, run.state, "FAILED", "system:sweep:ask-abandoned"))) continue;
+    await settleStaffAsk(db, run.id);
+    closed += 1;
+  }
+  return closed;
 }

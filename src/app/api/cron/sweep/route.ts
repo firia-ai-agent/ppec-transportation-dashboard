@@ -11,6 +11,7 @@ import { sweepOutbox } from "@/modules/outbox/outbox";
 import { outboxDeps } from "@/modules/outbox/deps";
 import { vercelQueueOutboxTransport } from "@/modules/outbox/transport";
 import { rewakeAlertRuns } from "@/modules/agent/alerts";
+import { abandonStaleAsks } from "@/modules/agent/ask/staff-ask";
 import { vercelQueueAgentTransport } from "@/modules/agent/run/vercel-queue";
 
 export const dynamic = "force-dynamic";
@@ -52,5 +53,7 @@ export async function GET(req: Request) {
   const outbox = await sweepOutbox(db, outboxDeps());
   // An alert the agent was started on whose wake-up was lost (ledger #74 e).
   const alertRuns = await rewakeAlertRuns(db, vercelQueueAgentTransport, new Date());
-  return Response.json({ deploymentId, ...report, etaNotices, outbox, alertRuns });
+  // A staff ask whose run the platform ended mid-way still gets its "couldn't answer" line.
+  const abandonedAsks = await abandonStaleAsks(db, new Date());
+  return Response.json({ deploymentId, ...report, etaNotices, outbox, alertRuns, abandonedAsks });
 }
