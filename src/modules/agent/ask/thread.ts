@@ -210,9 +210,16 @@ async function alertsHeard(
   }>(
     `SELECT t.id::text AS task_id, t.summary, t.created_at AS at, t.completion_evidence AS evidence,
             (r.state IN ('QUEUED', 'RUNNING', 'WAITING_TOOL') AND r.created_at > now() - make_interval(secs => $3)) AS live,
-            EXISTS (SELECT 1 FROM ops.agent_tool_call c WHERE c.run_id = r.id AND c.status = 'PROPOSED') AS proposed
+            (EXISTS (SELECT 1 FROM ops.agent_tool_call c WHERE c.run_id = r.id AND c.status = 'PROPOSED')
+             -- …or a re-plan of that leg is waiting for a person, whoever drafted it (ledger #76).
+             OR EXISTS (SELECT 1 FROM ops.approval_request a
+                         WHERE a.site_id = r.site_id AND a.decided_at IS NULL AND a.proposal->>'kind' = 'STAFF_ACTION'
+                           AND a.proposal->'args'->>'date' = t.completion_evidence->'locator'->>'date'
+                           AND a.proposal->'args'->>'leg' = t.completion_evidence->'locator'->>'leg')) AS proposed
        FROM ops.agent_run r JOIN ops.task t ON t.id::text = r.trigger_id AND t.site_id = r.site_id
       WHERE r.site_id = $1 AND r.trigger_type = $2
+        -- An alert a person resolved — the van fits again — is over (plan/van-short.ts).
+        AND t.state IN ('OPEN', 'IN_PROGRESS', 'SNOOZED')
         -- A run stood down because the situation moved on (plan/van-short.ts) says nothing.
         AND (r.state <> 'ABORTED_SUPERSEDED_BY_HUMAN'
              OR EXISTS (SELECT 1 FROM ops.agent_tool_call c WHERE c.run_id = r.id AND c.status = 'PROPOSED'))

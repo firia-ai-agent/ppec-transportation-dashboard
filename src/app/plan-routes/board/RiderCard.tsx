@@ -7,7 +7,12 @@ import { planBoard } from "@/ui/copy";
 import { NeedIcons } from "@/ui/equipment";
 import { icon } from "@/ui/tokens";
 import { hasStop, type Bucket, type BoardRider } from "@/domain/plan/board";
-import { stopLine } from "./lines";
+import { minutesLate } from "@/domain/plan/arrivals";
+import { notifyGateConfig } from "@/config/live";
+import { etaLine, stopLine } from "./lines";
+
+/** Minutes past a family's window that read as late: the notify threshold the late texts use. */
+const LATE_MINUTES = notifyGateConfig.shiftSeconds / 60;
 import styles from "./board.module.css";
 
 /**
@@ -41,6 +46,7 @@ export function RiderCard({
   selected = false,
   columns,
   refusalLine,
+  eta,
 }: {
   rider: BoardRider;
   /** The stop this child is driven at, inside their van. Absent for a child in no van. */
@@ -65,7 +71,12 @@ export function RiderCard({
    * and its border, and it clears on the next drag start.
    */
   refusalLine?: string;
+  /** Estimated pickup (morning) or drop-off (afternoon), minutes of the site day (ledger #76). */
+  eta?: number;
 }) {
+  // Past the family's window by the notify threshold: the same "late" the late texts are sent on.
+  const late = eta === undefined ? null : minutesLate(rider.window, eta);
+  const lateBy = late !== null && late >= LATE_MINUTES ? Math.round(late) : null;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: rider.token,
     disabled: !canEdit,
@@ -132,14 +143,16 @@ export function RiderCard({
         <span
           className={styles.cardSub}
           data-refusal={refusalLine ? rider.token : undefined}
-          data-tone={refusalLine ? "crit" : undefined}
+          data-tone={refusalLine ? "crit" : lateBy !== null ? "warn" : undefined}
         >
           {refusalLine ??
             (!hasStop(rider)
               ? planBoard.familyDrives
               : stopNumber === undefined
                 ? rider.stopLabel
-                : stopLine(rider.window, rider.stopLabel))}
+                : eta === undefined
+                  ? stopLine(rider.window, rider.stopLabel)
+                  : etaLine(eta, rider.stopLabel, lateBy))}
         </span>
       </button>
       {/*

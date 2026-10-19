@@ -87,6 +87,9 @@ function vanColumn(day: Awaited<ReturnType<typeof testDay>>, plan: BoardPlan, va
       canEdit: true,
       openChildToken: null,
       rampHref: null,
+      leaves: "15:15",
+      onLeaves: () => undefined,
+      times: new Map(),
     }),
   );
 }

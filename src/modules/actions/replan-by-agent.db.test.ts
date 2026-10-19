@@ -14,7 +14,9 @@ import { defaultsOfSlot, vanIdOfSlot } from "@/test/board-day";
 import { seedStaff } from "@/test/messaging";
 import { freshPlanDb, SITE } from "@/test/pglite";
 import { confirmStaffAction } from "./confirm";
+import { confirmCards } from "./confirm-cards";
 import { actionDepsFor } from "./deps";
+import { saveAutoPlan } from "@/test/save-plan";
 import { ACTIONS, type ActionCtx } from "./registry";
 
 /**
@@ -59,7 +61,7 @@ beforeAll(async () => {
   people.coordinator = await seedStaff(db, "COORDINATOR", SITE);
   people.frontDesk = await seedStaff(db, "FRONT_DESK", SITE);
   // The morning of the prod failure: the afternoon planned and saved, then Van 1 confirmed short.
-  expect((await ACTIONS.auto_plan.run(ctx(people.director, "DIRECTOR"), { date: DATE, direction: "PM" })).status).toBe(200);
+  expect((await saveAutoPlan(ctx(people.director, "DIRECTOR"), DATE, "PM")).status).toBe(200);
   const short = { ...defaultsOfSlot(1), seats: 2, vanId: vanIdOfSlot(1), date: DATE, state: "CHECKED" as const };
   expect((await ACTIONS.confirm_van_setup.run(ctx(people.frontDesk, "FRONT_DESK"), short)).status).toBe(200);
 }, 180_000);
@@ -93,14 +95,14 @@ describe("asked to re-plan, the agent re-plans as the person who asked (S3)", ()
     expect((await board()).version).toBe(before.version);
   });
 
-  it("reads the board, re-plans it as the director, and answers in words", async () => {
+  it("reads the board and drafts the re-plan as a card — it saves nothing itself (ledger #76)", async () => {
     const before = await board();
     const r = await ask(people.director, "replan the afternoon", [
       toolCall("get_plan", { date: DATE, leg: "PM" }),
       toolCall("auto_plan", { date: DATE, leg: "PM" }),
-      toolCall("reply_to_staff", { summary: "Re-planned the afternoon so every van fits." }),
+      toolCall("reply_to_staff", { summary: "I've drafted a re-plan so every van fits. Approve it to save." }),
     ]);
-    expect(r.outcome === "ran" && r.answer).toBe("Re-planned the afternoon so every van fits.");
+    expect(r.outcome === "ran" && r.answer).toBe("I've drafted a re-plan so every van fits. Approve it to save.");
     if (r.outcome !== "ran") return;
     const calls = await toolCalls(db, r.run.runId);
     expect(calls.map((c) => [c.tool, c.status])).toEqual([
@@ -112,7 +114,21 @@ describe("asked to re-plan, the agent re-plans as the person who asked (S3)", ()
     const facts = (i: number) => (calls[i].result as { prompt_facts: Record<string, unknown> }).prompt_facts;
     expect(String(facts(0).van_1)).toMatch(/seats=3\/2 .*fits=false/);
     expect(facts(1)).toMatchObject({ action: "auto_plan", ok: true });
+    // Nothing saved: the plan is exactly as it was.
+    expect((await board()).version).toBe(before.version);
 
+    // The card says what it would do to the day, in lines generated from the plan.
+    const [card] = await confirmCards(db, SITE);
+    expect(card.summary).toBe("Re-plan the afternoon");
+    expect(card.impact.some((line) => /→ Van \d · ≈ \d{1,2}:\d{2} (AM|PM)/.test(line))).toBe(true);
+    expect(card.impact).toContain("Every van fits");
+  });
+
+  it("saves exactly that draft, as the director who approves it", async () => {
+    const before = await board();
+    const [card] = await confirmCards(db, SITE);
+    expect(await confirmStaffAction(db, { userId: people.director, approvalId: card.approvalId, decision: "APPROVED", now: NOW }))
+      .toEqual({ status: 200, body: { ok: true, decision: "APPROVED" } });
     const after = await board();
     expect(vansOver(after, after.plan)).toEqual([]);
     expect(after.version).toBe(before.version + 1);

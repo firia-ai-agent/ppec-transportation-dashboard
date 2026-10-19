@@ -7,7 +7,9 @@ import { vanColourVar } from "@/config/vans";
 import type { Bucket, BoardDay, BoardPlan, BoardRider, BoardVan } from "@/domain/plan/board";
 import { ridersInVan, stopCount, stopNumbers, usedInVan } from "@/domain/plan/board";
 import { isOver } from "@/domain/plan/fit";
-import { planBoard } from "@/ui/copy";
+import type { StopTime } from "@/domain/plan/arrivals";
+import { fill, planBoard } from "@/ui/copy";
+import { clockLabel } from "@/ui/service-date";
 import { icon } from "@/ui/tokens";
 import { CapacityMeters } from "./CapacityMeters";
 import { RiderCard } from "./RiderCard";
@@ -51,6 +53,9 @@ export function VanColumn({
   openChildToken,
   refusal,
   rampHref,
+  leaves,
+  onLeaves,
+  times,
 }: {
   van: BoardVan;
   day: BoardDay;
@@ -77,6 +82,12 @@ export function VanColumn({
   refusal?: Refusal | null;
   /** Where this van is counted (the ramp iPad, on this van), or null for a role that cannot. */
   rampHref: string | null;
+  /** When it leaves the centre, "HH:MM" — saved or today's unsaved edit (ledger #76). */
+  leaves: string;
+  /** A planner changed today's departure. */
+  onLeaves: (hhmm: string) => void;
+  /** Every child's estimated pickup / drop-off minute on the plan on screen. */
+  times: ReadonlyMap<string, StopTime>;
 }) {
   const { setNodeRef, isOver: pointerOver } = useDroppable({ id: van.id });
   const riders = ridersInVan(day, plan, van.id);
@@ -122,6 +133,26 @@ export function VanColumn({
         ) : null}
       </div>
 
+      {/* When it leaves: every time below follows from it. A planner changes it for today here. */}
+      <label className={styles.leaves}>
+        <Clock size={icon.chip} aria-hidden="true" />
+        <span>{planBoard.leaves}</span>
+        {canEdit ? (
+          <input
+            type="time"
+            className={styles.leavesInput}
+            value={leaves}
+            step={300}
+            aria-label={fill(planBoard.leavesLabel, { van: van.name })}
+            onChange={(event) => {
+              if (/^\d{2}:\d{2}$/.test(event.target.value)) onLeaves(event.target.value);
+            }}
+          />
+        ) : (
+          <strong>{clockLabel(leaves)}</strong>
+        )}
+      </label>
+
       <CapacityMeters setup={van.setup} used={used} vanName={van.name} rampHref={rampHref} />
 
       {reject ? (
@@ -145,6 +176,7 @@ export function VanColumn({
             canEdit={canEdit}
             selected={openChildToken === rider.token}
             refusalLine={refusalLineFor(refusal, rider.token)}
+            eta={times.get(rider.token)?.arrivesAtMinute}
           />
         ))}
         {/* An empty van shows where a child goes, at the top of the list rather than at the

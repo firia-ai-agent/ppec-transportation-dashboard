@@ -21,10 +21,18 @@ export function ConfirmCard({ card, confirm }: { readonly card: ConfirmView; rea
   return (
     <section className={styles.card} aria-label={confirmCopy.heading}>
       <div className={styles.cardHead}>
-        <h3 className={styles.cardTitle}>{confirmCopy.heading}</h3>
+        <h3 className={styles.cardTitle}>{card.impact.length > 0 ? card.summary : confirmCopy.heading}</h3>
       </div>
       {/* The model's own sentence when it wrote one (ledger #75 c); the action's line otherwise. */}
-      <p className={styles.changeLine}>{card.note ?? card.summary}</p>
+      {card.note || card.impact.length === 0 ? <p className={styles.changeLine}>{card.note ?? card.summary}</p> : null}
+      {/* What it does to the day, generated from the plan (ledger #76): who moves, when, does it fit. */}
+      {card.impact.length > 0 ? (
+        <ul className={styles.impactList}>
+          {card.impact.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
       <form action={submit} className={styles.actions}>
         <input type="hidden" name="card" value={card.approvalId} />
         <button type="submit" name="decision" value="APPROVED" className={styles.primary} disabled={pending}>

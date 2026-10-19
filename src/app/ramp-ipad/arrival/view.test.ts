@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { departuresOf } from "@/domain/plan/arrivals";
 import { emptyPlan, moveTo } from "@/domain/plan/board";
 import { usedBy } from "@/domain/plan/fit";
 import { demoDaySource } from "@/modules/demo/day-source";
@@ -26,14 +27,15 @@ const source = demoDaySource();
 describe("the vans at the ramp", () => {
   it("is Van 1, Van 2, Van 3, whatever order they leave in", async () => {
     const day = await testDay("AM");
-    const vans = arrivalVans(day, emptyPlan(day), source);
+    const vans = arrivalVans(day, emptyPlan(day), departuresOf(day));
 
     expect(vans.map((arrival) => arrival.van.name)).toEqual(["Van 1", "Van 2", "Van 3"]);
     expect(vans.map((arrival) => arrival.van.slot)).toEqual([1, 2, 3]);
 
-    // The point of the rule: leaving-time order is a different order, and is not this one.
-    const byLeaving = [...vans].sort((a, b) => a.leavesMs - b.leavesMs);
-    expect(byLeaving.map((arrival) => arrival.van.slot)).not.toEqual([1, 2, 3]);
+    // The point of the rule: Van 3 leaving first does not move its tab.
+    const early = arrivalVans(day, emptyPlan(day), departuresOf(day, { [vanIdOfSlot(3)]: "05:00" }));
+    expect(early.map((arrival) => arrival.van.slot)).toEqual([1, 2, 3]);
+    expect(early[2].leaves).toBe("05:00");
   });
 
   it("lists the riders the given plan puts on each van, and nobody else", async () => {
@@ -41,7 +43,7 @@ describe("the vans at the ramp", () => {
     const liam = childTokenOf("C3");
     const plan = moveTo(emptyPlan(day), liam, vanIdOfSlot(2));
 
-    const vans = arrivalVans(day, plan, source);
+    const vans = arrivalVans(day, plan, departuresOf(day));
     expect(vans[0].riders).toEqual([]);
     expect(vans[1].riders.map((rider) => rider.token)).toEqual([liam]);
     expect(vans[2].riders).toEqual([]);
@@ -49,14 +51,14 @@ describe("the vans at the ramp", () => {
 
   it("never invents a plan: an empty plan is three empty vans", async () => {
     const day = await testDay("AM");
-    const vans = arrivalVans(day, emptyPlan(day), source);
+    const vans = arrivalVans(day, emptyPlan(day), departuresOf(day));
     expect(vans).toHaveLength(3);
     expect(vans.flatMap((arrival) => arrival.riders)).toEqual([]);
   });
 
   it("selects the van the address names, and the first one when it names none", async () => {
     const day = await testDay("AM");
-    const vans = arrivalVans(day, emptyPlan(day), source);
+    const vans = arrivalVans(day, emptyPlan(day), departuresOf(day));
     expect(selectedVan(vans, vanIdOfSlot(3))?.van.slot).toBe(3);
     expect(selectedVan(vans, undefined)?.van.slot).toBe(1);
     expect(selectedVan(vans, "not-a-van")?.van.slot).toBe(1);
@@ -86,7 +88,7 @@ describe("what the plan needs of a van, under each counter", () => {
     const day = await testDay("AM");
     const liam = day.riders.find((rider) => rider.needs.carSeat)!;
     const plan = moveTo(emptyPlan(day), liam.token, vanIdOfSlot(1));
-    const vans = arrivalVans(day, plan, source);
+    const vans = arrivalVans(day, plan, departuresOf(day));
 
     const planned = plannedUse(vans[0].riders);
     expect(planned).toEqual(usedBy(vans[0].riders));
@@ -104,7 +106,7 @@ describe("what the plan needs of a van, under each counter", () => {
     expect(withCarSeat).toHaveLength(2);
     let plan = emptyPlan(day);
     for (const rider of withCarSeat) plan = moveTo(plan, rider.token, vanIdOfSlot(1));
-    const planned = plannedUse(arrivalVans(day, plan, source)[0].riders);
+    const planned = plannedUse(arrivalVans(day, plan, departuresOf(day))[0].riders);
     expect(planned.carSeats).toBe(2);
 
     const defaults = defaultsOfSlot(1);

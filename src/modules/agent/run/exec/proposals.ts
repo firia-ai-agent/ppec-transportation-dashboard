@@ -25,6 +25,9 @@
 import type { Exec } from "@/db/exec";
 import { actionTool } from "../../action-tools";
 import { staffActionSummary } from "@/modules/actions/summary";
+import { draftReplan, writeStaffActionCard } from "@/modules/actions/draft";
+import { sqlPlanStoreIn } from "@/modules/plan/sql";
+import { sqlDaySource } from "@/modules/roster/sql";
 import {
   DROPOFF_CHANGE_KIND,
   DROPOFF_CHANGE_TASK_CATEGORY,
@@ -61,10 +64,9 @@ import type { ExecutorDeps } from "./effects";
 /** `ops.task.category` for the three proposals. */
 export const REALLOCATION_TASK_CATEGORY = "INFEASIBLE";
 /** `ops.task.category` for a confirm card the agent prepared (ledger #74 d). */
-export const STAFF_ACTION_TASK_CATEGORY = "STAFF_ACTION";
+export { STAFF_ACTION_TASK_CATEGORY } from "@/modules/actions/draft";
 /** `approval_request.proposal.kind` for the same card (a leaf, so client types can name it). */
 export { STAFF_ACTION_KIND } from "@/modules/actions/confirm-view";
-import { STAFF_ACTION_KIND } from "@/modules/actions/confirm-view";
 export const CHANGE_REQUEST_TASK_CATEGORY = "IDENTITY_CHANGE";
 
 /*
@@ -158,7 +160,7 @@ export function proposalWriter(_deps: ExecutorDeps): ProposalWriter {
       default:
         // A confirm card (ledger #74 d, e): an action a person presses, prepared by the agent —
         // human tier always, and any action in a run with nobody to act for (policy proposeOnly).
-        return actionTool(input.tool) ? staffAction(tx, input) : {};
+        return actionTool(input.tool) ? staffAction(_deps, tx, input) : {};
     }
   };
 }
@@ -657,38 +659,29 @@ function legOf(direction: string | undefined): Direction | null {
  * the card runs the action through the one action layer, as the person who confirms it
  * (`modules/actions/confirm.ts`), with the board's version read then rather than now.
  */
-async function staffAction(tx: Exec, input: ProposalInput): Promise<Record<string, unknown>> {
+async function staffAction(_deps: ExecutorDeps, tx: Exec, input: ProposalInput): Promise<Record<string, unknown>> {
   const tool = actionTool(input.tool)!;
   const by = `agent:${input.runId}`;
-  const taskId = await raiseTask(tx, {
-    id: effectId(input.idempotencyKey, "exception"),
+  const note = typeof input.args.note === "string" ? input.args.note : null;
+  // A re-plan is a draft of concrete moves and what they do to the day (ledger #76): the same card
+  // a person pressing Re-plan gets, so what is approved is exactly what was shown.
+  if (tool.name === "auto_plan" && (input.args.leg === "AM" || input.args.leg === "PM")) {
+    // Read on this transaction's own connection: the run holds it, and a second one would wait on it.
+    const drafted = await draftReplan(tx, { store: sqlPlanStoreIn(tx), source: sqlDaySource(tx, input.siteId) }, {
+      siteId: input.siteId, date: String(input.args.date), leg: input.args.leg, by, note,
+    });
+    return drafted.drafted ? { approval_request_id: drafted.approvalId, mutated: false } : { nothing_to_change: true, mutated: false };
+  }
+  const approvalId = await writeStaffActionCard(tx, {
     siteId: input.siteId,
-    category: STAFF_ACTION_TASK_CATEGORY,
-    severity: "AMBER",
-    words: agentTasks.proposedStaffAction,
+    key: input.idempotencyKey,
     by,
+    tool: tool.name,
+    action: tool.action,
+    args: input.args,
+    summary: staffActionSummary(tool.name, input.args),
+    note,
+    approvalKey: input.approvalKey,
   });
-  const approvalId = effectId(input.idempotencyKey, "approval");
-  await tx.query(
-    `INSERT INTO ops.approval_request (id, site_id, task_id, proposal, created_by, updated_by, source_mode)
-     VALUES ($1, $2, $3, $4::jsonb, $5, $5, 'SIMULATED')
-     ON CONFLICT (id) DO NOTHING`,
-    [
-      approvalId,
-      input.siteId,
-      taskId,
-      JSON.stringify({
-        kind: STAFF_ACTION_KIND,
-        tool: tool.name,
-        action: tool.action,
-        args: input.args,
-        summary: staffActionSummary(tool.name, input.args),
-        // The model's own sentence for the card, when it wrote one (action-tools.ts `NOTE`).
-        ...(typeof input.args.note === "string" && input.args.note.trim() ? { note: input.args.note.trim() } : {}),
-        approval_key: input.approvalKey,
-      }),
-      by,
-    ],
-  );
-  return { approval_request_id: approvalId, exception_task_id: taskId, mutated: false };
+  return { approval_request_id: approvalId, mutated: false };
 }

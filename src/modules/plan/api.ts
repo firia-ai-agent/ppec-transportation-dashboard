@@ -98,6 +98,8 @@ export const savePlanBody = z.strictObject({
       }),
     )
     .max(200),
+  /** Today's departure per van, `{ vanId: "HH:MM" }`, where the planner changed it (ledger #76). */
+  departures: z.record(z.string().min(1).max(64), z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).optional(),
 });
 
 export type SavePlanAnswer =
@@ -122,6 +124,8 @@ export async function savePlanRequest(
   store: PlanStore = planStore(),
   source: DayDataSource = dayDataSource(siteId),
   notify: ReplanNotifier = replanNotifier(),
+  /** The van-short rule (ledger #76): a save that makes a van fit again stands its alert down. */
+  alerts: VanShortNotifier = vanShortNotifier(),
 ): Promise<SavePlanAnswer> {
   const written = await applyPendingMoves(
     {
@@ -137,6 +141,7 @@ export async function savePlanRequest(
       expectedVersion: input.version,
       actor: caller.userId ?? null,
       now,
+      departures: input.departures,
     },
     store,
     source,
@@ -154,6 +159,8 @@ export async function savePlanRequest(
       now,
       by: `staff:${caller.userId ?? "unknown"}`,
     }).catch((e) => console.error("[plan:save] replan notices not queued", e instanceof Error ? e.message : e));
+    await alerts({ siteId, date: input.date, by: `staff:${caller.userId ?? "unknown"}`, store, source, now })
+      .catch((e) => console.error("[plan:save] van-short not reconciled", e instanceof Error ? e.message : e));
     return { status: 200, body: { ok: true, version: written.version, savedAt: written.savedAt } };
   }
   if (written.status === 422) {
@@ -270,7 +277,7 @@ export async function putVanSetupRequest(
    * (ledger #74 e; `van-short.ts`). After the write; never a reason the confirm failed — the counts
    * are recorded either way, and the banner on this screen already says who won't fit.
    */
-  await alerts({ siteId, date: input.date, by: `staff:${caller.userId ?? "unknown"}`, store, source })
+  await alerts({ siteId, date: input.date, by: `staff:${caller.userId ?? "unknown"}`, store, source, now })
     .catch((e) => console.error("[vans:setup] van-short alert not raised", e instanceof Error ? e.message : e));
   return { status: 200, body: { ok: true, readiness: after.readiness } };
 }

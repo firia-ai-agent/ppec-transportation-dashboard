@@ -18,7 +18,7 @@ import { ALL_STAFF } from "@/auth/access";
 import { Forbidden, SiteNotFound, Unauthenticated, requireSiteAccess } from "@/auth/core";
 import { ridersInVan, shortfallsOfDay, usedInVan } from "@/domain/plan/board";
 import { fits } from "@/domain/plan/fit";
-import { hhmmOf, madeLate } from "@/domain/plan/arrivals";
+import { hhmmOf, madeLate, plannedStopTimes } from "@/domain/plan/arrivals";
 import type { Placement } from "@/domain/plan/board";
 import { notifyGateConfig } from "@/config/live";
 import { pendingApprovals } from "@/modules/approvals/decide";
@@ -94,13 +94,20 @@ function getPlanExecutor(deps: ExecutorDeps): ToolExecutor {
     const board = actionDepsFor(deps.db, call.siteId);
     const view = await loadBoard(board.store!, call.siteId, String(call.args.date), call.args.leg as "AM" | "PM", board.source);
     const facts: Record<string, string | number | boolean> = { plan_version: view.version, saved: view.version > 0 };
+    // Every child's estimated time, forward from their van's departure (ledger #76): the board's numbers.
+    const times = plannedStopTimes(view.day, view.plan, view.departs);
+    const at = (token: string) => {
+      const t = times.get(token);
+      return t ? `@${hhmmOf(Math.round(t.arrivesAtMinute))}` : "";
+    };
     for (const van of view.day.vans) {
       const riders = ridersInVan(view.day, view.plan, van.id);
       const used = usedInVan(view.day, view.plan, van.id);
       facts[`van_${van.slot}`] =
         `id=${van.id} name=${van.name} seats=${used.seats}/${van.setup.seats} wheelchair=${used.wheelchairSpots}/${van.setup.wheelchairSpots} ` +
         `car_seats=${used.carSeats}/${van.setup.carSeats} oxygen=${used.oxygenMounts}/${van.setup.oxygenMounts} ` +
-        `lift=${van.setup.hasLift} fits=${fits(van.setup, riders)} riders=${riders.map((r) => `${r.name}:${r.token}`).join(",") || "none"}`;
+        `lift=${van.setup.hasLift} fits=${fits(van.setup, riders)} leaves=${hhmmOf(view.departs[van.id] ?? 0)} ` +
+        `riders=${riders.map((r) => `${r.name}:${r.token}${at(r.token)}`).join(",") || "none"}`;
     }
     const short = shortfallsOfDay(view.day, view.plan);
     facts.does_not_fit = short.map((s) => `${view.day.riders.find((r) => r.token === s.token)?.name ?? s.token}:${s.shortfall.reason}`).join(",") || "none";
@@ -130,7 +137,7 @@ function previewFacts(
   const facts: Record<string, string | boolean> = { preview: true };
   for (const van of view.day.vans) facts[`preview_van_${van.slot}_fits`] = fits(van.setup, ridersInVan(view.day, plan, van.id));
   facts.preview_home_late =
-    madeLate(view.day, view.plan, plan, notifyGateConfig.shiftSeconds / 60)
+    madeLate(view.day, view.plan, plan, notifyGateConfig.shiftSeconds / 60, { before: view.departs, after: view.departs })
       .map((l) => `${name(l.token)}:+${Math.round(l.late)}min_home_${hhmmOf(Math.round(l.arrival.arrivesAtMinute))}`)
       .join(",") || "none";
   return facts;

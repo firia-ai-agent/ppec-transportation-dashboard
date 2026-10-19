@@ -41,13 +41,20 @@ const board = () => loadBoard(store, SITE, DATE, "PM", source());
 const notify = (input: Parameters<typeof sendReplanLateNotices>[2]) => sendReplanLateNotices(db, outbox, input);
 
 /** Auto-plan, pressed and saved, the way the board does it: the proposal goes out as planned moves. */
+/**
+ * The afternoon the scenario plans: every van leaves at 3:40, which is tight against the families'
+ * windows, so a re-plan that adds a stop ahead of a child makes them late. Set here, as a planner
+ * would on the board (ledger #76), rather than relying on the schedule's default.
+ */
+const TIGHT = (view: BoardView) => Object.fromEntries(view.day.vans.map((van) => [van.id, "15:40"]));
+
 async function autoPlanAndSave(view: BoardView) {
   const planned: BoardPlan = autoPlan(view.day, view.plan);
   const moves = Object.entries(planned)
     .filter(([token, p]) => view.plan[token]?.bucket !== p.bucket || view.plan[token]?.vanId !== p.vanId)
     .map(([childToken, p]) => ({ childToken, bucket: p.bucket, vanId: p.vanId, planned: true }));
   const answer = await savePlanRequest(
-    SITE, DIRECTOR, { date: DATE, direction: "PM", version: view.version, moves }, NOW, store, source(), notify,
+    SITE, DIRECTOR, { date: DATE, direction: "PM", version: view.version, moves, departures: TIGHT(view) }, NOW, store, source(), notify,
   );
   expect(answer.status, JSON.stringify(answer.body)).toBe(200);
 }
@@ -99,8 +106,8 @@ describe("a saved re-plan texts the families it made late", () => {
     const after = await board();
 
     // Who the rule says should be told, from the two saved plans and nothing else.
-    const was = plannedDropoffs(before.day, before.plan);
-    const now = plannedDropoffs(after.day, after.plan);
+    const was = plannedDropoffs(before.day, before.plan, before.departs);
+    const now = plannedDropoffs(after.day, after.plan, after.departs);
     const expected = after.day.riders.filter((rider) => {
       const a = now.get(rider.token);
       if (!a) return false;

@@ -609,6 +609,13 @@ describe("the classifier, pinned directly", () => {
     }
   });
 
+  it("stops — never waits — when every model refused the key (ledger #76)", () => {
+    const refused = (status: number) => ({ model: "m", status, ok: false, failure: "http_error" }) as const;
+    expect(modelUnavailable(new RemoteProviderUnavailable("x", [refused(401), refused(403)]))).toEqual({
+      reason: "key_refused", detail: "the provider refused the key on every model", stop: true,
+    });
+  });
+
   it("reads an exhausted chain off its recorded attempts", () => {
     expect(modelUnavailable(new RemoteProviderUnavailable("x", [attempt("timeout"), attempt("timeout")]))).toEqual(
       outage("timeout", "timeout"),

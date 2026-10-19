@@ -104,9 +104,10 @@ describe("the disc's bottom offset includes the page's sticky action bar", () =>
       expect(css).not.toMatch(/\[data-page/);
     }
     // …and the ramp iPad holds no bubble geometry: the one mention allowed is the demo ruling's
-    // hide (Firia, 2026-10-18 10:10 AM ET), which sets display and nothing else.
+    // hide of the closed disc (Firia, 2026-10-18 10:10 AM ET; the open panel shows Re-plan's card,
+    // ledger #76), which sets display and nothing else.
     expect(arrivalCss.match(/agent-bubble/g) ?? []).toHaveLength(1);
-    expect(arrivalCss).toMatch(/:global\(body\):has\(\.confirmBar\) :global\(\[data-agent-bubble\]\) \{\s*display: none;\s*\}/);
+    expect(arrivalCss).toMatch(/:global\(body\):has\(\.confirmBar\) :global\(\[data-agent-bubble\]\[data-state="closed"\]\) \{\s*display: none;\s*\}/);
   });
 });
 

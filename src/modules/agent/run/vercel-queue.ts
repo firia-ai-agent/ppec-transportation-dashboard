@@ -9,10 +9,13 @@
  * idempotent on the trigger).
  */
 import { send } from "@vercel/queue";
+import { drivesAgentLocally, postLocalAgentWake } from "@/lib/dev-agent-wake";
 import { AGENT_TOPIC, type AgentWake, type AgentWakeTransport } from "./queue";
 
 export const vercelQueueAgentTransport: AgentWakeTransport = {
   async publish(msg: AgentWake, opts: { idempotencyKey: string }) {
+    // `next dev` has no queue (ledger #76): the dev server's own consumer route runs it instead.
+    if (drivesAgentLocally()) return postLocalAgentWake(msg);
     await send(AGENT_TOPIC, msg, { idempotencyKey: opts.idempotencyKey });
   },
 };

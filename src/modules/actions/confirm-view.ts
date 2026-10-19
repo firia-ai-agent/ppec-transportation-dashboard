@@ -9,6 +9,8 @@ export type ConfirmView = {
   readonly summary: string;
   /** The model's own sentence for the card, in names (ledger #75 c). Null when it wrote none. */
   readonly note: string | null;
+  /** What it does to the day, one line each — a re-plan draft's moves, fit and texts (ledger #76). */
+  readonly impact: readonly string[];
 };
 
 /** `approval_request.proposal.kind` for a change the agent prepared for a person to confirm. */

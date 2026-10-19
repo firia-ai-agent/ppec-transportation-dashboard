@@ -2293,6 +2293,17 @@ export const equipment = {
  * words, most of them names and places — #58's screen had 607.
  */
 export const planBoard = {
+  /**
+   * When a van leaves the centre on this leg (ledger #76): the schedule's default, or the time a
+   * planner set for today. Every child's time on the van follows from it.
+   */
+  leaves: "Leaves",
+  /** The time control's name for a screen reader: "Van 2 leaves at". */
+  leavesLabel: "{van} leaves at",
+  /** A child's estimated pickup (morning) or drop-off (afternoon), and their stop. */
+  etaLine: "≈ {time} · {stop}",
+  /** …and when that is past the family's window by the notify threshold. */
+  etaLateLine: "≈ {time} (+{late} min) · {stop}",
   heading: "Plan routes",
   /** <title> for the route, so the tab says which screen is open. */
   documentTitle: `Plan routes · ${BRAND_NAME}`,
@@ -2519,6 +2530,8 @@ export const vanArrival = {
     OXYGEN: { one: "oxygen mount", many: "oxygen mounts" },
     LIFT: { one: "lift", many: "lifts" },
   },
+  /** Re-plan found no van that can carry them (ledger #76): nothing to approve, a family to call. */
+  noVanCanTake: "No van fits {children} — call the family",
   replan: "Re-plan",
   confirm: "Confirm {van}",
   /** Said back once the write landed, so Confirm is not the only evidence of it. */
@@ -3209,7 +3222,9 @@ export const agentGuidance = {
     "Null when the family keeps their stop, which is the usual case. Only when they ask for a " +
     "different place: one of the listed stop tokens, exactly as written.",
   readGuardianThread: "Read the last messages on a family's thread, oldest first, to see exactly what they asked.",
-  autoPlan: "Re-plan a leg with Auto-plan and save it, as the person who asked. Use get_plan first.",
+  autoPlan:
+    "Re-plan a leg: Auto-plan drafts a card listing who moves, their new times and whether every van fits; " +
+    "the person approves it. Nothing is saved until they do. Put your one-sentence reason in note.",
   moveChild: "Move one child to a van, Unassigned, Absent or Family drives on a leg, and save it.",
   savePlan: "Apply several moves to a leg's plan and save them together.",
   confirmVan: "Record a van's counts and lift as the ramp found them today.",
@@ -3251,11 +3266,27 @@ export const actionSummaries = {
 } as const;
 
 /** A confirm card in the bubble (ledger #74 d): a change the agent prepared, for a person to press. */
+/**
+ * A re-plan as a draft card (ledger #76, `actions/draft.ts`): what Auto-plan would change and what
+ * that does to the day, generated from the plan. Approve saves it; nothing changes until then.
+ */
+export const replanDraft = {
+  title: "Re-plan the {leg}",
+  moved: "{child}: {from} → {to} · ≈ {time}",
+  movedLate: "{child}: {from} → {to} · ≈ {time} (+{late} min)",
+  noVan: "no van",
+  everyVanFits: "Every van fits",
+  stillOver: "{vans} still doesn't fit",
+  stillNeedsRide: "{children} still needs a ride — call the family",
+  texted: "{families} would be texted the new time",
+  family: { one: "family", many: "families" },
+} as const;
+
 export const confirmCopy = {
   heading: "Confirm a change",
-  confirm: "Confirm",
+  confirm: "Approve",
   dontDo: "Don't",
-  pending: "Nothing happens until you confirm.",
+  pending: "Nothing happens until you approve.",
   done: "Done.",
   declined: "Not done. Nothing changed.",
   /**

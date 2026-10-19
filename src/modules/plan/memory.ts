@@ -128,6 +128,7 @@ export function memoryPlanStore(env: Record<string, string | undefined> = proces
             { bucket, vanId, pinned },
           ]),
         ),
+        departures: { ...(existing?.departures ?? {}), ...(input.departures ?? {}) },
       };
       state().plans.set(key, saved);
       return { ok: true, version: saved.version, savedAt: saved.savedAt };

@@ -109,6 +109,7 @@ import { LIVE_ALERT_STATES_SQL, MODEL_UNAVAILABLE_CATEGORY, sqlEnumList } from "
  */
 export type UnavailableReason =
   | "no_key"
+  | "key_refused"
   | "rate_limited"
   | "timeout"
   | "provider_error"
@@ -265,6 +266,11 @@ function destination(what: string): Unavailable {
  * act on differently; a mixed chain is neither, and says so.
  */
 function chainUnavailable(err: RemoteProviderUnavailable): Unavailable {
+  // Every model said the key is no good (401/403): that is configuration, and waiting will not fix
+  // it — `stop`, so a person's run is not parked to try the same key again (ledger #76).
+  if (err.attempts.length > 0 && err.attempts.every((a) => a.status === 401 || a.status === 403)) {
+    return { reason: "key_refused", detail: "the provider refused the key on every model", stop: true };
+  }
   const failures = new Set(err.attempts.map((a) => a.failure));
   if (failures.size === 1) {
     const only = [...failures][0];

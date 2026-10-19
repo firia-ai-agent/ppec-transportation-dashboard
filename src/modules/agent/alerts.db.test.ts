@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "@/db/exec";
+import { saveAutoPlan } from "@/test/save-plan";
 import { ACTIONS, type ActionCtx } from "@/modules/actions/registry";
 import { confirmStaffAction } from "@/modules/actions/confirm";
 import { actionDepsFor } from "@/modules/actions/deps";
@@ -78,7 +79,9 @@ beforeAll(async () => {
   await seedStandardScenario(db, { now: NOW, siteId: SITE, env: ENV });
   people.director = await seedStaff(db, "DIRECTOR", SITE);
   people.frontDesk = await seedStaff(db, "FRONT_DESK", SITE);
-  expect((await ACTIONS.auto_plan.run(ctx(people.director, "DIRECTOR"), { date: DATE, direction: "PM" })).status).toBe(200);
+  // Vans leave at 3:40, tight against the families' windows, so a re-plan that moves a child can
+  // make them late and the texts are exercised (ledger #76: lateness is computed, never assumed).
+  expect((await saveAutoPlan(ctx(people.director, "DIRECTOR"), DATE, "PM", "15:40")).status).toBe(200);
 }, 180_000);
 
 afterAll(async () => {
@@ -206,6 +209,8 @@ describe("the bubble shows what the agent heard, and how it ended (ledger #75 b 
   it("says what is wrong and links the board when the run ended with nothing", async () => {
     const a = await latestAlert();
     await db.query("UPDATE ops.agent_tool_call SET status = 'FAILED' WHERE run_id = $1", [a.run_id]);
+    // …and no re-plan of the leg is waiting for anybody either.
+    await db.query("UPDATE ops.approval_request SET decided_at = now(), decision = 'DECLINED' WHERE decided_at IS NULL", []);
     const [line] = await itemsFor(a.task_id);
     expect(line).toEqual({
       kind: "agent",
@@ -257,19 +262,19 @@ describe("a card closes the loop, steps aside when the board moved, and can be t
       "SELECT id FROM ops.approval_request WHERE proposal->>'kind' = 'STAFF_ACTION' AND decision = 'APPROVED' ORDER BY decided_at LIMIT 1", [],
     )).rows[0];
     const done = (await thread()).find((i) => "id" in i && i.id === `${card.id}:done`);
-    expect(done).toMatchObject({ kind: "agent", text: expect.stringMatching(/^Done\. Every van fits, and \d+ families were texted a new time\.$/) });
+    expect(done).toMatchObject({ kind: "agent", text: expect.stringMatching(/^Done\. Every van fits(, and \d+ families were texted a new time)?\.$/) });
   });
 
   it("does not offer a plan card the board was saved past, and says it was handled", async () => {
-    const [run] = (await db.query<{ id: string }>(
-      `SELECT r.id FROM ops.agent_run r JOIN ops.approval_request a ON a.proposal->>'kind' = 'STAFF_ACTION' AND a.decided_at IS NULL
-        JOIN ops.agent_tool_call c ON c.run_id = r.id AND c.status = 'PROPOSED' LIMIT 1`, [],
-    )).rows;
-    expect(run).toBeDefined(); // the card the "puts the model's sentence on the card" test drafted
+    // Van 1 short again, and a person presses Re-plan: one draft card waits.
+    expect((await ACTIONS.confirm_van_setup.run(ctx(people.frontDesk, "FRONT_DESK"), {
+      ...defaultsOfSlot(1), seats: 1, oxygenMounts: 0, vanId: vanIdOfSlot(1), date: DATE, state: "CHECKED" as const,
+    })).status).toBe(200);
+    expect((await ACTIONS.auto_plan.run(ctx(people.director, "DIRECTOR"), { date: DATE, direction: "PM" })).body).toMatchObject({ drafted: true });
     const pending = (await confirmCards(db, SITE)).map((c) => c.approvalId);
     expect(pending.length).toBeGreaterThan(0);
     // A person re-plans the afternoon on the board before pressing anything.
-    expect((await ACTIONS.auto_plan.run(ctx(people.director, "DIRECTOR"), { date: DATE, direction: "PM" })).status).toBe(200);
+    expect((await saveAutoPlan(ctx(people.director, "DIRECTOR"), DATE, "PM")).status).toBe(200);
     expect(await confirmCards(db, SITE)).toEqual([]);
     const items = await thread();
     for (const id of pending) {

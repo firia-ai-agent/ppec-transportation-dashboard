@@ -2,9 +2,9 @@
  * The van arrival, as the screen needs it: which vans are out on the leg being looked at, what
  * the SAVED plan has on each of them, and who is riding.
  *
- * Server-side composition only — the board's own day (src/modules/plan/store.ts) plus the one
- * thing it does not carry, when each van leaves the centre, which comes through the same day
- * port everything else does (Firia's rule 5: no screen reads a fixture).
+ * Server-side composition only — the board's own day (src/modules/plan/store.ts), including when
+ * each van leaves the centre: the board's own departure for the leg (ledger #76), so the ramp and
+ * the board cannot disagree about it.
  *
  * The riders beside the steppers are **the saved plan, and nothing else**. There is no Auto-plan
  * fallback any more (Firia's S1 ruling): a ramp that invented a plan by looking showed the front
@@ -14,7 +14,7 @@
  * Pure apart from reading the day: no database of its own, no network, no React.
  */
 import type { CounterKey } from "@/config/equipment";
-import type { DayDataSource } from "@/domain/day/source";
+import { hhmmOf, type Departures } from "@/domain/plan/arrivals";
 import type { Direction } from "@/domain/day/leg";
 import type { BoardDay, BoardPlan, BoardRider, BoardVan } from "@/domain/plan/board";
 import { ridersInVan } from "@/domain/plan/board";
@@ -30,8 +30,8 @@ export type ArrivalVan = {
   van: BoardVan;
   /** The riders the saved plan puts on it, in the order it drives them. */
   riders: readonly BoardRider[];
-  /** When it pulls away from the centre, epoch ms, from the run's committed geometry. */
-  leavesMs: number;
+  /** When it pulls away from the centre, "HH:MM" — the board's own departure (ledger #76). */
+  leaves: string;
 };
 
 /**
@@ -42,12 +42,12 @@ export type ArrivalVan = {
  * three tabs in the order the numbers are painted on the doors (png/ramp-arrival.png), so the
  * order is the van's own slot and the leave time is the small line under its name.
  */
-export function arrivalVans(day: BoardDay, plan: BoardPlan, source: DayDataSource): ArrivalVan[] {
+export function arrivalVans(day: BoardDay, plan: BoardPlan, departs: Departures): ArrivalVan[] {
   return day.vans
     .map((van) => ({
       van,
       riders: ridersInVan(day, plan, van.id),
-      leavesMs: source.leavesAtMs(day.date, day.direction, van.id),
+      leaves: hhmmOf(departs[van.id] ?? 0),
     }))
     .sort((a, b) => a.van.slot - b.van.slot || a.van.id.localeCompare(b.van.id));
 }

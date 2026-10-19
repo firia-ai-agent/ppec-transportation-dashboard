@@ -64,17 +64,19 @@ describe("the agent can only do what the asker's role can (S4)", () => {
 });
 
 describe("an action run through the registry is the screen's own (S6)", () => {
-  it("Auto-plan saves the plan the board's Auto-plan would have saved", async () => {
+  it("Auto-plan drafts the re-plan as a card and saves nothing (ledger #76)", async () => {
     const date = "2026-10-16";
-    const before = await loadBoard(planStore(), SITE, date, "PM", dayDataSource(SITE));
-    const expected = autoPlan(before.day, before.version === 0 ? emptyPlan(before.day) : before.plan);
-    const answer = await ACTIONS.auto_plan.run(ctx("DIRECTOR"), { date, direction: "PM" });
+    // The board's own memory store and the demo day; the card is written to the database.
+    const deps = { db, store: planStore(), source: dayDataSource(SITE) };
+    const before = await loadBoard(deps.store, SITE, date, "PM", deps.source);
+    const answer = await ACTIONS.auto_plan.run({ ...ctx("DIRECTOR"), deps }, { date, direction: "PM" });
     expect(answer.status, JSON.stringify(answer.body)).toBe(200);
-    const after = await loadBoard(planStore(), SITE, date, "PM", dayDataSource(SITE));
-    for (const [token, p] of Object.entries(expected)) {
-      expect([after.plan[token]?.bucket, after.plan[token]?.vanId], token).toEqual([p.bucket, p.vanId]);
-    }
-    expect(after.version).toBe(before.version + 1);
+    const after = await loadBoard(deps.store, SITE, date, "PM", deps.source);
+    expect(after.version).toBe(before.version);
+    const card = (answer.body as { cardId?: string }).cardId;
+    expect(card).toBeTruthy();
+    const row = await db.query<{ tool: string }>("SELECT proposal->>'tool' AS tool FROM ops.approval_request WHERE id = $1", [card]);
+    expect(row.rows[0].tool).toBe("save_plan");
   });
 
   it("refuses input the screen's schema refuses, before anything runs", async () => {

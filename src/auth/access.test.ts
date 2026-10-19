@@ -432,10 +432,12 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/api/auth/[...nextauth]": "auth-endpoint",
       "/api/health": "public",
       "/api/cron/sweep": "cron-secret",
+      "/api/dev/agent-wake": "cron-secret",
       "/api/probe/delay": "cron-secret",
       "/api/demo/reset": "session:DIRECTOR",
       "/api/plan": "session:DIRECTOR+COORDINATOR",
       "/api/plan/save": "session:DIRECTOR+COORDINATOR",
+      "/api/plan/replan": "session:DIRECTOR+COORDINATOR",
       // One child moved, and one child's three need answers: the same two roles the board is
       // open to, because both are decisions about what the day is planned against.
       "/api/plan/place": "session:DIRECTOR+COORDINATOR",
