@@ -198,6 +198,7 @@ export async function staffAskContext(
         : [
             `staff_ask="${say(askTextOf(ask.summary))}"`,
             ...(following ? [`following_up_on_alert="${say(following)}"`] : []),
+            "look_first=get_activity for what happened today, get_plan for the plan",
             "answer_with=reply_to_staff",
           ]),
     ].join(" "),
@@ -207,7 +208,9 @@ export async function staffAskContext(
         (x) => `thread=${t(x.id)} family=${x.family_group_id ? t(x.family_group_id) : "unknown"} state=${x.state}`,
       ),
       ...legs.map(
-        (l) => `leg=${t(l.id)} child=${t(l.child_token)} part=${l.direction} state=${l.state} version=${l.plan_version}`,
+        // Who rides which leg, and nothing internal (ledger #76): a leg's state and version are a
+        // tool's business (get_leg_state), and in a staff answer they read as "provisionally assigned, v1".
+        (l) => `leg=${t(l.id)} child=${t(l.child_token)} part=${l.direction}`,
       ),
       ...openTasks.map(
         (x) => `task=${t(x.id)} category=${x.category} severity=${x.severity} state=${x.state} says="${say(x.summary)}"`,
