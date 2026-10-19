@@ -41,7 +41,22 @@ const asMove = (m: z.infer<typeof move>) => ({
   vanId: m.bucket === "VAN" ? (m.van_id ?? null) : null,
 });
 
-const tool = (t: Omit<ActionTool, "staffTextFields" | "sendCopy">): ActionTool => ({ ...t, staffTextFields: [], sendCopy: null });
+/**
+ * WHAT THE CARD SAYS, in the model's words (ledger #75 c). Any action may carry a `note`: when the
+ * action becomes a card for a person (a `human` tool, or any tool in an alert's run), the note is
+ * the card's sentence — "Van 1 came back with one seat, so Ava N. moves to Van 3, about 10 min
+ * later" — rather than a line this app assembled about the tool. Staff prose: the same bound as
+ * every other prose field (tools.ts `staffProse`), redacted by the policy engine before it is kept,
+ * and never an input to the action itself.
+ */
+const NOTE = z.string().min(1).max(600).optional();
+
+const tool = (t: Omit<ActionTool, "staffTextFields" | "sendCopy">): ActionTool => ({
+  ...t,
+  schema: t.schema.extend({ note: NOTE }),
+  staffTextFields: ["note"],
+  sendCopy: null,
+});
 
 export const ACTION_TOOLS: readonly ActionTool[] = [
   tool({

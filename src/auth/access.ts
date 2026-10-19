@@ -199,6 +199,8 @@ export const API = {
   vanSetup: "/api/vans/[id]/setup",
   /** The agent chat bubble's compose bar: one ask, into the one run loop (§11.1). */
   agentAsk: "/api/agent/ask",
+  /** Has the bubble's thread moved since the page rendered (ledger #75): a stamp and a flag. */
+  agentPulse: "/api/agent/thread/pulse",
   queueTimer: "/api/queues/timer",
   queueOutbox: "/api/queues/outbox",
   queueAgent: "/api/queues/agent",
@@ -745,6 +747,18 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     file: "src/app/api/agent/ask/route.ts",
     path: API.agentAsk,
     methods: ["POST"],
+    auth: { kind: "session", roles: APPROVAL_ROLES, siteScoped: false },
+  },
+  /**
+   * The bubble's pulse (ledger #75 b): every page the bubble is drawn on asks it every few seconds
+   * whether the thread moved. The bubble's own roles — the same constant as the ask — because it
+   * says whether there is something new *in the bubble*, and that is nobody else's business.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/agent/thread/pulse/route.ts",
+    path: API.agentPulse,
+    methods: ["GET"],
     auth: { kind: "session", roles: APPROVAL_ROLES, siteScoped: false },
   },
   /**

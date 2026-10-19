@@ -122,3 +122,48 @@ export function setAgentBubbleOpen(open: boolean): void {
   writeAgentBubbleOpen(globalThis.sessionStorage, open);
   for (const listener of listeners) listener();
 }
+
+/**
+ * WHAT THIS PERSON HAS ALREADY SEEN (ledger #75 b): the thread's pulse stamp (`ask/pulse.ts`) as it
+ * was the last time the panel was open. When the thread moves past it — the agent heard an alert,
+ * answered, drafted a card — the closed bubble carries the dot, the way a colleague's tap on the
+ * shoulder says "something for you" before you know what. `localStorage`, so it holds across tabs
+ * and reloads on this browser; a stamp, never anything about a person.
+ */
+export const AGENT_SEEN_KEY = "ppec.agent-bubble.seen";
+const seenListeners = new Set<() => void>();
+
+export function subscribeAgentSeen(onChange: () => void): () => void {
+  seenListeners.add(onChange);
+  return () => void seenListeners.delete(onChange);
+}
+
+export function getAgentSeen(): string | null {
+  try {
+    return globalThis.localStorage?.getItem(AGENT_SEEN_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The server has seen nothing and claims nothing: no dot until the browser says otherwise. */
+export function getAgentSeenOnServer(): string | null {
+  return null;
+}
+
+export function setAgentSeen(stamp: string): void {
+  try {
+    globalThis.localStorage?.setItem(AGENT_SEEN_KEY, stamp);
+  } catch {
+    /* a browser that cannot remember shows no dot, which is the quiet failure */
+  }
+  for (const listener of seenListeners) listener();
+}
+
+/**
+ * Is there something new? Only against a stamp this browser has recorded: a first visit has seen
+ * nothing yet, and a dot for "everything that ever happened" would be noise, not a tap.
+ */
+export function hasUnseen(stamp: string, seen: string | null): boolean {
+  return stamp !== "" && seen !== null && stamp > seen;
+}

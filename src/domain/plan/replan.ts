@@ -21,7 +21,7 @@
  */
 import type { Direction } from "@/domain/solver";
 import type { VanSetup } from "./fit";
-import { boardHref } from "@/modules/plan/when";
+import { boardHref, PLAN_ROUTES_PATH } from "@/modules/plan/when";
 
 export type RampReplanRequest = {
   /** The service date and leg being re-planned, in centre time. */
@@ -58,7 +58,7 @@ export const openPlanBoard: RampReplan = (request) =>
   request.canPlan
     ? {
         kind: "OPEN_BOARD",
-        href: boardHref("/plan-routes", {
+        href: boardHref(PLAN_ROUTES_PATH, {
           date: request.date,
           leg: request.leg,
           van: request.vanId,

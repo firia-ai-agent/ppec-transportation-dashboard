@@ -58,6 +58,9 @@ export function resolveLeg(param: string | undefined | null): Direction {
   return "AM";
 }
 
+/** The plan board's address: the one place a link to it is built from (ramp, bubble). */
+export const PLAN_ROUTES_PATH = "/plan-routes";
+
 /** The address a screen keeps its state in, so a reload restores the same view (§9.3). */
 export function boardHref(
   base: string,

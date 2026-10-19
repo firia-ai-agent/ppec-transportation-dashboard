@@ -683,6 +683,8 @@ async function staffAction(tx: Exec, input: ProposalInput): Promise<Record<strin
         action: tool.action,
         args: input.args,
         summary: staffActionSummary(tool.name, input.args),
+        // The model's own sentence for the card, when it wrote one (action-tools.ts `NOTE`).
+        ...(typeof input.args.note === "string" && input.args.note.trim() ? { note: input.args.note.trim() } : {}),
         approval_key: input.approvalKey,
       }),
       by,

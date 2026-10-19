@@ -10,7 +10,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { alertAgentConfig,
+import { agentRetryConfig, alertAgentConfig,
   freshnessConfig,
   liveConfig,
   liveStreamConfig,
@@ -79,6 +79,7 @@ describe("PRD §8 / LOC-03 values", () => {
 
   it("is one object, so the whole table can be printed or diffed", () => {
     expect(liveConfig).toEqual({
+      agentRetry: agentRetryConfig,
       alertAgent: alertAgentConfig,
       freshness: freshnessConfig,
       notifyGate: notifyGateConfig,

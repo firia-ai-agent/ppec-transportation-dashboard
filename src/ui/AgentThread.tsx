@@ -43,7 +43,13 @@ export type AgentThreadItem =
    * this app says "AI" or names a vendor). On this branch the only thing it ever says is that it
    * cannot answer (src/ui/agent-ask-state.ts).
    */
-  | { readonly kind: "agent"; readonly id: string; readonly text: string }
+  | {
+      readonly kind: "agent";
+      readonly id: string;
+      readonly text: string;
+      /** Where to act on it yourself, when the agent could not (ledger #75): the board's Re-plan. */
+      readonly link?: { readonly href: string; readonly label: string };
+    }
   /**
    * A change the agent has proposed and nobody has decided yet. `question` is the one line the
    * card is titled with. There is no `decide` here: deciding is a write, and the write path is
@@ -101,6 +107,14 @@ export function AgentThread({
             return (
               <p key={item.id} className={`${styles.bubble} ${styles.inbound}`}>
                 {item.text}
+                {item.link ? (
+                  <>
+                    {" "}
+                    <a className={styles.inlineLink} href={item.link.href}>
+                      {item.link.label}
+                    </a>
+                  </>
+                ) : null}
               </p>
             );
           case "proposal": {

@@ -64,6 +64,14 @@
   border-bottom-left-radius: var(--radius-sm);
 }
 
+/* The board link after a line the agent could not act on (ledger #75): the brand colour, underlined. */
+.inlineLink {
+  color: var(--color-brand);
+  font-weight: var(--weight-semibold);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* `.out`: staff, teal, on the right. */
 .outbound {
   align-self: flex-end;
