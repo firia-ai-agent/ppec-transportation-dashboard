@@ -2,12 +2,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "@/db/exec";
 import { askAgent } from "@/modules/agent/ask/staff-ask";
 import { familyScope, type PolicyContext } from "@/modules/agent/policy";
-import { toolCall } from "@/modules/agent/providers/fake";
+import { freeText, toolCall } from "@/modules/agent/providers/fake";
 import type { TierFacts } from "@/modules/agent/run/context";
 import { liveHarness } from "@/modules/agent/run/exec/live-harness";
 import { toolCalls } from "@/modules/agent/run/store";
 import { seedStandardScenario } from "@/modules/demo/seed";
 import { ridersInVan } from "@/domain/plan/board";
+import { fits } from "@/domain/plan/fit";
+import { hhmmOf } from "@/domain/plan/arrivals";
 import { CHILDREN } from "@/modules/demo/fixtures/standard";
 import { vansOver } from "@/modules/plan/place";
 import { loadBoard } from "@/modules/plan/store";
@@ -82,14 +84,13 @@ describe("asked to re-plan, the agent re-plans as the person who asked (S3)", ()
     const before = await board();
     const [first] = ridersInVan(before.day, before.plan, vanIdOfSlot(1));
     const r = await ask(people.director, "what if one child came off van 1?", [
-      toolCall("get_plan", { date: DATE, leg: "PM", moves: [{ child_token: first.token, bucket: "UNASSIGNED" }] }),
+      toolCall("get_plan", { leg: "PM", preview: { moves: [{ child: first.token, place: "UNASSIGNED" }] } }),
       toolCall("reply_to_staff", { summary: "Taking one child off Van 1 would make it fit." }),
     ]);
     if (r.outcome !== "ran") throw new Error(r.outcome);
     const [read] = await toolCalls(db, r.run.runId);
     expect((read.result as { prompt_facts: Record<string, unknown> }).prompt_facts).toMatchObject({
-      preview: true,
-      preview_van_1_fits: true,
+      preview_fits: expect.stringMatching(/Van 1 yes/),
       preview_home_late: expect.any(String),
     });
     // A preview saves nothing.
@@ -99,8 +100,8 @@ describe("asked to re-plan, the agent re-plans as the person who asked (S3)", ()
   it("reads the board and drafts the re-plan as a card — it saves nothing itself (ledger #76)", async () => {
     const before = await board();
     const r = await ask(people.director, "replan the afternoon", [
-      toolCall("get_plan", { date: DATE, leg: "PM" }),
-      toolCall("auto_plan", { date: DATE, leg: "PM" }),
+      toolCall("get_plan", { leg: "PM" }),
+      toolCall("propose_plan_change", { leg: "PM", replan: true, note: "Van 1 came back short, so one child moves." }),
       toolCall("reply_to_staff", { summary: "I've drafted a re-plan so every van fits. Approve it to save." }),
     ]);
     expect(r.outcome === "ran" && r.answer).toBe("I've drafted a re-plan so every van fits. Approve it to save.");
@@ -108,13 +109,14 @@ describe("asked to re-plan, the agent re-plans as the person who asked (S3)", ()
     const calls = await toolCalls(db, r.run.runId);
     expect(calls.map((c) => [c.tool, c.status])).toEqual([
       ["get_plan", "EXECUTED"],
-      ["auto_plan", "EXECUTED"],
+      ["propose_plan_change", "PROPOSED"],
       ["reply_to_staff", "EXECUTED"],
     ]);
     // What the model read before acting: Van 1 over its seats, in the board's own numbers.
     const facts = (i: number) => (calls[i].result as { prompt_facts: Record<string, unknown> }).prompt_facts;
-    expect(String(facts(0).van_1)).toMatch(/seats=3\/2 .*fits=false/);
-    expect(facts(1)).toMatchObject({ action: "auto_plan", ok: true });
+    expect(String(facts(0)["Van 1"])).toMatch(/seats 3\/2, .*fits no/);
+    // And what the card says comes back to it, so it can tell the person.
+    expect(facts(1)).toMatchObject({ card: "waiting for a person to approve", shows: expect.stringMatching(/Every van fits/) });
     // Nothing saved: the plan is exactly as it was.
     expect((await board()).version).toBe(before.version);
 
@@ -158,18 +160,112 @@ describe("asked what was just done, the agent can look (ledger #76)", () => {
   });
 });
 
-describe("the agent can only do what the asker's role can (S4)", () => {
-  it("refuses the front desk's re-plan exactly as the board does, and saves nothing", async () => {
-    const before = await board();
-    const r = await ask(people.frontDesk, "replan the afternoon", [toolCall("auto_plan", { date: DATE, leg: "PM" })]);
-    expect(r.outcome).toBe("unavailable");
-    const calls = await db.query<{ status: string; result: { error_code?: string } }>(
-      `SELECT c.status, c.result FROM ops.agent_tool_call c JOIN ops.agent_run r ON r.id = c.run_id
-        WHERE r.trigger_type = 'staff.ask' AND c.tool = 'auto_plan' ORDER BY c.created_at DESC LIMIT 1`,
-      [],
+describe("a slip is feedback, not the end of a person's run (ledger #77)", () => {
+  const callsOf = async (runId: string) => (await toolCalls(db, runId)).map((c) => [c.tool, c.status, (c.result as { prompt_facts?: Record<string, unknown> } | null)?.prompt_facts?.refused ?? null]);
+
+  it("hears prose instead of a tool call, is told to use reply, and answers", async () => {
+    const r = await ask(people.director, "let's plan the afternoon routes", [
+      freeText("Sure, let me look at the afternoon."),
+      toolCall("reply_to_staff", { summary: "The afternoon is planned and every van fits." }),
+    ]);
+    expect(r.outcome === "ran" && r.answer).toBe("The afternoon is planned and every van fits.");
+    if (r.outcome !== "ran") return;
+    expect(await callsOf(r.run.runId)).toEqual([
+      ["none", "FAILED", "REJECTED_FREE_TEXT"],
+      ["reply_to_staff", "EXECUTED", null],
+    ]);
+  });
+
+  it("is told which argument was wrong, and tries again", async () => {
+    const r = await ask(people.director, "what's on the afternoon plan?", [
+      toolCall("get_plan", { leg: "EVENING" }),
+      toolCall("get_plan", { leg: "PM" }),
+      toolCall("reply_to_staff", { summary: "Every van fits this afternoon." }),
+    ]);
+    if (r.outcome !== "ran") throw new Error(r.outcome);
+    expect((await callsOf(r.run.runId)).map((c) => c.slice(0, 2))).toEqual([
+      ["get_plan", "FAILED"],
+      ["get_plan", "EXECUTED"],
+      ["reply_to_staff", "EXECUTED"],
+    ]);
+  });
+
+  it("has room for more than eight steps, and a run that still fails says why", async () => {
+    const reads = Array.from({ length: 10 }, () => toolCall("get_activity", {}));
+    const ok = await ask(people.director, "look around, then tell me", [...reads, toolCall("reply_to_staff", { summary: "All quiet." })]);
+    expect(ok.outcome === "ran" && ok.answer).toBe("All quiet.");
+
+    const slips = Array.from({ length: 20 }, () => freeText("hmm"));
+    const failed = await ask(people.director, "keep talking", slips);
+    expect(failed.outcome).toBe("unavailable");
+    const run = await db.query<{ reason: string | null }>(
+      "SELECT reason FROM ops.agent_run WHERE trigger_type = 'staff.ask' AND state = 'FAILED' ORDER BY created_at DESC LIMIT 1", [],
     );
-    expect(calls.rows[0]).toMatchObject({ status: "FAILED", result: { error_code: "NOT_YOUR_ROLE" } });
+    expect(run.rows[0].reason).toMatch(/step budget of 16/);
+  });
+});
+
+describe("the agent can only do what the asker's role can (S4)", () => {
+  it("drafts no card the front desk could not press, says why, and saves nothing", async () => {
+    const before = await board();
+    const cards = (await confirmCards(db, SITE)).length;
+    const r = await ask(people.frontDesk, "replan the afternoon", [
+      toolCall("propose_plan_change", { leg: "PM", replan: true, note: "Re-plan so every van fits." }),
+      toolCall("reply_to_staff", { summary: "A coordinator or the director needs to approve a re-plan." }),
+    ]);
+    if (r.outcome !== "ran") throw new Error(r.outcome);
+    const [proposed] = await toolCalls(db, r.run.runId);
+    expect((proposed.result as { prompt_facts: Record<string, unknown> }).prompt_facts).toEqual({ card: "none", reason: "NOT_YOUR_ROLE" });
+    expect((await confirmCards(db, SITE)).length).toBe(cards);
     expect((await board()).version).toBe(before.version);
+  });
+});
+
+describe("a teammate proposes any plan change as one card (ledger #77)", () => {
+  it("moves a child and a departure in one card, says what it does, and Approve saves both", async () => {
+    const before = await board();
+    // A child, and another van they would fit in: read off the board, not written down here.
+    const pick = before.day.vans.flatMap((to) =>
+      before.day.riders
+        .filter((r) => before.plan[r.token]?.bucket === "VAN" && before.plan[r.token]?.vanId !== to.id)
+        .filter((r) => fits(to.setup, [...ridersInVan(before.day, before.plan, to.id), r]))
+        .map((r) => ({ rider: r, to })),
+    )[0];
+    expect(pick, "a child who fits another van").toBeDefined();
+    const leaves = hhmmOf((before.departs[pick.to.id] ?? 0) + 15);
+    const r = await ask(people.director, `move them to ${pick.to.name} and have it leave at ${leaves}`, [
+      toolCall("propose_plan_change", {
+        leg: "PM",
+        moves: [{ child: pick.rider.token, place: pick.to.name }],
+        departures: [{ van: pick.to.name, leaves }],
+        note: `${pick.to.name} takes one more and leaves later.`,
+      }),
+      toolCall("reply_to_staff", { summary: "Card's ready for you." }),
+    ]);
+    if (r.outcome !== "ran") throw new Error(r.outcome);
+    expect(r.answer).toBe("Card's ready for you.");
+    const [card] = await confirmCards(db, SITE);
+    expect(card.summary).toBe("Change the afternoon plan");
+    expect(card.impact[0]).toMatch(new RegExp(`^${pick.to.name} leaves \\d{1,2}:\\d{2} (AM|PM) \\(was `));
+    expect(card.impact.some((line) => line.includes(`→ ${pick.to.name}`))).toBe(true);
+    expect((await board()).version).toBe(before.version);
+
+    expect(await confirmStaffAction(db, { userId: people.director, approvalId: card.approvalId, decision: "APPROVED", now: NOW }))
+      .toEqual({ status: 200, body: { ok: true, decision: "APPROVED" } });
+    const after = await board();
+    expect(after.plan[pick.rider.token]).toMatchObject({ bucket: "VAN", vanId: pick.to.id });
+    expect(hhmmOf(after.departs[pick.to.id])).toBe(leaves);
+  });
+
+  it("names a van that is not on the road instead of guessing", async () => {
+    const r = await ask(people.director, "have van 9 leave later", [
+      toolCall("get_plan", { leg: "PM", preview: { departures: [{ van: "Van 9", leaves: "16:00" }] } }),
+      toolCall("reply_to_staff", { summary: "There's no Van 9 today." }),
+    ]);
+    if (r.outcome !== "ran") throw new Error(r.outcome);
+    const calls = await toolCalls(db, r.run.runId);
+    // Van 9 is no van of the fleet's: the schema refuses it, and the model is told which argument.
+    expect(calls.map((c) => [c.tool, c.status])).toEqual([["get_plan", "FAILED"], ["reply_to_staff", "EXECUTED"]]);
   });
 });
 
@@ -178,7 +274,10 @@ describe("Restart is a card a person presses, and only a director's press runs i
 
   it("proposes the card and changes nothing", async () => {
     const before = await board();
-    const r = await ask(people.director, "restart the day", [toolCall("restart_demo_day", {})]);
+    const r = await ask(people.director, "restart the day", [
+      toolCall("restart_demo_day", { note: "Start the demo day over." }),
+      toolCall("reply_to_staff", { summary: "Approve the card and the day starts over." }),
+    ]);
     expect(r.outcome === "ran" && r.proposalId).toBeTruthy();
     if (r.outcome !== "ran" || !r.proposalId) return;
     cardId = r.proposalId;

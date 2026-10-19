@@ -1,5 +1,11 @@
 /**
- * THE AGENT'S HANDS: one tool per action a person can take in the UI (ledger #74).
+ * WHAT A CARD RUNS, AND THE TOOLS A TEAMMATE IS HANDED (ledger #74, #77).
+ *
+ * `ACTION_TOOLS` are what Approve runs on a confirm card: one per registry action, kept under the
+ * names cards already carry. They are not offered to the model any more. `TEAM_TOOLS` are: shaped
+ * like the screens a coordinator uses, every change a card a person approves (ledger #77).
+ *
+ * The card runners, one per action a person can take in the UI (ledger #74):
  *
  * Each tool here is a registry action (`modules/actions/registry.ts`) under the names the catalog
  * allows — no argument may name a site, a role, an approval or a recipient (`FORBIDDEN_ARG_TOKENS`),
@@ -16,6 +22,8 @@
  */
 import { z } from "zod";
 import { agentGuidance } from "@/ui/copy";
+import { API } from "@/auth/access";
+import { VANS, vanNameOf } from "@/config/vans";
 import type { ToolDef } from "./tools";
 
 const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -30,6 +38,8 @@ export type BoardVersionLookup = (date: string, leg: "AM" | "PM") => Promise<num
 export type ActionTool = ToolDef & {
   /** The registry entry this tool runs. */
   readonly action: string;
+  /** That entry's row in the access table — who may press the card (parity.test.ts holds them equal). */
+  readonly endpoint: string;
   /** The model's arguments as that entry's input. Reads the board's current version where it needs one. */
   readonly toInput: (args: Record<string, unknown>, version: BoardVersionLookup) => Promise<unknown>;
 };
@@ -62,6 +72,7 @@ export const ACTION_TOOLS: readonly ActionTool[] = [
   tool({
     name: "auto_plan",
     action: "auto_plan",
+    endpoint: API.planReplan,
     tier: "auto",
     effect: "mutate",
     schema: z.object({ date: DATE, leg: LEG }),
@@ -72,6 +83,7 @@ export const ACTION_TOOLS: readonly ActionTool[] = [
   tool({
     name: "move_child",
     action: "move_child",
+    endpoint: API.planSave,
     tier: "auto",
     effect: "mutate",
     schema: z.object({ date: DATE, leg: LEG }).merge(move),
@@ -82,9 +94,10 @@ export const ACTION_TOOLS: readonly ActionTool[] = [
   tool({
     name: "save_plan",
     action: "save_plan",
+    endpoint: API.planSave,
     tier: "auto",
     effect: "mutate",
-    schema: z.object({ date: DATE, leg: LEG, moves: z.array(move).min(1).max(40) }),
+    schema: z.object({ date: DATE, leg: LEG, moves: z.array(move).max(40) }),
     prd: "ledger #74: several moves and one Save on the plan board",
     description: agentGuidance.savePlan,
     toInput: async (a, version) => ({
@@ -92,11 +105,14 @@ export const ACTION_TOOLS: readonly ActionTool[] = [
       direction: a.leg,
       version: await version(String(a.date), a.leg as "AM" | "PM"),
       moves: (a.moves as z.infer<typeof move>[]).map(asMove),
+      // A plan card may also move departures (ledger #77): by van id, "HH:MM", as the board saves them.
+      ...(a.departures && typeof a.departures === "object" ? { departures: a.departures } : {}),
     }),
   }),
   tool({
     name: "confirm_van_setup",
     action: "confirm_van_setup",
+    endpoint: API.vanSetup,
     tier: "auto",
     effect: "mutate",
     schema: z.object({
@@ -124,6 +140,7 @@ export const ACTION_TOOLS: readonly ActionTool[] = [
   tool({
     name: "set_child_needs",
     action: "set_child_needs",
+    endpoint: API.childNeeds,
     tier: "human",
     effect: "propose",
     schema: z.object({ date: DATE, leg: LEG, child_token: ID, wheelchair: z.boolean(), car_seat: z.boolean(), oxygen: z.boolean() }),
@@ -142,6 +159,7 @@ export const ACTION_TOOLS: readonly ActionTool[] = [
   tool({
     name: "restart_demo_day",
     action: "restart_demo_day",
+    endpoint: API.demoReset,
     tier: "human",
     effect: "propose",
     schema: z.object({}),
@@ -152,6 +170,7 @@ export const ACTION_TOOLS: readonly ActionTool[] = [
   tool({
     name: "decide_card",
     action: "decide_approval",
+    endpoint: "action:approval-decision",
     tier: "human",
     effect: "propose",
     schema: z.object({ card_id: ID, decision: z.enum(["APPROVED", "DECLINED"]), edited_text: z.string().min(1).max(600).optional() }),
@@ -162,76 +181,118 @@ export const ACTION_TOOLS: readonly ActionTool[] = [
   tool({
     name: "take_alert",
     action: "take_alert",
+    endpoint: "action:approval-decision",
     tier: "auto",
     effect: "mutate",
     schema: z.object({ alert_id: ID }),
     prd: "ledger #74: the Take button on a needs-a-person alert",
     description: agentGuidance.takeAlert,
-    toInput: async (a) => ({ alertId: a.alert_id }),
+    toInput: async (a) => ({ alertId: a.alert ?? a.alert_id }),
   }),
 ];
 
+
+/* ─────────────────────────── the teammate's tools (ledger #77) ─────────────────────────── */
+
 /**
- * What the agent reads so it sees what the person sees. Answers come back as prompt facts; nothing
- * is written. `read` effect, so they still answer while the agent is paused.
+ * WHAT A TEAMMATE IS HANDED: the screens' reads, one way to change the plan, a card for every other
+ * change, Take, and the answer. Shaped the way a coordinator talks — "Van 2", "the afternoon", "C6"
+ * — so there is no id, version or date for the model to get wrong: the date is always the run's
+ * today, a van is its name, a child is the prompt's token, a card or an alert its prompt label.
+ *
+ * Every change is a card (`human` tier: the policy engine makes it a PROPOSAL and a person's
+ * Approve runs the card's action through the registry). The writers are `run/exec/proposals.ts`;
+ * the reads are `run/exec/actions.ts`.
  */
-export const STAFF_READ_TOOLS: readonly ToolDef[] = [
+const VAN_NAMES = VANS.map((v) => vanNameOf(v.slot)) as [string, ...string[]];
+const VAN = z.enum(VAN_NAMES);
+const CHILD = z.string().min(1).max(64).describe("the child's token from the prompt, e.g. C6");
+const PLACE = z.enum([...VAN_NAMES, "UNASSIGNED", "FAMILY_DRIVES", "ABSENT"]);
+const CLOCK = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).describe("24-hour site time, e.g. 15:30");
+export const TEAM_MOVE = z.object({ child: CHILD, place: PLACE });
+export const TEAM_DEPARTURE = z.object({ van: VAN, leaves: CLOCK });
+const NOTE_REQUIRED = z.string().min(1).max(600).describe(agentGuidance.cardNote);
+
+const read = (name: string, schema: z.ZodObject, description: string, prd: string): ToolDef => ({
+  name, tier: "auto", effect: "read", schema, staffTextFields: [], sendCopy: null, prd, description,
+});
+const card = (name: string, schema: z.ZodObject, description: string, prd: string): ToolDef => ({
+  name, tier: "human", effect: "propose", schema: schema.extend({ note: NOTE_REQUIRED }), staffTextFields: ["note"], sendCopy: null, prd, description,
+});
+
+export const TEAM_TOOLS: readonly ToolDef[] = [
+  read("get_activity", z.object({}), agentGuidance.getActivity, "ledger #76: what happened today, read-only"),
+  read(
+    "get_plan",
+    z.object({
+      leg: LEG,
+      preview: z.object({ moves: z.array(TEAM_MOVE).max(40).optional(), departures: z.array(TEAM_DEPARTURE).max(VANS.length).optional() }).optional(),
+    }),
+    agentGuidance.getPlan,
+    "ledger #74, #77: the plan board as the person sees it, and a change previewed before it is proposed",
+  ),
+  read("get_child", z.object({ child: CHILD }), agentGuidance.getChild, "ledger #77: one child's day, both legs, as their card shows it"),
+  read("get_waiting", z.object({}), agentGuidance.getWaiting, "ledger #77: the cards and alerts waiting for a person"),
+  read("read_family_texts", z.object({ child: CHILD }), agentGuidance.readFamilyTexts, "ledger #77: a family's recent texts, as evidence"),
+  card(
+    "propose_plan_change",
+    z.object({
+      leg: LEG,
+      replan: z.boolean().optional().describe(agentGuidance.replanArg),
+      moves: z.array(TEAM_MOVE).max(40).optional(),
+      departures: z.array(TEAM_DEPARTURE).max(VANS.length).optional(),
+    }),
+    agentGuidance.proposePlanChange,
+    "ledger #76, #77: the one way the agent changes a plan — a card whose Approve is the board's Save",
+  ),
+  card(
+    "propose_van_setup",
+    z.object({ van: VAN, seats: COUNT, wheelchair_spots: COUNT, car_seats: COUNT, oxygen_mounts: COUNT, has_lift: z.boolean() }),
+    agentGuidance.proposeVanSetup,
+    "ledger #77: a van's counts as the ramp found them — a card",
+  ),
+  card(
+    "propose_needs_change",
+    z.object({ child: CHILD, leg: LEG, wheelchair: z.boolean(), car_seat: z.boolean(), oxygen: z.boolean() }),
+    agentGuidance.setNeeds,
+    "ledger #74 (d): editing approved needs is PRD §11.2-prohibited — a card",
+  ),
+  card(
+    "propose_card_decision",
+    z.object({ card: ID.describe("the card's label from get_waiting, e.g. CARD-1"), decision: z.enum(["APPROVED", "DECLINED"]), edited_text: z.string().min(1).max(600).optional() }),
+    agentGuidance.decideCard,
+    "ledger #74 (d): deciding a card is PRD §11.2-prohibited (overriding approvals) — a card",
+  ),
+  card("restart_demo_day", z.object({}), agentGuidance.restart, "ledger #74 (d): Restart is the director's — a card"),
   {
-    name: "get_plan",
+    name: "take_alert",
     tier: "auto",
-    effect: "read",
-    // `moves`, when given, previews them: what would fit and who would get home late (ledger #75).
-    schema: z.object({ date: DATE, leg: LEG, moves: z.array(move).min(1).max(40).optional() }),
+    effect: "mutate",
+    schema: z.object({ alert: ID.describe("the alert's label, e.g. TK-1") }),
     staffTextFields: [],
     sendCopy: null,
-    prd: "ledger #74: the plan board as the person sees it",
-    description: agentGuidance.getPlan,
-  },
-  {
-    name: "get_alerts",
-    tier: "auto",
-    effect: "read",
-    schema: z.object({}),
-    staffTextFields: [],
-    sendCopy: null,
-    prd: "ledger #74: the open alerts a coordinator sees",
-    description: agentGuidance.getAlerts,
-  },
-  {
-    name: "get_cards",
-    tier: "auto",
-    effect: "read",
-    schema: z.object({}),
-    staffTextFields: [],
-    sendCopy: null,
-    prd: "ledger #74: the cards waiting for a person",
-    description: agentGuidance.getCards,
-  },
-  {
-    name: "get_activity",
-    tier: "auto",
-    effect: "read",
-    schema: z.object({}),
-    staffTextFields: [],
-    sendCopy: null,
-    prd: "ledger #74, #76: what happened today, read-only, so the agent can look before it answers",
-    description: agentGuidance.getActivity,
+    prd: "ledger #74: the Take button on a needs-a-person alert",
+    description: agentGuidance.takeAlert,
   },
 ];
 
-/** Tools only a staff member's run is offered: never a family's text (assembler.ts). */
-export const STAFF_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  ...ACTION_TOOLS.map((t) => t.name),
-  ...STAFF_READ_TOOLS.map((t) => t.name),
-]);
+/** Tools only a staff member's or an alert's run is offered: never a family's text (assembler.ts). */
+export const STAFF_ONLY_TOOLS: ReadonlySet<string> = new Set(TEAM_TOOLS.map((t) => t.name));
 
-/** Which agent tool takes each registry action — the parity test's other half. */
+/** Which teammate tool takes each registry action — the parity test's other half. */
 export const TOOL_FOR_ACTION: Readonly<Record<string, string>> = {
-  ...Object.fromEntries(ACTION_TOOLS.map((t) => [t.action, t.name])),
-  // The single-move endpoint is the same act as a drag and a Save.
-  place_child: "move_child",
+  save_plan: "propose_plan_change",
+  auto_plan: "propose_plan_change",
+  move_child: "propose_plan_change",
+  place_child: "propose_plan_change",
+  confirm_van_setup: "propose_van_setup",
+  set_child_needs: "propose_needs_change",
+  decide_approval: "propose_card_decision",
+  restart_demo_day: "restart_demo_day",
+  take_alert: "take_alert",
 };
 
+/** The card runner behind a confirm card's `tool` (confirm.ts). */
 export function actionTool(name: string): ActionTool | undefined {
   return ACTION_TOOLS.find((t) => t.name === name);
 }

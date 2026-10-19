@@ -15,49 +15,36 @@
  * member) is a failure.
  */
 import { ALL_STAFF } from "@/auth/access";
+import type { Exec } from "@/db/exec";
 import { Forbidden, SiteNotFound, Unauthenticated, requireSiteAccess } from "@/auth/core";
 import { ridersInVan, shortfallsOfDay, usedInVan } from "@/domain/plan/board";
 import { fits } from "@/domain/plan/fit";
-import { hhmmOf, madeLate, plannedStopTimes } from "@/domain/plan/arrivals";
+import { hhmmOf, madeLate, minuteOfDay, minutesLate, plannedStopTimes } from "@/domain/plan/arrivals";
 import type { Placement } from "@/domain/plan/board";
 import { notifyGateConfig } from "@/config/live";
 import { staffLabel } from "@/modules/plan/staff";
 import { tokenizeNames } from "@/modules/identity/names";
 import { activityWords, fill } from "@/ui/copy";
-import { serviceDateIso, siteTimeLabel } from "@/ui/service-date";
+import { clockLabel, serviceDateIso, siteTimeLabel } from "@/ui/service-date";
 import { VANS, vanNameOf } from "@/config/vans";
 import { vehicleIdOf } from "@/modules/demo/fixtures/standard";
 import { pendingApprovals } from "@/modules/approvals/decide";
 import { ACTIONS, authorize, runAction, type ActionCtx, type ActionName } from "@/modules/actions/registry";
 import { actionDepsFor } from "@/modules/actions/deps";
 import { dayDataSource, loadBoard, planStore } from "@/modules/plan/store";
-import { ACTION_TOOLS, type ActionTool } from "../../action-tools";
+import { actionTool, type ActionTool } from "../../action-tools";
 import { STAFF_ALERT_TASK_CATEGORY, STAFF_ASK_TASK_CATEGORY } from "../../ask/ask-text";
+import { STAFF_ACTION_TASK_CATEGORY } from "@/modules/actions/draft";
+import { STAFF_ASK_CARDS_IN_CONTEXT, STAFF_ASK_TASKS_IN_CONTEXT } from "../staff-ask-context";
+import { openTaskRows, pendingCardRows } from "../waiting";
+import { legOf, teamPlanChange, todayOf } from "./team";
+import { wrapUntrusted } from "../../policy";
 import type { ToolExecutor, ToolExecutors } from "../executors";
 import type { ExecutorDeps } from "./effects";
-import { failed } from "./effects";
+import { failed, isUuid } from "./effects";
+import { askerOf } from "./asker";
 
-/** The staff member a run acts for: the one whose ask started it. Null for every other run. */
-export async function askerOf(
-  deps: Pick<ExecutorDeps, "db">,
-  call: { readonly trigger: { readonly type: string; readonly id: string }; readonly siteId: string },
-): Promise<ActionCtx["caller"] | null> {
-  if (call.trigger.type !== "staff.ask") return null;
-  const row = (
-    await deps.db.query<{ created_by: string }>(
-      "SELECT created_by FROM ops.task WHERE id = $1 AND site_id = $2 AND category = $3",
-      [call.trigger.id, call.siteId, STAFF_ASK_TASK_CATEGORY],
-    )
-  ).rows[0];
-  const userId = /^staff:([0-9a-f-]{36})$/i.exec(row?.created_by ?? "")?.[1];
-  if (!userId) return null;
-  try {
-    const membership = await requireSiteAccess(deps.db, userId, call.siteId, ALL_STAFF);
-    return { userId, role: membership.role };
-  } catch {
-    return null;
-  }
-}
+export { askerOf } from "./asker";
 
 /** A plan board read for the version a write must name (never the model's). */
 const versionAt = (ctx: ActionCtx) => async (date: string, leg: "AM" | "PM") =>
@@ -94,95 +81,142 @@ function actionExecutor(deps: ExecutorDeps, tool: ActionTool): ToolExecutor {
   };
 }
 
-/** The plan board as the person sees it: each van's counts and riders, and who does not fit. */
+/** "15:15" → "3:15 PM": times as the board and the cards write them. */
+const at = (minute: number | undefined) => (minute === undefined ? "" : clockLabel(hhmmOf(Math.round(minute))));
+const yes = (b: boolean) => (b ? "yes" : "no");
+
+/**
+ * THE PLAN BOARD AS THE PERSON SEES IT (ledger #74, #77): when each van leaves, its counts, its
+ * riders with their ≈ times, and who does not fit — people by name, which `inTokens` turns into the
+ * prompt's tokens. No ids and no version: the model has nothing to copy wrongly into a card.
+ */
 function getPlanExecutor(deps: ExecutorDeps): ToolExecutor {
   return async (call) => {
+    const leg = legOf(call.args.leg);
+    if (!leg) return failed("NO_SUCH_LEG");
     const board = actionDepsFor(deps.db, call.siteId);
-    const view = await loadBoard(board.store!, call.siteId, String(call.args.date), call.args.leg as "AM" | "PM", board.source);
-    const facts: Record<string, string | number | boolean> = { plan_version: view.version, saved: view.version > 0 };
-    // Every child's estimated time, forward from their van's departure (ledger #76): the board's numbers.
+    const view = await loadBoard(board.store!, call.siteId, todayOf(call.now), leg, board.source);
+    const facts: Record<string, string | number | boolean> = { leg, saved: view.version > 0 };
     const times = plannedStopTimes(view.day, view.plan, view.departs);
-    const at = (token: string) => {
-      const t = times.get(token);
-      return t ? `@${hhmmOf(Math.round(t.arrivesAtMinute))}` : "";
-    };
     for (const van of view.day.vans) {
       const riders = ridersInVan(view.day, view.plan, van.id);
       const used = usedInVan(view.day, view.plan, van.id);
-      facts[`van_${van.slot}`] =
-        `id=${van.id} name=${van.name} seats=${used.seats}/${van.setup.seats} wheelchair=${used.wheelchairSpots}/${van.setup.wheelchairSpots} ` +
-        `car_seats=${used.carSeats}/${van.setup.carSeats} oxygen=${used.oxygenMounts}/${van.setup.oxygenMounts} ` +
-        `lift=${van.setup.hasLift} fits=${fits(van.setup, riders)} leaves=${hhmmOf(view.departs[van.id] ?? 0)} ` +
-        `riders=${riders.map((r) => `${r.name}:${r.token}${at(r.token)}`).join(",") || "none"}`;
+      facts[van.name] =
+        `leaves ${at(view.departs[van.id])}, seats ${used.seats}/${van.setup.seats}, wheelchair ${used.wheelchairSpots}/${van.setup.wheelchairSpots}, ` +
+        `car seats ${used.carSeats}/${van.setup.carSeats}, oxygen ${used.oxygenMounts}/${van.setup.oxygenMounts}, lift ${yes(van.setup.hasLift)}, ` +
+        `fits ${yes(fits(van.setup, riders))}, riders: ${riders.map((r) => `${r.name} ≈${at(times.get(r.token)?.arrivesAtMinute)}`).join(", ") || "none"}`;
+    }
+    for (const bucket of ["UNASSIGNED", "FAMILY_DRIVES", "ABSENT"] as const) {
+      const here = view.day.riders.concat(view.day.others).filter((r) => view.plan[r.token]?.bucket === bucket);
+      if (here.length > 0) facts[bucket.toLowerCase()] = here.map((r) => r.name).join(", ");
     }
     const short = shortfallsOfDay(view.day, view.plan);
-    facts.does_not_fit = short.map((s) => `${view.day.riders.find((r) => r.token === s.token)?.name ?? s.token}:${s.shortfall.reason}`).join(",") || "none";
-    const moves = Array.isArray(call.args.moves) ? (call.args.moves as { child_token: string; bucket: Placement["bucket"]; van_id?: string | null }[]) : [];
-    if (moves.length > 0) Object.assign(facts, previewFacts(view, moves));
+    facts.does_not_fit = short.map((s) => `${view.day.riders.find((r) => r.token === s.token)?.name ?? s.token} (${s.shortfall.reason})`).join(", ") || "none";
+    const preview = call.args.preview as { moves?: unknown; departures?: unknown } | undefined;
+    if (preview && (Array.isArray(preview.moves) || Array.isArray(preview.departures))) Object.assign(facts, previewFacts(view, preview));
     return { status: "executed", data: { plan_version: view.version }, promptFacts: facts };
   };
 }
 
 /**
- * WHAT A CHANGE WOULD DO, BEFORE ANYBODY MAKES IT (ledger #75): the moves applied to the board in
- * memory, then each van's fit and who would get home late by the rule the late texts are sent by
- * (`domain/plan/arrivals.ts madeLate`). So "Ava would be about 10 min later and her family gets a
- * text" is a number the agent read, not one it guessed. Nothing is saved.
+ * WHAT A CHANGE WOULD DO, BEFORE ANYBODY MAKES IT (ledger #75, #77): moves and departures applied
+ * to the board in memory, then each van's fit, the moved children's new times, and who would get
+ * home late by the rule the late texts are sent by (`madeLate`). Nothing is saved.
  */
-function previewFacts(
-  view: Awaited<ReturnType<typeof loadBoard>>,
-  moves: readonly { child_token: string; bucket: Placement["bucket"]; van_id?: string | null }[],
-): Record<string, string | boolean> {
+function previewFacts(view: Awaited<ReturnType<typeof loadBoard>>, preview: { moves?: unknown; departures?: unknown }): Record<string, string> {
+  const { change, unknownVans } = teamPlanChange(view, preview);
   const plan: Record<string, Placement> = { ...view.plan };
-  for (const m of moves) {
-    const was = plan[m.child_token];
-    if (!was) continue;
-    plan[m.child_token] = { ...was, bucket: m.bucket, vanId: m.bucket === "VAN" ? (m.van_id ?? null) : null };
+  for (const m of change.moves ?? []) {
+    if (plan[m.token]) plan[m.token] = { ...plan[m.token], bucket: m.bucket, vanId: m.vanId };
   }
+  const departs: Record<string, number> = { ...view.departs };
+  for (const [vanId, hhmm] of Object.entries(change.departures ?? {})) departs[vanId] = minuteOfDay(hhmm) ?? departs[vanId];
+  const times = plannedStopTimes(view.day, plan, departs);
   const name = (token: string) => view.day.riders.find((r) => r.token === token)?.name ?? token;
-  const facts: Record<string, string | boolean> = { preview: true };
-  for (const van of view.day.vans) facts[`preview_van_${van.slot}_fits`] = fits(van.setup, ridersInVan(view.day, plan, van.id));
-  facts.preview_home_late =
-    madeLate(view.day, view.plan, plan, notifyGateConfig.shiftSeconds / 60, { before: view.departs, after: view.departs })
-      .map((l) => `${name(l.token)}:+${Math.round(l.late)}min_home_${hhmmOf(Math.round(l.arrival.arrivesAtMinute))}`)
-      .join(",") || "none";
+  const facts: Record<string, string> = {
+    preview_fits: view.day.vans.map((v) => `${v.name} ${yes(fits(v.setup, ridersInVan(view.day, plan, v.id)))}`).join(", "),
+    preview_times: (change.moves ?? []).map((m) => `${name(m.token)} ≈${at(times.get(m.token)?.arrivesAtMinute)}`).join(", ") || "unchanged",
+    preview_home_late:
+      madeLate(view.day, view.plan, plan, notifyGateConfig.shiftSeconds / 60, { before: view.departs, after: departs })
+        .map((l) => `${name(l.token)} +${Math.round(l.late)} min, home ≈${at(l.arrival.arrivesAtMinute)}`)
+        .join(", ") || "none",
+  };
+  if (unknownVans.length > 0) facts.not_running_today = unknownVans.join(", ");
   return facts;
 }
 
-/** Open alerts a coordinator sees, newest first (never the agent's own bookkeeping rows). */
-function getAlertsExecutor(deps: ExecutorDeps): ToolExecutor {
+/**
+ * ONE CHILD'S DAY (ledger #77), both legs, as their card on the board shows it: where they are,
+ * their stop and ≈ time against their family's window, and their approved needs.
+ */
+function getChildExecutor(deps: ExecutorDeps): ToolExecutor {
   return async (call) => {
-    const rows = (
-      await deps.db.query<{ id: string; category: string; severity: string; summary: string }>(
-        `SELECT id, category, severity, summary FROM ops.task
-          WHERE site_id = $1 AND state IN ('OPEN', 'IN_PROGRESS') AND category NOT IN ($2, $3) AND category NOT LIKE 'AGENT\\_%'
-          ORDER BY created_at DESC LIMIT 10`,
-        [call.siteId, STAFF_ASK_TASK_CATEGORY, STAFF_ALERT_TASK_CATEGORY],
-      )
-    ).rows;
-    const facts: Record<string, string | number> = { open_alerts: rows.length };
-    rows.forEach((r, i) => (facts[`alert_${i + 1}`] = `id=${r.id} ${r.severity} ${r.category}: ${r.summary.slice(0, 160)}`));
-    return { status: "executed", data: { open_alerts: rows.length }, promptFacts: facts };
+    const token = String(call.args.child ?? "");
+    const board = actionDepsFor(deps.db, call.siteId);
+    const facts: Record<string, string> = {};
+    for (const leg of ["AM", "PM"] as const) {
+      const view = await loadBoard(board.store!, call.siteId, todayOf(call.now), leg, board.source);
+      const rider = view.day.riders.concat(view.day.others).find((r) => r.token === token);
+      if (!rider) continue;
+      facts.name ??= rider.name;
+      facts.needs ??= Object.entries(rider.needs).filter(([, on]) => on).map(([need]) => need).join(", ") || "none";
+      const p = view.plan[token];
+      const where = p?.bucket === "VAN" ? (view.day.vans.find((v) => v.id === p.vanId)?.name ?? "a van") : (p?.bucket ?? "UNASSIGNED").toLowerCase();
+      const time = plannedStopTimes(view.day, view.plan, view.departs).get(token)?.arrivesAtMinute;
+      const late = minutesLate(rider.window, time);
+      facts[leg === "AM" ? "morning" : "afternoon"] =
+        `${where}${rider.stopLabel ? `, stop ${rider.stopLabel}` : ""}${time === undefined ? "" : `, ≈${at(time)}`}` +
+        `${rider.window ? `, family window ${clockLabel(rider.window)}` : ""}${late !== null && late > 0 ? `, ${Math.round(late)} min past it` : ""}`;
+    }
+    if (!facts.name) return failed("NO_SUCH_CHILD");
+    return { status: "executed", data: { child: token }, promptFacts: facts };
   };
 }
 
-/** The cards waiting for a person: the family replies (For you) and the confirm cards. */
-function getCardsExecutor(deps: ExecutorDeps): ToolExecutor {
+/**
+ * WHAT IS WAITING FOR A PERSON (ledger #77): the undecided cards and the open alerts, under the
+ * labels the prompt gave them (`run/waiting.ts`), so the model can name one in a card or in Take.
+ */
+function getWaitingExecutor(deps: ExecutorDeps): ToolExecutor {
   return async (call) => {
-    const replies = await pendingApprovals(deps.db, [call.siteId]);
-    const confirms = (
-      await deps.db.query<{ id: string; summary: string | null }>(
-        `SELECT id, proposal->>'summary' AS summary FROM ops.approval_request
-          WHERE site_id = $1 AND decided_at IS NULL AND proposal->>'kind' = 'STAFF_ACTION' ORDER BY created_at`,
-        [call.siteId],
-      )
-    ).rows;
-    const facts: Record<string, string | number> = { cards: replies.length + confirms.length };
-    replies.forEach((r, i) => (facts[`reply_card_${i + 1}`] = `id=${r.id} child=${r.childLabel} text=${r.text.slice(0, 200)}`));
-    confirms.forEach((c, i) => (facts[`confirm_card_${i + 1}`] = `id=${c.id} ${c.summary ?? ""}`));
-    return { status: "executed", data: { cards: replies.length + confirms.length }, promptFacts: facts };
+    const tasks = await openTaskRows(deps.db, call.siteId, call.trigger.id, STAFF_ASK_TASKS_IN_CONTEXT);
+    const cards = await pendingCardRows(deps.db, call.siteId, STAFF_ASK_CARDS_IN_CONTEXT);
+    const replies = new Map((await pendingApprovals(deps.db, [call.siteId])).map((r) => [r.id, r]));
+    const facts: Record<string, string | number> = { cards: cards.length };
+    cards.forEach((c, i) => {
+      const reply = replies.get(c.id);
+      facts[`CARD-${i + 1}`] = reply ? `reply to ${reply.childLabel}'s family: ${reply.text.slice(0, 200)}` : c.summary.slice(0, 200);
+    });
+    const alerts = tasks
+      .map((t, i) => ({ t, label: `TK-${i + 1}` }))
+      .filter(({ t }) => t.category !== STAFF_ASK_TASK_CATEGORY && t.category !== STAFF_ALERT_TASK_CATEGORY && t.category !== STAFF_ACTION_TASK_CATEGORY && !t.category.startsWith("AGENT_"));
+    facts.alerts = alerts.length;
+    for (const { t, label } of alerts) facts[label] = `${t.severity} ${t.summary.slice(0, 160)}`;
+    return { status: "executed", data: { cards: cards.length, alerts: alerts.length }, promptFacts: facts };
   };
 }
+
+/** A FAMILY'S RECENT TEXTS (ledger #77), oldest first and wrapped as evidence, never instructions. */
+function readFamilyTextsExecutor(deps: ExecutorDeps): ToolExecutor {
+  return async (call) => {
+    const rows = (
+      await deps.db.query<{ direction: string; body_tokenized: string }>(
+        `SELECT m.direction::text AS direction, m.body_tokenized FROM ops.message m
+           JOIN ops.conversation_thread t ON t.id = m.thread_id AND t.site_id = m.site_id
+           JOIN ops.child_profile c ON c.family_group_id = t.family_group_id AND c.site_id = t.site_id
+          WHERE c.child_token = $1 AND m.site_id = $2 AND m.is_own_echo = false
+          ORDER BY m.received_at DESC, m.id DESC LIMIT $3`,
+        [isUuid(String(call.args.child ?? "")) ? call.args.child : null, call.siteId, FAMILY_TEXTS_TO_READ],
+      )
+    ).rows.reverse();
+    const facts: Record<string, string | number> = { texts: rows.length };
+    rows.forEach((m, i) => (facts[`text_${i + 1}`] = `${m.direction === "INBOUND" ? "family" : "us"}: ${wrapUntrusted(tokenizeNames(m.body_tokenized))}`));
+    return { status: "executed", data: { texts: rows.length }, promptFacts: facts };
+  };
+}
+
+/** How many of a family's texts one read hands the model. */
+const FAMILY_TEXTS_TO_READ = 8;
 
 /**
  * WHAT HAPPENED TODAY (ledger #76), read-only, in time order — so asked "what was just done?" the
@@ -247,14 +281,15 @@ const vanNameOfId = (id: string) => {
   return van ? vanNameOf(van.slot) : "a van";
 };
 
-/** Every staff executor: the auto-tier action tools and the reads. Human-tier ones are proposals. */
+/** Every teammate executor: the reads, and Take. The cards are proposals (run/exec/proposals.ts). */
 export function staffExecutors(deps: ExecutorDeps): ToolExecutors {
   return {
-    ...Object.fromEntries(ACTION_TOOLS.filter((t) => t.tier === "auto").map((t) => [t.name, actionExecutor(deps, t)])),
     get_plan: inTokens(getPlanExecutor(deps)),
-    get_alerts: inTokens(getAlertsExecutor(deps)),
-    get_cards: inTokens(getCardsExecutor(deps)),
+    get_child: inTokens(getChildExecutor(deps)),
+    get_waiting: inTokens(getWaitingExecutor(deps)),
     get_activity: inTokens(getActivityExecutor(deps)),
+    read_family_texts: readFamilyTextsExecutor(deps),
+    take_alert: actionExecutor(deps, actionTool("take_alert")!),
   };
 }
 
@@ -274,3 +309,4 @@ function inTokens(executor: ToolExecutor): ToolExecutor {
     return { ...out, promptFacts: facts };
   };
 }
+

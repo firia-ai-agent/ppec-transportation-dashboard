@@ -105,7 +105,7 @@ afterAll(async () => {
 describe("a rate-limited model parks a person's run and tries again (C3)", () => {
   it("parks the alert run on a retry timer instead of failing it", async () => {
     const run = await alertRun();
-    const result = await drive(run.id, busyThen([toolCall("get_plan", { date: DATE, leg: "PM" }), toolCall("auto_plan", { date: DATE, leg: "PM" })]), new Date());
+    const result = await drive(run.id, busyThen([toolCall("get_plan", { leg: "PM" }), toolCall("propose_plan_change", { leg: "PM", replan: true, note: "Van 1 came back short, so one child moves." })]), new Date());
     expect(result.state, JSON.stringify(result)).toBe("WAITING_TOOL");
     expect(result.reason).toMatch(/^model busy \(rate limited on every model\); retry 1 at /);
     const jobs = await db.query<{ key: string; state: string }>("SELECT key, state FROM ops.job WHERE kind = $1", [AGENT_RETRY_JOB_KIND]);
@@ -124,7 +124,7 @@ describe("a rate-limited model parks a person's run and tries again (C3)", () =>
 
   it("ends the retried run the way a reachable model ends it: a card for a person", async () => {
     const run = await alertRun();
-    const result = await drive(run.id, busyThen([toolCall("get_plan", { date: DATE, leg: "PM" }), toolCall("auto_plan", { date: DATE, leg: "PM" })], 0), new Date());
+    const result = await drive(run.id, busyThen([toolCall("get_plan", { leg: "PM" }), toolCall("propose_plan_change", { leg: "PM", replan: true, note: "Van 1 came back short, so one child moves." })], 0), new Date());
     expect(result.state, JSON.stringify(result)).toBe("SUCCEEDED");
     const cards = await db.query("SELECT 1 FROM ops.approval_request WHERE proposal->>'kind' = 'STAFF_ACTION' AND decided_at IS NULL", []);
     expect(cards.rows).toHaveLength(1);

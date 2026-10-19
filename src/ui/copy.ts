@@ -3231,14 +3231,20 @@ export const agentGuidance = {
   setNeeds: "Ask a person to confirm a change to a child's approved needs (a card; nothing changes until they press it).",
   restart: "Ask the director to confirm restarting the demo day (a card).",
   decideCard: "Ask a person to confirm approving or declining a waiting card (a card of its own).",
-  takeAlert: "Take a needs-a-person alert so others know it is being handled.",
+  takeAlert: "Take a needs-a-person alert so others know you're on it.",
   getPlan:
-    "Read a leg's plan: each van's counts and riders, and who does not fit. Ids are for the action tools. " +
-    "Pass moves to preview them first: which vans would fit, and which children would get home late and by how much. " +
-    "Prefer the smallest change that makes every van fit, and say its effect on families in the card's note.",
-  getAlerts: "Read the open alerts coordinators see.",
-  getCards: "Read the cards waiting for a person: family replies and confirm cards.",
+    "Read a leg's plan: when each van leaves, its counts, riders with their ≈ times, and who doesn't fit. " +
+    "Pass preview to see what moves or new departure times would do — who fits, who gets home later — before you propose them.",
+  getChild: "Read one child's day: their van, stop and ≈ time on each leg, their family's window, and their needs.",
+  getWaiting: "Read what's waiting for a person: cards to approve and open alerts, with the labels to name them by.",
+  readFamilyTexts: "Read a family's recent texts, oldest first, to see exactly what they said.",
   getActivity: "Read what happened today: plans saved, vans checked, alerts, cards approved or declined, texts sent.",
+  proposePlanChange:
+    "Change a leg's plan, as a card the person approves; nothing changes until they do. Set replan to let Auto-plan " +
+    "find the smallest fix, or give moves and/or departures yourself. The card shows who moves, the new times and whether every van fits.",
+  replanArg: "true to let Auto-plan move only the children who no longer fit",
+  proposeVanSetup: "Record a van's counts and lift as the ramp found them today, as a card the person approves.",
+  cardNote: "One short sentence for the card: what changes and why, people as the prompt's tokens.",
   replyToStaff:
     "Answer like a coordinator would. Don't be robotic — be friendly and natural. " +
     "Write people as the prompt's tokens. Call it last.",
@@ -3296,6 +3302,10 @@ export const replanDraft = {
   stillNeedsRide: "{children} still needs a ride — call the family",
   texted: "{families} would be texted the new time",
   family: { one: "family", many: "families" },
+  /** A plan card that moves a van's departure (ledger #77). */
+  changeTitle: "Change the {leg} plan",
+  leaves: "{van} leaves {time} (was {was})",
+  noVanNamed: "There's no {van} on the {leg} today",
 } as const;
 
 export const confirmCopy = {

@@ -38,7 +38,7 @@
 import { agentRetryConfig } from "@/config/live";
 import type { Db } from "@/db/exec";
 import { type Clock, type JobScheduler, systemClock } from "@/modules/jobs/scheduler";
-import type { LlmGateway, GatewayResult } from "../gateway";
+import { GatewayError, type GatewayOutcome, type LlmGateway, type GatewayResult } from "../gateway";
 import { type PolicyContext, type PolicyDecision, evaluate } from "../policy";
 import { resolveScopeTokens, type ScopeTokens } from "./scope-tokens";
 import type { ContextAssembler } from "./context";
@@ -232,7 +232,10 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
   // 2. Fresh steps. The budget is the slice-1 config's `maxCallsPerRun`, counted from the
   //    persisted rows rather than in memory, so it survives a restart (the gateway's own
   //    per-instance counter does not, and a resumed run must not get a fresh allowance).
-  const maxSteps = deps.gateway.config.rateLimits.maxCallsPerRun;
+  // A run a person started gets room to look, act and answer (ledger #77); a family's text keeps 8.
+  const maxSteps = FEEDBACK_ON_BLOCK.has(run.trigger.type)
+    ? deps.gateway.config.rateLimits.maxCallsPerStaffRun
+    : deps.gateway.config.rateLimits.maxCallsPerRun;
   while (calls.length < maxSteps) {
     // Re-read the run before every turn, so a human takeover (ABORTED_SUPERSEDED_BY_HUMAN) or an
     // ops stop lands within one step instead of at the end of the loop. A model turn costs money
@@ -255,7 +258,7 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
     if (wrongSite) return fail(deps, run, wrongSite, steps);
     let turn: GatewayResult;
     try {
-      turn = await deps.gateway.complete({ runId, prompt: assembled.prompt, tools: assembled.tools });
+      turn = await deps.gateway.complete({ runId, prompt: assembled.prompt, tools: assembled.tools, maxCalls: maxSteps });
     } catch (e) {
       if (deps.isFatal?.(e)) throw e;
       // "The model is unavailable" is not the same failure as "the model answered and we refused
@@ -265,8 +268,20 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
       // agent refusing something correctly and already has its own task (`run/tasks.ts`).
       const unavailable = modelUnavailable(e);
       if (unavailable) return modelDown(deps, run, unavailable, steps, actor);
-      // A refusal (leaking prompt, free text, unknown tool, invalid args, rate limit) is already a
-      // row in the gateway's audit log, and nothing was executed. The run stops there.
+      /*
+       * A SLIP IS FEEDBACK FOR A PERSON'S RUN (ledger #77). The model wrote prose instead of a tool
+       * call, called a tool it was not offered, or got an argument wrong: nothing was executed, so
+       * nothing is at risk. A teammate told "that didn't work, because…" tries again — so the turn is
+       * recorded as a FAILED step whose facts say why, and the loop takes another, inside the run's
+       * step budget. A family's text keeps the PRD's fail-shut rule: the run stops there.
+       */
+      const slip = slipOf(e);
+      if (slip && FEEDBACK_ON_BLOCK.has(run.trigger.type)) {
+        await recordSlip(deps, run, calls.length, slip, actor);
+        steps += 1;
+        calls = await toolCalls(deps.db, runId);
+        continue;
+      }
       return fail(deps, run, `gateway refused the turn: ${message(e)}`, steps);
     }
     await recordPromptHash(deps.db, runId, turn.promptHash, actor);
@@ -541,7 +556,10 @@ async function settleCall(
           return commitCall(tx, row.id, "PROPOSED", { ...result, ...extra }, by);
         })
       : await commitCall(deps.db, row.id, "PROPOSED", result, by);
-    return ok ? { kind: "done" } : lost(row);
+    if (!ok) return lost(row);
+    // A person who asked hears what the card does in the teammate's own words (ledger #77); every
+    // other run ends on its proposal, whose note is what a person reads.
+    return TALKS_AFTER_A_CARD.has(run.trigger.type) ? { kind: "continue" } : { kind: "done" };
   }
 
   const executor = deps.executors[row.tool];
@@ -726,13 +744,54 @@ async function modelDown(
 async function move(deps: RunDeps, run: RunRow, to: RunState, steps: number, reason?: string): Promise<RunResult> {
   // `run.updatedBy` is this driver's actor (`DriveOpts.actor`), so the run's last write re-states
   // the claim it was driven under instead of handing the row to a generic one.
-  const moved = await setRunState(deps.db, run.id, "RUNNING", to, run.updatedBy);
+  const moved = await setRunState(deps.db, run.id, "RUNNING", to, run.updatedBy, to === "FAILED" ? reason : undefined);
   if (moved) return { runId: run.id, created: false, state: to, steps, reason };
   const fresh = await loadRun(deps.db, run.id);
   return {
     runId: run.id, created: false, state: fresh?.state ?? run.state, steps,
     reason: `run moved on before this driver could mark it ${to}`,
   };
+}
+
+/** The gateway refusals a model can correct by trying again, and what to tell it. */
+type Slip = { readonly outcome: GatewayOutcome; readonly tool: string; readonly hint: string; readonly detail: string };
+/** Runs that carry on after a card to answer the person who asked (ledger #77). */
+const TALKS_AFTER_A_CARD: ReadonlySet<string> = new Set(["staff.ask"]);
+
+const SLIP_HINTS: Partial<Record<GatewayOutcome, string>> = {
+  REJECTED_FREE_TEXT: "answer_with_a_tool_call_use_reply_to_staff_to_talk",
+  REJECTED_MULTIPLE_CALLS: "call_one_tool_at_a_time",
+  REJECTED_UNKNOWN_TOOL: "use_only_the_offered_tools",
+  REJECTED_INVALID_ARGS: "fix_the_named_arguments",
+};
+function slipOf(e: unknown): Slip | null {
+  if (!(e instanceof GatewayError)) return null;
+  const hint = SLIP_HINTS[e.outcome];
+  if (!hint) return null;
+  // The gateway's message carries codes, tool names and argument paths only — never model text.
+  const tool = /(?:unknown tool "|tool )([a-z_]+)(?:"| was not offered| args rejected)/.exec(e.message)?.[1] ?? "none";
+  const detail = /\[(.*)\]/.exec(e.message)?.[1] ?? "";
+  return { outcome: e.outcome, tool, hint, detail: detail.slice(0, 200) };
+}
+
+/** One slipped turn, as a committed FAILED step the next turn reads (`result … refused=… hint=…`). */
+async function recordSlip(deps: RunDeps, run: RunRow, seq: number, slip: Slip, actor: string): Promise<void> {
+  const row = await persistCall(deps.db, {
+    runId: run.id,
+    siteId: run.siteId,
+    seq,
+    tool: slip.tool,
+    args: {},
+    storeArgs: {},
+    policyDecision: "REJECTED",
+  });
+  await commitCall(
+    deps.db,
+    row.id,
+    "FAILED",
+    { error_code: slip.outcome, prompt_facts: { refused: slip.outcome, hint: slip.hint, ...(slip.detail ? { fields: slip.detail } : {}) } },
+    actor,
+  );
 }
 
 function message(e: unknown): string {

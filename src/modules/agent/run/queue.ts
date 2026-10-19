@@ -150,5 +150,7 @@ export async function handleAgentWake(
 export function agentWakeLog(r: AgentWakeResult): string {
   if (!r.ok) return `refused ${r.refused}${r.runId ? ` run=${r.runId}` : ""}${r.detail ? ` fields=${r.detail}` : ""}`;
   const steps = `steps=${r.result.steps}`;
-  return `run=${r.runId} ${r.result.state} ${steps}${r.reclaimed ? " reclaimed" : ""}`;
+  // Why it failed, when it did (ledger #77): the run's own reason — codes and names, no text.
+  const why = r.result.state === "FAILED" && r.result.reason ? ` reason=${r.result.reason.slice(0, 240)}` : "";
+  return `run=${r.runId} ${r.result.state} ${steps}${r.reclaimed ? " reclaimed" : ""}${why}`;
 }

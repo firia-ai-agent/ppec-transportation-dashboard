@@ -476,7 +476,9 @@ export const approvalRequest = ops.table("approval_request", {
 export const agentRun = ops.table("agent_run", {
   id: pk(), siteId: siteRef(), triggerType: text("trigger_type").notNull(), triggerId: text("trigger_id").notNull(),
   state: agentRunState("state").notNull().default("QUEUED"), model: text("model"), providerRouted: text("provider_routed"),
-  promptHash: text("prompt_hash"), tokensIn: integer("tokens_in"), tokensOut: integer("tokens_out"), ...audit,
+  promptHash: text("prompt_hash"), tokensIn: integer("tokens_in"), tokensOut: integer("tokens_out"),
+  /** Why a run ended FAILED: codes, tool and rule names — never model or family text (ledger #77). */
+  reason: text("reason"), ...audit,
 }, (t) => [uniqueIndex("agent_run_trigger_uq").on(t.triggerType, t.triggerId),
   // The resume sweep reads one site's unfinished runs (QUEUED after a timer fired, RUNNING after a crash).
   index("agent_run_resume_idx").on(t.siteId, t.state)]);

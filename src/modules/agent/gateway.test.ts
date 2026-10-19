@@ -246,7 +246,7 @@ describe("rate limits come from config, not from logic", () => {
   it("stops a run at maxCallsPerRun", async () => {
     const { gateway, provider } = gatewayFor(
       [toolCall("get_leg_state", { leg_id: "L-C1-AM" })],
-      { rateLimits: { maxCallsPerRun: 2, maxCallsPerMinute: 99, maxPromptChars: 9999 } },
+      { rateLimits: { maxCallsPerRun: 2, maxCallsPerStaffRun: 16, maxCallsPerMinute: 99, maxPromptChars: 9999 } },
     );
     await gateway.complete({ runId: "RUN-1", prompt: PROMPT });
     provider.reset();
@@ -263,7 +263,7 @@ describe("rate limits come from config, not from logic", () => {
     let clock = Date.UTC(2026, 9, 16, 12, 0, 0);
     const { gateway, provider } = gatewayFor(
       [toolCall("get_leg_state", { leg_id: "L-C1-AM" })],
-      { rateLimits: { maxCallsPerRun: 99, maxCallsPerMinute: 1, maxPromptChars: 9999 } },
+      { rateLimits: { maxCallsPerRun: 99, maxCallsPerStaffRun: 16, maxCallsPerMinute: 1, maxPromptChars: 9999 } },
       () => clock,
     );
     await gateway.complete({ runId: "RUN-1", prompt: PROMPT });
@@ -278,7 +278,7 @@ describe("rate limits come from config, not from logic", () => {
   it("refuses an oversized prompt before the provider is called", async () => {
     const { gateway, provider } = gatewayFor(
       [toolCall("get_leg_state", { leg_id: "L-C1-AM" })],
-      { rateLimits: { maxCallsPerRun: 9, maxCallsPerMinute: 9, maxPromptChars: 10 } },
+      { rateLimits: { maxCallsPerRun: 9, maxCallsPerStaffRun: 16, maxCallsPerMinute: 9, maxPromptChars: 10 } },
     );
     await expect(gateway.complete({ runId: "RUN-1", prompt: PROMPT })).rejects.toMatchObject({
       outcome: "REJECTED_PROMPT_TOO_LARGE",

@@ -80,6 +80,8 @@ export type GatewayRequest = {
   readonly vendorAttestation?: unknown;
   /** Overrides the provider's default endpoint; must be on the allow-list either way. */
   readonly endpoint?: string;
+  /** This run's budget of model turns, when the run's kind has its own (ledger #77). */
+  readonly maxCalls?: number;
 };
 
 /** An accepted model turn: exactly one catalog tool call whose args passed its zod schema. */
@@ -231,8 +233,9 @@ export function createGateway(
         reject(audited, "REJECTED_PROMPT_TOO_LARGE", `prompt is ${request.prompt.length} chars, limit ${config.rateLimits.maxPromptChars}`);
       }
       const runCalls = callsPerRun.get(request.runId) ?? 0;
-      if (runCalls >= config.rateLimits.maxCallsPerRun) {
-        reject(audited, "REJECTED_RATE_LIMIT", `run ${request.runId} reached maxCallsPerRun=${config.rateLimits.maxCallsPerRun}`);
+      const maxCalls = request.maxCalls ?? config.rateLimits.maxCallsPerRun;
+      if (runCalls >= maxCalls) {
+        reject(audited, "REJECTED_RATE_LIMIT", `run ${request.runId} reached maxCallsPerRun=${maxCalls}`);
       }
       const t = now();
       while (recentCalls.length > 0 && t - recentCalls[0] >= 60_000) recentCalls.shift();

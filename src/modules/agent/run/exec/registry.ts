@@ -13,7 +13,7 @@
  * `docs/agent/B08-SLICE1-DEFERRED.md` says what each still owes.
  */
 import { staffExecutors } from "./actions";
-import { ACTION_TOOLS } from "../../action-tools";
+import { TEAM_TOOLS } from "../../action-tools";
 import { MESSAGE_SEND_TOOLS } from "@/modules/approvals/message-send";
 import type { ToolExecutors } from "../executors";
 import { TOOL_NAMES } from "../../tools";
@@ -98,8 +98,8 @@ export const PROPOSAL_ONLY_TOOLS: readonly string[] = [
   "propose_dropoff_change",
   "propose_contact_or_profile_change",
   ...MESSAGE_SEND_TOOLS,
-  // The confirm cards (ledger #74 d): PRD §11.2-prohibited actions the agent may only propose.
-  ...ACTION_TOOLS.filter((t) => t.tier === "human").map((t) => t.name),
+  // A teammate's cards (ledger #77): every change the agent makes is one a person approves.
+  ...TEAM_TOOLS.filter((t) => t.tier === "human").map((t) => t.name),
 ];
 
 /**

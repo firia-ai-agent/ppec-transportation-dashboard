@@ -261,23 +261,19 @@ describe("Restart → Dara's text → the model's card → Approve", () => {
   it("the bubble answers 'what did they ask?' from the thread, naming Dara, Noah and 5", async () => {
     const config = loadAgentConfig({});
     const prompts: string[] = [];
-    // Reads the ask's prompt like a model: find Dara's thread, read it, then answer in tokens.
+    // Reads the ask's prompt like a teammate: read Noah's family's texts, then answer in tokens.
     const asker: LlmProvider = {
       kind: "fake",
       vendor: config.provider,
       endpoint: "/api/v1/chat/completions",
       async invoke(call: ProviderCall): Promise<ProviderResponseBody> {
         prompts.push(call.prompt);
-        const thread = /thread=(\S+) family=F2/.exec(call.prompt)?.[1];
         if (!call.prompt.includes("result seq=")) {
-          return { tool_calls: [{ name: "read_guardian_thread", arguments: { thread_id: thread, count: 5 } }] };
+          return { tool_calls: [{ name: "read_family_texts", arguments: { child: "C2" } }] };
         }
         return {
           tool_calls: [
-            {
-              name: "summarize_thread_for_staff",
-              arguments: { thread_id: thread, summary: "F2 asked to have C2 dropped off at 5 instead, because someone is home then." },
-            },
+            { name: "reply_to_staff", arguments: { summary: "F2 asked to have C2 dropped off at 5 instead, because someone is home then." } },
           ],
         };
       },

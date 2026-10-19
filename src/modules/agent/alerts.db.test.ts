@@ -106,7 +106,7 @@ describe("a van confirmed short at the ramp is an alert, and the agent hears it 
       {
         db,
         gateway: createGateway(
-          fakeProvider([toolCall("get_plan", { date: DATE, leg: "PM" }), toolCall("auto_plan", { date: DATE, leg: "PM" })]),
+          fakeProvider([toolCall("get_plan", { leg: "PM" }), toolCall("propose_plan_change", { leg: "PM", replan: true, note: "Van 1 came back short, so one child moves." })]),
           loadAgentConfig(ENV),
           { now: () => NOW.getTime() },
         ),
@@ -122,8 +122,8 @@ describe("a van confirmed short at the ramp is an alert, and the agent hears it 
     const calls = await db.query<{ tool: string; status: string }>(
       "SELECT tool, status FROM ops.agent_tool_call WHERE run_id = $1 ORDER BY seq", [run.id],
     );
-    // The alert run may read and propose; its auto_plan is a proposal (policy proposeOnly), not a save.
-    expect(calls.rows.map((c) => [c.tool, c.status])).toEqual([["get_plan", "EXECUTED"], ["auto_plan", "PROPOSED"]]);
+    // The alert run may read and propose; a plan change is a card (ledger #77), not a save.
+    expect(calls.rows.map((c) => [c.tool, c.status])).toEqual([["get_plan", "EXECUTED"], ["propose_plan_change", "PROPOSED"]]);
     const view = await board();
     expect(vansOver(view, view.plan)).toEqual([vanIdOfSlot(1)]);
   });
@@ -199,7 +199,7 @@ describe("the bubble shows what the agent heard, and how it ended (ledger #75 b 
     expect((await confirmSeats(0)).status).toBe(200);
     const a = await latestAlert();
     const note = "Van 1 has no seats now, so re-planning the afternoon moves its riders to the other vans.";
-    const r = await drive(a.run_id, [toolCall("auto_plan", { date: DATE, leg: "PM", note })]);
+    const r = await drive(a.run_id, [toolCall("propose_plan_change", { leg: "PM", replan: true, note })]);
     expect(r.state, JSON.stringify(r)).toBe("SUCCEEDED");
     expect((await itemsFor(a.task_id)).map((i) => ("id" in i ? i.id : ""))).toEqual([`${a.task_id}:alert`]);
     const cards = await confirmCards(db, SITE);

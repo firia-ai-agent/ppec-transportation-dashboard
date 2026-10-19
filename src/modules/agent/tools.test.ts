@@ -21,7 +21,7 @@ import {
 } from "./tools";
 
 describe("§11.2 tool catalog", () => {
-  it("has all 30 tools, each with a tier and an effect", () => {
+  it("has all 29 tools, each with a tier and an effect", () => {
     expect(TOOL_NAMES).toHaveLength(TOOL_COUNT);
     expect(TOOL_NAMES).toEqual([
       "resolve_sender",
@@ -42,26 +42,25 @@ describe("§11.2 tool catalog", () => {
       "close_task",
       "summarize_thread_for_staff",
       "reply_to_staff",
-      // Ledger #74: what a person can do in the UI, and what they see (agent/action-tools.ts).
-      "auto_plan",
-      "move_child",
-      "save_plan",
-      "confirm_van_setup",
-      "set_child_needs",
-      "restart_demo_day",
-      "decide_card",
-      "take_alert",
-      "get_plan",
-      "get_alerts",
-      "get_cards",
+      // Ledger #77: a teammate's tools — the screens' reads, every change a card, Take (agent/action-tools.ts).
       "get_activity",
+      "get_plan",
+      "get_child",
+      "get_waiting",
+      "read_family_texts",
+      "propose_plan_change",
+      "propose_van_setup",
+      "propose_needs_change",
+      "propose_card_decision",
+      "restart_demo_day",
+      "take_alert",
     ]);
     for (const name of TOOL_NAMES) {
       const def = TOOL_REGISTRY[name];
       expect(["auto", "human"]).toContain(def.tier);
       expect(["read", "mutate", "send", "propose"]).toContain(def.effect);
       // Every tool cites where it comes from: the PRD's catalog, or the ruling that added it.
-      expect(def.prd, name).toMatch(/§11\.2|ledger #74/);
+      expect(def.prd, name).toMatch(/§11\.2|ledger #7[4-7]/);
     }
   });
 
@@ -80,10 +79,12 @@ describe("§11.2 tool catalog", () => {
       "propose_manifest_reallocation",
       "propose_contact_or_profile_change",
       "propose_dropoff_change",
-      // Ledger #74 (d): the PRD §11.2-prohibited actions are confirm cards a person presses.
-      "set_child_needs",
+      // Ledger #77: every change a teammate makes is a card a person approves.
+      "propose_plan_change",
+      "propose_van_setup",
+      "propose_needs_change",
+      "propose_card_decision",
       "restart_demo_day",
-      "decide_card",
     ]);
     for (const n of human) expect([n, TOOL_REGISTRY[n].effect]).toEqual([n, "propose"]);
     // Every `propose_*` tool is human tier. The two message tools are the only human-tier tools
@@ -153,9 +154,9 @@ describe("§11.2 tool catalog", () => {
   });
 
   it("exposes each tool as JSON Schema (§11.2 JSON-schema tool calls only)", () => {
-    // Three tools take nothing: the site is the run's own, never an argument (ledger #74). An
-    // action's optional `note` is the card's sentence (ledger #75), never an input, so not counted.
-    const NO_ARGUMENTS = ["restart_demo_day", "get_alerts", "get_cards", "get_activity"];
+    // Three tools take nothing: the site and the day are the run's own, never an argument (ledger
+    // #74, #77). A card's `note` is its sentence (ledger #75), never an input, so not counted.
+    const NO_ARGUMENTS = ["get_waiting", "get_activity", "restart_demo_day"];
     for (const d of toolDeclarations()) {
       expect(d.parameters).toMatchObject({ type: "object" });
       const count = Object.keys((d.parameters as { properties?: object }).properties ?? {}).filter((k) => k !== "note").length;
@@ -297,5 +298,20 @@ describe("schemas reject what §11.2 prohibits expressing", () => {
   it("strips any extra argument a model invents", () => {
     const parsed = TOOL_REGISTRY.get_leg_state.schema.parse({ leg_id: "L-C1-AM", to: "+15615550101", body: "hi" });
     expect(parsed).toEqual({ leg_id: "L-C1-AM" });
+  });
+});
+
+describe("a teammate's catalog (ledger #77)", () => {
+  it("offers a person's run a short list of described tools, with no id, version or date to get wrong", async () => {
+    const { STAFF_ASK_TOOLS, ALERT_TOOLS } = await import("./run/staff-ask-context");
+    expect(STAFF_ASK_TOOLS.length).toBeLessThanOrEqual(12);
+    for (const name of new Set([...STAFF_ASK_TOOLS, ...ALERT_TOOLS])) {
+      expect(TOOL_REGISTRY[name].description, name).toBeTruthy();
+      const props = jsonSchemaPropertyNames(toolJsonSchema(name));
+      expect(props.filter((p) => p === "date" || p === "version" || p.endsWith("_id") || p.endsWith("_version")), name).toEqual([]);
+    }
+    // Every change is a card a person approves; the one thing it does itself is Take.
+    const acts = STAFF_ASK_TOOLS.filter((n) => TOOL_REGISTRY[n].effect === "mutate" || TOOL_REGISTRY[n].effect === "send");
+    expect(acts).toEqual(["take_alert"]);
   });
 });

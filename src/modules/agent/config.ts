@@ -307,12 +307,15 @@ const endpointAllowList = z
  */
 export const DEFAULT_RATE_LIMITS = {
   maxCallsPerRun: 8,
+  /** A run a person started (an ask, an alert): room to look, act and answer (ledger #77). */
+  maxCallsPerStaffRun: 16,
   maxCallsPerMinute: 30,
   maxPromptChars: 24_000,
 } as const;
 
 const rateLimits = z.object({
   maxCallsPerRun: z.number().int().positive().default(DEFAULT_RATE_LIMITS.maxCallsPerRun),
+  maxCallsPerStaffRun: z.number().int().positive().default(DEFAULT_RATE_LIMITS.maxCallsPerStaffRun),
   maxCallsPerMinute: z.number().int().positive().default(DEFAULT_RATE_LIMITS.maxCallsPerMinute),
   maxPromptChars: z.number().int().positive().default(DEFAULT_RATE_LIMITS.maxPromptChars),
 });
@@ -546,6 +549,7 @@ export const AGENT_ENV_VARS = [
   "AGENT_ASK_TIMEOUT_MS",
   "AGENT_API_KEY_ENV_VAR",
   "AGENT_MAX_CALLS_PER_RUN",
+  "AGENT_MAX_CALLS_PER_STAFF_RUN",
   "AGENT_MAX_CALLS_PER_MINUTE",
   "AGENT_MAX_PROMPT_CHARS",
 ] as const;
@@ -594,6 +598,7 @@ export function loadAgentConfig(
     apiKeyEnvVar: env.AGENT_API_KEY_ENV_VAR,
     rateLimits: {
       maxCallsPerRun: asInt(env.AGENT_MAX_CALLS_PER_RUN),
+      maxCallsPerStaffRun: asInt(env.AGENT_MAX_CALLS_PER_STAFF_RUN),
       maxCallsPerMinute: asInt(env.AGENT_MAX_CALLS_PER_MINUTE),
       maxPromptChars: asInt(env.AGENT_MAX_PROMPT_CHARS),
     },

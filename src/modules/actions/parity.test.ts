@@ -66,6 +66,10 @@ describe("every registry action is an agent tool (S5, the agent's half)", () => 
       expect(t.tier, t.name).toBe(action.confirm ? "human" : "auto");
     }
   });
+
+  it("checks a card's asker against the same access row its action runs under (ledger #77)", () => {
+    for (const t of ACTION_TOOLS) expect(t.endpoint, t.name).toBe(ACTION_LIST.find((a) => a.name === t.action)!.endpoint);
+  });
 });
 
 describe("the screen goes through the registry, not around it (S6)", () => {
