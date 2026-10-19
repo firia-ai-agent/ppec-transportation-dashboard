@@ -294,6 +294,9 @@ describe("a card closes the loop, steps aside when the board moved, and can be t
       runId: r.runId, trigger: { type: "staff.ask", id: r.taskId, siteId: SITE }, committed: [], now: new Date(),
     });
     expect(JSON.stringify(assembled.prompt)).toMatch(/following_up_on_alert=\\"Van 1 no longer fits/);
+    // It is told to look before answering, and is not handed internal leg states to repeat.
+    expect(assembled.prompt).toContain("look_first=get_activity");
+    expect(assembled.prompt).not.toMatch(/leg=\S+ child=\S+ part=\S+ state=/);
   });
 });
 
