@@ -928,3 +928,20 @@
   font-size: var(--text-12);
   color: var(--color-ink-muted);
 }
+
+/* A phone: the demo control takes its own row under the tabs, so nothing runs off the edge. */
+@media (max-width: 767px) {
+  .tabs {
+    flex-wrap: wrap;
+  }
+
+  .simulate {
+    flex-basis: 100%;
+    flex-wrap: nowrap;
+  }
+
+  .simulateSelect {
+    flex: 1;
+    max-width: none;
+  }
+}
