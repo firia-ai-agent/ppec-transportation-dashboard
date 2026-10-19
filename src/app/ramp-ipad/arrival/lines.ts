@@ -8,7 +8,7 @@
  */
 import { fill, pluralize, vanArrival } from "@/ui/copy";
 import { shortName } from "@/ui/display-name";
-import { formatClock } from "@/domain/eta/eta";
+import { clockLabel } from "@/ui/service-date";
 import type { RejectReason } from "@/config/equipment";
 import type { Shortfall } from "@/domain/plan/fit";
 import type { Tone } from "@/ui/tokens";
@@ -24,8 +24,8 @@ export function confirmLabel(van: string): string {
 }
 
 /** "Leaves 3:05 PM" — when this van pulls away from the centre, from the plan's own geometry. */
-export function leavesLine(atMs: number): string {
-  return fill(vanArrival.leaves, { time: formatClock(atMs) });
+export function leavesLine(hhmm: string): string {
+  return fill(vanArrival.leaves, { time: clockLabel(hhmm) });
 }
 
 /**

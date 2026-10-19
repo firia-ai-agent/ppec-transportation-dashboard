@@ -33,6 +33,8 @@ export type SavedPlan = {
   savedBy: string | null;
   /** Every child of the day, by child token. */
   placements: Readonly<Record<string, Placement>>;
+  /** Today's departure per van where a planner set one, `{ vanId: "HH:MM" }` (ledger #76). */
+  departures: Readonly<Record<string, string>>;
 };
 
 /**
@@ -52,6 +54,8 @@ export type SavePlanInput = {
   /** The version the board was showing. `0` means "there was no plan when I started". */
   version: number;
   placements: Readonly<Record<string, SavedPlacement>>;
+  /** Departures this save sets, `{ vanId: "HH:MM" }`; merged over the ones already saved. */
+  departures?: Readonly<Record<string, string>>;
   /** The staff user saving it, when the session has one. */
   savedBy: string | null;
   now: Date;

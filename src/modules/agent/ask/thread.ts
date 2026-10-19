@@ -26,7 +26,7 @@ import { agentBubble, confirmCopy, fill } from "@/ui/copy";
 import { STALE_PLAN_CARD_SQL } from "@/modules/actions/confirm-cards";
 import { boardHref, PLAN_ROUTES_PATH } from "@/modules/plan/when";
 import { ALERT_TRIGGER } from "@/modules/agent/alerts";
-import { namedOrNull } from "@/modules/identity/names";
+import { detokenizeNames, namedOrNull } from "@/modules/identity/names";
 import { effectId } from "@/modules/agent/run/exec/effects";
 import { ANSWER_TOOLS } from "./answer";
 
@@ -140,7 +140,7 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
   });
   const answeredIds = new Set(answers.map((a) => (a.item as { id: string }).id.replace(/:answer$/, "")));
   const said = asks.rows.flatMap((r) => {
-    const ask = { at: r.at, item: { kind: "staff", id: r.id, text: askTextOf(r.summary) } as AgentThreadItem };
+    const ask = { at: r.at, item: { kind: "staff", id: r.id, text: detokenizeNames(askTextOf(r.summary), "label") } as AgentThreadItem };
     // The outcome, when there is one, is what the person reads — never "working" over it.
     if (pending.has(r.id) && !answeredByAlert.has(r.id) && !answeredIds.has(r.id)) {
       return [ask, { at: r.at, item: { kind: "agent", id: `${r.id}:working`, text: agentBubble.working } as AgentThreadItem }];
@@ -210,9 +210,16 @@ async function alertsHeard(
   }>(
     `SELECT t.id::text AS task_id, t.summary, t.created_at AS at, t.completion_evidence AS evidence,
             (r.state IN ('QUEUED', 'RUNNING', 'WAITING_TOOL') AND r.created_at > now() - make_interval(secs => $3)) AS live,
-            EXISTS (SELECT 1 FROM ops.agent_tool_call c WHERE c.run_id = r.id AND c.status = 'PROPOSED') AS proposed
+            (EXISTS (SELECT 1 FROM ops.agent_tool_call c WHERE c.run_id = r.id AND c.status = 'PROPOSED')
+             -- …or a re-plan of that leg is waiting for a person, whoever drafted it (ledger #76).
+             OR EXISTS (SELECT 1 FROM ops.approval_request a
+                         WHERE a.site_id = r.site_id AND a.decided_at IS NULL AND a.proposal->>'kind' = 'STAFF_ACTION'
+                           AND a.proposal->'args'->>'date' = t.completion_evidence->'locator'->>'date'
+                           AND a.proposal->'args'->>'leg' = t.completion_evidence->'locator'->>'leg')) AS proposed
        FROM ops.agent_run r JOIN ops.task t ON t.id::text = r.trigger_id AND t.site_id = r.site_id
       WHERE r.site_id = $1 AND r.trigger_type = $2
+        -- An alert a person resolved — the van fits again — is over (plan/van-short.ts).
+        AND t.state IN ('OPEN', 'IN_PROGRESS', 'SNOOZED')
         -- A run stood down because the situation moved on (plan/van-short.ts) says nothing.
         AND (r.state <> 'ABORTED_SUPERSEDED_BY_HUMAN'
              OR EXISTS (SELECT 1 FROM ops.agent_tool_call c WHERE c.run_id = r.id AND c.status = 'PROPOSED'))

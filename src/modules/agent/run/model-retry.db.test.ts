@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "@/db/exec";
 import { agentRetryConfig } from "@/config/live";
+import { saveAutoPlan } from "@/test/save-plan";
 import { ACTIONS, type ActionCtx } from "@/modules/actions/registry";
 import { actionDepsFor } from "@/modules/actions/deps";
 import { seedStandardScenario } from "@/modules/demo/seed";
@@ -90,7 +91,7 @@ beforeAll(async () => {
   const director = await seedStaff(db, "DIRECTOR", SITE);
   const deps = { ...actionDepsFor(db, SITE), vanShort: (i: Parameters<typeof raiseVanShortAlerts>[3]) => raiseVanShortAlerts(db, wake, routing, i) };
   const ctx: ActionCtx = { siteId: SITE, caller: { userId: director, role: "DIRECTOR" }, now: NOW, deps };
-  expect((await ACTIONS.auto_plan.run(ctx, { date: DATE, direction: "PM" })).status).toBe(200);
+  expect((await saveAutoPlan(ctx, DATE, "PM")).status).toBe(200);
   const short = { ...defaultsOfSlot(1), seats: 2, vanId: vanIdOfSlot(1), date: DATE, state: "CHECKED" as const };
   expect((await ACTIONS.confirm_van_setup.run(ctx, short)).status).toBe(200);
   // The alert run is stamped by the database's clock; the test's clock is set from it.

@@ -342,8 +342,9 @@ describe("the plan's layers (one line per van)", () => {
   it("numbers every stop inside its own disc, in the drive's order", () => {
     const disc = layer(PLAN_LAYER_IDS.stopCircle);
     expect(disc?.paint?.["circle-color"]).toEqual(["get", "color"]);
-    expect(disc?.paint?.["circle-stroke-width"]).toBe(2);
-    expect(disc?.paint?.["circle-stroke-color"]).toBe(MAP_TOKENS.surface);
+    // The 2 px white halo on every stop; the child pointed at on the board gets an ink ring.
+    expect(disc?.paint?.["circle-stroke-width"]).toEqual(["case", ["boolean", ["get", "focused"], false], 4, 2]);
+    expect(disc?.paint?.["circle-stroke-color"]).toEqual(["case", ["boolean", ["get", "focused"], false], MAP_TOKENS.ink, MAP_TOKENS.surface]);
 
     const order = layer(PLAN_LAYER_IDS.stopOrder);
     expect(order?.layout?.["text-field"]).toEqual(["get", "order"]);
@@ -352,6 +353,15 @@ describe("the plan's layers (one line per van)", () => {
     expect(order?.paint?.["text-color"]).toBe(MAP_TOKENS.surface);
     // White digits on the disc, which is why each route colour is held to 4.5:1 on white.
     expect(layer(PLAN_LAYER_IDS.stopLabel)?.layout?.["text-field"]).toEqual(["get", "label"]);
+  });
+
+  it("rings the stop of the child pointed at on the board", () => {
+    const routes = [{ laneId: "v1", vanName: "Van 1", colorIndex: 0, line: [], stops: [
+      { order: 1, label: "A", coord: [0, 0] as [number, number] },
+      { order: 2, label: "B", coord: [1, 1] as [number, number] },
+    ] }];
+    const stops = planStopsGeoJson(routes as never, null, { laneId: "v1", label: "B" });
+    expect(stops.features.map((f) => f.properties.focused)).toEqual([false, true]);
   });
 
   it("brings a selected lane forward by weight as well as by strength", () => {

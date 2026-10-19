@@ -16,7 +16,7 @@
  */
 import { canOpenPage } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
-import { dayDataSource, loadBoard, planStore } from "@/modules/plan/store";
+import { loadBoard, planStore } from "@/modules/plan/store";
 import { siteOf } from "@/modules/plan/api";
 import { LEG_PARAM, resolveDate, resolveLeg, VAN_PARAM } from "@/modules/plan/when";
 import { flow, vanArrival } from "@/ui/copy";
@@ -83,7 +83,7 @@ export default async function RampIpadPage({
     );
   }
 
-  const vans = arrivalVans(view.day, view.plan, dayDataSource(siteOf(caller)));
+  const vans = arrivalVans(view.day, view.plan, view.departs);
   const selected = selectedVan(vans, one(params[VAN_PARAM]));
 
   if (!selected) {

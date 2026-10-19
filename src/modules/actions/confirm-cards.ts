@@ -24,16 +24,19 @@ export const STALE_PLAN_CARD_SQL = `(
        AND p.direction::text = a.proposal->'args'->>'leg' AND p.updated_at > a.created_at))`;
 
 export async function confirmCards(db: Exec, siteId: string): Promise<readonly ConfirmView[]> {
-  const rows = await db.query<{ id: string; tool: string | null; args: Record<string, unknown> | null; note: string | null }>(
-    `SELECT a.id, a.proposal->>'tool' AS tool, a.proposal->'args' AS args, a.proposal->>'note' AS note FROM ops.approval_request a
+  const rows = await db.query<{ id: string; tool: string | null; args: Record<string, unknown> | null; note: string | null; summary: string | null; impact: string[] | null }>(
+    `SELECT a.id, a.proposal->>'tool' AS tool, a.proposal->'args' AS args, a.proposal->>'note' AS note,
+            a.proposal->>'summary' AS summary, a.proposal->'impact' AS impact FROM ops.approval_request a
       WHERE a.site_id = $1 AND a.decided_at IS NULL AND a.proposal->>'kind' = $2 AND NOT ${STALE_PLAN_CARD_SQL}
       ORDER BY a.created_at, a.id`,
     [siteId, STAFF_ACTION_KIND],
   );
   return rows.rows.map((r) => ({
     approvalId: r.id,
-    summary: staffActionSummary(r.tool ?? "", r.args ?? {}),
+    // The card's own title where it was written with one (a re-plan draft), else the tool's line.
+    summary: r.summary ?? staffActionSummary(r.tool ?? "", r.args ?? {}),
     // A note this roster cannot name in full is no note: the card falls back to the summary.
     note: namedOrNull(r.note),
+    impact: Array.isArray(r.impact) ? r.impact.filter((line): line is string => typeof line === "string") : [],
   }));
 }

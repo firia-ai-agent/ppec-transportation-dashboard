@@ -179,7 +179,7 @@ function storeOver(db: Exec): PlanStore {
   };
 }
 
-type RunRow = { id: string; version: number; saved_at: string; saved_by: string | null };
+type RunRow = { id: string; version: number; saved_at: string; saved_by: string | null; departures?: Record<string, string> | null };
 
 async function loadPlanWith(
   exec: Exec,
@@ -188,7 +188,7 @@ async function loadPlanWith(
   direction: Direction,
 ): Promise<SavedPlan | null> {
   const run = await exec.query<RunRow>(
-    `SELECT id::text AS id, version, saved_at::text AS saved_at, saved_by::text AS saved_by
+    `SELECT id::text AS id, version, saved_at::text AS saved_at, saved_by::text AS saved_by, departures
        FROM ops.plan_run
       WHERE site_id = $1 AND service_date = $2::date AND direction = $3`,
     [siteId, date, direction],
@@ -214,6 +214,7 @@ async function loadPlanWith(
     savedAt: new Date(row.saved_at).toISOString(),
     savedBy: staffLabel(row.saved_by),
     placements,
+    departures: row.departures ?? {},
   };
 }
 
@@ -264,10 +265,11 @@ async function savePlanIn(
      */
     const bumped = await tx.query<{ id: string }>(
       `UPDATE ops.plan_run
-          SET version = version + 1, saved_at = $3, saved_by = $4, updated_at = now(), updated_by = $5
+          SET version = version + 1, saved_at = $3, saved_by = $4, updated_at = now(), updated_by = $5,
+              departures = departures || $6::jsonb
         WHERE id = $1 AND version = $2
       RETURNING id::text AS id`,
-      [runId, input.version, savedAt, input.savedBy, BY],
+      [runId, input.version, savedAt, input.savedBy, BY, JSON.stringify(input.departures ?? {})],
     );
     if (bumped.rows.length !== 1) return await conflictOn(tx, siteId, input);
     await tx.query(`DELETE FROM ops.plan_assignment WHERE plan_run_id = $1`, [runId]);
@@ -284,11 +286,11 @@ async function savePlanIn(
      */
     const inserted = await tx.query<{ id: string }>(
       `INSERT INTO ops.plan_run
-         (id, site_id, service_date, direction, saved_by, saved_at, version, created_by, updated_by)
-       VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $8)
+         (id, site_id, service_date, direction, saved_by, saved_at, version, created_by, updated_by, departures)
+       VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $8, $9::jsonb)
        ON CONFLICT (site_id, service_date, direction) DO NOTHING
        RETURNING id::text AS id`,
-      [runId, siteId, input.date, input.direction, input.savedBy, savedAt, version, BY],
+      [runId, siteId, input.date, input.direction, input.savedBy, savedAt, version, BY, JSON.stringify(input.departures ?? {})],
     );
     if (inserted.rows.length !== 1) return await conflictOn(tx, siteId, input);
   }

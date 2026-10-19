@@ -327,6 +327,8 @@ export const planRun = ops.table("plan_run", {
   /** The staff user who saved it, when a person did; null for a row the demo seed wrote. */
   savedBy: uuid("saved_by").references(() => appUser.id, { onDelete: "restrict" }),
   savedAt: timestamp("saved_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Today's departure per van on this leg, `{ vehicleId: "HH:MM" }`, where a planner changed it (ledger #76). */
+  departures: jsonb("departures").notNull().default({}),
   ...audit,
 }, (t) => [uniqueIndex("plan_run_site_date_dir_uq").on(t.siteId, t.serviceDate, t.direction)]);
 

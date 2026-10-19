@@ -65,9 +65,9 @@ export const ACTION_TOOLS: readonly ActionTool[] = [
     tier: "auto",
     effect: "mutate",
     schema: z.object({ date: DATE, leg: LEG }),
-    prd: "ledger #74: the board's Auto-plan + Save, as the person who asked",
+    prd: "ledger #74, #76: Re-plan as a draft card the person approves — the ramp's Re-plan",
     description: agentGuidance.autoPlan,
-    toInput: async (a) => ({ date: a.date, direction: a.leg }),
+    toInput: async (a) => ({ date: a.date, direction: a.leg, note: typeof a.note === "string" ? a.note : null }),
   }),
   tool({
     name: "move_child",

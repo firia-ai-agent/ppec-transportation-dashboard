@@ -15,6 +15,7 @@ import type { CounterKey, RejectReason } from "@/config/equipment";
 import { COUNTER_LABEL } from "@/ui/equipment";
 import type { DayReadiness } from "@/domain/day/readiness";
 import type { BoardVan } from "@/domain/plan/board";
+import { hhmmOf } from "@/domain/plan/arrivals";
 
 /** "10 of 12 placed" — the toolbar's one count. */
 export function placedLine(placed: number, total: number): string {
@@ -97,6 +98,17 @@ export function countChipLabel(van: string): string {
 /** "3:14 PM · Boynton Beach Mall" — a rider's own line inside a van. */
 export function stopLine(window: string, stopLabel: string): string {
   return `${clockLabel(window)} · ${stopLabel}`;
+}
+
+/**
+ * "≈ 3:42 PM · Palm Beach State College", or "≈ 4:05 PM (+12 min) · …" when that is past the
+ * family's window — a child's estimated pickup or drop-off on the plan on screen (ledger #76).
+ */
+export function etaLine(minute: number, stopLabel: string, lateBy: number | null): string {
+  const time = clockLabel(hhmmOf(Math.round(minute)));
+  return lateBy === null
+    ? fill(planBoard.etaLine, { time, stop: stopLabel })
+    : fill(planBoard.etaLateLine, { time, late: lateBy, stop: stopLabel });
 }
 
 /** "3 stops" and "38 min" — a van's footer. */

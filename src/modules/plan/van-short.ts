@@ -17,7 +17,9 @@ import type { DayDataSource } from "@/domain/day/source";
 import { ALERT_TRIGGER, raiseStaffAlert } from "@/modules/agent/alerts";
 import type { AgentWakeTransport } from "@/modules/agent/run/queue";
 import { effectId } from "@/modules/agent/run/exec/effects";
+import { resolveTask } from "@/modules/approvals/decide";
 import { fill, vanShortAlert } from "@/ui/copy";
+import { serviceDateIso, siteMinuteOfDay } from "@/ui/service-date";
 import { ridersInVan } from "@/domain/plan/board";
 import { vanVerdicts } from "@/domain/plan/eligibility";
 import { vansOver } from "./place";
@@ -32,6 +34,8 @@ export type VanShortInput = {
   readonly siteId: string;
   readonly date: string;
   readonly by: string;
+  /** Wall time: a van that has already left on a leg today is not a re-plan anybody can make. */
+  readonly now?: Date;
   readonly store: PlanStore;
   readonly source: DayDataSource;
 };
@@ -50,9 +54,14 @@ export async function raiseVanShortAlerts(
     const over = new Set(vansOver(view, view.plan));
     // A van that carries its riders again needs nobody looking at it any more (ledger #75).
     for (const van of view.day.vans) {
-      if (!over.has(van.id)) await standDownAlertRuns(db, { siteId: a.siteId, vanId: van.id, date: a.date, leg, keep: null, by: a.by });
+      if (over.has(van.id)) continue;
+      await standDownAlertRuns(db, { siteId: a.siteId, vanId: van.id, date: a.date, leg, keep: null, by: a.by });
+      await resolveFittingAlerts(db, { siteId: a.siteId, vanId: van.id, date: a.date, leg, by: a.by });
     }
-    for (const vanId of over) {
+    // A leg whose van has already pulled away today is history, not a problem to bring anybody.
+    const gone = (vanId: string) =>
+      a.now !== undefined && a.date === serviceDateIso(a.now) && siteMinuteOfDay(a.now) >= (view.departs[vanId] ?? Infinity);
+    for (const vanId of [...over].filter((id) => !gone(id))) {
       const van = view.day.vans.find((v) => v.id === vanId)!;
       // Who no longer fits, in the ramp's own order and by its own rule (the banner's "Ava N. won't fit").
       const who = vanVerdicts(van.setup, ridersInVan(view.day, view.plan, vanId)).flatMap((v) =>
@@ -110,4 +119,24 @@ export async function standDownAlertRuns(
     [a.siteId, a.vanId, a.date, a.leg, a.keep, a.by, ALERT_TRIGGER, VAN_SHORT_TASK_CATEGORY],
   );
   return r.rows.length;
+}
+
+/**
+ * THE VAN FITS AGAIN, SO THE ALERT IS DONE (ledger #76). A person's save or count made it fit, so
+ * that person resolved it: its open VAN_SHORT tasks for this van, date and leg are closed as theirs
+ * (`resolveTask`, the same walk a decided card takes), and the bubble stops showing them.
+ */
+export async function resolveFittingAlerts(
+  db: Db,
+  a: { readonly siteId: string; readonly vanId: string; readonly date: string; readonly leg: Direction; readonly by: string },
+): Promise<number> {
+  if (!a.by.startsWith("staff:")) return 0;
+  const open = await db.query<{ id: string }>(
+    `SELECT id FROM ops.task
+      WHERE site_id = $1 AND category = $2 AND state IN ('OPEN', 'IN_PROGRESS', 'SNOOZED')
+        AND completion_evidence->'locator' @> jsonb_build_object('van_id', $3::text, 'date', $4::text, 'leg', $5::text)`,
+    [a.siteId, VAN_SHORT_TASK_CATEGORY, a.vanId, a.date, a.leg],
+  );
+  for (const row of open.rows) await db.tx((tx) => resolveTask(tx, row.id, "APPROVED", a.by));
+  return open.rows.length;
 }

@@ -72,14 +72,6 @@ export type OtherChild = DayRider & {
 export interface DayDataSource {
   /** The vans on the road on this date, in slot order. */
   vans(date: string): Promise<readonly DayVan[]>;
-  /**
-   * When this van pulls away from the centre on this leg, epoch ms.
-   *
-   * The ramp's van tabs are in the order the vans leave (§2), and that time is a fact about the
-   * day's own runs — so it comes through the port with the rest of the day rather than out of a
-   * fixture the screen reads for itself.
-   */
-  leavesAtMs(date: string, leg: Direction, vanId: string): number;
 
   /**
    * The children the centre drives on this leg: a stop of their own, and a ride that is not the

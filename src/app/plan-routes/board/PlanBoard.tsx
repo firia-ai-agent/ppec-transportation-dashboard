@@ -71,6 +71,7 @@ import {
   type PendingQueue,
 } from "@/domain/plan/pending";
 import { eligibility } from "@/domain/plan/eligibility";
+import { hhmmOf, minuteOfDay, plannedStopTimes } from "@/domain/plan/arrivals";
 import type { BoardView } from "@/modules/plan/store";
 import { boardHref } from "@/modules/plan/when";
 import { vanColourVar } from "@/config/vans";
@@ -146,6 +147,13 @@ export default function PlanBoard({
    * one back and never touches what is saved.
    */
   const [pending, setPending] = useState<PendingQueue>(NO_PENDING);
+  /**
+   * Departures changed for today and not saved yet, `{ vanId: "HH:MM" }` (ledger #76). An edit is
+   * like a move: it changes every time on that van at once, and Save keeps it.
+   */
+  const [leaveEdits, setLeaveEdits] = useState<Readonly<Record<string, string>>>({});
+  /** The child the pointer is on: the map rings their stop. */
+  const [pointed, setPointed] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string } | null>(null);
   /**
    * The one refusal on screen: which card it is on, and the four words it says (Vera's taste
@@ -178,7 +186,7 @@ export default function PlanBoard({
    * and then replace it (react.dev, "You Might Not Need an Effect").
    */
   const [seenView, setSeenView] = useState(view);
-  if (seenView !== view && !hasPending(pending)) {
+  if (seenView !== view && !hasPending(pending) && Object.keys(leaveEdits).length === 0) {
     setSeenView(view);
     setBoard(view);
     setSavedPlan(view.plan);
@@ -197,7 +205,24 @@ export default function PlanBoard({
   /** What the screen shows: the saved plan with every unsaved move folded on, in order. */
   const plan: BoardPlan = useMemo(() => applyPending(savedPlan, pending), [savedPlan, pending]);
 
-  const dirty = hasPending(pending);
+  const dirty = hasPending(pending) || Object.keys(leaveEdits).length > 0;
+
+  /*
+   * ── When each van leaves, and so when every child is picked up or gets home (ledger #76) ──
+   * The saved departure, or today's unsaved edit, then the one estimate the late texts and the
+   * agent use (`plannedStopTimes`), over the plan on screen — so a move or a new time shows its
+   * effect on every child before anybody saves.
+   */
+  const departs = useMemo(
+    () => ({ ...board.departs, ...Object.fromEntries(Object.entries(leaveEdits).map(([id, hhmm]) => [id, minuteOfDay(hhmm) ?? board.departs[id]])) }),
+    [board.departs, leaveEdits],
+  );
+  const times = useMemo(() => plannedStopTimes(day, plan, departs), [day, plan, departs]);
+  const focus = useMemo(() => {
+    const at = pointed ? plan[pointed] : undefined;
+    const rider = pointed ? day.riders.find((r) => r.token === pointed) : undefined;
+    return at?.bucket === "VAN" && at.vanId && rider ? { laneId: at.vanId, label: rider.stopLabel } : null;
+  }, [pointed, plan, day.riders]);
   const placed = placedCount(day, plan);
   const waiting = unassignedRiders(day, plan);
   const map = useMemo(() => boardMap(day, plan), [day, plan]);
@@ -430,13 +455,13 @@ export default function PlanBoard({
   /* ── saving: every pending move, in one transaction (option A) ── */
   const onSave = useCallback(async () => {
     const moves = movesToSave(savedPlan, pending);
-    if (moves.length === 0) return;
+    if (moves.length === 0 && Object.keys(leaveEdits).length === 0) return;
     setSave({ kind: "SAVING" });
     try {
       const response = await fetch(API.planSave, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ date: day.date, direction: day.direction, version, moves }),
+        body: JSON.stringify({ date: day.date, direction: day.direction, version, moves, departures: leaveEdits }),
       });
       const body = (await response.json().catch(() => null)) as
         | { ok?: boolean; version?: number; savedAt?: string; reason?: string; changedBy?: string | null; view?: BoardView }
@@ -446,6 +471,8 @@ export default function PlanBoard({
         setSavedPlan(body.view ? body.view.plan : plan);
         setVersion(body.version);
         setPending(clearPending());
+        if (!body.view) setBoard((current) => ({ ...current, departs }));
+        setLeaveEdits({});
         setSave({ kind: "SAVED", at: body.savedAt ?? new Date().toISOString() });
         return;
       }
@@ -459,7 +486,7 @@ export default function PlanBoard({
     } catch {
       setSave({ kind: "FAILED" });
     }
-  }, [day.date, day.direction, pending, plan, savedPlan, version]);
+  }, [day.date, day.direction, departs, leaveEdits, pending, plan, savedPlan, version]);
 
   /*
    * There is no "Save anyway?" (Veri, 2026-10-17 8:35 PM ET): a van can never be saved over its
@@ -695,6 +722,10 @@ export default function PlanBoard({
                 openChildToken={openChild}
                 refusal={refusal}
                 rampHref={rampHref(van.id, day.date, day.direction)}
+                leaves={hhmmOf(departs[van.id] ?? 0)}
+                onLeaves={(hhmm) => setLeaveEdits((edits) => ({ ...edits, [van.id]: hhmm }))}
+                times={times}
+                onPointChild={setPointed}
               />
             ))}
           </div>
@@ -706,7 +737,7 @@ export default function PlanBoard({
             moved between columns moves on the map rather than in a copy kept in step by hand.
           */}
           <aside className={styles.map} aria-label={planBoard.mapLabel}>
-            <PlanMap data={map} selectedLaneId={hovered ?? selectedVanId} onSelect={() => undefined} />
+            <PlanMap data={map} selectedLaneId={hovered ?? selectedVanId} onSelect={() => undefined} focus={focus} />
           </aside>
         </div>
 

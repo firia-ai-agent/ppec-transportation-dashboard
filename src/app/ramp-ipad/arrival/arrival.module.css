@@ -441,6 +441,7 @@
    crit pair, which is what is actually read. */
 .banner {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
@@ -455,6 +456,13 @@
   flex-direction: column;
 }
 
+/* Re-plan's answer when no van can take a child (ledger #76): in the banner, where the problem is. */
+.bannerNote {
+  flex-basis: 100%;
+  font-weight: var(--weight-semibold);
+  color: var(--color-crit-fg);
+}
+
 /* A white button inside the alert, the way the mockup draws it: the banner is the alarm and
    this is the way out of it, so it is not a second red thing. */
 .replan {
@@ -467,8 +475,16 @@
   border: var(--border-hairline) solid var(--color-crit-fg);
   background: var(--color-surface);
   color: var(--color-crit-fg);
+  font: inherit;
   font-weight: var(--weight-semibold);
+  white-space: nowrap;
   text-decoration: none;
+  cursor: pointer;
+}
+
+.replan:disabled {
+  opacity: 0.6;
+  cursor: progress;
 }
 
 .empty {
@@ -555,7 +571,8 @@
    * 390 while Confirm is pinned, rather than lifted by the shared offset, which waits until after
    * the demo. The selector stays pure for CSS Modules by anchoring on this file's own class.
    */
-  :global(body):has(.confirmBar) :global([data-agent-bubble]) {
+  /* The closed disc only (ledger #76): Re-plan opens the panel with its draft card, as a full sheet. */
+  :global(body):has(.confirmBar) :global([data-agent-bubble][data-state="closed"]) {
     display: none;
   }
 

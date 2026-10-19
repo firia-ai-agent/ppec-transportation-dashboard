@@ -1,5 +1,5 @@
 /**
- * WHEN EACH CHILD GETS HOME ON A SAVED PLAN — the one estimate of a planned drop-off.
+ * WHEN EACH CHILD IS PICKED UP OR GETS HOME ON A PLAN — the one estimate of a planned stop time.
  *
  * SOURCE: PRD §8's planned-ETA formula, the same one `domain/eta/eta.ts plannedEta` applies to a
  * committed fixture run:
@@ -15,27 +15,25 @@
  * literal of this module, and nothing is tuned to a scenario: the numbers a family is told are what
  * the plan on screen implies.
  *
- * **When a van leaves** is the fixture runs' own rule (`board/scenario.ts plannedDeparture`): the
- * van's first family stop is served at the window that family holds, so it leaves the centre early
- * enough to make that drop on time, and every later stop follows from the geometry. A plan that
- * puts more stops in one van, or a slower kerb ahead of a child's, makes that child later — which
- * is the whole of what a re-plan can do to a family's afternoon.
+ * **When a van leaves** is its departure for the leg (ledger #76): the schedule's default
+ * (`config/schedule.ts`) or the time a planner set for today on the board. Every stop follows from
+ * it and from the geometry, so a plan that puts more stops in one van, a slower kerb ahead of a
+ * child's, or a later departure makes that child later — and the board shows it before anyone saves.
  *
- * Time is **minutes of the site-local day**. A departure is a time of day on whatever date the
- * plan is for, and so is the window a family holds (`trip_leg.window_start`, which is what a
- * rider's `window` is), so comparing the two never crosses a time zone or a fixture's own date.
- *
- * Afternoon only: a drop-off is the stop a family waits at. A morning run ends at the centre,
- * where nobody is told anything, so this answers nothing for `AM`.
+ * Time is **minutes of the site-local day**, and so is the window a family holds, so comparing the
+ * two never crosses a time zone or a fixture's own date. Both legs: a morning's time is the pickup,
+ * an afternoon's the drop-off.
  *
  * Pure: no clock, no database, no network.
  */
 import { trafficBandAtMinute } from "@/domain/eta/traffic";
 import { DWELL_SECONDS } from "@/domain/location/route";
 import { WHEELCHAIR_SERVICE_SECONDS } from "@/fixtures/survey";
+import { serviceSchedule } from "@/config/schedule";
 import { boardMap, ridersInVan, stopNumbers, type BoardDay, type BoardPlan } from "./board";
+import { centreLeadSec } from "./map";
 
-/** One child's planned drop-off on one plan. */
+/** One child's estimated time on one plan: picked up (morning) or dropped off (afternoon). */
 export type PlannedDropoff = {
   readonly vanId: string;
   /** The landmark the van stops at for them. */
@@ -43,38 +41,58 @@ export type PlannedDropoff = {
   /** Minutes after site-local midnight, unrounded. */
   readonly arrivesAtMinute: number;
 };
+export type StopTime = PlannedDropoff;
+
+/** When each van leaves the centre on this leg, as minutes of the site-local day, by van id. */
+export type Departures = Readonly<Record<string, number>>;
 
 /**
- * Every afternoon rider in a van on this plan, by child token, with the minute they get home.
- *
- * A child in no van, a child with no kerb of ours, and a stop the map cannot place have no
- * drop-off to estimate and are absent — never given a guessed time.
+ * The departure every van has on this leg: the planner's time for today where one was saved,
+ * the schedule's default otherwise (`config/schedule.ts`). One resolution, read by the board,
+ * the ramp, the late texts and the agent alike.
  */
-export function plannedDropoffs(day: BoardDay, plan: BoardPlan): ReadonlyMap<string, PlannedDropoff> {
-  const out = new Map<string, PlannedDropoff>();
-  if (day.direction !== "PM") return out;
+export function departuresOf(day: BoardDay, saved: Readonly<Record<string, string>> = {}): Departures {
+  const fallback = minuteOfDay(serviceSchedule.departs[day.direction]) ?? 0;
+  return Object.fromEntries(day.vans.map((van) => [van.id, minuteOfDay(saved[van.id] ?? "") ?? fallback]));
+}
+
+/**
+ * EVERY CHILD'S ESTIMATED TIME, FORWARD FROM THEIR VAN'S DEPARTURE (ledger #76).
+ *
+ * The van leaves the centre at its departure. An afternoon drives the stops in order and each
+ * child's time is their drop-off; a morning drives out to its first stop and each child's time is
+ * their pickup, and the run ends back at the centre. Between stops: the board's own route
+ * (`boardMap` — the surveyed road where there is one, the probe speed where not) under the §8
+ * traffic band, plus the §8 dwell and a wheelchair's service time at every stop before.
+ *
+ * A child in no van, and a stop the map cannot place, get no time — never a guessed one.
+ */
+export function plannedStopTimes(day: BoardDay, plan: BoardPlan, departs: Departures): ReadonlyMap<string, StopTime> {
+  const out = new Map<string, StopTime>();
   const routes = boardMap(day, plan).routes;
 
   for (const van of day.vans) {
     const route = routes.find((candidate) => candidate.laneId === van.id);
-    if (!route || route.stops.length === 0) continue;
+    const departure = departs[van.id];
+    if (!route || route.stops.length === 0 || departure === undefined) continue;
     const riders = ridersInVan(day, plan, van.id);
     const numbers = stopNumbers(riders);
-    // The first family stop is served at its window; the van leaves early enough to make it.
-    const first = riders.find((rider) => numbers.get(rider.token) === route.stops[0].order);
-    const anchor = first ? minuteOfDay(first.window) : null;
-    if (anchor === null) continue;
-    const traffic = trafficBandAtMinute(anchor).multiplier;
-    const departs = anchor - ((route.segments[0]?.durationSec ?? 0) * traffic) / 60;
+    const traffic = trafficBandAtMinute(departure).multiplier;
+    // The stretch leading into stop j: an afternoon's route starts at the centre, so segment j;
+    // a morning's starts at its first stop, so the centre's lead and then segment j−1.
+    const leadInto = (j: number): number =>
+      day.direction === "PM"
+        ? (route.segments[j]?.durationSec ?? 0)
+        : j === 0
+          ? (centreLeadSec(route.stops[0].label) ?? 0)
+          : (route.segments[j - 1]?.durationSec ?? 0);
 
-    // The minute the van reaches each of its stops, in drive order. Segment j leads into stop j:
-    // the afternoon's route starts at the centre (map.ts `placesOf`).
     const reaches: number[] = [];
     let driveSeconds = 0;
     let heldSeconds = 0;
     route.stops.forEach((stop, j) => {
-      driveSeconds += (route.segments[j]?.durationSec ?? 0) * traffic;
-      reaches.push(departs + (driveSeconds + heldSeconds) / 60);
+      driveSeconds += leadInto(j) * traffic;
+      reaches.push(departure + (driveSeconds + heldSeconds) / 60);
       const servedHere = riders.filter((rider) => {
         const n = numbers.get(rider.token);
         return n !== undefined && n <= stop.order && n > (route.stops[j - 1]?.order ?? 0);
@@ -92,6 +110,17 @@ export function plannedDropoffs(day: BoardDay, plan: BoardPlan): ReadonlyMap<str
     }
   }
   return out;
+}
+
+/** The afternoon's drop-offs on this plan: `plannedStopTimes` for a PM board, nothing for a morning. */
+export function plannedDropoffs(day: BoardDay, plan: BoardPlan, departs: Departures = departuresOf(day)): ReadonlyMap<string, PlannedDropoff> {
+  return day.direction === "PM" ? plannedStopTimes(day, plan, departs) : new Map();
+}
+
+/** Minutes a child's estimate is past their family's window; ≤ 0 when on time. Null when unknown. */
+export function minutesLate(window: string, minute: number | undefined): number | null {
+  const at = minuteOfDay(window);
+  return at === null || minute === undefined ? null : minute - at;
 }
 
 /** "16:20" → 980. Null for anything that is not a wall-clock time. */
@@ -123,9 +152,15 @@ export type MadeLate = {
  * by (`plan/replan-notices.ts`) and the agent previews a change with (`get_plan`), so what the
  * agent says a move will do is what the families are then told.
  */
-export function madeLate(day: BoardDay, before: BoardPlan, after: BoardPlan, thresholdMinutes: number): MadeLate[] {
-  const was = plannedDropoffs(day, before);
-  const now = plannedDropoffs(day, after);
+export function madeLate(
+  day: BoardDay,
+  before: BoardPlan,
+  after: BoardPlan,
+  thresholdMinutes: number,
+  departs: { readonly before: Departures; readonly after: Departures } = { before: departuresOf(day), after: departuresOf(day) },
+): MadeLate[] {
+  const was = plannedDropoffs(day, before, departs.before);
+  const now = plannedDropoffs(day, after, departs.after);
   return day.riders.flatMap((rider) => {
     const arrival = now.get(rider.token);
     const window = minuteOfDay(rider.window);

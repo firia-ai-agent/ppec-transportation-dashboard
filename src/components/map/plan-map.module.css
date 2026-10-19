@@ -30,7 +30,12 @@
   background: var(--color-osm-bg);
 }
 
-.canvas {
+/*
+ * Scoped under the wrap on purpose: MapLibre's own sheet sets `.maplibregl-map { position:
+ * relative }`, and once another route has loaded that sheet after this one (Live map, then Back),
+ * a single-class rule here lost the tie and the map collapsed to 0 px tall — a blank pane.
+ */
+.canvasWrap .canvas {
   position: absolute;
   inset: 0;
 }

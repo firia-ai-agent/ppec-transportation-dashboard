@@ -171,10 +171,11 @@ const TOKENS: readonly string[] = [
  * Longest first for the reason `roster()` sorts longest first: "C10" replaced after "C1" leaves
  * "Mia0", which is a name this app just invented.
  */
-export function detokenizeNames(text: string): string {
+export function detokenizeNames(text: string, as: "first" | "label" = "first"): string {
   let out = text;
   for (const token of TOKENS) {
-    const name = firstNameOfToken(token);
+    // "label": a child's masked staff label ("Zoe B.", PRD masked display names) for staff screens.
+    const name = (as === "label" ? CHILDREN.find((c) => c.key === token)?.label : undefined) ?? firstNameOfToken(token);
     if (!name) continue;
     out = out.replace(new RegExp(`(?<![A-Za-z0-9])${token}(?![A-Za-z0-9])`, "g"), name);
   }

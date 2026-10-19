@@ -138,6 +138,15 @@ function segmentBetween(
   };
 }
 
+/**
+ * Seconds from the centre to a stop, by its label: the morning run's first stretch, which the
+ * drawn route does not include (a morning ends at the centre). Null for a label placed nowhere.
+ */
+export function centreLeadSec(stopLabel: string): number | null {
+  const place = placeOf(stopLabel);
+  return place ? segmentBetween({ key: CENTER_STOP_ID, coord: PLAN_CENTER_COORD }, place).durationSec : null;
+}
+
 /** Segments joined end to end, dropping the vertex each pair shares. */
 function joined(segments: readonly PlanMapSegment[]): Coord[] {
   const line: Coord[] = [];

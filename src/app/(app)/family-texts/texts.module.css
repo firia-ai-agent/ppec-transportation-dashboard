@@ -504,6 +504,19 @@
   color: var(--color-ink-muted);
 }
 
+/* A re-plan draft's effect on the day (ledger #76): one short line per change, then the totals. */
+.impactList {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0 var(--space-5) var(--space-4);
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-14);
+  line-height: var(--leading-tight);
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}
+
 
 
 .diffKey {

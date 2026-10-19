@@ -89,7 +89,7 @@ export async function sendReplanLateNotices(
   let queued = 0;
 
   // The two plans share the day's riders and vans; only the placements differ.
-  for (const { token, arrival, late } of madeLate(after.day, before.plan, after.plan, THRESHOLD_MINUTES)) {
+  for (const { token, arrival, late } of madeLate(after.day, before.plan, after.plan, THRESHOLD_MINUTES, { before: before.departs, after: after.departs })) {
     const rider = { token };
 
     const leg = (

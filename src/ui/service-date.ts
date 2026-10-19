@@ -77,6 +77,19 @@ const HOUR_FMT = new Intl.DateTimeFormat("en-GB", {
   hourCycle: "h23",
 });
 
+/** Minutes after midnight on the centre's wall clock, 0–1439 — beside `siteHour`, the same clock. */
+export function siteMinuteOfDay(now: Date = new Date()): number {
+  const [h, m] = MINUTE_FMT.format(now).split(":").map(Number);
+  return h * 60 + m;
+}
+
+const MINUTE_FMT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: SITE_TIME_ZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
 /** "2026-10-14", for `<time dateTime>` and, later, query parameters. */
 export function serviceDateIso(now: Date = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {

@@ -13,6 +13,7 @@
  *  - whether the demo day has been started at all — from the database's own scenario clock
  *    (src/modules/plan/sql.ts), never from a browser's storage (Vera's differences list, item 2).
  */
+import { departuresOf, type Departures } from "@/domain/plan/arrivals";
 import { VANS } from "@/config/vans";
 import type { SavedBoardPlan, SavedLegPlan, SavedSpot } from "@/domain/board/board";
 import { deriveReadiness, type DayReadiness } from "@/domain/day/readiness";
@@ -98,6 +99,8 @@ export type BoardView = {
   /** Has the demo day been started for this date (§9.1)? */
   started: boolean;
   readiness: DayReadiness;
+  /** When each van leaves the centre on this leg, minutes of the site day (ledger #76). */
+  departs: Departures;
 };
 
 /**
@@ -160,6 +163,7 @@ export async function loadBoard(
     savedBy: saved?.savedBy ?? null,
     started,
     readiness: readinessFrom({ day, plan, saved, context, started, date, direction }),
+    departs: departuresOf(day, saved?.departures),
   };
 }
 

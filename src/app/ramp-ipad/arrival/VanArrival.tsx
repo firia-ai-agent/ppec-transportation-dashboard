@@ -25,6 +25,8 @@
  */
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { setAgentBubbleOpen } from "@/ui/agent-bubble-state";
 import { Check, CircleSlash, Minus, Plus, X } from "lucide-react";
 import { API } from "@/auth/access";
 import { EQUIPMENT_COUNTERS } from "@/config/equipment";
@@ -35,7 +37,7 @@ import { openPlanBoard } from "@/domain/plan/replan";
 import type { Direction } from "@/domain/day/leg";
 import { boardHref } from "@/modules/plan/when";
 import { plannedUse, underPlanned, type ArrivalVan } from "./view";
-import { planBoard, vanArrival } from "@/ui/copy";
+import { fill, planBoard, vanArrival } from "@/ui/copy";
 import { initialsOf, shortName } from "@/ui/display-name";
 import { COUNTER_ICON, COUNTER_LABEL, LIFT_ICON, NeedIcons } from "@/ui/equipment";
 import { HeaderSlot } from "@/ui/HeaderSlot";
@@ -120,7 +122,7 @@ export default function VanArrival({
       return { ...current, [key]: Math.max(0, Math.min(COUNTER_MAX, value + by)) };
     });
 
-  async function confirm() {
+  async function confirm(): Promise<boolean> {
     setSaving(true);
     try {
       const response = await fetch(API.vanSetup.replace("[id]", encodeURIComponent(selected.van.id)), {
@@ -129,10 +131,47 @@ export default function VanArrival({
         body: JSON.stringify({ date, ...draft, state: "CHECKED" }),
       });
       setConfirmed(response.ok);
+      return response.ok;
     } catch {
       setConfirmed(false);
+      return false;
     } finally {
       setSaving(false);
+    }
+  }
+
+  /*
+   * RE-PLAN (ledger #76): the counts on screen are confirmed first — a re-plan made against counts
+   * nobody recorded would plan round the wrong van — then Auto-plan drafts one card in the agent
+   * bubble saying who moves, their new times and whether every van fits. Nothing is saved until a
+   * planner presses Approve on it. If Auto-plan would change nothing, the board is where to look.
+   */
+  const router = useRouter();
+  const [replanning, setReplanning] = useState(false);
+  /** Re-plan's answer when there is nothing to approve: nobody can be moved to a van that fits. */
+  const [stranded, setStranded] = useState<readonly string[] | null>(null);
+  async function replanNow(boardHref: string) {
+    setReplanning(true);
+    try {
+      if (!confirmed && !(await confirm())) return;
+      const response = await fetch(API.planReplan, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ date, direction: leg }),
+      });
+      const body = (await response.json().catch(() => null)) as { drafted?: boolean; children?: string[] } | null;
+      if (response.ok && body?.drafted) {
+        setAgentBubbleOpen(true);
+        router.refresh();
+        return;
+      }
+      if (response.ok && body?.children?.length) {
+        setStranded(body.children);
+        return;
+      }
+      window.location.assign(boardHref);
+    } finally {
+      setReplanning(false);
     }
   }
 
@@ -162,7 +201,7 @@ export default function VanArrival({
               data-tab={arrival.van.id}
             >
               <span className={styles.tabName}>{arrival.van.name}</span>
-              <span className={styles.tabTime}>{leavesLine(arrival.leavesMs)}</span>
+              <span className={styles.tabTime}>{leavesLine(arrival.leaves)}</span>
             </a>
           ))}
         </nav>
@@ -277,7 +316,7 @@ export default function VanArrival({
           <h2 className={styles.cardTitle} id="riders">
             {vanArrival.ridersHeading}
             <span className={styles.riderCount}>{selected.riders.length}</span>
-            <span className={styles.leaves}>{leavesLine(selected.leavesMs)}</span>
+            <span className={styles.leaves}>{leavesLine(selected.leaves)}</span>
           </h2>
 
           {firstRefused && shortfall ? (
@@ -291,10 +330,21 @@ export default function VanArrival({
                 <strong>{shortfallLines(firstRefused.name, shortfall).who}</strong>
                 <span>{shortfallLines(firstRefused.name, shortfall).short}</span>
               </span>
-              {replan.kind === "OPEN_BOARD" ? (
-                <a className={styles.replan} href={replan.href} data-replan="">
+              {stranded ? (
+                <span className={styles.bannerNote} role="status">
+                  {fill(vanArrival.noVanCanTake, { children: stranded.join(", ") })}
+                </span>
+              ) : null}
+              {replan.kind === "OPEN_BOARD" && !stranded ? (
+                <button
+                  type="button"
+                  className={styles.replan}
+                  data-replan=""
+                  disabled={replanning || saving}
+                  onClick={() => void replanNow(replan.href)}
+                >
                   {vanArrival.replan}
-                </a>
+                </button>
               ) : null}
             </div>
           ) : null}

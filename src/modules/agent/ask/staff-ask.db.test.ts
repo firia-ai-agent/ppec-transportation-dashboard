@@ -1,3 +1,4 @@
+import { detokenizeNames } from "@/modules/identity/names";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -688,5 +689,10 @@ describe("what an ask is allowed to be", () => {
     // a coordinator types in a hurry is as likely to carry a number as an inbound text is.
     expect(normalizeAsk("call them on 561-555-0134")).not.toMatch(/555-0134/);
     expect(normalizeAsk("move Liam to Van 2")).not.toMatch(/Liam/);
+    // A child of ours is kept as their token (PRD §5.4 tokenization at ingest), not wiped…
+    expect(normalizeAsk("move Liam to Van 2")).not.toMatch(/REDACTED/);
+    expect(detokenizeNames(normalizeAsk("what did we do for Zoe B.?")!, "label")).toBe("what did we do for Zoe B.?");
+    // …while a name that is nobody of ours is still redacted.
+    expect(normalizeAsk("call the address 12 Oak Street")).not.toMatch(/12 Oak Street/);
   });
 });

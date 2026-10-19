@@ -73,7 +73,7 @@ async function ramp(legParam: string | undefined) {
   return {
     leg,
     savedAt: view.savedAt,
-    vans: arrivalVans(view.day, view.plan, source()),
+    vans: arrivalVans(view.day, view.plan, view.departs),
   };
 }
 

@@ -18,6 +18,8 @@ import {
 } from "@/modules/plan/api";
 import { dayDataSource, loadBoard, planStore } from "@/modules/plan/store";
 import { actionSummaries, fill } from "@/ui/copy";
+import { getNeonDb } from "@/db/exec";
+import { draftReplan } from "./draft";
 import { entry, type ActionCtx } from "./types";
 
 const LEG = z.enum(["AM", "PM"]);
@@ -29,7 +31,7 @@ const boardFor = (ctx: ActionCtx, date: string, leg: Direction) =>
 
 /** `savePlanRequest` with the caller's board, when it brought one. */
 const save = (ctx: ActionCtx, body: Parameters<typeof savePlanRequest>[2]) =>
-  savePlanRequest(ctx.siteId, ctx.caller, body, ctx.now, ctx.deps?.store, ctx.deps?.source, ctx.deps?.notify);
+  savePlanRequest(ctx.siteId, ctx.caller, body, ctx.now, ctx.deps?.store, ctx.deps?.source, ctx.deps?.notify, ctx.deps?.vanShort);
 
 /** The moves that turn one plan into another, as PlanBoard's Auto-plan sends them (`planned`). */
 function plannedMoves(before: BoardPlan, after: BoardPlan) {
@@ -48,17 +50,28 @@ export const PLAN_ACTIONS = {
     describe: (i) => fill(actionSummaries.savePlan, { leg: i.direction, count: i.moves.length }),
     run: (ctx, i) => save(ctx, i),
   }),
-  /** Auto-plan, then Save — what the board's two buttons do, as one action. */
+  /**
+   * Re-plan (ledger #76): Auto-plan this leg into **a draft card** saying what it would change and
+   * what that does to the day. Nothing is saved — Approve on the card is the save. The ramp's
+   * Re-plan and the agent's `auto_plan` both run this, so a person and the agent get the same card.
+   */
   auto_plan: entry({
     name: "auto_plan",
-    endpoint: API.planSave,
-    input: z.strictObject({ date: DATE, direction: LEG }),
+    endpoint: API.planReplan,
+    input: z.strictObject({ date: DATE, direction: LEG, note: z.string().min(1).max(600).nullable().optional() }),
     confirm: false,
     describe: (i) => fill(actionSummaries.autoPlan, { leg: i.direction }),
     run: async (ctx, i) => {
-      const view = await boardFor(ctx, i.date, i.direction);
-      const moves = plannedMoves(view.plan, autoPlan(view.day, view.plan));
-      return save(ctx, { date: i.date, direction: i.direction, version: view.version, moves });
+      if (!ctx.caller.userId) return { status: 401, body: { ok: false, reason: "SIGN_IN" } };
+      const db = ctx.deps?.db ?? getNeonDb();
+      const drafted = await draftReplan(
+        db,
+        { store: ctx.deps?.store ?? planStore(), source: ctx.deps?.source ?? dayDataSource(ctx.siteId) },
+        { siteId: ctx.siteId, date: i.date, leg: i.direction, by: `staff:${ctx.caller.userId}`, note: i.note ?? null },
+      );
+      return drafted.drafted
+        ? { status: 200, body: { ok: true, drafted: true, cardId: drafted.approvalId } }
+        : { status: 200, body: { ok: true, drafted: false, reason: drafted.reason, ...("children" in drafted ? { children: drafted.children } : {}) } };
     },
   }),
   /** One child to one place — a drag and a Save, as a person makes it (so it is pinned). */

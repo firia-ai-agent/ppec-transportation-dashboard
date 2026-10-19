@@ -187,11 +187,15 @@ export const API = {
   auth: "/api/auth/[...nextauth]",
   health: "/api/health",
   cronSweep: "/api/cron/sweep",
+  /** A local dev server's agent consumer: a 404 on any deployment (ledger #76). */
+  devAgentWake: "/api/dev/agent-wake",
   probeDelay: "/api/probe/delay",
   demoReset: "/api/demo/reset",
   /** The plan board: the day it reads, the plan it saves, and one van's setup. */
   planBoard: "/api/plan",
   planSave: "/api/plan/save",
+  /** The ramp's Re-plan: a draft card a person approves (ledger #76). */
+  planReplan: "/api/plan/replan",
   /** One child moved: a drag, a drop on Absent or Family drives, or `Move to…`. */
   planPlace: "/api/plan/place",
   /** The three Yes/No answers on the board's child panel. */
@@ -607,6 +611,17 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     founderQuestion: true,
   },
   /**
+   * A local dev server's agent consumer (ledger #76): `next dev` has no Vercel Queue, so the
+   * publisher posts wake-ups here. A 404 on any deployment; behind the cron secret like the sweep.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/dev/agent-wake/route.ts",
+    path: API.devAgentWake,
+    methods: ["POST"],
+    auth: { kind: "cron-secret" },
+  },
+  /**
    * Vercel Cron every minute (vercel.json). `Authorization: Bearer $CRON_SECRET`, fail-closed
    * when the secret is unset (ARCHITECTURE §5). A staff session grants nothing here, and must
    * not: this claims jobs and sends the outbox.
@@ -660,6 +675,17 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     kind: "route",
     file: "src/app/api/plan/save/route.ts",
     path: API.planSave,
+    methods: ["POST"],
+    auth: { kind: "session", roles: CONSOLE, siteScoped: false },
+  },
+  /**
+   * Re-plan as a draft (ledger #76): Auto-plan this leg into a card the planner approves. Writes a
+   * card, never the plan, so it is the planners' — the same roles as Save, whose work Approve does.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/plan/replan/route.ts",
+    path: API.planReplan,
     methods: ["POST"],
     auth: { kind: "session", roles: CONSOLE, siteScoped: false },
   },

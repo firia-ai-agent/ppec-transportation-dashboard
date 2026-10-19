@@ -48,6 +48,7 @@ import type { Db } from "@/db/exec";
 import { previewSkip } from "@/db/read-only";
 import { agentAsk } from "@/ui/copy";
 import { redact } from "../redact";
+import { tokenizeNames } from "@/modules/identity/names";
 import { STAFF_ALERT_TASK_CATEGORY, STAFF_ASK_TASK_CATEGORY, askTextOf } from "./ask-text";
 import { type AgentRunner, agentRunner } from "../run/deps";
 import { effectId, raiseTask } from "../run/exec/effects";
@@ -147,7 +148,10 @@ export type StaffAskDeps = {
 export function normalizeAsk(text: string): string | null {
   const trimmed = text.trim().replace(/\s+/g, " ");
   if (!trimmed || trimmed.length > MAX_ASK_LENGTH) return null;
-  return redact(trimmed);
+  // A child of ours is kept as their token, not wiped: "what did we do for Zoe B.?" stays an ask
+  // about a child (the thread shows the name again, `ask/thread.ts`). Anything else that looks
+  // like a name, a phone or an address is still redacted.
+  return redact(tokenizeNames(trimmed));
 }
 
 /**

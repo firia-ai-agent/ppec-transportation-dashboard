@@ -16,8 +16,7 @@
  * Pure: fixtures in, the day out. No clock, no database, no network.
  */
 import { DAY_VANS, defaultSetupOf, vanColourToken, vanNameOf } from "@/config/vans";
-import { demoDay } from "@/domain/board/day";
-import { plannedStops, plannedWindow, stopLabel } from "@/domain/board/scenario";
+import { plannedWindow, stopLabel } from "@/domain/board/scenario";
 import type { DayDataSource, DayRider, DayVan, OtherChild } from "@/domain/day/source";
 import type { Direction } from "@/domain/day/leg";
 import { driverFor } from "@/domain/plan/day";
@@ -98,24 +97,6 @@ export function demoDaySource(): DayDataSource {
   return {
     async vans() {
       return dayVans();
-    },
-
-    /**
-     * The instant this van's run leaves the centre, from the committed survey's own geometry
-     * (src/domain/board/scenario.ts `plannedStops`) — the same place every other screen reads a
-     * planned time from, so the ramp's clock and the board's cannot disagree.
-     *
-     * An afternoon run starts at the centre, so its first stop *is* the departure (PRD §8); a
-     * morning run ends there, so the last stop is. A van with no run today leaves when the day
-     * starts, which is the honest answer for a vehicle nobody scheduled.
-     */
-    leavesAtMs(_date, leg, vanId) {
-      const serviceDay = demoDay();
-      const run = RUNS.find((candidate) => vehicleIdOf(candidate.vehicleKey) === vanId);
-      if (!run) return serviceDay.instantMs;
-      const stops = plannedStops(run, leg, serviceDay);
-      const stop = leg === "PM" ? stops[0] : stops[stops.length - 1];
-      return stop?.etaMs ?? serviceDay.instantMs;
     },
 
     async riders(_date, leg) {

@@ -114,6 +114,8 @@ export type WritePlanInput = {
   expectedVersion: number;
   actor: string | null;
   now?: Date;
+  /** Today's departures this write sets, `{ vanId: "HH:MM" }` (ledger #76). */
+  departures?: Readonly<Record<string, string>>;
   /**
    * The whole plan, after whatever this write is. `null` means the request named something this
    * day does not have, which is a 404 and not a refusal worth describing.
@@ -198,6 +200,10 @@ export async function writePlan(
     direction: input.direction,
     version: input.expectedVersion,
     placements: placementsToSave(view.day, next),
+    // Only this day's vans: an id the day does not run is not a departure to keep.
+    departures: Object.fromEntries(
+      Object.entries(input.departures ?? {}).filter(([vanId]) => view.day.vans.some((van) => van.id === vanId)),
+    ),
     savedBy: input.actor,
     now,
   });
@@ -259,6 +265,7 @@ export async function applyPendingMoves(
     expectedVersion: number;
     actor: string | null;
     now?: Date;
+    departures?: Readonly<Record<string, string>>;
   },
   store: PlanStore = planStore(),
   source: DayDataSource = dayDataSource(input.siteId),
@@ -271,6 +278,7 @@ export async function applyPendingMoves(
       expectedVersion: input.expectedVersion,
       actor: input.actor,
       now: input.now,
+      departures: input.departures,
       mayChangeBucketFor: childrenMoved(input.moves),
       change: (view) => {
         // Every move has to name this day's child, and a van move this day's van. One unknown

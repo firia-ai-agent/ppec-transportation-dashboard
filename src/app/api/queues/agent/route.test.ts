@@ -164,8 +164,11 @@ describe("what a delivery does", () => {
    * a model turn or a claim on somebody's run.
    */
   it("checks the preview, then the runner, before it touches the database or the lease", () => {
-    const source = readFileSync(join(process.cwd(), ROUTE_FILE), "utf8");
-    const body = source.slice(source.indexOf("export const POST"));
+    // The route hands every delivery to `consumeAgentWake` (ledger #76: the same consumer a local
+    // dev server drives in-process), so the order is that function's.
+    expect(readFileSync(join(process.cwd(), ROUTE_FILE), "utf8")).toContain("handleCallback(consumeAgentWake");
+    const source = readFileSync(join(process.cwd(), "src/modules/agent/run/consume.ts"), "utf8");
+    const body = source.slice(source.indexOf("export async function consumeAgentWake"));
     const at = (needle: string) => body.indexOf(needle);
 
     expect(at("previewSkip")).toBeGreaterThan(-1);

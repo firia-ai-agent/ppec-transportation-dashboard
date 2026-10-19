@@ -35,7 +35,6 @@ import type { Direction } from "@/domain/day/leg";
 import type { DayDataSource, DayRider, DayVan, OtherChild } from "@/domain/day/source";
 import { needsFromCategories } from "@/domain/plan/needs";
 import { driverFor } from "@/domain/plan/day";
-import { demoDaySource } from "@/modules/demo/day-source";
 import { siteHhmm } from "@/modules/plan/leg-write";
 import { vehicleIdOf } from "@/modules/demo/fixtures/standard";
 
@@ -147,16 +146,6 @@ export function sqlDaySource(db: Exec, siteId: string): DayDataSource {
             defaultSetup: defaultSetupOf(van.key),
           }),
         );
-    },
-
-    /**
-     * When this van leaves the centre. The survey's own geometry is the demo's
-     * (src/domain/board/scenario.ts) and is not in the database at all, so this is the one answer
-     * the SQL source borrows from the synthetic day — noted here rather than hidden, because a
-     * real centre's departure time would come from its own schedule.
-     */
-    leavesAtMs(date, leg, vanId) {
-      return demoDaySource().leavesAtMs(date, leg, vanId);
     },
 
     async riders(date, leg) {
