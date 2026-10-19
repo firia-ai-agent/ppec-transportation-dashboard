@@ -94,6 +94,8 @@ export type ApprovalDecision = "APPROVED" | "DECLINED";
 /** One proposal, as the screen shows it. Staff-facing, so the child is named (COPY-GUIDE §1). */
 export type PendingApproval = {
   readonly id: string;
+  /** The centre the proposal belongs to (`approval_request.site_id`). */
+  readonly siteId: string;
   /** "Noah O." — the label every staff screen uses, off the child's own row. */
   readonly childLabel: string;
   /**
@@ -244,6 +246,7 @@ function viewOf(row: ApprovalRow): PendingApproval {
   const p = row.proposal ?? {};
   return {
     id: row.id,
+    siteId: row.site_id,
     childLabel: row.display_name ?? "",
     childToken: String(p.child_token ?? ""),
     serviceDate: String(p.service_date ?? ""),

@@ -34,7 +34,6 @@
  */
 import type { ServiceDay } from "@/domain/board/day";
 import { fits } from "@/domain/plan/fit";
-import { demoDaySource } from "@/modules/demo/day-source";
 import {
   CENTER_STOP,
   CHILDREN,
@@ -47,6 +46,7 @@ import {
   vehicleIdOf,
 } from "@/modules/demo/fixtures/standard";
 import { approval, fill } from "@/ui/copy";
+import { afternoonVanOf } from "./plan-van";
 
 /** Everything the card says about a proposal that is a *fact* rather than a field of the row. */
 export type ProposalFacts = {
@@ -88,6 +88,8 @@ const NOTHING: ProposalFacts = {
  * honest shape for a row whose child nobody here can name.
  */
 export async function proposalFacts(a: {
+  /** The centre the proposal belongs to: the van comes from its saved plan (`plan-van.ts`). */
+  readonly siteId: string;
   readonly childToken: string;
   readonly stopToken: string;
   readonly day: ServiceDay;
@@ -110,19 +112,14 @@ export async function proposalFacts(a: {
 
   const checks: string[] = [];
   let vanName = "";
-  const run = runOfChild(childKey);
-  if (run) {
-    const source = demoDaySource();
-    const van = (await source.vans(a.day.iso)).find((v) => v.id === vehicleIdOf(run.vehicleKey)) ?? null;
-    if (van) {
-      vanName = van.name;
-      // The change keeps the child in the van they already ride: that is what "same van" says.
-      checks.push(approval.checkSameVan);
-      const riders = await source.riders(a.day.iso, "PM");
-      const aboard = riders.filter((r) => run.childKeys.includes(childKeyOfToken(r.token) ?? ""));
-      // src/domain/plan/fit.ts §1.4, over this van's own setup. Not a second answer to "does it fit".
-      if (fits(van.defaultSetup, aboard)) checks.push(approval.checkFits);
-    }
+  // The van the saved plan has them on this afternoon, with today's confirmed setup (plan-van.ts).
+  const onVan = await afternoonVanOf(a.siteId, a.childToken);
+  if (onVan) {
+    vanName = onVan.van.name;
+    // The change keeps the child in the van they already ride: that is what "same van" says.
+    checks.push(approval.checkSameVan);
+    // src/domain/plan/fit.ts §1.4, over this van's own setup. Not a second answer to "does it fit".
+    if (fits(onVan.van.setup, onVan.aboard)) checks.push(approval.checkFits);
   }
   if (onFile) checks.push(fill(approval.checkOnFile, { adult: adultName }));
 

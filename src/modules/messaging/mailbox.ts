@@ -93,10 +93,15 @@ export async function personaMessages(db: Exec, p: Persona, limit: number = DEFA
      FROM ops.message m JOIN ops.conversation_thread t ON t.id = m.thread_id
      WHERE m.site_id = $1 AND t.counterparty_token = $2 AND m.direction = 'IN' AND m.is_own_echo = false
      ORDER BY m.received_at DESC, m.id DESC LIMIT $3`, [p.siteId, p.contactToken, n]);
-  const outbound = await db.query<{ id: string; state: string; template_id: string; vars: Record<string, unknown>; created_at: Date; block_reason: string | null; provider_message_id: string | null; source_mode: string }>(
-    `SELECT id, state, template_id, vars, created_at, block_reason, provider_message_id, source_mode
-     FROM ops.outbound_message WHERE site_id = $1 AND recipient_token = $2 AND channel = 'SMS_1TO1'
-     ORDER BY created_at DESC, id DESC LIMIT $3`, [p.siteId, p.contactToken, n]);
+  // The child's own row, as the sender renders with it (`sim-provider.childName`): the thread shows
+  // the words that reached the phone, "Noah's van", not a re-render that says "your child".
+  const outbound = await db.query<{ id: string; state: string; template_id: string; vars: Record<string, unknown>; created_at: Date; block_reason: string | null; provider_message_id: string | null; source_mode: string; display_name: string | null }>(
+    `SELECT o.id, o.state, o.template_id, o.vars, o.created_at, o.block_reason, o.provider_message_id, o.source_mode,
+            c.display_name
+     FROM ops.outbound_message o
+     LEFT JOIN ops.child_profile c ON c.child_token = o.child_token AND c.site_id = o.site_id
+     WHERE o.site_id = $1 AND o.recipient_token = $2 AND o.channel = 'SMS_1TO1'
+     ORDER BY o.created_at DESC, o.id DESC LIMIT $3`, [p.siteId, p.contactToken, n]);
 
   const rows: PersonaMessage[] = [
     ...inbound.rows.map((m): PersonaMessage => ({
@@ -105,7 +110,7 @@ export async function personaMessages(db: Exec, p: Persona, limit: number = DEFA
       providerIndex: m.provider_index === null ? null : Number(m.provider_index), sourceMode: m.source_mode,
     })),
     ...outbound.rows.map((o): PersonaMessage => ({
-      id: o.id, direction: "OUT", at: new Date(o.created_at).toISOString(), body: safeRender(o.template_id, o.vars),
+      id: o.id, direction: "OUT", at: new Date(o.created_at).toISOString(), body: safeRender(o.template_id, o.vars, o.display_name),
       state: o.state, templateId: o.template_id, reachedPhone: ON_PHONE.has(o.state), blockReason: o.block_reason,
       providerMessageId: o.provider_message_id, providerIndex: null, sourceMode: o.source_mode,
     })),
@@ -114,8 +119,8 @@ export async function personaMessages(db: Exec, p: Persona, limit: number = DEFA
   return rows.sort((a, b) => (a.at === b.at ? a.id.localeCompare(b.id) : a.at < b.at ? -1 : 1)).slice(-n);
 }
 
-function safeRender(templateId: string, vars: Record<string, unknown>): string | null {
-  try { return renderTemplate(templateId, vars); } catch { return null; }
+function safeRender(templateId: string, vars: Record<string, unknown>, child: string | null): string | null {
+  try { return renderTemplate(templateId, vars, { child }); } catch { return null; }
 }
 
 /**

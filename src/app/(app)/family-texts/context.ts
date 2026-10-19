@@ -25,10 +25,10 @@
  */
 import { Accessibility, Armchair, Baby, Wind } from "lucide-react";
 import { EQUIPMENT_COUNTERS } from "@/config/equipment";
-import type { ServiceDay } from "@/domain/board/day";
-import type { DayRider, DayVan } from "@/domain/day/source";
-import { demoDaySource } from "@/modules/demo/day-source";
-import { FAMILIES, childByKey, childKeyOfToken, runOfChild, vehicleIdOf } from "@/modules/demo/fixtures/standard";
+import type { DayRider } from "@/domain/day/source";
+import type { BoardVan } from "@/domain/plan/board";
+import { FAMILIES, childByKey, childTokenOf } from "@/modules/demo/fixtures/standard";
+import { afternoonVanOf } from "./plan-van";
 import { equipment, familyTexts } from "@/ui/copy";
 import { legStates, type StateDescriptor } from "@/ui/states";
 import { initialsOf } from "./conversations";
@@ -79,19 +79,14 @@ const COUNTERS = [
  * without a van rather than an invented one: the heading and the pick-up list are still the facts
  * a coordinator needs, and a van nobody is driving them in is not.
  */
-export async function contextFor(childKey: string, day: ServiceDay): Promise<ThreadContext | null> {
+export async function contextFor(childKey: string, siteId: string): Promise<ThreadContext | null> {
   const child = childByKey(childKey);
   if (!child) return null;
 
-  // The day's own source, which is what the board reads: the van named here is the van there.
-  const source = demoDaySource();
-  const run = runOfChild(childKey);
-  const vans = await source.vans(day.iso);
-  const van = run ? vans.find((v) => v.id === vehicleIdOf(run.vehicleKey)) ?? null : null;
-  const riders = await source.riders(day.iso, "PM");
-  const aboard = run
-    ? riders.filter((rider) => run.childKeys.includes(childKeyOfToken(rider.token) ?? ""))
-    : [];
+  // The van the saved plan has them on, as the board has it, with today's setup (plan-van.ts).
+  const onVan = await afternoonVanOf(siteId, childTokenOf(childKey));
+  const van = onVan?.van ?? null;
+  const aboard = onVan?.aboard ?? [];
 
   return {
     childLabel: child.label,
@@ -116,8 +111,9 @@ export async function contextFor(childKey: string, day: ServiceDay): Promise<Thr
  * here: a nurse riding along takes a seat, a child in their own chair does not, and this pane
  * must agree with the board about both or it is a second answer to "does it fit".
  */
-function counts(van: DayVan, aboard: readonly DayRider[]): readonly CapacityCount[] {
-  const setup = van.defaultSetup;
+function counts(van: BoardVan, aboard: readonly DayRider[]): readonly CapacityCount[] {
+  // Today's setup — the ramp's confirmed count where there is one — not the van's defaults.
+  const setup = van.setup;
   return COUNTERS.map(({ key, counter, label, icon }) => {
     const rule = EQUIPMENT_COUNTERS.find((c) => c.key === counter)!;
     return {
