@@ -130,6 +130,7 @@ const VALID_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
   get_plan: { date: "2026-10-16", leg: "PM" },
   get_alerts: {},
   get_cards: {},
+  get_activity: {},
 };
 
 /**

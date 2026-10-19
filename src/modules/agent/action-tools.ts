@@ -207,6 +207,16 @@ export const STAFF_READ_TOOLS: readonly ToolDef[] = [
     prd: "ledger #74: the cards waiting for a person",
     description: agentGuidance.getCards,
   },
+  {
+    name: "get_activity",
+    tier: "auto",
+    effect: "read",
+    schema: z.object({}),
+    staffTextFields: [],
+    sendCopy: null,
+    prd: "ledger #74, #76: what happened today, read-only, so the agent can look before it answers",
+    description: agentGuidance.getActivity,
+  },
 ];
 
 /** Tools only a staff member's run is offered: never a family's text (assembler.ts). */

@@ -460,6 +460,7 @@ const ROWS: readonly PolicyRow[] = [
   { tool: "get_plan", scopedArgs: [], sendSubject: null, note: "read: the board as the asker sees it (ledger #74; the domain function scopes every id to the run's site)" },
   { tool: "get_alerts", scopedArgs: [], sendSubject: null, note: "read: open staff alerts (ledger #74; the domain function scopes every id to the run's site)" },
   { tool: "get_cards", scopedArgs: [], sendSubject: null, note: "read: cards waiting for a person (ledger #74; the domain function scopes every id to the run's site)" },
+  { tool: "get_activity", scopedArgs: [], sendSubject: null, note: "read: today's events at this site, in time order (ledger #76; every row read is the run's own site)" },
 ];
 
 /** The policy table, by tool name. `evaluate` denies any catalog tool that is not a key here. */

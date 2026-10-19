@@ -3238,9 +3238,10 @@ export const agentGuidance = {
     "Prefer the smallest change that makes every van fit, and say its effect on families in the card's note.",
   getAlerts: "Read the open alerts coordinators see.",
   getCards: "Read the cards waiting for a person: family replies and confirm cards.",
+  getActivity: "Read what happened today: plans saved, vans checked, alerts, cards approved or declined, texts sent.",
   replyToStaff:
-    "Answer the staff member who asked: what you did, what you found, or why you could not. One or " +
-    "two plain sentences, with people written as the prompt's tokens. Call it last.",
+    "Answer like a coordinator would. Don't be robotic — be friendly and natural. " +
+    "Write people as the prompt's tokens. Call it last.",
   summarize:
     "Answer the coordinator, or leave them a note about a thread: one or two plain sentences, with " +
     "people written as the prompt's family and child tokens, which are shown as first names.",
@@ -3270,6 +3271,21 @@ export const actionSummaries = {
  * A re-plan as a draft card (ledger #76, `actions/draft.ts`): what Auto-plan would change and what
  * that does to the day, generated from the plan. Approve saves it; nothing changes until then.
  */
+/** Today's events as the agent reads them (`get_activity`, ledger #76). Plain facts, never sent anywhere. */
+export const activityWords = {
+  someone: "someone",
+  agent: "the agent",
+  planSaved: "{who} saved the {leg} plan",
+  vanChecked: "{who} checked {van} at the ramp: {seats} seats, {wc} wheelchair, {cs} car seats, {ox} oxygen",
+  alert: "alert: {what} ({state})",
+  resolved: "resolved",
+  open: "open",
+  approved: "{who} approved \"{what}\"{impact}. {outcome}",
+  declined: "{who} declined \"{what}\"",
+  drafted: "{who} drafted \"{what}\"{impact}, waiting for approval",
+  texted: "{count} families were texted a new drop-off time",
+} as const;
+
 export const replanDraft = {
   title: "Re-plan the {leg}",
   moved: "{child}: {from} → {to} · ≈ {time}",
