@@ -662,6 +662,9 @@ async function fail(deps: RunDeps, run: RunRow, reason: string, steps: number): 
  * run sent nothing and proposed nothing", which is what failing the run says. The reason string
  * records that the alert did not land, so the run row is honest about it.
  */
+/** The outages that clear by waiting. A missing key or a guard refusal does not, so it is not retried. */
+const BUSY_REASONS: ReadonlySet<string> = new Set(["rate_limited", "timeout", "provider_error"]);
+
 async function modelDown(
   deps: RunDeps,
   run: RunRow,
@@ -676,10 +679,11 @@ async function modelDown(
    * `parkRunForRetry`), for as long as `agentRetryConfig` gives that trigger. Only past that does
    * it end, and the thread then says what is wrong in the day's terms (ask/thread.ts). A
    * misconfiguration (`stop`) is not going to clear by waiting, and a family's text keeps the
-   * founder's rule below: one card for a person, at once.
+   * founder's rule below: one card for a person, at once. Only a busy vendor is waited out
+   * (`BUSY_REASONS`); a missing key or a refused destination will not clear by waiting.
    */
   const retryFor = agentRetryConfig.retryForSeconds[run.trigger.type];
-  if (!unavailable.stop && retryFor !== undefined) {
+  if (BUSY_REASONS.has(unavailable.reason) && retryFor !== undefined) {
     const at = (deps.now ?? systemClock)();
     const age = await deps.db.query<{ s: number }>(
       "SELECT extract(epoch FROM ($2::timestamptz - created_at))::float8 AS s FROM ops.agent_run WHERE id = $1",

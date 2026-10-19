@@ -16,7 +16,7 @@ import { ALERT_TRIGGER } from "../alerts";
 import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, loadAgentConfig } from "../config";
 import { createGateway } from "../gateway";
 import { fakeProvider, toolCall } from "../providers/fake";
-import { RemoteProviderUnavailable } from "../providers/remote";
+import { RemoteApiKeyMissing, RemoteProviderUnavailable } from "../providers/remote";
 import type { LlmProvider as Provider } from "../providers/provider";
 import { dbContextAssembler } from "./assembler";
 import { liveExecutors, liveProposalWriter } from "./exec/registry";
@@ -145,6 +145,23 @@ describe("past the window it stops, and a family's text is unchanged (C3, C7)", 
     );
     const result = await drive(id, busyThen([], 1), new Date());
     expect(result.state, JSON.stringify(result)).toBe("FAILED");
+  });
+
+  it("does not wait out a missing key: that will not clear by waiting", async () => {
+    const id = "01900000-0000-7000-8000-00000000c703";
+    await db.query(
+      `INSERT INTO ops.task (id, site_id, category, severity, state, summary, next_step, completion_predicate, created_by, updated_by, source_mode)
+       VALUES ($1, $2, 'VAN_SHORT', 'RED', 'OPEN', 'Van 3 no longer fits its riders this afternoon', 'x', 'x', 't', 't', 'SIMULATED')`,
+      ["01900000-0000-7000-8000-00000000c7a3", SITE],
+    );
+    await db.query(
+      `INSERT INTO ops.agent_run (id, site_id, trigger_type, trigger_id, state, created_by, updated_by, source_mode)
+       VALUES ($1, $2, $3, $4, 'QUEUED', 't', 't', 'SIMULATED')`,
+      [id, SITE, ALERT_TRIGGER, "01900000-0000-7000-8000-00000000c7a3"],
+    );
+    const fake = fakeProvider([]);
+    const noKey: Provider = { ...fake, invoke: async () => { throw new RemoteApiKeyMissing("no key", "OPENROUTER_API_KEY"); } };
+    expect((await drive(id, noKey, new Date())).state).toBe("FAILED");
   });
 
   it("never parks a family's text: that run fails at once, as the founder's rule says", async () => {
