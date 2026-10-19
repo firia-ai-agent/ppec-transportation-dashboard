@@ -177,7 +177,7 @@ describe("Restart → Dara's text → the model's card → Approve", () => {
     expect(result, JSON.stringify(result)).toMatchObject({ state: "SUCCEEDED", steps: 2 });
 
     // What the model was shown: Dara's own words, tokenized, and the leg it can change.
-    expect(model.prompts[0]).toMatch(/Can you drop C2 at 5 instead\? Someone is home then\./);
+    expect(model.prompts[0]).toMatch(/Hi we won't be home at that time can you do 5\?/);
     expect(model.prompts[0]).toMatch(/part=PM state=\S+ version=\d+ window=16:20/);
     expect(model.prompts.join("\n")).not.toMatch(/Noah|Dara/);
 
@@ -303,7 +303,7 @@ describe("Restart → Dara's text → the model's card → Approve", () => {
       answer: "Dara asked to have Noah dropped off at 5 instead, because someone is home then.",
     });
     // The model read her actual words through the tool, and was never shown a name.
-    expect(prompts[1]).toMatch(/Can you drop C2 at 5 instead/);
+    expect(prompts[1]).toMatch(/can you do 5\?/);
     expect(prompts.join("\n")).not.toMatch(/Noah|Dara/);
     // And the answer is still there after a reload: the thread reads it back from the run's rows.
     const view = await readAgentThread(db, SITE);

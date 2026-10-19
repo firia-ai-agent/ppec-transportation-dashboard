@@ -194,8 +194,17 @@ export const NEEDS_ACTION_REASONS = [
   /**
    * AT-13 / PRD §6.6 CA-04: the ride ended at the child's stop with nobody on file to receive
    * them. They are waiting with the van, every contact is being called, and **nothing returns
-   * them to the centre on its own** — so this outranks every other reason a row can have.
+   * them to the centre on its own** — so this outranks every reason but a reply the family is already waiting on (above).
    */
+  /**
+   * A family texted about this ride and the reply the agent drafted is waiting for a person
+   * (`ops.approval_request`, undecided, naming this leg). Nothing goes back to the family and
+   * nothing about the ride moves until somebody decides it. It ranks **first**, even above a
+   * held child: the family's own text is the answer a hold is waiting for (Approve records the
+   * adult who will be there and the agreed time — `approvals/decide.ts`), so the one thing to
+   * do is read it and decide. The hold is still on the row, second, until that decision lands.
+   */
+  "REPLY_WAITING",
   "CHILD_HELD",
   /** The solver says the riders do not fit the vehicle as it was observed (PRD §7). */
   "DOES_NOT_FIT",
@@ -227,6 +236,8 @@ export type NeedsActionReason = (typeof NEEDS_ACTION_REASONS)[number];
 export const NEXT_STEPS = [
   /** CA-04's own step: call every authorized and emergency contact for a child being held. */
   "CALL_CONTACTS",
+  /** Read the family's text and approve, edit or decline the drafted reply. */
+  "ANSWER_FAMILY",
   "MOVE_TO_FITTING_VAN",
   "RECORD_RECEIVER",
   "DECIDE_RIDE",
@@ -254,6 +265,8 @@ export type RideView = {
   path: readonly LegS[];
   /** "07:10" — the window this ride is planned for, site-local. */
   plannedWindow: string;
+  /** A reply to this family about this ride is drafted and waiting for a person (`LegFact`). */
+  replyWaiting: boolean;
   /** The child's own landmark stop, or null when they have none. */
   stop: string | null;
   vehicleLabel: string | null;
@@ -808,6 +821,7 @@ function rideFor(
     mode,
     plannedWindow: agreed ?? plannedWindow(child, direction),
     stop: stopLabel(child),
+    replyWaiting: fact?.replyWaiting === true,
   };
 
   if (!run) {
@@ -936,6 +950,7 @@ function needsActionFor(
    * in a van nobody can locate is a different and worse fact.
    */
   const held = ride.state === "HELD_NO_RECEIVER";
+  if (ride.replyWaiting) reasons.push("REPLY_WAITING");
   if (held) reasons.push("CHILD_HELD");
   if (ride.solver === "INFEASIBLE" || ride.solver === "VEHICLE_UNAVAILABLE") {
     reasons.push("DOES_NOT_FIT");
@@ -969,6 +984,7 @@ function needsActionFor(
 /** The step each needs-action reason asks for, keyed by the reason the board ranks first. */
 const STEP_FOR_REASON: Readonly<Record<NeedsActionReason, NextStep>> = {
   CHILD_HELD: "CALL_CONTACTS",
+  REPLY_WAITING: "ANSWER_FAMILY",
   DOES_NOT_FIT: "MOVE_TO_FITTING_VAN",
   NO_RECEIVING_ADULT: "RECORD_RECEIVER",
   /** The same step the arrival asks for mid-morning: a person records who received the child. */
@@ -1132,6 +1148,8 @@ export type LegFact = {
   readonly dropoffTime?: string | null;
   /** The file has an adult who may receive this child (§6.4 `RECEIVE_CHILD`). */
   readonly receiverOnFile?: boolean;
+  /** An undecided proposal names this leg: a drafted reply is waiting for a person. */
+  readonly replyWaiting?: boolean;
 };
 
 /** The legs of one date, by direction and then by fixture child key. */

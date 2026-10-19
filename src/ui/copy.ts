@@ -600,6 +600,8 @@ export const board = {
      * full in the drawer instead (`drawer.heldNoReturn`), which is where this row leads.
      */
     CHILD_HELD: "{child} is waiting with the van. No adult on file can receive them.",
+    /** A family texted about this ride and the drafted reply waits for a person. */
+    REPLY_WAITING: "{child}'s family texted. A reply is waiting for you.",
     DOES_NOT_FIT: "{van} does not fit everyone on this run.",
     NO_RECEIVING_ADULT: "No adult on file may receive {child} at the end of the afternoon ride.",
     /**
@@ -630,6 +632,7 @@ export const board = {
   nextSteps: {
     /** CA-04's own instruction: every authorized and emergency contact, and then a record. */
     CALL_CONTACTS: "Call {child}'s contacts and record who receives them.",
+    ANSWER_FAMILY: "Answer {child}'s family.",
     MOVE_TO_FITTING_VAN: "Move {child} to a van that fits.",
     /** Closed with `sentence()`: "{child}" already ends in the last initial's full stop. */
     RECORD_RECEIVER: "Record who receives {child}",
@@ -1249,7 +1252,7 @@ export const familyTexts = {
    * deterministic, written down, and read by the screen and by nothing that sends. It is here
    * rather than in the fixture file because it is a sentence somebody reads.
    */
-  demoReply: "Can you drop {child} at 5 instead? Someone is home then.",
+  demoReply: "Hi we won't be home at that time can you do 5?",
   /**
    * THE REPLY WHEN NO MODEL ANSWERED — the demo day's card, drafted from copy instead of by the
    * assistant (Firia, 2026-10-18 11:04 AM ET).

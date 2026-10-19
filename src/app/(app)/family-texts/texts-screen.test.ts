@@ -252,7 +252,8 @@ describe("the screen's shape", () => {
      * `aria-label="Send"`). Its position in the document is what this is about either way.
      */
     const html = render({});
-    const thread = html.indexOf(request.parentText);
+    // The markup escapes the apostrophe in the parent's words ("won't").
+    const thread = html.indexOf(request.parentText.replace(/'/g, "&#x27;"));
     /*
      * The card, by its own accessible name: on the markup, "Approve & send" is `&amp;`, and the
      * card has no heading of its own to look for any more (Vera, 7:51 AM ET) — it is the

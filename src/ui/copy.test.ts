@@ -91,6 +91,7 @@ describe("COPY-GUIDE strings, verbatim", () => {
    */
   const VERBS = [
     "Move",
+    "Answer",
     "Record",
     "Decide",
     "Find",

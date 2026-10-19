@@ -26,6 +26,7 @@ type LegRow = {
   direction: string;
   window_start: Date | string | null;
   receiver_on_file: boolean;
+  reply_waiting: boolean;
 };
 
 /**
@@ -44,7 +45,12 @@ export async function legFactsIn(tx: Exec, siteId: string, date: string): Promis
                WHERE a.site_id = l.site_id AND a.child_token = l.child_token
                  AND a.scope = 'RECEIVE_CHILD'
                  AND (a.valid_to IS NULL OR a.valid_to > now())
-            ) AS receiver_on_file
+            ) AS receiver_on_file,
+            EXISTS (
+              SELECT 1 FROM ops.approval_request r
+               WHERE r.site_id = l.site_id AND r.decided_at IS NULL
+                 AND l.id::text IN (r.proposal ->> 'leg_id', r.proposal ->> 'trip_leg_id')
+            ) AS reply_waiting
        FROM ops.trip_leg l
       WHERE l.site_id = $1 AND l.service_date = $2`,
     [siteId, date],
@@ -61,6 +67,7 @@ export async function legFactsIn(tx: Exec, siteId: string, date: string): Promis
     legs[childKey] = {
       dropoffTime: at === null || Number.isNaN(at.getTime()) ? null : siteHhmm(at),
       receiverOnFile: row.receiver_on_file,
+      replyWaiting: row.reply_waiting,
     };
   }
   return facts;

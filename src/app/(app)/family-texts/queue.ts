@@ -39,8 +39,9 @@
  * them is a reason to invent a card — so the queue is empty and the tab says so in words
  * (`approval.none`). An empty queue is a fact about the day, and the screen is allowed to state it.
  */
-import { localTimeOn, type ServiceDay } from "@/domain/board/day";
-import type { Exec } from "@/db/exec";
+import { demoDay, localTimeOn, type ServiceDay } from "@/domain/board/day";
+import { getNeonDb, type Exec } from "@/db/exec";
+import { modelReach } from "@/modules/agent/run/deps";
 import { formatClock } from "@/domain/eta/eta";
 import { bodyOf, pendingApprovals } from "@/modules/approvals/decide";
 import { approval, fill } from "@/ui/copy";
@@ -55,6 +56,23 @@ export async function approvalQueue(a: {
 }): Promise<readonly ProposalView[]> {
   const rows = await pendingApprovals(a.db, a.siteIds);
   return Promise.all(rows.map((row) => viewOf(row, a)));
+}
+
+/**
+ * The cards, for a screen that shows them beside its own work — the assistant bubble, Today's
+ * drawer. The same queue as Family texts, gated the way it gates it (with no model there is
+ * nothing to approve), and failing soft: a read that fails is no cards, never a broken screen.
+ */
+export async function approvalCardsOrEmpty(
+  siteIds: readonly string[],
+  day: ServiceDay = demoDay(),
+): Promise<readonly ProposalView[]> {
+  if (siteIds.length === 0 || modelReach().kind !== "model") return [];
+  try {
+    return await approvalQueue({ db: getNeonDb(), siteIds, day });
+  } catch {
+    return [];
+  }
 }
 
 type Row = Awaited<ReturnType<typeof pendingApprovals>>[number];
