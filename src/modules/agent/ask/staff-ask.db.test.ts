@@ -603,6 +603,25 @@ describe("the thread the panel draws is read from rows this app holds", () => {
     ]);
   });
 
+  it("never shows 'working' over an outcome, nor for a run abandoned long ago", async () => {
+    const id = "01900000-0000-7000-8000-00000000a506";
+    await askAgent(db, { siteId: sc.siteId, text: "old question", by: "u1", id }, {
+      env: {},
+      runner: () => ({ ok: true as const, refused: false, reason: null, deps: {} as never }),
+      drive: async () => {
+        throw new Error("provider unreachable");
+      },
+    });
+    // A run left RUNNING by a request that timed out mid-drive, started long ago.
+    await db.query(
+      `INSERT INTO ops.agent_run (id, site_id, trigger_type, trigger_id, state, created_by, updated_by, source_mode, created_at)
+       VALUES ('01900000-0000-7000-8000-00000000b506', $1, 'staff.ask', $2, 'RUNNING', 't', 't', 'SIMULATED', now() - interval '1 hour')`,
+      [sc.siteId, id],
+    );
+    const items = (await readAgentThread(db, sc.siteId)).items.filter((i) => "id" in i && i.id.startsWith(id));
+    expect(items.map((i) => ("id" in i ? i.id : ""))).toEqual([id, `${id}:no-answer`]);
+  });
+
   it("never takes a screen down with it", async () => {
     const broken = { query: async () => { throw new Error("no"); } } as unknown as typeof db;
     expect(await readAgentThreadOrEmpty(broken, sc.siteId)).toEqual({ items: [], waiting: 0 });

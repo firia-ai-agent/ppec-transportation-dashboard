@@ -25,6 +25,9 @@ import { agentBubble } from "@/ui/copy";
 import { namedOrNull } from "@/modules/identity/names";
 import { effectId } from "@/modules/agent/run/exec/effects";
 import { ANSWER_TOOLS } from "./answer";
+
+/** How long an ask's run reads as "working" — the bubble's own refresh window (RefreshWhileAgentWorks). */
+const ASK_WORKING_FOR_SECONDS = 180;
 import { STAFF_ALERT_TASK_CATEGORY, STAFF_ASK_TASK_CATEGORY, askTextOf } from "./ask-text";
 
 export type AgentThreadView = {
@@ -76,6 +79,13 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
   const proposals = [...approvals.rows, ...changes.rows]
     .filter((r) => r.summary)
     .map((r) => ({ at: r.at, item: { kind: "proposal", id: r.id, question: String(r.summary) } as AgentThreadItem }));
+  const notes = await db.query<{ ask_id: string; summary: string | null; at: Date }>(
+    `SELECT r.trigger_id AS ask_id, c.args->>'summary' AS summary, c.created_at AS at
+       FROM ops.agent_run r JOIN ops.agent_tool_call c ON c.run_id = r.id
+      WHERE r.site_id = $1 AND r.trigger_type = 'staff.ask' AND c.tool = ANY($2::text[]) AND c.status = 'EXECUTED'
+      ORDER BY c.created_at, c.id`,
+    [siteId, ANSWER_TOOLS],
+  );
   /*
    * Asks still on the agent queue (ledger #74): the run is QUEUED, RUNNING or parked on a timer, so
    * the panel says it is working rather than leaving the question bare. The answer or the
@@ -85,14 +95,19 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
     (
       await db.query<{ ask_id: string }>(
         `SELECT trigger_id AS ask_id FROM ops.agent_run
-          WHERE site_id = $1 AND trigger_type = 'staff.ask' AND state IN ('QUEUED', 'RUNNING', 'WAITING_TOOL')`,
-        [siteId],
+          WHERE site_id = $1 AND trigger_type = 'staff.ask' AND state IN ('QUEUED', 'RUNNING', 'WAITING_TOOL')
+            AND created_at > now() - make_interval(secs => $2)`,
+        // A run older than the bubble keeps refreshing for is not "working" any more: it was
+        // abandoned (a request that timed out mid-drive) and its outcome line is what is true.
+        [siteId, ASK_WORKING_FOR_SECONDS],
       )
     ).rows.map((r) => r.ask_id),
   );
+  const answeredIds = new Set(notes.rows.map((n) => n.ask_id));
   const said = asks.rows.flatMap((r) => {
     const ask = { at: r.at, item: { kind: "staff", id: r.id, text: askTextOf(r.summary) } as AgentThreadItem };
-    if (pending.has(r.id)) {
+    // The outcome, when there is one, is what the person reads — never "working" over it.
+    if (pending.has(r.id) && !answeredByAlert.has(r.id) && !answeredIds.has(r.id)) {
       return [ask, { at: r.at, item: { kind: "agent", id: `${r.id}:working`, text: agentBubble.working } as AgentThreadItem }];
     }
     // The same line, under the same id, the bubble shows live (`agent-ask-state.addNoAnswer`).
@@ -106,13 +121,6 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
    * `staff.ask` run's `summarize_thread_for_staff` note, in names (`ask/answer.ts`), placed when it
    * was written — after the ask it answers.
    */
-  const notes = await db.query<{ ask_id: string; summary: string | null; at: Date }>(
-    `SELECT r.trigger_id AS ask_id, c.args->>'summary' AS summary, c.created_at AS at
-       FROM ops.agent_run r JOIN ops.agent_tool_call c ON c.run_id = r.id
-      WHERE r.site_id = $1 AND r.trigger_type = 'staff.ask' AND c.tool = ANY($2::text[]) AND c.status = 'EXECUTED'
-      ORDER BY c.created_at, c.id`,
-    [siteId, ANSWER_TOOLS],
-  );
   const answers = notes.rows.flatMap((r) => {
     const text = namedOrNull(r.summary);
     return text === null ? [] : [{ at: r.at, item: { kind: "agent", id: `${r.ask_id}:answer`, text } as AgentThreadItem }];
