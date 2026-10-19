@@ -8,6 +8,7 @@ import { liveHarness } from "@/modules/agent/run/exec/live-harness";
 import { toolCalls } from "@/modules/agent/run/store";
 import { seedStandardScenario } from "@/modules/demo/seed";
 import { ridersInVan } from "@/domain/plan/board";
+import { CHILDREN } from "@/modules/demo/fixtures/standard";
 import { vansOver } from "@/modules/plan/place";
 import { loadBoard } from "@/modules/plan/store";
 import { defaultsOfSlot, vanIdOfSlot } from "@/test/board-day";
@@ -152,6 +153,8 @@ describe("asked what was just done, the agent can look (ledger #76)", () => {
     expect(facts).toMatch(/approved "Re-plan the afternoon"/);
     expect(facts).toMatch(/saved the afternoon plan/);
     expect(facts).not.toMatch(/PROVISIONAL|SCHEDULED/);
+    // People reach the model as tokens, never names (PRD; else the reply's own redaction wipes them).
+    for (const child of CHILDREN) expect(facts, child.label).not.toContain(child.label);
   });
 });
 
