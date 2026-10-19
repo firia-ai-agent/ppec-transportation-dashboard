@@ -2685,6 +2685,13 @@ export const outboundSms = {
      */
     "dropoff.late":
       "PPEC: {childName}'s van home is running about {delayMinutes} minutes late. The drop-off is still at {stopLabel}.",
+    /**
+     * The late text a saved re-plan sends (ledger #73 reverses the no-ETA rule for this one body):
+     * how late against the window the family was given, and the new drop-off time, both computed
+     * from the saved plan. "about" because both are estimates.
+     */
+    "dropoff.late_eta":
+      "PPEC: {childName}'s van home is running about {delayMinutes} minutes late. New drop-off about {eta} at {stopLabel}.",
     "leg.canceled":
       "PPEC: Got it. Your child's van on {legDate} is canceled. {reasonCode}",
     "leg.changed":

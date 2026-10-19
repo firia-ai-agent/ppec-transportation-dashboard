@@ -140,8 +140,13 @@ describe("check 1, part 1: no route and no server action can put a message in th
      * screen's own file precisely because of the assertion on the next line: a decision model that
      * queued from under `src/app/` would have been the first exception to "no server action may put
      * a message in the outbox", and the first exception is how a rule stops being one. The copy it
-     * sends is the template id and the vars the agent's proposal row already carried, plus one
-     * clock time a coordinator may edit — regex-checked, and a var no template will render as prose.
+     * sends is the template id and the vars the agent's proposal row already carried — and, on an
+     * Edit, a coordinator's words in `dropoff.reply`'s one prose slot, held to the reply rule
+     * (ledger #72).
+     *
+     * `modules/plan/replan-notices.ts` (ledger #73) is the late text a saved re-plan sends. It
+     * composes `dropoff.late_eta` from three computed values — whole minutes, a clock time and a
+     * stop token — out of the saved plan, and takes nothing from the caller but the two plans.
      */
     expect(queueingFiles.sort()).toEqual([
       "modules/agent/run/exec/capability.ts",
@@ -150,6 +155,7 @@ describe("check 1, part 1: no route and no server action can put a message in th
       "modules/messaging/eta-notice.ts",
       "modules/messaging/inbound.ts",
       "modules/outbox/outbox.ts",
+      "modules/plan/replan-notices.ts",
     ]);
     expect(queueingFiles.filter((f) => f.startsWith("app/"))).toEqual([]);
   });

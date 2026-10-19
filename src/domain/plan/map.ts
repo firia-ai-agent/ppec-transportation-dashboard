@@ -105,6 +105,15 @@ export type PlanMapData = {
   empty: boolean;
 };
 
+/**
+ * The short token an outbound text carries for the stop with this label (the outbox's `stopLabel`
+ * rule; the renderer turns it back into the place's name). Null for a label the fixtures do not
+ * have, which is a stop no family can be told about rather than one given a guessed token.
+ */
+export function stopTokenOf(label: string): string | null {
+  return STOPS.find((stop) => stop.label === label)?.smsToken ?? null;
+}
+
 /** The stop the leg hands over, or `undefined` for a label the fixtures place nowhere. */
 function placeOf(label: string): { key: string; coord: Coord } | undefined {
   return PLACE_BY_LABEL.get(label);

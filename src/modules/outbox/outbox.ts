@@ -14,6 +14,7 @@ import { activeSuppression, childAuthorized, recipientKind, therapistAuthorized,
 import { ProviderRejected, ProviderTimeout, type MessagingProvider } from "./provider";
 import { DROPOFF_REPLY_TEMPLATE } from "@/modules/approvals/dropoff-change";
 import { isReplyText } from "@/modules/messaging/reply-text";
+import { REPLAN_LATE_TEMPLATE } from "@/modules/messaging/replan-late-template";
 
 export const OUTBOX_TOPIC = "ppec-outbox";
 export const SEND_TIMEOUT_MS = 10_000;
@@ -51,7 +52,7 @@ const COLS = "id, site_id, purpose, recipient_token, recipient_rule, channel, te
  * see TEMPLATE_VARS below), but each one is still child data: it says a particular child's van, stop or
  * session. Any message using one must therefore carry a child reference.
  */
-export const CHILD_TEMPLATES = new Set(["pickup.eta", "dropoff.eta", "dropoff.late", "dropoff.received", "leg.canceled", "leg.changed", "dropoff.changed", DROPOFF_REPLY_TEMPLATE, "therapist.absence_alert", "therapist.late_alert", "child.not_received"]);
+export const CHILD_TEMPLATES = new Set(["pickup.eta", "dropoff.eta", "dropoff.late", REPLAN_LATE_TEMPLATE, "dropoff.received", "leg.canceled", "leg.changed", "dropoff.changed", DROPOFF_REPLY_TEMPLATE, "therapist.absence_alert", "therapist.late_alert", "child.not_received"]);
 /**
  * Veri #12 review: free text is banned from outbound vars. A staff-typed "reason" or "text" can carry a child's
  * name, and matching values against a name list misses nicknames and typos, so outbound vars carry only fixed
@@ -120,6 +121,12 @@ export const TEMPLATE_VARS: Readonly<Record<string, Readonly<Record<string, VarR
    * enqueue, so the rule cannot be undone by editing a sentence.
    */
   "dropoff.late": { stopLabel: stopToken, delayMinutes: lateMinutes },
+  /*
+   * The late text a saved re-plan sends (user ruling 2026-10-18, ledger #73): how late against the
+   * window the family holds, and the new drop-off time — both computed from the saved plan by
+   * `domain/plan/arrivals.ts`. No `etaEnd`: it is one estimated minute, said as "about".
+   */
+  [REPLAN_LATE_TEMPLATE]: { stopLabel: stopToken, delayMinutes: lateMinutes, eta: clockTime },
   "leg.canceled": { legDate: calendarDay, reasonCode: oneOf(LEG_CANCEL_REASON_CODES) },
   "leg.changed": { legDate: calendarDay, eta: clockTime, etaEnd: clockTime, stopLabel: stopToken },
   /* No `etaEnd`: an approved drop-off time is a decision, so the body says the minute (10:51 PM ET). */

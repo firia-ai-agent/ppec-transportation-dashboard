@@ -58,7 +58,11 @@ export function minutesOfDayET(epochMs: number): number {
 }
 
 export function trafficBandAt(epochMs: number): TrafficBand {
-  const minute = minutesOfDayET(epochMs);
+  return trafficBandAtMinute(minutesOfDayET(epochMs));
+}
+
+/** The band for a site-local time of day, for a plan that has a time but not yet an instant. */
+export function trafficBandAtMinute(minute: number): TrafficBand {
   return (
     TRAFFIC_BANDS.find((b) => minute >= b.fromMinute && minute < b.toMinute) ??
     TRAFFIC_BANDS[TRAFFIC_BANDS.length - 1]
