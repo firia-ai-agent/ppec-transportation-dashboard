@@ -7,6 +7,7 @@ import type { TierFacts } from "@/modules/agent/run/context";
 import { liveHarness } from "@/modules/agent/run/exec/live-harness";
 import { toolCalls } from "@/modules/agent/run/store";
 import { seedStandardScenario } from "@/modules/demo/seed";
+import { ridersInVan } from "@/domain/plan/board";
 import { vansOver } from "@/modules/plan/place";
 import { loadBoard } from "@/modules/plan/store";
 import { defaultsOfSlot, vanIdOfSlot } from "@/test/board-day";
@@ -72,6 +73,24 @@ describe("asked to re-plan, the agent re-plans as the person who asked (S3)", ()
   it("starts from the prod state: a van over its seats", async () => {
     const view = await board();
     expect(vansOver(view, view.plan)).toEqual([vanIdOfSlot(1)]);
+  });
+
+  it("previews a move before making it: what would fit, and who would get home late (ledger #75)", async () => {
+    const before = await board();
+    const [first] = ridersInVan(before.day, before.plan, vanIdOfSlot(1));
+    const r = await ask(people.director, "what if one child came off van 1?", [
+      toolCall("get_plan", { date: DATE, leg: "PM", moves: [{ child_token: first.token, bucket: "UNASSIGNED" }] }),
+      toolCall("reply_to_staff", { summary: "Taking one child off Van 1 would make it fit." }),
+    ]);
+    if (r.outcome !== "ran") throw new Error(r.outcome);
+    const [read] = await toolCalls(db, r.run.runId);
+    expect((read.result as { prompt_facts: Record<string, unknown> }).prompt_facts).toMatchObject({
+      preview: true,
+      preview_van_1_fits: true,
+      preview_home_late: expect.any(String),
+    });
+    // A preview saves nothing.
+    expect((await board()).version).toBe(before.version);
   });
 
   it("reads the board, re-plans it as the director, and answers in words", async () => {

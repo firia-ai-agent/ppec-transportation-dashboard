@@ -143,6 +143,13 @@ export async function staffAskContext(
   const legs = await legRows(db, childTokens, siteId, serviceDate);
   const openTasks = await openTaskRows(db, siteId, ask.id, opts.tasks ?? STAFF_ASK_TASKS_IN_CONTEXT);
   const recent = await recentThreadMessages(db, siteId, opts.messages ?? STAFF_ASK_MESSAGES_IN_CONTEXT);
+  /*
+   * TALKING BACK (ledger #75 c). An ask typed just after the bubble brought an alert — "why not
+   * Van 2?", "do it but don't text her mum" — is about that alert, the way a reply to a colleague
+   * is about what they just said. The newest alert the agent heard in the half hour before the ask
+   * is named in T1 as what the person is following up on.
+   */
+  const following = opts.alert ? null : await alertBeforeAsk(db, siteId, ask.created_at);
 
   /*
    * The same dictionary `msg.inbound` builds, over the site's rows instead of one family's: the
@@ -188,7 +195,11 @@ export async function staffAskContext(
       // was asked and how its answer is read (ask/answer.ts).
       ...(opts.alert
         ? [`staff_alert="${say(ask.summary)}"`, "propose_only=true answer_with=a card whose note says the change and its effect, or reply_to_staff when no change is right"]
-        : [`staff_ask="${say(askTextOf(ask.summary))}"`, "answer_with=reply_to_staff"]),
+        : [
+            `staff_ask="${say(askTextOf(ask.summary))}"`,
+            ...(following ? [`following_up_on_alert="${say(following)}"`] : []),
+            "answer_with=reply_to_staff",
+          ]),
     ].join(" "),
     t2: [
       `service_date=${serviceDate}`,
@@ -369,4 +380,19 @@ async function sendableSubjects(
     if (thread.counterparty_token && liveContacts.has(thread.counterparty_token)) sendable.add(thread.id);
   }
   return sendable;
+}
+
+/** How long after an alert an ask still reads as a reply to it. */
+const FOLLOW_UP_WINDOW_SECONDS = 30 * 60;
+
+/** The newest alert the agent heard at this site in the window before the ask, by its words. */
+async function alertBeforeAsk(db: Db, siteId: string, askedAt: Date | string): Promise<string | null> {
+  const r = await db.query<{ summary: string }>(
+    `SELECT t.summary FROM ops.agent_run r JOIN ops.task t ON t.id::text = r.trigger_id AND t.site_id = r.site_id
+      WHERE r.site_id = $1 AND r.trigger_type = 'operational.event'
+        AND t.created_at <= $2::timestamptz AND t.created_at > $2::timestamptz - make_interval(secs => $3)
+      ORDER BY t.created_at DESC LIMIT 1`,
+    [siteId, new Date(askedAt).toISOString(), FOLLOW_UP_WINDOW_SECONDS],
+  );
+  return r.rows[0]?.summary ?? null;
 }

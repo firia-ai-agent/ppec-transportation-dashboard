@@ -22,7 +22,9 @@ import { actionTool } from "@/modules/agent/action-tools";
 import { STAFF_ACTION_KIND } from "./confirm-view";
 import { resolveTask } from "@/modules/approvals/decide";
 import { loadBoard } from "@/modules/plan/store";
+import { confirmCopy } from "@/ui/copy";
 import { actionDepsFor } from "./deps";
+import { staffActionOutcome } from "./outcome";
 import type { ActionDeps } from "./types";
 import { ACTIONS, authorize, runAction, type ActionCtx, type ActionName } from "./registry";
 
@@ -90,5 +92,14 @@ export async function confirmStaffAction(
     }
   }
   await db.tx((tx) => resolveTask(tx, row.task_id, req.decision, by));
+  // The card leaves one line saying how it went (ledger #75 c); a failure to word it changes nothing done.
+  const outcome =
+    req.decision === "APPROVED"
+      ? await staffActionOutcome(db, { siteId: row.site_id, tool: tool.name, args: row.proposal.args ?? {}, since: req.now, deps: ctx.deps! }).catch(() => confirmCopy.done)
+      : confirmCopy.declined;
+  await db.query(
+    "UPDATE ops.approval_request SET proposal = proposal || jsonb_build_object('outcome', $2::text) WHERE id = $1",
+    [row.id, outcome],
+  );
   return { status: 200, body: { ok: true, decision: req.decision } };
 }
