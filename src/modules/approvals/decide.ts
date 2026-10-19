@@ -75,6 +75,7 @@ import { DROPOFF_CHANGE_KIND, DROPOFF_REPLY_TEMPLATE } from "./dropoff-change";
 import { MESSAGE_SEND_KIND } from "./message-send";
 import { renderTemplate } from "@/modules/messaging/templates";
 import { replyTextIssue } from "@/modules/messaging/reply-text";
+import { approval as approvalCopy } from "@/ui/copy";
 import { TASK } from "@/domain/machines";
 import { transition } from "@/domain/transition";
 import { enqueue, type OutboxTransport } from "@/modules/outbox/outbox";
@@ -474,7 +475,7 @@ export async function decideApproval(
   }
   const by = `staff:${req.userId}`;
 
-  return db.tx(async (tx, afterCommit) => {
+  const decided = await db.tx(async (tx, afterCommit) => {
     // 1. Claim the decision. The second presser gets 409 and no second send (schema note on the table).
     const claimed = await tx.query<{ id: string }>(
       `UPDATE ops.approval_request
@@ -737,6 +738,18 @@ export async function decideApproval(
     if (e instanceof VanLeft) return { status: 409, body: { ok: false, error: "VAN_LEFT" } } as const;
     throw e;
   });
+  /*
+   * THE CARD LEAVES ONE LINE SAYING HOW IT WENT (ledger #75 c, #79) — the same field a confirmed
+   * change writes (`actions/confirm.ts`), so the bubble's thread ends every card the same way
+   * instead of a decided reply simply vanishing from it.
+   */
+  if (decided.status === 200) {
+    await db.query(
+      "UPDATE ops.approval_request SET proposal = proposal || jsonb_build_object('outcome', $2::text) WHERE id = $1",
+      [row.id, decisionOutcome(decided.body.decision, decided.body.queued, proposal.lines ?? [])],
+    );
+  }
+  return decided;
 }
 
 /**
@@ -850,6 +863,13 @@ function legOf(direction: string | undefined): Direction | null {
  * the proposal's recorded basis, so "the ride moved" now means the ride is *gone*.
  */
 class PlanMoved extends Error {}
+
+/** How a decided reply reads in the agent's thread: what changed on the route, and who was texted. */
+function decisionOutcome(decision: ApprovalDecision, queued: number, lines: readonly string[]): string {
+  if (decision === "DECLINED") return approvalCopy.declined;
+  const said = queued === 0 ? approvalCopy.sentToNobody : approvalCopy.sent;
+  return lines.length > 0 ? `${lines.join(". ")}. ${said}` : said;
+}
 
 /** The plan could not be saved, or there is no writer to save it with. Rolls everything back. */
 class PlanNotSaved extends Error {}

@@ -79,7 +79,7 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
    */
   const closed = await db.query<{ id: string; outcome: string | null; at: Date }>(
     `SELECT a.id, a.proposal->>'outcome' AS outcome, a.decided_at AS at FROM ops.approval_request a
-      WHERE a.site_id = $1 AND a.proposal->>'kind' = 'STAFF_ACTION' AND a.decided_at IS NOT NULL AND a.proposal->>'outcome' IS NOT NULL
+      WHERE a.site_id = $1 AND a.decided_at IS NOT NULL AND a.proposal->>'outcome' IS NOT NULL
      UNION ALL
      SELECT a.id, NULL, a.created_at FROM ops.approval_request a
       WHERE a.site_id = $1 AND a.proposal->>'kind' = 'STAFF_ACTION' AND a.decided_at IS NULL AND ${STALE_PLAN_CARD_SQL}`,
@@ -151,7 +151,7 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
       ? [ask, { at: r.at, item: { kind: "agent", id: `${r.id}:no-answer`, text: agentBubble.noAnswer } as AgentThreadItem }]
       : [ask];
   });
-  const heard = await alertsHeard(db, siteId, answeredIds);
+  const heard = [...(await alertsHeard(db, siteId, answeredIds)), ...(await textsHeard(db, siteId))];
 
   const ordered = [...said, ...heard, ...answers, ...proposals, ...endings].sort(
     (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime(),
@@ -195,6 +195,39 @@ const ALERT_WORKING_FOR_SECONDS = agentRetryConfig.retryForSeconds[ALERT_TRIGGER
  *  - it ended with nothing, or could not reach a model in its window: the alert, that no fix came,
  *    and the board's Re-plan for that leg and van — the day, never the vendor.
  */
+/**
+ * THE FAMILIES' TEXTS THE AGENT HEARD (ledger #79). A parent's text starts a run the same way an
+ * alert does, and the bubble's dot moves for it (`pulse.ts`) — so the thread says what came in:
+ * the text, about whom, then "working" while the run is on its way, or the line saying it could
+ * not answer. A text it answered is followed by its card, which is a proposal of its own.
+ */
+async function textsHeard(db: Db, siteId: string): Promise<{ at: Date; item: AgentThreadItem }[]> {
+  const runs = await db.query<{ run_id: string; body: string; children: string | null; at: Date; live: boolean; failed: boolean }>(
+    `SELECT r.id::text AS run_id, m.body_tokenized AS body, m.received_at AS at,
+            (SELECT string_agg(c.display_name, ', ' ORDER BY c.display_name) FROM ops.child_profile c
+              WHERE c.site_id = t.site_id AND c.family_group_id = t.family_group_id) AS children,
+            (r.state IN ('QUEUED', 'RUNNING', 'WAITING_TOOL') AND r.created_at > now() - make_interval(secs => $2)) AS live,
+            (r.state = 'FAILED' AND NOT EXISTS (SELECT 1 FROM ops.agent_tool_call c WHERE c.run_id = r.id AND c.status = 'PROPOSED')) AS failed
+       FROM ops.agent_run r
+       JOIN ops.message m ON m.id::text = r.trigger_id AND m.site_id = r.site_id
+       JOIN ops.conversation_thread t ON t.id = m.thread_id AND t.site_id = m.site_id
+      WHERE r.site_id = $1 AND r.trigger_type = 'msg.inbound'
+      ORDER BY m.received_at, r.id`,
+    [siteId, ALERT_WORKING_FOR_SECONDS],
+  );
+  return runs.rows.flatMap((r) => {
+    const head = {
+      at: r.at,
+      item: { kind: "agent", id: `${r.run_id}:text`, text: r.children
+        ? fill(agentBubble.familyTexted, { children: r.children, text: detokenizeNames(r.body, "label") })
+        : fill(agentBubble.familyTextedUnnamed, { text: detokenizeNames(r.body, "label") }) } as AgentThreadItem,
+    };
+    if (r.live) return [head, { at: r.at, item: { kind: "agent", id: `${r.run_id}:working`, text: agentBubble.working } as AgentThreadItem }];
+    if (r.failed) return [head, { at: r.at, item: { kind: "agent", id: `${r.run_id}:no-answer`, text: agentBubble.textNotRead } as AgentThreadItem }];
+    return [head];
+  });
+}
+
 async function alertsHeard(
   db: Db,
   siteId: string,
