@@ -14,14 +14,19 @@ import type { Exec } from "@/db/exec";
 import { namedOrNull } from "@/modules/identity/names";
 import { toolCalls } from "../run/store";
 
-export const ANSWER_TOOL = "summarize_thread_for_staff";
+/**
+ * The tools whose `summary` answers the person who asked: the staff answer (ledger #74), and a note
+ * on a family's thread when that is what the question was about. Both carry the same sanitized
+ * `summary` field, so one reader serves both.
+ */
+export const ANSWER_TOOLS: readonly string[] = ["reply_to_staff", "summarize_thread_for_staff"];
 
 export type AskAnswer = { readonly answer: string | null; readonly proposalId: string | null };
 
 /** The run's answer and proposal, off its own committed call rows. */
 export async function askAnswer(db: Exec, runId: string): Promise<AskAnswer> {
   const calls = await toolCalls(db, runId);
-  const note = [...calls].reverse().find((c) => c.tool === ANSWER_TOOL && c.status === "EXECUTED");
+  const note = [...calls].reverse().find((c) => ANSWER_TOOLS.includes(c.tool) && c.status === "EXECUTED");
   const proposed = calls.find((c) => c.status === "PROPOSED" && typeof c.result?.approval_request_id === "string");
   return {
     answer: note ? namedOrNull(note.args.summary) : null,

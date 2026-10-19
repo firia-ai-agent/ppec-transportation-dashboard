@@ -6,7 +6,7 @@ import type { Db } from "@/db/exec";
 import { TEST_NOW } from "@/test/clock";
 import { freshDb } from "@/test/pglite";
 import { type AgentScenario, seedAgentScenario } from "@/test/agent-state";
-import { agentAsk, agentTasks } from "@/ui/copy";
+import { agentAsk, agentBubble, agentTasks } from "@/ui/copy";
 import { DATA_CLASS_ENV_VAR, SYNTHETIC_DATA_CLASS } from "@/lib/env";
 import { DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE, loadAgentConfig } from "../config";
 import { approvalKey } from "../policy";
@@ -490,6 +490,64 @@ describe("the thread the panel draws is read from rows this app holds", () => {
     });
     await askAgent(db, { siteId: sc.siteId, text: "Van 1 cannot take its runs", by: "u1" }, deps);
     expect(await readAgentThread(db, "00000000-0000-7000-8000-00000000beef")).toEqual({ items: [], waiting: 0 });
+  });
+
+  /*
+   * NEVER SILENT AFTER A RELOAD (ledger #74, S1). An ask whose run ended with nothing to show
+   * reads back with the same line the tab showed live, under the same id, so a refresh neither
+   * loses it nor shows it twice.
+   */
+  it("reads an unanswered ask back with its 'couldn't answer' line, under the tab's own ids", async () => {
+    const id = "01900000-0000-7000-8000-00000000a501";
+    await askAgent(
+      db,
+      { siteId: sc.siteId, text: "replan the afternoon", by: "u1", id },
+      {
+        env: {},
+        runner: () => ({ ok: true as const, refused: false, reason: null, deps: {} as never }),
+        drive: async () => {
+          throw new Error("provider unreachable");
+        },
+      },
+    );
+    const view = await readAgentThread(db, sc.siteId);
+    expect(view.items.slice(1)).toEqual([
+      { kind: "staff", id, text: "replan the afternoon" },
+      { kind: "agent", id: `${id}:no-answer`, text: agentBubble.noAnswer },
+    ]);
+  });
+
+  it("reads an ask typed when no model could run back with the same line", async () => {
+    await askAgent(db, { siteId: sc.siteId, text: "is Van 2 back", by: "u1" }, {
+      env: {},
+      runner: () => ({ ok: false as const, skipped: "no agent provider", reason: "none" }),
+    });
+    const view = await readAgentThread(db, sc.siteId);
+    expect(view.items.slice(1).map((i) => [i.kind, "text" in i ? i.text : ""])).toEqual([
+      ["staff", "is Van 2 back"],
+      ["agent", agentBubble.noAnswer],
+    ]);
+  });
+
+  it("reads the agent's answer to the person back under the ask (reply_to_staff)", async () => {
+    const id = "01900000-0000-7000-8000-00000000a502";
+    const { deps } = withModel([toolCall("reply_to_staff", { summary: "Every van fits this afternoon." })]);
+    const r = await askAgent(db, { siteId: sc.siteId, text: "does every van fit", by: "u1", id }, deps);
+    expect(r.ok && r.answer).toBe("Every van fits this afternoon.");
+    const view = await readAgentThread(db, sc.siteId);
+    expect(view.items.slice(1)).toEqual([
+      { kind: "staff", id, text: "does every van fit" },
+      { kind: "agent", id: `${id}:answer`, text: "Every van fits this afternoon." },
+    ]);
+  });
+
+  it("takes the tab's id for a new ask only: never a used id, never one that is not a uuid", async () => {
+    const id = "01900000-0000-7000-8000-00000000a503";
+    const { deps } = withModel([toolCall("reply_to_staff", { summary: "Done." })]);
+    expect((await askAgent(db, { siteId: sc.siteId, text: "first", by: "u1", id }, deps)).outcome).toBe("ran");
+    expect((await askAgent(db, { siteId: sc.siteId, text: "again", by: "u1", id }, deps)).outcome).toBe("rejected");
+    expect((await askAgent(db, { siteId: sc.siteId, text: "odd", by: "u1", id: "ask:1" }, deps)).outcome).toBe("rejected");
+    expect((await tasks()).filter((t) => t.category === STAFF_ASK_TASK_CATEGORY)).toHaveLength(1);
   });
 
   it("never takes a screen down with it", async () => {

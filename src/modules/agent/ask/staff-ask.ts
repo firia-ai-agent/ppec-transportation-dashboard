@@ -71,6 +71,12 @@ export type StaffAskInput = {
   readonly siteId: string;
   /** What the person typed. Trimmed, bounded and redacted before it is stored. */
   readonly text: string;
+  /**
+   * The id the asking tab minted (ledger #74), used as the ask row's id so the tab's line and the
+   * stored thread are one item. Only ever a new id: a value that is not a uuid, or that already
+   * names any task, is refused as `rejected` — a client may name its own new ask and nothing else.
+   */
+  readonly id?: string;
   /** Who asked, as an audit actor — a user id, never a name. */
   readonly by: string;
 };
@@ -159,6 +165,8 @@ function askRunner(runner: () => AgentRunner): { readonly deps: RunDeps } | { re
   return { deps: answer.deps };
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function askAgent(
   db: Db,
   input: StaffAskInput,
@@ -172,6 +180,11 @@ export async function askAgent(
 
   const ask = normalizeAsk(input.text);
   if (!ask) return { ok: false, outcome: "rejected" };
+  if (input.id !== undefined) {
+    if (!UUID.test(input.id)) return { ok: false, outcome: "rejected" };
+    const taken = await db.query("SELECT 1 FROM ops.task WHERE id = $1", [input.id]);
+    if (taken.rows.length > 0) return { ok: false, outcome: "rejected" };
+  }
 
   /*
    * 2. Can anything answer? Asked *before* the row is written, because the answer decides what
@@ -180,7 +193,7 @@ export async function askAgent(
    */
   const answer = askRunner(deps.runner ?? (() => agentRunner(db, env)));
   const canRun = "deps" in answer;
-  const askId = uuidv7();
+  const askId = input.id ?? uuidv7();
   const words = canRun ? agentAsk.asked : agentAsk.unavailable;
   const taskId = await raiseTask(db, {
     id: askId,

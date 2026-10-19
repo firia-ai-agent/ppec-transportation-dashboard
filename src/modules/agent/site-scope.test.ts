@@ -115,6 +115,7 @@ const VALID_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
   },
   close_task: { task_id: "TK-1", evidence_ref: "MSG-1" },
   summarize_thread_for_staff: { thread_id: "TH-F1", summary: "guardian canceled the morning leg" },
+  reply_to_staff: { summary: "Moved one rider to Van 2 so every van fits." },
 };
 
 /**
@@ -158,7 +159,7 @@ const blockOf = (tool: string, args: Record<string, unknown>, context = ctx()) =
 };
 
 describe("VERI-3: the walk covers the catalog", () => {
-  it("VERI-3 has a schema-valid call for all 17 tools, and a foreign value for every scoped argument", () => {
+  it("VERI-3 has a schema-valid call for all 18 tools, and a foreign value for every scoped argument", () => {
     expect(Object.keys(VALID_ARGS).sort()).toEqual([...TOOL_NAMES].sort());
     for (const tool of TOOL_NAMES) {
       expect(TOOL_REGISTRY[tool].schema.safeParse(VALID_ARGS[tool]).success, tool).toBe(true);
@@ -226,6 +227,7 @@ describe("VERI-3: the tenant boundary holds where ids are not declared objects",
   it.each([
     ["escalate_exception", "summary"],
     ["summarize_thread_for_staff", "summary"],
+    ["reply_to_staff", "summary"],
     ["propose_contact_or_profile_change", "claim_summary"],
   ])("VERI-3 %s.%s refuses another site's id named in prose", (tool, field) => {
     const args = { ...VALID_ARGS[tool], [field]: `the same van also carries L-S2-AM, so both slip` };

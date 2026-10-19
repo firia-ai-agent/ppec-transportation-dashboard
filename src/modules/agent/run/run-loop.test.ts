@@ -218,6 +218,8 @@ describe("§11.1 blocked and proposed calls are recorded, and execute nothing", 
     // The rule, and the staff task the refusal opened (policy-tasks.test.ts owns the task rows).
     expect(rows[0].result).toEqual({
       blocked_rule: "cross_family_disclosure",
+      // The rule code, for the model's next turn — read only by runs that take one (ledger #74).
+      prompt_facts: { refused: "cross_family_disclosure" },
       task_ids: [policyTaskId(rows[0].idempotency_key, 0)],
     });
     expect(rows[0].committed_at).not.toBeNull();
@@ -291,6 +293,7 @@ describe("§11.1 blocked and proposed calls are recorded, and execute nothing", 
     expect([r.state, row.status, row.policy_decision]).toEqual(["FAILED", "BLOCKED", "BLOCK:free_text_to_parents"]);
     expect(row.result).toEqual({
       blocked_rule: "free_text_to_parents",
+      prompt_facts: { refused: "free_text_to_parents" },
       task_ids: [policyTaskId(row.idempotency_key, 0)],
     });
     expect(h.recorder.intents).toEqual([]);

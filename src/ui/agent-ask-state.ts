@@ -71,9 +71,13 @@ export function resetAsked(): void {
  * reply below finds the ask it belongs under — ids rather than "the last one", because two asks
  * can be in flight and the second may well answer first.
  */
+/**
+ * The ask's id, minted here and stored by the server as the ask's own row id (ledger #74), so the
+ * line this tab shows and the line the thread reads back after a refresh are one item, not two.
+ */
 export function addAsk(text: string): string {
   counter += 1;
-  const id = `ask:${counter}`;
+  const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `ask:${counter}`;
   asked = [...asked, { kind: "staff", id, text }];
   emit();
   return id;
@@ -135,7 +139,7 @@ export function canSendAsk(text: string): boolean {
 }
 
 /** How the ask is sent. The address is the caller's (`API.agentAsk`): no screen holds a path. */
-export type AskPost = (text: string) => Promise<Response>;
+export type AskPost = (text: string, id: string) => Promise<Response>;
 
 /**
  * ONE ASK, END TO END — the whole of what the compose bar does, as a function of its one
@@ -159,7 +163,7 @@ export async function sendAsk(text: string, post: AskPost): Promise<void> {
   if (!canSendAsk(text)) return;
   const id = addAsk(text);
   try {
-    const res = await post(text);
+    const res = await post(text, id);
     if (!res.ok) {
       addNoAnswer(id);
       return;

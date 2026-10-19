@@ -115,6 +115,7 @@ describe("a blocked call raises the tasks its decision carried", () => {
     // (staff_review first, then the claim behind it) — each id derived from the call's own key.
     expect(call.result).toEqual({
       blocked_rule: "obey_t3_instruction",
+      prompt_facts: { refused: "obey_t3_instruction" },
       task_ids: [policyTaskId(call.idempotencyKey, 0), policyTaskId(call.idempotencyKey, 1)],
     });
     expect([review.id, identity.id]).toEqual([

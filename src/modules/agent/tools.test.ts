@@ -21,7 +21,7 @@ import {
 } from "./tools";
 
 describe("§11.2 tool catalog", () => {
-  it("has all 17 tools, each with a tier and an effect", () => {
+  it("has all 18 tools, each with a tier and an effect", () => {
     expect(TOOL_NAMES).toHaveLength(TOOL_COUNT);
     expect(TOOL_NAMES).toEqual([
       "resolve_sender",
@@ -41,6 +41,7 @@ describe("§11.2 tool catalog", () => {
       "escalate_exception",
       "close_task",
       "summarize_thread_for_staff",
+      "reply_to_staff",
     ]);
     for (const name of TOOL_NAMES) {
       const def = TOOL_REGISTRY[name];
