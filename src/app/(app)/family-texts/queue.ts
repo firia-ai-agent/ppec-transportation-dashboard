@@ -82,6 +82,7 @@ async function viewOf(
   a: { readonly day: ServiceDay },
 ): Promise<ProposalView> {
   const facts = await proposalFacts({
+    siteId: row.siteId,
     childToken: row.childToken,
     stopToken: row.stopToken,
     day: a.day,

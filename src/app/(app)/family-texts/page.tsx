@@ -6,6 +6,7 @@ import { requirePage } from "@/auth/page-guard";
 import { getNeonDb } from "@/db/exec";
 import { demoDay, type ServiceDay } from "@/domain/board/day";
 import { modelReach } from "@/modules/agent/run/deps";
+import { siteOf } from "@/modules/plan/api";
 import { openAssistantAlerts, type AssistantAlert } from "@/modules/agent/staff-alert";
 import { approvalQueue } from "./queue";
 import { familyTexts } from "@/ui/copy";
@@ -149,7 +150,7 @@ export default async function FamilyTextsPage({
       : null;
 
   /* The third pane, for the thread that is open and only on the tab that decides things. */
-  const context = selected && mayApprove ? await contextFor(selected.childKey, day) : null;
+  const context = selected && mayApprove ? await contextFor(selected.childKey, siteOf(caller)) : null;
 
   return (
     <TextsScreen
