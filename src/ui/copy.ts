@@ -3264,7 +3264,10 @@ export const confirmCopy = {
 
 /** A van confirmed at the ramp that no longer carries its riders (ledger #74 e, plan/van-short.ts). */
 export const vanShortAlert = {
-  summary: "{van} no longer fits its {leg} riders as confirmed at the ramp",
+  /** "Van 1 no longer fits Ava N. this morning": who, by the ramp's own fit rule (van-short.ts). */
+  summary: "{van} no longer fits {who} this {leg}",
+  /** `who` when the rule names nobody one by one (the van is over as a whole). */
+  itsRiders: "its riders",
   nextStep: "Re-plan the leg so every van fits, or change who rides in it.",
   predicate: "every van on the leg fits its riders again",
 } as const;
@@ -3274,6 +3277,8 @@ export const agentBubble = {
   open: "Agent",
   /** …and with proposals waiting, which is what the coral dot means for the eye. */
   openWaiting: "Agent, {count} waiting",
+  /** …and with something new in the thread since the panel was last open (ledger #75 b). */
+  openNew: "Agent, something new",
   /** The panel's heading, and its dialog label. */
   title: "Agent",
   /** The 44 px X at the top right of the panel and of the phone sheet. */
@@ -3350,6 +3355,14 @@ export const agentBubble = {
   noAnswer: "I couldn't answer that just now, so it's on your list as an alert.",
   /** Under an ask whose run is still on the queue (ledger #74): replaced by the answer when it lands. */
   working: "Working on it…",
+  /**
+   * An alert the agent heard and could not answer (ledger #75): the situation, from the alert's own
+   * row, and that no fix came — followed by the board's Re-plan link. Never the reason the model
+   * was unreachable: that is for the log, and the person needs the day, not the vendor.
+   */
+  couldNotFix: "{situation}. I couldn't find a fix.",
+  /** The link after it: the board, on that leg, with that van selected. */
+  replanLink: "Re-plan",
   /** The model ran and proposed a change but wrote no answer line: the card below is the answer. */
   proposedBelow: "I've drafted a change for you to review.",
   /** Nothing has been said today. The thread shows what exists and never invents a message. */

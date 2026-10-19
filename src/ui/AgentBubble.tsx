@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { MessageCircle, X } from "lucide-react";
 import { agentBubble, fill } from "./copy";
@@ -9,8 +9,13 @@ import {
   agentBubbleHidden,
   getAgentBubbleOpen,
   getAgentBubbleOpenOnServer,
+  getAgentSeen,
+  getAgentSeenOnServer,
+  hasUnseen,
   setAgentBubbleOpen,
+  setAgentSeen,
   subscribeAgentBubbleOpen,
+  subscribeAgentSeen,
 } from "./agent-bubble-state";
 import { getAsked, getAskedOnServer, subscribeAsked } from "./agent-ask-state";
 import type { DecideAction } from "@/app/(app)/family-texts/actions";
@@ -48,6 +53,7 @@ import styles from "./AgentBubble.module.css";
 export function AgentBubble({
   canDecide,
   waiting = 0,
+  stamp = "",
   items = [],
   compose,
   cards = [],
@@ -65,6 +71,11 @@ export function AgentBubble({
    * zero, and the count is in the button's accessible name rather than left to the dot.
    */
   waiting?: number;
+  /**
+   * The thread's pulse stamp (`ask/pulse.ts`, ledger #75 b). When it has moved past what this
+   * browser last saw with the panel open, the closed bubble carries the dot: something new.
+   */
+  stamp?: string;
   /**
    * The thread, already read from what this app stores (src/modules/agent/ask/thread.ts) and
    * turned into what the panel draws. Nothing is invented here: a day with nothing in it renders
@@ -96,10 +107,18 @@ export function AgentBubble({
    * unmounted by a navigation, which is what makes that true across a tab change.
    */
   const asked = useSyncExternalStore(subscribeAsked, getAsked, getAskedOnServer);
+  const seen = useSyncExternalStore(subscribeAgentSeen, getAgentSeen, getAgentSeenOnServer);
+  // Open is looking; a first visit starts from now. Either way this browser has seen `stamp`.
+  useEffect(() => {
+    if (stamp !== "" && (open || seen === null) && seen !== stamp) setAgentSeen(stamp);
+  }, [open, seen, stamp]);
 
   if (agentBubbleHidden({ pathname, tab, canDecide })) return null;
 
-  const label = waiting > 0 ? fill(agentBubble.openWaiting, { count: waiting }) : agentBubble.open;
+  const unseen = !open && hasUnseen(stamp, seen);
+  const dot = waiting > 0 || unseen;
+  const label =
+    waiting > 0 ? fill(agentBubble.openWaiting, { count: waiting }) : unseen ? agentBubble.openNew : agentBubble.open;
 
   return (
     /*
@@ -111,7 +130,7 @@ export function AgentBubble({
       {open ? null : (
         <button type="button" className={styles.bubble} aria-label={label} onClick={() => setAgentBubbleOpen(true)}>
           <MessageCircle size={24} aria-hidden="true" />
-          {waiting > 0 ? <span className={styles.dot} aria-hidden="true" data-agent-waiting /> : null}
+          {dot ? <span className={styles.dot} aria-hidden="true" data-agent-waiting /> : null}
         </button>
       )}
       {open ? (

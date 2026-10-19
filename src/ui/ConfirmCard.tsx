@@ -23,7 +23,8 @@ export function ConfirmCard({ card, confirm }: { readonly card: ConfirmView; rea
       <div className={styles.cardHead}>
         <h3 className={styles.cardTitle}>{confirmCopy.heading}</h3>
       </div>
-      <p className={styles.changeLine}>{card.summary}</p>
+      {/* The model's own sentence when it wrote one (ledger #75 c); the action's line otherwise. */}
+      <p className={styles.changeLine}>{card.note ?? card.summary}</p>
       <form action={submit} className={styles.actions}>
         <input type="hidden" name="card" value={card.approvalId} />
         <button type="submit" name="decision" value="APPROVED" className={styles.primary} disabled={pending}>

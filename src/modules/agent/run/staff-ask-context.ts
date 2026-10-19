@@ -82,10 +82,12 @@ export const STAFF_ASK_TOOLS: readonly string[] = [
 ];
 
 /**
- * What an alert's run is offered (ledger #74 e): the reads, every action as a proposal, a drop-off
- * proposal, and escalation. No `reply_to_staff` — nobody is waiting on an answer; the card is it.
+ * What an alert's run is offered (ledger #74 e, #75): the reads, every action as a proposal, a
+ * drop-off proposal, escalation — and `reply_to_staff`, so a run that finds no change worth making
+ * says so and why, the way a colleague would, instead of leaving the alert unanswered.
  */
 export const ALERT_TOOLS: readonly string[] = [
+  "reply_to_staff",
   "read_guardian_thread",
   "get_leg_state",
   "propose_dropoff_change",
@@ -185,7 +187,7 @@ export async function staffAskContext(
       // An alert's run (ledger #74 e) is told what was raised and that it proposes; an ask's, what
       // was asked and how its answer is read (ask/answer.ts).
       ...(opts.alert
-        ? [`staff_alert="${say(ask.summary)}"`, "propose_only=true answer_with=a card a person confirms"]
+        ? [`staff_alert="${say(ask.summary)}"`, "propose_only=true answer_with=a card whose note says the change and its effect, or reply_to_staff when no change is right"]
         : [`staff_ask="${say(askTextOf(ask.summary))}"`, "answer_with=reply_to_staff"]),
     ].join(" "),
     t2: [

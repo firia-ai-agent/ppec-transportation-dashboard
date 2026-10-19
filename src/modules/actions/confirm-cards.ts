@@ -5,15 +5,21 @@
  */
 import type { Exec } from "@/db/exec";
 import { STAFF_ACTION_KIND, type ConfirmView } from "./confirm-view";
+import { namedOrNull } from "@/modules/identity/names";
 import { staffActionSummary } from "./summary";
 
 export type { ConfirmView } from "./confirm-view";
 
 export async function confirmCards(db: Exec, siteId: string): Promise<readonly ConfirmView[]> {
-  const rows = await db.query<{ id: string; tool: string | null; args: Record<string, unknown> | null }>(
-    `SELECT id, proposal->>'tool' AS tool, proposal->'args' AS args FROM ops.approval_request
+  const rows = await db.query<{ id: string; tool: string | null; args: Record<string, unknown> | null; note: string | null }>(
+    `SELECT id, proposal->>'tool' AS tool, proposal->'args' AS args, proposal->>'note' AS note FROM ops.approval_request
       WHERE site_id = $1 AND decided_at IS NULL AND proposal->>'kind' = $2 ORDER BY created_at, id`,
     [siteId, STAFF_ACTION_KIND],
   );
-  return rows.rows.map((r) => ({ approvalId: r.id, summary: staffActionSummary(r.tool ?? "", r.args ?? {}) }));
+  return rows.rows.map((r) => ({
+    approvalId: r.id,
+    summary: staffActionSummary(r.tool ?? "", r.args ?? {}),
+    // A note this roster cannot name in full is no note: the card falls back to the summary.
+    note: namedOrNull(r.note),
+  }));
 }

@@ -1,5 +1,5 @@
 import { AGENT_ESCALATE_JOB_KIND, agentEscalateHandler } from "@/modules/agent/run/exec/escalate";
-import { AGENT_RESUME_JOB_KIND, agentResumeHandler } from "@/modules/agent/run/timers";
+import { AGENT_RESUME_JOB_KIND, AGENT_RETRY_JOB_KIND, agentResumeHandler, agentRetryHandler } from "@/modules/agent/run/timers";
 import { vercelQueueAgentTransport } from "@/modules/agent/run/vercel-queue";
 import { getNeonDb } from "@/db/exec";
 import { SCRIPTED_REPLY_JOB_KIND, scheduleScriptedReply, scriptedReplyHandler } from "@/modules/demo/scripted-reply";
@@ -38,6 +38,7 @@ export const handlers: Handlers = {
   // what `fire` hands handlers an `afterCommit` for). The transport is wired here, with the other
   // platform wiring, so `timers.ts` stays testable with a fake one.
   [AGENT_RESUME_JOB_KIND]: agentResumeHandler(vercelQueueAgentTransport),
+  [AGENT_RETRY_JOB_KIND]: agentRetryHandler(vercelQueueAgentTransport),
   // B-08 slice 4 (§11.2 "no reply → escalate"): nobody answered — raise the exception, no model.
   [AGENT_ESCALATE_JOB_KIND]: agentEscalateHandler,
 };

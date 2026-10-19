@@ -21,13 +21,19 @@
  */
 import type { Db } from "@/db/exec";
 import type { AgentThreadItem } from "@/ui/AgentThread";
-import { agentBubble } from "@/ui/copy";
+import { agentRetryConfig } from "@/config/live";
+import { agentBubble, fill } from "@/ui/copy";
+import { boardHref, PLAN_ROUTES_PATH } from "@/modules/plan/when";
+import { ALERT_TRIGGER } from "@/modules/agent/alerts";
 import { namedOrNull } from "@/modules/identity/names";
 import { effectId } from "@/modules/agent/run/exec/effects";
 import { ANSWER_TOOLS } from "./answer";
 
-/** How long an ask's run reads as "working" — the bubble's own refresh window (RefreshWhileAgentWorks). */
-const ASK_WORKING_FOR_SECONDS = 180;
+/**
+ * How long an ask's run reads as "working": its whole busy-model retry window and one more try
+ * (ledger #75), so a run that is waiting on a rate-limited vendor still says it is on it.
+ */
+const ASK_WORKING_FOR_SECONDS = agentRetryConfig.retryForSeconds["staff.ask"] + agentRetryConfig.retryAfterSeconds;
 import { STAFF_ALERT_TASK_CATEGORY, STAFF_ASK_TASK_CATEGORY, askTextOf } from "./ask-text";
 
 export type AgentThreadView = {
@@ -82,9 +88,9 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
   const notes = await db.query<{ ask_id: string; summary: string | null; at: Date }>(
     `SELECT r.trigger_id AS ask_id, c.args->>'summary' AS summary, c.created_at AS at
        FROM ops.agent_run r JOIN ops.agent_tool_call c ON c.run_id = r.id
-      WHERE r.site_id = $1 AND r.trigger_type = 'staff.ask' AND c.tool = ANY($2::text[]) AND c.status = 'EXECUTED'
+      WHERE r.site_id = $1 AND r.trigger_type = ANY($3::text[]) AND c.tool = ANY($2::text[]) AND c.status = 'EXECUTED'
       ORDER BY c.created_at, c.id`,
-    [siteId, ANSWER_TOOLS],
+    [siteId, ANSWER_TOOLS, ["staff.ask", ALERT_TRIGGER]],
   );
   /*
    * Asks still on the agent queue (ledger #74): the run is QUEUED, RUNNING or parked on a timer, so
@@ -103,7 +109,17 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
       )
     ).rows.map((r) => r.ask_id),
   );
-  const answeredIds = new Set(notes.rows.map((n) => n.ask_id));
+  /*
+   * THE MODEL'S ANSWERS, so a reload shows what it said and not only what was asked: each run's
+   * `reply_to_staff` or `summarize_thread_for_staff` note, in names (`ask/answer.ts`), placed when
+   * it was written. Keyed on what the run was about — the ask, or the alert it heard. A note this
+   * roster cannot name in full is not an answer, so it does not hide the line that would say so.
+   */
+  const answers = notes.rows.flatMap((r) => {
+    const text = namedOrNull(r.summary);
+    return text === null ? [] : [{ at: r.at, item: { kind: "agent", id: `${r.ask_id}:answer`, text } as AgentThreadItem }];
+  });
+  const answeredIds = new Set(answers.map((a) => (a.item as { id: string }).id.replace(/:answer$/, "")));
   const said = asks.rows.flatMap((r) => {
     const ask = { at: r.at, item: { kind: "staff", id: r.id, text: askTextOf(r.summary) } as AgentThreadItem };
     // The outcome, when there is one, is what the person reads — never "working" over it.
@@ -116,17 +132,9 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
       ? [ask, { at: r.at, item: { kind: "agent", id: `${r.id}:no-answer`, text: agentBubble.noAnswer } as AgentThreadItem }]
       : [ask];
   });
-  /*
-   * THE MODEL'S ANSWERS, so a reload shows what it said and not only what was asked: each
-   * `staff.ask` run's `summarize_thread_for_staff` note, in names (`ask/answer.ts`), placed when it
-   * was written — after the ask it answers.
-   */
-  const answers = notes.rows.flatMap((r) => {
-    const text = namedOrNull(r.summary);
-    return text === null ? [] : [{ at: r.at, item: { kind: "agent", id: `${r.ask_id}:answer`, text } as AgentThreadItem }];
-  });
+  const heard = await alertsHeard(db, siteId, answeredIds);
 
-  const ordered = [...said, ...answers, ...proposals].sort(
+  const ordered = [...said, ...heard, ...answers, ...proposals].sort(
     (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime(),
   );
   if (ordered.length === 0) return EMPTY;
@@ -152,4 +160,69 @@ export async function readAgentThreadOrEmpty(
     // not render. The proposals are still on their own screen, which is this one's link target.
     return EMPTY;
   }
+}
+
+/** How long an alert's run reads as "working": its whole busy-model window and one more try. */
+const ALERT_WORKING_FOR_SECONDS = agentRetryConfig.retryForSeconds[ALERT_TRIGGER] + agentRetryConfig.retryAfterSeconds;
+
+/**
+ * THE ALERTS THE AGENT HEARD (ledger #75 b), the way a colleague would bring one to you: what is
+ * wrong, in the alert's own words (the rule that raised it wrote them — `plan/van-short.ts`), then
+ * what the agent made of it.
+ *
+ *  - still on it: the alert, and "Working on it…";
+ *  - it answered: only its answer — its own words about the same thing replace the alert's;
+ *  - it drafted a change: the alert, and the card below it is the answer;
+ *  - it ended with nothing, or could not reach a model in its window: the alert, that no fix came,
+ *    and the board's Re-plan for that leg and van — the day, never the vendor.
+ */
+async function alertsHeard(
+  db: Db,
+  siteId: string,
+  answered: ReadonlySet<string>,
+): Promise<{ at: Date; item: AgentThreadItem }[]> {
+  const runs = await db.query<{
+    task_id: string;
+    summary: string;
+    at: Date;
+    evidence: { locator?: { van_id?: string; date?: string; leg?: string } } | null;
+    live: boolean;
+    proposed: boolean;
+  }>(
+    `SELECT t.id::text AS task_id, t.summary, t.created_at AS at, t.completion_evidence AS evidence,
+            (r.state IN ('QUEUED', 'RUNNING', 'WAITING_TOOL') AND r.created_at > now() - make_interval(secs => $3)) AS live,
+            EXISTS (SELECT 1 FROM ops.agent_tool_call c WHERE c.run_id = r.id AND c.status = 'PROPOSED') AS proposed
+       FROM ops.agent_run r JOIN ops.task t ON t.id::text = r.trigger_id AND t.site_id = r.site_id
+      WHERE r.site_id = $1 AND r.trigger_type = $2
+        -- A run stood down because the situation moved on (plan/van-short.ts) says nothing.
+        AND (r.state <> 'ABORTED_SUPERSEDED_BY_HUMAN'
+             OR EXISTS (SELECT 1 FROM ops.agent_tool_call c WHERE c.run_id = r.id AND c.status = 'PROPOSED'))
+        -- An alert a newer one about the same thing replaced is not the situation any more.
+        AND NOT EXISTS (
+          SELECT 1 FROM ops.task n
+           WHERE n.site_id = t.site_id AND n.category = t.category AND n.id <> t.id AND n.created_at > t.created_at
+             AND n.completion_evidence->'locator' IS NOT NULL
+             AND n.completion_evidence->'locator' = t.completion_evidence->'locator')
+      ORDER BY t.created_at, t.id`,
+    [siteId, ALERT_TRIGGER, ALERT_WORKING_FOR_SECONDS],
+  );
+  return runs.rows.flatMap((a) => {
+    if (answered.has(a.task_id)) return [];
+    const head = { at: a.at, item: { kind: "agent", id: `${a.task_id}:alert`, text: a.summary } as AgentThreadItem };
+    if (a.live) return [head, { at: a.at, item: { kind: "agent", id: `${a.task_id}:working`, text: agentBubble.working } as AgentThreadItem }];
+    if (a.proposed) return [head];
+    const where = a.evidence?.locator;
+    const leg = where?.leg === "AM" || where?.leg === "PM" ? where.leg : null;
+    return [{
+      at: a.at,
+      item: {
+        kind: "agent",
+        id: `${a.task_id}:no-fix`,
+        text: fill(agentBubble.couldNotFix, { situation: a.summary }),
+        ...(where?.date && leg
+          ? { link: { href: boardHref(PLAN_ROUTES_PATH, { date: where.date, leg, van: where.van_id }), label: agentBubble.replanLink } }
+          : {}),
+      } as AgentThreadItem,
+    }];
+  });
 }

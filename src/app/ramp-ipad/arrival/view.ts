@@ -19,11 +19,11 @@ import type { Direction } from "@/domain/day/leg";
 import type { BoardDay, BoardPlan, BoardRider, BoardVan } from "@/domain/plan/board";
 import { ridersInVan } from "@/domain/plan/board";
 import { usedBy, type Used, type VanSetup } from "@/domain/plan/fit";
-import { boardHref } from "@/modules/plan/when";
+import { boardHref, PLAN_ROUTES_PATH } from "@/modules/plan/when";
 import { flow, vanArrival } from "@/ui/copy";
 
 /** The coordinator's board. Its address is the access table's, not invented here. */
-export const PLAN_PATH = "/plan-routes";
+export const PLAN_PATH = PLAN_ROUTES_PATH;
 
 /** One van at the ramp: everything the card above its steppers shows. */
 export type ArrivalVan = {

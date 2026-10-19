@@ -35,6 +35,7 @@
  * thread steering such a run; the instruction is the staff member's. A family's text still fails
  * shut on the first refusal.
  */
+import { agentRetryConfig } from "@/config/live";
 import type { Db } from "@/db/exec";
 import { type Clock, type JobScheduler, systemClock } from "@/modules/jobs/scheduler";
 import type { LlmGateway, GatewayResult } from "../gateway";
@@ -72,7 +73,7 @@ import {
   raiseModelUnavailableAlert,
 } from "../staff-alert";
 import { policyTaskIds, writePolicyTasks } from "./tasks";
-import { type ParkedAwait, parkRunOnTimer } from "./timers";
+import { type ParkedAwait, parkRunForRetry, parkRunOnTimer } from "./timers";
 import type { Trigger } from "./triggers";
 
 export type RunDeps = {
@@ -661,6 +662,9 @@ async function fail(deps: RunDeps, run: RunRow, reason: string, steps: number): 
  * run sent nothing and proposed nothing", which is what failing the run says. The reason string
  * records that the alert did not land, so the run row is honest about it.
  */
+/** The outages that clear by waiting. A missing key or a guard refusal does not, so it is not retried. */
+const BUSY_REASONS: ReadonlySet<string> = new Set(["rate_limited", "timeout", "provider_error"]);
+
 async function modelDown(
   deps: RunDeps,
   run: RunRow,
@@ -669,6 +673,30 @@ async function modelDown(
   actor: string,
 ): Promise<RunResult> {
   logModelUnavailable(unavailable);
+  /*
+   * A BUSY MODEL IS A WAIT FOR A PERSON'S RUN (ledger #75): an ask or an alert that hit a
+   * rate-limited or slow vendor is parked and tried again a minute later (timers.ts
+   * `parkRunForRetry`), for as long as `agentRetryConfig` gives that trigger. Only past that does
+   * it end, and the thread then says what is wrong in the day's terms (ask/thread.ts). A
+   * misconfiguration (`stop`) is not going to clear by waiting, and a family's text keeps the
+   * founder's rule below: one card for a person, at once. Only a busy vendor is waited out
+   * (`BUSY_REASONS`); a missing key or a refused destination will not clear by waiting.
+   */
+  const retryFor = agentRetryConfig.retryForSeconds[run.trigger.type];
+  if (BUSY_REASONS.has(unavailable.reason) && retryFor !== undefined) {
+    const at = (deps.now ?? systemClock)();
+    const age = await deps.db.query<{ s: number }>(
+      "SELECT extract(epoch FROM ($2::timestamptz - created_at))::float8 AS s FROM ops.agent_run WHERE id = $1",
+      [run.id, at.toISOString()],
+    );
+    if ((age.rows[0]?.s ?? Infinity) < retryFor) {
+      const live: RunRow = { ...run, updatedBy: actor };
+      const { attempt, dueAt } = await deps.db.tx((tx, afterCommit) =>
+        parkRunForRetry(tx, afterCommit, deps.scheduler, { run: live, now: at, afterSeconds: agentRetryConfig.retryAfterSeconds }),
+      );
+      return { runId: run.id, created: false, state: "WAITING_TOOL", steps, reason: `model busy (${unavailable.detail}); retry ${attempt + 1} at ${dueAt.toISOString()}` };
+    }
+  }
   let raised = "staff alert raised";
   if (run.trigger.type === "msg.inbound") {
     try {

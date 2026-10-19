@@ -16,6 +16,9 @@ import { seedStaff } from "@/test/messaging";
 import { freshPlanDb, SITE } from "@/test/pglite";
 import { loadAgentConfig, DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE } from "./config";
 import { ALERT_TRIGGER, alertAgent } from "./alerts";
+import { readAgentThread } from "./ask/thread";
+import { confirmCards } from "@/modules/actions/confirm-cards";
+import { agentBubble, fill } from "@/ui/copy";
 import { createGateway } from "./gateway";
 import { fakeProvider, toolCall } from "./providers/fake";
 import { dbContextAssembler } from "./run/assembler";
@@ -141,6 +144,107 @@ describe("a van confirmed short at the ramp is an alert, and the agent hears it 
     expect(after.version).toBe(before.version + 1);
     const late = await db.query("SELECT 1 FROM ops.outbound_message WHERE template_id = 'dropoff.late_eta'", []);
     expect(late.rows.length).toBeGreaterThan(0);
+  });
+});
+
+describe("the bubble shows what the agent heard, and how it ended (ledger #75 b — C2, C4)", () => {
+  const confirmSeats = (seats: number) =>
+    ACTIONS.confirm_van_setup.run(ctx(people.frontDesk, "FRONT_DESK"), {
+      ...defaultsOfSlot(1), seats, vanId: vanIdOfSlot(1), date: DATE, state: "CHECKED" as const,
+    });
+  const latestAlert = async () =>
+    (await db.query<{ task_id: string; run_id: string; summary: string }>(
+      `SELECT t.id::text AS task_id, r.id AS run_id, t.summary FROM ops.agent_run r JOIN ops.task t ON t.id::text = r.trigger_id
+        WHERE r.trigger_type = $1 ORDER BY r.created_at DESC LIMIT 1`, [ALERT_TRIGGER],
+    )).rows[0];
+  const drive = (runId: string, script: Parameters<typeof fakeProvider>[0]) => {
+    const execDeps = { db, scheduler: new VercelQueueScheduler(db, new FakeTransport(), () => NOW), transport: outbox };
+    return driveRun({
+      db,
+      gateway: createGateway(fakeProvider(script), loadAgentConfig(ENV), { now: () => NOW.getTime() }),
+      assemble: dbContextAssembler(db, { env: ENV }),
+      executors: liveExecutors(execDeps),
+      proposals: liveProposalWriter(execDeps),
+      scheduler: execDeps.scheduler,
+      now: () => NOW,
+    }, runId);
+  };
+  const itemsFor = async (taskId: string) =>
+    (await readAgentThread(db, SITE)).items.filter((i) => "id" in i && i.id.startsWith(taskId));
+
+  it("names who no longer fits, by the ramp's own rule", async () => {
+    expect((await confirmSeats(1)).status).toBe(200);
+    expect((await latestAlert()).summary).toMatch(/^Van 1 no longer fits .+ this afternoon$/);
+    expect((await latestAlert()).summary).not.toContain("its riders");
+  });
+
+  it("says it is working while the run is queued", async () => {
+    const a = await latestAlert();
+    expect((await itemsFor(a.task_id)).map((i) => ("id" in i ? i.id : ""))).toEqual([`${a.task_id}:alert`, `${a.task_id}:working`]);
+  });
+
+  it("shows only the model's own words when it answers instead of proposing", async () => {
+    const a = await latestAlert();
+    const words = "Van 1 is down to one seat, but every other van is full this afternoon, so nobody can move yet.";
+    const r = await drive(a.run_id, [toolCall("get_plan", { date: DATE, leg: "PM" }), toolCall("reply_to_staff", { summary: words })]);
+    expect(r.state, JSON.stringify(r)).toBe("SUCCEEDED");
+    expect(await itemsFor(a.task_id)).toEqual([{ kind: "agent", id: `${a.task_id}:answer`, text: words }]);
+  });
+
+  it("puts the model's sentence on the card it drafts", async () => {
+    expect((await confirmSeats(0)).status).toBe(200);
+    const a = await latestAlert();
+    const note = "Van 1 has no seats now, so re-planning the afternoon moves its riders to the other vans.";
+    const r = await drive(a.run_id, [toolCall("auto_plan", { date: DATE, leg: "PM", note })]);
+    expect(r.state, JSON.stringify(r)).toBe("SUCCEEDED");
+    expect((await itemsFor(a.task_id)).map((i) => ("id" in i ? i.id : ""))).toEqual([`${a.task_id}:alert`]);
+    const cards = await confirmCards(db, SITE);
+    expect(cards.at(-1)).toMatchObject({ summary: expect.stringMatching(/afternoon/), note });
+  });
+
+  it("says what is wrong and links the board when the run ended with nothing", async () => {
+    const a = await latestAlert();
+    await db.query("UPDATE ops.agent_tool_call SET status = 'FAILED' WHERE run_id = $1", [a.run_id]);
+    const [line] = await itemsFor(a.task_id);
+    expect(line).toEqual({
+      kind: "agent",
+      id: `${a.task_id}:no-fix`,
+      text: fill(agentBubble.couldNotFix, { situation: a.summary }),
+      link: { href: `/plan-routes?date=${DATE}&leg=pm&van=${encodeURIComponent(vanIdOfSlot(1))}`, label: agentBubble.replanLink },
+    });
+  });
+});
+
+describe("one situation, one conversation (ledger #75 — C7)", () => {
+  // Counts no earlier test confirmed: an alert is one per van, leg and setup, so a repeat is no news.
+  const confirmSeats = (seats: number, oxygenMounts = 0) =>
+    ACTIONS.confirm_van_setup.run(ctx(people.frontDesk, "FRONT_DESK"), {
+      ...defaultsOfSlot(1), seats, oxygenMounts, vanId: vanIdOfSlot(1), date: DATE, state: "CHECKED" as const,
+    });
+  const runsOn = async () =>
+    (await db.query<{ task_id: string; state: string }>(
+      `SELECT r.trigger_id AS task_id, r.state FROM ops.agent_run r JOIN ops.task t ON t.id::text = r.trigger_id
+        WHERE r.trigger_type = $1 AND t.category = 'VAN_SHORT' ORDER BY r.created_at`, [ALERT_TRIGGER],
+    )).rows;
+  const shownAlerts = async () =>
+    (await readAgentThread(db, SITE)).items.flatMap((i) => ("id" in i && /:(alert|working|no-fix)$/.test(i.id) ? [i.id] : []));
+
+  it("stands the older run down when the ramp counts the same van again, and shows only the newer", async () => {
+    // Van 1 back to fitting first, so the scenario starts from a quiet van.
+    expect((await confirmSeats(6, 1)).status).toBe(200);
+    expect((await confirmSeats(1)).status).toBe(200);
+    const first = (await runsOn()).at(-1)!;
+    expect((await confirmSeats(1, 2)).status).toBe(200);
+    const [older, newer] = (await runsOn()).slice(-2);
+    expect(older).toEqual({ task_id: first.task_id, state: "ABORTED_SUPERSEDED_BY_HUMAN" });
+    expect(newer.state).toBe("QUEUED");
+    expect(await shownAlerts()).toEqual([`${newer.task_id}:alert`, `${newer.task_id}:working`]);
+  });
+
+  it("stands down when the van fits again, and the bubble goes quiet about it", async () => {
+    expect((await confirmSeats(6, 1)).status).toBe(200);
+    expect((await runsOn()).at(-1)!.state).toBe("ABORTED_SUPERSEDED_BY_HUMAN");
+    expect(await shownAlerts()).toEqual([]);
   });
 });
 

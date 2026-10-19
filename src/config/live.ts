@@ -107,8 +107,20 @@ export const alertAgentConfig = {
   rewakeAfterSeconds: 60,
 } as const;
 
+/**
+ * A person's run that found the model busy (ledger #75): how long it keeps trying before it says
+ * so, per trigger, and how long it waits between tries. An ask's window ends before the sweep's
+ * five-minute backstop closes it (`ASK_ABANDONED_AFTER_SECONDS`); an alert has nobody waiting at
+ * the keyboard, so it keeps trying longer. One try a minute is gentle on a rate-limited vendor.
+ */
+export const agentRetryConfig = {
+  retryForSeconds: { "staff.ask": 240, "operational.event": 600 } as Readonly<Record<string, number>>,
+  retryAfterSeconds: 60,
+} as const;
+
 /** Every live number in one object, for a caller that wants to print or diff the table. */
 export const liveConfig = {
+  agentRetry: agentRetryConfig,
   alertAgent: alertAgentConfig,
   freshness: freshnessConfig,
   notifyGate: notifyGateConfig,

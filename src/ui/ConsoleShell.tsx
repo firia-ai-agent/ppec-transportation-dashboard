@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { canOpenForYou } from "@/auth/access";
 import type { ResolvedCaller } from "@/auth/caller";
 import { getNeonDb } from "@/db/exec";
+import { threadPulseOrQuiet } from "@/modules/agent/ask/pulse";
 import { readAgentThreadOrEmpty } from "@/modules/agent/ask/thread";
 import { modelReach } from "@/modules/agent/run/model-reach";
 import { decideApprovalAction } from "@/app/(app)/family-texts/actions";
@@ -13,7 +14,7 @@ import { demoDay } from "@/domain/board/day";
 import { siteOf } from "@/modules/plan/api";
 import { AgentBubble } from "./AgentBubble";
 import { AgentCompose } from "./AgentCompose";
-import { RefreshWhileAgentWorks } from "./RefreshWhileAgentWorks";
+import { AgentPulse } from "./AgentPulse";
 import { AppShell } from "./AppShell";
 import { fill, identity, roleNames } from "./copy";
 import { accountLines, initialsOf } from "./display-name";
@@ -84,7 +85,8 @@ export async function ConsoleShell({
   const cards = canDecide && (thread?.waiting ?? 0) > 0 ? await approvalCardsOrEmpty([siteOf(caller)]) : [];
   // Changes the agent prepared for a person to confirm (ledger #74 d). Fail-soft like the thread.
   const confirms = canDecide && (thread?.waiting ?? 0) > 0 ? await confirmCards(getNeonDb(), siteOf(caller)).catch(() => []) : [];
-  const working = canDecide ? await agentWorking(siteOf(caller)) : false;
+  // Whether the thread has moved since, and whether a run is on its way (ledger #75 b).
+  const pulse = canDecide ? await threadPulseOrQuiet(getNeonDb, siteOf(caller)) : { stamp: "", working: false };
   const lines = accountLines(caller.displayName, role ? roleNames[role].one : null);
   const account: RailAccount | null = lines.name
     ? {
@@ -104,6 +106,7 @@ export async function ConsoleShell({
       <AgentBubble
         canDecide={canDecide}
         waiting={thread?.waiting ?? 0}
+        stamp={pulse.stamp}
         items={thread?.items ?? []}
         compose={<AgentCompose />}
         cards={cards}
@@ -111,23 +114,7 @@ export async function ConsoleShell({
         confirms={confirms}
         confirm={confirmStaffActionAction}
       />
-      <RefreshWhileAgentWorks working={working} />
+      {canDecide ? <AgentPulse stamp={pulse.stamp} working={pulse.working} /> : null}
     </>
   );
-}
-
-/**
- * Is an agent run at this site still on its way to an answer? Read so the screens can catch up
- * when it lands (`RefreshWhileAgentWorks`). Fail-soft: a read that fails is "not working".
- */
-async function agentWorking(siteId: string): Promise<boolean> {
-  try {
-    const r = await getNeonDb().query<{ n: number }>(
-      "SELECT count(*)::int AS n FROM ops.agent_run WHERE site_id = $1 AND state IN ('QUEUED', 'RUNNING')",
-      [siteId],
-    );
-    return (r.rows[0]?.n ?? 0) > 0;
-  } catch {
-    return false;
-  }
 }

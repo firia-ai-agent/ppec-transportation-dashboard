@@ -452,6 +452,7 @@ describe("the policy itself, written out so a silent widening fails", () => {
        * them — hiding is not denying.
        */
       "/api/agent/ask": "session:DIRECTOR+COORDINATOR",
+      "/api/agent/thread/pulse": "session:DIRECTOR+COORDINATOR",
       "/api/queues/timer": "queue-callback",
       "/api/queues/outbox": "queue-callback",
       "/api/queues/agent": "queue-callback",

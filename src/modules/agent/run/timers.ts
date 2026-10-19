@@ -274,17 +274,79 @@ async function armEscalation(
 export function agentResumeHandler(transport: AgentWakeTransport): Handler {
   return async (tx, job, afterCommit) => {
     const payload = resumePayloadSchema.parse(job.payload);
-    const requeued = await tx.query<{ id: string }>(
-      `UPDATE ops.agent_run SET state = 'QUEUED', version = version + 1, updated_at = now(), updated_by = $2
-       WHERE id = $1 AND state = 'WAITING_TOOL' AND site_id = $3 RETURNING id`,
-      [payload.runId, `system:job:${AGENT_RESUME_JOB_KIND}`, job.site_id],
-    );
-    if (requeued.rows.length === 0) return;
-    afterCommit(() =>
-      transport.publish(
-        { runId: payload.runId, siteId: job.site_id },
-        { idempotencyKey: runWakeKey(payload.runId) },
-      ),
-    );
+    await requeueParked(tx, afterCommit, transport, {
+      runId: payload.runId, siteId: job.site_id, by: `system:job:${AGENT_RESUME_JOB_KIND}`, wakeKey: runWakeKey(payload.runId),
+    });
+  };
+}
+
+/** WAITING_TOOL → QUEUED, fenced on the job's site, and the wake-up after commit. A no-op otherwise. */
+async function requeueParked(
+  tx: Exec,
+  afterCommit: (hook: () => Promise<void>) => void,
+  transport: AgentWakeTransport,
+  a: { readonly runId: string; readonly siteId: string; readonly by: string; readonly wakeKey: string },
+): Promise<void> {
+  const requeued = await tx.query<{ id: string }>(
+    `UPDATE ops.agent_run SET state = 'QUEUED', version = version + 1, updated_at = now(), updated_by = $2
+     WHERE id = $1 AND state = 'WAITING_TOOL' AND site_id = $3 RETURNING id`,
+    [a.runId, a.by, a.siteId],
+  );
+  if (requeued.rows.length === 0) return;
+  afterCommit(() => transport.publish({ runId: a.runId, siteId: a.siteId }, { idempotencyKey: a.wakeKey }));
+}
+
+/* ───────────────────────── a busy model is a wait, not a failure ───────────────────────── */
+
+/**
+ * THE MODEL WAS BUSY (ledger #75). A person's run — an ask, an alert — that found every model
+ * rate-limited or timing out is parked on a timer and tried again, the way a colleague who is
+ * swamped gets back to you rather than walking away. The same park and the same requeue as an
+ * external wait, under its own job kind, so a retry is never mistaken for a reply that came in.
+ *
+ * Each attempt is its own job key and its own wake-up key: the queue's idempotency would otherwise
+ * swallow the second wake-up for the same run as a duplicate of the first.
+ */
+export const AGENT_RETRY_JOB_KIND = "agent.run.retry";
+
+export const retryPayloadSchema = z.object({
+  runId: z.string().uuid(),
+  attempt: z.number().int().nonnegative(),
+});
+
+export async function parkRunForRetry(
+  tx: Exec,
+  afterCommit: (hook: () => Promise<void>) => void,
+  scheduler: JobScheduler,
+  args: { readonly run: RunRow; readonly now: Date; readonly afterSeconds: number },
+): Promise<{ attempt: number; dueAt: Date }> {
+  const tried = await tx.query<{ n: number }>(
+    "SELECT count(*)::int AS n FROM ops.job WHERE kind = $1 AND payload->>'runId' = $2",
+    [AGENT_RETRY_JOB_KIND, args.run.id],
+  );
+  const attempt = tried.rows[0]?.n ?? 0;
+  const dueAt = new Date(args.now.getTime() + args.afterSeconds * 1000);
+  await scheduler.schedule(tx, afterCommit, {
+    siteId: args.run.siteId,
+    key: `${AGENT_RETRY_JOB_KIND}:${args.run.id}:${attempt}`,
+    kind: AGENT_RETRY_JOB_KIND,
+    payload: { runId: args.run.id, attempt },
+    dueAt,
+    by: runActor(args.run.id),
+  });
+  const parked = await setRunState(tx, args.run.id, "RUNNING", "WAITING_TOOL", args.run.updatedBy);
+  if (!parked) throw new Error(`run ${args.run.id} was not RUNNING; refusing to park it for a retry`);
+  return { attempt, dueAt };
+}
+
+export function agentRetryHandler(transport: AgentWakeTransport): Handler {
+  return async (tx, job, afterCommit) => {
+    const payload = retryPayloadSchema.parse(job.payload);
+    await requeueParked(tx, afterCommit, transport, {
+      runId: payload.runId,
+      siteId: job.site_id,
+      by: `system:job:${AGENT_RETRY_JOB_KIND}`,
+      wakeKey: `${runWakeKey(payload.runId)}:retry:${payload.attempt}`,
+    });
   };
 }
