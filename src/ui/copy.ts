@@ -2908,6 +2908,12 @@ export const agentTasks = {
     nextStep: "Read the text the family would get, then approve and send it, or don't send it.",
     predicate: "the text approved and sent, or the request declined",
   },
+  /** Ledger #74 (d): an action a person must confirm — the agent prepared it and changed nothing. */
+  proposedStaffAction: {
+    summary: "The agent prepared a change for you to confirm",
+    nextStep: "Read what it would do, then confirm it or don't.",
+    predicate: "the change confirmed or declined by a person",
+  },
   /** §11.2 propose_manifest_reallocation: "RED exception + Teams card". */
   proposedReallocation: {
     summary: "A vehicle cannot take its runs and the agent has options to show you",
@@ -3203,6 +3209,17 @@ export const agentGuidance = {
     "Null when the family keeps their stop, which is the usual case. Only when they ask for a " +
     "different place: one of the listed stop tokens, exactly as written.",
   readGuardianThread: "Read the last messages on a family's thread, oldest first, to see exactly what they asked.",
+  autoPlan: "Re-plan a leg with Auto-plan and save it, as the person who asked. Use get_plan first.",
+  moveChild: "Move one child to a van, Unassigned, Absent or Family drives on a leg, and save it.",
+  savePlan: "Apply several moves to a leg's plan and save them together.",
+  confirmVan: "Record a van's counts and lift as the ramp found them today.",
+  setNeeds: "Ask a person to confirm a change to a child's approved needs (a card; nothing changes until they press it).",
+  restart: "Ask the director to confirm restarting the demo day (a card).",
+  decideCard: "Ask a person to confirm approving or declining a waiting card (a card of its own).",
+  takeAlert: "Take a needs-a-person alert so others know it is being handled.",
+  getPlan: "Read a leg's plan: each van's counts and riders, and who does not fit. Ids are for the action tools.",
+  getAlerts: "Read the open alerts coordinators see.",
+  getCards: "Read the cards waiting for a person: family replies and confirm cards.",
   replyToStaff:
     "Answer the staff member who asked: what you did, what you found, or why you could not. One or " +
     "two plain sentences, with people written as the prompt's tokens. Call it last.",
@@ -3225,6 +3242,24 @@ export const actionSummaries = {
   approve: "Approve and send this reply.",
   decline: "Don't send this reply.",
   takeAlert: "Take this alert.",
+  /** A confirm card for deciding another card: which one is on the card itself. */
+  decideCard: "Decide a waiting card for you.",
+  generic: "Make a change for you.",
+} as const;
+
+/** A confirm card in the bubble (ledger #74 d): a change the agent prepared, for a person to press. */
+export const confirmCopy = {
+  heading: "Confirm a change",
+  confirm: "Confirm",
+  dontDo: "Don't",
+  pending: "Nothing happens until you confirm.",
+  done: "Done.",
+  declined: "Not done. Nothing changed.",
+  signIn: "Your sign-in has expired. Sign in again and the card is still here.",
+  notYourRole: "Your role cannot do this one. Ask the director.",
+  gone: "That card is not here any more.",
+  alreadyDecided: "Somebody decided this one already.",
+  refused: "That couldn't be done as it stands, so nothing changed. Ask the agent again.",
 } as const;
 
 export const agentBubble = {

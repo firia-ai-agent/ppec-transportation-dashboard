@@ -45,6 +45,7 @@
  * `OPENROUTER_API_KEY` is not read here and nothing on this path logs it.
  */
 import type { Db, Exec } from "@/db/exec";
+import { STAFF_ONLY_TOOLS } from "../action-tools";
 import { rosterFromDisplayName, tokenizeNames, type RosterEntry } from "@/modules/identity/names";
 import { activeSuppression, authorizedContactsForChild, FAMILY_SMS } from "@/modules/outbox/policy";
 import { serviceDateIso } from "@/ui/service-date";
@@ -75,6 +76,8 @@ export const STAFF_ASK_TOOLS: readonly string[] = [
   "summarize_thread_for_staff",
   "reply_to_staff",
   "propose_dropoff_change",
+  // Everything a person can do in the UI, and what they see (ledger #74).
+  ...STAFF_ONLY_TOOLS,
   "escalate_exception",
 ];
 

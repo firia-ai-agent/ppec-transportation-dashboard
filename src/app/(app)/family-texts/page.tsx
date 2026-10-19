@@ -5,7 +5,7 @@ import { identityGateway } from "@/modules/identity/gateway";
 import { requirePage } from "@/auth/page-guard";
 import { getNeonDb } from "@/db/exec";
 import { demoDay, type ServiceDay } from "@/domain/board/day";
-import { modelReach } from "@/modules/agent/run/deps";
+import { modelReach } from "@/modules/agent/run/model-reach";
 import { siteOf } from "@/modules/plan/api";
 import { openAssistantAlerts, type AssistantAlert } from "@/modules/agent/staff-alert";
 import { approvalQueue } from "./queue";

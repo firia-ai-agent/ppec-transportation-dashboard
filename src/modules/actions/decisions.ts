@@ -25,7 +25,7 @@ export const DECISION_ACTIONS = {
     confirm: true,
     describe: (i) => (i.decision === "APPROVED" ? actionSummaries.approve : actionSummaries.decline),
     run: (ctx, i) =>
-      decideApproval(getNeonDb(), vercelQueueOutboxTransport, {
+      decideApproval(ctx.deps?.db ?? getNeonDb(), vercelQueueOutboxTransport, {
         userId: ctx.caller.userId,
         approvalId: i.approvalId,
         decision: i.decision,
@@ -42,7 +42,7 @@ export const DECISION_ACTIONS = {
     confirm: false,
     describe: () => actionSummaries.takeAlert,
     run: async (ctx, i) => {
-      await openAlert(getNeonDb(), { id: i.alertId, siteIds: [ctx.siteId], by: `staff:${ctx.caller.userId}` });
+      await openAlert(ctx.deps?.db ?? getNeonDb(), { id: i.alertId, siteIds: [ctx.siteId], by: `staff:${ctx.caller.userId}` });
       return { status: 200, body: { ok: true } };
     },
   }),

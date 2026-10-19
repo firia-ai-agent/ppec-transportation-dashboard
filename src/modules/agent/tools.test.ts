@@ -21,7 +21,7 @@ import {
 } from "./tools";
 
 describe("§11.2 tool catalog", () => {
-  it("has all 18 tools, each with a tier and an effect", () => {
+  it("has all 29 tools, each with a tier and an effect", () => {
     expect(TOOL_NAMES).toHaveLength(TOOL_COUNT);
     expect(TOOL_NAMES).toEqual([
       "resolve_sender",
@@ -42,12 +42,25 @@ describe("§11.2 tool catalog", () => {
       "close_task",
       "summarize_thread_for_staff",
       "reply_to_staff",
+      // Ledger #74: what a person can do in the UI, and what they see (agent/action-tools.ts).
+      "auto_plan",
+      "move_child",
+      "save_plan",
+      "confirm_van_setup",
+      "set_child_needs",
+      "restart_demo_day",
+      "decide_card",
+      "take_alert",
+      "get_plan",
+      "get_alerts",
+      "get_cards",
     ]);
     for (const name of TOOL_NAMES) {
       const def = TOOL_REGISTRY[name];
       expect(["auto", "human"]).toContain(def.tier);
       expect(["read", "mutate", "send", "propose"]).toContain(def.effect);
-      expect(def.prd).toContain("§11.2");
+      // Every tool cites where it comes from: the PRD's catalog, or the ruling that added it.
+      expect(def.prd, name).toMatch(/§11\.2|ledger #74/);
     }
   });
 
@@ -66,6 +79,10 @@ describe("§11.2 tool catalog", () => {
       "propose_manifest_reallocation",
       "propose_contact_or_profile_change",
       "propose_dropoff_change",
+      // Ledger #74 (d): the PRD §11.2-prohibited actions are confirm cards a person presses.
+      "set_child_needs",
+      "restart_demo_day",
+      "decide_card",
     ]);
     for (const n of human) expect([n, TOOL_REGISTRY[n].effect]).toEqual([n, "propose"]);
     // Every `propose_*` tool is human tier. The two message tools are the only human-tier tools
@@ -135,9 +152,13 @@ describe("§11.2 tool catalog", () => {
   });
 
   it("exposes each tool as JSON Schema (§11.2 JSON-schema tool calls only)", () => {
+    // Three tools take nothing: the site is the run's own, never an argument (ledger #74).
+    const NO_ARGUMENTS = ["restart_demo_day", "get_alerts", "get_cards"];
     for (const d of toolDeclarations()) {
       expect(d.parameters).toMatchObject({ type: "object" });
-      expect(Object.keys((d.parameters as { properties: object }).properties).length).toBeGreaterThan(0);
+      const count = Object.keys((d.parameters as { properties?: object }).properties ?? {}).length;
+      if (NO_ARGUMENTS.includes(d.name)) expect(count, d.name).toBe(0);
+      else expect(count, d.name).toBeGreaterThan(0);
     }
   });
 });

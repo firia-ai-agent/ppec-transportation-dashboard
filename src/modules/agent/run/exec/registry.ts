@@ -12,6 +12,8 @@
  * thing worse than a missing executor is a lying one. `SEQUENCED_EXECUTORS` names them, and
  * `docs/agent/B08-SLICE1-DEFERRED.md` says what each still owes.
  */
+import { staffExecutors } from "./actions";
+import { ACTION_TOOLS } from "../../action-tools";
 import { MESSAGE_SEND_TOOLS } from "@/modules/approvals/message-send";
 import type { ToolExecutors } from "../executors";
 import { TOOL_NAMES } from "../../tools";
@@ -54,6 +56,8 @@ export function liveExecutors(deps: ExecutorDeps): ToolExecutors {
     close_task: closeTaskExecutor(deps),
     summarize_thread_for_staff: summarizeThreadForStaffExecutor(deps),
     reply_to_staff: replyToStaffExecutor(),
+    // What a person can do in the UI, as the person who asked (ledger #74).
+    ...staffExecutors(deps),
   };
 }
 
@@ -94,6 +98,8 @@ export const PROPOSAL_ONLY_TOOLS: readonly string[] = [
   "propose_dropoff_change",
   "propose_contact_or_profile_change",
   ...MESSAGE_SEND_TOOLS,
+  // The confirm cards (ledger #74 d): PRD §11.2-prohibited actions the agent may only propose.
+  ...ACTION_TOOLS.filter((t) => t.tier === "human").map((t) => t.name),
 ];
 
 /**

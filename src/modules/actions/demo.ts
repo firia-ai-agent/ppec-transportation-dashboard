@@ -17,6 +17,6 @@ export const DEMO_ACTIONS = {
     run: (ctx, i) =>
       // The site asked for, or none: the reset resolves the director's own centre itself, and asks
       // which one when there are several (demo/reset.ts) — exactly what the screen's button gets.
-      handleDemoReset(getNeonDb(), process.env, { userId: ctx.caller.userId, siteId: i.siteId, now: ctx.now }),
+      handleDemoReset(ctx.deps?.db ?? getNeonDb(), process.env, { userId: ctx.caller.userId, siteId: i.siteId, now: ctx.now }),
   }),
 } as const;

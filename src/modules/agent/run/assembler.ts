@@ -51,6 +51,8 @@
  * decided for itself.
  */
 import type { Db, Exec } from "@/db/exec";
+import { STAFF_ONLY_TOOLS } from "../action-tools";
+import { TOOL_NAMES } from "../tools";
 import { formatClock24 } from "@/domain/eta/eta";
 import { rosterFromDisplayName, tokenizeNames, type RosterEntry } from "@/modules/identity/names";
 import { activeSuppression, authorizedContactsForChild, FAMILY_SMS } from "@/modules/outbox/policy";
@@ -203,6 +205,9 @@ export function dbContextAssembler(
     return {
       prompt: tierPrompt(facts, input),
       tokens,
+      // A family's text is never offered a staff member's tools (ledger #74): no action a person
+      // takes in the UI, no read of the board. The rest of the catalog, as before.
+      tools: TOOL_NAMES.filter((name) => !STAFF_ONLY_TOOLS.has(name)),
       policy: {
         scope,
         sendableSubjects: await sendableSubjects(db, {

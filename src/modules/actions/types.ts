@@ -4,6 +4,20 @@
  */
 import type { z } from "zod";
 import type { StaffRole } from "@/auth/core";
+import type { Db } from "@/db/exec";
+import type { DayDataSource } from "@/domain/day/source";
+import type { PlanStore } from "@/modules/plan/types";
+
+/**
+ * The database and the plan board an action reads and writes, when the caller has one in hand:
+ * the agent's run (its own connection), a confirm card, a test. Absent, every action uses the
+ * request's own defaults — exactly what the screens have always used.
+ */
+export type ActionDeps = {
+  readonly db?: Db;
+  readonly store?: PlanStore;
+  readonly source?: DayDataSource;
+};
 
 /** Who is acting, where, and when. The person — a screen's session, or the asker the agent acts for. */
 export type ActionCtx = {
@@ -11,6 +25,7 @@ export type ActionCtx = {
   /** `userId` as the session has it: a session with none is refused by each action (401). */
   readonly caller: { readonly userId: string | undefined; readonly role: StaffRole };
   readonly now: Date;
+  readonly deps?: ActionDeps;
 };
 
 /** What every action answers: the status and body its route already returned. */

@@ -41,7 +41,7 @@
  */
 import { demoDay, localTimeOn, type ServiceDay } from "@/domain/board/day";
 import { getNeonDb, type Exec } from "@/db/exec";
-import { modelReach } from "@/modules/agent/run/deps";
+import { modelReach } from "@/modules/agent/run/model-reach";
 import { formatClock } from "@/domain/eta/eta";
 import { bodyOf, pendingApprovals } from "@/modules/approvals/decide";
 import { approval, fill } from "@/ui/copy";

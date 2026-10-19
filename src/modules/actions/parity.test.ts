@@ -3,6 +3,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { API, ENDPOINTS } from "@/auth/access";
 import { ACTION_LIST, SERVER_ACTION_EXPORTS } from "./registry";
+import { ACTION_TOOLS, TOOL_FOR_ACTION } from "@/modules/agent/action-tools";
+import { TOOL_NAMES } from "@/modules/agent/tools";
 
 /**
  * PARITY (ledger #74, S5): every write a person can make from a screen is one entry in the action
@@ -21,6 +23,7 @@ const read = (file: string) => readFileSync(path.join(REPO, file), "utf8");
  */
 const NOT_AN_ACTION: Readonly<Record<string, string>> = {
   [API.agentAsk]: "the ask itself: what a person types to the agent, not a change to the day",
+  "action:staff-action-confirm": "the press on a confirm card: it runs a registry action, it is not one",
 };
 
 /** The writes a signed-in person can make: POST routes and server actions behind a session. */
@@ -34,7 +37,7 @@ describe("every screen write is one registry action (S5)", () => {
   });
 
   it("maps every exported server action to an entry, by name", () => {
-    for (const row of SESSION_WRITES.filter((e) => e.kind === "action")) {
+    for (const row of SESSION_WRITES.filter((e) => e.kind === "action" && !(e.path in NOT_AN_ACTION))) {
       const exported = [...read(row.file).matchAll(/^export async function (\w+)/gm)].map((m) => m[1]);
       expect(exported.length, row.file).toBeGreaterThan(0);
       for (const name of exported) expect(SERVER_ACTION_EXPORTS[name], `${row.file} ${name}`).toBeDefined();
@@ -45,6 +48,23 @@ describe("every screen write is one registry action (S5)", () => {
     const paths = new Set(ENDPOINTS.map((e) => e.path));
     for (const a of ACTION_LIST) expect(paths.has(a.endpoint), a.name).toBe(true);
     expect(new Set(ACTION_LIST.map((a) => a.name)).size).toBe(ACTION_LIST.length);
+  });
+});
+
+describe("every registry action is an agent tool (S5, the agent's half)", () => {
+  it("names an agent tool for every action, and that tool runs that action", () => {
+    for (const a of ACTION_LIST) {
+      const name = TOOL_FOR_ACTION[a.name];
+      expect(name, `${a.name} has no agent tool: the agent cannot do what a person can`).toBeDefined();
+      expect(TOOL_NAMES).toContain(name);
+    }
+  });
+
+  it("makes exactly the actions a person must press human-tier (a confirm card), and the rest the agent's own", () => {
+    for (const t of ACTION_TOOLS) {
+      const action = ACTION_LIST.find((a) => a.name === t.action)!;
+      expect(t.tier, t.name).toBe(action.confirm ? "human" : "auto");
+    }
   });
 });
 

@@ -2,6 +2,9 @@ import type { DecideAction } from "@/app/(app)/family-texts/actions";
 import type { ProposalView } from "@/app/(app)/family-texts/conversations";
 import { ProposalCard as DecisionCard } from "@/app/(app)/family-texts/ProposalCard";
 import { familyThreadHref } from "@/auth/access";
+import type { ConfirmAction } from "@/app/(app)/confirm/actions";
+import type { ConfirmView } from "@/modules/actions/confirm-view";
+import { ConfirmCard } from "./ConfirmCard";
 import { agentBubble, fill } from "./copy";
 import { Pill, PillLabel } from "./Pill";
 import styles from "./AgentThread.module.css";
@@ -52,6 +55,8 @@ export function AgentThread({
   items,
   cards = [],
   decide,
+  confirms = [],
+  confirm,
 }: {
   items: readonly AgentThreadItem[];
   /**
@@ -63,6 +68,9 @@ export function AgentThread({
   cards?: readonly ProposalView[];
   /** The one decision action (`family-texts/actions.ts`). Without it a proposal stays compact. */
   decide?: DecideAction;
+  /** Changes the agent prepared for a person to confirm (ledger #74 d), and the action that does. */
+  confirms?: readonly ConfirmView[];
+  confirm?: ConfirmAction;
 }) {
   return (
     <div className={styles.thread}>
@@ -96,6 +104,8 @@ export function AgentThread({
               </p>
             );
           case "proposal": {
+            const toConfirm = confirms.find((c) => c.approvalId === item.id);
+            if (toConfirm && confirm) return <ConfirmCard key={item.id} card={toConfirm} confirm={confirm} />;
             const card = cards.find((c) => c.approvalId === item.id);
             return card && decide ? (
               <DecisionCard
