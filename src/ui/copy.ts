@@ -1249,7 +1249,7 @@ export const familyTexts = {
    * deterministic, written down, and read by the screen and by nothing that sends. It is here
    * rather than in the fixture file because it is a sentence somebody reads.
    */
-  demoReply: "Can you drop {child} at 5 instead? Someone is home then.",
+  demoReply: "Hi we won't be home at that time can you do 5?",
   /**
    * THE REPLY WHEN NO MODEL ANSWERED — the demo day's card, drafted from copy instead of by the
    * assistant (Firia, 2026-10-18 11:04 AM ET).
