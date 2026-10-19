@@ -214,12 +214,21 @@ export async function resumableRuns(db: Exec, siteId: string, limit = 100): Prom
  * and the UPDATE is fenced on the state it claims to be moving from. `false` means the row was not
  * in `from` any more — another driver, a human takeover, or a timer got there first.
  */
-export async function setRunState(db: Exec, runId: string, from: RunState, to: RunState, by: string): Promise<boolean> {
+export async function setRunState(
+  db: Exec,
+  runId: string,
+  from: RunState,
+  to: RunState,
+  by: string,
+  /** Why it ended, on a FAILED move (ledger #77): codes and names only. */
+  reason?: string,
+): Promise<boolean> {
   if (!runEdgeAllowed(from, to)) throw new AgentRunError(`agent_run: ${from} -> ${to} is not an allowed edge`);
   const r = await db.query(
-    `UPDATE ops.agent_run SET state = $3, version = version + 1, updated_at = now(), updated_by = $4
+    `UPDATE ops.agent_run SET state = $3, version = version + 1, updated_at = now(), updated_by = $4,
+            reason = COALESCE($5, reason)
      WHERE id = $1 AND state = $2 RETURNING id`,
-    [runId, from, to, by],
+    [runId, from, to, by, reason ? reason.slice(0, 500) : null],
   );
   return r.rows.length === 1;
 }

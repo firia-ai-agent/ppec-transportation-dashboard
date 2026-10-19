@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "@/db/exec";
 import { askAgent } from "@/modules/agent/ask/staff-ask";
 import { familyScope, type PolicyContext } from "@/modules/agent/policy";
-import { toolCall } from "@/modules/agent/providers/fake";
+import { freeText, toolCall } from "@/modules/agent/providers/fake";
 import type { TierFacts } from "@/modules/agent/run/context";
 import { liveHarness } from "@/modules/agent/run/exec/live-harness";
 import { toolCalls } from "@/modules/agent/run/store";
@@ -155,6 +155,51 @@ describe("asked what was just done, the agent can look (ledger #76)", () => {
     expect(facts).not.toMatch(/PROVISIONAL|SCHEDULED/);
     // People reach the model as tokens, never names (PRD; else the reply's own redaction wipes them).
     for (const child of CHILDREN) expect(facts, child.label).not.toContain(child.label);
+  });
+});
+
+describe("a slip is feedback, not the end of a person's run (ledger #77)", () => {
+  const callsOf = async (runId: string) => (await toolCalls(db, runId)).map((c) => [c.tool, c.status, (c.result as { prompt_facts?: Record<string, unknown> } | null)?.prompt_facts?.refused ?? null]);
+
+  it("hears prose instead of a tool call, is told to use reply, and answers", async () => {
+    const r = await ask(people.director, "let's plan the afternoon routes", [
+      freeText("Sure, let me look at the afternoon."),
+      toolCall("reply_to_staff", { summary: "The afternoon is planned and every van fits." }),
+    ]);
+    expect(r.outcome === "ran" && r.answer).toBe("The afternoon is planned and every van fits.");
+    if (r.outcome !== "ran") return;
+    expect(await callsOf(r.run.runId)).toEqual([
+      ["none", "FAILED", "REJECTED_FREE_TEXT"],
+      ["reply_to_staff", "EXECUTED", null],
+    ]);
+  });
+
+  it("is told which argument was wrong, and tries again", async () => {
+    const r = await ask(people.director, "what's on the afternoon plan?", [
+      toolCall("get_plan", { date: "tomorrow", leg: "PM" }),
+      toolCall("get_plan", { date: DATE, leg: "PM" }),
+      toolCall("reply_to_staff", { summary: "Every van fits this afternoon." }),
+    ]);
+    if (r.outcome !== "ran") throw new Error(r.outcome);
+    expect((await callsOf(r.run.runId)).map((c) => c.slice(0, 2))).toEqual([
+      ["get_plan", "FAILED"],
+      ["get_plan", "EXECUTED"],
+      ["reply_to_staff", "EXECUTED"],
+    ]);
+  });
+
+  it("has room for more than eight steps, and a run that still fails says why", async () => {
+    const reads = Array.from({ length: 10 }, () => toolCall("get_activity", {}));
+    const ok = await ask(people.director, "look around, then tell me", [...reads, toolCall("reply_to_staff", { summary: "All quiet." })]);
+    expect(ok.outcome === "ran" && ok.answer).toBe("All quiet.");
+
+    const slips = Array.from({ length: 20 }, () => freeText("hmm"));
+    const failed = await ask(people.director, "keep talking", slips);
+    expect(failed.outcome).toBe("unavailable");
+    const run = await db.query<{ reason: string | null }>(
+      "SELECT reason FROM ops.agent_run WHERE trigger_type = 'staff.ask' AND state = 'FAILED' ORDER BY created_at DESC LIMIT 1", [],
+    );
+    expect(run.rows[0].reason).toMatch(/step budget of 16/);
   });
 });
 

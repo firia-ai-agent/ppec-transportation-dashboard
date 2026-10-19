@@ -43,7 +43,7 @@ import { VercelQueueScheduler } from "@/modules/jobs/scheduler";
 import { vercelQueueTransport } from "@/modules/jobs/vercel-queue";
 import { vercelQueueOutboxTransport } from "@/modules/outbox/transport";
 import { loadAgentConfig, type AgentConfig } from "../config";
-import { createGateway } from "../gateway";
+import { type AuditSink, createGateway } from "../gateway";
 import type { LlmProvider } from "../providers/provider";
 import { liveCallRefusalReason } from "../providers/remote";
 import { dbContextAssembler } from "./assembler";
@@ -86,11 +86,30 @@ export function agentRunner(db: Db, env: Record<string, string | undefined> = pr
     reason: choice.reason,
     deps: {
       db,
-      gateway: createGateway(choice.provider, config),
+      // PRD §11.2 / AGT-02: every model call — accepted or refused — is audited, hashes and codes
+      // only (ledger #77). It used to live in memory and die with the request.
+      gateway: createGateway(choice.provider, config, { auditSink: dbAuditSink(db) }),
       assemble: dbContextAssembler(db, { env }),
       executors: liveExecutors(execDeps),
       proposals: liveProposalWriter(execDeps),
       scheduler: execDeps.scheduler,
     },
+  };
+}
+
+/**
+ * The gateway's per-call audit, into `ops.audit_event` (PRD §11.2: "per-call audit of hashes
+ * only"). Fire-and-forget: an audit row that cannot be written is a log line, never a failed turn.
+ * The record carries hashes, codes, tool names and counts — no prompt or response text.
+ */
+function dbAuditSink(db: Db): AuditSink {
+  return (r) => {
+    void db
+      .query(
+        `INSERT INTO ops.audit_event (site_id, actor, action, entity, entity_id, detail)
+         SELECT site_id, 'agent:gateway', $2, 'agent_run', $1, $3::jsonb FROM ops.agent_run WHERE id::text = $1`,
+        [r.runId, `llm.${r.outcome}`, JSON.stringify(r)],
+      )
+      .catch((e) => console.error("[agent:audit] not written", e instanceof Error ? e.message : e));
   };
 }
