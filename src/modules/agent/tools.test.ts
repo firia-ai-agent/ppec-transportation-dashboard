@@ -21,7 +21,7 @@ import {
 } from "./tools";
 
 describe("§11.2 tool catalog", () => {
-  it("has all 29 tools, each with a tier and an effect", () => {
+  it("has all 30 tools, each with a tier and an effect", () => {
     expect(TOOL_NAMES).toHaveLength(TOOL_COUNT);
     expect(TOOL_NAMES).toEqual([
       "resolve_sender",
@@ -54,6 +54,7 @@ describe("§11.2 tool catalog", () => {
       "get_plan",
       "get_alerts",
       "get_cards",
+      "get_activity",
     ]);
     for (const name of TOOL_NAMES) {
       const def = TOOL_REGISTRY[name];
@@ -154,7 +155,7 @@ describe("§11.2 tool catalog", () => {
   it("exposes each tool as JSON Schema (§11.2 JSON-schema tool calls only)", () => {
     // Three tools take nothing: the site is the run's own, never an argument (ledger #74). An
     // action's optional `note` is the card's sentence (ledger #75), never an input, so not counted.
-    const NO_ARGUMENTS = ["restart_demo_day", "get_alerts", "get_cards"];
+    const NO_ARGUMENTS = ["restart_demo_day", "get_alerts", "get_cards", "get_activity"];
     for (const d of toolDeclarations()) {
       expect(d.parameters).toMatchObject({ type: "object" });
       const count = Object.keys((d.parameters as { properties?: object }).properties ?? {}).filter((k) => k !== "note").length;

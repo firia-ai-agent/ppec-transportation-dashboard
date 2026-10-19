@@ -21,6 +21,11 @@ import { fits } from "@/domain/plan/fit";
 import { hhmmOf, madeLate, plannedStopTimes } from "@/domain/plan/arrivals";
 import type { Placement } from "@/domain/plan/board";
 import { notifyGateConfig } from "@/config/live";
+import { staffLabel } from "@/modules/plan/staff";
+import { activityWords, fill } from "@/ui/copy";
+import { serviceDateIso, siteTimeLabel } from "@/ui/service-date";
+import { VANS, vanNameOf } from "@/config/vans";
+import { vehicleIdOf } from "@/modules/demo/fixtures/standard";
 import { pendingApprovals } from "@/modules/approvals/decide";
 import { ACTIONS, authorize, runAction, type ActionCtx, type ActionName } from "@/modules/actions/registry";
 import { actionDepsFor } from "@/modules/actions/deps";
@@ -178,6 +183,69 @@ function getCardsExecutor(deps: ExecutorDeps): ToolExecutor {
   };
 }
 
+/**
+ * WHAT HAPPENED TODAY (ledger #76), read-only, in time order — so asked "what was just done?" the
+ * agent can look before it answers instead of guessing from leg states. Read from the records the
+ * day already keeps: plans saved, vans checked at the ramp, van alerts, cards decided or drafted,
+ * and late texts sent. Nothing is written.
+ */
+function getActivityExecutor(deps: ExecutorDeps): ToolExecutor {
+  return async (call) => {
+    const today = serviceDateIso(call.now);
+    const who = (by: string | null) => staffLabel(by?.replace(/^staff:/, "") ?? null) ?? activityWords.someone;
+    const events: { at: Date; line: string }[] = [];
+    const q = <T,>(sql: string, params: unknown[]) => deps.db.query<T & { at: Date }>(sql, params).then((r) => r.rows);
+
+    for (const r of await q<{ direction: string; saved_by: string | null }>(
+      `SELECT direction::text AS direction, saved_by::text AS saved_by, saved_at AS at FROM ops.plan_run
+        WHERE site_id = $1 AND service_date = $2::date`, [call.siteId, today])) {
+      events.push({ at: r.at, line: fill(activityWords.planSaved, { who: who(r.saved_by), leg: legWord(r.direction) }) });
+    }
+    for (const r of await q<{ van: string; set_by: string | null; seats: number; wc: number; cs: number; ox: number }>(
+      `SELECT v.vehicle_id::text AS van, v.set_by::text AS set_by, v.set_at AS at, v.seats, v.wheelchair_spots AS wc,
+              v.car_seats AS cs, v.oxygen_mounts AS ox
+         FROM ops.vehicle_setup_day v WHERE v.site_id = $1 AND v.service_date = $2::date AND v.state = 'CHECKED' AND v.set_at IS NOT NULL`,
+      [call.siteId, today])) {
+      events.push({ at: r.at, line: fill(activityWords.vanChecked, { who: who(r.set_by), van: vanNameOfId(r.van), seats: r.seats, wc: r.wc, cs: r.cs, ox: r.ox }) });
+    }
+    for (const r of await q<{ summary: string; state: string }>(
+      `SELECT summary, state::text AS state, created_at AS at FROM ops.task
+        WHERE site_id = $1 AND category = 'VAN_SHORT' AND created_at::date = $2::date`, [call.siteId, today])) {
+      events.push({ at: r.at, line: fill(activityWords.alert, { what: r.summary, state: r.state.startsWith("RESOLVED") ? activityWords.resolved : activityWords.open }) });
+    }
+    for (const r of await q<{ summary: string | null; decision: string | null; decided_by: string | null; outcome: string | null; impact: string[] | null; created_by: string }>(
+      `SELECT proposal->>'summary' AS summary, decision, decided_by::text AS decided_by, proposal->>'outcome' AS outcome,
+              proposal->'impact' AS impact, created_by, coalesce(decided_at, created_at) AS at
+         FROM ops.approval_request
+        WHERE site_id = $1 AND proposal->>'kind' = 'STAFF_ACTION' AND coalesce(decided_at, created_at)::date = $2::date`,
+      [call.siteId, today])) {
+      const impact = Array.isArray(r.impact) ? ` (${r.impact.join("; ")})` : "";
+      const line = r.decision === "APPROVED"
+        ? fill(activityWords.approved, { who: who(r.decided_by), what: r.summary ?? "", impact, outcome: r.outcome ?? "" })
+        : r.decision
+          ? fill(activityWords.declined, { who: who(r.decided_by), what: r.summary ?? "" })
+          : fill(activityWords.drafted, { who: r.created_by.startsWith("agent:") ? activityWords.agent : who(r.created_by), what: r.summary ?? "", impact });
+      events.push({ at: r.at, line });
+    }
+    const texted = (await q<{ n: number }>(
+      `SELECT count(DISTINCT child_token)::int AS n, max(created_at) AS at FROM ops.outbound_message
+        WHERE site_id = $1 AND template_id = 'dropoff.late_eta' AND created_at::date = $2::date`, [call.siteId, today]))[0];
+    if (texted && texted.n > 0) events.push({ at: texted.at, line: fill(activityWords.texted, { count: texted.n }) });
+
+    const recent = events.sort((a, b) => a.at.getTime() - b.at.getTime()).slice(-20);
+    const facts: Record<string, string | number> = { events: recent.length };
+    recent.forEach((e, i) => (facts[`event_${i + 1}`] = `${siteTimeLabel(new Date(e.at))} ${e.line}`.slice(0, 300)));
+    return { status: "executed", data: { events: recent.length }, promptFacts: facts };
+  };
+}
+
+const legWord = (direction: string) => (direction === "AM" ? "morning" : "afternoon");
+/** "Van 2" for a vehicle id, from the one van config. */
+const vanNameOfId = (id: string) => {
+  const van = VANS.find((v) => vehicleIdOf(v.vehicleKey) === id);
+  return van ? vanNameOf(van.slot) : "a van";
+};
+
 /** Every staff executor: the auto-tier action tools and the reads. Human-tier ones are proposals. */
 export function staffExecutors(deps: ExecutorDeps): ToolExecutors {
   return {
@@ -185,5 +253,6 @@ export function staffExecutors(deps: ExecutorDeps): ToolExecutors {
     get_plan: getPlanExecutor(deps),
     get_alerts: getAlertsExecutor(deps),
     get_cards: getCardsExecutor(deps),
+    get_activity: getActivityExecutor(deps),
   };
 }

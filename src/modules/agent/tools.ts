@@ -632,7 +632,7 @@ export const TOOL_NAMES: readonly string[] = DEFS.map((d) => d.name);
  * tool at all — and `read_guardian_thread`, the read the bubble's answer comes from. Asserted in
  * tools.test.ts, so a dropped row is a failing test and an added one is a deliberate edit here.
  */
-export const TOOL_COUNT = 29;
+export const TOOL_COUNT = 30;
 
 export function toolDef(name: string): ToolDef | undefined {
   return TOOL_REGISTRY[name];

@@ -140,6 +140,21 @@ describe("asked to re-plan, the agent re-plans as the person who asked (S3)", ()
   });
 });
 
+describe("asked what was just done, the agent can look (ledger #76)", () => {
+  it("reads today's events in time order: the draft, the approval and the save", async () => {
+    const r = await ask(people.director, "what was just done?", [
+      toolCall("get_activity", {}),
+      toolCall("reply_to_staff", { summary: "We moved a child so every van fits, and you approved it." }),
+    ]);
+    if (r.outcome !== "ran") throw new Error(r.outcome);
+    const [read] = await toolCalls(db, r.run.runId);
+    const facts = Object.values((read.result as { prompt_facts: Record<string, unknown> }).prompt_facts).map(String).join("\n");
+    expect(facts).toMatch(/approved "Re-plan the afternoon"/);
+    expect(facts).toMatch(/saved the afternoon plan/);
+    expect(facts).not.toMatch(/PROVISIONAL|SCHEDULED/);
+  });
+});
+
 describe("the agent can only do what the asker's role can (S4)", () => {
   it("refuses the front desk's re-plan exactly as the board does, and saves nothing", async () => {
     const before = await board();
