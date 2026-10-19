@@ -26,7 +26,7 @@ import { agentBubble, confirmCopy, fill } from "@/ui/copy";
 import { STALE_PLAN_CARD_SQL } from "@/modules/actions/confirm-cards";
 import { boardHref, PLAN_ROUTES_PATH } from "@/modules/plan/when";
 import { ALERT_TRIGGER } from "@/modules/agent/alerts";
-import { namedOrNull } from "@/modules/identity/names";
+import { detokenizeNames, namedOrNull } from "@/modules/identity/names";
 import { effectId } from "@/modules/agent/run/exec/effects";
 import { ANSWER_TOOLS } from "./answer";
 
@@ -140,7 +140,7 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
   });
   const answeredIds = new Set(answers.map((a) => (a.item as { id: string }).id.replace(/:answer$/, "")));
   const said = asks.rows.flatMap((r) => {
-    const ask = { at: r.at, item: { kind: "staff", id: r.id, text: askTextOf(r.summary) } as AgentThreadItem };
+    const ask = { at: r.at, item: { kind: "staff", id: r.id, text: detokenizeNames(askTextOf(r.summary), "label") } as AgentThreadItem };
     // The outcome, when there is one, is what the person reads — never "working" over it.
     if (pending.has(r.id) && !answeredByAlert.has(r.id) && !answeredIds.has(r.id)) {
       return [ask, { at: r.at, item: { kind: "agent", id: `${r.id}:working`, text: agentBubble.working } as AgentThreadItem }];
