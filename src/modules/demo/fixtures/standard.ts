@@ -552,17 +552,6 @@ export const stopByKey = (key: string): Stop => {
   if (!s) throw new Error(`unknown stop ${key}`);
   return s;
 };
-/**
- * WHOSE IS THE DAY'S ONE INBOUND TEXT: the parent the late-drop-off notice reached last answers it
- * (`demo/late-dropoff.ts`, C2's guardian, F2). The words are `ui/copy.familyTexts.demoReply` — the
- * scenario's *input*, what a real phone would send — and they enter the app the way a real text
- * does, through `ingestInbound` (`demo/inbound-script.ts`). Nothing parses them: the model reads
- * them, and only the model.
- */
-export const DEMO_INBOUND = {
-  childKey: "C2",
-} as const;
-
 export const childByKey = (key: string): Child => {
   const c = CHILDREN.find((x) => x.key === key);
   if (!c) throw new Error(`unknown child ${key}`);

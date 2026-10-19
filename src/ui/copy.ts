@@ -1246,13 +1246,20 @@ export const familyTexts = {
     done: "Done",
   },
   /**
-   * The one text a family sends back on the demo day (PRD §18.2 steps 9–10).
-   *
-   * It is the scenario's own script, in the same sense as the late-drop-off texts the day sends:
-   * deterministic, written down, and read by the screen and by nothing that sends. It is here
-   * rather than in the fixture file because it is a sentence somebody reads.
+   * A PARENT WHO CAN'T BE HOME AT THE ETA (ledger #78) — what the demo's "Simulate parent text"
+   * sends, through the same inbound path a real text takes. Filled from the day: the child's
+   * estimated drop-off, and a later time. The scenario's input, never read back by the app.
    */
-  demoReply: "Hi we won't be home at that time can you do 5?",
+  parentCantReceive: "Hi, I won't be home at {eta} for {child}. Can you bring them at {later} instead?",
+  simulate: {
+    button: "Simulate parent text",
+    nextDropoff: "Next drop-off",
+    pick: "Which family",
+    sending: "Sending…",
+    noPlan: "Save the afternoon plan first.",
+    noRider: "Nobody's on a van this afternoon.",
+    notSent: "Couldn't send it. Try again.",
+  },
   /**
    * THE REPLY WHEN NO MODEL ANSWERED — the demo day's card, drafted from copy instead of by the
    * assistant (Firia, 2026-10-18 11:04 AM ET).

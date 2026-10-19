@@ -56,8 +56,8 @@ const ALLOWED_SEED_IMPORTERS = [
   "src/modules/plan/ramp-leg.db.test.ts",
   /* A saved re-plan texts the families it made late (ledger #73): legs and contacts are seeded rows. */
   "src/modules/plan/replan-notices.db.test.ts",
-  /* The scenario parent's reply to a delivered re-plan text (demo/scripted-reply.ts): seeded legs and contacts. */
-  "src/modules/demo/scripted-reply.db.test.ts",
+  /* "Simulate parent text" builds a parent's text from a seeded day (ledger #78): legs and contacts. */
+  "src/modules/demo/parent-text.db.test.ts",
   /* The agent re-plans and proposes Restart as the person who asked (ledger #74): a seeded day. */
   "src/modules/actions/replan-by-agent.db.test.ts",
   /* An alert raised for staff reaches the agent, which proposes (ledger #74 e): a seeded day. */

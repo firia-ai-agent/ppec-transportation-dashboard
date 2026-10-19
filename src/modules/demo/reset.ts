@@ -17,7 +17,6 @@ import { Forbidden, SiteNotFound, Unauthenticated, getMemberships, requireSiteAc
 import { API, endpointRow } from "@/auth/access";
 import { demoReset as copy } from "@/ui/copy";
 import type { Db } from "@/db/exec";
-import { isReadOnlyDbEnv } from "@/db/read-only";
 import { seedStandardScenario, type SeedResult } from "./seed";
 import { clearMemoryPlanStore } from "@/modules/plan/memory";
 
@@ -29,23 +28,9 @@ const RESET_ROW = endpointRow(API.demoReset)?.auth;
 export const RESET_ROLES: readonly StaffRole[] =
   RESET_ROW?.kind === "session" ? RESET_ROW.roles : [];
 
-/** Shown to the caller on a preview deployment. No ticket, flag or connection detail in it. */
-export const PREVIEW_REFUSAL = copy.previewRefusal;
+import { demoControlsGate } from "./gate";
 
-export type Gate =
-  | { allowed: true; status: 200; reason: string }
-  | { allowed: false; status: 403 | 404; reason: string };
-
-export function demoControlsGate(env: Record<string, string | undefined>): Gate {
-  // Loud rather than invisible, and ahead of the DEMO_MODE 404: an operator on a preview (where the
-  // demo flags are normally on) needs to read why the reset refused, and the shared DB is what is at stake.
-  if (isReadOnlyDbEnv(env)) return { allowed: false, status: 403, reason: PREVIEW_REFUSAL };
-  if (env.DEMO_MODE !== "1") return { allowed: false, status: 404, reason: copy.notEnabled };
-  if (env.APP_DATA_CLASS !== "SYNTHETIC") {
-    return { allowed: false, status: 403, reason: copy.notSynthetic };
-  }
-  return { allowed: true, status: 200, reason: copy.enabled };
-}
+export { PREVIEW_REFUSAL, demoControlsGate, type Gate } from "./gate";
 
 export type ResetRequest = { userId?: string; siteId?: string; now: Date };
 export type ResetResponse =
@@ -89,10 +74,9 @@ export async function handleDemoReset(
 
   const result = await seedStandardScenario(db, { now: req.now, siteId, env });
   /*
-   * NO CARD, NO ALERT AND NO INBOUND TEXT ARE WRITTEN HERE (founder and user, 2026-10-18). The
-   * day's one decision is the model's to propose, from the parent's own text — and the parent
-   * texts only once the day has told them something: a saved re-plan's late text, answered when it
-   * is delivered (`demo/scripted-reply.ts`).
+   * NO CARD, NO ALERT AND NO INBOUND TEXT ARE WRITTEN HERE (founder and user, 2026-10-18). A
+   * decision is the model's to propose, from a parent's own text — which the demo sends when a
+   * person presses "Simulate parent text" on Family texts (`demo/parent-text.ts`, ledger #78).
    */
   /*
    * The seed truncates the board's three tables and writes yesterday's van setups back

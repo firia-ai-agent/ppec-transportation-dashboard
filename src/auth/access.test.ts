@@ -435,6 +435,7 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/api/dev/agent-wake": "cron-secret",
       "/api/probe/delay": "cron-secret",
       "/api/demo/reset": "session:DIRECTOR",
+      "/api/demo/parent-text": "session:DIRECTOR+COORDINATOR",
       "/api/plan": "session:DIRECTOR+COORDINATOR",
       "/api/plan/save": "session:DIRECTOR+COORDINATOR",
       "/api/plan/replan": "session:DIRECTOR+COORDINATOR",
@@ -478,6 +479,8 @@ describe("the policy itself, written out so a silent widening fails", () => {
     const scoped = ENDPOINTS.filter((e) => e.auth.kind === "session" && e.auth.siteScoped).map((e) => e.path);
     expect(scoped).toEqual([
       "/api/demo/reset",
+      // The demo's parent text (ledger #78) is written at the caller's own site, never one it names.
+      "/api/demo/parent-text",
       "/api/sim/phones/[number]/messages",
       // The approval decision takes an approval id, and the site comes off that row rather than
       // off the form — which is what makes another site's id a uniform 404.

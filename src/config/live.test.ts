@@ -15,6 +15,7 @@ import { agentRetryConfig, alertAgentConfig,
   liveConfig,
   liveStreamConfig,
   notifyGateConfig,
+  parentTextConfig,
   recomputeConfig,
 } from "./live";
 import {
@@ -83,6 +84,7 @@ describe("PRD §8 / LOC-03 values", () => {
       alertAgent: alertAgentConfig,
       freshness: freshnessConfig,
       notifyGate: notifyGateConfig,
+      parentText: parentTextConfig,
       recompute: recomputeConfig,
       stream: liveStreamConfig,
     });

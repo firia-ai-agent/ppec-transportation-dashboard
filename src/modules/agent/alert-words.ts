@@ -3,10 +3,8 @@
  *
  * Firia, 2026-10-18 11:15 AM ET: the alert on a drop-off proposal is **the model's own sentence**
  * when a model wrote one, and the named copy line only when none did. This is that choice, as one
- * function, because two callers make it — the agent's own writer (`run/exec/proposals.ts`) and the
- * demo seed (`demo/approval-seed.ts`, which has no model and therefore always lands on the
- * fallback) — and a second copy of it is how a seeded card and a live one end up worded
- * differently for no reason a coordinator could explain.
+ * function, because a second copy of it is how two cards end up worded differently for no reason a
+ * coordinator could explain. (The demo's seeded card, its other caller, is gone: ledger #78.)
  *
  * THE ORDER, and every step of it is a refusal rather than a repair:
  *
