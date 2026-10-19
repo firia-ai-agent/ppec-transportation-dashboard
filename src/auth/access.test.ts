@@ -464,6 +464,8 @@ describe("the policy itself, written out so a silent widening fails", () => {
        * and a permission read off a route is a permission a route change can move.
        */
       "action:approval-decision": "session:DIRECTOR+COORDINATOR",
+      // A confirm card's buttons (ledger #74 d): a session; the action's own row decides inside.
+      "action:staff-action-confirm": "session:DIRECTOR+COORDINATOR+FRONT_DESK",
       "action:sign-in": "auth-endpoint",
       "action:sign-out": "public",
     });
@@ -477,6 +479,8 @@ describe("the policy itself, written out so a silent widening fails", () => {
       // The approval decision takes an approval id, and the site comes off that row rather than
       // off the form — which is what makes another site's id a uniform 404.
       "action:approval-decision",
+      // A confirm card takes a card id the same way (ledger #74 d): its site comes off the row.
+      "action:staff-action-confirm",
     ]);
   });
 

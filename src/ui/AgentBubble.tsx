@@ -15,6 +15,8 @@ import {
 import { getAsked, getAskedOnServer, subscribeAsked } from "./agent-ask-state";
 import type { DecideAction } from "@/app/(app)/family-texts/actions";
 import type { ProposalView } from "@/app/(app)/family-texts/conversations";
+import type { ConfirmAction } from "@/app/(app)/confirm/actions";
+import type { ConfirmView } from "@/modules/actions/confirm-view";
 import { AgentThread, type AgentThreadItem } from "./AgentThread";
 import styles from "./AgentBubble.module.css";
 
@@ -50,6 +52,8 @@ export function AgentBubble({
   compose,
   cards = [],
   decide,
+  confirms = [],
+  confirm,
 }: {
   /**
    * `canOpenForYou(caller)` — resolved on the server by the layout that mounts the shell, never
@@ -72,6 +76,9 @@ export function AgentBubble({
   /** The pending proposals as full cards, and the one action that decides them (AgentThread). */
   cards?: readonly ProposalView[];
   decide?: DecideAction;
+  /** Changes the agent prepared for a person to confirm (ledger #74 d). */
+  confirms?: readonly ConfirmView[];
+  confirm?: ConfirmAction;
 }) {
   const pathname = usePathname();
   const tab = useSearchParams().get("tab");
@@ -120,7 +127,7 @@ export function AgentBubble({
               <X size={22} aria-hidden="true" />
             </button>
           </div>
-          <AgentThread items={mergeAsked(items, asked)} cards={cards} decide={decide} />
+          <AgentThread items={mergeAsked(items, asked)} cards={cards} decide={decide} confirms={confirms} confirm={confirm} />
           {compose}
         </aside>
       ) : null}

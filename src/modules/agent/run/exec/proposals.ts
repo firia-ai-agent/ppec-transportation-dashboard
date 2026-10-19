@@ -23,6 +23,8 @@
  * agent's side of it.
  */
 import type { Exec } from "@/db/exec";
+import { actionTool } from "../../action-tools";
+import { staffActionSummary } from "@/modules/actions/summary";
 import {
   DROPOFF_CHANGE_KIND,
   DROPOFF_CHANGE_TASK_CATEGORY,
@@ -58,6 +60,11 @@ import type { ExecutorDeps } from "./effects";
 
 /** `ops.task.category` for the three proposals. */
 export const REALLOCATION_TASK_CATEGORY = "INFEASIBLE";
+/** `ops.task.category` for a confirm card the agent prepared (ledger #74 d). */
+export const STAFF_ACTION_TASK_CATEGORY = "STAFF_ACTION";
+/** `approval_request.proposal.kind` for the same card (a leaf, so client types can name it). */
+export { STAFF_ACTION_KIND } from "@/modules/actions/confirm-view";
+import { STAFF_ACTION_KIND } from "@/modules/actions/confirm-view";
 export const CHANGE_REQUEST_TASK_CATEGORY = "IDENTITY_CHANGE";
 
 /*
@@ -149,7 +156,8 @@ export function proposalWriter(_deps: ExecutorDeps): ProposalWriter {
       case "request_clarification":
         return messageSend(tx, input);
       default:
-        return {};
+        // A confirm card (ledger #74 d): an action a person must press, prepared by the agent.
+        return actionTool(input.tool)?.tier === "human" ? staffAction(tx, input) : {};
     }
   };
 }
@@ -639,4 +647,45 @@ async function clarificationProposal(tx: Exec, input: ProposalInput): Promise<Pr
  */
 function legOf(direction: string | undefined): Direction | null {
   return direction === "AM" || direction === "PM" ? direction : null;
+}
+
+/**
+ * A CONFIRM CARD (ledger #74 d). An action PRD §11.2 forbids the agent to take on its own — changing
+ * approved needs, deciding a card, Restart — arrives here as a proposal: the action, the model's
+ * arguments (already policy-sanitized) and one line of what it would do. Nothing runs. Confirming
+ * the card runs the action through the one action layer, as the person who confirms it
+ * (`modules/actions/confirm.ts`), with the board's version read then rather than now.
+ */
+async function staffAction(tx: Exec, input: ProposalInput): Promise<Record<string, unknown>> {
+  const tool = actionTool(input.tool)!;
+  const by = `agent:${input.runId}`;
+  const taskId = await raiseTask(tx, {
+    id: effectId(input.idempotencyKey, "exception"),
+    siteId: input.siteId,
+    category: STAFF_ACTION_TASK_CATEGORY,
+    severity: "AMBER",
+    words: agentTasks.proposedStaffAction,
+    by,
+  });
+  const approvalId = effectId(input.idempotencyKey, "approval");
+  await tx.query(
+    `INSERT INTO ops.approval_request (id, site_id, task_id, proposal, created_by, updated_by, source_mode)
+     VALUES ($1, $2, $3, $4::jsonb, $5, $5, 'SIMULATED')
+     ON CONFLICT (id) DO NOTHING`,
+    [
+      approvalId,
+      input.siteId,
+      taskId,
+      JSON.stringify({
+        kind: STAFF_ACTION_KIND,
+        tool: tool.name,
+        action: tool.action,
+        args: input.args,
+        summary: staffActionSummary(tool.name),
+        approval_key: input.approvalKey,
+      }),
+      by,
+    ],
+  );
+  return { approval_request_id: approvalId, exception_task_id: taskId, mutated: false };
 }

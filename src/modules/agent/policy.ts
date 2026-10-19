@@ -444,6 +444,17 @@ const ROWS: readonly PolicyRow[] = [
   { tool: "close_task", scopedArgs: ["task_id", "evidence_ref"], sendSubject: null, note: "the evidence must be this run's own" },
   { tool: "summarize_thread_for_staff", scopedArgs: ["thread_id"], sendSubject: null, note: "staff-only note on this family's thread" },
   { tool: "reply_to_staff", scopedArgs: [], sendSubject: null, note: "staff-only answer to the person who asked; names no object" },
+  { tool: "auto_plan", scopedArgs: [], sendSubject: null, note: "re-plan a leg through the board's own Save, as the asker; the site is the run's (ledger #74; the domain function scopes every id to the run's site)" },
+  { tool: "move_child", scopedArgs: [], sendSubject: null, note: "one move + Save through the board, as the asker (ledger #74; the domain function scopes every id to the run's site)" },
+  { tool: "save_plan", scopedArgs: [], sendSubject: null, note: "moves + Save through the board, as the asker (ledger #74; the domain function scopes every id to the run's site)" },
+  { tool: "confirm_van_setup", scopedArgs: [], sendSubject: null, note: "a van's counts through the ramp's own write, as the asker (ledger #74; the domain function scopes every id to the run's site)" },
+  { tool: "set_child_needs", scopedArgs: [], sendSubject: null, note: "human tier: a confirm card; nothing changes until a person presses it (ledger #74; the domain function scopes every id to the run's site)" },
+  { tool: "restart_demo_day", scopedArgs: [], sendSubject: null, note: "human tier: a confirm card for the director (ledger #74; the domain function scopes every id to the run's site)" },
+  { tool: "decide_card", scopedArgs: [], sendSubject: null, note: "human tier: a confirm card; the agent never decides a card itself (ledger #74; the domain function scopes every id to the run's site)" },
+  { tool: "take_alert", scopedArgs: [], sendSubject: null, note: "marks an alert taken, as the asker (ledger #74; the domain function scopes every id to the run's site)" },
+  { tool: "get_plan", scopedArgs: [], sendSubject: null, note: "read: the board as the asker sees it (ledger #74; the domain function scopes every id to the run's site)" },
+  { tool: "get_alerts", scopedArgs: [], sendSubject: null, note: "read: open staff alerts (ledger #74; the domain function scopes every id to the run's site)" },
+  { tool: "get_cards", scopedArgs: [], sendSubject: null, note: "read: cards waiting for a person (ledger #74; the domain function scopes every id to the run's site)" },
 ];
 
 /** The policy table, by tool name. `evaluate` denies any catalog tool that is not a key here. */

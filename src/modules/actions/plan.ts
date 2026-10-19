@@ -18,14 +18,18 @@ import {
 } from "@/modules/plan/api";
 import { dayDataSource, loadBoard, planStore } from "@/modules/plan/store";
 import { actionSummaries, fill } from "@/ui/copy";
-import { entry } from "./types";
+import { entry, type ActionCtx } from "./types";
 
 const LEG = z.enum(["AM", "PM"]);
 const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 /** The board as the screen would load it now, for the two actions the board does in the browser. */
-const boardFor = (siteId: string, date: string, leg: Direction) =>
-  loadBoard(planStore(), siteId, date, leg, dayDataSource(siteId));
+const boardFor = (ctx: ActionCtx, date: string, leg: Direction) =>
+  loadBoard(ctx.deps?.store ?? planStore(), ctx.siteId, date, leg, ctx.deps?.source ?? dayDataSource(ctx.siteId));
+
+/** `savePlanRequest` with the caller's board, when it brought one. */
+const save = (ctx: ActionCtx, body: Parameters<typeof savePlanRequest>[2]) =>
+  savePlanRequest(ctx.siteId, ctx.caller, body, ctx.now, ctx.deps?.store, ctx.deps?.source);
 
 /** The moves that turn one plan into another, as PlanBoard's Auto-plan sends them (`planned`). */
 function plannedMoves(before: BoardPlan, after: BoardPlan) {
@@ -42,7 +46,7 @@ export const PLAN_ACTIONS = {
     input: savePlanBody,
     confirm: false,
     describe: (i) => fill(actionSummaries.savePlan, { leg: i.direction, count: i.moves.length }),
-    run: (ctx, i) => savePlanRequest(ctx.siteId, ctx.caller, i, ctx.now),
+    run: (ctx, i) => save(ctx, i),
   }),
   /** Auto-plan, then Save — what the board's two buttons do, as one action. */
   auto_plan: entry({
@@ -52,9 +56,9 @@ export const PLAN_ACTIONS = {
     confirm: false,
     describe: (i) => fill(actionSummaries.autoPlan, { leg: i.direction }),
     run: async (ctx, i) => {
-      const view = await boardFor(ctx.siteId, i.date, i.direction);
+      const view = await boardFor(ctx, i.date, i.direction);
       const moves = plannedMoves(view.plan, autoPlan(view.day, view.plan));
-      return savePlanRequest(ctx.siteId, ctx.caller, { date: i.date, direction: i.direction, version: view.version, moves }, ctx.now);
+      return save(ctx, { date: i.date, direction: i.direction, version: view.version, moves });
     },
   }),
   /** One child to one place — a drag and a Save, as a person makes it (so it is pinned). */
@@ -71,9 +75,9 @@ export const PLAN_ACTIONS = {
     confirm: false,
     describe: (i) => fill(actionSummaries.moveChild, { leg: i.direction }),
     run: async (ctx, i) => {
-      const view = await boardFor(ctx.siteId, i.date, i.direction);
+      const view = await boardFor(ctx, i.date, i.direction);
       const move = { childToken: i.childToken, bucket: i.bucket, vanId: i.bucket === "VAN" ? (i.vanId ?? null) : null };
-      return savePlanRequest(ctx.siteId, ctx.caller, { date: i.date, direction: i.direction, version: view.version, moves: [move] }, ctx.now);
+      return save(ctx, { date: i.date, direction: i.direction, version: view.version, moves: [move] });
     },
   }),
   /** One child's placement, written at once (the board's single-move endpoint). */
@@ -83,7 +87,7 @@ export const PLAN_ACTIONS = {
     input: placeChildBody,
     confirm: false,
     describe: (i) => fill(actionSummaries.moveChild, { leg: i.direction }),
-    run: (ctx, i) => placeChildRequest(ctx.siteId, ctx.caller, i, ctx.now),
+    run: (ctx, i) => placeChildRequest(ctx.siteId, ctx.caller, i, ctx.now, ctx.deps?.store),
   }),
   /** A van's counts as the ramp found them. */
   confirm_van_setup: entry({
@@ -92,7 +96,7 @@ export const PLAN_ACTIONS = {
     input: vanSetupBody.extend({ vanId: z.string().min(1).max(64) }),
     confirm: false,
     describe: () => actionSummaries.confirmVan,
-    run: (ctx, { vanId, ...i }) => putVanSetupRequest(ctx.siteId, ctx.caller, vanId, i, ctx.now),
+    run: (ctx, { vanId, ...i }) => putVanSetupRequest(ctx.siteId, ctx.caller, vanId, i, ctx.now, ctx.deps?.store),
   }),
   /** A child's approved needs (PRD §11.2: never the agent's alone — a person confirms). */
   set_child_needs: entry({
@@ -101,6 +105,7 @@ export const PLAN_ACTIONS = {
     input: childNeedsBody.extend({ childToken: z.string().min(1).max(64) }),
     confirm: true,
     describe: () => actionSummaries.setNeeds,
-    run: (ctx, { childToken, ...i }) => setChildNeedsRequest(ctx.siteId, ctx.caller, childToken, i, ctx.now),
+    run: (ctx, { childToken, ...i }) =>
+      setChildNeedsRequest(ctx.siteId, ctx.caller, childToken, i, ctx.now, ctx.deps?.store, process.env, ctx.deps?.db ?? null, ctx.deps?.source),
   }),
 } as const;

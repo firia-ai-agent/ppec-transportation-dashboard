@@ -43,7 +43,7 @@ import { formatClock24, formatWindow, windowFor } from "@/domain/eta/eta";
 import { loadAgentConfig } from "@/modules/agent/config";
 import { createGateway, GatewayError } from "@/modules/agent/gateway";
 import { approvalKey, evaluate, familyScope, type PolicyDecision } from "@/modules/agent/policy";
-import { chooseProvider } from "@/modules/agent/run/deps";
+import { chooseProvider } from "@/modules/agent/run/model-reach";
 import { tierPrompt } from "@/modules/agent/run/context";
 import { tokenizeNames } from "@/modules/identity/names";
 import { renderTemplate } from "@/modules/messaging/templates";

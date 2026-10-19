@@ -3,8 +3,10 @@ import { canOpenForYou } from "@/auth/access";
 import type { ResolvedCaller } from "@/auth/caller";
 import { getNeonDb } from "@/db/exec";
 import { readAgentThreadOrEmpty } from "@/modules/agent/ask/thread";
-import { modelReach } from "@/modules/agent/run/deps";
+import { modelReach } from "@/modules/agent/run/model-reach";
 import { decideApprovalAction } from "@/app/(app)/family-texts/actions";
+import { confirmStaffActionAction } from "@/app/(app)/confirm/actions";
+import { confirmCards } from "@/modules/actions/confirm-cards";
 import type { ProposalView } from "@/app/(app)/family-texts/conversations";
 import { approvalCardsOrEmpty } from "@/app/(app)/family-texts/queue";
 import { demoDay } from "@/domain/board/day";
@@ -80,6 +82,8 @@ export async function ConsoleShell({
   const canDecide = canOpenForYou(caller);
   const thread = canDecide ? await readAgentThreadOrEmpty(getNeonDb, siteOf(caller)) : null;
   const cards = canDecide && (thread?.waiting ?? 0) > 0 ? await approvalCardsOrEmpty([siteOf(caller)]) : [];
+  // Changes the agent prepared for a person to confirm (ledger #74 d). Fail-soft like the thread.
+  const confirms = canDecide && (thread?.waiting ?? 0) > 0 ? await confirmCards(getNeonDb(), siteOf(caller)).catch(() => []) : [];
   const working = canDecide ? await agentWorking(siteOf(caller)) : false;
   const lines = accountLines(caller.displayName, role ? roleNames[role].one : null);
   const account: RailAccount | null = lines.name
@@ -104,6 +108,8 @@ export async function ConsoleShell({
         compose={<AgentCompose />}
         cards={cards}
         decide={decideApprovalAction}
+        confirms={confirms}
+        confirm={confirmStaffActionAction}
       />
       <RefreshWhileAgentWorks working={working} />
     </>

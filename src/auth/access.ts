@@ -867,6 +867,18 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     auth: { kind: "session", roles: APPROVAL_ROLES, siteScoped: true },
   },
   /**
+   * A confirm card's Confirm / Don't (ledger #74 d): runs an action the agent prepared, as the
+   * person who presses it. The row asks only for a session; who may take *that* action is decided
+   * inside, by the action's own row (`modules/actions/confirm.ts` → `authorize`).
+   */
+  {
+    kind: "action",
+    file: "src/app/(app)/confirm/actions.ts",
+    path: "action:staff-action-confirm",
+    methods: ["POST"],
+    auth: { kind: "session", roles: ALL_STAFF, siteScoped: true },
+  },
+  /**
    * The sign-in form's own action (ADR-004). It hands email and password to the credentials
    * provider and nothing else; it must run for a caller with no session.
    */

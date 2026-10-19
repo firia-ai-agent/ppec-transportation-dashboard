@@ -8,7 +8,7 @@ import {
   agentWakeLog,
   handleAgentWake,
 } from "@/modules/agent/run/queue";
-import { modelReach, modelReachLog } from "@/modules/agent/run/deps";
+import { modelReach, modelReachLog } from "@/modules/agent/run/model-reach";
 import { settleStaffAsk } from "@/modules/agent/ask/staff-ask";
 
 export const dynamic = "force-dynamic";

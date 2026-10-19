@@ -30,6 +30,7 @@
  */
 import { NEED_CATEGORY } from "@/config/equipment";
 import { agentGuidance } from "@/ui/copy";
+import { ACTION_TOOLS, STAFF_READ_TOOLS } from "./action-tools";
 import { z } from "zod";
 import { ALERT_TEXT_MAX, ALERT_TEXT_MIN, isAlertText } from "./alert-text";
 import { KNOWN_STOP_TOKENS } from "@/modules/messaging/templates";
@@ -611,6 +612,9 @@ const DEFS: readonly ToolDef[] = [
     prd: "beyond §11.2: the staff ask's own answer (ledger #74)",
     description: agentGuidance.replyToStaff,
   },
+  // What a person can do in the UI, as tools (agent/action-tools.ts, ledger #74), and what they see.
+  ...ACTION_TOOLS,
+  ...STAFF_READ_TOOLS,
 ];
 
 /** The catalog, by tool name. The gateway rejects any name that is not a key here. */
@@ -621,13 +625,14 @@ export const TOOL_REGISTRY: Readonly<Record<string, ToolDef>> = Object.fromEntri
 export const TOOL_NAMES: readonly string[] = DEFS.map((d) => d.name);
 
 /**
- * §11.2 lists 15 tools; this catalog holds 18. `reply_to_staff` (ledger #74) is the staff ask's
- * answer. The other two beyond the PRD are
+ * §11.2 lists 15 tools; this catalog holds 29. Eleven are ledger #74's: one per action a person can
+ * take in the UI and three reads of what they see (agent/action-tools.ts) — offered to a staff
+ * member's run only — and `reply_to_staff`, the staff ask's answer. The other two beyond the PRD are
  * `propose_dropoff_change` — the commonest thing a parent texts a transport desk, which had no
  * tool at all — and `read_guardian_thread`, the read the bubble's answer comes from. Asserted in
  * tools.test.ts, so a dropped row is a failing test and an added one is a deliberate edit here.
  */
-export const TOOL_COUNT = 18;
+export const TOOL_COUNT = 29;
 
 export function toolDef(name: string): ToolDef | undefined {
   return TOOL_REGISTRY[name];

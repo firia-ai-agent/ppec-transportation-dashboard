@@ -768,7 +768,7 @@ async function queueApprovedMessage(
  * transaction's own and a concurrent writer waits rather than racing it. A task already resolved
  * is left as it is.
  */
-async function resolveTask(tx: Exec, taskId: string, decision: ApprovalDecision, by: string): Promise<void> {
+export async function resolveTask(tx: Exec, taskId: string, decision: ApprovalDecision, by: string): Promise<void> {
   const found = await tx.query<{ state: string; version: number }>(
     "SELECT state, version FROM ops.task WHERE id = $1 FOR UPDATE",
     [taskId],

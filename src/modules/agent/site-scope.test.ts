@@ -116,6 +116,20 @@ const VALID_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
   close_task: { task_id: "TK-1", evidence_ref: "MSG-1" },
   summarize_thread_for_staff: { thread_id: "TH-F1", summary: "guardian canceled the morning leg" },
   reply_to_staff: { summary: "Moved one rider to Van 2 so every van fits." },
+  // Ledger #74's tools: no scoped arguments — the site is the run's, and the board scopes every id.
+  auto_plan: { date: "2026-10-16", leg: "PM" },
+  move_child: { date: "2026-10-16", leg: "PM", child_token: "C1", bucket: "VAN", van_id: "V1" },
+  save_plan: { date: "2026-10-16", leg: "PM", moves: [{ child_token: "C1", bucket: "ABSENT" }] },
+  confirm_van_setup: {
+    date: "2026-10-16", van_id: "V1", seats: 2, wheelchair_spots: 0, car_seats: 3, oxygen_mounts: 1, has_lift: false,
+  },
+  set_child_needs: { date: "2026-10-16", leg: "PM", child_token: "C1", wheelchair: true, car_seat: false, oxygen: false },
+  restart_demo_day: {},
+  decide_card: { card_id: "AP-1", decision: "APPROVED" },
+  take_alert: { alert_id: "TK-1" },
+  get_plan: { date: "2026-10-16", leg: "PM" },
+  get_alerts: {},
+  get_cards: {},
 };
 
 /**
@@ -159,7 +173,7 @@ const blockOf = (tool: string, args: Record<string, unknown>, context = ctx()) =
 };
 
 describe("VERI-3: the walk covers the catalog", () => {
-  it("VERI-3 has a schema-valid call for all 18 tools, and a foreign value for every scoped argument", () => {
+  it("VERI-3 has a schema-valid call for all 29 tools, and a foreign value for every scoped argument", () => {
     expect(Object.keys(VALID_ARGS).sort()).toEqual([...TOOL_NAMES].sort());
     for (const tool of TOOL_NAMES) {
       expect(TOOL_REGISTRY[tool].schema.safeParse(VALID_ARGS[tool]).success, tool).toBe(true);
