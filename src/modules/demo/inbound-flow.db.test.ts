@@ -253,6 +253,8 @@ describe("Restart → Dara's text → the model's card → Approve", () => {
     });
     const thread = await readAgentThread(db, SITE);
     expect(thread.waiting).toBe(1);
+    // The bubble says what came in, not only the card it produced (ledger #79): the dot and the chat agree.
+    expect(thread.items.some((i) => i.kind === "agent" && /Noah O\.'s family texted: “Hi, I won't be home at/.test(i.text))).toBe(true);
     expect(thread.items.filter((i) => i.kind === "proposal").map((i) => i.id)).toEqual([queue[0].approvalId]);
   });
 
@@ -285,6 +287,10 @@ describe("Restart → Dara's text → the model's card → Approve", () => {
       "SELECT template_id, vars, recipient_token::text AS recipient_token FROM ops.outbound_message", [],
     );
     expect(sent.rows).toHaveLength(1);
+    // And the card leaves a line saying how it went, instead of vanishing from the chat.
+    const after = await readAgentThread(db, SITE);
+    expect(after.waiting).toBe(0);
+    expect(after.items.some((i) => i.kind === "agent" && i.id === `${row.id}:done` && /The family is being texted now/.test(i.text))).toBe(true);
     expect(sent.rows[0]).toMatchObject({
       template_id: "dropoff.reply",
       recipient_token: DARA_CONTACT,

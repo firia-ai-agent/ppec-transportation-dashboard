@@ -3444,6 +3444,10 @@ export const agentBubble = {
   noAnswer: "I couldn't answer that just now, so it's on your list as an alert.",
   /** Under an ask whose run is still on the queue (ledger #74): replaced by the answer when it lands. */
   working: "Working on it…",
+  /** A family's text the agent heard (ledger #79), in the family's own words. */
+  familyTexted: "{children}'s family texted: “{text}”",
+  familyTextedUnnamed: "A family texted: “{text}”",
+  textNotRead: "I couldn't read that one, so it's on Family texts for you.",
   /**
    * An alert the agent heard and could not answer (ledger #75): the situation, from the alert's own
    * row, and that no fix came — followed by the board's Re-plan link. Never the reason the model
