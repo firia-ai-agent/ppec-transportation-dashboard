@@ -164,15 +164,22 @@ function walk(dir: string, out: string[] = []): string[] {
 
 describe("openAlert has exactly one caller in src/app, and it is the POST", () => {
   it("names it, so a second caller on a render path fails here", () => {
-    const callers = walk(join(ROOT, "src", "app"))
-      .filter((f) => !f.endsWith(".test.ts") && !f.endsWith(".test.tsx"))
-      .filter((f) => /\bopenAlert\s*\(/.test(readFileSync(join(ROOT, f), "utf8")))
+    const source = (f: string) => readFileSync(join(ROOT, f), "utf8");
+    const notTests = (f: string) => !f.endsWith(".test.ts") && !f.endsWith(".test.tsx");
+    /*
+     * openAlert is an UPDATE (OPEN → IN_PROGRESS). It belongs to a POST and to nothing a render can
+     * reach — Firia's S1-4, 2026-10-18 12:13 AM ET. Since ledger #74 the one call is the action
+     * layer's `take_alert` (modules/actions/decisions.ts), and in src/app the one thing that runs
+     * that is the server action.
+     */
+    const callers = walk(join(ROOT, "src"))
+      .filter(notTests)
+      .filter((f) => f !== "src/modules/agent/alert-task.ts") // where it is defined
+      .filter((f) => /\bopenAlert\s*\(/.test(source(f)))
       .sort();
-    expect(
-      callers,
-      "openAlert is an UPDATE (OPEN → IN_PROGRESS). It belongs to a POST and to nothing a " +
-        "render can reach — Firia's S1-4, 2026-10-18 12:13 AM ET",
-    ).toEqual(["src/app/(app)/family-texts/actions.ts"]);
+    expect(callers).toEqual(["src/modules/actions/decisions.ts"]);
+    const appRunners = walk(join(ROOT, "src", "app")).filter(notTests).filter((f) => /\btake_alert\b/.test(source(f)));
+    expect(appRunners).toEqual(["src/app/(app)/family-texts/actions.ts"]);
   });
 
   it("and /exceptions is a redirect that reads nothing at all", () => {

@@ -1,6 +1,8 @@
 import { API } from "@/auth/access";
 import { requireApiSession } from "@/auth/api-guard";
-import { placeChildBody, placeChildRequest, siteOf } from "@/modules/plan/api";
+import { placeChildBody } from "@/modules/plan/api";
+import { ACTIONS } from "@/modules/actions/registry";
+import { screenCtx } from "@/modules/actions/screen";
 import { apiAccess } from "@/ui/copy";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +32,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const answer = await placeChildRequest(siteOf(guard.caller), guard.caller, parsed.data);
+    const answer = await ACTIONS.place_child.run(screenCtx(guard.caller), parsed.data);
     return Response.json(answer.body, { status: answer.status, headers: noStore });
   } catch {
     return Response.json({ ok: false, error: apiAccess.unavailable }, { status: 503, headers: noStore });

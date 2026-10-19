@@ -1,6 +1,8 @@
 import { API } from "@/auth/access";
 import { requireApiSession } from "@/auth/api-guard";
-import { savePlanBody, savePlanRequest, siteOf } from "@/modules/plan/api";
+import { savePlanBody } from "@/modules/plan/api";
+import { ACTIONS } from "@/modules/actions/registry";
+import { screenCtx } from "@/modules/actions/screen";
 import { apiAccess } from "@/ui/copy";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +38,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const answer = await savePlanRequest(siteOf(guard.caller), guard.caller, parsed.data);
+    const answer = await ACTIONS.save_plan.run(screenCtx(guard.caller), parsed.data);
     return Response.json(answer.body, { status: answer.status, headers: noStore });
   } catch {
     // The save did not reach the database. It says so and claims nothing about what was kept:

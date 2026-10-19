@@ -495,15 +495,14 @@ describe("when the plan cannot be saved, the approval fails safe", () => {
   });
 
   it("is production's own wiring: the call site passes no writer of its own", () => {
-    const action = readFileSync(
-      path.join(__dirname, "..", "..", "app", "(app)", "family-texts", "actions.ts"),
-      "utf8",
-    );
-    // No `{ placement: ... }` at the call site: `decideApproval`'s default is the real board, so
-    // there is one writer and the screen cannot pass a different one.
+    // The call site is the one action layer now (ledger #74), which the screen's action and the
+    // agent's confirm card both go through. No `{ placement: ... }` there: `decideApproval`'s
+    // default is the real board, so there is one writer and no caller can pass a different one.
+    const callSite = path.join(__dirname, "..", "actions", "decisions.ts");
+    expect(code(callSite)).not.toMatch(/placement:/);
+    expect(readFileSync(callSite, "utf8")).toMatch(/decideApproval\(/);
     expect(code(path.join(__dirname, "..", "..", "app", "(app)", "family-texts", "actions.ts")))
       .not.toMatch(/placement:/);
-    expect(action).toMatch(/decideApproval\(/);
   });
 });
 

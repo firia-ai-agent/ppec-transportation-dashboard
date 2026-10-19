@@ -34,20 +34,16 @@
 import { revalidatePath } from "next/cache";
 import { APPROVAL_ROLES } from "@/auth/access";
 import { getCaller } from "@/auth/caller";
-import { getNeonDb } from "@/db/exec";
-import {
-  APPROVALS_PAGE,
-  type ApprovalDecision,
-  type DecideError,
-  decideApproval,
-} from "@/modules/approvals/decide";
+import { APPROVALS_PAGE, type ApprovalDecision, type DecideError } from "@/modules/approvals/decide";
 /*
- * From `alert-task.ts` and not from `staff-alert.ts`: this is a server-action module, so
- * everything it imports is on the bundle walk's server graph, and the agent's config and
- * provider errors must not be (key-never-leaves.test.ts, vendor-failure-panel.test.ts).
+ * The one action layer. This is a server-action module, so everything the registry imports is on
+ * the bundle walk's server graph — and the agent's config and provider errors must not be
+ * (key-never-leaves.test.ts, vendor-failure-panel.test.ts): the registry takes `openAlert` from
+ * `alert-task.ts`, never from `staff-alert.ts`.
  */
-import { openAlert } from "@/modules/agent/alert-task";
-import { vercelQueueOutboxTransport } from "@/modules/outbox/transport";
+// Only the decisions group: the page's graph stays free of the plan writers and the demo seed.
+import { DECISION_ACTIONS as ACTIONS } from "@/modules/actions/decisions";
+import { screenCtx } from "@/modules/actions/screen";
 import { approval as approvalCopy } from "@/ui/copy";
 
 /** What the screen renders after a decision: what happened, or the one sentence a refusal gets. */
@@ -116,21 +112,18 @@ export async function decideApprovalAction(
    * habit of the screen.
    */
   const shown = form.get("text");
-  const answer = await decideApproval(
-    getNeonDb(),
-    vercelQueueOutboxTransport,
-    {
-      // The caller's own id, off the session. Never a value the form carried: a user id in a form
-      // is a user id an attacker chooses, and `requireSiteAccess` reads memberships for whoever
-      // this is.
-      userId: caller.kind === "STAFF" ? caller.userId : undefined,
-      approvalId,
-      decision: decision as ApprovalDecision,
-      editedText: typeof edited === "string" ? edited : null,
-      approvedText: shown === null ? undefined : String(shown),
-      now: new Date(),
-    },
-  );
+  /*
+   * THE ONE ACTION LAYER (modules/actions/registry.ts, ledger #74): the same `decide_approval` the
+   * agent's confirm card runs. The actor is the caller off the session — never a user id the form
+   * carried, which would be one an attacker chooses; `decideApproval` re-reads their membership.
+   */
+  if (caller.kind !== "STAFF") return { status: "refused", message: approvalCopy.notYourRole };
+  const answer = await ACTIONS.decide_approval.run(screenCtx(caller), {
+    approvalId,
+    decision: decision as ApprovalDecision,
+    editedText: typeof edited === "string" ? edited : null,
+    approvedText: shown === null ? undefined : String(shown),
+  });
 
   if (!answer.body.ok) return { status: "refused", message: REFUSALS[answer.body.error] };
   /*
@@ -177,13 +170,10 @@ export async function takeAlertAction(form: FormData): Promise<void> {
   if (role === null || !APPROVAL_ROLES.includes(role)) return;
   const id = String(form.get("alert") ?? "");
   if (!id) return;
-  await openAlert(getNeonDb(), {
-    id,
-    // The caller's own memberships, off the session: an id from another tenant updates nothing
-    // because it is not in this list, not because the row said so.
-    siteIds: caller.memberships.map((m) => m.siteId),
-    by: `staff:${caller.kind === "STAFF" ? caller.userId : "unknown"}`,
-  });
+  if (caller.kind !== "STAFF") return;
+  // The one action layer (ledger #74), scoped to the caller's own centre off the session: an id
+  // from another tenant updates nothing because it is not at that site, not because the row said so.
+  await ACTIONS.take_alert.run(screenCtx(caller), { alertId: id });
   revalidatePath(APPROVALS_PAGE);
 }
 

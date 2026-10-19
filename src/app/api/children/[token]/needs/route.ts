@@ -1,6 +1,8 @@
 import { API } from "@/auth/access";
 import { requireApiSession } from "@/auth/api-guard";
-import { childNeedsBody, setChildNeedsRequest, siteOf } from "@/modules/plan/api";
+import { childNeedsBody } from "@/modules/plan/api";
+import { ACTIONS } from "@/modules/actions/registry";
+import { screenCtx } from "@/modules/actions/screen";
 import { apiAccess } from "@/ui/copy";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +32,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   }
 
   try {
-    const answer = await setChildNeedsRequest(siteOf(guard.caller), guard.caller, token, parsed.data);
+    const answer = await ACTIONS.set_child_needs.run(screenCtx(guard.caller), { ...parsed.data, childToken: token });
     return Response.json(answer.body, { status: answer.status, headers: noStore });
   } catch {
     return Response.json({ ok: false, error: apiAccess.unavailable }, { status: 503, headers: noStore });
