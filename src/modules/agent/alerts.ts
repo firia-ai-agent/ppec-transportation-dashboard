@@ -4,8 +4,8 @@
  * PRD §11.1's "operational event (rules first)": a deterministic rule raises a task a coordinator
  * sees — a van that no longer carries its riders, say — and the agent is started on that task to
  * propose what to do about it. The run may only *propose*: nobody asked it to act, so there is no
- * person to act as (`run/exec/actions.ts`), and every action it would take is a card a person
- * confirms (policy `proposeOnly`, `alertContext`).
+ * person to act as (`run/exec/actions.ts`), and every change it would make is a card a person
+ * confirms (ledger #77, `alertContext`).
  *
  * `raiseStaffAlert` is the one writer: the task and, in the same transaction, the run — then the
  * wake-up after commit, the `inbound-hook.ts` pattern. Idempotent twice over: the task on its id,

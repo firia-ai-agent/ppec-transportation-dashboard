@@ -149,7 +149,8 @@ describe("(d) an ask that makes a proposal leaves a pending approval and changes
   it("writes the approval request PENDING, with the task beside it, and applies no change", async () => {
     const before = await stateSnapshot();
     const args = REALLOCATION();
-    const { deps } = withModel([toolCall("propose_manifest_reallocation", args)], {
+    // A person who asked hears back after the card (ledger #77): the proposal, then the answer.
+    const { deps } = withModel([toolCall("propose_manifest_reallocation", args), toolCall("reply_to_staff", { summary: "Proposed moving Van 1's runs." })], {
       scope: { ...sc.scope, shared: new Set(["V-SYN-1", "V-SYN-2"]) },
     });
     const r = await askAgent(db, { siteId: sc.siteId, text: "Van 1 cannot take its runs", by: "u1" }, deps);

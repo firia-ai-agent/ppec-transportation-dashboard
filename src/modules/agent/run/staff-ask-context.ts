@@ -45,7 +45,8 @@
  * `OPENROUTER_API_KEY` is not read here and nothing on this path logs it.
  */
 import type { Db, Exec } from "@/db/exec";
-import { ACTION_TOOLS, STAFF_ONLY_TOOLS } from "../action-tools";
+import { STAFF_ONLY_TOOLS } from "../action-tools";
+import { openTaskRows, pendingCardRows, type WaitingTask } from "./waiting";
 import { rosterFromDisplayName, tokenizeNames, type RosterEntry } from "@/modules/identity/names";
 import { activeSuppression, authorizedContactsForChild, FAMILY_SMS } from "@/modules/outbox/policy";
 import { serviceDateIso } from "@/ui/service-date";
@@ -56,44 +57,20 @@ import { tierPrompt } from "./context";
 import { demoPairsFor, demoTokenForId, scopeTokens, type ScopeTokenPair, type ScopeTokens } from "./scope-tokens";
 
 /**
- * THE TOOLS A STAFF ASK MAY REACH, and the reason the list is short.
- *
- * `read_guardian_thread` is the one that makes the feature work: without it the model can only
- * repeat the tokens it was handed, and the founder's complaint was precisely a reply that
- * answered a question nobody asked. With it, the answer quotes what the guardian actually wrote.
- *
- * Everything that *changes* the day is absent — no cancel, no boarding, no send. An ask may
- * read, it may say what it found (`summarize_thread_for_staff`), it may propose a drop-off move
- * for a person to decide (`propose_dropoff_change`, `human` tier so the policy engine returns
- * PROPOSAL and no executor runs), and it may hand the work to a person
- * (`escalate_exception`). A narrower catalog is a smaller thing for a hijacked thread to aim at,
- * and this is the narrowest one that can answer the question.
+ * WHAT A TEAMMATE IS HANDED (ledger #77): the screens' reads, a card for every change, Take, and
+ * the answer. Shaped like the screens, so the model works the way a coordinator does rather than
+ * through the family-text tools (`agent/action-tools.ts TEAM_TOOLS`). No tool sends to a family.
  */
-export const STAFF_ASK_TOOLS: readonly string[] = [
-  "read_guardian_thread",
-  "get_leg_state",
-  "resolve_sender",
-  "summarize_thread_for_staff",
-  "reply_to_staff",
-  "propose_dropoff_change",
-  // Everything a person can do in the UI, and what they see (ledger #74).
-  ...STAFF_ONLY_TOOLS,
-  "escalate_exception",
-];
+export const STAFF_ASK_TOOLS: readonly string[] = [...STAFF_ONLY_TOOLS, "reply_to_staff"];
 
 /**
- * What an alert's run is offered (ledger #74 e, #75): the reads, every action as a proposal, a
- * drop-off proposal, escalation — and `reply_to_staff`, so a run that finds no change worth making
- * says so and why, the way a colleague would, instead of leaving the alert unanswered.
+ * An alert's run (ledger #74 e, #75) gets the same, less Take: nobody asked it to act, so it has no
+ * person to take an alert as. Every change is a card either way.
  */
-export const ALERT_TOOLS: readonly string[] = [
-  "reply_to_staff",
-  "read_guardian_thread",
-  "get_leg_state",
-  "propose_dropoff_change",
-  "escalate_exception",
-  ...STAFF_ONLY_TOOLS,
-];
+export const ALERT_TOOLS: readonly string[] = STAFF_ASK_TOOLS.filter((t) => t !== "take_alert");
+
+/** How many undecided cards reach T2, labelled `CARD-n` (`run/waiting.ts`). */
+export const STAFF_ASK_CARDS_IN_CONTEXT = 10;
 
 /** How many of the site's recent thread messages reach T3, across all its threads. */
 export const STAFF_ASK_MESSAGES_IN_CONTEXT = 8;
@@ -112,7 +89,7 @@ type ThreadRow = {
   state: string;
 };
 type ChildRow = { child_token: string; family_group_id: string; display_name: string | null };
-type TaskRow = { id: string; category: string; severity: string; state: string; summary: string };
+type TaskRow = WaitingTask;
 type LegRow = { id: string; child_token: string; direction: string; state: string; plan_version: number };
 
 /**
@@ -142,6 +119,7 @@ export async function staffAskContext(
   const threads = await siteThreads(db, siteId);
   const legs = await legRows(db, childTokens, siteId, serviceDate);
   const openTasks = await openTaskRows(db, siteId, ask.id, opts.tasks ?? STAFF_ASK_TASKS_IN_CONTEXT);
+  const cards = await pendingCardRows(db, siteId, STAFF_ASK_CARDS_IN_CONTEXT);
   const recent = await recentThreadMessages(db, siteId, opts.messages ?? STAFF_ASK_MESSAGES_IN_CONTEXT);
   /*
    * TALKING BACK (ledger #75 c). An ask typed just after the bubble brought an alert — "why not
@@ -164,6 +142,7 @@ export async function staffAskContext(
       id: t.id,
     })),
     ...openTasks.map((t, i): ScopeTokenPair => ({ token: `TK-${i + 1}`, id: t.id })),
+    ...cards.map((c, i): ScopeTokenPair => ({ token: `CARD-${i + 1}`, id: c.id })),
     ...recent.map((m, i): ScopeTokenPair => ({ token: `MSG-${i + 1}`, id: m.id })),
   ]);
   const t = tokens.tokenFor;
@@ -194,11 +173,11 @@ export async function staffAskContext(
       // An alert's run (ledger #74 e) is told what was raised and that it proposes; an ask's, what
       // was asked and how its answer is read (ask/answer.ts).
       ...(opts.alert
-        ? [`staff_alert="${say(ask.summary)}"`, "propose_only=true answer_with=a card whose note says the change and its effect, or reply_to_staff when no change is right"]
+        ? [`staff_alert="${say(ask.summary)}"`, "answer_with=a card whose note says the change and its effect, or reply_to_staff when no change is right"]
         : [
             `staff_ask="${say(askTextOf(ask.summary))}"`,
             ...(following ? [`following_up_on_alert="${say(following)}"`] : []),
-            "look_first=get_activity for what happened today, get_plan for the plan",
+            "look_first=get_activity for what happened today, get_plan for the plan, get_waiting for cards and alerts",
             "answer_with=reply_to_staff",
           ]),
     ].join(" "),
@@ -215,6 +194,7 @@ export async function staffAskContext(
       ...openTasks.map(
         (x) => `task=${t(x.id)} category=${x.category} severity=${x.severity} state=${x.state} says="${say(x.summary)}"`,
       ),
+      ...cards.map((c) => `card=${t(c.id)} says="${say(c.summary).slice(0, 160)}"`),
     ].join("\n"),
     t3: recent.map((m) => say(m.body_tokenized)),
     t4: `channel=${FAMILY_SMS.channel}`,
@@ -236,6 +216,7 @@ export async function staffAskContext(
       ...threads.map((x) => x.id),
       ...threads.flatMap((x) => (x.counterparty_token ? [x.counterparty_token] : [])),
       ...openTasks.map((x) => x.id),
+      ...cards.map((c) => c.id),
       ...recent.map((m) => m.id),
     ],
     await siteVehicleTokens(db, legs.map((l) => l.id), siteId),
@@ -256,8 +237,6 @@ export async function staffAskContext(
       }),
       untrustedMessages: facts.t3,
       paused: opts.paused,
-      // Nobody asked an alert's run to act: every action it would take is a card (ledger #74 e).
-      ...(opts.alert ? { proposeOnly: new Set(ACTION_TOOLS.map((t) => t.name)) } : {}),
       // An ask is not a message, so there is no source message to cite. Stated, not left off:
       // a `propose_*` from this run carries no `source_message_id` it did not read for itself.
       sourceMessageId: null,
@@ -302,22 +281,6 @@ async function legRows(db: Exec, children: readonly string[], siteId: string, se
      WHERE site_id = $1 AND service_date = $2 AND child_token = ANY($3::uuid[])
      ORDER BY child_token, direction`,
     [siteId, serviceDate, children],
-  );
-  return r.rows;
-}
-
-/**
- * The site's open tasks, oldest first — the board as it stands. The ask's own row is left out: it
- * is in T1 as the ask, and listing it again as open work would have the model answering a
- * question by reporting that the question exists.
- */
-async function openTaskRows(db: Exec, siteId: string, askTaskId: string, limit: number): Promise<TaskRow[]> {
-  const r = await db.query<TaskRow>(
-    `SELECT id, category::text AS category, severity::text AS severity, state::text AS state, summary
-     FROM ops.task
-     WHERE site_id = $1 AND id <> $2 AND state = 'OPEN'
-     ORDER BY created_at, id LIMIT $3`,
-    [siteId, askTaskId, limit],
   );
   return r.rows;
 }

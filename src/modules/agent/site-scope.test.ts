@@ -20,14 +20,14 @@ import { POLICY_ROWS, type PolicyContext, evaluate, familyScope, validateFamilyS
 /* This run: site S1, family F1. V1/V2/P1/R1 are S1's fleet, providers and routes. */
 const SCOPE = familyScope(
   "F1",
-  ["C1", "L-C1-AM", "L-C1-PM", "TH-F1", "ACK-1", "TK-1", "MSG-1", "SESS-C1"],
+  ["C1", "L-C1-AM", "L-C1-PM", "TH-F1", "ACK-1", "TK-1", "CARD-1", "MSG-1", "SESS-C1"],
   ["V1", "V2", "P1", "R1"],
   "S1",
 );
 
 /** Site S2's world: every id below is a real object — in a tenant this run may not see. */
 const OTHER_SITE = new Set([
-  "S2", "F-S2", "C-S2", "L-S2-AM", "TH-S2", "SESS-S2", "ACK-S2", "TK-S2", "MSG-S2", "V-S2", "P-S2", "R-S2",
+  "S2", "F-S2", "C-S2", "L-S2-AM", "TH-S2", "SESS-S2", "ACK-S2", "TK-S2", "CARD-S2", "MSG-S2", "V-S2", "P-S2", "R-S2",
 ]);
 
 /** Another family, same site. Here only to show its refusal reads identically. */
@@ -116,21 +116,18 @@ const VALID_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
   close_task: { task_id: "TK-1", evidence_ref: "MSG-1" },
   summarize_thread_for_staff: { thread_id: "TH-F1", summary: "guardian canceled the morning leg" },
   reply_to_staff: { summary: "Moved one rider to Van 2 so every van fits." },
-  // Ledger #74's tools: no scoped arguments — the site is the run's, and the board scopes every id.
-  auto_plan: { date: "2026-10-16", leg: "PM" },
-  move_child: { date: "2026-10-16", leg: "PM", child_token: "C1", bucket: "VAN", van_id: "V1" },
-  save_plan: { date: "2026-10-16", leg: "PM", moves: [{ child_token: "C1", bucket: "ABSENT" }] },
-  confirm_van_setup: {
-    date: "2026-10-16", van_id: "V1", seats: 2, wheelchair_spots: 0, car_seats: 3, oxygen_mounts: 1, has_lift: false,
-  },
-  set_child_needs: { date: "2026-10-16", leg: "PM", child_token: "C1", wheelchair: true, car_seat: false, oxygen: false },
-  restart_demo_day: {},
-  decide_card: { card_id: "AP-1", decision: "APPROVED" },
-  take_alert: { alert_id: "TK-1" },
-  get_plan: { date: "2026-10-16", leg: "PM" },
-  get_alerts: {},
-  get_cards: {},
+  // Ledger #77's teammate tools: a child, a card or an alert is scoped; vans and times are not objects.
   get_activity: {},
+  get_plan: { leg: "PM", preview: { moves: [{ child: "C1", place: "Van 2" }], departures: [{ van: "Van 2", leaves: "15:30" }] } },
+  get_child: { child: "C1" },
+  get_waiting: {},
+  read_family_texts: { child: "C1" },
+  propose_plan_change: { leg: "PM", moves: [{ child: "C1", place: "Van 2" }], note: "C1 moves to Van 2 so every van fits." },
+  propose_van_setup: { van: "Van 1", seats: 2, wheelchair_spots: 0, car_seats: 3, oxygen_mounts: 1, has_lift: false, note: "The ramp counted two seats." },
+  propose_needs_change: { child: "C1", leg: "PM", wheelchair: true, car_seat: false, oxygen: false, note: "C1 uses a wheelchair today." },
+  propose_card_decision: { card: "CARD-1", decision: "APPROVED", note: "The reply answers what was asked." },
+  restart_demo_day: { note: "Start the demo day over." },
+  take_alert: { alert: "TK-1" },
 };
 
 /**
@@ -156,6 +153,9 @@ const FOREIGN_VALUES: Readonly<Record<string, unknown>> = {
   family_token: "F-S2",
   task_id: "TK-S2",
   evidence_ref: "MSG-S2",
+  child: "C-S2",
+  card: "CARD-S2",
+  alert: "TK-S2",
   options: [{ vehicle_token: "V-S2", leg_ids: ["L-S2-AM"], added_minutes: 6 }],
 };
 

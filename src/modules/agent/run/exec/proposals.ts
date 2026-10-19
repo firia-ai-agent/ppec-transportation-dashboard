@@ -25,7 +25,9 @@
 import type { Exec } from "@/db/exec";
 import { actionTool } from "../../action-tools";
 import { staffActionSummary } from "@/modules/actions/summary";
-import { draftReplan, writeStaffActionCard } from "@/modules/actions/draft";
+import { draftPlanChange, draftReplan, writeStaffActionCard } from "@/modules/actions/draft";
+import { teamPlanChange, todayOf } from "./team";
+import { askerMayNot } from "./asker";
 import { sqlPlanStoreIn } from "@/modules/plan/sql";
 import { sqlDaySource } from "@/modules/roster/sql";
 import {
@@ -145,8 +147,20 @@ export type ProposalInput = {
  */
 export type ProposalWriter = (tx: Exec, input: ProposalInput) => Promise<Record<string, unknown>>;
 
+/** The card runner each teammate card's Approve runs — and so the role its asker must hold. */
+const CARD_RUNNER: Readonly<Record<string, string>> = {
+  propose_plan_change: "save_plan",
+  propose_van_setup: "confirm_van_setup",
+  propose_needs_change: "set_child_needs",
+  propose_card_decision: "decide_card",
+  restart_demo_day: "restart_demo_day",
+};
+
 export function proposalWriter(_deps: ExecutorDeps): ProposalWriter {
   return async (tx, input) => {
+    const runner = CARD_RUNNER[input.tool];
+    const refused = runner ? await askerMayNot(tx, input, runner) : null;
+    if (refused) return { mutated: false, prompt_facts: { card: "none", reason: refused } };
     switch (input.tool) {
       case "propose_contact_or_profile_change":
         return contactOrProfileChange(tx, input);
@@ -157,9 +171,23 @@ export function proposalWriter(_deps: ExecutorDeps): ProposalWriter {
       case "send_followup":
       case "request_clarification":
         return messageSend(tx, input);
+      // A teammate's cards (ledger #77): every change the agent makes is one a person approves.
+      case "propose_plan_change":
+        return planChangeCard(tx, input);
+      case "propose_van_setup":
+        return vanSetupCard(tx, input);
+      case "propose_needs_change":
+        return teamCard(tx, input, "set_child_needs", {
+          date: todayOf(input.now), leg: input.args.leg, child_token: input.args.child,
+          wheelchair: input.args.wheelchair, car_seat: input.args.car_seat, oxygen: input.args.oxygen,
+        });
+      case "propose_card_decision":
+        return teamCard(tx, input, "decide_card", {
+          card_id: input.args.card, decision: input.args.decision,
+          ...(typeof input.args.edited_text === "string" ? { edited_text: input.args.edited_text } : {}),
+        });
       default:
-        // A confirm card (ledger #74 d, e): an action a person presses, prepared by the agent —
-        // human tier always, and any action in a run with nobody to act for (policy proposeOnly).
+        // A confirm card (ledger #74 d): Restart, and any card runner named as itself.
         return actionTool(input.tool) ? staffAction(_deps, tx, input) : {};
     }
   };
@@ -648,7 +676,7 @@ async function clarificationProposal(tx: Exec, input: ProposalInput): Promise<Pr
  * something a proposal can be guarded against. The same two-value check `approvals/decide.ts`
  * makes of the proposal it reads back.
  */
-function legOf(direction: string | undefined): Direction | null {
+function legOf(direction: unknown): Direction | null {
   return direction === "AM" || direction === "PM" ? direction : null;
 }
 
@@ -659,6 +687,71 @@ function legOf(direction: string | undefined): Direction | null {
  * the card runs the action through the one action layer, as the person who confirms it
  * (`modules/actions/confirm.ts`), with the board's version read then rather than now.
  */
+/**
+ * THE ONE WAY THE AGENT CHANGES A PLAN (ledger #77): the change read against today's board — van
+ * names to this day's vans — and drafted as one card saying what it does (`draftPlanChange`). What
+ * the card says comes back to the model, so it can tell the person in its own words.
+ */
+async function planChangeCard(tx: Exec, input: ProposalInput): Promise<Record<string, unknown>> {
+  const leg = legOf(input.args.leg);
+  if (!leg) return { mutated: false, prompt_facts: { card: "none", reason: "NO_SUCH_LEG" } };
+  let unknown: readonly string[] = [];
+  // Read on this transaction's own connection: the run holds it, and a second one would wait on it.
+  const drafted = await draftPlanChange(tx, { store: sqlPlanStoreIn(tx), source: sqlDaySource(tx, input.siteId) }, {
+    siteId: input.siteId,
+    date: todayOf(input.now),
+    leg,
+    by: `agent:${input.runId}`,
+    note: typeof input.args.note === "string" ? input.args.note : null,
+    change: (view) => {
+      const read = teamPlanChange(view, input.args);
+      unknown = read.unknownVans;
+      return read.change;
+    },
+  });
+  const notRunning = unknown.length > 0 ? { not_running_today: unknown.join(", ") } : {};
+  if (!drafted.drafted) {
+    return {
+      nothing_to_change: true,
+      mutated: false,
+      prompt_facts: { card: "none", reason: drafted.reason, ...("children" in drafted ? { no_van_fits: drafted.children.join(", ") } : {}), ...notRunning },
+    };
+  }
+  return {
+    approval_request_id: drafted.approvalId,
+    mutated: false,
+    prompt_facts: { card: "waiting for a person to approve", shows: (drafted.impact ?? []).join("; "), ...notRunning },
+  };
+}
+
+/** A van's counts as a card (ledger #77): the van by its name on today's road. */
+async function vanSetupCard(tx: Exec, input: ProposalInput): Promise<Record<string, unknown>> {
+  const date = todayOf(input.now);
+  const van = (await sqlDaySource(tx, input.siteId).vans(date)).find((v) => v.name === input.args.van);
+  if (!van) return { mutated: false, prompt_facts: { card: "none", not_running_today: String(input.args.van) } };
+  return teamCard(tx, input, "confirm_van_setup", {
+    date, van_id: van.id, seats: input.args.seats, wheelchair_spots: input.args.wheelchair_spots,
+    car_seats: input.args.car_seats, oxygen_mounts: input.args.oxygen_mounts, has_lift: input.args.has_lift,
+  });
+}
+
+/** A teammate's card whose Approve runs `runner` (an `ACTION_TOOLS` entry) with these arguments. */
+async function teamCard(tx: Exec, input: ProposalInput, runner: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const tool = actionTool(runner)!;
+  const approvalId = await writeStaffActionCard(tx, {
+    siteId: input.siteId,
+    key: input.idempotencyKey,
+    by: `agent:${input.runId}`,
+    tool: tool.name,
+    action: tool.action,
+    args,
+    summary: staffActionSummary(tool.name, args),
+    note: typeof input.args.note === "string" ? input.args.note : null,
+    approvalKey: input.approvalKey,
+  });
+  return { approval_request_id: approvalId, mutated: false, prompt_facts: { card: "waiting for a person to approve" } };
+}
+
 async function staffAction(_deps: ExecutorDeps, tx: Exec, input: ProposalInput): Promise<Record<string, unknown>> {
   const tool = actionTool(input.tool)!;
   const by = `agent:${input.runId}`;

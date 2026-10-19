@@ -141,11 +141,6 @@ export type PolicyContext = {
   readonly untrustedMessages?: readonly string[];
   /** True while the agent is paused for this site (ops kill switch). */
   readonly paused?: boolean;
-  /**
-   * Tools this run may only propose, whatever their tier (ledger #74 e): an alert's run has no
-   * person to act as, so an action it would take becomes a card a person confirms.
-   */
-  readonly proposeOnly?: ReadonlySet<string>;
   /** The context tier the model cited as authority for this call, when it reports one. */
   readonly citedTier?: ContextTier;
   readonly sourceMessageId?: string | null;
@@ -449,18 +444,20 @@ const ROWS: readonly PolicyRow[] = [
   { tool: "close_task", scopedArgs: ["task_id", "evidence_ref"], sendSubject: null, note: "the evidence must be this run's own" },
   { tool: "summarize_thread_for_staff", scopedArgs: ["thread_id"], sendSubject: null, note: "staff-only note on this family's thread" },
   { tool: "reply_to_staff", scopedArgs: [], sendSubject: null, note: "staff-only answer to the person who asked; names no object" },
-  { tool: "auto_plan", scopedArgs: [], sendSubject: null, note: "re-plan a leg through the board's own Save, as the asker; the site is the run's (ledger #74; the domain function scopes every id to the run's site)" },
-  { tool: "move_child", scopedArgs: [], sendSubject: null, note: "one move + Save through the board, as the asker (ledger #74; the domain function scopes every id to the run's site)" },
-  { tool: "save_plan", scopedArgs: [], sendSubject: null, note: "moves + Save through the board, as the asker (ledger #74; the domain function scopes every id to the run's site)" },
-  { tool: "confirm_van_setup", scopedArgs: [], sendSubject: null, note: "a van's counts through the ramp's own write, as the asker (ledger #74; the domain function scopes every id to the run's site)" },
-  { tool: "set_child_needs", scopedArgs: [], sendSubject: null, note: "human tier: a confirm card; nothing changes until a person presses it (ledger #74; the domain function scopes every id to the run's site)" },
-  { tool: "restart_demo_day", scopedArgs: [], sendSubject: null, note: "human tier: a confirm card for the director (ledger #74; the domain function scopes every id to the run's site)" },
-  { tool: "decide_card", scopedArgs: [], sendSubject: null, note: "human tier: a confirm card; the agent never decides a card itself (ledger #74; the domain function scopes every id to the run's site)" },
-  { tool: "take_alert", scopedArgs: [], sendSubject: null, note: "marks an alert taken, as the asker (ledger #74; the domain function scopes every id to the run's site)" },
-  { tool: "get_plan", scopedArgs: [], sendSubject: null, note: "read: the board as the asker sees it (ledger #74; the domain function scopes every id to the run's site)" },
-  { tool: "get_alerts", scopedArgs: [], sendSubject: null, note: "read: open staff alerts (ledger #74; the domain function scopes every id to the run's site)" },
-  { tool: "get_cards", scopedArgs: [], sendSubject: null, note: "read: cards waiting for a person (ledger #74; the domain function scopes every id to the run's site)" },
+  // A teammate's tools (ledger #77). The reads and the cards name children by the prompt's token
+  // and cards and alerts by their label, resolved to this run's rows (`run/scope-tokens.ts`) and
+  // scope-checked; vans are names the executor reads off this site's own board.
   { tool: "get_activity", scopedArgs: [], sendSubject: null, note: "read: today's events at this site, in time order (ledger #76; every row read is the run's own site)" },
+  { tool: "get_plan", scopedArgs: [], sendSubject: null, note: "read: the board as the asker sees it, and a change previewed in memory (ledger #77; the board is the run's site's)" },
+  { tool: "get_child", scopedArgs: ["child"], sendSubject: null, note: "read: one of this site's children, both legs (ledger #77)" },
+  { tool: "get_waiting", scopedArgs: [], sendSubject: null, note: "read: cards and alerts waiting at this site (ledger #77)" },
+  { tool: "read_family_texts", scopedArgs: ["child"], sendSubject: null, note: "read: the texts of this site's child's family, as evidence; sends nothing (ledger #77)" },
+  { tool: "propose_plan_change", scopedArgs: [], sendSubject: null, note: "human tier: a card; the board's Save runs only when a person approves it (ledger #77). The draft reads this site's own board, and a child or van it does not hold changes nothing" },
+  { tool: "propose_van_setup", scopedArgs: [], sendSubject: null, note: "human tier: a card; the ramp's write runs only when a person approves it (ledger #77)" },
+  { tool: "propose_needs_change", scopedArgs: ["child"], sendSubject: null, note: "human tier: a card; nothing changes until a person presses it (ledger #74 d)" },
+  { tool: "propose_card_decision", scopedArgs: ["card"], sendSubject: null, note: "human tier: a card; the agent never decides a card itself (ledger #74 d)" },
+  { tool: "restart_demo_day", scopedArgs: [], sendSubject: null, note: "human tier: a confirm card for the director (ledger #74 d)" },
+  { tool: "take_alert", scopedArgs: ["alert"], sendSubject: null, note: "marks one of this site's alerts taken, as the asker (ledger #74)" },
 ];
 
 /** The policy table, by tool name. `evaluate` denies any catalog tool that is not a key here. */
@@ -664,6 +661,12 @@ const DEFENSIVE_TOOLS: ReadonlySet<string> = new Set([
   "reply_to_staff",
   "propose_manifest_reallocation",
   "propose_contact_or_profile_change",
+  // A teammate's reads (ledger #77): looking changes nothing.
+  "get_activity",
+  "get_plan",
+  "get_child",
+  "get_waiting",
+  "read_family_texts",
 ]);
 
 const block = (
@@ -887,10 +890,9 @@ export function evaluate(
     };
   }
 
-  // 11. Human tier → proposal, never a mutation (§11.2 propose_* rows: "no mutation").
-  // A run with nobody to act for (an alert, ledger #74 e) proposes the actions it would take: the
-  // person who confirms the card becomes the actor (`modules/actions/confirm.ts`).
-  if (def.tier === "human" || (ctx.proposeOnly?.has(call.tool) ?? false)) {
+  // 11. Human tier → proposal, never a mutation (§11.2 propose_* rows: "no mutation"). Every change
+  // a teammate makes is one of these (ledger #77): the person who approves the card is the actor.
+  if (def.tier === "human") {
     return {
       verdict: "PROPOSAL",
       rule: "human_tier_requires_approval",

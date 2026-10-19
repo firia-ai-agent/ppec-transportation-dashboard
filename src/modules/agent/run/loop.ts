@@ -556,7 +556,10 @@ async function settleCall(
           return commitCall(tx, row.id, "PROPOSED", { ...result, ...extra }, by);
         })
       : await commitCall(deps.db, row.id, "PROPOSED", result, by);
-    return ok ? { kind: "done" } : lost(row);
+    if (!ok) return lost(row);
+    // A person who asked hears what the card does in the teammate's own words (ledger #77); every
+    // other run ends on its proposal, whose note is what a person reads.
+    return TALKS_AFTER_A_CARD.has(run.trigger.type) ? { kind: "continue" } : { kind: "done" };
   }
 
   const executor = deps.executors[row.tool];
@@ -752,8 +755,11 @@ async function move(deps: RunDeps, run: RunRow, to: RunState, steps: number, rea
 
 /** The gateway refusals a model can correct by trying again, and what to tell it. */
 type Slip = { readonly outcome: GatewayOutcome; readonly tool: string; readonly hint: string; readonly detail: string };
+/** Runs that carry on after a card to answer the person who asked (ledger #77). */
+const TALKS_AFTER_A_CARD: ReadonlySet<string> = new Set(["staff.ask"]);
+
 const SLIP_HINTS: Partial<Record<GatewayOutcome, string>> = {
-  REJECTED_FREE_TEXT: "answer_with_a_tool_call_use_reply_to_talk",
+  REJECTED_FREE_TEXT: "answer_with_a_tool_call_use_reply_to_staff_to_talk",
   REJECTED_MULTIPLE_CALLS: "call_one_tool_at_a_time",
   REJECTED_UNKNOWN_TOOL: "use_only_the_offered_tools",
   REJECTED_INVALID_ARGS: "fix_the_named_arguments",
