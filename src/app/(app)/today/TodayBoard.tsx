@@ -50,6 +50,8 @@ import {
 import { humanizeAge } from "@/ui/age";
 import { clockLabel, demoDateIso } from "@/ui/service-date";
 import { icon } from "@/ui/tokens";
+import type { DecideAction } from "@/app/(app)/family-texts/actions";
+import type { ProposalView } from "@/app/(app)/family-texts/conversations";
 import { LegDrawer } from "./LegDrawer";
 import { nextStepCellText, stateValues } from "./next-step";
 import styles from "./today.module.css";
@@ -92,6 +94,8 @@ export function TodayBoard({
   steps,
   tiles,
   textedChildKeys = [],
+  cards = [],
+  decide,
 }: {
   board: Board;
   query: string;
@@ -115,6 +119,10 @@ export function TodayBoard({
    * than offering a thread that would open empty.
    */
   textedChildKeys?: readonly string[];
+  /** Replies waiting for a person (`family-texts/queue.ts`); the drawer shows its child's card. */
+  cards?: readonly ProposalView[];
+  /** The one decision action, so a card decided here is decided exactly as on Family texts. */
+  decide?: DecideAction;
 }) {
   const { day } = board;
   const [tab, setTab] = useState<"board" | "health">("board");
@@ -359,6 +367,8 @@ export function TodayBoard({
           legs={openLegs}
           day={day}
           hasTexts={textedChildKeys.includes(openLegs[0].child.childKey)}
+          card={cards.find((card) => card.threadKey === openLegs[0].child.childKey) ?? null}
+          decide={decide}
           onClose={() => setOpenChild(null)}
         />
       ) : null}

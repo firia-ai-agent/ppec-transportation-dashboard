@@ -1047,3 +1047,24 @@ describe("a saved plan decides which van a child is on", () => {
     expect(legIn(moved, "C8", "AM").ride.vehicleLabel).toBeNull();
   });
 });
+
+/**
+ * A reply the agent drafted, waiting for a person, is a reason on the ride it is about — ranked
+ * above the facts the decision itself may settle (the receiver, the agreed time).
+ */
+describe("a drafted reply waiting for a person", () => {
+  it("puts that ride in Needs action, first, and asks a person to answer the family", () => {
+    // The board's own morning instant — what a deployment renders — before any ride has ended.
+    const day = demoDayAtTick(BOARD_SCENARIO_TICK);
+    const plain = buildBoard(day).legs.find((l) => l.key === "C2/PM")!;
+    expect(plain.needsActionReasons).not.toContain("REPLY_WAITING");
+
+    const waiting = buildBoard(day, {}, {}, { PM: { C2: { replyWaiting: true } } }).legs.find((l) => l.key === "C2/PM")!;
+    expect(waiting.group).toBe("NEEDS_ACTION");
+    expect(waiting.needsActionReasons[0]).toBe("REPLY_WAITING");
+    expect(waiting.nextStep).toBe("ANSWER_FAMILY");
+    // The other half of the child's day is not about that text.
+    const morning = buildBoard(day, {}, {}, { PM: { C2: { replyWaiting: true } } }).legs.find((l) => l.key === "C2/AM")!;
+    expect(morning.needsActionReasons).not.toContain("REPLY_WAITING");
+  });
+});

@@ -22,6 +22,9 @@ import { capabilityStates, legStates, needItemStates, profileStates, sourceModes
 import { clockLabel } from "@/ui/service-date";
 import { icon } from "@/ui/tokens";
 import { needsActionReasonText, nextStepText, stateValues } from "./next-step";
+import type { DecideAction } from "@/app/(app)/family-texts/actions";
+import type { ProposalView } from "@/app/(app)/family-texts/conversations";
+import { ProposalCard } from "@/app/(app)/family-texts/ProposalCard";
 import styles from "./today.module.css";
 
 /**
@@ -47,6 +50,8 @@ export function LegDrawer({
   legs,
   day,
   hasTexts,
+  card = null,
+  decide,
   onClose,
 }: {
   /** The child's rides, as rows of the board — so the panel and the rows cannot disagree. */
@@ -55,6 +60,9 @@ export function LegDrawer({
   day: ServiceDay;
   /** True when the day actually texted this child's family, so the link opens a thread with a text in it. */
   hasTexts: boolean;
+  /** The reply waiting for a person about this child, when there is one. */
+  card?: ProposalView | null;
+  decide?: DecideAction;
   onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
@@ -161,7 +169,11 @@ export function LegDrawer({
 
         <section className={styles.section}>
           <h3 className={styles.sectionHeading}>{drawer.approvalsHeading}</h3>
-          <p className={styles.muted}>{fill(drawer.noApprovals, { child })}</p>
+          {card !== null && decide ? (
+            <ProposalCard proposal={card} decide={decide} threadHref={familyThreadHref(row.childKey)} />
+          ) : (
+            <p className={styles.muted}>{fill(drawer.noApprovals, { child })}</p>
+          )}
         </section>
 
         <section className={styles.section}>
@@ -176,7 +188,7 @@ export function LegDrawer({
             be worse than the sentence that says nothing was sent.
           */}
           <h3 className={styles.sectionHeading}>{drawer.textsHeading}</h3>
-          {hasTexts ? (
+          {hasTexts || card !== null ? (
             <Link className={styles.drawerLink} href={familyThreadHref(row.childKey)}>
               <MessagesSquare size={icon.inline} aria-hidden="true" />
               {fill(drawer.openTexts, { child })}

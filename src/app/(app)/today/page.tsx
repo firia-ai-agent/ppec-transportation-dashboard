@@ -1,4 +1,7 @@
+import { canOpenForYou } from "@/auth/access";
 import { requirePage } from "@/auth/page-guard";
+import { decideApprovalAction } from "@/app/(app)/family-texts/actions";
+import { approvalCardsOrEmpty } from "@/app/(app)/family-texts/queue";
 import { buildBoard, CLOCK_PARAM, requestedBoardDay } from "@/domain/board/board";
 import { getDayReadiness, serviceDateAt } from "@/domain/day/day-facts";
 import { readRightNow } from "@/domain/health/right-now-facts";
@@ -160,6 +163,12 @@ export default async function Page({
    * a link to an empty thread would be worse than the sentence.
    */
   const textedChildKeys = demoLateDropoffs(board.day).map((text) => text.childKey);
+  /*
+   * THE REPLIES WAITING FOR A PERSON, as the cards Family texts draws (the same queue, read once
+   * per screen). A row whose ride has one says so (`REPLY_WAITING`), and its drawer shows the card
+   * itself — decided through the same action, so there is still one write path.
+   */
+  const cards = canOpenForYou(caller) ? await approvalCardsOrEmpty([siteOf(caller)]) : [];
 
   return (
     <TodayBoard
@@ -168,6 +177,8 @@ export default async function Page({
       steps={steps}
       tiles={tiles}
       textedChildKeys={textedChildKeys}
+      cards={cards}
+      decide={decideApprovalAction}
     />
   );
 }
