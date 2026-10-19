@@ -3217,7 +3217,10 @@ export const agentGuidance = {
   restart: "Ask the director to confirm restarting the demo day (a card).",
   decideCard: "Ask a person to confirm approving or declining a waiting card (a card of its own).",
   takeAlert: "Take a needs-a-person alert so others know it is being handled.",
-  getPlan: "Read a leg's plan: each van's counts and riders, and who does not fit. Ids are for the action tools.",
+  getPlan:
+    "Read a leg's plan: each van's counts and riders, and who does not fit. Ids are for the action tools. " +
+    "Pass moves to preview them first: which vans would fit, and which children would get home late and by how much. " +
+    "Prefer the smallest change that makes every van fit, and say its effect on families in the card's note.",
   getAlerts: "Read the open alerts coordinators see.",
   getCards: "Read the cards waiting for a person: family replies and confirm cards.",
   replyToStaff:
@@ -3255,6 +3258,17 @@ export const confirmCopy = {
   pending: "Nothing happens until you confirm.",
   done: "Done.",
   declined: "Not done. Nothing changed.",
+  /**
+   * The line a confirmed plan card leaves in the thread (ledger #75 c), from the board after the
+   * save and the texts it queued (`actions/outcome.ts`): "Done. Every van fits, and 2 families
+   * were texted a new time."
+   */
+  doneFit: "Done. {fit}.",
+  doneTexted: "Done. {fit}, and {count} families were texted a new time.",
+  everyVanFits: "Every van fits",
+  stillOver: "{vans} still doesn't fit",
+  /** A plan card the board was saved past before anyone pressed it: nothing to do here any more. */
+  alreadyHandled: "Already handled on the board.",
   signIn: "Your sign-in has expired. Sign in again and the card is still here.",
   notYourRole: "Your role cannot do this one. Ask the director.",
   gone: "That card is not here any more.",

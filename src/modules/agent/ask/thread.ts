@@ -22,7 +22,8 @@
 import type { Db } from "@/db/exec";
 import type { AgentThreadItem } from "@/ui/AgentThread";
 import { agentRetryConfig } from "@/config/live";
-import { agentBubble, fill } from "@/ui/copy";
+import { agentBubble, confirmCopy, fill } from "@/ui/copy";
+import { STALE_PLAN_CARD_SQL } from "@/modules/actions/confirm-cards";
 import { boardHref, PLAN_ROUTES_PATH } from "@/modules/plan/when";
 import { ALERT_TRIGGER } from "@/modules/agent/alerts";
 import { namedOrNull } from "@/modules/identity/names";
@@ -67,9 +68,27 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
   const approvals = await db.query<{ id: string; summary: string; at: Date }>(
     `SELECT a.id, t.summary, a.created_at AS at
        FROM ops.approval_request a JOIN ops.task t ON t.id = a.task_id
-      WHERE a.site_id = $1 AND a.decided_at IS NULL ORDER BY a.created_at, a.id`,
+      WHERE a.site_id = $1 AND a.decided_at IS NULL
+        AND NOT (a.proposal->>'kind' = 'STAFF_ACTION' AND ${STALE_PLAN_CARD_SQL})
+      ORDER BY a.created_at, a.id`,
     [siteId],
   );
+  /*
+   * HOW EACH CARD ENDED (ledger #75 c): the line a confirmed or declined card leaves where it was
+   * (`actions/outcome.ts`), and "already handled" for a plan card the board was saved past.
+   */
+  const closed = await db.query<{ id: string; outcome: string | null; at: Date }>(
+    `SELECT a.id, a.proposal->>'outcome' AS outcome, a.decided_at AS at FROM ops.approval_request a
+      WHERE a.site_id = $1 AND a.proposal->>'kind' = 'STAFF_ACTION' AND a.decided_at IS NOT NULL AND a.proposal->>'outcome' IS NOT NULL
+     UNION ALL
+     SELECT a.id, NULL, a.created_at FROM ops.approval_request a
+      WHERE a.site_id = $1 AND a.proposal->>'kind' = 'STAFF_ACTION' AND a.decided_at IS NULL AND ${STALE_PLAN_CARD_SQL}`,
+    [siteId],
+  );
+  const endings = closed.rows.map((r) => ({
+    at: r.at,
+    item: { kind: "agent", id: `${r.id}:done`, text: r.outcome ?? confirmCopy.alreadyHandled } as AgentThreadItem,
+  }));
   const changes = await db.query<{ id: string; summary: string | null; at: Date }>(
     `SELECT id, payload->>'claim_summary' AS summary, created_at AS at
        FROM ops.change_request WHERE site_id = $1 AND status = 'NEEDS_HUMAN' ORDER BY created_at, id`,
@@ -134,7 +153,7 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
   });
   const heard = await alertsHeard(db, siteId, answeredIds);
 
-  const ordered = [...said, ...heard, ...answers, ...proposals].sort(
+  const ordered = [...said, ...heard, ...answers, ...proposals, ...endings].sort(
     (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime(),
   );
   if (ordered.length === 0) return EMPTY;

@@ -107,3 +107,31 @@ export function hhmmOf(minute: number): string {
   const whole = ((Math.round(minute) % 1440) + 1440) % 1440;
   return `${String(Math.floor(whole / 60)).padStart(2, "0")}:${String(whole % 60).padStart(2, "0")}`;
 }
+
+/** One child a change of plan makes late: by how much past their window, and when they now get home. */
+export type MadeLate = {
+  readonly token: string;
+  readonly arrival: PlannedDropoff;
+  /** Minutes past the family's window on the new plan. */
+  readonly late: number;
+};
+
+/**
+ * WHO A CHANGE OF PLAN MAKES LATE (ledger #73, #75). On the new plan the child gets home at least
+ * `thresholdMinutes` after their window, and at least that much later than on the plan before it —
+ * so a child who was already late is not "made" late again. The one rule the late texts are sent
+ * by (`plan/replan-notices.ts`) and the agent previews a change with (`get_plan`), so what the
+ * agent says a move will do is what the families are then told.
+ */
+export function madeLate(day: BoardDay, before: BoardPlan, after: BoardPlan, thresholdMinutes: number): MadeLate[] {
+  const was = plannedDropoffs(day, before);
+  const now = plannedDropoffs(day, after);
+  return day.riders.flatMap((rider) => {
+    const arrival = now.get(rider.token);
+    const window = minuteOfDay(rider.window);
+    if (!arrival || window === null) return [];
+    const late = arrival.arrivesAtMinute - window;
+    const later = arrival.arrivesAtMinute - (was.get(rider.token)?.arrivesAtMinute ?? window);
+    return late < thresholdMinutes || later < thresholdMinutes ? [] : [{ token: rider.token, arrival, late }];
+  });
+}

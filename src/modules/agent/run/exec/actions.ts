@@ -18,6 +18,9 @@ import { ALL_STAFF } from "@/auth/access";
 import { Forbidden, SiteNotFound, Unauthenticated, requireSiteAccess } from "@/auth/core";
 import { ridersInVan, shortfallsOfDay, usedInVan } from "@/domain/plan/board";
 import { fits } from "@/domain/plan/fit";
+import { hhmmOf, madeLate } from "@/domain/plan/arrivals";
+import type { Placement } from "@/domain/plan/board";
+import { notifyGateConfig } from "@/config/live";
 import { pendingApprovals } from "@/modules/approvals/decide";
 import { ACTIONS, authorize, runAction, type ActionCtx, type ActionName } from "@/modules/actions/registry";
 import { actionDepsFor } from "@/modules/actions/deps";
@@ -101,8 +104,36 @@ function getPlanExecutor(deps: ExecutorDeps): ToolExecutor {
     }
     const short = shortfallsOfDay(view.day, view.plan);
     facts.does_not_fit = short.map((s) => `${view.day.riders.find((r) => r.token === s.token)?.name ?? s.token}:${s.shortfall.reason}`).join(",") || "none";
+    const moves = Array.isArray(call.args.moves) ? (call.args.moves as { child_token: string; bucket: Placement["bucket"]; van_id?: string | null }[]) : [];
+    if (moves.length > 0) Object.assign(facts, previewFacts(view, moves));
     return { status: "executed", data: { plan_version: view.version }, promptFacts: facts };
   };
+}
+
+/**
+ * WHAT A CHANGE WOULD DO, BEFORE ANYBODY MAKES IT (ledger #75): the moves applied to the board in
+ * memory, then each van's fit and who would get home late by the rule the late texts are sent by
+ * (`domain/plan/arrivals.ts madeLate`). So "Ava would be about 10 min later and her family gets a
+ * text" is a number the agent read, not one it guessed. Nothing is saved.
+ */
+function previewFacts(
+  view: Awaited<ReturnType<typeof loadBoard>>,
+  moves: readonly { child_token: string; bucket: Placement["bucket"]; van_id?: string | null }[],
+): Record<string, string | boolean> {
+  const plan: Record<string, Placement> = { ...view.plan };
+  for (const m of moves) {
+    const was = plan[m.child_token];
+    if (!was) continue;
+    plan[m.child_token] = { ...was, bucket: m.bucket, vanId: m.bucket === "VAN" ? (m.van_id ?? null) : null };
+  }
+  const name = (token: string) => view.day.riders.find((r) => r.token === token)?.name ?? token;
+  const facts: Record<string, string | boolean> = { preview: true };
+  for (const van of view.day.vans) facts[`preview_van_${van.slot}_fits`] = fits(van.setup, ridersInVan(view.day, plan, van.id));
+  facts.preview_home_late =
+    madeLate(view.day, view.plan, plan, notifyGateConfig.shiftSeconds / 60)
+      .map((l) => `${name(l.token)}:+${Math.round(l.late)}min_home_${hhmmOf(Math.round(l.arrival.arrivesAtMinute))}`)
+      .join(",") || "none";
+  return facts;
 }
 
 /** Open alerts a coordinator sees, newest first (never the agent's own bookkeeping rows). */

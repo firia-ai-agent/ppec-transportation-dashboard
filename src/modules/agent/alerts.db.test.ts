@@ -18,7 +18,8 @@ import { loadAgentConfig, DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE 
 import { ALERT_TRIGGER, alertAgent } from "./alerts";
 import { readAgentThread } from "./ask/thread";
 import { confirmCards } from "@/modules/actions/confirm-cards";
-import { agentBubble, fill } from "@/ui/copy";
+import { agentBubble, confirmCopy, fill } from "@/ui/copy";
+import { askAgent } from "./ask/staff-ask";
 import { createGateway } from "./gateway";
 import { fakeProvider, toolCall } from "./providers/fake";
 import { dbContextAssembler } from "./run/assembler";
@@ -245,6 +246,49 @@ describe("one situation, one conversation (ledger #75 — C7)", () => {
     expect((await confirmSeats(6, 1)).status).toBe(200);
     expect((await runsOn()).at(-1)!.state).toBe("ABORTED_SUPERSEDED_BY_HUMAN");
     expect(await shownAlerts()).toEqual([]);
+  });
+});
+
+describe("a card closes the loop, steps aside when the board moved, and can be talked about (ledger #75 c — C5, C6)", () => {
+  const thread = async () => (await readAgentThread(db, SITE)).items;
+
+  it("leaves one line saying how it went where the confirmed card was", async () => {
+    const card = (await db.query<{ id: string }>(
+      "SELECT id FROM ops.approval_request WHERE proposal->>'kind' = 'STAFF_ACTION' AND decision = 'APPROVED' ORDER BY decided_at LIMIT 1", [],
+    )).rows[0];
+    const done = (await thread()).find((i) => "id" in i && i.id === `${card.id}:done`);
+    expect(done).toMatchObject({ kind: "agent", text: expect.stringMatching(/^Done\. Every van fits, and \d+ families were texted a new time\.$/) });
+  });
+
+  it("does not offer a plan card the board was saved past, and says it was handled", async () => {
+    const [run] = (await db.query<{ id: string }>(
+      `SELECT r.id FROM ops.agent_run r JOIN ops.approval_request a ON a.proposal->>'kind' = 'STAFF_ACTION' AND a.decided_at IS NULL
+        JOIN ops.agent_tool_call c ON c.run_id = r.id AND c.status = 'PROPOSED' LIMIT 1`, [],
+    )).rows;
+    expect(run).toBeDefined(); // the card the "puts the model's sentence on the card" test drafted
+    const pending = (await confirmCards(db, SITE)).map((c) => c.approvalId);
+    expect(pending.length).toBeGreaterThan(0);
+    // A person re-plans the afternoon on the board before pressing anything.
+    expect((await ACTIONS.auto_plan.run(ctx(people.director, "DIRECTOR"), { date: DATE, direction: "PM" })).status).toBe(200);
+    expect(await confirmCards(db, SITE)).toEqual([]);
+    const items = await thread();
+    for (const id of pending) {
+      expect(items.find((i) => "id" in i && i.id === `${id}:done`)).toMatchObject({ text: confirmCopy.alreadyHandled });
+      expect(items.find((i) => "id" in i && i.id === id)).toBeUndefined();
+    }
+  });
+
+  it("reads an ask typed after an alert as a reply to it", async () => {
+    const r = await askAgent(db, { siteId: SITE, text: "why not van 2?", by: `staff:${people.director}` }, {
+      env: ENV,
+      runner: () => ({ ok: true as const, refused: false, reason: null, deps: {} as never }),
+      wake: { publish: async () => {} },
+    });
+    if (r.outcome !== "working") throw new Error(r.outcome);
+    const assembled = await dbContextAssembler(db, { env: ENV })({
+      runId: r.runId, trigger: { type: "staff.ask", id: r.taskId, siteId: SITE }, committed: [], now: new Date(),
+    });
+    expect(JSON.stringify(assembled.prompt)).toMatch(/following_up_on_alert=\\"Van 1 no longer fits/);
   });
 });
 

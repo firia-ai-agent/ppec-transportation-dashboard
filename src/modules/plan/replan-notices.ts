@@ -35,7 +35,7 @@
  */
 import type { Db, Exec } from "@/db/exec";
 import { notifyGateConfig } from "@/config/live";
-import { hhmmOf, minuteOfDay, plannedDropoffs } from "@/domain/plan/arrivals";
+import { hhmmOf, madeLate } from "@/domain/plan/arrivals";
 import { stopTokenOf } from "@/domain/plan/map";
 import { ETA_NOTICE_NOT_AFTER_MS, LATE_MINUTES_STEP, NOT_RIDABLE, lateMinutesFor } from "@/modules/messaging/eta-notice";
 import { REPLAN_LATE_TEMPLATE } from "@/modules/messaging/replan-late-template";
@@ -86,17 +86,11 @@ export async function sendReplanLateNotices(
   if (after.day.date !== serviceDateIso(a.now)) return { queued: 0, skipped: { "not-today": 1 } };
   if (before.version === 0) return { queued: 0, skipped: { "first-save": 1 } };
 
-  const was = plannedDropoffs(before.day, before.plan);
-  const now = plannedDropoffs(after.day, after.plan);
   let queued = 0;
 
-  for (const rider of after.day.riders) {
-    const arrival = now.get(rider.token);
-    const window = minuteOfDay(rider.window);
-    if (!arrival || window === null) continue;
-    const late = arrival.arrivesAtMinute - window;
-    const later = arrival.arrivesAtMinute - (was.get(rider.token)?.arrivesAtMinute ?? window);
-    if (late < THRESHOLD_MINUTES || later < THRESHOLD_MINUTES) continue;
+  // The two plans share the day's riders and vans; only the placements differ.
+  for (const { token, arrival, late } of madeLate(after.day, before.plan, after.plan, THRESHOLD_MINUTES)) {
+    const rider = { token };
 
     const leg = (
       await db.query<{ id: string; plan_version: number; state: string }>(

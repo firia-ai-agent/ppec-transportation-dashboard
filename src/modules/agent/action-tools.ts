@@ -180,7 +180,8 @@ export const STAFF_READ_TOOLS: readonly ToolDef[] = [
     name: "get_plan",
     tier: "auto",
     effect: "read",
-    schema: z.object({ date: DATE, leg: LEG }),
+    // `moves`, when given, previews them: what would fit and who would get home late (ledger #75).
+    schema: z.object({ date: DATE, leg: LEG, moves: z.array(move).min(1).max(40).optional() }),
     staffTextFields: [],
     sendCopy: null,
     prd: "ledger #74: the plan board as the person sees it",
