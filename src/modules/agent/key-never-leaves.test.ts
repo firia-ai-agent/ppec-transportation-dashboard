@@ -424,11 +424,11 @@ const SERVER_ONLY = ["modules/agent/config.ts", "modules/agent/providers/remote.
 describe("check 3, part 3: the key cannot be in a client bundle, because the module is unreachable", () => {
   it("finds the client entry points it claims to walk", () => {
     expect(clientEntries).toEqual(
-      expect.arrayContaining(["app/(app)/family-texts/ProposalCard.tsx", "ui/NavRail.tsx"]),
+      expect.arrayContaining(["ui/AgentPanel.tsx", "ui/NavRail.tsx"]),
     );
-    // The import walk is real: the card reaches the copy deck and its own action module.
-    const fromCard = reachableFrom(["app/(app)/family-texts/ProposalCard.tsx"]);
-    expect(fromCard.has("app/(app)/family-texts/actions.ts")).toBe(true);
+    // The import walk is real: the panel reaches the copy deck and the actions it is handed.
+    const fromCard = reachableFrom(["ui/AgentPanel.tsx"]);
+    expect(fromCard.has("ui/PanelActions.tsx")).toBe(true);
     expect(fromCard.has("ui/copy.ts")).toBe(true);
   });
 

@@ -30,12 +30,15 @@ import type { Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import type { DayDataSource } from "@/domain/day/source";
 import {
+  applyPendingMoves,
   setChildPlacement as boardSetChildPlacement,
   type PlacementBucket,
   type SetChildPlacementInput,
   type SetChildPlacementOutcome,
 } from "@/modules/plan/place";
-import { hasNoDatabase, loadBoard, planStoreIn } from "@/modules/plan/store";
+import { hasNoDatabase, loadBoard, planStoreIn, type BoardView } from "@/modules/plan/store";
+import type { PendingMove } from "@/domain/plan/pending";
+import { vanHasLeft } from "@/modules/changes/plan-change";
 import {
   recordLegReceiver,
   setLegDropoffWindow,
@@ -108,7 +111,28 @@ export type PlanPlacementPort = {
    * (`plan/leg-write.ts` `recordLegReceiver`) — what clears an AT-13 hold.
    */
   readonly recordReceiver: (input: LegReceiverInput) => Promise<PlanWriteDone>;
+  /**
+   * The route the approved change agreed (ledger #79): moves and an agreed time, through the
+   * board's own Save (`applyPendingMoves`) — the plan the card showed, nothing wider. Answers with
+   * the board before and after, which is what the families it makes late are told from.
+   */
+  readonly saveRoute: (input: RouteSaveInput) => Promise<RouteSaved>;
 };
+
+export type RouteSaveInput = {
+  readonly siteId: string;
+  readonly serviceDate: string;
+  readonly direction: Direction;
+  readonly moves: readonly PendingMove[];
+  readonly departures?: Readonly<Record<string, string>>;
+  readonly expectedVersion: number;
+  readonly actor: string | null;
+  readonly now: Date;
+};
+
+export type RouteSaved =
+  | { readonly ok: true; readonly before: BoardView; readonly after: BoardView }
+  | { readonly ok: false; readonly reason: string };
 
 /** Whether the plan took a write, and the module's own reason when it did not. */
 export type PlanWriteDone =
@@ -168,6 +192,32 @@ export function boardPlacementPort(deps: {
       async recordReceiver(input) {
         const written = await recordLegReceiver(tx, input);
         return written.ok ? { ok: true } : { ok: false, reason: written.reason };
+      },
+      async saveRoute(input) {
+        // A van on the road keeps who is aboard: nobody out of it, nobody into it (ledger #79).
+        const view = await loadBoard(storeOf(), input.siteId, input.serviceDate, input.direction, sourceOf(input.siteId));
+        const left = (vanId: string | null | undefined) => vanHasLeft(view, vanId, input.now);
+        const crosses = input.moves.some((m) => {
+          const was = view.plan[m.childToken]?.vanId;
+          const to = m.bucket === "VAN" ? m.vanId : null;
+          return was !== to && (left(was) || left(to));
+        });
+        if (crosses) return { ok: false, reason: "VAN_LEFT" };
+        const outcome = await applyPendingMoves(
+          {
+            siteId: input.siteId,
+            serviceDate: input.serviceDate,
+            direction: input.direction,
+            moves: input.moves,
+            departures: input.departures,
+            expectedVersion: input.expectedVersion,
+            actor: input.actor,
+            now: input.now,
+          },
+          storeOf(),
+          sourceOf(input.siteId),
+        );
+        return outcome.ok ? { ok: true, before: outcome.before, after: outcome.view } : { ok: false, reason: outcome.reason };
       },
       async setChildPlacement(input) {
         const outcome: SetChildPlacementOutcome = await boardSetChildPlacement(

@@ -165,6 +165,7 @@ async function viewOf(
     // The reply's own words, for Edit's text box; null for fixed copy, which has no Edit.
     replyText: row.replyText,
     alertText: row.alertText,
+    lines: row.lines,
   };
 }
 

@@ -76,6 +76,7 @@ const REFUSALS: Readonly<Record<DecideError, string>> = {
   MESSAGE_CHANGED: approvalCopy.messageChanged,
   PLAN_NOT_SAVED: approvalCopy.planNotSaved,
   TIME_NOT_SAVED: approvalCopy.timeNotSaved,
+  VAN_LEFT: approvalCopy.vanLeft,
 };
 
 /**

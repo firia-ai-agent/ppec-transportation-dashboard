@@ -77,6 +77,28 @@ export async function sendReplanLateNotices(
   transport: OutboxTransport,
   a: ReplanNoticeInput,
 ): Promise<ReplanNoticeReport> {
+  return queueReplanLateNotices(db, (work) => db.tx(work), transport, a);
+}
+
+/**
+ * The same notices, inside a transaction the caller already holds — an approved change saves the
+ * plan and texts the families it made late as one decision (ledger #79): both or neither.
+ */
+export function queueReplanLateNoticesIn(
+  tx: Exec,
+  afterCommit: (h: () => Promise<void>) => void,
+  transport: OutboxTransport,
+  a: ReplanNoticeInput,
+): Promise<ReplanNoticeReport> {
+  return queueReplanLateNotices(tx, (work) => work(tx, afterCommit), transport, a);
+}
+
+async function queueReplanLateNotices(
+  db: Exec,
+  inTx: <T>(work: (tx: Exec, afterCommit: (h: () => Promise<void>) => void) => Promise<T>) => Promise<T>,
+  transport: OutboxTransport,
+  a: ReplanNoticeInput,
+): Promise<ReplanNoticeReport> {
   const skipped: Partial<Record<ReplanSkip, number>> = {};
   const skip = (reason: ReplanSkip) => {
     skipped[reason] = (skipped[reason] ?? 0) + 1;
@@ -121,7 +143,7 @@ export async function sendReplanLateNotices(
     // "about 4:45 PM": the minute, in the same 5-minute steps the lateness is said in.
     const eta = hhmmOf(Math.round(arrival.arrivesAtMinute / LATE_MINUTES_STEP) * LATE_MINUTES_STEP);
     const vars = { delayMinutes: lateMinutesFor(late * 60), eta, stopLabel: stopToken };
-    queued += await db.tx(async (tx: Exec, afterCommit) => {
+    queued += await inTx(async (tx: Exec, afterCommit) => {
       let rows = 0;
       for (const recipientToken of contacts) {
         const sent = await enqueue(tx, afterCommit, transport, {

@@ -95,6 +95,8 @@ export const savePlanBody = z.strictObject({
         vanId: z.string().min(1).max(64).nullable().optional(),
         /** Auto-plan proposed it (`pending.ts`): saved unpinned, so a re-plan may move it. */
         planned: z.boolean().optional(),
+        /** A time agreed with the family, "HH:MM" (ledger #79); null clears it, absent keeps it. */
+        notBefore: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
       }),
     )
     .max(200),
@@ -137,6 +139,7 @@ export async function savePlanRequest(
         bucket: move.bucket,
         vanId: move.vanId ?? null,
         planned: move.planned === true,
+        ...(move.notBefore !== undefined ? { notBefore: move.notBefore } : {}),
       })),
       expectedVersion: input.version,
       actor: caller.userId ?? null,

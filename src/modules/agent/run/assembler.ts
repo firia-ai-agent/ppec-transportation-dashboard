@@ -67,6 +67,9 @@ import { staffAskContext } from "./staff-ask-context";
 /** How many thread messages reach T3. §11.1 says "last N"; this is N. */
 export const THREAD_MESSAGES_IN_CONTEXT = 5;
 
+/** The staff reads a family's run may also make: their own child, nobody else's (ledger #79). */
+const FAMILY_READS: ReadonlySet<string> = new Set(["get_child"]);
+
 /** The ops kill switch (§11.2 "paused"): set by an operator, never inferred. */
 export const AGENT_PAUSED_ENV_VAR = "AGENT_PAUSED";
 
@@ -211,8 +214,10 @@ export function dbContextAssembler(
       prompt: tierPrompt(facts, input),
       tokens,
       // A family's text is never offered a staff member's tools (ledger #74): no action a person
-      // takes in the UI, no read of the board. The rest of the catalog, as before.
-      tools: TOOL_NAMES.filter((name) => !STAFF_ONLY_TOOLS.has(name)),
+      // takes in the UI, no read of the whole board. One read is theirs (ledger #79): their own
+      // child's ride and ≈ time (`get_child`, scope-checked to this family), so a reply about a
+      // time is about the time the van really comes.
+      tools: TOOL_NAMES.filter((name) => !STAFF_ONLY_TOOLS.has(name) || FAMILY_READS.has(name)),
       policy: {
         scope,
         sendableSubjects: await sendableSubjects(db, {

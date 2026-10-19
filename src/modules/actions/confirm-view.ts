@@ -13,5 +13,14 @@ export type ConfirmView = {
   readonly impact: readonly string[];
 };
 
+/** What a confirm press answers with, for the panel (a leaf, so client code can name it). */
+export type ConfirmState =
+  | { readonly status: "idle" }
+  | { readonly status: "done"; readonly decision: "APPROVED" | "DECLINED" }
+  | { readonly status: "refused"; readonly message: string };
+
+/** The confirm action's shape, named in a leaf for the same reason. */
+export type ConfirmAction = (previous: ConfirmState, form: FormData) => Promise<ConfirmState>;
+
 /** `approval_request.proposal.kind` for a change the agent prepared for a person to confirm. */
 export const STAFF_ACTION_KIND = "STAFF_ACTION";

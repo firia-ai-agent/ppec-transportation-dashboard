@@ -13,6 +13,8 @@ vi.mock("next/navigation", () => ({
 import { AgentBubble } from "./AgentBubble";
 import { AgentThread, type AgentThreadItem } from "./AgentThread";
 import { agentBubble, approval, fill } from "./copy";
+import { replyPanel } from "./panel";
+import { familyThreadHref } from "@/auth/access";
 
 /**
  * THE THREAD IN THE BUBBLE, and the coral dot on the closed disc — check (c) of the lane.
@@ -232,7 +234,7 @@ describe("a waiting proposal is the compact card from family-texts.html", () => 
  * rulings were waiting on, so when the shell hands the thread the queue's own `ProposalView`, the
  * proposal is drawn with Family texts' card component — the same draft, plan line and buttons.
  */
-describe("a waiting proposal, with the card the shell read, is the Family texts card", () => {
+describe("a waiting proposal, with the panel the shell built, is the Family texts panel", () => {
   const CARD = {
     approvalId: "p1",
     threadKey: "C2",
@@ -250,11 +252,15 @@ describe("a waiting proposal, with the card the shell read, is the Family texts 
     draftText: "PPEC: Hi Dara, yes, we can drop Noah off at 5 today.",
     replyText: "Hi Dara, yes, we can drop Noah off at 5 today.",
     alertText: "Dara asked to move Noah's drop-off to 5 PM.",
+    lines: [],
   };
-  const decide = async () => ({ status: "idle" as const });
+  // The panel the shell builds from the same row (ledger #79): one component everywhere.
   const withCard = () =>
     renderToStaticMarkup(
-      createElement(AgentThread, { items: [{ kind: "proposal", id: "p1", question: CARD.alertText }], cards: [CARD], decide }),
+      createElement(AgentThread, {
+        items: [{ kind: "proposal", id: "p1", question: CARD.alertText }],
+        panels: [replyPanel(CARD, familyThreadHref(CARD.threadKey))],
+      }),
     );
 
   it("draws the draft, the plan line and Approve — the card, not a chip", () => {
@@ -266,7 +272,7 @@ describe("a waiting proposal, with the card the shell read, is the Family texts 
     expect(html).not.toContain(agentBubble.needsApproval);
   });
 
-  it("decides through the one action it is handed, never a writer of its own", () => {
+  it("decides through the actions the shell provides, never a writer of its own", () => {
     const html = withCard();
     expect(html).toMatch(/<form/);
     // Edit opens the thread on Family texts, where the time field lives.

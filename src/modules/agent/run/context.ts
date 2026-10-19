@@ -118,7 +118,7 @@ const FAMILY_TASK: readonly string[] = [
    * approves every proposal), write in the prompt's own tokens, and hand the rest to a person.
    * Guidance about the job, never words for a family: no sentence here is ever sent anywhere.
    */
-  "guide=read the thread or a leg first if you need to; if the message asks for something a tool can do, call that tool (proposals wait for a coordinator to approve them); write people as the tokens above (they are shown as first names); if no tool fits, call escalate_exception",
+  "guide=read the thread, or get_child for when the van really reaches the child, if you need to; if the message asks for something a tool can do, call that tool (proposals wait for a coordinator to approve them); write people as the tokens above (they are shown as first names); if no tool fits, call escalate_exception",
 ];
 
 function resultLines(committed: readonly CommittedCall[]): string[] {

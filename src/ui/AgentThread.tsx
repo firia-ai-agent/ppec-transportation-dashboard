@@ -1,10 +1,5 @@
-import type { DecideAction } from "@/app/(app)/family-texts/actions";
-import type { ProposalView } from "@/app/(app)/family-texts/conversations";
-import { ProposalCard as DecisionCard } from "@/app/(app)/family-texts/ProposalCard";
-import { familyThreadHref } from "@/auth/access";
-import type { ConfirmAction } from "@/app/(app)/confirm/actions";
-import type { ConfirmView } from "@/modules/actions/confirm-view";
-import { ConfirmCard } from "./ConfirmCard";
+import { AgentPanel } from "./AgentPanel";
+import type { PanelView } from "./panel";
 import { agentBubble, fill } from "./copy";
 import { Pill, PillLabel } from "./Pill";
 import styles from "./AgentThread.module.css";
@@ -59,24 +54,14 @@ export type AgentThreadItem =
 
 export function AgentThread({
   items,
-  cards = [],
-  decide,
-  confirms = [],
-  confirm,
+  panels = [],
 }: {
   items: readonly AgentThreadItem[];
   /**
-   * THE REAL CARDS, for the proposals in `items` (founder, 2026-10-18: "the card shows up fully
-   * rendered in two places: the bubble and Family texts"). The same `ProposalView`s Family texts
-   * draws — read once by the shell through the same queue (`family-texts/queue.ts`) — and the same
-   * card component, so the draft, the plan line and Approve are one thing in two places.
+   * THE PANELS, for the proposals in `items` (ledger #79): the same `AgentPanel` Family texts draws,
+   * from the same rows, so what the agent proposes is one thing everywhere it appears.
    */
-  cards?: readonly ProposalView[];
-  /** The one decision action (`family-texts/actions.ts`). Without it a proposal stays compact. */
-  decide?: DecideAction;
-  /** Changes the agent prepared for a person to confirm (ledger #74 d), and the action that does. */
-  confirms?: readonly ConfirmView[];
-  confirm?: ConfirmAction;
+  panels?: readonly PanelView[];
 }) {
   return (
     <div className={styles.thread}>
@@ -118,20 +103,8 @@ export function AgentThread({
               </p>
             );
           case "proposal": {
-            const toConfirm = confirms.find((c) => c.approvalId === item.id);
-            if (toConfirm && confirm) return <ConfirmCard key={item.id} card={toConfirm} confirm={confirm} />;
-            const card = cards.find((c) => c.approvalId === item.id);
-            return card && decide ? (
-              <DecisionCard
-                key={item.id}
-                proposal={card}
-                decide={decide}
-                // Edit opens the thread on Family texts, where the time field lives.
-                threadHref={familyThreadHref(card.threadKey)}
-              />
-            ) : (
-              <ProposalCard key={item.id} question={item.question} />
-            );
+            const panel = panels.find((p) => p.id === item.id);
+            return panel ? <AgentPanel key={item.id} panel={panel} /> : <ProposalCard key={item.id} question={item.question} />;
           }
         }
       })}

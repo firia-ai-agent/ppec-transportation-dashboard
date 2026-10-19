@@ -70,6 +70,7 @@ import { APPROVAL_ROLES } from "@/auth/access";
 import type { Db, Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import { boardPlacementPort, type PlacementBucket, type PlanPlacementPortFor } from "./plan-placement-port";
+import { queueReplanLateNoticesIn } from "@/modules/plan/replan-notices";
 import { DROPOFF_CHANGE_KIND, DROPOFF_REPLY_TEMPLATE } from "./dropoff-change";
 import { MESSAGE_SEND_KIND } from "./message-send";
 import { renderTemplate } from "@/modules/messaging/templates";
@@ -135,6 +136,8 @@ export type PendingApproval = {
    * carries none.
    */
   readonly alertText: string;
+  /** What Approve does to the route, one line each (ledger #79); empty for a row with none. */
+  readonly lines: readonly string[];
 };
 
 type ApprovalRow = {
@@ -193,6 +196,16 @@ type DropoffProposal = {
    */
   plan_run_version_basis?: number;
   requested_dropoff_time?: string | null;
+  /**
+   * The route Approve saves with the reply (ledger #79): the moves — each with the agreed time it
+   * holds — and any departures, as `modules/changes/plan-change.ts` previewed them.
+   */
+  plan?: {
+    moves?: { child_token: string; bucket: PlacementBucket; van_id?: string | null; not_before?: string }[];
+    departures?: Record<string, string>;
+  };
+  /** What that route does to the day, one line each, for the panel. */
+  lines?: string[];
   /** True when the family asked for the ride to be cancelled rather than moved (bucket ABSENT). */
   cancel?: boolean;
   stop_token?: string | null;
@@ -260,6 +273,7 @@ function viewOf(row: ApprovalRow): PendingApproval {
     stopToken: String(p.stop_token ?? ""),
     rationaleCode: String(p.rationale_code ?? ""),
     alertText: typeof p.alert_text === "string" ? p.alert_text : "",
+    lines: Array.isArray(p.lines) ? p.lines.filter((l): l is string => typeof l === "string") : [],
   };
 }
 
@@ -366,6 +380,8 @@ export type DecideError =
    * fails safe: the decision is rolled back and the family is not texted (Firia's gap-5 ruling).
    */
   | "PLAN_NOT_SAVED"
+  /** The change moves a child out of or into a van that has already left (ledger #79). */
+  | "VAN_LEFT"
   /**
    * The placement saved but the agreed **time** did not — a leg this proposal's id, site and
    * service date do not all name, or a time that is not a wall clock (`plan/leg-write.ts`).
@@ -551,8 +567,14 @@ export async function decideApproval(
     // take the write: the coordinator is told the plan was not saved, and nothing is sent.
     if (current === null) throw new PlanNotSaved();
 
+    /*
+     * THE ROUTE THE CARD SHOWED (ledger #79). A card that carries a route — the agreed time held,
+     * the stop reordered, maybe another van — saves exactly that route below, after the agreed
+     * window is on the leg. A card with none (a stop change, a cancel) keeps the child's place.
+     */
+    const route = proposal.cancel !== true && proposal.plan?.moves && proposal.plan.moves.length > 0 ? { moves: proposal.plan.moves, departures: proposal.plan.departures } : null;
     const bucket: PlacementBucket = proposal.cancel === true ? "ABSENT" : current.bucket;
-    const saved = await plan.setChildPlacement({
+    const saved = route ? { ok: true as const } : await plan.setChildPlacement({
       siteId: row.site_id,
       serviceDate,
       direction,
@@ -625,6 +647,29 @@ export async function decideApproval(
       if (!moved.ok) throw new TimeNotSaved();
     }
 
+    // 2b'. The route, through the board's own Save, and the families it makes late told with it.
+    if (route) {
+      const routed = await plan.saveRoute({
+        siteId: row.site_id,
+        serviceDate,
+        direction,
+        moves: route.moves.map((m) => ({
+          childToken: m.child_token,
+          bucket: m.bucket,
+          vanId: m.van_id ?? null,
+          ...(m.not_before ? { notBefore: m.not_before } : {}),
+        })),
+        departures: route.departures,
+        expectedVersion: current.version,
+        actor: req.userId ?? null,
+        now: req.now,
+      });
+      if (!routed.ok) throw routed.reason === "VAN_LEFT" ? new VanLeft() : new PlanNotSaved();
+      await queueReplanLateNoticesIn(tx, afterCommit, transport, {
+        siteId: row.site_id, before: routed.before, after: routed.after, now: req.now, by,
+      });
+    }
+
     /*
      * 2c. AND THE ADULT WHO WILL BE THERE — what clears an AT-13 hold (same ruling, part c).
      *
@@ -689,6 +734,7 @@ export async function decideApproval(
     if (e instanceof PlanMoved) return { status: 409, body: { ok: false, error: "PLAN_MOVED" } } as const;
     if (e instanceof PlanNotSaved) return { status: 503, body: { ok: false, error: "PLAN_NOT_SAVED" } } as const;
     if (e instanceof TimeNotSaved) return { status: 503, body: { ok: false, error: "TIME_NOT_SAVED" } } as const;
+    if (e instanceof VanLeft) return { status: 409, body: { ok: false, error: "VAN_LEFT" } } as const;
     throw e;
   });
 }
@@ -810,6 +856,9 @@ class PlanNotSaved extends Error {}
 
 /** The agreed drop-off time could not be written to the leg. Rolls everything back. */
 class TimeNotSaved extends Error {}
+
+/** The route would move a child out of or into a van already on the road. Rolls everything back. */
+class VanLeft extends Error {}
 
 /** A uuid, so a non-uuid id is a clean not-found rather than a Postgres cast error. */
 function isUuid(value: string): boolean {

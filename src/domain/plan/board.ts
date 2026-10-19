@@ -48,6 +48,12 @@ export type Placement = {
   vanId: string | null;
   /** True when a person placed them, so planning again leaves them where they are (§1.4). */
   pinned: boolean;
+  /**
+   * A time agreed with the family, "HH:MM": the van drops them no earlier (ledger #79). It waits
+   * at their stop if it would arrive before, and their stop is driven in that order. Absent when
+   * nothing was agreed — the plain family window is a lateness reference, never a wait.
+   */
+  notBefore?: string | null;
 };
 
 /** The whole board: every child of the day, by child token. */
@@ -129,8 +135,14 @@ export function hasStop(rider: BoardRider): boolean {
 export function ridersInVan(day: BoardDay, plan: BoardPlan, vanId: string): BoardRider[] {
   return boardRiders(day)
     .filter((rider) => plan[rider.token]?.vanId === vanId)
-    .sort((a, b) => a.window.localeCompare(b.window) || a.token.localeCompare(b.token));
+    .sort((a, b) => orderKey(a, plan).localeCompare(orderKey(b, plan)) || a.token.localeCompare(b.token));
 }
+
+/** The time a rider's stop is driven by: their window, or a later time agreed with the family. */
+const orderKey = (rider: BoardRider, plan: BoardPlan): string => {
+  const agreed = plan[rider.token]?.notBefore;
+  return agreed && agreed > rider.window ? agreed : rider.window;
+};
 
 /** Everybody waiting to be placed (§1.3's Unassigned count). */
 export function unassignedRiders(day: BoardDay, plan: BoardPlan): BoardRider[] {

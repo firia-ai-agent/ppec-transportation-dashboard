@@ -272,6 +272,8 @@ export type EtaNoticeSweepReport = {
   /** Crossings already told to this family — the idempotency key did its job. */
   readonly duplicates: number;
   readonly skipped: Readonly<Partial<Record<SweepSkip, number>>>;
+  /** The rides newly told they are running late by this sweep, for whoever should hear (ledger #79). */
+  readonly late: readonly { readonly siteId: string; readonly childToken: string; readonly delayMinutes: number }[];
 };
 
 /** Why the sweep did nothing at all. A deployment, not an error. */
@@ -333,7 +335,10 @@ export async function sweepEtaNotices(
   const env = a.env ?? process.env;
   if (!isSyntheticDemo(env) || !isDemoMode(env)) return { skipped: "not a demo deployment" };
 
-  const report = { queued: 0, duplicates: 0, skipped: {} as Partial<Record<SweepSkip, number>> };
+  const report = {
+    queued: 0, duplicates: 0, skipped: {} as Partial<Record<SweepSkip, number>>,
+    late: [] as { siteId: string; childToken: string; delayMinutes: number }[],
+  };
   const skip = (reason: SweepSkip) => {
     report.skipped[reason] = (report.skipped[reason] ?? 0) + 1;
   };
@@ -378,7 +383,10 @@ export async function sweepEtaNotices(
     });
     if ("skipped" in result) skip(result.skipped);
     else if (result.duplicate) report.duplicates += 1;
-    else report.queued += result.messageIds.length;
+    else {
+      report.queued += result.messageIds.length;
+      if (notice.direction === "PM") report.late.push({ siteId: row.site_id, childToken: row.child_token, delayMinutes: lateMinutesFor(notice.decision.shiftSeconds) });
+    }
   }
   return report;
 }

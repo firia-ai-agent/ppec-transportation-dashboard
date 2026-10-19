@@ -24,7 +24,8 @@ import { icon } from "@/ui/tokens";
 import { needsActionReasonText, nextStepText, stateValues } from "./next-step";
 import type { DecideAction } from "@/app/(app)/family-texts/actions";
 import type { ProposalView } from "@/app/(app)/family-texts/conversations";
-import { ProposalCard } from "@/app/(app)/family-texts/ProposalCard";
+import { AgentPanel } from "@/ui/AgentPanel";
+import { replyPanel } from "@/ui/panel";
 import styles from "./today.module.css";
 
 /**
@@ -170,7 +171,7 @@ export function LegDrawer({
         <section className={styles.section}>
           <h3 className={styles.sectionHeading}>{drawer.approvalsHeading}</h3>
           {card !== null && decide ? (
-            <ProposalCard proposal={card} decide={decide} threadHref={familyThreadHref(row.childKey)} />
+            <AgentPanel panel={replyPanel(card, familyThreadHref(row.childKey))} />
           ) : (
             <p className={styles.muted}>{fill(drawer.noApprovals, { child })}</p>
           )}

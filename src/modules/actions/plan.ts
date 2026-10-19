@@ -15,6 +15,7 @@ import {
   savePlanRequest,
   setChildNeedsRequest,
   vanSetupBody,
+  vanShortNotifier,
 } from "@/modules/plan/api";
 import { dayDataSource, loadBoard, planStore } from "@/modules/plan/store";
 import { actionSummaries, fill } from "@/ui/copy";
@@ -38,6 +39,23 @@ function plannedMoves(before: BoardPlan, after: BoardPlan) {
   return Object.entries(after)
     .filter(([token, p]) => before[token]?.bucket !== p.bucket || before[token]?.vanId !== p.vanId)
     .map(([childToken, p]) => ({ childToken, bucket: p.bucket, vanId: p.vanId, planned: true }));
+}
+
+/**
+ * WHATEVER CHANGES WHO RIDES, THE AGENT HEARS (ledger #79). A child marked away or a child's needs
+ * changed can leave a van no longer fitting its riders, exactly as a save or a ramp count can — so
+ * after either succeeds, the same van-fit reconcile runs (`plan/van-short.ts`): a van that no
+ * longer fits raises the alert that starts the agent, one that fits again stands it down. Never a
+ * reason the write failed.
+ */
+async function reconciled<A extends { status: number }>(ctx: ActionCtx, date: string, answer: A): Promise<A> {
+  if (answer.status !== 200) return answer;
+  const alerts = ctx.deps?.vanShort ?? vanShortNotifier();
+  await alerts({
+    siteId: ctx.siteId, date, by: `staff:${ctx.caller.userId ?? "unknown"}`, now: ctx.now,
+    store: ctx.deps?.store ?? planStore(), source: ctx.deps?.source ?? dayDataSource(ctx.siteId),
+  }).catch((e) => console.error("[plan] van-short not reconciled", e instanceof Error ? e.message : e));
+  return answer;
 }
 
 export const PLAN_ACTIONS = {
@@ -67,7 +85,7 @@ export const PLAN_ACTIONS = {
       const drafted = await draftReplan(
         db,
         { store: ctx.deps?.store ?? planStore(), source: ctx.deps?.source ?? dayDataSource(ctx.siteId) },
-        { siteId: ctx.siteId, date: i.date, leg: i.direction, by: `staff:${ctx.caller.userId}`, note: i.note ?? null },
+        { siteId: ctx.siteId, date: i.date, leg: i.direction, by: `staff:${ctx.caller.userId}`, note: i.note ?? null, now: ctx.now },
       );
       return drafted.drafted
         ? { status: 200, body: { ok: true, drafted: true, cardId: drafted.approvalId } }
@@ -100,7 +118,7 @@ export const PLAN_ACTIONS = {
     input: placeChildBody,
     confirm: false,
     describe: (i) => fill(actionSummaries.moveChild, { leg: i.direction }),
-    run: (ctx, i) => placeChildRequest(ctx.siteId, ctx.caller, i, ctx.now, ctx.deps?.store),
+    run: async (ctx, i) => reconciled(ctx, i.date, await placeChildRequest(ctx.siteId, ctx.caller, i, ctx.now, ctx.deps?.store)),
   }),
   /** A van's counts as the ramp found them. */
   confirm_van_setup: entry({
@@ -119,7 +137,7 @@ export const PLAN_ACTIONS = {
     input: childNeedsBody.extend({ childToken: z.string().min(1).max(64) }),
     confirm: true,
     describe: () => actionSummaries.setNeeds,
-    run: (ctx, { childToken, ...i }) =>
-      setChildNeedsRequest(ctx.siteId, ctx.caller, childToken, i, ctx.now, ctx.deps?.store, process.env, ctx.deps?.db ?? null, ctx.deps?.source),
+    run: async (ctx, { childToken, ...i }) =>
+      reconciled(ctx, i.date, await setChildNeedsRequest(ctx.siteId, ctx.caller, childToken, i, ctx.now, ctx.deps?.store, process.env, ctx.deps?.db ?? null, ctx.deps?.source)),
   }),
 } as const;

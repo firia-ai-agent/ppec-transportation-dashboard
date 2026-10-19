@@ -11,6 +11,8 @@ import { sweepOutbox } from "@/modules/outbox/outbox";
 import { outboxDeps } from "@/modules/outbox/deps";
 import { vercelQueueOutboxTransport } from "@/modules/outbox/transport";
 import { rewakeAlertRuns } from "@/modules/agent/alerts";
+import { raiseRunningLateAlerts } from "@/modules/agent/running-late";
+import { configuredRouting } from "@/modules/agent/run/inbound-hook";
 import { abandonStaleAsks } from "@/modules/agent/ask/staff-ask";
 import { vercelQueueAgentTransport } from "@/modules/agent/run/vercel-queue";
 
@@ -50,10 +52,16 @@ export async function GET(req: Request) {
     now: new Date(),
     scenarioNow: new Date(scenarioDay.instantMs),
   });
+  // A van running late is an input the agent hears, like a short van at the ramp (ledger #79).
+  const runningLate =
+    "late" in etaNotices && etaNotices.late.length > 0
+      ? await raiseRunningLateAlerts(db, vercelQueueAgentTransport, configuredRouting(process.env), { late: etaNotices.late, now: new Date(), by: "system:eta-notice" })
+          .catch((e) => (console.error("[cron:sweep] running-late not raised", e instanceof Error ? e.message : e), 0))
+      : 0;
   const outbox = await sweepOutbox(db, outboxDeps());
   // An alert the agent was started on whose wake-up was lost (ledger #74 e).
   const alertRuns = await rewakeAlertRuns(db, vercelQueueAgentTransport, new Date());
   // A staff ask whose run the platform ended mid-way still gets its "couldn't answer" line.
   const abandonedAsks = await abandonStaleAsks(db, new Date());
-  return Response.json({ deploymentId, ...report, etaNotices, outbox, alertRuns, abandonedAsks });
+  return Response.json({ deploymentId, ...report, etaNotices, runningLate, outbox, alertRuns, abandonedAsks });
 }

@@ -16,6 +16,8 @@ import { contextFor } from "./context";
 import { conversationRows, tabFrom, threadView, type ProposalView } from "./conversations";
 import { TextsScreen } from "./TextsScreen";
 import { demoControlsGate } from "@/modules/demo/gate";
+import { confirmCards } from "@/modules/actions/confirm-cards";
+import { confirmPanel } from "@/ui/panel";
 import { phonesForDay, threadFor } from "./thread";
 
 export const metadata = { title: familyTexts.documentTitle };
@@ -175,6 +177,7 @@ export default async function FamilyTextsPage({
       takeAlert={takeAlertAction}
       showForYouTab={mayApprove}
       /* A demo control (ledger #78): only where the demo controls are on, for the roles it serves. */
+      changes={mayApprove ? (await readChanges(siteOf(caller))).map(confirmPanel) : []}
       simulate={mayApprove && demoControlsGate(process.env).allowed ? phones.map((p) => ({ key: p.childKey, label: p.childLabel })) : null}
     />
   );
@@ -223,6 +226,15 @@ async function readQueue(
   if (siteIds.length === 0) return [];
   try {
     return await approvalQueue({ db: getExec(), siteIds, day });
+  } catch {
+    return [];
+  }
+}
+
+/** Changes to the day waiting for a person (ledger #79), failing soft like the queue. */
+async function readChanges(siteId: string) {
+  try {
+    return await confirmCards(getExec(), siteId);
   } catch {
     return [];
   }

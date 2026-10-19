@@ -6,7 +6,8 @@ import { approval, assistantUnavailable, familyTexts, fill } from "@/ui/copy";
 import { icon } from "@/ui/tokens";
 import type { AssistantAlert } from "@/modules/agent/staff-alert";
 import { Composer } from "./Composer";
-import { ProposalCard } from "./ProposalCard";
+import { AgentPanel } from "@/ui/AgentPanel";
+import { replyPanel, type PanelView } from "@/ui/panel";
 import { ThreadEnd } from "./ThreadEnd";
 import { ROW_STATES } from "./row-state";
 import type { ThreadContext } from "./context";
@@ -46,6 +47,7 @@ export function TextsScreen({
   takeAlert,
   showForYouTab,
   simulate = null,
+  changes = [],
 }: {
   readonly tab: TabKey;
   readonly rows: readonly ConversationRow[];
@@ -77,6 +79,8 @@ export function TextsScreen({
   readonly showForYouTab: boolean;
   /** The demo's "Simulate parent text" families (ledger #78), or null where the demo controls are off. */
   readonly simulate?: readonly SimulateOption[] | null;
+  /** Changes to the day waiting for a person, as the one agent panel (ledger #79). */
+  readonly changes?: readonly PanelView[];
 }) {
   const forYou = tab === "for-you" && showForYouTab;
   return (
@@ -107,8 +111,8 @@ export function TextsScreen({
             aria-current={key === tab ? "page" : undefined}
           >
             {TAB_LABELS[key]}
-            {countFor(key, rows.length, proposals.length, alerts.length) === null ? null : (
-              <span className={styles.tabCount}>{countFor(key, rows.length, proposals.length, alerts.length)}</span>
+            {countFor(key, rows.length, proposals.length + changes.length, alerts.length) === null ? null : (
+              <span className={styles.tabCount}>{countFor(key, rows.length, proposals.length + changes.length, alerts.length)}</span>
             )}
           </Link>
         ))}
@@ -145,7 +149,9 @@ export function TextsScreen({
             * Not shown while an alert is up: "nothing is waiting" under a "needs a person" card
             * would be the tab contradicting itself in two lines.
             */}
-          {forYou && proposals.length === 0 && alerts.length === 0 && !alertsUnreadable ? (
+          {/* A change to the day is the same panel the bubble shows, decided here or there (ledger #79). */}
+          {forYou ? changes.map((panel) => <AgentPanel key={panel.id} panel={panel} />) : null}
+          {forYou && proposals.length === 0 && changes.length === 0 && alerts.length === 0 && !alertsUnreadable ? (
             <p className={styles.empty}>{approval.none}</p>
           ) : null}
           <ConversationList rows={rows} tab={tab} openKey={thread?.key ?? null} />
@@ -292,12 +298,7 @@ function Thread({
           <Runs key={run.id} run={run} />
         ))}
         {thread.proposal === null || !assistantReachable ? null : (
-          <ProposalCard
-            proposal={thread.proposal}
-            decide={decide}
-            editing={editing}
-            threadHref={hrefFor(tab, thread.key)}
-          />
+          <AgentPanel panel={replyPanel(thread.proposal, hrefFor(tab, thread.key))} editing={editing} />
         )}
         {/* The thread opens at its newest message, so the card's own controls are on screen. */}
         <ThreadEnd />

@@ -123,9 +123,9 @@ export function memoryPlanStore(env: Record<string, string | undefined> = proces
         // when this board is drawn, so handing it back here would be the one difference between
         // the two stores a screen could notice.
         placements: Object.fromEntries(
-          Object.entries(input.placements).map(([token, { bucket, vanId, pinned }]) => [
+          Object.entries(input.placements).map(([token, { bucket, vanId, pinned, notBefore }]) => [
             token,
-            { bucket, vanId, pinned },
+            { bucket, vanId, pinned, ...(notBefore ? { notBefore } : {}) },
           ]),
         ),
         departures: { ...(existing?.departures ?? {}), ...(input.departures ?? {}) },

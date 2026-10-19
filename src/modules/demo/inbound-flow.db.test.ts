@@ -43,6 +43,8 @@ import { agentBubble, fill } from "@/ui/copy";
 import { KIND, childTokenOf, demoId, demoLegId } from "./fixtures/standard";
 import { simulateParentText } from "./parent-text";
 import { saveAutoPlan } from "@/test/save-plan";
+import { loadBoard } from "@/modules/plan/store";
+import { plannedStopTimes } from "@/domain/plan/arrivals";
 import { actionDepsFor } from "@/modules/actions/deps";
 import { seedStandardScenario } from "./seed";
 
@@ -220,6 +222,9 @@ describe("Restart → Dara's text → the model's card → Approve", () => {
 
   it("the card carries the model's words in names, and no template's", async () => {
     const [row] = await pendingApprovals(db, [SITE]);
+    // The card says what the route does, not only what the family is told (ledger #79).
+    const lines = (await db.query<{ lines: string[] }>("SELECT proposal->'lines' AS lines FROM ops.approval_request", [])).rows[0].lines;
+    expect(lines.join(" ")).toMatch(/Noah/);
     expect(row.alertText).toBe("Dara asked to move Noah's drop-off to 5 PM because someone is home then.");
     expect(row.text).toBe(`PPEC: ${REPLY}`);
     // Veri's line: no card or alert text equals a template while the model is up.
@@ -263,6 +268,11 @@ describe("Restart → Dara's text → the model's card → Approve", () => {
       "SELECT window_start, receiver_confirmed_at FROM ops.trip_leg WHERE id = $1", [demoLegId("C2", "PM")],
     );
     expect(new Date(leg.rows[0].window_start).toISOString()).toBe(siteInstantOn(SERVICE_DATE, "17:00")!.toISOString());
+    // And the route keeps the promise (ledger #79): on the board itself, Noah is dropped no earlier than 5.
+    const deps = actionDepsFor(db, SITE);
+    const view = await loadBoard(deps.store!, SITE, SERVICE_DATE, "PM", deps.source!);
+    expect(view.plan[childTokenOf("C2")].notBefore).toBe("17:00");
+    expect(plannedStopTimes(view.day, view.plan, view.departs).get(childTokenOf("C2"))!.arrivesAtMinute).toBeGreaterThanOrEqual(17 * 60);
     expect(leg.rows[0].receiver_confirmed_at).not.toBeNull();
     const receivers = await db.query<{ contact_token: string }>(
       `SELECT contact_token::text AS contact_token FROM ops.contact_authorization
