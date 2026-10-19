@@ -106,3 +106,23 @@ describe("a queue of unsaved moves", () => {
     });
   });
 });
+
+/**
+ * §1.4's pin belongs to a person's move. Auto-plan's answer is saved unpinned, so the next
+ * Auto-plan — the ramp's Re-plan around a van that arrived short — may move it again.
+ */
+describe("who pins a child: a person, not Auto-plan", () => {
+  it("pins a person's move and leaves Auto-plan's unpinned", () => {
+    const planned = { ...toVan("child-1", "van-1"), planned: true };
+    const plan = applyPending(SAVED, enqueue(enqueue(NO_PENDING, planned), toVan("child-3", "van-2")));
+    expect(plan["child-1"]).toEqual({ bucket: "VAN", vanId: "van-1", pinned: false });
+    expect(plan["child-3"]).toEqual({ bucket: "VAN", vanId: "van-2", pinned: true });
+  });
+
+  it("sends the server which moves were Auto-plan's, and a later drag of the same child wins", () => {
+    const planned = { ...toVan("child-1", "van-1"), planned: true };
+    expect(movesToSave(SAVED, enqueue(NO_PENDING, planned))).toEqual([{ ...toVan("child-1", "van-1"), planned: true }]);
+    const dragged = enqueue(enqueue(NO_PENDING, planned), toVan("child-1", "van-2"));
+    expect(movesToSave(SAVED, dragged)).toEqual([toVan("child-1", "van-2")]);
+  });
+});

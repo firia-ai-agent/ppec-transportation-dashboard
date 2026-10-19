@@ -23,6 +23,15 @@ export type PendingMove = {
   bucket: Bucket;
   /** The van, when the bucket is `VAN`. Null otherwise, which the row also stores. */
   vanId: string | null;
+  /**
+   * True when Auto-plan proposed this move rather than a person making it.
+   *
+   * §1.4's pin is "a person put them there, so planning again leaves them where they are". A
+   * child Auto-plan placed was put there by nobody, so saving that placement must not pin it: a
+   * later Auto-plan — the ramp's Re-plan around a van that arrived short — has to be free to move
+   * them, or the first Save would freeze the whole day and every re-plan would change nothing.
+   */
+  planned?: boolean;
 };
 
 export type PendingQueue = readonly PendingMove[];
@@ -62,8 +71,8 @@ export function applyPending(plan: BoardPlan, queue: PendingQueue): BoardPlan {
     const placement: Placement = {
       bucket: move.bucket,
       vanId: move.bucket === "VAN" ? move.vanId : null,
-      // A person made this move, so a re-plan keeps them where they were put (§1.4).
-      pinned: true,
+      // A person's move is kept where they put it by a re-plan (§1.4); Auto-plan's is not.
+      pinned: move.planned !== true,
     };
     next = { ...next, [move.childToken]: placement };
   }
@@ -82,7 +91,12 @@ export function movesToSave(plan: BoardPlan, queue: PendingQueue): PendingMove[]
   for (const [token, placement] of Object.entries(after)) {
     const before = plan[token];
     if (before && before.bucket === placement.bucket && before.vanId === placement.vanId) continue;
-    moves.push({ childToken: token, bucket: placement.bucket, vanId: placement.vanId });
+    moves.push({
+      childToken: token,
+      bucket: placement.bucket,
+      vanId: placement.vanId,
+      ...(placement.pinned ? {} : { planned: true }),
+    });
   }
   return moves;
 }
@@ -97,5 +111,6 @@ function normalise(move: PendingMove): PendingMove {
     childToken: move.childToken,
     bucket: move.bucket,
     vanId: move.bucket === "VAN" ? move.vanId : null,
+    ...(move.planned === true ? { planned: true } : {}),
   };
 }

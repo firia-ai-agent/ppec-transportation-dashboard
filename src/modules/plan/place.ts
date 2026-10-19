@@ -62,7 +62,8 @@ export type SetChildPlacementInput = {
 
 /** What any plan write can come back with. One set of refusals, for one writer. */
 export type PlanWriteOutcome =
-  | { ok: true; version: number; savedAt: string; view: BoardView }
+  /** `before` is the plan this write replaced, as it was loaded: what a re-plan is compared with. */
+  | { ok: true; version: number; savedAt: string; view: BoardView; before: BoardView }
   | { ok: false; status: 404; reason: "NOT_THIS_DAY" }
   | { ok: false; status: 409; reason: "NOT_STARTED" }
   | { ok: false; status: 409; reason: "CHANGED"; changedBy: string | null; version: number }
@@ -211,7 +212,7 @@ export async function writePlan(
   }
 
   const after = await loadBoard(store, input.siteId, input.serviceDate, input.direction, source);
-  return { ok: true, version: saved.version, savedAt: saved.savedAt, view: after };
+  return { ok: true, version: saved.version, savedAt: saved.savedAt, view: after, before: view };
 }
 
 /**

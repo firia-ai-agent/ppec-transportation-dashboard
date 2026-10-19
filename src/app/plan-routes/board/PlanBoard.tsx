@@ -833,7 +833,8 @@ function asMoves(before: BoardPlan, after: BoardPlan): PendingMove[] {
   for (const [token, placement] of Object.entries(after)) {
     const was = before[token];
     if (was && was.bucket === placement.bucket && was.vanId === placement.vanId) continue;
-    moves.push({ childToken: token, bucket: placement.bucket, vanId: placement.vanId });
+    // Auto-plan's answer, not a person's: saved unpinned, so the next Auto-plan may move it.
+    moves.push({ childToken: token, bucket: placement.bucket, vanId: placement.vanId, planned: true });
   }
   return moves;
 }

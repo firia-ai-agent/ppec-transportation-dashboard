@@ -361,6 +361,29 @@ describe("the late drop-off text says what Vera settled", () => {
 });
 
 /**
+ * THE RE-PLAN'S LATE TEXT (ledger #73): the stall text's sentence, plus the new drop-off minute.
+ * It may carry one time, `eta`, and still no window and nothing a caller could type.
+ */
+describe("the re-plan's late text says how late, and when", () => {
+  const TEMPLATE = "dropoff.late_eta";
+
+  it("says the minutes, the new time and the stop, and names the child", () => {
+    const body = renderTemplate(TEMPLATE, { delayMinutes: 25, eta: "16:45", stopLabel: "OKEE-PARK" }, { child: "Noah O." });
+    expect(body).toBe(
+      "PPEC: Noah's van home is running about 25 minutes late. New drop-off about 4:45 PM at Okeeheelee Park.",
+    );
+  });
+
+  it("takes exactly those three vars: no window end, no prose", () => {
+    expect(Object.keys(TEMPLATE_VARS[TEMPLATE]).sort()).toEqual(["delayMinutes", "eta", "stopLabel"]);
+    expect(() =>
+      renderTemplate(TEMPLATE, { delayMinutes: 25, eta: "16:45", etaEnd: "16:55", stopLabel: "OKEE-PARK" }),
+    ).toThrow();
+    expect(() => renderTemplate(TEMPLATE, { delayMinutes: 25, eta: "about five", stopLabel: "OKEE-PARK" })).toThrow();
+  });
+});
+
+/**
  * THE FOOTER IS THE SEND STEP'S (Firia, 2026-10-17 11:00 PM ET, S1-5).
  *
  * The rule has two halves and the bodies above are only the first: no body carries the 10DLC

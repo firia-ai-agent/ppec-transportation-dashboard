@@ -54,6 +54,8 @@ const ALLOWED_SEED_IMPORTERS = [
    */
   "src/modules/plan/legs.db.test.ts",
   "src/modules/plan/ramp-leg.db.test.ts",
+  /* A saved re-plan texts the families it made late (ledger #73): legs and contacts are seeded rows. */
+  "src/modules/plan/replan-notices.db.test.ts",
   /*
    * One saved plan read by four screens — the board, Today, Health and the Live map — against a
    * seeded day (S1, 2026-10-18). The memory store cannot reach the SQL those tiles are counted

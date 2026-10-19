@@ -94,6 +94,11 @@ describe("the agent's auto-send lists do not contain the two approval-only bodie
   });
 });
 
+/*
+ * The stall-replay notice below still carries no time. Its sibling `dropoff.late_eta` — the text a
+ * saved re-plan sends — carries the computed ETA by the user's ruling of 2026-10-18 (ledger #73),
+ * and is held in `modules/plan/replan-notices.test.ts`.
+ */
 describe("the goal-3 late notice is the one automatic text, and it carries no time", () => {
   it("is the afternoon's template, and it is on the auto-send list", () => {
     expect(etaNoticeTemplate("PM")).toBe(LATE_NOTICE);

@@ -31,6 +31,8 @@ import type { StaffCaller } from "@/auth/api-guard";
 import { DEMO_SITE_ID } from "@/modules/demo/fixtures/standard";
 import type { DayDataSource } from "@/domain/day/source";
 import { dayDataSource, loadBoard, placementsToSave, planStore, type BoardView, type PlanStore } from "./store";
+import { sendReplanLateNotices, type ReplanNoticeInput } from "./replan-notices";
+import { vercelQueueOutboxTransport } from "@/modules/outbox/transport";
 
 /* ───────────────────────────── which site ───────────────────────────── */
 
@@ -97,6 +99,8 @@ export const savePlanBody = z.strictObject({
         childToken: z.string().min(1).max(64),
         bucket: z.enum(BUCKETS),
         vanId: z.string().min(1).max(64).nullable().optional(),
+        /** Auto-plan proposed it (`pending.ts`): saved unpinned, so a re-plan may move it. */
+        planned: z.boolean().optional(),
       }),
     )
     .max(200),
@@ -123,6 +127,7 @@ export async function savePlanRequest(
   now: Date = new Date(),
   store: PlanStore = planStore(),
   source: DayDataSource = dayDataSource(siteId),
+  notify: ReplanNotifier = replanNotifier(),
 ): Promise<SavePlanAnswer> {
   const written = await applyPendingMoves(
     {
@@ -133,6 +138,7 @@ export async function savePlanRequest(
         childToken: move.childToken,
         bucket: move.bucket,
         vanId: move.vanId ?? null,
+        planned: move.planned === true,
       })),
       expectedVersion: input.version,
       actor: caller.userId ?? null,
@@ -142,6 +148,18 @@ export async function savePlanRequest(
     source,
   );
   if (written.ok) {
+    /*
+     * THE FAMILIES THIS SAVE MADE LATE are told, after the save has committed (ledger #73;
+     * `replan-notices.ts`). Never a reason the save failed: the plan is saved either way, and a
+     * text that could not be queued is a log line, not a "Couldn't save" on a plan that was.
+     */
+    await notify({
+      siteId,
+      before: written.before,
+      after: written.view,
+      now,
+      by: `staff:${caller.userId ?? "unknown"}`,
+    }).catch((e) => console.error("[plan:save] replan notices not queued", e instanceof Error ? e.message : e));
     return { status: 200, body: { ok: true, version: written.version, savedAt: written.savedAt } };
   }
   if (written.status === 422) {
@@ -159,6 +177,18 @@ export async function savePlanRequest(
     return { status: 409, body: { ok: false, reason: written.reason, changedBy: written.changedBy } };
   }
   return { status: written.status, body: { ok: false, reason: written.reason } };
+}
+
+/** What a successful Save hands its two plans to. Injected so a test can watch it. */
+export type ReplanNotifier = (input: ReplanNoticeInput) => Promise<unknown>;
+
+/**
+ * The production notifier: the database the save wrote to, and the outbox's queue. A deployment
+ * with no database (the in-memory store of a local run) has no outbox and no families to tell.
+ */
+export function replanNotifier(env: Record<string, string | undefined> = process.env): ReplanNotifier {
+  if (!env.DATABASE_URL || isReadOnlyDbEnv(env)) return async () => undefined;
+  return (input) => sendReplanLateNotices(getNeonDb(), vercelQueueOutboxTransport, input);
 }
 
 /* ───────────────────────────── one van's setup ───────────────────────────── */

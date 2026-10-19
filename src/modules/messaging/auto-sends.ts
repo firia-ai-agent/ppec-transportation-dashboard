@@ -17,12 +17,15 @@
  * not overlap and that every family template is in exactly one of them.
  */
 import { HELP_REPLY_TEMPLATE } from "@/modules/messaging/templates";
+import { REPLAN_LATE_TEMPLATE } from "@/modules/messaging/replan-late-template";
 
 /** The templates the day sends with no person in the loop. */
 export const AUTO_SEND_TEMPLATES: ReadonlySet<string> = new Set([
   "pickup.eta",
   "dropoff.eta",
   "dropoff.late",
+  // A saved re-plan's late text: the plan sends it, nobody writes or approves it (ledger #73).
+  REPLAN_LATE_TEMPLATE,
   /*
    * The handoff notice. It is an auto send and not a decision: nobody chooses to send it, the
    * day sends it because a custody event was recorded. Which is also why it is safe for it to

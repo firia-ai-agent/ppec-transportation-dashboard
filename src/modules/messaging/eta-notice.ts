@@ -259,7 +259,7 @@ export type DueEtaNotice = {
  * canceled must not then be told when the van will reach them (AT-08 is the same rule at send
  * time; this is the earlier refusal).
  */
-const NOT_RIDABLE: ReadonlySet<string> = new Set([
+export const NOT_RIDABLE: ReadonlySet<string> = new Set([
   "CANCELED_TRANSPORT", "CANCELED_ATTENDANCE", "NO_SHOW", "COMPLETED_HANDOFF",
   "HELD_NO_RECEIVER", "LEFT_BEHIND_CAPACITY", "EXCEPTION",
 ]);
