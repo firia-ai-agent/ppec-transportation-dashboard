@@ -152,6 +152,8 @@ export default function PlanBoard({
    * like a move: it changes every time on that van at once, and Save keeps it.
    */
   const [leaveEdits, setLeaveEdits] = useState<Readonly<Record<string, string>>>({});
+  /** The child the pointer is on: the map rings their stop. */
+  const [pointed, setPointed] = useState<string | null>(null);
   const [toast, setToast] = useState<{ text: string } | null>(null);
   /**
    * The one refusal on screen: which card it is on, and the four words it says (Vera's taste
@@ -216,6 +218,11 @@ export default function PlanBoard({
     [board.departs, leaveEdits],
   );
   const times = useMemo(() => plannedStopTimes(day, plan, departs), [day, plan, departs]);
+  const focus = useMemo(() => {
+    const at = pointed ? plan[pointed] : undefined;
+    const rider = pointed ? day.riders.find((r) => r.token === pointed) : undefined;
+    return at?.bucket === "VAN" && at.vanId && rider ? { laneId: at.vanId, label: rider.stopLabel } : null;
+  }, [pointed, plan, day.riders]);
   const placed = placedCount(day, plan);
   const waiting = unassignedRiders(day, plan);
   const map = useMemo(() => boardMap(day, plan), [day, plan]);
@@ -718,6 +725,7 @@ export default function PlanBoard({
                 leaves={hhmmOf(departs[van.id] ?? 0)}
                 onLeaves={(hhmm) => setLeaveEdits((edits) => ({ ...edits, [van.id]: hhmm }))}
                 times={times}
+                onPointChild={setPointed}
               />
             ))}
           </div>
@@ -729,7 +737,7 @@ export default function PlanBoard({
             moved between columns moves on the map rather than in a copy kept in step by hand.
           */}
           <aside className={styles.map} aria-label={planBoard.mapLabel}>
-            <PlanMap data={map} selectedLaneId={hovered ?? selectedVanId} onSelect={() => undefined} />
+            <PlanMap data={map} selectedLaneId={hovered ?? selectedVanId} onSelect={() => undefined} focus={focus} />
           </aside>
         </div>
 

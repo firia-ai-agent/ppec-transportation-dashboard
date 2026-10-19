@@ -47,6 +47,7 @@ export function RiderCard({
   columns,
   refusalLine,
   eta,
+  onPoint,
 }: {
   rider: BoardRider;
   /** The stop this child is driven at, inside their van. Absent for a child in no van. */
@@ -73,6 +74,8 @@ export function RiderCard({
   refusalLine?: string;
   /** Estimated pickup (morning) or drop-off (afternoon), minutes of the site day (ledger #76). */
   eta?: number;
+  /** The pointer (or keyboard focus) is on this card, or left it: the map points at their stop. */
+  onPoint?: (pointing: boolean) => void;
 }) {
   // Past the family's window by the notify threshold: the same "late" the late texts are sent on.
   const late = eta === undefined ? null : minutesLate(rider.window, eta);
@@ -90,7 +93,12 @@ export function RiderCard({
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <li>
+    <li
+      onPointerEnter={() => onPoint?.(true)}
+      onPointerLeave={() => onPoint?.(false)}
+      onFocus={() => onPoint?.(true)}
+      onBlur={() => onPoint?.(false)}
+    >
       <button
         type="button"
         ref={setNodeRef}

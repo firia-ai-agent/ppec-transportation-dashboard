@@ -618,13 +618,19 @@ export function planMapLayers(): StyleLayerLike[] {
       type: "circle",
       source: PLAN_SOURCE_IDS.stops,
       paint: {
-        "circle-radius": ["case", ["boolean", ["get", "selected"], false], 11, 9],
+        // The child a person is pointing at on the board: their stop, larger and ringed in ink.
+        "circle-radius": [
+          "case",
+          ["boolean", ["get", "focused"], false], 15,
+          ["boolean", ["get", "selected"], false], 11,
+          9,
+        ],
         "circle-color": ["get", "color"],
         // 2 px white halo, as every marker of ours carries: it is what keeps the disc >=3:1
         // against every positron fill underneath (§8).
-        "circle-stroke-width": 2,
-        "circle-stroke-color": MAP_TOKENS.surface,
-        "circle-opacity": ["case", ["boolean", ["get", "dimmed"], false], 0.3, 1],
+        "circle-stroke-width": ["case", ["boolean", ["get", "focused"], false], 4, 2],
+        "circle-stroke-color": ["case", ["boolean", ["get", "focused"], false], MAP_TOKENS.ink, MAP_TOKENS.surface],
+        "circle-opacity": ["case", ["boolean", ["get", "focused"], false], 1, ["boolean", ["get", "dimmed"], false], 0.3, 1],
       },
     },
     {
@@ -899,6 +905,8 @@ export function planRoutesGeoJson(
 export function planStopsGeoJson(
   routes: readonly PlanRouteLike[],
   selectedLaneId?: string | null,
+  /** The stop of the child a person is pointing at on the board: drawn larger. */
+  focus?: { readonly laneId: string; readonly label: string } | null,
 ): FeatureCollection<
   PointFeature<{
     laneId: string;
@@ -908,6 +916,7 @@ export function planStopsGeoJson(
     color: string;
     selected: boolean;
     dimmed: boolean;
+    focused: boolean;
   }>
 > {
   return {
@@ -924,6 +933,7 @@ export function planStopsGeoJson(
           color: routeColor(route.colorIndex),
           selected: route.laneId === selectedLaneId,
           dimmed: dimmedBy(route.laneId, selectedLaneId),
+          focused: focus?.laneId === route.laneId && focus.label === stop.label,
         },
       })),
     ),

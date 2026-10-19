@@ -247,7 +247,9 @@
   background: var(--color-osm-bg);
 }
 
-.canvas {
+/* Scoped under the wrap: MapLibre's sheet sets `.maplibregl-map { position: relative }` and can
+   load after this one on a client navigation, which collapsed the map to 0 px (plan-map.module.css). */
+.mapw .canvas {
   position: absolute;
   inset: 0;
 }

@@ -56,6 +56,7 @@ export function VanColumn({
   leaves,
   onLeaves,
   times,
+  onPointChild,
 }: {
   van: BoardVan;
   day: BoardDay;
@@ -88,6 +89,8 @@ export function VanColumn({
   onLeaves: (hhmm: string) => void;
   /** Every child's estimated pickup / drop-off minute on the plan on screen. */
   times: ReadonlyMap<string, StopTime>;
+  /** Which child the pointer is on (null when it left), so the map can point at their stop. */
+  onPointChild?: (childToken: string | null) => void;
 }) {
   const { setNodeRef, isOver: pointerOver } = useDroppable({ id: van.id });
   const riders = ridersInVan(day, plan, van.id);
@@ -177,6 +180,7 @@ export function VanColumn({
             selected={openChildToken === rider.token}
             refusalLine={refusalLineFor(refusal, rider.token)}
             eta={times.get(rider.token)?.arrivesAtMinute}
+            onPoint={(pointing) => onPointChild?.(pointing ? rider.token : null)}
           />
         ))}
         {/* An empty van shows where a child goes, at the top of the list rather than at the

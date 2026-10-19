@@ -110,9 +110,11 @@ export interface PlanMapProps {
   /** The lane whose route is in front, or null while every van is shown at full strength. */
   selectedLaneId: string | null;
   onSelect: (laneId: string | null) => void;
+  /** The stop of the child the pointer is on, on the board: highlighted on the map. */
+  focus?: { readonly laneId: string; readonly label: string } | null;
 }
 
-export default function PlanMap({ data, selectedLaneId, onSelect }: PlanMapProps) {
+export default function PlanMap({ data, selectedLaneId, onSelect, focus = null }: PlanMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const [ready, setReady] = useState(false);
@@ -173,6 +175,14 @@ export default function PlanMap({ data, selectedLaneId, onSelect }: PlanMapProps
         attributionControl: false,
       });
       mapRef.current = map;
+      /*
+       * THE PANE CAN CHANGE SIZE UNDER THE MAP — and does on a back navigation, where the route is
+       * shown again after the map was built into a pane with no size: the canvas kept MapLibre's
+       * 300 px default and drew nothing visible. The map follows its container, not the window.
+       */
+      const resized = new ResizeObserver(() => map?.resize());
+      resized.observe(container);
+      map.once("remove", () => resized.disconnect());
 
       // ADR-008 / §5.1: compact attribution, bottom-right, never removed. `customAttribution`
       // is added to what the OpenFreeMap TileJSON already carries, so OpenMapTiles and OSM stay
@@ -278,9 +288,9 @@ export default function PlanMap({ data, selectedLaneId, onSelect }: PlanMapProps
       }
     };
     setData(PLAN_SOURCE_IDS.routes, planRoutesGeoJson(data.routes, selectedLaneId));
-    setData(PLAN_SOURCE_IDS.stops, planStopsGeoJson(data.routes, selectedLaneId));
+    setData(PLAN_SOURCE_IDS.stops, planStopsGeoJson(data.routes, selectedLaneId, focus));
     setData(MAP_SOURCE_IDS.center, pointGeoJson(data.center, data.centerLabel));
-  }, [data, selectedLaneId, ready]);
+  }, [data, selectedLaneId, focus, ready]);
 
   /*
    * The camera re-frames on two things and no others: a van being picked, and the map going from
