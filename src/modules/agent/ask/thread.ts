@@ -21,13 +21,17 @@
  */
 import type { Db } from "@/db/exec";
 import type { AgentThreadItem } from "@/ui/AgentThread";
+import { agentRetryConfig } from "@/config/live";
 import { agentBubble } from "@/ui/copy";
 import { namedOrNull } from "@/modules/identity/names";
 import { effectId } from "@/modules/agent/run/exec/effects";
 import { ANSWER_TOOLS } from "./answer";
 
-/** How long an ask's run reads as "working" — the bubble's own refresh window (RefreshWhileAgentWorks). */
-const ASK_WORKING_FOR_SECONDS = 180;
+/**
+ * How long an ask's run reads as "working": its whole busy-model retry window and one more try
+ * (ledger #75), so a run that is waiting on a rate-limited vendor still says it is on it.
+ */
+const ASK_WORKING_FOR_SECONDS = agentRetryConfig.retryForSeconds["staff.ask"] + agentRetryConfig.retryAfterSeconds;
 import { STAFF_ALERT_TASK_CATEGORY, STAFF_ASK_TASK_CATEGORY, askTextOf } from "./ask-text";
 
 export type AgentThreadView = {

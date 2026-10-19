@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { agentRetryConfig } from "@/config/live";
 
 /**
  * WHILE THE AGENT IS WORKING, THE SCREEN CATCHES UP ON ITS OWN.
@@ -14,8 +15,11 @@ import { useRouter } from "next/navigation";
  * out. A refresh re-reads rows on the server; it writes nothing and calls no model.
  */
 export const AGENT_REFRESH_EVERY_MS = 3_000;
-/** Long enough for a model turn or two on the free endpoints, short enough to never poll forever. */
-export const AGENT_REFRESH_FOR_MS = 120_000;
+/**
+ * Long enough for a person's run to ride out a busy model (ledger #75: an ask retries for four
+ * minutes, one try a minute), short enough to never poll forever.
+ */
+export const AGENT_REFRESH_FOR_MS = (agentRetryConfig.retryForSeconds["staff.ask"] + agentRetryConfig.retryAfterSeconds) * 1000;
 
 export function RefreshWhileAgentWorks({ working }: { working: boolean }) {
   const router = useRouter();
