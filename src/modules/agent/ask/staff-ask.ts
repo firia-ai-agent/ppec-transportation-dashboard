@@ -227,8 +227,29 @@ export async function askAgent(
   const trigger: Trigger = { type: "staff.ask", id: taskId, siteId: input.siteId };
   assertTrigger(trigger);
   if (deps.wake) {
-    const { runId } = await enqueueRun(db, deps.wake, trigger, configuredRouting(env));
-    return { ok: true, outcome: "working", taskId, runId };
+    try {
+      const { runId } = await enqueueRun(db, deps.wake, trigger, configuredRouting(env));
+      return { ok: true, outcome: "working", taskId, runId };
+    } catch (err) {
+      /*
+       * THE WAKE-UP NEVER LEFT (found on the local walk, 2026-10-18): the run row is written but no
+       * consumer will ever drive it, so the thread would say "Working on it…" until the sweep's
+       * backstop. Close it now, the way the backstop would: fail the run and settle the ask, which
+       * raises the one "couldn't answer" alert. No run row at all is the same answer, raised direct.
+       */
+      const run = (
+        await db.query<{ id: string; state: RunState }>(
+          "SELECT id, state FROM ops.agent_run WHERE trigger_type = $1 AND trigger_id = $2",
+          [trigger.type, trigger.id],
+        )
+      ).rows[0];
+      if (run && runEdgeAllowed(run.state, "FAILED")) {
+        await setRunState(db, run.id, run.state, "FAILED", "system:ask:wake-failed");
+        await settleStaffAsk(db, run.id);
+      }
+      const alertId = await raiseAskAlert(db, { askId: taskId, siteId: input.siteId, ask, by: input.by });
+      return { ok: false, outcome: "unavailable", taskId: alertId, reason: `WAKE_FAILED (${errorClass(err)})` };
+    }
   }
   try {
     /*

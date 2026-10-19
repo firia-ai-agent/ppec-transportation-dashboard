@@ -644,6 +644,26 @@ describe("the thread the panel draws is read from rows this app holds", () => {
     ]);
   });
 
+  it("closes an ask whose wake-up could not be sent, at once rather than at the sweep", async () => {
+    const id = "01900000-0000-7000-8000-00000000a508";
+    const { harness } = withModel([toolCall("get_leg_state", { leg_id: "L-NOT-HERE" })]);
+    const r = await askAgent(db, { siteId: sc.siteId, text: "unsent question", by: "u1", id }, {
+      env: {},
+      runner: () => ({ ok: true as const, refused: false, reason: null, deps: harness.deps(0) }),
+      wake: { publish: async () => { throw new Error("queue down"); } },
+    });
+    expect(r).toMatchObject({ ok: false, outcome: "unavailable", reason: "WAKE_FAILED (Error)" });
+    const run = await db.query<{ state: string }>(
+      "SELECT state FROM ops.agent_run WHERE trigger_type = 'staff.ask' AND trigger_id = $1", [id],
+    );
+    expect(run.rows.map((x) => x.state)).toEqual(["FAILED"]);
+    const items = (await readAgentThread(db, sc.siteId)).items.filter((i) => "id" in i && i.id.startsWith(id));
+    expect(items).toEqual([
+      { kind: "staff", id, text: "unsent question" },
+      { kind: "agent", id: `${id}:no-answer`, text: agentBubble.noAnswer },
+    ]);
+  });
+
   it("never takes a screen down with it", async () => {
     const broken = { query: async () => { throw new Error("no"); } } as unknown as typeof db;
     expect(await readAgentThreadOrEmpty(broken, sc.siteId)).toEqual({ items: [], waiting: 0 });
