@@ -22,6 +22,7 @@ import { hhmmOf, madeLate, plannedStopTimes } from "@/domain/plan/arrivals";
 import type { Placement } from "@/domain/plan/board";
 import { notifyGateConfig } from "@/config/live";
 import { staffLabel } from "@/modules/plan/staff";
+import { tokenizeNames } from "@/modules/identity/names";
 import { activityWords, fill } from "@/ui/copy";
 import { serviceDateIso, siteTimeLabel } from "@/ui/service-date";
 import { VANS, vanNameOf } from "@/config/vans";
@@ -250,9 +251,26 @@ const vanNameOfId = (id: string) => {
 export function staffExecutors(deps: ExecutorDeps): ToolExecutors {
   return {
     ...Object.fromEntries(ACTION_TOOLS.filter((t) => t.tier === "auto").map((t) => [t.name, actionExecutor(deps, t)])),
-    get_plan: getPlanExecutor(deps),
-    get_alerts: getAlertsExecutor(deps),
-    get_cards: getCardsExecutor(deps),
-    get_activity: getActivityExecutor(deps),
+    get_plan: inTokens(getPlanExecutor(deps)),
+    get_alerts: inTokens(getAlertsExecutor(deps)),
+    get_cards: inTokens(getCardsExecutor(deps)),
+    get_activity: inTokens(getActivityExecutor(deps)),
+  };
+}
+
+/**
+ * THE MODEL READS PEOPLE AS TOKENS (PRD: agent context gets tokens; the gateway refuses untokenized
+ * names). A read hands back what screens show — "Zoe B." — so every fact is tokenized on its way to
+ * the model. It then writes "C6", which the bubble turns back into a name, instead of writing the
+ * name and having the reply's own redaction wipe it to "[REDACTED:NAME]".
+ */
+function inTokens(executor: ToolExecutor): ToolExecutor {
+  return async (call) => {
+    const out = await executor(call);
+    if (out.status !== "executed" || !out.promptFacts) return out;
+    const facts = Object.fromEntries(
+      Object.entries(out.promptFacts).map(([k, v]) => [k, typeof v === "string" ? tokenizeNames(v) : v]),
+    );
+    return { ...out, promptFacts: facts };
   };
 }
