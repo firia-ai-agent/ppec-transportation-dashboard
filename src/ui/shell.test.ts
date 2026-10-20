@@ -439,7 +439,9 @@ describe("§7 the DEMO bar's one control", () => {
     process.env.APP_DATA_CLASS = "SYNTHETIC";
     const frontDesk = renderToStaticMarkup(DemoBanner({ role: "FRONT_DESK", vanCount: DAY_VANS.length }));
     expect(frontDesk).not.toContain(demoDay.restart);
-    expect(frontDesk).not.toMatch(/<button/);
+    expect(frontDesk).not.toContain("data-demo-restart");
+    // Feedback is the one button the front desk's bar does carry: its row is ALL_STAFF (#82).
+    expect(frontDesk).toContain("data-feedback-open");
     const director = renderToStaticMarkup(DemoBanner({ role: "DIRECTOR", vanCount: DAY_VANS.length }));
     expect(director).toContain(demoDay.restart);
   });

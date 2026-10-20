@@ -193,6 +193,9 @@ export const API = {
   demoReset: "/api/demo/reset",
   /** The demo's "Simulate parent text" on Family texts (ledger #78). */
   demoParentText: "/api/demo/parent-text",
+  /** The DEMO bar's Feedback button, and the director's list of what is open (ledger #82). */
+  feedback: "/api/feedback",
+  feedbackOpen: "/api/feedback/open",
   /** The plan board: the day it reads, the plan it saves, and one van's setup. */
   planBoard: "/api/plan",
   planSave: "/api/plan/save",
@@ -670,6 +673,24 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     path: API.demoParentText,
     methods: ["POST"],
     auth: { kind: "session", roles: APPROVAL_ROLES, siteScoped: true },
+  },
+  /**
+   * Feedback (ledger #82): anyone on staff may say what should change, at their own site; only the
+   * director reads the list. Neither takes a site id — the site is the caller's membership.
+   */
+  {
+    kind: "route",
+    file: "src/app/api/feedback/route.ts",
+    path: API.feedback,
+    methods: ["POST"],
+    auth: { kind: "session", roles: ALL_STAFF, siteScoped: false },
+  },
+  {
+    kind: "route",
+    file: "src/app/api/feedback/open/route.ts",
+    path: API.feedbackOpen,
+    methods: ["GET"],
+    auth: { kind: "session", roles: ["DIRECTOR"], siteScoped: false },
   },
   /**
    * Saving a plan from Plan routes (B-09): the one write the planning surface makes.

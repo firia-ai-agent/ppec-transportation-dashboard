@@ -508,6 +508,15 @@ export const agentMemory = ops.table("agent_memory", {
   id: pk(), siteId: siteRef(), contactToken: uuid("contact_token").notNull(), key: text("key").notNull(), value: text("value").notNull(),
   approvedBy: uuid("approved_by").notNull(), expiresAt: timestamp("expires_at", { withTimezone: true }), ...audit,
 });
+/**
+ * What a member of staff wants changed about the app, from the DEMO bar's Feedback button (ledger
+ * #82). Staff words about a screen, not a record about a child: never logged, read by the director.
+ */
+export const feedback = ops.table("feedback", {
+  id: pk(), siteId: siteRef(), pagePath: text("page_path").notNull(), body: text("body").notNull(),
+  status: text("status").notNull().default("OPEN"), // OPEN | DONE
+  ...audit,
+}, (t) => [index("feedback_site_status_idx").on(t.siteId, t.status, t.createdAt)]);
 
 /* ───────────────────────────── ops: timers, events, integrations ───────────────────────────── */
 /** JobScheduler seam storage: schedule(at,key,payload) / cancel(key) / onFire. Authoritative for every timer. */

@@ -436,6 +436,9 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/api/probe/delay": "cron-secret",
       "/api/demo/reset": "session:DIRECTOR",
       "/api/demo/parent-text": "session:DIRECTOR+COORDINATOR",
+      // Anyone on staff may say what should change; only the director reads the list (#82).
+      "/api/feedback": "session:DIRECTOR+COORDINATOR+FRONT_DESK",
+      "/api/feedback/open": "session:DIRECTOR",
       "/api/plan": "session:DIRECTOR+COORDINATOR",
       "/api/plan/save": "session:DIRECTOR+COORDINATOR",
       "/api/plan/replan": "session:DIRECTOR+COORDINATOR",
