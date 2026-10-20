@@ -127,7 +127,7 @@ describe("a rate-limited model parks a person's run and tries again (C3)", () =>
   it("ends the retried run the way a reachable model ends it: a card for a person", async () => {
     const run = await alertRun();
     // Before the afternoon vans leave: once they have, nobody moves between them (ledger #79).
-    const beforeDeparture = siteInstantOn(serviceDateIso(new Date()), "13:00")!;
+    const beforeDeparture = siteInstantOn(DATE, "13:00")!;
     const result = await drive(run.id, busyThen([toolCall("get_plan", { leg: "PM" }), toolCall("propose_plan_change", { leg: "PM", replan: true, note: "Van 1 came back short, so one child moves." })], 0), beforeDeparture);
     expect(result.state, JSON.stringify(result)).toBe("SUCCEEDED");
     const cards = await db.query("SELECT 1 FROM ops.approval_request WHERE proposal->>'kind' = 'STAFF_ACTION' AND decided_at IS NULL", []);

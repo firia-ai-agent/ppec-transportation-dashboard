@@ -21,6 +21,7 @@ import { dayDataSource, loadBoard, planStore } from "@/modules/plan/store";
 import { actionSummaries, fill } from "@/ui/copy";
 import { getNeonDb } from "@/db/exec";
 import { draftReplan } from "./draft";
+import { refusalWords } from "@/modules/changes/refusal";
 import { entry, type ActionCtx } from "./types";
 
 const LEG = z.enum(["AM", "PM"]);
@@ -89,7 +90,15 @@ export const PLAN_ACTIONS = {
       );
       return drafted.drafted
         ? { status: 200, body: { ok: true, drafted: true, cardId: drafted.approvalId } }
-        : { status: 200, body: { ok: true, drafted: false, reason: drafted.reason, ...("children" in drafted ? { children: drafted.children } : {}) } };
+        : {
+            status: 200,
+            body: {
+              ok: true, drafted: false, reason: drafted.reason,
+              ...("children" in drafted ? { children: drafted.children } : {}),
+              // What is in the way, in words, and where to fix it (ledger #80).
+              ...("refusal" in drafted ? { refused: refusalWords(drafted.refusal) } : {}),
+            },
+          };
     },
   }),
   /** One child to one place — a drag and a Save, as a person makes it (so it is pinned). */

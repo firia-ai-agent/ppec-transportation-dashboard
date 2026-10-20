@@ -27,7 +27,12 @@ import { actionTool } from "../../action-tools";
 import { staffActionSummary } from "@/modules/actions/summary";
 import { draftPlanChange, writeStaffActionCard } from "@/modules/actions/draft";
 import { teamPlanChange, todayOf } from "./team";
-import { bestRouteFor } from "@/modules/changes/agreed";
+import { routesFor, type AgreedRoute } from "@/modules/changes/agreed";
+import { rehearse } from "@/modules/changes/rehearse";
+import { applyDropoffPlan } from "@/modules/approvals/decide";
+import { boardPlacementPort } from "@/modules/approvals/plan-placement-port";
+import { raiseNeedsPerson } from "../../needs-person";
+import type { Refusal } from "@/modules/changes/refusal";
 import { askerMayNot } from "./asker";
 import { sqlPlanStoreIn } from "@/modules/plan/sql";
 import { sqlDaySource } from "@/modules/roster/sql";
@@ -304,6 +309,29 @@ async function manifestReallocation(tx: Exec, input: ProposalInput): Promise<Rec
  * already holds. Nothing a model wrote reaches the body — `dropoff.changed` takes a date, a clock
  * time and a stop token, and no var on it can carry prose (Veri #12).
  */
+/** The family's text this run was started by, when it was one. */
+function familyMessageOf(input: ProposalInput): string | null {
+  return input.trigger.type === "msg.inbound" && isUuid(input.trigger.id) ? input.trigger.id : null;
+}
+
+/**
+ * The agent took a family's text on and could not answer it (ledger #80): no card, so a person
+ * hears, on the same "needs a person" card a model outage raises — never a run that just ends.
+ */
+async function couldNotAnswer(tx: Exec, input: ProposalInput, code: string): Promise<Record<string, unknown>> {
+  await raiseNeedsPerson(tx, {
+    siteId: input.siteId,
+    messageId: familyMessageOf(input),
+    reason: "no_answer",
+    ...(familyMessageOf(input) ? {} : { key: input.idempotencyKey }),
+    by: `agent:${input.runId}`,
+  });
+  return { proposal_refused: code, mutated: false };
+}
+
+/** The board's own writers on the rehearsal's connection (`changes/rehearse.ts`). */
+const rehearsalPort = boardPlacementPort({ store: (t) => sqlPlanStoreIn(t), source: (t, siteId) => sqlDaySource(t, siteId) });
+
 async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<string, unknown>> {
   const legId = String(input.args.leg_id ?? "");
   const requestedTime = input.args.requested_dropoff_time === null ? null : String(input.args.requested_dropoff_time ?? "");
@@ -327,7 +355,7 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
    */
   const named = namedOrNull(input.args.reply);
   const reply = named !== null && isReplyText(named) ? named : null;
-  if (reply === null) return { proposal_refused: "NO_REPLY_IN_NAMES", mutated: false };
+  if (reply === null) return couldNotAnswer(tx, input, "NO_REPLY_IN_NAMES");
 
   /*
    * The leg, at this site. A leg at another site cannot be reached — the policy engine's scope
@@ -343,12 +371,12 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
     [isUuid(legId) ? legId : null, input.siteId],
   );
   const row = leg.rows[0];
-  if (!row) return { proposal_refused: "NO_SUCH_LEG", mutated: false };
+  if (!row) return couldNotAnswer(tx, input, "NO_SUCH_LEG");
 
   // The place the family would be told. The proposed stop when there is one, otherwise the one the
   // leg already drops at — and if neither can be named, nothing is proposed at all.
   const stopToken = requestedStop ?? legStopToken(row.child_token);
-  if (!stopToken) return { proposal_refused: "NO_STOP_FOR_LEG", mutated: false };
+  if (!stopToken) return couldNotAnswer(tx, input, "NO_STOP_FOR_LEG");
 
   /*
    * THE VERSION A STAFF APPROVAL WILL BE GUARDED ON: `plan_run.version`, read through the board's
@@ -364,7 +392,7 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
    * reports and the same one a first save names.
    */
   const direction = legOf(row.direction);
-  if (direction === null) return { proposal_refused: "NO_SUCH_LEG", mutated: false };
+  if (direction === null) return couldNotAnswer(tx, input, "NO_SUCH_LEG");
   const savedPlan = await planStoreIn(tx).loadPlan(input.siteId, row.service_date, direction);
   const planRunVersion = savedPlan?.version ?? 0;
 
@@ -377,7 +405,7 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
   const board = requestedTime
     ? await loadBoard(sqlPlanStoreIn(tx), input.siteId, row.service_date, direction, sqlDaySource(tx, input.siteId))
     : null;
-  const route = board && board.version > 0 ? bestRouteFor(board, row.child_token, requestedTime!, input.now) : null;
+  const routes = board && board.version > 0 ? routesFor(board, row.child_token, requestedTime!) : [];
 
   const basis = await tx.query<{ id: string }>(
     "SELECT id FROM ops.message WHERE id = $1 AND site_id = $2",
@@ -398,7 +426,7 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
    * lands on the fallback rather than on a card.
    */
   const alertWords = modelAlertWords(input.args.alert_text);
-  if (alertWords === null) return { proposal_refused: "NO_ALERT_IN_NAMES", mutated: false };
+  if (alertWords === null) return couldNotAnswer(tx, input, "NO_ALERT_IN_NAMES");
 
   /*
    * WHO ASKED (PPE-98): the guardian on the thread of the message that started this run. Read off
@@ -417,17 +445,7 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
       : { rows: [] };
   const requestedByContact = asker.rows[0]?.counterparty_token ?? null;
 
-  const taskId = await raiseTask(tx, {
-    id: effectId(input.idempotencyKey, "exception"),
-    siteId: input.siteId,
-    category: DROPOFF_CHANGE_TASK_CATEGORY,
-    severity: "AMBER",
-    words: { ...agentTasks.proposedDropoffChange, summary: alertWords },
-    by,
-  });
-
-  const approvalId = effectId(input.idempotencyKey, "approval");
-  const proposal = {
+  const proposalWith = (route: AgreedRoute | null) => ({
     kind: DROPOFF_CHANGE_KIND,
     leg_id: row.id,
     child_token: row.child_token,
@@ -471,7 +489,51 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
     ...(route
       ? { plan: { moves: route.preview.moves, ...(Object.keys(route.preview.departures).length > 0 ? { departures: route.preview.departures } : {}) }, lines: route.preview.lines }
       : {}),
-  };
+  });
+
+  /*
+   * REHEARSE BEFORE PROMISING (ledger #80). Each route, best first, is tried with the very code
+   * Approve runs (`applyDropoffPlan`) and rolled back; the first the board would take is the card.
+   * If none would, no reply is drafted and nothing is put in front of anybody to approve — a person
+   * is told instead, with the board's own reason and where to fix it.
+   */
+  let refusal: Refusal | null = null;
+  let proposal: ReturnType<typeof proposalWith> | null = null;
+  let chosen: AgreedRoute | null = null;
+  for (const route of routes.length > 0 ? routes : [null]) {
+    const candidate = proposalWith(route);
+    const tried = await rehearse(tx, (t) =>
+      applyDropoffPlan(t, rehearsalPort(t), { siteId: input.siteId, proposal: candidate, actor: null, by, now: input.now }),
+    );
+    if (tried.ok) {
+      proposal = candidate;
+      chosen = route;
+      break;
+    }
+    refusal ??= tried.refusal;
+  }
+  if (proposal === null) {
+    await raiseNeedsPerson(tx, {
+      siteId: input.siteId,
+      messageId: familyMessageOf(input),
+      reason: "refused",
+      refusal: refusal!,
+      // One card per text, whatever stopped it: keyed on the message, like a model outage's.
+      ...(familyMessageOf(input) ? {} : { key: input.idempotencyKey }),
+      by,
+    });
+    return { proposal_refused: "REFUSED", mutated: false, prompt_facts: { card: "none", ...refusalFacts(refusal!) } };
+  }
+
+  const taskId = await raiseTask(tx, {
+    id: effectId(input.idempotencyKey, "exception"),
+    siteId: input.siteId,
+    category: DROPOFF_CHANGE_TASK_CATEGORY,
+    severity: "AMBER",
+    words: { ...agentTasks.proposedDropoffChange, summary: alertWords },
+    by,
+  });
+  const approvalId = effectId(input.idempotencyKey, "approval");
   await tx.query(
     `INSERT INTO ops.approval_request (id, site_id, task_id, proposal, created_by, updated_by, source_mode)
      VALUES ($1, $2, $3, $4::jsonb, $5, $5, 'SIMULATED')
@@ -480,7 +542,7 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
   );
   return {
     approval_request_id: approvalId, exception_task_id: taskId, mutated: false,
-    ...(route ? { prompt_facts: { card: "waiting for a person to approve", shows: route.preview.lines.join("; ") } } : {}),
+    ...(chosen ? { prompt_facts: { card: "waiting for a person to approve", shows: chosen.preview.lines.join("; ") } } : {}),
   };
 }
 
@@ -711,6 +773,15 @@ function legOf(direction: unknown): Direction | null {
  * names to this day's vans — and drafted as one card saying what it does (`draftPlanChange`). What
  * the card says comes back to the model, so it can tell the person in its own words.
  */
+/** A refusal as the model reads it (ledger #80): the writer's code, the van by name, the child by token. */
+function refusalFacts(r: Refusal): Record<string, string> {
+  return {
+    refused: r.reason,
+    ...(r.vanName ? { van: r.vanName } : {}),
+    ...(r.childToken ? { child: demoTokenForId(r.childToken) ?? r.childToken } : {}),
+  };
+}
+
 async function planChangeCard(tx: Exec, input: ProposalInput): Promise<Record<string, unknown>> {
   const leg = legOf(input.args.leg);
   if (!leg) return { mutated: false, prompt_facts: { card: "none", reason: "NO_SUCH_LEG" } };
@@ -734,7 +805,14 @@ async function planChangeCard(tx: Exec, input: ProposalInput): Promise<Record<st
     return {
       nothing_to_change: true,
       mutated: false,
-      prompt_facts: { card: "none", reason: drafted.reason, ...("children" in drafted ? { no_van_fits: drafted.children.join(", ") } : {}), ...notRunning },
+      prompt_facts: {
+        card: "none",
+        reason: drafted.reason,
+        ...("children" in drafted ? { no_van_fits: drafted.children.join(", ") } : {}),
+        // The board's own refusal, as codes and tokens: what to fix before a change like this will save.
+        ...("refusal" in drafted ? refusalFacts(drafted.refusal) : {}),
+        ...notRunning,
+      },
     };
   }
   return {

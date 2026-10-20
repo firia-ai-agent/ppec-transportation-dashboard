@@ -208,6 +208,7 @@ const fakePlacement: PlanPlacementPortFor = () => ({
   setDropoffWindow: async () => ({ ok: true }),
   recordReceiver: async () => ({ ok: true }),
   saveRoute: async () => ({ ok: false, reason: "NOT_IN_THIS_TEST" }),
+  readBoard: async () => { throw new Error("not in this test"); },
   currentPlacement: async () => ({ bucket: "VAN", vehicleId: FAKE_VAN, version: FAKE_PLAN_VERSION }),
   setChildPlacement: async (input) => {
     placements.push(input);
@@ -223,6 +224,7 @@ const refusingPlacement: PlanPlacementPortFor = () => ({
   setDropoffWindow: async () => ({ ok: true }),
   recordReceiver: async () => ({ ok: true }),
   saveRoute: async () => ({ ok: false, reason: "NOT_IN_THIS_TEST" }),
+  readBoard: async () => { throw new Error("not in this test"); },
   currentPlacement: async () => ({ bucket: "VAN", vehicleId: FAKE_VAN, version: FAKE_PLAN_VERSION }),
   setChildPlacement: async (input) => {
     placements.push(input);

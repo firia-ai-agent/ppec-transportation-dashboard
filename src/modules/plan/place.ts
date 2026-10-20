@@ -68,7 +68,8 @@ export type PlanWriteOutcome =
   | { ok: false; status: 409; reason: "NOT_STARTED" }
   | { ok: false; status: 409; reason: "CHANGED"; changedBy: string | null; version: number }
   | { ok: false; status: 422; reason: string; childToken: string; vanId: string }
-  | { ok: false; status: 422; reason: "BUCKET_NOT_HERE"; childToken: string };
+  | { ok: false; status: 422; reason: "BUCKET_NOT_HERE"; childToken: string }
+  | { ok: false; status: 409; reason: "ABOARD"; childToken: string; vanId: string };
 
 /** One child's move has the same answers as any other plan write. */
 export type SetChildPlacementOutcome = PlanWriteOutcome;
@@ -149,6 +150,7 @@ export type WritePlanInput = {
  *  5. the version has moved on — 409 `CHANGED`, naming whoever moved it;
  *  6. otherwise it is kept, at version + 1.
  */
+
 export async function writePlan(
   input: WritePlanInput,
   store: PlanStore = planStore(),
@@ -183,6 +185,10 @@ export async function writePlan(
 
   const moved = bucketMovedOutsideTheWriter(view.plan, next, input.mayChangeBucketFor);
   if (moved) return { ok: false, status: 422, reason: "BUCKET_NOT_HERE", childToken: moved };
+
+  // A child already on a van rides that van (ledger #79): the plan may reorder or hold it, not swap it.
+  const aboard = view.day.riders.find((r) => r.aboard && view.plan[r.token]?.vanId && next[r.token]?.vanId !== view.plan[r.token]?.vanId);
+  if (aboard) return { ok: false, status: 409, reason: "ABOARD", childToken: aboard.token, vanId: view.plan[aboard.token]!.vanId! };
 
   const checked = checkPlan(view.day, next);
   if (!checked.ok) {

@@ -5,37 +5,45 @@
  * Small and deterministic. The candidates are the child's own van — their stop driven in the
  * agreed order, the van waiting there if it would still be early — and, while that van has not
  * left, every other van running this leg. Each is previewed by the one preview every plan card uses
- * (`previewPlanChange`), and the best is the one where every van fits, then the one that gets
+ * (`previewPlanChange`), with and without Auto-plan's smallest fix, and ranked: every van fits, then the one that gets
  * there closest to the agreed time, then the fewest families made late, then the fewest minutes
  * added to everybody else. Same van wins a tie: the family keeps the driver they know.
  */
 import type { loadBoard } from "@/modules/plan/store";
-import { previewPlanChange, vanHasLeft, type PlanChange, type PlanPreview } from "./plan-change";
+import { previewPlanChange, type PlanChange, type PlanPreview } from "./plan-change";
 
 type BoardView = Awaited<ReturnType<typeof loadBoard>>;
 
 export type AgreedRoute = { readonly change: PlanChange; readonly preview: Extract<PlanPreview, { ok: true }> };
 
-export function bestRouteFor(view: BoardView, childToken: string, notBefore: string, now?: Date): AgreedRoute | null {
+export function routesFor(view: BoardView, childToken: string, notBefore: string): AgreedRoute[] {
   const current = view.plan[childToken];
-  if (!current) return null;
+  if (!current) return [];
   const holds = { [childToken]: notBefore };
   const candidates: PlanChange[] = [{ holds }];
-  if (current.bucket === "VAN" && !vanHasLeft(view, current.vanId, now)) {
+  // A child already aboard rides the van they are in; one still at the centre could take another.
+  const aboard = view.day.riders.find((r) => r.token === childToken)?.aboard === true;
+  if (current.bucket === "VAN" && !aboard) {
     for (const van of view.day.vans) {
-      if (van.id === current.vanId || vanHasLeft(view, van.id, now)) continue;
+      if (van.id === current.vanId) continue;
       candidates.push({ holds, moves: [{ token: childToken, bucket: "VAN", vanId: van.id }] });
     }
   }
-  let best: AgreedRoute | null = null;
-  for (const change of candidates) {
-    const preview = previewPlanChange(view, change, now);
-    if (!preview.ok) continue;
-    const rank = (p: typeof preview) => [p.allFit ? 0 : 1, p.agreedLate, p.madeLate, p.addedMinutes];
-    const better = best === null || isBefore(rank(preview), rank(best.preview));
-    if (better) best = { change, preview };
-  }
-  return best;
+  // Each again with Auto-plan's smallest fix, so a van that does not fit is put right in the same
+  // change — one Approve for the family's request and what was in its way.
+  const all = [...candidates, ...candidates.map((c) => ({ ...c, replan: true }))];
+  const rank = (p: Extract<PlanPreview, { ok: true }>) => [p.allFit ? 0 : 1, p.agreedLate, p.madeLate, p.addedMinutes];
+  return all
+    .map((change) => ({ change, preview: previewPlanChange(view, change) }))
+    .filter((r): r is AgreedRoute => r.preview.ok)
+    // One family's time is never bought with another child's ride.
+    .filter((r) => r.preview.stranded.length === 0)
+    .sort((a, b) => (isBefore(rank(a.preview), rank(b.preview)) ? -1 : isBefore(rank(b.preview), rank(a.preview)) ? 1 : 0));
+}
+
+/** The best route, or null — the first of `routesFor`. */
+export function bestRouteFor(view: BoardView, childToken: string, notBefore: string): AgreedRoute | null {
+  return routesFor(view, childToken, notBefore)[0] ?? null;
 }
 
 /** Lexical order of two score lists: the first difference decides. */

@@ -17,7 +17,7 @@ export type ConfirmView = {
 export type ConfirmState =
   | { readonly status: "idle" }
   | { readonly status: "done"; readonly decision: "APPROVED" | "DECLINED" }
-  | { readonly status: "refused"; readonly message: string };
+  | { readonly status: "refused"; readonly message: string; readonly fix?: { readonly label: string; readonly href: string } };
 
 /** The confirm action's shape, named in a leaf for the same reason. */
 export type ConfirmAction = (previous: ConfirmState, form: FormData) => Promise<ConfirmState>;

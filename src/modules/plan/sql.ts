@@ -75,7 +75,7 @@ function toSetupRow(row: SetupDbRow): SetupRow {
 }
 
 export function sqlPlanStore(db: Db): PlanStore {
-  return { ...storeOver(db), savePlan: (siteId, input) => db.tx((tx) => savePlanIn(tx, siteId, input)) };
+  return { ...storeOver(db), savePlan: (siteId, input) => db.tx((tx) => savePlanIn(tx, siteId, input)), within: sqlPlanStoreIn };
 }
 
 /**
@@ -92,7 +92,7 @@ export function sqlPlanStore(db: Db): PlanStore {
  * another one, and the type is what says so.
  */
 export function sqlPlanStoreIn(tx: Exec): PlanStore {
-  return { ...storeOver(tx), savePlan: (siteId, input) => savePlanIn(tx, siteId, input) };
+  return { ...storeOver(tx), savePlan: (siteId, input) => savePlanIn(tx, siteId, input), within: sqlPlanStoreIn };
 }
 
 /**

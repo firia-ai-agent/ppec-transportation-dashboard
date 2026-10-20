@@ -18,7 +18,7 @@ import { vanVerdicts } from "@/domain/plan/eligibility";
 import { vansOver } from "@/modules/plan/place";
 import type { loadBoard } from "@/modules/plan/store";
 import { fill, planBoard, pluralize, replanDraft } from "@/ui/copy";
-import { clockLabel, serviceDateIso, siteMinuteOfDay } from "@/ui/service-date";
+import { clockLabel } from "@/ui/service-date";
 
 type BoardView = Awaited<ReturnType<typeof loadBoard>>;
 
@@ -55,14 +55,9 @@ export type PlanPreview =
       /** How far past a time agreed with a family the van gets there, in minutes; 0 when on it. */
       readonly agreedLate: number;
     }
-  | { readonly ok: false; readonly reason: "NOTHING_TO_CHANGE" | "VAN_LEFT" }
+  | { readonly ok: false; readonly reason: "NOTHING_TO_CHANGE" }
   | { readonly ok: false; readonly reason: "NO_VAN_FITS"; readonly children: readonly string[] };
 
-/** True when this van has already left on this leg today: the wall clock is past its departure. */
-export function vanHasLeft(view: BoardView, vanId: string | null | undefined, now: Date | undefined): boolean {
-  if (!vanId || !now || view.day.date !== serviceDateIso(now)) return false;
-  return siteMinuteOfDay(now) >= (view.departs[vanId] ?? Infinity);
-}
 
 /**
  * THE SMALLEST RE-PLAN THAT WORKS. A colleague moves the children the problem is about, not the
@@ -87,7 +82,7 @@ export function smallestReplan(day: BoardDay, plan: BoardPlan): BoardPlan {
   return unplaced(smallest) <= unplaced(full) ? smallest : full;
 }
 
-export function previewPlanChange(view: BoardView, change: PlanChange, now?: Date): PlanPreview {
+export function previewPlanChange(view: BoardView, change: PlanChange): PlanPreview {
   const named: Record<string, Placement> = { ...view.plan };
   for (const m of change.moves ?? []) {
     if (!named[m.token]) continue;
@@ -109,11 +104,6 @@ export function previewPlanChange(view: BoardView, change: PlanChange, now?: Dat
   const was = (r: BoardRider) => view.plan[r.token];
   const moved = view.day.riders.filter((r) => was(r)?.bucket !== next[r.token]?.bucket || was(r)?.vanId !== next[r.token]?.vanId);
   const held = view.day.riders.filter((r) => !moved.includes(r) && (was(r)?.notBefore ?? null) !== (next[r.token]?.notBefore ?? null));
-  // A van on the road keeps who is aboard and when it left.
-  const left = (vanId: string | null | undefined) => vanHasLeft(view, vanId, now);
-  if (moved.some((r) => left(was(r)?.vanId) || left(next[r.token]?.vanId)) || Object.keys(departures).some(left)) {
-    return { ok: false, reason: "VAN_LEFT" };
-  }
   if (moved.length === 0 && held.length === 0 && Object.keys(departures).length === 0) return { ok: false, reason: "NOTHING_TO_CHANGE" };
 
   const stranded = moved.filter((r) => next[r.token]?.bucket === "UNASSIGNED");

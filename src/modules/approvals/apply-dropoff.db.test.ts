@@ -290,8 +290,9 @@ describe("a refusal rolls the whole decision back", () => {
     const id = await seedProposal();
 
     const answer = await decide(id, "APPROVED", refusing());
-    expect(answer.status).toBe(503);
-    expect(answer.body.ok === false && answer.body.error).toBe("PLAN_NOT_SAVED");
+    // The board's own reason travels back whole (ledger #80), never a generic "not saved".
+    expect(answer.status).toBe(409);
+    expect(answer.body).toMatchObject({ ok: false, error: "REFUSED", refusal: { reason: "REFUSED" } });
 
     expect(await legRow()).toEqual(before);
     expect(await receiversOnFile()).toBe(0);
@@ -304,14 +305,14 @@ describe("a refusal rolls the whole decision back", () => {
     expect(row.rows[0].decision).toBeNull();
   });
 
-  it("a proposal whose time is not a time is TIME_NOT_SAVED, and nothing is sent", async () => {
+  it("a proposal whose time is not a time is refused with the leg's own reason, and nothing is sent", async () => {
     await savedPlanWithNoahOnVanTwo();
     const before = await legRow();
     const id = await seedProposal({ time: "25:99" });
 
     const answer = await decide(id, "APPROVED", board());
-    expect(answer.status).toBe(503);
-    expect(answer.body.ok === false && answer.body.error).toBe("TIME_NOT_SAVED");
+    expect(answer.status).toBe(409);
+    expect(answer.body).toMatchObject({ ok: false, error: "REFUSED", refusal: { reason: "BAD_TIME" } });
 
     expect(await legRow()).toEqual(before);
     expect(await outbox()).toEqual([]);

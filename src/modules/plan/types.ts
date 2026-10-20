@@ -18,6 +18,7 @@
  *
  * Which one a request gets is decided once, in store.ts, by whether a database is configured.
  */
+import type { Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import type { Placement } from "@/domain/plan/board";
 import type { SetupRow, SetupState } from "@/domain/plan/setup";
@@ -97,4 +98,10 @@ export interface PlanStore {
   loadPlan(siteId: string, date: string, direction: Direction): Promise<SavedPlan | null>;
   savePlan(siteId: string, input: SavePlanInput): Promise<SavePlanOutcome>;
   dayContext(siteId: string, date: string): Promise<DayContext>;
+  /**
+   * The same store, writing inside `tx` — for a rehearsal that is always rolled back (ledger #80):
+   * the database's store joins the transaction, the memory store writes to a scratch copy. Absent
+   * on a store that cannot rehearse; a change against it is not rehearsed.
+   */
+  within?(tx: Exec): PlanStore;
 }

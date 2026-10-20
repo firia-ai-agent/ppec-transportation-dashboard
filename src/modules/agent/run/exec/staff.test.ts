@@ -11,6 +11,7 @@
  * so what is asserted is that the rows a human decides from exist, that they carry the approval key
  * the call row carries, and that **nothing else in the database moved**.
  */
+import { startDay } from "@/test/start-day";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { testIdentityGateway } from "@/test/identity-gateway";
 
@@ -544,6 +545,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
 
   it("writes an approval request carrying the template and the vars, and moves nothing", async () => {
     sc = await seedAgentScenario(db, { body: "can he be dropped at the library at 5 instead" });
+    await startDay(db, sc.siteId, sc.serviceDate);
     const legId = sc.legs[sc.children[0]].PM;
     const before = await untouched();
     const args = {
@@ -635,6 +637,7 @@ describe("§11.2 propose_dropoff_change: the text a family would get, for a pers
    */
   it("fills in the leg's own stop when only the time was asked for", async () => {
     sc = await seedAgentScenario(db);
+    await startDay(db, sc.siteId, sc.serviceDate);
     const child = demoChildToken("C2");
     await db.query(
       `INSERT INTO ops.child_profile (child_token, site_id, family_group_id, display_name, created_by, updated_by)

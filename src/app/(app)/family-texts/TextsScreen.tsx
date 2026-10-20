@@ -383,7 +383,13 @@ function ForYouAlert({
       {alerts.map((alert) => (
         <div key={alert.id}>
           <p className={styles.alertLine}>{alert.sentence}</p>
-          <blockquote className={styles.alertWords}>{alert.theirWords}</blockquote>
+          {alert.theirWords ? <blockquote className={styles.alertWords}>{alert.theirWords}</blockquote> : null}
+          {/* The one place to fix what was in the way (ledger #80). */}
+          {alert.fix ? (
+            <Link href={alert.fix.href} className={styles.secondary}>
+              {alert.fix.label}
+            </Link>
+          ) : null}
           {alert.beingHandled ? (
             <p className={styles.alertRule}>{assistantUnavailable.openedBy}</p>
           ) : (

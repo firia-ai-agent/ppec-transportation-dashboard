@@ -421,6 +421,7 @@ describe("when the plan cannot be saved, the approval fails safe", () => {
       setDropoffWindow: board()(tx).setDropoffWindow,
       recordReceiver: board()(tx).recordReceiver,
       saveRoute: board()(tx).saveRoute,
+      readBoard: board()(tx).readBoard,
       currentPlacement: async (query) => {
         const current = await board()(tx).currentPlacement(query);
         // Somebody else's Save, landing between this decision's read and its write. It takes the
@@ -436,9 +437,9 @@ describe("when the plan cannot be saved, the approval fails safe", () => {
       setChildPlacement: board()(tx).setChildPlacement,
     });
 
-    expect(await approve(id, stale)).toEqual({
-      status: 503,
-      body: { ok: false, error: "PLAN_NOT_SAVED" },
+    expect(await approve(id, stale)).toMatchObject({
+      status: 409,
+      body: { ok: false, error: "REFUSED", refusal: { reason: "CHANGED" } },
     });
     expect(await decisionOf(id)).toEqual({ decision: null, decided_at: null });
     expect(await legVersion()).toBe(1);
@@ -453,11 +454,12 @@ describe("when the plan cannot be saved, the approval fails safe", () => {
       setDropoffWindow: board()(tx).setDropoffWindow,
       recordReceiver: board()(tx).recordReceiver,
       saveRoute: board()(tx).saveRoute,
+      readBoard: board()(tx).readBoard,
       currentPlacement: async () => ({ bucket: "VAN", vehicleId: vanOne(), version: 0 }),
       setChildPlacement: (input) =>
         board()(tx).setChildPlacement({ ...input, serviceDate: "2026-11-30" }),
     });
-    expect((await approve(id, unstarted)).status).toBe(503);
+    expect(await approve(id, unstarted)).toMatchObject({ status: 409, body: { error: "REFUSED", refusal: { reason: "NOT_STARTED" } } });
     expect(await decisionOf(id)).toEqual({ decision: null, decided_at: null });
     expect(await outbox()).toEqual([]);
   });
@@ -469,6 +471,7 @@ describe("when the plan cannot be saved, the approval fails safe", () => {
       setDropoffWindow: board()(tx).setDropoffWindow,
       recordReceiver: board()(tx).recordReceiver,
       saveRoute: board()(tx).saveRoute,
+      readBoard: board()(tx).readBoard,
       currentPlacement: board()(tx).currentPlacement,
       setChildPlacement: async () => {
         throw new Error("the board is unreachable");
@@ -490,10 +493,11 @@ describe("when the plan cannot be saved, the approval fails safe", () => {
       setDropoffWindow: board()(tx).setDropoffWindow,
       recordReceiver: board()(tx).recordReceiver,
       saveRoute: board()(tx).saveRoute,
+      readBoard: board()(tx).readBoard,
       currentPlacement: async () => null,
       setChildPlacement: board()(tx).setChildPlacement,
     });
-    expect((await approve(id, nobody)).status).toBe(503);
+    expect(await approve(id, nobody)).toMatchObject({ status: 409, body: { error: "REFUSED", refusal: { reason: "NOT_THIS_DAY" } } });
     expect(await decisionOf(id)).toEqual({ decision: null, decided_at: null });
     expect(await outbox()).toEqual([]);
   });

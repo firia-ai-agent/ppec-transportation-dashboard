@@ -14,6 +14,7 @@
 import { agentRetryConfig } from "@/config/live";
 import type { Exec } from "@/db/exec";
 import { STAFF_ALERT_TASK_CATEGORY, STAFF_ASK_TASK_CATEGORY } from "./ask-text";
+import { MODEL_UNAVAILABLE_CATEGORY } from "../alert-task";
 
 export type ThreadPulse = { readonly stamp: string; readonly working: boolean };
 
@@ -26,11 +27,12 @@ export async function threadPulse(db: Exec, siteId: string): Promise<ThreadPulse
     `SELECT greatest(
               (SELECT max(updated_at) FROM ops.agent_run WHERE site_id = $1),
               (SELECT max(updated_at) FROM ops.approval_request WHERE site_id = $1),
-              (SELECT max(created_at) FROM ops.task WHERE site_id = $1 AND category IN ($2, $3))
+              (SELECT max(created_at) FROM ops.task WHERE site_id = $1 AND category IN ($2, $3, $5))
             )::text AS stamp,
             EXISTS (SELECT 1 FROM ops.agent_run WHERE site_id = $1 AND state IN ('QUEUED', 'RUNNING', 'WAITING_TOOL')
                       AND created_at > now() - make_interval(secs => $4)) AS working`,
-    [siteId, STAFF_ASK_TASK_CATEGORY, STAFF_ALERT_TASK_CATEGORY, WORKING_FOR_SECONDS],
+    // …and a "needs a person" card (ledger #80): what the agent could not finish moves the dot too.
+    [siteId, STAFF_ASK_TASK_CATEGORY, STAFF_ALERT_TASK_CATEGORY, WORKING_FOR_SECONDS, MODEL_UNAVAILABLE_CATEGORY],
   );
   return { stamp: r.rows[0]?.stamp ?? "", working: r.rows[0]?.working ?? false };
 }

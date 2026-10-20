@@ -29,6 +29,8 @@ import { ALERT_TRIGGER } from "@/modules/agent/alerts";
 import { detokenizeNames, namedOrNull } from "@/modules/identity/names";
 import { effectId } from "@/modules/agent/run/exec/effects";
 import { ANSWER_TOOLS } from "./answer";
+import { refusalWords, type Refusal } from "@/modules/changes/refusal";
+import { MODEL_UNAVAILABLE_CATEGORY } from "@/modules/agent/alert-task";
 
 /**
  * How long an ask's run reads as "working": its whole busy-model retry window and one more try
@@ -151,7 +153,7 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
       ? [ask, { at: r.at, item: { kind: "agent", id: `${r.id}:no-answer`, text: agentBubble.noAnswer } as AgentThreadItem }]
       : [ask];
   });
-  const heard = [...(await alertsHeard(db, siteId, answeredIds)), ...(await textsHeard(db, siteId))];
+  const heard = [...(await alertsHeard(db, siteId, answeredIds)), ...(await textsHeard(db, siteId)), ...(await needsPerson(db, siteId))];
 
   const ordered = [...said, ...heard, ...answers, ...proposals, ...endings].sort(
     (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime(),
@@ -196,18 +198,40 @@ const ALERT_WORKING_FOR_SECONDS = agentRetryConfig.retryForSeconds[ALERT_TRIGGER
  *    and the board's Re-plan for that leg and van — the day, never the vendor.
  */
 /**
+ * WHAT THE AGENT COULD NOT FINISH (ledger #80), from the one "needs a person" card: a family's text
+ * it could not read or answer, a change the plan would not take — said once, where it happened,
+ * with the place to fix it when the plan said why. The same rows Family texts' For you shows.
+ */
+async function needsPerson(db: Db, siteId: string): Promise<{ at: Date; item: AgentThreadItem }[]> {
+  const rows = await db.query<{ id: string; at: Date; refusal: Refusal | null }>(
+    `SELECT id::text AS id, created_at AS at, completion_evidence -> 'refusal' AS refusal FROM ops.task
+      WHERE site_id = $1 AND category = $2 AND state IN ('OPEN', 'IN_PROGRESS')
+      ORDER BY created_at, id`,
+    [siteId, MODEL_UNAVAILABLE_CATEGORY],
+  );
+  return rows.rows.map((r) => {
+    const words = r.refusal ? refusalWords(r.refusal) : null;
+    return {
+      at: r.at,
+      item: (words
+        ? { kind: "agent", id: `${r.id}:blocked`, text: fill(agentBubble.blocked, { says: words.says }), link: { href: words.fix.href, label: words.fix.label } }
+        : { kind: "agent", id: `${r.id}:no-answer`, text: agentBubble.textNotRead }) as AgentThreadItem,
+    };
+  });
+}
+
+/**
  * THE FAMILIES' TEXTS THE AGENT HEARD (ledger #79). A parent's text starts a run the same way an
  * alert does, and the bubble's dot moves for it (`pulse.ts`) — so the thread says what came in:
  * the text, about whom, then "working" while the run is on its way, or the line saying it could
  * not answer. A text it answered is followed by its card, which is a proposal of its own.
  */
 async function textsHeard(db: Db, siteId: string): Promise<{ at: Date; item: AgentThreadItem }[]> {
-  const runs = await db.query<{ run_id: string; body: string; children: string | null; at: Date; live: boolean; failed: boolean }>(
+  const runs = await db.query<{ run_id: string; body: string; children: string | null; at: Date; live: boolean }>(
     `SELECT r.id::text AS run_id, m.body_tokenized AS body, m.received_at AS at,
             (SELECT string_agg(c.display_name, ', ' ORDER BY c.display_name) FROM ops.child_profile c
               WHERE c.site_id = t.site_id AND c.family_group_id = t.family_group_id) AS children,
-            (r.state IN ('QUEUED', 'RUNNING', 'WAITING_TOOL') AND r.created_at > now() - make_interval(secs => $2)) AS live,
-            (r.state = 'FAILED' AND NOT EXISTS (SELECT 1 FROM ops.agent_tool_call c WHERE c.run_id = r.id AND c.status = 'PROPOSED')) AS failed
+            (r.state IN ('QUEUED', 'RUNNING', 'WAITING_TOOL') AND r.created_at > now() - make_interval(secs => $2)) AS live
        FROM ops.agent_run r
        JOIN ops.message m ON m.id::text = r.trigger_id AND m.site_id = r.site_id
        JOIN ops.conversation_thread t ON t.id = m.thread_id AND t.site_id = m.site_id
@@ -223,7 +247,7 @@ async function textsHeard(db: Db, siteId: string): Promise<{ at: Date; item: Age
         : fill(agentBubble.familyTextedUnnamed, { text: detokenizeNames(r.body, "label") }) } as AgentThreadItem,
     };
     if (r.live) return [head, { at: r.at, item: { kind: "agent", id: `${r.run_id}:working`, text: agentBubble.working } as AgentThreadItem }];
-    if (r.failed) return [head, { at: r.at, item: { kind: "agent", id: `${r.run_id}:no-answer`, text: agentBubble.textNotRead } as AgentThreadItem }];
+    // How it ended when it could not: the "needs a person" line (`needsPerson` below), not a second one here.
     return [head];
   });
 }

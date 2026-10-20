@@ -45,11 +45,12 @@ import { APPROVALS_PAGE, type ApprovalDecision, type DecideError } from "@/modul
 import { DECISION_ACTIONS as ACTIONS } from "@/modules/actions/decisions";
 import { screenCtx } from "@/modules/actions/screen";
 import { approval as approvalCopy } from "@/ui/copy";
+import { refusalWords } from "@/modules/changes/refusal";
 
 /** What the screen renders after a decision: what happened, or the one sentence a refusal gets. */
 export type DecisionState =
   | { readonly status: "idle" }
-  | { readonly status: "refused"; readonly message: string }
+  | { readonly status: "refused"; readonly message: string; readonly fix?: { readonly label: string; readonly href: string } }
   | { readonly status: "decided"; readonly decision: ApprovalDecision; readonly text: string; readonly queued: number };
 
 /**
@@ -70,13 +71,11 @@ const REFUSALS: Readonly<Record<DecideError, string>> = {
   NOT_YOUR_ROLE: approvalCopy.notYourRole,
   NO_SUCH_APPROVAL: approvalCopy.noSuchApproval,
   ALREADY_DECIDED: approvalCopy.alreadyDecided,
-  PLAN_MOVED: approvalCopy.planMoved,
   NOT_EDITABLE: approvalCopy.notEditable,
   EDIT_NOT_SENDABLE: approvalCopy.editNotSendable,
   MESSAGE_CHANGED: approvalCopy.messageChanged,
-  PLAN_NOT_SAVED: approvalCopy.planNotSaved,
-  TIME_NOT_SAVED: approvalCopy.timeNotSaved,
-  VAN_LEFT: approvalCopy.vanLeft,
+  // The plan's own reason, said with the van or child it names (ledger #80) — see below.
+  REFUSED: "",
 };
 
 /**
@@ -126,7 +125,14 @@ export async function decideApprovalAction(
     approvedText: shown === null ? undefined : String(shown),
   });
 
-  if (!answer.body.ok) return { status: "refused", message: REFUSALS[answer.body.error] };
+  if (!answer.body.ok) {
+    // The plan's refusal, in one plain sentence with the one place to go and fix it (ledger #80).
+    if (answer.body.refusal) {
+      const words = refusalWords(answer.body.refusal);
+      return { status: "refused", message: words.says, fix: words.fix };
+    }
+    return { status: "refused", message: REFUSALS[answer.body.error] };
+  }
   /*
    * EVERY SCREEN THAT SHOWS THE RIDE, not just the one the button is on (Firia, 11:11 AM ET
    * 2026-10-18: "without a second Save").

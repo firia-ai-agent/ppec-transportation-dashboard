@@ -23,6 +23,9 @@ import { STAFF_ACTION_KIND } from "./confirm-view";
 import { resolveTask } from "@/modules/approvals/decide";
 import { loadBoard } from "@/modules/plan/store";
 import { confirmCopy } from "@/ui/copy";
+import { serviceDateIso } from "@/ui/service-date";
+import { refusalLogLine, refusalOf, type Refusal } from "@/modules/changes/refusal";
+import { answeredByDecision, raiseNeedsPerson } from "@/modules/agent/needs-person";
 import { actionDepsFor } from "./deps";
 import { staffActionOutcome } from "./outcome";
 import type { ActionDeps } from "./types";
@@ -34,7 +37,7 @@ export type ConfirmAnswer =
   | { readonly status: 200; readonly body: { readonly ok: true; readonly decision: ConfirmDecision } }
   | {
       readonly status: 401 | 403 | 404 | 409 | 422;
-      readonly body: { readonly ok: false; readonly error: "SIGN_IN" | "NOT_YOUR_ROLE" | "NO_SUCH_CARD" | "ALREADY_DECIDED" | "ACTION_REFUSED"; readonly reason?: string };
+      readonly body: { readonly ok: false; readonly error: "SIGN_IN" | "NOT_YOUR_ROLE" | "NO_SUCH_CARD" | "ALREADY_DECIDED" | "ACTION_REFUSED"; readonly reason?: string; readonly refusal?: Refusal };
     };
 
 export async function confirmStaffAction(
@@ -88,10 +91,29 @@ export async function confirmStaffAction(
           WHERE id = $1`,
         [row.id, req.now, by],
       );
-      return { status: 422, body: { ok: false, error: "ACTION_REFUSED", reason: String(body.reason ?? body.error ?? answer.status) } };
+      /*
+       * A REFUSED CONFIRM IS LOUD (ledger #80): the action's own reason, with the van and child it
+       * names, goes to the person who pressed it, into the log, and onto the "needs a person" card.
+       */
+      const args = row.proposal.args ?? {};
+      const at = { date: String(args.date ?? serviceDateIso(req.now)), leg: args.leg === "AM" ? ("AM" as const) : ("PM" as const) };
+      const board = await loadBoard(ctx.deps!.store!, row.site_id, at.date, at.leg, ctx.deps!.source).catch(() => null);
+      const refusal = refusalOf(
+        { reason: String(body.reason ?? body.error ?? answer.status), vanId: typeof body.vanId === "string" ? body.vanId : null, childToken: typeof body.childToken === "string" ? body.childToken : null },
+        at,
+        board,
+      );
+      console.warn(refusalLogLine("confirm", refusal));
+      await raiseNeedsPerson(db, { siteId: row.site_id, messageId: null, reason: "refused", refusal, key: `approval:${row.id}:${refusal.reason}`, approvalId: row.id, by })
+        .catch((e) => console.error("[confirm] needs-person not raised", e instanceof Error ? e.message : e));
+      return { status: 422, body: { ok: false, error: "ACTION_REFUSED", reason: refusal.reason, refusal } };
     }
   }
-  await db.tx((tx) => resolveTask(tx, row.task_id, req.decision, by));
+  await db.tx(async (tx) => {
+    await resolveTask(tx, row.task_id, req.decision, by);
+    // A refused press on this card raised a "needs a person"; deciding it answers that too (ledger #80).
+    await answeredByDecision(tx, row.id, (t, id) => resolveTask(t, id, req.decision, by));
+  });
   // The card leaves one line saying how it went (ledger #75 c); a failure to word it changes nothing done.
   const outcome =
     req.decision === "APPROVED"

@@ -15,6 +15,7 @@ import { getCaller } from "@/auth/caller";
 import { getNeonDb } from "@/db/exec";
 import { confirmStaffAction, type ConfirmDecision } from "@/modules/actions/confirm";
 import { confirmCopy } from "@/ui/copy";
+import { refusalWords } from "@/modules/changes/refusal";
 
 import type { ConfirmState } from "@/modules/actions/confirm-view";
 export type { ConfirmAction, ConfirmState } from "@/modules/actions/confirm-view";
@@ -37,7 +38,14 @@ export async function confirmStaffActionAction(_previous: ConfirmState, form: Fo
   const decision = String(form.get("decision") ?? "");
   if (!approvalId || (decision !== "APPROVED" && decision !== "DECLINED")) return { status: "idle" };
   const answer = await confirmStaffAction(getNeonDb(), { userId: caller.userId, approvalId, decision, now: new Date() });
-  if (!answer.body.ok) return { status: "refused", message: REFUSALS[answer.body.error] ?? confirmCopy.refused };
+  if (!answer.body.ok) {
+    // The action's own reason, said with the van or child it names, and where to fix it (ledger #80).
+    if (answer.body.refusal) {
+      const words = refusalWords(answer.body.refusal);
+      return { status: "refused", message: words.says, fix: words.fix };
+    }
+    return { status: "refused", message: REFUSALS[answer.body.error] ?? confirmCopy.refused };
+  }
   for (const path of CHANGED) revalidatePath(path);
   return { status: "done", decision: answer.body.decision };
 }
