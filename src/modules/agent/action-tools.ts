@@ -105,7 +105,9 @@ export const ACTION_TOOLS: readonly ActionTool[] = [
     toInput: async (a, version) => ({
       date: a.date,
       direction: a.leg,
-      version: await version(String(a.date), a.leg as "AM" | "PM"),
+      // The board the card was drafted on, when it says (ledger #86): a plan saved past it since is
+      // the board's own CHANGED, never a re-plan written over somebody's newer save.
+      version: typeof a.basis_version === "number" ? a.basis_version : await version(String(a.date), a.leg as "AM" | "PM"),
       moves: (a.moves as z.infer<typeof move>[]).map(asMove),
       // A plan card may also move departures (ledger #77): by van id, "HH:MM", as the board saves them.
       ...(a.departures && typeof a.departures === "object" ? { departures: a.departures } : {}),

@@ -14,14 +14,19 @@ export type { ConfirmView } from "./confirm-view";
  * A PLAN CARD THE BOARD MOVED PAST (ledger #75 c): the leg it would re-plan was saved after the card
  * was drafted — a person fixed it on the board first. Confirming it would re-plan over their work,
  * so it is not offered; the thread says "Already handled on the board." in its place. Both times
- * are the database's clock (`updated_at`, `created_at`), never a caller's. One SQL
+ * are the database's clock (`updated_at`, `created_at`), never a caller's — except that a card carrying
+ * `basis_version` is judged by version: a save's `updated_at` is its transaction's *start*, so a card
+ * drafted on the old board while that save was still committing looked newer than it (ledger #86). One SQL
  * predicate over `a` (the approval row), shared by this read and the thread's (ask/thread.ts).
  */
 export const STALE_PLAN_CARD_SQL = `(
   a.proposal->>'tool' IN ('auto_plan', 'save_plan', 'move_child') AND EXISTS (
     SELECT 1 FROM ops.plan_run p
      WHERE p.site_id = a.site_id AND p.service_date::text = a.proposal->'args'->>'date'
-       AND p.direction::text = a.proposal->'args'->>'leg' AND p.updated_at > a.created_at))`;
+       AND p.direction::text = a.proposal->'args'->>'leg'
+       AND CASE WHEN a.proposal->'args' ? 'basis_version'
+                THEN p.version > (a.proposal->'args'->>'basis_version')::int
+                ELSE p.updated_at > a.created_at END))`;
 
 export async function confirmCards(db: Exec, siteId: string): Promise<readonly ConfirmView[]> {
   const rows = await db.query<{ id: string; tool: string | null; args: Record<string, unknown> | null; note: string | null; summary: string | null; impact: string[] | null }>(

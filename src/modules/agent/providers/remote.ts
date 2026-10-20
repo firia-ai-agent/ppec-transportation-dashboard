@@ -417,6 +417,10 @@ export function remoteProvider(
         },
       })),
       tool_choice: "required",
+      // One call per turn, as the gateway accepts (§11.1 persists calls one at a time): without
+      // this, a model that calls tools in parallel (Claude Haiku) fails every such turn with
+      // REJECTED_MULTIPLE_CALLS (ledger #86).
+      parallel_tool_calls: false,
       provider: {
         allow_fallbacks: false,
         require_parameters: true,

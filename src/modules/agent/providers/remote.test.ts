@@ -364,6 +364,8 @@ describe("outbound request", () => {
     await remoteProvider(DEMO, KEY_ENV).invoke(call());
     const body = bodyOf(0);
     expect(body.tool_choice).toBe("required");
+    // One call per turn: a parallel-calling model is asked not to (ledger #86).
+    expect(body.parallel_tool_calls).toBe(false);
     expect(body.tools.map((t: { function: { name: string } }) => t.function.name)).toEqual([
       "get_leg_state",
       "cancel_attendance_or_leg",
