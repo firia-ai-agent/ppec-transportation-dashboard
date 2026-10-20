@@ -83,6 +83,7 @@ import { TASK } from "@/domain/machines";
 import { transition } from "@/domain/transition";
 import { enqueue, type OutboxTransport } from "@/modules/outbox/outbox";
 import { FAMILY_SMS, authorizedContactsForChild } from "@/modules/outbox/policy";
+import { recordApprovedSlot, settleAvailabilityRequest } from "@/modules/availability/store";
 
 /** The screen these approvals are read and decided on: the "For you" tab of Family texts. */
 export const APPROVALS_PAGE = "/family-texts";
@@ -228,6 +229,8 @@ type DropoffProposal = {
   alert_text?: string;
   /** The guardian whose message asked for this change: the receiver Approve records (PPE-98). */
   requested_by_contact?: string | null;
+  /** The family's request this answers (`change_request`, kind AVAILABILITY; ledger #83). */
+  change_request_id?: string | null;
   template_id?: string;
   vars?: Record<string, unknown>;
 };
@@ -482,6 +485,10 @@ export async function decideApproval(
     await answeredByDecision(tx, row.id, (t, id) => resolveTask(t, id, req.decision, by));
     if (req.decision === "DECLINED") {
       // Nothing else. No ride moves and the family is not texted — that is what "Don't send" is.
+      // The family's request it answered is closed as rejected (ledger #83), so it is not open forever.
+      if (typeof proposal.change_request_id === "string") {
+        await settleAvailabilityRequest(tx, { id: proposal.change_request_id, siteId: row.site_id, status: "REJECTED", now: req.now, by });
+      }
       return { status: 200, body: { ok: true, decision: req.decision, text, queued: 0 } } as const;
     }
 
@@ -545,7 +552,7 @@ export async function decideApproval(
      */
     // The plan half of Approve — the same function the agent rehearsed the card with (ledger #80).
     const applied = await applyDropoffPlan(tx, deps.placement(tx), {
-      siteId: row.site_id, proposal, actor: req.userId ?? null, by, now: req.now,
+      siteId: row.site_id, proposal, actor: req.userId ?? null, by, now: req.now, approvalId: row.id,
     });
     if (!applied.ok) throw new ChangeRefused(applied.refusal);
     const { leg, contacts } = applied;
@@ -727,7 +734,11 @@ function legOf(direction: string | undefined): Direction | null {
 export async function applyDropoffPlan(
   tx: Exec,
   plan: PlanPlacementPort,
-  a: { readonly siteId: string; readonly proposal: DropoffProposal; readonly actor: string | null; readonly by: string; readonly now: Date },
+  a: {
+    readonly siteId: string; readonly proposal: DropoffProposal; readonly actor: string | null; readonly by: string; readonly now: Date;
+    /** The approval being decided, for the slot's provenance. Absent in a rehearsal. */
+    readonly approvalId?: string | null;
+  },
 ): Promise<
   | { readonly ok: true; readonly leg: { id: string; child_token: string; plan_version: number }; readonly contacts: readonly string[]; readonly routed: { before: BoardView; after: BoardView } | null }
   | { readonly ok: false; readonly refusal: Refusal }
@@ -762,15 +773,30 @@ export async function applyDropoffPlan(
     "SELECT id, child_token, plan_version FROM ops.trip_leg WHERE id = $1 AND site_id = $2",
     [isUuid(String(proposal.leg_id ?? "")) ? proposal.leg_id : null, a.siteId],
   );
-  const leg = legRow.rows[0];
-  if (!leg) return refused({ reason: "NOT_THIS_DAY", childToken });
+  const found = legRow.rows[0];
+  if (!found) return refused({ reason: "NOT_THIS_DAY", childToken });
+  let leg = found;
   const contacts = await authorizedContactsForChild(tx, { siteId: a.siteId, childToken: leg.child_token, at: a.now });
 
-  // The agreed time onto the leg first, so the route is saved against the window the family holds.
+  /*
+   * The agreed time onto the leg first, so the route is saved against the window the family holds.
+   * THE LEG IS ITS HOME (PRD §8; ledger #83): the window is a range and writing it moves the leg's
+   * `plan_version`, so the reply below is queued on the new version and anything queued on the old
+   * time goes stale. The approved slot is recorded beside it, from the request it answers.
+   */
   const agreed = String(proposal.requested_dropoff_time ?? "").trim();
   if (proposal.cancel !== true && agreed !== "") {
     const moved = await plan.setDropoffWindow({ siteId: a.siteId, legId: leg.id, serviceDate, time: agreed, now: a.now, by: a.by });
     if (!moved.ok) return refused({ reason: moved.reason, childToken });
+    if (moved.planVersion !== undefined) leg = { ...leg, plan_version: moved.planVersion };
+    const changeRequestId = typeof proposal.change_request_id === "string" ? proposal.change_request_id : null;
+    const slot = await recordApprovedSlot(tx, {
+      siteId: a.siteId, childToken: leg.child_token,
+      contactToken: typeof proposal.requested_by_contact === "string" ? proposal.requested_by_contact : null,
+      serviceDate, direction, time: agreed, changeRequestId, approvalId: a.approvalId ?? null, now: a.now, by: a.by,
+    });
+    if (!slot.ok) return refused({ reason: slot.reason, childToken });
+    if (changeRequestId) await settleAvailabilityRequest(tx, { id: changeRequestId, siteId: a.siteId, status: "APPLIED", now: a.now, by: a.by });
   }
 
   let routed: { before: BoardView; after: BoardView } | null = null;

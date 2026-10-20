@@ -366,6 +366,8 @@ export const tripLeg = ops.table("trip_leg", {
   state: legState("state").notNull().default("SCHEDULED"), priorState: legState("prior_state"),
   manifestId: uuid("manifest_id").references(() => manifest.id, { onDelete: "restrict" }), stopSeq: smallint("stop_seq"), stopLocationId: uuid("stop_location_id").references(() => stopLocation.id, { onDelete: "restrict" }),
   windowStart: timestamp("window_start", { withTimezone: true }), receiverConfirmedAt: timestamp("receiver_confirmed_at", { withTimezone: true }),
+  /** The end of the agreed window (PRD §8, TRP-02; ledger #83): an approved time is a range. */
+  windowEnd: timestamp("window_end", { withTimezone: true }),
   planVersion: integer("plan_version").notNull().default(1), ...audit,
 }, (t) => [uniqueIndex("trip_leg_child_date_dir_uq").on(t.childToken, t.serviceDate, t.direction),
   index("trip_leg_board_idx").on(t.siteId, t.serviceDate, t.state), index("trip_leg_manifest_idx").on(t.manifestId, t.stopSeq)]);
@@ -517,6 +519,30 @@ export const feedback = ops.table("feedback", {
   status: text("status").notNull().default("OPEN"), // OPEN | DONE
   ...audit,
 }, (t) => [index("feedback_site_status_idx").on(t.siteId, t.status, t.createdAt)]);
+/**
+ * WHEN A FAMILY CAN RECEIVE THEIR CHILD, AS A PERSON APPROVED IT (ledger #83; PRD TRP-02, §6.4).
+ *
+ * Approved facts only (tier T1): what a family *asked* is a `change_request` of kind AVAILABILITY,
+ * and only Approve writes a row here. One live row per child, date and leg — a later approval
+ * supersedes the earlier one. `contact_token` is the adult who will be there. The leg's
+ * `window_start` / `window_end` carry the same range (PRD §8's hold); this row is the record of
+ * who agreed it and from which request. One-day slots only for now; recurrence is ATT-01's RRULE.
+ */
+export const availability = ops.table("availability", {
+  id: pk(), siteId: siteRef(),
+  childToken: uuid("child_token").references(() => childProfile.childToken, { onDelete: "restrict" }).notNull(),
+  contactToken: uuid("contact_token"),
+  direction: legDirection("direction").notNull(), serviceDate: date("service_date").notNull(),
+  startMin: smallint("start_min").notNull(), endMin: smallint("end_min").notNull(),
+  // Provenance, not ownership: plain ids, so clearing the cards a day ran on never strands a fact.
+  changeRequestId: uuid("change_request_id"), approvalId: uuid("approval_id"),
+  supersededBy: uuid("superseded_by"),
+  ...audit,
+}, (t) => [
+  index("availability_day_idx").on(t.siteId, t.serviceDate, t.direction),
+  uniqueIndex("availability_live_uq").on(t.childToken, t.serviceDate, t.direction).where(sql`superseded_by IS NULL`),
+  check("availability_range", sql`start_min >= 0 AND end_min <= 1440 AND start_min < end_min`),
+]);
 
 /* ───────────────────────────── ops: timers, events, integrations ───────────────────────────── */
 /** JobScheduler seam storage: schedule(at,key,payload) / cancel(key) / onFire. Authoritative for every timer. */

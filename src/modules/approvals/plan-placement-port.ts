@@ -105,7 +105,7 @@ export type PlanPlacementPort = {
    * `window_start` on the leg is where this schema keeps an arrival — so the placement write
    * above and this one are the two halves of "the plan really changed".
    */
-  readonly setDropoffWindow: (input: LegWindowInput) => Promise<PlanWriteDone>;
+  readonly setDropoffWindow: (input: LegWindowInput) => Promise<LegWindowDone>;
   /**
    * The adult who will receive the child, onto the child's file and the leg
    * (`plan/leg-write.ts` `recordLegReceiver`) — what clears an AT-13 hold.
@@ -137,6 +137,11 @@ export type RouteSaved = { readonly ok: true; readonly before: BoardView; readon
 /** Whether the plan took a write, and the module's own reason when it did not. */
 export type PlanWriteDone =
   | { readonly ok: true }
+  | { readonly ok: false; readonly reason: string };
+
+/** The agreed window written; `planVersion` is the leg's new one, for the text about it (ledger #83). */
+export type LegWindowDone =
+  | { readonly ok: true; readonly planVersion?: number }
   | { readonly ok: false; readonly reason: string };
 
 /**
@@ -187,7 +192,7 @@ export function boardPlacementPort(deps: {
       },
       async setDropoffWindow(input) {
         const written = await setLegDropoffWindow(tx, input);
-        return written.ok ? { ok: true } : { ok: false, reason: written.reason };
+        return written.ok ? { ok: true, planVersion: written.planVersion } : { ok: false, reason: written.reason };
       },
       async recordReceiver(input) {
         const written = await recordLegReceiver(tx, input);

@@ -128,10 +128,19 @@ export const parentTextConfig = {
   roundToMinutes: 5,
 } as const;
 
+/**
+ * AN APPROVED TIME IS A RANGE, NOT A POINT (ledger #83, PRD TRP-02 "availability window"): "bring
+ * him at 4:50" is agreed as 4:50 to 4:50 + `slotMinutes`, so a re-plan has room without breaking it.
+ */
+export const availabilityConfig = {
+  slotMinutes: 30,
+} as const;
+
 /** Every live number in one object, for a caller that wants to print or diff the table. */
 export const liveConfig = {
   agentRetry: agentRetryConfig,
   alertAgent: alertAgentConfig,
+  availability: availabilityConfig,
   freshness: freshnessConfig,
   notifyGate: notifyGateConfig,
   parentText: parentTextConfig,

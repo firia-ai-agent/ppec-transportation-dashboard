@@ -58,8 +58,9 @@ describe("migrations 0000 + 0001 on PGlite", () => {
     const r = await db.query<{ n: number }>(`SELECT count(*)::int n FROM information_schema.table_constraints WHERE constraint_type='FOREIGN KEY' AND table_schema='ops'`);
     // 90 through 0008, plus the nine 0009 adds: three on vehicle_setup_day (site, vehicle, the
     // staff user who set it), two on plan_run (site, the staff user who saved it) and four on
-    // plan_assignment (the run, the site, the child and the van). And 0014's one: feedback → site.
-    expect(r.rows[0].n).toBe(100);
+    // plan_assignment (the run, the site, the child and the van). And 0014's one: feedback → site;
+    // and 0015's two: availability → site and → child.
+    expect(r.rows[0].n).toBe(102);
     const x = await db.query<{ n: number }>(`SELECT count(*)::int n FROM information_schema.constraint_column_usage u
       JOIN information_schema.table_constraints c USING (constraint_name) WHERE c.table_schema='ops' AND u.table_schema='identity'`);
     expect(x.rows[0].n).toBe(0);

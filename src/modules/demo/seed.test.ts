@@ -33,7 +33,8 @@ describe("standard scenario seed (PRD §18.1)", () => {
     expect(r.counts).toEqual({
       "ops.family_group": 11,
       "ops.child_profile": 12,
-      "ops.contact_authorization": 50,
+      // 50, plus CONFIRM_AVAILABILITY_TO_RECEIVE for each of the nine scenario children (ledger #83).
+      "ops.contact_authorization": 59,
       "ops.stop_location": 11,
       "ops.transport_profile": 12,
       "ops.transport_need_item": 13,
@@ -202,7 +203,8 @@ describe("standard scenario seed (PRD §18.1)", () => {
   it("F2 has no authorized receiving adult (AT-13) while still getting transport updates", async () => {
     const c2 = await one<{ child_token: string }>("SELECT child_token FROM ops.child_profile WHERE display_name='Noah O.'");
     const scopes = await rows<{ scope: string }>("SELECT scope::text scope FROM ops.contact_authorization WHERE child_token=$1 ORDER BY 1", [c2.child_token]);
-    expect(scopes.map((s) => s.scope)).toEqual(["CANCEL_LEG", "CHANGE_PICKUP_INSTRUCTIONS", "RECEIVE_ATTENDANCE_UPDATES", "RECEIVE_TRANSPORT_UPDATES"]);
+    // F2 may still say when someone will be home (ledger #83), without being a receiver.
+    expect(scopes.map((s) => s.scope)).toEqual(["CANCEL_LEG", "CHANGE_PICKUP_INSTRUCTIONS", "CONFIRM_AVAILABILITY_TO_RECEIVE", "RECEIVE_ATTENDANCE_UPDATES", "RECEIVE_TRANSPORT_UPDATES"]);
     const gc = await one<{ can_receive_child: boolean }>(`
       SELECT gc.can_receive_child FROM identity.guardian_contact gc
       JOIN ops.family_group fg ON fg.id = gc.family_group_id WHERE fg.display_label='F2 (Demo)'`);

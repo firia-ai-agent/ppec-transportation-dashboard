@@ -279,7 +279,8 @@ describe("an approved change saves a new plan version, through the board's own w
     const id = await seedProposal();
     expect((await approve(id, board())).status).toBe(200);
     const after = await legRow();
-    expect(after.plan_version).toBe(before.plan_version);
+    // The agreed time moves the leg's counter once (ledger #83, TRP-03); its reply rides the new one.
+    expect(after.plan_version).toBe(Number(before.plan_version) + 1);
     expect(after.child_token).toBe(before.child_token);
     expect(after.vehicle_id).toBe(before.vehicle_id);
     expect(after.direction).toBe(before.direction);
@@ -384,8 +385,8 @@ describe("a plan saved after the proposal is still approvable (Firia, PR #75)", 
     expect(await decisionOf(id)).toMatchObject({ decision: "APPROVED" });
     expect(await planRunVersion()).toBe(started + 2);
     expect(await assignmentRow()).toMatchObject({ bucket: "VAN", vehicle_id: vanOne() });
-    // Still no second writer of the leg (S1-3), and the family was told.
-    expect(await legVersion()).toBe(1);
+    // The leg's counter moved once for the agreed time (ledger #83), and the family was told.
+    expect(await legVersion()).toBe(2);
     expect((await outbox()).length).toBeGreaterThan(0);
   });
 

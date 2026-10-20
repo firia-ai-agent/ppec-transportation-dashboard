@@ -37,6 +37,7 @@ import type { DayDataSource, DayRider, DayVan, OtherChild } from "@/domain/day/s
 import { needsFromCategories } from "@/domain/plan/needs";
 import { driverFor } from "@/domain/plan/day";
 import { siteHhmm } from "@/modules/plan/leg-write";
+import { approvedSlots } from "@/modules/availability/store";
 import { vehicleIdOf } from "@/modules/demo/fixtures/standard";
 
 type ChildRow = {
@@ -156,6 +157,7 @@ export function sqlDaySource(db: Exec, siteId: string): DayDataSource {
     async riders(date, leg) {
       const { children, needs } = await roster();
       const { windows: legWindows, aboard } = await legsOf(date, leg);
+      const slots = await approvedSlots(db, { siteId, serviceDate: date, direction: leg });
       return children
         .filter((row) => drivenBy(row, leg))
         .map(
@@ -179,6 +181,7 @@ export function sqlDaySource(db: Exec, siteId: string): DayDataSource {
               (leg === "AM" ? row.am_window_start : row.pm_window_start) ??
               "",
             ...(aboard.has(row.child_token) ? { aboard: true } : {}),
+            ...(slots.has(row.child_token) ? { slots: slots.get(row.child_token) } : {}),
           }),
         );
     },

@@ -29,6 +29,7 @@ import { draftPlanChange, writeStaffActionCard } from "@/modules/actions/draft";
 import { teamPlanChange, todayOf } from "./team";
 import { routesFor, type AgreedRoute } from "@/modules/changes/agreed";
 import { rehearse } from "@/modules/changes/rehearse";
+import { recordAvailabilityRequest } from "@/modules/availability/store";
 import { applyDropoffPlan } from "@/modules/approvals/decide";
 import { boardPlacementPort } from "@/modules/approvals/plan-placement-port";
 import { raiseNeedsPerson } from "../../needs-person";
@@ -533,12 +534,26 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
     words: { ...agentTasks.proposedDropoffChange, summary: alertWords },
     by,
   });
+  /*
+   * WHAT THE FAMILY ASKED, AS EVIDENCE (ledger #83; PRD RES-02): a change request beside the card,
+   * PROPOSED when the sender may confirm when this child can be received, NEEDS_HUMAN when not.
+   * Approve turns it into an approved slot; "Don't send" rejects it.
+   */
+  const request = requestedTime
+    ? await recordAvailabilityRequest(tx, {
+        id: effectId(input.idempotencyKey, "availability"),
+        siteId: input.siteId, childToken: row.child_token, contactToken: requestedByContact,
+        serviceDate: row.service_date, direction, time: requestedTime,
+        basisMessageId: basis.rows[0]?.id ?? null, now: input.now, by,
+      })
+    : null;
+  const card = request ? { ...proposal, change_request_id: request.id } : proposal;
   const approvalId = effectId(input.idempotencyKey, "approval");
   await tx.query(
     `INSERT INTO ops.approval_request (id, site_id, task_id, proposal, created_by, updated_by, source_mode)
      VALUES ($1, $2, $3, $4::jsonb, $5, $5, 'SIMULATED')
      ON CONFLICT (id) DO NOTHING`,
-    [approvalId, input.siteId, taskId, JSON.stringify(proposal), by],
+    [approvalId, input.siteId, taskId, JSON.stringify(card), by],
   );
   return {
     approval_request_id: approvalId, exception_task_id: taskId, mutated: false,
