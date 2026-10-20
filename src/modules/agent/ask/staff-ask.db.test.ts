@@ -97,6 +97,8 @@ const tasks = async () =>
  * tests below check it reaches no row and no answer.
  */
 const runnerReason = (r: AgentRunner): string | null => r.reason;
+/** Deps for a suite's own `drive`: only the ask's deadline is read from them before it runs. */
+const throwingDriveDeps = { gateway: { config: { askTimeoutMs: 5_000 } } } as never;
 
 /** The arguments the model answers an ask with: a reallocation nobody but a person may apply. */
 const REALLOCATION = () => ({
@@ -327,7 +329,7 @@ describe("(e) with no model there is a staff alert, and nothing else", () => {
       {
         env: {},
         // A runner that exists and a drive that throws: a PROVIDER_ERROR, a missing key, a refusal.
-        runner: () => ({ ok: true as const, refused: false, reason: null, deps: {} as never }),
+        runner: () => ({ ok: true as const, refused: false, reason: null, deps: throwingDriveDeps }),
         drive: async () => {
           throw new Error("provider unreachable");
         },
@@ -509,7 +511,7 @@ describe("the thread the panel draws is read from rows this app holds", () => {
       { siteId: sc.siteId, text: "replan the afternoon", by: "u1", id },
       {
         env: {},
-        runner: () => ({ ok: true as const, refused: false, reason: null, deps: {} as never }),
+        runner: () => ({ ok: true as const, refused: false, reason: null, deps: throwingDriveDeps }),
         drive: async () => {
           throw new Error("provider unreachable");
         },
@@ -610,7 +612,7 @@ describe("the thread the panel draws is read from rows this app holds", () => {
     const id = "01900000-0000-7000-8000-00000000a506";
     await askAgent(db, { siteId: sc.siteId, text: "old question", by: "u1", id }, {
       env: {},
-      runner: () => ({ ok: true as const, refused: false, reason: null, deps: {} as never }),
+      runner: () => ({ ok: true as const, refused: false, reason: null, deps: throwingDriveDeps }),
       drive: async () => {
         throw new Error("provider unreachable");
       },

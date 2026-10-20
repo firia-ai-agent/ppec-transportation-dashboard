@@ -512,9 +512,11 @@ export async function decideApproval(
      * 2. Save the plan, through the board's own writer and no other path — the ONE plan write
      *    this decision makes (Firia's gap-5 ruling, and S1-3 on Veri's read).
      *
-     * There used to be a second one above this: an `UPDATE ops.trip_leg` that moved
-     * `window_start` and bumped `plan_version`. It is gone. Three things were wrong with it and
-     * only the third was obvious:
+     * There used to be a second one above this: an inline `UPDATE ops.trip_leg` that moved
+     * `window_start` and guarded on `plan_version`. That inline write is gone; the agreed time
+     * still reaches the leg, through `applyDropoffPlan` → `setLegDropoffWindow` below, and the
+     * route's own hold through `saveRoute`. Three things were wrong with the old write and only
+     * the third was obvious:
      *
      *  - it was a second writer of the plan, which is the thing gap-5 exists to prevent;
      *  - it guarded on `trip_leg.plan_version`, while the board guards `plan_run.version` (0009).
