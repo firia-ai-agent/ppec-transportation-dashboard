@@ -59,6 +59,7 @@
  * already does not.
  */
 import type { Exec } from "@/db/exec";
+import { familyThreadHref } from "@/auth/access";
 import { assistantUnavailable } from "@/ui/copy";
 import { refusalWords, type Refusal } from "@/modules/changes/refusal";
 import { raiseNeedsPerson, type RaisedAlert } from "./needs-person";
@@ -67,6 +68,7 @@ import type { IdentityGateway } from "@/modules/identity/gateway";
 import { type DemoDataGuardCode, DATA_MODE_ENV_VAR } from "./config";
 import { type GatewayOutcome, GatewayError } from "./gateway";
 import { effectId } from "./run/exec/effects";
+import { demoTokenForId } from "./run/scope-tokens";
 import { ProviderError } from "./providers/provider";
 import {
   RemoteApiKeyMissing,
@@ -345,6 +347,8 @@ export type AssistantAlert = {
   readonly theirWords: string;
   /** The thread "Open text" and "Reply" lead to. */
   readonly threadId: string | null;
+  /** Where "Open text" goes: that family's thread on For you. Null when the alert names no child. */
+  readonly threadHref: string | null;
   /**
    * The message the card's words came from. Nullable because the join is a LEFT JOIN: every row
    * this module writes carries a locator, and a row that somehow does not should still render as
@@ -364,6 +368,7 @@ type AlertRow = {
   thread_id: string | null;
   body_tokenized: string | null;
   child_display_name: string | null;
+  child_token: string | null;
   /** The thread's counterparty. A *name* for it is the gateway's answer, not this query's. */
   counterparty_token: string | null;
   leg_direction: string | null;
@@ -386,7 +391,7 @@ export async function openAssistantAlerts(
   const r = await db.query<AlertRow>(
     `SELECT t.id, t.state,
             m.id AS message_id, m.thread_id, m.body_tokenized,
-            c.display_name AS child_display_name,
+            c.display_name AS child_display_name, t.child_token::text AS child_token,
             th.counterparty_token,
             l.direction::text AS leg_direction,
             t.completion_evidence -> 'refusal' AS refusal
@@ -428,6 +433,12 @@ export async function assistantAlertCount(db: Exec, siteIds: readonly string[]):
  * the display helpers and the fallback for a family whose text names no single child are decided
  * once, server-side, and asserted in one test.
  */
+/** The family's thread on For you, by the child the alert is about (the screen selects threads by child). */
+function threadHrefOf(childToken: string | null): string | null {
+  const key = childToken ? demoTokenForId(childToken) : null;
+  return key ? familyThreadHref(key) : null;
+}
+
 function toAlert(row: AlertRow, names: ReadonlyMap<string, string>): AssistantAlert {
   /*
    * A name the gateway did not have is "" and `assistantUnavailable.card` renders without it,
@@ -458,6 +469,7 @@ function toAlert(row: AlertRow, names: ReadonlyMap<string, string>): AssistantAl
     fix: refused?.fix ?? null,
     theirWords: row.body_tokenized ?? "",
     threadId: row.thread_id,
+    threadHref: threadHrefOf(row.child_token),
     messageId: row.message_id ?? null,
     beingHandled: row.state === "IN_PROGRESS",
   };

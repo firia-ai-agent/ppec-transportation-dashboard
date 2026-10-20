@@ -207,6 +207,7 @@ const ALERT: AssistantAlert = {
   sentence: "Dara O. texted about Noah's drop-off. The assistant couldn't read it. Reply yourself.",
   theirWords: "Can you drop Noah at 5 instead?",
   threadId: "thread-1",
+  threadHref: "/family-texts?tab=for-you&thread=C2",
   messageId: "message-1",
   beingHandled: false,
   fix: null,
@@ -361,6 +362,12 @@ describe("gate 5: no model, no card", () => {
     expect(html).toContain(ALERT.theirWords);
     // The rule, on screen rather than only in a commit message.
     expect(html).toContain(assistantUnavailable.rule);
+  });
+
+  it("opens the family's own thread from the alert, not whichever family is first in the list", () => {
+    const raw = render({ tab: "for-you", alerts: [ALERT] });
+    expect(raw).toContain(`href="${ALERT.threadHref!.replace(/&/g, "&amp;")}"`);
+    expect(textOf(raw)).toContain(assistantUnavailable.openText);
   });
 
   it("drops the card out of the thread too, not only out of the tab", () => {
