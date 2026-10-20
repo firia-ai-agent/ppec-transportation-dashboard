@@ -209,6 +209,7 @@ const ALERT: AssistantAlert = {
   threadId: "thread-1",
   messageId: "message-1",
   beingHandled: false,
+  fix: null,
 };
 
 describe("the screen's shape", () => {

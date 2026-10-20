@@ -205,11 +205,13 @@ type DropoffProposal = {
    * holds — and any departures, as `modules/changes/plan-change.ts` previewed them.
    */
   plan?: {
-    moves?: { child_token: string; bucket: PlacementBucket; van_id?: string | null; not_before?: string }[];
-    departures?: Record<string, string>;
+    moves?: readonly { readonly child_token: string; readonly bucket: PlacementBucket; readonly van_id?: string | null; readonly not_before?: string }[];
+    departures?: Readonly<Record<string, string>>;
   };
   /** What that route does to the day, one line each, for the panel. */
-  lines?: string[];
+  lines?: readonly string[];
+  /** The family's message this proposal answers, when there was one. */
+  basis_message_id?: string | null;
   /** True when the family asked for the ride to be cancelled rather than moved (bucket ABSENT). */
   cancel?: boolean;
   stop_token?: string | null;
