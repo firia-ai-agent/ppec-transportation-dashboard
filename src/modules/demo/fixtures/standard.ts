@@ -174,8 +174,14 @@ const SCENARIO_FAMILIES: Family[] = [
   { key: "F8", label: "F8 (Demo)", guardian: { firstName: "Lena", lastInitial: "V", relationship: "grandparent", phone: "+1-561-555-0108" } },
 ];
 
+/**
+ * A guardian's scopes. `CONFIRM_AVAILABILITY_TO_RECEIVE` (§6.4) lets them say when they can take
+ * their child (ledger #83) — distinct from `RECEIVE_CHILD`, so F2, who has no receiver on file,
+ * may still tell us when someone will be home.
+ */
 const FULL_SCOPES: AuthScope[] = [
   "RECEIVE_TRANSPORT_UPDATES", "RECEIVE_ATTENDANCE_UPDATES", "CANCEL_LEG", "CHANGE_PICKUP_INSTRUCTIONS", "RECEIVE_CHILD",
+  "CONFIRM_AVAILABILITY_TO_RECEIVE",
 ];
 /** F2 has no authorized receiving adult on file: the AT-13 HELD_NO_RECEIVER case (PRD l.1327). */
 const NO_RECEIVER_SCOPES: AuthScope[] = FULL_SCOPES.filter((s) => s !== "RECEIVE_CHILD");

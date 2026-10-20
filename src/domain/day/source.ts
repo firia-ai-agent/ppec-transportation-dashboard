@@ -51,7 +51,15 @@ export type DayRider = FitRider & {
   window: string;
   /** On the van already (their leg's state, `machines.ABOARD`): they ride the van they are in. */
   aboard?: boolean;
+  /**
+   * When their family can receive them today, as a person approved it (`ops.availability`,
+   * ledger #83). Absent when nothing was agreed: the schedule's window is all there is.
+   */
+  slots?: readonly TimeSlot[];
 };
+
+/** An approved range, site-local "HH:MM" to "HH:MM" (PRD TRP-02). */
+export type TimeSlot = { readonly start: string; readonly end: string };
 
 /** The four places a child can be on a board (§1.6's `bucket`). */
 export const BUCKETS = ["VAN", "UNASSIGNED", "FAMILY_DRIVES", "ABSENT"] as const;

@@ -37,6 +37,8 @@ const MODE = "SIMULATED";
  * cover the live schema, so a new migration cannot quietly add a table the reset forgets.
  */
 export const RESET_TABLES = [
+  // Approved availability (0015) first: it points at the approval and the change request it came from.
+  "ops.availability",
   "ops.teams_activity", "ops.approval_request", "ops.task", "ops.acknowledgment", "ops.outbound_message",
   "ops.change_request", "ops.message", "ops.conversation_thread", "ops.teams_conversation_ref",
   "ops.agent_tool_call", "ops.agent_run", "ops.agent_memory",

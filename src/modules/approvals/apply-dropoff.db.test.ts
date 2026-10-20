@@ -33,6 +33,7 @@ import { uuidv7 } from "uuidv7";
 import type { Db } from "@/db/exec";
 import { DROPOFF_CHANGE_KIND } from "@/modules/agent/run/exec/proposals";
 import { decideApproval } from "@/modules/approvals/decide";
+import { recordAvailabilityRequest } from "@/modules/availability/store";
 import {
   boardPlacementPort,
   type PlanPlacementPortFor,
@@ -126,7 +127,7 @@ async function savedPlanWithNoahOnVanTwo(): Promise<number> {
 }
 
 /** One undecided drop-off proposal for Noah's afternoon. */
-async function seedProposal(over: { time?: string | null } = {}): Promise<string> {
+async function seedProposal(over: { time?: string | null; changeRequestId?: string } = {}): Promise<string> {
   const basis = (await planRunVersion()) ?? 0;
   const taskId = uuidv7();
   await db.query(
@@ -159,6 +160,7 @@ async function seedProposal(over: { time?: string | null } = {}): Promise<string
         template_id: "dropoff.changed",
         vars: { legDate: SERVICE_DATE, eta: AGREED, stopLabel: "OKEE-PARK" },
         approval_key: "a-key",
+        ...(over.changeRequestId ? { change_request_id: over.changeRequestId } : {}),
       }),
     ],
   );
@@ -189,10 +191,11 @@ const legRow = async (id = legId()) =>
   (
     await db.query<{
       window_start: Date | string | null;
+      window_end: Date | string | null;
       receiver_confirmed_at: Date | string | null;
       plan_version: number;
     }>(
-      "SELECT window_start, receiver_confirmed_at, plan_version FROM ops.trip_leg WHERE id = $1",
+      "SELECT window_start, window_end, receiver_confirmed_at, plan_version FROM ops.trip_leg WHERE id = $1",
       [id],
     )
   ).rows[0];
@@ -224,10 +227,14 @@ describe("Approve writes the agreed drop-off onto the leg", () => {
     // And it really moved: the seed wrote his scheduled 16:20 there.
     expect(new Date(before.window_start!).toISOString()).not.toBe(expected!.toISOString());
 
-    // The plan version moves exactly once, on `plan_run` — never on the leg's own counter, which
-    // is what the outbox compares a queued text's basis to at drain (Veri S1-3.2).
+    // The board's version moves once, on `plan_run`; and the leg's own counter moves once too, now
+    // that the leg is where the agreed time lives (PRD §8, TRP-03; ledger #83): a text queued on
+    // the old time goes stale at drain, and this decision's reply is queued on the new version.
     expect(await planRunVersion()).toBe(started + 1);
-    expect(after.plan_version).toBe(before.plan_version);
+    expect(after.plan_version).toBe(before.plan_version + 1);
+    expect(new Date(after.window_end!).getTime() - new Date(after.window_start!).getTime()).toBe(30 * 60_000);
+    const bases = await db.query<{ plan_version_basis: number }>("SELECT plan_version_basis FROM ops.outbound_message", []);
+    expect(new Set(bases.rows.map((row) => row.plan_version_basis))).toEqual(new Set([after.plan_version]));
 
     // The decision is one transaction: the text went with the write.
     expect(answer.body.ok && answer.body.queued).toBeGreaterThan(0);
@@ -255,6 +262,47 @@ describe("Approve writes the agreed drop-off onto the leg", () => {
     const amBefore = await legRow(demoLegId(CHILD_KEY, "AM"));
     expect((await decide(await seedProposal(), "APPROVED", board())).status).toBe(200);
     expect(await legRow(demoLegId(CHILD_KEY, "AM"))).toEqual(amBefore);
+  });
+});
+
+describe("the family's request and the approved slot (ledger #83)", () => {
+  const request = async () => {
+    const id = uuidv7();
+    await recordAvailabilityRequest(db, {
+      id, siteId: SITE, childToken: childToken(), contactToken: DARA_CONTACT(), serviceDate: SERVICE_DATE,
+      direction: "PM", time: AGREED, basisMessageId: null, now: NOW, by: "test",
+    });
+    return id;
+  };
+  const statusOf = async (id: string) =>
+    (await db.query<{ status: string }>("SELECT status FROM ops.change_request WHERE id = $1", [id])).rows[0]?.status;
+  const slotsOf = async () =>
+    (await db.query<{ start_min: number; end_min: number; contact_token: string | null; approval_id: string | null; change_request_id: string | null }>(
+      `SELECT start_min, end_min, contact_token::text AS contact_token, approval_id::text AS approval_id,
+              change_request_id::text AS change_request_id
+         FROM ops.availability WHERE child_token = $1::uuid AND service_date = $2 AND superseded_by IS NULL`,
+      [childToken(), SERVICE_DATE],
+    )).rows;
+
+  it("Approve applies the request and records who agreed what, from which card", async () => {
+    await savedPlanWithNoahOnVanTwo();
+    const changeRequestId = await request();
+    const id = await seedProposal({ changeRequestId });
+    expect((await decide(id, "APPROVED", board())).status).toBe(200);
+    expect(await statusOf(changeRequestId)).toBe("APPLIED");
+    expect(await slotsOf()).toEqual([
+      { start_min: 17 * 60, end_min: 17 * 60 + 30, contact_token: DARA_CONTACT(), approval_id: id, change_request_id: changeRequestId },
+    ]);
+  });
+
+  it("Don't send rejects the request and agrees nothing", async () => {
+    await db.query("DELETE FROM ops.availability", []);
+    await savedPlanWithNoahOnVanTwo();
+    const changeRequestId = await request();
+    const id = await seedProposal({ changeRequestId });
+    expect((await decide(id, "DECLINED", board())).status).toBe(200);
+    expect(await statusOf(changeRequestId)).toBe("REJECTED");
+    expect(await slotsOf()).toEqual([]);
   });
 });
 

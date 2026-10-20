@@ -37,6 +37,7 @@ const ALLOWED_SEED_IMPORTERS = [
   "src/modules/demo/inbound-flow.db.test.ts",
   // Approve writing the agreed drop-off onto a seeded leg, and Restart putting it back.
   "src/modules/approvals/apply-dropoff.db.test.ts",
+  "src/modules/availability/store.db.test.ts",
   "src/modules/messaging/eta-notice-sweep.test.ts",
   // The drags and the child panel's Save, asserted against a seeded database (`pnpm test:db`).
   "src/modules/plan/place.db.test.ts",

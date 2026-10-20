@@ -22,6 +22,7 @@
  * S1-3.2: two counters, one question).
  */
 import { uuidv7 } from "uuidv7";
+import { availabilityConfig } from "@/config/live";
 import type { Exec } from "@/db/exec";
 import { SITE_TIME_ZONE } from "@/ui/service-date";
 
@@ -91,11 +92,16 @@ export type LegWindowInput = {
 };
 
 export type LegWindowWritten =
-  | { readonly ok: true; readonly windowStart: Date }
+  | { readonly ok: true; readonly windowStart: Date; readonly windowEnd: Date; readonly planVersion: number }
   | { readonly ok: false; readonly reason: "BAD_TIME" | "NO_SUCH_LEG" };
 
 /**
  * Move one leg's drop-off window to a time, by leg id **and** site **and** service date.
+ *
+ * THE LEG IS WHERE AN AGREED TIME LIVES (PRD §8, TRP-03; ledger #83). The window is a range — the
+ * time plus `availabilityConfig.slotMinutes` — and writing it bumps `plan_version`, so a text
+ * queued against the old time is cancelled stale at drain (`outbox.ts`), and the caller gets the
+ * new version back for the text it queues about the new one.
  *
  * All three in the `WHERE`: the id alone would let another site's leg be moved by a row that
  * named it, and the date is what keeps a proposal written for one day off a leg that has since
@@ -105,15 +111,17 @@ export type LegWindowWritten =
 export async function setLegDropoffWindow(tx: Exec, input: LegWindowInput): Promise<LegWindowWritten> {
   const windowStart = siteInstantOn(input.serviceDate, input.time);
   if (windowStart === null) return { ok: false, reason: "BAD_TIME" };
-  const moved = await tx.query<{ id: string }>(
+  const windowEnd = new Date(windowStart.getTime() + availabilityConfig.slotMinutes * 60_000);
+  const moved = await tx.query<{ plan_version: number }>(
     `UPDATE ops.trip_leg
-        SET window_start = $4, updated_at = $5, updated_by = $6, version = version + 1
+        SET window_start = $4, window_end = $5, updated_at = $6, updated_by = $7,
+            version = version + 1, plan_version = plan_version + 1
       WHERE id = $1 AND site_id = $2 AND service_date = $3
-      RETURNING id`,
-    [input.legId, input.siteId, input.serviceDate, windowStart, input.now, input.by],
+      RETURNING plan_version`,
+    [input.legId, input.siteId, input.serviceDate, windowStart, windowEnd, input.now, input.by],
   );
   if (moved.rows.length !== 1) return { ok: false, reason: "NO_SUCH_LEG" };
-  return { ok: true, windowStart };
+  return { ok: true, windowStart, windowEnd, planVersion: moved.rows[0].plan_version };
 }
 
 /* ───────────────────────────── the adult who will receive the child ───────────────────────────── */
