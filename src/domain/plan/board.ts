@@ -140,9 +140,19 @@ export function ridersInVan(day: BoardDay, plan: BoardPlan, vanId: string): Boar
 
 /** The time a rider's stop is driven by: their window, or a later time agreed with the family. */
 const orderKey = (rider: BoardRider, plan: BoardPlan): string => {
-  const agreed = plan[rider.token]?.notBefore;
+  const agreed = holdOf(rider, plan);
   return agreed && agreed > rider.window ? agreed : rider.window;
 };
+
+/**
+ * THE TIME A VAN DROPS THIS CHILD NO EARLIER THAN (PRD §8's hold): the time agreed on the route
+ * (`notBefore`, ledger #79), or else the start of a range a person approved with the family
+ * (`DayRider.slots`, ledger #83) — so an approved time holds even on a plan saved without one.
+ * Never the plain schedule window, which is a lateness reference and not a wait.
+ */
+export function holdOf(rider: { readonly token: string; readonly slots?: readonly { readonly start: string }[] }, plan: BoardPlan): string | null {
+  return plan[rider.token]?.notBefore ?? rider.slots?.[0]?.start ?? null;
+}
 
 /** Everybody waiting to be placed (§1.3's Unassigned count). */
 export function unassignedRiders(day: BoardDay, plan: BoardPlan): BoardRider[] {

@@ -39,6 +39,17 @@ describe("minutes outside an approved slot (ledger #84)", () => {
   });
 });
 
+describe("an approved slot holds the van even with no notBefore on the plan (ledger #84)", () => {
+  it("drops the child no earlier than the slot's start", async () => {
+    const { day, plan, departs, child, at } = await dayWithSlot();
+    const later = { start: hhmmOf(at + 40), end: hhmmOf(at + 70) };
+    const held: BoardDay = { ...day, riders: day.riders.map((r) => (r.token === child.token ? { ...r, slots: [later] } : r)) };
+    expect(plan[child.token]?.notBefore).toBeUndefined();
+    expect(plannedStopTimes(held, plan, departs).get(child.token)!.arrivesAtMinute).toBeGreaterThanOrEqual(at + 40);
+    expect(outsideSlots(held, plan, departs).get(child.token)).toBe(0);
+  });
+});
+
 describe("the change that breaks an agreed time (ledger #84)", () => {
   it("is a later departure that puts the child past the end of their slot", async () => {
     const { day, plan, departs, van, child } = await dayWithSlot();
