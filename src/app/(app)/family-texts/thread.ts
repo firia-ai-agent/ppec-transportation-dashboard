@@ -66,6 +66,11 @@ export type Bubble = {
   readonly delivery: StateDescriptor | null;
   /** False for a message that never left the center: it must never be drawn as if it arrived. */
   readonly reachedPhone: boolean;
+  /**
+   * A family's text the fast model read as nothing to change (ledger #85; PRD SURF-03): said under
+   * the bubble, so a coordinator sees why no card came. Absent for anything else.
+   */
+  readonly triage?: "FYI" | "NOISE";
 };
 
 /**
@@ -207,6 +212,7 @@ export function bubbleOf(message: PersonaMessage): Bubble {
     body: message.body ?? "",
     delivery: message.state ? outboundStates[message.state as keyof typeof outboundStates] ?? null : null,
     reachedPhone: message.reachedPhone,
+    ...(message.direction === "IN" && (message.triage === "FYI" || message.triage === "NOISE") ? { triage: message.triage } : {}),
   };
 }
 

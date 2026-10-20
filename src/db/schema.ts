@@ -426,6 +426,8 @@ export const message = ops.table("message", {
   bodyTokenized: text("body_tokenized").notNull(), bodyEnc: text("body_enc"), // plaintext only encrypted; 90 d (FQ-12 default)
   rawPayloadHash: text("raw_payload_hash").notNull(), providerIndex: bigint("provider_index", { mode: "bigint" }),
   resolvedChildTokens: uuid("resolved_child_tokens").array(), resolveConfidence: doublePrecision("resolve_confidence"),
+  /** What the fast model made of it (ledger #85): PLAN_TODAY | PLAN_LATER | FYI | NOISE; null untriaged. */
+  triageRelevance: text("triage_relevance"),
   idempotencyKey: text("idempotency_key").notNull(), receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(), ...audit,
 }, (t) => [uniqueIndex("message_provider_ext_uq").on(t.provider, t.externalId), index("message_thread_idx").on(t.threadId, t.receivedAt)]);
 export const changeRequest = ops.table("change_request", {

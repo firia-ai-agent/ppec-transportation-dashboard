@@ -341,6 +341,11 @@ function Runs({ run }: { readonly run: ThreadView["runs"][number] }) {
             .join(" ")}
         >
           {bubble.body}
+          {bubble.triage ? (
+            <span className={styles.triage} data-triage={bubble.triage}>
+              {familyTexts.triage[bubble.triage]}
+            </span>
+          ) : null}
         </p>
       ))}
       {run.meta === null ? null : (

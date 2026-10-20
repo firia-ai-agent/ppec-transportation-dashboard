@@ -960,3 +960,15 @@
   color: inherit;
   text-decoration: underline;
 }
+
+/*
+ * Under a family's text the fast model read as nothing to change (ledger #85, SURF-03): one quiet
+ * line inside the bubble, in the meta tone, so a coordinator sees why no card came. Not a chip —
+ * it is a note about this message, not a state of the conversation.
+ */
+.triage {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--text-12);
+  color: var(--color-ink-muted);
+}

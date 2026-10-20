@@ -78,7 +78,11 @@ export function liveProposalWriter(deps: ExecutorDeps): ProposalWriter {
  * and the seventeenth tool has to be placed in one of these three groups deliberately
  * (`unaccountedTools`).
  */
-export const SEQUENCED_EXECUTORS: readonly string[] = [];
+export const SEQUENCED_EXECUTORS: readonly string[] = [
+  // Triage's call (ledger #85) is read by `run/triage.ts` before the loop, never executed by it:
+  // the loop is not offered it, and a call that reached it anyway fails shut with NO_EXECUTOR.
+  "classify_message",
+];
 
 /**
  * The `human`-tier tools: §11.2 gives them a proposal, never an effect (policy.ts step 11).

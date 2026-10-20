@@ -72,7 +72,7 @@ export type BubbleRun = {
   readonly stampDay: string;
   readonly stampTime: string;
   /** The bubbles themselves. Only the last one gets a tail (the mockup's `.tail`). */
-  readonly bubbles: readonly { readonly id: string; readonly body: string }[];
+  readonly bubbles: readonly { readonly id: string; readonly body: string; readonly triage?: "FYI" | "NOISE" }[];
   /**
    * The meta line under the run, or null. "Auto · Delivered" on a templated follow-up the day
    * sent by itself, and on nothing else (gate 4).
@@ -226,7 +226,7 @@ export function runsOf(bubbles: readonly Bubble[], dayLabel: string): readonly B
       open.author === bubble.author &&
       Math.abs(atMs - open.atMs) <= RUN_GAP_MS;
     if (open && sameRun) {
-      open.items.push({ id: bubble.id, body: bubble.body });
+      open.items.push({ id: bubble.id, body: bubble.body, ...(bubble.triage ? { triage: bubble.triage } : {}) });
       continue;
     }
     if (open) runs.push(closeRun(open, dayLabel, runs.length));
@@ -234,7 +234,7 @@ export function runsOf(bubbles: readonly Bubble[], dayLabel: string): readonly B
       side: bubble.direction,
       author: bubble.author,
       stamp: bubble.timeLabel,
-      items: [{ id: bubble.id, body: bubble.body }],
+      items: [{ id: bubble.id, body: bubble.body, ...(bubble.triage ? { triage: bubble.triage } : {}) }],
       atMs,
     };
   }

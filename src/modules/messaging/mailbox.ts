@@ -55,6 +55,8 @@ export type PersonaMessage = {
   providerMessageId: string | null;
   providerIndex: number | null;
   sourceMode: string;
+  /** Inbound only: what triage made of it (ledger #85) — PLAN_TODAY | PLAN_LATER | FYI | NOISE, or null. */
+  triage?: string | null;
 };
 
 /**
@@ -88,8 +90,8 @@ export async function resolvePersona(
 
 export async function personaMessages(db: Exec, p: Persona, limit: number = DEFAULT_LIMIT): Promise<PersonaMessage[]> {
   const n = clampLimit(limit);
-  const inbound = await db.query<{ id: string; body_tokenized: string; received_at: Date; provider_index: string | null; source_mode: string; external_id: string }>(
-    `SELECT m.id, m.body_tokenized, m.received_at, m.provider_index, m.source_mode, m.external_id
+  const inbound = await db.query<{ id: string; body_tokenized: string; received_at: Date; provider_index: string | null; source_mode: string; external_id: string; triage_relevance: string | null }>(
+    `SELECT m.id, m.body_tokenized, m.received_at, m.provider_index, m.source_mode, m.external_id, m.triage_relevance
      FROM ops.message m JOIN ops.conversation_thread t ON t.id = m.thread_id
      WHERE m.site_id = $1 AND t.counterparty_token = $2 AND m.direction = 'IN' AND m.is_own_echo = false
      ORDER BY m.received_at DESC, m.id DESC LIMIT $3`, [p.siteId, p.contactToken, n]);
@@ -108,6 +110,7 @@ export async function personaMessages(db: Exec, p: Persona, limit: number = DEFA
       id: m.id, direction: "IN", at: new Date(m.received_at).toISOString(), body: m.body_tokenized,
       state: null, templateId: null, reachedPhone: true, blockReason: null, providerMessageId: m.external_id,
       providerIndex: m.provider_index === null ? null : Number(m.provider_index), sourceMode: m.source_mode,
+      triage: m.triage_relevance,
     })),
     ...outbound.rows.map((o): PersonaMessage => ({
       id: o.id, direction: "OUT", at: new Date(o.created_at).toISOString(), body: safeRender(o.template_id, o.vars, o.display_name),

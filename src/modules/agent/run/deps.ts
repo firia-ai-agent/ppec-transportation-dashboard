@@ -53,6 +53,7 @@ import { chooseProvider, type ProviderChoice } from "./model-reach";
 
 export { chooseProvider, modelReach, modelReachLog, type ModelReach, type ProviderChoice } from "./model-reach";
 import type { RunDeps } from "./loop";
+import type { Triage } from "./triage";
 
 export type AgentRunner =
   | { readonly ok: true; readonly deps: RunDeps; readonly refused: boolean; readonly reason: string | null }
@@ -93,8 +94,26 @@ export function agentRunner(db: Db, env: Record<string, string | undefined> = pr
       executors: liveExecutors(execDeps),
       proposals: liveProposalWriter(execDeps),
       scheduler: execDeps.scheduler,
+      ...triageFor(db, config, env),
     },
   };
+}
+
+/**
+ * THE TRIAGE GATEWAY (ledger #85): the same config with the triage model as primary and backup,
+ * through the same provider choice — so the same allow-lists, demo-data guard and audit sink. No
+ * `triageModel`, or one no provider can be built for, is no triage: every text gets the full run.
+ */
+function triageFor(db: Db, config: AgentConfig, env: Record<string, string | undefined>): { triage?: Triage } {
+  if (!config.triageModel) return {};
+  try {
+    const triageConfig = loadAgentConfig(env, { model: config.triageModel, backupModel: config.triageModel });
+    const choice = chooseProvider(triageConfig, env);
+    if (choice.refused) return {};
+    return { triage: { gateway: createGateway(choice.provider, triageConfig, { auditSink: dbAuditSink(db) }) } };
+  } catch {
+    return {};
+  }
 }
 
 /**
