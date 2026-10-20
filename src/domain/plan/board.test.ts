@@ -226,6 +226,29 @@ describe("§1.4: Auto-plan is the one placement function", () => {
     expect(plan[rider.token]).toMatchObject({ bucket: "UNASSIGNED", pinned: true });
   });
 
+  it("keeps every time agreed with a family through a re-plan (ledger #81)", async () => {
+    const day = await testDay();
+    const [held, placed] = day.riders;
+    const prior = autoPlan(day, emptyPlan(day));
+    const agreed = { ...prior, [held.token]: { ...prior[held.token], notBefore: "16:50" } };
+    const again = autoPlan(day, agreed);
+    expect(again[held.token].notBefore).toBe("16:50");
+    expect(again[placed.token].notBefore).toBeUndefined();
+  });
+
+  it("carries the agreed time with the child a person moves, into a van or out of every van", async () => {
+    const day = await testDay();
+    const rider = day.riders[0];
+    const prior = autoPlan(day, emptyPlan(day));
+    const agreed = { ...prior, [rider.token]: { ...prior[rider.token], notBefore: "16:50" } };
+    expect(moveTo(agreed, rider.token, day.vans[2].id)[rider.token]).toMatchObject({
+      bucket: "VAN", vanId: day.vans[2].id, pinned: true, notBefore: "16:50",
+    });
+    expect(moveTo(agreed, rider.token, null)[rider.token]).toMatchObject({
+      bucket: "UNASSIGNED", vanId: null, pinned: true, notBefore: "16:50",
+    });
+  });
+
   it("leaves a rider no van can take unplaced, and says exactly what the day is short of", async () => {
     // Every van loses its car seats, so the children who need one cannot ride at all.
     const day = await testDay("PM", {
