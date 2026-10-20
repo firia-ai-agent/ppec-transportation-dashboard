@@ -255,7 +255,8 @@ export function boardMap(day: BoardDay, plan: BoardPlan): PlanMapData {
  * `withMove` and `tryMove`.
  *
  * A move is **pinned**, because a person made it: Auto-plan afterwards plans round them rather
- * than undoing what they decided.
+ * than undoing what they decided. A time agreed with the family travels with the child, whichever
+ * van they end up in (the rule `applyPending` keeps).
  */
 export function moveTo(plan: BoardPlan, childToken: string, vanId: string | null): BoardPlan {
   const current = plan[childToken];
@@ -263,8 +264,8 @@ export function moveTo(plan: BoardPlan, childToken: string, vanId: string | null
   return {
     ...plan,
     [childToken]: vanId === null
-      ? { bucket: "UNASSIGNED", vanId: null, pinned: true }
-      : { bucket: "VAN", vanId, pinned: true },
+      ? { ...current, bucket: "UNASSIGNED", vanId: null, pinned: true }
+      : { ...current, bucket: "VAN", vanId, pinned: true },
   };
 }
 
@@ -303,9 +304,12 @@ export function autoPlan(day: BoardDay, plan: BoardPlan): BoardPlan {
   const next: Record<string, Placement> = { ...plan };
   for (const rider of toPlace) {
     const vanId = result.vanOf[rider.token] ?? null;
+    // Planning again moves a child, never what was agreed with their family (ledger #81): the
+    // hold rides along, so a save after Auto-plan cannot quietly drop it.
+    const kept = { ...plan[rider.token], pinned: plan[rider.token]?.pinned === true };
     next[rider.token] = vanId
-      ? { bucket: "VAN", vanId, pinned: plan[rider.token]?.pinned === true }
-      : { bucket: "UNASSIGNED", vanId: null, pinned: plan[rider.token]?.pinned === true };
+      ? { ...kept, bucket: "VAN", vanId }
+      : { ...kept, bucket: "UNASSIGNED", vanId: null };
   }
   return next;
 }

@@ -605,6 +605,39 @@ describe("a needs Save and its re-plan are one transaction", () => {
     expect(await approvedCategories(THEO())).toContain(NEED_CATEGORY.oxygen);
     expect((await db.query("SELECT version FROM ops.plan_run", [])).rows).toHaveLength(1);
   });
+
+  it("keeps the time agreed with a family through the re-plan it saves (ledger #81)", async () => {
+    await startTheDay();
+    // Theo's family was told 4:15; the hold is on the saved plan.
+    const held = await applyPendingMoves(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", expectedVersion: 0, actor: null, now: NOW,
+        moves: [{ childToken: THEO(), bucket: "VAN", vanId: vanOne(), notBefore: "16:15" }] },
+      store,
+      source(),
+    );
+    expect(held.ok).toBe(true);
+    const version = (await board()).version;
+
+    // A needs Save re-plans the whole leg and saves it; the agreed time must still be there.
+    const saved = await setChildNeedsRequest(
+      SITE,
+      { userId: undefined },
+      THEO(),
+      { date: DATE, direction: "PM", wheelchair: false, carSeat: true, oxygen: false, version },
+      NOW,
+      store,
+      { DATABASE_URL: "configured" },
+      db,
+      source(),
+    );
+    expect(saved.status).toBe(200);
+    expect((await board()).plan[THEO()]?.notBefore).toBe("16:15");
+    const rows = await db.query<{ not_before: string | null }>(
+      "SELECT not_before FROM ops.plan_assignment WHERE child_token = $1::uuid",
+      [THEO()],
+    );
+    expect(rows.rows.map((row) => row.not_before)).toEqual(["16:15"]);
+  });
 });
 
 describe("gate (c): the child panel's Save moves the board", () => {
