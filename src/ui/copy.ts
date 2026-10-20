@@ -3411,7 +3411,7 @@ export const agentBubble = {
   /** …and with something new in the thread since the panel was last open (ledger #75 b). */
   openNew: "Agent, something new",
   /** The panel's heading, and its dialog label. */
-  title: "Agent",
+  title: "Transport Agent",
   /** The 44 px X at the top right of the panel and of the phone sheet. */
   close: "Close",
   /** The day separator above the thread. The thread is the same one "For you" shows. */
