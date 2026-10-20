@@ -459,9 +459,17 @@ export function normalize(raw: unknown): ProviderResponseBody | null {
         .filter((tc): tc is { name: string; arguments: unknown } => tc !== null)
     : [];
 
+  // The OpenAI-shaped envelope's token counts, kept rather than thrown away (ledger #85).
+  const usage = (raw as { usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } }).usage;
+  const counted =
+    typeof usage?.prompt_tokens === "number" && typeof usage?.completion_tokens === "number"
+      ? { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens }
+      : null;
+
   return {
     ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
     content: typeof message.content === "string" ? message.content : null,
     ...(finishReason === undefined ? {} : { finish_reason: finishReason }),
+    ...(counted ? { usage: counted } : {}),
   };
 }

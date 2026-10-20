@@ -207,6 +207,11 @@ export type ToolDef = {
   readonly description?: string;
 };
 
+/** The triage turn's one tool, and what it may say about a text (ledger #85). */
+export const TRIAGE_TOOL = "classify_message";
+export const TRIAGE_RELEVANCE = ["PLAN_TODAY", "PLAN_LATER", "FYI", "NOISE"] as const;
+export type TriageRelevance = (typeof TRIAGE_RELEVANCE)[number];
+
 const DEFS: readonly ToolDef[] = [
   {
     name: "resolve_sender",
@@ -612,9 +617,31 @@ const DEFS: readonly ToolDef[] = [
     prd: "beyond §11.2: the staff ask's own answer (ledger #74)",
     description: agentGuidance.replyToStaff,
   },
+  /*
+   * TRIAGE (ledger #85; PRD RES-01, MET-02): the fast model's one call on a family's text, before
+   * any full run. Offered to the triage turn alone (`run/triage.ts`) and to no other toolset. It
+   * writes nothing a family sees: `relevance` decides whether the full agent runs at all, the child
+   * tokens fill `message.resolved_child_tokens`, and `intent` is counted. `read`, like a look.
+   */
+  {
+    name: TRIAGE_TOOL,
+    tier: "auto",
+    effect: "read",
+    schema: z.object({
+      relevance: z.enum(TRIAGE_RELEVANCE),
+      intent: z.enum(["DROPOFF_TIME", "PICKUP_TIME", "CANCEL", "ABSENCE", "WHERE_IS_VAN", "THANKS", "OTHER"]),
+      child_tokens: z.array(token).max(6),
+      confidence: z.number().min(0).max(1),
+    }),
+    staffTextFields: [],
+    sendCopy: null,
+    prd: "beyond §11.2: RES-01's resolution and MET-02's classification, by the fast model (ledger #85)",
+    description: agentGuidance.classify,
+  },
   // A teammate's tools: the screens' reads, every change a card, Take (agent/action-tools.ts, ledger #77).
   ...TEAM_TOOLS,
 ];
+
 
 /** The catalog, by tool name. The gateway rejects any name that is not a key here. */
 export const TOOL_REGISTRY: Readonly<Record<string, ToolDef>> = Object.fromEntries(
@@ -624,14 +651,15 @@ export const TOOL_REGISTRY: Readonly<Record<string, ToolDef>> = Object.fromEntri
 export const TOOL_NAMES: readonly string[] = DEFS.map((d) => d.name);
 
 /**
- * §11.2 lists 15 tools; this catalog holds 29. Eleven are a teammate's (ledger #77): five reads of
+ * §11.2 lists 15 tools; this catalog holds 30. The thirtieth is triage's `classify_message` (ledger #85),
+ * offered to the triage turn alone. Eleven are a teammate's (ledger #77): five reads of
  * what a coordinator sees, five cards a person approves, and Take (agent/action-tools.ts) — offered
  * to a staff member's or an alert's run only — and `reply_to_staff`, the staff ask's answer. The other two beyond the PRD are
  * `propose_dropoff_change` — the commonest thing a parent texts a transport desk, which had no
  * tool at all — and `read_guardian_thread`, the read the bubble's answer comes from. Asserted in
  * tools.test.ts, so a dropped row is a failing test and an added one is a deliberate edit here.
  */
-export const TOOL_COUNT = 29;
+export const TOOL_COUNT = 30;
 
 export function toolDef(name: string): ToolDef | undefined {
   return TOOL_REGISTRY[name];

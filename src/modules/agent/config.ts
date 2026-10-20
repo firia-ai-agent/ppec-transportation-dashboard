@@ -363,9 +363,15 @@ export const agentConfigSchema = z.object({
   requestTimeoutMs: z.number().int().positive().default(DEFAULT_REQUEST_TIMEOUT_MS),
   /** Whole-ask deadline in ms (DEFAULT_ASK_TIMEOUT_MS). */
   askTimeoutMs: z.number().int().positive().default(DEFAULT_ASK_TIMEOUT_MS),
+  /**
+   * The fast model that reads every family text first (ledger #85, `run/triage.ts`). Unset means
+   * no triage: every text gets the full run, exactly as before. On the allow-list like the others.
+   */
+  triageModel: z.string().min(1).optional(),
 }).superRefine((c, ctx) => {
   // A model the deployment may not call is a config error, not a runtime surprise.
-  for (const [field, value] of [["model", c.model], ["backupModel", c.backupModel]] as const) {
+  const models = [["model", c.model], ["backupModel", c.backupModel], ...(c.triageModel ? [["triageModel", c.triageModel] as const] : [])] as const;
+  for (const [field, value] of models) {
     if (!c.modelAllowList.includes(value)) {
       ctx.addIssue({
         code: "custom",
@@ -547,6 +553,7 @@ export const AGENT_ENV_VARS = [
   "AGENT_BASE_URL_HOST_ALLOW_LIST",
   "AGENT_REQUEST_TIMEOUT_MS",
   "AGENT_ASK_TIMEOUT_MS",
+  "AGENT_TRIAGE_MODEL",
   "AGENT_API_KEY_ENV_VAR",
   "AGENT_MAX_CALLS_PER_RUN",
   "AGENT_MAX_CALLS_PER_STAFF_RUN",
@@ -595,6 +602,7 @@ export function loadAgentConfig(
     baseUrlHostAllowList: asList(env.AGENT_BASE_URL_HOST_ALLOW_LIST),
     requestTimeoutMs: asInt(env.AGENT_REQUEST_TIMEOUT_MS),
     askTimeoutMs: asInt(env.AGENT_ASK_TIMEOUT_MS),
+    triageModel: env.AGENT_TRIAGE_MODEL === "" ? undefined : env.AGENT_TRIAGE_MODEL,
     apiKeyEnvVar: env.AGENT_API_KEY_ENV_VAR,
     rateLimits: {
       maxCallsPerRun: asInt(env.AGENT_MAX_CALLS_PER_RUN),

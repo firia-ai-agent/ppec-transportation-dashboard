@@ -1095,6 +1095,8 @@ export const whoami = {
  * phone says "your child". `templates.test.ts` holds that against the fixture first names.
  */
 export const familyTexts = {
+  /** Under a family's text the fast model read as nothing to change (ledger #85, SURF-03). */
+  triage: { FYI: "FYI · nothing to change", NOISE: "No action needed" },
   heading: "Family texts",
   documentTitle: "Family texts · PPEC transportation",
   intro:
@@ -3217,6 +3219,12 @@ export const assistantUnavailable = {
  * beside the tools because this file is the one owner of prose (`copy.test.ts`).
  */
 export const agentGuidance = {
+  /** The triage turn (ledger #85): one call, deciding whether the full agent needs to run. */
+  classify:
+    "Classify the family's newest text. PLAN_TODAY: it asks for or reports something that changes " +
+    "today's rides (a time, a cancellation, an absence, someone not home). PLAN_LATER: the same for " +
+    "another day. FYI: worth a coordinator seeing, but nothing to change (thanks, a note, a question " +
+    "already answered). NOISE: nothing at all. Name the children it is about as the tokens above.",
   proposeDropoff:
     "Propose moving a child's drop-off time and/or stop because their family asked for it. Nothing " +
     "changes until a coordinator approves; then the plan moves and your reply is sent. Use this " +

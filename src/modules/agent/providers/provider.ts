@@ -33,7 +33,11 @@ export type ProviderResponseBody = {
   readonly tool_calls?: readonly { readonly name: string; readonly arguments: unknown }[];
   readonly content?: string | null;
   readonly finish_reason?: string;
+  /** What the turn cost, when the vendor says (ledger #85): counts only, recorded on `agent_run`. */
+  readonly usage?: TokenUsage;
 };
+
+export type TokenUsage = { readonly inputTokens: number; readonly outputTokens: number };
 
 /**
  * Every kind of provider there is. All three are vendors or stand-ins for one.

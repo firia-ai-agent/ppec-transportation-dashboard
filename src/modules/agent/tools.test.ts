@@ -21,7 +21,7 @@ import {
 } from "./tools";
 
 describe("§11.2 tool catalog", () => {
-  it("has all 29 tools, each with a tier and an effect", () => {
+  it("has all 30 tools, each with a tier and an effect", () => {
     expect(TOOL_NAMES).toHaveLength(TOOL_COUNT);
     expect(TOOL_NAMES).toEqual([
       "resolve_sender",
@@ -42,6 +42,8 @@ describe("§11.2 tool catalog", () => {
       "close_task",
       "summarize_thread_for_staff",
       "reply_to_staff",
+      // Ledger #85: triage's one call, offered to the triage turn alone.
+      "classify_message",
       // Ledger #77: a teammate's tools — the screens' reads, every change a card, Take (agent/action-tools.ts).
       "get_activity",
       "get_plan",

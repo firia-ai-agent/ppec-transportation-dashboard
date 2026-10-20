@@ -116,6 +116,7 @@ const VALID_ARGS: Readonly<Record<string, Record<string, unknown>>> = {
   close_task: { task_id: "TK-1", evidence_ref: "MSG-1" },
   summarize_thread_for_staff: { thread_id: "TH-F1", summary: "guardian canceled the morning leg" },
   reply_to_staff: { summary: "Moved one rider to Van 2 so every van fits." },
+  classify_message: { relevance: "PLAN_TODAY", intent: "DROPOFF_TIME", child_tokens: ["C1"], confidence: 0.8 },
   // Ledger #77's teammate tools: a child, a card or an alert is scoped; vans and times are not objects.
   get_activity: {},
   get_plan: { leg: "PM", preview: { moves: [{ child: "C1", place: "Van 2" }], departures: [{ van: "Van 2", leaves: "15:30" }] } },
@@ -143,6 +144,7 @@ const FOREIGN_VALUES: Readonly<Record<string, unknown>> = {
   child_token: "C-S2",
   subject_token: "C-S2",
   candidate_tokens: ["C-S2"],
+  child_tokens: ["C-S2"],
   thread_id: "TH-S2",
   ack_id: "ACK-S2",
   therapy_session_token: "SESS-S2",
@@ -174,7 +176,7 @@ const blockOf = (tool: string, args: Record<string, unknown>, context = ctx()) =
 };
 
 describe("VERI-3: the walk covers the catalog", () => {
-  it("VERI-3 has a schema-valid call for all 29 tools, and a foreign value for every scoped argument", () => {
+  it("VERI-3 has a schema-valid call for all 30 tools, and a foreign value for every scoped argument", () => {
     expect(Object.keys(VALID_ARGS).sort()).toEqual([...TOOL_NAMES].sort());
     for (const tool of TOOL_NAMES) {
       expect(TOOL_REGISTRY[tool].schema.safeParse(VALID_ARGS[tool]).success, tool).toBe(true);

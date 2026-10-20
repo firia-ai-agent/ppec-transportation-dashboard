@@ -444,6 +444,7 @@ const ROWS: readonly PolicyRow[] = [
   { tool: "close_task", scopedArgs: ["task_id", "evidence_ref"], sendSubject: null, note: "the evidence must be this run's own" },
   { tool: "summarize_thread_for_staff", scopedArgs: ["thread_id"], sendSubject: null, note: "staff-only note on this family's thread" },
   { tool: "reply_to_staff", scopedArgs: [], sendSubject: null, note: "staff-only answer to the person who asked; names no object" },
+  { tool: "classify_message", scopedArgs: ["child_tokens"], sendSubject: null, note: "triage's read of one text (ledger #85): names only this family's children, sends nothing, and is offered to the triage turn alone" },
   // A teammate's tools (ledger #77). The reads and the cards name children by the prompt's token
   // and cards and alerts by their label, resolved to this run's rows (`run/scope-tokens.ts`) and
   // scope-checked; vans are names the executor reads off this site's own board.

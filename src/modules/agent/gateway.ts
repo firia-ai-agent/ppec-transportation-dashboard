@@ -23,7 +23,7 @@ import {
   loadAgentConfig,
   vendorAttestationSchema,
 } from "./config";
-import type { LlmProvider, ProviderResponseBody } from "./providers/provider";
+import type { LlmProvider, ProviderResponseBody, TokenUsage } from "./providers/provider";
 import { redact, sha256Hex } from "./redact";
 import { type ToolTier, TOOL_NAMES, toolDeclarations, toolDef } from "./tools";
 
@@ -97,6 +97,8 @@ export type GatewayResult = {
   readonly promptHash: string;
   readonly responseHash: string;
   readonly audit: AgentAuditRecord;
+  /** Token counts for the turn, when the provider reported them (ledger #85). */
+  readonly usage?: TokenUsage;
 };
 
 export class GatewayError extends Error {
@@ -318,6 +320,7 @@ export function createGateway(
         promptHash,
         responseHash,
         audit,
+        ...(body.usage ? { usage: body.usage } : {}),
       };
     },
   };

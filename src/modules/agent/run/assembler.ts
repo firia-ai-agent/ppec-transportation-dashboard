@@ -52,7 +52,7 @@
  */
 import type { Db, Exec } from "@/db/exec";
 import { STAFF_ONLY_TOOLS } from "../action-tools";
-import { TOOL_NAMES } from "../tools";
+import { TOOL_NAMES, TRIAGE_TOOL } from "../tools";
 import { formatClock24 } from "@/domain/eta/eta";
 import { rosterFromDisplayName, tokenizeNames, type RosterEntry } from "@/modules/identity/names";
 import { activeSuppression, authorizedContactsForChild, FAMILY_SMS } from "@/modules/outbox/policy";
@@ -222,7 +222,8 @@ export function dbContextAssembler(
       // takes in the UI, no read of the whole board. One read is theirs (ledger #79): their own
       // child's ride and ≈ time (`get_child`, scope-checked to this family), so a reply about a
       // time is about the time the van really comes.
-      tools: TOOL_NAMES.filter((name) => !STAFF_ONLY_TOOLS.has(name) || FAMILY_READS.has(name)),
+      // Triage's own call is the triage turn's alone (ledger #85), never the full run's.
+      tools: TOOL_NAMES.filter((name) => name !== TRIAGE_TOOL && (!STAFF_ONLY_TOOLS.has(name) || FAMILY_READS.has(name))),
       policy: {
         scope,
         sendableSubjects: await sendableSubjects(db, {

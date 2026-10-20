@@ -248,6 +248,27 @@ export async function recordPromptHash(db: Exec, runId: string, promptHash: stri
   );
 }
 
+/**
+ * WHAT THE RUN COST (ledger #85): token counts summed over its model turns — the full run's and the
+ * triage turn's alike. Counts only; nothing of the prompt or the answer. A turn whose provider said
+ * nothing adds nothing, so the columns stay null for a run no vendor ever counted.
+ */
+export async function addRunTokens(
+  db: Exec,
+  runId: string,
+  usage: { readonly inputTokens: number; readonly outputTokens: number } | undefined,
+  by = runActor(runId),
+): Promise<void> {
+  if (!usage) return;
+  await db.query(
+    `UPDATE ops.agent_run
+        SET tokens_in = COALESCE(tokens_in, 0) + $2, tokens_out = COALESCE(tokens_out, 0) + $3,
+            updated_at = now(), updated_by = $4
+      WHERE id = $1`,
+    [runId, usage.inputTokens, usage.outputTokens, by],
+  );
+}
+
 /* ──────────────────────────────── tool calls ──────────────────────────────── */
 
 /**

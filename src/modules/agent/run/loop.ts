@@ -58,6 +58,7 @@ import {
   pendingCall,
   pendingPolicyTasks,
   persistCall,
+  addRunTokens,
   recordPromptHash,
   resumableRuns,
   runActor,
@@ -75,6 +76,7 @@ import {
 import { policyTaskIds, writePolicyTasks } from "./tasks";
 import { type ParkedAwait, parkRunForRetry, parkRunOnTimer } from "./timers";
 import type { Trigger } from "./triggers";
+import { ENDS_AT_TRIAGE, triageMessage, type Triage } from "./triage";
 
 export type RunDeps = {
   readonly db: Db;
@@ -91,6 +93,12 @@ export type RunDeps = {
   readonly proposals?: ProposalWriter;
   /** B-03. Used only to arm an await timer (ADR-001). */
   readonly scheduler: JobScheduler;
+  /**
+   * The fast model that reads a family's text before the full run (ledger #85, `triage.ts`).
+   * Absent — no `triageModel` configured, or a suite that does not ask for it — means every text
+   * gets the full run, exactly as before.
+   */
+  readonly triage?: Triage;
   readonly now?: Clock;
   /**
    * Errors for which this process is considered gone: they propagate instead of being recorded as
@@ -213,6 +221,18 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
   let steps = 0;
   let calls = await toolCalls(deps.db, runId);
 
+  // 0. Triage (ledger #85): a family's text the fast model reads as nothing to change ends here —
+  //    on the thread with its chip, nobody paged, no card. Only before any step: a resumed run has
+  //    already been past it. Any failure of triage is the full run, never a rule of our own.
+  if (deps.triage && run.trigger.type === "msg.inbound" && calls.length === 0) {
+    const at = clock();
+    const assembled = await deps.assemble({ runId, trigger: run.trigger, committed: [], now: at });
+    if (!scopeSiteRefusal(run, assembled.policy)) {
+      const verdict = await triageMessage(deps.db, deps.triage, { id: runId, siteId: run.siteId, messageId: run.trigger.id, actor }, assembled);
+      if (verdict && ENDS_AT_TRIAGE.has(verdict.relevance)) return move(deps, run, "SUCCEEDED", 0, `triage: ${verdict.relevance}`);
+    }
+  }
+
   // 1. Resume: a step that was persisted but never committed. Its idempotency key is the original,
   //    so an effect that did happen before the crash is not repeated — and its decision is the one
   //    it was persisted with, except that it may be **tightened** first (`tightenOnResume`).
@@ -285,6 +305,7 @@ export async function driveRun(deps: RunDeps, runId: string, opts: DriveOpts = {
       return fail(deps, run, `gateway refused the turn: ${message(e)}`, steps);
     }
     await recordPromptHash(deps.db, runId, turn.promptHash, actor);
+    await addRunTokens(deps.db, runId, turn.usage, actor);
 
     /*
      * The model answers in the labels the prompt gave it (`run/scope-tokens.ts`): "C2", "L-C2-PM".
