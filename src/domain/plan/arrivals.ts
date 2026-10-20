@@ -30,7 +30,7 @@ import { trafficBandAtMinute } from "@/domain/eta/traffic";
 import { DWELL_SECONDS } from "@/domain/location/route";
 import { WHEELCHAIR_SERVICE_SECONDS } from "@/fixtures/survey";
 import { serviceSchedule } from "@/config/schedule";
-import { boardMap, ridersInVan, stopNumbers, type BoardDay, type BoardPlan } from "./board";
+import { boardMap, holdOf, ridersInVan, stopNumbers, type BoardDay, type BoardPlan } from "./board";
 import { centreLeadSec } from "./map";
 
 /** One child's estimated time on one plan: picked up (morning) or dropped off (afternoon). */
@@ -65,7 +65,7 @@ export function departuresOf(day: BoardDay, saved: Readonly<Record<string, strin
  * (`boardMap` — the surveyed road where there is one, the probe speed where not) under the §8
  * traffic band, plus the §8 dwell and a wheelchair's service time at every stop before.
  *
- * A time agreed with a family (`Placement.notBefore`) is PRD §8's hold: a van that would reach that
+ * A time agreed with a family (`Placement.notBefore`, or an approved slot's start — `holdOf`) is PRD §8's hold: a van that would reach that
  * stop earlier waits there until then, and every stop after it is later by the wait (ledger #79).
  *
  * A child in no van, and a stop the map cannot place, get no time — never a guessed one.
@@ -100,7 +100,7 @@ export function plannedStopTimes(day: BoardDay, plan: BoardPlan, departs: Depart
         return n !== undefined && n <= stop.order && n > (route.stops[j - 1]?.order ?? 0);
       });
       const arrives = departure + (driveSeconds + heldSeconds) / 60;
-      const hold = Math.max(...servedHere.map((rider) => minuteOfDay(plan[rider.token]?.notBefore ?? "") ?? -Infinity));
+      const hold = Math.max(...servedHere.map((rider) => minuteOfDay(holdOf(rider, plan) ?? "") ?? -Infinity));
       if (hold > arrives) heldSeconds += (hold - arrives) * 60;
       reaches.push(Math.max(arrives, hold));
       heldSeconds += DWELL_SECONDS + (servedHere.some((rider) => rider.needs.wheelchair) ? WHEELCHAIR_SERVICE_SECONDS : 0);

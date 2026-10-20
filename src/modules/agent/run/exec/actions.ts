@@ -19,6 +19,8 @@ import type { Exec } from "@/db/exec";
 import { Forbidden, SiteNotFound, Unauthenticated, requireSiteAccess } from "@/auth/core";
 import { ridersInVan, shortfallsOfDay, usedInVan } from "@/domain/plan/board";
 import { fits } from "@/domain/plan/fit";
+import { minutesOutside, outsideSlots } from "@/domain/plan/slots";
+import type { TimeSlot } from "@/domain/day/source";
 import { hhmmOf, madeLate, minuteOfDay, minutesLate, plannedStopTimes } from "@/domain/plan/arrivals";
 import type { Placement } from "@/domain/plan/board";
 import { notifyGateConfig } from "@/config/live";
@@ -106,6 +108,11 @@ function getPlanExecutor(deps: ExecutorDeps): ToolExecutor {
         `car seats ${used.carSeats}/${van.setup.carSeats}, oxygen ${used.oxygenMounts}/${van.setup.oxygenMounts}, lift ${yes(van.setup.hasLift)}, ` +
         `fits ${yes(fits(van.setup, riders))}, riders: ${riders.map((r) => `${r.name} ≈${at(times.get(r.token)?.arrivesAtMinute)}`).join(", ") || "none"}`;
     }
+    // Who the plan already has outside a time their family agreed (ledger #84), by name.
+    const outside = [...outsideSlots(view.day, view.plan, view.departs)].filter(([, off]) => off > 0);
+    if (outside.length > 0) {
+      facts.outside_agreed = outside.map(([token, off]) => `${view.day.riders.find((r) => r.token === token)?.name ?? token} ${off} min`).join(", ");
+    }
     for (const bucket of ["UNASSIGNED", "FAMILY_DRIVES", "ABSENT"] as const) {
       const here = view.day.riders.concat(view.day.others).filter((r) => view.plan[r.token]?.bucket === bucket);
       if (here.length > 0) facts[bucket.toLowerCase()] = here.map((r) => r.name).join(", ");
@@ -166,11 +173,21 @@ function getChildExecutor(deps: ExecutorDeps): ToolExecutor {
       const late = minutesLate(rider.window, time);
       facts[leg === "AM" ? "morning" : "afternoon"] =
         `${where}${rider.stopLabel ? `, stop ${rider.stopLabel}` : ""}${time === undefined ? "" : `, ≈${at(time)}`}` +
-        `${rider.window ? `, family window ${clockLabel(rider.window)}` : ""}${late !== null && late > 0 ? `, ${Math.round(late)} min past it` : ""}`;
+        `${rider.window ? `, family window ${clockLabel(rider.window)}` : ""}${late !== null && late > 0 ? `, ${Math.round(late)} min past it` : ""}` +
+        // The ranges a person approved with the family (ledger #84), and how far outside one the plan is.
+        slotWords(rider.slots, time);
     }
     if (!facts.name) return failed("NO_SUCH_CHILD");
     return { status: "executed", data: { child: token }, promptFacts: facts };
   };
+}
+
+/** ", agreed 16:50–17:20" (and ", 20 min outside it" when the plan misses it): the child's approved slots. */
+export function slotWords(slots: readonly TimeSlot[] | undefined, time: number | undefined): string {
+  if (!slots || slots.length === 0) return "";
+  const ranges = slots.map((slot) => `${clockLabel(slot.start)}–${clockLabel(slot.end)}`).join(" or ");
+  const off = time === undefined ? null : minutesOutside(time, slots);
+  return `, agreed ${ranges}${off !== null && off > 0 ? `, ${off} min outside it` : ""}`;
 }
 
 /**

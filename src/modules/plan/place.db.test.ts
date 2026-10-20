@@ -11,6 +11,8 @@ import { sqlDaySource } from "@/modules/roster/sql";
 import { setChildNeeds } from "@/modules/roster/needs-write";
 import { applyPendingMoves, setChildAwayAllDay, setChildPlacement } from "./place";
 import { autoPlan } from "@/domain/plan/board";
+import { hhmmOf, plannedStopTimes } from "@/domain/plan/arrivals";
+import { recordApprovedSlot } from "@/modules/availability/store";
 import { setChildNeedsRequest } from "./api";
 import { loadBoard } from "./store";
 import { sqlPlanStore } from "./sql";
@@ -541,6 +543,44 @@ describe("a Family drives child is a child of the plan (Firia, 2026-10-18)", () 
     const after = await board();
     expect(after.version).toBe(six.version);
     expect(after.plan[ANA()]).toMatchObject({ bucket: "FAMILY_DRIVES", vanId: null });
+  });
+});
+
+describe("a time a family agreed is part of the plan (ledger #84)", () => {
+  it("refuses a save that would put a child past their approved slot, and names them", async () => {
+    await startTheDay();
+    const placed = await applyPendingMoves(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", expectedVersion: 0, actor: null, now: NOW,
+        moves: [{ childToken: THEO(), bucket: "VAN", vanId: vanOne() }] },
+      store,
+      source(),
+    );
+    expect(placed.ok).toBe(true);
+    const view = await board();
+    const at = Math.round(plannedStopTimes(view.day, view.plan, view.departs).get(THEO())!.arrivesAtMinute);
+    await recordApprovedSlot(db, {
+      siteId: SITE, childToken: THEO(), contactToken: null, serviceDate: DATE, direction: "PM",
+      time: hhmmOf(at - 5), changeRequestId: null, approvalId: null, now: NOW, by: "test",
+    });
+
+    const late = await applyPendingMoves(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", expectedVersion: view.version, actor: null, now: NOW,
+        moves: [], departures: { [vanOne()]: hhmmOf(view.departs[vanOne()] + 60) } },
+      store,
+      source(),
+    );
+    expect(late).toMatchObject({ ok: false, status: 422, reason: "OUTSIDE_SLOT", childToken: THEO(), vanId: vanOne() });
+    expect((await board()).version).toBe(view.version);
+
+    // A departure that keeps him inside is saved as before.
+    const nudge = await applyPendingMoves(
+      { siteId: SITE, serviceDate: DATE, direction: "PM", expectedVersion: view.version, actor: null, now: NOW,
+        moves: [], departures: { [vanOne()]: hhmmOf(view.departs[vanOne()] + 2) } },
+      store,
+      source(),
+    );
+    expect(nudge.ok).toBe(true);
+    await db.query("DELETE FROM ops.availability", []);
   });
 });
 

@@ -102,6 +102,8 @@ afterAll(async () => {
 beforeEach(async () => {
   transport = new FakeOutboxTransport();
   // Each test starts from no plan and no decision, which is what a demo reset leaves behind.
+  // Approved slots (0015) are part of the day an approval leaves behind: each test starts without them.
+  await db.query("DELETE FROM ops.availability", []);
   await db.query("DELETE FROM ops.plan_assignment", []);
   await db.query("DELETE FROM ops.plan_run", []);
   await db.query("DELETE FROM ops.outbound_message", []);

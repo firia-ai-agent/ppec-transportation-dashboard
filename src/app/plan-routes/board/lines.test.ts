@@ -109,6 +109,10 @@ describe("§1.3: the save state is a word, not a dot", () => {
 
   it("says a save failed without claiming what was kept", () => {
     expect(saveLine({ kind: "FAILED" })).toEqual({ label: "Couldn’t save · Retry", tone: "crit" });
+    // A refusal says the board's own reason, never "Retry" (ledger #84).
+    expect(saveLine({ kind: "OUTSIDE_SLOT", child: "Liam D." })).toEqual({
+      label: "Liam D. would miss the time their family agreed.", tone: "crit",
+    });
   });
 
   it("names whoever saved over it, and names nobody when the server has no name", () => {
