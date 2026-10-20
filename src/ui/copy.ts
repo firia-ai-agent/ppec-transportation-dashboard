@@ -3320,6 +3320,8 @@ export const replanDraft = {
   /** A time agreed with a family (ledger #79): the van waits at their stop, or their stop moves. */
   waits: "{van} waits for {child} until {time}",
   afterAgreed: "{child} ≈ {time}, {late} min after the agreed time",
+  /** A child the change puts outside the range their family agreed (ledger #84). */
+  outsideSlot: "{child} ≈ {time}, outside the family's {start}–{end}",
   noVanNamed: "There's no {van} on the {leg} today",
 } as const;
 
@@ -3367,6 +3369,8 @@ export const refusal = {
     OXYGEN: "{van} has no oxygen mount free.",
     CAR_SEAT: "{van} has no car seat free.",
     NO_CONTACT: "Nobody on {child}'s file can receive them.",
+    /** A route that would get a child home outside the time their family agreed (ledger #84). */
+    OUTSIDE_SLOT: "{child} would miss the time their family agreed.",
     OTHER: "The {leg} plan wouldn't take this change.",
   },
   fix: { van: "Fix {van}", child: "Open {child}'s family", plan: "Open the {leg} plan" },

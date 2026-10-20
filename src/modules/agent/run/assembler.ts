@@ -191,6 +191,11 @@ export function dbContextAssembler(
             // The drop-off (or pick-up) time the plan holds now, site-local: what a requested change
             // would change *from*. A 24-hour clock, the same shape `requested_dropoff_time` takes.
             (l.window_start ? ` window=${formatClock24(new Date(l.window_start).getTime())}` : "") +
+            // A range a person already approved with the family (ledger #83, #84): the time not to
+            // move them outside. Present only once agreed — the schedule's window has no end.
+            (l.window_start && l.window_end
+              ? ` agreed=${formatClock24(new Date(l.window_start).getTime())}-${formatClock24(new Date(l.window_end).getTime())}`
+              : "") +
             // The stop the leg drops at now, as the token `requested_stop_token` takes — so a model
             // that keeps the place can see there is nothing to change, and one that moves it can see
             // the shape the answer takes.
@@ -279,12 +284,13 @@ type LegFact = {
   state: string;
   plan_version: number;
   window_start: Date | string | null;
+  window_end: Date | string | null;
 };
 
 async function legRows(db: Exec, children: readonly string[], siteId: string, serviceDate: string): Promise<LegFact[]> {
   if (children.length === 0) return [];
   const r = await db.query<LegFact>(
-    `SELECT id, child_token, direction, state, plan_version, window_start FROM ops.trip_leg
+    `SELECT id, child_token, direction, state, plan_version, window_start, window_end FROM ops.trip_leg
      WHERE site_id = $1 AND service_date = $2 AND child_token = ANY($3::uuid[])
      ORDER BY child_token, direction`,
     [siteId, serviceDate, children],

@@ -36,7 +36,9 @@ import {
   type BoardPlan,
   type Placement,
 } from "@/domain/plan/board";
+import { minuteOfDay } from "@/domain/plan/arrivals";
 import { isOver } from "@/domain/plan/fit";
+import { brokenSlot } from "@/domain/plan/slots";
 import { applyPending, childrenMoved, type PendingMove } from "@/domain/plan/pending";
 import type { DayDataSource } from "@/domain/day/source";
 import { dayDataSource, loadBoard, placementsToSave, planStore, type BoardView, type PlanStore } from "./store";
@@ -200,6 +202,17 @@ export async function writePlan(
       vanId: checked.vanId,
     };
   }
+
+  /*
+   * A TIME A FAMILY AGREED IS PART OF THE PLAN (ledger #84). A change that would put a child further
+   * outside their approved slot than they already are is refused here, in the one writer, so the
+   * agent's rehearsal and every Save hear the same `OUTSIDE_SLOT` — never a second copy of the rule.
+   */
+  const departsAfter = Object.fromEntries(
+    view.day.vans.map((van) => [van.id, minuteOfDay(input.departures?.[van.id] ?? "") ?? view.departs[van.id]]),
+  );
+  const broken = brokenSlot(view.day, { plan: view.plan, departs: view.departs }, { plan: next, departs: departsAfter });
+  if (broken) return { ok: false, status: 422, reason: "OUTSIDE_SLOT", childToken: broken.childToken, vanId: broken.vanId };
 
   const saved = await store.savePlan(input.siteId, {
     date: input.serviceDate,

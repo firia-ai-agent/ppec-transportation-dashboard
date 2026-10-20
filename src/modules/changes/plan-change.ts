@@ -13,6 +13,7 @@
  */
 import { notifyGateConfig } from "@/config/live";
 import { hhmmOf, madeLate, minuteOfDay, minutesLate, plannedStopTimes, type Departures } from "@/domain/plan/arrivals";
+import { outsideSlots, totalOutside } from "@/domain/plan/slots";
 import { autoPlan, ridersInVan, type BoardDay, type BoardPlan, type BoardRider, type Placement } from "@/domain/plan/board";
 import { vanVerdicts } from "@/domain/plan/eligibility";
 import { vansOver } from "@/modules/plan/place";
@@ -54,6 +55,8 @@ export type PlanPreview =
       readonly addedMinutes: number;
       /** How far past a time agreed with a family the van gets there, in minutes; 0 when on it. */
       readonly agreedLate: number;
+      /** Minutes every child with an approved slot falls outside it, summed (ledger #84); 0 inside. */
+      readonly outsideMinutes: number;
     }
   | { readonly ok: false; readonly reason: "NOTHING_TO_CHANGE" }
   | { readonly ok: false; readonly reason: "NO_VAN_FITS"; readonly children: readonly string[] };
@@ -143,6 +146,20 @@ export function previewPlanChange(view: BoardView, change: PlanChange): PlanPrev
       }).replace(/ · ≈ $/, ""),
     );
   }
+  // A time a family agreed (ledger #84): every child the change puts further outside their slot.
+  const outsideBefore = outsideSlots(view.day, view.plan, view.departs);
+  const outsideAfter = outsideSlots(view.day, next, departs);
+  for (const rider of view.day.riders) {
+    const off = outsideAfter.get(rider.token);
+    if (off === undefined || off <= (outsideBefore.get(rider.token) ?? 0)) continue;
+    const slot = rider.slots?.[0];
+    if (!slot) continue;
+    lines.push(fill(replanDraft.outsideSlot, {
+      child: rider.name, time: at(after.get(rider.token)?.arrivesAtMinute),
+      start: clockLabel(slot.start), end: clockLabel(slot.end),
+    }));
+  }
+  const outsideMinutes = totalOutside(outsideAfter);
   const over = vansOver(view, next).map((id) => vanName(id));
   lines.push(
     stranded.length > 0
@@ -168,7 +185,7 @@ export function previewPlanChange(view: BoardView, change: PlanChange): PlanPrev
     .reduce((sum, r) => sum + Math.max(0, (after.get(r.token)?.arrivesAtMinute ?? 0) - (before.get(r.token)?.arrivesAtMinute ?? Infinity)), 0);
   return {
     ok: true, next, departs, departures, moves, lines, stranded: stranded.map((r) => r.name),
-    madeLate: late.length, allFit: stranded.length === 0 && over.length === 0, addedMinutes, agreedLate,
+    madeLate: late.length, allFit: stranded.length === 0 && over.length === 0, addedMinutes, agreedLate, outsideMinutes,
   };
 }
 
