@@ -1,0 +1,41 @@
+/*
+ * The Feedback dialog's one field (src/ui/Feedback.tsx). The dialog itself wears the restart
+ * question's shell (src/ui/ConfirmRestart.module.css) so the two read as one family; this adds the
+ * label, the text area and the saved line. Tokens only (src/ui/no-hex.test.ts).
+ */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.label {
+  font-weight: var(--weight-medium);
+}
+
+.field {
+  min-height: 96px;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  resize: vertical;
+}
+
+.field:focus-visible {
+  outline: var(--focus-width) solid var(--color-focus);
+  outline-offset: var(--focus-offset);
+}
+
+.note {
+  margin: 0;
+}
+
+/* Wider than the restart question: there is a sentence to write, not a choice to make. */
+.wide {
+  max-width: 400px;
+  width: 100%;
+}

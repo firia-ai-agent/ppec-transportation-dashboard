@@ -4,6 +4,7 @@ import { demoBanner } from "./copy";
 import { isSyntheticDemo } from "@/lib/env";
 import { DemoClock } from "./DemoClock";
 import { DemoRestart } from "./DemoRestart";
+import { Feedback } from "./Feedback";
 import { ScreenSource } from "./ScreenSource";
 import styles from "./DemoBanner.module.css";
 
@@ -69,6 +70,8 @@ export function DemoBanner({
         role that holds them (src/ui/DemoClock.tsx).
       */}
       <DemoClock role={role} />
+      {/* Feedback is every signed-in role's (ledger #82): its row is ALL_STAFF, unlike the reset's. */}
+      {role ? <Feedback /> : null}
       {canRestartDemo(role) ? <DemoRestart vanCount={vanCount} /> : null}
     </div>
   );

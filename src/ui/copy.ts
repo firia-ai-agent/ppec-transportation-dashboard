@@ -142,6 +142,19 @@ const CONFIRM_BODY = {
   many: "This clears the saved plan for all {n} vans.",
 } as const;
 
+/** The DEMO bar's Feedback button and its one-field dialog (ledger #82). Short, like the bar. */
+export const feedbackCopy = {
+  button: "Feedback",
+  title: "Feedback",
+  label: "What should change?",
+  send: "Send",
+  sending: "Sending…",
+  cancel: "Cancel",
+  saved: "Thanks — saved.",
+  failed: "Didn't save. Try again.",
+  previewRefusal: "Feedback isn't saved on a preview.",
+} as const;
+
 export const demoDay = {
   restart: "Restart demo day",
   /** While the reset is running. The button keeps its place and says what it is doing (§4.2). */
