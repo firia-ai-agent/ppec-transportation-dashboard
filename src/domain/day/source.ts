@@ -23,6 +23,7 @@
  *
  * Pure: an implementation may read fixtures or a database, and nothing here has a clock.
  */
+import type { Exec } from "@/db/exec";
 import type { FitRider, VanSetup } from "@/domain/plan/fit";
 import type { Direction } from "./leg";
 
@@ -48,6 +49,8 @@ export type DayRider = FitRider & {
   stopLabel: string;
   /** "15:55", site-local, which is the order the stops are driven in. */
   window: string;
+  /** On the van already (their leg's state, `machines.ABOARD`): they ride the van they are in. */
+  aboard?: boolean;
 };
 
 /** The four places a child can be on a board (§1.6's `bucket`). */
@@ -70,6 +73,9 @@ export type OtherChild = DayRider & {
 };
 
 export interface DayDataSource {
+  /** The same roster read on `tx` — a rehearsal's own connection (ledger #80). Absent: reads as it is. */
+  within?(tx: Exec): DayDataSource;
+
   /** The vans on the road on this date, in slot order. */
   vans(date: string): Promise<readonly DayVan[]>;
 

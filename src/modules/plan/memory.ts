@@ -74,9 +74,14 @@ export function memoryPlanStore(env: Record<string, string | undefined> = proces
   if (env.VERCEL_ENV === "production" || env.VERCEL_ENV === "preview") {
     throw new Error(MEMORY_STORE_REFUSED);
   }
+  return memoryStoreOver(state);
+}
+
+/** The memory store over one state: the shared one, or a rehearsal's scratch copy. */
+function memoryStoreOver(get: () => State): PlanStore {
   return {
     async setupRows(_siteId, date, vehicleIds) {
-      return state().setups
+      return get().setups
         .filter((row) => vehicleIds.includes(row.vehicleId) && row.serviceDate <= date)
         .sort((a, b) => b.serviceDate.localeCompare(a.serviceDate));
     },
@@ -91,8 +96,8 @@ export function memoryPlanStore(env: Record<string, string | undefined> = proces
         setBy: staffLabel(input.setBy),
         setAt: input.now.toISOString(),
       };
-      state().setups = [
-        ...state().setups.filter(
+      get().setups = [
+        ...get().setups.filter(
           (r) => !(r.vehicleId === row.vehicleId && r.serviceDate === row.serviceDate),
         ),
         row,
@@ -100,12 +105,12 @@ export function memoryPlanStore(env: Record<string, string | undefined> = proces
     },
 
     async loadPlan(_siteId, date, direction) {
-      return state().plans.get(planKey(date, direction)) ?? null;
+      return get().plans.get(planKey(date, direction)) ?? null;
     },
 
     async savePlan(_siteId, input: SavePlanInput): Promise<SavePlanOutcome> {
       const key = planKey(input.date, input.direction);
-      const existing = state().plans.get(key);
+      const existing = get().plans.get(key);
       if (existing && existing.version !== input.version) {
         return {
           ok: false,
@@ -130,7 +135,7 @@ export function memoryPlanStore(env: Record<string, string | undefined> = proces
         ),
         departures: { ...(existing?.departures ?? {}), ...(input.departures ?? {}) },
       };
-      state().plans.set(key, saved);
+      get().plans.set(key, saved);
       return { ok: true, version: saved.version, savedAt: saved.savedAt };
     },
 
@@ -138,6 +143,12 @@ export function memoryPlanStore(env: Record<string, string | undefined> = proces
       // No database means no demo reset to press and no vans reporting positions: the day the
       // fixtures describe is the day, it is started, and nobody is away on it.
       return { startedDate: date, vansOut: 0, approvalsWaiting: 0 };
+    },
+
+    // A rehearsal writes to a scratch copy of this state, so nothing it saves is kept (ledger #80).
+    within() {
+      const scratch: State = { setups: [...get().setups], plans: new Map(get().plans) };
+      return memoryStoreOver(() => scratch);
     },
   };
 }

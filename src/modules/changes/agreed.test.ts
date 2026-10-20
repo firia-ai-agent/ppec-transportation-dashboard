@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { departuresOf, hhmmOf, plannedStopTimes } from "@/domain/plan/arrivals";
 import { ridersInVan, type BoardPlan } from "@/domain/plan/board";
-import { siteInstantOn } from "@/modules/plan/leg-write";
 import type { BoardView } from "@/modules/plan/store";
-import { scenarioPlan, testDay, TEST_DATE } from "@/test/board-day";
-import { bestRouteFor } from "./agreed";
-import { previewPlanChange } from "./plan-change";
+import { scenarioPlan, testDay } from "@/test/board-day";
+import { bestRouteFor, routesFor } from "./agreed";
 
 /**
  * A TIME AGREED WITH A FAMILY IS A TIME THE VAN KEEPS (ledger #79): the route that honours it, and
@@ -49,16 +47,13 @@ describe("the route for an agreed time (ledger #79)", () => {
     expect(route.preview.moves.find((m) => m.child_token === child.token)?.not_before).toBe(agreed);
   });
 
-  it("never moves a child between vans once their van has left", async () => {
+  it("never offers another van to a child already aboard theirs", async () => {
     const { view, van, child } = await riderWithCompany();
-    const afterDeparture = siteInstantOn(TEST_DATE, hhmmOf(view.departs[van.id] + 10))!;
-    const agreed = hhmmOf(Math.round(eta(view, view.plan, child.token)) + 34);
-    const route = bestRouteFor(view, child.token, agreed, afterDeparture)!;
-    expect(route.change.moves ?? []).toEqual([]);
-    expect(route.preview.next[child.token].vanId).toBe(van.id);
-
-    const other = view.day.vans.find((v) => v.id !== van.id)!;
-    expect(previewPlanChange(view, { moves: [{ token: child.token, bucket: "VAN", vanId: other.id }] }, afterDeparture))
-      .toEqual({ ok: false, reason: "VAN_LEFT" });
+    // Aboard is the leg's own state (machines.ABOARD), read onto the rider by the day source.
+    const onBoard = { ...view, day: { ...view.day, riders: view.day.riders.map((r) => (r.token === child.token ? { ...r, aboard: true } : r)) } } as BoardView;
+    const agreed = hhmmOf(Math.round(eta(onBoard, onBoard.plan, child.token)) + 34);
+    for (const route of routesFor(onBoard, child.token, agreed)) {
+      expect(route.preview.next[child.token].vanId).toBe(van.id);
+    }
   });
 });

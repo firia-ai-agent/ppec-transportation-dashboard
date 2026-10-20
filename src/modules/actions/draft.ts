@@ -17,6 +17,8 @@ import type { Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import { effectId, raiseTask } from "@/modules/agent/run/exec/effects";
 import { previewPlanChange, type PlanChange } from "@/modules/changes/plan-change";
+import { rehearsePlanSave } from "@/modules/changes/rehearse";
+import type { Refusal } from "@/modules/changes/refusal";
 import { loadBoard } from "@/modules/plan/store";
 import type { DayDataSource } from "@/domain/day/source";
 import type { PlanStore } from "@/modules/plan/types";
@@ -30,7 +32,9 @@ const LEG_WORDS: Readonly<Record<Direction, string>> = { AM: "morning", PM: "aft
 
 export type DraftOutcome =
   | { readonly drafted: true; readonly approvalId: string; readonly impact?: readonly string[] }
-  | { readonly drafted: false; readonly reason: "NOTHING_TO_CHANGE" | "VAN_LEFT" }
+  | { readonly drafted: false; readonly reason: "NOTHING_TO_CHANGE" }
+  /** The board would not take it: its own reason, the van and child it names (ledger #80). */
+  | { readonly drafted: false; readonly reason: "REFUSED"; readonly refusal: Refusal }
   /** Nobody can be moved to a van that fits them: nothing to approve, a family to call. */
   | { readonly drafted: false; readonly reason: "NO_VAN_FITS"; readonly children: readonly string[] };
 
@@ -113,7 +117,7 @@ export async function draftPlanChange(
     readonly leg: Direction;
     readonly by: string;
     readonly note?: string | null;
-    /** The wall clock: a van that has already left keeps its children and its departure. */
+    /** The wall clock the rehearsal saves at. */
     readonly now?: Date;
     /** The change, or how to read it off the board as it stands (van names → this day's van ids). */
     readonly change: PlanChange | ((view: Awaited<ReturnType<typeof loadBoard>>) => PlanChange);
@@ -121,7 +125,7 @@ export async function draftPlanChange(
 ): Promise<DraftOutcome> {
   const view = await loadBoard(deps.store, a.siteId, a.date, a.leg, deps.source);
   const change = typeof a.change === "function" ? a.change(view) : a.change;
-  const preview = previewPlanChange(view, change, a.now);
+  const preview = previewPlanChange(view, change);
   if (!preview.ok) {
     // Whoever no van can carry today is said plainly, with no card to approve.
     if (preview.reason === "NO_VAN_FITS") await withdrawOlderDrafts(db, a, null);
@@ -131,6 +135,12 @@ export async function draftPlanChange(
   }
   const departures = preview.departures;
   const leaves = Object.keys(departures);
+  // Rehearse it first (ledger #80): a card is only ever a change Approve can make. When the board
+  // would refuse, its own reason comes back instead — to the agent as feedback, to a person in words.
+  const refused = await rehearsePlanSave(db, deps, {
+    siteId: a.siteId, date: a.date, leg: a.leg, moves: preview.moves, departures, now: a.now ?? new Date(),
+  });
+  if (refused) return { drafted: false, reason: "REFUSED", refusal: refused };
   // One draft per board version and result: pressing Re-plan twice, or the agent and a person
   // both asking, is the same card rather than two to decide.
   const key = `replan-draft:${a.siteId}:${a.date}:${a.leg}:${view.version}:${createHash("sha256").update(JSON.stringify([preview.moves, departures])).digest("hex").slice(0, 16)}`;

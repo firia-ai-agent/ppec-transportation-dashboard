@@ -29,6 +29,13 @@ export type TransitionCtx<T extends string = string> = {
 type LegS = (typeof legState.enumValues)[number];
 const PRE_BOARD: LegS[] = ["SCHEDULED", "PROVISIONAL_ASSIGNED", "CAPABILITY_PENDING", "CAPABILITY_REPORTED",
   "CAPABILITY_VERIFIED", "MANIFEST_LOCKED", "EN_ROUTE_PICKUP", "ARRIVED_PICKUP"];
+/**
+ * A child is ABOARD from the moment they are reported on the van until they are handed over: the
+ * van has them, so a plan can reorder its stops or make it wait, but cannot put them in another
+ * van (ledger #79, #80). Read off the leg's own state — what happened — never off a clock.
+ */
+export const ABOARD: readonly LegS[] = ["BOARDED_REPORTED", "BOARDED_VERIFIED", "IN_TRANSIT", "ARRIVED_DROPOFF", "HELD_NO_RECEIVER"];
+
 export const LEG: Machine<LegS> = {
   name: "trip_leg", states: legState.enumValues,
   terminal: ["COMPLETED_HANDOFF", "CANCELED_TRANSPORT", "CANCELED_ATTENDANCE", "NO_SHOW"],

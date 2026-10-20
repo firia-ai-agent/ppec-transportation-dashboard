@@ -1379,7 +1379,6 @@ export const approval = {
   /** Another site's id and an id that exists nowhere read the same, on purpose. */
   noSuchApproval: "That decision is not here any more.",
   alreadyDecided: "Somebody decided this one already. Reload to see what they chose.",
-  planMoved: "This ride changed while you were reading, so the text would have been wrong. Nothing was sent — reload and decide again.",
   /** Edit on a card whose words are fixed copy (`decide.ts` NOT_EDITABLE). */
   notEditable: "This message can't be edited. Approve it as it is, or don't send it.",
   /** The edited words break the reply rule (`decide.ts` EDIT_NOT_SENDABLE). Nothing was sent. */
@@ -1390,21 +1389,8 @@ export const approval = {
    * thing a coordinator wants to know is whether the family got the old text.
    */
   messageChanged: "This message changed while you were reading it. Nothing was sent — read it again and decide.",
-  /**
-   * The plan could not be saved, including because there is nothing to save it with yet
-   * (`modules/approvals/plan-placement-port.ts`). Firia's gap-5 ruling: fail safe and say so —
-   * never a fake success, and never a text to a family about a change the plan does not hold.
-   */
-  planNotSaved: "Couldn't update the plan, so nothing was sent to the family. Change the ride on the board instead.",
-  /**
-   * The placement saved and the **time** did not (`TIME_NOT_SAVED`, `modules/approvals/decide.ts`).
-   *
-   * Its own sentence because it is its own fact: the ride this proposal names was not the ride the
-   * plan had to move, so the agreed minute had nowhere to go. Says what happened, says nothing
-   * went out, and names the one thing the person reading it can do.
-   */
-  timeNotSaved: "Couldn't move the drop-off time, so nothing was sent to the family. Set the time on the board instead.",
-  vanLeft: "That van has already left, so nobody can move in or out of it. Nothing was sent.",
+  // A change the plan would not take is said in the board's own words, with the place to fix it:
+  // `refusal` below and `modules/changes/refusal.ts` (ledger #80).
 
   /* ── the card itself (mockups/approvals.html) ── */
 
@@ -3116,7 +3102,7 @@ export const agentPolicyTask = {
  */
 export const assistantUnavailable = {
   /** The card's own heading. Plural-safe because the badge can show more than one. */
-  heading: "Texts the assistant could not read",
+  heading: "Needs you",
   /**
    * The sentence itself, filled from the rows: guardian first name + last initial, the child's
    * given name, and the leg word below. Three short sentences, in the order a coordinator needs
@@ -3129,6 +3115,11 @@ export const assistantUnavailable = {
    * between siblings would mean reading the message, which is the thing the rule forbids.
    */
   cardNoChild: "{adult} texted. The assistant couldn't read it. Reply yourself.",
+  /** The plan would not take what a family asked for (ledger #80): what is in the way, then the fix link. */
+  cardRefused: "{adult} texted about {child}'s {leg}. I couldn't plan it: {says}",
+  cardRefusedNoChild: "{adult} texted. I couldn't plan it: {says}",
+  /** A change a person approved that the plan then refused. */
+  changeRefused: "An approved change didn't go through: {says} Nothing was sent.",
   /** A thread whose contact row has gone. Still true, still actionable, names nobody wrongly. */
   unknownAdult: "Someone",
   /**
@@ -3345,6 +3336,32 @@ export const confirmCopy = {
 } as const;
 
 /** A van confirmed at the ramp that no longer carries its riders (ledger #74 e, plan/van-short.ts). */
+/**
+ * WHY A CHANGE COULD NOT BE MADE (ledger #80), one plain sentence per reason the board's writer
+ * gives (`modules/changes/refusal.ts`), and the one place to go and fix it. Filled with the van
+ * and child the refusal names; a sentence that would need a name nobody has uses `OTHER`.
+ */
+export const refusal = {
+  says: {
+    NOT_STARTED: "The {leg} plan isn't started yet.",
+    CHANGED: "Someone changed the {leg} plan a moment ago.",
+    NOT_THIS_DAY: "{child} isn't on the {leg} plan today.",
+    BUCKET_NOT_HERE: "{child} is marked away or driven by family on the {leg} plan.",
+    ABOARD: "{child} is already on {van}.",
+    SEAT: "{van} is out of seats.",
+    WHEELCHAIR: "{van} has no wheelchair space left.",
+    LIFT: "{van} has no lift.",
+    OXYGEN: "{van} has no oxygen mount free.",
+    CAR_SEAT: "{van} has no car seat free.",
+    NO_CONTACT: "Nobody on {child}'s file can receive them.",
+    OTHER: "The {leg} plan wouldn't take this change.",
+  },
+  fix: { van: "Fix {van}", child: "Open {child}'s family", plan: "Open the {leg} plan" },
+  legWord: { AM: "morning", PM: "afternoon" },
+  aVan: "a van",
+  aChild: "a child",
+} as const;
+
 /** The agent hears a van running late (ledger #79): the live sweep has texted these families. */
 export const runningLateAlert = {
   summary: "Running about {minutes} min late: {who} — families texted",
@@ -3447,7 +3464,9 @@ export const agentBubble = {
   /** A family's text the agent heard (ledger #79), in the family's own words. */
   familyTexted: "{children}'s family texted: “{text}”",
   familyTextedUnnamed: "A family texted: “{text}”",
-  textNotRead: "I couldn't read that one, so it's on Family texts for you.",
+  textNotRead: "I couldn't answer that one, so it's on Family texts for you.",
+  /** A change the plan would not take (ledger #80): what is in the way, then the fix link. */
+  blocked: "I couldn't make that change: {says} It's on Family texts for you.",
   /**
    * An alert the agent heard and could not answer (ledger #75): the situation, from the alert's own
    * row, and that no fix came — followed by the board's Re-plan link. Never the reason the model

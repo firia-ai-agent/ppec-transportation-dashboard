@@ -29,6 +29,7 @@
  * main's `Db` here would make the plan write inside the approval tx unwireable; the two changes
  * are independent and both are kept.
  */
+import { ABOARD } from "@/domain/machines";
 import { DAY_VANS, defaultSetupOf, vanColourToken, vanNameOf } from "@/config/vans";
 import type { Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
@@ -104,20 +105,22 @@ export function sqlDaySource(db: Exec, siteId: string): DayDataSource {
    * the instant was written by `siteInstantOn` and is read back by `siteHhmm`, so the same `Intl`
    * zone data answers both and a DST hour cannot appear between the write and the read.
    */
-  async function windowsOf(date: string, leg: Direction): Promise<Map<string, string>> {
-    const rows = await db.query<{ child_token: string; window_start: Date | string | null }>(
-      `SELECT child_token::text AS child_token, window_start
+  async function legsOf(date: string, leg: Direction): Promise<{ windows: Map<string, string>; aboard: Set<string> }> {
+    const rows = await db.query<{ child_token: string; window_start: Date | string | null; state: string }>(
+      `SELECT child_token::text AS child_token, window_start, state::text AS state
          FROM ops.trip_leg
-        WHERE site_id = $1 AND service_date = $2 AND direction = $3 AND window_start IS NOT NULL`,
+        WHERE site_id = $1 AND service_date = $2 AND direction = $3`,
       [siteId, date, leg],
     );
     const windows = new Map<string, string>();
+    const aboard = new Set<string>();
     for (const row of rows.rows) {
+      if ((ABOARD as readonly string[]).includes(row.state)) aboard.add(row.child_token);
       if (row.window_start === null) continue;
       const at = new Date(row.window_start);
       if (!Number.isNaN(at.getTime())) windows.set(row.child_token, siteHhmm(at));
     }
-    return windows;
+    return { windows, aboard };
   }
 
   /** Does the centre drive this child on this leg? A family's own ride is not ours to plan. */
@@ -127,6 +130,8 @@ export function sqlDaySource(db: Exec, siteId: string): DayDataSource {
   };
 
   return {
+    within: (tx) => sqlDaySource(tx, siteId),
+
     async vans(_date) {
       const configured = configuredVans();
       const found = await db.query<{ id: string }>(
@@ -150,7 +155,7 @@ export function sqlDaySource(db: Exec, siteId: string): DayDataSource {
 
     async riders(date, leg) {
       const { children, needs } = await roster();
-      const legWindows = await windowsOf(date, leg);
+      const { windows: legWindows, aboard } = await legsOf(date, leg);
       return children
         .filter((row) => drivenBy(row, leg))
         .map(
@@ -173,6 +178,7 @@ export function sqlDaySource(db: Exec, siteId: string): DayDataSource {
               legWindows.get(row.child_token) ??
               (leg === "AM" ? row.am_window_start : row.pm_window_start) ??
               "",
+            ...(aboard.has(row.child_token) ? { aboard: true } : {}),
           }),
         );
     },

@@ -131,12 +131,16 @@ const LATE_VANS = `
    WHERE label IS NOT NULL
    ORDER BY label`;
 
-/** Open "needs a person" tasks. Any other category, and any task that is no longer open, is not this number. */
+/**
+ * Open "needs a person" tasks: an ask nobody could answer, and what the agent could not finish —
+ * a text it could not answer, a change the plan would not take (ledger #80). Any other category,
+ * and any task that is no longer open, is not this number.
+ */
 const NEEDS_YOU = `
   SELECT count(*)::int AS n
     FROM ops.task
    WHERE site_id = $1
-     AND category = 'NEEDS_PERSON'
+     AND category IN ('NEEDS_PERSON', 'ASSISTANT_UNAVAILABLE')
      AND state = 'OPEN'`;
 
 /** The four facts for one site, one date, one leg. Throws on a query failure; the page catches that. */

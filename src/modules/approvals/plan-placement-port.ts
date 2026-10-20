@@ -38,7 +38,6 @@ import {
 } from "@/modules/plan/place";
 import { hasNoDatabase, loadBoard, planStoreIn, type BoardView } from "@/modules/plan/store";
 import type { PendingMove } from "@/domain/plan/pending";
-import { vanHasLeft } from "@/modules/changes/plan-change";
 import {
   recordLegReceiver,
   setLegDropoffWindow,
@@ -62,9 +61,10 @@ export type { LegReceiverInput, LegWindowInput };
  * vocabularies in one place is what keeps the rest of this path from growing a view it never
  * reads.
  */
-export type PlacementSaved =
-  | { readonly ok: true; readonly version: number }
-  | { readonly ok: false; readonly reason: string };
+/** The board's own refusal, whole: its reason and the van and child it names (ledger #80). */
+export type PlanRefused = { readonly ok: false; readonly reason: string; readonly vanId?: string | null; readonly childToken?: string | null };
+
+export type PlacementSaved = { readonly ok: true; readonly version: number } | PlanRefused;
 
 /** The board's placement writer, as an approval sees it. */
 export type SetChildPlacement = (input: SetChildPlacementInput) => Promise<PlacementSaved>;
@@ -117,6 +117,8 @@ export type PlanPlacementPort = {
    * the board before and after, which is what the families it makes late are told from.
    */
   readonly saveRoute: (input: RouteSaveInput) => Promise<RouteSaved>;
+  /** The board as it stands, for naming the van and child a refusal is about (ledger #80). */
+  readonly readBoard: (query: Omit<PlacementQuery, "childToken">) => Promise<BoardView>;
 };
 
 export type RouteSaveInput = {
@@ -130,9 +132,7 @@ export type RouteSaveInput = {
   readonly now: Date;
 };
 
-export type RouteSaved =
-  | { readonly ok: true; readonly before: BoardView; readonly after: BoardView }
-  | { readonly ok: false; readonly reason: string };
+export type RouteSaved = { readonly ok: true; readonly before: BoardView; readonly after: BoardView } | PlanRefused;
 
 /** Whether the plan took a write, and the module's own reason when it did not. */
 export type PlanWriteDone =
@@ -193,16 +193,10 @@ export function boardPlacementPort(deps: {
         const written = await recordLegReceiver(tx, input);
         return written.ok ? { ok: true } : { ok: false, reason: written.reason };
       },
+      readBoard(query) {
+        return loadBoard(storeOf(), query.siteId, query.serviceDate, query.direction, sourceOf(query.siteId));
+      },
       async saveRoute(input) {
-        // A van on the road keeps who is aboard: nobody out of it, nobody into it (ledger #79).
-        const view = await loadBoard(storeOf(), input.siteId, input.serviceDate, input.direction, sourceOf(input.siteId));
-        const left = (vanId: string | null | undefined) => vanHasLeft(view, vanId, input.now);
-        const crosses = input.moves.some((m) => {
-          const was = view.plan[m.childToken]?.vanId;
-          const to = m.bucket === "VAN" ? m.vanId : null;
-          return was !== to && (left(was) || left(to));
-        });
-        if (crosses) return { ok: false, reason: "VAN_LEFT" };
         const outcome = await applyPendingMoves(
           {
             siteId: input.siteId,
@@ -217,7 +211,7 @@ export function boardPlacementPort(deps: {
           storeOf(),
           sourceOf(input.siteId),
         );
-        return outcome.ok ? { ok: true, before: outcome.before, after: outcome.view } : { ok: false, reason: outcome.reason };
+        return outcome.ok ? { ok: true, before: outcome.before, after: outcome.view } : refusedBy(outcome);
       },
       async setChildPlacement(input) {
         const outcome: SetChildPlacementOutcome = await boardSetChildPlacement(
@@ -225,10 +219,15 @@ export function boardPlacementPort(deps: {
           storeOf(),
           sourceOf(input.siteId),
         );
-        return outcome.ok ? { ok: true, version: outcome.version } : { ok: false, reason: outcome.reason };
+        return outcome.ok ? { ok: true, version: outcome.version } : refusedBy(outcome);
       },
     };
   };
+}
+
+/** The writer's refusal, kept whole for whoever has to say it (ledger #80). */
+function refusedBy(outcome: { reason: string; vanId?: string; childToken?: string }): PlanRefused {
+  return { ok: false, reason: outcome.reason, vanId: outcome.vanId ?? null, childToken: outcome.childToken ?? null };
 }
 
 /**

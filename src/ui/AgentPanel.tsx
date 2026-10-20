@@ -11,7 +11,11 @@ import { usePanelActions } from "./PanelActions";
 import { icon } from "./tokens";
 
 /** What the panel says after a press, or before one. */
-type PanelState = { readonly status: "idle" } | { readonly status: "said"; readonly message: string };
+type PanelState =
+  | { readonly status: "idle" }
+  | { readonly status: "said"; readonly message: string }
+  /** The plan would not take it: what is in the way, and the one place to fix it (ledger #80). */
+  | { readonly status: "refused"; readonly message: string; readonly fix?: { readonly label: string; readonly href: string } };
 
 /**
  * THE AGENT PANEL (ledger #79): one component for everything the agent proposes — a reply to a
@@ -30,11 +34,11 @@ export function AgentPanel({ panel, editing = false, className }: { readonly pan
     if (!actions) return { status: "idle" };
     if (panel.kind === "confirm") {
       const r = await actions.confirm({ status: "idle" }, form);
-      if (r.status === "refused") return { status: "said", message: r.message };
+      if (r.status === "refused") return { status: "refused", message: r.message, fix: r.fix };
       return r.status === "done" ? { status: "said", message: r.decision === "APPROVED" ? confirmCopy.done : confirmCopy.declined } : { status: "idle" };
     }
     const r = await actions.decide({ status: "idle" }, form);
-    if (r.status === "refused") return { status: "said", message: r.message };
+    if (r.status === "refused") return { status: "refused", message: r.message, fix: r.fix };
     if (r.status !== "decided") return { status: "idle" };
     return { status: "said", message: r.decision === "DECLINED" ? approval.declined : r.queued === 0 ? approval.sentToNobody : approval.sent };
   }, { status: "idle" });
@@ -115,9 +119,16 @@ export function AgentPanel({ panel, editing = false, className }: { readonly pan
           </button>
         </form>
       </div>
-      <p className={styles.outcome} role="status">
-        {state.status === "said" ? state.message : reply ? approval.nothingUntilApproved : confirmCopy.pending}
-      </p>
+      {state.status === "refused" ? (
+        <p className={styles.refusedLine} role="alert" data-refused="">
+          {state.message}{" "}
+          {state.fix ? <Link href={state.fix.href}>{state.fix.label}</Link> : null}
+        </p>
+      ) : (
+        <p className={styles.outcome} role="status">
+          {state.status === "said" ? state.message : reply ? approval.nothingUntilApproved : confirmCopy.pending}
+        </p>
+      )}
     </section>
   );
 }

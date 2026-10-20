@@ -69,7 +69,10 @@ import { Forbidden, SiteNotFound, Unauthenticated, requireSiteAccess } from "@/a
 import { APPROVAL_ROLES } from "@/auth/access";
 import type { Db, Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
-import { boardPlacementPort, type PlacementBucket, type PlanPlacementPortFor } from "./plan-placement-port";
+import { boardPlacementPort, type PlacementBucket, type PlanPlacementPort, type PlanPlacementPortFor } from "./plan-placement-port";
+import { refusalLogLine, refusalOf, type Refusal } from "@/modules/changes/refusal";
+import { answeredByDecision, raiseNeedsPerson } from "@/modules/agent/needs-person";
+import type { BoardView } from "@/modules/plan/store";
 import { queueReplanLateNoticesIn } from "@/modules/plan/replan-notices";
 import { DROPOFF_CHANGE_KIND, DROPOFF_REPLY_TEMPLATE } from "./dropoff-change";
 import { MESSAGE_SEND_KIND } from "./message-send";
@@ -353,7 +356,7 @@ export type DecideRequest = {
 
 export type DecideResponse =
   | { readonly status: 200; readonly body: { readonly ok: true; readonly decision: ApprovalDecision; readonly text: string; readonly queued: number } }
-  | { readonly status: 401 | 403 | 404 | 409 | 422 | 503; readonly body: { readonly ok: false; readonly error: DecideError } };
+  | { readonly status: 401 | 403 | 404 | 409 | 422 | 503; readonly body: { readonly ok: false; readonly error: DecideError; readonly refusal?: Refusal } };
 
 /** Why a decision did not land. A code: the screen maps it to words (`src/ui/copy.ts`). */
 export type DecideError =
@@ -361,7 +364,6 @@ export type DecideError =
   | "NOT_YOUR_ROLE"
   | "NO_SUCH_APPROVAL"
   | "ALREADY_DECIDED"
-  | "PLAN_MOVED"
   /** Edit on a card whose words are fixed copy: there is no slot for a person's words to go in. */
   | "NOT_EDITABLE"
   /** The edited words break the reply rule: a link, a number, an address, a code, or too long. */
@@ -373,26 +375,10 @@ export type DecideError =
    */
   | "MESSAGE_CHANGED"
   /**
-   * The board refused to save the plan, or this day's plan has no such child.
-   *
-   * A real refusal with a reason behind it (`NOT_STARTED` on a day nobody has started,
-   * `CHANGED` when somebody saved first, a fit rule, a child this day does not have) — not the
-   * absence of a writer: `setChildPlacement` is wired (`plan-placement-port.ts`). Either way it
-   * fails safe: the decision is rolled back and the family is not texted (Firia's gap-5 ruling).
+   * The plan would not take the change (ledger #80): the board's own reason, and the van and child
+   * it names, travel in `refusal` — nothing is claimed, saved or sent, and a person is told.
    */
-  | "PLAN_NOT_SAVED"
-  /** The change moves a child out of or into a van that has already left (ledger #79). */
-  | "VAN_LEFT"
-  /**
-   * The placement saved but the agreed **time** did not — a leg this proposal's id, site and
-   * service date do not all name, or a time that is not a wall clock (`plan/leg-write.ts`).
-   *
-   * Its own code because it is its own fact and the person reading it can do something different
-   * about it: the plan took the change, the clock did not, and nothing was sent. Like every other
-   * refusal here it rolls the whole transaction back — the claim, the placement and the text —
-   * so a coordinator who reads this sentence is looking at a card that is still pending.
-   */
-  | "TIME_NOT_SAVED";
+  | "REFUSED";
 
 /**
  * The plan port this decision writes through (`plan-placement-port.ts`).
@@ -488,8 +474,10 @@ export async function decideApproval(
     if (claimed.rows.length !== 1) {
       return { status: 409, body: { ok: false, error: "ALREADY_DECIDED" } } as const;
     }
-    // The exception the proposal was raised on is answered by this decision, whichever way it went.
+    // The exception the proposal was raised on is answered by this decision, whichever way it went —
+    // and so is any "needs a person" card a refused press on it raised (ledger #80).
     if (row.task_id) await resolveTask(tx, row.task_id, req.decision, by);
+    await answeredByDecision(tx, row.id, (t, id) => resolveTask(t, id, req.decision, by));
     if (req.decision === "DECLINED") {
       // Nothing else. No ride moves and the family is not texted — that is what "Don't send" is.
       return { status: 200, body: { ok: true, decision: req.decision, text, queued: 0 } } as const;
@@ -551,162 +539,17 @@ export async function decideApproval(
      * whole decision back: not claimed, not saved, not queued. Never a fake success, and never a
      * text to a family about a change the plan does not have.
      */
-    const legId = String(proposal.leg_id ?? "");
-    const childToken = String(proposal.child_token ?? "");
-    const serviceDate = String(proposal.service_date ?? "");
-    const direction = legOf(proposal.direction);
-    if (direction === null) throw new PlanNotSaved();
-    // The plan write is a step of *this* transaction (see `PlanPlacementPortFor`).
-    const plan = deps.placement(tx);
-    const current = await plan.currentPlacement({
-      siteId: row.site_id,
-      serviceDate,
-      direction,
-      childToken,
+    // The plan half of Approve — the same function the agent rehearsed the card with (ledger #80).
+    const applied = await applyDropoffPlan(tx, deps.placement(tx), {
+      siteId: row.site_id, proposal, actor: req.userId ?? null, by, now: req.now,
     });
-    // A child this day's plan does not have. Uniform with every other reason the plan would not
-    // take the write: the coordinator is told the plan was not saved, and nothing is sent.
-    if (current === null) throw new PlanNotSaved();
-
-    /*
-     * THE ROUTE THE CARD SHOWED (ledger #79). A card that carries a route — the agreed time held,
-     * the stop reordered, maybe another van — saves exactly that route below, after the agreed
-     * window is on the leg. A card with none (a stop change, a cancel) keeps the child's place.
-     */
-    const route = proposal.cancel !== true && proposal.plan?.moves && proposal.plan.moves.length > 0 ? { moves: proposal.plan.moves, departures: proposal.plan.departures } : null;
-    const bucket: PlacementBucket = proposal.cancel === true ? "ABSENT" : current.bucket;
-    const saved = route ? { ok: true as const } : await plan.setChildPlacement({
-      siteId: row.site_id,
-      serviceDate,
-      direction,
-      childToken,
-      bucket,
-      vehicleId: bucket === "VAN" ? current.vehicleId : null,
-      expectedVersion: current.version,
-      // The board stores `saved_by` as the staff user's own id (`app_user`, DATA-MODEL §9.1), not
-      // the `staff:…` string the audit columns here carry.
-      actor: req.userId ?? null,
-      now: req.now,
-    });
-    if (!saved.ok) throw new PlanNotSaved();
-
-    /*
-     * 3. Queue the family's text. The outbox re-checks everything at send time.
-     *
-     * The leg is READ, not written: the outbox's own staleness rule compares the queued message's
-     * `plan_version_basis` to `trip_leg.plan_version` at drain (outbox.ts:219), so the text has
-     * to carry the leg's current value. A leg that has gone is a refusal rather than a text about
-     * a ride that no longer exists.
-     */
-    const legRow = await tx.query<{ id: string; child_token: string; plan_version: number }>(
-      "SELECT id, child_token, plan_version FROM ops.trip_leg WHERE id = $1 AND site_id = $2",
-      [isUuid(legId) ? legId : null, row.site_id],
-    );
-    const leg = legRow.rows[0];
-    if (!leg) throw new PlanMoved(legId);
-
-    const contacts = await authorizedContactsForChild(tx, {
-      siteId: row.site_id,
-      childToken: leg.child_token,
-      at: req.now,
-    });
-
-    /*
-     * 2b. THE AGREED TIME, ONTO THE LEG — the half of "Approve" that used to exist only in the
-     *     words (Firia's 11:11 AM ET ruling of 2026-10-18, and the founder's "stop deferring").
-     *
-     * `plan_run` / `plan_assignment` store no time at all (migration 0009) and `setChildPlacement`
-     * above writes a bucket and a van, so after it the plan held the same arrival it held before
-     * the family was told a new one. `ops.trip_leg.window_start` is where this schema keeps an
-     * arrival, and it is what every screen that shows one reads back
-     * (`modules/plan/leg-facts.ts`): Today's Arriving column, the plan board's rider cards.
-     *
-     * Through the port, like the placement — `plan/leg-write.ts` owns the one writer, guarded by
-     * leg id **and** site **and** service date — and inside this same transaction, so a refusal
-     * here is a decision that did not happen: not claimed, not placed, not queued, and the
-     * coordinator reads `TIME_NOT_SAVED` in plain words on the card they are still looking at.
-     *
-     * S1-3 deleted an `UPDATE ops.trip_leg` from this file and was right to: it was a second
-     * writer, it guarded the wrong counter, and it ran on a path that had no business moving a
-     * ride. What is restored is not that query. It is a named function in the plan module, asked
-     * for through the port, bumping no `plan_version` (the outbox compares the queued text's
-     * basis to that counter at drain, so a bump here would cancel this decision's own text).
-     *
-     * A cancel writes no time: the ride is not happening, so there is no arrival to agree.
-     */
-    const requestedTime = String(proposal.requested_dropoff_time ?? "").trim();
-    const agreedTime = requestedTime === "" ? null : requestedTime;
-    if (proposal.cancel !== true && agreedTime !== null) {
-      const moved = await plan.setDropoffWindow({
-        siteId: row.site_id,
-        legId: leg.id,
-        serviceDate,
-        time: agreedTime,
-        now: req.now,
-        by,
-      });
-      if (!moved.ok) throw new TimeNotSaved();
-    }
-
-    // 2b'. The route, through the board's own Save, and the families it makes late told with it.
-    if (route) {
-      const routed = await plan.saveRoute({
-        siteId: row.site_id,
-        serviceDate,
-        direction,
-        moves: route.moves.map((m) => ({
-          childToken: m.child_token,
-          bucket: m.bucket,
-          vanId: m.van_id ?? null,
-          ...(m.not_before ? { notBefore: m.not_before } : {}),
-        })),
-        departures: route.departures,
-        expectedVersion: current.version,
-        actor: req.userId ?? null,
-        now: req.now,
-      });
-      if (!routed.ok) throw routed.reason === "VAN_LEFT" ? new VanLeft() : new PlanNotSaved();
+    if (!applied.ok) throw new ChangeRefused(applied.refusal);
+    const { leg, contacts } = applied;
+    // The families the route made later are told with it, in this same transaction (ledger #79).
+    if (applied.routed) {
       await queueReplanLateNoticesIn(tx, afterCommit, transport, {
-        siteId: row.site_id, before: routed.before, after: routed.after, now: req.now, by,
+        siteId: row.site_id, before: applied.routed.before, after: applied.routed.after, now: req.now, by,
       });
-    }
-
-    /*
-     * 2c. AND THE ADULT WHO WILL BE THERE — what clears an AT-13 hold (same ruling, part c).
-     *
-     * "Held: no adult to receive" is not a column and not a flag. It is what the leg machine
-     * makes of a ride that arrived with **nobody on file who may receive the child**
-     * (`domain/board/board.ts`), and the file it reads is §6.4's `ops.contact_authorization` with
-     * scope `RECEIVE_CHILD`. Noah O.'s family holds every other scope and not that one, which is
-     * why his afternoon ends on the hold — and a parent saying somebody is home, approved by a
-     * coordinator, is exactly the fact that file was missing.
-     *
-     * So the condition is read rather than assumed: an afternoon ride, not a cancel, and no adult
-     * on this child's file yet. Then the guardian this child's file already knows is recorded as a
-     * receiver, through the plan module's own writer (`recordLegReceiver`), in this transaction. A
-     * child who already has one is left alone, and a family this deployment cannot name a contact
-     * for is a `NO_CONTACT` refusal that rolls the decision back rather than a hold cleared by
-     * nobody.
-     */
-    if (proposal.cancel !== true && direction === "PM" && contacts.length > 0) {
-      const onFile = await tx.query<{ n: number }>(
-        `SELECT count(*)::int AS n FROM ops.contact_authorization
-          WHERE site_id = $1 AND child_token = $2 AND scope = 'RECEIVE_CHILD'
-            AND (valid_to IS NULL OR valid_to > $3)`,
-        [row.site_id, leg.child_token, req.now],
-      );
-      if ((onFile.rows[0]?.n ?? 0) === 0) {
-        const recorded = await plan.recordReceiver({
-          siteId: row.site_id,
-          legId: leg.id,
-          childToken: leg.child_token,
-          // The guardian whose message this proposal answers (PPE-98), off the row the agent wrote.
-          contactToken: typeof proposal.requested_by_contact === "string" ? proposal.requested_by_contact : null,
-          now: req.now,
-          by,
-        });
-        if (!recorded.ok) throw new PlanNotSaved();
-      }
     }
 
     let queued = 0;
@@ -732,10 +575,7 @@ export async function decideApproval(
     }
     return { status: 200, body: { ok: true, decision: req.decision, text, queued } } as const;
   }).catch((e) => {
-    if (e instanceof PlanMoved) return { status: 409, body: { ok: false, error: "PLAN_MOVED" } } as const;
-    if (e instanceof PlanNotSaved) return { status: 503, body: { ok: false, error: "PLAN_NOT_SAVED" } } as const;
-    if (e instanceof TimeNotSaved) return { status: 503, body: { ok: false, error: "TIME_NOT_SAVED" } } as const;
-    if (e instanceof VanLeft) return { status: 409, body: { ok: false, error: "VAN_LEFT" } } as const;
+    if (e instanceof ChangeRefused) return { status: 409, body: { ok: false, error: "REFUSED", refusal: e.refusal } } as const;
     throw e;
   });
   /*
@@ -743,6 +583,23 @@ export async function decideApproval(
    * change writes (`actions/confirm.ts`), so the bubble's thread ends every card the same way
    * instead of a decided reply simply vanishing from it.
    */
+  /*
+   * A REFUSED APPROVE IS LOUD (ledger #80): nothing was claimed, saved or sent, so the family is
+   * still waiting — a person is told, with the board's own reason and where to fix it, and the log
+   * says what happened. The card stays pending for when the cause is fixed.
+   */
+  if (!decided.body.ok && "refusal" in decided.body && decided.body.refusal) {
+    console.warn(refusalLogLine("approve", decided.body.refusal));
+    await raiseNeedsPerson(db, {
+      siteId: row.site_id,
+      messageId: typeof proposal.basis_message_id === "string" ? proposal.basis_message_id : null,
+      reason: "refused",
+      refusal: decided.body.refusal,
+      key: `approval:${row.id}:${decided.body.refusal.reason}`,
+      approvalId: row.id,
+      by,
+    }).catch((e) => console.error("[approve] needs-person not raised", e instanceof Error ? e.message : e));
+  }
   if (decided.status === 200) {
     await db.query(
       "UPDATE ops.approval_request SET proposal = proposal || jsonb_build_object('outcome', $2::text) WHERE id = $1",
@@ -857,12 +714,95 @@ function legOf(direction: string | undefined): Direction | null {
 }
 
 /**
- * The leg the proposal names is not there to text a family about. Rolls the decision back with it.
- *
- * One thrower since PR #75 (the leg read in step 3): the plan's version is no longer compared to
- * the proposal's recorded basis, so "the ride moved" now means the ride is *gone*.
+ * THE PLAN HALF OF APPROVING A DROP-OFF CHANGE (ledger #79, #80), on the caller's transaction:
+ * the agreed time onto the leg, the route the card showed (or the child kept where they are), and
+ * the adult who will receive them. Approve runs it for real; the agent runs it as a rehearsal
+ * before it drafts the card (`changes/rehearse.ts`), so a card is only ever a promise Approve can
+ * keep. Any step the plan refuses comes back as the board's own `Refusal`, never thrown away.
  */
-class PlanMoved extends Error {}
+export async function applyDropoffPlan(
+  tx: Exec,
+  plan: PlanPlacementPort,
+  a: { readonly siteId: string; readonly proposal: DropoffProposal; readonly actor: string | null; readonly by: string; readonly now: Date },
+): Promise<
+  | { readonly ok: true; readonly leg: { id: string; child_token: string; plan_version: number }; readonly contacts: readonly string[]; readonly routed: { before: BoardView; after: BoardView } | null }
+  | { readonly ok: false; readonly refusal: Refusal }
+> {
+  const { proposal } = a;
+  const childToken = String(proposal.child_token ?? "");
+  const serviceDate = String(proposal.service_date ?? "");
+  const direction = legOf(proposal.direction) ?? "PM";
+  const at = { date: serviceDate, leg: direction };
+  const refused = async (r: { reason: string; vanId?: string | null; childToken?: string | null }) => ({
+    ok: false as const,
+    refusal: refusalOf(r, at, await plan.readBoard({ siteId: a.siteId, serviceDate, direction }).catch(() => null)),
+  });
+
+  const current = await plan.currentPlacement({ siteId: a.siteId, serviceDate, direction, childToken });
+  if (current === null) return refused({ reason: "NOT_THIS_DAY", childToken });
+
+  const route = proposal.cancel !== true && proposal.plan?.moves && proposal.plan.moves.length > 0 ? proposal.plan : null;
+  if (!route) {
+    // A stop change or a cancel: the child keeps their van, or is marked away for this ride.
+    const bucket: PlacementBucket = proposal.cancel === true ? "ABSENT" : current.bucket;
+    const saved = await plan.setChildPlacement({
+      siteId: a.siteId, serviceDate, direction, childToken, bucket,
+      vehicleId: bucket === "VAN" ? current.vehicleId : null,
+      expectedVersion: current.version, actor: a.actor, now: a.now,
+    });
+    if (!saved.ok) return refused(saved);
+  }
+
+  // The leg is read, not written, for the text's plan-version basis (the outbox's staleness rule).
+  const legRow = await tx.query<{ id: string; child_token: string; plan_version: number }>(
+    "SELECT id, child_token, plan_version FROM ops.trip_leg WHERE id = $1 AND site_id = $2",
+    [isUuid(String(proposal.leg_id ?? "")) ? proposal.leg_id : null, a.siteId],
+  );
+  const leg = legRow.rows[0];
+  if (!leg) return refused({ reason: "NOT_THIS_DAY", childToken });
+  const contacts = await authorizedContactsForChild(tx, { siteId: a.siteId, childToken: leg.child_token, at: a.now });
+
+  // The agreed time onto the leg first, so the route is saved against the window the family holds.
+  const agreed = String(proposal.requested_dropoff_time ?? "").trim();
+  if (proposal.cancel !== true && agreed !== "") {
+    const moved = await plan.setDropoffWindow({ siteId: a.siteId, legId: leg.id, serviceDate, time: agreed, now: a.now, by: a.by });
+    if (!moved.ok) return refused({ reason: moved.reason, childToken });
+  }
+
+  let routed: { before: BoardView; after: BoardView } | null = null;
+  if (route) {
+    const saved = await plan.saveRoute({
+      siteId: a.siteId, serviceDate, direction,
+      moves: (route.moves ?? []).map((m) => ({
+        childToken: m.child_token, bucket: m.bucket, vanId: m.van_id ?? null,
+        ...(m.not_before ? { notBefore: m.not_before } : {}),
+      })),
+      departures: route.departures,
+      expectedVersion: current.version, actor: a.actor, now: a.now,
+    });
+    if (!saved.ok) return refused(saved);
+    routed = { before: saved.before, after: saved.after };
+  }
+
+  // The adult who will be there, when nobody on the child's file may receive them yet (AT-13).
+  if (proposal.cancel !== true && direction === "PM" && contacts.length > 0) {
+    const onFile = await tx.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM ops.contact_authorization
+        WHERE site_id = $1 AND child_token = $2 AND scope = 'RECEIVE_CHILD'
+          AND (valid_to IS NULL OR valid_to > $3)`,
+      [a.siteId, leg.child_token, a.now],
+    );
+    if ((onFile.rows[0]?.n ?? 0) === 0) {
+      const recorded = await plan.recordReceiver({
+        siteId: a.siteId, legId: leg.id, childToken: leg.child_token,
+        contactToken: typeof proposal.requested_by_contact === "string" ? proposal.requested_by_contact : null,
+        now: a.now, by: a.by,
+      });
+      if (!recorded.ok) return refused({ reason: recorded.reason, childToken });
+    }
+  }
+  return { ok: true, leg, contacts, routed };
+}
 
 /** How a decided reply reads in the agent's thread: what changed on the route, and who was texted. */
 function decisionOutcome(decision: ApprovalDecision, queued: number, lines: readonly string[]): string {
@@ -871,14 +811,12 @@ function decisionOutcome(decision: ApprovalDecision, queued: number, lines: read
   return lines.length > 0 ? `${lines.join(". ")}. ${said}` : said;
 }
 
-/** The plan could not be saved, or there is no writer to save it with. Rolls everything back. */
-class PlanNotSaved extends Error {}
-
-/** The agreed drop-off time could not be written to the leg. Rolls everything back. */
-class TimeNotSaved extends Error {}
-
-/** The route would move a child out of or into a van already on the road. Rolls everything back. */
-class VanLeft extends Error {}
+/** The plan would not take the change: the board's own refusal, kept whole. Rolls everything back. */
+export class ChangeRefused extends Error {
+  constructor(readonly refusal: Refusal) {
+    super(`refused ${refusal.reason}`);
+  }
+}
 
 /** A uuid, so a non-uuid id is a clean not-found rather than a Postgres cast error. */
 function isUuid(value: string): boolean {

@@ -150,6 +150,8 @@ export default function VanArrival({
   const [replanning, setReplanning] = useState(false);
   /** Re-plan's answer when there is nothing to approve: nobody can be moved to a van that fits. */
   const [stranded, setStranded] = useState<readonly string[] | null>(null);
+  /** Re-plan's answer when the board would not take it: what is in the way, and where to fix it. */
+  const [refused, setRefused] = useState<{ says: string; fix: { label: string; href: string } } | null>(null);
   async function replanNow(boardHref: string) {
     setReplanning(true);
     try {
@@ -159,7 +161,9 @@ export default function VanArrival({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ date, direction: leg }),
       });
-      const body = (await response.json().catch(() => null)) as { drafted?: boolean; children?: string[] } | null;
+      const body = (await response.json().catch(() => null)) as
+        | { drafted?: boolean; children?: string[]; refused?: { says: string; fix: { label: string; href: string } } }
+        | null;
       if (response.ok && body?.drafted) {
         setAgentBubbleOpen(true);
         router.refresh();
@@ -167,6 +171,10 @@ export default function VanArrival({
       }
       if (response.ok && body?.children?.length) {
         setStranded(body.children);
+        return;
+      }
+      if (response.ok && body?.refused) {
+        setRefused(body.refused);
         return;
       }
       window.location.assign(boardHref);
@@ -335,7 +343,13 @@ export default function VanArrival({
                   {fill(vanArrival.noVanCanTake, { children: stranded.join(", ") })}
                 </span>
               ) : null}
-              {replan.kind === "OPEN_BOARD" && !stranded ? (
+              {refused ? (
+                <span className={styles.bannerNote} role="status">
+                  {refused.says}{" "}
+                  <a href={refused.fix.href}>{refused.fix.label}</a>
+                </span>
+              ) : null}
+              {replan.kind === "OPEN_BOARD" && !stranded && !refused ? (
                 <button
                   type="button"
                   className={styles.replan}

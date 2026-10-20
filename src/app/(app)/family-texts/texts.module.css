@@ -945,3 +945,18 @@
     max-width: none;
   }
 }
+
+/* A refusal on a panel (ledger #80): what is in the way, in the alert tone, with the fix as a link. */
+.refusedLine {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-crit-bg);
+  color: var(--color-crit-fg);
+  font-weight: var(--weight-medium);
+}
+
+.refusedLine a {
+  color: inherit;
+  text-decoration: underline;
+}
