@@ -308,6 +308,41 @@ describe("the family's request and the approved slot (ledger #83)", () => {
   });
 });
 
+describe("an approved change answers the family's earlier alerts (For you)", () => {
+  const raiseAlert = async (child: string, at: Date) => {
+    const id = uuidv7();
+    await db.query(
+      `INSERT INTO ops.task (id, site_id, category, severity, state, child_token, summary, next_step, completion_predicate,
+         created_at, created_by, updated_by, source_mode)
+       VALUES ($1, $2, 'ASSISTANT_UNAVAILABLE', 'RED', 'OPEN', $3::uuid, 'A family text needs a person', 'Reply yourself',
+         'a person answered the family', $4, 'test', 'test', 'SIMULATED')`,
+      [id, SITE, child, at],
+    );
+    return id;
+  };
+  const stateOf = async (id: string) =>
+    (await db.query<{ state: string }>("SELECT state FROM ops.task WHERE id = $1", [id])).rows[0].state;
+
+  it("resolves the alerts about this child from before it, and leaves every other child's", async () => {
+    await savedPlanWithNoahOnVanTwo();
+    const earlier = new Date(NOW.getTime() - 60 * 60_000);
+    const noahsAlert = await raiseAlert(childToken(), earlier);
+    const someoneElses = await raiseAlert(childTokenOf("C8"), earlier);
+    const id = await seedProposal();
+    expect((await decide(id, "APPROVED", board())).status).toBe(200);
+    expect(await stateOf(noahsAlert)).toBe("RESOLVED_APPROVED");
+    expect(await stateOf(someoneElses)).toBe("OPEN");
+  });
+
+  it("leaves them open when the coordinator chose Don't send", async () => {
+    await savedPlanWithNoahOnVanTwo();
+    const noahsAlert = await raiseAlert(childToken(), new Date(NOW.getTime() - 60_000));
+    const id = await seedProposal();
+    expect((await decide(id, "DECLINED", board())).status).toBe(200);
+    expect(await stateOf(noahsAlert)).toBe("OPEN");
+  });
+});
+
 describe("Don't send changes nothing", () => {
   it("leaves the leg, the receiver file and the plan exactly as they were, and queues no text", async () => {
     const started = await savedPlanWithNoahOnVanTwo();

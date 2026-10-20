@@ -84,6 +84,7 @@ import { transition } from "@/domain/transition";
 import { enqueue, type OutboxTransport } from "@/modules/outbox/outbox";
 import { FAMILY_SMS, authorizedContactsForChild } from "@/modules/outbox/policy";
 import { recordApprovedSlot, settleAvailabilityRequest } from "@/modules/availability/store";
+import { LIVE_ALERT_STATES_SQL, MODEL_UNAVAILABLE_CATEGORY } from "@/modules/agent/alert-task";
 
 /** The screen these approvals are read and decided on: the "For you" tab of Family texts. */
 export const APPROVALS_PAGE = "/family-texts";
@@ -556,6 +557,8 @@ export async function decideApproval(
     });
     if (!applied.ok) throw new ChangeRefused(applied.refusal);
     const { leg, contacts } = applied;
+    // The family is answered: any "needs a person" alert about this child from before it closes too.
+    await resolveAnsweredAlerts(tx, { siteId: row.site_id, childToken: leg.child_token, before: req.now, by });
     // The families the route made later are told with it, in this same transaction (ledger #79).
     if (applied.routed) {
       await queueReplanLateNoticesIn(tx, afterCommit, transport, {
@@ -695,6 +698,25 @@ async function queueApprovedMessage(
  * transaction's own and a concurrent writer waits rather than racing it. A task already resolved
  * is left as it is.
  */
+/**
+ * A FAMILY ANSWERED IS NOT A FAMILY WAITING. When a change for a child is approved — the plan moved
+ * and their family is being texted — every "needs a person" alert about that child raised before it
+ * (the assistant could not read an earlier text, or the plan refused it then) is resolved with it.
+ * Otherwise For you keeps asking a coordinator to handle a family that has already had its answer.
+ */
+async function resolveAnsweredAlerts(
+  tx: Exec,
+  a: { readonly siteId: string; readonly childToken: string; readonly before: Date; readonly by: string },
+): Promise<void> {
+  const open = await tx.query<{ id: string }>(
+    `SELECT id FROM ops.task
+      WHERE site_id = $1 AND child_token = $2::uuid AND category = $3
+        AND state IN (${LIVE_ALERT_STATES_SQL}) AND created_at <= $4`,
+    [a.siteId, a.childToken, MODEL_UNAVAILABLE_CATEGORY, a.before],
+  );
+  for (const alert of open.rows) await resolveTask(tx, alert.id, "APPROVED", a.by);
+}
+
 export async function resolveTask(tx: Exec, taskId: string, decision: ApprovalDecision, by: string): Promise<void> {
   const found = await tx.query<{ state: string; version: number }>(
     "SELECT state, version FROM ops.task WHERE id = $1 FOR UPDATE",

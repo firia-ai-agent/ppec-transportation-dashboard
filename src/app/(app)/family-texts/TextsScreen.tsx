@@ -389,6 +389,12 @@ function ForYouAlert({
         <div key={alert.id}>
           <p className={styles.alertLine}>{alert.sentence}</p>
           {alert.theirWords ? <blockquote className={styles.alertWords}>{alert.theirWords}</blockquote> : null}
+          {/* The family's own thread, beside the alert rather than whichever family is first in the list. */}
+          {alert.threadHref ? (
+            <Link href={alert.threadHref} className={styles.secondary} data-alert-open="">
+              {assistantUnavailable.openText}
+            </Link>
+          ) : null}
           {/* The one place to fix what was in the way (ledger #80). */}
           {alert.fix ? (
             <Link href={alert.fix.href} className={styles.secondary}>
