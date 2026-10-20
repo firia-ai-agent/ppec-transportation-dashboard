@@ -8,7 +8,7 @@
  * rather than by reading JSX. No string is built here either — every one of them is a `copy.ts`
  * key filled in (§0's rule 6), and no colour is chosen without a word beside it (§0's rule 2).
  */
-import { fill, flow, planBoard } from "@/ui/copy";
+import { fill, flow, planBoard, refusal } from "@/ui/copy";
 import type { Tone } from "@/ui/tokens";
 import { clockLabel, siteTimeLabel } from "@/ui/service-date";
 import type { CounterKey, RejectReason } from "@/config/equipment";
@@ -28,7 +28,9 @@ export type SaveState =
   | { kind: "DIRTY" }
   | { kind: "SAVING" }
   | { kind: "FAILED" }
-  | { kind: "CHANGED"; by: string | null };
+  | { kind: "CHANGED"; by: string | null }
+  /** The writer refused: the change would make a child miss the time their family agreed (#84). */
+  | { kind: "OUTSIDE_SLOT"; child: string };
 
 export function saveLine(state: SaveState): { label: string; tone: Tone } {
   switch (state.kind) {
@@ -38,6 +40,9 @@ export function saveLine(state: SaveState): { label: string; tone: Tone } {
       return { label: planBoard.saving, tone: "neutral" };
     case "FAILED":
       return { label: planBoard.saveFailed, tone: "crit" };
+    case "OUTSIDE_SLOT":
+      // The board's own reason, not "Retry": retrying the same plan would be refused again.
+      return { label: fill(refusal.says.OUTSIDE_SLOT, { child: state.child }), tone: "crit" };
     case "CHANGED":
       /*
        * Somebody else saved while this board was being built. The unsaved moves are kept, so

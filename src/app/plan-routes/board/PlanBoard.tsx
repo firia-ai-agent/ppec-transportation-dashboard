@@ -75,7 +75,7 @@ import { hhmmOf, minuteOfDay, plannedStopTimes } from "@/domain/plan/arrivals";
 import type { BoardView } from "@/modules/plan/store";
 import { boardHref } from "@/modules/plan/when";
 import { vanColourVar } from "@/config/vans";
-import { fill, flow, planBoard } from "@/ui/copy";
+import { fill, flow, planBoard, refusal as refusalCopy } from "@/ui/copy";
 import { NeedIcons } from "@/ui/equipment";
 import { HeaderSlot } from "@/ui/HeaderSlot";
 import { serviceDateLabel } from "@/ui/service-date";
@@ -321,7 +321,7 @@ export default function PlanBoard({
           body: JSON.stringify({ date: day.date, direction: day.direction, version, ...panel }),
         });
         const body = (await response.json().catch(() => null)) as
-          | { ok?: boolean; version?: number; savedAt?: string; reason?: string; changedBy?: string | null; view?: BoardView }
+          | { ok?: boolean; version?: number; savedAt?: string; reason?: string; changedBy?: string | null; childToken?: string; view?: BoardView }
           | null;
         if (response.ok && body?.ok && body.view && typeof body.version === "number") {
           setBoard(body.view);
@@ -335,6 +335,10 @@ export default function PlanBoard({
           setSave({ kind: "CHANGED", by: body.changedBy ?? null });
           return;
         }
+        if (response.status === 422 && body?.reason === "OUTSIDE_SLOT") {
+          setSave({ kind: "OUTSIDE_SLOT", child: nameOf(day, body.childToken ?? "") || refusalCopy.aChild });
+          return;
+        }
         setSave({ kind: "FAILED" });
       } catch {
         setSave({ kind: "FAILED" });
@@ -342,7 +346,7 @@ export default function PlanBoard({
         setSavingChild(false);
       }
     },
-    [day.date, day.direction, version],
+    [day, version],
   );
 
   /** Undo takes back the most recent **unsaved** move, and only that (option A). */
@@ -464,7 +468,7 @@ export default function PlanBoard({
         body: JSON.stringify({ date: day.date, direction: day.direction, version, moves, departures: leaveEdits }),
       });
       const body = (await response.json().catch(() => null)) as
-        | { ok?: boolean; version?: number; savedAt?: string; reason?: string; changedBy?: string | null; view?: BoardView }
+        | { ok?: boolean; version?: number; savedAt?: string; reason?: string; changedBy?: string | null; childToken?: string; view?: BoardView }
         | null;
       if (response.ok && body?.ok && typeof body.version === "number") {
         if (body.view) setBoard(body.view);
@@ -474,6 +478,10 @@ export default function PlanBoard({
         if (!body.view) setBoard((current) => ({ ...current, departs }));
         setLeaveEdits({});
         setSave({ kind: "SAVED", at: body.savedAt ?? new Date().toISOString() });
+        return;
+      }
+      if (response.status === 422 && body?.reason === "OUTSIDE_SLOT") {
+        setSave({ kind: "OUTSIDE_SLOT", child: nameOf(day, body.childToken ?? "") || refusalCopy.aChild });
         return;
       }
       if (response.status === 409) {
@@ -486,7 +494,7 @@ export default function PlanBoard({
     } catch {
       setSave({ kind: "FAILED" });
     }
-  }, [day.date, day.direction, departs, leaveEdits, pending, plan, savedPlan, version]);
+  }, [day, departs, leaveEdits, pending, plan, savedPlan, version]);
 
   /*
    * There is no "Save anyway?" (Veri, 2026-10-17 8:35 PM ET): a van can never be saved over its
