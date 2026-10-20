@@ -63,6 +63,8 @@ export const PRESERVED_TABLES = [
   "ops.org", "ops.site", "ops.app_user", "ops.site_membership",
   "ops.integration_health", "ops.runtime_marker",
   "ops.suppression", "identity.consent_event",
+  // Staff feedback is about the app, not the day: Restart demo day keeps it (ledger #82).
+  "ops.feedback",
 ] as const;
 
 /** Tables the seed writes rows into; the reset reports a count for each. */

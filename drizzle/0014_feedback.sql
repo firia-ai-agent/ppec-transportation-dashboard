@@ -14,4 +14,9 @@ CREATE TABLE "ops"."feedback" (
 );
 --> statement-breakpoint
 ALTER TABLE "ops"."feedback" ADD CONSTRAINT "feedback_site_id_site_id_fk" FOREIGN KEY ("site_id") REFERENCES "ops"."site"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "feedback_site_status_idx" ON "ops"."feedback" USING btree ("site_id","status","created_at");
+CREATE INDEX "feedback_site_status_idx" ON "ops"."feedback" USING btree ("site_id","status","created_at");--> statement-breakpoint
+-- Ownership and grants, as 0009 writes them out: a table created here is owned by the migration
+-- login, not `migrator` (src/db/migrations.test.ts), and the deployed app connects as `app_rw`.
+ALTER TABLE ops.feedback OWNER TO migrator;--> statement-breakpoint
+GRANT SELECT, INSERT, UPDATE, DELETE ON ops.feedback TO app_rw;--> statement-breakpoint
+GRANT SELECT ON ops.feedback TO readonly;
