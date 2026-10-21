@@ -167,3 +167,22 @@ export function setAgentSeen(stamp: string): void {
 export function hasUnseen(stamp: string, seen: string | null): boolean {
   return stamp !== "" && seen !== null && stamp > seen;
 }
+
+/** A scroll box's three numbers — an element's, or a test's. */
+export type ScrollBox = { readonly scrollTop: number; readonly scrollHeight: number; readonly clientHeight: number };
+
+/**
+ * DOES THE THREAD TAKE THIS WHEEL? Only when it can still move that way. Otherwise the open panel
+ * swallows the wheel, so scrolling over the chat never scrolls the board behind it: Chrome hands a
+ * wheel to the page when the thread is short, at its end, or under the head or the compose bar.
+ */
+export function threadTakesWheel(box: ScrollBox, deltaY: number): boolean {
+  if (deltaY < 0) return box.scrollTop > 0;
+  if (deltaY > 0) return box.scrollTop + box.clientHeight < box.scrollHeight - 1;
+  return false;
+}
+
+/** Within a line or so of the bottom: the reader is following along, so new lines keep them there. */
+export function nearBottom(box: ScrollBox, slack = 48): boolean {
+  return box.scrollHeight - box.scrollTop - box.clientHeight <= slack;
+}
