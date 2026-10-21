@@ -16,7 +16,7 @@ import { readAgentThread } from "@/modules/agent/ask/thread";
 import { confirmCopy } from "@/ui/copy";
 
 /**
- * A STALE AGENT PLAN CARD DOES NOT VANISH (Vera, #124): it leaves a note on For you until the
+ * A STALE AGENT PLAN CARD DOES NOT VANISH (Vera, PR 124): it leaves a note on For you until the
  * coordinator dismisses it or opens Plan routes from it — and Approve on it is still a 422.
  */
 let db: Db;
@@ -51,7 +51,7 @@ async function staleCard(key: string) {
   return { card, name };
 }
 
-describe("a stale agent plan card on For you (Vera, #124)", () => {
+describe("a stale agent plan card on For you (Vera, PR 124)", () => {
   it("becomes a note — not an approvable card — and Approve on it is still 422", async () => {
     const { card, name } = await staleCard("note-a");
     expect((await confirmCards(db, SITE)).map((c) => c.approvalId)).not.toContain(card);
@@ -93,7 +93,7 @@ describe("a stale agent plan card on For you (Vera, #124)", () => {
   });
 });
 
-describe("the bubble's thread for a stale plan card (Vera, #124)", () => {
+describe("the bubble's thread for a stale plan card (Vera, PR 124)", () => {
   const lineOf = async (id: string) => (await readAgentThread(db, SITE)).items.find((i) => "id" in i && i.id === `${id}:done`);
 
   it("a stale card nobody decided says the plan changed, with Open Plan routes — not 'Already handled'", async () => {

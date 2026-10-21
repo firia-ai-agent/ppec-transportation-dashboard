@@ -87,7 +87,7 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
     [siteId],
   );
   // "Already handled" is for a card somebody decided. A stale card nobody decided says what happened
-  // — the plan changed after it was written — and where to look (Vera, #124), as For you's note does.
+  // — the plan changed after it was written — and where to look (Vera, PR 124), as For you's note does.
   const stale = await db.query<{ id: string; args: Record<string, unknown> | null; at: Date }>(
     `SELECT a.id, a.proposal->'args' AS args, a.created_at AS at FROM ops.approval_request a
       WHERE a.site_id = $1 AND a.proposal->>'kind' = 'STAFF_ACTION' AND a.decided_at IS NULL AND ${STALE_PLAN_CARD_SQL}`,
