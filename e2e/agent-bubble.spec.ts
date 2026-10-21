@@ -106,8 +106,13 @@ test.describe("the closed disc", () => {
    * src/ui/sticky-action-bar.test.ts; what only a browser can say is that the two boxes a person
    * actually touches do not intersect.
    */
-  test("is hidden on the ramp iPad at 390 while Confirm is pinned (demo ruling)", async ({ page }) => {
-    // Mockup: png/ramp-arrival-390.png. Firia 2026-10-18 10:10 AM ET: hide, not lift, until after the demo.
+  test("rides above the ramp iPad's pinned Confirm at 390, rather than being hidden", async ({ page }) => {
+    /*
+     * Mockup: png/ramp-arrival-390.png. This screen used to hide the disc instead (Firia,
+     * 2026-10-18 10:10 AM ET) because the shared offset did not exist yet; it does now, and the
+     * agent belongs on every staff screen but Family texts (Vera), so the disc is on
+     * screen and clear of the bar.
+     */
     await page.setViewportSize(PHONE);
     await page.goto("/ramp-ipad");
 
@@ -116,7 +121,13 @@ test.describe("the closed disc", () => {
       test.skip(true, "no van has arrived on the demo day, so there is no Confirm bar");
     }
     await expect(bar.first()).toBeVisible();
-    await expect(bubble(page)).toBeHidden();
+    await expect(bubble(page)).toBeVisible();
+
+    const disc = await boxOf(bubble(page));
+    const barBox = await boxOf(bar.first());
+    expect(overlaps(disc, barBox), "the disc sits on the Confirm bar").toBe(false);
+    // Above it, not beside it: the offset lifts the disc, it does not nudge it sideways.
+    expect(verticalGap(disc, barBox)).toBeGreaterThan(0);
 
     await shot(page, "agent-bubble-ramp-confirm-390");
   });

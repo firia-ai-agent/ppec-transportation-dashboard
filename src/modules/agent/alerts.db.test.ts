@@ -11,6 +11,7 @@ import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { vansOver } from "@/modules/plan/place";
 import { sendReplanLateNotices } from "@/modules/plan/replan-notices";
 import { loadBoard } from "@/modules/plan/store";
+import { PLAN_ROUTES_PATH } from "@/modules/plan/when";
 import { raiseVanShortAlerts, VAN_SHORT_TASK_CATEGORY } from "@/modules/plan/van-short";
 import { defaultsOfSlot, vanIdOfSlot } from "@/test/board-day";
 import { seedStaff } from "@/test/messaging";
@@ -19,7 +20,7 @@ import { loadAgentConfig, DEMO_DATA_ONLY_ENV_VAR, DEMO_DATA_ONLY_REQUIRED_VALUE 
 import { ALERT_TRIGGER, alertAgent } from "./alerts";
 import { readAgentThread } from "./ask/thread";
 import { confirmCards } from "@/modules/actions/confirm-cards";
-import { agentBubble, confirmCopy, fill } from "@/ui/copy";
+import { agentBubble, confirmCopy, fill, refusal } from "@/ui/copy";
 import { askAgent } from "./ask/staff-ask";
 import { createGateway } from "./gateway";
 import { fakeProvider, toolCall } from "./providers/fake";
@@ -216,7 +217,7 @@ describe("the bubble shows what the agent heard, and how it ended (ledger #75 b 
       kind: "agent",
       id: `${a.task_id}:no-fix`,
       text: fill(agentBubble.couldNotFix, { situation: a.summary }),
-      link: { href: `/plan-routes?date=${DATE}&leg=pm&van=${encodeURIComponent(vanIdOfSlot(1))}`, label: agentBubble.replanLink },
+      link: { href: `${PLAN_ROUTES_PATH}?date=${DATE}&leg=pm&van=${encodeURIComponent(vanIdOfSlot(1))}`, label: agentBubble.replanLink },
     });
   });
 });
@@ -265,7 +266,7 @@ describe("a card closes the loop, steps aside when the board moved, and can be t
     expect(done).toMatchObject({ kind: "agent", text: expect.stringMatching(/^Done\. Every van fits(, and \d+ families were texted a new time)?\.$/) });
   });
 
-  it("does not offer a plan card the board was saved past, and says the plan changed with Plan routes (Vera, PR 124)", async () => {
+  it("does not offer a plan card the board was saved past, and says the plan changed with Plan routes (Vera)", async () => {
     // Van 1 short again, and a person presses Re-plan: one draft card waits.
     expect((await ACTIONS.confirm_van_setup.run(ctx(people.frontDesk, "FRONT_DESK"), {
       ...defaultsOfSlot(1), seats: 1, oxygenMounts: 0, vanId: vanIdOfSlot(1), date: DATE, state: "CHECKED" as const,
@@ -279,7 +280,7 @@ describe("a card closes the loop, steps aside when the board moved, and can be t
     const items = await thread();
     for (const id of pending) {
       const line = items.find((i) => "id" in i && i.id === `${id}:done`);
-      expect(line).toMatchObject({ kind: "agent", text: expect.stringMatching(/plan changed after this card was written\.$/), link: { label: "Open Plan routes", href: "/plan-routes" } });
+      expect(line).toMatchObject({ kind: "agent", text: expect.stringMatching(/plan changed after this card was written\.$/), link: { label: refusal.fix.planRoutes, href: PLAN_ROUTES_PATH } });
       expect(line).not.toMatchObject({ text: confirmCopy.alreadyHandled });
       expect(items.find((i) => "id" in i && i.id === id)).toBeUndefined();
     }

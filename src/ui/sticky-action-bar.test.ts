@@ -103,11 +103,15 @@ describe("the disc's bottom offset includes the page's sticky action bar", () =>
       expect(css, `${name} names the ramp iPad`).not.toMatch(/ramp-ipad|confirmBar|data-confirm/);
       expect(css).not.toMatch(/\[data-page/);
     }
-    // …and the ramp iPad holds no bubble geometry: the one mention allowed is the demo ruling's
-    // hide of the closed disc (Firia, 2026-10-18 10:10 AM ET; the open panel shows Re-plan's card,
-    // ledger #76), which sets display and nothing else.
-    expect(arrivalCss.match(/agent-bubble/g) ?? []).toHaveLength(1);
-    expect(arrivalCss).toMatch(/:global\(body\):has\(\.confirmBar\) :global\(\[data-agent-bubble\]\[data-state="closed"\]\) \{\s*display: none;\s*\}/);
+    /*
+     * …and the ramp iPad holds no bubble geometry and no bubble *rule* at all (Vera).
+     * It used to hide the closed disc below 768 — the demo ruling of 2026-10-18 10:10 AM ET, taken
+     * instead of this very offset because the offset did not exist yet. The offset landed, so the
+     * hide went: the disc clears the Confirm bar by the arithmetic below rather than by vanishing.
+     */
+    const bareArrival = arrivalCss.replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(bareArrival).not.toMatch(/agent-bubble/);
+    expect(bareArrival).not.toMatch(/display: none/);
   });
 });
 

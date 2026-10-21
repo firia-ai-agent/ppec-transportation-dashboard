@@ -1,5 +1,5 @@
 /**
- * A STALE AGENT PLAN CARD LEAVES A NOTE (Vera, PR 124). When a person saves a leg after the agent wrote
+ * A STALE AGENT PLAN CARD LEAVES A NOTE (Vera). When a person saves a leg after the agent wrote
  * a plan card for it, the card cannot be approved (`STALE_PLAN_CARD_SQL`, and Approve's 422) — but it
  * must not just vanish from For you. In its place is one line, the same words as the refusal:
  * "{child}'s plan changed after this card was written." with Open Plan routes. No Approve.

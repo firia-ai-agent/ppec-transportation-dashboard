@@ -5,6 +5,7 @@ import { loadBoard } from "@/modules/plan/store";
 import { seedSecondSite, seedStaff, SITE_B } from "@/test/messaging";
 import { freshPlanDb, SITE } from "@/test/pglite";
 import { saveAutoPlan } from "@/test/save-plan";
+import { childFirstName } from "@/modules/identity/display-name";
 import { PLAN_ROUTES_PATH } from "@/modules/plan/when";
 import { confirmStaffAction } from "./confirm";
 import { confirmCards } from "./confirm-cards";
@@ -16,7 +17,7 @@ import { readAgentThread } from "@/modules/agent/ask/thread";
 import { confirmCopy } from "@/ui/copy";
 
 /**
- * A STALE AGENT PLAN CARD DOES NOT VANISH (Vera, PR 124): it leaves a note on For you until the
+ * A STALE AGENT PLAN CARD DOES NOT VANISH (Vera): it leaves a note on For you until the
  * coordinator dismisses it or opens Plan routes from it — and Approve on it is still a 422.
  */
 let db: Db;
@@ -48,15 +49,19 @@ async function staleCard(key: string) {
   expect((await confirmCards(db, SITE)).map((c) => c.approvalId)).toContain(card);
   expect((await ACTIONS.move_child.run(ctx(), { date: DATE, direction: "PM", childToken: token, bucket: "VAN", vanId: other })).status).toBe(200);
   const name = [...view.day.riders, ...view.day.others].find((c) => c.token === token)!.name;
-  return { card, name };
+  // The board's label is "Noah O."; every stale-card sentence says the first name alone (Vera).
+  return { card, name, first: childFirstName(name) };
 }
 
-describe("a stale agent plan card on For you (Vera, PR 124)", () => {
+describe("a stale agent plan card on For you (Vera)", () => {
   it("becomes a note — not an approvable card — and Approve on it is still 422", async () => {
-    const { card, name } = await staleCard("note-a");
+    const { card, name, first } = await staleCard("note-a");
     expect((await confirmCards(db, SITE)).map((c) => c.approvalId)).not.toContain(card);
     const notes = await staleNotes(db, SITE);
-    expect(notes).toContainEqual({ approvalId: card, says: `${name}'s plan changed after this card was written.`, fix: { label: "Open Plan routes", href: PLAN_ROUTES_PATH } });
+    expect(first).not.toBe(name);
+    expect(notes).toContainEqual({ approvalId: card, says: `${first}'s plan changed after this card was written.`, fix: { label: "Open Plan routes", href: PLAN_ROUTES_PATH } });
+    // …and never the stored label with its initial glued to a possessive ("Noah O.'s plan changed").
+    expect(notes.map((n) => n.says)).not.toContain(`${name}'s plan changed after this card was written.`);
     const saved = (await board()).version;
     const pressed = await confirmStaffAction(db, { userId: director, approvalId: card, decision: "APPROVED", now: NOW });
     expect(pressed.status).toBe(422);
@@ -93,13 +98,14 @@ describe("a stale agent plan card on For you (Vera, PR 124)", () => {
   });
 });
 
-describe("the bubble's thread for a stale plan card (Vera, PR 124)", () => {
+describe("the bubble's thread for a stale plan card (Vera)", () => {
   const lineOf = async (id: string) => (await readAgentThread(db, SITE)).items.find((i) => "id" in i && i.id === `${id}:done`);
 
   it("a stale card nobody decided says the plan changed, with Open Plan routes — not 'Already handled'", async () => {
-    const { card, name } = await staleCard("thread-a");
+    const { card, name, first } = await staleCard("thread-a");
+    expect(first).not.toBe(name);
     expect(await lineOf(card)).toEqual({
-      kind: "agent", id: `${card}:done`, text: `${name}'s plan changed after this card was written.`,
+      kind: "agent", id: `${card}:done`, text: `${first}'s plan changed after this card was written.`,
       link: { label: "Open Plan routes", href: PLAN_ROUTES_PATH },
     });
   });

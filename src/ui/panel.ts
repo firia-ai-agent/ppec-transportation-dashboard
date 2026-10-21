@@ -29,6 +29,12 @@ export type PanelView = {
   readonly message: { readonly text: string; readonly editable: string | null } | null;
   /** The family thread this panel belongs to, where Edit opens. Null when it has none. */
   readonly threadHref: string | null;
+  /**
+   * What the refusing button says, and it names what it refuses: "Don't send" for a reply, the
+   * card's own verb for a change (Vera). On the panel rather than decided inside it,
+   * so the one component draws both kinds without knowing either.
+   */
+  readonly decline: string;
 };
 
 /** A reply to a family, with the change it makes to the ride. */
@@ -42,6 +48,7 @@ export function replyPanel(p: ProposalView, threadHref: string): PanelView {
     lines: p.lines.length > 0 ? p.lines : p.changeLine ? [p.changeLine] : [],
     message: { text: p.draftText === "" ? approval.draftFailed : p.draftText, editable: p.replyText },
     threadHref,
+    decline: approval.dontSend,
   };
 }
 
@@ -57,5 +64,6 @@ export function confirmPanel(c: ConfirmView): PanelView {
     lines: c.impact,
     message: null,
     threadHref: null,
+    decline: c.decline,
   };
 }

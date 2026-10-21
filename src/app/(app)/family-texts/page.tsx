@@ -235,7 +235,7 @@ async function readQueue(
   }
 }
 
-/** Stale agent plan cards' notes (Vera, PR 124), failing soft like the rest. */
+/** Stale agent plan cards' notes (Vera), failing soft like the rest. */
 async function readStaleNotes(siteId: string) {
   try {
     return await staleNotes(getExec(), siteId);

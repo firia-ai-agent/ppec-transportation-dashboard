@@ -24,6 +24,7 @@ import type { AgentThreadItem } from "@/ui/AgentThread";
 import { agentRetryConfig } from "@/config/live";
 import { agentBubble, agentSteps, confirmCopy, fill } from "@/ui/copy";
 import { STALE_PLAN_CARD_SQL } from "@/modules/actions/confirm-cards";
+import { STAFF_ACTION_KIND } from "@/modules/actions/confirm-view";
 import { staleCardWords } from "@/modules/actions/stale-notes";
 import { boardHref, PLAN_ROUTES_PATH } from "@/modules/plan/when";
 import { ALERT_TRIGGER } from "@/modules/agent/alerts";
@@ -72,7 +73,7 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
     `SELECT a.id, t.summary, a.created_at AS at
        FROM ops.approval_request a JOIN ops.task t ON t.id = a.task_id
       WHERE a.site_id = $1 AND a.decided_at IS NULL
-        AND NOT (a.proposal->>'kind' = 'STAFF_ACTION' AND ${STALE_PLAN_CARD_SQL})
+        AND NOT (a.proposal->>'kind' = '${STAFF_ACTION_KIND}' AND ${STALE_PLAN_CARD_SQL})
       ORDER BY a.created_at, a.id`,
     [siteId],
   );
@@ -83,14 +84,14 @@ export async function readAgentThread(db: Db, siteId: string): Promise<AgentThre
   const closed = await db.query<{ id: string; outcome: string | null; at: Date }>(
     `SELECT a.id, a.proposal->>'outcome' AS outcome, a.decided_at AS at FROM ops.approval_request a
       WHERE a.site_id = $1 AND a.decided_at IS NOT NULL
-        AND (a.proposal->>'outcome' IS NOT NULL OR a.proposal->>'kind' = 'STAFF_ACTION')`,
+        AND (a.proposal->>'outcome' IS NOT NULL OR a.proposal->>'kind' = '${STAFF_ACTION_KIND}')`,
     [siteId],
   );
   // "Already handled" is for a card somebody decided. A stale card nobody decided says what happened
-  // — the plan changed after it was written — and where to look (Vera, PR 124), as For you's note does.
+  // — the plan changed after it was written — and where to look (Vera), as For you's note does.
   const stale = await db.query<{ id: string; args: Record<string, unknown> | null; at: Date }>(
     `SELECT a.id, a.proposal->'args' AS args, a.created_at AS at FROM ops.approval_request a
-      WHERE a.site_id = $1 AND a.proposal->>'kind' = 'STAFF_ACTION' AND a.decided_at IS NULL AND ${STALE_PLAN_CARD_SQL}`,
+      WHERE a.site_id = $1 AND a.proposal->>'kind' = '${STAFF_ACTION_KIND}' AND a.decided_at IS NULL AND ${STALE_PLAN_CARD_SQL}`,
     [siteId],
   );
   const endings = [
@@ -302,7 +303,7 @@ async function alertsHeard(
             (EXISTS (SELECT 1 FROM ops.agent_tool_call c WHERE c.run_id = r.id AND c.status = 'PROPOSED')
              -- …or a re-plan of that leg is waiting for a person, whoever drafted it (ledger #76).
              OR EXISTS (SELECT 1 FROM ops.approval_request a
-                         WHERE a.site_id = r.site_id AND a.decided_at IS NULL AND a.proposal->>'kind' = 'STAFF_ACTION'
+                         WHERE a.site_id = r.site_id AND a.decided_at IS NULL AND a.proposal->>'kind' = '${STAFF_ACTION_KIND}'
                            AND a.proposal->'args'->>'date' = t.completion_evidence->'locator'->>'date'
                            AND a.proposal->'args'->>'leg' = t.completion_evidence->'locator'->>'leg')) AS proposed
        FROM ops.agent_run r JOIN ops.task t ON t.id::text = r.trigger_id AND t.site_id = r.site_id

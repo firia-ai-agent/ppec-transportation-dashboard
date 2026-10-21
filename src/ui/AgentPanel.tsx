@@ -115,7 +115,7 @@ export function AgentPanel({ panel, editing = false, className }: { readonly pan
           {panel.message ? <input type="hidden" name="text" value={panel.message.text} /> : null}
           <button type="submit" name="decision" value="DECLINED" className={styles.quiet} disabled={pending}>
             <X size={icon.inline} aria-hidden="true" />
-            {reply ? approval.dontSend : confirmCopy.dontDo}
+            {panel.decline}
           </button>
         </form>
       </div>
