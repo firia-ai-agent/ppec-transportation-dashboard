@@ -942,6 +942,17 @@ export const ENDPOINTS: readonly EndpointRow[] = [
     auth: { kind: "session", roles: APPROVAL_ROLES, siteScoped: true },
   },
   /**
+   * A stale agent plan card's note on For you, dismissed or followed to Plan routes (ledger #86):
+   * the For you roles, at the caller's own site. Clears a note; changes nothing about the day.
+   */
+  {
+    kind: "action",
+    file: "src/app/(app)/family-texts/stale-note-actions.ts",
+    path: "action:stale-note",
+    methods: ["POST"],
+    auth: { kind: "session", roles: APPROVAL_ROLES, siteScoped: true },
+  },
+  /**
    * A confirm card's Confirm / Don't (ledger #74 d): runs an action the agent prepared, as the
    * person who presses it. The row asks only for a session; who may take *that* action is decided
    * inside, by the action's own row (`modules/actions/confirm.ts` → `authorize`).

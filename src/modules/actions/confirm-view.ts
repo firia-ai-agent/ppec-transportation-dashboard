@@ -14,7 +14,7 @@ export type ConfirmView = {
 };
 
 /**
- * A stale agent plan card, as the note For you shows in its place (Vera, #124): the refusal's own
+ * A stale agent plan card, as the note For you shows in its place (Vera, PR 124): the refusal's own
  * line and its Plan routes link. No Approve — the card cannot be approved.
  */
 export type StaleNoteView = {

@@ -6,7 +6,7 @@ import { PLAN_ROUTES_PATH } from "@/modules/plan/when";
 import type { StaleNoteView } from "@/modules/actions/confirm-view";
 import { approval, confirmCopy, fill, refusal } from "./copy";
 
-/** A stale agent plan card's note on For you (Vera, #124), rendered over the real screen. */
+/** A stale agent plan card's note on For you (Vera, PR 124), rendered over the real screen. */
 const note: StaleNoteView = {
   approvalId: "00000000-0000-7000-8000-000000000124",
   says: fill(refusal.says.STALE_CARD, { child: "Noah" }),
@@ -22,7 +22,7 @@ const screen = (staleNotes: readonly StaleNoteView[]) =>
     }),
   );
 
-describe("For you with a stale agent plan card (Vera, #124)", () => {
+describe("For you with a stale agent plan card (Vera, PR 124)", () => {
   it("renders the note — the line, Open Plan routes, Dismiss — and never an Approve", () => {
     const html = screen([note]);
     expect(html).toContain("Noah&#x27;s plan changed after this card was written.");

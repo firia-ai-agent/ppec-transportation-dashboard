@@ -265,7 +265,7 @@ describe("a card closes the loop, steps aside when the board moved, and can be t
     expect(done).toMatchObject({ kind: "agent", text: expect.stringMatching(/^Done\. Every van fits(, and \d+ families were texted a new time)?\.$/) });
   });
 
-  it("does not offer a plan card the board was saved past, and says the plan changed with Plan routes (Vera, #124)", async () => {
+  it("does not offer a plan card the board was saved past, and says the plan changed with Plan routes (Vera, PR 124)", async () => {
     // Van 1 short again, and a person presses Re-plan: one draft card waits.
     expect((await ACTIONS.confirm_van_setup.run(ctx(people.frontDesk, "FRONT_DESK"), {
       ...defaultsOfSlot(1), seats: 1, oxygenMounts: 0, vanId: vanIdOfSlot(1), date: DATE, state: "CHECKED" as const,
