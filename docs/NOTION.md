@@ -1,7 +1,7 @@
 # Notion mirror
 
 Workspace **Firia**, teamspace **PPEC Transport Dashboard** (id 3f9ac450-cdc1-81b1-97ed-00422fcfa43d), approved by the founder 2026-10-14 as the PPEC Notion home.
-**GitHub is canonical for specs.** Notion mirrors them for reading and is the home for the decision ledger and runbooks. Loaded 2026-10-14 ~11:40 ET from commit f339baa. **Last synced to main @ f0ca284:** the Decision ledger page and its entries database hold **86 rows, numbered 1–86**, matching `docs/DECISION-LEDGER.md` on main, so every ledger row on main is mirrored. Build plan M2–M9 and the Queues/OpenRouter research page are now mirrored too (pages below).
+**GitHub is canonical for specs.** Notion mirrors them for reading and is the home for the decision ledger and runbooks. Loaded 2026-10-14 ~11:40 ET from commit f339baa. **Last synced to main @ 443a0f2:** the Decision ledger page and its entries database hold **87 rows, numbered 1–87**, matching `docs/DECISION-LEDGER.md` on main, so every ledger row on main is mirrored. Build plan M2–M9 and the Queues/OpenRouter research page are now mirrored too (pages below).
 
 | Page | Mirrors | URL |
 |---|---|---|
@@ -9,7 +9,7 @@ Workspace **Firia**, teamspace **PPEC Transport Dashboard** (id 3f9ac450-cdc1-81
 | Status: live work (Notion-native: open PRs, pending decisions, live environments) | — | https://app.notion.com/p/3f9ac450cdc181f1b13bdd57080dce4e |
 | Overview | README.md | https://app.notion.com/p/3f9ac450cdc181718e4bd1c21215d730 |
 | Decision ledger | docs/DECISION-LEDGER.md | https://app.notion.com/p/3f9ac450cdc181a48d74e670433c901a |
-| ↳ Decision ledger entries (database, 86 rows; last synced to main @ f0ca284) | docs/DECISION-LEDGER.md | https://app.notion.com/p/793dcf2d775744fe90ed913ebc3c9be8 |
+| ↳ Decision ledger entries (database, 87 rows, 1 to 87, synced @ 443a0f2) | docs/DECISION-LEDGER.md | https://app.notion.com/p/793dcf2d775744fe90ed913ebc3c9be8 |
 | PRD v1.0 (pointer only) | docs/PRD-v1.0.txt | https://app.notion.com/p/3f9ac450cdc181869b84e78d6868b6a7 |
 | Architecture | docs/ARCHITECTURE.md | https://app.notion.com/p/3f9ac450cdc1816ca2c5eae06ea71441 |
 | Data model | docs/DATA-MODEL.md | https://app.notion.com/p/3f9ac450cdc181d1bd8ad1c3dd1bc114 |
