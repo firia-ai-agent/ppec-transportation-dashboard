@@ -15,10 +15,10 @@ describe("a move card names the child and the van", () => {
 
   it("says who moves and where, in the first name and the van's own name", () => {
     expect(staffActionSummary("move_child", args, { child: "Noah", van: "Van 3" })).toBe(
-      "Move Noah to Van 3 on the afternoon plan and save it.",
+      "Move Noah to Van 3, afternoon.",
     );
     expect(staffActionSummary("move_child", { ...args, leg: "AM" }, { child: "Ava", van: "Van 1" })).toBe(
-      "Move Ava to Van 1 on the morning plan and save it.",
+      "Move Ava to Van 1, morning.",
     );
   });
 

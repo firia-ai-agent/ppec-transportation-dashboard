@@ -67,6 +67,8 @@ const ALLOWED_SEED_IMPORTERS = [
   /* The agent rehearses a change before it proposes it, and asks for help when it can't (ledger #80): a seeded day. */
   "src/modules/changes/rehearse.db.test.ts",
   /* The agent re-plans and proposes Restart as the person who asked (ledger #74): a seeded day. */
+  "src/modules/actions/card-line.db.test.ts",
+  "src/modules/actions/confirm-twins.db.test.ts",
   "src/modules/actions/replan-by-agent.db.test.ts",
   /* An alert raised for staff reaches the agent, which proposes (ledger #74 e): a seeded day. */
   "src/modules/agent/alerts.db.test.ts",

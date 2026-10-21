@@ -3292,7 +3292,7 @@ export const actionSummaries = {
    * child is. The plain line above is still the fallback for a card whose child or van this
    * roster cannot name — a sentence with a hole in it is worse than a vague one.
    */
-  moveChildTo: "Move {child} to {van} on the {leg} plan and save it.",
+  moveChildTo: "Move {child} to {van}, {leg}.",
   confirmVan: "Confirm a van's setup as the ramp found it.",
   setNeeds: "Change a child's approved needs.",
   restart: "Restart the demo day.",

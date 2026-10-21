@@ -20,7 +20,7 @@ import { Forbidden, SiteNotFound, Unauthenticated, requireSiteAccess } from "@/a
 import type { Db } from "@/db/exec";
 import { actionTool } from "@/modules/agent/action-tools";
 import { STAFF_ACTION_KIND } from "./confirm-view";
-import { STALE_PLAN_CARD_SQL } from "./confirm-cards";
+import { STALE_PLAN_CARD_SQL, changeKey } from "./confirm-cards";
 import { cardChild } from "./stale-notes";
 import { resolveTask } from "@/modules/approvals/decide";
 import { loadBoard } from "@/modules/plan/store";
@@ -94,6 +94,14 @@ export async function confirmStaffAction(
     }
   }
 
+  /*
+   * ONE CHANGE, ONE PRESS (Athena). The list offers the first of several pending cards for the same
+   * change (`confirm-cards.ts changeKey`); a twin it hides is refused by id too, so a stale or
+   * scripted press on it can neither apply the change twice nor undo a Don't.
+   */
+  const twins = await pendingTwins(db, row);
+  if (twins.earlier.length > 0) return { status: 404, body: { ok: false, error: "NO_SUCH_CARD" } };
+
   const by = `staff:${req.userId}`;
   const claimed = await db.query<{ id: string }>(
     `UPDATE ops.approval_request
@@ -135,6 +143,16 @@ export async function confirmStaffAction(
   }
   await db.tx(async (tx) => {
     await resolveTask(tx, row.task_id, req.decision, by);
+    // The hidden twins of this card are the same change: decided with it, so none resurfaces.
+    for (const twin of twins.later) {
+      const closed = await tx.query<{ task_id: string }>(
+        `UPDATE ops.approval_request SET decision = $3, decided_by = $4, decided_at = $5, updated_at = $5, updated_by = $6, version = version + 1,
+                proposal = proposal || jsonb_build_object('superseded_by', $7::text)
+          WHERE id = $1 AND site_id = $2 AND decided_at IS NULL RETURNING task_id`,
+        [twin, row.site_id, req.decision, req.userId, req.now, by, row.id],
+      );
+      for (const t of closed.rows) await resolveTask(tx, t.task_id, req.decision, by);
+    }
     // A refused press on this card raised a "needs a person"; deciding it answers that too (ledger #80).
     await answeredByDecision(tx, row.id, (t, id) => resolveTask(t, id, req.decision, by));
   });
@@ -148,4 +166,26 @@ export async function confirmStaffAction(
     [row.id, outcome],
   );
   return { status: 200, body: { ok: true, decision: req.decision } };
+}
+
+/**
+ * The other pending cards for the same change as `row`, at its centre, split by whether the list
+ * would offer them before it (same order as `confirmCards`: created_at, id).
+ */
+async function pendingTwins(
+  db: Db,
+  row: { id: string; site_id: string; proposal: { tool?: string; args?: Record<string, unknown> } },
+): Promise<{ earlier: string[]; later: string[] }> {
+  const key = changeKey(String(row.proposal.tool ?? ""), row.proposal.args ?? {});
+  const rows = (
+    await db.query<{ id: string; tool: string | null; args: Record<string, unknown> | null; earlier: boolean }>(
+      `SELECT a.id, a.proposal->>'tool' AS tool, a.proposal->'args' AS args,
+              (a.created_at, a.id) < (SELECT b.created_at, b.id FROM ops.approval_request b WHERE b.id = $3) AS earlier
+         FROM ops.approval_request a
+        WHERE a.site_id = $1 AND a.decided_at IS NULL AND a.proposal->>'kind' = $2 AND a.id <> $3
+          AND a.proposal->>'tool' = $4 AND NOT ${STALE_PLAN_CARD_SQL}`,
+      [row.site_id, STAFF_ACTION_KIND, row.id, String(row.proposal.tool ?? "")],
+    )
+  ).rows.filter((r) => changeKey(r.tool ?? "", r.args ?? {}) === key);
+  return { earlier: rows.filter((r) => r.earlier).map((r) => r.id), later: rows.filter((r) => !r.earlier).map((r) => r.id) };
 }

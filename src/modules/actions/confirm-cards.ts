@@ -57,7 +57,7 @@ export const STALE_PLAN_CARD_SQL = `(
  * `created_at` order). Any argument differing makes it a different change and both stay. Nothing is
  * merged, nothing is decided and no row is touched: this is only what the list offers.
  */
-function changeKey(tool: string, args: Record<string, unknown>): string {
+export function changeKey(tool: string, args: Record<string, unknown>): string {
   const stable = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(stable);
     if (value && typeof value === "object") {
@@ -120,7 +120,7 @@ export async function confirmCards(db: Exec, siteId: string): Promise<readonly C
     if (seen.has(key)) continue;
     seen.add(key);
     /*
-     * A move says who moves and where: "Move Noah to Van 3 on the afternoon plan and save it.",
+     * A move says who moves and where: "Move Noah to Van 3, afternoon.",
      * built from this card's own stored arguments. It is preferred over the summary stored on the
      * row, because that was written when the card was — by a writer with no board in hand — so the
      * cards already in the queue read right too. A child or van this board cannot name falls back.

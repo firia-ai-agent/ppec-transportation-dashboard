@@ -21,7 +21,7 @@ import { approval, confirmCopy } from "./copy";
  */
 const confirmView = (decline: string) => ({
   approvalId: "00000000-0000-7000-8000-000000000124",
-  summary: "Move Noah to Van 3 on the afternoon plan and save it.",
+  summary: "Move Noah to Van 3, afternoon.",
   note: null,
   decline,
   impact: [] as string[],

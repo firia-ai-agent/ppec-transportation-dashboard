@@ -20,7 +20,7 @@ import type { ActionCtx } from "./registry";
  *  1. the card read "Move a child on the afternoon plan and save it." — a change the coordinator is
  *     asked to approve without being told who or where. The card's own stored arguments hold the
  *     child token and the vehicle id, so the line is built from them against the board the card is
- *     about: "Move Noah to Van 3 on the afternoon plan and save it.";
+ *     about: "Move Noah to Van 3, afternoon.";
  *  2. there were **two identical cards**. `stage-b.ts stage` writes a proposal per run, each under
  *     its own `approval_key`, and its cleanup only deletes rows `created_by = 'agent:local-shot'`
  *     while the proposal writer stamps `agent:<runId>` — so a second staging run leaves the first
@@ -77,7 +77,7 @@ describe("the card says what it would change", () => {
     const { token, other, first, label, vanName, view } = await aMove(0);
     const card = await moveCard("line-a", { token, van: other, version: view.version });
     const shown = (await confirmCards(db, SITE)).find((c) => c.approvalId === card)!;
-    expect(shown.summary).toBe(`Move ${first} to ${vanName} on the afternoon plan and save it.`);
+    expect(shown.summary).toBe(`Move ${first} to ${vanName}, afternoon.`);
     // Not the stored line the writer left, and not the staff label with its initial.
     expect(shown.summary).not.toBe(actionSummaries.moveChild.replace("{leg}", "afternoon"));
     expect(shown.summary).not.toContain(label);
