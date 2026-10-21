@@ -73,7 +73,11 @@ export async function rehearsePlanSave(
         siteId: a.siteId,
         serviceDate: a.date,
         direction: a.leg,
-        moves: a.moves.map((m) => ({ childToken: m.child_token, bucket: m.bucket, vanId: m.van_id ?? null, ...(m.not_before ? { notBefore: m.not_before } : {}) })),
+        moves: a.moves.map((m) => ({
+          childToken: m.child_token, bucket: m.bucket, vanId: m.van_id ?? null,
+          ...(m.not_before ? { notBefore: m.not_before } : {}),
+          ...(m.drop_after ? { dropAfter: m.drop_after } : {}),
+        })),
         departures: a.departures,
         expectedVersion: view.version,
         actor: null,

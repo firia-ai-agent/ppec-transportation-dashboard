@@ -207,7 +207,7 @@ type DropoffProposal = {
    * holds — and any departures, as `modules/changes/plan-change.ts` previewed them.
    */
   plan?: {
-    moves?: readonly { readonly child_token: string; readonly bucket: PlacementBucket; readonly van_id?: string | null; readonly not_before?: string }[];
+    moves?: readonly { readonly child_token: string; readonly bucket: PlacementBucket; readonly van_id?: string | null; readonly not_before?: string; readonly drop_after?: string }[];
     departures?: Readonly<Record<string, string>>;
   };
   /** What that route does to the day, one line each, for the panel. */
@@ -828,6 +828,7 @@ export async function applyDropoffPlan(
       moves: (route.moves ?? []).map((m) => ({
         childToken: m.child_token, bucket: m.bucket, vanId: m.van_id ?? null,
         ...(m.not_before ? { notBefore: m.not_before } : {}),
+        ...(m.drop_after ? { dropAfter: m.drop_after } : {}),
       })),
       departures: route.departures,
       expectedVersion: current.version, actor: a.actor, now: a.now,

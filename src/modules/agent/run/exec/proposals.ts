@@ -33,7 +33,7 @@ import { recordAvailabilityRequest } from "@/modules/availability/store";
 import { applyDropoffPlan } from "@/modules/approvals/decide";
 import { boardPlacementPort } from "@/modules/approvals/plan-placement-port";
 import { raiseNeedsPerson } from "../../needs-person";
-import type { Refusal } from "@/modules/changes/refusal";
+import { refusalOf, type Refusal } from "@/modules/changes/refusal";
 import { askerMayNot } from "./asker";
 import { sqlPlanStoreIn } from "@/modules/plan/sql";
 import { sqlDaySource } from "@/modules/roster/sql";
@@ -498,10 +498,26 @@ async function dropoffChange(tx: Exec, input: ProposalInput): Promise<Record<str
    * If none would, no reply is drafted and nothing is put in front of anybody to approve — a person
    * is told instead, with the board's own reason and where to fix it.
    */
+  /*
+   * NEVER LATE (ledger #90). A planned leg with no route that keeps every other family on time is
+   * not a "yes" with nothing behind it: Approve would still write the slot, the slot's start would
+   * become the van's wait (`holdOf`), and somebody else would get home late. A person decides —
+   * told the board's own reason when there is one (a van out of seats, a van that has left), and
+   * that it would make a family late only when that is all that is in the way.
+   */
+  const noRoute = Boolean(requestedTime) && board !== null && board.version > 0 && routes.length === 0;
   let refusal: Refusal | null = null;
+  if (noRoute) {
+    const plain = await rehearse(tx, (t) =>
+      applyDropoffPlan(t, rehearsalPort(t), { siteId: input.siteId, proposal: proposalWith(null), actor: null, by, now: input.now }),
+    );
+    refusal = plain.ok
+      ? refusalOf({ reason: "WOULD_MAKE_LATE", childToken: row.child_token }, { date: row.service_date, leg: direction }, board)
+      : plain.refusal;
+  }
   let proposal: ReturnType<typeof proposalWith> | null = null;
   let chosen: AgreedRoute | null = null;
-  for (const route of routes.length > 0 ? routes : [null]) {
+  for (const route of noRoute ? [] : routes.length > 0 ? routes : [null]) {
     const candidate = proposalWith(route);
     const tried = await rehearse(tx, (t) =>
       applyDropoffPlan(t, rehearsalPort(t), { siteId: input.siteId, proposal: candidate, actor: null, by, now: input.now }),

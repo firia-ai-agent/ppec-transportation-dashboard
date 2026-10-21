@@ -97,6 +97,8 @@ export const savePlanBody = z.strictObject({
         planned: z.boolean().optional(),
         /** A time agreed with the family, "HH:MM" (ledger #79); null clears it, absent keeps it. */
         notBefore: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
+        /** Where a route put their stop (ledger #90): a child token, or "first"; null clears it. */
+        dropAfter: z.string().min(1).max(64).nullable().optional(),
       }),
     )
     .max(200),
@@ -140,6 +142,7 @@ export async function savePlanRequest(
         vanId: move.vanId ?? null,
         planned: move.planned === true,
         ...(move.notBefore !== undefined ? { notBefore: move.notBefore } : {}),
+        ...(move.dropAfter !== undefined ? { dropAfter: move.dropAfter } : {}),
       })),
       expectedVersion: input.version,
       actor: caller.userId ?? null,

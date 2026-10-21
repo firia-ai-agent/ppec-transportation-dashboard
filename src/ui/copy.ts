@@ -3387,6 +3387,7 @@ export const refusal = {
     NO_CONTACT: "Nobody on {child}'s file can receive them.",
     /** A route that would get a child home outside the time their family agreed (ledger #84). */
     OUTSIDE_SLOT: "{child} would miss the time their family agreed.",
+    WOULD_MAKE_LATE: "No van can get {child} there then without another family getting home late.",
     OTHER: "The {leg} plan wouldn't take this change.",
     /** An agent plan card the board moved past, or one that never named its board. */
     STALE_CARD: "{child}'s plan changed after this card was written.",

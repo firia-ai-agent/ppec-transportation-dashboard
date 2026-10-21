@@ -34,6 +34,12 @@ export type PendingMove = {
   planned?: boolean;
   /** A time agreed with the family (`Placement.notBefore`); null clears one, absent keeps it. */
   notBefore?: string | null;
+  /**
+   * Where the route puts their stop in the van's run (`Placement.dropAfter`, ledger #90); null
+   * clears it. Absent keeps it while they stay in the same van — a stop's place is a place in
+   * *that* van's run, so a move to another van without one leaves the window order.
+   */
+  dropAfter?: string | null;
 };
 
 export type PendingQueue = readonly PendingMove[];
@@ -72,12 +78,15 @@ export function applyPending(plan: BoardPlan, queue: PendingQueue): BoardPlan {
     if (!(move.childToken in next)) continue;
     // An agreed time travels with the child, whichever van they end up in.
     const notBefore = move.notBefore !== undefined ? move.notBefore : next[move.childToken]?.notBefore;
+    const sameVan = move.bucket === "VAN" && next[move.childToken]?.vanId === move.vanId;
+    const dropAfter = move.dropAfter !== undefined ? move.dropAfter : sameVan ? next[move.childToken]?.dropAfter : undefined;
     const placement: Placement = {
       bucket: move.bucket,
       vanId: move.bucket === "VAN" ? move.vanId : null,
       // A person's move is kept where they put it by a re-plan (§1.4); Auto-plan's is not.
       pinned: move.planned !== true,
       ...(notBefore ? { notBefore } : {}),
+      ...(dropAfter && move.bucket === "VAN" ? { dropAfter } : {}),
     };
     next = { ...next, [move.childToken]: placement };
   }
@@ -95,13 +104,18 @@ export function movesToSave(plan: BoardPlan, queue: PendingQueue): PendingMove[]
   const moves: PendingMove[] = [];
   for (const [token, placement] of Object.entries(after)) {
     const before = plan[token];
-    if (before && before.bucket === placement.bucket && before.vanId === placement.vanId && (before.notBefore ?? null) === (placement.notBefore ?? null)) continue;
+    if (
+      before && before.bucket === placement.bucket && before.vanId === placement.vanId &&
+      (before.notBefore ?? null) === (placement.notBefore ?? null) && (before.dropAfter ?? null) === (placement.dropAfter ?? null)
+    ) continue;
     moves.push({
       childToken: token,
       bucket: placement.bucket,
       vanId: placement.vanId,
       ...(placement.pinned ? {} : { planned: true }),
       ...(placement.notBefore ? { notBefore: placement.notBefore } : {}),
+      // Said either way: a stop put back in window order is a change the save has to carry.
+      ...(placement.dropAfter ? { dropAfter: placement.dropAfter } : before?.dropAfter ? { dropAfter: null } : {}),
     });
   }
   return moves;
@@ -119,5 +133,6 @@ function normalise(move: PendingMove): PendingMove {
     vanId: move.bucket === "VAN" ? move.vanId : null,
     ...(move.planned === true ? { planned: true } : {}),
     ...(move.notBefore !== undefined ? { notBefore: move.notBefore } : {}),
+    ...(move.dropAfter !== undefined ? { dropAfter: move.dropAfter } : {}),
   };
 }

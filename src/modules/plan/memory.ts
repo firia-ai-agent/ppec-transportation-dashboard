@@ -128,9 +128,9 @@ function memoryStoreOver(get: () => State): PlanStore {
         // when this board is drawn, so handing it back here would be the one difference between
         // the two stores a screen could notice.
         placements: Object.fromEntries(
-          Object.entries(input.placements).map(([token, { bucket, vanId, pinned, notBefore }]) => [
+          Object.entries(input.placements).map(([token, { bucket, vanId, pinned, notBefore, dropAfter }]) => [
             token,
-            { bucket, vanId, pinned, ...(notBefore ? { notBefore } : {}) },
+            { bucket, vanId, pinned, ...(notBefore ? { notBefore } : {}), ...(dropAfter ? { dropAfter } : {}) },
           ]),
         ),
         departures: { ...(existing?.departures ?? {}), ...(input.departures ?? {}) },

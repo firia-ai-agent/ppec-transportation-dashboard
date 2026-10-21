@@ -54,7 +54,17 @@ export type Placement = {
    * nothing was agreed — the plain family window is a lateness reference, never a wait.
    */
   notBefore?: string | null;
+  /**
+   * WHERE THEIR STOP FALLS IN THE VAN'S RUN, when a route chose it (ledger #90): the child whose
+   * stop this one is driven right after, or `FIRST_STOP` for the first. Absent: the window order.
+   * A family's later time is kept by putting their stop where the van's wait delays nobody — the
+   * route search (`changes/agreed.ts`) picks it, and it is saved so every screen drives one order.
+   */
+  dropAfter?: string;
 };
+
+/** `Placement.dropAfter` for a stop driven first (ledger #90). Never a child token, which is a uuid. */
+export const FIRST_STOP = "first";
 
 /** The whole board: every child of the day, by child token. */
 export type BoardPlan = Readonly<Record<string, Placement>>;
@@ -128,14 +138,29 @@ export function hasStop(rider: BoardRider): boolean {
 /**
  * The riders in one van, in the order that van drives their stops.
  *
- * The order is the pickup window and nothing else: every rider of a leg is aboard together at the
- * centre end of the run (§1.4's "peak equals total"), so there is no routing decision to make
- * here, only a sort — which is all the ordering this app's planner does now.
+ * The order is the pickup window: every rider of a leg is aboard together at the centre end of the
+ * run (§1.4's "peak equals total"), so ordinarily there is no routing decision to make, only a
+ * sort. The one exception is a stop a route placed (`Placement.dropAfter`, ledger #90): it goes
+ * right after the child it names, or first for `FIRST_STOP` — and where that child is not in this
+ * van, the window order stands.
  */
 export function ridersInVan(day: BoardDay, plan: BoardPlan, vanId: string): BoardRider[] {
-  return boardRiders(day)
+  const byWindow = boardRiders(day)
     .filter((rider) => plan[rider.token]?.vanId === vanId)
     .sort((a, b) => orderKey(a, plan).localeCompare(orderKey(b, plan)) || a.token.localeCompare(b.token));
+  const placed = byWindow.filter((rider) => {
+    const after = plan[rider.token]?.dropAfter;
+    return after === FIRST_STOP || (after !== undefined && after !== rider.token && byWindow.some((r) => r.token === after));
+  });
+  if (placed.length === 0) return byWindow;
+  const order = byWindow.filter((rider) => !placed.includes(rider));
+  for (const rider of placed) {
+    const after = plan[rider.token]?.dropAfter;
+    const at = after === FIRST_STOP ? 0 : order.findIndex((r) => r.token === after) + 1;
+    // The child it follows may itself be a placed stop not yet in the order: then it goes last.
+    order.splice(at === 0 && after !== FIRST_STOP ? order.length : at, 0, rider);
+  }
+  return order;
 }
 
 /** The time a rider's stop is driven by: their window, or a later time agreed with the family. */
@@ -316,7 +341,9 @@ export function autoPlan(day: BoardDay, plan: BoardPlan): BoardPlan {
     const vanId = result.vanOf[rider.token] ?? null;
     // Planning again moves a child, never what was agreed with their family (ledger #81): the
     // hold rides along, so a save after Auto-plan cannot quietly drop it.
-    const kept = { ...plan[rider.token], pinned: plan[rider.token]?.pinned === true };
+    const { dropAfter, ...rest } = plan[rider.token] ?? {};
+    // …but where their stop fell is a place in *that* van's run (ledger #90): it stays only with the van.
+    const kept = { ...rest, pinned: plan[rider.token]?.pinned === true, ...(dropAfter && vanId === plan[rider.token]?.vanId ? { dropAfter } : {}) };
     next[rider.token] = vanId
       ? { ...kept, bucket: "VAN", vanId }
       : { ...kept, bucket: "UNASSIGNED", vanId: null };

@@ -36,10 +36,16 @@ export type PlanChange = {
   readonly departures?: Readonly<Record<string, string>>;
   /** `{ childToken: "HH:MM" }`, times agreed with families: their van drops them no earlier. */
   readonly holds?: Readonly<Record<string, string>>;
+  /**
+   * `{ childToken: dropAfter }`, where the route puts a child's stop in their van's run (ledger
+   * #90): the child whose stop it follows, or `FIRST_STOP`. A route search (`agreed.ts`) sets it
+   * so a held stop goes where the wait delays nobody.
+   */
+  readonly drops?: Readonly<Record<string, string>>;
 };
 
 /** A change's moves as a plan save takes them (`savePlanBody`, the card's args). */
-export type WireMove = { child_token: string; bucket: Placement["bucket"]; van_id: string | null; not_before?: string };
+export type WireMove = { child_token: string; bucket: Placement["bucket"]; van_id: string | null; not_before?: string; drop_after?: string };
 
 export type PlanPreview =
   | {
@@ -95,7 +101,10 @@ export function previewPlanChange(view: BoardView, change: PlanChange): PlanPrev
   const named: Record<string, Placement> = { ...view.plan };
   for (const m of change.moves ?? []) {
     if (!named[m.token]) continue;
-    named[m.token] = { ...named[m.token], bucket: m.bucket, vanId: m.bucket === "VAN" ? m.vanId : null, pinned: true };
+    // A stop's place belongs to the van it was chosen in: a move to another van starts from its window.
+    const { dropAfter, ...rest } = named[m.token];
+    const sameVan = m.bucket === "VAN" && m.vanId === rest.vanId;
+    named[m.token] = { ...rest, ...(dropAfter && sameVan ? { dropAfter } : {}), bucket: m.bucket, vanId: m.bucket === "VAN" ? m.vanId : null, pinned: true };
   }
   const mode = change.auto ?? null;
   const next: Record<string, Placement> = {
@@ -103,6 +112,9 @@ export function previewPlanChange(view: BoardView, change: PlanChange): PlanPrev
   };
   for (const [token, hhmm] of Object.entries(change.holds ?? {})) {
     if (next[token] && minuteOfDay(hhmm) !== null) next[token] = { ...next[token], notBefore: hhmm };
+  }
+  for (const [token, after] of Object.entries(change.drops ?? {})) {
+    if (next[token]?.bucket === "VAN") next[token] = { ...next[token], dropAfter: after };
   }
   const departs: Record<string, number> = { ...view.departs };
   const departures: Record<string, string> = {};
@@ -115,7 +127,10 @@ export function previewPlanChange(view: BoardView, change: PlanChange): PlanPrev
 
   const was = (r: BoardRider) => view.plan[r.token];
   const moved = view.day.riders.filter((r) => was(r)?.bucket !== next[r.token]?.bucket || was(r)?.vanId !== next[r.token]?.vanId);
-  const held = view.day.riders.filter((r) => !moved.includes(r) && (was(r)?.notBefore ?? null) !== (next[r.token]?.notBefore ?? null));
+  const held = view.day.riders.filter(
+    (r) => !moved.includes(r) &&
+      ((was(r)?.notBefore ?? null) !== (next[r.token]?.notBefore ?? null) || (was(r)?.dropAfter ?? null) !== (next[r.token]?.dropAfter ?? null)),
+  );
   if (moved.length === 0 && held.length === 0 && Object.keys(departures).length === 0) return { ok: false, reason: "NOTHING_TO_CHANGE" };
 
   const stranded = moved.filter((r) => next[r.token]?.bucket === "UNASSIGNED");
@@ -187,6 +202,7 @@ export function previewPlanChange(view: BoardView, change: PlanChange): PlanPrev
     bucket: next[r.token].bucket,
     van_id: next[r.token].vanId,
     ...(next[r.token].notBefore ? { not_before: next[r.token].notBefore! } : {}),
+    ...(next[r.token].dropAfter ? { drop_after: next[r.token].dropAfter! } : {}),
   }));
   const before = plannedStopTimes(view.day, view.plan, view.departs);
   const addedMinutes = view.day.riders
