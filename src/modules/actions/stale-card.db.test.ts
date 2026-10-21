@@ -154,3 +154,20 @@ describe("a direct save_plan / move_child card written before somebody saved the
     expect((await proposalOf(card)).basis_version).toBe(view.version);
   });
 });
+
+describe("a card whose basis_version is not a number (PPE-111)", () => {
+  it("does not break the card list, and is not offered", async () => {
+    const current = (await board()).version;
+    const good = await writeStaffActionCard(db, {
+      siteId: SITE, key: "good-card-111", by: "agent:good", tool: "save_plan", action: "save_plan",
+      args: { date: DATE, leg: "PM", moves: [], basis_version: current }, summary: "Change the afternoon plan",
+    });
+    const bad = await writeStaffActionCard(db, {
+      siteId: SITE, key: "bad-card-111", by: "agent:bad", tool: "save_plan", action: "save_plan",
+      args: { date: DATE, leg: "PM", moves: [], basis_version: "not-a-version" }, summary: "Change the afternoon plan",
+    });
+    const ids = (await confirmCards(db, SITE)).map((c) => c.approvalId);
+    expect(ids).toContain(good);
+    expect(ids).not.toContain(bad);
+  });
+});
