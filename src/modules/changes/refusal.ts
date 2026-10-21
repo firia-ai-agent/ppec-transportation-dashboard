@@ -12,6 +12,7 @@
  */
 import { familyThreadHref } from "@/auth/access";
 import type { Direction } from "@/domain/day/leg";
+import { childFirstName } from "@/modules/identity/display-name";
 import { demoTokenForId } from "@/modules/agent/run/scope-tokens";
 import { boardHref, PLAN_ROUTES_PATH } from "@/modules/plan/when";
 import { fill, refusal as words } from "@/ui/copy";
@@ -65,10 +66,23 @@ export function refusalWords(r: Refusal): RefusalWords {
   // A sentence that would have to name somebody it cannot falls back to the plain one.
   const needs = (template: string) => (template.includes("{van}") && !r.vanName) || (template.includes("{child}") && !r.childName);
   const says = known && !needs(known) ? fill(known, values) : fill(words.says.OTHER, values);
-  // A stale agent plan card (PPE-112): who it was about, and Plan routes — never a version or a code.
+  /*
+   * A stale agent plan card: who it was about, and Plan routes — never a version or a code.
+   *
+   * THE CHILD IS NAMED BY THEIR FIRST NAME HERE AND NOWHERE ELSE IN THIS FILE (Vera). The
+   * sentence is a possessive — "Noah's plan changed after this card was written." — and the board
+   * stores "Noah O." (`ops.child_profile.display_name`), so gluing "'s" onto the stored label reads
+   * as a typo. `childFirstName` is the one helper for that cut (identity/display-name.ts), the same
+   * one the model-unavailable alert uses; no screen and no sentence slices the string itself. The
+   * other refusals below name the child in full, because they are list sentences rather than
+   * possessives ("Noah O. isn't on the afternoon plan today.").
+   *
+   * A name that cannot be cut down to anything falls back to the sentence that names nobody.
+   */
   if (r.reason === "STALE_CARD") {
+    const first = childFirstName(r.childName);
     return {
-      says: fill(r.childName ? words.says.STALE_CARD : words.says.STALE_CARD_NO_CHILD, values),
+      says: fill(first ? words.says.STALE_CARD : words.says.STALE_CARD_NO_CHILD, { ...values, child: first }),
       fix: { label: words.fix.planRoutes, href: PLAN_ROUTES_PATH },
     };
   }

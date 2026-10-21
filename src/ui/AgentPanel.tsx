@@ -8,6 +8,7 @@ import styles from "@/app/(app)/family-texts/texts.module.css";
 import { approval, confirmCopy } from "./copy";
 import type { PanelView } from "./panel";
 import { usePanelActions } from "./PanelActions";
+import { StaleNote } from "./StaleNote";
 import { icon } from "./tokens";
 
 /** What the panel says after a press, or before one. */
@@ -43,6 +44,12 @@ export function AgentPanel({ panel, editing = false, className }: { readonly pan
     return { status: "said", message: r.decision === "DECLINED" ? approval.declined : r.queued === 0 ? approval.sentToNobody : approval.sent };
   }, { status: "idle" });
 
+  // A stale card is the same one card, its note where the buttons would be (Vera).
+  if (panel.stale) {
+    return actions?.dismissStale && actions.openStale
+      ? <StaleNote note={panel.stale} dismiss={actions.dismissStale} open={actions.openStale} className={className} />
+      : null;
+  }
   const reply = panel.kind === "reply";
   const idField = reply ? "approval" : "card";
   const canEdit = panel.message?.editable != null && panel.threadHref !== null;
@@ -115,7 +122,7 @@ export function AgentPanel({ panel, editing = false, className }: { readonly pan
           {panel.message ? <input type="hidden" name="text" value={panel.message.text} /> : null}
           <button type="submit" name="decision" value="DECLINED" className={styles.quiet} disabled={pending}>
             <X size={icon.inline} aria-hidden="true" />
-            {reply ? approval.dontSend : confirmCopy.dontDo}
+            {panel.decline}
           </button>
         </form>
       </div>
@@ -124,11 +131,11 @@ export function AgentPanel({ panel, editing = false, className }: { readonly pan
           {state.message}{" "}
           {state.fix ? <Link href={state.fix.href}>{state.fix.label}</Link> : null}
         </p>
-      ) : (
+      ) : state.status === "said" || reply ? (
         <p className={styles.outcome} role="status">
-          {state.status === "said" ? state.message : reply ? approval.nothingUntilApproved : confirmCopy.pending}
+          {state.status === "said" ? state.message : approval.nothingUntilApproved}
         </p>
-      )}
+      ) : null}
     </section>
   );
 }

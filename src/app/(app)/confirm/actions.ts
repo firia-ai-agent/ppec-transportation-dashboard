@@ -49,6 +49,3 @@ export async function confirmStaffActionAction(_previous: ConfirmState, form: Fo
   for (const path of CHANGED) revalidatePath(path);
   return { status: "done", decision: answer.body.decision };
 }
-
-/**  */
-

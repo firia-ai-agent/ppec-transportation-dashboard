@@ -210,7 +210,9 @@ describe("gate 2: an edited message is approved by the press that sends it", () 
     // The edited words ride the Approve POST and nothing else — never a query string.
     expect(posted.filter((f) => f.includes('name="edited"'))).toHaveLength(1);
     expect(card).toContain("approval.approveAndSend");
-    expect(card).toContain("approval.dontSend");
+    // The refusing button says what it refuses: the panel carries the words, "Don't send" for a reply.
+    expect(card).toContain("panel.decline");
+    expect(readFileSync(path.join(REPO, "src", "ui", "panel.ts"), "utf8")).toMatch(/decline: approval\.dontSend/);
   });
 
   it("comes back pending, the reply's own words in the box, with Approve still to press", async () => {

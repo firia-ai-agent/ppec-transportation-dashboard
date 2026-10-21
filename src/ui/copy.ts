@@ -3284,6 +3284,15 @@ export const actionSummaries = {
   savePlan: "Save the {leg} plan ({count} moves).",
   autoPlan: "Re-plan the {leg} with Auto-plan and save it, so every van fits.",
   moveChild: "Move a child on the {leg} plan and save it.",
+  /**
+   * …and the same card once the board can say WHO and WHERE (Vera). A card that reads
+   * "Move a child on the afternoon plan and save it." asks a coordinator to approve a change it
+   * will not name: the card's own stored arguments hold the child and the van, so it says them.
+   * The child is their first name, from the one name helper, as every other sentence about one
+   * child is. The plain line above is still the fallback for a card whose child or van this
+   * roster cannot name — a sentence with a hole in it is worse than a vague one.
+   */
+  moveChildTo: "Move {child} to {van}, {leg}.",
   confirmVan: "Confirm a van's setup as the ramp found it.",
   setNeeds: "Change a child's approved needs.",
   restart: "Restart the demo day.",
@@ -3339,12 +3348,30 @@ export const replanDraft = {
 } as const;
 
 export const confirmCopy = {
-  heading: "Confirm a change",
-  /** The note a stale agent plan card leaves on For you (Vera, PR 124): its line is `refusal.says.STALE_CARD`. */
+  /** The note a stale agent plan card leaves on For you (Vera): its line is `refusal.says.STALE_CARD`. */
   staleNoteDismiss: "Dismiss",
   confirm: "Approve",
-  dontDo: "Don't",
-  pending: "Nothing happens until you approve.",
+  /**
+   * WHAT "DON'T" DECLINES (Vera). The button read "Don't", which beside Approve is a
+   * word and not an answer: a person reading a card quickly has to look back up to find out what
+   * they are refusing, and a one-word refusal next to a one-word approval is the shape of a
+   * misclick. So the verb of the card's own action is on it — "Don't move", "Don't re-plan" —
+   * picked by tool in `actions/summary.ts staffActionDecline`, the same switch that writes the
+   * card's line, so the two cannot name different actions. A reply card says "Don't send"
+   * (`approval.dontSend`), which is this rule and already was.
+   */
+  dont: {
+    savePlan: "Don't save",
+    autoPlan: "Don't re-plan",
+    moveChild: "Don't move",
+    confirmVan: "Don't confirm",
+    setNeeds: "Don't change",
+    restart: "Don't restart",
+    decideCard: "Don't decide",
+    takeAlert: "Don't take",
+    /** A tool with no verb of its own: still says what it is refusing, which is the change. */
+    generic: "Don't make the change",
+  },
   done: "Done.",
   declined: "Not done. Nothing changed.",
   /**
@@ -3387,7 +3414,7 @@ export const refusal = {
     /** A route that would get a child home outside the time their family agreed (ledger #84). */
     OUTSIDE_SLOT: "{child} would miss the time their family agreed.",
     OTHER: "The {leg} plan wouldn't take this change.",
-    /** An agent plan card the board moved past, or one that never named its board. */
+    /** An agent plan card the board moved past, or one that never named its board (Vera, 2026-10-19). */
     STALE_CARD: "{child}'s plan changed after this card was written.",
     STALE_CARD_NO_CHILD: "The {leg} plan changed after this card was written.",
   },

@@ -11,14 +11,22 @@ export type ConfirmView = {
   readonly note: string | null;
   /** What it does to the day, one line each — a re-plan draft's moves, fit and texts (ledger #76). */
   readonly impact: readonly string[];
+  /**
+   * The words on the button that refuses it — "Don't move", never a bare "Don't" (Vera, issue
+   * 124). The card's own tool decides them (`actions/summary.ts staffActionDecline`); the panel
+   * is handed the string so no component holds a list of tools.
+   */
+  readonly decline: string;
 };
 
 /**
- * A stale agent plan card, as the note For you shows in its place (Vera, PR 124): the refusal's own
- * line and its Plan routes link. No Approve — the card cannot be approved.
+ * A stale agent plan card (Vera): its own title, with the refusal's line and Plan routes where
+ * Approve would be. No Approve — the card cannot be approved.
  */
 export type StaleNoteView = {
   readonly approvalId: string;
+  /** The card's own bold line, as its live card would read ("Move Noah to Van 1, afternoon."). */
+  readonly title: string;
   readonly says: string;
   readonly fix: { readonly label: string; readonly href: string };
 };

@@ -20,7 +20,7 @@ import { Forbidden, SiteNotFound, Unauthenticated, requireSiteAccess } from "@/a
 import type { Db } from "@/db/exec";
 import { actionTool } from "@/modules/agent/action-tools";
 import { STAFF_ACTION_KIND } from "./confirm-view";
-import { STALE_PLAN_CARD_SQL } from "./confirm-cards";
+import { DEAD_CARD_SQL, STALE_PLAN_CARD_SQL, changeKey, visibleOf } from "./confirm-cards";
 import { cardChild } from "./stale-notes";
 import { resolveTask } from "@/modules/approvals/decide";
 import { loadBoard } from "@/modules/plan/store";
@@ -42,7 +42,7 @@ export type ConfirmAnswer =
       readonly body: { readonly ok: false; readonly error: "SIGN_IN" | "NOT_YOUR_ROLE" | "NO_SUCH_CARD" | "ALREADY_DECIDED" | "ACTION_REFUSED"; readonly reason?: string; readonly refusal?: Refusal };
     };
 
-/** The agent's plan cards that must carry `basis_version` (PPE-112). */
+/** The agent's plan cards that must carry `basis_version`. */
 const AGENT_PLAN_TOOLS: ReadonlySet<string> = new Set(["save_plan", "move_child"]);
 
 export async function confirmStaffAction(
@@ -76,7 +76,7 @@ export async function confirmStaffAction(
   }
 
   /*
-   * A PLAN CARD IS JUDGED AT APPROVE AS THE LIST JUDGES IT (PPE-112): one the board has moved past
+   * A PLAN CARD IS JUDGED AT APPROVE AS THE LIST JUDGES IT: one the board has moved past
    * is refused by id too, never applied over the newer save. And an agent's `save_plan` /
    * `move_child` card must name the board it was written on — without a numeric `basis_version`
    * Approve would read the version now and write over whatever was saved since, so it is refused.
@@ -93,6 +93,14 @@ export async function confirmStaffAction(
       return { status: 422, body: { ok: false, error: "ACTION_REFUSED", reason: refusal.reason, refusal } };
     }
   }
+
+  /*
+   * ONE CHANGE, ONE PRESS (Athena). The list offers the first of several pending cards for the same
+   * change (`confirm-cards.ts changeKey`); a twin it hides is refused by id too, so a stale or
+   * scripted press on it can neither apply the change twice nor undo a Don't.
+   */
+  const twins = await pendingTwins(db, row);
+  if (twins.hidden) return { status: 404, body: { ok: false, error: "NO_SUCH_CARD" } };
 
   const by = `staff:${req.userId}`;
   const claimed = await db.query<{ id: string }>(
@@ -135,6 +143,26 @@ export async function confirmStaffAction(
   }
   await db.tx(async (tx) => {
     await resolveTask(tx, row.task_id, req.decision, by);
+    // The hidden twins of this card are the same change: decided with it, so none resurfaces.
+    for (const twin of twins.later) {
+      const closed = await tx.query<{ task_id: string }>(
+        `UPDATE ops.approval_request SET decision = $3, decided_by = $4, decided_at = $5, updated_at = $5, updated_by = $6, version = version + 1,
+                proposal = proposal || jsonb_build_object('superseded_by', $7::text)
+          WHERE id = $1 AND site_id = $2 AND decided_at IS NULL RETURNING task_id`,
+        [twin, row.site_id, req.decision, req.userId, req.now, by, row.id],
+      );
+      for (const t of closed.rows) await resolveTask(tx, t.task_id, req.decision, by);
+      // A twin a refused press left with a "needs a person" open: this decision answers that too.
+      if (closed.rows.length > 0) await answeredByDecision(tx, twin, (t, id) => resolveTask(t, id, req.decision, by));
+    }
+    // A stale card for this same change has nothing left to say once it is decided: its note is cleared.
+    for (const stale of twins.stale) {
+      await tx.query(
+        `UPDATE ops.approval_request SET proposal = proposal || jsonb_build_object('stale_note_cleared', jsonb_build_object('how', 'SUPERSEDED', 'by', $3::text, 'at', $4::text))
+          WHERE id = $1 AND site_id = $2 AND decided_at IS NULL AND NOT (proposal ? 'stale_note_cleared')`,
+        [stale, row.site_id, by, req.now.toISOString()],
+      );
+    }
     // A refused press on this card raised a "needs a person"; deciding it answers that too (ledger #80).
     await answeredByDecision(tx, row.id, (t, id) => resolveTask(t, id, req.decision, by));
   });
@@ -148,4 +176,32 @@ export async function confirmStaffAction(
     [row.id, outcome],
   );
   return { status: 200, body: { ok: true, decision: req.decision } };
+}
+
+/**
+ * The other pending cards for the same change as `row`, at its centre, and whether the list hides
+ * `row` behind one of them (same choice as `confirmCards`: the first live card in created_at, id
+ * order, so a dead card never hides a live one). When `row` is the one offered, `later` is the rest.
+ */
+async function pendingTwins(
+  db: Db,
+  row: { id: string; site_id: string; proposal: { tool?: string; args?: Record<string, unknown> } },
+): Promise<{ hidden: boolean; later: string[]; stale: string[] }> {
+  const key = changeKey(String(row.proposal.tool ?? ""), row.proposal.args ?? {});
+  const rows = (
+    await db.query<{ id: string; tool: string | null; args: Record<string, unknown> | null; dead: boolean; stale: boolean }>(
+      `SELECT a.id, a.proposal->>'tool' AS tool, a.proposal->'args' AS args, ${DEAD_CARD_SQL} AS dead, ${STALE_PLAN_CARD_SQL} AS stale
+         FROM ops.approval_request a
+        WHERE a.site_id = $1 AND a.decided_at IS NULL AND a.proposal->>'kind' = $2 AND a.proposal->>'tool' = $3
+        ORDER BY a.created_at, a.id`,
+      [row.site_id, STAFF_ACTION_KIND, String(row.proposal.tool ?? "")],
+    )
+  ).rows.filter((r) => r.id === row.id || changeKey(r.tool ?? "", r.args ?? {}) === key);
+  // A stale card speaks only for itself: a press on it never decides the live card for its change.
+  if (rows.find((r) => r.id === row.id)?.stale) return { hidden: false, later: [], stale: [] };
+  const stale = rows.filter((r) => r.stale && r.id !== row.id).map((r) => r.id);
+  const offered = rows.filter((r) => r.id === row.id || !r.stale);
+  const visible = visibleOf(offered);
+  if (visible && visible.id !== row.id) return { hidden: true, later: [], stale: [] };
+  return { hidden: false, later: offered.filter((r) => r.id !== row.id).map((r) => r.id), stale };
 }

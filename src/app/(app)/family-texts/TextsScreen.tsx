@@ -85,7 +85,7 @@ export function TextsScreen({
   readonly simulate?: readonly SimulateOption[] | null;
   /** Changes to the day waiting for a person, as the one agent panel (ledger #79). */
   readonly changes?: readonly PanelView[];
-  /** Stale agent plan cards, each as its note (Vera, PR 124): no Approve, until dismissed or opened. */
+  /** Stale agent plan cards, each as its note (Vera): no Approve, until dismissed or opened. */
   readonly staleNotes?: readonly StaleNoteView[];
   readonly staleNoteActions?: { readonly dismiss: StaleNoteAction; readonly open: StaleNoteAction } | null;
 }) {

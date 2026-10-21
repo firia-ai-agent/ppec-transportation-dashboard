@@ -14,7 +14,7 @@
  * decided. Pure: no React, no database.
  */
 import type { ProposalView } from "@/app/(app)/family-texts/conversations";
-import type { ConfirmView } from "@/modules/actions/confirm-view";
+import type { ConfirmView, StaleNoteView } from "@/modules/actions/confirm-view";
 import { approval, confirmCopy, fill } from "./copy";
 
 export type PanelView = {
@@ -29,6 +29,14 @@ export type PanelView = {
   readonly message: { readonly text: string; readonly editable: string | null } | null;
   /** The family thread this panel belongs to, where Edit opens. Null when it has none. */
   readonly threadHref: string | null;
+  /**
+   * What the refusing button says, and it names what it refuses: "Don't send" for a reply, the
+   * card's own verb for a change (Vera). On the panel rather than decided inside it,
+   * so the one component draws both kinds without knowing either.
+   */
+  readonly decline: string;
+  /** A stale card: its note goes where Approve and Don't would be (Vera). */
+  readonly stale?: StaleNoteView;
 };
 
 /** A reply to a family, with the change it makes to the ride. */
@@ -42,6 +50,7 @@ export function replyPanel(p: ProposalView, threadHref: string): PanelView {
     lines: p.lines.length > 0 ? p.lines : p.changeLine ? [p.changeLine] : [],
     message: { text: p.draftText === "" ? approval.draftFailed : p.draftText, editable: p.replyText },
     threadHref,
+    decline: approval.dontSend,
   };
 }
 
@@ -50,12 +59,19 @@ export function confirmPanel(c: ConfirmView): PanelView {
   return {
     id: c.approvalId,
     kind: "confirm",
-    title: c.impact.length > 0 ? c.summary : confirmCopy.heading,
-    label: confirmCopy.heading,
-    // The model's own sentence when it wrote one; the action's line when nothing else says what it does.
-    note: c.note ?? (c.impact.length === 0 ? c.summary : null),
+    // The change itself is the bold line ("Move Noah to Van 1, afternoon."), never a header over it (Vera).
+    title: c.summary,
+    label: c.summary,
+    // The model's own sentence, when it wrote one that says more than the title.
+    note: c.note !== null && c.note !== c.summary ? c.note : null,
     lines: c.impact,
     message: null,
     threadHref: null,
+    decline: c.decline,
   };
+}
+
+/** A stale card in the bubble: the same one card For you draws, its note in place of the buttons. */
+export function stalePanel(n: StaleNoteView): PanelView {
+  return { id: n.approvalId, kind: "confirm", title: n.title, label: n.title, note: null, lines: [], message: null, threadHref: null, decline: "", stale: n };
 }

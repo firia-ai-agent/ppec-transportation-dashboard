@@ -1,8 +1,10 @@
 /**
- * A STALE AGENT PLAN CARD LEAVES A NOTE (Vera, PR 124). When a person saves a leg after the agent wrote
+ * A STALE AGENT PLAN CARD CARRIES ITS NOTE (Vera). When a person saves a leg after the agent wrote
  * a plan card for it, the card cannot be approved (`STALE_PLAN_CARD_SQL`, and Approve's 422) — but it
- * must not just vanish from For you. In its place is one line, the same words as the refusal:
- * "{child}'s plan changed after this card was written." with Open Plan routes. No Approve.
+ * must not just vanish. The card keeps its own bold line, and where Approve and Don't would be is
+ * the refusal's sentence — "{child}'s plan changed after this card was written." — with Open Plan
+ * routes and Dismiss. One card, on For you and in the bubble alike; never a second line beside it.
+ * A stale card whose change has a live card waiting is not shown at all: the live one is the answer.
  *
  * The note stays until the coordinator dismisses it or opens Plan routes from it. That is kept on
  * the card's own `proposal` JSON (`stale_note_cleared`), so no column and no migration.
@@ -14,7 +16,7 @@ import { sqlPlanStoreIn } from "@/modules/plan/sql";
 import { sqlDaySource } from "@/modules/roster/sql";
 import { refusalOf, refusalWords } from "@/modules/changes/refusal";
 import { loadBoard } from "@/modules/plan/store";
-import { STALE_PLAN_CARD_SQL } from "./confirm-cards";
+import { STALE_PLAN_CARD_SQL, cardTitle, changeKey, liveChangeKeys } from "./confirm-cards";
 import { STAFF_ACTION_KIND, type StaleNoteView } from "./confirm-view";
 
 /** The child a plan card is about: `move_child`'s, or a `save_plan`'s first move's. */
@@ -27,15 +29,21 @@ export function cardChild(args: Record<string, unknown>): string | null {
 
 /** The notes waiting at a centre: stale, undecided agent plan cards nobody has cleared yet. */
 export async function staleNotes(db: Exec, siteId: string): Promise<readonly StaleNoteView[]> {
-  const rows = await db.query<{ id: string; args: Record<string, unknown> | null }>(
-    `SELECT a.id, a.proposal->'args' AS args FROM ops.approval_request a
+  const rows = await db.query<{ id: string; tool: string | null; args: Record<string, unknown> | null; summary: string | null }>(
+    `SELECT a.id, a.proposal->>'tool' AS tool, a.proposal->'args' AS args, a.proposal->>'summary' AS summary FROM ops.approval_request a
       WHERE a.site_id = $1 AND a.decided_at IS NULL AND a.proposal->>'kind' = $2
         AND NOT (a.proposal ? 'stale_note_cleared') AND ${STALE_PLAN_CARD_SQL}
       ORDER BY a.created_at, a.id`,
     [siteId, STAFF_ACTION_KIND],
   );
+  const live = await liveChangeKeys(db, siteId);
   const out: StaleNoteView[] = [];
-  for (const r of rows.rows) out.push({ approvalId: r.id, ...(await staleCardWords(db, siteId, r.args ?? {})) });
+  for (const r of rows.rows) {
+    const tool = r.tool ?? "";
+    const args = r.args ?? {};
+    if (live.has(changeKey(tool, args))) continue;
+    out.push({ approvalId: r.id, ...(await staleCardWords(db, siteId, args)), title: await cardTitle(db, siteId, tool, args, r.summary) });
+  }
   return out;
 }
 
@@ -43,7 +51,7 @@ export async function staleNotes(db: Exec, siteId: string): Promise<readonly Sta
  * The words a stale plan card is said in, wherever it is said — For you's note, the bubble's thread,
  * Approve's 422: the child off the board, and Plan routes. Never a version or a code.
  */
-export async function staleCardWords(db: Exec, siteId: string, args: Record<string, unknown>): Promise<Omit<StaleNoteView, "approvalId">> {
+export async function staleCardWords(db: Exec, siteId: string, args: Record<string, unknown>): Promise<Omit<StaleNoteView, "approvalId" | "title">> {
   const at = { date: String(args.date ?? ""), leg: args.leg === "AM" ? ("AM" as const) : ("PM" as const) };
   const board = await loadBoard(sqlPlanStoreIn(db), siteId, at.date, at.leg, sqlDaySource(db, siteId)).catch(() => null);
   const words = refusalWords(refusalOf({ reason: "STALE_CARD", vanId: null, childToken: cardChild(args) }, at, board));
@@ -51,7 +59,7 @@ export async function staleCardWords(db: Exec, siteId: string, args: Record<stri
 }
 
 /**
- * Clear one note: dismissed, or Plan routes opened from it (PPE-114). Only somebody who may decide
+ * Clear one note: dismissed, or Plan routes opened from it. Only somebody who may decide
  * cards (`APPROVAL_ROLES`) at the card's own centre, and only a stale, undecided card — a live card,
  * a decided one, another centre's, a front desk's or a family's press writes nothing. The card itself
  * stays undecided (Approve still 422s).

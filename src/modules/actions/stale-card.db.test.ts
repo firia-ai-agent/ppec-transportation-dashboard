@@ -5,6 +5,7 @@ import { FakeTransport } from "@/modules/jobs/fake-transport";
 import { VercelQueueScheduler } from "@/modules/jobs/scheduler";
 import { FakeOutboxTransport } from "@/modules/outbox/transport";
 import { refusalWords } from "@/modules/changes/refusal";
+import { childFirstName } from "@/modules/identity/display-name";
 import { PLAN_ROUTES_PATH } from "@/modules/plan/when";
 import type { Db } from "@/db/exec";
 import { seedStandardScenario } from "@/modules/demo/seed";
@@ -98,11 +99,11 @@ describe("a plan card drafted on a board somebody has since saved past (ledger #
 });
 
 /**
- * A DIRECT CARD (PPE-110): the agent's own `save_plan` / `move_child` card, not a drafted re-plan.
+ * A DIRECT CARD: the agent's own `save_plan` / `move_child` card, not a drafted re-plan.
  * Before, it carried no `basis_version`, so the clock rule judged it — and a person's save stamped
  * before the card's `created_at` let it come back. Now the card records the board it was written on.
  */
-describe("a direct save_plan / move_child card written before somebody saved the leg (PPE-110)", () => {
+describe("a direct save_plan / move_child card written before somebody saved the leg", () => {
   const directCard = async (tool: "save_plan" | "move_child", args: Record<string, unknown>) => {
     const execDeps = { db, scheduler: new VercelQueueScheduler(db, new FakeTransport(), () => NOW), transport: new FakeOutboxTransport() };
     const out = await db.tx((tx) =>
@@ -157,16 +158,23 @@ describe("a direct save_plan / move_child card written before somebody saved the
   });
 });
 
-describe("a card whose basis_version is not a number (PPE-111)", () => {
+describe("a card whose basis_version is not a number", () => {
   it("does not break the card list, and is not offered", async () => {
     const current = (await board()).version;
+    /*
+     * The two cards move different children, so each is a change of its own: the list now offers one
+     * card per *change* (Vera), and two `save_plan` cards with the same arguments are the
+     * same change however many runs wrote them.
+     */
     const good = await writeStaffActionCard(db, {
       siteId: SITE, key: "good-card-111", by: "agent:good", tool: "save_plan", action: "save_plan",
-      args: { date: DATE, leg: "PM", moves: [], basis_version: current }, summary: "Change the afternoon plan",
+      args: { date: DATE, leg: "PM", moves: [{ child_token: "c-good-111", bucket: "VAN", van_id: vanIdOfSlot(1) }], basis_version: current },
+      summary: "Change the afternoon plan",
     });
     const bad = await writeStaffActionCard(db, {
       siteId: SITE, key: "bad-card-111", by: "agent:bad", tool: "save_plan", action: "save_plan",
-      args: { date: DATE, leg: "PM", moves: [], basis_version: "not-a-version" }, summary: "Change the afternoon plan",
+      args: { date: DATE, leg: "PM", moves: [{ child_token: "c-bad-111", bucket: "VAN", van_id: vanIdOfSlot(1) }], basis_version: "not-a-version" },
+      summary: "Change the afternoon plan",
     });
     const ids = (await confirmCards(db, SITE)).map((c) => c.approvalId);
     expect(ids).toContain(good);
@@ -175,11 +183,11 @@ describe("a card whose basis_version is not a number (PPE-111)", () => {
 });
 
 /**
- * APPROVE RUNS THE LIST'S CHECK (PPE-112). An agent plan card the board has moved past — or one that
+ * APPROVE RUNS THE LIST'S CHECK. An agent plan card the board has moved past — or one that
  * never named its board — is refused at Approve by id, and nothing is written. A person's own move
  * on the board needs no version.
  */
-describe("Approve on an agent plan card the board moved past (PPE-112)", () => {
+describe("Approve on an agent plan card the board moved past", () => {
   const vanChild = async () => {
     const view = await board();
     const [token, p] = Object.entries(view.plan).find(([, p]) => p.bucket === "VAN")!;
@@ -212,7 +220,10 @@ describe("Approve on an agent plan card the board moved past (PPE-112)", () => {
     // What the coordinator sees: the child's name, a link to Plan routes, no version or code.
     const refusal = !pressed.body.ok ? pressed.body.refusal! : null;
     const words = refusalWords(refusal!);
-    expect(words.says).toBe(`${await nameOf(token)}'s plan changed after this card was written.`);
+    // The first name alone, from the one helper — never the board's "Noah O." with "'s" on it (Vera).
+    const label = await nameOf(token);
+    expect(words.says).toBe(`${childFirstName(label)}'s plan changed after this card was written.`);
+    expect(words.says).not.toContain(label);
     expect(words.fix).toEqual({ label: "Open Plan routes", href: PLAN_ROUTES_PATH });
     expect(words.says).not.toMatch(/\d|STALE|version|422/i);
     // Still pending, never claimed.

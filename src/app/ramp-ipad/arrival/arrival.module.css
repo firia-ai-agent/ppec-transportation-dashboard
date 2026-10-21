@@ -567,14 +567,20 @@
    * device's safe-area inset, so the two never share a pixel.
    */
   /*
-   * DEMO RULING (Firia, 2026-10-18 10:10 AM ET): the agent bubble is hidden on the ramp iPad at
-   * 390 while Confirm is pinned, rather than lifted by the shared offset, which waits until after
-   * the demo. The selector stays pure for CSS Modules by anchoring on this file's own class.
+   * THE AGENT DISC IS NOT HIDDEN HERE ANY MORE (Vera).
+   *
+   * A `display: none` on `[data-agent-bubble][data-state="closed"]` used to sit at this line: the
+   * demo ruling of 2026-10-18 10:10 AM ET, taken *instead of* the shared offset because the offset
+   * did not exist yet. It landed the same afternoon (`--sticky-action-bar-height`, declared just
+   * above and read by src/ui/AgentBubble.module.css), and with it the disc rides 17 px clear of
+   * this bar at 390×844 — so the hide was a stopgap outliving the thing it stood in for, and the
+   * one staff screen a person starts their day on was the one with no way to reach the agent.
+   *
+   * The agent is on every staff screen but Family texts, whose thread *is* the agent
+   * (src/ui/agent-bubble-state.ts, src/ui/agent-everywhere.test.ts). Nothing in this file touches
+   * the bubble now, which is also what sticky-action-bar.test.ts holds: a page declares its bar's
+   * height and the frame does the arithmetic.
    */
-  /* The closed disc only (ledger #76): Re-plan opens the panel with its draft card, as a full sheet. */
-  :global(body):has(.confirmBar) :global([data-agent-bubble][data-state="closed"]) {
-    display: none;
-  }
 
   .confirmBar {
     position: fixed;
