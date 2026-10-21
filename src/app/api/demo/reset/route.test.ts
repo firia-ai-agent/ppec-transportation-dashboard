@@ -39,7 +39,7 @@ it("refuses on a preview with 403 and a clear JSON error, even for a DIRECTOR", 
   /*
    * The sentence an operator reads, and beside it the code a *surface* reads: this refusal is
    * expected rather than wrong, so the header starts the scenario clock anyway and says the
-   * reset is the live site's (src/modules/demo/refusal.ts, src/ui/demo-day.ts, ledger row 72).
+   * reset is the live site's (src/modules/demo/refusal.ts, src/ui/demo-day.ts, ledger row 88).
    * A failure carries no code, which is how the two are told apart without matching on words.
    */
   expect(await res.json()).toEqual({ ok: false, error: PREVIEW_REFUSAL, refusal: DEMO_RESET_REFUSAL.readOnlyDb });
@@ -84,7 +84,7 @@ it("off a preview a flagged deployment still runs: the route reaches the session
   }
 });
 
-it("a coordinator reaches the work, the same as a director (ledger row 72)", async () => {
+it("a coordinator reaches the work, the same as a director (ledger row 88)", async () => {
   // Founder's final ruling, 2026-10-17 14:44 ET: both console roles may reset the demo. The DB
   // stub throwing is the proof it got past both guards — there is nothing after them but work.
   for (const role of ["DIRECTOR", "COORDINATOR"] as const) {
@@ -98,7 +98,7 @@ it("a signed-out caller is 401 and a wrong role is 403, before the DB is opened"
   const anon = await post({});
   expect(anon.status).toBe(401);
 
-  // The front desk is refused by the server, not merely offered no button (ledger row 72).
+  // The front desk is refused by the server, not merely offered no button (ledger row 88).
   getCaller.mockResolvedValue({ kind: "STAFF", role: "FRONT_DESK", userId: "u1", memberships: [] } as never);
   const frontDesk = await post({});
   expect(frontDesk.status).toBe(403);

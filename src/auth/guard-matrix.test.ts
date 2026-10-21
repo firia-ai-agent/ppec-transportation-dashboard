@@ -474,13 +474,13 @@ describe("the session endpoint, for every role and for a signed-out caller", () 
    * disabled mid-session must be told to sign in, not told their role is wrong.
    *
    * Two roles reach the work since the founder's final ruling (2026-10-17 14:44 ET, ledger row
-   * 72) — the director and the coordinator — and the front desk is refused **here**, by the
+   * 88) — the director and the coordinator — and the front desk is refused **here**, by the
    * server, which is the half a hidden button does not do: the header offers them no control
    * (shell.test.ts), and this is what answers them if they call the endpoint anyway.
    */
   const EXPECTED: Record<string, { status: number; error: string } | "reached the db"> = {
     director: "reached the db",
-    // Row 72 (founder, 2026-10-17 14:44 ET): the coordinator may reset the demo too, so their
+    // Row 88 (founder, 2026-10-17 14:44 ET): the coordinator may reset the demo too, so their
     // cell is now the work rather than a refusal. The front desk's is unchanged.
     coordinator: "reached the db",
     frontDesk: { status: 403, error: apiAccess.notYourRole },

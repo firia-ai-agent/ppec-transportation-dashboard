@@ -3,7 +3,7 @@
  * One press, two things, in this order: the demo day's **data** back to the start, then the
  * **clock** running from the instant the page was rendered at.
  *
- * SOURCE: the founder's final ruling, 2026-10-17 14:44 ET (DECISION-LEDGER row 72) — "Start demo
+ * SOURCE: the founder's final ruling, 2026-10-17 14:44 ET (DECISION-LEDGER row 88) — "Start demo
  * day puts the demo back to the start of the day with all demo data, then starts the scenario
  * clock". It overrides the earlier clock-only button, which started a clock over whatever the
  * last demo had left on the board.

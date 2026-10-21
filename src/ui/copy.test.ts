@@ -479,16 +479,16 @@ describe("COPY-GUIDE strings, verbatim", () => {
     }
     // The note that explained why Start did nothing is gone, because Start does something.
     expect(scenarioClock).not.toHaveProperty("startUnavailable");
-    // And so is "Reset demo day": the second press restarts the day, data and clock (row 72).
+    // And so is "Reset demo day": the second press restarts the day, data and clock (row 88).
     expect(scenarioClock).not.toHaveProperty("reset");
   });
 
   /**
-   * The founder's final ruling, 2026-10-17 14:44 ET (DECISION-LEDGER row 72), word for word. The
+   * The founder's final ruling, 2026-10-17 14:44 ET (DECISION-LEDGER row 88), word for word. The
    * press resets the demo's data and then starts the clock, so the control has a confirm, a
    * pending state, and two different answers — and each of those strings was dictated.
    */
-  it("row 72: the confirm, the pending labels and the two answers a press comes back with", () => {
+  it("row 88: the confirm, the pending labels and the two answers a press comes back with", () => {
     expect(scenarioClock.confirmTitle).toBe("Restart the demo day?");
     expect(scenarioClock.confirmBody).toBe("Anything changed since the start will be lost.");
     expect(scenarioClock.confirmRestart).toBe("Restart");
@@ -1061,7 +1061,7 @@ describe("copy.ts holds the words the surfaces used to hold", () => {
 
   it("the demo-reset answers an operator reads", () => {
     expect(demoReset.previewRefusal).toMatch(/^Refusing: preview deployments/);
-    // Row 72 opened the reset to the coordinator as well, so the refusal names both roles.
+    // Row 88 opened the reset to the coordinator as well, so the refusal names both roles.
     expect(demoReset.roleRefused).toBe("Only a director or coordinator can reset the demo.");
     expect(demoReset).not.toHaveProperty("directorOnly");
   });

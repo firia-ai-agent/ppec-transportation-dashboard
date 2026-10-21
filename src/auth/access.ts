@@ -447,7 +447,7 @@ export const ENDPOINTS: readonly EndpointRow[] = [
    * not-found (BUILD-PLAN §4).
    *
    * `CONSOLE` — the director **and** the coordinator — by the founder's final ruling
-   * (2026-10-17 14:44 ET, DECISION-LEDGER row 72): the header's "Start demo day" puts the day's
+   * (2026-10-17 14:44 ET, DECISION-LEDGER row 88): the header's "Start demo day" puts the day's
    * data back and then starts the clock, and a coordinator runs the demo day. ADR-014 said
    * DIRECTOR; this row is the one place that changes, and `RESET_ROLES` in
    * src/modules/demo/reset.ts reads it from here (`rolesWhoCanCall`) rather than restating it.

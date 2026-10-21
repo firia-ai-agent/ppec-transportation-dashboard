@@ -7,7 +7,7 @@
  * is the whole path with a real mouse: the readout before the press, the readout after it, the
  * board moving with the same clock, the confirm the second press opens, and the way back taken.
  *
- * Since the founder's final ruling (2026-10-17 14:44 ET, DECISION-LEDGER row 72) the press is two
+ * Since the founder's final ruling (2026-10-17 14:44 ET, DECISION-LEDGER row 88) the press is two
  * acts in one: the demo's **data** back to the start of the day — `POST /api/demo/reset` — and
  * then the clock. So each test below fixes **what the endpoint answers** with `page.route` and
  * asserts what the screen then does, which is the half only a browser can show:

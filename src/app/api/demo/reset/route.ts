@@ -13,7 +13,7 @@ const noStore = { "cache-control": "no-store" };
 /**
  * Reset & seed the standard synthetic scenario (MOCKS-AND-DEMO §6). Behind the ADR-014 demo flags and
  * open to the roles the access table names for this route — the director and the coordinator
- * (DECISION-LEDGER row 72) — at the caller's own site.
+ * (DECISION-LEDGER row 88) — at the caller's own site.
  *
  * Three guards, in this order, and each one is here rather than inside the next because of what it
  * protects:

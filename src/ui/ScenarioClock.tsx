@@ -15,7 +15,7 @@ import styles from "./ScenarioClock.module.css";
  * button).
  *
  * **It starts the demo day — the data and the clock.** The founder's final ruling (2026-10-17
- * 14:44 ET, DECISION-LEDGER row 72): the press puts the demo back to the start of the day with
+ * 14:44 ET, DECISION-LEDGER row 88): the press puts the demo back to the start of the day with
  * all of its data, through `POST /api/demo/reset`, and then starts the scenario clock. The two
  * are ordered and that order is in src/ui/demo-day.ts, which this component only wires to the
  * screen. Before that ruling the button started a clock and nothing else; before *that* it was

@@ -44,7 +44,7 @@ import type { Db } from "@/db/exec";
  * | disabled director    | 401        | 401        | 401          | 401           | 401        | 401         |
  *
  * The coordinator's own-site row changed with the founder's final ruling of 2026-10-17 14:44 ET
- * (DECISION-LEDGER row 72), which opened the demo reset to them as well as the director. Only
+ * (DECISION-LEDGER row 88), which opened the demo reset to them as well as the director. Only
  * that cell moved: every cell about **another** site, a random id or an id that exists nowhere is
  * what it was, because widening a role says nothing about widening a tenant.
  *
@@ -203,7 +203,7 @@ describe("the matrix: every role against every target, read and write", () => {
     }
     expect(await writeStatus(USERS.DIRECTOR_A, SITE)).toBe(200);
     expect(await childCount()).toBeGreaterThan(0);
-    // The same cell for the coordinator since row 72, and still their own site only.
+    // The same cell for the coordinator since row 88, and still their own site only.
     expect(await writeStatus(USERS.COORDINATOR_A, SITE)).toBe(200);
     expect(await childCount()).toBeGreaterThan(0);
   }, 180_000);
@@ -225,7 +225,7 @@ describe("a refusal says nothing about what exists", () => {
 
   it("a wrong role at your own site is 403, which hides nothing it could hide", async () => {
     // Their own site: its existence is not a secret from a member of it (BUILD-PLAN §4). The
-    // front desk is the wrong role since row 72 opened the write to the coordinator as well.
+    // front desk is the wrong role since row 88 opened the write to the coordinator as well.
     const r = await handleDemoReset(db, env, { userId: USERS.FRONT_DESK_A, siteId: SITE, now: NOW });
     expect(r.status).toBe(403);
   });
@@ -296,7 +296,7 @@ describe("the same swap, sent straight to the endpoint", () => {
   });
 
   /**
-   * The role half of the founder's final ruling (2026-10-17 14:44 ET, ledger row 72) over HTTP,
+   * The role half of the founder's final ruling (2026-10-17 14:44 ET, ledger row 88) over HTTP,
    * which is where the browser asks: the coordinator's reset **runs** and the front desk's is
    * refused by the server. The header offering the front desk no button (shell.test.ts) is a
    * courtesy on top of this, never instead of it.

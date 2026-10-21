@@ -24,7 +24,7 @@ import { clearSavedPlans } from "./plan-store";
 
 /**
  * The roles that may reset the demo — the director and the coordinator, by the founder's final
- * ruling (2026-10-17 14:44 ET, DECISION-LEDGER row 72; ADR-014 named the director alone). Read
+ * ruling (2026-10-17 14:44 ET, DECISION-LEDGER row 88; ADR-014 named the director alone). Read
  * from the one access table rather than written out again here, so the endpoint and the table
  * cannot disagree about it: the row is the single place either of them changes.
  */

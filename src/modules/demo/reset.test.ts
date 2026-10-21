@@ -58,7 +58,7 @@ describe("POST /api/demo/reset gating (ADR-014, ADR-015)", () => {
       status: 403,
       reason: PREVIEW_REFUSAL,
       // The one refusal that is expected rather than wrong, named so a surface can act on it
-      // without reading the sentence (./refusal.ts, src/ui/demo-day.ts, ledger row 72).
+      // without reading the sentence (./refusal.ts, src/ui/demo-day.ts, ledger row 88).
       refusal: DEMO_RESET_REFUSAL.readOnlyDb,
     });
     expect(demoControlsGate({ VERCEL_ENV: "preview" }).status).toBe(403);
@@ -113,7 +113,7 @@ describe("POST /api/demo/reset gating (ADR-014, ADR-015)", () => {
   /**
    * The three roles, against a real database, with the rows counted after each one — the half a
    * hidden button cannot claim. Founder's final ruling, 2026-10-17 14:44 ET (DECISION-LEDGER row
-   * 72): the director and the coordinator may reset the demo, the front desk may not.
+   * 88): the director and the coordinator may reset the demo, the front desk may not.
    */
   it("the director and the coordinator each get 200 and a seeded site; the front desk gets 403", async () => {
     for (const role of ["DIRECTOR", "COORDINATOR"] as const) {
@@ -224,7 +224,7 @@ describe("POST /api/demo/reset gating (ADR-014, ADR-015)", () => {
   it("says nothing about tickets, roles it did not grant, or secrets", async () => {
     const bodies: string[] = [];
     // The front desk, because every one of these must be a *refusal*: a coordinator now resets
-    // the demo (ledger row 72), so the third case would be a 200 and prove nothing.
+    // the demo (ledger row 88), so the third case would be a 200 and prove nothing.
     for (const e of [{ ...env, DEMO_MODE: "0" }, { ...env, APP_DATA_CLASS: "REAL" }, env]) {
       bodies.push(JSON.stringify((await handleDemoReset(db, e, { userId: USERS.FRONT_DESK, siteId: SITE, now: NOW })).body));
     }

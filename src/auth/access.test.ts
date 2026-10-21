@@ -363,7 +363,7 @@ describe("the policy itself, written out so a silent widening fails", () => {
       "/api/health": "public",
       "/api/cron/sweep": "cron-secret",
       "/api/probe/delay": "cron-secret",
-      // Row 72: the coordinator too, so the one source for both halves is this row.
+      // Row 88: the coordinator too, so the one source for both halves is this row.
       "/api/demo/reset": "session:DIRECTOR+COORDINATOR",
       "/api/plan/save": "session:DIRECTOR+COORDINATOR",
       "/api/queues/timer": "queue-callback",
@@ -509,7 +509,7 @@ describe("the decision, cell by cell", () => {
   });
 
   /**
-   * Founder's final ruling, 2026-10-17 14:44 ET (DECISION-LEDGER row 72): the demo reset is the
+   * Founder's final ruling, 2026-10-17 14:44 ET (DECISION-LEDGER row 88): the demo reset is the
    * director's **and the coordinator's** — the header's "Start demo day" puts the day's data back
    * and then starts the clock, and a coordinator runs the demo day. ADR-014 said DIRECTOR alone
    * until that ruling. The front desk is still refused: their surface is the ramp iPad (PRD
@@ -528,12 +528,12 @@ describe("the decision, cell by cell", () => {
   });
 
   /**
-   * What row 72 cost, measured: the coordinator gained **one** cell, and it is the reset. A
+   * What row 88 cost, measured: the coordinator gained **one** cell, and it is the reset. A
    * ruling about one button must not quietly widen a role anywhere else, so both halves of their
    * access are written out here — every session endpoint they may call, and every page they may
    * open — and a second widening fails this line before it reaches a review.
    */
-  it("row 72 gave the coordinator the reset endpoint and nothing else", () => {
+  it("row 88 gave the coordinator the reset endpoint and nothing else", () => {
     const callable = ENDPOINTS.filter(
       (row) => row.auth.kind === "session" && apiOutcome(callers.coordinator, row.path) === "ALLOW",
     ).map((row) => row.path);

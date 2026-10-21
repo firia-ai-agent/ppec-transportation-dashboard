@@ -235,7 +235,7 @@ describe("§2 scenario clock", () => {
    * does its job, and an explanation on hover is no explanation on a phone.
    *
    * It is wired to the whole press now, not only the clock: `startDemoDay` resets the demo's
-   * data and then starts the clock (founder's final ruling, 2026-10-17 14:44 ET, ledger row 72).
+   * data and then starts the clock (founder's final ruling, 2026-10-17 14:44 ET, ledger row 88).
    */
   it("is wired to the reset and the clock, with nothing left that makes it inert", () => {
     expect(component).toMatch(/startDemoDay\(\{/);
@@ -278,7 +278,7 @@ describe("§2 scenario clock", () => {
   });
 
   /**
-   * Founder's final ruling (2026-10-17 14:44 ET, ledger row 72): only the director and the
+   * Founder's final ruling (2026-10-17 14:44 ET, ledger row 88): only the director and the
    * coordinator may use it, and **the front desk does not see the button at all** — not a
    * disabled one, which is the inert control the 14:40 report was about. The roles are read from
    * the endpoint's own row, so this cannot drift from the server's answer; the server refuses
@@ -305,7 +305,7 @@ describe("§2 scenario clock", () => {
   });
 
   /**
-   * The second press asks first, and the dialog is the founder's wording (ledger row 72). The
+   * The second press asks first, and the dialog is the founder's wording (ledger row 88). The
    * markup is read off the source because the dialog only exists after a click, which needs a
    * DOM; e2e/scenario-clock.spec.ts opens it with a real mouse, cancels, and restarts.
    */

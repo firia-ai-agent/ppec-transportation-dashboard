@@ -395,7 +395,7 @@ export function onDay(words: { today: string; otherDay: string }, day: LabelledD
  * colour (§3, §9). The fuller dock §6.1 sketches around it is a later build step.
  *
  * The control does two things in one press (founder's final ruling, 2026-10-17 14:44 ET,
- * DECISION-LEDGER row 72): it puts the demo back to the start of the day with all its data —
+ * DECISION-LEDGER row 88): it puts the demo back to the start of the day with all its data —
  * the demo-reset endpoint, whose own answers are the `demoReset` table below — and then starts
  * the clock. So the words here cover a press that can refuse, which the earlier clock-only
  * button could not: a confirm before the second press, a pending label while the data is being
@@ -1573,7 +1573,7 @@ export const demoReset = {
   signIn: "Sign in to continue.",
   /**
    * The roles the access table opens this endpoint to, in words (founder's final ruling,
-   * 2026-10-17 14:44 ET, DECISION-LEDGER row 72: the director and the coordinator, and not the
+   * 2026-10-17 14:44 ET, DECISION-LEDGER row 88: the director and the coordinator, and not the
    * front desk). It named the director alone until that ruling.
    */
   roleRefused: "Only a director or coordinator can reset the demo.",

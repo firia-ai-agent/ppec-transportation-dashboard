@@ -6,7 +6,7 @@ import { startDemoDay, type DemoResetAnswer } from "./demo-day";
 /**
  * One press of "Start demo day", and what it is allowed to do in which order.
  *
- * The founder's final ruling (2026-10-17 14:44 ET, DECISION-LEDGER row 72) is two acts in a
+ * The founder's final ruling (2026-10-17 14:44 ET, DECISION-LEDGER row 88) is two acts in a
  * fixed order — the demo's **data** back to the start of the day, then the **clock** — and the
  * order is the safety property: a clock that starts over a reset that failed is a demo day
  * running across a database nobody put back. So every case below records the calls in the order

@@ -1,7 +1,7 @@
 /**
  * WHO GETS THE DEMO'S CONTROL, read off the real screen for the role this run is signed in as.
  *
- * The founder's final ruling (2026-10-17 14:44 ET, DECISION-LEDGER row 72): only the director and
+ * The founder's final ruling (2026-10-17 14:44 ET, DECISION-LEDGER row 88): only the director and
  * the coordinator may put the demo day back, and **the front desk does not see the button at
  * all** — not a disabled one. An inert button is exactly the thing the 14:40 report was about, so
  * "the front desk sees no button" has to be measured on a rendered page and not inferred from a
