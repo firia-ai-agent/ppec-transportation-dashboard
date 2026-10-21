@@ -497,4 +497,9 @@ describe("the open panel owns the wheel", () => {
     expect(css).toMatch(/\.thread \{[^}]*overscroll-behavior: contain/);
     expect(readFileSync(path.join(process.cwd(), "src/ui/AgentThread.tsx"), "utf8")).toContain("data-agent-thread");
   });
+
+  it("nothing in the thread shrinks, so a card is never squeezed past its own buttons (as Family texts)", () => {
+    const css = readFileSync(path.join(process.cwd(), "src/ui/AgentThread.module.css"), "utf8");
+    expect(css).toMatch(/\.thread > \* \{\s*flex: none;\s*\}/);
+  });
 });

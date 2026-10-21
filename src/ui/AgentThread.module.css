@@ -21,6 +21,15 @@
   padding: var(--space-5) var(--space-5) var(--space-3);
 }
 
+/*
+ * NOTHING IN THE THREAD SHRINKS — the rule Family texts already has (texts.module.css `.messages > *`).
+ * A column out of room squeezes its last child, and the agent's card (`overflow: hidden`) then
+ * clips its own Approve and Don't while the thread reports no overflow and never scrolls to them.
+ */
+.thread > * {
+  flex: none;
+}
+
 /* Nothing has been said today. One line, in the muted ink, where the thread would be. */
 .empty {
   align-self: center;

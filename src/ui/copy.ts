@@ -3270,7 +3270,8 @@ export const agentGuidance = {
   replyToStaff:
     "Answer like a coordinator would. Don't be robotic — be friendly and natural. " +
     "Write people as the prompt's tokens. This ends your turn: nothing runs after it, so do the work first " +
-    "(draft the card) and say what you did or what's waiting for them — never that you'll do something next.",
+    "(draft the card) and say what you did or what's waiting for them — never that you'll do something next. " +
+    "The card shows who goes where: say what it does in a line, don't list everyone.",
   summarize:
     "Answer the coordinator, or leave them a note about a thread: one or two plain sentences, with " +
     "people written as the prompt's family and child tokens, which are shown as first names.",

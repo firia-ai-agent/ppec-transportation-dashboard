@@ -246,8 +246,9 @@ export async function staffAskContext(
   );
 
   return {
-    prompt: tierPrompt(facts, input),
-    promptBlocks: tierPromptBlocks(facts, input),
+    // Results in the same tokens as the rest of this prompt: the site's roster (ledger #89).
+    prompt: tierPrompt(facts, input, say),
+    promptBlocks: tierPromptBlocks(facts, input, say),
     tokens,
     tools: opts.alert ? ALERT_TOOLS : STAFF_ASK_TOOLS,
     policy: {

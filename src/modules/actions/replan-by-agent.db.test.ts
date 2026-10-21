@@ -3,9 +3,9 @@ import type { Db } from "@/db/exec";
 import { askAgent } from "@/modules/agent/ask/staff-ask";
 import { familyScope, type PolicyContext } from "@/modules/agent/policy";
 import { freeText, toolCall } from "@/modules/agent/providers/fake";
-import type { TierFacts } from "@/modules/agent/run/context";
+import { tierPrompt, type TierFacts } from "@/modules/agent/run/context";
 import { liveHarness } from "@/modules/agent/run/exec/live-harness";
-import { toolCalls } from "@/modules/agent/run/store";
+import { committedCalls, toolCalls } from "@/modules/agent/run/store";
 import { seedStandardScenario } from "@/modules/demo/seed";
 import { ridersInVan } from "@/domain/plan/board";
 import { fits } from "@/domain/plan/fit";
@@ -44,12 +44,12 @@ const ctx = (userId: string, role: ActionCtx["caller"]["role"]): ActionCtx => ({
 });
 const board = () => loadBoard(actionDepsFor(db, SITE).store!, SITE, DATE, "PM", actionDepsFor(db, SITE).source);
 
-const facts: TierFacts = { t1: `site=${SITE}`, t2: `service_date=${DATE}`, t3: [], t4: "channel=SMS_1TO1" };
+const facts0: TierFacts = { t1: `site=${SITE}`, t2: `service_date=${DATE}`, t3: [], t4: "channel=SMS_1TO1" };
 const policy = (): PolicyContext => ({ scope: familyScope(SITE, [], [], SITE), sendableSubjects: new Set() });
 
 /** Ask the agent as this person, with this scripted model, through the real run loop. */
 async function ask(by: string, text: string, script: Parameters<typeof liveHarness>[0]["script"]) {
-  const h = liveHarness({ db, script, facts, policy: policy(), now: () => NOW });
+  const h = liveHarness({ db, script, facts: facts0, policy: policy(), now: () => NOW });
   return askAgent(db, { siteId: SITE, text, by: `staff:${by}` }, {
     env: ENV,
     runner: () => ({ ok: true as const, refused: false, reason: null, deps: h.deps(0) }),
@@ -156,7 +156,10 @@ describe("asked what was just done, the agent can look (ledger #76)", () => {
     expect(facts).toMatch(/saved the afternoon plan/);
     expect(facts).not.toMatch(/PROVISIONAL|SCHEDULED/);
     // People reach the model as tokens, never names (PRD; else the reply's own redaction wipes them).
-    for (const child of CHILDREN) expect(facts, child.label).not.toContain(child.label);
+    // The row keeps the tool's words; the next turn's prompt is where they become tokens (ledger #89).
+    const next = tierPrompt(facts0, { runId: r.run.runId, trigger: { type: "staff.ask", id: r.taskId, siteId: SITE }, committed: committedCalls(await toolCalls(db, r.run.runId)), now: NOW });
+    expect(next).toMatch(/saved the afternoon plan/);
+    for (const child of CHILDREN) expect(next, child.label).not.toContain(child.label);
   });
 });
 
