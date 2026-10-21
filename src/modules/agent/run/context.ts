@@ -112,11 +112,11 @@ export function tierPromptBlocks(facts: TierFacts, input: AssembleInput): readon
 const STAFF_TRIGGERS: ReadonlySet<string> = new Set(["staff.ask", "operational.event"]);
 
 /**
- * A TEAMMATE'S BRIEF. Short on purpose: what the job is, and how to talk. Each turn is still one
- * tool call (PRD §11.2) — talking to the person is the `reply_to_staff` call.
+ * A TEAMMATE'S BRIEF. Short on purpose: what the job is, and how to talk. A turn is one call, or
+ * several reads at once (ledger #87) — talking to the person is the `reply_to_staff` call.
  */
 const TEAMMATE: readonly string[] = [
-  "task=help the coordinator, one tool call per turn",
+  "task=help the coordinator; one write per turn, reads may go together",
   "guide=you're on the transport team. Today's plan is above; read more only if you need to, then use your tools — plan changes become a card they approve. Finish the job in this turn: draft the card, then answer with reply_to_staff like a coordinator would: friendly, natural, short. Your reply ends the turn, so never say you'll do something next. Write people as the tokens above.",
 ];
 

@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import type { Exec } from "@/db/exec";
 import type { Direction } from "@/domain/day/leg";
 import { effectId, raiseTask } from "@/modules/agent/run/exec/effects";
-import { autoPlanMode, previewPlanChange, type PlanChange } from "@/modules/changes/plan-change";
+import { previewPlanChange, type PlanChange } from "@/modules/changes/plan-change";
 import { rehearsePlanSave } from "@/modules/changes/rehearse";
 import type { Refusal } from "@/modules/changes/refusal";
 import { loadBoard } from "@/modules/plan/store";
@@ -99,7 +99,7 @@ export function draftReplan(
   deps: { readonly store: PlanStore; readonly source: DayDataSource },
   a: { readonly siteId: string; readonly date: string; readonly leg: Direction; readonly by: string; readonly note?: string | null; readonly now?: Date },
 ): Promise<DraftOutcome> {
-  return draftPlanChange(db, deps, { ...a, change: { replan: true } });
+  return draftPlanChange(db, deps, { ...a, change: { auto: "FIX_FIT" } });
 }
 
 /**
@@ -158,7 +158,7 @@ export async function draftPlanChange(
     // morning" for the smallest fix, and "Change the morning plan" for moves somebody named.
     summary: fill(
       !change.moves?.length && leaves.length === 0
-        ? autoPlanMode(change) === "WHOLE_LEG" ? replanDraft.planTitle : autoPlanMode(change) === "FIX_FIT" ? replanDraft.title : replanDraft.changeTitle
+        ? change.auto === "WHOLE_LEG" ? replanDraft.planTitle : change.auto === "FIX_FIT" ? replanDraft.title : replanDraft.changeTitle
         : replanDraft.changeTitle,
       { leg: LEG_WORDS[a.leg] },
     ),

@@ -45,7 +45,7 @@ export function teamPlanChange(
     const id = vanId(d.van);
     if (id && typeof d.leaves === "string") departures[id] = d.leaves;
   }
-  // The named Auto-plan (ledger #87); a stored card's legacy `replan: true` still reads as the fix.
+  // The named Auto-plan (ledger #87); a stored call's legacy `replan: true` still reads as the fix.
   const auto = args.auto_plan === "whole_leg" ? "WHOLE_LEG" : args.auto_plan === "fix_fit" || args.replan === true ? "FIX_FIT" : undefined;
   return { change: { ...(auto ? { auto } : {}), moves, departures }, unknownVans };
 }

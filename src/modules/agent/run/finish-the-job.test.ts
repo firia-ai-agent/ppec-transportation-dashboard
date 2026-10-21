@@ -23,7 +23,8 @@ import { AT01_FACTS, AT01_NOTE, at01Policy, runHarness } from "./harness";
 import { tierPromptBlocks } from "./context";
 import { teamPlanChange } from "./exec/team";
 import { riderFacts } from "./plan-facts";
-import { startAndDriveRun } from "./loop";
+import { repeatedRead, startAndDriveRun } from "./loop";
+import type { ToolCallRow } from "./store";
 import type { Trigger } from "./triggers";
 
 const TRIGGER: Trigger = { type: "msg.inbound", id: "MSG-1", siteId: SITE };
@@ -46,7 +47,7 @@ describe("one plan tool, two named Auto-plans", () => {
     expect(previewPlanChange(view, teamPlanChange(view, { auto_plan: "fix_fit" }).change)).toMatchObject({ ok: false, reason: "NOTHING_TO_CHANGE" });
   });
 
-  it("still reads a stored card's legacy replan as the fix, and says the difference in plain words", async () => {
+  it("still reads a stored call's legacy replan as the fix, and says the difference in plain words", async () => {
     const day = await testDay("PM");
     const view = { day, plan: scenarioPlan(day), departs: departuresOf(day), version: 1 } as unknown as BoardView;
     expect(teamPlanChange(view, { replan: true }).change.auto).toBe("FIX_FIT");
@@ -131,6 +132,14 @@ describe("the loop: reads together, no repeated reads, cacheable prompts", () =>
     const r = await startAndDriveRun(harness.deps(0), TRIGGER);
     expect(calls).toBe(1);
     expect((await rows(r.runId))[1]).toMatchObject({ tool: "get_leg_state", status: "EXECUTED", result: { prompt_facts: { same_as_seq: 0 } } });
+  });
+
+  it("runs a read again after a card is drafted — a PROPOSED card changes what is waiting", () => {
+    const read = { seq: 0, tool: "get_leg_state", status: "EXECUTED" as const, argsHash: "h", promptFacts: {} };
+    const row = { tool: "get_leg_state", argsHash: "h" } as unknown as ToolCallRow;
+    expect(repeatedRead(row, [read])).toBe(0);
+    const card = { seq: 1, tool: "propose_dropoff_change", status: "PROPOSED" as const, argsHash: "c", promptFacts: {} };
+    expect(repeatedRead(row, [read, card])).toBeNull();
   });
 
   it("builds each turn's prompt as the last one plus new results, so a provider can cache it", async () => {

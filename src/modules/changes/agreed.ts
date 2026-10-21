@@ -35,7 +35,7 @@ export function routesFor(view: BoardView, childToken: string, notBefore: string
   }
   // Each again with Auto-plan's smallest fix, so a van that does not fit is put right in the same
   // change — one Approve for the family's request and what was in its way.
-  const all = [...candidates, ...candidates.map((c) => ({ ...c, replan: true }))];
+  const all = [...candidates, ...candidates.map((c) => ({ ...c, auto: "FIX_FIT" as const }))];
   // Every van fits; then nobody pushed outside a time their family agreed (ledger #84); then the
   // asking family's own time; then the fewest families made late; then the fewest minutes added.
   const rank = (p: Extract<PlanPreview, { ok: true }>) => [p.allFit ? 0 : 1, p.outsideMinutes, p.agreedLate, p.madeLate, p.addedMinutes];

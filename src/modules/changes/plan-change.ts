@@ -31,8 +31,6 @@ export type PlanChange = {
    * button does; FIX_FIT is the smallest change — only children who no longer fit move (Re-plan).
    */
   readonly auto?: AutoPlanMode;
-  /** Legacy spelling of `auto: "FIX_FIT"`, still read for stored cards and the ramp's Re-plan. */
-  readonly replan?: boolean;
   readonly moves?: readonly { readonly token: string; readonly bucket: Placement["bucket"]; readonly vanId: string | null }[];
   /** `{ vanId: "HH:MM" }`, today's departures this change sets. */
   readonly departures?: Readonly<Record<string, string>>;
@@ -70,11 +68,6 @@ export type PlanPreview =
 
 export type AutoPlanMode = "WHOLE_LEG" | "FIX_FIT";
 
-/** Which Auto-plan a change asks for, if any — the one reading of `auto` and its legacy `replan`. */
-export function autoPlanMode(change: PlanChange): AutoPlanMode | null {
-  return change.auto ?? (change.replan ? "FIX_FIT" : null);
-}
-
 /**
  * THE SMALLEST RE-PLAN THAT WORKS. A colleague moves the children the problem is about, not the
  * whole afternoon: everybody still fitting the van they are in stays put (pinned for this search),
@@ -104,7 +97,7 @@ export function previewPlanChange(view: BoardView, change: PlanChange): PlanPrev
     if (!named[m.token]) continue;
     named[m.token] = { ...named[m.token], bucket: m.bucket, vanId: m.bucket === "VAN" ? m.vanId : null, pinned: true };
   }
-  const mode = autoPlanMode(change);
+  const mode = change.auto ?? null;
   const next: Record<string, Placement> = {
     ...(mode === "WHOLE_LEG" ? autoPlan(view.day, named) : mode === "FIX_FIT" ? smallestReplan(view.day, named) : named),
   };

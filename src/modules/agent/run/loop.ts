@@ -798,11 +798,12 @@ async function move(deps: RunDeps, run: RunRow, to: RunState, steps: number, rea
  * (`argsHash` is `approvalKey(tool, args)`), executed, with no write committed after it — or null.
  * Only side-effect-free reads, and never `reply_to_staff`, whose every call is an answer.
  */
-function repeatedRead(row: ToolCallRow, committed: readonly CommittedCall[]): number | null {
+export function repeatedRead(row: ToolCallRow, committed: readonly CommittedCall[]): number | null {
   if (toolDef(row.tool)?.effect !== "read" || row.tool === "reply_to_staff") return null;
   for (let i = committed.length - 1; i >= 0; i--) {
     const c = committed[i];
-    const wrote = c.status === "EXECUTED" && toolDef(c.tool)?.effect !== "read";
+    // A drafted card commits PROPOSED, not EXECUTED — and it changes what `get_waiting` would say.
+    const wrote = (c.status === "EXECUTED" || c.status === "PROPOSED") && toolDef(c.tool)?.effect !== "read";
     if (wrote) return null;
     if (c.status === "EXECUTED" && c.tool === row.tool && c.argsHash === row.argsHash) {
       const first = c.promptFacts.same_as_seq;
